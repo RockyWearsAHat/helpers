@@ -130,11 +130,37 @@ Additional context from user: $ai_extra_context"
 }
 
 main() {
-	# Determine current branch and ensure we're not in detached HEAD
-	current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-	if [ -z "$current_branch" ] || [ "$current_branch" = "HEAD" ]; then
-		echo "[git-upload] You are in a detached HEAD state. Checkout a branch before running git-upload." >&2
-		exit 1
+	# Determine current branch and ensure we're not in detached HEAD.
+	# NOTE: `git rev-parse --abbrev-ref HEAD` can yield surprising output in
+	# brand-new repos (unborn branch / no commits yet). `git symbolic-ref` is
+	# the reliable way to identify the branch HEAD points to.
+	current_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || echo "")
+	if [ -z "$current_branch" ]; then
+		# HEAD is detached (or otherwise not a symbolic ref).
+		head_commit=$(git rev-parse -q --verify HEAD 2>/dev/null || echo "")
+		if [ -z "$head_commit" ]; then
+			echo "[git-upload] HEAD is not on a branch (and there are no commits yet)." >&2
+			echo "[git-upload] Fix: create/switch to a branch first (for example: 'git switch -c main')." >&2
+			exit 1
+		fi
+
+		# If the detached commit is already contained by exactly one local branch,
+		# we can safely switch to it without losing work.
+		containing_branches=$(git branch --contains "$head_commit" --format='%(refname:short)' 2>/dev/null || echo "")
+		containing_count=$(printf '%s\n' "$containing_branches" | sed '/^$/d' | wc -l | tr -d ' ')
+
+		if [ "$containing_count" = "1" ]; then
+			current_branch=$(printf '%s\n' "$containing_branches" | sed -n '1p')
+			echo "[git-upload] Detached HEAD is contained by '$current_branch'; switching to that branch…" >&2
+			git switch "$current_branch" >/dev/null 2>&1 || {
+				echo "[git-upload] Failed to switch to '$current_branch'." >&2
+				exit 1
+			}
+		else
+			echo "[git-upload] You are in a detached HEAD state. Checkout or create a branch before running git-upload." >&2
+			echo "[git-upload] Fix (create a branch at the current commit): git switch -c <branch-name>" >&2
+			exit 1
+		fi
 	fi
 
 	# If this branch has an upstream, first make sure we're not behind it.
