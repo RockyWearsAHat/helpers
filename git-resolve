@@ -1,0 +1,150 @@
+#!/bin/zsh
+
+# git-resolve
+#
+# Safe helper for resolving merge/rebase conflicts.
+# - Never destroys history: it always creates backup branches before you
+#   continue or abort.
+# - Shows you what kind of operation is in progress and which files
+#   are conflicted.
+# - Leaves the actual conflict resolution to you (editing, mergetool,
+#   etc.) so you stay in control.
+
+set -euo pipefail
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "[git-resolve] Not inside a git repository." >&2
+  exit 1
+fi
+
+GIT_DIR=$(git rev-parse --git-dir)
+
+has_merge=false
+has_rebase=false
+
+if [ -f "$GIT_DIR/MERGE_HEAD" ]; then
+  has_merge=true
+fi
+
+if [ -d "$GIT_DIR/rebase-merge" ] || [ -d "$GIT_DIR/rebase-apply" ]; then
+  has_rebase=true
+fi
+
+# Detect any local modifications (staged, unstaged, or untracked)
+worktree_status=$(git status --porcelain 2>/dev/null || echo "")
+has_dirty=false
+if [ -n "$worktree_status" ]; then
+  has_dirty=true
+fi
+
+if [ "$has_merge" = false ] && [ "$has_rebase" = false ] && [ "$has_dirty" = false ]; then
+  echo "[git-resolve] No merge, rebase, or local changes; nothing to resolve." >&2
+  exit 0
+fi
+
+# Create safety backups so you can always roll back.
+ts=$(date +%Y%m%d-%H%M%S)
+current_head=$(git rev-parse HEAD)
+backup_branch="git-resolve-backup-${ts}"
+
+git branch "$backup_branch" "$current_head" >/dev/null 2>&1 || true
+
+echo "[git-resolve] Created backup branch: $backup_branch (points at current HEAD)" >&2
+
+# If ORIG_HEAD exists (typically for rebase/merge), back that up too.
+if git rev-parse ORIG_HEAD >/dev/null 2>&1; then
+  orig_head=$(git rev-parse ORIG_HEAD)
+  orig_backup="git-resolve-orig-${ts}"
+  git branch "$orig_backup" "$orig_head" >/dev/null 2>&1 || true
+  echo "[git-resolve] Created backup branch: $orig_backup (points at ORIG_HEAD)" >&2
+fi
+
+# If MERGE_HEAD exists, back that up as well.
+if [ "$has_merge" = true ]; then
+  merge_head=$(cat "$GIT_DIR/MERGE_HEAD" 2>/dev/null || true)
+  if [ -n "$merge_head" ]; then
+    merge_backup="git-resolve-merge-${ts}"
+    git branch "$merge_backup" "$merge_head" >/dev/null 2>&1 || true
+    echo "[git-resolve] Created backup branch: $merge_backup (points at MERGE_HEAD)" >&2
+  fi
+fi
+
+echo
+
+if [ "$has_rebase" = true ] || [ "$has_merge" = true ]; then
+  if [ "$has_rebase" = true ]; then
+    echo "[git-resolve] A rebase is currently in progress."
+  fi
+  if [ "$has_merge" = true ]; then
+    echo "[git-resolve] A merge is currently in progress."
+  fi
+
+  conflicted_files=$(git diff --name-only --diff-filter=U || true)
+  if [ -z "$conflicted_files" ]; then
+    echo "[git-resolve] No files reported as conflicted, but an operation is in progress." >&2
+  else
+    echo
+    echo "[git-resolve] Conflicted files:"
+    echo "$conflicted_files" | sed 's/^/  - /'
+  fi
+
+  echo
+  cat <<'EOF'
+Next steps (manual but safe):
+
+1. Open each conflicted file, look for conflict markers (<<<<<<<, =======, >>>>>>>),
+   and edit them to the desired final content.
+   - You can also use: git mergetool
+
+2. When a file is resolved, stage it:
+     git add <file>
+
+3. When all conflicts are resolved and staged:
+   - If you were rebasing: run
+       git rebase --continue
+   - If you were merging: run
+       git commit
+
+4. If you decide to cancel the in-progress operation entirely:
+   - For a rebase:
+       git rebase --abort
+   - For a merge:
+       git merge --abort
+
+Because git-resolve created backup branches, you can always recover the
+previous state with, for example:
+   git switch git-resolve-backup-<timestamp>
+EOF
+elif [ "$has_dirty" = true ]; then
+  echo "[git-resolve] No merge or rebase is in progress, but you have local changes." >&2
+  echo
+  echo "[git-resolve] git status summary:" >&2
+  printf '%s\n' "$worktree_status" | sed 's/^/  /' >&2
+  echo
+  cat <<'EOF'
+Next steps to make 'git pull --rebase' or 'git upload' succeed:
+
+1. Decide whether to COMMIT or STASH your local changes.
+
+   To commit them now on this branch:
+     git add <files>
+     git commit -m "your commit message"
+
+   To stash them temporarily (so the branch can rebase cleanly):
+     git stash push -u -m "before rebase"
+
+2. After your working tree is clean, update the branch:
+   - Either run:
+       git pull --rebase
+   - Or simply rerun:
+       git upload -ai
+
+3. If you stashed changes, re-apply them once the branch is updated:
+     git stash pop
+
+Because git-resolve created backup branches, you can always recover the
+previous state with, for example:
+   git switch git-resolve-backup-<timestamp>
+EOF
+fi
+EOF

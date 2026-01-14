@@ -84,10 +84,10 @@ generate_ai_message() {
 Your job: examine the current repository state and whatever git history or diffs you need, then produce a single high-quality git commit SUBJECT line that clearly summarizes what changed and why.
 
 Requirements for the SUBJECT line:
-- Use imperative mood (e.g. 'Add X', 'Fix Y', 'Refactor Z').
-- Maximum 72 characters.
+- Use imperative mood (e.g. 'Add X', 'Fix Y', 'Refactor Z', 'Clean-up W').
+- Soft maximum of 72 characters, ideally one clean concise point for each major change. Try to remain within this character limit however for certain commits this may be impossible to have a good message and abide by this rule. Always prioritize good commit messages with clarity and conciseness rather than a hard limit.
 - Do NOT mention checking status, diffs, tools, agents, or instructions.
-- Do NOT describe what you will do; describe the code change itself.
+- Do NOT describe what you will do; describe the code change(s) (it/them)sel[f/ves].
 
 Output protocol (IMPORTANT):
 - You may think through the problem in multiple messages.
@@ -130,6 +130,48 @@ Additional context from user: $ai_extra_context"
 }
 
 main() {
+	# Determine current branch and ensure we're not in detached HEAD
+	current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+	if [ -z "$current_branch" ] || [ "$current_branch" = "HEAD" ]; then
+		echo "[git-upload] You are in a detached HEAD state. Checkout a branch before running git-upload." >&2
+		exit 1
+	fi
+
+	# If this branch has an upstream, first make sure we're not behind it.
+	# If we are, attempt a rebase so pushes will be fast-forward and won't
+	# immediately fail due to "non-fast-forward" errors.
+	if upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null); then
+		# Make sure we have the latest refs
+		git fetch >/dev/null 2>&1 || true
+
+		ahead_behind=$(git rev-list --left-right --count "$upstream_ref"...HEAD 2>/dev/null || echo "")
+		behind_count=$(print -- "$ahead_behind" | awk '{print $1}')
+
+		if [ -n "$behind_count" ] && [ "$behind_count" -gt 0 ]; then
+			echo "[git-upload] Branch '$current_branch' is $behind_count commit(s) behind its upstream. Rebasing..." >&2
+			if ! git pull --rebase --autostash >/dev/null 2>&1; then
+				GIT_DIR=$(git rev-parse --git-dir 2>/dev/null || echo .git)
+				if [ -d "$GIT_DIR/rebase-merge" ] || [ -d "$GIT_DIR/rebase-apply" ] || [ -f "$GIT_DIR/MERGE_HEAD" ]; then
+					echo "[git-upload] git pull --rebase --autostash stopped due to conflicts." >&2
+					echo "[git-upload] Run 'git resolve' for a safe backup and conflict-resolution guidance, resolve conflicts, then rerun git-upload." >&2
+				else
+					echo "[git-upload] git pull --rebase --autostash failed for this branch (for example, due to local changes or a hook/network error)." >&2
+					echo "[git-upload] Run 'git resolve' for a safe backup and guidance on cleaning up your working tree, then rerun git-upload." >&2
+				fi
+				exit 1
+			fi
+		fi
+
+		# After ensuring we're up to date, do a dry-run push to catch
+		# permission/branch-protection issues before burning AI tokens.
+		if ! git push --dry-run >/dev/null 2>&1; then
+			echo "[git-upload] Unable to push to the upstream for '$current_branch'." >&2
+			echo "[git-upload] This branch may be protected or you may not have permission to push directly." >&2
+			echo "[git-upload] Push via a pull request or use a different branch before running git-upload." >&2
+			exit 1
+		fi
+	fi
+
 	git add .
 
 	commit_msg="${user_msg:-default commit message}"
@@ -153,7 +195,14 @@ main() {
 	echo "[git-upload] Using commit message: $commit_msg" >&2
 
 	git commit -m "$commit_msg"
-	git push -u origin main
+
+	# Push to the current branch's upstream if configured; otherwise
+	# create/set upstream on origin for the current branch.
+	if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
+		git push
+	else
+		git push -u origin "$current_branch"
+	fi
 }
 
 main "$@"
