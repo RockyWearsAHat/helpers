@@ -5,6 +5,7 @@ Small quality-of-life helpers wrapped as git subcommands:
 - `git upload` – stage, commit, and push, with optional AI-generated commit messages using GitHub Copilot CLI.
 - `git get` – initialize a local repo from a remote (like a lightweight `git clone` flow).
 - `git initialize` – initialize the current directory as a repo, create an initial commit, set `origin`, and push.
+- `git fucked-the-push` – destructive recovery helper to undo the last pushed commit while keeping changes staged.
 
 ## Installation options
 
@@ -29,7 +30,8 @@ Once complete, the commands and man pages should be available immediately in any
 - `git upload`
 - `git get`
 - `git initialize`
-- `git help upload|get|initialize`
+- `git fucked-the-push`
+- `git help upload|get|initialize|fucked-the-push`
 
 ### 2. One-line script installer (portable alternative)
 

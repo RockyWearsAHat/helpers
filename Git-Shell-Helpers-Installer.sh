@@ -59,12 +59,14 @@ install_all() {
   fetch "$REPO_RAW_BASE/git-upload"     "$BIN_DIR/git-upload"
   fetch "$REPO_RAW_BASE/git-get"        "$BIN_DIR/git-get"
   fetch "$REPO_RAW_BASE/git-initialize" "$BIN_DIR/git-initialize"
-  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize"
+  fetch "$REPO_RAW_BASE/git-fucked-the-push" "$BIN_DIR/git-fucked-the-push"
+  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push"
 
   # Man pages (from repo's man/man1)
   fetch "$REPO_RAW_BASE/man/man1/git-upload.1"     "$MAN_DIR/git-upload.1"
   fetch "$REPO_RAW_BASE/man/man1/git-get.1"        "$MAN_DIR/git-get.1"
   fetch "$REPO_RAW_BASE/man/man1/git-initialize.1" "$MAN_DIR/git-initialize.1"
+  fetch "$REPO_RAW_BASE/man/man1/git-fucked-the-push.1" "$MAN_DIR/git-fucked-the-push.1"
 
   # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
@@ -98,7 +100,7 @@ install_all() {
 
   echo "[Git-Shell-Helpers-Installer] Done. Open a new terminal or run:"
   echo "  source $ZSHRC"
-  echo "Then you can use: git upload, git get, git initialize, and view docs via git help <command>."
+  echo "Then you can use: git upload, git get, git initialize, git fucked-the-push, and view docs via git help <command>."
 }
 
 install_all

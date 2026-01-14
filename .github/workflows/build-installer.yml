@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Make scripts executable
-        run: chmod +x scripts/build-pkg.sh git-upload git-get git-initialize
+        run: chmod +x scripts/build-pkg.sh git-upload git-get git-initialize git-fucked-the-push
 
       - name: Build macOS pkg
         run: ./scripts/build-pkg.sh

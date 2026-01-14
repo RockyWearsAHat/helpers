@@ -1,0 +1,41 @@
+.TH GIT-FUCKED-THE-PUSH 1 "January 2026" "git-fucked-the-push" "Git Manual"
+.SH NAME
+git-fucked-the-push \- undo the last pushed commit while keeping changes staged
+.SH SYNOPSIS
+.B git fucked-the-push
+.RI [ --yes ]
+.SH DESCRIPTION
+.B git fucked-the-push
+is a destructive recovery helper for the common situation where you made a bad
+last commit (for example, a wrong commit message) and pushed it.
+.PP
+It performs two steps:
+.IP \(bu 2
+Soft reset the current branch back one commit, keeping the changes staged.
+.IP \(bu 2
+If the last commit appears on the upstream branch, rewrite the remote using
+.BR git-push (1)
+with
+.BR --force-with-lease
+so the accidental commit is dropped from the remote branch.
+.PP
+Because it may rewrite published history, do not use this on shared branches
+if others may have pulled.
+.SH OPTIONS
+.TP
+.B --yes
+Skip the interactive confirmation prompt.
+.SH EXAMPLES
+.TP
+Undo the last pushed commit and keep changes staged:
+.EX
+git fucked-the-push
+.EE
+.TP
+Non-interactive usage:
+.EX
+git fucked-the-push --yes
+.EE
+.SH SEE ALSO
+.BR git-reset (1),
+.BR git-push (1)
