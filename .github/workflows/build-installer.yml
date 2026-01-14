@@ -23,6 +23,13 @@ jobs:
         run: |
           NEW_VERSION="$(tr -d '\n' < VERSION | xargs)"
 
+          # Validate that NEW_VERSION is a valid semantic version (e.g., X.Y.Z or X.Y.Z-suffix)
+          if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+([._-][a-zA-Z0-9]+)*)?$'; then
+            echo "ERROR: VERSION file contains invalid semantic version format: '$NEW_VERSION'"
+            echo "Expected format: X.Y.Z or X.Y.Z-suffix (e.g., 1.0.0, 1.2.3-beta.1)"
+            exit 1
+          fi
+
           # Fetch tags so we can see previous releases (if any)
           git fetch --tags --quiet || true
 
