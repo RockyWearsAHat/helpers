@@ -112,5 +112,6 @@ jobs:
             The attached installer (github-shell-helpers-${{ env.VERSION }}.pkg) is rebuilt on each push to main while VERSION=${{ env.VERSION }}, so it always contains the latest fixes for this version line.
           draft: false
           prerelease: ${{ startsWith(env.VERSION, '0.') }}
+          make_latest: true
           files: |
             dist/github-shell-helpers-${{ env.VERSION }}.pkg
