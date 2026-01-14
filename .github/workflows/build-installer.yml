@@ -18,7 +18,7 @@ jobs:
 
       - name: Enforce non-decreasing VERSION
         run: |
-          NEW_VERSION="$(tr -d '\n' < VERSION)"
+          NEW_VERSION="$(tr -d '\n' < VERSION | xargs)"
 
           # Fetch tags so we can see previous releases (if any)
           git fetch --tags --quiet || true
