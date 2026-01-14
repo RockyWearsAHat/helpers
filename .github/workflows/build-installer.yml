@@ -10,8 +10,50 @@ permissions:
   contents: write
 
 jobs:
+  version-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Enforce non-decreasing VERSION
+        run: |
+          NEW_VERSION="$(tr -d '\n' < VERSION | xargs)"
+
+          # Fetch tags so we can see previous releases (if any)
+          git fetch --tags --quiet || true
+
+          LATEST_TAG="$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -n 1)"
+
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No previous version tags found; allowing VERSION=$NEW_VERSION."
+            exit 0
+          fi
+
+          echo "Latest released version: $LATEST_TAG"
+          echo "Proposed VERSION:        $NEW_VERSION"
+
+          # Compare semantic versions using sort -V
+          if [ "$NEW_VERSION" = "$LATEST_TAG" ]; then
+            echo "VERSION is unchanged; allowed (will refresh existing release artifact)."
+            exit 0
+          fi
+
+          LOWEST="$(printf '%s\n%s\n' "$NEW_VERSION" "$LATEST_TAG" | sort -V | head -n1)"
+
+          if [ "$LOWEST" != "$LATEST_TAG" ]; then
+            echo "ERROR: VERSION $NEW_VERSION is lower than latest released version $LATEST_TAG."
+            echo "Bumping VERSION must always move forward (or stay equal for bugfix rebuilds)."
+            exit 1
+          fi
+
+          echo "VERSION is greater than latest release; allowed."
   build-installer:
     runs-on: ubuntu-latest
+    needs: [version-guard]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +72,7 @@ jobs:
 
   build-macos-pkg:
     runs-on: macos-latest
+    needs: [version-guard]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,14 +98,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
-          name: v${{ env.VERSION }} (original source snapshot)
+          name: ${{ startsWith(env.VERSION, '0.') && format('v{0} (Beta)', env.VERSION) || format('v{0}', env.VERSION) }}
           body: |
-            This release tag (v${{ env.VERSION }}) points at the original commit where the version was first introduced.
+            This release tag (v${{ env.VERSION }}) points at the original commit where this version was first introduced. GitHub's auto-generated "Source code" archives reflect that snapshot.
 
-            GitHub's auto-generated "Source code" archives reflect that original snapshot and act as a fallback reference.
-
-            The attached installer package (github-shell-helpers-${{ env.VERSION }}.pkg) is rebuilt on each push to main while VERSION=${{ env.VERSION }}, so it always contains the latest fixes for this version line.
+            The attached installer (github-shell-helpers-${{ env.VERSION }}.pkg) is rebuilt on each push to main while VERSION=${{ env.VERSION }}, so it always contains the latest fixes for this version line.
           draft: false
-          prerelease: false
+          prerelease: ${{ startsWith(env.VERSION, '0.') }}
           files: |
             dist/github-shell-helpers-${{ env.VERSION }}.pkg
