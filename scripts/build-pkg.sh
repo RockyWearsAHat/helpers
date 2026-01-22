@@ -3,7 +3,7 @@
 # Build a macOS .pkg installer for github-shell-helpers.
 #
 # This creates a package that installs:
-#   - git-upload, git-get, git-initialize into /usr/local/bin
+#   - git-upload, git-get, git-initialize, git-fucked-the-push into /usr/local/bin
 #   - their man pages into /usr/local/share/man/man1
 #
 # Result:
@@ -35,12 +35,14 @@ mkdir -p "$BIN_PAYLOAD" "$MAN_PAYLOAD" "$DIST_DIR"
 cp "${ROOT_DIR}/git-upload"     "$BIN_PAYLOAD/git-upload"
 cp "${ROOT_DIR}/git-get"        "$BIN_PAYLOAD/git-get"
 cp "${ROOT_DIR}/git-initialize" "$BIN_PAYLOAD/git-initialize"
+cp "${ROOT_DIR}/git-fucked-the-push" "$BIN_PAYLOAD/git-fucked-the-push"
 chmod 755 "$BIN_PAYLOAD"/git-*
 
 # Copy man pages
 cp "${ROOT_DIR}/man/man1/git-upload.1"     "$MAN_PAYLOAD/git-upload.1"
 cp "${ROOT_DIR}/man/man1/git-get.1"        "$MAN_PAYLOAD/git-get.1"
 cp "${ROOT_DIR}/man/man1/git-initialize.1" "$MAN_PAYLOAD/git-initialize.1"
+cp "${ROOT_DIR}/man/man1/git-fucked-the-push.1" "$MAN_PAYLOAD/git-fucked-the-push.1"
 
 # Build the package (no scripts; pure payload into /usr/local)
 pkgbuild --root "$BUILD_DIR" \

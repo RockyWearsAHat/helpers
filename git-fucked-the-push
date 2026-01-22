@@ -1,0 +1,156 @@
+#!/bin/zsh
+
+# git-fucked-the-push
+#
+# Purpose:
+#   Recover from "I just pushed a bad last commit" (e.g., wrong commit message).
+#
+# What it does (destructive if the commit was pushed):
+#   1) Soft-resets HEAD back one commit (keeps changes staged)
+#   2) If the last commit exists on the upstream, force-pushes with lease to
+#      remove it from the remote branch
+#
+# Usage:
+#   git fucked-the-push
+#   git fucked-the-push --yes
+#
+# Notes:
+#   - This rewrites history if the last commit was pushed. Do NOT use this on
+#     shared branches if others may have pulled.
+
+set -euo pipefail
+
+print_usage() {
+	cat <<'EOF'
+Usage:
+  git fucked-the-push [--yes]
+
+Destructive recovery helper for when you accidentally pushed a bad last commit.
+
+What it will do:
+  - Move your branch back one commit (soft reset), keeping the changes STAGED.
+  - If that last commit is on your upstream, rewrite the remote branch using
+    `git push --force-with-lease` to drop the bad commit.
+
+Flags:
+  --yes   Skip the interactive confirmation prompt.
+
+Examples:
+  git fucked-the-push
+  git fucked-the-push --yes
+EOF
+}
+
+confirm_or_exit() {
+	local reply
+	printf "[git-fucked-the-push] Type 'yes' to proceed: " >&2
+	read -r reply || reply=""
+	if [ "$reply" != "yes" ]; then
+		echo "[git-fucked-the-push] Aborted." >&2
+		exit 1
+	fi
+}
+
+main() {
+	local assume_yes=false
+	for arg in "$@"; do
+		case "$arg" in
+			--yes)
+				assume_yes=true
+				;;
+			-h|--help)
+				print_usage
+				exit 0
+				;;
+			*)
+				echo "[git-fucked-the-push] Unknown argument: $arg" >&2
+				print_usage >&2
+				exit 2
+				;;
+		esac
+	done
+
+	if ! git rev-parse --git-dir >/dev/null 2>&1; then
+		echo "[git-fucked-the-push] Not a git repository." >&2
+		exit 1
+	fi
+
+	local current_branch
+	current_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || echo "")
+	if [ -z "$current_branch" ]; then
+		echo "[git-fucked-the-push] HEAD is detached. Checkout a branch first." >&2
+		exit 1
+	fi
+
+	local upstream_ref
+	upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null || echo "")
+
+	local head_commit head_parent subject
+	head_commit=$(git rev-parse HEAD)
+	subject=$(git log -1 --pretty=%s 2>/dev/null || echo "")
+	head_parent=$(git rev-parse -q --verify HEAD~1 2>/dev/null || echo "")
+	if [ -z "$head_parent" ]; then
+		echo "[git-fucked-the-push] Your branch has no parent commit (initial commit)." >&2
+		echo "[git-fucked-the-push] Safer fix for a bad message: git commit --amend" >&2
+		echo "[git-fucked-the-push] (If you already pushed the initial commit, history rewriting is riskier.)" >&2
+		exit 1
+	fi
+
+	local pushed_to_upstream=false
+	if [ -n "$upstream_ref" ]; then
+		# Determine whether the upstream contains the current HEAD commit.
+		if git merge-base --is-ancestor "$head_commit" "$upstream_ref" >/dev/null 2>&1; then
+			pushed_to_upstream=true
+		fi
+	fi
+
+	echo "[git-fucked-the-push] Branch:   $current_branch" >&2
+	if [ -n "$upstream_ref" ]; then
+		echo "[git-fucked-the-push] Upstream: $upstream_ref" >&2
+	else
+		echo "[git-fucked-the-push] Upstream: (none set)" >&2
+	fi
+	echo "[git-fucked-the-push] Last commit:" >&2
+	echo "  $head_commit  $subject" >&2
+
+	echo "" >&2
+	echo "[git-fucked-the-push] WARNING: This may be destructive." >&2
+	if [ "$pushed_to_upstream" = true ]; then
+		echo "[git-fucked-the-push] The last commit appears to be on your upstream." >&2
+		echo "[git-fucked-the-push] This will rewrite the remote branch using --force-with-lease." >&2
+		echo "[git-fucked-the-push] Do NOT proceed if others may have pulled this branch." >&2
+	else
+		echo "[git-fucked-the-push] The last commit does not appear on the upstream (or no upstream is set)." >&2
+		echo "[git-fucked-the-push] This will only move your local branch back one commit." >&2
+	fi
+	echo "" >&2
+
+	if [ "$assume_yes" != true ]; then
+		confirm_or_exit
+	fi
+
+	# Step 1: uncommit but keep changes staged
+	git reset --soft HEAD~1
+
+	# Step 2: if the bad commit was pushed, prune it from the remote branch
+	if [ -n "$upstream_ref" ] && [ "$pushed_to_upstream" = true ]; then
+		# Ensure our remote-tracking refs are up to date so --force-with-lease is meaningful.
+		git fetch >/dev/null 2>&1 || true
+
+		echo "[git-fucked-the-push] Dropping the bad commit from the remote via --force-with-lease…" >&2
+		if ! git push --force-with-lease; then
+			echo "[git-fucked-the-push] Force-push failed." >&2
+			echo "[git-fucked-the-push] Possible causes: branch protection, permissions, or the remote moved." >&2
+			echo "[git-fucked-the-push] Your changes are still staged locally; you can recommit with a better message." >&2
+			exit 1
+		fi
+	fi
+
+	echo "[git-fucked-the-push] Done. Your changes are staged and ready to recommit." >&2
+	git status -sb >&2
+	echo "---" >&2
+	git diff --cached --name-status >&2
+	echo "[git-fucked-the-push] Next: create a new commit, then push." >&2
+}
+
+main "$@"

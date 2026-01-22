@@ -61,6 +61,798 @@ for arg in "$@"; do
 	esac
 done
 
+
+detect_vscode_test_task() {
+	# Best-effort parser for .vscode/tasks.json (JSON/JSONC) to find a "test" task.
+	# Prints two lines on success:
+	#  1) command line (shell-quoted where needed)
+	#  2) cwd (may be empty)
+	local repo_root="$1"
+	local tasks_file="$repo_root/.vscode/tasks.json"
+	[ -f "$tasks_file" ] || return 1
+
+	# Strip JSONC-style comments (best effort): remove /* ... */ blocks (line-based)
+	# and // full-line comments. This stays dependency-free.
+	local stripped
+	stripped=$(sed -e '/\/\*/,/\*\//d' -e '/^[[:space:]]*\/\//d' "$tasks_file")
+
+	printf '%s\n' "$stripped" | awk -v repo_root="$repo_root" '
+		function countch(s, c,    i, n) { n=0; for (i=1; i<=length(s); i++) if (substr(s,i,1)==c) n++; return n }
+		function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+		function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
+		function trim(s) { return rtrim(ltrim(s)) }
+		function subst_vars(s) {
+			gsub(/\$\{workspaceFolder\}/, repo_root, s)
+			gsub(/\$\{workspaceRoot\}/, repo_root, s)
+			return s
+		}
+		function extract_string(line, key,    t) {
+			t=line
+			if (index(t, "\"" key "\"") == 0) return ""
+			sub(".*\"" key "\"[[:space:]]*:[[:space:]]*\"", "", t)
+			sub("\".*", "", t)
+			return t
+		}
+		BEGIN {
+			in_tasks=0; found_tasks=0;
+			in_obj=0; depth=0;
+			in_args=0;
+			label=""; group=""; command=""; cwd=""; args="";
+			best_cmd=""; best_cwd=""; best_rank=999;
+		}
+		{
+			line=$0
+			if (!in_tasks) {
+				if (line ~ /"tasks"[[:space:]]*:/) found_tasks=1
+				if (found_tasks && line ~ /\[/) in_tasks=1
+			}
+			if (!in_tasks) next
+
+			if (!in_obj && line ~ /\{/) {
+				in_obj=1; depth=0; in_args=0
+				label=""; group=""; command=""; cwd=""; args=""
+			}
+
+			if (in_obj) {
+				if (label=="") { tmp=extract_string(line, "label"); if (tmp!="") label=tmp }
+				if (command=="") { tmp=extract_string(line, "command"); if (tmp!="") command=tmp }
+				if (group=="") { tmp=extract_string(line, "group"); if (tmp!="") group=tmp }
+				if (group=="" && line ~ /"kind"[[:space:]]*:[[:space:]]*"test"/) group="test"
+				if (cwd=="") { tmp=extract_string(line, "cwd"); if (tmp!="") cwd=tmp }
+
+				# args: capture quoted strings inside args array (best-effort)
+				if (!in_args && line ~ /"args"[[:space:]]*:[[:space:]]*\[/) {
+					in_args=1
+					# Drop everything up to the opening '[' to avoid capturing the key name.
+					sub(/.*\[/, "", line)
+				}
+				if (in_args) {
+					work=line
+					while (index(work, "\"") > 0) {
+						i=index(work, "\"")
+						work=substr(work, i+1)
+						j=index(work, "\"")
+						if (j==0) break
+						arg=substr(work, 1, j-1)
+						arg=subst_vars(arg)
+						q=arg
+						gsub(/\\/, "\\\\", q)
+						gsub(/\"/, "\\\"", q)
+						args = args " " "\"" q "\""
+						work=substr(work, j+1)
+					}
+					if (line ~ /\]/) in_args=0
+				}
+
+				depth += countch($0, "{") - countch($0, "}")
+				if (depth <= 0 && $0 ~ /}/) {
+					lbl=tolower(trim(label))
+					grp=tolower(trim(group))
+					cmd=subst_vars(command)
+					cw=subst_vars(cwd)
+					rank=999
+					if (lbl == "test") rank=0
+					else if (grp == "test") rank=1
+					if (cmd != "" && rank < best_rank) {
+						best_rank=rank
+						best_cmd=trim(cmd) args
+						best_cwd=trim(cw)
+					}
+					in_obj=0
+				}
+			}
+		}
+		END {
+			if (best_cmd != "") {
+				print trim(best_cmd)
+				print trim(best_cwd)
+				exit 0
+			}
+			exit 1
+		}
+	'
+}
+
+detect_test_cmd() {
+	local repo_root="$1"
+	if [ -z "${repo_root// /}" ]; then
+		repo_root="."
+	fi
+
+	# Prints two lines on success:
+	#  1) command line
+	#  2) cwd (may be empty)
+	#
+	# Priority:
+	#  1) Explicit env var (caller-controlled)
+	#  2) Per-repo git config
+	#  3) VS Code workspace test task (.vscode/tasks.json group: test)
+	#  4) Repo-local test runner / Makefile
+	#  5) Simple heuristics for common stacks
+	if [ -n "${GIT_UPLOAD_TEST_CMD-}" ]; then
+		printf '%s\n' "$GIT_UPLOAD_TEST_CMD"
+		printf '%s' ""
+		return 0
+	fi
+
+	local cfg_cmd
+	cfg_cmd=$(git config --get git-upload.testCmd 2>/dev/null || echo "")
+	if [ -n "${cfg_cmd// /}" ]; then
+		printf '%s\n' "$cfg_cmd"
+		printf '%s' ""
+		return 0
+	fi
+
+	local vs_task
+	if vs_task=$(detect_vscode_test_task "$repo_root" 2>/dev/null); then
+		# Already prints two lines: cmdline then cwd.
+		printf '%s' "$vs_task"
+		return 0
+	fi
+
+	if [ -x "$repo_root/scripts/test.sh" ]; then
+		printf '%s\n' './scripts/test.sh'
+		printf '%s' ""
+		return 0
+	fi
+
+	if { [ -f "$repo_root/Makefile" ] || [ -f "$repo_root/makefile" ]; } && command -v make >/dev/null 2>&1; then
+		local mk
+		mk=$([ -f "$repo_root/Makefile" ] && echo "$repo_root/Makefile" || echo "$repo_root/makefile")
+		if grep -qE '^test:' "$mk" 2>/dev/null; then
+			printf '%s\n' 'make test'
+			printf '%s' ""
+			return 0
+		fi
+	fi
+
+	if [ -f "$repo_root/package.json" ] && command -v npm >/dev/null 2>&1; then
+		# If package.json exists, assume a test script likely exists.
+		printf '%s\n' 'npm test --silent'
+		printf '%s' ""
+		return 0
+	fi
+
+	if { [ -f "$repo_root/pyproject.toml" ] || [ -f "$repo_root/pytest.ini" ] || [ -d "$repo_root/tests" ]; } && command -v pytest >/dev/null 2>&1; then
+		printf '%s\n' 'pytest -q'
+		printf '%s' ""
+		return 0
+	fi
+
+	if [ -f "$repo_root/go.mod" ] && command -v go >/dev/null 2>&1; then
+		printf '%s\n' 'go test ./...'
+		printf '%s' ""
+		return 0
+	fi
+
+	if [ -f "$repo_root/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
+		printf '%s\n' 'cargo test -q'
+		printf '%s' ""
+		return 0
+	fi
+
+	# .NET (C#)
+	if command -v dotnet >/dev/null 2>&1; then
+		local sln
+		sln=$(find "$repo_root" -maxdepth 2 -name '*.sln' -print 2>/dev/null | head -n 1 || true)
+		if [ -n "${sln// /}" ]; then
+			printf '%s\n' "dotnet test \"$sln\" --nologo"
+			printf '%s' ""
+			return 0
+		fi
+
+		local csproj
+		csproj=$(find "$repo_root" -maxdepth 3 -name '*.csproj' -print 2>/dev/null | head -n 1 || true)
+		if [ -n "${csproj// /}" ]; then
+			printf '%s\n' "dotnet test \"$csproj\" --nologo"
+			printf '%s' ""
+			return 0
+		fi
+	fi
+
+	if [ -f "$repo_root/pom.xml" ] && command -v mvn >/dev/null 2>&1; then
+		printf '%s\n' 'mvn test -q'
+		printf '%s' ""
+		return 0
+	fi
+
+	if [ -x "$repo_root/gradlew" ]; then
+		printf '%s\n' './gradlew test -q'
+		printf '%s' ""
+		return 0
+	fi
+	if { [ -f "$repo_root/build.gradle" ] || [ -f "$repo_root/build.gradle.kts" ]; } && command -v gradle >/dev/null 2>&1; then
+		printf '%s\n' 'gradle test -q'
+		printf '%s' ""
+		return 0
+	fi
+
+	return 1
+}
+
+summarize_test_output() {
+	# Args:
+	#  1) test_cmd
+	#  2) exit_code
+	#  3) path to output file
+	local test_cmd="$1"
+	local exit_code="$2"
+	local output_file="$3"
+
+	local test_status
+	if [ "$exit_code" -eq 0 ]; then
+		test_status='pass'
+	else
+		test_status='fail'
+	fi
+
+	# If the runner emitted a machine-parseable summary, prefer it.
+	# Format:
+	#   TEST_SUMMARY: pass 7/7
+	#   TEST_SUMMARY: fail 2/7
+	#   TEST_FAIL: <name>
+	local summary_line
+	summary_line=$(grep '^TEST_SUMMARY: ' "$output_file" | tail -n 1 || true)
+	if [ -n "${summary_line// /}" ]; then
+		local sum_status
+		local sum_counts
+		sum_status=$(printf '%s\n' "$summary_line" | awk '{print $2}')
+		sum_counts=$(printf '%s\n' "$summary_line" | awk '{print $3}')
+		if [ -n "${sum_status// /}" ] && [ -n "${sum_counts// /}" ]; then
+			local header="Testing: ${sum_status} (${sum_counts})"
+			if [ "$sum_status" = "fail" ]; then
+				local sum_failures
+				sum_failures=$(grep '^TEST_FAIL: ' "$output_file" | sed 's/^TEST_FAIL: //' | head -n 10)
+				if [ -n "${sum_failures// /}" ]; then
+					printf '%s\n' "$header"
+					printf '%s\n' "$sum_failures" | sed 's/^/- /'
+					return 0
+				fi
+			fi
+			printf '%s' "$header"
+			return 0
+		fi
+	fi
+
+	local passed=""
+	local failed=""
+	local total=""
+	local count_suffix=""
+	local failures=""
+
+	case "$test_cmd" in
+		pytest*)
+			passed=$(grep -Eo '[0-9]+ passed' "$output_file" | tail -n 1 | awk '{print $1}')
+			failed=$(grep -Eo '[0-9]+ failed' "$output_file" | tail -n 1 | awk '{print $1}')
+			if [ -n "$passed" ] || [ -n "$failed" ]; then
+				local p=${passed:-0}
+				local f=${failed:-0}
+				total=$((p + f))
+				if [ "$total" -gt 0 ]; then
+					if [ "$test_status" = "pass" ]; then
+						count_suffix=" ($passed/$total)"
+					else
+						count_suffix=" ($failed/$total)"
+					fi
+				fi
+			fi
+			if [ "$test_status" = "fail" ]; then
+				failures=$(grep '^FAILED ' "$output_file" | sed 's/^FAILED //' | head -n 10)
+			fi
+			;;
+		"npm test"*|"npm test --silent"*)
+			# Jest and many JS runners print a "Tests:" summary; best-effort parse.
+			# Example: "Tests:       2 failed, 3 passed, 5 total"
+			local tests_line
+			tests_line=$(grep -E '^Tests:' "$output_file" | tail -n 1 || true)
+			if [ -n "$tests_line" ]; then
+				failed=$(printf '%s\n' "$tests_line" | grep -Eo '[0-9]+ failed' | awk '{print $1}' | tail -n 1)
+				passed=$(printf '%s\n' "$tests_line" | grep -Eo '[0-9]+ passed' | awk '{print $1}' | tail -n 1)
+				total=$(printf '%s\n' "$tests_line" | grep -Eo '[0-9]+ total' | awk '{print $1}' | tail -n 1)
+				if [ -n "$total" ]; then
+					if [ "$test_status" = "pass" ] && [ -n "$passed" ]; then
+						count_suffix=" ($passed/$total)"
+					elif [ "$test_status" = "fail" ] && [ -n "$failed" ]; then
+						count_suffix=" ($failed/$total)"
+					fi
+				fi
+			fi
+			if [ "$test_status" = "fail" ]; then
+				# Jest prints failing suites as: "FAIL  path/to/test"
+				failures=$(grep -E '^FAIL\s+' "$output_file" | sed -E 's/^FAIL\s+//' | head -n 10)
+			fi
+			;;
+		dotnet\ test*)
+			# Common dotnet summaries:
+			#   Total tests: 12. Passed: 11. Failed: 1. Skipped: 0.
+			#   Passed!  - Failed: 0, Passed: 12, Skipped: 0, Total: 12, Duration: ...
+			local totals
+			totals=$(grep -E 'Total tests:[[:space:]]*[0-9]+' "$output_file" | tail -n 1 || true)
+			if [ -z "${totals// /}" ]; then
+				totals=$(grep -E 'Failed:[[:space:]]*[0-9]+, Passed:[[:space:]]*[0-9]+, Skipped:[[:space:]]*[0-9]+, Total:[[:space:]]*[0-9]+' "$output_file" | tail -n 1 || true)
+			fi
+			if [ -n "${totals// /}" ]; then
+				local t
+				local p
+				local f
+				t=$(printf '%s\n' "$totals" | { grep -Eo 'Total tests:[[:space:]]*[0-9]+' || true; } | grep -Eo '[0-9]+' | tail -n 1 || true)
+				if [ -z "${t// /}" ]; then
+					t=$(printf '%s\n' "$totals" | { grep -Eo 'Total:[[:space:]]*[0-9]+' || true; } | grep -Eo '[0-9]+' | tail -n 1 || true)
+				fi
+				p=$(printf '%s\n' "$totals" | { grep -Eo 'Passed:[[:space:]]*[0-9]+' || true; } | grep -Eo '[0-9]+' | tail -n 1 || true)
+				f=$(printf '%s\n' "$totals" | { grep -Eo 'Failed:[[:space:]]*[0-9]+' || true; } | grep -Eo '[0-9]+' | tail -n 1 || true)
+				if [ -n "${t// /}" ]; then
+					if [ "$test_status" = "pass" ] && [ -n "${p// /}" ]; then
+						count_suffix=" ($p/$t)"
+					elif [ "$test_status" = "fail" ] && [ -n "${f// /}" ]; then
+						count_suffix=" ($f/$t)"
+					fi
+				fi
+			fi
+
+			if [ "$test_status" = "fail" ]; then
+				# Best-effort: pair "Failed <TestName>" with the first following
+				# message line (xUnit commonly prints:
+				#   Failed <TestName>
+				#   Error Message:
+				#     <message>
+				# ...). Avoid emitting a blank "Message:" bullet.
+				failures=$(awk '
+					function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+					function emit(t, m) {
+						if (t == "") return
+						if (m == "") { print t; return }
+						print t " — " m
+					}
+					BEGIN { current=""; msg=""; want_msg=0; emitted=0; count=0 }
+					/^[[:space:]]*Failed[[:space:]]+/ {
+						# Emit previous failure if we never got a message.
+						if (current != "" && !emitted) { emit(current, msg); count++; }
+						if (count >= 10) exit
+						current=$0
+						sub(/^[[:space:]]*Failed[[:space:]]+/, "", current)
+						current=trim(current)
+						msg=""; want_msg=0; emitted=0
+						next
+					}
+					{
+						if (current == "") next
+						if ($0 ~ /^[[:space:]]*(Error Message:|Message:)[[:space:]]*$/) { want_msg=1; next }
+						if (want_msg) {
+							if ($0 ~ /^[[:space:]]*$/) next
+							msg=$0
+							msg=trim(msg)
+							emit(current, msg)
+							emitted=1
+							count++
+							if (count >= 10) exit
+							current=""; msg=""; want_msg=0
+							next
+						}
+					}
+					END {
+						if (count < 10 && current != "" && !emitted) emit(current, msg)
+					}
+				' "$output_file")
+			fi
+			;;
+		*)
+			# Unknown runner; we will attempt generic parsing below.
+			;;
+	esac
+
+	# Generic parsing fallback for wrappers like `make test`.
+	# Only compute counts if we don't already have a suffix.
+	if [ -z "${count_suffix// /}" ]; then
+		# pytest-style summary often appears even when invoked via a wrapper.
+		passed=$(grep -Eo '[0-9]+ passed' "$output_file" | tail -n 1 | awk '{print $1}' || true)
+		failed=$(grep -Eo '[0-9]+ failed' "$output_file" | tail -n 1 | awk '{print $1}' || true)
+		if [ -n "${passed// /}" ] || [ -n "${failed// /}" ]; then
+			local p=${passed:-0}
+			local f=${failed:-0}
+			total=$((p + f))
+			if [ "$total" -gt 0 ]; then
+				if [ "$test_status" = "pass" ]; then
+					count_suffix=" ($p/$total)"
+				else
+					count_suffix=" ($f/$total)"
+				fi
+			fi
+		fi
+
+		# Python unittest summary:
+		#   Ran 48 tests in 0.123s
+		#   OK
+		# or
+		#   FAILED (failures=1, errors=0)
+		if [ -z "${count_suffix// /}" ]; then
+			total=$(grep -E '^Ran[[:space:]]+[0-9]+[[:space:]]+tests?' "$output_file" | tail -n 1 | grep -Eo '[0-9]+' | tail -n 1 || true)
+			if [ -n "${total// /}" ]; then
+				if [ "$test_status" = "pass" ]; then
+					count_suffix=" ($total/$total)"
+				else
+					# Best-effort failures count if present.
+					local uf
+					local ue
+					uf=$(grep -Eo 'failures=[0-9]+' "$output_file" | tail -n 1 | grep -Eo '[0-9]+' | tail -n 1 || true)
+					ue=$(grep -Eo 'errors=[0-9]+' "$output_file" | tail -n 1 | grep -Eo '[0-9]+' | tail -n 1 || true)
+					uf=${uf:-0}
+					ue=${ue:-0}
+					failed=$((uf + ue))
+					count_suffix=" ($failed/$total)"
+				fi
+			fi
+		fi
+
+		# Rust cargo test summary:
+		#   test result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+		#   test result: FAILED. 47 passed; 1 failed; ...
+		if [ -z "${count_suffix// /}" ]; then
+			local cargo_line
+			cargo_line=$(grep -E 'test result:[[:space:]]*(ok|FAILED)\.' "$output_file" | tail -n 1 || true)
+			if [ -n "${cargo_line// /}" ]; then
+				local cp
+				local cf
+				cp=$(printf '%s\n' "$cargo_line" | grep -Eo '[0-9]+ passed' | tail -n 1 | awk '{print $1}' || true)
+				cf=$(printf '%s\n' "$cargo_line" | grep -Eo '[0-9]+ failed' | tail -n 1 | awk '{print $1}' || true)
+				cp=${cp:-0}
+				cf=${cf:-0}
+				total=$((cp + cf))
+				if [ "$total" -gt 0 ]; then
+					if [ "$test_status" = "pass" ]; then
+						count_suffix=" ($cp/$total)"
+					else
+						count_suffix=" ($cf/$total)"
+					fi
+				fi
+			fi
+		fi
+
+		# Maven Surefire:
+		#   Tests run: 48, Failures: 1, Errors: 0, Skipped: 0
+		if [ -z "${count_suffix// /}" ]; then
+			local mvn
+			mvn=$(grep -E 'Tests run:[[:space:]]*[0-9]+,[[:space:]]*Failures:[[:space:]]*[0-9]+,[[:space:]]*Errors:[[:space:]]*[0-9]+,[[:space:]]*Skipped:[[:space:]]*[0-9]+' "$output_file" | tail -n 1 || true)
+			if [ -n "${mvn// /}" ]; then
+				local tr
+				local tf
+				local te
+				tr=$(printf '%s\n' "$mvn" | grep -Eo 'Tests run:[[:space:]]*[0-9]+' | grep -Eo '[0-9]+' | tail -n 1 || true)
+				tf=$(printf '%s\n' "$mvn" | grep -Eo 'Failures:[[:space:]]*[0-9]+' | grep -Eo '[0-9]+' | tail -n 1 || true)
+				te=$(printf '%s\n' "$mvn" | grep -Eo 'Errors:[[:space:]]*[0-9]+' | grep -Eo '[0-9]+' | tail -n 1 || true)
+				tr=${tr:-0}
+				tf=${tf:-0}
+				te=${te:-0}
+				failed=$((tf + te))
+				if [ "$tr" -gt 0 ]; then
+					if [ "$test_status" = "pass" ]; then
+						count_suffix=" ($tr/$tr)"
+					else
+						count_suffix=" ($failed/$tr)"
+					fi
+				fi
+			fi
+		fi
+
+		# Gradle:
+		#   48 tests completed, 1 failed
+		if [ -z "${count_suffix// /}" ]; then
+			local gradle
+			gradle=$(grep -E '[0-9]+ tests completed, [0-9]+ failed' "$output_file" | tail -n 1 || true)
+			if [ -n "${gradle// /}" ]; then
+				total=$(printf '%s\n' "$gradle" | awk '{print $1}')
+				failed=$(printf '%s\n' "$gradle" | awk '{print $4}')
+				if [ -n "${total// /}" ] && [ -n "${failed// /}" ]; then
+					if [ "$test_status" = "pass" ]; then
+						count_suffix=" ($total/$total)"
+					else
+						count_suffix=" ($failed/$total)"
+					fi
+				fi
+			fi
+		fi
+	fi
+
+	local header="Testing: ${test_status}${count_suffix}"
+	if [ "$test_status" = "fail" ] && [ -n "${failures// /}" ]; then
+		printf '%s\n' "$header"
+		printf '%s\n' "$failures" | sed 's/^/- /'
+		return 0
+	fi
+
+	printf '%s' "$header"
+}
+
+normalize_ai_commit_message() {
+	# Args:
+	#  1) commit message (may be multi-line)
+	#  2) authoritative testing line (single line)
+	#  3) breaking hints (multi-line; optional)
+	local msg="$1"
+	local testing_line="$2"
+	local breaking_hints="$3"
+
+	local tmp_bullets
+	tmp_bullets=$(mktemp -t git-upload-testing-bullets.XXXXXX)
+	# Extract bullet lines from the authoritative testing section.
+	printf '%s\n' "$testing_line" | grep '^- ' >"$tmp_bullets" 2>/dev/null || true
+
+	local has_potential_breaking=0
+	local has_likely_breaking=0
+	if printf '%s\n' "$breaking_hints" | grep -qi 'likely breaking'; then
+		has_likely_breaking=1
+	fi
+	if printf '%s\n' "$breaking_hints" | grep -qi 'potential behavior change'; then
+		has_potential_breaking=1
+	fi
+	# Back-compat for older hint wording
+	if printf '%s\n' "$breaking_hints" | grep -qi 'potential behavior/validation removal'; then
+		has_likely_breaking=1
+	fi
+	local testing_failed=0
+	if printf '%s\n' "$testing_line" | grep -q '^Testing: fail'; then
+		testing_failed=1
+	fi
+	local enforce_high_risk=0
+	if [ "$testing_failed" -eq 1 ]; then
+		enforce_high_risk=1
+	fi
+
+	# 1) Drop any AI-provided Testing lines.
+	# 2) Drop duplicated failure bullets outside Testing.
+	# 3) Normalize Breaking changes yes/no and correct "none" when we have strong signals.
+	local normalized
+	normalized=$(printf '%s\n' "$msg" \
+		| grep -v '^Testing:' \
+		| grep -vFf "$tmp_bullets" 2>/dev/null \
+		| awk -v has_potential="$has_potential_breaking" -v has_likely="$has_likely_breaking" -v testing_failed="$testing_failed" '
+			function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+			function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
+			function trim(s) { return rtrim(ltrim(s)) }
+			BEGIN { rewrote=0; in_breaking=0; saw_risk=0 }
+			{
+				line=$0
+				if (line ~ /^Risk:[[:space:]]*/ ) {
+					saw_risk=1
+				}
+
+				if (line == "Breaking changes:") {
+					in_breaking=1
+					print line
+					next
+				}
+				# If we leave the breaking section (blank line or new section header), stop de-hedging.
+				if (in_breaking==1 && (line ~ /^[[:space:]]*$/ || line ~ /^[A-Z][A-Za-z ]+:[[:space:]]*$/)) {
+					in_breaking=0
+				}
+
+				if (match(line, /^Breaking changes:[[:space:]]*/)) {
+					rest=line
+					sub(/^Breaking changes:[[:space:]]*/, "", rest)
+					rest=trim(rest)
+
+					low=tolower(rest)
+					# yes/no normalization
+					split(rest, parts, /[[:space:]]+/)
+					yn=tolower(parts[1])
+					if (!rewrote && (yn=="yes" || yn=="no")) {
+						rewrote=1
+						body=rest
+						# drop the first word (yes/no) without relying on non-portable regex flags
+						sub(/^[^[:space:]]+[[:space:]]*/, "", body)
+						body=trim(body)
+						sub(/^[-–—:]+[[:space:]]*/, "", body)
+						if (yn=="no") {
+							print "Breaking changes: none"
+							next
+						}
+						print "Breaking changes:"
+						if (length(body) > 0) print "- " body
+						else print "- (details missing; review staged diff)"
+						next
+					}
+
+					# If model says none but we have strong breaking hints (or failing tests), rewrite.
+					# For merely *potential* hints (e.g. uncommenting validation to match spec), do not force breaking.
+					if (low=="none" && (has_likely==1 || testing_failed==1)) {
+						print "Breaking changes:"
+						print "- Likely breaking behavior/validation change detected; review staged diff"
+						next
+					}
+				}
+				# De-hedge bullets in the breaking section when we have breaking signals.
+				if (in_breaking==1 && (has_potential==1 || has_likely==1 || testing_failed==1) && line ~ /^- /) {
+					gsub(/ may now /, " will now ", line)
+					gsub(/ might now /, " will now ", line)
+					gsub(/ may no longer /, " will no longer ", line)
+					gsub(/ might no longer /, " will no longer ", line)
+					gsub(/ may be /, " is ", line)
+					gsub(/ might be /, " is ", line)
+					gsub(/ may /, " will ", line)
+					gsub(/ might /, " will ", line)
+				}
+				print line
+			}
+		')
+
+	rm -f "$tmp_bullets" >/dev/null 2>&1 || true
+
+	# Append authoritative Testing section.
+	if [ -n "${testing_line// /}" ]; then
+		normalized="$normalized
+
+$testing_line"
+	fi
+
+	# Determine whether the final message indicates breaking changes.
+	# (Breaking changes: none) => not breaking
+	# (Breaking changes: + bullets) => breaking
+	local breaking_kind
+	breaking_kind=$(printf '%s\n' "$normalized" | awk '
+		BEGIN{kind="none"}
+		/^Breaking changes:[[:space:]]*none[[:space:]]*$/ { kind="none" }
+		/^Breaking changes:[[:space:]]*$/ { kind="bullets" }
+		END{ print kind }
+	')
+
+	local enforce_medium_risk=0
+	if [ "$enforce_high_risk" -eq 0 ] && [ "$breaking_kind" = "bullets" ]; then
+		enforce_high_risk=1
+	fi
+	if [ "$enforce_high_risk" -eq 0 ] && { [ "$has_potential_breaking" -eq 1 ] || [ "$has_likely_breaking" -eq 1 ]; }; then
+		enforce_medium_risk=1
+	fi
+
+	# Ensure risk line is present and matches policy.
+	if [ "$enforce_high_risk" -eq 1 ]; then
+		if printf '%s\n' "$normalized" | grep -q '^Risk:'; then
+			normalized=$(printf '%s\n' "$normalized" | awk 'BEGIN{done=0} /^Risk:/ { if (!done) { print "Risk: high"; done=1; next } } { print }')
+		else
+			normalized="$normalized
+
+Risk: high"
+		fi
+	elif [ "$enforce_medium_risk" -eq 1 ]; then
+		if printf '%s\n' "$normalized" | grep -q '^Risk:'; then
+			normalized=$(printf '%s\n' "$normalized" | awk 'BEGIN{done=0} /^Risk:/ { if (!done) { print "Risk: medium"; done=1; next } } { print }')
+		else
+			normalized="$normalized
+
+Risk: medium"
+		fi
+	else
+		if ! printf '%s\n' "$normalized" | grep -q '^Risk:'; then
+			normalized="$normalized
+
+Risk: low"
+		fi
+	fi
+
+	# Trim trailing blank lines.
+	normalized=$(printf '%s\n' "$normalized" | awk '{ lines[NR]=$0 } $0 !~ /^[[:space:]]*$/ { last=NR } END { for (i=1; i<=last; i++) print lines[i] }')
+	printf '%s' "$normalized"
+}
+
+compute_breaking_change_hints() {
+	# Best-effort heuristics from the staged diff to help the AI correctly flag breaking changes.
+	# This is intentionally conservative and only provides hints, not a definitive classification.
+	local diff
+	diff=$(git diff --cached -U0 2>/dev/null || echo "")
+	if [ -z "${diff// /}" ]; then
+		printf '%s' 'Breaking-change hints: no staged diff detected.'
+		return 0
+	fi
+
+	local removed_signals
+	local added_signals
+	removed_signals=$(printf '%s\n' "$diff" \
+		| grep -E '^-[^-].*(validate|validation|Validate\(|assert|throw|ArgumentException|InvalidOperationException|BREAKING|breaking|no longer|removed|remove|deprecated|drop support|drop\b|compat)' \
+		| grep -Ev '^-\s*(//|#|/\*|\*|\*/)' \
+		| head -n 10 || true)
+	added_signals=$(printf '%s\n' "$diff" \
+		| grep -E '^\+[^+].*(validate|validation|Validate\(|assert|throw|ArgumentException|InvalidOperationException|BREAKING|breaking|no longer|removed|remove|deprecated|drop support|drop\b|compat)' \
+		| grep -Ev '^\+\s*(//|#|/\*|\*|\*/)' \
+		| head -n 10 || true)
+
+	if [ -n "${removed_signals// /}" ] && [ -z "${added_signals// /}" ]; then
+		printf '%s\n' 'Breaking-change hints: likely breaking (validation/guard removed or relaxed) detected in staged diff:'
+		printf '%s\n' "$removed_signals" | sed 's/^/- /'
+		return 0
+	fi
+	if [ -n "${removed_signals// /}" ] || [ -n "${added_signals// /}" ]; then
+		printf '%s\n' 'Breaking-change hints: potential behavior change detected in staged diff (could be a bugfix or could be breaking depending on the spec):'
+		if [ -n "${removed_signals// /}" ]; then
+			printf '%s\n' "$removed_signals" | sed 's/^/- removed: /'
+		fi
+		if [ -n "${added_signals// /}" ]; then
+			printf '%s\n' "$added_signals" | sed 's/^/- added: /'
+		fi
+		return 0
+	fi
+
+	printf '%s' 'Breaking-change hints: no obvious breaking-change signals detected in staged diff.'
+}
+
+compute_testing_status() {
+	local repo_root
+	repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+	if [ -z "${repo_root// /}" ]; then
+		printf '%s' 'Testing: not configured'
+		return 0
+	fi
+
+	local test_spec
+	if ! test_spec=$(detect_test_cmd "$repo_root"); then
+		printf '%s' 'Testing: not configured'
+		return 0
+	fi
+	local test_cmd
+	local test_cwd
+	IFS=$'\n' read -r test_cmd test_cwd <<EOF
+$test_spec
+EOF
+	if [ -z "${test_cmd// /}" ]; then
+		printf '%s' 'Testing: not configured'
+		return 0
+	fi
+	if [ -z "${test_cwd// /}" ]; then
+		test_cwd="$repo_root"
+	fi
+
+	echo "[git-upload] Running test command: $test_cmd" >&2
+
+	local tmp
+	tmp=$(mktemp -t git-upload-tests.XXXXXX)
+	local exit_code=0
+
+	# Don't let test failures abort the script under set -e.
+	if (cd "$test_cwd" && eval "$test_cmd") >"$tmp" 2>&1; then
+		exit_code=0
+	else
+		exit_code=$?
+	fi
+
+	local summary
+	# Best-effort: never return an empty testing status.
+	if summary=$(summarize_test_output "$test_cmd" "$exit_code" "$tmp" 2>/dev/null); then
+		:
+	else
+		if [ "$exit_code" -eq 0 ]; then
+			summary='Testing: pass'
+		else
+			summary='Testing: fail'
+		fi
+	fi
+	rm -f "$tmp" >/dev/null 2>&1 || true
+
+	if [ -z "${summary// /}" ]; then
+		summary='Testing: not configured'
+	fi
+
+	echo "[git-upload] $summary" >&2
+	printf '%s' "$summary"
+}
+
 generate_ai_message() {
 	local ai_cmd
 
@@ -79,25 +871,72 @@ generate_ai_message() {
 		return 1
 	fi
 
-	local default_prompt="You are generating a git commit message.
+	local testing_status
+	testing_status=$(compute_testing_status)
+	local breaking_hints
+	breaking_hints=$(compute_breaking_change_hints)
 
-Your job: examine the current repository state and whatever git history or diffs you need, then produce a single high-quality git commit SUBJECT line that clearly summarizes what changed and why.
+	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
-Requirements for the SUBJECT line:
-- Use imperative mood (e.g. 'Add X', 'Fix Y', 'Refactor Z', 'Clean-up W').
-- Soft maximum of 72 characters, ideally one clean concise point for each major change. Try to remain within this character limit however for certain commits this may be impossible to have a good message and abide by this rule. Always prioritize good commit messages with clarity and conciseness rather than a hard limit.
-- Do NOT mention checking status, diffs, tools, agents, or instructions.
-- Do NOT describe what you will do; describe the code change(s) (it/them)sel[f/ves].
+Your job:
+- Determine what changed between the last commit (HEAD) and the current staged snapshot (index). If there is no HEAD yet (initial commit), base it on the staged snapshot.
+- Write a reasonable-length but very informative commit message that explains what changed and why, so a teammate can understand it weeks later.
+
+Content requirements:
+- Base everything on the staged diff (index) vs HEAD; do not invent changes.
+- If multiple areas changed, group them; prioritize user-visible behavior changes and operational impact.
+- Call out CLI/API behavior changes, default behavior changes, and backwards compatibility.
+- IMPORTANT: If behavior changed in a way that could affect users (including relaxing/tightening validation, changing parsing, changing defaults, changing outputs, removing checks/guards, changing error handling), treat it as a breaking change unless you can justify compatibility.
+- If a change is clearly a bugfix that restores documented/spec-intended behavior, it may be non-breaking; still call out the behavior change in Summary/Why.
+- Breaking changes format rules (STRICT):
+	- If there are NO breaking changes, output exactly: Breaking changes: none
+	- If there ARE breaking changes, output:
+		Breaking changes:
+		- <bullet 1>
+		- <bullet 2>
+		(Do NOT use Yes/No. Do NOT write 'Breaking changes: yes'.)
+- Include a short risk assessment using this policy:
+	- Risk: high if breaking changes were made (Breaking changes is a bullet list) OR tests failed.
+	- Risk: medium if potentially breaking changes are detected but not certain.
+	- Risk: low if changes are non-breaking and tests do not fail.
+- If the authoritative testing status is Testing: fail ..., set Risk: high.
+- If you output Breaking changes as a bullet list, set Risk: high.
+- If you are EVER UNSURE ABOUT IF CHANGES ARE BREAKING OR NOT, SET Risk: medium.
+- For Testing, use the provided testing status EXACTLY (verbatim). Do not guess.
+- If tests failed, do NOT restate the failing test list anywhere except under the Testing section.
+- For breaking changes bullets, avoid hedging: do not use may or might; use definitive language.
+- For breaking changes bullets, be concrete: name what breaks in accordance with the project goals (e.g., which code patterns, assumptions, APIs, or config expectations). Avoid vague bullets like \"X will break\" without saying what X is or what it will break from the current behavior. Breaking changes can only be made with a decent idea of the goals of the project so be sure the goal is clear. This is often outlined in the .github/copilot-instructions.md or the workspace name/folder structure.
+
+Style requirements:
+- Subject line: imperative mood; concise and specific; aim for <= 72 characters when feasible.
+- Body: detailed but not padded; prefer bullets.
+- Do NOT mention checking status, diffs, tools, agents, prompts, or instructions.
 
 Output protocol (IMPORTANT):
-- You may think through the problem in multiple messages.
-- At the very end, output ONE final line in the exact format:
-  COMMIT: <subject line>
-- Do NOT output any other lines starting with 'COMMIT:'.
+- Output ONLY the commit message between these exact markers, with no other text:
+COMMIT_BEGIN
+<subject line>
+
+<body, multiple lines allowed>
+COMMIT_END
+
+Suggested body structure (adapt as needed):
+Summary:
+- <bullet per major change>
+Why:
+- <motivation/problem addressed>
+Breaking changes: <use the strict format rules above>
+Risk: <low|medium|high> (<short rationale>)
+Testing: <use the provided testing status verbatim>
 "
 	local effective_prompt
 
-	effective_prompt="$default_prompt"
+	effective_prompt="$default_prompt
+
+Authoritative testing line to copy verbatim into the commit message:
+$testing_status
+
+$breaking_hints"
 	if [ -n "$ai_extra_context" ]; then
 		effective_prompt="$effective_prompt
 
@@ -107,7 +946,7 @@ Additional context from user: $ai_extra_context"
 	echo "[git-upload] Generating AI commit message via Copilot…" >&2
 
 	# Call Copilot CLI (or overridden AI command) with the constructed prompt.
-	# Capture full output so we can extract only the final COMMIT: line.
+	# Capture full output so we can extract the commit message.
 	local ai_output
 	if ! ai_output=$(GIT_UPLOAD_AI_PROMPT="$effective_prompt" eval "$ai_cmd" 2>/dev/null); then
 		echo "[git-upload] AI command '$ai_cmd' failed. " \
@@ -116,25 +955,68 @@ Additional context from user: $ai_extra_context"
 		return 1
 	fi
 
-	# Extract the last line starting with COMMIT: and strip the prefix.
+	# Prefer COMMIT_BEGIN/COMMIT_END block; fall back to legacy single-line COMMIT:.
+	local commit_block
+	commit_block=$(printf '%s\n' "$ai_output" | awk '
+		$0 == "COMMIT_BEGIN" { inside=1; next }
+		$0 == "COMMIT_END" { inside=0 }
+		inside { print }
+	')
+
+	if [ -n "${commit_block// /}" ]; then
+		# Trim trailing blank lines.
+		commit_block=$(printf '%s\n' "$commit_block" | awk '{ lines[NR]=$0 } $0 !~ /^[[:space:]]*$/ { last=NR } END { for (i=1; i<=last; i++) print lines[i] }')
+		# Trim leading blank lines.
+		commit_block=$(printf '%s\n' "$commit_block" | awk 'BEGIN{found=0} { if (!found && $0 ~ /^[[:space:]]*$/) next; found=1; print }')
+		if [ -n "${commit_block// /}" ]; then
+			normalize_ai_commit_message "$commit_block" "$testing_status" "$breaking_hints"
+			return 0
+		fi
+	fi
+
 	local commit_line
-	commit_line=$(printf '%s
-' "$ai_output" | grep '^COMMIT: ' | tail -n 1 | sed 's/^COMMIT: //')
+	commit_line=$(printf '%s\n' "$ai_output" | grep '^COMMIT: ' | tail -n 1 | sed 's/^COMMIT: //')
 
 	if [ -z "${commit_line// /}" ]; then
-		echo "[git-upload] AI did not produce a COMMIT: line; skipping AI" >&2
+		echo "[git-upload] AI did not produce a COMMIT_BEGIN/COMMIT_END block (or legacy COMMIT: line); skipping AI" >&2
 		return 1
 	fi
 
-	printf '%s' "$commit_line"
+	normalize_ai_commit_message "$commit_line" "$testing_status" "$breaking_hints"
 }
 
 main() {
-	# Determine current branch and ensure we're not in detached HEAD
-	current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-	if [ -z "$current_branch" ] || [ "$current_branch" = "HEAD" ]; then
-		echo "[git-upload] You are in a detached HEAD state. Checkout a branch before running git-upload." >&2
-		exit 1
+	# Determine current branch and ensure we're not in detached HEAD.
+	# NOTE: `git rev-parse --abbrev-ref HEAD` can yield surprising output in
+	# brand-new repos (unborn branch / no commits yet). `git symbolic-ref` is
+	# the reliable way to identify the branch HEAD points to.
+	current_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || echo "")
+	if [ -z "$current_branch" ]; then
+		# HEAD is detached (or otherwise not a symbolic ref).
+		head_commit=$(git rev-parse -q --verify HEAD 2>/dev/null || echo "")
+		if [ -z "$head_commit" ]; then
+			echo "[git-upload] HEAD is not on a branch (and there are no commits yet)." >&2
+			echo "[git-upload] Fix: create/switch to a branch first (for example: 'git switch -c main')." >&2
+			exit 1
+		fi
+
+		# If the detached commit is already contained by exactly one local branch,
+		# we can safely switch to it without losing work.
+		containing_branches=$(git branch --contains "$head_commit" --format='%(refname:short)' 2>/dev/null || echo "")
+		containing_count=$(printf '%s\n' "$containing_branches" | sed '/^$/d' | wc -l | tr -d ' ')
+
+		if [ "$containing_count" = "1" ]; then
+			current_branch=$(printf '%s\n' "$containing_branches" | sed -n '1p')
+			echo "[git-upload] Detached HEAD is contained by '$current_branch'; switching to that branch…" >&2
+			git switch "$current_branch" >/dev/null 2>&1 || {
+				echo "[git-upload] Failed to switch to '$current_branch'." >&2
+				exit 1
+			}
+		else
+			echo "[git-upload] You are in a detached HEAD state. Checkout or create a branch before running git-upload." >&2
+			echo "[git-upload] Fix (create a branch at the current commit): git switch -c <branch-name>" >&2
+			exit 1
+		fi
 	fi
 
 	# If this branch has an upstream, first make sure we're not behind it.

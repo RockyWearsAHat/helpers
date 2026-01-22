@@ -6,6 +6,7 @@
 #   - git-upload
 #   - git-get
 #   - git-initialize
+#   - git-fucked-the-push
 #
 # Responsibilities:
 #   - Ensure ~/bin and ~/man/man1 exist
@@ -33,7 +34,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ensure_dir() {
   local dir="$1"
   if [ ! -d "$dir" ]; then
-    mkdir -p "$dir"
+message based on the current repository state (subject line plus optional body).
   fi
 }
 
@@ -95,13 +96,13 @@ or
 .BR --aiDiffCommitMsg ,
 .B git upload
 uses GitHub Copilot CLI (or an overridden AI command) to generate a commit
-message based on the current repository state.
+message based on the current repository state (subject line plus optional body).
 .SH OPTIONS
 .TP
 .BR -ai ,
 .BR --aiDiffCommitMsg
 Enable AI-based commit message generation. If installed and configured,
-GitHub Copilot CLI is used to create a concise commit subject line.
+GitHub Copilot CLI is used to create an informative commit message (subject line plus optional body).
 .TP
 .I ai-context
 Optional free-form text immediately following
@@ -120,7 +121,7 @@ By default
 invokes the
 .BR copilot (1)
 CLI with a carefully crafted prompt instructing it to output a single git
-commit subject line.
+commit message (subject line plus optional body).
 .PP
 If the environment variable
 .B GIT_UPLOAD_AI_CMD
@@ -279,6 +280,54 @@ EOF
   echo "[install-git-shell-helpers] Installed man page: $dest"
 }
 
+install_man_git_fucked_the_push() {
+  local dest="${MAN_DIR}/git-fucked-the-push.1"
+  cat >"$dest" <<'EOF'
+.TH GIT-FUCKED-THE-PUSH 1 "January 2026" "git-fucked-the-push" "Git Manual"
+.SH NAME
+git-fucked-the-push \- undo the last pushed commit while keeping changes staged
+.SH SYNOPSIS
+.B git fucked-the-push
+.RI [ --yes ]
+.SH DESCRIPTION
+.B git fucked-the-push
+is a destructive recovery helper for the common situation where you made a bad
+last commit (for example, a wrong commit message) and pushed it.
+.PP
+It performs two steps:
+.IP \(bu 2
+Soft reset the current branch back one commit, keeping the changes staged.
+.IP \(bu 2
+If the last commit appears on the upstream branch, rewrite the remote using
+.BR git-push (1)
+with
+.BR --force-with-lease
+so the accidental commit is dropped from the remote branch.
+.PP
+Because it may rewrite published history, do not use this on shared branches
+if others may have pulled.
+.SH OPTIONS
+.TP
+.B --yes
+Skip the interactive confirmation prompt.
+.SH EXAMPLES
+.TP
+Undo the last pushed commit and keep changes staged:
+.EX
+git fucked-the-push
+.EE
+.TP
+Non-interactive usage:
+.EX
+git fucked-the-push --yes
+.EE
+.SH SEE ALSO
+.BR git-reset (1),
+.BR git-push (1)
+EOF
+  echo "[install-git-shell-helpers] Installed man page: $dest"
+}
+
 main() {
   echo "[install-git-shell-helpers] Installing git shell helpers..."
 
@@ -288,10 +337,12 @@ main() {
   install_script "git-upload"
   install_script "git-get"
   install_script "git-initialize"
+  install_script "git-fucked-the-push"
 
   install_man_git_upload
   install_man_git_get
   install_man_git_initialize
+  install_man_git_fucked_the_push
 
   # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
@@ -299,7 +350,7 @@ main() {
 
   echo "[install-git-shell-helpers] Done. Open a new terminal or run:"
   echo "  source $ZSHRC"
-  echo "Then you can use: git upload, git get, git initialize, and view docs via git help <command>."
+  echo "Then you can use: git upload, git get, git initialize, git fucked-the-push, and view docs via git help <command>."
 }
 
 main "$@"
