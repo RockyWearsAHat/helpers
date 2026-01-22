@@ -34,7 +34,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ensure_dir() {
   local dir="$1"
   if [ ! -d "$dir" ]; then
-    mkdir -p "$dir"
+message based on the current repository state (subject line plus optional body).
   fi
 }
 
@@ -96,13 +96,13 @@ or
 .BR --aiDiffCommitMsg ,
 .B git upload
 uses GitHub Copilot CLI (or an overridden AI command) to generate a commit
-message based on the current repository state.
+message based on the current repository state (subject line plus optional body).
 .SH OPTIONS
 .TP
 .BR -ai ,
 .BR --aiDiffCommitMsg
 Enable AI-based commit message generation. If installed and configured,
-GitHub Copilot CLI is used to create a concise commit subject line.
+GitHub Copilot CLI is used to create an informative commit message (subject line plus optional body).
 .TP
 .I ai-context
 Optional free-form text immediately following
@@ -121,7 +121,7 @@ By default
 invokes the
 .BR copilot (1)
 CLI with a carefully crafted prompt instructing it to output a single git
-commit subject line.
+commit message (subject line plus optional body).
 .PP
 If the environment variable
 .B GIT_UPLOAD_AI_CMD

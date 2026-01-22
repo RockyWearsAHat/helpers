@@ -79,21 +79,41 @@ generate_ai_message() {
 		return 1
 	fi
 
-	local default_prompt="You are generating a git commit message.
+	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
-Your job: examine the current repository state and whatever git history or diffs you need, then produce a single high-quality git commit SUBJECT line that clearly summarizes what changed and why.
+Your job:
+- Determine what changed between the last commit (HEAD) and the current staged snapshot (index). If there is no HEAD yet (initial commit), base it on the staged snapshot.
+- Write a reasonable-length but very informative commit message that explains what changed and why, so a teammate can understand it weeks later.
 
-Requirements for the SUBJECT line:
-- Use imperative mood (e.g. 'Add X', 'Fix Y', 'Refactor Z', 'Clean-up W').
-- Soft maximum of 72 characters, ideally one clean concise point for each major change. Try to remain within this character limit however for certain commits this may be impossible to have a good message and abide by this rule. Always prioritize good commit messages with clarity and conciseness rather than a hard limit.
-- Do NOT mention checking status, diffs, tools, agents, or instructions.
-- Do NOT describe what you will do; describe the code change(s) (it/them)sel[f/ves].
+Content requirements:
+- Base everything on the staged diff (index) vs HEAD; do not invent changes.
+- If multiple areas changed, group them; prioritize user-visible behavior changes and operational impact.
+- Call out CLI/API behavior changes, default behavior changes, and backwards compatibility.
+- If applicable, include migration steps; otherwise explicitly say: Breaking changes: none
+- Include a short risk assessment; if nothing stands out, say: Risk: low
+- Include Testing; if you cannot confirm tests were run, say: Testing: not provided
+
+Style requirements:
+- Subject line: imperative mood; concise and specific; aim for <= 72 characters when feasible.
+- Body: detailed but not padded; prefer bullets.
+- Do NOT mention checking status, diffs, tools, agents, prompts, or instructions.
 
 Output protocol (IMPORTANT):
-- You may think through the problem in multiple messages.
-- At the very end, output ONE final line in the exact format:
-  COMMIT: <subject line>
-- Do NOT output any other lines starting with 'COMMIT:'.
+- Output ONLY the commit message between these exact markers, with no other text:
+COMMIT_BEGIN
+<subject line>
+
+<body, multiple lines allowed>
+COMMIT_END
+
+Suggested body structure (adapt as needed):
+Summary:
+- <bullet per major change>
+Why:
+- <motivation/problem addressed>
+Breaking changes: <none|describe>
+Risk: <low|medium|high> (<short rationale>)
+Testing: <not provided|describe>
 "
 	local effective_prompt
 
@@ -107,7 +127,7 @@ Additional context from user: $ai_extra_context"
 	echo "[git-upload] Generating AI commit message via Copilot…" >&2
 
 	# Call Copilot CLI (or overridden AI command) with the constructed prompt.
-	# Capture full output so we can extract only the final COMMIT: line.
+	# Capture full output so we can extract the commit message.
 	local ai_output
 	if ! ai_output=$(GIT_UPLOAD_AI_PROMPT="$effective_prompt" eval "$ai_cmd" 2>/dev/null); then
 		echo "[git-upload] AI command '$ai_cmd' failed. " \
@@ -116,13 +136,30 @@ Additional context from user: $ai_extra_context"
 		return 1
 	fi
 
-	# Extract the last line starting with COMMIT: and strip the prefix.
+	# Prefer COMMIT_BEGIN/COMMIT_END block; fall back to legacy single-line COMMIT:.
+	local commit_block
+	commit_block=$(printf '%s\n' "$ai_output" | awk '
+		$0 == "COMMIT_BEGIN" { inside=1; next }
+		$0 == "COMMIT_END" { inside=0 }
+		inside { print }
+	')
+
+	if [ -n "${commit_block// /}" ]; then
+		# Trim trailing blank lines.
+		commit_block=$(printf '%s\n' "$commit_block" | awk '{ lines[NR]=$0 } $0 !~ /^[[:space:]]*$/ { last=NR } END { for (i=1; i<=last; i++) print lines[i] }')
+		# Trim leading blank lines.
+		commit_block=$(printf '%s\n' "$commit_block" | awk 'BEGIN{found=0} { if (!found && $0 ~ /^[[:space:]]*$/) next; found=1; print }')
+		if [ -n "${commit_block// /}" ]; then
+			printf '%s' "$commit_block"
+			return 0
+		fi
+	fi
+
 	local commit_line
-	commit_line=$(printf '%s
-' "$ai_output" | grep '^COMMIT: ' | tail -n 1 | sed 's/^COMMIT: //')
+	commit_line=$(printf '%s\n' "$ai_output" | grep '^COMMIT: ' | tail -n 1 | sed 's/^COMMIT: //')
 
 	if [ -z "${commit_line// /}" ]; then
-		echo "[git-upload] AI did not produce a COMMIT: line; skipping AI" >&2
+		echo "[git-upload] AI did not produce a COMMIT_BEGIN/COMMIT_END block (or legacy COMMIT: line); skipping AI" >&2
 		return 1
 	fi
 
