@@ -411,15 +411,167 @@ summarize_test_output() {
 			fi
 
 			if [ "$test_status" = "fail" ]; then
-				# Best-effort: list failing tests when the runner prints "Failed <TestName>".
-				# We keep this conservative to avoid noise.
-				failures=$(grep -E '^[[:space:]]*(Failed|Error)[[:space:]]+' "$output_file" | sed -E 's/^[[:space:]]*(Failed|Error)[[:space:]]+//' | head -n 10)
+				# Best-effort: pair "Failed <TestName>" with the first following
+				# message line (xUnit commonly prints:
+				#   Failed <TestName>
+				#   Error Message:
+				#     <message>
+				# ...). Avoid emitting a blank "Message:" bullet.
+				failures=$(awk '
+					function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+					function emit(t, m) {
+						if (t == "") return
+						if (m == "") { print t; return }
+						print t " — " m
+					}
+					BEGIN { current=""; msg=""; want_msg=0; emitted=0; count=0 }
+					/^[[:space:]]*Failed[[:space:]]+/ {
+						# Emit previous failure if we never got a message.
+						if (current != "" && !emitted) { emit(current, msg); count++; }
+						if (count >= 10) exit
+						current=$0
+						sub(/^[[:space:]]*Failed[[:space:]]+/, "", current)
+						current=trim(current)
+						msg=""; want_msg=0; emitted=0
+						next
+					}
+					{
+						if (current == "") next
+						if ($0 ~ /^[[:space:]]*(Error Message:|Message:)[[:space:]]*$/) { want_msg=1; next }
+						if (want_msg) {
+							if ($0 ~ /^[[:space:]]*$/) next
+							msg=$0
+							msg=trim(msg)
+							emit(current, msg)
+							emitted=1
+							count++
+							if (count >= 10) exit
+							current=""; msg=""; want_msg=0
+							next
+						}
+					}
+					END {
+						if (count < 10 && current != "" && !emitted) emit(current, msg)
+					}
+				' "$output_file")
 			fi
 			;;
 		*)
-			# Unknown runner; keep it simple.
+			# Unknown runner; we will attempt generic parsing below.
 			;;
 	esac
+
+	# Generic parsing fallback for wrappers like `make test`.
+	# Only compute counts if we don't already have a suffix.
+	if [ -z "${count_suffix// /}" ]; then
+		# pytest-style summary often appears even when invoked via a wrapper.
+		passed=$(grep -Eo '[0-9]+ passed' "$output_file" | tail -n 1 | awk '{print $1}' || true)
+		failed=$(grep -Eo '[0-9]+ failed' "$output_file" | tail -n 1 | awk '{print $1}' || true)
+		if [ -n "${passed// /}" ] || [ -n "${failed// /}" ]; then
+			local p=${passed:-0}
+			local f=${failed:-0}
+			total=$((p + f))
+			if [ "$total" -gt 0 ]; then
+				if [ "$test_status" = "pass" ]; then
+					count_suffix=" ($p/$total)"
+				else
+					count_suffix=" ($f/$total)"
+				fi
+			fi
+		fi
+
+		# Python unittest summary:
+		#   Ran 48 tests in 0.123s
+		#   OK
+		# or
+		#   FAILED (failures=1, errors=0)
+		if [ -z "${count_suffix// /}" ]; then
+			total=$(grep -E '^Ran[[:space:]]+[0-9]+[[:space:]]+tests?' "$output_file" | tail -n 1 | grep -Eo '[0-9]+' | tail -n 1 || true)
+			if [ -n "${total// /}" ]; then
+				if [ "$test_status" = "pass" ]; then
+					count_suffix=" ($total/$total)"
+				else
+					# Best-effort failures count if present.
+					local uf
+					local ue
+					uf=$(grep -Eo 'failures=[0-9]+' "$output_file" | tail -n 1 | grep -Eo '[0-9]+' | tail -n 1 || true)
+					ue=$(grep -Eo 'errors=[0-9]+' "$output_file" | tail -n 1 | grep -Eo '[0-9]+' | tail -n 1 || true)
+					uf=${uf:-0}
+					ue=${ue:-0}
+					failed=$((uf + ue))
+					count_suffix=" ($failed/$total)"
+				fi
+			fi
+		fi
+
+		# Rust cargo test summary:
+		#   test result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+		#   test result: FAILED. 47 passed; 1 failed; ...
+		if [ -z "${count_suffix// /}" ]; then
+			local cargo_line
+			cargo_line=$(grep -E 'test result:[[:space:]]*(ok|FAILED)\.' "$output_file" | tail -n 1 || true)
+			if [ -n "${cargo_line// /}" ]; then
+				local cp
+				local cf
+				cp=$(printf '%s\n' "$cargo_line" | grep -Eo '[0-9]+ passed' | tail -n 1 | awk '{print $1}' || true)
+				cf=$(printf '%s\n' "$cargo_line" | grep -Eo '[0-9]+ failed' | tail -n 1 | awk '{print $1}' || true)
+				cp=${cp:-0}
+				cf=${cf:-0}
+				total=$((cp + cf))
+				if [ "$total" -gt 0 ]; then
+					if [ "$test_status" = "pass" ]; then
+						count_suffix=" ($cp/$total)"
+					else
+						count_suffix=" ($cf/$total)"
+					fi
+				fi
+			fi
+		fi
+
+		# Maven Surefire:
+		#   Tests run: 48, Failures: 1, Errors: 0, Skipped: 0
+		if [ -z "${count_suffix// /}" ]; then
+			local mvn
+			mvn=$(grep -E 'Tests run:[[:space:]]*[0-9]+,[[:space:]]*Failures:[[:space:]]*[0-9]+,[[:space:]]*Errors:[[:space:]]*[0-9]+,[[:space:]]*Skipped:[[:space:]]*[0-9]+' "$output_file" | tail -n 1 || true)
+			if [ -n "${mvn// /}" ]; then
+				local tr
+				local tf
+				local te
+				tr=$(printf '%s\n' "$mvn" | grep -Eo 'Tests run:[[:space:]]*[0-9]+' | grep -Eo '[0-9]+' | tail -n 1 || true)
+				tf=$(printf '%s\n' "$mvn" | grep -Eo 'Failures:[[:space:]]*[0-9]+' | grep -Eo '[0-9]+' | tail -n 1 || true)
+				te=$(printf '%s\n' "$mvn" | grep -Eo 'Errors:[[:space:]]*[0-9]+' | grep -Eo '[0-9]+' | tail -n 1 || true)
+				tr=${tr:-0}
+				tf=${tf:-0}
+				te=${te:-0}
+				failed=$((tf + te))
+				if [ "$tr" -gt 0 ]; then
+					if [ "$test_status" = "pass" ]; then
+						count_suffix=" ($tr/$tr)"
+					else
+						count_suffix=" ($failed/$tr)"
+					fi
+				fi
+			fi
+		fi
+
+		# Gradle:
+		#   48 tests completed, 1 failed
+		if [ -z "${count_suffix// /}" ]; then
+			local gradle
+			gradle=$(grep -E '[0-9]+ tests completed, [0-9]+ failed' "$output_file" | tail -n 1 || true)
+			if [ -n "${gradle// /}" ]; then
+				total=$(printf '%s\n' "$gradle" | awk '{print $1}')
+				failed=$(printf '%s\n' "$gradle" | awk '{print $4}')
+				if [ -n "${total// /}" ] && [ -n "${failed// /}" ]; then
+					if [ "$test_status" = "pass" ]; then
+						count_suffix=" ($total/$total)"
+					else
+						count_suffix=" ($failed/$total)"
+					fi
+				fi
+			fi
+		fi
+	fi
 
 	local header="Testing: ${test_status}${count_suffix}"
 	if [ "$test_status" = "fail" ] && [ -n "${failures// /}" ]; then
@@ -445,13 +597,25 @@ normalize_ai_commit_message() {
 	# Extract bullet lines from the authoritative testing section.
 	printf '%s\n' "$testing_line" | grep '^- ' >"$tmp_bullets" 2>/dev/null || true
 
-	local has_signal=0
+	local has_potential_breaking=0
+	local has_likely_breaking=0
+	if printf '%s\n' "$breaking_hints" | grep -qi 'likely breaking'; then
+		has_likely_breaking=1
+	fi
+	if printf '%s\n' "$breaking_hints" | grep -qi 'potential behavior change'; then
+		has_potential_breaking=1
+	fi
+	# Back-compat for older hint wording
 	if printf '%s\n' "$breaking_hints" | grep -qi 'potential behavior/validation removal'; then
-		has_signal=1
+		has_likely_breaking=1
 	fi
 	local testing_failed=0
 	if printf '%s\n' "$testing_line" | grep -q '^Testing: fail'; then
 		testing_failed=1
+	fi
+	local enforce_high_risk=0
+	if [ "$testing_failed" -eq 1 ]; then
+		enforce_high_risk=1
 	fi
 
 	# 1) Drop any AI-provided Testing lines.
@@ -461,13 +625,27 @@ normalize_ai_commit_message() {
 	normalized=$(printf '%s\n' "$msg" \
 		| grep -v '^Testing:' \
 		| grep -vFf "$tmp_bullets" 2>/dev/null \
-		| awk -v has_signal="$has_signal" -v testing_failed="$testing_failed" '
+		| awk -v has_potential="$has_potential_breaking" -v has_likely="$has_likely_breaking" -v testing_failed="$testing_failed" '
 			function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
 			function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
 			function trim(s) { return rtrim(ltrim(s)) }
-			BEGIN { rewrote=0 }
+			BEGIN { rewrote=0; in_breaking=0; saw_risk=0 }
 			{
 				line=$0
+				if (line ~ /^Risk:[[:space:]]*/ ) {
+					saw_risk=1
+				}
+
+				if (line == "Breaking changes:") {
+					in_breaking=1
+					print line
+					next
+				}
+				# If we leave the breaking section (blank line or new section header), stop de-hedging.
+				if (in_breaking==1 && (line ~ /^[[:space:]]*$/ || line ~ /^[A-Z][A-Za-z ]+:[[:space:]]*$/)) {
+					in_breaking=0
+				}
+
 				if (match(line, /^Breaking changes:[[:space:]]*/)) {
 					rest=line
 					sub(/^Breaking changes:[[:space:]]*/, "", rest)
@@ -494,12 +672,24 @@ normalize_ai_commit_message() {
 						next
 					}
 
-					# If model says none but we have strong hints (and/or failing tests), rewrite.
-					if (low=="none" && (has_signal==1 || testing_failed==1)) {
+					# If model says none but we have strong breaking hints (or failing tests), rewrite.
+					# For merely *potential* hints (e.g. uncommenting validation to match spec), do not force breaking.
+					if (low=="none" && (has_likely==1 || testing_failed==1)) {
 						print "Breaking changes:"
-						print "- Validation/behavior change detected; review staged diff"
+						print "- Likely breaking behavior/validation change detected; review staged diff"
 						next
 					}
+				}
+				# De-hedge bullets in the breaking section when we have breaking signals.
+				if (in_breaking==1 && (has_potential==1 || has_likely==1 || testing_failed==1) && line ~ /^- /) {
+					gsub(/ may now /, " will now ", line)
+					gsub(/ might now /, " will now ", line)
+					gsub(/ may no longer /, " will no longer ", line)
+					gsub(/ might no longer /, " will no longer ", line)
+					gsub(/ may be /, " is ", line)
+					gsub(/ might be /, " is ", line)
+					gsub(/ may /, " will ", line)
+					gsub(/ might /, " will ", line)
 				}
 				print line
 			}
@@ -512,6 +702,50 @@ normalize_ai_commit_message() {
 		normalized="$normalized
 
 $testing_line"
+	fi
+
+	# Determine whether the final message indicates breaking changes.
+	# (Breaking changes: none) => not breaking
+	# (Breaking changes: + bullets) => breaking
+	local breaking_kind
+	breaking_kind=$(printf '%s\n' "$normalized" | awk '
+		BEGIN{kind="none"}
+		/^Breaking changes:[[:space:]]*none[[:space:]]*$/ { kind="none" }
+		/^Breaking changes:[[:space:]]*$/ { kind="bullets" }
+		END{ print kind }
+	')
+
+	local enforce_medium_risk=0
+	if [ "$enforce_high_risk" -eq 0 ] && [ "$breaking_kind" = "bullets" ]; then
+		enforce_high_risk=1
+	fi
+	if [ "$enforce_high_risk" -eq 0 ] && { [ "$has_potential_breaking" -eq 1 ] || [ "$has_likely_breaking" -eq 1 ]; }; then
+		enforce_medium_risk=1
+	fi
+
+	# Ensure risk line is present and matches policy.
+	if [ "$enforce_high_risk" -eq 1 ]; then
+		if printf '%s\n' "$normalized" | grep -q '^Risk:'; then
+			normalized=$(printf '%s\n' "$normalized" | awk 'BEGIN{done=0} /^Risk:/ { if (!done) { print "Risk: high"; done=1; next } } { print }')
+		else
+			normalized="$normalized
+
+Risk: high"
+		fi
+	elif [ "$enforce_medium_risk" -eq 1 ]; then
+		if printf '%s\n' "$normalized" | grep -q '^Risk:'; then
+			normalized=$(printf '%s\n' "$normalized" | awk 'BEGIN{done=0} /^Risk:/ { if (!done) { print "Risk: medium"; done=1; next } } { print }')
+		else
+			normalized="$normalized
+
+Risk: medium"
+		fi
+	else
+		if ! printf '%s\n' "$normalized" | grep -q '^Risk:'; then
+			normalized="$normalized
+
+Risk: low"
+		fi
 	fi
 
 	# Trim trailing blank lines.
@@ -529,12 +763,30 @@ compute_breaking_change_hints() {
 		return 0
 	fi
 
-	local signals
-	signals=$(printf '%s\n' "$diff" | grep -E '^-.*(validate|validation|Validate\(|assert|throw|ArgumentException|InvalidOperationException|BREAKING|breaking|no longer|removed|remove|deprecated|drop support|drop\b|compat)' | head -n 10 || true)
+	local removed_signals
+	local added_signals
+	removed_signals=$(printf '%s\n' "$diff" \
+		| grep -E '^-[^-].*(validate|validation|Validate\(|assert|throw|ArgumentException|InvalidOperationException|BREAKING|breaking|no longer|removed|remove|deprecated|drop support|drop\b|compat)' \
+		| grep -Ev '^-\s*(//|#|/\*|\*|\*/)' \
+		| head -n 10 || true)
+	added_signals=$(printf '%s\n' "$diff" \
+		| grep -E '^\+[^+].*(validate|validation|Validate\(|assert|throw|ArgumentException|InvalidOperationException|BREAKING|breaking|no longer|removed|remove|deprecated|drop support|drop\b|compat)' \
+		| grep -Ev '^\+\s*(//|#|/\*|\*|\*/)' \
+		| head -n 10 || true)
 
-	if [ -n "${signals// /}" ]; then
-		printf '%s\n' 'Breaking-change hints: potential behavior/validation removal detected in staged diff (review for breaking changes):'
-		printf '%s\n' "$signals" | sed 's/^/- /'
+	if [ -n "${removed_signals// /}" ] && [ -z "${added_signals// /}" ]; then
+		printf '%s\n' 'Breaking-change hints: likely breaking (validation/guard removed or relaxed) detected in staged diff:'
+		printf '%s\n' "$removed_signals" | sed 's/^/- /'
+		return 0
+	fi
+	if [ -n "${removed_signals// /}" ] || [ -n "${added_signals// /}" ]; then
+		printf '%s\n' 'Breaking-change hints: potential behavior change detected in staged diff (could be a bugfix or could be breaking depending on the spec):'
+		if [ -n "${removed_signals// /}" ]; then
+			printf '%s\n' "$removed_signals" | sed 's/^/- removed: /'
+		fi
+		if [ -n "${added_signals// /}" ]; then
+			printf '%s\n' "$added_signals" | sed 's/^/- added: /'
+		fi
 		return 0
 	fi
 
@@ -635,6 +887,7 @@ Content requirements:
 - If multiple areas changed, group them; prioritize user-visible behavior changes and operational impact.
 - Call out CLI/API behavior changes, default behavior changes, and backwards compatibility.
 - IMPORTANT: If behavior changed in a way that could affect users (including relaxing/tightening validation, changing parsing, changing defaults, changing outputs, removing checks/guards, changing error handling), treat it as a breaking change unless you can justify compatibility.
+- If a change is clearly a bugfix that restores documented/spec-intended behavior, it may be non-breaking; still call out the behavior change in Summary/Why.
 - Breaking changes format rules (STRICT):
 	- If there are NO breaking changes, output exactly: Breaking changes: none
 	- If there ARE breaking changes, output:
@@ -642,9 +895,16 @@ Content requirements:
 		- <bullet 1>
 		- <bullet 2>
 		(Do NOT use Yes/No. Do NOT write 'Breaking changes: yes'.)
-- Include a short risk assessment; if nothing stands out, say: Risk: low
+- Include a short risk assessment using this policy:
+	- Risk: high if breaking changes were made (Breaking changes is a bullet list) OR tests failed.
+	- Risk: medium if potentially breaking changes are detected but not certain.
+	- Risk: low if changes are non-breaking and tests do not fail.
+- If the authoritative testing status is Testing: fail ..., set Risk: high.
+- If you output Breaking changes as a bullet list, set Risk: high.
 - For Testing, use the provided testing status EXACTLY (verbatim). Do not guess.
 - If tests failed, do NOT restate the failing test list anywhere except under the Testing section.
+- For breaking changes bullets, avoid hedging: do not use may or might; use definitive language.
+- For breaking changes bullets, be concrete: name what breaks in accordance with the project goals (e.g., which code patterns, assumptions, APIs, or config expectations). Avoid vague bullets like \"X will break\" without saying what X is or what it will break from the current behavior. Breaking changes can only be made with a decent idea of the goals of the project so be sure the goal is clear. This is often outlined in the .github/copilot-instructions.md or the workspace name/folder structure.
 
 Style requirements:
 - Subject line: imperative mood; concise and specific; aim for <= 72 characters when feasible.
