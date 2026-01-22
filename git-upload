@@ -901,6 +901,7 @@ Content requirements:
 	- Risk: low if changes are non-breaking and tests do not fail.
 - If the authoritative testing status is Testing: fail ..., set Risk: high.
 - If you output Breaking changes as a bullet list, set Risk: high.
+- If you are EVER UNSURE ABOUT IF CHANGES ARE BREAKING OR NOT, SET Risk: medium.
 - For Testing, use the provided testing status EXACTLY (verbatim). Do not guess.
 - If tests failed, do NOT restate the failing test list anywhere except under the Testing section.
 - For breaking changes bullets, avoid hedging: do not use may or might; use definitive language.
