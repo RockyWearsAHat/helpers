@@ -61,6 +61,222 @@ for arg in "$@"; do
 	esac
 done
 
+detect_test_cmd() {
+	local repo_root="$1"
+	if [ -z "${repo_root// /}" ]; then
+		repo_root="."
+	fi
+
+	# Priority:
+	#  1) Explicit env var (caller-controlled)
+	#  2) Per-repo git config
+	#  3) Repo-local test runner / Makefile
+	#  4) Simple heuristics for common stacks
+	if [ -n "${GIT_UPLOAD_TEST_CMD-}" ]; then
+		printf '%s' "$GIT_UPLOAD_TEST_CMD"
+		return 0
+	fi
+
+	local cfg_cmd
+	cfg_cmd=$(git config --get git-upload.testCmd 2>/dev/null || echo "")
+	if [ -n "${cfg_cmd// /}" ]; then
+		printf '%s' "$cfg_cmd"
+		return 0
+	fi
+
+	if [ -x "$repo_root/scripts/test.sh" ]; then
+		printf '%s' './scripts/test.sh'
+		return 0
+	fi
+
+	if { [ -f "$repo_root/Makefile" ] || [ -f "$repo_root/makefile" ]; } && command -v make >/dev/null 2>&1; then
+		local mk
+		mk=$([ -f "$repo_root/Makefile" ] && echo "$repo_root/Makefile" || echo "$repo_root/makefile")
+		if grep -qE '^test:' "$mk" 2>/dev/null; then
+			printf '%s' 'make test'
+			return 0
+		fi
+	fi
+
+	if [ -f "$repo_root/package.json" ] && command -v npm >/dev/null 2>&1; then
+		# If package.json exists, assume a test script likely exists.
+		printf '%s' 'npm test --silent'
+		return 0
+	fi
+
+	if { [ -f "$repo_root/pyproject.toml" ] || [ -f "$repo_root/pytest.ini" ] || [ -d "$repo_root/tests" ]; } && command -v pytest >/dev/null 2>&1; then
+		printf '%s' 'pytest -q'
+		return 0
+	fi
+
+	if [ -f "$repo_root/go.mod" ] && command -v go >/dev/null 2>&1; then
+		printf '%s' 'go test ./...'
+		return 0
+	fi
+
+	if [ -f "$repo_root/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
+		printf '%s' 'cargo test -q'
+		return 0
+	fi
+
+	if [ -f "$repo_root/pom.xml" ] && command -v mvn >/dev/null 2>&1; then
+		printf '%s' 'mvn test -q'
+		return 0
+	fi
+
+	if [ -x "$repo_root/gradlew" ]; then
+		printf '%s' './gradlew test -q'
+		return 0
+	fi
+	if { [ -f "$repo_root/build.gradle" ] || [ -f "$repo_root/build.gradle.kts" ]; } && command -v gradle >/dev/null 2>&1; then
+		printf '%s' 'gradle test -q'
+		return 0
+	fi
+
+	return 1
+}
+
+summarize_test_output() {
+	# Args:
+	#  1) test_cmd
+	#  2) exit_code
+	#  3) path to output file
+	local test_cmd="$1"
+	local exit_code="$2"
+	local output_file="$3"
+
+	local status
+	if [ "$exit_code" -eq 0 ]; then
+		status='pass'
+	else
+		status='fail'
+	fi
+
+	# If the runner emitted a machine-parseable summary, prefer it.
+	# Format:
+	#   TEST_SUMMARY: pass 7/7
+	#   TEST_SUMMARY: fail 2/7
+	#   TEST_FAIL: <name>
+	local summary_line
+	summary_line=$(grep '^TEST_SUMMARY: ' "$output_file" | tail -n 1 || true)
+	if [ -n "${summary_line// /}" ]; then
+		local sum_status
+		local sum_counts
+		sum_status=$(printf '%s\n' "$summary_line" | awk '{print $2}')
+		sum_counts=$(printf '%s\n' "$summary_line" | awk '{print $3}')
+		if [ -n "${sum_status// /}" ] && [ -n "${sum_counts// /}" ]; then
+			local header="Testing: ${sum_status} (${sum_counts})"
+			if [ "$sum_status" = "fail" ]; then
+				local sum_failures
+				sum_failures=$(grep '^TEST_FAIL: ' "$output_file" | sed 's/^TEST_FAIL: //' | head -n 10)
+				if [ -n "${sum_failures// /}" ]; then
+					printf '%s\n' "$header"
+					printf '%s\n' "$sum_failures" | sed 's/^/- /'
+					return 0
+				fi
+			fi
+			printf '%s' "$header"
+			return 0
+		fi
+	fi
+
+	local passed=""
+	local failed=""
+	local total=""
+	local count_suffix=""
+	local failures=""
+
+	case "$test_cmd" in
+		pytest*)
+			passed=$(grep -Eo '[0-9]+ passed' "$output_file" | tail -n 1 | awk '{print $1}')
+			failed=$(grep -Eo '[0-9]+ failed' "$output_file" | tail -n 1 | awk '{print $1}')
+			if [ -n "$passed" ] || [ -n "$failed" ]; then
+				local p=${passed:-0}
+				local f=${failed:-0}
+				total=$((p + f))
+				if [ "$total" -gt 0 ]; then
+					if [ "$status" = "pass" ]; then
+						count_suffix=" ($passed/$total)"
+					else
+						count_suffix=" ($failed/$total)"
+					fi
+				fi
+			fi
+			if [ "$status" = "fail" ]; then
+				failures=$(grep '^FAILED ' "$output_file" | sed 's/^FAILED //' | head -n 10)
+			fi
+			;;
+		"npm test"*|"npm test --silent"*)
+			# Jest and many JS runners print a "Tests:" summary; best-effort parse.
+			# Example: "Tests:       2 failed, 3 passed, 5 total"
+			local tests_line
+			tests_line=$(grep -E '^Tests:' "$output_file" | tail -n 1 || true)
+			if [ -n "$tests_line" ]; then
+				failed=$(printf '%s\n' "$tests_line" | grep -Eo '[0-9]+ failed' | awk '{print $1}' | tail -n 1)
+				passed=$(printf '%s\n' "$tests_line" | grep -Eo '[0-9]+ passed' | awk '{print $1}' | tail -n 1)
+				total=$(printf '%s\n' "$tests_line" | grep -Eo '[0-9]+ total' | awk '{print $1}' | tail -n 1)
+				if [ -n "$total" ]; then
+					if [ "$status" = "pass" ] && [ -n "$passed" ]; then
+						count_suffix=" ($passed/$total)"
+					elif [ "$status" = "fail" ] && [ -n "$failed" ]; then
+						count_suffix=" ($failed/$total)"
+					fi
+				fi
+			fi
+			if [ "$status" = "fail" ]; then
+				# Jest prints failing suites as: "FAIL  path/to/test"
+				failures=$(grep -E '^FAIL\s+' "$output_file" | sed -E 's/^FAIL\s+//' | head -n 10)
+			fi
+			;;
+		*)
+			# Unknown runner; keep it simple.
+			;;
+	esac
+
+	local header="Testing: ${status}${count_suffix}"
+	if [ "$status" = "fail" ] && [ -n "${failures// /}" ]; then
+		printf '%s\n' "$header"
+		printf '%s\n' "$failures" | sed 's/^/- /'
+		return 0
+	fi
+
+	printf '%s' "$header"
+}
+
+compute_testing_status() {
+	local repo_root
+	repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+	if [ -z "${repo_root// /}" ]; then
+		printf '%s' 'Testing: not configured'
+		return 0
+	fi
+
+	local test_cmd
+	if ! test_cmd=$(detect_test_cmd "$repo_root"); then
+		printf '%s' 'Testing: not configured'
+		return 0
+	fi
+
+	echo "[git-upload] Running test command (from repo root): $test_cmd" >&2
+
+	local tmp
+	tmp=$(mktemp -t git-upload-tests.XXXXXX)
+	local exit_code=0
+
+	# Don't let test failures abort the script under set -e.
+	if (cd "$repo_root" && eval "$test_cmd") >"$tmp" 2>&1; then
+		exit_code=0
+	else
+		exit_code=$?
+	fi
+
+	local summary
+	summary=$(summarize_test_output "$test_cmd" "$exit_code" "$tmp")
+	rm -f "$tmp" >/dev/null 2>&1 || true
+
+	printf '%s' "$summary"
+}
+
 generate_ai_message() {
 	local ai_cmd
 
@@ -79,6 +295,9 @@ generate_ai_message() {
 		return 1
 	fi
 
+	local testing_status
+	testing_status=$(compute_testing_status)
+
 	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
 Your job:
@@ -91,7 +310,7 @@ Content requirements:
 - Call out CLI/API behavior changes, default behavior changes, and backwards compatibility.
 - If applicable, include migration steps; otherwise explicitly say: Breaking changes: none
 - Include a short risk assessment; if nothing stands out, say: Risk: low
-- Include Testing; if you cannot confirm tests were run, say: Testing: not provided
+- For Testing, use the provided testing status EXACTLY (verbatim). Do not guess.
 
 Style requirements:
 - Subject line: imperative mood; concise and specific; aim for <= 72 characters when feasible.
@@ -113,11 +332,14 @@ Why:
 - <motivation/problem addressed>
 Breaking changes: <none|describe>
 Risk: <low|medium|high> (<short rationale>)
-Testing: <not provided|describe>
+Testing: <use the provided testing status verbatim>
 "
 	local effective_prompt
 
-	effective_prompt="$default_prompt"
+	effective_prompt="$default_prompt
+
+Authoritative testing status (use verbatim in the commit message):
+$testing_status"
 	if [ -n "$ai_extra_context" ]; then
 		effective_prompt="$effective_prompt
 

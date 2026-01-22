@@ -96,6 +96,7 @@ install_all() {
         echo "  - GitHub CLI: https://cli.github.com/" >&2
         echo "  - GitHub Copilot CLI: https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli" >&2
       fi
+      fi
   fi
 
   echo "[Git-Shell-Helpers-Installer] Done. Open a new terminal or run:"
