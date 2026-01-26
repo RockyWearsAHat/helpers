@@ -1,0 +1,1177 @@
+#!/bin/zsh
+
+# git-copilot-quickstart
+#
+# Usage:
+#   git-copilot-quickstart [project-name] [--minimal]
+#
+# Behaviour:
+#   - Sets up GitHub Copilot self-iteration workflow for a repository
+#   - Creates .github/ directory structure with agents, instructions, and templates
+#   - Auto-detects project type and customizes templates accordingly
+#   - Generates Plan and Implement agents for structured AI-assisted development
+#
+# Options:
+#   --minimal   Create only essential files (copilot-instructions.md, plan.md, bugs.md)
+#   --force     Overwrite existing .github/ files without prompting
+#
+# The generated structure enables a two-agent workflow:
+#   @Plan  - Research, diagnose, write executable code plans
+#   @Implement - Execute plans step-by-step with TDD discipline
+
+set -euo pipefail
+
+# Selected model (will be set by select_model function)
+SELECTED_MODEL=""
+SELECTED_MODEL_DISPLAY=""
+
+# Fallback models if API fetch fails
+FALLBACK_MODELS=(
+	"claude-sonnet-4|Claude Sonnet 4"
+	"gpt-4.1|GPT-4.1"
+	"gpt-4o|GPT-4o"
+	"o3-mini|o3-mini"
+)
+
+# Fetch available Copilot models from GitHub API
+fetch_copilot_models() {
+	local token=""
+	local models_json=""
+	
+	# Try to get GitHub token from gh CLI
+	if command -v gh &>/dev/null; then
+		token=$(gh auth token 2>/dev/null || echo "")
+	fi
+	
+	# Try environment variables if gh CLI didn't work
+	if [ -z "$token" ]; then
+		token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+	fi
+	
+	if [ -z "$token" ]; then
+		echo "[git-copilot-quickstart] Warning: No GitHub token found. Using fallback model list." >&2
+		echo "[git-copilot-quickstart] Run 'gh auth login' for live model list." >&2
+		return 1
+	fi
+	
+	# Fetch models from GitHub Copilot API
+	models_json=$(curl -s -f \
+		-H "Authorization: Bearer $token" \
+		-H "Accept: application/json" \
+		-H "Copilot-Integration-Id: vscode-chat" \
+		-H "Editor-Version: vscode/1.96.0" \
+		"https://api.githubcopilot.com/models" 2>/dev/null) || {
+		echo "[git-copilot-quickstart] Warning: Failed to fetch models from API. Using fallback list." >&2
+		return 1
+	}
+	
+	# Check if we got valid JSON with models
+	if ! echo "$models_json" | grep -q '"models"'; then
+		echo "[git-copilot-quickstart] Warning: Invalid API response. Using fallback list." >&2
+		return 1
+	fi
+	
+	echo "$models_json"
+	return 0
+}
+
+# Parse models JSON and populate arrays
+parse_models() {
+	local json="$1"
+	
+	# Clear arrays
+	MODEL_IDS=()
+	MODEL_NAMES=()
+	MODEL_VENDORS=()
+	MODEL_CAPABILITIES=()
+	
+	# Use Python/jq to parse JSON if available, otherwise basic parsing
+	if command -v python3 &>/dev/null; then
+		# Python parsing for reliable JSON handling
+		# Pass JSON via stdin to avoid shell injection from untrusted API responses
+		eval "$(printf '%s' "$json" | python3 -c '
+import json
+import sys
+
+try:
+    data = json.loads(sys.stdin.read())
+    models = data.get("models", [])
+    
+    # Filter for chat-capable models
+    chat_models = [m for m in models if "chat" in m.get("capabilities", [])]
+    
+    # Sort: recommended first, then by name
+    def sort_key(m):
+        is_default = m.get("is_default", False)
+        name = m.get("name", "")
+        return (not is_default, name.lower())
+    
+    chat_models.sort(key=sort_key)
+    
+    ids = []
+    names = []
+    vendors = []
+    caps = []
+    
+    for m in chat_models:
+        ids.append(m.get("id", ""))
+        names.append(m.get("name", m.get("id", "")))
+        vendors.append(m.get("vendor", ""))
+        caps.append(",".join(m.get("capabilities", [])))
+    
+    # Output as zsh array assignments with proper shell escaping
+    def shell_escape(s):
+        """Escape string for safe use in shell double quotes"""
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$").replace("`", "\\`")
+    
+    print("MODEL_IDS=(" + " ".join(f"\"{shell_escape(i)}\"" for i in ids) + ")")
+    print("MODEL_NAMES=(" + " ".join(f"\"{shell_escape(n)}\"" for n in names) + ")")
+    print("MODEL_VENDORS=(" + " ".join(f"\"{shell_escape(v)}\"" for v in vendors) + ")")
+    print("MODEL_CAPABILITIES=(" + " ".join(f"\"{shell_escape(c)}\"" for c in caps) + ")")
+except Exception as e:
+    print(f"# Parse error: {e}", file=sys.stderr)
+    sys.exit(1)
+' 2>/dev/null)"
+		return $?
+	elif command -v jq &>/dev/null; then
+		# jq parsing as fallback
+		local model_data
+		model_data=$(echo "$json" | jq -r '
+			.models 
+			| map(select(.capabilities | contains(["chat"])))
+			| sort_by(if .is_default then 0 else 1 end, .name)
+			| .[] 
+			| "\(.id)|\(.name)|\(.vendor)|\(.capabilities | join(","))"
+		' 2>/dev/null) || return 1
+		
+		while IFS='|' read -r id name vendor caps; do
+			MODEL_IDS+=("$id")
+			MODEL_NAMES+=("$name")
+			MODEL_VENDORS+=("$vendor")
+			MODEL_CAPABILITIES+=("$caps")
+		done <<< "$model_data"
+		return 0
+	fi
+	
+	return 1
+}
+
+# Interactive arrow-key selector
+# Usage: interactive_select "prompt" array_of_options
+# Returns: selected index (1-based) in SELECTED_INDEX
+interactive_select() {
+	local prompt="$1"
+	shift
+	local options=("$@")
+	local num_options=${#options[@]}
+	local selected=1
+	local default_idx=1
+	
+	# Find default/recommended option (first one, or one marked with ⭐)
+	for i in {1..$num_options}; do
+		if [[ "${options[$i]}" == *"⭐"* ]] || [[ "${options[$i]}" == *"(default)"* ]]; then
+			selected=$i
+			default_idx=$i
+			break
+		fi
+	done
+	
+	# Hide cursor
+	tput civis 2>/dev/null || true
+	
+	# Trap to restore cursor on exit
+	trap 'tput cnorm 2>/dev/null || true; trap - INT TERM EXIT' INT TERM EXIT
+	
+	# Print header
+	echo ""
+	echo "$prompt"
+	echo ""
+	
+	# Save cursor position for redrawing
+	local start_row
+	start_row=$(tput lines 2>/dev/null || echo 24)
+	
+	# Function to draw options
+	draw_options() {
+		# Move cursor up to redraw
+		for ((i = 1; i <= num_options; i++)); do
+			tput cuu1 2>/dev/null || printf '\033[1A'
+		done
+		tput cr 2>/dev/null || printf '\r'
+		
+		for i in {1..$num_options}; do
+			# Clear line
+			tput el 2>/dev/null || printf '\033[K'
+			
+			if [ "$i" -eq "$selected" ]; then
+				# Highlighted option
+				printf "  \033[7m → %s \033[0m\n" "${options[$i]}"
+			else
+				printf "    %s\n" "${options[$i]}"
+			fi
+		done
+	}
+	
+	# Initial draw
+	for i in {1..$num_options}; do
+		if [ "$i" -eq "$selected" ]; then
+			printf "  \033[7m → %s \033[0m\n" "${options[$i]}"
+		else
+			printf "    %s\n" "${options[$i]}"
+		fi
+	done
+	
+	# Read input
+	while true; do
+		# Read single character (including escape sequences)
+		local key
+		IFS= read -rsn1 key
+		
+		case "$key" in
+			$'\x1b')
+				# Escape sequence - read more
+				read -rsn2 -t 0.1 key2 || true
+				case "$key2" in
+					'[A') # Up arrow
+						if [ "$selected" -gt 1 ]; then
+							((selected--))
+							draw_options
+						fi
+						;;
+					'[B') # Down arrow
+						if [ "$selected" -lt "$num_options" ]; then
+							((selected++))
+							draw_options
+						fi
+						;;
+				esac
+				;;
+			'k'|'K') # Vim up
+				if [ "$selected" -gt 1 ]; then
+					((selected--))
+					draw_options
+				fi
+				;;
+			'j'|'J') # Vim down
+				if [ "$selected" -lt "$num_options" ]; then
+					((selected++))
+					draw_options
+				fi
+				;;
+			'') # Enter key
+				break
+				;;
+			'q'|'Q') # Quit - use default
+				selected=$default_idx
+				break
+				;;
+			[1-9]) # Number key for quick selection
+				if [ "$key" -le "$num_options" ]; then
+					selected=$key
+					draw_options
+				fi
+				;;
+		esac
+	done
+	
+	# Restore cursor
+	tput cnorm 2>/dev/null || true
+	trap - INT TERM EXIT
+	
+	SELECTED_INDEX=$selected
+}
+
+select_model() {
+	echo ""
+	echo "┌───────────────────────────────────────────────────────────────────┐"
+	echo "│              Select Copilot Model for Agents                      │"
+	echo "├───────────────────────────────────────────────────────────────────┤"
+	echo "│  Use ↑/↓ arrows (or j/k) to navigate, Enter to select            │"
+	echo "└───────────────────────────────────────────────────────────────────┘"
+	
+	# Try to fetch models from API
+	local models_json
+	local use_api=false
+	
+	echo ""
+	echo "  Fetching available models from GitHub Copilot..."
+	
+	if models_json=$(fetch_copilot_models); then
+		if parse_models "$models_json"; then
+			use_api=true
+			echo "  ✓ Found ${#MODEL_IDS[@]} models"
+		fi
+	fi
+	
+	# Use fallback if API failed
+	if [ "$use_api" = false ]; then
+		echo "  Using fallback model list"
+		MODEL_IDS=()
+		MODEL_NAMES=()
+		MODEL_VENDORS=()
+		for entry in "${FALLBACK_MODELS[@]}"; do
+			MODEL_IDS+=("${entry%%|*}")
+			MODEL_NAMES+=("${entry#*|}")
+			MODEL_VENDORS+=("")
+		done
+	fi
+	
+	# Build display options
+	local display_options=()
+	for i in {1..${#MODEL_IDS[@]}}; do
+		local id="${MODEL_IDS[$i]}"
+		local name="${MODEL_NAMES[$i]}"
+		local vendor="${MODEL_VENDORS[$i]}"
+		
+		local display="$name"
+		if [ -n "$vendor" ]; then
+			display="$name ($vendor)"
+		fi
+		
+		# Mark first option as default/recommended
+		if [ "$i" -eq 1 ] && [ "$use_api" = true ]; then
+			display="⭐ $display (recommended)"
+		fi
+		
+		display_options+=("$display")
+	done
+	
+	# Check if we're in an interactive terminal
+	if [ -t 0 ] && [ -t 1 ]; then
+		# Interactive mode - use arrow key selector
+		interactive_select "  Available models:" "${display_options[@]}"
+		local selection=$SELECTED_INDEX
+	else
+		# Non-interactive - just use first option
+		echo ""
+		echo "  Non-interactive mode, using default: ${MODEL_NAMES[1]}"
+		local selection=1
+	fi
+	
+	# Set selected model
+	SELECTED_MODEL="${MODEL_IDS[$selection]}"
+	SELECTED_MODEL_DISPLAY="${MODEL_NAMES[$selection]}"
+	
+	echo ""
+	echo "  ✓ Selected: $SELECTED_MODEL_DISPLAY"
+	echo ""
+}
+
+# Parse arguments
+project_name=""
+minimal_mode=false
+force_mode=false
+skip_model_select=false
+
+for arg in "$@"; do
+	case "$arg" in
+		--minimal)
+			minimal_mode=true
+			;;
+		--force)
+			force_mode=true
+			;;
+		--help|-h)
+			echo "Usage: git-copilot-quickstart [project-name] [--minimal] [--force]"
+			echo ""
+			echo "Sets up GitHub Copilot self-iteration workflow for a repository."
+			echo ""
+			echo "Options:"
+			echo "  --minimal   Create only essential files"
+			echo "  --force     Overwrite existing files without prompting"
+			echo ""
+			echo "Examples:"
+			echo "  git-copilot-quickstart                    # Auto-detect project name"
+			echo "  git-copilot-quickstart \"My Project\"       # Specify project name"
+			echo "  git-copilot-quickstart --minimal          # Minimal setup"
+			exit 0
+			;;
+		-*)
+			echo "[git-copilot-quickstart] Unknown option: $arg" >&2
+			exit 1
+			;;
+		*)
+			if [ -z "$project_name" ]; then
+				project_name="$arg"
+			fi
+			;;
+	esac
+done
+
+# Ensure we're in a git repository
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+	echo "[git-copilot-quickstart] Error: Not in a git repository." >&2
+	echo "[git-copilot-quickstart] Run 'git init' first or navigate to a git repository." >&2
+	exit 1
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+cd "$repo_root"
+
+# Auto-detect project name from directory or git remote
+if [ -z "$project_name" ]; then
+	# Try to get from git remote
+	remote_url=$(git remote get-url origin 2>/dev/null || echo "")
+	if [ -n "$remote_url" ]; then
+		project_name=$(basename "$remote_url" .git)
+	else
+		project_name=$(basename "$repo_root")
+	fi
+fi
+
+echo "[git-copilot-quickstart] Setting up Copilot workflow for: $project_name"
+
+# Check for existing .github directory
+if [ -d ".github" ] && [ "$force_mode" = false ]; then
+	echo "[git-copilot-quickstart] .github/ directory already exists."
+	echo -n "Merge with existing files? [y/N] "
+	read -r response
+	if [[ ! "$response" =~ ^[Yy]$ ]]; then
+		echo "[git-copilot-quickstart] Aborted."
+		exit 0
+	fi
+fi
+
+# Detect project type and language
+detect_project_type() {
+	local lang=""
+	local framework=""
+	local build_cmd=""
+	local test_cmd=""
+
+	# Check for various project indicators
+	if [ -f "Cargo.toml" ]; then
+		lang="Rust"
+		build_cmd="cargo build"
+		test_cmd="cargo test"
+	elif [ -f "go.mod" ]; then
+		lang="Go"
+		build_cmd="go build ./..."
+		test_cmd="go test ./..."
+	elif [ -f "package.json" ]; then
+		lang="JavaScript/TypeScript"
+		if grep -q '"react"' package.json 2>/dev/null; then
+			framework="React"
+		elif grep -q '"vue"' package.json 2>/dev/null; then
+			framework="Vue"
+		elif grep -q '"next"' package.json 2>/dev/null; then
+			framework="Next.js"
+		fi
+		build_cmd="npm run build"
+		test_cmd="npm test"
+	elif [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "requirements.txt" ]; then
+		lang="Python"
+		test_cmd="pytest"
+	elif [ -f "CMakeLists.txt" ]; then
+		lang="C/C++"
+		build_cmd="cmake --build build"
+		test_cmd="ctest --test-dir build"
+	elif [ -f "Makefile" ] || [ -f "makefile" ]; then
+		lang="Make-based"
+		build_cmd="make"
+		if grep -qE '^test:' Makefile makefile 2>/dev/null; then
+			test_cmd="make test"
+		fi
+	elif [ -f "pom.xml" ]; then
+		lang="Java (Maven)"
+		build_cmd="mvn compile"
+		test_cmd="mvn test"
+	elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+		lang="Java/Kotlin (Gradle)"
+		build_cmd="./gradlew build"
+		test_cmd="./gradlew test"
+	elif find . -maxdepth 1 -name '*.sln' -print -quit 2>/dev/null | grep -q . || \
+	     find . -maxdepth 2 -name '*.csproj' -print -quit 2>/dev/null | grep -q .; then
+		lang="C# (.NET)"
+		build_cmd="dotnet build"
+		test_cmd="dotnet test"
+	elif [ -f "mix.exs" ]; then
+		lang="Elixir"
+		build_cmd="mix compile"
+		test_cmd="mix test"
+	elif [ -f "Gemfile" ]; then
+		lang="Ruby"
+		test_cmd="bundle exec rspec"
+	else
+		# Check for shell scripts
+		if find . -maxdepth 1 -name '*.sh' -print -quit 2>/dev/null | grep -q .; then
+			lang="Shell"
+		fi
+	fi
+
+	# Return values via global variables (zsh-compatible)
+	DETECTED_LANG="${lang:-Unknown}"
+	DETECTED_FRAMEWORK="${framework}"
+	DETECTED_BUILD_CMD="${build_cmd}"
+	DETECTED_TEST_CMD="${test_cmd}"
+}
+
+detect_project_type
+
+echo "[git-copilot-quickstart] Detected: $DETECTED_LANG${DETECTED_FRAMEWORK:+ ($DETECTED_FRAMEWORK)}"
+
+# Select model for agents
+select_model
+
+# Create directory structure
+mkdir -p .github/agents
+mkdir -p .github/instructions
+
+if [ "$minimal_mode" = false ]; then
+	mkdir -p .github/workflows
+fi
+
+# Helper to write file only if it doesn't exist or force mode
+write_file() {
+	local filepath="$1"
+	local content="$2"
+	
+	if [ -f "$filepath" ] && [ "$force_mode" = false ]; then
+		echo "[git-copilot-quickstart] Skipping existing: $filepath"
+		return
+	fi
+	
+	echo "$content" > "$filepath"
+	echo "[git-copilot-quickstart] Created: $filepath"
+}
+
+# Generate copilot-instructions.md
+generate_copilot_instructions() {
+	local build_section=""
+	local test_section=""
+	
+	if [ -n "$DETECTED_BUILD_CMD" ]; then
+		build_section="- Build: \`$DETECTED_BUILD_CMD\`"
+	fi
+	if [ -n "$DETECTED_TEST_CMD" ]; then
+		test_section="- Test: \`$DETECTED_TEST_CMD\`"
+	fi
+
+	cat <<EOF
+\`\`\`instructions
+# $project_name — Copilot Instructions
+
+This file is intentionally short. Detailed guidance lives in \`.github/instructions/\`.
+
+## Model Selection
+
+- **Default model**: GPT-4.1 (general tasks, documentation, code review)
+- **Plan agent** (\`@Plan\`): Claude Opus 4.5 (complex research and planning)
+- **Implement agent** (\`@Implement\`): Raptor Mini (execution and implementation)
+
+## Agents
+
+- **\`@Plan\`** — Diagnose → Write EXACT CODE to \`.github/plan.md\`. Never implements directly.
+- **\`@Implement\`** — Execute \`.github/plan.md\` step-by-step. Never improvises or interprets.
+
+**Workflow:** User request → \`@Plan\` (diagnose + write code plan) → \`@Implement\` (execute exactly)
+
+## Golden Rules
+
+1. **Documentation-first TDD**: update docs/spec → write tests that mirror the docs → implement.
+2. **Spec-driven development**: prefer official documentation and project docs over assumptions.
+3. **No hacks**: avoid shortcuts that compromise maintainability or correctness.
+4. **Keep code clean**: small diffs, clear names, consistent style, and documentation updates.
+5. **Clean only after user verification**: once the user confirms the issue is solved, clean workspace artifacts.
+6. **Plans contain CODE**: \`@Plan\` writes exact code blocks, not prose. \`@Implement\` copy-pastes.
+
+## Canonical Docs (read first)
+
+- \`.github/instructions/memory.md\` — living "memory" of the codebase (update alongside changes)
+- \`.github/instructions/tdd.md\` — documentation-first TDD workflow (tests mirror docs)
+- \`.github/instructions/workspace-hygiene.md\` — what to delete, when to delete it
+- \`.github/instructions/code-style.md\` — conventions and style guide
+
+## Build / Test
+
+${build_section:-"- Build: (configure based on project)"}
+${test_section:-"- Test: (configure based on project)"}
+
+## Cleanup
+
+- Remove build artifacts before committing large changes
+- Keep logs and debug output out of version control
+- Run cleanup only after user verification
+
+\`\`\`
+EOF
+}
+
+# Generate Plan agent
+generate_plan_agent() {
+	cat <<EOF
+\`\`\`\`\`chatagent
+---
+name: plan
+description: "Research, diagnose, and create executable code plans."
+model: $SELECTED_MODEL
+tools:
+  - search/codebase
+  - web/fetch
+  - search/usages
+  - search
+  - read/terminalLastCommand
+  - execute/getTerminalOutput
+  - execute/runInTerminal
+  - edit/editFiles
+  - read/terminalSelection
+  - read/problems
+  - agent
+---
+
+# EDITING POLICY
+
+You MAY update this agent file if you discover workflow improvements. You may also edit files for troubleshooting or diagnosis, but keep changes MINIMAL. Your MAIN output should be to \`.github/plan.md\`.
+
+# Plan Agent
+
+You are a **research and planning specialist**. Your ONLY outputs are:
+
+1. Investigation of the bugs.md file and subsequent clearing after diagnostics & plan formulation
+2. Diagnostic test results (running builds/tests to understand the problem)
+3. A complete plan written to \`.github/plan.md\` with **EXACT CODE BLOCKS**
+
+#instructions ../instructions/memory.md
+#instructions ../instructions/tdd.md
+#instructions ../instructions/code-style.md
+
+---
+
+## PHASE 1: INVESTIGATE WITH BUGS.MD
+
+1. Read the entire \`.github/bugs.md\` file to understand reported issues.
+2. Extract all relevant information: symptoms, reproduction steps, observed vs expected behavior.
+3. Identify gaps in information that need filling before planning a fix.
+4. Make minimal code edits if necessary for diagnosis (logging, test hooks).
+5. Complete Phases 2-4 until root cause is understood.
+6. After completion, CLEAR bugs.md and point to the written plan.
+
+## PHASE 2: DIAGNOSE (Parallel Context Gathering)
+
+Spawn **AS MANY** subagents as helpful for maximum efficiency:
+
+\`\`\`
+@agent("Gather context from files matching: <patterns>")
+@agent("Search codebase for symbol: <name>")
+@agent("Run build — capture errors")
+@agent("Run tests — capture failures")
+\`\`\`
+
+**Mandatory reads:**
+- \`.github/instructions/memory.md\` — architecture overview
+- Relevant documentation and specs
+- Relevant test files — existing coverage
+
+---
+
+## PHASE 3: PLAN (Write Executable Code to plan.md)
+
+Write to \`.github/plan.md\` using this **STRICT FORMAT**:
+
+\`\`\`\`markdown
+# Plan: [Title]
+
+**Status:** 🔴 NOT STARTED
+**Goal:** [One sentence describing the outcome]
+
+---
+
+## Context
+
+[Root cause analysis, what exists, what's broken]
+
+---
+
+## Steps
+
+### Step 1: [Brief description] — \\\`path/to/file.ext\\\`
+
+**Operation:** \\\`REPLACE\\\` | \\\`INSERT_AFTER\\\` | \\\`INSERT_BEFORE\\\` | \\\`DELETE\\\` | \\\`CREATE_FILE\\\`
+
+**Anchor:**
+\\\`\\\`\\\`
+<exact text to find>
+\\\`\\\`\\\`
+
+**Code:**
+\\\`\\\`\\\`lang
+<exact code to insert/replace>
+\\\`\\\`\\\`
+
+**Verify:** \\\`<command to verify this step>\\\`
+\`\`\`\`
+
+---
+
+## PHASE 4: FINALIZE
+
+1. Ensure every step has:
+   - Exact file path
+   - Operation type
+   - Anchor text (for REPLACE/INSERT)
+   - Complete code block
+   - Verification command
+
+2. Clear \`.github/bugs.md\` and note that plan is ready.
+
+\`\`\`\`\`
+EOF
+}
+
+# Generate Implement agent
+generate_implement_agent() {
+	cat <<EOF
+\`\`\`\`chatagent
+---
+name: implement
+description: "Execute plans from plan.md with documentation-first TDD discipline."
+model: $SELECTED_MODEL
+tools:
+  - edit/editFiles
+  - search/codebase
+  - read/terminalLastCommand
+  - execute/getTerminalOutput
+  - execute/runInTerminal
+  - read/terminalSelection
+  - read/problems
+  - search/usages
+  - todo
+  - agent
+---
+
+# Implement Agent
+
+You are a **precise execution machine**. Your ONLY job:
+
+1. Read \`.github/plan.md\`
+2. **Execute EVERY step** exactly as written
+3. **Verify each step**
+4. Report completion or errors
+
+#instructions ../instructions/memory.md
+#instructions ../instructions/tdd.md
+#instructions ../instructions/code-style.md
+
+---
+
+## STARTUP SEQUENCE (MANDATORY)
+
+\`\`\`
+1. READ \`.github/plan.md\` — understand full scope
+2. CREATE todo list from ALL steps using manage_todo_list
+3. BEGIN execution loop
+\`\`\`
+
+**If plan.md is empty or missing:** STOP and tell user to run \`@Plan\` first.
+
+---
+
+## EXECUTION LOOP
+
+\`\`\`
+FOR each step in plan.md:
+    1. Mark step IN-PROGRESS in todos
+    2. Apply the code change EXACTLY as written
+    3. Run verification command from the step
+    4. If PASS: Mark COMPLETE, continue
+    5. If FAIL: Attempt self-fix (1 try), else STOP and report
+
+AFTER all steps:
+    1. Run full test suite
+    2. Mark plan status as 🟢 COMPLETE
+    3. Report to user
+\`\`\`
+
+---
+
+## PARALLEL EXECUTION
+
+For **independent steps** (no dependencies), spawn subagents:
+
+\`\`\`
+@agent("Apply Step 3: [description] to [file]")
+@agent("Apply Step 4: [description] to [file]")
+\`\`\`
+
+**Dependency rules:**
+- Header/interface changes → BEFORE implementation changes
+- Test file changes → can parallel with implementation
+- Documentation changes → can parallel with any code
+
+---
+
+## CODE APPLICATION
+
+### REPLACE Operation
+Find the anchor text exactly, replace with new code.
+
+### INSERT_AFTER Operation
+Find anchor, insert new code immediately after.
+
+### INSERT_BEFORE Operation
+Find anchor, insert new code immediately before.
+
+### CREATE_FILE Operation
+Create new file with exact content.
+
+### DELETE Operation
+Find anchor text, remove it.
+
+---
+
+## VERIFICATION
+
+After each step:
+1. Run the verification command specified in the step
+2. Check for compile/lint errors
+3. If errors, attempt ONE self-fix
+4. If still failing, STOP and report with full context
+
+---
+
+## COMPLETION
+
+When all steps are done:
+1. Run full build/test suite
+2. Update plan.md status to 🟢 COMPLETE
+3. Summarize what was done
+4. Note any follow-up items
+
+\`\`\`\`
+EOF
+}
+
+# Generate memory.md template
+generate_memory() {
+	cat <<EOF
+\`\`\`markdown
+# $project_name — Living Codebase Notes
+
+This file is the **living memory** for this repository.
+
+Goal: keep a compact, accurate, _high-signal_ reference so future work does **not** require repeatedly rescanning the entire tree.
+
+## One-paragraph overview
+
+[Describe what this project does in 2-3 sentences]
+
+## Top-level layout
+
+- \`src/\` — source code
+- \`tests/\` — test suite
+- \`docs/\` — documentation
+- [Add other key directories]
+
+## Build system
+
+[Describe how to build the project]
+
+## Key subsystems
+
+[List and briefly describe the main components/modules]
+
+## Tests
+
+[Describe the testing approach and key test files]
+
+## Known issues / TODOs
+
+[Track ongoing work items here]
+
+\`\`\`
+EOF
+}
+
+# Generate TDD instructions
+generate_tdd() {
+	cat <<'EOF'
+```markdown
+# Documentation-First TDD (Spec → Tests → Implementation)
+
+This project's correctness and maintainability depend on treating **documentation as the primary spec**.
+
+## The Rule
+
+1. **Write/Update documentation first** (what the system must do).
+2. **Write tests that mirror the documentation** (not current behavior).
+3. **Implement** until tests pass.
+4. **Refactor** while keeping tests green.
+
+If documentation is incomplete, write the missing spec _before_ writing tests.
+
+## Workflow Checklist
+
+### 1) Spec (docs)
+
+- Identify the rule you're implementing.
+- Cite source material if applicable.
+- Define: inputs, outputs, edge cases.
+
+### 2) Tests (mirror docs)
+
+- Add tests that encode the spec.
+- Prefer small, deterministic tests.
+- Make tests independent.
+
+**Important:** do not "lock in" current bugs. If current behavior contradicts the spec, the test should assert the spec.
+
+### 3) Implementation
+
+- Implement the smallest change to satisfy the test.
+- Keep changes local and avoid refactoring unrelated code.
+
+### 4) Verification and cleanup
+
+- Run targeted tests first, then expand.
+- Only after user confirms the problem is solved: run cleanup.
+
+## Test Naming
+
+Use descriptive test names like:
+- `Feature_Scenario_ExpectedBehavior`
+- `ClassName_MethodName_ConditionAndResult`
+
+```
+EOF
+}
+
+# Generate code style
+generate_code_style() {
+	local lang_specific=""
+	
+	case "$DETECTED_LANG" in
+		"JavaScript/TypeScript")
+			lang_specific="
+## Language-Specific (JavaScript/TypeScript)
+
+- Use TypeScript for new code when possible.
+- Prefer \`const\` over \`let\`, avoid \`var\`.
+- Use async/await over raw promises.
+- Prefer named exports over default exports."
+			;;
+		"Python")
+			lang_specific="
+## Language-Specific (Python)
+
+- Follow PEP 8 style guidelines.
+- Use type hints for function signatures.
+- Prefer f-strings for string formatting.
+- Use \`pathlib\` for file path operations."
+			;;
+		"Rust")
+			lang_specific="
+## Language-Specific (Rust)
+
+- Run \`cargo fmt\` before committing.
+- Run \`cargo clippy\` and address warnings.
+- Prefer \`Result\` over panics for error handling.
+- Document public APIs with doc comments."
+			;;
+		"Go")
+			lang_specific="
+## Language-Specific (Go)
+
+- Run \`gofmt\` before committing.
+- Handle errors explicitly, don't ignore them.
+- Use meaningful package names.
+- Keep functions focused and testable."
+			;;
+		"C/C++")
+			lang_specific="
+## Language-Specific (C/C++)
+
+- Use consistent naming conventions (snake_case or CamelCase).
+- Prefer smart pointers over raw pointers.
+- Include guards in all headers.
+- Keep headers minimal (forward declarations when possible)."
+			;;
+		"Shell")
+			lang_specific="
+## Language-Specific (Shell)
+
+- Use \`set -euo pipefail\` for safety.
+- Quote all variables: \"\$var\" not \$var.
+- Use \`[[  ]]\` for conditionals in bash/zsh.
+- Prefer functions over repeated code blocks."
+			;;
+	esac
+
+	cat <<EOF
+\`\`\`markdown
+# Code Style and Documentation Expectations
+
+## Principles
+
+- Prefer correctness and clarity over cleverness.
+- Keep diffs small and localized.
+- Code should be self-documenting where possible.
+
+## Comments
+
+- Comments should explain _why_, not restate _what_ the code obviously does.
+- Document complex algorithms or non-obvious decisions.
+- Keep comments up to date with code changes.
+
+## Documentation Updates
+
+Any behavior change requires updating:
+1. Relevant documentation/specs
+2. Relevant test coverage
+3. \`.github/instructions/memory.md\` if high-level understanding changed
+
+## Testing Discipline
+
+- Tests are written before implementation (TDD).
+- Tests mirror documentation/spec, not current behavior.
+- Run the narrowest relevant tests first, then broaden.
+$lang_specific
+\`\`\`
+EOF
+}
+
+# Generate workspace hygiene
+generate_workspace_hygiene() {
+	cat <<'EOF'
+```markdown
+# Workspace Hygiene (Artifacts, Cleanup, and When)
+
+This repo may generate build/test/debug output. Keeping the workspace clean improves signal-to-noise and reduces accidental commits.
+
+## What is an artifact?
+
+Artifacts are files and folders that are not source-of-truth and can be regenerated.
+
+Common examples:
+- Build outputs: `build/`, `dist/`, `target/`, `node_modules/`
+- Logs: `*.log`, `debug.log`
+- Editor backups: `*.bak`, `*.swp`, `*.tmp`
+- Test outputs: `coverage/`, `.pytest_cache/`
+
+## What is NOT automatically deleted?
+
+These may be needed for reproduction or comparison:
+- Configuration files
+- Environment-specific settings
+- Test fixtures and data
+
+## Cleanup Policy
+
+### Routine cleanup (safe-by-default)
+
+Remove build outputs and temporary files that can be regenerated.
+
+### Aggressive cleanup (only after verification)
+
+Only after the user confirms that the issue is solved:
+- Remove logs and debug output
+- Clean caches and intermediate files
+
+## Required Rule: User Verification Gate
+
+If a task is "fix bug X", the cleanup step is **blocked** until the user confirms the behavior is solved.
+
+Reason: artifacts are often required to reproduce and verify the fix.
+```
+EOF
+}
+
+# Generate instructions README
+generate_instructions_readme() {
+	cat <<EOF
+\`\`\`markdown
+# Copilot Instruction Set
+
+This folder contains the _canonical_ instructions for working in this repository.
+
+## Files
+
+- \`memory.md\` — Living, curated "memory" of the codebase: architecture, file map, invariants.
+- \`tdd.md\` — Documentation-first TDD workflow.
+- \`workspace-hygiene.md\` — What counts as "artifact" and when to delete it.
+- \`code-style.md\` — Naming, structure, and style conventions.
+
+## Agents (in \`.github/agents/\`)
+
+- **Plan** — Research and outline multi-step plans before implementation.
+- **Implement** — Execute planned changes with TDD discipline.
+
+## How to Use
+
+1. Before any non-trivial change: read \`memory.md\` and relevant docs.
+2. For complex work: use the **Plan** agent first to outline the approach.
+3. Update docs/spec first, then add/update tests.
+4. Use the **Implement** agent (or work manually) to make the smallest correct change.
+5. Run the narrowest test set first, then expand.
+6. After the user confirms the issue is solved: run cleanup per \`workspace-hygiene.md\`.
+
+\`\`\`
+EOF
+}
+
+# Generate empty plan.md
+generate_plan() {
+	cat <<'EOF'
+```markdown
+# Plan
+
+**Status:** ⚪ NO ACTIVE PLAN
+
+No plan is currently in progress. Use `@Plan` to diagnose issues and create a new plan.
+
+```
+EOF
+}
+
+# Generate bugs.md
+generate_bugs() {
+	cat <<'EOF'
+```markdown
+# Bugs
+
+Report issues here for `@Plan` to investigate.
+
+## Format
+
+### [Issue Title]
+
+**Symptoms:** What you observed
+**Expected:** What should happen
+**Reproduction:** Steps to reproduce
+**Files involved:** (if known)
+**Notes:** Any additional context
+
+---
+
+(No bugs currently reported)
+
+```
+EOF
+}
+
+# Write all files
+write_file ".github/copilot-instructions.md" "$(generate_copilot_instructions)"
+write_file ".github/plan.md" "$(generate_plan)"
+write_file ".github/bugs.md" "$(generate_bugs)"
+write_file ".github/agents/Plan.agent.md" "$(generate_plan_agent)"
+write_file ".github/agents/Implement.agent.md" "$(generate_implement_agent)"
+
+if [ "$minimal_mode" = false ]; then
+	write_file ".github/instructions/README.md" "$(generate_instructions_readme)"
+	write_file ".github/instructions/memory.md" "$(generate_memory)"
+	write_file ".github/instructions/tdd.md" "$(generate_tdd)"
+	write_file ".github/instructions/code-style.md" "$(generate_code_style)"
+	write_file ".github/instructions/workspace-hygiene.md" "$(generate_workspace_hygiene)"
+fi
+
+echo ""
+echo "[git-copilot-quickstart] ✅ Copilot workflow setup complete!"
+echo ""
+echo "Next steps:"
+echo "  1. Review and customize .github/copilot-instructions.md"
+echo "  2. Fill in .github/instructions/memory.md with project details"
+echo "  3. Use @Plan to diagnose issues and create plans"
+echo "  4. Use @Implement to execute plans"
+echo ""
+echo "Quick start:"
+echo "  - Report a bug:  Edit .github/bugs.md, then invoke @Plan"
+echo "  - Execute plan:  Invoke @Implement after @Plan creates a plan"

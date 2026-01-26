@@ -179,6 +179,136 @@ detect_test_cmd() {
 		repo_root="."
 	fi
 
+	repo_has_python_tests() {
+		local root="$1"
+		find "$root" \
+			-type f \
+			\( -name 'test_*.py' -o -name '*_test.py' \) \
+			-not -path '*/.venv/*' \
+			-not -path '*/venv/*' \
+			-not -path '*/.tox/*' \
+			-not -path '*/.pytest_cache/*' \
+			-not -path '*/.mypy_cache/*' \
+			-not -path '*/.git/*' \
+			-maxdepth 6 \
+			-print 2>/dev/null \
+			| head -n 1 \
+			| grep -q '.'
+	}
+
+	repo_has_go_tests() {
+		local root="$1"
+		find "$root" \
+			-type f \
+			-name '*_test.go' \
+			-not -path '*/.git/*' \
+			-maxdepth 6 \
+			-print 2>/dev/null \
+			| head -n 1 \
+			| grep -q '.'
+	}
+
+	package_json_test_script() {
+		# Best-effort: detect if package.json defines a non-placeholder scripts.test.
+		# Returns 0 if present, 1 if missing/placeholder.
+		local pkg="$1"
+		[ -f "$pkg" ] || return 1
+
+		local script
+		script=$(awk '
+			function countch(s, c,    i, n) { n=0; for (i=1; i<=length(s); i++) if (substr(s,i,1)==c) n++; return n }
+			function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+			function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
+			function trim(s) { return rtrim(ltrim(s)) }
+			function extract_test_value(line,    t) {
+				t=line
+				if (index(t, "\"test\"") == 0) return ""
+				sub(".*\"test\"[[:space:]]*:[[:space:]]*\"", "", t)
+				sub("\".*", "", t)
+				return t
+			}
+			BEGIN { in_scripts=0; depth=0; found=0; val="" }
+			{
+				line=$0
+				if (!in_scripts) {
+					if (line ~ /\"scripts\"[[:space:]]*:/) {
+						in_scripts=1
+						# allow same-line object start
+						depth += countch(line, "{") - countch(line, "}")
+						# do not next; scripts/test may be on the same line in minified JSON
+					}
+					if (!in_scripts) next
+				}
+
+				depth += countch(line, "{") - countch(line, "}")
+				tmp=extract_test_value(line)
+				if (tmp != "") { found=1; val=tmp }
+				if (depth <= 0) { in_scripts=0 }
+			}
+			END {
+				if (found) print trim(val)
+			}
+		' "$pkg" 2>/dev/null || true)
+
+		if [ -z "${script// /}" ]; then
+			return 1
+		fi
+		if printf '%s' "$script" | grep -qi 'no test specified'; then
+			return 1
+		fi
+		return 0
+	}
+
+	repo_has_java_tests() {
+		# Conservative: require a src/test tree and at least one test-like file.
+		local root="$1"
+		find "$root" \
+			-type f \
+			\(
+				-path '*/src/test/*' \
+				-o -path '*/src/androidTest/*'
+			\) \
+			\(
+				-name '*Test.java' -o -name '*Tests.java' -o -name '*IT.java' \
+				-o -name '*Test.kt' -o -name '*Tests.kt' -o -name '*IT.kt' \
+				-o -name '*Test.groovy' -o -name '*Tests.groovy' -o -name '*IT.groovy'
+			\) \
+			-not -path '*/build/*' \
+			-not -path '*/target/*' \
+			-not -path '*/.git/*' \
+			-maxdepth 8 \
+			-print 2>/dev/null \
+			| head -n 1 \
+			| grep -q '.'
+	}
+
+	repo_has_rust_tests() {
+		# Rust can have inline #[test] modules without a tests/ folder.
+		# Use a shallow heuristic to avoid running cargo test in repos with no code.
+		local root="$1"
+		if [ -d "$root/tests" ]; then
+			find "$root/tests" -type f -maxdepth 3 -print 2>/dev/null | head -n 1 | grep -q '.' && return 0
+		fi
+		find "$root" \
+			-type f \
+			\( -path '*/src/*.rs' -o -path '*/src/*/*.rs' \) \
+			-not -path '*/target/*' \
+			-not -path '*/.git/*' \
+			-maxdepth 6 \
+			-print 2>/dev/null \
+			| while read -r f; do
+				grep -qE '#\[[[:space:]]*test\]' "$f" 2>/dev/null && { printf '%s\n' "$f"; break; }
+			done \
+			| head -n 1 \
+			| grep -q '.'
+	}
+
+	is_dotnet_test_project() {
+		local csproj="$1"
+		[ -f "$csproj" ] || return 1
+		grep -qE 'Microsoft\.NET\.Test\.Sdk|<IsTestProject>[[:space:]]*true[[:space:]]*</IsTestProject>' "$csproj" 2>/dev/null
+	}
+
 	# Prints two lines on success:
 	#  1) command line
 	#  2) cwd (may be empty)
@@ -226,29 +356,52 @@ detect_test_cmd() {
 		fi
 	fi
 
-	if [ -f "$repo_root/package.json" ] && command -v npm >/dev/null 2>&1; then
-		# If package.json exists, assume a test script likely exists.
-		printf '%s\n' 'npm test --silent'
-		printf '%s' ""
-		return 0
+	if [ -f "$repo_root/package.json" ]; then
+		# Only run JS tests if a real scripts.test exists.
+		if package_json_test_script "$repo_root/package.json"; then
+			if [ -f "$repo_root/pnpm-lock.yaml" ] && command -v pnpm >/dev/null 2>&1; then
+				printf '%s\n' 'pnpm test --silent'
+				printf '%s' ""
+				return 0
+			fi
+			if [ -f "$repo_root/yarn.lock" ] && command -v yarn >/dev/null 2>&1; then
+				printf '%s\n' 'yarn test --silent'
+				printf '%s' ""
+				return 0
+			fi
+			if command -v npm >/dev/null 2>&1; then
+				printf '%s\n' 'npm test --silent'
+				printf '%s' ""
+				return 0
+			fi
+		fi
 	fi
 
 	if { [ -f "$repo_root/pyproject.toml" ] || [ -f "$repo_root/pytest.ini" ] || [ -d "$repo_root/tests" ]; } && command -v pytest >/dev/null 2>&1; then
-		printf '%s\n' 'pytest -q'
-		printf '%s' ""
-		return 0
+		# Pytest exits non-zero when no tests are collected; require at least one test file.
+		if repo_has_python_tests "$repo_root"; then
+			printf '%s\n' 'pytest -q'
+			printf '%s' ""
+			return 0
+		fi
 	fi
 
 	if [ -f "$repo_root/go.mod" ] && command -v go >/dev/null 2>&1; then
-		printf '%s\n' 'go test ./...'
-		printf '%s' ""
-		return 0
+		# Avoid running go test in repos with zero *_test.go files.
+		if repo_has_go_tests "$repo_root"; then
+			printf '%s\n' 'go test ./...'
+			printf '%s' ""
+			return 0
+		fi
 	fi
 
 	if [ -f "$repo_root/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
-		printf '%s\n' 'cargo test -q'
-		printf '%s' ""
-		return 0
+		# cargo test succeeds with zero tests, but only run when tests are likely present.
+		if repo_has_rust_tests "$repo_root"; then
+			printf '%s\n' 'cargo test -q'
+			printf '%s' ""
+			return 0
+		fi
 	fi
 
 	# .NET (C#)
@@ -256,14 +409,24 @@ detect_test_cmd() {
 		local sln
 		sln=$(find "$repo_root" -maxdepth 2 -name '*.sln' -print 2>/dev/null | head -n 1 || true)
 		if [ -n "${sln// /}" ]; then
-			printf '%s\n' "dotnet test \"$sln\" --nologo"
-			printf '%s' ""
-			return 0
+			# Only run dotnet test when a test project exists (otherwise dotnet returns failure).
+			local any_test_proj
+			any_test_proj=$(find "$repo_root" -maxdepth 3 -name '*.csproj' -print 2>/dev/null | while read -r p; do
+				if is_dotnet_test_project "$p"; then
+					printf '%s\n' "$p"
+					break
+				fi
+			done)
+			if [ -n "${any_test_proj// /}" ]; then
+				printf '%s\n' "dotnet test \"$sln\" --nologo"
+				printf '%s' ""
+				return 0
+			fi
 		fi
 
 		local csproj
 		csproj=$(find "$repo_root" -maxdepth 3 -name '*.csproj' -print 2>/dev/null | head -n 1 || true)
-		if [ -n "${csproj// /}" ]; then
+		if [ -n "${csproj// /}" ] && is_dotnet_test_project "$csproj"; then
 			printf '%s\n' "dotnet test \"$csproj\" --nologo"
 			printf '%s' ""
 			return 0
@@ -271,20 +434,26 @@ detect_test_cmd() {
 	fi
 
 	if [ -f "$repo_root/pom.xml" ] && command -v mvn >/dev/null 2>&1; then
-		printf '%s\n' 'mvn test -q'
-		printf '%s' ""
-		return 0
+		if repo_has_java_tests "$repo_root"; then
+			printf '%s\n' 'mvn test -q'
+			printf '%s' ""
+			return 0
+		fi
 	fi
 
 	if [ -x "$repo_root/gradlew" ]; then
-		printf '%s\n' './gradlew test -q'
-		printf '%s' ""
-		return 0
+		if repo_has_java_tests "$repo_root"; then
+			printf '%s\n' './gradlew test -q'
+			printf '%s' ""
+			return 0
+		fi
 	fi
 	if { [ -f "$repo_root/build.gradle" ] || [ -f "$repo_root/build.gradle.kts" ]; } && command -v gradle >/dev/null 2>&1; then
-		printf '%s\n' 'gradle test -q'
-		printf '%s' ""
-		return 0
+		if repo_has_java_tests "$repo_root"; then
+			printf '%s\n' 'gradle test -q'
+			printf '%s' ""
+			return 0
+		fi
 	fi
 
 	return 1
@@ -360,7 +529,7 @@ summarize_test_output() {
 				failures=$(grep '^FAILED ' "$output_file" | sed 's/^FAILED //' | head -n 10)
 			fi
 			;;
-		"npm test"*|"npm test --silent"*)
+		"npm test"*|"npm test --silent"*|"yarn test"*|"yarn test --silent"*|"pnpm test"*|"pnpm test --silent"*)
 			# Jest and many JS runners print a "Tests:" summary; best-effort parse.
 			# Example: "Tests:       2 failed, 3 passed, 5 total"
 			local tests_line
@@ -588,53 +757,44 @@ normalize_ai_commit_message() {
 	#  1) commit message (may be multi-line)
 	#  2) authoritative testing line (single line)
 	#  3) breaking hints (multi-line; optional)
+	#  4) pre-computed risk level (low|medium|high)
+	#  5) pre-computed risk reason
 	local msg="$1"
 	local testing_line="$2"
 	local breaking_hints="$3"
+	local computed_risk="${4:-}"
+	local risk_reason="${5:-}"
 
 	local tmp_bullets
 	tmp_bullets=$(mktemp -t git-upload-testing-bullets.XXXXXX)
 	# Extract bullet lines from the authoritative testing section.
 	printf '%s\n' "$testing_line" | grep '^- ' >"$tmp_bullets" 2>/dev/null || true
 
-	local has_potential_breaking=0
 	local has_likely_breaking=0
-	if printf '%s\n' "$breaking_hints" | grep -qi 'likely breaking'; then
+	if printf '%s\n' "$breaking_hints" | grep -qi 'LIKELY BREAKING'; then
 		has_likely_breaking=1
 	fi
-	if printf '%s\n' "$breaking_hints" | grep -qi 'potential behavior change'; then
-		has_potential_breaking=1
-	fi
-	# Back-compat for older hint wording
-	if printf '%s\n' "$breaking_hints" | grep -qi 'potential behavior/validation removal'; then
-		has_likely_breaking=1
-	fi
-	local testing_failed=0
-	if printf '%s\n' "$testing_line" | grep -q '^Testing: fail'; then
-		testing_failed=1
-	fi
-	local enforce_high_risk=0
-	if [ "$testing_failed" -eq 1 ]; then
-		enforce_high_risk=1
+	
+	# Determine test impact for breaking change logic
+	local testing_degraded=0
+	if printf '%s\n' "$testing_line" | grep -q '^Testing: fail (degraded)'; then
+		testing_degraded=1
 	fi
 
 	# 1) Drop any AI-provided Testing lines.
 	# 2) Drop duplicated failure bullets outside Testing.
-	# 3) Normalize Breaking changes yes/no and correct "none" when we have strong signals.
+	# 3) Normalize Breaking changes yes/no.
 	local normalized
 	normalized=$(printf '%s\n' "$msg" \
 		| grep -v '^Testing:' \
 		| grep -vFf "$tmp_bullets" 2>/dev/null \
-		| awk -v has_potential="$has_potential_breaking" -v has_likely="$has_likely_breaking" -v testing_failed="$testing_failed" '
+		| awk -v has_likely="$has_likely_breaking" -v testing_degraded="$testing_degraded" '
 			function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
 			function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
 			function trim(s) { return rtrim(ltrim(s)) }
-			BEGIN { rewrote=0; in_breaking=0; saw_risk=0 }
+			BEGIN { rewrote=0; in_breaking=0 }
 			{
 				line=$0
-				if (line ~ /^Risk:[[:space:]]*/ ) {
-					saw_risk=1
-				}
 
 				if (line == "Breaking changes:") {
 					in_breaking=1
@@ -672,16 +832,15 @@ normalize_ai_commit_message() {
 						next
 					}
 
-					# If model says none but we have strong breaking hints (or failing tests), rewrite.
-					# For merely *potential* hints (e.g. uncommenting validation to match spec), do not force breaking.
-					if (low=="none" && (has_likely==1 || testing_failed==1)) {
+					# Only force breaking changes if we have STRONG evidence (API removal, test degradation)
+					if (low=="none" && (has_likely==1 || testing_degraded==1)) {
 						print "Breaking changes:"
-						print "- Likely breaking behavior/validation change detected; review staged diff"
+						print "- Likely breaking change detected; review staged diff"
 						next
 					}
 				}
-				# De-hedge bullets in the breaking section when we have breaking signals.
-				if (in_breaking==1 && (has_potential==1 || has_likely==1 || testing_failed==1) && line ~ /^- /) {
+				# De-hedge bullets only when we have strong signals (test degradation)
+				if (in_breaking==1 && (has_likely==1 || testing_degraded==1) && line ~ /^- /) {
 					gsub(/ may now /, " will now ", line)
 					gsub(/ might now /, " will now ", line)
 					gsub(/ may no longer /, " will no longer ", line)
@@ -704,9 +863,7 @@ normalize_ai_commit_message() {
 $testing_line"
 	fi
 
-	# Determine whether the final message indicates breaking changes.
-	# (Breaking changes: none) => not breaking
-	# (Breaking changes: + bullets) => breaking
+	# Determine whether the final message indicates breaking changes (bullet list).
 	local breaking_kind
 	breaking_kind=$(printf '%s\n' "$normalized" | awk '
 		BEGIN{kind="none"}
@@ -715,37 +872,40 @@ $testing_line"
 		END{ print kind }
 	')
 
-	local enforce_medium_risk=0
-	if [ "$enforce_high_risk" -eq 0 ] && [ "$breaking_kind" = "bullets" ]; then
-		enforce_high_risk=1
+	# Use pre-computed risk - it's based on contextualized impact analysis
+	# Only override if we detect breaking API changes with bullet list
+	local final_risk="$computed_risk"
+	local final_reason="$risk_reason"
+	
+	# Override: explicit breaking changes with likely API removal -> high
+	if [ "$breaking_kind" = "bullets" ] && [ "$has_likely_breaking" -eq 1 ]; then
+		final_risk="high"
+		final_reason="breaking API changes detected"
 	fi
-	if [ "$enforce_high_risk" -eq 0 ] && { [ "$has_potential_breaking" -eq 1 ] || [ "$has_likely_breaking" -eq 1 ]; }; then
-		enforce_medium_risk=1
+	
+	# Default fallback
+	if [ -z "$final_risk" ]; then
+		final_risk="medium"
+		final_reason="review recommended"
 	fi
 
-	# Ensure risk line is present and matches policy.
-	if [ "$enforce_high_risk" -eq 1 ]; then
-		if printf '%s\n' "$normalized" | grep -q '^Risk:'; then
-			normalized=$(printf '%s\n' "$normalized" | awk 'BEGIN{done=0} /^Risk:/ { if (!done) { print "Risk: high"; done=1; next } } { print }')
-		else
-			normalized="$normalized
-
-Risk: high"
-		fi
-	elif [ "$enforce_medium_risk" -eq 1 ]; then
-		if printf '%s\n' "$normalized" | grep -q '^Risk:'; then
-			normalized=$(printf '%s\n' "$normalized" | awk 'BEGIN{done=0} /^Risk:/ { if (!done) { print "Risk: medium"; done=1; next } } { print }')
-		else
-			normalized="$normalized
-
-Risk: medium"
-		fi
+	# Replace or append risk line with the computed risk
+	if printf '%s\n' "$normalized" | grep -q '^Risk:'; then
+		normalized=$(printf '%s\n' "$normalized" | awk -v risk="$final_risk" -v reason="$final_reason" '
+			BEGIN{done=0}
+			/^Risk:/ {
+				if (!done) {
+					print "Risk: " risk " (" reason ")"
+					done=1
+					next
+				}
+			}
+			{ print }
+		')
 	else
-		if ! printf '%s\n' "$normalized" | grep -q '^Risk:'; then
-			normalized="$normalized
+		normalized="$normalized
 
-Risk: low"
-		fi
+Risk: $final_risk ($final_reason)"
 	fi
 
 	# Trim trailing blank lines.
@@ -753,47 +913,498 @@ Risk: low"
 	printf '%s' "$normalized"
 }
 
-compute_breaking_change_hints() {
-	# Best-effort heuristics from the staged diff to help the AI correctly flag breaking changes.
-	# This is intentionally conservative and only provides hints, not a definitive classification.
+# Safe parser for diff_analysis output.
+# Parses key=value lines without using eval, preventing shell injection.
+# Sets the following variables in the caller's scope:
+#   diff_empty, files_changed, test_files_changed, config_files_changed,
+#   core_files_changed, total_additions, total_deletions, code_additions,
+#   code_deletions, whitespace_changes, comment_changes, syntax_error_count,
+#   api_removals, signature_changes
+#
+# IMPORTANT: This is safe because we only assign to a whitelist of variable
+# names and use printf -v to assign values as literal strings.
+parse_diff_analysis() {
+	local __input="$1"
+	local __line __key __value
+	
+	# Initialize all variables to safe defaults
+	diff_empty=0
+	files_changed=0
+	test_files_changed=0
+	config_files_changed=0
+	core_files_changed=0
+	total_additions=0
+	total_deletions=0
+	code_additions=0
+	code_deletions=0
+	whitespace_changes=0
+	comment_changes=0
+	syntax_error_count=0
+	api_removals=0
+	signature_changes=0
+	
+	while IFS= read -r __line; do
+		# Skip empty lines
+		[ -z "$__line" ] && continue
+		
+		# Only process lines with = sign
+		[[ "$__line" != *"="* ]] && continue
+		
+		# Split on first =
+		__key="${__line%%=*}"
+		__value="${__line#*=}"
+		
+		# Only allow known safe variable names (numeric values only)
+		case "$__key" in
+			diff_empty|files_changed|test_files_changed|config_files_changed|\
+core_files_changed|total_additions|total_deletions|code_additions|\
+code_deletions|whitespace_changes|comment_changes|syntax_error_count|\
+api_removals|signature_changes)
+				# Safely assign the value without executing it
+				printf -v "$__key" '%s' "$__value"
+				;;
+			# Ignore syntax_errors and api_removal_details - they contain
+			# arbitrary diff content that we don't need for risk scoring
+			*)
+				;;
+		esac
+	done <<< "$__input"
+}
+
+compute_diff_analysis() {
+	# Comprehensive diff analysis that determines ACTUAL risk based on:
+	# 1. What type of changes are being made (code vs formatting vs comments)
+	# 2. The semantic impact of changes (new vs modified vs deleted functionality)
+	# 3. Whether changes introduce potential issues (dead code, syntax errors)
+	# 4. Test results and syntax validation
+	#
+	# Returns a structured analysis that can be used by AI and risk scoring.
+	#
+	# NOTE: Output is key=value format. Callers MUST use parse_diff_analysis()
+	# instead of eval to avoid shell injection from diff content.
+	
 	local diff
-	diff=$(git diff --cached -U0 2>/dev/null || echo "")
+	diff=$(git diff --cached 2>/dev/null || echo "")
+	if [ -z "${diff// /}" ]; then
+		printf 'diff_empty=1\n'
+		return 0
+	fi
+
+	# Count actual code changes vs whitespace/formatting
+	local total_additions=0
+	local total_deletions=0
+	local whitespace_only_changes=0
+	local comment_only_changes=0
+	local code_additions=0
+	local code_deletions=0
+	local files_changed=0
+	local test_files_changed=0
+	local config_files_changed=0
+	local core_files_changed=0
+	
+	# Get list of changed files
+	local changed_files
+	changed_files=$(git diff --cached --name-only 2>/dev/null || echo "")
+	files_changed=$(printf '%s\n' "$changed_files" | grep -c . || echo 0)
+	
+	# Categorize changed files
+	while IFS= read -r file; do
+		[ -z "$file" ] && continue
+		case "$file" in
+			*test*|*Test*|*spec*|*Spec*|*_test.*|*.test.*)
+				test_files_changed=$((test_files_changed + 1))
+				;;
+			*.json|*.yaml|*.yml|*.toml|*.ini|*.cfg|*.conf|*config*|*.env*)
+				config_files_changed=$((config_files_changed + 1))
+				;;
+			*)
+				core_files_changed=$((core_files_changed + 1))
+				;;
+		esac
+	done <<< "$changed_files"
+	
+	# Analyze the actual diff content
+	local in_hunk=0
+	local current_file=""
+	while IFS= read -r line; do
+		case "$line" in
+			"diff --git"*)
+				current_file=$(printf '%s' "$line" | sed 's/.*b\///')
+				;;
+			"+"[!+]*)
+				total_additions=$((total_additions + 1))
+				# Check if this is whitespace-only
+				local content="${line#?}"
+				if [ -z "${content// /}" ] || [ -z "${content//	/}" ]; then
+					whitespace_only_changes=$((whitespace_only_changes + 1))
+				# Check if this is a comment
+				elif printf '%s' "$content" | grep -qE '^[[:space:]]*(//|#|/\*|\*|<!--)'; then
+					comment_only_changes=$((comment_only_changes + 1))
+				else
+					code_additions=$((code_additions + 1))
+				fi
+				;;
+			"-"[!-]*)
+				total_deletions=$((total_deletions + 1))
+				local content="${line#?}"
+				if [ -z "${content// /}" ] || [ -z "${content//	/}" ]; then
+					whitespace_only_changes=$((whitespace_only_changes + 1))
+				elif printf '%s' "$content" | grep -qE '^[[:space:]]*(//|#|/\*|\*|<!--)'; then
+					comment_only_changes=$((comment_only_changes + 1))
+				else
+					code_deletions=$((code_deletions + 1))
+				fi
+				;;
+		esac
+	done <<< "$diff"
+	
+	# Check for potential dead code patterns in additions
+	local dead_code_signals=0
+	local dead_code_details=""
+	# Unreachable code after return/exit
+	if printf '%s\n' "$diff" | grep -qE '^\+.*return[[:space:]]*;' && \
+	   printf '%s\n' "$diff" | grep -qE '^\+[^}]*[^/].*[^/]$' 2>/dev/null; then
+		# Very rough heuristic - look for code after returns that isn't closing braces
+		:
+	fi
+	# Unused imports (added imports that might not be used)
+	local added_imports
+	added_imports=$(printf '%s\n' "$diff" | grep -E '^\+.*(import |from .* import |require\(|#include)' | wc -l | tr -d ' ')
+	
+	# Check for syntax errors in changed files (language-specific)
+	local syntax_errors=""
+	local syntax_error_count=0
+	while IFS= read -r file; do
+		[ -z "$file" ] && continue
+		[ ! -f "$file" ] && continue
+		
+		case "$file" in
+			*.py)
+				if command -v python3 >/dev/null 2>&1; then
+					if ! python3 -m py_compile "$file" >/dev/null 2>&1; then
+						syntax_errors="${syntax_errors}
+- Python syntax error in $file"
+						syntax_error_count=$((syntax_error_count + 1))
+					fi
+				fi
+				;;
+			*.js|*.jsx)
+				# Only check plain JavaScript files with node --check
+				if command -v node >/dev/null 2>&1; then
+					if ! node --check "$file" >/dev/null 2>&1; then
+						syntax_errors="${syntax_errors}
+- JavaScript syntax error in $file"
+						syntax_error_count=$((syntax_error_count + 1))
+					fi
+				fi
+				;;
+			*.ts|*.tsx)
+				# TypeScript requires tsc for proper checking, skip if not available
+				# Only run tsc in context of a project with tsconfig.json to avoid false positives
+				if command -v tsc >/dev/null 2>&1; then
+					local repo_root
+					repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+					if [ -f "$repo_root/tsconfig.json" ]; then
+						if ! (cd "$repo_root" && tsc --noEmit >/dev/null 2>&1); then
+							syntax_errors="${syntax_errors}
+- TypeScript syntax/compile error (see tsc output) affecting $file"
+							syntax_error_count=$((syntax_error_count + 1))
+						fi
+					fi
+				fi
+				;;
+			*.sh|*.bash|*.zsh)
+				if command -v bash >/dev/null 2>&1; then
+					if ! bash -n "$file" >/dev/null 2>&1; then
+						syntax_errors="${syntax_errors}
+- Shell syntax error in $file"
+						syntax_error_count=$((syntax_error_count + 1))
+					fi
+				fi
+				;;
+			*.json)
+				if command -v python3 >/dev/null 2>&1; then
+					if ! python3 -m json.tool -- "$file" >/dev/null 2>&1; then
+						syntax_errors="${syntax_errors}
+- JSON syntax error in $file"
+						syntax_error_count=$((syntax_error_count + 1))
+					fi
+				fi
+				;;
+		esac
+	done <<< "$changed_files"
+	
+	# Check for removed public APIs/exports (actual breaking changes)
+	local api_removals=0
+	local api_removal_details=""
+	# Look for removed function/class/export declarations
+	local removed_exports
+	removed_exports=$(printf '%s\n' "$diff" | grep -E '^-[[:space:]]*(export |public |def |function |class |module )' | head -n 5 || true)
+	if [ -n "${removed_exports// /}" ]; then
+		api_removals=$(printf '%s\n' "$removed_exports" | wc -l | tr -d ' ')
+		api_removal_details="$removed_exports"
+	fi
+	
+	# Check for changed function signatures (potential breaking)
+	local signature_changes=0
+	# This is complex - for now, just flag if function definitions changed
+	local modified_signatures
+	modified_signatures=$(printf '%s\n' "$diff" | grep -E '^[-+].*(def |function |func |fn )[a-zA-Z_][a-zA-Z0-9_]*\(' | wc -l | tr -d ' ')
+	if [ "$modified_signatures" -gt 0 ]; then
+		signature_changes=$((modified_signatures / 2))  # Roughly - a change has both - and +
+	fi
+	
+	# Output structured analysis
+	printf 'diff_empty=0\n'
+	printf 'files_changed=%d\n' "$files_changed"
+	printf 'test_files_changed=%d\n' "$test_files_changed"
+	printf 'config_files_changed=%d\n' "$config_files_changed"
+	printf 'core_files_changed=%d\n' "$core_files_changed"
+	printf 'total_additions=%d\n' "$total_additions"
+	printf 'total_deletions=%d\n' "$total_deletions"
+	printf 'code_additions=%d\n' "$code_additions"
+	printf 'code_deletions=%d\n' "$code_deletions"
+	printf 'whitespace_changes=%d\n' "$whitespace_only_changes"
+	printf 'comment_changes=%d\n' "$comment_only_changes"
+	printf 'syntax_error_count=%d\n' "$syntax_error_count"
+	printf 'api_removals=%d\n' "$api_removals"
+	printf 'signature_changes=%d\n' "$signature_changes"
+	if [ -n "$syntax_errors" ]; then
+		printf 'syntax_errors=%s\n' "$syntax_errors"
+	fi
+	if [ -n "$api_removal_details" ]; then
+		printf 'api_removal_details=%s\n' "$api_removal_details"
+	fi
+}
+
+compute_risk_score() {
+	# Risk assessment based on CONTEXTUALIZED IMPACT of the changes:
+	#
+	# LOW RISK: Changes that improve the codebase or have minimal impact
+	#   - Fewer test failures than before (fixing things)
+	#   - All tests pass
+	#   - Changes that don't introduce new problems
+	#
+	# MEDIUM RISK: Changes with uncertain impact that need review/testing
+	#   - Same number of test failures (neutral)
+	#   - Unknown baseline comparison
+	#   - New functionality that hasn't been tested yet
+	#
+	# HIGH RISK: Changes that make things worse or introduce vulnerabilities
+	#   - More test failures than before (breaking things)
+	#   - Tests that were passing now fail
+	#   - Syntax errors introduced
+	#   - Removal of public APIs (could break consumers)
+	#
+	# Returns: low, medium, or high with a reason
+	
+	local testing_status="$1"
+	local diff_analysis="$2"
+	
+	# Parse diff analysis
+	local diff_empty=0
+	local files_changed=0
+	local test_files_changed=0
+	local config_files_changed=0
+	local core_files_changed=0
+	local total_additions=0
+	local total_deletions=0
+	local code_additions=0
+	local code_deletions=0
+	local whitespace_changes=0
+	local comment_changes=0
+	local syntax_error_count=0
+	local api_removals=0
+	local signature_changes=0
+	
+	# Safely parse diff_analysis without using eval to prevent shell injection
+	parse_diff_analysis "$diff_analysis"
+	
+	local risk_level="medium"  # Default to medium (unknown/uncertain)
+	local risk_reasons=""
+	
+	# =================================================================
+	# HIGH RISK: Changes that actively make things WORSE
+	# =================================================================
+	
+	# 1. Tests degraded (more failures, or tests broke that were passing)
+	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (degraded)'; then
+		risk_level="high"
+		risk_reasons="commit degraded test health"
+	fi
+	
+	# 2. Syntax errors introduced
+	if [ "$syntax_error_count" -gt 0 ]; then
+		risk_level="high"
+		if [ -n "$risk_reasons" ]; then
+			risk_reasons="$risk_reasons, syntax errors detected"
+		else
+			risk_reasons="syntax errors detected"
+		fi
+	fi
+	
+	# 3. Public API/exports removed (could break downstream consumers)
+	if [ "$api_removals" -gt 0 ]; then
+		risk_level="high"
+		if [ -n "$risk_reasons" ]; then
+			risk_reasons="$risk_reasons, API exports removed"
+		else
+			risk_reasons="API exports removed (potential breaking change)"
+		fi
+	fi
+	
+	# =================================================================
+	# LOW RISK: Changes that IMPROVE things or have minimal impact
+	# =================================================================
+	
+	# 4. Tests improving (fewer failures than before) - this commit is FIXING things
+	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (improving)'; then
+		if [ "$risk_level" != "high" ]; then
+			risk_level="low"
+			risk_reasons="commit is fixing test failures"
+		fi
+	fi
+	
+	# 5. All tests pass - codebase is healthy
+	if printf '%s\n' "$testing_status" | grep -q '^Testing: pass'; then
+		if [ "$risk_level" != "high" ]; then
+			risk_level="low"
+			risk_reasons="all tests pass"
+		fi
+	fi
+	
+	# 6. No tests configured but no syntax errors or API removals
+	if printf '%s\n' "$testing_status" | grep -q '^Testing: not configured'; then
+		if [ "$risk_level" != "high" ]; then
+			# Without tests, we rely on other signals - default to medium for untested changes
+			if [ "$risk_level" != "low" ]; then
+				risk_level="medium"
+				risk_reasons="changes not tested (no test suite)"
+			fi
+		fi
+	fi
+	
+	# =================================================================
+	# MEDIUM RISK: Uncertain impact, needs review
+	# =================================================================
+	
+	# 7. Same number of failures (neutral impact)
+	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (unchanged)'; then
+		if [ "$risk_level" != "high" ] && [ "$risk_level" != "low" ]; then
+			risk_level="medium"
+			risk_reasons="test failures unchanged (neutral impact)"
+		fi
+	fi
+	
+	# 8. Unknown baseline (couldn't compare)
+	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (unknown baseline)'; then
+		if [ "$risk_level" != "high" ] && [ "$risk_level" != "low" ]; then
+			risk_level="medium"
+			risk_reasons="could not compare against baseline"
+		fi
+	fi
+	
+	# 9. Function signatures changed (could affect callers, but not certain)
+	if [ "$risk_level" = "low" ] && [ "$signature_changes" -gt 0 ]; then
+		risk_level="medium"
+		risk_reasons="function signatures modified (review callers)"
+	fi
+	
+	# Default reason if none set
+	if [ -z "$risk_reasons" ]; then
+		case "$risk_level" in
+			low)
+				risk_reasons="routine changes"
+				;;
+			medium)
+				risk_reasons="review recommended"
+				;;
+			high)
+				risk_reasons="significant impact detected"
+				;;
+		esac
+	fi
+	
+	printf '%s|%s' "$risk_level" "$risk_reasons"
+}
+
+compute_breaking_change_hints() {
+	# Smarter breaking change detection based on actual semantic impact,
+	# not just keyword matching.
+	
+	local diff
+	diff=$(git diff --cached -U3 2>/dev/null || echo "")
 	if [ -z "${diff// /}" ]; then
 		printf '%s' 'Breaking-change hints: no staged diff detected.'
 		return 0
 	fi
 
-	local removed_signals
-	local added_signals
-	removed_signals=$(printf '%s\n' "$diff" \
-		| grep -E '^-[^-].*(validate|validation|Validate\(|assert|throw|ArgumentException|InvalidOperationException|BREAKING|breaking|no longer|removed|remove|deprecated|drop support|drop\b|compat)' \
-		| grep -Ev '^-\s*(//|#|/\*|\*|\*/)' \
-		| head -n 10 || true)
-	added_signals=$(printf '%s\n' "$diff" \
-		| grep -E '^\+[^+].*(validate|validation|Validate\(|assert|throw|ArgumentException|InvalidOperationException|BREAKING|breaking|no longer|removed|remove|deprecated|drop support|drop\b|compat)' \
-		| grep -Ev '^\+\s*(//|#|/\*|\*|\*/)' \
-		| head -n 10 || true)
-
-	if [ -n "${removed_signals// /}" ] && [ -z "${added_signals// /}" ]; then
-		printf '%s\n' 'Breaking-change hints: likely breaking (validation/guard removed or relaxed) detected in staged diff:'
-		printf '%s\n' "$removed_signals" | sed 's/^/- /'
-		return 0
+	local hints=""
+	local has_breaking=0
+	local has_potential=0
+	
+	# 1. Check for removed public APIs/exports (ACTUAL breaking changes)
+	local removed_exports
+	removed_exports=$(printf '%s\n' "$diff" | grep -E '^-[[:space:]]*(export|public|def |function |class |module\.exports)' | grep -Ev '^-\s*(//|#|/\*|\*)' | head -n 5 || true)
+	if [ -n "${removed_exports// /}" ]; then
+		has_breaking=1
+		hints="$hints\nLikely breaking: Public API/export removed:\n$(printf '%s\n' "$removed_exports" | sed 's/^/  /')"
 	fi
-	if [ -n "${removed_signals// /}" ] || [ -n "${added_signals// /}" ]; then
-		printf '%s\n' 'Breaking-change hints: potential behavior change detected in staged diff (could be a bugfix or could be breaking depending on the spec):'
-		if [ -n "${removed_signals// /}" ]; then
-			printf '%s\n' "$removed_signals" | sed 's/^/- removed: /'
-		fi
-		if [ -n "${added_signals// /}" ]; then
-			printf '%s\n' "$added_signals" | sed 's/^/- added: /'
-		fi
-		return 0
+	
+	# 2. Check for changed function/method signatures
+	# Look for functions where parameters changed
+	local removed_funcs
+	local added_funcs
+	removed_funcs=$(printf '%s\n' "$diff" | grep -E '^-[[:space:]]*(def|function|func|fn|public|private|protected)[[:space:]]+[a-zA-Z_]' | head -n 10 || true)
+	added_funcs=$(printf '%s\n' "$diff" | grep -E '^\+[[:space:]]*(def|function|func|fn|public|private|protected)[[:space:]]+[a-zA-Z_]' | head -n 10 || true)
+	
+	if [ -n "${removed_funcs// /}" ] && [ -n "${added_funcs// /}" ]; then
+		# Function definitions changed - could be signature change
+		has_potential=1
+		hints="$hints\nPotential breaking: Function definitions modified (check for signature changes)"
 	fi
-
-	printf '%s' 'Breaking-change hints: no obvious breaking-change signals detected in staged diff.'
+	
+	# 3. Check for removed error handling (relaxed validation)
+	local removed_validation
+	removed_validation=$(printf '%s\n' "$diff" | grep -E '^-.*\b(throw|raise|assert|panic|error\(|Error\(|Exception)\b' | grep -Ev '^-\s*(//|#|/\*|\*)' | head -n 3 || true)
+	local added_validation
+	added_validation=$(printf '%s\n' "$diff" | grep -E '^\+.*\b(throw|raise|assert|panic|error\(|Error\(|Exception)\b' | grep -Ev '^\+\s*(//|#|/\*|\*)' | head -n 3 || true)
+	
+	if [ -n "${removed_validation// /}" ] && [ -z "${added_validation// /}" ]; then
+		has_potential=1
+		hints="$hints\nPotential breaking: Error handling/validation removed"
+	fi
+	
+	# 4. Check for changed default values
+	local changed_defaults
+	changed_defaults=$(printf '%s\n' "$diff" | grep -E '^[-+].*=[[:space:]]*(true|false|null|nil|None|0|1|""|'"'"''"'"')' | wc -l | tr -d ' ')
+	if [ "$changed_defaults" -gt 2 ]; then
+		has_potential=1
+		hints="$hints\nPotential: Default values modified"
+	fi
+	
+	# 5. Do NOT flag simple keyword matches as breaking
+	# The old logic flagged things like "deprecated" in comments - we don't do that anymore
+	
+	# Build final output
+	if [ "$has_breaking" -eq 1 ]; then
+		printf 'Breaking-change hints: LIKELY BREAKING changes detected:%s' "$hints"
+	elif [ "$has_potential" -eq 1 ]; then
+		printf 'Breaking-change hints: Potential behavior changes detected (review recommended):%s' "$hints"
+	else
+		printf '%s' 'Breaking-change hints: No obvious breaking-change patterns detected.'
+	fi
 }
 
 compute_testing_status() {
+	# Returns testing status with comparison against previous commit.
+	# Format: "Testing: <status> [(<details>)]"
+	# Where status can be:
+	#   - "pass" - all tests pass
+	#   - "fail (new)" - tests that were passing before now fail (THIS COMMIT BROKE THEM)
+	#   - "fail (pre-existing)" - tests failing but they were already failing before this commit
+	#   - "not configured" - no test runner detected
+	
 	local repo_root
 	repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 	if [ -z "${repo_root// /}" ]; then
@@ -819,31 +1430,188 @@ EOF
 		test_cwd="$repo_root"
 	fi
 
-	echo "[git-upload] Running test command: $test_cmd" >&2
+	# First, run tests on current state (with staged changes)
+	echo "[git-upload] Running tests on current changes..." >&2
 
-	local tmp
-	tmp=$(mktemp -t git-upload-tests.XXXXXX)
-	local exit_code=0
+	local tmp_current
+	tmp_current=$(mktemp -t git-upload-tests-current.XXXXXX)
+	local current_exit_code=0
 
-	# Don't let test failures abort the script under set -e.
-	if (cd "$test_cwd" && eval "$test_cmd") >"$tmp" 2>&1; then
-		exit_code=0
+	if (cd "$test_cwd" && eval "$test_cmd") >"$tmp_current" 2>&1; then
+		current_exit_code=0
 	else
-		exit_code=$?
+		current_exit_code=$?
 	fi
 
-	local summary
-	# Best-effort: never return an empty testing status.
-	if summary=$(summarize_test_output "$test_cmd" "$exit_code" "$tmp" 2>/dev/null); then
-		:
-	else
-		if [ "$exit_code" -eq 0 ]; then
-			summary='Testing: pass'
-		else
-			summary='Testing: fail'
+	# Check for "no tests" conditions first
+	if [ "$current_exit_code" -ne 0 ]; then
+		# Pytest: exit 5, plus common text (works even if invoked via wrappers).
+		if grep -qiE 'collected[[:space:]]+0[[:space:]]+items|no[[:space:]]+tests[[:space:]]+ran' "$tmp_current" 2>/dev/null; then
+			rm -f "$tmp_current" >/dev/null 2>&1 || true
+			echo "[git-upload] Testing: not configured" >&2
+			printf '%s' 'Testing: not configured'
+			return 0
+		fi
+
+		# JS runners (Jest/Vitest/Mocha wrappers): "No tests found" variants.
+		if grep -qiE 'no[[:space:]]+tests[[:space:]]+found|no[[:space:]]+test[[:space:]]+files[[:space:]]+found|no[[:space:]]+tests[[:space:]]+to[[:space:]]+run' "$tmp_current" 2>/dev/null; then
+			rm -f "$tmp_current" >/dev/null 2>&1 || true
+			echo "[git-upload] Testing: not configured" >&2
+			printf '%s' 'Testing: not configured'
+			return 0
+		fi
+
+		# Maven/Surefire can be configured to fail when no tests match.
+		if grep -qiE 'No tests were executed|There are no tests to run|No tests to run' "$tmp_current" 2>/dev/null; then
+			rm -f "$tmp_current" >/dev/null 2>&1 || true
+			echo "[git-upload] Testing: not configured" >&2
+			printf '%s' 'Testing: not configured'
+			return 0
+		fi
+
+		# dotnet test can fail when it discovers zero tests.
+		if grep -qiE 'No test is available|No tests are available|No test files were found|No test matches the given testcase filter' "$tmp_current" 2>/dev/null; then
+			rm -f "$tmp_current" >/dev/null 2>&1 || true
+			echo "[git-upload] Testing: not configured" >&2
+			printf '%s' 'Testing: not configured'
+			return 0
 		fi
 	fi
-	rm -f "$tmp" >/dev/null 2>&1 || true
+
+	# Treat "no tests collected" as not configured (common for pytest).
+	if printf '%s' "$test_cmd" | grep -q '^pytest' && [ "$current_exit_code" -eq 5 ]; then
+		rm -f "$tmp_current" >/dev/null 2>&1 || true
+		echo "[git-upload] Testing: not configured" >&2
+		printf '%s' 'Testing: not configured'
+		return 0
+	fi
+
+	# Treat JS package managers' default placeholder tests as not configured.
+	if printf '%s' "$test_cmd" | grep -Eq '^(npm|yarn|pnpm) test' && grep -qi 'no test specified' "$tmp_current" 2>/dev/null; then
+		rm -f "$tmp_current" >/dev/null 2>&1 || true
+		echo "[git-upload] Testing: not configured" >&2
+		printf '%s' 'Testing: not configured'
+		return 0
+	fi
+
+	# If current tests pass, we're done - no need to check baseline
+	if [ "$current_exit_code" -eq 0 ]; then
+		local summary
+		if summary=$(summarize_test_output "$test_cmd" "$current_exit_code" "$tmp_current" 2>/dev/null); then
+			:
+		else
+			summary='Testing: pass'
+		fi
+		rm -f "$tmp_current" >/dev/null 2>&1 || true
+		echo "[git-upload] $summary" >&2
+		printf '%s' "$summary"
+		return 0
+	fi
+
+	# Tests are failing - now we need to compare against baseline
+	# to determine if this commit made things BETTER, WORSE, or SAME
+	
+	# Extract failure count from current test output
+	local current_fail_count
+	current_fail_count=$(extract_test_failure_count "$tmp_current")
+	
+	# Check if we have a previous commit to compare against
+	local has_head=0
+	if git rev-parse HEAD >/dev/null 2>&1; then
+		has_head=1
+	fi
+	
+	local test_delta="unknown"  # worse, same, better, or unknown
+	local baseline_fail_count=0
+	
+	if [ "$has_head" -eq 1 ]; then
+		echo "[git-upload] Tests failing ($current_fail_count) - comparing against previous commit..." >&2
+		
+		# Stash current changes (including staged), run tests on HEAD, then restore
+		local stash_result
+		stash_result=$(git stash push -u -m "git-upload-baseline-test" 2>&1 || echo "stash_failed")
+		
+		if ! printf '%s' "$stash_result" | grep -q "stash_failed"; then
+			local tmp_baseline
+			tmp_baseline=$(mktemp -t git-upload-tests-baseline.XXXXXX)
+			
+			echo "[git-upload] Running tests on previous commit (HEAD) for comparison..." >&2
+			
+			local baseline_exit_code=0
+			if (cd "$test_cwd" && eval "$test_cmd") >"$tmp_baseline" 2>&1; then
+				baseline_exit_code=0
+			else
+				baseline_exit_code=$?
+			fi
+			
+			# Restore the stashed changes
+			if ! git stash pop >/dev/null 2>&1; then
+				echo "[git-upload] WARNING: Failed to re-apply stashed changes after baseline tests." >&2
+				echo "[git-upload]          Please inspect your working tree (e.g., 'git status') and resolve manually." >&2
+			fi
+			
+			# Extract baseline failure count
+			if [ "$baseline_exit_code" -eq 0 ]; then
+				baseline_fail_count=0
+			else
+				baseline_fail_count=$(extract_test_failure_count "$tmp_baseline")
+			fi
+			
+			# Compare: did this commit make things better, worse, or same?
+			if [ "$baseline_fail_count" -eq 0 ] && [ "$current_fail_count" -gt 0 ]; then
+				# Tests WERE passing, now failing = WORSE (this commit broke things)
+				test_delta="worse"
+				echo "[git-upload] Tests were passing (0 failures), now $current_fail_count failing - commit BROKE tests" >&2
+			elif [ "$current_fail_count" -gt "$baseline_fail_count" ]; then
+				# More failures now = WORSE
+				test_delta="worse"
+				echo "[git-upload] More tests failing now ($current_fail_count) than before ($baseline_fail_count) - commit made things WORSE" >&2
+			elif [ "$current_fail_count" -lt "$baseline_fail_count" ]; then
+				# Fewer failures now = BETTER (commit is fixing things!)
+				test_delta="better"
+				echo "[git-upload] Fewer tests failing now ($current_fail_count) than before ($baseline_fail_count) - commit is IMPROVING things" >&2
+			else
+				# Same number of failures
+				test_delta="same"
+				echo "[git-upload] Same number of test failures ($current_fail_count) - neutral impact" >&2
+			fi
+			
+			rm -f "$tmp_baseline" >/dev/null 2>&1 || true
+		else
+			# Couldn't stash - assume neutral to avoid false positives
+			test_delta="unknown"
+			echo "[git-upload] Could not compare against HEAD - impact unknown" >&2
+		fi
+	else
+		# No previous commit - this is initial commit with failing tests
+		test_delta="worse"
+		echo "[git-upload] No previous commit - initial commit has $current_fail_count failing tests" >&2
+	fi
+
+	# Build the summary with delta information
+	local summary
+	if summary=$(summarize_test_output "$test_cmd" "$current_exit_code" "$tmp_current" 2>/dev/null); then
+		:
+	else
+		summary='Testing: fail'
+	fi
+	rm -f "$tmp_current" >/dev/null 2>&1 || true
+
+	# Modify the summary to indicate the impact of this commit on test health
+	case "$test_delta" in
+		worse)
+			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (degraded)/')
+			;;
+		better)
+			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (improving)/')
+			;;
+		same)
+			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (unchanged)/')
+			;;
+		*)
+			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (unknown baseline)/')
+			;;
+	esac
 
 	if [ -z "${summary// /}" ]; then
 		summary='Testing: not configured'
@@ -851,6 +1619,78 @@ EOF
 
 	echo "[git-upload] $summary" >&2
 	printf '%s' "$summary"
+}
+
+extract_test_failure_count() {
+	# Best-effort extraction of failure count from test output
+	# Returns a number (0 if can't determine)
+	local output_file="$1"
+	local count=0
+	
+	# Try various patterns for different test runners
+	
+	# Jest/Vitest: "Tests: X failed"
+	local jest_fail
+	jest_fail=$(grep -oE 'Tests:[[:space:]]+[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$jest_fail" ]; then
+		printf '%s' "$jest_fail"
+		return 0
+	fi
+	
+	# Pytest: "X failed" or "failed: X"
+	local pytest_fail
+	pytest_fail=$(grep -oE '[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$pytest_fail" ]; then
+		printf '%s' "$pytest_fail"
+		return 0
+	fi
+	
+	# Go: "FAIL" lines (count them)
+	local go_fail
+	go_fail=$(grep -c '^--- FAIL:' "$output_file" 2>/dev/null || echo "0")
+	if [ "$go_fail" -gt 0 ]; then
+		printf '%s' "$go_fail"
+		return 0
+	fi
+	
+	# Maven: "Failures: X, Errors: Y"
+	local mvn_fail
+	mvn_fail=$(grep -oE 'Failures:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 || true)
+	local mvn_err
+	mvn_err=$(grep -oE 'Errors:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 || true)
+	if [ -n "$mvn_fail" ] || [ -n "$mvn_err" ]; then
+		mvn_fail=${mvn_fail:-0}
+		mvn_err=${mvn_err:-0}
+		printf '%s' "$((mvn_fail + mvn_err))"
+		return 0
+	fi
+	
+	# Cargo/Rust: "X failed"
+	local cargo_fail
+	cargo_fail=$(grep -oE '[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$cargo_fail" ]; then
+		printf '%s' "$cargo_fail"
+		return 0
+	fi
+	
+	# dotnet: "Failed: X"
+	local dotnet_fail
+	dotnet_fail=$(grep -oE 'Failed:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$dotnet_fail" ]; then
+		printf '%s' "$dotnet_fail"
+		return 0
+	fi
+	
+	# Fallback: count lines with common failure indicators
+	local generic_fail
+	generic_fail=$(grep -ciE '(FAIL|FAILED|ERROR|BROKEN)' "$output_file" 2>/dev/null || echo "0")
+	if [ "$generic_fail" -gt 0 ]; then
+		printf '%s' "$generic_fail"
+		return 0
+	fi
+	
+	# Can't determine - return 1 as a fallback (at least 1 failure since tests failed)
+	printf '1'
 }
 
 generate_ai_message() {
@@ -875,6 +1715,31 @@ generate_ai_message() {
 	testing_status=$(compute_testing_status)
 	local breaking_hints
 	breaking_hints=$(compute_breaking_change_hints)
+	
+	# Get comprehensive diff analysis for smart risk assessment
+	local diff_analysis
+	diff_analysis=$(compute_diff_analysis)
+	
+	# Compute actual risk based on meaningful criteria
+	local risk_result
+	risk_result=$(compute_risk_score "$testing_status" "$diff_analysis")
+	local computed_risk="${risk_result%%|*}"
+	local risk_reason="${risk_result#*|}"
+	
+	# Build diff summary for AI context
+	local diff_summary=""
+	# Safely parse diff_analysis without using eval to prevent shell injection
+	parse_diff_analysis "$diff_analysis"
+	diff_summary="Diff analysis:
+- Files changed: $files_changed (core: $core_files_changed, tests: $test_files_changed, config: $config_files_changed)
+- Code changes: +$code_additions/-$code_deletions lines
+- Formatting/whitespace changes: $whitespace_changes lines
+- Comment changes: $comment_changes lines
+- Syntax errors detected: $syntax_error_count
+- API/export removals: $api_removals
+- Function signature changes: $signature_changes
+
+Pre-computed risk assessment: $computed_risk ($risk_reason)"
 
 	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
@@ -895,17 +1760,24 @@ Content requirements:
 		- <bullet 1>
 		- <bullet 2>
 		(Do NOT use Yes/No. Do NOT write 'Breaking changes: yes'.)
-- Include a short risk assessment using this policy:
-	- Risk: high if breaking changes were made (Breaking changes is a bullet list) OR tests failed.
-	- Risk: medium if potentially breaking changes are detected but not certain.
-	- Risk: low if changes are non-breaking and tests do not fail.
-- If the authoritative testing status is Testing: fail ..., set Risk: high.
-- If you output Breaking changes as a bullet list, set Risk: high.
-- If you are EVER UNSURE ABOUT IF CHANGES ARE BREAKING OR NOT, SET Risk: medium.
+
+RISK ASSESSMENT POLICY (IMPORTANT - use the pre-computed risk as your baseline):
+The risk level has been pre-computed based on ACTUAL analysis of the diff:
+- Syntax errors in changed files
+- Test failures
+- Removed public APIs/exports
+- Changed function signatures
+- Ratio of code changes vs formatting/whitespace changes
+
+Use the pre-computed risk level unless you have strong evidence to increase it.
+DO NOT mark changes as high risk just because they contain keywords like 'validate' or 'throw'.
+Formatting-only changes, comment changes, and test-only changes are LOW risk.
+Changes that don't modify any actual code logic are LOW risk.
+
 - For Testing, use the provided testing status EXACTLY (verbatim). Do not guess.
 - If tests failed, do NOT restate the failing test list anywhere except under the Testing section.
 - For breaking changes bullets, avoid hedging: do not use may or might; use definitive language.
-- For breaking changes bullets, be concrete: name what breaks in accordance with the project goals (e.g., which code patterns, assumptions, APIs, or config expectations). Avoid vague bullets like \"X will break\" without saying what X is or what it will break from the current behavior. Breaking changes can only be made with a decent idea of the goals of the project so be sure the goal is clear. This is often outlined in the .github/copilot-instructions.md or the workspace name/folder structure.
+- For breaking changes bullets, be concrete: name what breaks in accordance with the project goals.
 
 Style requirements:
 - Subject line: imperative mood; concise and specific; aim for <= 72 characters when feasible.
@@ -933,6 +1805,8 @@ Testing: <use the provided testing status verbatim>
 
 	effective_prompt="$default_prompt
 
+$diff_summary
+
 Authoritative testing line to copy verbatim into the commit message:
 $testing_status
 
@@ -944,6 +1818,7 @@ Additional context from user: $ai_extra_context"
 	fi
 
 	echo "[git-upload] Generating AI commit message via Copilot…" >&2
+	echo "[git-upload] Pre-computed risk: $computed_risk ($risk_reason)" >&2
 
 	# Call Copilot CLI (or overridden AI command) with the constructed prompt.
 	# Capture full output so we can extract the commit message.
@@ -969,7 +1844,7 @@ Additional context from user: $ai_extra_context"
 		# Trim leading blank lines.
 		commit_block=$(printf '%s\n' "$commit_block" | awk 'BEGIN{found=0} { if (!found && $0 ~ /^[[:space:]]*$/) next; found=1; print }')
 		if [ -n "${commit_block// /}" ]; then
-			normalize_ai_commit_message "$commit_block" "$testing_status" "$breaking_hints"
+			normalize_ai_commit_message "$commit_block" "$testing_status" "$breaking_hints" "$computed_risk" "$risk_reason"
 			return 0
 		fi
 	fi
@@ -982,7 +1857,7 @@ Additional context from user: $ai_extra_context"
 		return 1
 	fi
 
-	normalize_ai_commit_message "$commit_line" "$testing_status" "$breaking_hints"
+	normalize_ai_commit_message "$commit_line" "$testing_status" "$breaking_hints" "$computed_risk" "$risk_reason"
 }
 
 main() {
@@ -1087,4 +1962,6 @@ main() {
 	fi
 }
 
-main "$@"
+if [ "${GIT_UPLOAD_LIBRARY_ONLY-}" != "1" ]; then
+	main "$@"
+fi
