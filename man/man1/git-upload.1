@@ -25,6 +25,12 @@ or
 .B git upload
 uses GitHub Copilot CLI (or an overridden AI command) to generate a commit
 message based on the current repository state.
+.PP
+When AI mode is enabled, the generated commit message also includes an
+authoritative testing status line. Tests are only executed when a supported
+test command is detected and the repository appears to contain actual test
+cases; otherwise the status is reported as
+.B "Testing: not configured".
 .SH OPTIONS
 .TP
 .BR -ai ,

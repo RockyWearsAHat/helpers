@@ -19,6 +19,7 @@ checks=(
 	"zsh -n git-fucked-the-push"
 	"zsh -n Git-Shell-Helpers-Installer.sh"
 	"zsh -n install-git-shell-helpers"
+	"zsh ./scripts/test-git-upload-detect.sh"
 	"bash ./scripts/build-dist.sh"
 )
 
