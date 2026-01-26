@@ -1730,6 +1730,21 @@ generate_ai_message() {
 	local diff_summary=""
 	# Safely parse diff_analysis without using eval to prevent shell injection
 	parse_diff_analysis "$diff_analysis"
+	
+	# Get the actual file names for context
+	local changed_file_list
+	changed_file_list=$(git diff --cached --name-only 2>/dev/null | head -20 || echo "")
+	local file_list_display=""
+	if [ -n "$changed_file_list" ]; then
+		file_list_display="
+Changed files:
+$(printf '%s\n' "$changed_file_list" | sed 's/^/  - /')"
+	fi
+	
+	# Get a compact stat summary
+	local stat_summary
+	stat_summary=$(git diff --cached --stat 2>/dev/null | tail -1 || echo "")
+	
 	diff_summary="Diff analysis:
 - Files changed: $files_changed (core: $core_files_changed, tests: $test_files_changed, config: $config_files_changed)
 - Code changes: +$code_additions/-$code_deletions lines
@@ -1738,50 +1753,60 @@ generate_ai_message() {
 - Syntax errors detected: $syntax_error_count
 - API/export removals: $api_removals
 - Function signature changes: $signature_changes
+$file_list_display
+
+Git stat: $stat_summary
 
 Pre-computed risk assessment: $computed_risk ($risk_reason)"
 
 	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
+CRITICAL: Be SPECIFIC and CONCRETE. Generic messages like 'Update defaults' or 'Refactor code' are USELESS.
+
 Your job:
-- Determine what changed between the last commit (HEAD) and the current staged snapshot (index). If there is no HEAD yet (initial commit), base it on the staged snapshot.
-- Write a reasonable-length but very informative commit message that explains what changed and why, so a teammate can understand it weeks later.
+- Examine the actual diff to understand EXACTLY what changed.
+- Write a commit message that someone unfamiliar with this work can understand in 6 months.
+- Name specific files, functions, features, behaviors, and values that changed.
+
+SPECIFICITY REQUIREMENTS (MOST IMPORTANT):
+- NEVER use vague phrases like: 'core code', 'core helpers', 'default values', 'one or more options', 'various improvements', 'minor changes', 'some behavior'.
+- ALWAYS name the SPECIFIC thing: 'git-upload', 'the --dry-run flag', 'MAX_RETRIES from 3 to 5', 'the parseConfig() function'.
+- If a new file was added, say WHAT it does: 'Add git-remerge script for re-applying failed merges' NOT 'Add new script'.
+- If behavior changed, describe the ACTUAL change: 'Skip empty commits instead of erroring' NOT 'Change default behavior'.
+- If you're refactoring, say WHAT was refactored and WHY: 'Extract notification logic into separate function to reduce Discord API spam' NOT 'Refactor implementation'.
+
+Subject line rules:
+- Must describe the PRIMARY concrete change, not a category.
+- Good: 'Add git-remerge command with man page'
+- Good: 'Fix Discord bot sending duplicate notifications on reconnect'
+- Good: 'Increase upload retry limit from 3 to 5 attempts'
+- BAD: 'Update defaults in core helpers' (which helpers? which defaults?)
+- BAD: 'Refactor code and add comments' (what code? what's the improvement?)
+- BAD: 'Change behavior of script' (which script? what behavior?)
 
 Content requirements:
 - Base everything on the staged diff (index) vs HEAD; do not invent changes.
-- If multiple areas changed, group them; prioritize user-visible behavior changes and operational impact.
-- Call out CLI/API behavior changes, default behavior changes, and backwards compatibility.
-- IMPORTANT: If behavior changed in a way that could affect users (including relaxing/tightening validation, changing parsing, changing defaults, changing outputs, removing checks/guards, changing error handling), treat it as a breaking change unless you can justify compatibility.
-- If a change is clearly a bugfix that restores documented/spec-intended behavior, it may be non-breaking; still call out the behavior change in Summary/Why.
-- Breaking changes format rules (STRICT):
+- List EACH significant change with its SPECIFIC impact.
+- For new files: describe what each file IS and DOES.
+- For modified files: describe what SPECIFICALLY changed and the effect.
+- For config/default changes: state the OLD value, NEW value, and WHY.
+- Call out CLI/API behavior changes with concrete before/after.
+
+Breaking changes format rules (STRICT):
 	- If there are NO breaking changes, output exactly: Breaking changes: none
 	- If there ARE breaking changes, output:
 		Breaking changes:
-		- <bullet 1>
-		- <bullet 2>
+		- <SPECIFIC bullet: name the flag/function/behavior and what breaks>
 		(Do NOT use Yes/No. Do NOT write 'Breaking changes: yes'.)
+		(BAD: 'Default values changed' - GOOD: '--verbose now defaults to true; scripts expecting quiet output will break')
 
-RISK ASSESSMENT POLICY (IMPORTANT - use the pre-computed risk as your baseline):
-The risk level has been pre-computed based on ACTUAL analysis of the diff:
-- Syntax errors in changed files
-- Test failures
-- Removed public APIs/exports
-- Changed function signatures
-- Ratio of code changes vs formatting/whitespace changes
-
-Use the pre-computed risk level unless you have strong evidence to increase it.
-DO NOT mark changes as high risk just because they contain keywords like 'validate' or 'throw'.
-Formatting-only changes, comment changes, and test-only changes are LOW risk.
-Changes that don't modify any actual code logic are LOW risk.
-
-- For Testing, use the provided testing status EXACTLY (verbatim). Do not guess.
-- If tests failed, do NOT restate the failing test list anywhere except under the Testing section.
-- For breaking changes bullets, avoid hedging: do not use may or might; use definitive language.
-- For breaking changes bullets, be concrete: name what breaks in accordance with the project goals.
+RISK ASSESSMENT: Use the pre-computed risk level unless you have strong evidence to change it.
+- Formatting-only, comment, and test-only changes are LOW risk.
+- Use the provided testing status EXACTLY (verbatim). Do not guess.
 
 Style requirements:
-- Subject line: imperative mood; concise and specific; aim for <= 72 characters when feasible.
-- Body: detailed but not padded; prefer bullets.
+- Subject line: imperative mood; SPECIFIC; aim for <= 72 characters.
+- Body: detailed with concrete specifics; prefer bullets.
 - Do NOT mention checking status, diffs, tools, agents, prompts, or instructions.
 
 Output protocol (IMPORTANT):
@@ -1792,13 +1817,18 @@ COMMIT_BEGIN
 <body, multiple lines allowed>
 COMMIT_END
 
-Suggested body structure (adapt as needed):
+Body structure:
 Summary:
-- <bullet per major change>
+- <SPECIFIC change with file/function/feature names>
+- <Another SPECIFIC change>
+
 Why:
-- <motivation/problem addressed>
-Breaking changes: <use the strict format rules above>
+- <CONCRETE motivation: what problem did this solve or what improvement does it bring>
+
+Breaking changes: <use the strict format rules above - be SPECIFIC about what breaks>
+
 Risk: <low|medium|high> (<short rationale>)
+
 Testing: <use the provided testing status verbatim>
 "
 	local effective_prompt
