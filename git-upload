@@ -35,7 +35,7 @@ use_ai=false
 user_msg=""
 ai_extra_context=""
 
-DEFAULT_AI_CMD='copilot -s --allow-all-tools --allow-all-paths -p "$GIT_UPLOAD_AI_PROMPT"'
+DEFAULT_AI_CMD='copilot -s --allow-all-tools --allow-all-paths --model gpt-5.2 -p "$GIT_UPLOAD_AI_PROMPT"'
 
 expect_ai_context_next=false
 
@@ -1877,7 +1877,10 @@ main() {
 
 		# If the detached commit is already contained by exactly one local branch,
 		# we can safely switch to it without losing work.
-		containing_branches=$(git branch --contains "$head_commit" --format='%(refname:short)' 2>/dev/null || echo "")
+		# Filter out entries that aren't real branch names (e.g., "(HEAD detached from ...)")
+		containing_branches=$(git branch --contains "$head_commit" --format='%(refname:short)' 2>/dev/null \
+			| grep -v '^(' \
+			| sed '/^$/d' || echo "")
 		containing_count=$(printf '%s\n' "$containing_branches" | sed '/^$/d' | wc -l | tr -d ' ')
 
 		if [ "$containing_count" = "1" ]; then
@@ -1887,9 +1890,23 @@ main() {
 				echo "[git-upload] Failed to switch to '$current_branch'." >&2
 				exit 1
 			}
+		elif [ "$containing_count" = "0" ]; then
+			# Detached HEAD with commits not on any branch - create a branch to preserve work
+			short_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+			timestamp=$(date +%Y%m%d-%H%M%S)
+			new_branch="detached-work-${short_hash}-${timestamp}"
+			echo "[git-upload] You are in a detached HEAD state with commits not on any branch." >&2
+			echo "[git-upload] Creating branch '$new_branch' to preserve your work…" >&2
+			git switch -c "$new_branch" >/dev/null 2>&1 || {
+				echo "[git-upload] Failed to create branch '$new_branch'." >&2
+				exit 1
+			}
+			current_branch="$new_branch"
+			echo "[git-upload] Successfully created and switched to '$new_branch'." >&2
 		else
-			echo "[git-upload] You are in a detached HEAD state. Checkout or create a branch before running git-upload." >&2
-			echo "[git-upload] Fix (create a branch at the current commit): git switch -c <branch-name>" >&2
+			echo "[git-upload] You are in a detached HEAD state. The commit exists on multiple branches:" >&2
+			printf '%s\n' "$containing_branches" | sed 's/^/  - /' >&2
+			echo "[git-upload] Fix: checkout one of those branches (e.g., 'git switch <branch-name>') before running git-upload." >&2
 			exit 1
 		fi
 	fi
