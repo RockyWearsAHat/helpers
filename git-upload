@@ -1478,7 +1478,10 @@ EOF
 			fi
 			
 			# Restore the stashed changes
-			git stash pop >/dev/null 2>&1 || true
+			if ! git stash pop >/dev/null 2>&1; then
+				echo "[git-upload] WARNING: Failed to re-apply stashed changes after baseline tests." >&2
+				echo "[git-upload]          Please inspect your working tree (e.g., 'git status') and resolve manually." >&2
+			fi
 			
 			# Extract baseline failure count
 			if [ "$baseline_exit_code" -eq 0 ]; then
