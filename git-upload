@@ -913,6 +913,64 @@ Risk: $final_risk ($final_reason)"
 	printf '%s' "$normalized"
 }
 
+# Safe parser for diff_analysis output.
+# Parses key=value lines without using eval, preventing shell injection.
+# Sets the following variables in the caller's scope:
+#   diff_empty, files_changed, test_files_changed, config_files_changed,
+#   core_files_changed, total_additions, total_deletions, code_additions,
+#   code_deletions, whitespace_changes, comment_changes, syntax_error_count,
+#   api_removals, signature_changes
+#
+# IMPORTANT: This is safe because we only assign to a whitelist of variable
+# names and use printf -v to assign values as literal strings.
+parse_diff_analysis() {
+	local __input="$1"
+	local __line __key __value
+	
+	# Initialize all variables to safe defaults
+	diff_empty=0
+	files_changed=0
+	test_files_changed=0
+	config_files_changed=0
+	core_files_changed=0
+	total_additions=0
+	total_deletions=0
+	code_additions=0
+	code_deletions=0
+	whitespace_changes=0
+	comment_changes=0
+	syntax_error_count=0
+	api_removals=0
+	signature_changes=0
+	
+	while IFS= read -r __line; do
+		# Skip empty lines
+		[ -z "$__line" ] && continue
+		
+		# Only process lines with = sign
+		[[ "$__line" != *"="* ]] && continue
+		
+		# Split on first =
+		__key="${__line%%=*}"
+		__value="${__line#*=}"
+		
+		# Only allow known safe variable names (numeric values only)
+		case "$__key" in
+			diff_empty|files_changed|test_files_changed|config_files_changed|\
+core_files_changed|total_additions|total_deletions|code_additions|\
+code_deletions|whitespace_changes|comment_changes|syntax_error_count|\
+api_removals|signature_changes)
+				# Safely assign the value without executing it
+				printf -v "$__key" '%s' "$__value"
+				;;
+			# Ignore syntax_errors and api_removal_details - they contain
+			# arbitrary diff content that we don't need for risk scoring
+			*)
+				;;
+		esac
+	done <<< "$__input"
+}
+
 compute_diff_analysis() {
 	# Comprehensive diff analysis that determines ACTUAL risk based on:
 	# 1. What type of changes are being made (code vs formatting vs comments)
@@ -921,6 +979,9 @@ compute_diff_analysis() {
 	# 4. Test results and syntax validation
 	#
 	# Returns a structured analysis that can be used by AI and risk scoring.
+	#
+	# NOTE: Output is key=value format. Callers MUST use parse_diff_analysis()
+	# instead of eval to avoid shell injection from diff content.
 	
 	local diff
 	diff=$(git diff --cached 2>/dev/null || echo "")
@@ -1039,11 +1100,16 @@ compute_diff_analysis() {
 				;;
 			*.ts|*.tsx)
 				# TypeScript requires tsc for proper checking, skip if not available
+				# Only run tsc in context of a project with tsconfig.json to avoid false positives
 				if command -v tsc >/dev/null 2>&1; then
-					if ! tsc --noEmit "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- TypeScript syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
+					local repo_root
+					repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+					if [ -f "$repo_root/tsconfig.json" ]; then
+						if ! (cd "$repo_root" && tsc --noEmit >/dev/null 2>&1); then
+							syntax_errors="${syntax_errors}
+- TypeScript syntax/compile error (see tsc output) affecting $file"
+							syntax_error_count=$((syntax_error_count + 1))
+						fi
 					fi
 				fi
 				;;
@@ -1058,7 +1124,7 @@ compute_diff_analysis() {
 				;;
 			*.json)
 				if command -v python3 >/dev/null 2>&1; then
-					if ! python3 -c "import json; json.load(open('$file'))" >/dev/null 2>&1; then
+					if ! python3 -m json.tool -- "$file" >/dev/null 2>&1; then
 						syntax_errors="${syntax_errors}
 - JSON syntax error in $file"
 						syntax_error_count=$((syntax_error_count + 1))
@@ -1073,7 +1139,7 @@ compute_diff_analysis() {
 	local api_removal_details=""
 	# Look for removed function/class/export declarations
 	local removed_exports
-	removed_exports=$(printf '%s\n' "$diff" | grep -E '^-.*(^export |^public |^def |^function |^class |^module )' | head -n 5 || true)
+	removed_exports=$(printf '%s\n' "$diff" | grep -E '^-[[:space:]]*(export |public |def |function |class |module )' | head -n 5 || true)
 	if [ -n "${removed_exports// /}" ]; then
 		api_removals=$(printf '%s\n' "$removed_exports" | wc -l | tr -d ' ')
 		api_removal_details="$removed_exports"
@@ -1151,7 +1217,8 @@ compute_risk_score() {
 	local api_removals=0
 	local signature_changes=0
 	
-	eval "$diff_analysis"
+	# Safely parse diff_analysis without using eval to prevent shell injection
+	parse_diff_analysis "$diff_analysis"
 	
 	local risk_level="medium"  # Default to medium (unknown/uncertain)
 	local risk_reasons=""
@@ -1464,7 +1531,7 @@ EOF
 		local stash_result
 		stash_result=$(git stash push -u -m "git-upload-baseline-test" 2>&1 || echo "stash_failed")
 		
-		if printf '%s' "$stash_result" | grep -qv "stash_failed"; then
+		if ! printf '%s' "$stash_result" | grep -q "stash_failed"; then
 			local tmp_baseline
 			tmp_baseline=$(mktemp -t git-upload-tests-baseline.XXXXXX)
 			
@@ -1661,7 +1728,8 @@ generate_ai_message() {
 	
 	# Build diff summary for AI context
 	local diff_summary=""
-	eval "$diff_analysis"
+	# Safely parse diff_analysis without using eval to prevent shell injection
+	parse_diff_analysis "$diff_analysis"
 	diff_summary="Diff analysis:
 - Files changed: $files_changed (core: $core_files_changed, tests: $test_files_changed, config: $config_files_changed)
 - Code changes: +$code_additions/-$code_deletions lines

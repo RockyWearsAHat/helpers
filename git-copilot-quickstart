@@ -88,21 +88,22 @@ parse_models() {
 	# Use Python/jq to parse JSON if available, otherwise basic parsing
 	if command -v python3 &>/dev/null; then
 		# Python parsing for reliable JSON handling
-		eval "$(python3 -c "
+		# Pass JSON via stdin to avoid shell injection from untrusted API responses
+		eval "$(printf '%s' "$json" | python3 -c '
 import json
 import sys
 
 try:
-    data = json.loads('''$json''')
-    models = data.get('models', [])
+    data = json.loads(sys.stdin.read())
+    models = data.get("models", [])
     
     # Filter for chat-capable models
-    chat_models = [m for m in models if 'chat' in m.get('capabilities', [])]
+    chat_models = [m for m in models if "chat" in m.get("capabilities", [])]
     
     # Sort: recommended first, then by name
     def sort_key(m):
-        is_default = m.get('is_default', False)
-        name = m.get('name', '')
+        is_default = m.get("is_default", False)
+        name = m.get("name", "")
         return (not is_default, name.lower())
     
     chat_models.sort(key=sort_key)
@@ -113,20 +114,24 @@ try:
     caps = []
     
     for m in chat_models:
-        ids.append(m.get('id', ''))
-        names.append(m.get('name', m.get('id', '')))
-        vendors.append(m.get('vendor', ''))
-        caps.append(','.join(m.get('capabilities', [])))
+        ids.append(m.get("id", ""))
+        names.append(m.get("name", m.get("id", "")))
+        vendors.append(m.get("vendor", ""))
+        caps.append(",".join(m.get("capabilities", [])))
     
-    # Output as zsh array assignments
-    print('MODEL_IDS=(' + ' '.join(f'\"{i}\"' for i in ids) + ')')
-    print('MODEL_NAMES=(' + ' '.join(f'\"{n}\"' for n in names) + ')')
-    print('MODEL_VENDORS=(' + ' '.join(f'\"{v}\"' for v in vendors) + ')')
-    print('MODEL_CAPABILITIES=(' + ' '.join(f'\"{c}\"' for c in caps) + ')')
+    # Output as zsh array assignments with proper shell escaping
+    def shell_escape(s):
+        """Escape string for safe use in shell double quotes"""
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$").replace("`", "\\`")
+    
+    print("MODEL_IDS=(" + " ".join(f"\"{shell_escape(i)}\"" for i in ids) + ")")
+    print("MODEL_NAMES=(" + " ".join(f"\"{shell_escape(n)}\"" for n in names) + ")")
+    print("MODEL_VENDORS=(" + " ".join(f"\"{shell_escape(v)}\"" for v in vendors) + ")")
+    print("MODEL_CAPABILITIES=(" + " ".join(f"\"{shell_escape(c)}\"" for c in caps) + ")")
 except Exception as e:
-    print(f'# Parse error: {e}', file=sys.stderr)
+    print(f"# Parse error: {e}", file=sys.stderr)
     sys.exit(1)
-" 2>/dev/null)"
+' 2>/dev/null)"
 		return $?
 	elif command -v jq &>/dev/null; then
 		# jq parsing as fallback
