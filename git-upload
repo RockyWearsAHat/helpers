@@ -23,8 +23,8 @@
 #          and the current state, write a clean concise one-three line message
 #          for this diff"
 #       and, if you provided [ai-context] after -ai, appends that text.
-#     - It then calls GitHub Copilot CLI non-interactively:
-#         copilot -s --allow-all-tools --allow-all-paths -p "$GIT_UPLOAD_AI_PROMPT"
+#     - It then calls GitHub Copilot CLI non-interactively (write/shell tools denied):
+#         copilot -s --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"
 #
 #   Advanced: you may optionally override the full AI command via
 #   GIT_UPLOAD_AI_CMD for a single shell/session, but this is not required.
@@ -35,7 +35,7 @@ use_ai=false
 user_msg=""
 ai_extra_context=""
 
-DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex -p "$GIT_UPLOAD_AI_PROMPT"'
+DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"'
 
 # Progress spinner for long-running operations
 _spinner_pid=""
@@ -1847,12 +1847,16 @@ $(printf '%s\n' "$changed_file_list" | sed 's/^/  - /')"
 	local stat_summary
 	stat_summary=$(git diff --cached --stat 2>/dev/null | tail -1 || echo "")
 	
-	# Get the actual diff (truncated for large changes)
+	# Get the actual diff - full content for complete context
 	local actual_diff
-	actual_diff=$(git diff --cached -U3 2>/dev/null | head -500 || echo "")
+	actual_diff=$(git diff --cached -U3 2>/dev/null || echo "")
+	local diff_line_count
+	diff_line_count=$(printf '%s\n' "$actual_diff" | wc -l | tr -d ' ')
 	local diff_truncated=""
-	if [ "$(git diff --cached 2>/dev/null | wc -l)" -gt 500 ]; then
-		diff_truncated="(truncated - showing first 500 lines)"
+	# For very large diffs (>2000 lines), truncate with notice to keep prompt manageable
+	if [ "$diff_line_count" -gt 2000 ]; then
+		actual_diff=$(printf '%s\n' "$actual_diff" | head -2000)
+		diff_truncated="(truncated - showing first 2000 of $diff_line_count lines; review full diff with 'git diff --cached')"
 	fi
 	
 	# Load commit guidelines if they exist
@@ -1877,7 +1881,7 @@ Git stat: $stat_summary
 
 Pre-computed risk assessment: $computed_risk ($risk_reason)
 
-ACTUAL DIFF $diff_truncated:
+ACTUAL DIFF ($diff_line_count lines)$diff_truncated:
 \`\`\`diff
 $actual_diff
 \`\`\`"
@@ -1894,10 +1898,17 @@ $diff_summary"
 
 	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
+OPERATING CONSTRAINTS:
+- You are running in READ-ONLY mode with no tool access.
+- You CANNOT read files, run commands, or access the filesystem.
+- ALL context you need is provided in this prompt (diff, file list, analysis).
+- Do NOT ask for more information or suggest running commands.
+- Work ONLY with the provided diff content below.
+
 CRITICAL: Be SPECIFIC and CONCRETE. Generic messages like 'Update defaults' or 'Refactor code' are USELESS.
 
 Your job:
-- Examine the actual diff to understand EXACTLY what changed.
+- Examine the ACTUAL DIFF provided below to understand EXACTLY what changed.
 - Write a commit message that someone unfamiliar with this work can understand in 6 months.
 - Name specific files, functions, features, behaviors, and values that changed.
 
@@ -1996,38 +2007,41 @@ Additional context from user: $ai_extra_context"
 	(GIT_UPLOAD_AI_PROMPT="$effective_prompt" eval "$ai_cmd" > "$ai_output_file" 2>&1) &
 	local ai_pid=$!
 	
-	# Display streaming "thinking" output with spinner - simple single-line approach
+	# Display streaming "thinking" output with spinner - show all thoughts
 	local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 	local frame_idx=1
-	local last_thought=""
 	local last_line_count=0
-	local dots=""
+	local printed_lines=0
 	local elapsed=0
-	local current_line_count=0
-	local new_thought=""
 	local elapsed_sec=0
 	
 	while kill -0 "$ai_pid" 2>/dev/null; do
-		# Read latest output and extract latest thought
+		# Read latest output and display any new non-marker lines as thoughts
 		if [ -f "$ai_output_file" ]; then
-			current_line_count=$(wc -l < "$ai_output_file" 2>/dev/null | tr -d ' ' || echo "0")
+			# Note: Combine local declaration with assignment to avoid zsh printing
+			# variable names to stdout when inside command substitution context
+			local current_line_count=$(wc -l < "$ai_output_file" 2>/dev/null | tr -d ' ' || echo "0")
 			
-			# Only update thought when new content arrives
-			if [ "$current_line_count" -gt "$last_line_count" ]; then
-				last_line_count=$current_line_count
+			# Display new lines as they arrive
+			if [ "$current_line_count" -gt "$printed_lines" ]; then
+				# Clear the spinner line first
+				printf '\r\033[K' >&2
 				
-				# Get last non-empty, non-COMMIT line as the "thought"
-				new_thought=$(grep -v '^$' "$ai_output_file" 2>/dev/null | \
-					grep -v '^COMMIT' | \
-					tail -n 1 | \
-					head -c 70 || echo "")
+				# Get and display all new non-empty, non-marker lines
+				local new_lines=$(tail -n +$((printed_lines + 1)) "$ai_output_file" 2>/dev/null | \
+					grep -v '^$' | \
+					grep -v '^COMMIT_BEGIN$' | \
+					grep -v '^COMMIT_END$' | \
+					grep -v '^COMMIT: ' || echo "")
 				
-				if [ -n "$new_thought" ] && [ "$new_thought" != "$last_thought" ]; then
-					last_thought="$new_thought"
-					# Print new thought on its own line (not overwritten)
-					printf '\r\033[K' >&2
-					printf '\033[2m[git-upload] 💭 %s\033[0m\n' "$new_thought" >&2
+				if [ -n "$new_lines" ]; then
+					# Print each thought line (no truncation)
+					printf '%s\n' "$new_lines" | while IFS= read -r thought_line; do
+						[ -n "$thought_line" ] && printf '\033[2m[git-upload] 💭 %s\033[0m\n' "$thought_line" >&2
+					done
 				fi
+				
+				printed_lines=$current_line_count
 			fi
 		fi
 		
