@@ -1972,11 +1972,13 @@ Additional context from user: $ai_extra_context"
 	local last_line_count=0
 	local dots=""
 	local elapsed=0
+	local current_line_count=0
+	local new_thought=""
+	local elapsed_sec=0
 	
 	while kill -0 "$ai_pid" 2>/dev/null; do
 		# Read latest output and extract latest thought
 		if [ -f "$ai_output_file" ]; then
-			local current_line_count
 			current_line_count=$(wc -l < "$ai_output_file" 2>/dev/null | tr -d ' ' || echo "0")
 			
 			# Only update thought when new content arrives
@@ -1984,7 +1986,6 @@ Additional context from user: $ai_extra_context"
 				last_line_count=$current_line_count
 				
 				# Get last non-empty, non-COMMIT line as the "thought"
-				local new_thought
 				new_thought=$(grep -v '^$' "$ai_output_file" 2>/dev/null | \
 					grep -v '^COMMIT' | \
 					tail -n 1 | \
@@ -2001,7 +2002,7 @@ Additional context from user: $ai_extra_context"
 		
 		# Update spinner on current line
 		elapsed=$((elapsed + 1))
-		local elapsed_sec=$((elapsed / 7))  # roughly seconds (sleep 0.15 * 7 ≈ 1s)
+		elapsed_sec=$((elapsed / 7))  # roughly seconds (sleep 0.15 * 7 ≈ 1s)
 		printf '\r[git-upload] %s Generating commit message... (%ds)' "${frames[$frame_idx]}" "$elapsed_sec" >&2
 		frame_idx=$(( (frame_idx % 10) + 1 ))
 		sleep 0.15
