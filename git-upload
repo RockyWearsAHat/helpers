@@ -35,7 +35,41 @@ use_ai=false
 user_msg=""
 ai_extra_context=""
 
-DEFAULT_AI_CMD='copilot -s --allow-all-tools --allow-all-paths --model gpt-5.2 -p "$GIT_UPLOAD_AI_PROMPT"'
+DEFAULT_AI_CMD='copilot -s --allow-all-tools --allow-all-paths --model gpt-5.1-codex -p "$GIT_UPLOAD_AI_PROMPT"'
+
+# Progress spinner for long-running operations
+_spinner_pid=""
+start_spinner() {
+	local msg="$1"
+	(
+		local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+		local i=1
+		while true; do
+			printf '\r\033[K[git-upload] %s %s' "${frames[$i]}" "$msg" >&2
+			i=$(( (i % 10) + 1 ))
+			sleep 0.1
+		done
+	) &
+	_spinner_pid=$!
+	disown $_spinner_pid 2>/dev/null || true
+}
+
+stop_spinner() {
+	local final_msg="${1:-}"
+	if [ -n "$_spinner_pid" ] && kill -0 "$_spinner_pid" 2>/dev/null; then
+		kill "$_spinner_pid" 2>/dev/null || true
+		wait "$_spinner_pid" 2>/dev/null || true
+	fi
+	_spinner_pid=""
+	if [ -n "$final_msg" ]; then
+		printf '\r\033[K[git-upload] %s\n' "$final_msg" >&2
+	else
+		printf '\r\033[K' >&2
+	fi
+}
+
+# Cleanup spinner on exit
+trap 'stop_spinner' EXIT INT TERM
 
 expect_ai_context_next=false
 
@@ -1072,8 +1106,14 @@ compute_diff_analysis() {
 	added_imports=$(printf '%s\n' "$diff" | grep -E '^\+.*(import |from .* import |require\(|#include)' | wc -l | tr -d ' ')
 	
 	# Check for syntax errors in changed files (language-specific)
+	# Run checks in parallel for speed, collecting results via temp files
 	local syntax_errors=""
 	local syntax_error_count=0
+	local syntax_tmpdir
+	syntax_tmpdir=$(mktemp -d -t git-upload-syntax.XXXXXX)
+	local syntax_pids=()
+	local tsc_checked=false
+	
 	while IFS= read -r file; do
 		[ -z "$file" ] && continue
 		[ ! -f "$file" ] && continue
@@ -1081,58 +1121,89 @@ compute_diff_analysis() {
 		case "$file" in
 			*.py)
 				if command -v python3 >/dev/null 2>&1; then
-					if ! python3 -m py_compile "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- Python syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
-					fi
+					(
+						if ! python3 -m py_compile "$file" >/dev/null 2>&1; then
+							printf '%s\n' "- Python syntax error in $file" >> "$syntax_tmpdir/errors"
+						fi
+					) &
+					syntax_pids+=($!)
 				fi
 				;;
 			*.js|*.jsx)
 				# Only check plain JavaScript files with node --check
 				if command -v node >/dev/null 2>&1; then
-					if ! node --check "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- JavaScript syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
-					fi
+					(
+						if ! node --check "$file" >/dev/null 2>&1; then
+							printf '%s\n' "- JavaScript syntax error in $file" >> "$syntax_tmpdir/errors"
+						fi
+					) &
+					syntax_pids+=($!)
 				fi
 				;;
 			*.ts|*.tsx)
-				# TypeScript requires tsc for proper checking, skip if not available
-				# Only run tsc in context of a project with tsconfig.json to avoid false positives
-				if command -v tsc >/dev/null 2>&1; then
+				# TypeScript: run tsc once for entire project (not per-file)
+				# Use timeout to prevent blocking on large projects
+				if [ "$tsc_checked" = false ] && command -v tsc >/dev/null 2>&1; then
+					tsc_checked=true
 					local repo_root
 					repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 					if [ -f "$repo_root/tsconfig.json" ]; then
-						if ! (cd "$repo_root" && tsc --noEmit >/dev/null 2>&1); then
-							syntax_errors="${syntax_errors}
-- TypeScript syntax/compile error (see tsc output) affecting $file"
-							syntax_error_count=$((syntax_error_count + 1))
-						fi
+						(
+							# 10-second timeout for TypeScript checking
+							if command -v timeout >/dev/null 2>&1; then
+								if ! timeout 10 bash -c "cd '$repo_root' && tsc --noEmit" >/dev/null 2>&1; then
+									printf '%s\n' "- TypeScript syntax/compile error (see tsc output)" >> "$syntax_tmpdir/errors"
+								fi
+							elif command -v gtimeout >/dev/null 2>&1; then
+								# macOS with coreutils
+								if ! gtimeout 10 bash -c "cd '$repo_root' && tsc --noEmit" >/dev/null 2>&1; then
+									printf '%s\n' "- TypeScript syntax/compile error (see tsc output)" >> "$syntax_tmpdir/errors"
+								fi
+							else
+								# No timeout available - run without timeout but skip if it takes too long
+								if ! (cd "$repo_root" && tsc --noEmit >/dev/null 2>&1); then
+									printf '%s\n' "- TypeScript syntax/compile error (see tsc output)" >> "$syntax_tmpdir/errors"
+								fi
+							fi
+						) &
+						syntax_pids+=($!)
 					fi
 				fi
 				;;
 			*.sh|*.bash|*.zsh)
 				if command -v bash >/dev/null 2>&1; then
-					if ! bash -n "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- Shell syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
-					fi
+					(
+						if ! bash -n "$file" >/dev/null 2>&1; then
+							printf '%s\n' "- Shell syntax error in $file" >> "$syntax_tmpdir/errors"
+						fi
+					) &
+					syntax_pids+=($!)
 				fi
 				;;
 			*.json)
 				if command -v python3 >/dev/null 2>&1; then
-					if ! python3 -m json.tool -- "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- JSON syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
-					fi
+					(
+						if ! python3 -m json.tool -- "$file" >/dev/null 2>&1; then
+							printf '%s\n' "- JSON syntax error in $file" >> "$syntax_tmpdir/errors"
+						fi
+					) &
+					syntax_pids+=($!)
 				fi
 				;;
 		esac
 	done <<< "$changed_files"
+	
+	# Wait for all syntax checks to complete
+	for pid in "${syntax_pids[@]}"; do
+		wait "$pid" 2>/dev/null || true
+	done
+	
+	# Collect syntax errors from temp file
+	if [ -f "$syntax_tmpdir/errors" ]; then
+		syntax_errors=$(cat "$syntax_tmpdir/errors")
+		syntax_error_count=$(wc -l < "$syntax_tmpdir/errors" | tr -d ' ')
+	fi
+	rm -rf "$syntax_tmpdir" >/dev/null 2>&1 || true
 	
 	# Check for removed public APIs/exports (actual breaking changes)
 	local api_removals=0
@@ -1430,8 +1501,13 @@ EOF
 		test_cwd="$repo_root"
 	fi
 
-	# First, run tests on current state (with staged changes)
-	echo "[git-upload] Running tests on current changes..." >&2
+	# Step 1: Run tests on current state (with staged changes)
+	echo "" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-upload] 📋 TEST VERIFICATION" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-upload] Step 1/2: Testing your changes..." >&2
+	start_spinner "Running tests on current changes..."
 
 	local tmp_current
 	tmp_current=$(mktemp -t git-upload-tests-current.XXXXXX)
@@ -1442,6 +1518,8 @@ EOF
 	else
 		current_exit_code=$?
 	fi
+	
+	stop_spinner
 
 	# Check for "no tests" conditions first
 	if [ "$current_exit_code" -ne 0 ]; then
@@ -1503,7 +1581,10 @@ EOF
 			summary='Testing: pass'
 		fi
 		rm -f "$tmp_current" >/dev/null 2>&1 || true
-		echo "[git-upload] $summary" >&2
+		echo "[git-upload] ✅ $summary" >&2
+		echo "[git-upload] Step 2/2: Skipped (tests pass, no baseline comparison needed)" >&2
+		echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+		echo "" >&2
 		printf '%s' "$summary"
 		return 0
 	fi
@@ -1514,6 +1595,7 @@ EOF
 	# Extract failure count from current test output
 	local current_fail_count
 	current_fail_count=$(extract_test_failure_count "$tmp_current")
+	echo "[git-upload] ⚠️  Current tests: $current_fail_count failure(s) detected" >&2
 	
 	# Check if we have a previous commit to compare against
 	local has_head=0
@@ -1525,7 +1607,7 @@ EOF
 	local baseline_fail_count=0
 	
 	if [ "$has_head" -eq 1 ]; then
-		echo "[git-upload] Tests failing ($current_fail_count) - comparing against previous commit..." >&2
+		echo "[git-upload] Step 2/2: Comparing against previous commit (HEAD)..." >&2
 		
 		# Stash current changes (including staged), run tests on HEAD, then restore
 		local stash_result
@@ -1535,7 +1617,7 @@ EOF
 			local tmp_baseline
 			tmp_baseline=$(mktemp -t git-upload-tests-baseline.XXXXXX)
 			
-			echo "[git-upload] Running tests on previous commit (HEAD) for comparison..." >&2
+			start_spinner "Running tests on HEAD (baseline)..."
 			
 			local baseline_exit_code=0
 			if (cd "$test_cwd" && eval "$test_cmd") >"$tmp_baseline" 2>&1; then
@@ -1544,10 +1626,13 @@ EOF
 				baseline_exit_code=$?
 			fi
 			
+			stop_spinner
+			
 			# Restore the stashed changes
+			echo "[git-upload] Restoring your changes..." >&2
 			if ! git stash pop >/dev/null 2>&1; then
-				echo "[git-upload] WARNING: Failed to re-apply stashed changes after baseline tests." >&2
-				echo "[git-upload]          Please inspect your working tree (e.g., 'git status') and resolve manually." >&2
+				echo "[git-upload] ⚠️  WARNING: Failed to re-apply stashed changes after baseline tests." >&2
+				echo "[git-upload]    Please inspect your working tree (e.g., 'git status') and resolve manually." >&2
 			fi
 			
 			# Extract baseline failure count
@@ -1561,32 +1646,40 @@ EOF
 			if [ "$baseline_fail_count" -eq 0 ] && [ "$current_fail_count" -gt 0 ]; then
 				# Tests WERE passing, now failing = WORSE (this commit broke things)
 				test_delta="worse"
-				echo "[git-upload] Tests were passing (0 failures), now $current_fail_count failing - commit BROKE tests" >&2
+				echo "[git-upload] 🔴 Baseline: 0 failures → Current: $current_fail_count failures" >&2
+				echo "[git-upload]    Result: This commit BROKE previously passing tests" >&2
 			elif [ "$current_fail_count" -gt "$baseline_fail_count" ]; then
 				# More failures now = WORSE
 				test_delta="worse"
-				echo "[git-upload] More tests failing now ($current_fail_count) than before ($baseline_fail_count) - commit made things WORSE" >&2
+				echo "[git-upload] 🔴 Baseline: $baseline_fail_count failures → Current: $current_fail_count failures" >&2
+				echo "[git-upload]    Result: This commit made things WORSE" >&2
 			elif [ "$current_fail_count" -lt "$baseline_fail_count" ]; then
 				# Fewer failures now = BETTER (commit is fixing things!)
 				test_delta="better"
-				echo "[git-upload] Fewer tests failing now ($current_fail_count) than before ($baseline_fail_count) - commit is IMPROVING things" >&2
+				echo "[git-upload] 🟢 Baseline: $baseline_fail_count failures → Current: $current_fail_count failures" >&2
+				echo "[git-upload]    Result: This commit is IMPROVING test health" >&2
 			else
 				# Same number of failures
 				test_delta="same"
-				echo "[git-upload] Same number of test failures ($current_fail_count) - neutral impact" >&2
+				echo "[git-upload] 🟡 Baseline: $baseline_fail_count failures → Current: $current_fail_count failures" >&2
+				echo "[git-upload]    Result: No change in test health" >&2
 			fi
 			
 			rm -f "$tmp_baseline" >/dev/null 2>&1 || true
 		else
 			# Couldn't stash - assume neutral to avoid false positives
 			test_delta="unknown"
-			echo "[git-upload] Could not compare against HEAD - impact unknown" >&2
+			echo "[git-upload] ⚠️  Could not stash changes - baseline comparison skipped" >&2
 		fi
 	else
 		# No previous commit - this is initial commit with failing tests
 		test_delta="worse"
-		echo "[git-upload] No previous commit - initial commit has $current_fail_count failing tests" >&2
+		echo "[git-upload] 📝 Initial commit - no baseline to compare against" >&2
+		echo "[git-upload] 🔴 $current_fail_count failing test(s) in initial commit" >&2
 	fi
+	
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "" >&2
 
 	# Build the summary with delta information
 	local summary
@@ -1711,14 +1804,23 @@ generate_ai_message() {
 		return 1
 	fi
 
+	echo "" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-upload] 🔍 ANALYZING CHANGES" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+
 	local testing_status
 	testing_status=$(compute_testing_status)
+	
+	echo "[git-upload] Checking for breaking changes..." >&2
 	local breaking_hints
 	breaking_hints=$(compute_breaking_change_hints)
 	
 	# Get comprehensive diff analysis for smart risk assessment
+	start_spinner "Running syntax checks & analyzing diff..."
 	local diff_analysis
 	diff_analysis=$(compute_diff_analysis)
+	stop_spinner "✅ Diff analysis complete"
 	
 	# Compute actual risk based on meaningful criteria
 	local risk_result
@@ -1847,24 +1949,92 @@ $breaking_hints"
 Additional context from user: $ai_extra_context"
 	fi
 
-	echo "[git-upload] Generating AI commit message via Copilot…" >&2
+	echo "" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-upload] 🤖 AI COMMIT MESSAGE GENERATION" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
 	echo "[git-upload] Pre-computed risk: $computed_risk ($risk_reason)" >&2
+	echo "" >&2
 
-	# Call Copilot CLI (or overridden AI command) with the constructed prompt.
-	# Capture full output so we can extract the commit message.
+	# Call Copilot CLI with streaming output display
+	local ai_output_file
+	ai_output_file=$(mktemp -t git-upload-ai-output.XXXXXX)
+	local ai_exit_code=0
+	
+	# Start the AI command in background, capturing output
+	(GIT_UPLOAD_AI_PROMPT="$effective_prompt" eval "$ai_cmd" > "$ai_output_file" 2>&1) &
+	local ai_pid=$!
+	
+	# Display streaming "thinking" output with spinner - simple single-line approach
+	local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+	local frame_idx=1
+	local last_thought=""
+	local last_line_count=0
+	local dots=""
+	local elapsed=0
+	
+	while kill -0 "$ai_pid" 2>/dev/null; do
+		# Read latest output and extract latest thought
+		if [ -f "$ai_output_file" ]; then
+			local current_line_count
+			current_line_count=$(wc -l < "$ai_output_file" 2>/dev/null | tr -d ' ' || echo "0")
+			
+			# Only update thought when new content arrives
+			if [ "$current_line_count" -gt "$last_line_count" ]; then
+				last_line_count=$current_line_count
+				
+				# Get last non-empty, non-COMMIT line as the "thought"
+				local new_thought
+				new_thought=$(grep -v '^$' "$ai_output_file" 2>/dev/null | \
+					grep -v '^COMMIT' | \
+					tail -n 1 | \
+					head -c 70 || echo "")
+				
+				if [ -n "$new_thought" ] && [ "$new_thought" != "$last_thought" ]; then
+					last_thought="$new_thought"
+					# Print new thought on its own line (not overwritten)
+					printf '\r\033[K' >&2
+					printf '\033[2m[git-upload] 💭 %s\033[0m\n' "$new_thought" >&2
+				fi
+			fi
+		fi
+		
+		# Update spinner on current line
+		elapsed=$((elapsed + 1))
+		local elapsed_sec=$((elapsed / 7))  # roughly seconds (sleep 0.15 * 7 ≈ 1s)
+		printf '\r[git-upload] %s Generating commit message... (%ds)' "${frames[$frame_idx]}" "$elapsed_sec" >&2
+		frame_idx=$(( (frame_idx % 10) + 1 ))
+		sleep 0.15
+	done
+	
+	# Get exit code
+	wait "$ai_pid" 2>/dev/null
+	ai_exit_code=$?
+	
+	# Clear spinner line
+	printf '\r\033[K' >&2
+	
 	local ai_output
-	if ! ai_output=$(GIT_UPLOAD_AI_PROMPT="$effective_prompt" eval "$ai_cmd" 2>/dev/null); then
+	ai_output=$(cat "$ai_output_file" 2>/dev/null || echo "")
+	rm -f "$ai_output_file" >/dev/null 2>&1 || true
+	
+	if [ "$ai_exit_code" -ne 0 ] || [ -z "${ai_output// /}" ]; then
+		echo "[git-upload] ❌ AI generation failed" >&2
 		echo "[git-upload] AI command '$ai_cmd' failed. " \
 			"Make sure GitHub Copilot CLI is installed and you have run 'copilot' " \
 			"at least once to authenticate." >&2
 		return 1
 	fi
+	
+	echo "[git-upload] ✅ Commit message generated" >&2
 
 	# Prefer COMMIT_BEGIN/COMMIT_END block; fall back to legacy single-line COMMIT:.
 	local commit_block
 	commit_block=$(printf '%s\n' "$ai_output" | awk '
-		$0 == "COMMIT_BEGIN" { inside=1; next }
-		$0 == "COMMIT_END" { inside=0 }
+		# Trim leading/trailing whitespace for marker detection
+		{ trimmed = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", trimmed) }
+		trimmed == "COMMIT_BEGIN" { inside=1; next }
+		trimmed == "COMMIT_END" { inside=0 }
 		inside { print }
 	')
 
@@ -1880,10 +2050,15 @@ Additional context from user: $ai_extra_context"
 	fi
 
 	local commit_line
-	commit_line=$(printf '%s\n' "$ai_output" | grep '^COMMIT: ' | tail -n 1 | sed 's/^COMMIT: //')
+	commit_line=$(printf '%s\n' "$ai_output" | grep -E '^[[:space:]]*COMMIT: ' | tail -n 1 | sed 's/^[[:space:]]*COMMIT: //')
 
 	if [ -z "${commit_line// /}" ]; then
 		echo "[git-upload] AI did not produce a COMMIT_BEGIN/COMMIT_END block (or legacy COMMIT: line); skipping AI" >&2
+		# Debug: show first/last few lines of AI output to help diagnose parsing issues
+		echo "[git-upload] DEBUG: AI output preview (first 5 lines):" >&2
+		printf '%s\n' "$ai_output" | head -n 5 | sed 's/^/    /' >&2
+		echo "[git-upload] DEBUG: AI output preview (last 5 lines):" >&2
+		printf '%s\n' "$ai_output" | tail -n 5 | sed 's/^/    /' >&2
 		return 1
 	fi
 
