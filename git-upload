@@ -35,7 +35,7 @@ use_ai=false
 user_msg=""
 ai_extra_context=""
 
-DEFAULT_AI_CMD='copilot -s --allow-all-tools --allow-all-paths --model gpt-5.1-codex -p "$GIT_UPLOAD_AI_PROMPT"'
+DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex -p "$GIT_UPLOAD_AI_PROMPT"'
 
 # Progress spinner for long-running operations
 _spinner_pid=""
@@ -1847,6 +1847,22 @@ $(printf '%s\n' "$changed_file_list" | sed 's/^/  - /')"
 	local stat_summary
 	stat_summary=$(git diff --cached --stat 2>/dev/null | tail -1 || echo "")
 	
+	# Get the actual diff (truncated for large changes)
+	local actual_diff
+	actual_diff=$(git diff --cached -U3 2>/dev/null | head -500 || echo "")
+	local diff_truncated=""
+	if [ "$(git diff --cached 2>/dev/null | wc -l)" -gt 500 ]; then
+		diff_truncated="(truncated - showing first 500 lines)"
+	fi
+	
+	# Load commit guidelines if they exist
+	local repo_root
+	repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+	local guidelines=""
+	if [ -f "$repo_root/.github/COMMIT_GUIDELINES.md" ]; then
+		guidelines=$(cat "$repo_root/.github/COMMIT_GUIDELINES.md" 2>/dev/null | head -100 || echo "")
+	fi
+	
 	diff_summary="Diff analysis:
 - Files changed: $files_changed (core: $core_files_changed, tests: $test_files_changed, config: $config_files_changed)
 - Code changes: +$code_additions/-$code_deletions lines
@@ -1859,7 +1875,22 @@ $file_list_display
 
 Git stat: $stat_summary
 
-Pre-computed risk assessment: $computed_risk ($risk_reason)"
+Pre-computed risk assessment: $computed_risk ($risk_reason)
+
+ACTUAL DIFF $diff_truncated:
+\`\`\`diff
+$actual_diff
+\`\`\`"
+
+	# Add guidelines to context if available
+	if [ -n "$guidelines" ]; then
+		diff_summary="PROJECT COMMIT GUIDELINES (from .github/COMMIT_GUIDELINES.md):
+$guidelines
+
+---
+
+$diff_summary"
+	fi
 
 	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
@@ -2153,6 +2184,12 @@ main() {
 	fi
 
 	git add .
+
+	# Check if there's anything to commit (staged changes)
+	if git diff --cached --quiet 2>/dev/null; then
+		echo "[git-upload] Nothing to commit – working tree is clean." >&2
+		exit 1
+	fi
 
 	commit_msg="${user_msg:-default commit message}"
 
