@@ -2067,10 +2067,12 @@ Subject line rules:
 
 Content requirements:
 - Base everything on the staged diff (index) vs HEAD; do not invent changes.
-- List EACH significant change with its SPECIFIC impact.
-- For new files: describe what each file IS and DOES.
-- For modified files: describe what SPECIFICALLY changed and the effect.
-- For config/default changes: state the OLD value, NEW value, and WHY.
+- Write each change as a mini-narrative: WHAT changed, WHERE, and WHY it matters.
+- Frame the commit as a point in the project's history - where was it, what problem existed, and how does this move it forward.
+- For new files: describe what each file IS, DOES, and WHY it was needed (e.g., 'Added git-remerge to handle the case where an upload fails and pushes to a new branch, allows merging back into that branch').
+- For modified files: describe the change AND its purpose (e.g., 'Added verbose logging to the upload retry loop in git-upload to help diagnose timeout issues in slow network environments').
+- For config/default changes: state the OLD value, NEW value, and the reason for the change (e.g., 'Bumped MAX_RETRIES from 3 to 5 because users on satellite connections were hitting the limit before uploads completed').
+- For debugging additions: explain what can now be traced (e.g., 'Added logging to trace authentication token refresh in oauth.py, making it easier to debug SSO integration issues').
 - Call out CLI/API behavior changes with concrete before/after.
 
 Breaking changes format rules (STRICT):
@@ -2099,12 +2101,19 @@ COMMIT_BEGIN
 COMMIT_END
 
 Body structure:
-Summary:
-- <SPECIFIC change with file/function/feature names>
-- <Another SPECIFIC change>
+What changed:
+- Write each change as a narrative that explains WHAT and WHY in one sentence.
+- Good: 'Added logging to trace webhook delivery failures in discord_bot.py for debugging intermittent connection drops'
+- Good: 'Increased MAX_RETRIES from 3 to 5 in git-upload to handle flaky network conditions more gracefully'
+- Good: 'Refactored the spinner display logic into a reusable start_spinner/stop_spinner pair to keep progress feedback consistent across all long operations'
+- BAD: 'Updated logging' (no context about what or why)
+- BAD: 'Changed MAX_RETRIES' (what was the old value? what's the improvement?)
 
-Why:
-- <CONCRETE motivation: what problem did this solve or what improvement does it bring>
+Why this matters:
+- Frame changes in terms of the project's goals and where it's heading.
+- Good: 'These changes improve the debugging story for production issues, making it easier to trace failures without adding verbose output to normal runs.'
+- Good: 'This refactor sets the groundwork for adding progress bars to other long-running commands in future releases.'
+- BAD: 'Code is cleaner now' (vague, doesn't explain the purpose)
 
 Breaking changes: <use the strict format rules above - be SPECIFIC about what breaks>
 
