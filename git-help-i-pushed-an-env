@@ -349,13 +349,79 @@ find_matching_files() {
 	printf '%s\n' "${found_files[@]}" 2>/dev/null | sort -u
 }
 
+# Backup files that exist in working directory before cleaning
+backup_existing_files() {
+	local repo_root="$1"
+	local backup_dir="$repo_root/.git-env-backup-$$"
+	local patterns
+	patterns=$(build_pattern_list)
+	
+	mkdir -p "$backup_dir"
+	
+	while IFS= read -r pattern; do
+		# Find matching files in working directory
+		while IFS= read -r file; do
+			if [ -n "$file" ] && [ -f "$repo_root/$file" ]; then
+				local dir=$(dirname "$file")
+				mkdir -p "$backup_dir/$dir"
+				cp "$repo_root/$file" "$backup_dir/$file"
+			fi
+		done < <(git ls-files "$repo_root" 2>/dev/null | grep -E "(^|/)$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')$" 2>/dev/null || true)
+	done <<< "$patterns"
+	
+	echo "$backup_dir"
+}
+
+# Restore files after cleaning
+restore_files() {
+	local backup_dir="$1"
+	local repo_root="$2"
+	
+	if [ -d "$backup_dir" ]; then
+		# Copy files back
+		find "$backup_dir" -type f | while read -r file; do
+			local rel_path="${file#$backup_dir/}"
+			local dest="$repo_root/$rel_path"
+			local dest_dir=$(dirname "$dest")
+			mkdir -p "$dest_dir"
+			cp "$file" "$dest"
+		done
+		rm -rf "$backup_dir"
+	fi
+}
+
+# Add patterns to .gitignore
+add_to_gitignore() {
+	local repo_root="$1"
+	local gitignore="$repo_root/.gitignore"
+	local patterns
+	patterns=$(build_pattern_list)
+	
+	# Create .gitignore if it doesn't exist
+	touch "$gitignore"
+	
+	local added=0
+	while IFS= read -r pattern; do
+		# Skip if already in .gitignore
+		if ! grep -qxF "$pattern" "$gitignore" 2>/dev/null; then
+			echo "$pattern" >> "$gitignore"
+			((added++))
+		fi
+	done <<< "$patterns"
+	
+	if [ $added -gt 0 ]; then
+		git add "$gitignore" 2>/dev/null || true
+		git commit -m "Add sensitive file patterns to .gitignore" 2>/dev/null || true
+	fi
+}
+
 # Remove files from git history using git-filter-repo
 clean_with_filter_repo() {
 	local repo_root="$1"
 	local patterns
 	patterns=$(build_pattern_list)
 	
-	log_info "Using git-filter-repo for history cleaning..."
+	log_verbose "Using git-filter-repo for history cleaning"
 	
 	# Build path arguments
 	local path_args=()
@@ -364,19 +430,29 @@ clean_with_filter_repo() {
 	done <<< "$patterns"
 	
 	if [ "$dry_run" = true ]; then
-		log_info "[DRY RUN] Would run: git-filter-repo ${path_args[*]}"
+		log_info "[DRY RUN] Would remove patterns from history"
 		return 0
 	fi
 	
-	# Create backup if requested
+	# Backup existing files before cleaning
+	local backup_dir
+	backup_dir=$(backup_existing_files "$repo_root")
+	
+	# Create backup branch if requested
 	if [ "$create_backup" = true ]; then
-		local backup_branch="backup-before-clean-$(date +%Y%m%d-%H%M%S)"
+		local backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
 		git branch "$backup_branch"
-		log_success "Created backup branch: $backup_branch"
+		log_success "Backup branch: $backup_branch"
 	fi
 	
 	# Run git-filter-repo
 	git-filter-repo "${path_args[@]}" --force
+	
+	# Restore working directory files
+	restore_files "$backup_dir" "$repo_root"
+	
+	# Add to .gitignore
+	add_to_gitignore "$repo_root"
 }
 
 # Remove files from git history using git-filter-branch (fallback)
@@ -385,7 +461,7 @@ clean_with_filter_branch() {
 	local patterns
 	patterns=$(build_pattern_list)
 	
-	log_warn "Using git-filter-branch (this may be slow for large repositories)..."
+	log_verbose "Using git-filter-branch (slower method)"
 	
 	# Build the rm command for filter-branch
 	local rm_commands=""
@@ -394,15 +470,19 @@ clean_with_filter_branch() {
 	done <<< "$patterns"
 	
 	if [ "$dry_run" = true ]; then
-		log_info "[DRY RUN] Would run git-filter-branch to remove matching patterns"
+		log_info "[DRY RUN] Would remove patterns from history"
 		return 0
 	fi
 	
-	# Create backup if requested
+	# Backup existing files before cleaning
+	local backup_dir
+	backup_dir=$(backup_existing_files "$repo_root")
+	
+	# Create backup branch if requested
 	if [ "$create_backup" = true ]; then
-		local backup_branch="backup-before-clean-$(date +%Y%m%d-%H%M%S)"
+		local backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
 		git branch "$backup_branch"
-		log_success "Created backup branch: $backup_branch"
+		log_success "Backup branch: $backup_branch"
 	fi
 	
 	# Run git-filter-branch
@@ -413,6 +493,12 @@ clean_with_filter_branch() {
 	rm -rf .git/refs/original/
 	git reflog expire --expire=now --all
 	git gc --prune=now --aggressive
+	
+	# Restore working directory files
+	restore_files "$backup_dir" "$repo_root"
+	
+	# Add to .gitignore
+	add_to_gitignore "$repo_root"
 }
 
 # Clean a single repository
@@ -434,13 +520,11 @@ clean_repository() {
 	fi
 	
 	# Show what will be removed
-	printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
-	printf '%b                    FILES TO BE REMOVED FROM HISTORY                           %b\n' "$BOLD" "$NC"
-	printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n\n' "$BOLD" "$NC"
+	printf '%bFiles to remove from history:%b\n' "$BOLD" "$NC"
 	
 	echo "$matching_files" | while read -r file; do
 		if [ -n "$file" ]; then
-			printf '  %b✗%b  %s\n' "$RED" "$NC" "$file"
+			printf '  %s\n' "$file"
 		fi
 	done
 	
@@ -470,18 +554,13 @@ clean_repository() {
 	stop_spinner "History cleaning complete"
 	
 	if [ "$dry_run" = false ]; then
-		printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$GREEN" "$NC"
-		printf '%b                         CLEANUP COMPLETE!                                     %b\n' "$GREEN" "$NC"
-		printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n\n' "$GREEN" "$NC"
+		log_success "History cleaned. Files preserved in working directory."
+		log_success "Patterns added to .gitignore"
 		
-		printf '%bNext steps:%b\n' "$BOLD" "$NC"
-		printf '  1. Review the changes: %bgit log --oneline%b\n' "$CYAN" "$NC"
-		printf '  2. Force push to remote: %bgit push --force --all%b\n' "$CYAN" "$NC"
-		printf '  3. Force push tags: %bgit push --force --tags%b\n' "$CYAN" "$NC"
-		printf '  4. Notify collaborators to re-clone or run:\n'
-		printf '     %bgit fetch --all && git reset --hard origin/<branch>%b\n\n' "$CYAN" "$NC"
-		
-		printf '%b⚠️  IMPORTANT: Rotate all exposed credentials immediately!%b\n\n' "$YELLOW" "$NC"
+		printf '\n%bNext steps:%b\n' "$BOLD" "$NC"
+		printf '  git push --force --all\n'
+		printf '  git push --force --tags\n'
+		printf '\n%bRotate exposed credentials.%b\n\n' "$YELLOW" "$NC"
 	fi
 	
 	# Run review if requested
@@ -536,9 +615,7 @@ clean_multiple_repos() {
 	local repo_count
 	repo_count=$(echo "$repos" | wc -l | tr -d ' ')
 	
-	printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
-	printf '%b                    REPOSITORIES TO CLEAN (%d total)                          %b\n' "$BOLD" "$repo_count" "$NC"
-	printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n\n' "$BOLD" "$NC"
+	printf '\n%bRepositories to clean (%d):%b\n' "$BOLD" "$repo_count" "$NC"
 	
 	echo "$repos" | while read -r repo; do
 		printf '  • %s\n' "$repo"
@@ -562,9 +639,7 @@ clean_multiple_repos() {
 	local fail_count=0
 	
 	echo "$repos" | while read -r repo; do
-		printf '\n%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
-		printf '%b Processing: %s%b\n' "$BOLD" "$repo" "$NC"
-		printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
+		printf '\n%b→ %s%b\n' "$BOLD" "$repo" "$NC"
 		
 		local repo_dir="$temp_dir/$(basename "$repo")"
 		
@@ -602,12 +677,7 @@ clean_multiple_repos() {
 	
 	rm -rf "$temp_dir"
 	
-	printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
-	printf '%b                           BATCH CLEANUP COMPLETE                              %b\n' "$BOLD" "$NC"
-	printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
-	printf '  %bSuccessful:%b %d\n' "$GREEN" "$NC" "$success_count"
-	printf '  %bFailed:%b %d\n' "$RED" "$NC" "$fail_count"
-	printf '\n'
+	printf '\n%bComplete:%b %d succeeded, %d failed\n\n' "$BOLD" "$NC" "$success_count" "$fail_count"
 }
 
 # Parse arguments
@@ -666,14 +736,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Main execution
-printf '\n'
-printf '%b╔═══════════════════════════════════════════════════════════════════════════════╗%b\n' "$MAGENTA" "$NC"
-printf '%b║                                                                               ║%b\n' "$MAGENTA" "$NC"
-printf '%b║                    🚨 GIT-HELP-I-PUSHED-AN-ENV 🚨                             ║%b\n' "$MAGENTA" "$NC"
-printf '%b║                                                                               ║%b\n' "$MAGENTA" "$NC"
-printf '%b║           Emergency tool to remove secrets from git history                  ║%b\n' "$MAGENTA" "$NC"
-printf '%b║                                                                               ║%b\n' "$MAGENTA" "$NC"
-printf '%b╚═══════════════════════════════════════════════════════════════════════════════╝%b\n\n' "$MAGENTA" "$NC"
+printf '\n%bgit-help-i-pushed-an-env%b - Remove secrets from git history\n\n' "$BOLD" "$NC"
 
 check_dependencies
 
