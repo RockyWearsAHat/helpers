@@ -2042,28 +2042,42 @@ OPERATING CONSTRAINTS:
 - Do NOT ask for more information or suggest running commands.
 - Work ONLY with the provided diff content below.
 
-CRITICAL: Be SPECIFIC and CONCRETE. Generic messages like 'Update defaults' or 'Refactor code' are USELESS.
+VOICE & TONE (MOST IMPORTANT):
+Write like a human developer who is PROUD of their work. This is YOUR commit - own it!
+- Lead with the WIN: What did you accomplish? What's better now?
+- Be enthusiastic about meaningful improvements (doubling test coverage IS exciting!)
+- Use active, confident language: 'Doubled test coverage' not 'Add test coverage improvements'
+- Quantify achievements when possible: '6x more tests (120→700+)', 'coverage jumped 30%→85%'
+- If tests/coverage improved significantly, CELEBRATE IT in the subject line!
+- Avoid corporate/robotic language like 'artifacts', 'integration', 'subsystem', 'formalize'
+- Write like you're telling a teammate what you just shipped, not filing a report
 
-Your job:
-- Examine the ACTUAL DIFF provided below to understand EXACTLY what changed.
-- Write a commit message that someone unfamiliar with this work can understand in 6 months.
-- Name specific files, functions, features, behaviors, and values that changed.
+SUBJECT LINE - LEAD WITH IMPACT:
+- Good: '🎉 6x test coverage! GBA emulator up from 120 to 700+ tests'
+- Good: 'Finally fix that annoying Discord reconnect bug'
+- Good: 'Speed up builds 3x by parallelizing webpack'
+- Good: 'Add dark mode (yes, finally!)'
+- BAD: 'Add GBA integration test target and coverage artifacts' (what does this even mean to a human?)
+- BAD: 'Update test infrastructure' (boring, what's the actual win?)
+- BAD: 'Refactor implementation details' (nobody cares about implementation details)
 
-SPECIFICITY REQUIREMENTS (MOST IMPORTANT):
-- NEVER use vague phrases like: 'core code', 'core helpers', 'default values', 'one or more options', 'various improvements', 'minor changes', 'some behavior'.
+Note: Emoji in subject line is optional - use it when celebrating a big win, skip for routine changes.
+
+SPECIFICITY REQUIREMENTS:
+- NEVER use vague phrases like: 'core code', 'core helpers', 'default values', 'various improvements', 'minor changes', 'artifacts', 'infrastructure'.
 - ALWAYS name the SPECIFIC thing: 'git-upload', 'the --dry-run flag', 'MAX_RETRIES from 3 to 5', 'the parseConfig() function'.
 - If a new file was added, say WHAT it does: 'Add git-remerge script for re-applying failed merges' NOT 'Add new script'.
 - If behavior changed, describe the ACTUAL change: 'Skip empty commits instead of erroring' NOT 'Change default behavior'.
 - If you're refactoring, say WHAT was refactored and WHY: 'Extract notification logic into separate function to reduce Discord API spam' NOT 'Refactor implementation'.
 
-Subject line rules:
-- Must describe the PRIMARY concrete change, not a category.
-- Good: 'Add git-remerge command with man page'
-- Good: 'Fix Discord bot sending duplicate notifications on reconnect'
-- Good: 'Increase upload retry limit from 3 to 5 attempts'
-- BAD: 'Update defaults in core helpers' (which helpers? which defaults?)
-- BAD: 'Refactor code and add comments' (what code? what's the improvement?)
-- BAD: 'Change behavior of script' (which script? what behavior?)
+DETECTING & CELEBRATING WINS:
+Look for these patterns in the diff and HIGHLIGHT them:
+- Test count increases: If tests go from X to Y, calculate the multiplier (e.g., 120→700 = ~6x)
+- Coverage improvements: If you see coverage percentages, highlight the jump
+- New features: Lead with what users/developers can now DO
+- Bug fixes: Emphasize what annoying thing is now gone
+- Performance: Quantify the speedup if possible
+- Deletions of bad code: Celebrate removing tech debt!
 
 Content requirements:
 - Base everything on the staged diff (index) vs HEAD; do not invent changes.
@@ -2088,8 +2102,8 @@ RISK ASSESSMENT: Use the pre-computed risk level unless you have strong evidence
 - Use the provided testing status EXACTLY (verbatim). Do not guess.
 
 Style requirements:
-- Subject line: imperative mood; SPECIFIC; aim for <= 72 characters.
-- Body: detailed with concrete specifics; prefer bullets.
+- Subject line: imperative mood; SPECIFIC; aim for <= 72 characters (emoji counts as ~2 chars).
+- Body: detailed with concrete specifics; prefer bullets; write like a human!
 - Do NOT mention checking status, diffs, tools, agents, prompts, or instructions.
 
 Output protocol (IMPORTANT):
@@ -2102,18 +2116,20 @@ COMMIT_END
 
 Body structure:
 What changed:
-- Write each change as a narrative that explains WHAT and WHY in one sentence.
-- Good: 'Added logging to trace webhook delivery failures in discord_bot.py for debugging intermittent connection drops'
-- Good: 'Increased MAX_RETRIES from 3 to 5 in git-upload to handle flaky network conditions more gracefully'
-- Good: 'Refactored the spinner display logic into a reusable start_spinner/stop_spinner pair to keep progress feedback consistent across all long operations'
-- BAD: 'Updated logging' (no context about what or why)
-- BAD: 'Changed MAX_RETRIES' (what was the old value? what's the improvement?)
+- Lead with the most exciting/impactful change
+- Write each change as a narrative that explains WHAT and WHY in one sentence
+- Good: 'Blew past our coverage goals - APU, ARM7TDMI, and PPU modules now at 85%+ (was ~30%)'
+- Good: 'Added GBATests.cpp with 500+ new test cases covering the full instruction set'
+- Good: 'Hooked up LCOV reporting so we can actually see coverage in the IDE'
+- BAD: 'Updated coverage artifacts' (what does this mean??)
+- BAD: 'Extended cmake configuration' (boring, what's the benefit?)
 
 Why this matters:
-- Frame changes in terms of the project's goals and where it's heading.
-- Good: 'These changes improve the debugging story for production issues, making it easier to trace failures without adding verbose output to normal runs.'
-- Good: 'This refactor sets the groundwork for adding progress bars to other long-running commands in future releases.'
+- Frame changes in terms of the WIN - what's better now?
+- Good: 'We went from \"hope it works\" to \"know it works\" on the GBA emulator. This is huge for catching regressions.'
+- Good: 'This sets us up to hit 100% coverage on the core emulator - we'\''re finally in the home stretch!'
 - BAD: 'Code is cleaner now' (vague, doesn't explain the purpose)
+- BAD: 'Formalizes the coverage expansion effort' (corporate speak, nobody talks like this)
 
 Breaking changes: <use the strict format rules above - be SPECIFIC about what breaks>
 
