@@ -1,0 +1,687 @@
+#!/bin/zsh
+
+# git-help-i-pushed-an-env
+#
+# Usage:
+#   git-help-i-pushed-an-env [options]
+#
+# Description:
+#   Emergency tool to completely remove environment secrets, log files, and
+#   other sensitive data from git repository history. Supports cleaning single
+#   repositories or batch cleaning all public/private GitHub repositories.
+#
+# Options:
+#   -h, --help                  Show this help message
+#   -n, --dry-run               Show what would be removed without making changes
+#   -f, --force                 Skip confirmation prompts
+#   -v, --verbose               Show detailed output
+#   --review                    Run git-scan-for-leaked-envs after cleaning
+#   --ext EXTENSION             Add file extension to remove (can be used multiple times)
+#   --file PATTERN              Add file pattern to remove (can be used multiple times)
+#   --all-public                Run on ALL public GitHub repositories
+#   --all-repos                 Run on ALL repositories (public AND private)
+#   --preserve-recent           Only clean commits older than 24 hours
+#   --backup                    Create a backup branch before cleaning
+#
+# Examples:
+#   git-help-i-pushed-an-env
+#   git-help-i-pushed-an-env --ext .pem --ext .key
+#   git-help-i-pushed-an-env --file "config/secrets.json"
+#   git-help-i-pushed-an-env --all-public --review
+#   git-help-i-pushed-an-env --all-repos --force
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Configuration
+dry_run=false
+force=false
+verbose=false
+run_review=false
+all_public=false
+all_repos=false
+preserve_recent=false
+create_backup=false
+extra_extensions=()
+extra_files=()
+
+# Default files and patterns to remove
+DEFAULT_PATTERNS=(
+	# Environment files
+	'.env'
+	'.env.local'
+	'.env.development'
+	'.env.development.local'
+	'.env.production'
+	'.env.production.local'
+	'.env.staging'
+	'.env.test'
+	'.env.test.local'
+	'.env.backup'
+	'.env.bak'
+	'.env.old'
+	'*.env'
+	
+	# Log files (may contain printed secrets)
+	'*.log'
+	'logs/'
+	'*.log.*'
+	'npm-debug.log*'
+	'yarn-debug.log*'
+	'yarn-error.log*'
+	'debug.log'
+	
+	# Key files
+	'*.pem'
+	'*.key'
+	'*.p12'
+	'*.pfx'
+	'*.jks'
+	'*.keystore'
+	'id_rsa'
+	'id_rsa.pub'
+	'id_dsa'
+	'id_dsa.pub'
+	'id_ecdsa'
+	'id_ecdsa.pub'
+	'id_ed25519'
+	'id_ed25519.pub'
+	
+	# Config files that often contain secrets
+	'.npmrc'
+	'.pypirc'
+	'.netrc'
+	'.htpasswd'
+	'credentials'
+	'credentials.json'
+	'secrets.json'
+	'secrets.yml'
+	'secrets.yaml'
+	'service-account*.json'
+	'*-credentials.json'
+	'*-secret*.json'
+	
+	# Cloud provider configs
+	'.aws/credentials'
+	'.aws/config'
+	'gcloud-service-key.json'
+	'firebase-adminsdk*.json'
+	
+	# IDE and editor configs that might contain secrets
+	'.idea/dataSources.xml'
+	'.vscode/settings.json'
+	
+	# Database dumps
+	'*.sql'
+	'*.dump'
+	'*.sqlite'
+	'*.db'
+	
+	# Terraform state (contains secrets)
+	'*.tfstate'
+	'*.tfstate.*'
+	'.terraform/'
+)
+
+# Progress spinner
+_spinner_pid=""
+start_spinner() {
+	local msg="$1"
+	(
+		local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+		local i=1
+		while true; do
+			printf '\r\033[K%b[git-help-i-pushed-an-env]%b %s %s' "$MAGENTA" "$NC" "${frames[$i]}" "$msg" >&2
+			i=$(( (i % 10) + 1 ))
+			sleep 0.1
+		done
+	) &
+	_spinner_pid=$!
+	disown $_spinner_pid 2>/dev/null || true
+}
+
+stop_spinner() {
+	local final_msg="${1:-}"
+	if [ -n "$_spinner_pid" ] && kill -0 "$_spinner_pid" 2>/dev/null; then
+		kill "$_spinner_pid" 2>/dev/null || true
+		wait "$_spinner_pid" 2>/dev/null || true
+	fi
+	_spinner_pid=""
+	if [ -n "$final_msg" ]; then
+		printf '\r\033[K%b[git-help-i-pushed-an-env]%b %s\n' "$MAGENTA" "$NC" "$final_msg" >&2
+	else
+		printf '\r\033[K' >&2
+	fi
+}
+
+trap 'stop_spinner' EXIT INT TERM
+
+print_help() {
+	cat << 'EOF'
+git-help-i-pushed-an-env - Emergency tool to remove secrets from git history
+
+USAGE:
+    git-help-i-pushed-an-env [options]
+
+DESCRIPTION:
+    Completely removes environment secrets, log files, and other sensitive data
+    from the ENTIRE git repository history. This is a destructive operation that
+    rewrites git history.
+
+    ⚠️  WARNING: This will rewrite git history! All collaborators will need to
+    re-clone or rebase their local copies.
+
+OPTIONS:
+    -h, --help                  Show this help message
+    -n, --dry-run               Show what would be removed without making changes
+    -f, --force                 Skip confirmation prompts
+    -v, --verbose               Show detailed output
+    --review                    Run git-scan-for-leaked-envs after cleaning
+    --ext EXTENSION             Add file extension to remove (e.g., --ext .pem)
+    --file PATTERN              Add file pattern to remove (e.g., --file secrets.json)
+    --all-public                Run on ALL your public GitHub repositories
+    --all-repos                 Run on ALL repositories (public AND private)
+    --preserve-recent           Only clean commits older than 24 hours
+    --backup                    Create a backup branch before cleaning
+
+DEFAULT FILES REMOVED:
+    - .env, .env.*, *.env (environment files)
+    - *.log, logs/ (log files that may contain printed secrets)
+    - *.pem, *.key, *.p12, *.pfx (certificate/key files)
+    - id_rsa, id_dsa, id_ecdsa, id_ed25519 (SSH keys)
+    - credentials.json, secrets.json, secrets.yml
+    - *.tfstate (Terraform state files)
+    - Database dumps (*.sql, *.dump, *.sqlite)
+
+EXAMPLES:
+    # Clean current repository (interactive)
+    git-help-i-pushed-an-env
+
+    # Clean with additional file types
+    git-help-i-pushed-an-env --ext .pem --ext .key --file "config/secrets.json"
+
+    # Preview what would be removed
+    git-help-i-pushed-an-env --dry-run
+
+    # Clean and verify with AI review
+    git-help-i-pushed-an-env --review
+
+    # Clean all public repositories
+    git-help-i-pushed-an-env --all-public --force
+
+    # Clean all repositories (public and private)
+    git-help-i-pushed-an-env --all-repos --force
+
+IMPORTANT:
+    1. ROTATE ALL EXPOSED CREDENTIALS before running this tool
+    2. Notify all collaborators that history will be rewritten
+    3. Force-push will be required after cleaning
+    4. Consider the repo compromised until credentials are rotated
+
+SEE ALSO:
+    git-scan-for-leaked-envs(1) - Scan repository for leaked secrets
+EOF
+}
+
+log_info() {
+	printf '%b[INFO]%b %s\n' "$BLUE" "$NC" "$1" >&2
+}
+
+log_warn() {
+	printf '%b[WARN]%b %s\n' "$YELLOW" "$NC" "$1" >&2
+}
+
+log_error() {
+	printf '%b[ERROR]%b %s\n' "$RED" "$NC" "$1" >&2
+}
+
+log_success() {
+	printf '%b[OK]%b %s\n' "$GREEN" "$NC" "$1" >&2
+}
+
+log_verbose() {
+	if [ "$verbose" = true ]; then
+		printf '%b[DEBUG]%b %s\n' "$CYAN" "$NC" "$1" >&2
+	fi
+}
+
+# Check if we're in a git repository
+check_git_repo() {
+	if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+		log_error "Not inside a git repository"
+		exit 2
+	fi
+}
+
+# Get repository root
+get_repo_root() {
+	git rev-parse --show-toplevel
+}
+
+# Check for required tools
+check_dependencies() {
+	local missing=()
+	
+	# Check for git-filter-repo (preferred) or git-filter-branch
+	if ! command -v git-filter-repo &>/dev/null; then
+		log_warn "git-filter-repo not found. Will use git-filter-branch (slower)."
+		log_info "Consider installing: pip install git-filter-repo"
+	fi
+	
+	if [ "$all_public" = true ] || [ "$all_repos" = true ]; then
+		if ! command -v gh &>/dev/null; then
+			log_error "GitHub CLI (gh) is required for --all-public and --all-repos"
+			log_info "Install with: brew install gh"
+			exit 2
+		fi
+		
+		# Check if authenticated
+		if ! gh auth status &>/dev/null; then
+			log_error "GitHub CLI not authenticated. Run: gh auth login"
+			exit 2
+		fi
+	fi
+	
+	if [ "$run_review" = true ]; then
+		if ! command -v git-scan-for-leaked-envs &>/dev/null; then
+			# Check if it's in the same directory
+			local script_dir
+			script_dir="$(dirname "$(realpath "$0")")"
+			if [ ! -x "$script_dir/git-scan-for-leaked-envs" ]; then
+				log_error "git-scan-for-leaked-envs not found. Required for --review flag."
+				exit 2
+			fi
+		fi
+	fi
+}
+
+# Build list of patterns to remove
+build_pattern_list() {
+	local patterns=("${DEFAULT_PATTERNS[@]}")
+	
+	# Add extra extensions
+	for ext in "${extra_extensions[@]}"; do
+		patterns+=("*$ext")
+	done
+	
+	# Add extra file patterns
+	for file in "${extra_files[@]}"; do
+		patterns+=("$file")
+	done
+	
+	printf '%s\n' "${patterns[@]}"
+}
+
+# Find files matching patterns in current repo
+find_matching_files() {
+	local repo_root="$1"
+	local patterns
+	patterns=$(build_pattern_list)
+	
+	local found_files=()
+	
+	while IFS= read -r pattern; do
+		# Check current files
+		while IFS= read -r file; do
+			if [ -n "$file" ]; then
+				found_files+=("(current) $file")
+			fi
+		done < <(git ls-files "$repo_root" 2>/dev/null | grep -E "(^|/)$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')$" 2>/dev/null || true)
+		
+		# Check history
+		while IFS= read -r file; do
+			if [ -n "$file" ]; then
+				found_files+=("(history) $file")
+			fi
+		done < <(git log --all --diff-filter=D --summary 2>/dev/null | grep -E "delete mode.*$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')" 2>/dev/null | awk '{print $NF}' || true)
+		
+	done <<< "$patterns"
+	
+	printf '%s\n' "${found_files[@]}" 2>/dev/null | sort -u
+}
+
+# Remove files from git history using git-filter-repo
+clean_with_filter_repo() {
+	local repo_root="$1"
+	local patterns
+	patterns=$(build_pattern_list)
+	
+	log_info "Using git-filter-repo for history cleaning..."
+	
+	# Build path arguments
+	local path_args=()
+	while IFS= read -r pattern; do
+		path_args+=(--path-glob "$pattern" --invert-paths)
+	done <<< "$patterns"
+	
+	if [ "$dry_run" = true ]; then
+		log_info "[DRY RUN] Would run: git-filter-repo ${path_args[*]}"
+		return 0
+	fi
+	
+	# Create backup if requested
+	if [ "$create_backup" = true ]; then
+		local backup_branch="backup-before-clean-$(date +%Y%m%d-%H%M%S)"
+		git branch "$backup_branch"
+		log_success "Created backup branch: $backup_branch"
+	fi
+	
+	# Run git-filter-repo
+	git-filter-repo "${path_args[@]}" --force
+}
+
+# Remove files from git history using git-filter-branch (fallback)
+clean_with_filter_branch() {
+	local repo_root="$1"
+	local patterns
+	patterns=$(build_pattern_list)
+	
+	log_warn "Using git-filter-branch (this may be slow for large repositories)..."
+	
+	# Build the rm command for filter-branch
+	local rm_commands=""
+	while IFS= read -r pattern; do
+		rm_commands+="git rm --cached --ignore-unmatch '$pattern' 2>/dev/null || true; "
+	done <<< "$patterns"
+	
+	if [ "$dry_run" = true ]; then
+		log_info "[DRY RUN] Would run git-filter-branch to remove matching patterns"
+		return 0
+	fi
+	
+	# Create backup if requested
+	if [ "$create_backup" = true ]; then
+		local backup_branch="backup-before-clean-$(date +%Y%m%d-%H%M%S)"
+		git branch "$backup_branch"
+		log_success "Created backup branch: $backup_branch"
+	fi
+	
+	# Run git-filter-branch
+	git filter-branch --force --index-filter "$rm_commands" \
+		--prune-empty --tag-name-filter cat -- --all
+	
+	# Cleanup
+	rm -rf .git/refs/original/
+	git reflog expire --expire=now --all
+	git gc --prune=now --aggressive
+}
+
+# Clean a single repository
+clean_repository() {
+	local repo_root
+	repo_root=$(get_repo_root)
+	
+	log_info "Scanning repository: $repo_root"
+	
+	# Find files that will be removed
+	start_spinner "Finding sensitive files..."
+	local matching_files
+	matching_files=$(find_matching_files "$repo_root")
+	stop_spinner "Scan complete"
+	
+	if [ -z "$matching_files" ]; then
+		log_success "No sensitive files found in repository or history!"
+		return 0
+	fi
+	
+	# Show what will be removed
+	printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
+	printf '%b                    FILES TO BE REMOVED FROM HISTORY                           %b\n' "$BOLD" "$NC"
+	printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n\n' "$BOLD" "$NC"
+	
+	echo "$matching_files" | while read -r file; do
+		if [ -n "$file" ]; then
+			printf '  %b✗%b  %s\n' "$RED" "$NC" "$file"
+		fi
+	done
+	
+	printf '\n'
+	
+	# Confirmation
+	if [ "$force" = false ] && [ "$dry_run" = false ]; then
+		printf '%b⚠️  WARNING: This will permanently rewrite git history!%b\n' "$YELLOW" "$NC"
+		printf '%bAll collaborators will need to re-clone or force-pull.%b\n\n' "$YELLOW" "$NC"
+		printf 'Are you sure you want to continue? (yes/no): '
+		read -r confirm
+		if [ "$confirm" != "yes" ]; then
+			log_info "Operation cancelled."
+			return 1
+		fi
+	fi
+	
+	# Perform cleaning
+	start_spinner "Cleaning git history (this may take a while)..."
+	
+	if command -v git-filter-repo &>/dev/null; then
+		clean_with_filter_repo "$repo_root"
+	else
+		clean_with_filter_branch "$repo_root"
+	fi
+	
+	stop_spinner "History cleaning complete"
+	
+	if [ "$dry_run" = false ]; then
+		printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$GREEN" "$NC"
+		printf '%b                         CLEANUP COMPLETE!                                     %b\n' "$GREEN" "$NC"
+		printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n\n' "$GREEN" "$NC"
+		
+		printf '%bNext steps:%b\n' "$BOLD" "$NC"
+		printf '  1. Review the changes: %bgit log --oneline%b\n' "$CYAN" "$NC"
+		printf '  2. Force push to remote: %bgit push --force --all%b\n' "$CYAN" "$NC"
+		printf '  3. Force push tags: %bgit push --force --tags%b\n' "$CYAN" "$NC"
+		printf '  4. Notify collaborators to re-clone or run:\n'
+		printf '     %bgit fetch --all && git reset --hard origin/<branch>%b\n\n' "$CYAN" "$NC"
+		
+		printf '%b⚠️  IMPORTANT: Rotate all exposed credentials immediately!%b\n\n' "$YELLOW" "$NC"
+	fi
+	
+	# Run review if requested
+	if [ "$run_review" = true ]; then
+		log_info "Running post-cleanup security scan..."
+		printf '\n'
+		if command -v git-scan-for-leaked-envs &>/dev/null; then
+			git-scan-for-leaked-envs --verbose
+		else
+			local script_dir
+			script_dir="$(dirname "$(realpath "$0")")"
+			"$script_dir/git-scan-for-leaked-envs" --verbose
+		fi
+	fi
+	
+	return 0
+}
+
+# Get list of GitHub repositories
+get_github_repos() {
+	local visibility="$1"  # public, private, or all
+	
+	case "$visibility" in
+		public)
+			gh repo list --visibility public --json nameWithOwner --jq '.[].nameWithOwner'
+			;;
+		private)
+			gh repo list --visibility private --json nameWithOwner --jq '.[].nameWithOwner'
+			;;
+		all)
+			gh repo list --json nameWithOwner --jq '.[].nameWithOwner'
+			;;
+	esac
+}
+
+# Clean multiple repositories
+clean_multiple_repos() {
+	local visibility="$1"
+	local temp_dir
+	temp_dir=$(mktemp -d)
+	
+	log_info "Fetching repository list from GitHub..."
+	
+	local repos
+	repos=$(get_github_repos "$visibility")
+	
+	if [ -z "$repos" ]; then
+		log_warn "No repositories found."
+		return 0
+	fi
+	
+	local repo_count
+	repo_count=$(echo "$repos" | wc -l | tr -d ' ')
+	
+	printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
+	printf '%b                    REPOSITORIES TO CLEAN (%d total)                          %b\n' "$BOLD" "$repo_count" "$NC"
+	printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n\n' "$BOLD" "$NC"
+	
+	echo "$repos" | while read -r repo; do
+		printf '  • %s\n' "$repo"
+	done
+	
+	printf '\n'
+	
+	# Confirmation
+	if [ "$force" = false ]; then
+		printf '%b⚠️  WARNING: This will rewrite history for %d repositories!%b\n' "$YELLOW" "$repo_count" "$NC"
+		printf 'Are you sure you want to continue? (yes/no): '
+		read -r confirm
+		if [ "$confirm" != "yes" ]; then
+			log_info "Operation cancelled."
+			rm -rf "$temp_dir"
+			return 1
+		fi
+	fi
+	
+	local success_count=0
+	local fail_count=0
+	
+	echo "$repos" | while read -r repo; do
+		printf '\n%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
+		printf '%b Processing: %s%b\n' "$BOLD" "$repo" "$NC"
+		printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
+		
+		local repo_dir="$temp_dir/$(basename "$repo")"
+		
+		# Clone the repository
+		if gh repo clone "$repo" "$repo_dir" -- --mirror 2>/dev/null; then
+			cd "$repo_dir"
+			
+			if clean_repository; then
+				if [ "$dry_run" = false ]; then
+					# Push changes back
+					if git push --force --all 2>/dev/null && git push --force --tags 2>/dev/null; then
+						log_success "Successfully cleaned: $repo"
+						((success_count++))
+					else
+						log_error "Failed to push changes: $repo"
+						((fail_count++))
+					fi
+				else
+					log_info "[DRY RUN] Would clean: $repo"
+					((success_count++))
+				fi
+			else
+				((fail_count++))
+			fi
+			
+			cd - > /dev/null
+		else
+			log_error "Failed to clone: $repo"
+			((fail_count++))
+		fi
+		
+		# Cleanup
+		rm -rf "$repo_dir"
+	done
+	
+	rm -rf "$temp_dir"
+	
+	printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
+	printf '%b                           BATCH CLEANUP COMPLETE                              %b\n' "$BOLD" "$NC"
+	printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
+	printf '  %bSuccessful:%b %d\n' "$GREEN" "$NC" "$success_count"
+	printf '  %bFailed:%b %d\n' "$RED" "$NC" "$fail_count"
+	printf '\n'
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		-h|--help)
+			print_help
+			exit 0
+			;;
+		-n|--dry-run)
+			dry_run=true
+			shift
+			;;
+		-f|--force)
+			force=true
+			shift
+			;;
+		-v|--verbose)
+			verbose=true
+			shift
+			;;
+		--review)
+			run_review=true
+			shift
+			;;
+		--ext)
+			extra_extensions+=("$2")
+			shift 2
+			;;
+		--file)
+			extra_files+=("$2")
+			shift 2
+			;;
+		--all-public)
+			all_public=true
+			shift
+			;;
+		--all-repos)
+			all_repos=true
+			shift
+			;;
+		--preserve-recent)
+			preserve_recent=true
+			shift
+			;;
+		--backup)
+			create_backup=true
+			shift
+			;;
+		*)
+			log_error "Unknown option: $1"
+			print_help
+			exit 2
+			;;
+	esac
+done
+
+# Main execution
+printf '\n'
+printf '%b╔═══════════════════════════════════════════════════════════════════════════════╗%b\n' "$MAGENTA" "$NC"
+printf '%b║                                                                               ║%b\n' "$MAGENTA" "$NC"
+printf '%b║                    🚨 GIT-HELP-I-PUSHED-AN-ENV 🚨                             ║%b\n' "$MAGENTA" "$NC"
+printf '%b║                                                                               ║%b\n' "$MAGENTA" "$NC"
+printf '%b║           Emergency tool to remove secrets from git history                  ║%b\n' "$MAGENTA" "$NC"
+printf '%b║                                                                               ║%b\n' "$MAGENTA" "$NC"
+printf '%b╚═══════════════════════════════════════════════════════════════════════════════╝%b\n\n' "$MAGENTA" "$NC"
+
+check_dependencies
+
+if [ "$all_repos" = true ]; then
+	clean_multiple_repos "all"
+elif [ "$all_public" = true ]; then
+	clean_multiple_repos "public"
+else
+	check_git_repo
+	clean_repository
+fi
