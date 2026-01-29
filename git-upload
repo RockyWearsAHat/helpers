@@ -2004,6 +2004,18 @@ $(printf '%s\n' "$changed_file_list" | sed 's/^/  - /')"
 		guidelines=$(cat "$repo_root/.github/COMMIT_GUIDELINES.md" 2>/dev/null | head -100 || echo "")
 	fi
 	
+	# Get recent commit history for context (last 5 commits with summary)
+	local recent_history=""
+	recent_history=$(git log --oneline -10 --no-decorate 2>/dev/null | head -10 || echo "")
+	
+	# Get more detailed recent commits (last 3) to understand project momentum
+	local detailed_recent=""
+	detailed_recent=$(git log -3 --pretty=format:"--- Commit %h (%ar) ---
+%s
+
+%b
+" 2>/dev/null || echo "")
+	
 	diff_summary="Diff analysis:
 - Files changed: $files_changed (core: $core_files_changed, tests: $test_files_changed, config: $config_files_changed)
 - Code changes: +$code_additions/-$code_deletions lines
@@ -2033,6 +2045,19 @@ $guidelines
 $diff_summary"
 	fi
 
+	# Add recent history context so AI understands project momentum
+	if [ -n "$recent_history" ]; then
+		diff_summary="RECENT COMMIT HISTORY (for context - understand what the project has been working on):
+$recent_history
+
+DETAILED RECENT COMMITS (last 3 - use this to understand WHY current changes might be happening):
+$detailed_recent
+
+---
+
+$diff_summary"
+	fi
+
 	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
 OPERATING CONSTRAINTS:
@@ -2041,6 +2066,22 @@ OPERATING CONSTRAINTS:
 - ALL context you need is provided in this prompt (diff, file list, analysis).
 - Do NOT ask for more information or suggest running commands.
 - Work ONLY with the provided diff content below.
+
+HISTORY AWARENESS (CRITICAL):
+You are provided with RECENT COMMIT HISTORY. Use it to understand:
+- What the project has been working on lately
+- The INTENT behind the current changes (not just what they are)
+- Whether this commit is a FOLLOW-UP, TEST, CLEANUP, or NEW FEATURE
+
+Examples of history-aware reasoning:
+- If recent commits added 'git-help-i-pushed-an-env' (a secret-scrubbing tool), and now a .env with 'SECRET=test' is being added → this is OBVIOUSLY a test case for that tool, NOT an accidental secret leak!
+- If recent commits were bug fixes for feature X, and now there's a small tweak to X → this is likely a follow-up fix, not a new feature
+- If recent commits added a new module, and now tests are being added → celebrate the test coverage, link it to the module
+
+ALWAYS ask: 'Given what this project just shipped, WHY would someone make this change?'
+- A .env file after a secret-scanning tool = test case
+- A README update after new features = documentation
+- A config tweak after a deployment = hotfix/tuning
 
 VOICE & TONE (MOST IMPORTANT):
 Write like a human developer who is PROUD of their work. This is YOUR commit - own it!
@@ -2361,6 +2402,23 @@ main() {
 
 	# Force stage all changes (including after stash pop which may leave files unstaged)
 	git add -A
+
+	# Check for sensitive files being committed and warn (but don't block)
+	local sensitive_staged=""
+	sensitive_staged=$(git diff --cached --name-only 2>/dev/null | grep -iE '\.(env|pem|key|p12|pfx|log)$|^\.env|id_rsa|id_dsa|id_ecdsa|id_ed25519|credentials|secrets\.(json|yml|yaml)$|\.npmrc$|\.pypirc$|\.netrc$' || true)
+	if [ -n "$sensitive_staged" ]; then
+		echo "" >&2
+		echo "[git-upload] ⚠️  SENSITIVE FILES DETECTED IN STAGED CHANGES:" >&2
+		echo "$sensitive_staged" | while read -r file; do
+			echo "[git-upload]   • $file" >&2
+		done
+		echo "" >&2
+		echo "[git-upload] 💡 If this is intentional (e.g., testing git-help-i-pushed-an-env)," >&2
+		echo "[git-upload]    the AI will try to infer context from recent commits." >&2
+		echo "[git-upload]    If accidental, press Ctrl+C NOW and run: git reset HEAD" >&2
+		echo "" >&2
+		sleep 2  # Give user a moment to cancel if needed
+	fi
 
 	# Check if there's anything to commit (staged changes)
 	if git diff --cached --quiet 2>/dev/null; then
