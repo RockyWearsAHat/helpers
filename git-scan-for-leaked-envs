@@ -1,0 +1,588 @@
+#!/bin/zsh
+
+# git-scan-for-leaked-envs
+#
+# Usage:
+#   git-scan-for-leaked-envs [options]
+#
+# Description:
+#   Scans the current repository for potentially leaked environment variables,
+#   API keys, secrets, and other sensitive data using GitHub Copilot.
+#   Provides recommendations for rotating compromised credentials and suggests
+#   running git-help-i-pushed-an-env to clean up the repository history.
+#
+# Options:
+#   -h, --help              Show this help message
+#   -v, --verbose           Show detailed scan output
+#   --json                  Output results in JSON format
+#   --no-recommend          Skip recommendations section
+#   --include-history       Scan git history (not just current files)
+#   --output FILE           Write results to file
+#
+# Examples:
+#   git-scan-for-leaked-envs
+#   git-scan-for-leaked-envs --verbose
+#   git-scan-for-leaked-envs --include-history --output report.txt
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Configuration
+verbose=false
+json_output=false
+show_recommend=true
+include_history=false
+output_file=""
+
+# Default patterns to scan for (common secret patterns)
+SECRET_PATTERNS=(
+	# API Keys
+	'AKIA[0-9A-Z]{16}'                          # AWS Access Key ID
+	'[a-zA-Z0-9_-]*api[_-]?key[a-zA-Z0-9_-]*\s*[:=]'
+	'[a-zA-Z0-9_-]*apikey[a-zA-Z0-9_-]*\s*[:=]'
+	
+	# Tokens
+	'ghp_[a-zA-Z0-9]{36}'                       # GitHub Personal Access Token
+	'gho_[a-zA-Z0-9]{36}'                       # GitHub OAuth Token
+	'ghu_[a-zA-Z0-9]{36}'                       # GitHub User Token
+	'ghs_[a-zA-Z0-9]{36}'                       # GitHub Server Token
+	'github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}' # GitHub Fine-grained PAT
+	'xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*' # Slack Token
+	'sk-[a-zA-Z0-9]{48}'                        # OpenAI API Key
+	'sk-proj-[a-zA-Z0-9_-]{80,}'               # OpenAI Project Key
+	
+	# Passwords and Secrets
+	'[a-zA-Z0-9_-]*password[a-zA-Z0-9_-]*\s*[:=]'
+	'[a-zA-Z0-9_-]*secret[a-zA-Z0-9_-]*\s*[:=]'
+	'[a-zA-Z0-9_-]*private[_-]?key[a-zA-Z0-9_-]*\s*[:=]'
+	
+	# Database URLs
+	'postgres://[^:]+:[^@]+@'
+	'mysql://[^:]+:[^@]+@'
+	'mongodb(\+srv)?://[^:]+:[^@]+@'
+	'redis://[^:]+:[^@]+@'
+	
+	# Cloud Provider Keys
+	'AZURE[_-]?[A-Z_]*[_-]?(KEY|SECRET|TOKEN|PASSWORD)'
+	'[a-zA-Z0-9_-]*AWS[_-]?SECRET[a-zA-Z0-9_-]*'
+	
+	# Private Keys
+	'-----BEGIN (RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----'
+	'-----BEGIN CERTIFICATE-----'
+	
+	# Generic patterns
+	'bearer\s+[a-zA-Z0-9_\-\.]+' 
+	'authorization:\s*(bearer|basic)\s+[a-zA-Z0-9_\-\.]+'
+)
+
+# Files that commonly contain secrets
+SENSITIVE_FILES=(
+	'.env'
+	'.env.local'
+	'.env.development'
+	'.env.production'
+	'.env.staging'
+	'.env.test'
+	'*.pem'
+	'*.key'
+	'*.p12'
+	'*.pfx'
+	'*.jks'
+	'id_rsa'
+	'id_dsa'
+	'id_ecdsa'
+	'id_ed25519'
+	'.npmrc'
+	'.pypirc'
+	'.netrc'
+	'.htpasswd'
+	'credentials'
+	'secrets.json'
+	'secrets.yml'
+	'secrets.yaml'
+	'config.json'
+	'config.yml'
+	'*.log'
+)
+
+# Progress spinner
+_spinner_pid=""
+start_spinner() {
+	local msg="$1"
+	(
+		local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+		local i=1
+		while true; do
+			printf '\r\033[K%b[git-scan-for-leaked-envs]%b %s %s' "$CYAN" "$NC" "${frames[$i]}" "$msg" >&2
+			i=$(( (i % 10) + 1 ))
+			sleep 0.1
+		done
+	) &
+	_spinner_pid=$!
+	disown $_spinner_pid 2>/dev/null || true
+}
+
+stop_spinner() {
+	local final_msg="${1:-}"
+	if [ -n "$_spinner_pid" ] && kill -0 "$_spinner_pid" 2>/dev/null; then
+		kill "$_spinner_pid" 2>/dev/null || true
+		wait "$_spinner_pid" 2>/dev/null || true
+	fi
+	_spinner_pid=""
+	if [ -n "$final_msg" ]; then
+		printf '\r\033[K%b[git-scan-for-leaked-envs]%b %s\n' "$CYAN" "$NC" "$final_msg" >&2
+	else
+		printf '\r\033[K' >&2
+	fi
+}
+
+trap 'stop_spinner' EXIT INT TERM
+
+print_help() {
+	cat << 'EOF'
+git-scan-for-leaked-envs - Scan repository for leaked secrets and credentials
+
+USAGE:
+    git-scan-for-leaked-envs [options]
+
+DESCRIPTION:
+    Scans the current repository for potentially leaked environment variables,
+    API keys, secrets, and other sensitive data using both pattern matching
+    and GitHub Copilot AI analysis.
+
+    Provides recommendations for rotating compromised credentials and suggests
+    running git-help-i-pushed-an-env to clean up the repository history.
+
+OPTIONS:
+    -h, --help              Show this help message
+    -v, --verbose           Show detailed scan output
+    --json                  Output results in JSON format
+    --no-recommend          Skip recommendations section
+    --include-history       Scan git history (not just current files)
+    --output FILE           Write results to file
+
+EXAMPLES:
+    git-scan-for-leaked-envs
+    git-scan-for-leaked-envs --verbose
+    git-scan-for-leaked-envs --include-history --output report.txt
+
+EXIT CODES:
+    0   No secrets found
+    1   Secrets found (action required)
+    2   Error during scan
+
+SEE ALSO:
+    git-help-i-pushed-an-env(1) - Remove secrets from git history
+EOF
+}
+
+log_info() {
+	if [ "$json_output" = false ]; then
+		printf '%b[INFO]%b %s\n' "$BLUE" "$NC" "$1" >&2
+	fi
+}
+
+log_warn() {
+	if [ "$json_output" = false ]; then
+		printf '%b[WARN]%b %s\n' "$YELLOW" "$NC" "$1" >&2
+	fi
+}
+
+log_error() {
+	if [ "$json_output" = false ]; then
+		printf '%b[ERROR]%b %s\n' "$RED" "$NC" "$1" >&2
+	fi
+}
+
+log_success() {
+	if [ "$json_output" = false ]; then
+		printf '%b[OK]%b %s\n' "$GREEN" "$NC" "$1" >&2
+	fi
+}
+
+log_verbose() {
+	if [ "$verbose" = true ] && [ "$json_output" = false ]; then
+		printf '%b[DEBUG]%b %s\n' "$CYAN" "$NC" "$1" >&2
+	fi
+}
+
+# Check if we're in a git repository
+check_git_repo() {
+	if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+		log_error "Not inside a git repository"
+		exit 2
+	fi
+}
+
+# Get repository root
+get_repo_root() {
+	git rev-parse --show-toplevel
+}
+
+# Scan for sensitive files that exist in the repository
+scan_sensitive_files() {
+	local repo_root="$1"
+	local found_files=()
+	
+	for pattern in "${SENSITIVE_FILES[@]}"; do
+		# Use find for exact matches, git ls-files for tracked files
+		while IFS= read -r file; do
+			if [ -n "$file" ]; then
+				found_files+=("$file")
+			fi
+		done < <(git ls-files "$repo_root" 2>/dev/null | grep -E "(^|/)${pattern}$" 2>/dev/null || true)
+		
+		# Also check for glob patterns
+		while IFS= read -r file; do
+			if [ -n "$file" ] && [ -f "$file" ]; then
+				found_files+=("$file")
+			fi
+		done < <(git ls-files "$repo_root" 2>/dev/null | grep -E "\.env" 2>/dev/null || true)
+	done
+	
+	# Remove duplicates and print
+	printf '%s\n' "${found_files[@]}" 2>/dev/null | sort -u
+}
+
+# Pattern-based secret scanning
+scan_patterns() {
+	local repo_root="$1"
+	local results=()
+	
+	for pattern in "${SECRET_PATTERNS[@]}"; do
+		while IFS= read -r match; do
+			if [ -n "$match" ]; then
+				results+=("$match")
+			fi
+		done < <(git grep -n -E -i "$pattern" -- "$repo_root" 2>/dev/null || true)
+	done
+	
+	printf '%s\n' "${results[@]}" 2>/dev/null | sort -u | head -100
+}
+
+# Scan git history for secrets
+scan_history() {
+	local repo_root="$1"
+	local results=()
+	
+	log_verbose "Scanning git history for secrets..."
+	
+	# Get list of all commits
+	local commits
+	commits=$(git log --all --pretty=format:"%H" 2>/dev/null | head -50)
+	
+	for commit in $commits; do
+		for pattern in "${SECRET_PATTERNS[@]}"; do
+			while IFS= read -r match; do
+				if [ -n "$match" ]; then
+					results+=("commit:$commit - $match")
+				fi
+			done < <(git show "$commit" 2>/dev/null | grep -n -E -i "$pattern" 2>/dev/null | head -5 || true)
+		done
+	done
+	
+	printf '%s\n' "${results[@]}" 2>/dev/null | sort -u | head -50
+}
+
+# Use Copilot to perform AI-powered analysis
+copilot_analysis() {
+	local repo_root="$1"
+	local files_to_scan="$2"
+	
+	if ! command -v copilot &>/dev/null; then
+		log_warn "GitHub Copilot CLI not found. Skipping AI analysis."
+		return 1
+	fi
+	
+	log_verbose "Running Copilot AI analysis..."
+	
+	# Build file content summary for Copilot
+	local file_content=""
+	local count=0
+	while IFS= read -r file; do
+		if [ -n "$file" ] && [ -f "$repo_root/$file" ] && [ "$count" -lt 10 ]; then
+			local content
+			content=$(head -100 "$repo_root/$file" 2>/dev/null || true)
+			file_content+="
+--- File: $file ---
+$content
+"
+			((count++))
+		fi
+	done <<< "$files_to_scan"
+	
+	if [ -z "$file_content" ]; then
+		file_content="No suspicious files found to analyze."
+	fi
+	
+	local prompt="You are a security expert analyzing code for leaked secrets, API keys, and environment variables.
+
+Analyze the following files from a git repository and identify any potential security issues:
+
+$file_content
+
+Please identify:
+1. Any hardcoded secrets, API keys, passwords, or tokens
+2. Any environment variables that appear to contain sensitive data
+3. Any files that should not be committed to version control
+4. Specific line numbers and file names where issues are found
+
+Format your response as a security report with severity levels (CRITICAL, HIGH, MEDIUM, LOW).
+For each finding, provide:
+- The file and line number
+- The type of secret found
+- The severity level
+- Recommendations for remediation
+
+If no issues are found, clearly state that the repository appears clean."
+
+	local result
+	result=$(copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$prompt" 2>/dev/null || echo "AI analysis unavailable")
+	
+	echo "$result"
+}
+
+# Generate rotation recommendations
+generate_recommendations() {
+	local found_secrets="$1"
+	
+	cat << 'EOF'
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                        CREDENTIAL ROTATION GUIDE                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+If secrets were found, you MUST rotate them immediately. Here's how:
+
+AWS CREDENTIALS:
+  1. Go to AWS Console → IAM → Users → Security Credentials
+  2. Create new access keys
+  3. Update your applications with new keys
+  4. Delete the old access keys
+  5. Run: aws configure
+
+GITHUB TOKENS:
+  1. Go to GitHub → Settings → Developer settings → Personal access tokens
+  2. Revoke the compromised token
+  3. Generate a new token with minimal required permissions
+  4. Update your applications/scripts
+
+OPENAI API KEYS:
+  1. Go to platform.openai.com → API Keys
+  2. Delete the compromised key
+  3. Create a new API key
+  4. Update your applications
+
+DATABASE CREDENTIALS:
+  1. Change the password in your database
+  2. Update connection strings in all applications
+  3. Consider using a secrets manager (AWS Secrets Manager, HashiCorp Vault)
+
+SLACK TOKENS:
+  1. Go to api.slack.com → Your Apps
+  2. Regenerate the token
+  3. Update your applications
+
+PRIVATE KEYS (SSH/SSL):
+  1. Generate new key pair: ssh-keygen -t ed25519
+  2. Update authorized_keys on all servers
+  3. Replace certificates if SSL/TLS keys
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                          NEXT STEPS                                            ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+After rotating credentials, clean your git history:
+
+  git help-i-pushed-an-env
+
+This will remove all traces of sensitive files from your repository history.
+
+IMPORTANT: Even after cleaning history, assume any exposed credentials are
+compromised. Attackers may have already accessed your repository.
+
+EOF
+}
+
+# Main scan function
+run_scan() {
+	local repo_root
+	repo_root=$(get_repo_root)
+	
+	local total_issues=0
+	local sensitive_files=""
+	local pattern_matches=""
+	local history_matches=""
+	local ai_analysis=""
+	
+	# Scan for sensitive files
+	start_spinner "Scanning for sensitive files..."
+	sensitive_files=$(scan_sensitive_files "$repo_root")
+	stop_spinner "Sensitive file scan complete"
+	
+	# Pattern-based scanning
+	start_spinner "Scanning for secret patterns..."
+	pattern_matches=$(scan_patterns "$repo_root")
+	stop_spinner "Pattern scan complete"
+	
+	# History scanning if enabled
+	if [ "$include_history" = true ]; then
+		start_spinner "Scanning git history (this may take a while)..."
+		history_matches=$(scan_history "$repo_root")
+		stop_spinner "History scan complete"
+	fi
+	
+	# AI analysis
+	start_spinner "Running AI-powered analysis..."
+	ai_analysis=$(copilot_analysis "$repo_root" "$sensitive_files" 2>/dev/null || echo "")
+	stop_spinner "AI analysis complete"
+	
+	# Output results
+	if [ "$json_output" = true ]; then
+		# JSON output
+		cat << EOF
+{
+  "repository": "$repo_root",
+  "scan_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "sensitive_files": $(echo "$sensitive_files" | jq -R -s -c 'split("\n") | map(select(. != ""))'),
+  "pattern_matches": $(echo "$pattern_matches" | jq -R -s -c 'split("\n") | map(select(. != ""))'),
+  "history_matches": $(echo "$history_matches" | jq -R -s -c 'split("\n") | map(select(. != ""))'),
+  "ai_analysis": $(echo "$ai_analysis" | jq -R -s)
+}
+EOF
+	else
+		# Human-readable output
+		printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
+		printf '%b                    GIT REPOSITORY SECURITY SCAN REPORT                        %b\n' "$BOLD" "$NC"
+		printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n\n' "$BOLD" "$NC"
+		
+		printf '%bRepository:%b %s\n' "$BOLD" "$NC" "$repo_root"
+		printf '%bScan Time:%b %s\n\n' "$BOLD" "$NC" "$(date)"
+		
+		# Sensitive files
+		printf '%b┌─ SENSITIVE FILES ─────────────────────────────────────────────────────────────┐%b\n' "$YELLOW" "$NC"
+		if [ -n "$sensitive_files" ]; then
+			echo "$sensitive_files" | while read -r file; do
+				if [ -n "$file" ]; then
+					printf '  %b⚠%b  %s\n' "$RED" "$NC" "$file"
+					((total_issues++)) || true
+				fi
+			done
+		else
+			printf '  %b✓%b  No sensitive files found in repository\n' "$GREEN" "$NC"
+		fi
+		printf '%b└───────────────────────────────────────────────────────────────────────────────┘%b\n\n' "$YELLOW" "$NC"
+		
+		# Pattern matches
+		printf '%b┌─ SECRET PATTERNS DETECTED ────────────────────────────────────────────────────┐%b\n' "$RED" "$NC"
+		if [ -n "$pattern_matches" ]; then
+			echo "$pattern_matches" | head -20 | while read -r match; do
+				if [ -n "$match" ]; then
+					printf '  %b✗%b  %s\n' "$RED" "$NC" "$match"
+					((total_issues++)) || true
+				fi
+			done
+			local match_count
+			match_count=$(echo "$pattern_matches" | wc -l | tr -d ' ')
+			if [ "$match_count" -gt 20 ]; then
+				printf '  %b...and %d more matches%b\n' "$YELLOW" "$((match_count - 20))" "$NC"
+			fi
+		else
+			printf '  %b✓%b  No secret patterns detected\n' "$GREEN" "$NC"
+		fi
+		printf '%b└───────────────────────────────────────────────────────────────────────────────┘%b\n\n' "$RED" "$NC"
+		
+		# History matches (if scanned)
+		if [ "$include_history" = true ]; then
+			printf '%b┌─ SECRETS IN GIT HISTORY ──────────────────────────────────────────────────────┐%b\n' "$RED" "$NC"
+			if [ -n "$history_matches" ]; then
+				echo "$history_matches" | head -10 | while read -r match; do
+					if [ -n "$match" ]; then
+						printf '  %b✗%b  %s\n' "$RED" "$NC" "$match"
+						((total_issues++)) || true
+					fi
+				done
+			else
+				printf '  %b✓%b  No secrets found in git history\n' "$GREEN" "$NC"
+			fi
+			printf '%b└───────────────────────────────────────────────────────────────────────────────┘%b\n\n' "$RED" "$NC"
+		fi
+		
+		# AI Analysis
+		if [ -n "$ai_analysis" ] && [ "$ai_analysis" != "AI analysis unavailable" ]; then
+			printf '%b┌─ AI SECURITY ANALYSIS ────────────────────────────────────────────────────────┐%b\n' "$CYAN" "$NC"
+			echo "$ai_analysis" | sed 's/^/  /'
+			printf '%b└───────────────────────────────────────────────────────────────────────────────┘%b\n\n' "$CYAN" "$NC"
+		fi
+		
+		# Summary
+		printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
+		if [ -n "$sensitive_files" ] || [ -n "$pattern_matches" ] || [ -n "$history_matches" ]; then
+			printf '%b                    ⚠  POTENTIAL SECURITY ISSUES FOUND  ⚠                      %b\n' "$RED" "$NC"
+			printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
+			
+			if [ "$show_recommend" = true ]; then
+				generate_recommendations "$pattern_matches"
+			fi
+			
+			return 1
+		else
+			printf '%b                    ✓  NO SECURITY ISSUES DETECTED  ✓                         %b\n' "$GREEN" "$NC"
+			printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
+			return 0
+		fi
+	fi
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		-h|--help)
+			print_help
+			exit 0
+			;;
+		-v|--verbose)
+			verbose=true
+			shift
+			;;
+		--json)
+			json_output=true
+			shift
+			;;
+		--no-recommend)
+			show_recommend=false
+			shift
+			;;
+		--include-history)
+			include_history=true
+			shift
+			;;
+		--output)
+			output_file="$2"
+			shift 2
+			;;
+		*)
+			log_error "Unknown option: $1"
+			print_help
+			exit 2
+			;;
+	esac
+done
+
+# Main execution
+check_git_repo
+
+if [ -n "$output_file" ]; then
+	run_scan > "$output_file"
+	log_info "Results written to: $output_file"
+else
+	run_scan
+fi
