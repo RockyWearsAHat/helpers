@@ -1299,6 +1299,7 @@ compute_risk_score() {
 	# =================================================================
 	
 	# 1. Tests degraded (more failures, or tests broke that were passing)
+	#    NOTE: "fail (new tests)" is NOT degraded - it's progression (new failing tests added)
 	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (degraded)'; then
 		risk_level="high"
 		risk_reasons="commit degraded test health"
@@ -1336,7 +1337,15 @@ compute_risk_score() {
 		fi
 	fi
 	
-	# 5. All tests pass - codebase is healthy
+	# 5. New tests added with failures - this is PROGRESSION, not regression
+	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (new tests)'; then
+		if [ "$risk_level" != "high" ]; then
+			risk_level="low"
+			risk_reasons="new tests added (progression, not regression)"
+		fi
+	fi
+	
+	# 6. All tests pass - codebase is healthy
 	if printf '%s\n' "$testing_status" | grep -q '^Testing: pass'; then
 		if [ "$risk_level" != "high" ]; then
 			risk_level="low"
@@ -1344,7 +1353,7 @@ compute_risk_score() {
 		fi
 	fi
 	
-	# 6. No tests configured but no syntax errors or API removals
+	# 7. No tests configured but no syntax errors or API removals
 	if printf '%s\n' "$testing_status" | grep -q '^Testing: not configured'; then
 		if [ "$risk_level" != "high" ]; then
 			# Without tests, we rely on other signals - default to medium for untested changes
@@ -1359,7 +1368,7 @@ compute_risk_score() {
 	# MEDIUM RISK: Uncertain impact, needs review
 	# =================================================================
 	
-	# 7. Same number of failures (neutral impact)
+	# 8. Same number of failures (neutral impact)
 	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (unchanged)'; then
 		if [ "$risk_level" != "high" ] && [ "$risk_level" != "low" ]; then
 			risk_level="medium"
@@ -1634,25 +1643,56 @@ EOF
 				echo "[git-upload] ⚠️  WARNING: Failed to re-apply stashed changes after baseline tests." >&2
 				echo "[git-upload]    Please inspect your working tree (e.g., 'git status') and resolve manually." >&2
 			fi
+			# Re-stage files after stash pop (stash pop leaves files unstaged)
+			git add -A 2>/dev/null || true
 			
-			# Extract baseline failure count
+			# Extract baseline failure count and total test count
+			local baseline_total_count=0
 			if [ "$baseline_exit_code" -eq 0 ]; then
 				baseline_fail_count=0
+				baseline_total_count=$(extract_test_total_count "$tmp_baseline")
 			else
 				baseline_fail_count=$(extract_test_failure_count "$tmp_baseline")
+				baseline_total_count=$(extract_test_total_count "$tmp_baseline")
 			fi
 			
+			# Also get current total for comparison
+			local current_total_count
+			current_total_count=$(extract_test_total_count "$tmp_current")
+			
 			# Compare: did this commit make things better, worse, or same?
+			# Key insight: if total tests increased and that accounts for the new failures,
+			# these are likely NEW TESTS (progression), not broken old tests (regression)
+			local new_test_count=0
+			if [ "$current_total_count" -gt "$baseline_total_count" ] 2>/dev/null; then
+				new_test_count=$((current_total_count - baseline_total_count))
+			fi
+			
 			if [ "$baseline_fail_count" -eq 0 ] && [ "$current_fail_count" -gt 0 ]; then
-				# Tests WERE passing, now failing = WORSE (this commit broke things)
-				test_delta="worse"
-				echo "[git-upload] 🔴 Baseline: 0 failures → Current: $current_fail_count failures" >&2
-				echo "[git-upload]    Result: This commit BROKE previously passing tests" >&2
+				# Tests WERE passing, now failing
+				if [ "$new_test_count" -ge "$current_fail_count" ] 2>/dev/null && [ "$new_test_count" -gt 0 ]; then
+					# All failures are from new tests = PROGRESSION (new tests added)
+					test_delta="newTests"
+					echo "[git-upload] 🟣 Baseline: 0 failures ($baseline_total_count tests) → Current: $current_fail_count failures ($current_total_count tests)" >&2
+					echo "[git-upload]    Result: NEW TESTS added (+$new_test_count), failures are from new tests (progression, not regression)" >&2
+				else
+					test_delta="worse"
+					echo "[git-upload] 🔴 Baseline: 0 failures → Current: $current_fail_count failures" >&2
+					echo "[git-upload]    Result: This commit BROKE previously passing tests" >&2
+				fi
 			elif [ "$current_fail_count" -gt "$baseline_fail_count" ]; then
-				# More failures now = WORSE
-				test_delta="worse"
-				echo "[git-upload] 🔴 Baseline: $baseline_fail_count failures → Current: $current_fail_count failures" >&2
-				echo "[git-upload]    Result: This commit made things WORSE" >&2
+				# More failures now
+				local additional_failures=$((current_fail_count - baseline_fail_count))
+				if [ "$new_test_count" -ge "$additional_failures" ] 2>/dev/null && [ "$new_test_count" -gt 0 ]; then
+					# Additional failures explained by new tests = PROGRESSION
+					test_delta="newTests"
+					echo "[git-upload] 🟣 Baseline: $baseline_fail_count failures ($baseline_total_count tests) → Current: $current_fail_count failures ($current_total_count tests)" >&2
+					echo "[git-upload]    Result: NEW TESTS added (+$new_test_count), additional failures are from new tests" >&2
+				else
+					test_delta="worse"
+					echo "[git-upload] 🔴 Baseline: $baseline_fail_count failures → Current: $current_fail_count failures" >&2
+					echo "[git-upload]    Result: This commit made things WORSE" >&2
+				fi
 			elif [ "$current_fail_count" -lt "$baseline_fail_count" ]; then
 				# Fewer failures now = BETTER (commit is fixing things!)
 				test_delta="better"
@@ -1701,6 +1741,10 @@ EOF
 		same)
 			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (unchanged)/')
 			;;
+		newTests)
+			# New tests were added - failures are from progression, not regression
+			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (new tests)/')
+			;;
 		*)
 			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (unknown baseline)/')
 			;;
@@ -1720,13 +1764,42 @@ extract_test_failure_count() {
 	local output_file="$1"
 	local count=0
 	
+	# Helper: sanitize a captured number to ensure it's a clean integer
+	_sanitize_int() {
+		local val="$1"
+		# Strip whitespace, newlines, and non-digit characters
+		val=$(printf '%s' "$val" | tr -cd '0-9' | head -c 10)
+		if [ -z "$val" ]; then
+			printf '0'
+			return
+		fi
+		printf '%s' "$val"
+	}
+	
 	# Try various patterns for different test runners
 	
 	# Jest/Vitest: "Tests: X failed"
 	local jest_fail
 	jest_fail=$(grep -oE 'Tests:[[:space:]]+[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
 	if [ -n "$jest_fail" ]; then
-		printf '%s' "$jest_fail"
+		_sanitize_int "$jest_fail"
+		return 0
+	fi
+	
+	# dotnet: "Failed!  - Failed:     X" or "Failed:  X" (handles multiple spaces)
+	# Must check before generic pytest pattern since both have "X failed"
+	local dotnet_fail
+	dotnet_fail=$(grep -oE 'Failed:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$dotnet_fail" ]; then
+		_sanitize_int "$dotnet_fail"
+		return 0
+	fi
+	
+	# dotnet alternate: count individual test failure lines "X [Xms]" after "Failed!"
+	local dotnet_fail_count
+	dotnet_fail_count=$(grep -cE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]+\[[0-9]+[[:space:]]*m?s\][[:space:]]*—' "$output_file" 2>/dev/null || echo "0")
+	if [ "$dotnet_fail_count" -gt 0 ] 2>/dev/null; then
+		_sanitize_int "$dotnet_fail_count"
 		return 0
 	fi
 	
@@ -1734,15 +1807,15 @@ extract_test_failure_count() {
 	local pytest_fail
 	pytest_fail=$(grep -oE '[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
 	if [ -n "$pytest_fail" ]; then
-		printf '%s' "$pytest_fail"
+		_sanitize_int "$pytest_fail"
 		return 0
 	fi
 	
 	# Go: "FAIL" lines (count them)
 	local go_fail
 	go_fail=$(grep -c '^--- FAIL:' "$output_file" 2>/dev/null || echo "0")
-	if [ "$go_fail" -gt 0 ]; then
-		printf '%s' "$go_fail"
+	if [ "$go_fail" -gt 0 ] 2>/dev/null; then
+		_sanitize_int "$go_fail"
 		return 0
 	fi
 	
@@ -1752,8 +1825,8 @@ extract_test_failure_count() {
 	local mvn_err
 	mvn_err=$(grep -oE 'Errors:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 || true)
 	if [ -n "$mvn_fail" ] || [ -n "$mvn_err" ]; then
-		mvn_fail=${mvn_fail:-0}
-		mvn_err=${mvn_err:-0}
+		mvn_fail=$(_sanitize_int "${mvn_fail:-0}")
+		mvn_err=$(_sanitize_int "${mvn_err:-0}")
 		printf '%s' "$((mvn_fail + mvn_err))"
 		return 0
 	fi
@@ -1762,28 +1835,92 @@ extract_test_failure_count() {
 	local cargo_fail
 	cargo_fail=$(grep -oE '[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
 	if [ -n "$cargo_fail" ]; then
-		printf '%s' "$cargo_fail"
-		return 0
-	fi
-	
-	# dotnet: "Failed: X"
-	local dotnet_fail
-	dotnet_fail=$(grep -oE 'Failed:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
-	if [ -n "$dotnet_fail" ]; then
-		printf '%s' "$dotnet_fail"
+		_sanitize_int "$cargo_fail"
 		return 0
 	fi
 	
 	# Fallback: count lines with common failure indicators
 	local generic_fail
 	generic_fail=$(grep -ciE '(FAIL|FAILED|ERROR|BROKEN)' "$output_file" 2>/dev/null || echo "0")
-	if [ "$generic_fail" -gt 0 ]; then
+	generic_fail=$(_sanitize_int "$generic_fail")
+	if [ "$generic_fail" -gt 0 ] 2>/dev/null; then
 		printf '%s' "$generic_fail"
 		return 0
 	fi
 	
 	# Can't determine - return 1 as a fallback (at least 1 failure since tests failed)
 	printf '1'
+}
+
+extract_test_total_count() {
+	# Best-effort extraction of total test count from test output
+	# Returns a number (0 if can't determine)
+	local output_file="$1"
+	
+	# Helper: sanitize a captured number to ensure it's a clean integer
+	_sanitize_int() {
+		local val="$1"
+		val=$(printf '%s' "$val" | tr -cd '0-9' | head -c 10)
+		if [ -z "$val" ]; then
+			printf '0'
+			return
+		fi
+		printf '%s' "$val"
+	}
+	
+	# Jest/Vitest: "Tests: X total"
+	local jest_total
+	jest_total=$(grep -oE 'Tests:[[:space:]]+.*[0-9]+[[:space:]]+total' "$output_file" 2>/dev/null | grep -oE '[0-9]+[[:space:]]+total' | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$jest_total" ]; then
+		_sanitize_int "$jest_total"
+		return 0
+	fi
+	
+	# dotnet: "Total: X" or "Total tests: X"
+	local dotnet_total
+	dotnet_total=$(grep -oE 'Total:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 || true)
+	if [ -z "$dotnet_total" ]; then
+		dotnet_total=$(grep -oE 'Total tests:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	fi
+	if [ -n "$dotnet_total" ]; then
+		_sanitize_int "$dotnet_total"
+		return 0
+	fi
+	
+	# Pytest: "X passed" + "X failed" = total, or "collected X items"
+	local pytest_collected
+	pytest_collected=$(grep -oE 'collected[[:space:]]+[0-9]+[[:space:]]+items?' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$pytest_collected" ]; then
+		_sanitize_int "$pytest_collected"
+		return 0
+	fi
+	
+	# Python unittest: "Ran X tests"
+	local unittest_total
+	unittest_total=$(grep -oE 'Ran[[:space:]]+[0-9]+[[:space:]]+tests?' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$unittest_total" ]; then
+		_sanitize_int "$unittest_total"
+		return 0
+	fi
+	
+	# Go: count all test function results (PASS + FAIL)
+	local go_total
+	go_total=$(grep -cE '^--- (PASS|FAIL):' "$output_file" 2>/dev/null || echo "0")
+	if [ "$go_total" -gt 0 ] 2>/dev/null; then
+		_sanitize_int "$go_total"
+		return 0
+	fi
+	
+	# Maven: "Tests run: X"
+	local mvn_total
+	mvn_total=$(grep -oE 'Tests run:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 || true)
+	if [ -n "$mvn_total" ]; then
+		_sanitize_int "$mvn_total"
+		return 0
+	fi
+	
+	# Fallback: can't determine
+	printf '0'
 }
 
 generate_ai_message() {
@@ -2197,12 +2334,19 @@ main() {
 		fi
 	fi
 
-	git add .
+	# Force stage all changes (including after stash pop which may leave files unstaged)
+	git add -A
 
 	# Check if there's anything to commit (staged changes)
 	if git diff --cached --quiet 2>/dev/null; then
-		echo "[git-upload] Nothing to commit – working tree is clean." >&2
-		exit 1
+		# Double-check with git status in case add failed silently
+		if ! git status --porcelain 2>/dev/null | grep -q '^'; then
+			echo "[git-upload] Nothing to commit – working tree is clean." >&2
+			exit 1
+		fi
+		# There are changes but they're not staged - force add again
+		echo "[git-upload] Re-staging unstaged changes..." >&2
+		git add -A
 	fi
 
 	commit_msg="${user_msg:-default commit message}"
