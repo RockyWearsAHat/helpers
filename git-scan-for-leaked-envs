@@ -350,66 +350,9 @@ If no issues are found, clearly state that the repository appears clean."
 	echo "$result"
 }
 
-# Generate rotation recommendations
-generate_recommendations() {
-	local found_secrets="$1"
-	
-	cat << 'EOF'
-
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                        CREDENTIAL ROTATION GUIDE                               ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-
-If secrets were found, you MUST rotate them immediately. Here's how:
-
-AWS CREDENTIALS:
-  1. Go to AWS Console → IAM → Users → Security Credentials
-  2. Create new access keys
-  3. Update your applications with new keys
-  4. Delete the old access keys
-  5. Run: aws configure
-
-GITHUB TOKENS:
-  1. Go to GitHub → Settings → Developer settings → Personal access tokens
-  2. Revoke the compromised token
-  3. Generate a new token with minimal required permissions
-  4. Update your applications/scripts
-
-OPENAI API KEYS:
-  1. Go to platform.openai.com → API Keys
-  2. Delete the compromised key
-  3. Create a new API key
-  4. Update your applications
-
-DATABASE CREDENTIALS:
-  1. Change the password in your database
-  2. Update connection strings in all applications
-  3. Consider using a secrets manager (AWS Secrets Manager, HashiCorp Vault)
-
-SLACK TOKENS:
-  1. Go to api.slack.com → Your Apps
-  2. Regenerate the token
-  3. Update your applications
-
-PRIVATE KEYS (SSH/SSL):
-  1. Generate new key pair: ssh-keygen -t ed25519
-  2. Update authorized_keys on all servers
-  3. Replace certificates if SSL/TLS keys
-
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                          NEXT STEPS                                            ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-
-After rotating credentials, clean your git history:
-
-  git help-i-pushed-an-env
-
-This will remove all traces of sensitive files from your repository history.
-
-IMPORTANT: Even after cleaning history, assume any exposed credentials are
-compromised. Attackers may have already accessed your repository.
-
-EOF
+# Print next step
+print_next_step() {
+	printf '\n%bNext:%b Rotate any real credentials above, then run: %bgit help-i-pushed-an-env%b\n' "$YELLOW" "$NC" "$BOLD" "$NC"
 }
 
 # Main scan function
@@ -460,85 +403,62 @@ run_scan() {
 EOF
 	else
 		# Human-readable output
-		printf '\n%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
-		printf '%b                    GIT REPOSITORY SECURITY SCAN REPORT                        %b\n' "$BOLD" "$NC"
-		printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n\n' "$BOLD" "$NC"
-		
-		printf '%bRepository:%b %s\n' "$BOLD" "$NC" "$repo_root"
-		printf '%bScan Time:%b %s\n\n' "$BOLD" "$NC" "$(date)"
-		
-		# Sensitive files
-		printf '%b┌─ SENSITIVE FILES ─────────────────────────────────────────────────────────────┐%b\n' "$YELLOW" "$NC"
-		if [ -n "$sensitive_files" ]; then
-			echo "$sensitive_files" | while read -r file; do
-				if [ -n "$file" ]; then
-					printf '  %b⚠%b  %s\n' "$RED" "$NC" "$file"
-					((total_issues++)) || true
-				fi
-			done
-		else
-			printf '  %b✓%b  No sensitive files found in repository\n' "$GREEN" "$NC"
+		local has_issues=false
+		if [ -n "$sensitive_files" ] || [ -n "$pattern_matches" ] || [ -n "$history_matches" ]; then
+			has_issues=true
 		fi
-		printf '%b└───────────────────────────────────────────────────────────────────────────────┘%b\n\n' "$YELLOW" "$NC"
 		
-		# Pattern matches
-		printf '%b┌─ SECRET PATTERNS DETECTED ────────────────────────────────────────────────────┐%b\n' "$RED" "$NC"
+		if [ "$has_issues" = false ]; then
+			printf '\n%b✓ Clean%b - no secrets detected in %s\n\n' "$GREEN" "$NC" "$repo_root"
+			return 0
+		fi
+		
+		# Show issues found
+		printf '\n%b⚠ Secrets found in %s%b\n\n' "$RED" "$repo_root" "$NC"
+		
+		# Sensitive files (just list them)
+		if [ -n "$sensitive_files" ]; then
+			printf '%bSensitive files:%b\n' "$YELLOW" "$NC"
+			echo "$sensitive_files" | while read -r file; do
+				[ -n "$file" ] && printf '  %s\n' "$file"
+			done
+			echo
+		fi
+		
+		# Pattern matches (limit to 10, show file:line:match)
 		if [ -n "$pattern_matches" ]; then
-			echo "$pattern_matches" | head -20 | while read -r match; do
-				if [ -n "$match" ]; then
-					printf '  %b✗%b  %s\n' "$RED" "$NC" "$match"
-					((total_issues++)) || true
-				fi
+			printf '%bPattern matches:%b\n' "$RED" "$NC"
+			echo "$pattern_matches" | head -10 | while read -r match; do
+				[ -n "$match" ] && printf '  %s\n' "$match"
 			done
 			local match_count
 			match_count=$(echo "$pattern_matches" | wc -l | tr -d ' ')
-			if [ "$match_count" -gt 20 ]; then
-				printf '  %b...and %d more matches%b\n' "$YELLOW" "$((match_count - 20))" "$NC"
-			fi
-		else
-			printf '  %b✓%b  No secret patterns detected\n' "$GREEN" "$NC"
-		fi
-		printf '%b└───────────────────────────────────────────────────────────────────────────────┘%b\n\n' "$RED" "$NC"
-		
-		# History matches (if scanned)
-		if [ "$include_history" = true ]; then
-			printf '%b┌─ SECRETS IN GIT HISTORY ──────────────────────────────────────────────────────┐%b\n' "$RED" "$NC"
-			if [ -n "$history_matches" ]; then
-				echo "$history_matches" | head -10 | while read -r match; do
-					if [ -n "$match" ]; then
-						printf '  %b✗%b  %s\n' "$RED" "$NC" "$match"
-						((total_issues++)) || true
-					fi
-				done
-			else
-				printf '  %b✓%b  No secrets found in git history\n' "$GREEN" "$NC"
-			fi
-			printf '%b└───────────────────────────────────────────────────────────────────────────────┘%b\n\n' "$RED" "$NC"
+			[ "$match_count" -gt 10 ] && printf '  (%d more)\n' "$((match_count - 10))"
+			echo
 		fi
 		
-		# AI Analysis
+		# History matches
+		if [ "$include_history" = true ] && [ -n "$history_matches" ]; then
+			printf '%bIn git history:%b\n' "$RED" "$NC"
+			echo "$history_matches" | head -5 | while read -r match; do
+				[ -n "$match" ] && printf '  %s\n' "$match"
+			done
+			echo
+		fi
+		
+		# AI Analysis (if available, keep it brief)
 		if [ -n "$ai_analysis" ] && [ "$ai_analysis" != "AI analysis unavailable" ]; then
-			printf '%b┌─ AI SECURITY ANALYSIS ────────────────────────────────────────────────────────┐%b\n' "$CYAN" "$NC"
-			echo "$ai_analysis" | sed 's/^/  /'
-			printf '%b└───────────────────────────────────────────────────────────────────────────────┘%b\n\n' "$CYAN" "$NC"
+			printf '%bAI analysis:%b\n' "$CYAN" "$NC"
+			echo "$ai_analysis" | head -10 | sed 's/^/  /'
+			echo
 		fi
 		
-		# Summary
-		printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
-		if [ -n "$sensitive_files" ] || [ -n "$pattern_matches" ] || [ -n "$history_matches" ]; then
-			printf '%b                    ⚠  POTENTIAL SECURITY ISSUES FOUND  ⚠                      %b\n' "$RED" "$NC"
-			printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
-			
-			if [ "$show_recommend" = true ]; then
-				generate_recommendations "$pattern_matches"
-			fi
-			
-			return 1
-		else
-			printf '%b                    ✓  NO SECURITY ISSUES DETECTED  ✓                         %b\n' "$GREEN" "$NC"
-			printf '%b═══════════════════════════════════════════════════════════════════════════════%b\n' "$BOLD" "$NC"
-			return 0
+		# Simple next step
+		if [ "$show_recommend" = true ]; then
+			print_next_step
 		fi
+		
+		return 1
 	fi
 }
 
