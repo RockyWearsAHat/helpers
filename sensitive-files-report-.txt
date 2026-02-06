@@ -1,0 +1,12 @@
+Sensitive Files Report
+Generated: 
+========================================
+
+Summary:
+  Total repositories scanned: 30
+  Clean repositories: 0
+  Repositories with issues: 1
+  Total issues: 1
+
+========================================
+

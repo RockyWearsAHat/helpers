@@ -12,25 +12,39 @@
 #
 # Options:
 #   -h, --help                  Show this help message
+#   -i, --interactive           Interactive mode: scan and handle each file individually
 #   -n, --dry-run               Show what would be removed without making changes
 #   -f, --force                 Skip confirmation prompts
 #   -v, --verbose               Show detailed output
+#   --scan                      Only scan for sensitive files (no removal)
+#   --scan-all-public           Scan ALL public GitHub repositories
+#   --scan-all-repos            Scan ALL repositories (public AND private)
 #   --review                    Run git-scan-for-leaked-envs after cleaning
 #   --ext EXTENSION             Add file extension to remove (can be used multiple times)
 #   --file PATTERN              Add file pattern to remove (can be used multiple times)
+#   --search PATTERN            Search for specific file patterns in workspace
 #   --all-public                Run on ALL public GitHub repositories
 #   --all-repos                 Run on ALL repositories (public AND private)
 #   --preserve-recent           Only clean commits older than 24 hours
 #   --backup                    Create a backup branch before cleaning
+#   --no-cache                  Ignore cache and rescan all repositories
 #
 # Examples:
 #   git-help-i-pushed-an-env
+#   git-help-i-pushed-an-env -i                      # Interactive mode
+#   git-help-i-pushed-an-env --scan                  # Just scan, don't remove
+#   git-help-i-pushed-an-env --scan-all-public       # Scan all public repos
+#   git-help-i-pushed-an-env --search ".env"         # Search for specific pattern
 #   git-help-i-pushed-an-env --ext .pem --ext .key
 #   git-help-i-pushed-an-env --file "config/secrets.json"
 #   git-help-i-pushed-an-env --all-public --review
 #   git-help-i-pushed-an-env --all-repos --force
 
 set -euo pipefail
+
+# Ensure homebrew and system binaries are in PATH (for macOS)
+# This is needed because the script may be called from contexts where PATH is minimal
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 # Colors for output
 RED='\033[0;31m'
@@ -42,6 +56,42 @@ MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
+# UI helpers
+term_cols() {
+	local cols=80
+	if command -v tput &>/dev/null; then
+		cols=$(tput cols 2>/dev/null || echo 80)
+	fi
+	echo "$cols"
+}
+
+ui_hr() {
+	local cols
+	cols=$(term_cols)
+	printf '%s\n' "$(printf '%*s' "$cols" '' | /usr/bin/tr ' ' '─')"
+}
+
+ui_title() {
+	local title="$1"
+	ui_hr
+	printf '%b%s%b\n' "$BOLD" "$title" "$NC"
+	ui_hr
+}
+
+ui_kv() {
+	local key="$1"
+	local val="$2"
+	printf '  %b%-12s%b %s\n' "$BOLD" "$key" "$NC" "$val"
+}
+
+ui_note() {
+	printf '%b%s%b\n' "$CYAN" "$1" "$NC"
+}
+
+ui_clear() {
+	printf '\033[2J\033[H'
+}
+
 # Configuration
 dry_run=false
 force=false
@@ -51,81 +101,68 @@ all_public=false
 all_repos=false
 preserve_recent=false
 create_backup=false
+interactive_mode=false
+scan_only=false
+scan_all_public=false
+scan_all_repos=false
+no_cache=false
 extra_extensions=()
 extra_files=()
+search_patterns=()
 
-# Default files and patterns to remove
+# Cache configuration
+CACHE_VERSION="1"
+CACHE_FILE="$HOME/.git-secret-scan-cache"
+ISSUES_CACHE_FILE="$HOME/.git-secret-scan-issues-cache"
+
+# Read latest cache line for a repo (exact match on repo name)
+get_cache_line() {
+	local repo="$1"
+	local file="$2"
+	if [ ! -f "$file" ]; then
+		return 1
+	fi
+	/usr/bin/awk -F'|' -v repo="$repo" '$1==repo {line=$0} END{if (line) print line}' "$file" 2>/dev/null
+}
+
+# Default patterns to scan/remove
 DEFAULT_PATTERNS=(
-	# Environment files
 	'.env'
-	'.env.local'
-	'.env.development'
-	'.env.development.local'
-	'.env.production'
-	'.env.production.local'
-	'.env.staging'
-	'.env.test'
-	'.env.test.local'
-	'.env.backup'
-	'.env.bak'
-	'.env.old'
+	'.env.*'
 	'*.env'
-	
-	# Log files (may contain printed secrets)
 	'*.log'
 	'logs/'
-	'*.log.*'
-	'npm-debug.log*'
-	'yarn-debug.log*'
-	'yarn-error.log*'
-	'debug.log'
-	
-	# Key files
 	'*.pem'
 	'*.key'
 	'*.p12'
 	'*.pfx'
-	'*.jks'
-	'*.keystore'
 	'id_rsa'
-	'id_rsa.pub'
 	'id_dsa'
-	'id_dsa.pub'
 	'id_ecdsa'
-	'id_ecdsa.pub'
 	'id_ed25519'
-	'id_ed25519.pub'
-	
-	# Config files that often contain secrets
-	'.npmrc'
-	'.pypirc'
-	'.netrc'
-	'.htpasswd'
-	'credentials'
 	'credentials.json'
 	'secrets.json'
 	'secrets.yml'
 	'secrets.yaml'
-	'service-account*.json'
-	'*-credentials.json'
 	'*-secret*.json'
-	
-	# Cloud provider configs
+	# Note: config.json/yml are too common - rely on Copilot AI to detect secrets in them
+	'application.properties'
+	'application.yml'
+	'application-*.properties'
+	'application-*.yml'
+	# Note: settings.json too common (.vscode/settings.json) - rely on Copilot AI
+	'appsettings.json'
+	'appsettings.*.json'
+	'web.config'
+	'wp-config.php'
+	'LocalSettings.php'
+	# Cloud provider configs - HIGH PRIORITY
 	'.aws/credentials'
 	'.aws/config'
 	'gcloud-service-key.json'
 	'firebase-adminsdk*.json'
-	
-	# IDE and editor configs that might contain secrets
-	'.idea/dataSources.xml'
-	'.vscode/settings.json'
-	
-	# Database dumps
-	'*.sql'
+	# Database dumps (may contain sensitive data)
 	'*.dump'
-	'*.sqlite'
-	'*.db'
-	
 	# Terraform state (contains secrets)
 	'*.tfstate'
 	'*.tfstate.*'
@@ -180,16 +217,29 @@ DESCRIPTION:
     ⚠️  WARNING: This will rewrite git history! All collaborators will need to
     re-clone or rebase their local copies.
 
+    Files that are properly listed in .gitignore and have NEVER been committed
+    will not be flagged as issues.
+
+MODES:
+    Default mode:   Scan for all known sensitive patterns and remove them
+    Interactive:    (-i) Review each file individually with options
+    Scan only:      (--scan) Just show what would be found, no changes
+
 OPTIONS:
     -h, --help                  Show this help message
+    -i, --interactive           Interactive mode: handle each file individually
     -n, --dry-run               Show what would be removed without making changes
     -f, --force                 Skip confirmation prompts
     -v, --verbose               Show detailed output
+    --scan                      Only scan for sensitive files (no removal)
+    --scan-all-public           Scan ALL public GitHub repos (no changes)
+    --scan-all-repos            Scan ALL repos - public AND private (no changes)
     --review                    Run git-scan-for-leaked-envs after cleaning
     --ext EXTENSION             Add file extension to remove (e.g., --ext .pem)
     --file PATTERN              Add file pattern to remove (e.g., --file secrets.json)
-    --all-public                Run on ALL your public GitHub repositories
-    --all-repos                 Run on ALL repositories (public AND private)
+    --search PATTERN            Search for specific patterns (can be used multiple times)
+    --all-public                Clean ALL your public GitHub repositories
+    --all-repos                 Clean ALL repositories (public AND private)
     --preserve-recent           Only clean commits older than 24 hours
     --backup                    Create a backup branch before cleaning
 
@@ -203,6 +253,21 @@ DEFAULT FILES REMOVED:
     - Database dumps (*.sql, *.dump, *.sqlite)
 
 EXAMPLES:
+    # Interactive mode - review each file individually
+    git-help-i-pushed-an-env -i
+
+    # Just scan for sensitive files (no changes)
+    git-help-i-pushed-an-env --scan
+
+    # Scan ALL your public GitHub repositories
+    git-help-i-pushed-an-env --scan-all-public
+
+    # Scan ALL repositories (public and private)
+    git-help-i-pushed-an-env --scan-all-repos
+
+    # Search for specific patterns
+    git-help-i-pushed-an-env --search ".env" --search "secrets.json"
+
     # Clean current repository (interactive)
     git-help-i-pushed-an-env
 
@@ -252,6 +317,410 @@ log_verbose() {
 	if [ "$verbose" = true ]; then
 		printf '%b[DEBUG]%b %s\n' "$CYAN" "$NC" "$1" >&2
 	fi
+}
+
+# Read a single keypress from /dev/tty and normalize arrows/enter
+read_key() {
+	local key=""
+	local rest=""
+	if ! IFS= read -sk 1 key </dev/tty; then
+		return 1
+	fi
+	if [[ "$key" == $'\e' ]]; then
+		if IFS= read -sk 2 rest </dev/tty; then
+			case "$rest" in
+				"[A") echo "up"; return 0 ;;
+				"[B") echo "down"; return 0 ;;
+				"[C") echo "right"; return 0 ;;
+				"[D") echo "left"; return 0 ;;
+			esac
+		fi
+		echo "esc"
+		return 0
+	fi
+	case "$key" in
+		$'\r'|$'\n') echo "enter" ;;
+		Q|q) echo "q" ;;
+		j|J|n|N) echo "down" ;;
+		k|K|p|P) echo "up" ;;
+		h|H) echo "left" ;;
+		l|L) echo "right" ;;
+		*) echo "$key" ;;
+	esac
+}
+
+# Arrow-key menu. Returns selected index (1-based) or "q".
+menu_select() {
+	local prompt="$1"
+	shift
+	local -a options=("$@")
+	local selected=1
+	local key=""
+	local prompt_lines=0
+	[ -n "$prompt" ] && prompt_lines=1
+	local total_lines=$(( ${#options[@]} + prompt_lines ))
+
+	printf '\033[?25l'
+	trap 'printf "\033[?25h"' EXIT
+
+	while true; do
+		if [ -n "$prompt" ]; then
+			printf '%s\n' "$prompt"
+		fi
+		local i=1
+		for opt in "${options[@]}"; do
+			if [ $i -eq $selected ]; then
+				printf '\033[2K\r  %b%s%b\n' "$BOLD" "$opt" "$NC"
+			else
+				printf '\033[2K\r  %s\n' "$opt"
+			fi
+			((i++)) || true
+		done
+
+		key=$(read_key) || return 1
+		case "$key" in
+			up)
+				((selected--)) || true
+				[ $selected -lt 1 ] && selected=${#options[@]}
+				;;
+			down)
+				((selected++)) || true
+				[ $selected -gt ${#options[@]} ] && selected=1
+				;;
+			enter)
+				printf '\033[%dA' "$total_lines"
+				printf '\033[?25h'
+				echo "$selected"
+				return 0
+				;;
+			q)
+				printf '\033[%dA' "$total_lines"
+				printf '\033[?25h'
+				echo "q"
+				return 0
+				;;
+			*)
+				;;
+		esac
+		printf '\033[%dA' "$total_lines"
+	done
+}
+
+# Interactive review menu (arrow keys)
+interactive_review_menu() {
+	local read_only="${1:-true}"
+	local allow_repair="${2:-false}"
+	local total_items=${#REVIEW_LIST[@]}
+	
+	printf '\n%bFound %d item(s) to review.%b\n' "$YELLOW" "$total_items" "$NC"
+	printf 'Open the review UI now? [Y/n] '
+	read -r response </dev/tty
+	if [[ "$response" =~ ^[Nn]$ ]]; then
+		return
+	fi
+	
+	printf '\n%bEntering interactive review mode...%b\n' "$CYAN" "$NC"
+	printf 'Use %b↑/↓%b or %bj/k%b and %bEnter%b. Press %bq%b to quit.\n' "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC"
+
+	local i=1
+	while [ $i -le $total_items ]; do
+		local item="${REVIEW_LIST[$i]}"
+		local repo="${item%%|*}"
+		local rest="${item#*|}"
+		local path="${rest%%|*}"
+		rest="${rest#*|}"
+		local loc="${rest%%|*}"
+		local details="${rest#*|}"
+
+		ui_clear
+		ui_title "Secret Review"
+		ui_kv "Item" "$i/$total_items"
+		ui_kv "Repo" "$repo"
+		ui_kv "File" "$path"
+		ui_kv "Type" "$loc"
+		ui_kv "Details" "$details"
+		ui_hr
+		ui_note "Navigate: ↑/↓ or j/k · Select: Enter · Quit: q"
+
+		local -a actions
+		actions=("Next item" "Previous item" "Open in GitHub" "Quit review")
+		if [ "$read_only" = false ]; then
+			actions=("Next item" "Previous item" "Open in GitHub" "Ignore in scan list" "Quit review")
+		fi
+		if [ "$allow_repair" = true ]; then
+			actions=("Next item" "Previous item" "Open in GitHub" "Repair this repo now" "Quit review")
+		fi
+
+		local choice
+		choice=$(menu_select "Action" "${actions[@]}") || return 0
+		case "$choice" in
+			q)
+				printf 'Exiting review.\n'
+				return
+				;;
+			1)
+				((i++)) || true
+				if [ $i -gt $total_items ]; then
+					i=$total_items
+				fi
+				;;
+			2)
+				((i--)) || true
+				if [ $i -lt 1 ]; then
+					i=1
+				fi
+				;;
+			3)
+				local url
+				url=$(github_file_link "$repo" "$path")
+				if command -v open &>/dev/null; then
+					open "$url"
+					printf '  Opened in browser.\n'
+				else
+					printf '  URL: %s\n' "$url"
+				fi
+				;;
+			4)
+				if [ "$read_only" = false ]; then
+					add_to_ignore "$repo" "$path"
+					printf '%b  ✓ Added to ignore list (will be skipped next scan)%b\n' "$GREEN" "$NC"
+				elif [ "$allow_repair" = true ]; then
+					printf '\n%bEnter repair mode now? This may rewrite history. [y/N]%b ' "$YELLOW" "$NC"
+					local confirm
+					read -r confirm </dev/tty
+					if [[ "$confirm" =~ ^[Yy]$ ]]; then
+						run_interactive_mode
+						return
+					fi
+				fi
+				;;
+			5)
+				printf 'Exiting review.\n'
+				return
+				;;
+		esac
+	
+done
+
+	printf '\n%bReview complete!%b\n' "$GREEN" "$NC"
+	if [ "$read_only" = false ]; then
+		printf 'Tip: Run the scan again to update the cache with your ignored files.\n'
+	fi
+}
+
+# ============================================
+# CACHE FUNCTIONS
+# ============================================
+
+# Initialize cache file if it doesn't exist
+init_cache() {
+	if [ ! -f "$CACHE_FILE" ]; then
+		echo "# git-help-i-pushed-an-env scan cache v$CACHE_VERSION" > "$CACHE_FILE"
+		echo "# Format: repo|last_scanned_commit|scan_date|status|can_push" >> "$CACHE_FILE"
+	fi
+}
+
+# Initialize issues cache file if it doesn't exist
+init_issues_cache() {
+	if [ ! -f "$ISSUES_CACHE_FILE" ]; then
+		echo "# git-help-i-pushed-an-env issues cache v$CACHE_VERSION" > "$ISSUES_CACHE_FILE"
+		echo "# Format: repo|last_scanned_commit|scan_date|base64_results" >> "$ISSUES_CACHE_FILE"
+	fi
+}
+
+# Check if a repo is in cache and up-to-date
+# Returns: 0 if cached and clean, 1 if needs scan
+# Configuration for ignore list
+IGNORE_FILE="$HOME/.git-secret-scan-ignore"
+
+init_ignore_file() {
+	if [ ! -f "$IGNORE_FILE" ]; then
+		/usr/bin/touch "$IGNORE_FILE"
+	fi
+}
+
+check_ignore() {
+	local repo="$1"
+	local file="$2"
+	init_ignore_file
+	if grep -qF "${repo}|${file}" "$IGNORE_FILE" 2>/dev/null; then
+		return 0 # Ignored
+	fi
+	return 1 # Not ignored
+}
+
+add_to_ignore() {
+	local repo="$1"
+	local file="$2"
+	init_ignore_file
+	if ! grep -qF "${repo}|${file}" "$IGNORE_FILE"; then
+		echo "${repo}|${file}" >> "$IGNORE_FILE"
+	fi
+}
+
+check_cache() {
+	local repo="$1"
+	local current_commit="$2"
+	
+	if [ "$no_cache" = true ]; then
+		return 1  # Skip cache
+	fi
+	
+	init_cache
+	
+	local cached_line
+	cached_line=$(get_cache_line "$repo" "$CACHE_FILE" 2>/dev/null) || true
+	
+	if [ -z "$cached_line" ]; then
+		return 1  # Not in cache
+	fi
+	
+	local cached_commit
+	cached_commit=$(echo "$cached_line" | /usr/bin/cut -d'|' -f2)
+	local cached_status
+	cached_status=$(echo "$cached_line" | /usr/bin/cut -d'|' -f4)
+	
+	# If same commit and was clean, skip
+	if [ "$cached_commit" = "$current_commit" ] && [ "$cached_status" = "clean" ]; then
+		return 0  # Cached and clean
+	fi
+	
+	return 1  # Needs rescan
+}
+
+# Update cache with scan result
+update_cache() {
+	local repo="$1"
+	local commit="$2"
+	local scan_status="$3"  # clean or issues
+	local can_push="$4"  # true or false
+	
+	init_cache
+	
+	# Remove old entry for this repo
+	local temp_file
+	temp_file=$(/usr/bin/mktemp)
+	/usr/bin/awk -F'|' -v repo="$repo" '$1!=repo {print $0}' "$CACHE_FILE" > "$temp_file" 2>/dev/null || true
+	/bin/mv "$temp_file" "$CACHE_FILE"
+	
+	# Add new entry
+	local scan_date
+	scan_date=$(/bin/date -u +"%Y-%m-%dT%H:%M:%SZ")
+	echo "${repo}|${commit}|${scan_date}|${scan_status}|${can_push}" >> "$CACHE_FILE"
+}
+
+# Update issues cache with findings
+update_issues_cache() {
+	local repo="$1"
+	local commit="$2"
+	local results="$3"
+
+	init_issues_cache
+
+	local temp_file
+	temp_file=$(/usr/bin/mktemp)
+	/usr/bin/awk -F'|' -v repo="$repo" '$1!=repo {print $0}' "$ISSUES_CACHE_FILE" > "$temp_file" 2>/dev/null || true
+	/bin/mv "$temp_file" "$ISSUES_CACHE_FILE"
+
+	local scan_date
+	scan_date=$(/bin/date -u +"%Y-%m-%dT%H:%M:%SZ")
+	local encoded
+	encoded=$(printf '%s' "$results" | /usr/bin/base64 | /usr/bin/tr -d '\n')
+	echo "${repo}|${commit}|${scan_date}|${encoded}" >> "$ISSUES_CACHE_FILE"
+}
+
+# Retrieve cached issue findings for a repo+commit
+get_cached_issues() {
+	local repo="$1"
+	local commit="$2"
+
+	if [ "$no_cache" = true ]; then
+		return 1
+	fi
+
+	init_issues_cache
+
+	local cached_line
+	cached_line=$(get_cache_line "$repo" "$ISSUES_CACHE_FILE" 2>/dev/null) || true
+	if [ -z "$cached_line" ]; then
+		return 1
+	fi
+
+	local cached_commit
+	cached_commit=$(echo "$cached_line" | /usr/bin/cut -d'|' -f2)
+	if [ "$cached_commit" != "$commit" ]; then
+		return 1
+	fi
+
+	local encoded
+	encoded=$(echo "$cached_line" | /usr/bin/cut -d'|' -f4-)
+	if [ -z "$encoded" ]; then
+		return 1
+	fi
+
+	printf '%s' "$encoded" | /usr/bin/base64 -D 2>/dev/null
+}
+
+# Check if user can push to a repo (owner or collaborator with push access)
+check_push_access() {
+	typeset repo="$1"
+	
+	# Get current authenticated user
+	typeset current_user=""
+	current_user=$(gh api user --jq '.login' 2>/dev/null) || current_user=""
+	
+	if [ -z "$current_user" ]; then
+		echo "unknown"
+		return
+	fi
+	
+	# Check if user is owner
+	typeset repo_owner="${repo%%/*}"
+	if [ "$repo_owner" = "$current_user" ]; then
+		echo "owner"
+		return
+	fi
+	
+	# Check collaborator permissions
+	typeset permission=""
+	permission=$(gh api "repos/$repo/collaborators/$current_user/permission" --jq '.permission' 2>/dev/null) || permission=""
+	
+	case "$permission" in
+		admin|write|maintain)
+			echo "collaborator"
+			;;
+		read|"")
+			echo "readonly"
+			;;
+		*)
+			echo "readonly"
+			;;
+	esac
+}
+
+# Generate GitHub link for a file
+github_file_link() {
+	local repo="$1"
+	local filepath="$2"
+	local commit="${3:-HEAD}"
+	
+	# URL encode the filepath
+	local encoded_path
+	encoded_path=$(printf '%s' "$filepath" | /usr/bin/sed 's/ /%20/g; s/#/%23/g')
+	
+	if [ "$commit" = "HEAD" ]; then
+		echo "https://github.com/$repo/blob/HEAD/$encoded_path"
+	else
+		echo "https://github.com/$repo/blob/$commit/$encoded_path"
+	fi
+}
+
+# Generate GitHub link for a commit
+github_commit_link() {
+	local repo="$1"
+	local commit="$2"
+	
+	echo "https://github.com/$repo/commit/$commit"
 }
 
 # Check if we're in a git repository
@@ -415,6 +884,1248 @@ add_to_gitignore() {
 	fi
 }
 
+# Immediately untrack sensitive files from git index (but keep on disk)
+untrack_sensitive_files() {
+	local repo_root="$1"
+	local patterns
+	patterns=$(build_pattern_list)
+	
+	log_verbose "Untracking sensitive files from git index..."
+	
+	# Find and untrack any sensitive files that are currently tracked
+	while IFS= read -r pattern; do
+		# Get list of tracked files matching this pattern
+		while IFS= read -r file; do
+			if [ -n "$file" ]; then
+				log_verbose "Untracking: $file"
+				git rm --cached "$file" 2>/dev/null || true
+			fi
+		done < <(git ls-files "$repo_root" 2>/dev/null | grep -E "(^|/)$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')$" 2>/dev/null || true)
+	done <<< "$patterns"
+	
+	# Commit the untracking if there are changes
+	if ! git diff --cached --quiet 2>/dev/null; then
+		git commit -m "Remove sensitive files from tracking (files preserved locally)" 2>/dev/null || true
+		log_success "Sensitive files removed from git tracking"
+	fi
+}
+
+# Add a single file to .gitignore
+add_file_to_gitignore() {
+	local repo_root="$1"
+	local file_path="$2"
+	local gitignore="$repo_root/.gitignore"
+	
+	# Create .gitignore if it doesn't exist
+	if [ ! -f "$gitignore" ]; then
+		touch "$gitignore"
+		log_info "Created .gitignore"
+	fi
+	
+	# Add the file if not already in .gitignore
+	if ! grep -qxF "$file_path" "$gitignore" 2>/dev/null; then
+		echo "$file_path" >> "$gitignore"
+		log_success "Added '$file_path' to .gitignore"
+		return 0
+	else
+		log_info "'$file_path' already in .gitignore"
+		return 1
+	fi
+}
+
+# Check if a file is in .gitignore
+is_file_gitignored() {
+	local repo_root="$1"
+	local filepath="$2"
+	
+	# Use git check-ignore to see if file would be ignored
+	if git -C "$repo_root" check-ignore -q "$filepath" 2>/dev/null; then
+		return 0  # File is ignored
+	fi
+	return 1  # File is not ignored
+}
+
+# Check if a file is an example/sample/template file (usually safe to commit)
+is_example_file() {
+	local filepath="$1"
+	# Skip files in test fixtures/simulation directories
+	if [[ "$filepath" == */test/* ]] || \
+	   [[ "$filepath" == */tests/* ]] || \
+	   [[ "$filepath" == */fixtures/* ]] || \
+	   [[ "$filepath" == */fixture/* ]] || \
+	   [[ "$filepath" == */simulation/* ]] || \
+	   [[ "$filepath" == */__fixtures__/* ]] || \
+	   [[ "$filepath" == */__mocks__/* ]] || \
+	   [[ "$filepath" == */testdata/* ]] || \
+	   [[ "$filepath" == */test-data/* ]]; then
+		return 0  # Test fixture file
+	fi
+	# Match common example/sample/template naming patterns
+	if [[ "$filepath" == *.example ]] || \
+	   [[ "$filepath" == *.example.* ]] || \
+	   [[ "$filepath" == *.sample ]] || \
+	   [[ "$filepath" == *.sample.* ]] || \
+	   [[ "$filepath" == *.template ]] || \
+	   [[ "$filepath" == *.template.* ]] || \
+	   [[ "$filepath" == *-example.* ]] || \
+	   [[ "$filepath" == *-sample.* ]] || \
+	   [[ "$filepath" == *-template.* ]] || \
+	   [[ "$filepath" == *_example.* ]] || \
+	   [[ "$filepath" == *_sample.* ]] || \
+	   [[ "$filepath" == *_template.* ]] || \
+	   [[ "$filepath" == *.dist ]] || \
+	   [[ "$filepath" == *.dist.* ]]; then
+		return 0  # Is an example file
+	fi
+	return 1  # Not an example file
+}
+
+# Check if a file is empty or only whitespace (not a real concern)
+is_file_empty() {
+	local filepath="$1"
+	
+	# File doesn't exist
+	if [ ! -f "$filepath" ]; then
+		return 0  # Treat as empty
+	fi
+	
+	# Check if file has any non-whitespace content
+	if [ ! -s "$filepath" ]; then
+		return 0  # File is empty
+	fi
+	
+	# Check if file only contains whitespace/comments
+	local content
+	content=$(grep -v '^\s*$' "$filepath" 2>/dev/null | grep -v '^\s*#' | head -1) || content=""
+	if [ -z "$content" ]; then
+		return 0  # Only whitespace/comments
+	fi
+	
+	return 1  # File has content
+}
+
+# Scan workspace for all sensitive files (current + history)
+# Only reports files that are:
+#   - Currently tracked in git
+#   - In git history (even if deleted)
+#   - Untracked AND not in .gitignore
+scan_workspace_files() {
+	local repo_root="$1"
+	local use_search_patterns="${2:-false}"
+	local patterns
+	
+	if [ "$use_search_patterns" = true ] && [ ${#search_patterns[@]} -gt 0 ]; then
+		patterns=$(printf '%s\n' "${search_patterns[@]}")
+	else
+		patterns=$(build_pattern_list)
+	fi
+	
+	local results=()
+	
+	# Scan current tracked files (these are definitely a concern)
+	while IFS= read -r pattern; do
+		while IFS= read -r file; do
+			if [ -n "$file" ]; then
+				# Skip example/sample/template files - AI scan will catch real secrets in them
+				if is_example_file "$file"; then
+					continue
+				fi
+				
+				# Skip empty files - no secrets if nothing in them
+				if [ -f "$repo_root/$file" ] && is_file_empty "$repo_root/$file"; then
+					continue
+				fi
+				
+				local file_status="tracked"
+				
+				# Check if file exists on disk
+				if [ -f "$repo_root/$file" ]; then
+					file_status="tracked+exists"
+				fi
+				
+				results+=("current|$file|$file_status")
+			fi
+		done < <(git ls-files "$repo_root" 2>/dev/null | grep -E "(^|/)$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')$" 2>/dev/null || true)
+	done <<< "$patterns"
+	
+	# Scan git history for deleted files (these were committed at some point)
+	while IFS= read -r pattern; do
+		while IFS= read -r file; do
+			if [ -n "$file" ]; then
+				# Skip example/sample/template files
+				if is_example_file "$file"; then
+					continue
+				fi
+				
+				# Only add if not already in current
+				local already_found=false
+				for r in "${results[@]}"; do
+					if [[ "$r" == *"|$file|"* ]]; then
+						already_found=true
+						break
+					fi
+				done
+				if [ "$already_found" = false ]; then
+					# Check if the file had any content in history
+					local hist_content=""
+					hist_content=$(git log --all -p -- "$file" 2>/dev/null | /usr/bin/grep -E '^\+[^+]' | /usr/bin/grep -v '^\+\+\+' | /usr/bin/head -5 || true)
+					if [ -n "$hist_content" ]; then
+						results+=("history|$file|deleted")
+					fi
+				fi
+			fi
+		done < <(git log --all --diff-filter=D --summary 2>/dev/null | grep -E "delete mode.*$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')" 2>/dev/null | awk '{print $NF}' || true)
+	done <<< "$patterns"
+	
+	# Check for files that were ever committed (even if not deleted explicitly)
+	while IFS= read -r pattern; do
+		while IFS= read -r file; do
+			if [ -n "$file" ]; then
+				# Skip example/sample/template files
+				if is_example_file "$file"; then
+					continue
+				fi
+				
+				local already_found=false
+				for r in "${results[@]}"; do
+					if [[ "$r" == *"|$file|"* ]]; then
+						already_found=true
+						break
+					fi
+				done
+				if [ "$already_found" = false ]; then
+					# Check if the file had any content in history
+					local hist_content=""
+					hist_content=$(git log --all -p -- "$file" 2>/dev/null | /usr/bin/grep -E '^\+[^+]' | /usr/bin/grep -v '^\+\+\+' | /usr/bin/head -5 || true)
+					if [ -n "$hist_content" ]; then
+						results+=("history|$file|was-committed")
+					fi
+				fi
+			fi
+		done < <(git log --all --name-only --pretty=format: 2>/dev/null | grep -E "(^|/)$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')$" 2>/dev/null | sort -u || true)
+	done <<< "$patterns"
+	
+	# Scan untracked files - ONLY if they are NOT in .gitignore
+	# (files properly ignored don't need to be flagged)
+	while IFS= read -r pattern; do
+		while IFS= read -r file; do
+			if [ -n "$file" ]; then
+				# Skip example/sample/template files
+				if is_example_file "$file"; then
+					continue
+				fi
+				
+				# Only add if not already found as tracked/history
+				local already_found=false
+				for r in "${results[@]}"; do
+					if [[ "$r" == *"|$file|"* ]]; then
+						already_found=true
+						break
+					fi
+				done
+				
+				# Skip if already found OR if file is properly gitignored
+				if [ "$already_found" = false ]; then
+					if ! is_file_gitignored "$repo_root" "$file"; then
+						# File exists, is NOT tracked, and is NOT gitignored - this is a problem!
+						results+=("untracked|$file|NOT in .gitignore!")
+					fi
+				fi
+			fi
+		done < <(find "$repo_root" -type f -name "$(echo "$pattern" | sed 's/\*/.*/g')" 2>/dev/null | sed "s|$repo_root/||" | grep -v "^\.git/" || true)
+	done <<< "$patterns"
+	
+	printf '%s\n' "${results[@]}" 2>/dev/null | sort -u
+}
+
+# Use Copilot to scan for actual secrets in file contents
+# This does comprehensive AI-powered detection, not just filename matching
+scan_with_copilot() {
+	local repo_root="$1"
+	
+	# Check if Copilot CLI is available
+	if ! command -v copilot &>/dev/null; then
+		log_warn "GitHub Copilot CLI not found. Install with: gh extension install github/gh-copilot"
+		return 1
+	fi
+	
+	local file_content=""
+	local count=0
+	local max_content=80  # Max files/blobs to analyze
+	
+	# ============================================
+	# PART 1: Scan CURRENT files in working tree
+	# ============================================
+	local files_to_scan=()
+	while IFS= read -r -d '' file; do
+		local rel_path="${file#$repo_root/}"
+		[[ "$rel_path" == .git/* ]] && continue
+		[[ "$rel_path" == node_modules/* ]] && continue
+		[[ "$rel_path" == vendor/* ]] && continue
+		[[ "$rel_path" == .venv/* ]] && continue
+		[[ "$rel_path" == __pycache__/* ]] && continue
+		[[ "$rel_path" == *.min.js ]] && continue
+		[[ "$rel_path" == *.min.css ]] && continue
+		
+		# Skip binary files
+		if file "$file" 2>/dev/null | grep -qE "binary|executable|image|archive|compressed"; then
+			continue
+		fi
+		
+		# Skip large files (>50KB)
+		typeset size=""
+		size=$(stat -f%z "$file" 2>/dev/null || stat --printf="%s" "$file" 2>/dev/null || echo "0")
+		[ "$size" -gt 51200 ] && continue
+		
+		files_to_scan+=("$file")
+	done < <(find "$repo_root" -type f -print0 2>/dev/null)
+	
+	for file in "${files_to_scan[@]}"; do
+		[ $count -ge $max_content ] && break
+		typeset rel_path="${file#$repo_root/}"
+		typeset content=""
+		content=$(head -150 "$file" 2>/dev/null || true)
+		if [ -n "$content" ]; then
+			file_content+="
+=== CURRENT: $rel_path ===
+$content
+"
+			((count++))
+		fi
+	done
+	
+	# ============================================
+	# PART 2: Scan GIT HISTORY - deleted files and old versions
+	# ============================================
+	# Get unique file paths that ever existed in history
+	typeset history_files=""
+	history_files=$(cd "$repo_root" && git log --all --pretty=format: --name-only --diff-filter=ACDMR 2>/dev/null | sort -u | head -200)
+	
+	# For files that existed in history but might be deleted or changed
+	while IFS= read -r hist_file; do
+		[ -z "$hist_file" ] && continue
+		[ $count -ge $max_content ] && break
+		
+		# Skip common non-sensitive paths
+		[[ "$hist_file" == node_modules/* ]] && continue
+		[[ "$hist_file" == vendor/* ]] && continue
+		[[ "$hist_file" == .venv/* ]] && continue
+		[[ "$hist_file" == *.min.js ]] && continue
+		[[ "$hist_file" == *.png ]] && continue
+		[[ "$hist_file" == *.jpg ]] && continue
+		[[ "$hist_file" == *.gif ]] && continue
+		[[ "$hist_file" == *.ico ]] && continue
+		[[ "$hist_file" == *.woff* ]] && continue
+		[[ "$hist_file" == *.ttf ]] && continue
+		
+		# Get the content from the FIRST commit where this file appeared
+		# (this catches secrets that were later removed)
+		typeset first_commit=""
+		first_commit=$(cd "$repo_root" && git log --all --diff-filter=A --pretty=format:"%H" -- "$hist_file" 2>/dev/null | tail -1)
+		
+		if [ -n "$first_commit" ]; then
+			typeset hist_content=""
+			hist_content=$(cd "$repo_root" && git show "$first_commit:$hist_file" 2>/dev/null | head -100 || true)
+			
+			# Only include if it looks like text and has content
+			if [ -n "$hist_content" ] && ! echo "$hist_content" | head -5 | grep -qE "^Binary|^\x00"; then
+				file_content+="
+=== HISTORY (commit ${first_commit:0:8}): $hist_file ===
+$hist_content
+"
+				((count++))
+			fi
+		fi
+	done <<< "$history_files"
+	
+	# ============================================
+	# PART 3: Specifically check for deleted sensitive-looking files
+	# ============================================
+	typeset deleted_sensitive=""
+	deleted_sensitive=$(cd "$repo_root" && git log --all --diff-filter=D --name-only --pretty=format: 2>/dev/null | \
+		grep -iE '\.(env|pem|key|p12|pfx|jks|keystore|htpasswd|netrc|npmrc|pypirc)$|credentials|secrets?\.(json|ya?ml)|config\.(json|ya?ml)$|password|token|apikey' | \
+		sort -u | head -30)
+	
+	while IFS= read -r del_file; do
+		[ -z "$del_file" ] && continue
+		[ $count -ge $max_content ] && break
+		
+		# Get content from before deletion
+		typeset last_commit=""
+		last_commit=$(cd "$repo_root" && git log --all --diff-filter=D --pretty=format:"%H" -- "$del_file" 2>/dev/null | head -1)
+		
+		if [ -n "$last_commit" ]; then
+			typeset del_content=""
+			del_content=$(cd "$repo_root" && git show "${last_commit}^:$del_file" 2>/dev/null | head -100 || true)
+			
+			if [ -n "$del_content" ] && ! echo "$del_content" | head -5 | grep -qE "^Binary|^\x00"; then
+				file_content+="
+=== DELETED FILE (was in commit ${last_commit:0:8}): $del_file ===
+$del_content
+"
+				((count++))
+			fi
+		fi
+	done <<< "$deleted_sensitive"
+	
+	if [ -z "$file_content" ]; then
+		echo ""
+		return 0
+	fi
+	
+	# ============================================
+	# COMPREHENSIVE AI SCAN PROMPT
+	# ============================================
+	typeset prompt="You are an elite security auditor. Scan ALL the following content for ANY sensitive data that should NEVER be in a git repository.
+
+SCAN FOR ALL OF THESE:
+1. API Keys & Tokens: AWS (AKIA...), GCP, Azure, OpenAI (sk-...), GitHub (ghp_/gho_/ghs_), Slack (xox...), Stripe (sk_live_/pk_live_), Twilio, SendGrid, any *_API_KEY, *_TOKEN, *_SECRET
+2. Passwords & Credentials: Hardcoded passwords, database connection strings with passwords, Basic Auth headers, Bearer tokens
+3. Private Keys: RSA/DSA/EC/PGP private keys (-----BEGIN...PRIVATE KEY-----), SSH keys, certificates with private keys
+4. Cloud Credentials: AWS secret keys, GCP service account JSON, Azure connection strings, Firebase configs with real keys
+5. Database URLs: postgres://user:pass@, mysql://user:pass@, mongodb://user:pass@, redis://user:pass@
+6. OAuth Secrets: client_secret, app_secret, consumer_secret with actual values
+7. Encryption Keys: AES keys, JWT secrets, signing keys, salt values that look real
+8. Personal Data: Email lists, phone numbers in bulk, SSNs, credit card numbers
+9. Internal URLs: Internal API endpoints, admin panels, staging/dev server URLs with credentials
+10. Webhook URLs/Secrets: Slack webhooks, Discord webhooks, any URL with embedded tokens
+
+CRITICAL RULES:
+- Flag REAL values only (not 'your-key-here', 'xxx', 'TODO', '<placeholder>', 'example')
+- Check HISTORY files too - secrets in deleted files are STILL EXPOSED in git history!
+- Even .example/.sample files should be flagged if they contain real-looking secrets
+- When in doubt, FLAG IT - better safe than sorry
+
+Content to scan:
+$file_content
+
+OUTPUT FORMAT - one line per finding:
+SECRET|<filepath>|<line_number_or_N/A>|<secret_type>|<first_8_chars>****<last_4_chars>
+
+Examples:
+SECRET|.env|5|AWS_SECRET_KEY|wJalrXUt****XhMC
+SECRET|config/db.yml|12|DATABASE_PASSWORD|super****word
+SECRET|DELETED:old/.env|3|OPENAI_API_KEY|sk-proj-****89Qx
+SECRET|HISTORY:src/config.js|45|STRIPE_SECRET|sk_live_****7hNm
+
+If nothing found: NO_SECRETS_FOUND
+
+Output ONLY the formatted lines, no explanations."
+
+	local result
+	result=$(copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$prompt" 2>/dev/null || echo "COPILOT_ERROR")
+	
+	# Parse and return results in our standard format
+	echo "$result" | grep "^SECRET|" | while IFS='|' read -r _ filepath line_num secret_type masked_val; do
+		if [ -n "$filepath" ]; then
+			# Determine if from history or current
+			local source="copilot"
+			if [[ "$filepath" == DELETED:* ]] || [[ "$filepath" == HISTORY:* ]]; then
+				source="history-ai"
+				filepath="${filepath#*:}"
+			fi
+			echo "$source|$filepath|$secret_type: $masked_val (line $line_num)"
+		fi
+	done
+}
+
+# Display file info for interactive mode
+display_file_info() {
+	local file_entry="$1"
+	local repo_root="$2"
+	
+	# Parse pipe-delimited entry
+	local location="${file_entry%%|*}"
+	local rest="${file_entry#*|}"
+	local filepath="${rest%%|*}"
+	local file_status="${rest#*|}"
+	
+	printf '\n%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
+	printf '%bFile:%b %s\n' "$BOLD" "$NC" "$filepath"
+	printf '%bLocation:%b %s\n' "$BOLD" "$NC" "$location"
+	printf '%bStatus:%b %s\n' "$BOLD" "$NC" "$file_status"
+	
+	# Show if in gitignore
+	local gitignore="$repo_root/.gitignore"
+	if [ -f "$gitignore" ] && grep -qF "$filepath" "$gitignore" 2>/dev/null; then
+		printf '%bIn .gitignore:%b Yes\n' "$BOLD" "$NC"
+	else
+		printf '%bIn .gitignore:%b %bNo%b\n' "$BOLD" "$NC" "$YELLOW" "$NC"
+	fi
+	
+	# Show file preview if it exists
+	if [ -f "$repo_root/$filepath" ]; then
+		printf '\n%bFile preview (first 5 lines):%b\n' "$BOLD" "$NC"
+		printf '%b' "$CYAN"
+		head -n 5 "$repo_root/$filepath" 2>/dev/null | sed 's/^/  │ /'
+		printf '%b\n' "$NC"
+		
+		# Check for potential secrets
+		if grep -qE '(password|secret|key|token|api_key|apikey|auth|credential)' "$repo_root/$filepath" 2>/dev/null; then
+			printf '%b⚠️  This file may contain secrets!%b\n' "$YELLOW" "$NC"
+		fi
+	fi
+	
+	# Show commit info if in history
+	if [ "$location" = "current" ] || [ "$location" = "history" ]; then
+		local commit_info
+		commit_info=$(git log -1 --pretty=format:"%h %s (%cr)" -- "$filepath" 2>/dev/null || echo "")
+		if [ -n "$commit_info" ]; then
+			printf '%bLast commit:%b %s\n' "$BOLD" "$NC" "$commit_info"
+		fi
+	fi
+}
+
+# Interactive file handler
+handle_file_interactively() {
+	local file_entry="$1"
+	local repo_root="$2"
+	
+	# Parse pipe-delimited entry
+	local location="${file_entry%%|*}"
+	local rest="${file_entry#*|}"
+	local filepath="${rest%%|*}"
+	local file_status="${rest#*|}"
+	
+	display_file_info "$file_entry" "$repo_root"
+	
+	printf '\n%bWhat would you like to do?%b\n' "$BOLD" "$NC"
+	printf '  %b[1]%b Delete file & remove from history (recommended if contains secrets)\n' "$GREEN" "$NC"
+	printf '  %b[2]%b Keep file, add to .gitignore, remove from history\n' "$YELLOW" "$NC"
+	printf '  %b[3]%b Only remove from history (keep file as-is)\n' "$BLUE" "$NC"
+	printf '  %b[4]%b Only add to .gitignore (don'\''t touch history)\n' "$CYAN" "$NC"
+	printf '  %b[5]%b Skip this file\n' "$MAGENTA" "$NC"
+	printf '  %b[q]%b Quit interactive mode\n' "$RED" "$NC"
+	printf '\nChoice [1-5, q]: '
+	
+	read -r choice
+	
+	case "$choice" in
+		1)
+			# Delete file and remove from history
+			log_info "Removing '$filepath' from history and deleting..."
+			files_to_remove+=("$filepath")
+			if [ -f "$repo_root/$filepath" ]; then
+				rm "$repo_root/$filepath"
+				log_success "Deleted: $filepath"
+			fi
+			add_file_to_gitignore "$repo_root" "$filepath"
+			return 0
+			;;
+		2)
+			# Keep file, add to gitignore, remove from history
+			log_info "Will remove '$filepath' from history and add to .gitignore..."
+			files_to_remove+=("$filepath")
+			add_file_to_gitignore "$repo_root" "$filepath"
+			return 0
+			;;
+		3)
+			# Only remove from history
+			log_info "Will remove '$filepath' from history only..."
+			files_to_remove+=("$filepath")
+			return 0
+			;;
+		4)
+			# Only add to gitignore
+			add_file_to_gitignore "$repo_root" "$filepath"
+			# Also untrack if currently tracked
+			if [ "$location" = "current" ]; then
+				git rm --cached "$filepath" 2>/dev/null || true
+				log_success "Untracked: $filepath"
+			fi
+			return 0
+			;;
+		5)
+			log_info "Skipping: $filepath"
+			return 0
+			;;
+		q|Q)
+			log_info "Quitting interactive mode..."
+			return 1
+			;;
+		*)
+			log_warn "Invalid choice. Skipping file."
+			return 0
+			;;
+	esac
+}
+
+# Remove specific files from history
+remove_files_from_history() {
+	local repo_root="$1"
+	shift
+	local files=("$@")
+	
+	if [ ${#files[@]} -eq 0 ]; then
+		log_info "No files to remove from history."
+		return 0
+	fi
+	
+	log_info "Removing ${#files[@]} file(s) from git history..."
+	
+	if [ "$dry_run" = true ]; then
+		log_info "[DRY RUN] Would remove files from history:"
+		printf '%s\n' "${files[@]}" | sed 's/^/  - /'
+		return 0
+	fi
+	
+	# Create backup branch if requested
+	if [ "$create_backup" = true ]; then
+		local backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
+		git branch "$backup_branch"
+		log_success "Backup branch: $backup_branch"
+	fi
+	
+	if command -v git-filter-repo &>/dev/null; then
+		# Build path arguments for filter-repo
+		local path_args=()
+		for f in "${files[@]}"; do
+			path_args+=(--path "$f" --invert-paths)
+		done
+		git-filter-repo "${path_args[@]}" --force
+	else
+		# Fallback to filter-branch
+		local rm_commands=""
+		for f in "${files[@]}"; do
+			rm_commands+="git rm --cached --ignore-unmatch '$f' 2>/dev/null || true; "
+		done
+		git filter-branch --force --index-filter "$rm_commands" \
+			--prune-empty --tag-name-filter cat -- --all
+		
+		# Cleanup
+		rm -rf .git/refs/original/
+		git reflog expire --expire=now --all
+		git gc --prune=now --aggressive
+	fi
+	
+	log_success "Files removed from history."
+}
+
+# Interactive mode entry point
+run_interactive_mode() {
+	local repo_root
+	repo_root=$(get_repo_root)
+	
+	printf '\n%b🔍 Interactive Sensitive File Scanner%b\n\n' "$BOLD" "$NC"
+	
+	# Ask if user wants to search for specific patterns
+	printf 'Would you like to:\n'
+	printf '  %b[1]%b Scan for all known sensitive file patterns (default)\n' "$GREEN" "$NC"
+	printf '  %b[2]%b Search for specific file patterns\n' "$YELLOW" "$NC"
+	printf '  %b[3]%b Specify exact files to examine\n' "$BLUE" "$NC"
+	printf '\nChoice [1-3, default=1]: '
+	
+	read -r scan_choice
+	scan_choice="${scan_choice:-1}"
+	
+	local use_search=false
+	
+	case "$scan_choice" in
+		2)
+			printf '\nEnter patterns to search for (comma-separated, e.g., ".env,secrets.json,*.key"):\n> '
+			read -r pattern_input
+			IFS=',' read -ra search_patterns <<< "$pattern_input"
+			use_search=true
+			;;
+		3)
+			printf '\nEnter exact file paths (comma-separated, relative to repo root):\n> '
+			read -r file_input
+			IFS=',' read -ra search_patterns <<< "$file_input"
+			use_search=true
+			;;
+	esac
+	
+	# Pattern-based scan
+	start_spinner "Scanning for suspicious filenames..."
+	local scan_results
+	scan_results=$(scan_workspace_files "$repo_root" "$use_search")
+	stop_spinner "Filename scan complete"
+	
+	# Copilot AI content scan
+	start_spinner "Running AI-powered secret detection (Copilot)..."
+	local copilot_results
+	copilot_results=$(scan_with_copilot "$repo_root" 2>/dev/null) || copilot_results=""
+	stop_spinner "AI scan complete"
+	
+	# Merge results
+	if [ -n "$copilot_results" ]; then
+		if [ -n "$scan_results" ]; then
+			scan_results="$scan_results"$'\n'"$copilot_results"
+		else
+			scan_results="$copilot_results"
+		fi
+	fi
+	
+	if [ -z "$scan_results" ]; then
+		log_success "No sensitive files or secrets found in workspace or history!"
+		return 0
+	fi
+	
+	# Count results
+	local file_count
+	file_count=$(echo "$scan_results" | grep -c '^' || echo "0")
+	
+	printf '\n%bFound %d potentially sensitive file(s):%b\n\n' "$YELLOW" "$file_count" "$NC"
+	
+	# Show summary first
+	echo "$scan_results" | while IFS='|' read -r loc path stat; do
+		printf '  %b[%s]%b %s (%s)\n' "$CYAN" "$loc" "$NC" "$path" "$stat"
+	done
+	
+	printf '\n%bOptions:%b\n' "$BOLD" "$NC"
+	printf '  %b[1]%b Review each file individually (recommended)\n' "$GREEN" "$NC"
+	printf '  %b[2]%b Remove ALL found files from history\n' "$RED" "$NC"
+	printf '  %b[3]%b Add ALL found files to .gitignore only\n' "$YELLOW" "$NC"
+	printf '  %b[4]%b Cancel\n' "$BLUE" "$NC"
+	printf '\nChoice [1-4]: '
+	
+	read -r action_choice
+	
+	# Array to track files for history removal
+	typeset -a files_to_remove
+	files_to_remove=()
+	
+	case "$action_choice" in
+		1)
+			# Review each file
+			echo "$scan_results" | while IFS= read -r entry; do
+				if [ -n "$entry" ]; then
+					if ! handle_file_interactively "$entry" "$repo_root"; then
+						break
+					fi
+				fi
+			done
+			;;
+		2)
+			# Remove all from history
+			echo "$scan_results" | while IFS='|' read -r loc filepath stat; do
+				files_to_remove+=("$filepath")
+				add_file_to_gitignore "$repo_root" "$filepath"
+			done
+			;;
+		3)
+			# Just add to gitignore
+			echo "$scan_results" | while IFS='|' read -r loc filepath stat; do
+				add_file_to_gitignore "$repo_root" "$filepath"
+				# Untrack if tracked
+				if [ "$loc" = "current" ]; then
+					git rm --cached "$filepath" 2>/dev/null || true
+				fi
+			done
+			git add .gitignore 2>/dev/null || true
+			git commit -m "Add sensitive file patterns to .gitignore" 2>/dev/null || true
+			log_success "Files added to .gitignore"
+			return 0
+			;;
+		4|*)
+			log_info "Cancelled."
+			return 0
+			;;
+	esac
+	
+	# If we have files to remove from history, do it
+	if [ ${#files_to_remove[@]} -gt 0 ]; then
+		printf '\n%b⚠️  About to remove %d file(s) from git history%b\n' "$YELLOW" "${#files_to_remove[@]}" "$NC"
+		printf 'This will rewrite history. Continue? (yes/no): '
+		read -r confirm
+		if [ "$confirm" = "yes" ]; then
+			remove_files_from_history "$repo_root" "${files_to_remove[@]}"
+			
+			# Commit gitignore changes
+			git add .gitignore 2>/dev/null || true
+			git commit -m "Add removed sensitive files to .gitignore" 2>/dev/null || true
+			
+			printf '\n%bNext steps:%b\n' "$BOLD" "$NC"
+			printf '  git push --force --all\n'
+			printf '  git push --force --tags\n'
+			printf '\n%b⚠️  ROTATE ALL EXPOSED CREDENTIALS!%b\n\n' "$RED" "$NC"
+		else
+			log_info "Operation cancelled."
+		fi
+	fi
+}
+
+run_scan_only() {
+	local repo_root
+	repo_root=$(get_repo_root)
+	
+	printf '\n%b🔍 Scanning for sensitive files and secrets...%b\n\n' "$BOLD" "$NC"
+	
+	# Copilot AI content scan ONLY (comprehensive - pattern matching is too imprecise)
+	start_spinner "Running AI-powered secret detection (Copilot)..."
+	local scan_results=""
+	scan_results=$(scan_with_copilot "$repo_root" 2>/dev/null) || scan_results=""
+	stop_spinner "AI scan complete"
+	
+	if [ -z "$scan_results" ]; then
+		log_success "No sensitive files or secrets found!"
+		return 0
+	fi
+	
+	local file_count
+	file_count=$(echo "$scan_results" | grep -c '^' || echo "0")
+	
+	printf '%bFound %d potentially sensitive item(s):%b\n\n' "$YELLOW" "$file_count" "$NC"
+	
+	printf '%b%-10s %-40s %s%b\n' "$BOLD" "SOURCE" "FILE" "DETAILS" "$NC"
+	printf '%s\n' "────────── ──────────────────────────────────────── ──────────────"
+	
+	# Get repo name using gh or git
+	typeset repo_name
+	repo_name=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) || repo_name=$(basename "$repo_root")
+
+	# Build review list for UI (read-only)
+	typeset -a REVIEW_LIST=()
+	while IFS='|' read -r loc path details; do
+		[[ -z "$loc" ]] && continue
+		if check_ignore "$repo_name" "$path"; then
+			continue
+		fi
+		REVIEW_LIST+=("$repo_name|$path|$loc|$details")
+		printf '%b%-10s%b %-40s %s\n' "$CYAN" "$loc" "$NC" "$path" "$details"
+	done <<< "$scan_results"
+
+	# Read-only review UI with optional repair entry point
+	if [ ${#REVIEW_LIST[@]} -gt 0 ]; then
+		interactive_review_menu "true" "true"
+	fi
+
+}
+
+# Scan multiple repositories
+scan_multiple_repos() {
+	local visibility="$1"
+	local temp_dir
+	temp_dir=$(mktemp -d)
+	
+	# Initialize cache
+	init_cache
+	
+	log_info "Fetching repository list from GitHub..."
+	
+	local repos
+	repos=$(get_github_repos "$visibility")
+	
+	if [ -z "$repos" ]; then
+		log_warn "No repositories found."
+		command rm -rf "$temp_dir" 2>/dev/null || true
+		return 0
+	fi
+	
+	local repo_count
+	repo_count=$(echo "$repos" | wc -l | tr -d ' ')
+	
+	# Global list for interactive review
+	typeset -a REVIEW_LIST=()
+	
+	printf '\n%bScanning repositories for sensitive files:%b\n' "$BOLD" "$NC"
+	if [ "$no_cache" = true ]; then
+		printf '%b(cache disabled - scanning all repos)%b\n\n' "$YELLOW" "$NC"
+	else
+		printf '%b(using cache - use --no-cache to rescan all)%b\n\n' "$CYAN" "$NC"
+	fi
+	
+	local total_issues=0
+	local repos_with_issues=0
+	local clean_repos=0
+	local cached_repos=0
+	local warning_repos=0
+	local current_repo_num=0
+	
+	# Save current directory
+	local orig_dir
+	orig_dir=$(pwd)
+	
+	# Sequential processing - one repo at a time with immediate action options
+	# Use for loop instead of while read to avoid subshell issues
+	local repo_array
+	repo_array=("${(@f)repos}")
+	for repo in "${repo_array[@]}"; do
+		[ -z "$repo" ] && continue
+		((current_repo_num++)) || true
+		
+		# Check push access first (to determine if issue or warning)
+		typeset access_level=""
+		access_level=$(check_push_access "$repo")
+		typeset can_modify=false
+		if [ "$access_level" = "owner" ] || [ "$access_level" = "collaborator" ]; then
+			can_modify=true
+		fi
+		
+		# Get latest commit for cache check
+		typeset latest_commit=""
+		latest_commit=$(gh api "repos/$repo/commits?per_page=1" --jq '.[0].sha' 2>/dev/null) || latest_commit=""
+		
+		# Fallback to cached commit when API is unavailable
+		local cached_commit_line=""
+		local cached_commit=""
+		local cached_status=""
+		if [ -z "$latest_commit" ]; then
+			cached_commit_line=$(get_cache_line "$repo" "$CACHE_FILE" 2>/dev/null) || true
+			if [ -n "$cached_commit_line" ]; then
+				cached_commit=$(echo "$cached_commit_line" | /usr/bin/cut -d'|' -f2)
+				cached_status=$(echo "$cached_commit_line" | /usr/bin/cut -d'|' -f4)
+				if [ -n "$cached_commit" ]; then
+					latest_commit="$cached_commit"
+				fi
+			fi
+		fi
+		
+		# Check cache
+		if [ -n "$latest_commit" ] && check_cache "$repo" "$latest_commit"; then
+			((cached_repos++)) || true
+			((clean_repos++)) || true
+			continue
+		fi
+		
+		# Check cached issues (to avoid re-scan noise)
+		local cached_results=""
+		if [ -n "$latest_commit" ]; then
+			cached_results=$(get_cached_issues "$repo" "$latest_commit" 2>/dev/null || true)
+		fi
+		if [ -n "$cached_results" ]; then
+			local issue_count
+			issue_count=$(echo "$cached_results" | wc -l | tr -d ' ')
+			printf '%b[%d/%d]%b %b→ %s%b ' "$CYAN" "$current_repo_num" "$repo_count" "$NC" "$CYAN" "$repo" "$NC"
+			if [ "$can_modify" = true ]; then
+				printf '%b⚠ %d ISSUE(s)%b [cached] [%s]\n' "$RED" "$issue_count" "$NC" "$access_level"
+				((repos_with_issues++)) || true
+			else
+				printf '%b⚠ %d WARNING(s)%b [cached] [%s - cannot modify]\n' "$YELLOW" "$issue_count" "$NC" "$access_level"
+				((warning_repos++)) || true
+			fi
+			((total_issues += issue_count)) || true
+			((cached_repos++)) || true
+			
+			printf '\n%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
+			if [ "$can_modify" = true ]; then
+				printf '%b🔧 Issues found (YOU CAN FIX):%b\n' "$BOLD" "$NC"
+			else
+				printf '%b👀 Warnings found (not your repo):%b\n' "$BOLD" "$NC"
+			fi
+			while IFS='|' read -r loc path details; do
+				[[ -z "$loc" ]] && continue
+				if check_ignore "$repo" "$path"; then
+					continue
+				fi
+				REVIEW_LIST+=("$repo|$path|$loc|$details")
+				typeset color="$YELLOW"
+				typeset icon="⚠"
+				case "$loc" in
+					copilot|history-ai)
+						color="$RED"
+						icon="🔑"
+						;;
+					current)
+						color="$RED"
+						icon="📄"
+						;;
+					history)
+						color="$YELLOW"
+						icon="📜"
+						;;
+					esac
+				printf '  %b%s [%s]%b %s\n' "$color" "$icon" "$loc" "$NC" "$path"
+				if [[ -n "$details" && "$details" != "deleted" && "$details" != "was-committed" ]]; then
+					printf '     └─ %b%s%b\n' "$CYAN" "$details" "$NC"
+				fi
+				printf '     └─ %b%s%b\n' "$BLUE" "$(github_file_link "$repo" "$path")" "$NC"
+			done <<< "$cached_results"
+			printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n\n' "$CYAN" "$NC"
+			continue
+		fi
+		
+		# Rate limit: delay before cloning
+		if [ $current_repo_num -gt 1 ]; then
+			printf '%b[%d/%d]%b %b→ %s%b %b[cloning]%b ' "$CYAN" "$current_repo_num" "$repo_count" "$NC" "$CYAN" "$repo" "$NC" "$CYAN" "$NC"
+		else
+			printf '%b[%d/%d]%b %b→ %s%b ' "$CYAN" "$current_repo_num" "$repo_count" "$NC" "$CYAN" "$repo" "$NC"
+		fi
+		
+		# Extract repo name from owner/name format
+		local repo_name="${repo##*/}"
+		local repo_owner="${repo%%/*}"
+		local repo_dir="$temp_dir/${repo_owner}--${repo_name}"
+		
+		# Clean up if directory exists from a failed previous attempt
+		[ -d "$repo_dir" ] && rm -rf "$repo_dir" 2>/dev/null || true
+		
+		# Clone the repository with retry (3 attempts)
+		local clone_success=false
+		local clone_attempts=0
+		local max_attempts=3
+		local clone_error_file="/tmp/clone_error_$$"
+		while [ $clone_attempts -lt $max_attempts ] && [ "$clone_success" = false ]; do
+			if PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH" /opt/homebrew/bin/gh repo clone "$repo" "$repo_dir" -- --depth=1 >/dev/null 2>"$clone_error_file"; then
+				clone_success=true
+			else
+				((clone_attempts++)) || true
+				if [ $clone_attempts -lt $max_attempts ]; then
+					printf '%b(retry %d/%d)%b ' "$YELLOW" "$clone_attempts" "$((max_attempts-1))" "$NC"
+					/bin/sleep 3
+				fi
+			fi
+		done
+		
+		if [ "$clone_success" = false ]; then
+			# Show brief error reason
+			local clone_error=""
+			[ -f "$clone_error_file" ] && clone_error=$(cat "$clone_error_file" 2>/dev/null) || true
+			local error_reason="unknown"
+			if echo "$clone_error" | grep -qi "not found\|404" 2>/dev/null; then
+				error_reason="repo not found"
+			elif echo "$clone_error" | grep -qi "permission\|403\|access" 2>/dev/null; then
+				error_reason="no access"
+			elif echo "$clone_error" | grep -qi "timeout" 2>/dev/null; then
+				error_reason="timeout"
+			elif echo "$clone_error" | grep -qi "already exists" 2>/dev/null; then
+				error_reason="dir exists"
+			fi
+			rm -f "$clone_error_file" 2>/dev/null || true
+			printf '%b✗ Failed (%s)%b\n' "$RED" "$error_reason" "$NC"
+			continue
+		fi
+		rm -f "$clone_error_file" 2>/dev/null || true
+		
+		# Small delay after successful clone
+		/bin/sleep 1
+		
+		# Fetch full history for scanning
+		(
+			cd "$repo_dir" 2>/dev/null || exit 1
+			git fetch --unshallow >/dev/null 2>&1 || true
+		)
+		
+		# Ensure we have a commit hash for cache
+		local repo_commit=""
+		repo_commit=$(cd "$repo_dir" 2>/dev/null && git rev-parse HEAD 2>/dev/null) || repo_commit=""
+		if [ -z "$repo_commit" ]; then
+			repo_commit=$(cd "$repo_dir" 2>/dev/null && git ls-remote origin HEAD 2>/dev/null | /usr/bin/awk '{print $1}') || repo_commit=""
+		fi
+		if [ -z "$repo_commit" ]; then
+			repo_commit="unknown"
+		fi
+		if [ -z "$repo_commit" ]; then
+			repo_commit="$latest_commit"
+		fi
+		if [ -z "$latest_commit" ] && [ -n "$repo_commit" ]; then
+			latest_commit="$repo_commit"
+		fi
+		
+		local use_search=false
+		if [ ${#search_patterns[@]} -gt 0 ]; then
+			use_search=true
+		fi
+		
+		# Scan the repository using Copilot AI ONLY
+		# Pattern-based scan is too imprecise - it flags files by name without checking content
+		# Copilot AI actually reads the files and detects real secrets
+		local scan_results=""
+		local copilot_results=""
+		if cd "$repo_dir" 2>/dev/null; then
+			# Copilot AI-powered content scan (comprehensive - this is the ONLY authority)
+			printf '%b[AI scanning]%b ' "$MAGENTA" "$NC"
+			copilot_results=$(scan_with_copilot "$repo_dir" 2>/dev/null) || copilot_results=""
+			
+			# Only Copilot results count as issues
+			scan_results="$copilot_results"
+			
+			cd "$orig_dir" 2>/dev/null || true
+		fi
+		
+		# Get commit hash for cache
+		if [ -z "$repo_commit" ]; then
+			repo_commit=$(cd "$repo_dir" 2>/dev/null && git rev-parse HEAD 2>/dev/null) || repo_commit="$latest_commit"
+		fi
+		
+		if [ -z "$scan_results" ]; then
+			printf '%b✓ Clean | Added to cache%b\n' "$GREEN" "$NC"
+			((clean_repos++)) || true
+			# Update cache
+			update_cache "$repo" "$repo_commit" "clean" "$can_modify"
+			# Cleanup clean repo immediately
+			if [ -d "$repo_dir" ]; then
+				command rm -rf "$repo_dir" 2>/dev/null || true
+			fi
+		else
+			local issue_count
+			issue_count=$(echo "$scan_results" | wc -l | tr -d ' ')
+			
+			# Determine if this is an ISSUE (you can fix) or WARNING (you cannot fix)
+			if [ "$can_modify" = true ]; then
+				printf '%b⚠ %d ISSUE(s)%b [%s]\n' "$RED" "$issue_count" "$NC" "$access_level"
+				((repos_with_issues++)) || true
+			else
+				printf '%b⚠ %d WARNING(s)%b [%s - cannot modify]\n' "$YELLOW" "$issue_count" "$NC" "$access_level"
+				((warning_repos++)) || true
+			fi
+			((total_issues += issue_count)) || true
+			
+			# Update cache (mark as having issues)
+			update_cache "$repo" "$repo_commit" "issues" "$can_modify"
+			update_issues_cache "$repo" "$repo_commit" "$scan_results"
+			
+			# Show details with GitHub links
+			printf '\n%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
+			if [ "$can_modify" = true ]; then
+				printf '%b🔧 Issues found (YOU CAN FIX):%b\n' "$BOLD" "$NC"
+			else
+				printf '%b👀 Warnings found (not your repo):%b\n' "$BOLD" "$NC"
+			fi
+			
+			while IFS='|' read -r loc path details; do
+				# Skip empty lines
+				[[ -z "$loc" ]] && continue
+				
+				# Check ignore list
+				if check_ignore "$repo" "$path"; then
+					continue
+				fi
+
+				# Add to global review list
+				REVIEW_LIST+=("$repo|$path|$loc|$details")
+				
+				# Set color and icon based on type (no local in subshell loop)
+				typeset color="$YELLOW"
+				typeset icon="⚠"
+				case "$loc" in
+					copilot|history-ai) 
+						color="$RED"
+						icon="🔑"
+						;;
+					current)
+						color="$RED"
+						icon="📄"
+						;;
+					history)
+						color="$YELLOW"
+						icon="📜"
+						;;
+				esac
+				printf '  %b%s [%s]%b %s\n' "$color" "$icon" "$loc" "$NC" "$path"
+				if [[ -n "$details" && "$details" != "deleted" && "$details" != "was-committed" ]]; then
+					printf '     └─ %b%s%b\n' "$CYAN" "$details" "$NC"
+				fi
+				# Show GitHub link (combine declaration and assignment to avoid zsh echo bug)
+				printf '     └─ %b%s%b\n' "$BLUE" "$(github_file_link "$repo" "$path")" "$NC"
+			done <<< "$scan_results"
+			printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n\n' "$CYAN" "$NC"
+		fi
+		
+		# Cleanup repo after scanning (not needed anymore)
+		if [ -d "$repo_dir" ]; then
+			command rm -rf "$repo_dir" 2>/dev/null || true
+		fi
+	done
+	
+	# Cleanup all remaining cloned repositories (those not cleaned during scan)
+	printf '\n%b[Cleaning up temporary repositories...]%b\n' "$CYAN" "$NC"
+	if [ -d "$temp_dir" ]; then
+		local repos_to_delete=0
+		repos_to_delete=$(/usr/bin/find "$temp_dir" -maxdepth 1 -type d ! -name "$(/usr/bin/basename "$temp_dir")" 2>/dev/null | /usr/bin/wc -l)
+		
+		if [ "$repos_to_delete" -gt 0 ]; then
+			printf 'Removing %d temporary repository/repositories...' "$repos_to_delete"
+			command rm -rf "$temp_dir"/* 2>/dev/null || true
+			printf ' ✓\n'
+		fi
+		command rm -rf "$temp_dir" 2>/dev/null || true
+	fi
+	
+	cd "$orig_dir" || true
+	
+	# Final summary
+	printf '\n%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
+	printf '%bScan Complete!%b\n' "$BOLD" "$NC"
+	printf '  Repositories scanned: %d\n' "$repo_count"
+	if [ "$cached_repos" -gt 0 ]; then
+		printf '  Skipped (cached clean): %b%d%b\n' "$CYAN" "$cached_repos" "$NC"
+	fi
+	printf '  Clean repositories: %b%d%b\n' "$GREEN" "$clean_repos" "$NC"
+	if [ "$repos_with_issues" -gt 0 ]; then
+		printf '  %bISSUES (you can fix): %d%b\n' "$RED" "$repos_with_issues" "$NC"
+	fi
+	if [ "$warning_repos" -gt 0 ]; then
+		printf '  %bWarnings (not your repos): %d%b\n' "$YELLOW" "$warning_repos" "$NC"
+	fi
+	printf '  Total findings: %b%d%b\n' "$RED" "$total_issues" "$NC"
+	printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n\n' "$CYAN" "$NC"
+	
+	# Start interactive review if there are findings
+	if [ ${#REVIEW_LIST[@]} -gt 0 ]; then
+		interactive_review_menu
+	fi
+
+	if [ "$repos_with_issues" -gt 0 ]; then
+		log_warn "You have $repos_with_issues repo(s) with issues YOU can fix!"
+	fi
+	if [ "$warning_repos" -gt 0 ]; then
+		log_info "$warning_repos repo(s) have issues but you don't have push access (warnings only)."
+	fi
+	if [ "$repos_with_issues" -eq 0 ] && [ "$warning_repos" -eq 0 ]; then
+		log_success "All your repositories are clean!"
+	fi
+	
+	printf '\n%bCache stored at: %s%b\n' "$CYAN" "$CACHE_FILE" "$NC"
+	printf '%bNext scan will skip clean repos (use --no-cache to rescan all)%b\n\n' "$CYAN" "$NC"
+}
+
+# Clean selected repositories
+clean_selected_repos() {
+	local repos=("$@")
+	local temp_dir
+	temp_dir=$(mktemp -d)
+	
+	printf '\n%bCleaning %d repositories...%b\n\n' "$BOLD" "${#repos[@]}" "$NC"
+	
+	local success_count=0
+	local fail_count=0
+	
+	for repo in "${repos[@]}"; do
+		printf '%b→ %s%b\n' "$CYAN" "$repo" "$NC"
+		
+		local repo_dir="$temp_dir/$(basename "$repo")"
+		
+		# Clone the repository
+		if gh repo clone "$repo" "$repo_dir" 2>/dev/null; then
+			cd "$repo_dir" || continue
+			
+			# Run the cleaning in non-interactive mode
+			if clean_repository; then
+				# Push changes back
+				if git push --force --all 2>/dev/null && git push --force --tags 2>/dev/null; then
+					log_success "Cleaned and pushed: $repo"
+					((success_count++))
+				else
+					log_error "Cleaned but failed to push: $repo"
+					((fail_count++))
+				fi
+			else
+				log_error "Failed to clean: $repo"
+				((fail_count++))
+			fi
+			
+			cd - > /dev/null
+		else
+			log_error "Failed to clone: $repo"
+			((fail_count++))
+		fi
+		
+		# Cleanup
+		rm -rf "$repo_dir"
+	done
+	
+	rm -rf "$temp_dir"
+	
+	printf '\n%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$CYAN" "$NC"
+	printf '%bCleaning Summary:%b\n' "$BOLD" "$NC"
+	printf '  Successfully cleaned: %b%d%b\n' "$GREEN" "$success_count" "$NC"
+	printf '  Failed: %b%d%b\n' "$RED" "$fail_count" "$NC"
+	printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n\n' "$CYAN" "$NC"
+	
+	printf '%b⚠️  REMEMBER TO ROTATE ALL EXPOSED CREDENTIALS!%b\n\n' "$RED" "$NC"
+}
+
 # Remove files from git history using git-filter-repo
 clean_with_filter_repo() {
 	local repo_root="$1"
@@ -453,6 +2164,9 @@ clean_with_filter_repo() {
 	
 	# Add to .gitignore
 	add_to_gitignore "$repo_root"
+	
+	# Immediately untrack any sensitive files still in the index
+	untrack_sensitive_files "$repo_root"
 }
 
 # Remove files from git history using git-filter-branch (fallback)
@@ -499,6 +2213,9 @@ clean_with_filter_branch() {
 	
 	# Add to .gitignore
 	add_to_gitignore "$repo_root"
+	
+	# Immediately untrack any sensitive files still in the index
+	untrack_sensitive_files "$repo_root"
 }
 
 # Clean a single repository
@@ -585,13 +2302,13 @@ get_github_repos() {
 	
 	case "$visibility" in
 		public)
-			gh repo list --visibility public --json nameWithOwner --jq '.[].nameWithOwner'
+			gh repo list --visibility public --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner'
 			;;
 		private)
-			gh repo list --visibility private --json nameWithOwner --jq '.[].nameWithOwner'
+			gh repo list --visibility private --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner'
 			;;
 		all)
-			gh repo list --json nameWithOwner --jq '.[].nameWithOwner'
+			gh repo list --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner'
 			;;
 	esac
 }
@@ -699,6 +2416,26 @@ while [[ $# -gt 0 ]]; do
 			verbose=true
 			shift
 			;;
+		-i|--interactive)
+			interactive_mode=true
+			shift
+			;;
+		--scan)
+			scan_only=true
+			shift
+			;;
+		--scan-all-public)
+			scan_all_public=true
+			shift
+			;;
+		--scan-all-repos)
+			scan_all_repos=true
+			shift
+			;;
+		--search)
+			search_patterns+=("$2")
+			shift 2
+			;;
 		--review)
 			run_review=true
 			shift
@@ -727,6 +2464,10 @@ while [[ $# -gt 0 ]]; do
 			create_backup=true
 			shift
 			;;
+		--no-cache)
+			no_cache=true
+			shift
+			;;
 		*)
 			log_error "Unknown option: $1"
 			print_help
@@ -740,10 +2481,20 @@ printf '\n%bgit-help-i-pushed-an-env%b - Remove secrets from git history\n\n' "$
 
 check_dependencies
 
-if [ "$all_repos" = true ]; then
+if [ "$scan_all_repos" = true ]; then
+	scan_multiple_repos "all"
+elif [ "$scan_all_public" = true ]; then
+	scan_multiple_repos "public"
+elif [ "$all_repos" = true ]; then
 	clean_multiple_repos "all"
 elif [ "$all_public" = true ]; then
 	clean_multiple_repos "public"
+elif [ "$scan_only" = true ]; then
+	check_git_repo
+	run_scan_only
+elif [ "$interactive_mode" = true ]; then
+	check_git_repo
+	run_interactive_mode
 else
 	check_git_repo
 	clean_repository
