@@ -2043,12 +2043,12 @@ scan_multiple_repos() {
 	fi
 	printf '  Clean repositories: %b%d%b\n' "$GREEN" "$clean_repos" "$NC"
 	if [ "$repos_with_issues" -gt 0 ]; then
-		printf '  %bISSUES (you can fix): %d%b\n' "$RED" "$repos_with_issues" "$NC"
+		printf '  %bRepos with issues you can fix: %d%b\n' "$RED" "$repos_with_issues" "$NC"
 	fi
 	if [ "$warning_repos" -gt 0 ]; then
-		printf '  %bWarnings (not your repos): %d%b\n' "$YELLOW" "$warning_repos" "$NC"
+		printf '  %bRepos with warnings (no access): %d%b\n' "$YELLOW" "$warning_repos" "$NC"
 	fi
-	printf '  Total findings: %b%d%b\n' "$RED" "$total_issues" "$NC"
+	printf '  Findings (files/secrets): %b%d%b\n' "$RED" "$total_issues" "$NC"
 	printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n\n' "$CYAN" "$NC"
 	
 	# Start interactive review if there are findings
