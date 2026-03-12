@@ -328,6 +328,15 @@ EOF
   echo "[install-git-shell-helpers] Installed man page: $dest"
 }
 
+install_man_git_copilot_devops_audit() {
+  local src="${SCRIPT_DIR}/man/man1/git-copilot-devops-audit.1"
+  local dest="${MAN_DIR}/git-copilot-devops-audit.1"
+  if [ -f "$src" ]; then
+    cp "$src" "$dest"
+    echo "[install-git-shell-helpers] Installed man page: $dest"
+  fi
+}
+
 main() {
   echo "[install-git-shell-helpers] Installing git shell helpers..."
 
@@ -338,19 +347,74 @@ main() {
   install_script "git-get"
   install_script "git-initialize"
   install_script "git-fucked-the-push"
+  install_script "git-copilot-devops-audit"
 
   install_man_git_upload
   install_man_git_get
   install_man_git_initialize
   install_man_git_fucked_the_push
+  install_man_git_copilot_devops_audit
 
   # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
   ensure_line_in_file "$ZSHRC" 'export MANPATH="$HOME/man:$MANPATH"'
 
+  # Optional: install private audit agents and /copilot-devops-audit prompt globally
+  # -----------------------------------------------------------------------------
+  # HIGHLY RECOMMENDED: Install/Update GitHub Copilot CLI
+  # Enables AI commit messages (git upload -ai) and improves Copilot integration
+  # -----------------------------------------------------------------------------
+  echo ""
+  if command -v gh >/dev/null 2>&1; then
+    if gh extension list 2>/dev/null | grep -q 'gh-copilot'; then
+      printf '[install-git-shell-helpers] (HIGHLY RECOMMENDED) GitHub Copilot CLI is installed. Update it now? [Y/n]: '
+      read -r copilot_reply || copilot_reply=""
+      if [[ -z "$copilot_reply" || "$copilot_reply" == "y" || "$copilot_reply" == "Y" ]]; then
+        gh extension upgrade gh-copilot && \
+          echo "[install-git-shell-helpers] GitHub Copilot CLI updated." || \
+          echo "[install-git-shell-helpers] Update failed — try: gh extension upgrade gh-copilot"
+      fi
+    else
+      printf '[install-git-shell-helpers] (HIGHLY RECOMMENDED) Install GitHub Copilot CLI? Enables AI commit messages and better Copilot integration. [Y/n]: '
+      read -r copilot_reply || copilot_reply=""
+      if [[ -z "$copilot_reply" || "$copilot_reply" == "y" || "$copilot_reply" == "Y" ]]; then
+        gh extension install github/gh-copilot && \
+          echo "[install-git-shell-helpers] GitHub Copilot CLI installed. Try: gh copilot suggest" || \
+          echo "[install-git-shell-helpers] Install failed — try manually: gh extension install github/gh-copilot"
+      else
+        echo "[install-git-shell-helpers] Skipped. Install later with: gh extension install github/gh-copilot"
+      fi
+    fi
+  else
+    echo "[install-git-shell-helpers] (HIGHLY RECOMMENDED) GitHub CLI (gh) not found."
+    echo "  Install it to enable AI commit messages and better Copilot integration:"
+    if command -v brew >/dev/null 2>&1; then
+      echo "  brew install gh && gh extension install github/gh-copilot"
+    else
+      echo "  https://cli.github.com  →  then: gh extension install github/gh-copilot"
+    fi
+  fi
+
+  # Optional: install DevOpsAudit into standard user-level Copilot locations.
+  VSCODE_USER_DIR="$HOME/Library/Application Support/Code/User"
+  if [ -d "$VSCODE_USER_DIR" ]; then
+    echo ""
+    printf '[install-git-shell-helpers] Install private Copilot audit agents + /copilot-devops-audit globally in VS Code? [Y/n]: '
+    read -r vscode_reply || vscode_reply=""
+    if [[ -z "$vscode_reply" || "$vscode_reply" == "y" || "$vscode_reply" == "Y" ]]; then
+      "${BIN_DIR}/git-copilot-devops-audit" --update-agent --force >/dev/null 2>&1 || true
+      echo "[install-git-shell-helpers] Installed DevOpsAudit agents and skills into ~/.copilot, and the prompt into the VS Code user profile."
+      echo "[install-git-shell-helpers] Reload VS Code window (Cmd+Shift+P → 'Developer: Reload Window') to activate."
+    else
+      echo "[install-git-shell-helpers] Skipped VS Code global install. Run 'git copilot-devops-audit' in any repo to install later."
+    fi
+  fi
+
+  echo ""
   echo "[install-git-shell-helpers] Done. Open a new terminal or run:"
   echo "  source $ZSHRC"
-  echo "Then you can use: git upload, git get, git initialize, git fucked-the-push, and view docs via git help <command>."
+  echo "Then you can use: git upload, git get, git initialize, git fucked-the-push,"
+  echo "  git copilot-devops-audit, and view docs via git help <command>."
 }
 
 main "$@"

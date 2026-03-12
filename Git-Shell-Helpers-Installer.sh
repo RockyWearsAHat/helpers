@@ -60,13 +60,15 @@ install_all() {
   fetch "$REPO_RAW_BASE/git-get"        "$BIN_DIR/git-get"
   fetch "$REPO_RAW_BASE/git-initialize" "$BIN_DIR/git-initialize"
   fetch "$REPO_RAW_BASE/git-fucked-the-push" "$BIN_DIR/git-fucked-the-push"
-  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push"
+  fetch "$REPO_RAW_BASE/git-copilot-devops-audit" "$BIN_DIR/git-copilot-devops-audit"
+  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit"
 
   # Man pages (from repo's man/man1)
   fetch "$REPO_RAW_BASE/man/man1/git-upload.1"     "$MAN_DIR/git-upload.1"
   fetch "$REPO_RAW_BASE/man/man1/git-get.1"        "$MAN_DIR/git-get.1"
   fetch "$REPO_RAW_BASE/man/man1/git-initialize.1" "$MAN_DIR/git-initialize.1"
   fetch "$REPO_RAW_BASE/man/man1/git-fucked-the-push.1" "$MAN_DIR/git-fucked-the-push.1"
+  fetch "$REPO_RAW_BASE/man/man1/git-copilot-devops-audit.1" "$MAN_DIR/git-copilot-devops-audit.1"
 
   # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
@@ -99,9 +101,25 @@ install_all() {
       fi
   fi
 
+  # Optional: install private audit agents and the slash command into standard user-level Copilot locations
+  VSCODE_USER_DIR="$HOME/Library/Application Support/Code/User"
+  if [ -d "$VSCODE_USER_DIR" ]; then
+    echo ""
+    printf '[Git-Shell-Helpers-Installer] Install private Copilot audit agents + /copilot-devops-audit globally in VS Code? [Y/n]: '
+    read -r vscode_reply || vscode_reply=""
+    if [[ -z "$vscode_reply" || "$vscode_reply" == "y" || "$vscode_reply" == "Y" ]]; then
+      "${BIN_DIR}/git-copilot-devops-audit" --update-agent --force >/dev/null 2>&1 || true
+      echo "[Git-Shell-Helpers-Installer] Installed DevOpsAudit agents and skills into ~/.copilot, and the prompt into the VS Code user profile."
+      echo "[Git-Shell-Helpers-Installer] Reload VS Code window (Cmd+Shift+P → 'Developer: Reload Window') to activate."
+    else
+      echo "[Git-Shell-Helpers-Installer] Skipped VS Code global install. Run 'git copilot-devops-audit' in any repo to install later."
+    fi
+  fi
+
   echo "[Git-Shell-Helpers-Installer] Done. Open a new terminal or run:"
   echo "  source $ZSHRC"
-  echo "Then you can use: git upload, git get, git initialize, git fucked-the-push, and view docs via git help <command>."
+  echo "Then you can use: git upload, git get, git initialize, git fucked-the-push,"
+  echo "  git copilot-devops-audit, and view docs via git help <command>."
 }
 
 install_all
