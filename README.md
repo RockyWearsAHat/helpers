@@ -1,4 +1,4 @@
-# Git Copilot Audit
+# NEW COPILOT FEATURE, AUDIT ADDED
 
 `git-copilot-devops-audit` is a global helper for auditing GitHub Copilot customization in the current workspace. The goal is narrow and practical: keep `.github/` Copilot setup current, project-specific, and honest about what is actually installed and supported.
 
