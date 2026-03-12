@@ -147,6 +147,17 @@ or
 .B git upload
 uses GitHub Copilot CLI (or an overridden AI command) to generate a commit
 message based on the current repository state (subject line plus optional body).
+.PP
+When present, repo-authored guidance is added to the AI prompt before commit
+generation. This includes files such as
+.IR .github/COMMIT_GUIDELINES.md ,
+.IR .github/UPLOAD_GUIDELINES.md ,
+.IR .github/copilot-instructions.md ,
+.IR AGENTS.md ,
+.IR CLAUDE.md ,
+.IR CONTRIBUTING.md ,
+and
+.IR README.md .
 .SH OPTIONS
 .TP
 .BR -ai ,
@@ -172,6 +183,10 @@ invokes the
 .BR copilot (1)
 CLI with a carefully crafted prompt instructing it to output a single git
 commit message (subject line plus optional body).
+.PP
+The prompt also includes bounded excerpts from repo-authored guidance files so
+the model can follow project-specific commit and upload workflow rules without
+reading the repository itself.
 .PP
 If the environment variable
 .B GIT_UPLOAD_AI_CMD
