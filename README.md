@@ -122,11 +122,12 @@ Both install the same command-line tools and man pages; they just target differe
 ## Development
 
 - Update the version number in `VERSION` before cutting a new release.
+- Add or update `release-notes/v<version>.md`; GitHub Releases now use that file as the release body.
 - Build artifacts locally:
-  - Script installer dist: `./scripts/build-dist.sh` → `dist/Git-Shell-Helpers-Installer.sh`
+  - Script installer dist: `./scripts/build-dist.sh` → `dist/Git-Shell-Helpers-Installer.sh` and `dist/Git-Shell-Helpers-Installer-<version>.sh`
   - macOS pkg: `./scripts/build-pkg.sh` → `dist/github-shell-helpers-<version>.pkg`
 - VS Code tasks:
   - **Build installer** – runs `./scripts/build-dist.sh`.
   - **Build macOS pkg** – runs `./scripts/build-pkg.sh`.
 
-CI (see `.github/workflows/build-installer.yml`) ensures both installers build cleanly on each push to `main`.
+CI (see `.github/workflows/build-installer.yml`) ensures both installers build cleanly on each push to `main`, and publishes the versioned script installer plus the macOS package using the matching release-notes file.
