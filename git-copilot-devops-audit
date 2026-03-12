@@ -6,13 +6,15 @@
 #   git-copilot-devops-audit [options]
 #
 # Description:
-#   Installs a multi-agent audit system (orchestrator + 4 subagents) plus
-#   a /copilot-devops-audit slash command in the VS Code user profile.
-#   The runtime audit should improve project-specific Copilot customization
-#   without creating audit-only artifacts inside the target workspace.
+#   Installs a multi-agent audit system (orchestrator + 4 subagents), a
+#   natural-language router, and a /copilot-devops-audit slash command for
+#   VS Code Copilot use. The runtime audit should improve project-specific
+#   Copilot customization while keeping the workspace artifacts limited to the
+#   context snapshot and research cache that this command manages directly.
 #
 #   Architecture:
-#     /copilot-devops-audit — Public slash-command entrypoint
+#     /copilot-devops-audit — Public deterministic slash-command entrypoint
+#     devops-audit-router   — User-level best-effort natural-language router
 #     DevOpsAuditContext    — Private worker: reads project and .github state
 #     DevOpsAuditResearch   — Private worker: fetches docs, samples repos, validates model IDs
 #     DevOpsAuditEvaluate   — Private worker: produces structured findings
@@ -28,7 +30,7 @@
 #   --no-install        Generate repo snapshot only, skip global agent/prompt install
 #   --dry-run           Show what would be created without writing anything
 #   -v, --verbose       Show file contents being embedded in the prompt
-#   --update-agent      Refresh the global agent/prompt only (skip context snapshot)
+#   --update-agent      Refresh the global agents/router/prompt/skills only (skip context snapshot)
 #
 # Slash Command (installed globally):
 #   Type /copilot-devops-audit in VS Code Copilot Chat
@@ -441,6 +443,10 @@ generate_implement_agent() {
 	cat "$SCRIPT_DIR/.github/agents/DevOpsAuditImplement.agent.md"
 }
 
+generate_router_instruction() {
+	cat "$SCRIPT_DIR/.github/instructions/devops-audit-router.instructions.md"
+}
+
 generate_prompt_file() {
   cat "$SCRIPT_DIR/.github/prompts/copilot-devops-audit.prompt.md"
 }
@@ -647,9 +653,9 @@ if [ "$no_install" = false ]; then
 	install_force=$force_mode
 	[ "$update_agent" = true ] && install_force=true
 
-	ui_step "Installing audit agents, prompt, and skills to standard user locations..."
-	mkdir -p "$COPILOT_USER_DIR/agents" "$COPILOT_USER_DIR/skills"
-	if [ -d "$VSCODE_USER_DIR" ]; then
+	ui_step "Installing audit agents, router instruction, prompt, and skills to standard user locations..."
+	mkdir -p "$COPILOT_USER_DIR/agents" "$COPILOT_USER_DIR/instructions" "$COPILOT_USER_DIR/skills"
+	if [ "$(uname -s)" = "Darwin" ]; then
 		mkdir -p "$VSCODE_USER_DIR/agents" "$VSCODE_USER_DIR/prompts"
 	fi
 
@@ -657,6 +663,7 @@ if [ "$no_install" = false ]; then
 	if [ -d "$VSCODE_USER_DIR" ]; then
 		agents_dirs+=("$VSCODE_USER_DIR/agents")
 	fi
+	router_instruction="$COPILOT_USER_DIR/instructions/devops-audit-router.instructions.md"
 	prompts_dir="$VSCODE_USER_DIR/prompts"
 
 	# Define all agent files to install
@@ -679,6 +686,7 @@ if [ "$no_install" = false ]; then
 				ui_info "[dry-run] Would write: $agents_dir/$name"
 			done
 		done
+		ui_info "[dry-run] Would write: $router_instruction"
 		if [ -d "$VSCODE_USER_DIR" ]; then
 			ui_info "[dry-run] Would write: $global_prompt"
 		else
@@ -703,6 +711,13 @@ if [ "$no_install" = false ]; then
 				fi
 			done
 		done
+
+		if [ -f "$router_instruction" ] && [ "$install_force" = false ]; then
+			ui_skip "$router_instruction"
+		else
+			printf '%s\n' "$(generate_router_instruction)" > "$router_instruction"
+			ui_ok "User instruction: $router_instruction"
+		fi
 
 		if [ -d "$VSCODE_USER_DIR" ]; then
 			if [ -f "$global_prompt" ] && [ "$install_force" = false ]; then
@@ -745,9 +760,10 @@ if [ "$update_agent" = false ]; then
 	printf '  %bAudit context saved to:%b .github/devops-audit-context.md\n' "$DIM" "$NC"
 	printf '  %bAudit research cache:%b .github/devops-audit-research.md\n' "$DIM" "$NC"
 fi
-printf '  %bAudit results are returned in chat;%b no audit-only workspace files should be created\n' "$DIM" "$NC"
+printf '  %bAudit results are returned in chat;%b repo-local support files are limited to the context snapshot and research cache\n' "$DIM" "$NC"
 printf '  %bAudit agents:%b %s/agents\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bMirror agents:%b %s/agents\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
+printf '  %bAudit router:%b %s/instructions\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit skills:%b %s/skills\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
 echo ""

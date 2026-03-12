@@ -74,7 +74,7 @@ PROJECT PROFILE
 - Test command: (the actual command to test)
 - CI/CD: (what CI is configured, if any)
 - Directory structure: (brief layout — src/, tests/, docs/, etc.)
-- Key developer workflows: (what developers actually do — build, test, deploy, etc.)
+- Key developer workflows: (what developers actually do — build, test, deploy, etc. BE SPECIFIC, THESE ARE GREAT JUMP OFFS FOR RESEARCH AND FINDING IMPROVEMENTS)
 - User focus: (if the user specified a focus area like "qt qss", note it here)
 ```
 

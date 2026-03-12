@@ -27,6 +27,8 @@ Examples:
 - User focus is "qt qss" → research Qt/QSS patterns in Copilot customization, Style Sheet guidance, Qt-specific skills, and real Qt projects with `.github/` files.
 - No user focus → research broadly for this project type.
 
+Do not treat any one example workflow as the default answer for unrelated projects. If the project does not need visual tooling, replay capture, or another specialized flow, do not elevate it into the recommendation just because you know how to design it.
+
 Your general Copilot customization research (docs, file types, frontmatter, etc.) still matters, but the user-focus-specific research must be deep and specific, not a paragraph tacked onto generic findings.
 
 Do not re-read the workspace — the context report already covers it.
@@ -40,6 +42,8 @@ Return a compact evidence-backed handoff, not a padded narrative. Your report mu
 Do not treat a few overview docs and a meta-repository README as sufficient. You are expected to bring back many specific references and real project examples explored beyond their landing pages.
 
 Do not treat user-derived examples as equal in authority to official docs or strong product-team guidance. Use examples to understand patterns and tactics. Use current docs, release notes, and product-team guidance to decide what should actually be recommended now.
+
+When older sources contain a useful pattern but outdated syntax, carry forward the pattern only after you restate it in the current supported syntax and verify that the modern platform still expects that shape.
 
 You are also expected to bring back product-team transcript evidence when it is available. If Burke Holland or another strong product-team source has relevant recent video material and transcript retrieval works, omitting that evidence means the research is incomplete.
 

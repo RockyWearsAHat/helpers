@@ -12,11 +12,17 @@ git-copilot-devops-audit \- Audit and rewrite all Copilot AI configuration in a 
 prepares a repository-local audit snapshot for GitHub Copilot customization files
 and installs a multi-agent audit system in the VS Code user profile.
 
-The audit uses a slash-command entrypoint with private worker agents:
+The audit uses a private orchestrator with two public entry paths: a natural-language
+router instruction and a slash-command fallback.
 .TP
 .B /copilot-devops-audit
-Public entrypoint. Runs the audit on the built-in agent runtime and delegates to
-the private audit worker agents.
+Manual public entrypoint. Runs the audit and delegates to the private audit worker agents.
+.TP
+.B Natural-language audit router
+User-level instruction that detects audit-style requests in normal chat and routes
+them through the audit workflow when Copilot routing matches the request. This path
+is best-effort rather than guaranteed. When it matches, the main chat session stays
+the coordinator and invokes the private audit worker agents directly.
 .TP
 .B @DevOpsAuditContext
 Context subagent. Reads the project and current Copilot customization files and
@@ -36,11 +42,10 @@ from the evaluator.
 .PP
 The audit tooling is global on purpose. It audits the current workspace, but it
 should not create repository-local copies of its own agent or prompt files during
-normal use. The repository-local artifact produced by this command is the audit
-snapshot at \fI.github/devops-audit-context.md\fR. The audit also maintains a
-persistent research cache at \fI.github/devops-audit-research.md\fR so later runs
-can build on prior evidence without treating stale research as current truth. The
-audit itself writes its report to \fI.github/devops-audit-report.md\fR.
+normal use. The repository-local support files produced by this command are the
+audit snapshot at \fI.github/devops-audit-context.md\fR and the persistent research
+cache at \fI.github/devops-audit-research.md\fR. Audit findings themselves are
+returned in chat rather than written to a repository-local report file.
 
 The context snapshot is intentionally lightweight. It points the audit at the
 right workspace files and current inventory, but it should not duplicate the full
@@ -56,6 +61,11 @@ it instead of forcing the change.
 
 Running this command installs the following VS Code Copilot integration points:
 .TP
+.B Natural-language audit router
+A user-level instructions file in \fI~/.copilot/instructions/\fR.
+It detects audit-style natural-language requests and routes them through the
+audit workflow while keeping the main chat session as coordinator.
+.TP
 .B /copilot-devops-audit
 A reusable prompt file in the VS Code user profile.
 Type \fB/copilot-devops-audit\fR in VS Code Copilot Chat to invoke the audit.
@@ -63,6 +73,11 @@ Type \fB/copilot-devops-audit\fR in VS Code Copilot Chat to invoke the audit.
 .B Private audit worker agents
 Internal custom agents used only as slash-command workers. They are not intended
 to appear as public chat entrypoints.
+.PP
+When installed through the macOS package, the installer also attempts to install or
+update the GitHub Copilot extensions and run \fBgit copilot-devops-audit --update-agent --force\fR
+for the logged-in macOS user so the global audit surfaces are available immediately.
+If that automatic postinstall step cannot complete, run the same command manually.
 .SH OPTIONS
 .TP
 .B \-f, \-\-force
@@ -71,7 +86,8 @@ By default, existing files are preserved.
 .TP
 .B \-\-no\-install
 Generate the audit context snapshot only. Skip installing the global
-private audit agents and the \fI/copilot-devops-audit\fR prompt.
+private audit agents, the natural-language router instruction, and the
+\fI/copilot-devops-audit\fR prompt.
 .TP
 .B \-\-dry\-run
 Display what would be written without creating any files.
@@ -83,7 +99,8 @@ Show file names as they are embedded into the context snapshot.
 Refresh the global \fI@DevOpsAudit\fR agent and \fI/copilot-devops-audit\fR prompt
 without regenerating the repository-local context snapshot.
 .br
-This refreshes the private audit worker agents and the slash command.
+This refreshes the private audit worker agents, the natural-language router
+instruction, and the slash command.
 .TP
 .B \-h, \-\-help
 Display usage information and exit.
@@ -93,17 +110,28 @@ The following repository-local file is created by this command:
 .nf
 .github/
 ├── devops-audit-research.md        # Persistent research cache with freshness metadata
-├── devops-audit-context.md         # Snapshot of all current config (input to audit)
-└── devops-audit-report.md          # Audit report (written by the agent)
+└── devops-audit-context.md         # Snapshot of current config (input to audit)
 .fi
 
-The following files are installed globally in the VS Code user profile unless
+The following files are installed globally unless
 \fB--no-install\fR is passed:
 .PP
 .nf
-~/Library/Application Support/Code/User/
+~/.copilot/
 ├── agents/
 │   ├── DevOpsAudit.agent.md           # Orchestrator
+│   ├── DevOpsAuditContext.agent.md    # Context subagent
+│   ├── DevOpsAuditResearch.agent.md   # Research subagent
+│   ├── DevOpsAuditEvaluate.agent.md   # Evaluation subagent
+│   └── DevOpsAuditImplement.agent.md  # Implementation subagent
+├── instructions/
+│   └── devops-audit-router.instructions.md
+└── skills/
+    └── ...
+
+~/Library/Application Support/Code/User/
+├── agents/
+│   ├── DevOpsAudit.agent.md           # Orchestrator mirror for VS Code discovery
 │   ├── DevOpsAuditContext.agent.md    # Context subagent
 │   ├── DevOpsAuditResearch.agent.md   # Research subagent
 │   ├── DevOpsAuditEvaluate.agent.md   # Evaluation subagent
@@ -122,16 +150,17 @@ git copilot-devops-audit
 .fi
 .RE
 .IP 2.
-Open VS Code Copilot Chat and type:
+Open VS Code Copilot Chat and either ask for a Copilot customization audit in
+natural language or type:
 .RS
 .nf
 /copilot-devops-audit
 .fi
 .RE
 .IP 3.
-The slash command reads the workspace's Copilot config files, audits vague language,
-repo-irrelevant guidance, routing issues, and workflow drift, then writes a report to
-\fI.github/devops-audit-report.md\fR.
+If the user-level router is installed, natural-language audit requests may also route
+into the workflow, but that routing is best-effort. The slash command remains the
+deterministic entrypoint.
 .IP
 The orchestrator is expected to reject weak phase outputs. If research or evaluation
 is generic, incomplete, or unsupported, the audit should rerun that phase once with
@@ -143,7 +172,7 @@ those named private audit worker agents are actually invoked for each phase. A r
 failure occurs when the audit falls back to a generic helper or other non-audit worker
 for phase execution.
 .IP 4.
-Review the report and rewritten files. Re-run periodically to stay current.
+Review the chat findings and any rewritten \fI.github/\fR files. Re-run periodically to stay current.
 .SS Re-running
 To refresh the context snapshot and overwrite existing audit files:
 .RS
