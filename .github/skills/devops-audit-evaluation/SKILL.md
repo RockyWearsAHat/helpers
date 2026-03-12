@@ -19,7 +19,18 @@ This is the core of the evaluation: the project is right, the Copilot setup migh
 
 You are evaluating whether the `.github/` Copilot configuration actually helps someone develop in this project. Not whether it looks nice, not whether it follows some template, but whether it makes Copilot more useful for real work in this specific codebase.
 
+For globally shipped helpers or workflows that claim to work across many repositories, evaluation still stays centered on `.github/`, but it must validate the external surfaces that make those claims true. If installability, accessibility, or behavioral claims depend on README text, man pages, installer scripts, user-level install locations, or observable runtime entrypoints, those surfaces are mandatory validation inputs because they determine whether the `.github/` setup is truthful.
+
 Do not stop at "not broken." If the research shows a cleaner, clearer, more maintainable, or more efficient way to implement the intended workflow, that is a valid finding even when the current file technically works.
+
+Do not invent improvements just because a workflow is impressive or sophisticated. A recommendation is valid only when the research supports it for this project. Specialized flows such as visual tooling, replay capture, or autonomous debugging helpers should be treated as project-specific options, not default upgrades.
+
+Evaluate in this order:
+
+1. `Platform validity` — is the file supported and technically correct right now?
+2. `Primitive fit` — is this the right Copilot surface for this kind of content?
+3. `Project value` — does it help this repository's real workflows?
+4. `Recommendation strength` — is any change required, recommended, optional, or merely illustrative?
 
 ## For Every File, Answer These Questions
 
@@ -29,7 +40,9 @@ Do not stop at "not broken." If the research shows a cleaner, clearer, more main
 4. Does it actually help a developer? (Would removing this file make the Copilot experience worse?)
 5. Is it concise? (Is it burning context window space with content that adds no value?)
 6. Does it duplicate something else? (Is another file already covering this?)
-7. Does it reference audit tools or audit processes? (This is a serious problem — audit files should help the project, not describe the audit itself)
+7. If it references audit tools or audit processes, is that a legitimate repo-local workflow asset or misplaced meta-process?
+8. Is it pushing a specialized workflow the project did not ask for and the research did not justify? (Optional workflows are not universal best practice.)
+9. If you recommend a change, how strong is that recommendation: required, recommended, optional, or illustrative only?
 
 ## What To Look For
 
@@ -56,6 +69,7 @@ Flag any file where content is in the wrong file type. This is a significant or 
 - Files with `applyTo: ""` or overly broad `applyTo` patterns that load on every request
 - Files that say nothing specific to this project and could apply to any codebase
 - Missing coverage for workflows that this project clearly uses
+- Recommendations or files that hardcode optional workflow preferences without project-specific evidence
 - Conflicting instructions across files
 - Files that were clearly auto-generated and never reviewed
 - Files whose structure is broken but whose underlying project knowledge may still be worth salvaging into a correct format
@@ -64,13 +78,21 @@ Flag any file where content is in the wrong file type. This is a significant or 
 
 - Source code quality (not your job)
 - Build output or logs (not your job)
-- Anything outside `.github/` unless a Copilot file directly references it
+- Product-source critique outside `.github/` unless a Copilot file directly references it
+- External install, docs, packaging, or runtime surfaces only when they are unrelated to Copilot setup availability, accessibility, or truthfulness. If README, man pages, installer scripts, user-level install locations, or runtime behavior define whether the Copilot workflow is actually available or whether its claims are true, they are in scope and must be validated.
 - Style preferences that do not change behavior or correctness
 - The absence of global audit tools from the workspace. `DevOpsAudit` and its specialist agents may be installed in standard user-level locations on disk. They are not required to exist in the audited repository.
 
 ## Output
 
 Return two sections:
+
+Before writing findings, classify every proposed change with both of these labels:
+
+- `Recommendation strength`: required / recommended / optional / illustrative
+- `Evidence grade`: supported-current / supported-but-optional / deprecated / weakly-supported-opinionated
+
+Use these labels consistently in the implementation plan and problems list.
 
 ### File Verdict Coverage
 
@@ -88,6 +110,8 @@ After file verdict coverage and before problems and gaps, produce a concrete fil
 
 - **File**: which file
 - **Operation**: keep / edit / merge / move / delete / add
+- **Recommendation strength**: required / recommended / optional / illustrative
+- **Evidence grade**: supported-current / supported-but-optional / deprecated / weakly-supported-opinionated
 - **Target state**: what the file should look like after the audit and why
 - **Evidence**: the research conclusion or source that justifies the target state
 - **Implementation notes**: the exact kind of edit needed, concise but concrete
@@ -99,6 +123,8 @@ This plan must be executable by the implementation agent without more research.
 For each problem found:
 
 - **Severity**: critical / significant / minor
+- **Recommendation strength**: required / recommended / optional / illustrative
+- **Evidence grade**: supported-current / supported-but-optional / deprecated / weakly-supported-opinionated
 - **File**: which file
 - **What is wrong**: plain description
 - **Evidence**: what you saw that proves it
