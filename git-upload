@@ -1923,6 +1923,73 @@ extract_test_total_count() {
 	printf '0'
 }
 
+collect_repo_ai_guidance() {
+	local repo_root="$1"
+	[ -n "$repo_root" ] || return 0
+
+	local max_total_chars=8000
+	local total_chars=0
+	local guidance=""
+	local entry=""
+	local relative_path=""
+	local guidance_label=""
+	local max_lines=""
+	local absolute_path=""
+	local snippet=""
+	local original_length=0
+	local remaining_chars=0
+	local block=""
+	typeset -a guidance_candidates
+	guidance_candidates=(
+		".github/COMMIT_GUIDELINES.md:Project commit guidelines:120"
+		".github/UPLOAD_GUIDELINES.md:Project upload workflow guidelines:120"
+		".github/copilot-instructions.md:Repository Copilot instructions:120"
+		"AGENTS.md:Repository agent instructions:100"
+		"CLAUDE.md:Repository Claude instructions:100"
+		"CONTRIBUTING.md:Contribution guidelines:120"
+		"README.md:Repository overview:120"
+	)
+
+	for entry in "${guidance_candidates[@]}"; do
+		IFS=':' read -r relative_path guidance_label max_lines <<< "$entry"
+		absolute_path="$repo_root/$relative_path"
+		[ -f "$absolute_path" ] || continue
+
+		snippet=$(sed -n "1,${max_lines}p" "$absolute_path" 2>/dev/null || true)
+		[ -n "$snippet" ] || continue
+
+		original_length=${#snippet}
+		remaining_chars=$((max_total_chars - total_chars))
+		[ "$remaining_chars" -gt 0 ] || break
+
+		if [ "$original_length" -gt "$remaining_chars" ]; then
+			snippet=$(printf '%s' "$snippet" | head -c "$remaining_chars")
+		fi
+
+		block="$guidance_label ($relative_path):
+$snippet"
+		if [ ${#snippet} -lt "$original_length" ]; then
+			block="$block
+[truncated to fit prompt budget]"
+		fi
+
+		if [ -n "$guidance" ]; then
+			guidance="$guidance
+
+---
+
+$block"
+		else
+			guidance="$block"
+		fi
+
+		total_chars=$((total_chars + ${#block} + 6))
+		[ "$total_chars" -lt "$max_total_chars" ] || break
+	done
+
+	printf '%s' "$guidance"
+}
+
 generate_ai_message() {
 	local ai_cmd
 
@@ -1996,12 +2063,12 @@ $(printf '%s\n' "$changed_file_list" | sed 's/^/  - /')"
 		diff_truncated="(truncated - showing first 2000 of $diff_line_count lines; review full diff with 'git diff --cached')"
 	fi
 	
-	# Load commit guidelines if they exist
+	# Load repository-authored commit and workflow guidance if it exists
 	local repo_root
 	repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-	local guidelines=""
-	if [ -f "$repo_root/.github/COMMIT_GUIDELINES.md" ]; then
-		guidelines=$(cat "$repo_root/.github/COMMIT_GUIDELINES.md" 2>/dev/null | head -100 || echo "")
+	local repo_guidance=""
+	if [ -n "$repo_root" ]; then
+		repo_guidance=$(collect_repo_ai_guidance "$repo_root")
 	fi
 	
 	# Get recent commit history for context (last 5 commits with summary)
@@ -2035,10 +2102,10 @@ ACTUAL DIFF ($diff_line_count lines)$diff_truncated:
 $actual_diff
 \`\`\`"
 
-	# Add guidelines to context if available
-	if [ -n "$guidelines" ]; then
-		diff_summary="PROJECT COMMIT GUIDELINES (from .github/COMMIT_GUIDELINES.md):
-$guidelines
+	# Add repository guidance to context if available
+	if [ -n "$repo_guidance" ]; then
+		diff_summary="REPOSITORY GUIDANCE (repo-authored commit, workflow, and instruction files):
+$repo_guidance
 
 ---
 
