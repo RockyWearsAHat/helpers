@@ -1,0 +1,210 @@
+.TH GIT-COPILOT-DEVOPS-AUDIT 1 "March 2026" "git-copilot-devops-audit" "User Commands"
+.SH NAME
+git-copilot-devops-audit \- Audit and rewrite all Copilot AI configuration in a repository
+.SH SYNOPSIS
+.B git-copilot-devops-audit
+[\fB\-f\fR | \fB\-\-force\fR]
+[\fB\-\-no\-install\fR]
+[\fB\-\-dry\-run\fR]
+[\fB\-v\fR | \fB\-\-verbose\fR]
+.SH DESCRIPTION
+.B git-copilot-devops-audit
+prepares a repository-local audit snapshot for GitHub Copilot customization files
+and installs a multi-agent audit system in the VS Code user profile.
+
+The audit uses a slash-command entrypoint with private worker agents:
+.TP
+.B /copilot-devops-audit
+Public entrypoint. Runs the audit on the built-in agent runtime and delegates to
+the private audit worker agents.
+.TP
+.B @DevOpsAuditContext
+Context subagent. Reads the project and current Copilot customization files and
+returns a detailed inventory for the rest of the audit pipeline.
+.TP
+.B @DevOpsAuditResearch
+Research subagent. Fetches current Copilot docs, samples repositories, validates
+model IDs, and builds an evidence-backed research cache.
+.TP
+.B @DevOpsAuditEvaluate
+Evaluation subagent. Reads every Copilot customization file and produces
+structured findings against quality criteria.
+.TP
+.B @DevOpsAuditImplement
+Implementation subagent. Applies targeted edits to \fI.github/\fR files based on findings
+from the evaluator.
+.PP
+The audit tooling is global on purpose. It audits the current workspace, but it
+should not create repository-local copies of its own agent or prompt files during
+normal use. The repository-local artifact produced by this command is the audit
+snapshot at \fI.github/devops-audit-context.md\fR. The audit also maintains a
+persistent research cache at \fI.github/devops-audit-research.md\fR so later runs
+can build on prior evidence without treating stale research as current truth. The
+audit itself writes its report to \fI.github/devops-audit-report.md\fR.
+
+The context snapshot is intentionally lightweight. It points the audit at the
+right workspace files and current inventory, but it should not duplicate the full
+contents of every customization file. The context phase is expected to read the
+workspace directly rather than rely on large pasted snapshots.
+
+During an audit run, the orchestrator has full authority to clean, consolidate,
+rewrite, or delete files under \fI.github/\fR. It may also relocate misplaced
+GitHub customization files from outside \fI.github/\fR into their intended home
+when that move is clearly correct and does not require updating source, scripts,
+or docs. If such a move is risky or ambiguous, the audit must report and escalate
+it instead of forcing the change.
+
+Running this command installs the following VS Code Copilot integration points:
+.TP
+.B /copilot-devops-audit
+A reusable prompt file in the VS Code user profile.
+Type \fB/copilot-devops-audit\fR in VS Code Copilot Chat to invoke the audit.
+.TP
+.B Private audit worker agents
+Internal custom agents used only as slash-command workers. They are not intended
+to appear as public chat entrypoints.
+.SH OPTIONS
+.TP
+.B \-f, \-\-force
+Overwrite existing audit files (context, global agent, global prompt) without prompting.
+By default, existing files are preserved.
+.TP
+.B \-\-no\-install
+Generate the audit context snapshot only. Skip installing the global
+private audit agents and the \fI/copilot-devops-audit\fR prompt.
+.TP
+.B \-\-dry\-run
+Display what would be written without creating any files.
+.TP
+.B \-v, \-\-verbose
+Show file names as they are embedded into the context snapshot.
+.TP
+.B \-\-update\-agent
+Refresh the global \fI@DevOpsAudit\fR agent and \fI/copilot-devops-audit\fR prompt
+without regenerating the repository-local context snapshot.
+.br
+This refreshes the private audit worker agents and the slash command.
+.TP
+.B \-h, \-\-help
+Display usage information and exit.
+.SH FILES
+The following repository-local file is created by this command:
+.PP
+.nf
+.github/
+├── devops-audit-research.md        # Persistent research cache with freshness metadata
+├── devops-audit-context.md         # Snapshot of all current config (input to audit)
+└── devops-audit-report.md          # Audit report (written by the agent)
+.fi
+
+The following files are installed globally in the VS Code user profile unless
+\fB--no-install\fR is passed:
+.PP
+.nf
+~/Library/Application Support/Code/User/
+├── agents/
+│   ├── DevOpsAudit.agent.md           # Orchestrator
+│   ├── DevOpsAuditContext.agent.md    # Context subagent
+│   ├── DevOpsAuditResearch.agent.md   # Research subagent
+│   ├── DevOpsAuditEvaluate.agent.md   # Evaluation subagent
+│   └── DevOpsAuditImplement.agent.md  # Implementation subagent
+└── prompts/
+    └── copilot-devops-audit.prompt.md
+.fi
+.SH WORKFLOW
+.SS Typical Usage
+.IP 1. 3
+Navigate to a git repository with a GitHub Copilot setup:
+.RS
+.nf
+cd ~/projects/my-project
+git copilot-devops-audit
+.fi
+.RE
+.IP 2.
+Open VS Code Copilot Chat and type:
+.RS
+.nf
+/copilot-devops-audit
+.fi
+.RE
+.IP 3.
+The slash command reads the workspace's Copilot config files, audits vague language,
+repo-irrelevant guidance, routing issues, and workflow drift, then writes a report to
+\fI.github/devops-audit-report.md\fR.
+.IP
+The orchestrator is expected to reject weak phase outputs. If research or evaluation
+is generic, incomplete, or unsupported, the audit should rerun that phase once with
+specific deficiencies and then stop rather than continuing with a bad handoff.
+.IP
+The slash command runs from the current chat session and coordinates the audit by
+invoking the named private audit worker agents. The decisive runtime check is whether
+those named private audit worker agents are actually invoked for each phase. A routing
+failure occurs when the audit falls back to a generic helper or other non-audit worker
+for phase execution.
+.IP 4.
+Review the report and rewritten files. Re-run periodically to stay current.
+.SS Re-running
+To refresh the context snapshot and overwrite existing audit files:
+.RS
+.nf
+git copilot-devops-audit --force
+.fi
+.RE
+.SH AUDIT SCOPE
+The agent evaluates:
+.TP
+.B copilot-instructions.md
+Signal density, cross-reference validity, vague language, concrete quality bars,
+and whether instructions define a real workflow instead of generic filler.
+.TP
+.B Agent files
+Model appropriateness, tool list completeness, workflow clarity, scope boundaries,
+handoff design, and whether agent descriptions are specific enough to route correctly.
+.TP
+.B Instruction files
+Workspace relevance, completeness of persistent context, and whether guidance is
+concrete enough to produce reliable behavior.
+.TP
+.B .github hygiene
+Stale prompts, agents, instructions, audit artifacts, duplicate guidance,
+dead references, and repo-local copies of global audit assets that should be
+removed or consolidated.
+.TP
+.B Research cache freshness
+The persistent research cache at \fI.github/devops-audit-research.md\fR should
+speed up later audits, but stale evidence must be refreshed or downgraded.
+Official docs and release notes take priority over older repo samples or videos.
+.TP
+.B Misplaced customization files
+GitHub customization assets created outside \fI.github/\fR that should live
+under \fI.github/\fR. The audit should move them only when the destination is
+obvious and no source, script, or documentation updates are required; otherwise
+it must escalate the issue.
+.TP
+.B Overall workflow
+Closed-loop coverage (request -> inspect -> plan when needed -> implement -> verify),
+missing agent gaps, stale repo-local audit files, workflow drift, and whether
+cleanup and relocation decisions stay safe and do not force unrelated source changes.
+.SH EXAMPLES
+.TP
+Full audit with install:
+.B git copilot-devops-audit
+.TP
+Generate context only (no global install):
+.B git copilot-devops-audit --no-install
+.TP
+Refresh global audit tooling only:
+.B git-copilot-devops-audit --update-agent
+.TP
+Force overwrite of existing audit files:
+.B git copilot-devops-audit --force
+.TP
+Preview without writing:
+.B git copilot-devops-audit --dry-run
+.SH SEE ALSO
+.BR git-copilot-quickstart (1),
+.BR git-resolve (1),
+.BR git-initialize (1)
+.SH AUTHOR
+git-shell-helpers contributors
