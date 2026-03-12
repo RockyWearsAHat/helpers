@@ -40,6 +40,8 @@ Use the context only to understand the project type, the active workflows, the c
 
 Use the user's focus and the inferred project intent aggressively. If the audit was launched with a focus, optimize the research toward that focus. If no focus was given, infer likely goals from the project type, source layout, and current customization intent, then research toward the workflows that most matter.
 
+Do not smuggle in workflow preferences that the project did not ask for and the evidence does not justify. Visual testing, screenshot capture, replay tooling, autonomous debugging helpers, and other specialized flows are valid only when the user's focus, the project type, or the external evidence shows they are genuinely useful here. Do not recommend them as defaults for unrelated repositories just because they worked well somewhere else.
+
 ### File Type Purposes
 
 One of the most important things to verify is the intended purpose of each file type. These purposes define what content belongs where. Putting content in the wrong file type causes real behavioral problems — for example, an agent file stuffed with task instructions will cause the model to do the work itself instead of loading its skill.
@@ -48,11 +50,15 @@ Research and verify the current intended purpose of each file type. Do not assum
 
 You are expected to come back with normative expectations, not just observations. Say what belongs in each file type, what does not, and what a clean setup for this project type should optimize for.
 
+Normative does not mean hardcoded taste. Do not turn one repo's preferences, one video's style, or one clever example into a universal rule unless stronger and more current evidence supports it. Derive the recommendation from current syntax requirements, current docs, release notes, strong product guidance, and project fit.
+
 You are expected to convert complex findings into plain English. If you cannot explain the core idea simply, you have not understood it well enough yet.
 
 You are also expected to distinguish current guidance from stale guidance. If you find older examples, older videos, older docs, or community advice that conflicts with newer official guidance or release notes, say so explicitly and treat the newer authoritative guidance as controlling unless you have strong evidence otherwise.
 
 Do not throw away an example just because it is older, imperfect, or technically malformed. Older examples can still teach useful prompting patterns, workflow structure, or design tradeoffs. The important distinction is this: examples are usually illustrative evidence, while official docs, release notes, and strong product-team guidance are the primary normative evidence for what should be recommended now.
+
+When an older example teaches a useful idea but uses outdated syntax, outdated field names, or deprecated workflow structure, translate the idea into the current supported form before recommending it. Never promote old syntax just because the underlying idea is still useful.
 
 ## Source Priority
 
@@ -66,6 +72,8 @@ Do not throw away an example just because it is older, imperfect, or technically
 Do not treat any single source as enough on its own. Cross-check everything.
 
 When evidence conflicts, prefer the most current authoritative source that is still relevant to the exact feature being audited. Do not flatten old and new guidance into a compromise. Call out deprecations, renamed fields, replaced patterns, and examples that were valid once but should not drive the target state now. At the same time, preserve useful example patterns as examples when they still illuminate how people achieved better results.
+
+Treat invalid or deprecated customization syntax the same way you would treat compile errors in source code: as real errors to eliminate, not quirks to tolerate. When two approaches achieve the same result, prefer the currently supported, documented form because it is the more durable and lower-risk choice.
 
 Do not use Awesome Copilot, Anthropic skills, or any other meta-repository as your main source of truth for requirements. They are useful for examples, discovery, and common patterns, not for turning optional ideas into mandatory rules unless the official docs or stronger product guidance agree.
 
@@ -338,6 +346,8 @@ Return findings in a structured format covering:
 - Specific recommendations for this project type
 
 The `Target-state blueprint` must be the most actionable part of the report. It should say, in plain language, what the ideal `.github/` setup should look like for this project and what qualities it should prioritize: clarity, brevity, routing accuracy, workflow fit, maintainability, and any focus-specific needs the user provided.
+
+The blueprint must stay proportional to the project. Do not bloat a simple repository with heavyweight agent flows or specialized tooling unless the evidence shows a clear payoff for this specific project.
 
 The `Implementation cues` must be concrete enough that the evaluator can produce an implementation-ready plan without having to go back out to the web.
 

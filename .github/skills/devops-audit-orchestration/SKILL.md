@@ -10,16 +10,61 @@ Use the agent tool to start isolated subagent calls. Start immediately. Do not i
 
 This skill describes how the main chat orchestrator should behave. Do not launch a separate "orchestration" subagent to load this skill. The main chat session is the orchestrator.
 
-## Mandatory Full Pipeline — No Exceptions
+This skill can be loaded in two valid ways:
 
-The four-phase pipeline always runs completely. Every audit, every time, regardless of what the user said.
+- `DevOpsAudit` is the active responding custom agent.
+- A natural-language-routed main chat session is temporarily acting as the audit coordinator.
 
-- User gave a short command with no extra text → run all four phases for the whole codebase.
-- User gave a detailed multi-paragraph request → run all four phases, focused on that request.
-- User sent follow-up messages after the command → incorporate them and run all four phases.
-- Previous audit artifacts exist → run all four phases anyway (reuse artifacts only if they pass the gate).
+In both cases, the main chat session is the orchestrator. Do not invoke `DevOpsAudit` as a nested subagent and then try to run the pipeline from inside that nested agent.
+
+## Mandatory Full Pipeline
+
+The audit always runs the full pipeline required by the user's requested outcome.
+
+- User gave a short command with no extra text → run the default four phases for the whole codebase.
+- User gave a detailed multi-paragraph request → run the default four phases, focused on that request.
+- User explicitly asked for no edits, read-only output, report-only mode, or a concise overview without changes → run Context, Research, and Evaluation, then stop and report. Do not run Implementation.
+- User sent follow-up messages after the command → incorporate them and run the appropriate full pipeline for the updated request.
+- Previous audit artifacts exist → run the appropriate full pipeline anyway (reuse artifacts only if they pass the gate).
 
 Do not skip phases. Do not collapse phases. Do not do any phase's work yourself. Do not stop early because the request "seems simple." The pipeline is the mechanism for all audit work.
+
+Default mode phases:
+
+1. Context → 2. Research → 3. Evaluation → 4. Implementation
+
+Report-only mode phases:
+
+1. Context → 2. Research → 3. Evaluation
+
+## Judgment Model
+
+The audit must separate four different questions. Do not blur them together.
+
+1. `Platform validity` — supported syntax, correct frontmatter fields, correct file placement, deprecated field detection, and obviously broken routing.
+2. `Primitive fit` — whether instructions, prompts, agents, skills, and hooks are being used for the right job.
+3. `Recommendation strength` — whether a conclusion is required, recommended, optional, or illustrative only.
+4. `Project fit` — whether the recommendation actually helps this repository and the user's stated focus.
+
+Apply these rules throughout the pipeline:
+
+- Start from the smallest viable target state. For many repositories, that is repo-wide instructions plus a few scoped instructions.
+- Do not treat prompts, agents, skills, hooks, model pinning, subagent topology, or research caches as mandatory unless the evidence shows a clear payoff for this project.
+- When the repository deliberately includes a repo-local Copilot workflow such as an audit system, evaluate it like any other project asset: by correctness, scope, maintenance cost, and developer value.
+- A strong recommendation explains why it is good in platform terms such as token cost, routing reliability, least privilege, maintainability, and workflow fit.
+
+## Global Helper Integrity Checks
+
+When the audited Copilot workflow is intended to operate as a global or cross-workspace helper, portability and truthfulness become mandatory audit surfaces, not optional extras.
+
+The audit must verify these surfaces together:
+
+- the repo-local `.github/` files that define the workflow
+- the user-level install locations or packaging surfaces that make the helper available across workspaces
+- the public entrypoints that expose the helper, including deterministic slash-command entrypoints and any best-effort natural-language routing
+- the truthfulness of README, man page, installer, and runtime claims about installability, accessibility, and behavior
+
+Claims that the helper installs alongside Copilot extensions, is globally accessible, or is reachable through a specific public entrypoint must match actual installer and runtime behavior. If those claims cannot be verified, the evaluation must treat that as an integrity problem and the implementation handoff must include explicit follow-up actions for any required non-`.github/` fixes.
 
 ## User Focus Forwarding
 
@@ -31,9 +76,15 @@ When writing the subagent prompt for each phase, include the user focus near the
 
 If no user focus exists, tell each phase: "No specific focus was provided. The entire codebase is the scope."
 
+If the user explicitly says not to make edits, include that near the top of every subagent prompt. The evaluation phase should still produce an implementation-ready plan, but the orchestrator must not invoke the implementation phase.
+
 The user focus determines what the research targets. If the user said "build a visual testing flow," the research must find evidence about visual testing patterns in Copilot customization, not just generic Copilot docs. If the user said "qt qss," the research must target Qt/QSS-specific Copilot guidance. The focus is not a tag — it drives the research direction.
 
+Do not let one example focus mutate into a default recommendation for every project. The orchestrator's job is to keep the audit specific to the current repository and current request, not to spread specialized workflows into repos that do not need them.
+
 Use isolated subagents for the runtime workflow. In each subagent prompt, tell the subagent exactly which audit skill to load, what inputs to use, what boundaries to respect, and what output to return.
+
+For natural-language-routed runs, keep the current main session as the coordinator and invoke the phase specialists directly. Do not first launch `DevOpsAudit` as a subagent. Nested orchestration is less reliable than keeping the coordinator at the top level, and it contradicts this skill's own execution model.
 
 When invoking a phase subagent, use the exact named audit specialist for that phase. Never intentionally fall back to a generic exploration agent.
 
@@ -42,6 +93,7 @@ Judge routing by observable runtime behavior, not by hidden implementation assum
 Treat routing as valid when the observable signals line up:
 
 - the audit prompt loads the audit orchestration skill or equivalent audit instructions
+- the main session is acting as the coordinator, whether that main session is `DevOpsAudit` or a natural-language-routed top-level session
 - the run preserves the four audit phases in order
 - the named audit phase specialists are the intended targets for subagent calls
 - the main session does not silently collapse into doing the phase work itself
@@ -49,12 +101,13 @@ Treat routing as valid when the observable signals line up:
 Treat routing as failed only when runtime evidence is concrete, such as:
 
 - an explicit wrong-agent or unknown-agent error
+- the run nests `DevOpsAudit` under another agent and then tries to orchestrate the pipeline from inside that nested subagent
 - a clearly named non-audit subagent such as `Explore` being invoked for a phase that should use an audit specialist
 - the main session performing context, research, evaluation, or implementation work itself without the audit pipeline
 
 Judge phase outputs by substance, not ceremony. A phase is valid only if it covers its full scope with the required evidence, correct source weighting, current guidance for normative claims, and project-specific detail. If a phase is incomplete, generic, unsupported, anchored on stale guidance, or unable to recover from a weak line of inquiry by trying another path, reject it.
 
-Run four subagents in order. Each one finishes before the next starts. Pass only compact handoff summaries to the next phase, not giant raw transcripts or repeated file contents.
+Run the required subagents in order for the active mode. Each one finishes before the next starts. Pass only compact handoff summaries to the next phase, not giant raw transcripts or repeated file contents.
 
 If a phase fails quality control, rerun that same phase once with a short deficiency list that says exactly what was missing and which alternate evidence paths it should pursue next. If the retry still fails, stop the audit. Do not keep marching forward with weak inputs.
 
@@ -76,7 +129,7 @@ Never pass full chat transcripts or large copied file bodies unless a later phas
 1. **Gather Context** → start an isolated subagent. Tell it to load `devops-audit-context`. Give it the user's request and user focus. It returns a compact project profile and a complete `.github/` Copilot file inventory. The context agent must capture the user focus prominently in the project profile.
 2. **Research Best Practices** → start a new isolated subagent. Tell it to load `copilot-research`. Give it the accepted context handoff and the user focus. Tell it to optimize research for the user focus — if the user asked about visual testing, research visual testing patterns; if they asked about Qt, research Qt-specific guidance. It returns current Copilot customization guidance for this project type, including an explicit target-state blueprint optimized for the user focus. The research subagent must treat workspace exploration as out of scope, must use `fetch` and `githubRepo` before any terminal fallback, and must return concrete external evidence rather than a workspace-derived opinion.
 3. **Evaluate Setup** → start a new isolated subagent. Tell it to load `devops-audit-evaluation`. Give it the accepted context and research handoffs plus the user focus. It returns file-by-file verdict coverage, prioritized problems and gaps, and an implementation-ready change plan that addresses the user focus.
-4. **Implement Fixes** → start a new isolated subagent. Tell it to load `devops-audit-fix`. Give it the approved file-by-file change plan plus supporting research evidence. It applies the changes.
+4. **Implement Fixes** → only in default mode, start a new isolated subagent. Tell it to load `devops-audit-fix`. Give it the approved file-by-file change plan plus supporting research evidence. It applies the changes.
 
 ## Phase Gates
 
@@ -101,6 +154,7 @@ Accept research only if all of these are true:
 - Those repository examples were explored beyond the README: the research read actual `.github/` files and at least one other useful project artifact such as build config, CI, tests, or developer docs to understand why the customization fits the project.
 - At least 1 recent product-team video transcript was used, and preferably 2 when the topic is broad enough to support it. If transcript tooling or source availability blocks this, the blocker must be explicit and concrete.
 - The output clearly states what correct or better target-state customization should look like for this project or user focus.
+- The output avoids pushing specialized workflows or tooling into the target state unless the evidence shows they fit this project or the user explicitly asked for them.
 - The recommendations are specific enough that the evaluator could rewrite the audited `.github/` files without guessing.
 - The output identifies concrete opportunities for improvement, simplification, or bug-finding rather than only validating current state.
 - The evidence set is broad enough that a result based mostly on overview docs or community meta-guides would fail.
@@ -114,7 +168,7 @@ Accept research only if all of these are true:
 Accept evaluation only if all of these are true:
 
 - Every inventoried Copilot file receives an explicit verdict such as keep, fix, merge, move, or delete.
-- Problems and gaps are tied back to research evidence.
+- Problems and gaps are tied back to research evidence and are labeled by recommendation strength.
 - If few or no problems are found, the evaluator still explains why the remaining files are correct.
 - The evaluation is specific to this workspace. If it would fit any repo unchanged, reject it.
 - The evaluation includes a concrete file-by-file change plan that an implementation agent could execute without doing more research.
@@ -129,10 +183,12 @@ Accept implementation only if all of these are true:
 - No blocked audit artifacts were created.
 - Any refused changes are explained clearly.
 
+If report-only mode is active, skip the implementation gate entirely and require the final report to state that no files were changed.
+
 The orchestrator never performs context-gathering, research, evaluation, or implementation itself. It only invokes subagents, reviews results, and gives the final sign-off.
 
 Phase acceptance rule: accept only outputs that clearly pass the gate for that phase. Do not restart a completed phase because the subagent described its own runtime in an unexpected way, but do reject it if the substance is weak.
 
 If any required subagent cannot be invoked, stop immediately. Report the concrete runtime problem and do not fall back to manual execution. A manual fallback defeats the architecture and produces misleading behavior.
 
-After the last agent finishes, review the implementation result against the approved findings, then report to the user what was found, what changed, and whether any phase had to be rejected or retried.
+After the last required agent finishes, review the accepted outputs against the approved findings, then report to the user what was found, whether anything changed, and whether any phase had to be rejected or retried. In report-only mode, explicitly say that no files were changed.

@@ -1,0 +1,78 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+AUDIT_CMD="/usr/local/bin/git-copilot-devops-audit"
+
+log() {
+	echo "[github-shell-helpers pkg] $1"
+}
+
+find_vscode_cli() {
+	local user_home="$1"
+	local candidate
+
+	for candidate in \
+		"$user_home/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+		"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+		"$user_home/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code" \
+		"/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code"
+	do
+		if [ -x "$candidate" ]; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+run_as_console_user() {
+	local user_name="$1"
+	shift
+	/usr/bin/sudo -H -u "$user_name" -- "$@"
+}
+
+console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
+
+if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
+	log "Skipping VS Code global audit setup because no logged-in console user was detected."
+	exit 0
+fi
+
+if [ ! -x "$AUDIT_CMD" ]; then
+	log "Skipping VS Code global audit setup because $AUDIT_CMD was not installed."
+	exit 0
+fi
+
+user_home="$(/usr/bin/dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+if [ -z "$user_home" ]; then
+	user_home="/Users/$console_user"
+fi
+
+vscode_user_dir="$user_home/Library/Application Support/Code/User"
+run_as_console_user "$console_user" /bin/mkdir -p "$vscode_user_dir/agents" "$vscode_user_dir/prompts"
+
+if code_cli="$(find_vscode_cli "$user_home")"; then
+	if run_as_console_user "$console_user" "$code_cli" --install-extension GitHub.copilot --force >/dev/null 2>&1; then
+		log "Installed or updated VS Code extension GitHub.copilot for $console_user."
+	else
+		log "Failed to install VS Code extension GitHub.copilot for $console_user."
+	fi
+
+	if run_as_console_user "$console_user" "$code_cli" --install-extension GitHub.copilot-chat --force >/dev/null 2>&1; then
+		log "Installed or updated VS Code extension GitHub.copilot-chat for $console_user."
+	else
+		log "Failed to install VS Code extension GitHub.copilot-chat for $console_user."
+	fi
+	else
+	log "No usable VS Code CLI found for $console_user. The audit surfaces will still be installed, but the Copilot extensions may need to be installed manually."
+fi
+
+if run_as_console_user "$console_user" "$AUDIT_CMD" --update-agent --force >/dev/null 2>&1; then
+	log "Installed global DevOpsAudit router, agents, skills, and prompt for $console_user."
+else
+	log "Failed to run the global audit setup automatically. Run 'git copilot-devops-audit --update-agent --force' manually as $console_user."
+fi
+
+exit 0

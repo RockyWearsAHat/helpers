@@ -49,6 +49,54 @@ fetch() {
   curl -fsSL "$src" -o "$dest"
 }
 
+find_vscode_cli() {
+  local candidate
+
+  if command -v code >/dev/null 2>&1; then
+    command -v code
+    return 0
+  fi
+
+  for candidate in \
+    "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+    "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+    "$HOME/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code" \
+    "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code"
+  do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+maybe_install_vscode_extensions() {
+  local code_cli="$1"
+  local reply=""
+
+  printf '[Git-Shell-Helpers-Installer] Install or update VS Code GitHub Copilot extensions now? [Y/n]: '
+  read -r reply || reply=""
+
+  if [[ -n "$reply" && "$reply" != "y" && "$reply" != "Y" ]]; then
+    echo "[Git-Shell-Helpers-Installer] Skipped VS Code extension install. Install GitHub.copilot and GitHub.copilot-chat later if needed."
+    return
+  fi
+
+  if "$code_cli" --install-extension GitHub.copilot --force >/dev/null 2>&1; then
+    echo "[Git-Shell-Helpers-Installer] Installed or updated VS Code extension: GitHub.copilot"
+  else
+    echo "[Git-Shell-Helpers-Installer] Failed to install VS Code extension: GitHub.copilot" >&2
+  fi
+
+  if "$code_cli" --install-extension GitHub.copilot-chat --force >/dev/null 2>&1; then
+    echo "[Git-Shell-Helpers-Installer] Installed or updated VS Code extension: GitHub.copilot-chat"
+  else
+    echo "[Git-Shell-Helpers-Installer] Failed to install VS Code extension: GitHub.copilot-chat" >&2
+  fi
+}
+
 install_all() {
   echo "[Git-Shell-Helpers-Installer] Installing git shell helpers..."
 
@@ -103,13 +151,29 @@ install_all() {
 
   # Optional: install private audit agents and the slash command into standard user-level Copilot locations
   VSCODE_USER_DIR="$HOME/Library/Application Support/Code/User"
-  if [ -d "$VSCODE_USER_DIR" ]; then
+  local code_cli=""
+  local should_offer_vscode_setup=false
+
+  if code_cli="$(find_vscode_cli)"; then
+    should_offer_vscode_setup=true
+    mkdir -p "$VSCODE_USER_DIR"
+
     echo ""
-    printf '[Git-Shell-Helpers-Installer] Install private Copilot audit agents + /copilot-devops-audit globally in VS Code? [Y/n]: '
+    maybe_install_vscode_extensions "$code_cli"
+  elif [ -d "$VSCODE_USER_DIR" ]; then
+    should_offer_vscode_setup=true
+    echo ""
+    echo "[Git-Shell-Helpers-Installer] VS Code user profile found, but no usable 'code' CLI was detected."
+    echo "[Git-Shell-Helpers-Installer] Install the GitHub Copilot and GitHub Copilot Chat extensions manually if you want the audit surfaces to be usable in VS Code."
+  fi
+
+  if [ "$should_offer_vscode_setup" = true ]; then
+    echo ""
+    printf '[Git-Shell-Helpers-Installer] Install private Copilot audit agents, natural-language router, and /copilot-devops-audit globally in VS Code? [Y/n]: '
     read -r vscode_reply || vscode_reply=""
     if [[ -z "$vscode_reply" || "$vscode_reply" == "y" || "$vscode_reply" == "Y" ]]; then
       "${BIN_DIR}/git-copilot-devops-audit" --update-agent --force >/dev/null 2>&1 || true
-      echo "[Git-Shell-Helpers-Installer] Installed DevOpsAudit agents and skills into ~/.copilot, and the prompt into the VS Code user profile."
+      echo "[Git-Shell-Helpers-Installer] Installed DevOpsAudit agents, the natural-language router instruction, and skills into ~/.copilot, plus the prompt into the VS Code user profile."
       echo "[Git-Shell-Helpers-Installer] Reload VS Code window (Cmd+Shift+P → 'Developer: Reload Window') to activate."
     else
       echo "[Git-Shell-Helpers-Installer] Skipped VS Code global install. Run 'git copilot-devops-audit' in any repo to install later."
