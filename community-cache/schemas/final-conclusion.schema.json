@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/community-cache/final-conclusion.schema.json",
+  "title": "Community Cache Final Conclusion Packet",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "topic",
+    "statement",
+    "recommendationStrength",
+    "applicability",
+    "evidenceRefs",
+    "auditCompletedAt",
+    "freshnessCheckedAt",
+    "authoritativeSupport",
+    "liveRevalidated",
+    "contradictionCount",
+    "clientBehaviorVersion"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["principle", "anti-pattern", "example", "warning"]
+    },
+    "topic": {
+      "type": "string",
+      "enum": [
+        "prompts",
+        "instructions",
+        "agents",
+        "skills",
+        "routing",
+        "tooling",
+        "workflow",
+        "other"
+      ]
+    },
+    "statement": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 1000
+    },
+    "recommendationStrength": {
+      "type": "string",
+      "enum": ["required", "recommended", "optional", "illustrative"]
+    },
+    "applicability": {
+      "type": "string",
+      "enum": [
+        "general",
+        "prompt-design",
+        "instruction-design",
+        "agent-design",
+        "skill-design",
+        "routing",
+        "tool-use",
+        "workflow-general"
+      ]
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["title", "url", "sourceType"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "url": { "type": "string", "minLength": 1 },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "official-doc",
+              "release-note",
+              "product-guidance",
+              "public-example",
+              "public-video",
+              "other"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "auditCompletedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "freshnessCheckedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "authoritativeSupport": {
+      "type": "string",
+      "enum": ["none", "weak", "medium", "strong"]
+    },
+    "liveRevalidated": {
+      "type": "boolean"
+    },
+    "contradictionCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "clientBehaviorVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "publicSummary": {
+      "type": "string"
+    },
+    "cautionNotes": {
+      "type": "string"
+    },
+    "nonGeneralizationNotes": {
+      "type": "string"
+    },
+    "submissionId": {
+      "type": "string"
+    },
+    "submittedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "statementHash": {
+      "type": "string"
+    }
+  }
+}

@@ -30,6 +30,10 @@ set -euo pipefail
 BIN_DIR="${HOME}/bin"
 MAN_DIR="${HOME}/man/man1"
 ZSHRC="${HOME}/.zshrc"
+COMMUNITY_SETTINGS_DIR="${HOME}/.copilot"
+COMMUNITY_SETTINGS_FILE="${COMMUNITY_SETTINGS_DIR}/devops-audit-community-settings.json"
+DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
+DEFAULT_COMMUNITY_BRANCH="main"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -67,6 +71,57 @@ install_script() {
   cp "$src" "$dest"
   chmod +x "$dest"
   echo "[install-git-shell-helpers] Installed script: $dest"
+}
+
+install_support_script() {
+  local src_rel="$1"
+  local dest_name="$2"
+  local src="${SCRIPT_DIR}/${src_rel}"
+  local dest="${BIN_DIR}/${dest_name}"
+
+  if [ ! -f "$src" ]; then
+    echo "[install-git-shell-helpers] WARNING: support script not found: $src" >&2
+    return
+  fi
+
+  cp "$src" "$dest"
+  chmod +x "$dest"
+  echo "[install-git-shell-helpers] Installed support script: $dest"
+}
+
+write_community_settings() {
+  local mode="$1"
+
+  ensure_dir "$COMMUNITY_SETTINGS_DIR"
+  cat >"$COMMUNITY_SETTINGS_FILE" <<EOF
+{
+  "schemaVersion": 1,
+  "mode": "${mode}",
+  "communityRepo": "${DEFAULT_COMMUNITY_REPO}",
+  "baseBranch": "${DEFAULT_COMMUNITY_BRANCH}",
+  "branchPrefix": "automation/community-cache-submission"
+}
+EOF
+  echo "[install-git-shell-helpers] Wrote community cache settings: $COMMUNITY_SETTINGS_FILE"
+}
+
+configure_community_cache() {
+  local reply=""
+  local mode="pull-only"
+
+  printf '[install-git-shell-helpers] Enable privacy-safe community cache uploads after successful audits? [y/N]: '
+  read -r reply || reply=""
+  if [[ "$reply" == "y" || "$reply" == "Y" ]]; then
+    mode="pull-and-auto-submit"
+  fi
+
+  write_community_settings "$mode"
+
+  if "${BIN_DIR}/git-copilot-devops-audit-community-pull" >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] Pulled the latest shared DevOps audit community cache."
+  else
+    echo "[install-git-shell-helpers] WARNING: failed to pull the shared DevOps audit community cache." >&2
+  fi
 }
 
 find_vscode_cli() {
@@ -158,6 +213,15 @@ generation. This includes files such as
 .IR CONTRIBUTING.md ,
 and
 .IR README.md .
+.PP
+If
+.B VERSION
+is staged with a new value and
+.IR release-notes/v<version>.md
+is missing,
+.B git upload
+will block the upload. In AI mode, it first attempts to generate and stage the
+missing release notes file before creating the commit message.
 .SH OPTIONS
 .TP
 .BR -ai ,
@@ -187,6 +251,11 @@ commit message (subject line plus optional body).
 The prompt also includes bounded excerpts from repo-authored guidance files so
 the model can follow project-specific commit and upload workflow rules without
 reading the repository itself.
+.PP
+When AI mode is enabled and a version bump is staged without matching release
+notes, the same AI command is also used to generate a concise
+.IR release-notes/v<version>.md
+file before the commit is created.
 .PP
 If the environment variable
 .B GIT_UPLOAD_AI_CMD
@@ -413,6 +482,10 @@ main() {
   install_script "git-initialize"
   install_script "git-fucked-the-push"
   install_script "git-copilot-devops-audit"
+  install_support_script "scripts/community-cache-submit.sh" "git-copilot-devops-audit-community-submit"
+  install_support_script "scripts/community-cache-pull.sh" "git-copilot-devops-audit-community-pull"
+
+  configure_community_cache
 
   install_man_git_upload
   install_man_git_get
