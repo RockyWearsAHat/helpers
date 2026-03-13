@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "2026-03-12-initial",
+  "publishedAt": "2026-03-12T18:00:00Z",
+  "confidence": "medium",
+  "summary": "First seeded public DevOps audit community snapshot built from official GitHub Copilot guidance, public example repositories, and repeated cross-repository patterns.",
+  "files": {
+    "officialSources": "community-cache/snapshots/2026-03-12-initial/official-sources.json",
+    "publicExampleSources": "community-cache/snapshots/2026-03-12-initial/public-example-sources.json",
+    "promptingPrinciples": "community-cache/snapshots/2026-03-12-initial/prompting-principles.json",
+    "applicationPractices": "community-cache/snapshots/2026-03-12-initial/application-practices.json",
+    "antiPatterns": "community-cache/snapshots/2026-03-12-initial/anti-patterns.json"
+  }
+}

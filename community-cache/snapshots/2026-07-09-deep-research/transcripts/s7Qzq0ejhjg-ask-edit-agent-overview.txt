@@ -1,0 +1,515 @@
+What's going on, Burke? Hey, James. Happy Friday. How are you?
+
+Happy Friday. I'm good. And I have a question for you. We're talking about Ask Edit and Agent to Burke.
+
+I get this question all the time. People are vibing. They're jamming. They're coding inside of VS Code with GitHub Copilot.
+
+And then they open the chat window and they have like all these options. They have ask, edit, and agent. And we show agent mode all the time because it's like fantastic, right? But I think that these different modes are important to understand when you want to use them, how you use them.
+
+And I said, you know what? There's no one better than Mr. Burke Holland himself. So, that's what I want to do today.
+
+Well, let's do it. And I don't know if I'm the best person. There's probably better people, but I'll do the best I can. Uh, all right.
+
+Let's get my screen up here, expert. Boom. There it is. Super duper.
+
+Now, this as as you may know, is Visual Studio Code. I'm in Insiders here. Just a quick note, if you want the latest and greatest, Jane James, do you like the latest and greatest? That's how I live my life.
+
+I only want the latest and greatest. Anything cutting edge features all the time. Why wouldn't I? Do you want the first one to be to have the AI when it's self-aware and has consciousness?
+
+Then you need to be in it. You need to have Visual Studio Code Insiders. You know what, Burke? I have it installed side by side.
+
+Normal VS Code. I literally have both of them. One's blue, one's green. Why not have both?
+
+They install in like 30 seconds. There you go. You can have both and then you get all the latest and greatest features. So, that's where we are today.
+
+Shameless plug for insiders. Uh, all right. So, you're in your chat sidebar here, which to be honest with you, man, mine's usually on the other side. Like, what's what's going on here?
+
+Toggle my primary sidebar. Yeah, there we go. Sidebar there and fascinating. Live your life, Burke.
+
+Live your life. Live your life. It's all about customization and doing things your way. Uh, all right.
+
+Have it your way. Here we go. Um, let's start with ask mode, right? Ask is kind of like the standard chat.
+
+Remember when we they did the Copilot X announcement and we had chat inside of Visual Studio Code. And so that's what ask mode is just kind of your standard chat. Now, this is a great place to do brainstorming and to talk with the AI about things that you might consider implementing, right? So, let's say we wanted to do um I don't know, let's say we wanted to add notifications to this application, right?
+
+We want this web app to send people notifications. I don't know about y'all, but whenever I go to a website and it's like this website wants to send you notifications, I'm like, how quickly can I click the no button? Or are we going to do that on our website? Because that's what people want.
+
+All right. So, let's just say um uh what's you know, I'd say what's the best way to show uh notifications to the user in the browser. Okay. So, in this mode, it's really just like a chat a chat session.
+
+And you can see it used one reference here, which is my custom instructions. These are actually in a file up here. They get included by default. And it just has information about my project.
+
+You don't have to have this. It's fine. But you can see here that because I have this right, it knows about my project and it says the best way to show notifications is to use a global notification store, right? And then he it kind of breaks down the steps for what to do there.
+
+So in this instance, this is kind of like safe mode, right? Like it didn't it knows about your code, right? I'm assum assuming you could reference code. It knows about that copilot the instructions file.
+
+But this is sort of safe mode. I I love this because if I got this project, the earless web, I don't know anything about this project, tsx files, react like I think and Hanselman explained it to me one time. Imagine you're a new developer or just new to a project. I could go ask you a thousand questions, Burke.
+
+Or I could just like literally ask get it up copilot right here in safe mode, right? Because imagine like could you just ask it like what is nano stores? give me about be like uh what is nanostores and it should it should tell you and to your point about asking about the project here yeah nanosource it's tiny fast so yeah you're you're in safe mode in the sense that it's going to give you code but it's not actually going to write any code and you have the option from here to up so there's a couple options which you can you can copy this code you can if I click this it inserts it at the cursor if we had an editor open if we do um insert into a new file here does exactly that. And then you have this one, this apply in editor, right?
+
+So if we had some code that was like we don't have a notification list component, but if we did, let's see, add to your root layout notification list, you could actually pull up a file like say this file here. And if this code was something it was trying to add to this file, when you click this button, it does a smart apply and it just tries to apply it wherever it needs to be in the file, right? Instead of you trying to copy and paste because sometimes it'll give you code that needs to go at the top, in the middle, and then some at the bottom. And it will just smartly apply that stuff for you.
+
+I see. So this is really like, hey, I want to not only just do some coding, but I want to learn about the code. I want to I want to rubber duck, if you will, back and forth with it. you know, you have a, you know, a duck that's like sitting there or, you know, in my case, I have a little little monkey just hanging out and like often I'll talk to my monkey and I'm I'm having a problem, right?
+
+Um, you might just go back and forth on it, but you can actually then put it in in as well if you want to. So, you you kind of in fullon like 100% control, right? Like nothing is happening until you do it and you're sort of in this learn mode all that's exactly right, James. It's so well articulated.
+
+Thank I just want to do the smart apply so you can see here. Let's just do this. And then you'll see it's just I'm just adding comments. You can see because it needs to some stuff needs to stay the same.
+
+Then it needs to insert things in the file. And you can see it's it's fairly fast. We've actually done a lot of work on that to make that quicker. And then you can see all of the different changes here.
+
+And you can keep and and undo things as we want to. So that's really important right there. You did the keep and then the undo is like even though you did a smart apply in this ask mode, it hasn't actually modified the file. sort of like it's modified but hasn't saved it.
+
+It is it is in memory maybe it's it's yeah that's that's a great So let's remove the comments. This is an easy too easy. Uh yeah so what happens is this is kind of a new way you know I don't think we've really had anything like this before as developers but if we do this it's going to take all this stuff out and then um let's see here. And I like this because one thing that's really important is the diff, right?
+
+Like I am seeing it in real time. And notice that there's little green checkboxes right there. Even on line six or line seven or whatever it is, you can approve individual lines, right? So you can be code reviewing in you're you're almost like kind of again you are in guide.
+
+You're understanding it and then you're giving it this context. Now here's what's really interesting is that you can save this file right now. Now, I saved it, but you see how there's like this little it says it has it's got pending changes from GitHub copilot. There's there's like two states.
+
+Okay, so there's the state of having changes like that we're used to where you save and if I was to go out and actually use this file in the application. So, in my application, like it's in hot reload, right? I could see any changes here, but it's not actually kept. In other words, at this point, if I hit undo, it would just roll all of that back.
+
+Now, what's great about this is that if you're working application like in the web or I know for .NET and you have hot reload and you make a ch it makes a change and you want to check it and be like, "Yeah, that's what I wanted or it isn't what I wanted." If it's not what you wanted, then you just come back and hit undo and then you're you're out of the whole thing, which is great. And it's a new way for developers to think about saving and keeping. We call it keeping.
+
+So you can save but you don't you haven't kept until you hit keep. Gotcha. Yeah. I really like that.
+
+And it's cool that you can kind of go file by file. You're learning. This to me is I am in sort of my traditional way like and you think about it before you might have you know might have binged or googled something saw a code sample and you're trying to figure out where to put the code but in this case you know all this context of your application uh of what you want to do is here and it knows your code so it can insert them smartly into it which is cool and I see there's also a bunch of buttons here I want to point it out you're in GBT41 mode I assume that there's different model look at all those models so many models what okay so I know that in ASM mode there's the most models. So why are there so many models here?
+
+And I really want to dive into ask before we get to edit an agent because I found ask mode really interesting to in this learning mode. So I see here that there's like minis, there's flashes, there's thinking, there's pros. What's the context here? What are these important for in this mode?
+
+Yeah, that's a great question. So first of all, let's clarify that there will be some models in my list that aren't in your list for a couple of reasons. Um, one because, uh, I do get some access to models before, you know, we ship them and everybody else gets them, but also because your organization may turn them off, right? So, if you don't see them, it could be I see this a lot, so I wanted to address that.
+
+You're like, I don't see that in my list. Why is that? And then if you're not on insiders, then you may not see that, right? And pro versus free accounts for GitHub co pro versus free.
+
+Correct. Right. So, there's a lot of different factors. So, if you want to see them all, if you're on insiders and you've got pro and your org has allowed all of the models or it's just an individual account, then you'll see essentially what I see.
+
+Got it. Now, to your question, these all these models, what are we using these models for? What are they good for? That is like that is the question that everyone is trying to answer.
+
+And actually, Cassidy over at GitHub wrote a great blog post about this where she kind of puts them into different categories. But when you're thinking about them in terms of chat, I sort of think about them in two different ways, right? We have models that are really good at doing very specific things. You're asking them to do something specific and they can do that thing.
+
+And then we have models that are really good at something that we call tool calling. We're getting a little bit of ahead of ourselves here because we that's an agent mode thing. But in order in order for something to be an agent, a model to act as an agent, all an agent is is it's a model that is calling different tools. So it knows what it needs to do.
+
+It needs to execute something in the terminal, it calls that. It needs to create files, it calls that. These are all underlying tools that the model needs to be able to call. But not all models are tool calling models.
+
+They're just not. And so some of them aren't in agent mode because they're not tool calling and the experience won't be great. And so what you see in agent mode because the you see a reduced list here are ones that we've sort of vetted as being good for tool calling with the prompting that we're using behind the scenes to make all of that work for you and have it be an agent. That makes sense.
+
+And and like I think important here too is like often sometimes here is like it's not even about code, right? So for example like imagine you're a new developer and imagine I'm like Burke go learn async await in C#. How would you even do that? Well, you could just ask it here and maybe you could do like a thinking model that would go deeper, right?
+
+And it doesn't even need to show you any code in it. So, yeah, ask a new chat. There's a few things that Burke just did that I think are important as you are going through this that I want to point out and I do this all the time is you asked a new chat. You sort of reset the context, right?
+
+The GitHub copilot when you're asking it has the context of above. It kind of knows what's going on. But then you also decided to remove the current file. So by default when you're in any mode, if you have an open file, it'll automatically attach the contacts.
+
+Kind of like if you're working on that file, you can apply and ask other contacts. You can use the the pound sign or hash sag sign to call tools or reference other code files or even methods and things like that. Um, but what I love about this is that you're kind of in this real control mode of like what you want to do. So here, yeah, let's see what happens here.
+
+Okay. So, you're going into a This is a great GPT40. Super fast. It has the context.
+
+Async await is there. This is great. Oh, cool. What What is happening?
+
+This is There's a trivia mode. Yeah. Well, no, it's you can kind of force it into these modes. We made a whole video on this on the different um types of prompts that you can do here.
+
+Cool. So, this one is this is kind of stepwise. I'm telling it to move in steps essentially like ask me one question at a time and then you're like in a back and forth with the model, which is kind of cool. People kind of think about it as like I talk to the model, the model responds.
+
+No. Uh it can be a conversation. So let me see if I can get this right. What's the purpose of the async?
+
+Makes a method run faster. That seems too easy. Allows method to run asynchronously. Async is in the name.
+
+I'm going to say it's B without even looking at C or D. Let's see if I got that right. This is pretty neat because imagine you're trying to learn something even on the codebase. you could basically talk to it and and sort of start this learning process just like you were reading a book or taking it looked at my custom instructions and tried to bail out.
+
+It's like, "Oh, you're trying to make a project. I'll stop doing this and do that." Well, this is cool, too, because you might say, "Oh, I learned this new concept. I want to apply it."
+
+And you might add that to your to your custom instructions, for example. I learned that a lot. I was I kept asking it when I was working with CSS to add into a razor CSS, for example. And then I was like, I just add that to my custom instruction and it did it.
+
+So, a few more things before we go to edit mode. Can you define really quick what's happening with this add context and that at symbol and how that would apply in the ask mode? Like if in the add context, you can add different context to your prompt, right? Because when it comes to models, y'all, context is everything.
+
+You can think about prompt engineering is just giving the model the answer that you that you want. Yeah. And and the way that you do that is you give it the context where the answer resides. In other words, if you wanted to imp know how to implement login with Facebook.
+
+If you sent all of those docs into the model, then the model would have the answer. It's in there somewhere. It just has to find it. Yeah.
+
+And so you can include entire folders in your and you can actually use the pound to do this as well. Um both you click add context folders. Here's all your folders. Right.
+
+What else do we have in here? Instructions. We talked about this these prompt files that we have and I don't have any besides the one that gets automatically included. You can even include problems from the problems view.
+
+Right. This thing here problem. Yeah. What is it?
+
+Can you just ask it about that problem? Yeah. And actually we can just say uh what is this problem? Right.
+
+If we say problems, can we do it like this? Problems. You see it right there. And this is the way I normally use it.
+
+It just use just remember the pound sign. Is it a pound sign? Pound or hash? Uh, I I did get feedback.
+
+I used pound in one of my videos and some of my friends in in the UK got a little upset at me. So, pound hash sign. Pound hash. Pound hash.
+
+Pound the pound hash. Anyway, you hit that and then it's like, uh, cool. And it Oh, it's insiders, y'all. Sometimes Sometimes this happens.
+
+I wonder if is this a model thing? 41 just came out, so it could be. No. Yeah, looks like it's an insiders issue, but you can also just like drag it in, which is kind of okay, it's going on here.
+
+And normally, if you have a lot of problems, it'll actually do a drop down from the top and it'll it'll have you pick a problem or say all problems as well. So, and I wonder if I hit it here. Yeah, there it is. All problems or just this one?
+
+We only have one. So, but this is cool. Imagine you come in, you're like, I don't know anything about CSS ever. any any at all really just to be honest with you.
+
+But now I can add this context and I can do this here. So this is cool or I like screenshot tools. You can put a photo in here. So imagine you are coming in and go so go to your website for example.
+
+Oh that you have and take like a screenshot of that right? So print screen print screen. So here's what's cool about this is imagine you're like wow my designer gave me this I don't know any any part of this that you grab right? I got it.
+
+And you could just copy paste it in and then you can ask it paste and it's how would I implement something like this right and that's the jam. So I think that context is really good. So that's ask mode there's a whole lot there safe mode learning mode but also applying code too right. Um oh I love this like you know you know all sorts of good questions like teach me about bootstrap teach me like how could I make this entire application look better?
+
+What are CSS best practices? How would that look like this? Am I using the CSS best practices? I want to make the point that it's not just even just asking about general stuff.
+
+It can be also about asking your code, talking about your code, understanding the problem, understanding the implementation, right? And look at this. This is beautiful. Like it's it's walking you through how you would actually do something.
+
+And it's contextaware. Like if you are doing a web search for this, you're going to land on a thousand different websites. They're going to have different different ways of doing it in different formats. And you could even have it then do other things like cool put this, you know, put this into a table and put this into a markdown file.
+
+You know, what would this look like in Markdown that I could, you know, put into my repo, right? You could have it do that and then you could copy that markdown into like a prompt or something like that. So, what's interesting here is that we put I put the image in. Yeah.
+
+And I said, "What are some suggestions for improving this UI?" And it gave it to me. Oh, there's no way to copy it out. Um, which I feel like we should add a copy button here.
+
+I should open an issue for that. There's also the we should say there's a retry button. So earlier when it was failing, we could have just retrieded. I kept saying like the same thing.
+
+You can just hit the retry button if something fails. That's kind of I always forget this is here. This is like the hidden. But what I want to do here is I actually want to like let's move to edit mode.
+
+Yeah. And what I want to do here is I'm going to say give me that again that's marked down so I can copy it out. Now again we should have a copy button here but these are just tricks you can use to uh force the model to do things that you want it to do here. And what I want to do is like let's give these instructions these suggestions to edit mode and see if it can like implement all of these UI changes.
+
+Toy look at this. I love it. Um, no. It's giving me all of my own instructions.
+
+That's not what I wanted. So, here's Let's Now, look look, let's just undo this, right? So, because it it gave us an answer we didn't want. It gave us the custom instructions.
+
+We don't want that. What I want is give me your UI suggestions as markdown so I can copy them out. So this is good when you're when you're going back and forth and this is an important context whether you're an asked or a agent. Um you know you're in control of undoing redoing and in this case also providing that context right so I think the ring the thing is fascinating is it's not always going to get everything right the first time right it it can only do as good as it can based on the context that it has and even in that mode it can only do so well as well.
+
+So in this case now you've given it more context like no no no give me because before you're just like give me that thing and you're like okay it's it's trying to figure it out right but now it's saying okay you know give me those here now you can right one yeah in the history yeah and you can sort of do that but as you see it doesn't always get that right sometimes it's like I don't really know what you're referring to and so you just got to be more specific and you can do revisionist history that's the point right you can always go back and just take out which you actually can't do this on sites like chat gpt which I'm always when I use that site I'm always looking for this and I don't think you can delete. You can't go back and anyway. All right, let's copy this. I copied this.
+
+You want to move to agent mode? Uh, let's move to Yeah, edit mode. Edit first. Yeah, edit.
+
+So, let's do that. Boom. So, now we're sort of changing context, right? Like we are literally now doing something different is what you're saying, right?
+
+So, let's move to and actually I wonder if can we send this to edit mode? I feel like I feel like you used to be able to just like send this chat over to Anyway. Um, did you copy it? Did you copy it?
+
+Let's go to because when we go to edit, it's going to start a new session. New thread. All right. So now in what's edit mode?
+
+Edit mode is a little different. You tell me. Yeah, you do the you're you're better at the descriptions. Eli five here.
+
+Well, ask. We're asking. We're in this safe bubble. Now we're starting to get out of that safe zone, right?
+
+So imagine here we're in that little we're in that little the little bubble of safety, right? Which is that ask mode. We're like, hey, we're we're we're pressing we're doing the things, right? When you start to get into edit mode, you're editing alongside co-pilot.
+
+So co-pilot's like, all right, cool. We're about to jam on some code. Like this is going to happen. Now, how far it goes is dependent on this, right?
+
+So it is going to iterate. Basically, it's going to say, "Okay, I want to implement this one thing. I'm going to either go try to find the files or you can tell me the files and I'm just going to go do it." Now, if it's not going to do other things for you, like for example, it's not going to like compile your code.
+
+It's not going to install npm packages. It's not going to delete files. It's not going to do stuff. It can create files actually because that is a possibility um if it needs to, but it's not going to do certain things that are outside of the sandbox.
+
+So, it's kind of like you're still in the sandbox. you're kind of playing around with it, but it is able to do what you want, but it's probably not going to go beyond that. Does that make sense? So, for example, if you're like, go format this button, use Bootstrap, do this, it's going to go do that thing.
+
+And then when we get to agent mode, which we'll talk about, agent mode starts to think more, right? So, it's kind of in this middle tier where it's like, I know what I want to do. Let's jam on that and let's work this problem out. That's how I've sort of described it in this iterative process where I can say go do this thing.
+
+All right, that's looking good. Let's tweak this. Let's tweak that until it's my perfection. It's sort of like my my in between mode of like, all right, I'm I'm basically thinking about how I would code now to implement one of these features.
+
+And I would say, okay, let's do this, let's do that, let's do this. That's how I think of edits because we're starting an actual editing edit session, right? We're defining the set of files that we want to work with and we're going to jam on it. Now, it also does come up with files that like it thinks it needs to do too based on the Yeah, I think they should just change this to just jam.
+
+Just ask jam and agent. Uh those No, that was great. I would totally agree with that. Ask is like it's a sand sandbox.
+
+It doesn't touch anything, right? It's just giving you suggestions and you're in control. You copy stuff and the most automated thing you have is a smart apply, which is now in edit mode though, you're sort of moving towards like this ages. So you think about it like a slider.
+
+Ask is like no. Uh it doesn't have any rights whatsoever. You're in full control. And in the agent mode, the agent has full control.
+
+And edit is like park right in the middle. So maybe the best way is probably just to see this in act. All right. So we've looked at ass mode.
+
+Let's come back and make some edits here based on the suggestions that we were given by ask when we asked about some UI suggestions. So let's because this will be fun. Let's just take and pop this next to the site so we can watch this thing like happen in real time. Cool.
+
+And let's pick uh how about enhance the button design. Enhance. Enhance. Uh nice.
+
+Enhance it. Enhance. Yeah. Click that button.
+
+Boom. So this is cool. So you're going to say you haven't given it any context. No files are open, right?
+
+I think this is also fascinating too. You're saying, "Hey, there's going to be buttons. Go find the buttons and then go make them better." Basically.
+
+Yes. And in this case, what I also want to do is I want to pass in um this codebase tool. Remember we talking about tools? Yeah, talk about tools.
+
+This is a tool and what it does is it does an an agentic search of your codebase. This works in ask too. And so I think sometimes people are like copilot doesn't know about my whole codebase. Well, it does.
+
+It's just that it doesn't include that as context unless you're specific about it because we don't know if you do if you want that context or not. And so Copilot is really built on you being um declarative in what you want. So we're saying look at the codebase when you do this. It might get this right anyway.
+
+It's just the more specific you are, the better your odds. So let's send it. Yeah. And yeah, send it.
+
+Send it off. Let's see what happens. And sometimes I like to even give it a specific file, right? If I'm like, I just want to work on this specific file, right?
+
+And here's this thing. But this is cool. Look, it's searching all that stuff and it's trying to figure out where buttons are at. That's exactly right.
+
+Oh, cool. So, it's doing a bunch of So, yeah. So, we have here the button. So, it's got button variant, primary, secondary, and danger.
+
+Okay. I assume those are tailwind things. Now, remember, we're going to save but not keep. And then see like what happens here.
+
+Let's save. Okay. It It made the buttons blue and said delete list. Well, tell you don't want them to be blue.
+
+Tell them you want them to be the you know, you want it to be different color. That's not what it said. It actually said delete button differently. Outline poor red background.
+
+Now, okay, this doesn't surprise me though, James. I'm be real honest with you. Uh, when it comes to doing UI stuff, I find Claude to be really, really good. So, let's just undo this.
+
+Let's get out of it. We're back to where we were. See how nice that is? Beautiful.
+
+Nothing. Nothing is Nothing is over. And then let's paste our prompt back in and let let's go with uh Yo, it's your call. 37 or 35?
+
+I'm a 35 guy personally. Um, but I also want to give you a quick tip before you send it. Go ahead and delete that out of your window and like you could just hit the up button. You could That is true.
+
+I just want to let you know. Dang. Now the I I want to let you know that you you taught me that. So I just I'm just give it forgot it.
+
+All right. We ready? Should we hold on? I'm going to bring this back here.
+
+Do you want the codebase or not? In this case, just give it all of it. Just go. I mean, it's honestly, it's got the button, so it doesn't need it, but it doesn't hurt.
+
+It's not going to hurt you to throw a codebase in there. And um we're going to let Claude cook. Uh Claude takes Claude cooks a little harder. And the harder you cook, the more time it takes to cook.
+
+It's It's cooking. You know, I like to So you you hear these words a lot like cooking, it's baking, it's in the oven, right? Things things are happening, right? And what it's doing is it's taking the the context that you gave it, which is a lot.
+
+It's trying to figure out stuff and it's working in the background for you. Every model is going to have different speeds, different capabilities, different things like that. And you saw like, you know, GPT4 was like, you know, really, really, really fast, right? But it may not have been exactly the code that you wanted in general.
+
+So, it's just going to do its thing in general. And and here it goes, right? And one thing I want to point out here is it's telling you what it's going to do. It's actually planning this out.
+
+It's going to add a new destructive variance. It's going to enhance the hover effects. I love that. Add a subtle gradient.
+
+Who doesn't want that? And ensure loading state is visible on all variants, too. So, one thing that I want to point out is it's actually really fun to read what it's doing, by the way. Like, you know, that's one thing that I like to point out is yeah, it can just do stuff, but like why is it doing it?
+
+What is it about to do? And then you could say, you could take those steps and you could modify them. You could say, you know what, no, change step two to be this and reimplement. go back and forth with it, right?
+
+But it looks like it did some stuff. This is cool. It did. We're about to click save and find out what happened.
+
+But to your point about like the output there, the other thing that I learned, James, that's interesting here because I had this custom instruction that said, "Don't explain what you're doing. Just give me the code. I don't care. I don't want to see your thought process."
+
+And what I learned is that these models need to think out loud. And when they're generating this this this like context for you, it helps them provide a better answer. And if you tell them not to do that, they'll they'll leave it out, but they the quality answer goes down, which is quite interesting. Okay, should we should we save and see what we got?
+
+My fingers are crossed. Here we go. It looks very much the same. So, it was it was hard to see, but we got this like kind of drop shadow here on this hover anything with the delete button.
+
+Did it do anything here? Oh, it did. It changed this to red. Nice.
+
+Okay, so it did do this. It just it didn't handle the delete list button. So we would go back and iterate and be like uh handle the uh delete. I wonder if we can find the delete list handle the let's just say handle the delete list button as well.
+
+And I'm curious what it will actually do here. We'll go out and search for it. We have to be specific. And this is nice too because you can see the diffs that it did.
+
+It's going to take that. It's going to apply to it. It also added little hover effects. I want to point that out.
+
+who doesn't want a little bit of, you know, little things there, too. So, that's kind of nice. Um, in general, these Oh, these Oh, look at this. Yeah, put a little underline under there.
+
+Yeah, nice. It says it put an out. Okay, let's see what it did. What did it do?
+
+You have an astro slug. Aastro over there, too. I think Yeah, it's actually it's fixing the the page. It's working on the page.
+
+Changes changes the button variant to destructive. That's a trash icon. Looks the same to me. Trash icon.
+
+Yeah, it uses the new red styling for our button component. Yeah, that it didn't look like it did that, but I do like what it did here with the with the trash icon. I think it's kind of stuck on that. Yeah.
+
+Um, but yeah, this is this is essentially edit mode. It's it's right in the middle between you have all the control versus the AI has all the control. Should we continue on the rest of the way fully into agent territory or you hang out here? Yeah, let's go into agent mode because I think like even in this context, I'm sure you have other buttons and other things throughout, right?
+
+So, I think when we think about going from edit mode to agent mode is like I'm iterating on this design. I'm saving it. I'm doing Oh, there you go. You just didn't save the file, dude.
+
+Save the wrong page. B. Oh, cool. Wow.
+
+Amazing. And has a trash can icon. Okay. So, it does.
+
+That's cool. Beautiful. Okay. So, it did do it.
+
+Amazing. Keep it. You like this? Yeah, keep it.
+
+I love it. Okay. All right. Yeah, keep it.
+
+and I'm not going to do anything to it. All right. Um, let's go to agent mode. Okay.
+
+Stamp it up. You describe agent mode now because we've talked ask we've been in edit which is kind of this in between safe mode, right? Especially here like I want to give the context is that it really kind of kept you in that zone, right? But why would I want to go to agent mode, Burke?
+
+Like why what's this step? Because everyone's talking about it. All the demos are showing it. like what's that next evolution jump that I should switch my mind like this is an agent mode type of situation right so you can think about an agent as as if like just to picture this in your mind where you have an issue on a on a repo and you know maybe the issue looks something like you know we need to add you know delete functionality to this button which doesn't actually do anything right now and in there it's all the things that that needs to happen well what the agents do is they kind of act like you would act James like if you were given that task you would start going about you'd be like okay do I need to install any dependencies like what does the database look like I need to know about that uh I think I need to modify these three files and then you would just go through and do all of those things and then it was done you'd come back to you know the issue and you would update it and say this is done and here's what I did and you would you know request review and all that and so the agent functions very much like a human being right it it kind of takes you out of the mix you pass in the prompt what you want it to do and it tries to complete that task on its own autonomously.
+
+Yeah. And I think the additional context too is that it is able to run commands. It will ask you to run commands. So like do a run, do a build, um you know add files, delete files, install mpm packages.
+
+So it can do that on your behalf and it will stop in the process and the flow of what it's doing. But also it will selfch check itself and selfheal. So for example, I find it a lot in this case is in this case of edits and this is a real difference is edits is like cool I did it. The agent though in agent mode would have taken the first step of what it did and then it would have checked its work and it would have said, "Oh, did I actually do the thing that I'm telling you to do?"
+
+And then additionally, what I find is sometimes it'll say, "You know what? I've added all of the CSS in line. I see that you're using different CSS, you know, XYZ in your application. I'm going to go make that CSS go over here and follow your best practices.
+
+I'm going to do that." And then it will also I want to point this out too because I've had this happen in real time is it'll say oh I've also noticed in this other file Burke you're doing it wrong for your CSS I'm also going to move that code too right it's kind of like code reviewing in real time so the agent sort of takes a little bit more like freedom if you will to actually go do some things on your behalf based on the context that you give it right it's not just going to go do random stuff but I recently had this in issue where I was like hey I really want like this code to be in a Razer CSS file in my Blazer app. And then it's like, hey, I noticed that all these other things don't use them. Would you like me to do that?
+
+And you're like, yeah, jam on it. Like, let's go. And then it just did it. And I was like, hey, I also noticed that there's a bunch of duplicate CSS.
+
+Do you want me to fix that up? And it's like, yes. So, in this case, edit is like, I am doing this task. I'm giving you this thing to do.
+
+agent is like, I'm gonna do that, but I'm also gonna like try to see if there's more that I can do to go even beyond that. And that's not always going to happen, right? But it may take that liberty to do to do things for you to help make your code look even better, right? Yeah, that's a really good point.
+
+I'm glad you clarified that about fixing its own iterating on its own output or what we call self-healing. And then the other one is like um the concept of like leaving things better than you found them, which is just these are just qualities we want from from a software engineer, right? Like if you James were in the code, you might come back and be like, "Yo, we got duplicate styles all over the place." I just went ahead and cleaned that up while I was in here because I don't think we want that.
+
+And it does the same kind of thing. Totally. Okay. So, let's do something.
+
+All right. So, this delete button doesn't work. I don't know why. I'm just gonna say like let's just be very vague here and say and actually let's can I talk to this thing or is my let's see I don't know if my mic Hey hello can you hear me?
+
+Okay, that's cool. Stop. All right, one second. I'm just checking the mic.
+
+Hey, what's up? Yo, the uh delete list button is not working. I don't know if we're missing an API method or if there's some sort of error. Can you please just check to see why the delete list functionality doesn't work?
+
+Also make sure that we show people a modal before we actually do the delete just in case they hit that button on accident because it is massive. All right. Now, I have my voice set up to just not automatically send. Like I want to see the prompt here, but I in agent mode, I tend to use voice a lot because I just want to talk like that.
+
+I don't want to type all this in. Yeah. Should we change our model? Like what should we do here?
+
+I I I'm up to you. different models here. I'm You can see we got a restricted set. I think 35 did a good job before.
+
+My personal opinion, that's my personal thing. But if you want on 4-1 right now, let's go. Yeah, let's do it. Now, one of the things that we've noticed about 4-1, little inside baseball here, is that it really likes clarification, right?
+
+So, it it's a little too um what's the word? Insecure. like it will come back on virtually everything and ask for clarification and are you sure you want me to do this? Are you sure you want me to do that?
+
+So look, it's diagnosing the problem. The delete list currently uses a confirm dialogue and then calls fetch. Um the backend API route is implemented here though. Here's the problem.
+
+It's sending a delete request which is correct and the API route doesn't exist, right? So here's what it's going to do to fix it. And in this case, so we've actually done some work here to to make it so that 41's more agent. In other words, like don't ask me for things, just go do it.
+
+And it looks like we're seeing some of the fruits of that of the work that he's been doing there. Let's see what happens here. Interrupting. So it's actually So let's All right.
+
+Okay. Cool. Oh, and it fixed the layout. Wow.
+
+So you didn't ask it to fix the layout, but it did it anyway. I just did it because I don't know if you noticed but it was wrapped before and it looked goofy. Yeah. All right.
+
+So then it's like we delete this and we should see a confirmation model, right? Hopefully. Nice. You sure you want to do this?
+
+Copy undone. Now did it delete it? It did. I mean, and this is the kind of thing where it's like you start to see the future.
+
+You're like, "Wow, that's crazy." Because it had to work across the front end and the API to pull that off and also fix another issue along the way. That's probably a pretty good summation of what agent mode does when it does what you want, which is not always the case, although we get a little bit closer every single and you can iterate on it too, right? So if you were on that list, right?
+
+You could basically say, okay, this looks really good, but can you do this? Can you do this? And it doesn't have to be the same thing that you're working on. So for example, yeah, let's just do like some new list, right, that you have.
+
+And you create it. So maybe go back to agent mode here and say go ahead and talk to agent mode and tell it that the the share list and the delete list buttons are stacked vertically and they should be horizontal. Okay. Um, hey yo, the uh share list and delete list buttons are stacked vertically.
+
+Can we get all of that stuff on one line? And we don't really need a a uh slash command to focus the URL input. That's kind of a unneeded UI interaction, but thanks for that. Nice.
+
+I'm going to toggle my microphone so I don't need to to do to it auto sends on mine. So I'm going to do that. That's good. So this is kind of cool because this is just iterative.
+
+I could have done this and I want to point this out too. I could have done this in edit mode or I could have done it in agent mode, right? The difference is that this will maybe take another step forward, right? And look for other errors or look for other things that it may want to do.
+
+And you've given it multiple things to do in this case. So removing the slash commands and doing other things. So it's continuing to think here. Yeah, it's kind of struck mid thought which I've actually seen this with 41.
+
+Okay, there it goes. Yeah. Ah, amazing. Okay, so I feel much better.
+
+I want you to do one more thing which I think is of interest. Oh, look at this. It's actually adding an ad. You didn't add it to do this.
+
+Wow. Interesting. What does it do to do? So, here's a thing that I think is really important is is in agent mode.
+
+We just asked to do a thing, but it said go up here. It said, "I've also noticed just scroll up a little bit. I've updated the Astro page and I've also noticed that you need like another add list link button." So, it's noticed that you have a delete list button.
+
+Now, you it's going to add an add link button. So, it actually added a whole another component for you. It did. Where?
+
+Right there. It says files changed. Look at your files changed. Oh, it did.
+
+Yeah. Did it abstract that into It abstracted this into a button. Is that what it did? Oh, no, no, no.
+
+It just made edits. Okay. It just made edits. So, eight minutes.
+
+Now, here's one other thing I want you to do. So, keep those keep those uh settings for me and then do this. So, go ahead and hit the keep button. What you want?
+
+You want it? Okay. Doing the thread. Done.
+
+So, I think this is pretty neat, right? Because it's able to like add this additional context. Now you could, for example, go a lot further with it. I recently, for example, was like implement entire light dark theme and like make sure you update all the CSS or refactor everything and add buttons and do all this stuff.
+
+And based on the model, it basically did all of it. Now, that takes some time to cook. So, we're not going to show you to do that, but you can do that. Like, you could have it implement a button.
+
+So, like, you know, do this work for me. talk to it and ask it to implement only the button toggle for light theme dark mode and maybe have it do something fun when that happens like maybe do confetti or something like that. Okay, Duke, you want confetti? I always want confetti.
+
+Implement a toggle for light and dark mode but have the toggle just show some confetti when it's pressed. So in this Yeah, like that. Yeah, let's just see what happens. All right, let's send it.
+
+So my assumption here is that it's going to take a look for confetti and do a bunch of stuff and add a little toggle mode and things like that and it's going to do some stuff. Now you could for example do something. Here you go. This is cool.
+
+Look at this. It wants to install. We got it. So we have to give it permission to do this.
+
+We don't have a a mode in which you can just allow. But by the way, one of the best practices here, James, is to run your agent mode in a dev container because then if we do have a mode that will automatically run terminal commands, it isolates it from your system. So it can only do so much damage. That's a really good fix for this probably.
+
+I love that. So this is cool, too, because now we have this nice little uh canvas confetti inside of it, and it's going to just start cooking basically here. Now, like we said, you could have it actually implement everything for you, right? So it says here step four, no actual theme toggling will occur, just confetti, right?
+
+So um because we have a lot of things on here now, I can do it. I was doing this last night and I cooked out a full light dark theme mode as well. Oh, look at that. It sees that we have typescript errors and it's like, oh, you need the types for can.
+
+Does Canvas confetti have types? Are you serious? Is that a thing? It says it.
+
+So let's do it. It never ceases to amaze me what all packages have types. Uh it's now implemented. Oh, we got to run it.
+
+You got to run [Music] it. Get me out of all of this. What? Can't.
+
+Is it working? No. NPF rundev. That's the command you had.
+
+So, so when it did this uh save dev, it basically had to stop the server. Is that what happened? I think so. Yeah.
+
+There we go. Um bottom. It's It's here, but like he can't see it. Click on it and see what happens.
+
+Like what happens? Oh, no. It just sends the whole It just sends us back. So, it's actually not there.
+
+Hey, hey, hey, hey. Make sure we've saved. Oh, just tell it. Um there's there's no theme toggle visible in the UI.
+
+Yeah. And actually, funnily enough, it tells you right at the very end, it says that uh we didn't add the toggle to any page. What page you want me to add it to? Yeah, you can use it.
+
+And it says you can use it. It didn't add it though. Didn't add it. I just tell put the theme uh toggle in the header.
+
+See, that's the problem is that I don't read what it tells me. Yeah. Now, I will say this. Uh different models will do different things.
+
+So, uh, you were just telling me before we started this recording is like one thing you like about GBT41 is it kind of does the thing that kind of like holds off. It's not too exploratory, if you will. Um, whereas I'm a big Claude user and it's super exploratory. It's like I'mma go I'm just going to explore like what's just happen.
+
+Yeah. And I think that these I know that these models will get better and we'll get better at using them and getting them to keep moving cuz there is some amount of again think about it as if it were a human being. If I gave you some instructions and said you do this, you may have some clarifying questions. You may need to say okay but I need to know this and I need to know that.
+
+And that would just be normal. And right now we're kind of in we're not really sure where that line is, right? Does should the AI just try to figure everything out on its own or should it come back and be like, "Yo, you didn't tell me anything about this. I don't want to make assumptions."
+
+Because models are really, really good at making assumptions. Yeah. I like that there's now a confetti button that I see. Why you don't confetti toggle now?
+
+Look at this. Yeah. So, the interesting part is like it kind of did what you want. It did say light mode, dark mode, but then you were like, just make it a confetti toggle.
+
+So, it thinks you just want a confetti toggle with a little notification bell. Uh, subscribe, like, hit that notification bell wherever you're watching this video. That's really I really like Look at this. You can Here's a Here's a fun fact.
+
+You can always have more confetti. That's And look at it. Actually dissipates off in the fades. Now, one thing here though is we we keep talking about tool calling and I noticed and maybe other people noticed here that there's a little like little tool icon in the chat window.
+
+If you can make this thing a little bit just going I have to try this. Oh my god. Oh my gosh. That's too much fun, man.
+
+It's always a working confetti. Um, so make this thing big for me again here in VS Code. Boom. So what is are these tools?
+
+We we talked before about tools that were built in. It was doing npm is calling is installing stuff. Use the you know we can use the fetch command. We call problems things like that.
+
+But what are these other you have 45 other tools and things like that. What is happening here? Yeah. So the there's some that are built in here.
+
+Um these are the built-in ones. And then then we have MCP servers. Ah, so MCP servers, we've talked about this before. For those who who don't know what an MCP server is, it's best explained as a little program that runs on your machine that knows how to talk to something else.
+
+Yeah, maybe maybe knows how to talk to Postgress or it knows how to talk to GitHub or it knows how to talk to Figma. And then VS Code knows how to talk to all of those little programs because they all use the same model context protocol essentially. And it's a it's a protocol that like you said that provides context to the models. Right.
+
+So you've configured here a GitHub one and a Postgress one and in agent mode what's unique is that it you can call these tools anywhere but in agent mode you can call MCP tools. Mhm. And have it do. So it looks like you have a GitHub one with beautiful secure tokens.
+
+Yes. Postgress my SQL. Oh, that's fancy. Okay, nice.
+
+I like that. Is my SQL one in there? No, it's just Postgress. Oh, no.
+
+This is a different This is uh for the the MySQL extension. Okay, cool. See you. So, yeah.
+
+So, we can use these things. So, what we can do here is be like, let's keep the confetti because that's the the dopest thing of all time. Just one more time. Just one more time.
+
+And then, um All right. So, for example, you don't always need agent mode to code. You can use it for other things that a developer might do like looking at issues. And so you might imagine on something like the VS Code repo, we have a lot of issues.
+
+And if you're if you have a lot of issues, it could be really hard to figure out which ones you need to work on. And so what you can do is say do something like um uh look at the issues for this repo on GitHub. um list them by order of priority. That's cool.
+
+And it's going to assume like if there's like tags or priorities or things like that, it'll probably look at it else it's going to make a decision basically. You think? Yeah. So you can see here it's looked at it and then it's making a decision for this.
+
+So we can actually look at this and see if this is the right. So see it puts these errors as top priority which I would agree with, right? you probably want to fix the bugs first and then it's got these like three is drag and drop, four is add a preview image and five is add a confirmation dialogue before deleting a link and then there's two PRs that actually address some of this already. So it's just a really good way to like triage and work with and that's powered by the GitHub MCP server here where you can see exactly what was return.
+
+Yeah. Um, the one one thing I like to do with this really quick, Burke, is tell it that you're interested in creating an implementing a light and dark theme for this application and have it create a new issue for you on your behalf and how you would implement that. So, I'm going to dictate that create a new GitHub issue to add a light and dark mode toggle for this application. be specific about the requirements for doing that.
+
+If you have any questions, make sure to ask me for clarification. So, one thing I like to talk about agent mode is like staying in the flow of coding. And I think there's nothing worse in this instance of having to go, take a look, open GitHub, do a thing, provide contacts, figure it out. Like that's time and effort and energy.
+
+And here, right, it's So, one thing, drop that down. So, what you may not have noticed because it didn't show you is that it actually did a whole bunch of hard work for you and is now going to create this issue automatically on your behalf and provide all this context on your code. And this is like a huge timesaver, right? Like we were talking about we have this confetti button, but now we actually want to go do this, right?
+
+And the cool part here is imagine, oh, add labels. Amazing. Yeah. Other part too is in agent mode you could also then say go so create this puppy right you could you could then for example once you spec this out maybe that's good you go refine it once you have it good and ready to go you could then say hey agent go grab the issue for this and then go implement it right you can chain these tools together so let's see what it did oh Matt be look at this it's pretty cool yeah it's a beautiful thing so I think that this is really neat that you could then chain these things together, right?
+
+And then you could go and say, "Yeah, go take issue 17, go implement it and go cook, right, and let it go do its thing." So that's really absolutely the other one that I really like is there's a a Postgress one um which just has a query that all you can just do read only queries, but the nice thing about it is like you can just say like what is the schema of my Postgress database? Um, and this case I think this project it might get confused by this this we don't need this actually. There's nothing in this.
+
+This is empty when I was using an OM and I'm not anymore. But it should be able to pick up. Well, let's see if it can. If it can't, I'll show you how to how to get it.
+
+So, it's it's looking through the codebase first for schema table definitions, etc. there's database stuff in there and so it's going to try to infer it. Now, we can force the issue here at any time by specifying the tool. So, we could say um let's let's start over here.
+
+What it no no no what is what is the schema schema? How do you spell schema? That's not right. It'll figure it out.
+
+It'll figure it out. What's the DB? And then just use just use the tool reference the tool directly right and then let it go go. This is neat query.
+
+So you can see it's like pulling in all the tables and now it knows what that is. Right now what's powerful about this is that if you're asking the agent to do something like implement some API method, it needs to know what your database looks like. Otherwise, it's just going to like manufacture columns that don't exist and schemas that don't exist because it's really good at filling in the blanks. Yeah.
+
+So, I really like this one. I'm looking forward to getting a MCP server for other databases. Well, there's always the monkey MCP server, which is the best MCP server to go. I'll put a link in the description.
+
+Well, Burke, I want to thank you for taking some time and hopefully we sort of demystified a little bit of ask, edit an agent. You know, definitely go down to the comments and let us know. We decided to make this video and hop on and go through this because we got questions from you like how do we use it? How should you approach this asked and agent mode and how come Burke doesn't have a jingle that's AI generated for ask with an agent.
+
+Um so tell us in the comments where do we make that? We want to know who's still watching after all this time. Tell us how to make that jingle. So let us know.
+
+We hope that you like try all these features. Check them all out. Get stable. get insiders jam on the features, jam on the models, and I think hopefully when you're vibing and you're coding, you can use these different tools at different times.
+
+And that's what I've been doing and just vibe non-stop. All right, that's going to do it, Burke, for this one. I want to thank everyone. Don't forget to do all the things that we tell you to do at every video.
+
+You got to like, subscribe, and ring that notification bell. Become part of the notification squad so you get updates every time we drop a sweet sweet video right here on the VS Code YouTube. All right, that's going to do it for me. I'm James.
+
+That's Burke. Happy coding. We're out of here. See you.

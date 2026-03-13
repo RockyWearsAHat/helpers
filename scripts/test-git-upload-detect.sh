@@ -79,6 +79,61 @@ EOF
 	trap - EXIT
 }
 
+run_release_notes_case() {
+	local tmp
+	tmp=$(mktemp -d -t "git-upload-release-notes.XXXXXX")
+	trap 'rm -rf "$tmp"' EXIT
+
+	cd "$tmp"
+	git init -q
+	git config user.name "Test User"
+	git config user.email "test@example.com"
+	mkdir -p release-notes
+	printf '0.1.0\n' > VERSION
+	cat > release-notes/v0.1.0.md <<'EOF'
+# Git Shell Helpers v0.1.0
+
+## Highlights
+
+- Initial release notes.
+EOF
+	git add VERSION release-notes/v0.1.0.md
+	git commit -qm "Initial release"
+	git tag v0.1.0
+
+	printf '0.1.1\n' > VERSION
+	printf 'new behavior\n' > CHANGELOG.txt
+	git add VERSION CHANGELOG.txt
+
+	export GIT_UPLOAD_LIBRARY_ONLY=1
+	source "$repo_root/git-upload" >/dev/null
+	use_ai=true
+	GIT_UPLOAD_AI_CMD='printf "%s\n" NOTES_BEGIN "- Auto-create missing release notes" "- Reuse repo guidance during upload" NOTES_END'
+
+	if ! ensure_version_bump_release_notes "$tmp"; then
+		echo "[test] expected version-bump release notes generation to succeed" >&2
+		return 1
+	fi
+
+	if [ ! -f release-notes/v0.1.1.md ]; then
+		echo "[test] expected release-notes/v0.1.1.md to be created" >&2
+		return 1
+	fi
+
+	if ! grep -q "Auto-create missing release notes" release-notes/v0.1.1.md; then
+		echo "[test] expected generated highlights in release notes file" >&2
+		return 1
+	fi
+
+	if ! git diff --cached --name-only | grep -qx 'release-notes/v0.1.1.md'; then
+		echo "[test] expected generated release notes to be staged" >&2
+		return 1
+	fi
+
+	rm -rf "$tmp"
+	trap - EXIT
+}
+
 run_case \
 	"npm-no-test-script" \
 	'{"name":"x","version":"1.0.0"}'
@@ -88,3 +143,4 @@ run_case \
 	'{"name":"x","version":"1.0.0","scripts":{"test":"echo \"Error: no test specified\" && exit 1"}}'
 
 run_guidance_case
+run_release_notes_case

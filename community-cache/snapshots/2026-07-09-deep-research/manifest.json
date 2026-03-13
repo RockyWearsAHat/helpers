@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "2026-07-09-deep-research",
+  "publishedAt": "2026-07-09T12:00:00Z",
+  "confidence": "strong",
+  "summary": "Deep-research snapshot built from comprehensive cross-referencing of official VS Code Copilot documentation, GitHub Copilot docs, awesome-copilot community collection, real-world open-source repo examples (PowerToys, desktop/desktop, dotnet/macios), and VS Code release notes. All evidence references include verified URLs. Covers all six customization primitives: instructions, agents, skills, prompts, hooks, and subagents.",
+  "files": {
+    "officialSources": "community-cache/snapshots/2026-07-09-deep-research/official-sources.json",
+    "publicExampleSources": "community-cache/snapshots/2026-07-09-deep-research/public-example-sources.json",
+    "promptingPrinciples": "community-cache/snapshots/2026-07-09-deep-research/prompting-principles.json",
+    "applicationPractices": "community-cache/snapshots/2026-07-09-deep-research/application-practices.json",
+    "antiPatterns": "community-cache/snapshots/2026-07-09-deep-research/anti-patterns.json",
+    "workflowPatterns": "community-cache/snapshots/2026-07-09-deep-research/workflow-patterns.json",
+    "frontmatterReference": "community-cache/snapshots/2026-07-09-deep-research/frontmatter-reference.json",
+    "hooksReference": "community-cache/snapshots/2026-07-09-deep-research/hooks-reference.json",
+    "communityResources": "community-cache/snapshots/2026-07-09-deep-research/community-resources.json",
+    "deprecations": "community-cache/snapshots/2026-07-09-deep-research/deprecations.json",
+    "searchIndex": "community-cache/snapshots/2026-07-09-deep-research/search-index.json",
+    "videoTranscripts": "community-cache/snapshots/2026-07-09-deep-research/video-transcripts.json"
+  },
+  "previousSnapshot": "2026-03-12-initial",
+  "changeNotes": "Expanded from 5 to 10 data packs. Added real URLs to all evidence. Grew principles from 6→25, practices from 5→20, anti-patterns from 5→18. Added workflow-patterns, frontmatter-reference, hooks-reference, community-resources, and deprecations packs."
+}
