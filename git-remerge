@@ -1,0 +1,198 @@
+#!/bin/zsh
+
+# git-remerge
+#
+# Usage:
+#   git-remerge [branch-name] [--into <target-branch>]
+#
+# Description:
+#   Attempts to merge a branch (typically a detached-work-* branch created by
+#   git-upload) back into a target branch (default: main). If the merge can be
+#   done cleanly without conflicts, it completes the merge and deletes the
+#   source branch. If there are conflicts, it aborts and leaves everything
+#   unchanged.
+#
+# Options:
+#   branch-name      The branch to merge (default: current branch if it matches
+#                    detached-work-* pattern, otherwise prompts)
+#   --into <branch>  Target branch to merge into (default: main, then master)
+#
+# Examples:
+#   git-remerge                              # Merge current detached-work-* branch into main
+#   git-remerge detached-work-abc123-...     # Merge specific branch into main
+#   git-remerge feature-branch --into dev    # Merge feature-branch into dev
+
+set -euo pipefail
+
+source_branch=""
+target_branch=""
+expect_into_next=false
+
+# Parse arguments
+for arg in "$@"; do
+	case "$arg" in
+		--into)
+			expect_into_next=true
+			;;
+		--*)
+			echo "[git-remerge] Unknown option: $arg" >&2
+			exit 1
+			;;
+		*)
+			if [ "$expect_into_next" = true ]; then
+				target_branch="$arg"
+				expect_into_next=false
+			elif [ -z "$source_branch" ]; then
+				source_branch="$arg"
+			fi
+			;;
+	esac
+done
+
+# Determine source branch if not specified
+if [ -z "$source_branch" ]; then
+	current=$(git symbolic-ref -q --short HEAD 2>/dev/null || echo "")
+	if [ -z "$current" ]; then
+		echo "[git-remerge] You are in a detached HEAD state. Please specify a branch to merge." >&2
+		echo "[git-remerge] Usage: git-remerge <branch-name> [--into <target-branch>]" >&2
+		exit 1
+	fi
+	
+	if [[ "$current" == detached-work-* ]]; then
+		source_branch="$current"
+		echo "[git-remerge] Using current branch: $source_branch" >&2
+	else
+		# List available detached-work branches
+		detached_branches=$(git branch --list 'detached-work-*' --format='%(refname:short)' 2>/dev/null || echo "")
+		if [ -n "$detached_branches" ]; then
+			echo "[git-remerge] No branch specified. Available detached-work branches:" >&2
+			printf '%s\n' "$detached_branches" | sed 's/^/  - /' >&2
+			echo "[git-remerge] Usage: git-remerge <branch-name> [--into <target-branch>]" >&2
+		else
+			echo "[git-remerge] No branch specified and no detached-work-* branches found." >&2
+			echo "[git-remerge] Usage: git-remerge <branch-name> [--into <target-branch>]" >&2
+		fi
+		exit 1
+	fi
+fi
+
+# Verify source branch exists
+if ! git rev-parse --verify "$source_branch" >/dev/null 2>&1; then
+	echo "[git-remerge] Branch '$source_branch' does not exist." >&2
+	exit 1
+fi
+
+# Determine target branch if not specified
+if [ -z "$target_branch" ]; then
+	if git rev-parse --verify main >/dev/null 2>&1; then
+		target_branch="main"
+	elif git rev-parse --verify master >/dev/null 2>&1; then
+		target_branch="master"
+	else
+		echo "[git-remerge] Could not find 'main' or 'master' branch. Please specify target with --into." >&2
+		exit 1
+	fi
+fi
+
+# Verify target branch exists
+if ! git rev-parse --verify "$target_branch" >/dev/null 2>&1; then
+	echo "[git-remerge] Target branch '$target_branch' does not exist." >&2
+	exit 1
+fi
+
+# Don't merge a branch into itself
+if [ "$source_branch" = "$target_branch" ]; then
+	echo "[git-remerge] Cannot merge '$source_branch' into itself." >&2
+	exit 1
+fi
+
+# Check for uncommitted changes
+if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+	echo "[git-remerge] You have uncommitted changes. Please commit or stash them first." >&2
+	exit 1
+fi
+
+# Remember where we started
+original_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || git rev-parse --short HEAD)
+
+echo "[git-remerge] Attempting to merge '$source_branch' into '$target_branch'..." >&2
+
+# Switch to target branch
+if ! git switch "$target_branch" >/dev/null 2>&1; then
+	echo "[git-remerge] Failed to switch to '$target_branch'." >&2
+	exit 1
+fi
+
+# Fetch latest if there's an upstream
+if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
+	echo "[git-remerge] Fetching latest changes for '$target_branch'..." >&2
+	git fetch >/dev/null 2>&1 || true
+	git pull --ff-only >/dev/null 2>&1 || {
+		echo "[git-remerge] Warning: Could not fast-forward '$target_branch' to upstream. Continuing with local state." >&2
+	}
+fi
+
+# Attempt the merge (no-commit first to check for conflicts)
+if git merge --no-commit --no-ff "$source_branch" >/dev/null 2>&1; then
+	# Check if there are actual changes to commit
+	if git diff --cached --quiet; then
+		# No changes - branches are identical or source is ancestor of target
+		git merge --abort >/dev/null 2>&1 || true
+		echo "[git-remerge] No changes to merge. '$source_branch' is already incorporated into '$target_branch'." >&2
+		
+		# Still delete the source branch since it's redundant
+		echo "[git-remerge] Deleting redundant branch '$source_branch'..." >&2
+		git branch -d "$source_branch" >/dev/null 2>&1 || {
+			echo "[git-remerge] Warning: Could not delete '$source_branch'. You may need to use -D to force delete." >&2
+		}
+		
+		# Return to original branch if it still exists and isn't the deleted one
+		if [ "$original_branch" != "$source_branch" ]; then
+			git switch "$original_branch" >/dev/null 2>&1 || true
+		fi
+		exit 0
+	fi
+	
+	# Merge is clean - commit it
+	git commit --no-edit >/dev/null 2>&1
+	echo "[git-remerge] ✓ Merge completed successfully!" >&2
+	
+	# Delete the source branch
+	echo "[git-remerge] Deleting merged branch '$source_branch'..." >&2
+	git branch -d "$source_branch" >/dev/null 2>&1 || {
+		echo "[git-remerge] Warning: Could not delete '$source_branch' with -d. Trying -D..." >&2
+		git branch -D "$source_branch" >/dev/null 2>&1 || {
+			echo "[git-remerge] Warning: Could not delete '$source_branch'. You may need to delete it manually." >&2
+		}
+	}
+	
+	# Show summary
+	echo "[git-remerge] Summary:" >&2
+	echo "[git-remerge]   Merged: '$source_branch' → '$target_branch'" >&2
+	echo "[git-remerge]   Deleted: '$source_branch'" >&2
+	echo "[git-remerge]   Current branch: '$target_branch'" >&2
+	
+	# Offer to push if there's an upstream
+	if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
+		echo "[git-remerge] Run 'git push' to push the merged changes to remote." >&2
+	fi
+else
+	# Merge has conflicts - abort
+	git merge --abort >/dev/null 2>&1 || true
+	
+	echo "[git-remerge] ✗ Merge would result in conflicts. Aborting." >&2
+	echo "[git-remerge] No changes have been made." >&2
+	echo "" >&2
+	echo "[git-remerge] To manually resolve conflicts, you can:" >&2
+	echo "[git-remerge]   1. git switch $target_branch" >&2
+	echo "[git-remerge]   2. git merge $source_branch" >&2
+	echo "[git-remerge]   3. Resolve conflicts manually" >&2
+	echo "[git-remerge]   4. git commit" >&2
+	echo "[git-remerge]   5. git branch -d $source_branch" >&2
+	
+	# Return to original branch
+	if [ "$original_branch" != "$target_branch" ]; then
+		git switch "$original_branch" >/dev/null 2>&1 || true
+	fi
+	exit 1
+fi

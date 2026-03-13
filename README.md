@@ -1,3 +1,36 @@
+# NEW COPILOT FEATURE, AUDIT ADDED
+
+`git-copilot-devops-audit` is a global helper for auditing GitHub Copilot customization in the current workspace. The goal is narrow and practical: keep `.github/` Copilot setup current, project-specific, and honest about what is actually installed and supported.
+
+After the global audit surfaces are installed in VS Code:
+
+- `/copilot-devops-audit` is the deterministic manual entrypoint.
+- Natural-language audit routing is available through a user-level router instruction and should be treated as best-effort, not guaranteed.
+- The audit can run as a full edit pass or as a report-only pass.
+- A normal repository run seeds `.github/devops-audit-context.md` and `.github/devops-audit-research.md`; findings themselves are returned in chat.
+
+Install or refresh the global audit surfaces from any cloned copy of this repo with:
+
+```sh
+git copilot-devops-audit --update-agent --force
+```
+
+That command installs or refreshes:
+
+- private audit agents under `~/.copilot/agents/`
+- the natural-language router under `~/.copilot/instructions/`
+- audit skills under `~/.copilot/skills/`
+- the `/copilot-devops-audit` prompt in `~/Library/Application Support/Code/User/prompts/`
+
+For VS Code use, you also need the GitHub Copilot and GitHub Copilot Chat extensions enabled. The script installer can optionally install or update those extensions when a usable VS Code CLI is available. Natural-language routing depends on current Copilot routing behavior, so keep `/copilot-devops-audit` as the fallback when you want deterministic invocation.
+
+Each full audit uses a four-phase flow:
+
+1. Context
+2. Research
+3. Evaluation
+4. Implementation
+
 # Git Shell Helpers
 
 Small quality-of-life helpers wrapped as git subcommands:
@@ -6,6 +39,7 @@ Small quality-of-life helpers wrapped as git subcommands:
 - `git get` – initialize a local repo from a remote (like a lightweight `git clone` flow).
 - `git initialize` – initialize the current directory as a repo, create an initial commit, set `origin`, and push.
 - `git fucked-the-push` – destructive recovery helper to undo the last pushed commit while keeping changes staged.
+- `git copilot-devops-audit` – install and run the Copilot customization audit workflow described above.
 
 ## Installation options
 
@@ -31,7 +65,19 @@ Once complete, the commands and man pages should be available immediately in any
 - `git get`
 - `git initialize`
 - `git fucked-the-push`
-- `git help upload|get|initialize|fucked-the-push`
+- `git copilot-devops-audit`
+- `git help upload|get|initialize|fucked-the-push|copilot-devops-audit`
+
+The `.pkg` installer now also attempts to complete the VS Code global audit setup for the logged-in macOS user by:
+
+- installing or updating the GitHub Copilot and GitHub Copilot Chat extensions when a usable VS Code CLI is available
+- running `git copilot-devops-audit --update-agent --force` as the logged-in user to install the router, agents, skills, and prompt
+
+If that automatic postinstall step cannot complete on your machine, run this manually:
+
+```sh
+git copilot-devops-audit --update-agent --force
+```
 
 ### 2. One-line script installer (portable alternative)
 
@@ -54,26 +100,34 @@ source ~/.zshrc
 ```
 
 Then you can use the same commands and help pages as with the `.pkg` installer.
+The script installer can also optionally:
+
+- install or update GitHub Copilot CLI support for `git upload -ai`
+- install or update the GitHub Copilot and GitHub Copilot Chat VS Code extensions when a usable VS Code CLI is available
+- install the global audit router, agents, skills, and prompt for VS Code
 
 ## Why two installer methods?
 
 - **Script installer (`Git-Shell-Helpers-Installer.sh`)**
   - Cross-shell friendly, very easy to share as a copy-pastable command.
   - Installs into your home directory and updates your shell config.
+  - Offers optional Copilot CLI, VS Code extension, and global audit-surface setup.
 - **macOS `.pkg` installer**
   - Integrates with the native macOS Installer UI.
   - Installs into system-level locations (`/usr/local/...`) without touching your `~/.zshrc`.
+  - Attempts the same VS Code global audit setup automatically for the logged-in macOS user during postinstall.
 
-Both install the same commands and man pages; they just target different installation styles.
+Both install the same command-line tools and man pages; they just target different installation styles.
 
 ## Development
 
 - Update the version number in `VERSION` before cutting a new release.
+- Add or update `release-notes/v<version>.md`; GitHub Releases now use that file as the release body.
 - Build artifacts locally:
-  - Script installer dist: `./scripts/build-dist.sh` → `dist/Git-Shell-Helpers-Installer.sh`
+  - Script installer dist: `./scripts/build-dist.sh` → `dist/Git-Shell-Helpers-Installer.sh` and `dist/Git-Shell-Helpers-Installer-<version>.sh`
   - macOS pkg: `./scripts/build-pkg.sh` → `dist/github-shell-helpers-<version>.pkg`
 - VS Code tasks:
   - **Build installer** – runs `./scripts/build-dist.sh`.
   - **Build macOS pkg** – runs `./scripts/build-pkg.sh`.
 
-CI (see `.github/workflows/build-installer.yml`) ensures both installers build cleanly on each push to `main`.
+CI (see `.github/workflows/build-installer.yml`) ensures both installers build cleanly on each push to `main`, and publishes the versioned script installer plus the macOS package using the matching release-notes file.

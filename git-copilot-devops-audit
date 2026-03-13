@@ -1,0 +1,771 @@
+#!/bin/zsh
+
+# git-copilot-devops-audit
+#
+# Usage:
+#   git-copilot-devops-audit [options]
+#
+# Description:
+#   Installs a multi-agent audit system (orchestrator + 4 subagents), a
+#   natural-language router, and a /copilot-devops-audit slash command for
+#   VS Code Copilot use. The runtime audit should improve project-specific
+#   Copilot customization while keeping the workspace artifacts limited to the
+#   context snapshot and research cache that this command manages directly.
+#
+#   Architecture:
+#     /copilot-devops-audit — Public deterministic slash-command entrypoint
+#     devops-audit-router   — User-level best-effort natural-language router
+#     DevOpsAuditContext    — Private worker: reads project and .github state
+#     DevOpsAuditResearch   — Private worker: fetches docs, samples repos, validates model IDs
+#     DevOpsAuditEvaluate   — Private worker: produces structured findings
+#     DevOpsAuditImplement  — Private worker: applies targeted edits to .github/ files
+#
+#   The audit tooling is global on purpose. During an audit run, the orchestrator
+#   may fully clean and rewrite anything under .github, but it must never modify
+#   source files outside .github.
+#
+# Options:
+#   -h, --help          Show this help message
+#   -f, --force         Overwrite existing audit files without prompting
+#   --no-install        Generate repo snapshot only, skip global agent/prompt install
+#   --dry-run           Show what would be created without writing anything
+#   -v, --verbose       Show file contents being embedded in the prompt
+#   --update-agent      Refresh the global agents/router/prompt/skills only (skip context snapshot)
+#
+# Slash Command (installed globally):
+#   Type /copilot-devops-audit in VS Code Copilot Chat
+#
+# Examples:
+#   git-copilot-devops-audit                 # Install or refresh global audit tools
+#   git-copilot-devops-audit --no-install    # Generate snapshot files only
+#   git-copilot-devops-audit --update-agent  # Refresh global audit tools only
+
+set -euo pipefail
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+# ── Colors ──────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── UI helpers ───────────────────────────────────────────────────────────────
+term_cols() { tput cols 2>/dev/null || echo 80; }
+
+ui_hr() { printf '%s\n' "$(printf '%*s' "$(term_cols)" '' | tr ' ' '─')"; }
+
+ui_title() {
+	echo ""
+	ui_hr
+	printf '%b  %s%b\n' "$BOLD$CYAN" "$1" "$NC"
+	ui_hr
+}
+
+ui_step() { printf '%b▶%b %s\n' "$BOLD$GREEN" "$NC" "$1"; }
+ui_info() { printf '%b  %s%b\n' "$DIM" "$1" "$NC"; }
+ui_warn() { printf '%b⚠  %s%b\n' "$YELLOW" "$1" "$NC"; }
+ui_ok()   { printf '%b✓%b  %s\n' "$GREEN" "$NC" "$1"; }
+ui_skip() { printf '%b–%b  %s %b(skipped)%b\n' "$DIM" "$NC" "$1" "$DIM" "$NC"; }
+
+# ── Argument parsing ─────────────────────────────────────────────────────────
+force_mode=false
+no_install=false
+dry_run=false
+verbose=false
+update_agent=false
+
+for arg in "$@"; do
+	case "$arg" in
+		--force|-f)      force_mode=true ;;
+		--no-install)    no_install=true ;;
+		--dry-run)       dry_run=true ;;
+		--verbose|-v)    verbose=true ;;
+		--update-agent)  update_agent=true ;;
+		--help|-h)
+			sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
+			exit 0
+			;;
+		-*)
+			echo "[git-copilot-devops-audit] Unknown option: $arg" >&2
+			exit 1
+			;;
+	esac
+done
+
+# ── Require git repo ─────────────────────────────────────────────────────────
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+	echo "[git-copilot-devops-audit] Error: Not in a git repository." >&2
+	exit 1
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+cd "$repo_root"
+
+# ── Project detection ────────────────────────────────────────────────────────
+detect_project() {
+	DETECTED_LANGS=()
+	DETECTED_FRAMEWORKS=()
+	DETECTED_BUILD_CMDS=()
+	DETECTED_TEST_CMDS=()
+	DETECTED_PKG_MANAGERS=()
+
+	[ -f "Cargo.toml" ]                   && DETECTED_LANGS+=("Rust")       && DETECTED_BUILD_CMDS+=("cargo build")  && DETECTED_TEST_CMDS+=("cargo test")
+	[ -f "go.mod" ]                        && DETECTED_LANGS+=("Go")         && DETECTED_BUILD_CMDS+=("go build ./...") && DETECTED_TEST_CMDS+=("go test ./...")
+	[ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "requirements.txt" ] && DETECTED_LANGS+=("Python") && DETECTED_TEST_CMDS+=("pytest")
+	[ -f "pom.xml" ]                       && DETECTED_LANGS+=("Java")       && DETECTED_BUILD_CMDS+=("mvn compile") && DETECTED_TEST_CMDS+=("mvn test")
+	[ -f "build.gradle" ] || [ -f "build.gradle.kts" ] && DETECTED_LANGS+=("Kotlin/Java") && DETECTED_BUILD_CMDS+=("./gradlew build") && DETECTED_TEST_CMDS+=("./gradlew test")
+	[ -f "mix.exs" ]                       && DETECTED_LANGS+=("Elixir")     && DETECTED_BUILD_CMDS+=("mix compile") && DETECTED_TEST_CMDS+=("mix test")
+	[ -f "Gemfile" ]                        && DETECTED_LANGS+=("Ruby")       && DETECTED_TEST_CMDS+=("bundle exec rspec")
+	[ -f "CMakeLists.txt" ]                && DETECTED_LANGS+=("C/C++")      && DETECTED_BUILD_CMDS+=("cmake --build build")
+	[ -f "Makefile" ] || [ -f "makefile" ] && DETECTED_BUILD_CMDS+=("make")
+
+	if [ -f "package.json" ]; then
+		DETECTED_LANGS+=("JavaScript/TypeScript")
+		grep -q '"react"'    package.json 2>/dev/null && DETECTED_FRAMEWORKS+=("React")
+		grep -q '"next"'     package.json 2>/dev/null && DETECTED_FRAMEWORKS+=("Next.js")
+		grep -q '"vue"'      package.json 2>/dev/null && DETECTED_FRAMEWORKS+=("Vue")
+		grep -q '"svelte"'   package.json 2>/dev/null && DETECTED_FRAMEWORKS+=("Svelte")
+		grep -q '"express"'  package.json 2>/dev/null && DETECTED_FRAMEWORKS+=("Express")
+		grep -q '"fastify"'  package.json 2>/dev/null && DETECTED_FRAMEWORKS+=("Fastify")
+		[ -f "package-lock.json" ] && DETECTED_PKG_MANAGERS+=("npm")
+		[ -f "yarn.lock" ]         && DETECTED_PKG_MANAGERS+=("yarn")
+		[ -f "pnpm-lock.yaml" ]    && DETECTED_PKG_MANAGERS+=("pnpm")
+		[ -f "bun.lockb" ]         && DETECTED_PKG_MANAGERS+=("bun")
+		DETECTED_BUILD_CMDS+=("npm run build")
+		DETECTED_TEST_CMDS+=("npm test")
+	fi
+
+	# Shell scripts project
+	if [ ${#DETECTED_LANGS[@]} -eq 0 ]; then
+		find . -maxdepth 1 \( -name '*.sh' -o -name '*.zsh' -o -name '*.bash' \) -print -quit 2>/dev/null | grep -q . && DETECTED_LANGS+=("Shell/Zsh")
+	fi
+
+	# Detect CI
+	DETECTED_CI=""
+	[ -d ".github/workflows" ] && DETECTED_CI="GitHub Actions"
+	[ -f ".circleci/config.yml" ] && DETECTED_CI="${DETECTED_CI:+$DETECTED_CI, }CircleCI"
+	[ -f ".gitlab-ci.yml" ] && DETECTED_CI="${DETECTED_CI:+$DETECTED_CI, }GitLab CI"
+	[ -f "Jenkinsfile" ] && DETECTED_CI="${DETECTED_CI:+$DETECTED_CI, }Jenkins"
+
+	DETECTED_LANG_STR="${(j:, :)DETECTED_LANGS}"
+	DETECTED_FRAMEWORK_STR="${(j:, :)DETECTED_FRAMEWORKS}"
+}
+
+detect_project
+
+project_name=""
+remote_url=$(git remote get-url origin 2>/dev/null || echo "")
+[ -n "$remote_url" ] && project_name=$(basename "$remote_url" .git) || project_name=$(basename "$repo_root")
+
+# ── Collect existing Copilot files ───────────────────────────────────────────
+collect_copilot_files() {
+	COPILOT_MAIN=""
+	COPILOT_AGENTS=()
+	COPILOT_INSTRUCTIONS=()
+	COPILOT_PROMPTS=()
+	COPILOT_SKILLS=()
+	COPILOT_PLAN=""
+	COPILOT_BUGS=""
+	COPILOT_MEMORY=""
+	COPILOT_AUDIT_RESEARCH=""
+	MISPLACED_GITHUB_FILES=()
+
+	[ -f ".github/copilot-instructions.md" ] && COPILOT_MAIN=".github/copilot-instructions.md"
+	[ -f ".github/plan.md" ]                 && COPILOT_PLAN=".github/plan.md"
+	[ -f ".github/bugs.md" ]                 && COPILOT_BUGS=".github/bugs.md"
+	[ -f ".github/instructions/memory.md" ]  && COPILOT_MEMORY=".github/instructions/memory.md"
+	[ -f ".github/devops-audit-research.md" ] && COPILOT_AUDIT_RESEARCH=".github/devops-audit-research.md"
+
+	if [ -d ".github/agents" ]; then
+		setopt nullglob
+		for f in .github/agents/*.md; do
+			[ -f "$f" ] && COPILOT_AGENTS+=("$f")
+		done
+		unsetopt nullglob
+	fi
+
+	if [ -d ".github/instructions" ]; then
+		setopt nullglob
+		for f in .github/instructions/*.md; do
+			[ -f "$f" ] && COPILOT_INSTRUCTIONS+=("$f")
+		done
+		unsetopt nullglob
+	fi
+
+	if [ -d ".github/prompts" ]; then
+		setopt nullglob
+		for f in .github/prompts/*.md; do
+			[ -f "$f" ] && COPILOT_PROMPTS+=("$f")
+		done
+		unsetopt nullglob
+	fi
+
+	if [ -d ".github/skills" ]; then
+		while IFS= read -r -d '' f; do
+			COPILOT_SKILLS+=("${f#./}")
+		done < <(find .github/skills -type f -name 'SKILL.md' -print0 2>/dev/null)
+	fi
+
+	while IFS= read -r -d '' f; do
+		MISPLACED_GITHUB_FILES+=("${f#./}")
+	done < <(
+		find . \
+			-path './.git' -prune -o \
+			-path './.github' -prune -o \
+			-type f \( \
+				-name 'copilot-instructions.md' -o \
+				-name '*.agent.md' -o \
+				-name '*.prompt.md' -o \
+				-name '*.instructions.md' -o \
+				-name 'SKILL.md' \
+			\) -print0 2>/dev/null
+	)
+}
+
+collect_copilot_files
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+write_file() {
+	local path="$1"
+	local content="$2"
+
+	if [ "$dry_run" = true ]; then
+		ui_info "[dry-run] Would write: $path"
+		return
+	fi
+
+	local dir
+	dir=$(dirname "$path")
+	mkdir -p "$dir"
+
+	if [ -f "$path" ] && [ "$force_mode" = false ]; then
+		ui_skip "$path"
+		return
+	fi
+
+	printf '%s\n' "$content" > "$path"
+	ui_ok "Written: $path"
+}
+
+seed_file_if_missing() {
+	local path="$1"
+	local content="$2"
+
+	if [ -f "$path" ]; then
+		ui_skip "$path"
+		return
+	fi
+
+	if [ "$dry_run" = true ]; then
+		ui_info "[dry-run] Would seed: $path"
+		return
+	fi
+
+	local dir
+	dir=$(dirname "$path")
+	mkdir -p "$dir"
+	printf '%s\n' "$content" > "$path"
+	ui_ok "Seeded: $path"
+}
+
+embed_file() {
+	local label="$1"
+	local path="$2"
+	local lang="${3:-}"
+
+	if [ -f "$path" ]; then
+		[ "$verbose" = true ] && ui_info "  Embedding: $path"
+		printf '\n### %s\n\n**File:** `%s`\n\n```%s\n%s\n```\n' \
+			"$label" "$path" "$lang" "$(cat "$path")"
+	else
+		printf '\n### %s\n\n**File:** `%s` — _not found / not yet created_\n' \
+			"$label" "$path"
+	fi
+}
+
+intended_github_path() {
+	local candidate="$1"
+	local base
+	base=$(basename "$candidate")
+
+	case "$base" in
+		copilot-instructions.md)
+			printf '%s' ".github/copilot-instructions.md"
+			;;
+		*.agent.md)
+			printf '%s' ".github/agents/$base"
+			;;
+		*.prompt.md)
+			printf '%s' ".github/prompts/$base"
+			;;
+		*.instructions.md)
+			printf '%s' ".github/instructions/$base"
+			;;
+		SKILL.md)
+			printf '%s' ".github/skills/$(basename "$(dirname "$candidate")")/SKILL.md"
+			;;
+		*)
+			printf '%s' ".github/$base"
+			;;
+	esac
+}
+
+list_external_references() {
+	local candidate="$1"
+	local candidate_name
+	candidate_name=$(basename "$candidate")
+	local hits=()
+	local hit
+
+	while IFS= read -r hit; do
+		[ -z "$hit" ] && continue
+		hit="${hit#./}"
+		[ "$hit" = "$candidate" ] && continue
+		hits+=("$hit")
+	done < <(rg -l -F -g '!.github/**' -g '!.git/**' -g "!$candidate" -- "$candidate" . 2>/dev/null)
+
+	while IFS= read -r hit; do
+		[ -z "$hit" ] && continue
+		hit="${hit#./}"
+		[ "$hit" = "$candidate" ] && continue
+		case " ${(j: :)hits} " in
+			*" $hit "*) continue ;;
+		esac
+		hits+=("$hit")
+	done < <(rg -l -F -g '!.github/**' -g '!.git/**' -g "!$candidate" -- "$candidate_name" . 2>/dev/null)
+
+	if [ ${#hits[@]} -eq 0 ]; then
+		printf '%s' "none"
+		return
+	fi
+
+	printf '%s' "${(j:, :)hits}"
+}
+
+# ── Build file inventory section ──────────────────────────────────────────────
+build_inventory() {
+	local inv=""
+
+	inv+="## Current Copilot Setup Inventory\n\n"
+
+	# Main instructions
+	if [ -n "$COPILOT_MAIN" ]; then
+		inv+="- **copilot-instructions.md**: PRESENT\n"
+	else
+		inv+="- **copilot-instructions.md**: MISSING ← must be created\n"
+	fi
+
+	# Agents
+	if [ ${#COPILOT_AGENTS[@]} -gt 0 ]; then
+		inv+="- **Agents (${#COPILOT_AGENTS[@]}):**\n"
+		for f in "${COPILOT_AGENTS[@]}"; do
+			inv+="  - \`$f\`\n"
+		done
+	else
+		inv+="- **Agents:** NONE FOUND\n"
+	fi
+
+	# Instructions
+	if [ ${#COPILOT_INSTRUCTIONS[@]} -gt 0 ]; then
+		inv+="- **Instruction files (${#COPILOT_INSTRUCTIONS[@]}):**\n"
+		for f in "${COPILOT_INSTRUCTIONS[@]}"; do
+			inv+="  - \`$f\`\n"
+		done
+	else
+		inv+="- **Instruction files:** NONE FOUND\n"
+	fi
+
+	# Prompts
+	if [ ${#COPILOT_PROMPTS[@]} -gt 0 ]; then
+		inv+="- **Prompt files (${#COPILOT_PROMPTS[@]}):**\n"
+		for f in "${COPILOT_PROMPTS[@]}"; do
+			inv+="  - \`$f\`\n"
+		done
+	else
+		inv+="- **Prompt files:** NONE\n"
+	fi
+
+	# Skills
+	if [ ${#COPILOT_SKILLS[@]} -gt 0 ]; then
+		inv+="- **Skills (${#COPILOT_SKILLS[@]}):**\n"
+		for f in "${COPILOT_SKILLS[@]}"; do
+			inv+="  - \`$f\`\n"
+		done
+	else
+		inv+="- **Skills:** NONE FOUND\n"
+	fi
+
+	# Misplaced GitHub customization files
+	if [ ${#MISPLACED_GITHUB_FILES[@]} -gt 0 ]; then
+		inv+="- **Misplaced GitHub customization files (${#MISPLACED_GITHUB_FILES[@]}):**\n"
+		for f in "${MISPLACED_GITHUB_FILES[@]}"; do
+			inv+="  - \`$f\` -> intended home \`$(intended_github_path "$f")\`\n"
+			inv+="    - external references: $(list_external_references "$f")\n"
+		done
+	else
+		inv+="- **Misplaced GitHub customization files:** NONE FOUND\n"
+	fi
+
+	# CI
+	[ -n "$DETECTED_CI" ] && inv+="- **CI/CD:** $DETECTED_CI\n" || inv+="- **CI/CD:** NONE DETECTED\n"
+	[ -n "$COPILOT_AUDIT_RESEARCH" ] && inv+="- **Audit research cache:** PRESENT\n" || inv+="- **Audit research cache:** MISSING ← baseline will be seeded\n"
+
+	printf '%b' "$inv"
+}
+
+# ── Resolve script directory (canonical source for agent/prompt files) ────────
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# ── Generate agent files ──────────────────────────────────────────────────────
+generate_orchestrator_agent() {
+  cat "$SCRIPT_DIR/.github/agents/DevOpsAudit.agent.md"
+}
+
+generate_research_agent() {
+  cat "$SCRIPT_DIR/.github/agents/DevOpsAuditResearch.agent.md"
+}
+
+generate_context_agent() {
+	cat "$SCRIPT_DIR/.github/agents/DevOpsAuditContext.agent.md"
+}
+
+generate_evaluate_agent() {
+  cat "$SCRIPT_DIR/.github/agents/DevOpsAuditEvaluate.agent.md"
+}
+
+generate_implement_agent() {
+	cat "$SCRIPT_DIR/.github/agents/DevOpsAuditImplement.agent.md"
+}
+
+generate_router_instruction() {
+	cat "$SCRIPT_DIR/.github/instructions/devops-audit-router.instructions.md"
+}
+
+generate_prompt_file() {
+  cat "$SCRIPT_DIR/.github/prompts/copilot-devops-audit.prompt.md"
+}
+
+install_global_skills() {
+	local skills_root="$SCRIPT_DIR/.github/skills"
+	local target_root="$COPILOT_USER_DIR/skills"
+	local source_skill
+	local relative_dir
+	local target_dir
+	local target_skill
+
+	if [ ! -d "$skills_root" ]; then
+		return
+	fi
+
+	while IFS= read -r -d '' source_skill; do
+		relative_dir="${source_skill#$skills_root/}"
+		relative_dir="${relative_dir%/SKILL.md}"
+		target_dir="$target_root/$relative_dir"
+		target_skill="$target_dir/SKILL.md"
+		mkdir -p "$target_dir"
+
+		if [ -f "$target_skill" ] && [ "$install_force" = false ]; then
+			ui_skip "$target_skill"
+		else
+			printf '%s\n' "$(cat "$source_skill")" > "$target_skill"
+			ui_ok "User skill: $target_skill"
+		fi
+	done < <(find "$skills_root" -type f -name 'SKILL.md' -print0 2>/dev/null)
+}
+
+generate_research_cache_file() {
+	local project="$1"
+	cat <<EOF
+# DevOps Audit Research Cache — ${project}
+
+_Seeded by \
+	\`git-copilot-devops-audit\` on $(date '+%Y-%m-%d %H:%M:%S')_
+
+## Purpose
+
+This file is a persistent research cache for the audit. It exists to carry forward useful evidence across audit runs without treating old research as permanently true.
+
+Rules:
+- Reuse prior research only when it is still fresh or has been revalidated.
+- Prefer refreshing the most important stale evidence first.
+- Replace or downgrade stale conclusions instead of endlessly appending more notes.
+- Keep principles only when they still match current docs, recent repos, and recent videos.
+
+## Freshness Policy
+
+| Evidence Type | Importance | Refresh Target | Stale After | Notes |
+|---|---|---:|---:|---|
+| Official docs and model lists | Critical | 14 days | 30 days | Highest priority; docs win when they conflict with weaker sources |
+| VS Code release notes / product updates | High | 14 days | 30 days | Refresh sooner when major Copilot changes land |
+| Video transcripts from product-adjacent sources | High | 30 days | 60 days | Use transcripts, not summaries |
+| Repository samples | Medium | 30 days | 60 days | Prefer active repos; common patterns are not automatically correct |
+| Synthesized principles | High | 30 days | 60 days | Keep only if revalidated against fresh evidence |
+| Anti-pattern examples | Medium | 45 days | 90 days | Useful for contrast, but downgrade if ecosystem changes |
+
+## Current Review State
+
+- Last full refresh:
+- Next refresh due:
+- Highest-priority stale areas:
+- Confidence in current baseline:
+
+## Official Sources
+
+| Source | Last Reviewed | Status | Importance | Notes |
+|---|---|---|---|---|
+| VS Code Copilot customization docs | | pending | critical | |
+| GitHub Copilot customization docs | | pending | critical | |
+| Latest VS Code update notes | | pending | high | |
+| Copilot model list / availability | | pending | high | |
+
+## Repository Samples
+
+| Repo / Source | Last Reviewed | Status | Surface | Principle or Anti-pattern | Notes |
+|---|---|---|---|---|---|
+
+## Video / Transcript Samples
+
+| Source | Video / Topic | Last Reviewed | Status | Principle or Tension | Notes |
+|---|---|---|---|---|---|
+
+## Current Principles
+
+| Principle | Confidence | Last Revalidated | Supporting Evidence | Notes |
+|---|---|---|---|---|
+
+## Conflicts and Open Questions
+
+| Topic | Conflict | Preferred Interpretation | Why | Recheck By |
+|---|---|---|---|---|
+
+## Superseded or Stale Evidence
+
+| Evidence | Became Stale On | Action | Notes |
+|---|---|---|---|
+
+## Next Refresh Priorities
+
+1. Refresh critical official sources first.
+2. Refresh any principle used in the latest audit if its supporting evidence is stale.
+3. Refresh medium-importance repo and video samples only after critical sources are current.
+EOF
+}
+
+# ── Generate audit context file ───────────────────────────────────────────────
+generate_context_file() {
+	local project="$1"
+	local context=""
+
+	context+="# DevOps Audit Context — ${project}\n\n"
+	context+="_Generated by \`git-copilot-devops-audit\` on $(date '+%Y-%m-%d %H:%M:%S')_\n\n"
+
+	# Project metadata
+	context+="## Project Metadata\n\n"
+	context+="- **Name:** ${project}\n"
+	context+="- **Root:** \`${repo_root}\`\n"
+	[ -n "$DETECTED_LANG_STR" ] && context+="- **Languages:** ${DETECTED_LANG_STR}\n"
+	[ -n "$DETECTED_FRAMEWORK_STR" ] && context+="- **Frameworks:** ${DETECTED_FRAMEWORK_STR}\n"
+	[ -n "$DETECTED_CI" ] && context+="- **CI/CD:** ${DETECTED_CI}\n"
+	context+="\n"
+	context+="$(build_inventory)\n"
+
+	context+="---\n\n## Snapshot Purpose\n\n"
+	context+="This file is a lightweight seed for the audit. It exists to point the context phase at the right files without replaying the full contents of every Copilot file into the runtime context. The context phase must still read the workspace directly and verify current file contents for itself.\n\n"
+
+	context+="## Files The Context Phase Should Read\n\n"
+	context+="### Project Understanding\n"
+	context+="- \`README.md\`\n"
+	[ -f "Makefile" ] && context+="- \`Makefile\`\n"
+	[ -f "CMakeLists.txt" ] && context+="- \`CMakeLists.txt\`\n"
+	[ -f "package.json" ] && context+="- \`package.json\`\n"
+	[ -f "Cargo.toml" ] && context+="- \`Cargo.toml\`\n"
+	[ -f "pyproject.toml" ] && context+="- \`pyproject.toml\`\n"
+	[ -d ".github/workflows" ] && context+="- \`.github/workflows/\`\n"
+	[ -f "CONTRIBUTING.md" ] && context+="- \`CONTRIBUTING.md\`\n"
+	context+="\n### Copilot Files\n"
+
+	[ -n "$COPILOT_MAIN" ] && context+="- \`$COPILOT_MAIN\`\n"
+	for f in "${COPILOT_AGENTS[@]}"; do
+		context+="- \`$f\`\n"
+	done
+	for f in "${COPILOT_INSTRUCTIONS[@]}"; do
+		context+="- \`$f\`\n"
+	done
+	for f in "${COPILOT_PROMPTS[@]}"; do
+		context+="- \`$f\`\n"
+	done
+	for f in "${COPILOT_SKILLS[@]}"; do
+		context+="- \`$f\`\n"
+	done
+	[ -n "$COPILOT_PLAN" ] && context+="- \`$COPILOT_PLAN\`\n"
+	[ -n "$COPILOT_BUGS" ] && context+="- \`$COPILOT_BUGS\`\n"
+	[ -n "$COPILOT_MEMORY" ] && context+="- \`$COPILOT_MEMORY\`\n"
+	[ -n "$COPILOT_AUDIT_RESEARCH" ] && context+="- \`$COPILOT_AUDIT_RESEARCH\`\n"
+
+	if [ ${#MISPLACED_GITHUB_FILES[@]} -gt 0 ]; then
+		context+="\n### Misplaced GitHub Customization Candidates\n"
+		for f in "${MISPLACED_GITHUB_FILES[@]}"; do
+			context+="- \`$f\` -> intended home \`$(intended_github_path "$f")\`\n"
+			context+="  - external references: $(list_external_references "$f")\n"
+		done
+	fi
+
+	context+="\n## Audit Expectations\n\n"
+	context+="- Produce a compact context report, not a pasted-file transcript.\n"
+	context+="- Inventory every Copilot-related file under .github exactly once.\n"
+	context+="- Include enough project workflow detail that the research phase can stay external and the evaluation phase can stay file-by-file.\n"
+
+	printf '%b' "$context"
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+ui_title "git-copilot-devops-audit — $project_name"
+
+echo ""
+printf '%b  Stack:%b %s\n' "$DIM" "$NC" "${DETECTED_LANG_STR:-Unknown}"
+[ -n "$DETECTED_FRAMEWORK_STR" ] && printf '%b  Frameworks:%b %s\n' "$DIM" "$NC" "$DETECTED_FRAMEWORK_STR"
+printf '%b  Agents found:%b %d\n' "$DIM" "$NC" "${#COPILOT_AGENTS[@]}"
+printf '%b  Instruction files found:%b %d\n' "$DIM" "$NC" "${#COPILOT_INSTRUCTIONS[@]}"
+[ -z "$COPILOT_MAIN" ] && ui_warn "copilot-instructions.md not found — will be noted in audit"
+echo ""
+
+# Step 1: Write context file (skipped when --update-agent)
+if [ "$update_agent" = false ]; then
+	ui_step "Seeding audit research cache baseline..."
+	seed_file_if_missing ".github/devops-audit-research.md" "$(generate_research_cache_file "$project_name")"
+	[ -f ".github/devops-audit-research.md" ] && COPILOT_AUDIT_RESEARCH=".github/devops-audit-research.md"
+	ui_step "Writing audit context snapshot..."
+	write_file ".github/devops-audit-context.md" "$(generate_context_file "$project_name")"
+else
+	ui_info "Skipping context snapshot (--update-agent mode)"
+fi
+
+# Step 2: Install to standard user-level locations
+VSCODE_USER_DIR="$HOME/Library/Application Support/Code/User"
+COPILOT_USER_DIR="$HOME/.copilot"
+if [ "$no_install" = false ]; then
+	install_force=$force_mode
+	[ "$update_agent" = true ] && install_force=true
+
+	ui_step "Installing audit agents, router instruction, prompt, and skills to standard user locations..."
+	mkdir -p "$COPILOT_USER_DIR/agents" "$COPILOT_USER_DIR/instructions" "$COPILOT_USER_DIR/skills"
+	if [ "$(uname -s)" = "Darwin" ]; then
+		mkdir -p "$VSCODE_USER_DIR/agents" "$VSCODE_USER_DIR/prompts"
+	fi
+
+	agents_dirs=("$COPILOT_USER_DIR/agents")
+	if [ -d "$VSCODE_USER_DIR" ]; then
+		agents_dirs+=("$VSCODE_USER_DIR/agents")
+	fi
+	router_instruction="$COPILOT_USER_DIR/instructions/devops-audit-router.instructions.md"
+	prompts_dir="$VSCODE_USER_DIR/prompts"
+
+	# Define all agent files to install
+	typeset -A agent_generators=(
+		[DevOpsAudit.agent.md]=generate_orchestrator_agent
+		[DevOpsAuditContext.agent.md]=generate_context_agent
+		[DevOpsAuditResearch.agent.md]=generate_research_agent
+		[DevOpsAuditEvaluate.agent.md]=generate_evaluate_agent
+		[DevOpsAuditImplement.agent.md]=generate_implement_agent
+	)
+	global_prompt="$prompts_dir/copilot-devops-audit.prompt.md"
+
+	if [ "$dry_run" = true ]; then
+		for agents_dir in "${agents_dirs[@]}"; do
+			obsolete="$agents_dir/DevOpsAuditFix.agent.md"
+			if [ -f "$obsolete" ]; then
+				ui_info "[dry-run] Would remove obsolete: $obsolete"
+			fi
+			for name in "${(@k)agent_generators}"; do
+				ui_info "[dry-run] Would write: $agents_dir/$name"
+			done
+		done
+		ui_info "[dry-run] Would write: $router_instruction"
+		if [ -d "$VSCODE_USER_DIR" ]; then
+			ui_info "[dry-run] Would write: $global_prompt"
+		else
+			ui_warn "[dry-run] Would skip prompt install because VS Code user profile was not found"
+		fi
+	else
+		for agents_dir in "${agents_dirs[@]}"; do
+			obsolete="$agents_dir/DevOpsAuditFix.agent.md"
+			if [ -f "$obsolete" ]; then
+				rm -f "$obsolete"
+				ui_ok "Removed obsolete agent: $obsolete"
+			fi
+
+			for name in "${(@k)agent_generators}"; do
+				target="$agents_dir/$name"
+				generator="${agent_generators[$name]}"
+				if [ -f "$target" ] && [ "$install_force" = false ]; then
+					ui_skip "$target"
+				else
+					printf '%s\n' "$($generator)" > "$target"
+					ui_ok "User agent: $target"
+				fi
+			done
+		done
+
+		if [ -f "$router_instruction" ] && [ "$install_force" = false ]; then
+			ui_skip "$router_instruction"
+		else
+			printf '%s\n' "$(generate_router_instruction)" > "$router_instruction"
+			ui_ok "User instruction: $router_instruction"
+		fi
+
+		if [ -d "$VSCODE_USER_DIR" ]; then
+			if [ -f "$global_prompt" ] && [ "$install_force" = false ]; then
+				ui_skip "$global_prompt"
+			else
+				printf '%s\n' "$(generate_prompt_file)" > "$global_prompt"
+				ui_ok "User prompt: $global_prompt"
+			fi
+		else
+			ui_warn "VS Code user profile not found — skipped prompt install"
+		fi
+
+		install_global_skills
+	fi
+fi
+
+echo ""
+ui_hr
+if [ "$update_agent" = true ]; then
+	printf '%b  ✅ Audit tooling updated in user locations%b\n' "$BOLD$GREEN" "$NC"
+else
+	printf '%b  ✅ Audit snapshot prepared for: %s%b\n' "$BOLD$GREEN" "$project_name" "$NC"
+fi
+ui_hr
+echo ""
+echo "  How to run the audit (works in ANY workspace):"
+echo ""
+if [ "$no_install" = false ]; then
+	printf '  %b1.%b In VS Code Copilot Chat, type:\n' "$BOLD" "$NC"
+	printf '       %b/copilot-devops-audit%b\n' "$CYAN" "$NC"
+	printf '  %b  (the audit agents are private internal tooling; no workspace-local audit agent/prompt is created)%b\n' "$DIM" "$NC"
+	echo ""
+fi
+printf '  %b2.%b To re-run with fresh context:\n' "$BOLD" "$NC"
+printf '       %bgit copilot-devops-audit --force%b\n' "$CYAN" "$NC"
+printf '  %b3.%b To update agent/prompt files only (no context snapshot):\n' "$BOLD" "$NC"
+printf '       %bgit copilot-devops-audit --update-agent%b\n' "$CYAN" "$NC"
+echo ""
+if [ "$update_agent" = false ]; then
+	printf '  %bAudit context saved to:%b .github/devops-audit-context.md\n' "$DIM" "$NC"
+	printf '  %bAudit research cache:%b .github/devops-audit-research.md\n' "$DIM" "$NC"
+fi
+printf '  %bAudit results are returned in chat;%b repo-local support files are limited to the context snapshot and research cache\n' "$DIM" "$NC"
+printf '  %bAudit agents:%b %s/agents\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
+printf '  %bMirror agents:%b %s/agents\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
+printf '  %bAudit router:%b %s/instructions\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
+printf '  %bAudit skills:%b %s/skills\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
+printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
+echo ""
+ui_hr
+echo ""

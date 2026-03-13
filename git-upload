@@ -23,8 +23,8 @@
 #          and the current state, write a clean concise one-three line message
 #          for this diff"
 #       and, if you provided [ai-context] after -ai, appends that text.
-#     - It then calls GitHub Copilot CLI non-interactively:
-#         copilot -s --allow-all-tools --allow-all-paths -p "$GIT_UPLOAD_AI_PROMPT"
+#     - It then calls GitHub Copilot CLI non-interactively (write/shell tools denied):
+#         copilot -s --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"
 #
 #   Advanced: you may optionally override the full AI command via
 #   GIT_UPLOAD_AI_CMD for a single shell/session, but this is not required.
@@ -35,7 +35,41 @@ use_ai=false
 user_msg=""
 ai_extra_context=""
 
-DEFAULT_AI_CMD='copilot -s --allow-all-tools --allow-all-paths -p "$GIT_UPLOAD_AI_PROMPT"'
+DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"'
+
+# Progress spinner for long-running operations
+_spinner_pid=""
+start_spinner() {
+	local msg="$1"
+	(
+		local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+		local i=1
+		while true; do
+			printf '\r\033[K[git-upload] %s %s' "${frames[$i]}" "$msg" >&2
+			i=$(( (i % 10) + 1 ))
+			sleep 0.1
+		done
+	) &
+	_spinner_pid=$!
+	disown $_spinner_pid 2>/dev/null || true
+}
+
+stop_spinner() {
+	local final_msg="${1:-}"
+	if [ -n "$_spinner_pid" ] && kill -0 "$_spinner_pid" 2>/dev/null; then
+		kill "$_spinner_pid" 2>/dev/null || true
+		wait "$_spinner_pid" 2>/dev/null || true
+	fi
+	_spinner_pid=""
+	if [ -n "$final_msg" ]; then
+		printf '\r\033[K[git-upload] %s\n' "$final_msg" >&2
+	else
+		printf '\r\033[K' >&2
+	fi
+}
+
+# Cleanup spinner on exit
+trap 'stop_spinner' EXIT INT TERM
 
 expect_ai_context_next=false
 
@@ -1072,8 +1106,14 @@ compute_diff_analysis() {
 	added_imports=$(printf '%s\n' "$diff" | grep -E '^\+.*(import |from .* import |require\(|#include)' | wc -l | tr -d ' ')
 	
 	# Check for syntax errors in changed files (language-specific)
+	# Run checks in parallel for speed, collecting results via temp files
 	local syntax_errors=""
 	local syntax_error_count=0
+	local syntax_tmpdir
+	syntax_tmpdir=$(mktemp -d -t git-upload-syntax.XXXXXX)
+	local syntax_pids=()
+	local tsc_checked=false
+	
 	while IFS= read -r file; do
 		[ -z "$file" ] && continue
 		[ ! -f "$file" ] && continue
@@ -1081,58 +1121,89 @@ compute_diff_analysis() {
 		case "$file" in
 			*.py)
 				if command -v python3 >/dev/null 2>&1; then
-					if ! python3 -m py_compile "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- Python syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
-					fi
+					(
+						if ! python3 -m py_compile "$file" >/dev/null 2>&1; then
+							printf '%s\n' "- Python syntax error in $file" >> "$syntax_tmpdir/errors"
+						fi
+					) &
+					syntax_pids+=($!)
 				fi
 				;;
 			*.js|*.jsx)
 				# Only check plain JavaScript files with node --check
 				if command -v node >/dev/null 2>&1; then
-					if ! node --check "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- JavaScript syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
-					fi
+					(
+						if ! node --check "$file" >/dev/null 2>&1; then
+							printf '%s\n' "- JavaScript syntax error in $file" >> "$syntax_tmpdir/errors"
+						fi
+					) &
+					syntax_pids+=($!)
 				fi
 				;;
 			*.ts|*.tsx)
-				# TypeScript requires tsc for proper checking, skip if not available
-				# Only run tsc in context of a project with tsconfig.json to avoid false positives
-				if command -v tsc >/dev/null 2>&1; then
+				# TypeScript: run tsc once for entire project (not per-file)
+				# Use timeout to prevent blocking on large projects
+				if [ "$tsc_checked" = false ] && command -v tsc >/dev/null 2>&1; then
+					tsc_checked=true
 					local repo_root
 					repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 					if [ -f "$repo_root/tsconfig.json" ]; then
-						if ! (cd "$repo_root" && tsc --noEmit >/dev/null 2>&1); then
-							syntax_errors="${syntax_errors}
-- TypeScript syntax/compile error (see tsc output) affecting $file"
-							syntax_error_count=$((syntax_error_count + 1))
-						fi
+						(
+							# 10-second timeout for TypeScript checking
+							if command -v timeout >/dev/null 2>&1; then
+								if ! timeout 10 bash -c "cd '$repo_root' && tsc --noEmit" >/dev/null 2>&1; then
+									printf '%s\n' "- TypeScript syntax/compile error (see tsc output)" >> "$syntax_tmpdir/errors"
+								fi
+							elif command -v gtimeout >/dev/null 2>&1; then
+								# macOS with coreutils
+								if ! gtimeout 10 bash -c "cd '$repo_root' && tsc --noEmit" >/dev/null 2>&1; then
+									printf '%s\n' "- TypeScript syntax/compile error (see tsc output)" >> "$syntax_tmpdir/errors"
+								fi
+							else
+								# No timeout available - run without timeout but skip if it takes too long
+								if ! (cd "$repo_root" && tsc --noEmit >/dev/null 2>&1); then
+									printf '%s\n' "- TypeScript syntax/compile error (see tsc output)" >> "$syntax_tmpdir/errors"
+								fi
+							fi
+						) &
+						syntax_pids+=($!)
 					fi
 				fi
 				;;
 			*.sh|*.bash|*.zsh)
 				if command -v bash >/dev/null 2>&1; then
-					if ! bash -n "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- Shell syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
-					fi
+					(
+						if ! bash -n "$file" >/dev/null 2>&1; then
+							printf '%s\n' "- Shell syntax error in $file" >> "$syntax_tmpdir/errors"
+						fi
+					) &
+					syntax_pids+=($!)
 				fi
 				;;
 			*.json)
 				if command -v python3 >/dev/null 2>&1; then
-					if ! python3 -m json.tool -- "$file" >/dev/null 2>&1; then
-						syntax_errors="${syntax_errors}
-- JSON syntax error in $file"
-						syntax_error_count=$((syntax_error_count + 1))
-					fi
+					(
+						if ! python3 -m json.tool -- "$file" >/dev/null 2>&1; then
+							printf '%s\n' "- JSON syntax error in $file" >> "$syntax_tmpdir/errors"
+						fi
+					) &
+					syntax_pids+=($!)
 				fi
 				;;
 		esac
 	done <<< "$changed_files"
+	
+	# Wait for all syntax checks to complete
+	for pid in "${syntax_pids[@]}"; do
+		wait "$pid" 2>/dev/null || true
+	done
+	
+	# Collect syntax errors from temp file
+	if [ -f "$syntax_tmpdir/errors" ]; then
+		syntax_errors=$(cat "$syntax_tmpdir/errors")
+		syntax_error_count=$(wc -l < "$syntax_tmpdir/errors" | tr -d ' ')
+	fi
+	rm -rf "$syntax_tmpdir" >/dev/null 2>&1 || true
 	
 	# Check for removed public APIs/exports (actual breaking changes)
 	local api_removals=0
@@ -1228,6 +1299,7 @@ compute_risk_score() {
 	# =================================================================
 	
 	# 1. Tests degraded (more failures, or tests broke that were passing)
+	#    NOTE: "fail (new tests)" is NOT degraded - it's progression (new failing tests added)
 	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (degraded)'; then
 		risk_level="high"
 		risk_reasons="commit degraded test health"
@@ -1265,7 +1337,15 @@ compute_risk_score() {
 		fi
 	fi
 	
-	# 5. All tests pass - codebase is healthy
+	# 5. New tests added with failures - this is PROGRESSION, not regression
+	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (new tests)'; then
+		if [ "$risk_level" != "high" ]; then
+			risk_level="low"
+			risk_reasons="new tests added (progression, not regression)"
+		fi
+	fi
+	
+	# 6. All tests pass - codebase is healthy
 	if printf '%s\n' "$testing_status" | grep -q '^Testing: pass'; then
 		if [ "$risk_level" != "high" ]; then
 			risk_level="low"
@@ -1273,7 +1353,7 @@ compute_risk_score() {
 		fi
 	fi
 	
-	# 6. No tests configured but no syntax errors or API removals
+	# 7. No tests configured but no syntax errors or API removals
 	if printf '%s\n' "$testing_status" | grep -q '^Testing: not configured'; then
 		if [ "$risk_level" != "high" ]; then
 			# Without tests, we rely on other signals - default to medium for untested changes
@@ -1288,7 +1368,7 @@ compute_risk_score() {
 	# MEDIUM RISK: Uncertain impact, needs review
 	# =================================================================
 	
-	# 7. Same number of failures (neutral impact)
+	# 8. Same number of failures (neutral impact)
 	if printf '%s\n' "$testing_status" | grep -q '^Testing: fail (unchanged)'; then
 		if [ "$risk_level" != "high" ] && [ "$risk_level" != "low" ]; then
 			risk_level="medium"
@@ -1430,8 +1510,13 @@ EOF
 		test_cwd="$repo_root"
 	fi
 
-	# First, run tests on current state (with staged changes)
-	echo "[git-upload] Running tests on current changes..." >&2
+	# Step 1: Run tests on current state (with staged changes)
+	echo "" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-upload] 📋 TEST VERIFICATION" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-upload] Step 1/2: Testing your changes..." >&2
+	start_spinner "Running tests on current changes..."
 
 	local tmp_current
 	tmp_current=$(mktemp -t git-upload-tests-current.XXXXXX)
@@ -1442,6 +1527,8 @@ EOF
 	else
 		current_exit_code=$?
 	fi
+	
+	stop_spinner
 
 	# Check for "no tests" conditions first
 	if [ "$current_exit_code" -ne 0 ]; then
@@ -1503,7 +1590,10 @@ EOF
 			summary='Testing: pass'
 		fi
 		rm -f "$tmp_current" >/dev/null 2>&1 || true
-		echo "[git-upload] $summary" >&2
+		echo "[git-upload] ✅ $summary" >&2
+		echo "[git-upload] Step 2/2: Skipped (tests pass, no baseline comparison needed)" >&2
+		echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+		echo "" >&2
 		printf '%s' "$summary"
 		return 0
 	fi
@@ -1514,6 +1604,7 @@ EOF
 	# Extract failure count from current test output
 	local current_fail_count
 	current_fail_count=$(extract_test_failure_count "$tmp_current")
+	echo "[git-upload] ⚠️  Current tests: $current_fail_count failure(s) detected" >&2
 	
 	# Check if we have a previous commit to compare against
 	local has_head=0
@@ -1525,7 +1616,7 @@ EOF
 	local baseline_fail_count=0
 	
 	if [ "$has_head" -eq 1 ]; then
-		echo "[git-upload] Tests failing ($current_fail_count) - comparing against previous commit..." >&2
+		echo "[git-upload] Step 2/2: Comparing against previous commit (HEAD)..." >&2
 		
 		# Stash current changes (including staged), run tests on HEAD, then restore
 		local stash_result
@@ -1535,7 +1626,7 @@ EOF
 			local tmp_baseline
 			tmp_baseline=$(mktemp -t git-upload-tests-baseline.XXXXXX)
 			
-			echo "[git-upload] Running tests on previous commit (HEAD) for comparison..." >&2
+			start_spinner "Running tests on HEAD (baseline)..."
 			
 			local baseline_exit_code=0
 			if (cd "$test_cwd" && eval "$test_cmd") >"$tmp_baseline" 2>&1; then
@@ -1544,49 +1635,91 @@ EOF
 				baseline_exit_code=$?
 			fi
 			
-			# Restore the stashed changes
-			if ! git stash pop >/dev/null 2>&1; then
-				echo "[git-upload] WARNING: Failed to re-apply stashed changes after baseline tests." >&2
-				echo "[git-upload]          Please inspect your working tree (e.g., 'git status') and resolve manually." >&2
-			fi
+			stop_spinner
 			
-			# Extract baseline failure count
+			# Restore the stashed changes
+			echo "[git-upload] Restoring your changes..." >&2
+			if ! git stash pop >/dev/null 2>&1; then
+				echo "[git-upload] ⚠️  WARNING: Failed to re-apply stashed changes after baseline tests." >&2
+				echo "[git-upload]    Please inspect your working tree (e.g., 'git status') and resolve manually." >&2
+			fi
+			# Re-stage files after stash pop (stash pop leaves files unstaged)
+			git add -A 2>/dev/null || true
+			
+			# Extract baseline failure count and total test count
+			local baseline_total_count=0
 			if [ "$baseline_exit_code" -eq 0 ]; then
 				baseline_fail_count=0
+				baseline_total_count=$(extract_test_total_count "$tmp_baseline")
 			else
 				baseline_fail_count=$(extract_test_failure_count "$tmp_baseline")
+				baseline_total_count=$(extract_test_total_count "$tmp_baseline")
 			fi
 			
+			# Also get current total for comparison
+			local current_total_count
+			current_total_count=$(extract_test_total_count "$tmp_current")
+			
 			# Compare: did this commit make things better, worse, or same?
+			# Key insight: if total tests increased and that accounts for the new failures,
+			# these are likely NEW TESTS (progression), not broken old tests (regression)
+			local new_test_count=0
+			if [ "$current_total_count" -gt "$baseline_total_count" ] 2>/dev/null; then
+				new_test_count=$((current_total_count - baseline_total_count))
+			fi
+			
 			if [ "$baseline_fail_count" -eq 0 ] && [ "$current_fail_count" -gt 0 ]; then
-				# Tests WERE passing, now failing = WORSE (this commit broke things)
-				test_delta="worse"
-				echo "[git-upload] Tests were passing (0 failures), now $current_fail_count failing - commit BROKE tests" >&2
+				# Tests WERE passing, now failing
+				if [ "$new_test_count" -ge "$current_fail_count" ] 2>/dev/null && [ "$new_test_count" -gt 0 ]; then
+					# All failures are from new tests = PROGRESSION (new tests added)
+					test_delta="newTests"
+					echo "[git-upload] 🟣 Baseline: 0 failures ($baseline_total_count tests) → Current: $current_fail_count failures ($current_total_count tests)" >&2
+					echo "[git-upload]    Result: NEW TESTS added (+$new_test_count), failures are from new tests (progression, not regression)" >&2
+				else
+					test_delta="worse"
+					echo "[git-upload] 🔴 Baseline: 0 failures → Current: $current_fail_count failures" >&2
+					echo "[git-upload]    Result: This commit BROKE previously passing tests" >&2
+				fi
 			elif [ "$current_fail_count" -gt "$baseline_fail_count" ]; then
-				# More failures now = WORSE
-				test_delta="worse"
-				echo "[git-upload] More tests failing now ($current_fail_count) than before ($baseline_fail_count) - commit made things WORSE" >&2
+				# More failures now
+				local additional_failures=$((current_fail_count - baseline_fail_count))
+				if [ "$new_test_count" -ge "$additional_failures" ] 2>/dev/null && [ "$new_test_count" -gt 0 ]; then
+					# Additional failures explained by new tests = PROGRESSION
+					test_delta="newTests"
+					echo "[git-upload] 🟣 Baseline: $baseline_fail_count failures ($baseline_total_count tests) → Current: $current_fail_count failures ($current_total_count tests)" >&2
+					echo "[git-upload]    Result: NEW TESTS added (+$new_test_count), additional failures are from new tests" >&2
+				else
+					test_delta="worse"
+					echo "[git-upload] 🔴 Baseline: $baseline_fail_count failures → Current: $current_fail_count failures" >&2
+					echo "[git-upload]    Result: This commit made things WORSE" >&2
+				fi
 			elif [ "$current_fail_count" -lt "$baseline_fail_count" ]; then
 				# Fewer failures now = BETTER (commit is fixing things!)
 				test_delta="better"
-				echo "[git-upload] Fewer tests failing now ($current_fail_count) than before ($baseline_fail_count) - commit is IMPROVING things" >&2
+				echo "[git-upload] 🟢 Baseline: $baseline_fail_count failures → Current: $current_fail_count failures" >&2
+				echo "[git-upload]    Result: This commit is IMPROVING test health" >&2
 			else
 				# Same number of failures
 				test_delta="same"
-				echo "[git-upload] Same number of test failures ($current_fail_count) - neutral impact" >&2
+				echo "[git-upload] 🟡 Baseline: $baseline_fail_count failures → Current: $current_fail_count failures" >&2
+				echo "[git-upload]    Result: No change in test health" >&2
 			fi
 			
 			rm -f "$tmp_baseline" >/dev/null 2>&1 || true
 		else
 			# Couldn't stash - assume neutral to avoid false positives
 			test_delta="unknown"
-			echo "[git-upload] Could not compare against HEAD - impact unknown" >&2
+			echo "[git-upload] ⚠️  Could not stash changes - baseline comparison skipped" >&2
 		fi
 	else
 		# No previous commit - this is initial commit with failing tests
 		test_delta="worse"
-		echo "[git-upload] No previous commit - initial commit has $current_fail_count failing tests" >&2
+		echo "[git-upload] 📝 Initial commit - no baseline to compare against" >&2
+		echo "[git-upload] 🔴 $current_fail_count failing test(s) in initial commit" >&2
 	fi
+	
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "" >&2
 
 	# Build the summary with delta information
 	local summary
@@ -1608,6 +1741,10 @@ EOF
 		same)
 			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (unchanged)/')
 			;;
+		newTests)
+			# New tests were added - failures are from progression, not regression
+			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (new tests)/')
+			;;
 		*)
 			summary=$(printf '%s' "$summary" | sed 's/^Testing: fail/Testing: fail (unknown baseline)/')
 			;;
@@ -1627,13 +1764,42 @@ extract_test_failure_count() {
 	local output_file="$1"
 	local count=0
 	
+	# Helper: sanitize a captured number to ensure it's a clean integer
+	_sanitize_int() {
+		local val="$1"
+		# Strip whitespace, newlines, and non-digit characters
+		val=$(printf '%s' "$val" | tr -cd '0-9' | head -c 10)
+		if [ -z "$val" ]; then
+			printf '0'
+			return
+		fi
+		printf '%s' "$val"
+	}
+	
 	# Try various patterns for different test runners
 	
 	# Jest/Vitest: "Tests: X failed"
 	local jest_fail
 	jest_fail=$(grep -oE 'Tests:[[:space:]]+[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
 	if [ -n "$jest_fail" ]; then
-		printf '%s' "$jest_fail"
+		_sanitize_int "$jest_fail"
+		return 0
+	fi
+	
+	# dotnet: "Failed!  - Failed:     X" or "Failed:  X" (handles multiple spaces)
+	# Must check before generic pytest pattern since both have "X failed"
+	local dotnet_fail
+	dotnet_fail=$(grep -oE 'Failed:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$dotnet_fail" ]; then
+		_sanitize_int "$dotnet_fail"
+		return 0
+	fi
+	
+	# dotnet alternate: count individual test failure lines "X [Xms]" after "Failed!"
+	local dotnet_fail_count
+	dotnet_fail_count=$(grep -cE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]+\[[0-9]+[[:space:]]*m?s\][[:space:]]*—' "$output_file" 2>/dev/null || echo "0")
+	if [ "$dotnet_fail_count" -gt 0 ] 2>/dev/null; then
+		_sanitize_int "$dotnet_fail_count"
 		return 0
 	fi
 	
@@ -1641,15 +1807,15 @@ extract_test_failure_count() {
 	local pytest_fail
 	pytest_fail=$(grep -oE '[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
 	if [ -n "$pytest_fail" ]; then
-		printf '%s' "$pytest_fail"
+		_sanitize_int "$pytest_fail"
 		return 0
 	fi
 	
 	# Go: "FAIL" lines (count them)
 	local go_fail
 	go_fail=$(grep -c '^--- FAIL:' "$output_file" 2>/dev/null || echo "0")
-	if [ "$go_fail" -gt 0 ]; then
-		printf '%s' "$go_fail"
+	if [ "$go_fail" -gt 0 ] 2>/dev/null; then
+		_sanitize_int "$go_fail"
 		return 0
 	fi
 	
@@ -1659,8 +1825,8 @@ extract_test_failure_count() {
 	local mvn_err
 	mvn_err=$(grep -oE 'Errors:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 || true)
 	if [ -n "$mvn_fail" ] || [ -n "$mvn_err" ]; then
-		mvn_fail=${mvn_fail:-0}
-		mvn_err=${mvn_err:-0}
+		mvn_fail=$(_sanitize_int "${mvn_fail:-0}")
+		mvn_err=$(_sanitize_int "${mvn_err:-0}")
 		printf '%s' "$((mvn_fail + mvn_err))"
 		return 0
 	fi
@@ -1669,28 +1835,159 @@ extract_test_failure_count() {
 	local cargo_fail
 	cargo_fail=$(grep -oE '[0-9]+[[:space:]]+failed' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
 	if [ -n "$cargo_fail" ]; then
-		printf '%s' "$cargo_fail"
-		return 0
-	fi
-	
-	# dotnet: "Failed: X"
-	local dotnet_fail
-	dotnet_fail=$(grep -oE 'Failed:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
-	if [ -n "$dotnet_fail" ]; then
-		printf '%s' "$dotnet_fail"
+		_sanitize_int "$cargo_fail"
 		return 0
 	fi
 	
 	# Fallback: count lines with common failure indicators
 	local generic_fail
 	generic_fail=$(grep -ciE '(FAIL|FAILED|ERROR|BROKEN)' "$output_file" 2>/dev/null || echo "0")
-	if [ "$generic_fail" -gt 0 ]; then
+	generic_fail=$(_sanitize_int "$generic_fail")
+	if [ "$generic_fail" -gt 0 ] 2>/dev/null; then
 		printf '%s' "$generic_fail"
 		return 0
 	fi
 	
 	# Can't determine - return 1 as a fallback (at least 1 failure since tests failed)
 	printf '1'
+}
+
+extract_test_total_count() {
+	# Best-effort extraction of total test count from test output
+	# Returns a number (0 if can't determine)
+	local output_file="$1"
+	
+	# Helper: sanitize a captured number to ensure it's a clean integer
+	_sanitize_int() {
+		local val="$1"
+		val=$(printf '%s' "$val" | tr -cd '0-9' | head -c 10)
+		if [ -z "$val" ]; then
+			printf '0'
+			return
+		fi
+		printf '%s' "$val"
+	}
+	
+	# Jest/Vitest: "Tests: X total"
+	local jest_total
+	jest_total=$(grep -oE 'Tests:[[:space:]]+.*[0-9]+[[:space:]]+total' "$output_file" 2>/dev/null | grep -oE '[0-9]+[[:space:]]+total' | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$jest_total" ]; then
+		_sanitize_int "$jest_total"
+		return 0
+	fi
+	
+	# dotnet: "Total: X" or "Total tests: X"
+	local dotnet_total
+	dotnet_total=$(grep -oE 'Total:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 || true)
+	if [ -z "$dotnet_total" ]; then
+		dotnet_total=$(grep -oE 'Total tests:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	fi
+	if [ -n "$dotnet_total" ]; then
+		_sanitize_int "$dotnet_total"
+		return 0
+	fi
+	
+	# Pytest: "X passed" + "X failed" = total, or "collected X items"
+	local pytest_collected
+	pytest_collected=$(grep -oE 'collected[[:space:]]+[0-9]+[[:space:]]+items?' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$pytest_collected" ]; then
+		_sanitize_int "$pytest_collected"
+		return 0
+	fi
+	
+	# Python unittest: "Ran X tests"
+	local unittest_total
+	unittest_total=$(grep -oE 'Ran[[:space:]]+[0-9]+[[:space:]]+tests?' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+	if [ -n "$unittest_total" ]; then
+		_sanitize_int "$unittest_total"
+		return 0
+	fi
+	
+	# Go: count all test function results (PASS + FAIL)
+	local go_total
+	go_total=$(grep -cE '^--- (PASS|FAIL):' "$output_file" 2>/dev/null || echo "0")
+	if [ "$go_total" -gt 0 ] 2>/dev/null; then
+		_sanitize_int "$go_total"
+		return 0
+	fi
+	
+	# Maven: "Tests run: X"
+	local mvn_total
+	mvn_total=$(grep -oE 'Tests run:[[:space:]]*[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 || true)
+	if [ -n "$mvn_total" ]; then
+		_sanitize_int "$mvn_total"
+		return 0
+	fi
+	
+	# Fallback: can't determine
+	printf '0'
+}
+
+collect_repo_ai_guidance() {
+	local repo_root="$1"
+	[ -n "$repo_root" ] || return 0
+
+	local max_total_chars=8000
+	local total_chars=0
+	local guidance=""
+	local entry=""
+	local relative_path=""
+	local guidance_label=""
+	local max_lines=""
+	local absolute_path=""
+	local snippet=""
+	local original_length=0
+	local remaining_chars=0
+	local block=""
+	typeset -a guidance_candidates
+	guidance_candidates=(
+		".github/COMMIT_GUIDELINES.md:Project commit guidelines:120"
+		".github/UPLOAD_GUIDELINES.md:Project upload workflow guidelines:120"
+		".github/copilot-instructions.md:Repository Copilot instructions:120"
+		"AGENTS.md:Repository agent instructions:100"
+		"CLAUDE.md:Repository Claude instructions:100"
+		"CONTRIBUTING.md:Contribution guidelines:120"
+		"README.md:Repository overview:120"
+	)
+
+	for entry in "${guidance_candidates[@]}"; do
+		IFS=':' read -r relative_path guidance_label max_lines <<< "$entry"
+		absolute_path="$repo_root/$relative_path"
+		[ -f "$absolute_path" ] || continue
+
+		snippet=$(sed -n "1,${max_lines}p" "$absolute_path" 2>/dev/null || true)
+		[ -n "$snippet" ] || continue
+
+		original_length=${#snippet}
+		remaining_chars=$((max_total_chars - total_chars))
+		[ "$remaining_chars" -gt 0 ] || break
+
+		if [ "$original_length" -gt "$remaining_chars" ]; then
+			snippet=$(printf '%s' "$snippet" | head -c "$remaining_chars")
+		fi
+
+		block="$guidance_label ($relative_path):
+$snippet"
+		if [ ${#snippet} -lt "$original_length" ]; then
+			block="$block
+[truncated to fit prompt budget]"
+		fi
+
+		if [ -n "$guidance" ]; then
+			guidance="$guidance
+
+---
+
+$block"
+		else
+			guidance="$block"
+		fi
+
+		total_chars=$((total_chars + ${#block} + 6))
+		[ "$total_chars" -lt "$max_total_chars" ] || break
+	done
+
+	printf '%s' "$guidance"
 }
 
 generate_ai_message() {
@@ -1711,14 +2008,23 @@ generate_ai_message() {
 		return 1
 	fi
 
+	echo "" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-upload] 🔍 ANALYZING CHANGES" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+
 	local testing_status
 	testing_status=$(compute_testing_status)
+	
+	echo "[git-upload] Checking for breaking changes..." >&2
 	local breaking_hints
 	breaking_hints=$(compute_breaking_change_hints)
 	
 	# Get comprehensive diff analysis for smart risk assessment
+	start_spinner "Running syntax checks & analyzing diff..."
 	local diff_analysis
 	diff_analysis=$(compute_diff_analysis)
+	stop_spinner "✅ Diff analysis complete"
 	
 	# Compute actual risk based on meaningful criteria
 	local risk_result
@@ -1730,6 +2036,53 @@ generate_ai_message() {
 	local diff_summary=""
 	# Safely parse diff_analysis without using eval to prevent shell injection
 	parse_diff_analysis "$diff_analysis"
+	
+	# Get the actual file names for context
+	local changed_file_list
+	changed_file_list=$(git diff --cached --name-only 2>/dev/null | head -20 || echo "")
+	local file_list_display=""
+	if [ -n "$changed_file_list" ]; then
+		file_list_display="
+Changed files:
+$(printf '%s\n' "$changed_file_list" | sed 's/^/  - /')"
+	fi
+	
+	# Get a compact stat summary
+	local stat_summary
+	stat_summary=$(git diff --cached --stat 2>/dev/null | tail -1 || echo "")
+	
+	# Get the actual diff - full content for complete context
+	local actual_diff
+	actual_diff=$(git diff --cached -U3 2>/dev/null || echo "")
+	local diff_line_count
+	diff_line_count=$(printf '%s\n' "$actual_diff" | wc -l | tr -d ' ')
+	local diff_truncated=""
+	# For very large diffs (>2000 lines), truncate with notice to keep prompt manageable
+	if [ "$diff_line_count" -gt 2000 ]; then
+		actual_diff=$(printf '%s\n' "$actual_diff" | head -2000)
+		diff_truncated="(truncated - showing first 2000 of $diff_line_count lines; review full diff with 'git diff --cached')"
+	fi
+	
+	# Load repository-authored commit and workflow guidance if it exists
+	local repo_root
+	repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+	local repo_guidance=""
+	if [ -n "$repo_root" ]; then
+		repo_guidance=$(collect_repo_ai_guidance "$repo_root")
+	fi
+	
+	# Get recent commit history for context (last 5 commits with summary)
+	local recent_history=""
+	recent_history=$(git log --oneline -10 --no-decorate 2>/dev/null | head -10 || echo "")
+	
+	# Get more detailed recent commits (last 3) to understand project momentum
+	local detailed_recent=""
+	detailed_recent=$(git log -3 --pretty=format:"--- Commit %h (%ar) ---
+%s
+
+%b
+" 2>/dev/null || echo "")
+	
 	diff_summary="Diff analysis:
 - Files changed: $files_changed (core: $core_files_changed, tests: $test_files_changed, config: $config_files_changed)
 - Code changes: +$code_additions/-$code_deletions lines
@@ -1738,50 +2091,127 @@ generate_ai_message() {
 - Syntax errors detected: $syntax_error_count
 - API/export removals: $api_removals
 - Function signature changes: $signature_changes
+$file_list_display
 
-Pre-computed risk assessment: $computed_risk ($risk_reason)"
+Git stat: $stat_summary
+
+Pre-computed risk assessment: $computed_risk ($risk_reason)
+
+ACTUAL DIFF ($diff_line_count lines)$diff_truncated:
+\`\`\`diff
+$actual_diff
+\`\`\`"
+
+	# Add repository guidance to context if available
+	if [ -n "$repo_guidance" ]; then
+		diff_summary="REPOSITORY GUIDANCE (repo-authored commit, workflow, and instruction files):
+$repo_guidance
+
+---
+
+$diff_summary"
+	fi
+
+	# Add recent history context so AI understands project momentum
+	if [ -n "$recent_history" ]; then
+		diff_summary="RECENT COMMIT HISTORY (for context - understand what the project has been working on):
+$recent_history
+
+DETAILED RECENT COMMITS (last 3 - use this to understand WHY current changes might be happening):
+$detailed_recent
+
+---
+
+$diff_summary"
+	fi
 
 	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
 
-Your job:
-- Determine what changed between the last commit (HEAD) and the current staged snapshot (index). If there is no HEAD yet (initial commit), base it on the staged snapshot.
-- Write a reasonable-length but very informative commit message that explains what changed and why, so a teammate can understand it weeks later.
+OPERATING CONSTRAINTS:
+- You are running in READ-ONLY mode with no tool access.
+- You CANNOT read files, run commands, or access the filesystem.
+- ALL context you need is provided in this prompt (diff, file list, analysis).
+- Do NOT ask for more information or suggest running commands.
+- Work ONLY with the provided diff content below.
+
+HISTORY AWARENESS (CRITICAL):
+You are provided with RECENT COMMIT HISTORY. Use it to understand:
+- What the project has been working on lately
+- The INTENT behind the current changes (not just what they are)
+- Whether this commit is a FOLLOW-UP, TEST, CLEANUP, or NEW FEATURE
+
+Examples of history-aware reasoning:
+- If recent commits added 'git-help-i-pushed-an-env' (a secret-scrubbing tool), and now a .env with 'SECRET=test' is being added → this is OBVIOUSLY a test case for that tool, NOT an accidental secret leak!
+- If recent commits were bug fixes for feature X, and now there's a small tweak to X → this is likely a follow-up fix, not a new feature
+- If recent commits added a new module, and now tests are being added → celebrate the test coverage, link it to the module
+
+ALWAYS ask: 'Given what this project just shipped, WHY would someone make this change?'
+- A .env file after a secret-scanning tool = test case
+- A README update after new features = documentation
+- A config tweak after a deployment = hotfix/tuning
+
+VOICE & TONE (MOST IMPORTANT):
+Write like a human developer who is PROUD of their work. This is YOUR commit - own it!
+- Lead with the WIN: What did you accomplish? What's better now?
+- Be enthusiastic about meaningful improvements (doubling test coverage IS exciting!)
+- Use active, confident language: 'Doubled test coverage' not 'Add test coverage improvements'
+- Quantify achievements when possible: '6x more tests (120→700+)', 'coverage jumped 30%→85%'
+- If tests/coverage improved significantly, CELEBRATE IT in the subject line!
+- Avoid corporate/robotic language like 'artifacts', 'integration', 'subsystem', 'formalize'
+- Write like you're telling a teammate what you just shipped, not filing a report
+
+SUBJECT LINE - LEAD WITH IMPACT:
+- Good: '🎉 6x test coverage! GBA emulator up from 120 to 700+ tests'
+- Good: 'Finally fix that annoying Discord reconnect bug'
+- Good: 'Speed up builds 3x by parallelizing webpack'
+- Good: 'Add dark mode (yes, finally!)'
+- BAD: 'Add GBA integration test target and coverage artifacts' (what does this even mean to a human?)
+- BAD: 'Update test infrastructure' (boring, what's the actual win?)
+- BAD: 'Refactor implementation details' (nobody cares about implementation details)
+
+Note: Emoji in subject line is optional - use it when celebrating a big win, skip for routine changes.
+
+SPECIFICITY REQUIREMENTS:
+- NEVER use vague phrases like: 'core code', 'core helpers', 'default values', 'various improvements', 'minor changes', 'artifacts', 'infrastructure'.
+- ALWAYS name the SPECIFIC thing: 'git-upload', 'the --dry-run flag', 'MAX_RETRIES from 3 to 5', 'the parseConfig() function'.
+- If a new file was added, say WHAT it does: 'Add git-remerge script for re-applying failed merges' NOT 'Add new script'.
+- If behavior changed, describe the ACTUAL change: 'Skip empty commits instead of erroring' NOT 'Change default behavior'.
+- If you're refactoring, say WHAT was refactored and WHY: 'Extract notification logic into separate function to reduce Discord API spam' NOT 'Refactor implementation'.
+
+DETECTING & CELEBRATING WINS:
+Look for these patterns in the diff and HIGHLIGHT them:
+- Test count increases: If tests go from X to Y, calculate the multiplier (e.g., 120→700 = ~6x)
+- Coverage improvements: If you see coverage percentages, highlight the jump
+- New features: Lead with what users/developers can now DO
+- Bug fixes: Emphasize what annoying thing is now gone
+- Performance: Quantify the speedup if possible
+- Deletions of bad code: Celebrate removing tech debt!
 
 Content requirements:
 - Base everything on the staged diff (index) vs HEAD; do not invent changes.
-- If multiple areas changed, group them; prioritize user-visible behavior changes and operational impact.
-- Call out CLI/API behavior changes, default behavior changes, and backwards compatibility.
-- IMPORTANT: If behavior changed in a way that could affect users (including relaxing/tightening validation, changing parsing, changing defaults, changing outputs, removing checks/guards, changing error handling), treat it as a breaking change unless you can justify compatibility.
-- If a change is clearly a bugfix that restores documented/spec-intended behavior, it may be non-breaking; still call out the behavior change in Summary/Why.
-- Breaking changes format rules (STRICT):
+- Write each change as a mini-narrative: WHAT changed, WHERE, and WHY it matters.
+- Frame the commit as a point in the project's history - where was it, what problem existed, and how does this move it forward.
+- For new files: describe what each file IS, DOES, and WHY it was needed (e.g., 'Added git-remerge to handle the case where an upload fails and pushes to a new branch, allows merging back into that branch').
+- For modified files: describe the change AND its purpose (e.g., 'Added verbose logging to the upload retry loop in git-upload to help diagnose timeout issues in slow network environments').
+- For config/default changes: state the OLD value, NEW value, and the reason for the change (e.g., 'Bumped MAX_RETRIES from 3 to 5 because users on satellite connections were hitting the limit before uploads completed').
+- For debugging additions: explain what can now be traced (e.g., 'Added logging to trace authentication token refresh in oauth.py, making it easier to debug SSO integration issues').
+- Call out CLI/API behavior changes with concrete before/after.
+
+Breaking changes format rules (STRICT):
 	- If there are NO breaking changes, output exactly: Breaking changes: none
 	- If there ARE breaking changes, output:
 		Breaking changes:
-		- <bullet 1>
-		- <bullet 2>
+		- <SPECIFIC bullet: name the flag/function/behavior and what breaks>
 		(Do NOT use Yes/No. Do NOT write 'Breaking changes: yes'.)
+		(BAD: 'Default values changed' - GOOD: '--verbose now defaults to true; scripts expecting quiet output will break')
 
-RISK ASSESSMENT POLICY (IMPORTANT - use the pre-computed risk as your baseline):
-The risk level has been pre-computed based on ACTUAL analysis of the diff:
-- Syntax errors in changed files
-- Test failures
-- Removed public APIs/exports
-- Changed function signatures
-- Ratio of code changes vs formatting/whitespace changes
-
-Use the pre-computed risk level unless you have strong evidence to increase it.
-DO NOT mark changes as high risk just because they contain keywords like 'validate' or 'throw'.
-Formatting-only changes, comment changes, and test-only changes are LOW risk.
-Changes that don't modify any actual code logic are LOW risk.
-
-- For Testing, use the provided testing status EXACTLY (verbatim). Do not guess.
-- If tests failed, do NOT restate the failing test list anywhere except under the Testing section.
-- For breaking changes bullets, avoid hedging: do not use may or might; use definitive language.
-- For breaking changes bullets, be concrete: name what breaks in accordance with the project goals.
+RISK ASSESSMENT: Use the pre-computed risk level unless you have strong evidence to change it.
+- Formatting-only, comment, and test-only changes are LOW risk.
+- Use the provided testing status EXACTLY (verbatim). Do not guess.
 
 Style requirements:
-- Subject line: imperative mood; concise and specific; aim for <= 72 characters when feasible.
-- Body: detailed but not padded; prefer bullets.
+- Subject line: imperative mood; SPECIFIC; aim for <= 72 characters (emoji counts as ~2 chars).
+- Body: detailed with concrete specifics; prefer bullets; write like a human!
 - Do NOT mention checking status, diffs, tools, agents, prompts, or instructions.
 
 Output protocol (IMPORTANT):
@@ -1792,13 +2222,27 @@ COMMIT_BEGIN
 <body, multiple lines allowed>
 COMMIT_END
 
-Suggested body structure (adapt as needed):
-Summary:
-- <bullet per major change>
-Why:
-- <motivation/problem addressed>
-Breaking changes: <use the strict format rules above>
+Body structure:
+What changed:
+- Lead with the most exciting/impactful change
+- Write each change as a narrative that explains WHAT and WHY in one sentence
+- Good: 'Blew past our coverage goals - APU, ARM7TDMI, and PPU modules now at 85%+ (was ~30%)'
+- Good: 'Added GBATests.cpp with 500+ new test cases covering the full instruction set'
+- Good: 'Hooked up LCOV reporting so we can actually see coverage in the IDE'
+- BAD: 'Updated coverage artifacts' (what does this mean??)
+- BAD: 'Extended cmake configuration' (boring, what's the benefit?)
+
+Why this matters:
+- Frame changes in terms of the WIN - what's better now?
+- Good: 'We went from \"hope it works\" to \"know it works\" on the GBA emulator. This is huge for catching regressions.'
+- Good: 'This sets us up to hit 100% coverage on the core emulator - we'\''re finally in the home stretch!'
+- BAD: 'Code is cleaner now' (vague, doesn't explain the purpose)
+- BAD: 'Formalizes the coverage expansion effort' (corporate speak, nobody talks like this)
+
+Breaking changes: <use the strict format rules above - be SPECIFIC about what breaks>
+
 Risk: <low|medium|high> (<short rationale>)
+
 Testing: <use the provided testing status verbatim>
 "
 	local effective_prompt
@@ -1817,24 +2261,96 @@ $breaking_hints"
 Additional context from user: $ai_extra_context"
 	fi
 
-	echo "[git-upload] Generating AI commit message via Copilot…" >&2
+	echo "" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-upload] 🤖 AI COMMIT MESSAGE GENERATION" >&2
+	echo "[git-upload] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
 	echo "[git-upload] Pre-computed risk: $computed_risk ($risk_reason)" >&2
+	echo "" >&2
 
-	# Call Copilot CLI (or overridden AI command) with the constructed prompt.
-	# Capture full output so we can extract the commit message.
+	# Call Copilot CLI with streaming output display
+	local ai_output_file
+	ai_output_file=$(mktemp -t git-upload-ai-output.XXXXXX)
+	local ai_exit_code=0
+	
+	# Start the AI command in background, capturing output
+	(GIT_UPLOAD_AI_PROMPT="$effective_prompt" eval "$ai_cmd" > "$ai_output_file" 2>&1) &
+	local ai_pid=$!
+	
+	# Display streaming "thinking" output with spinner - show all thoughts
+	local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+	local frame_idx=1
+	local last_line_count=0
+	local printed_lines=0
+	local elapsed=0
+	local elapsed_sec=0
+	
+	while kill -0 "$ai_pid" 2>/dev/null; do
+		# Read latest output and display any new non-marker lines as thoughts
+		if [ -f "$ai_output_file" ]; then
+			# Note: Combine local declaration with assignment to avoid zsh printing
+			# variable names to stdout when inside command substitution context
+			local current_line_count=$(wc -l < "$ai_output_file" 2>/dev/null | tr -d ' ' || echo "0")
+			
+			# Display new lines as they arrive
+			if [ "$current_line_count" -gt "$printed_lines" ]; then
+				# Clear the spinner line first
+				printf '\r\033[K' >&2
+				
+				# Get and display all new non-empty, non-marker lines
+				local new_lines=$(tail -n +$((printed_lines + 1)) "$ai_output_file" 2>/dev/null | \
+					grep -v '^$' | \
+					grep -v '^COMMIT_BEGIN$' | \
+					grep -v '^COMMIT_END$' | \
+					grep -v '^COMMIT: ' || echo "")
+				
+				if [ -n "$new_lines" ]; then
+					# Print each thought line (no truncation)
+					printf '%s\n' "$new_lines" | while IFS= read -r thought_line; do
+						[ -n "$thought_line" ] && printf '\033[2m[git-upload] 💭 %s\033[0m\n' "$thought_line" >&2
+					done
+				fi
+				
+				printed_lines=$current_line_count
+			fi
+		fi
+		
+		# Update spinner on current line
+		elapsed=$((elapsed + 1))
+		elapsed_sec=$((elapsed / 7))  # roughly seconds (sleep 0.15 * 7 ≈ 1s)
+		printf '\r[git-upload] %s Generating commit message... (%ds)' "${frames[$frame_idx]}" "$elapsed_sec" >&2
+		frame_idx=$(( (frame_idx % 10) + 1 ))
+		sleep 0.15
+	done
+	
+	# Get exit code
+	wait "$ai_pid" 2>/dev/null
+	ai_exit_code=$?
+	
+	# Clear spinner line
+	printf '\r\033[K' >&2
+	
 	local ai_output
-	if ! ai_output=$(GIT_UPLOAD_AI_PROMPT="$effective_prompt" eval "$ai_cmd" 2>/dev/null); then
+	ai_output=$(cat "$ai_output_file" 2>/dev/null || echo "")
+	rm -f "$ai_output_file" >/dev/null 2>&1 || true
+	
+	if [ "$ai_exit_code" -ne 0 ] || [ -z "${ai_output// /}" ]; then
+		echo "[git-upload] ❌ AI generation failed" >&2
 		echo "[git-upload] AI command '$ai_cmd' failed. " \
 			"Make sure GitHub Copilot CLI is installed and you have run 'copilot' " \
 			"at least once to authenticate." >&2
 		return 1
 	fi
+	
+	echo "[git-upload] ✅ Commit message generated" >&2
 
 	# Prefer COMMIT_BEGIN/COMMIT_END block; fall back to legacy single-line COMMIT:.
 	local commit_block
 	commit_block=$(printf '%s\n' "$ai_output" | awk '
-		$0 == "COMMIT_BEGIN" { inside=1; next }
-		$0 == "COMMIT_END" { inside=0 }
+		# Trim leading/trailing whitespace for marker detection
+		{ trimmed = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", trimmed) }
+		trimmed == "COMMIT_BEGIN" { inside=1; next }
+		trimmed == "COMMIT_END" { inside=0 }
 		inside { print }
 	')
 
@@ -1850,10 +2366,15 @@ Additional context from user: $ai_extra_context"
 	fi
 
 	local commit_line
-	commit_line=$(printf '%s\n' "$ai_output" | grep '^COMMIT: ' | tail -n 1 | sed 's/^COMMIT: //')
+	commit_line=$(printf '%s\n' "$ai_output" | grep -E '^[[:space:]]*COMMIT: ' | tail -n 1 | sed 's/^[[:space:]]*COMMIT: //')
 
 	if [ -z "${commit_line// /}" ]; then
 		echo "[git-upload] AI did not produce a COMMIT_BEGIN/COMMIT_END block (or legacy COMMIT: line); skipping AI" >&2
+		# Debug: show first/last few lines of AI output to help diagnose parsing issues
+		echo "[git-upload] DEBUG: AI output preview (first 5 lines):" >&2
+		printf '%s\n' "$ai_output" | head -n 5 | sed 's/^/    /' >&2
+		echo "[git-upload] DEBUG: AI output preview (last 5 lines):" >&2
+		printf '%s\n' "$ai_output" | tail -n 5 | sed 's/^/    /' >&2
 		return 1
 	fi
 
@@ -1877,7 +2398,10 @@ main() {
 
 		# If the detached commit is already contained by exactly one local branch,
 		# we can safely switch to it without losing work.
-		containing_branches=$(git branch --contains "$head_commit" --format='%(refname:short)' 2>/dev/null || echo "")
+		# Filter out entries that aren't real branch names (e.g., "(HEAD detached from ...)")
+		containing_branches=$(git branch --contains "$head_commit" --format='%(refname:short)' 2>/dev/null \
+			| grep -v '^(' \
+			| sed '/^$/d' || echo "")
 		containing_count=$(printf '%s\n' "$containing_branches" | sed '/^$/d' | wc -l | tr -d ' ')
 
 		if [ "$containing_count" = "1" ]; then
@@ -1887,9 +2411,23 @@ main() {
 				echo "[git-upload] Failed to switch to '$current_branch'." >&2
 				exit 1
 			}
+		elif [ "$containing_count" = "0" ]; then
+			# Detached HEAD with commits not on any branch - create a branch to preserve work
+			short_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+			timestamp=$(date +%Y%m%d-%H%M%S)
+			new_branch="detached-work-${short_hash}-${timestamp}"
+			echo "[git-upload] You are in a detached HEAD state with commits not on any branch." >&2
+			echo "[git-upload] Creating branch '$new_branch' to preserve your work…" >&2
+			git switch -c "$new_branch" >/dev/null 2>&1 || {
+				echo "[git-upload] Failed to create branch '$new_branch'." >&2
+				exit 1
+			}
+			current_branch="$new_branch"
+			echo "[git-upload] Successfully created and switched to '$new_branch'." >&2
 		else
-			echo "[git-upload] You are in a detached HEAD state. Checkout or create a branch before running git-upload." >&2
-			echo "[git-upload] Fix (create a branch at the current commit): git switch -c <branch-name>" >&2
+			echo "[git-upload] You are in a detached HEAD state. The commit exists on multiple branches:" >&2
+			printf '%s\n' "$containing_branches" | sed 's/^/  - /' >&2
+			echo "[git-upload] Fix: checkout one of those branches (e.g., 'git switch <branch-name>') before running git-upload." >&2
 			exit 1
 		fi
 	fi
@@ -1929,7 +2467,37 @@ main() {
 		fi
 	fi
 
-	git add .
+	# Force stage all changes (including after stash pop which may leave files unstaged)
+	git add -A
+
+	# Check for sensitive files being committed and warn (but don't block)
+	local sensitive_staged=""
+	sensitive_staged=$(git diff --cached --name-only 2>/dev/null | grep -iE '\.(env|pem|key|p12|pfx|log)$|^\.env|id_rsa|id_dsa|id_ecdsa|id_ed25519|credentials|secrets\.(json|yml|yaml)$|\.npmrc$|\.pypirc$|\.netrc$' || true)
+	if [ -n "$sensitive_staged" ]; then
+		echo "" >&2
+		echo "[git-upload] ⚠️  SENSITIVE FILES DETECTED IN STAGED CHANGES:" >&2
+		echo "$sensitive_staged" | while read -r file; do
+			echo "[git-upload]   • $file" >&2
+		done
+		echo "" >&2
+		echo "[git-upload] 💡 If this is intentional (e.g., testing git-help-i-pushed-an-env)," >&2
+		echo "[git-upload]    the AI will try to infer context from recent commits." >&2
+		echo "[git-upload]    If accidental, press Ctrl+C NOW and run: git reset HEAD" >&2
+		echo "" >&2
+		sleep 2  # Give user a moment to cancel if needed
+	fi
+
+	# Check if there's anything to commit (staged changes)
+	if git diff --cached --quiet 2>/dev/null; then
+		# Double-check with git status in case add failed silently
+		if ! git status --porcelain 2>/dev/null | grep -q '^'; then
+			echo "[git-upload] Nothing to commit – working tree is clean." >&2
+			exit 1
+		fi
+		# There are changes but they're not staged - force add again
+		echo "[git-upload] Re-staging unstaged changes..." >&2
+		git add -A
+	fi
 
 	commit_msg="${user_msg:-default commit message}"
 
