@@ -170,6 +170,46 @@ maybe_install_vscode_extensions() {
   else
     echo "[install-git-shell-helpers] Failed to install VS Code extension: GitHub.copilot-chat" >&2
   fi
+
+  # Install the git-shell-helpers settings extension
+  maybe_install_settings_extension "$code_cli"
+}
+
+maybe_install_settings_extension() {
+  local code_cli="$1"
+  local ext_dir="$SCRIPT_DIR/vscode-extension"
+
+  if [[ ! -d "$ext_dir" ]]; then
+    echo "[install-git-shell-helpers] VS Code settings extension directory not found, skipping."
+    return
+  fi
+
+  local vsix_file
+  vsix_file=$(find "$ext_dir" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null)
+
+  # Build if no .vsix exists or if source is newer
+  if [[ -z "$vsix_file" ]] || [[ "$ext_dir/package.json" -nt "$vsix_file" ]] || [[ "$ext_dir/extension.js" -nt "$vsix_file" ]]; then
+    if command -v npx >/dev/null 2>&1; then
+      echo "[install-git-shell-helpers] Building git-shell-helpers VS Code extension..."
+      if (cd "$ext_dir" && npx @vscode/vsce package --no-dependencies --allow-missing-repository) >/dev/null 2>&1; then
+        vsix_file=$(find "$ext_dir" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null)
+      else
+        echo "[install-git-shell-helpers] WARNING: Failed to build VS Code settings extension. Skipping." >&2
+        return
+      fi
+    else
+      echo "[install-git-shell-helpers] npx not found, cannot build VS Code settings extension. Skipping."
+      return
+    fi
+  fi
+
+  if [[ -n "$vsix_file" ]]; then
+    if "$code_cli" --install-extension "$vsix_file" --force >/dev/null 2>&1; then
+      echo "[install-git-shell-helpers] Installed VS Code extension: git-shell-helpers (community cache settings in VS Code Settings UI)"
+    else
+      echo "[install-git-shell-helpers] WARNING: Failed to install git-shell-helpers VS Code extension." >&2
+    fi
+  fi
 }
 
 install_man_git_upload() {
