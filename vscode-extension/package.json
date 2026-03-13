@@ -1,0 +1,96 @@
+{
+  "name": "git-shell-helpers",
+  "displayName": "Git Shell Helpers",
+  "description": "Settings for git-shell-helpers community cache participation and DevOps audit configuration.",
+  "version": "0.2.0",
+  "publisher": "RockyWearsAHat",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitShellHelpers.showCommunityStatus",
+        "title": "Git Shell Helpers: Show Community Cache Status"
+      },
+      {
+        "command": "gitShellHelpers.loginGitHub",
+        "title": "Sign in to GitHub",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "gitShellHelpers.logoutGitHub",
+        "title": "Sign out of GitHub",
+        "icon": "$(sign-out)"
+      },
+      {
+        "command": "gitShellHelpers.selectRepos",
+        "title": "Select Whitelisted Repositories",
+        "icon": "$(checklist)"
+      }
+    ],
+    "configuration": {
+      "title": "Git Shell Helpers",
+      "properties": {
+        "gitShellHelpers.communityCache.mode": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "pull-only",
+            "pull-and-auto-submit",
+            "auto-submit-only-public",
+            "auto-submit-whitelist"
+          ],
+          "enumDescriptions": [
+            "Disable all community cache interaction.",
+            "Pull shared community cache data but never submit audit conclusions.",
+            "Pull shared data and automatically submit privacy-safe audit conclusions from all repos.",
+            "Pull shared data and auto-submit conclusions only when working in public repositories.",
+            "Pull shared data and auto-submit conclusions only from whitelisted repositories."
+          ],
+          "default": "pull-only",
+          "markdownDescription": "Controls community cache participation mode.\n\nManage GitHub account and repository whitelist in the **Community Cache** panel in the Explorer sidebar.",
+          "scope": "resource"
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "gitShellHelpers.communityCache",
+          "name": "Community Cache",
+          "visibility": "collapsed"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "gitShellHelpers.communityCache",
+        "contents": "Sign in to GitHub to manage community cache repositories.\n[Sign in to GitHub](command:gitShellHelpers.loginGitHub)",
+        "when": "!gitShellHelpers:signedIn"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "gitShellHelpers.selectRepos",
+          "when": "view == gitShellHelpers.communityCache && gitShellHelpers:signedIn",
+          "group": "navigation"
+        },
+        {
+          "command": "gitShellHelpers.logoutGitHub",
+          "when": "view == gitShellHelpers.communityCache && gitShellHelpers:signedIn",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}
