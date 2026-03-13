@@ -1,0 +1,106 @@
+.TH GIT-REMERGE 1 "January 2026" "git-remerge" "Git Manual"
+.SH NAME
+git-remerge \- safely merge a branch into main and delete it if clean
+.SH SYNOPSIS
+.B git remerge
+.RI [ branch-name ]
+.RI [ --into
+.IR target-branch ]
+.SH DESCRIPTION
+.B git remerge
+attempts to merge a branch (typically a
+.B detached-work-*
+branch created by
+.BR git-upload (1))
+back into a target branch. If the merge can be completed cleanly without
+conflicts, it commits the merge and deletes the source branch. If there
+are conflicts, the merge is aborted and the repository is left unchanged.
+.PP
+This command is designed to safely reintegrate work that was automatically
+preserved when
+.B git upload
+encountered a detached HEAD state.
+.SH OPTIONS
+.TP
+.I branch-name
+The branch to merge. If omitted and the current branch matches the pattern
+.BR detached-work-* ,
+that branch is used. Otherwise, available
+.B detached-work-*
+branches are listed.
+.TP
+.BR --into " " \fItarget-branch\fR
+Specify the target branch to merge into. Defaults to
+.B main
+if it exists, otherwise
+.BR master .
+.SH BEHAVIOR
+.B git remerge
+performs the following steps:
+.IP 1. 4
+Validates that both source and target branches exist.
+.IP 2. 4
+Checks for uncommitted changes (aborts if any are found).
+.IP 3. 4
+Switches to the target branch.
+.IP 4. 4
+Fetches and fast-forwards if the target has an upstream.
+.IP 5. 4
+Attempts a merge with
+.B --no-commit
+to detect conflicts before committing.
+.IP 6. 4
+If clean: commits the merge and deletes the source branch.
+.IP 7. 4
+If conflicts: aborts the merge, returns to the original branch, and provides
+manual resolution instructions.
+.SH EXIT STATUS
+.TP
+.B 0
+Merge completed successfully (or source branch was already incorporated).
+.TP
+.B 1
+Merge would result in conflicts, or another error occurred. No changes made.
+.SH EXAMPLES
+.TP
+Merge the current detached-work branch into main:
+.EX
+git remerge
+.EE
+.TP
+Merge a specific branch into main:
+.EX
+git remerge detached-work-abc123-20260126-143052
+.EE
+.TP
+Merge a branch into a different target:
+.EX
+git remerge feature-branch --into develop
+.EE
+.TP
+Typical workflow after git-upload creates a detached-work branch:
+.EX
+# git-upload created detached-work-5622c3e-20260126-120000
+git remerge detached-work-5622c3e-20260126-120000
+git push
+.EE
+.SH CONFLICT HANDLING
+If the merge cannot be completed cleanly,
+.B git remerge
+aborts without making any changes and displays instructions for manual
+resolution:
+.PP
+.RS
+.EX
+git switch main
+git merge detached-work-abc123-...
+# resolve conflicts
+git commit
+git branch -d detached-work-abc123-...
+.EE
+.RE
+.SH SEE ALSO
+.BR git-upload (1),
+.BR git-merge (1),
+.BR git-branch (1),
+.BR git-resolve (1)
