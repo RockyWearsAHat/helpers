@@ -12,6 +12,25 @@ Rules:
 - Prefer refreshing the most important stale evidence first.
 - Replace or downgrade stale conclusions instead of endlessly appending more notes.
 - Keep principles only when they still match current docs, recent repos, and recent videos.
+- When storing lessons from example repositories, keep the principle learned, not copied prose.
+- For `github/awesome-copilot` examples, record why the example works with Copilot's workflow and primitives, not just that it looks strong.
+- If a shared community cache is configured, record which remote manifest and snapshot were used and what was revalidated locally.
+- Never treat shared-cache entries as permanently true; carry forward only what still survives fresh verification.
+- Never store repository-specific or identifying context in any community-bound conclusion. Community-bound content must be generalized Copilot best practices only.
+
+## Shared Cache State
+
+- Community cache mode: pull-only
+- Canonical manifest URL:
+- Recommended snapshot:
+- Candidate index version:
+- Last remote check:
+- Last accepted remote snapshot:
+- Remote cache status: unknown
+- Community participation: disabled
+- Auto-submit final conclusions: no
+- Last submitted conclusion packet:
+- Last promotion report seen:
 
 ## Freshness Policy
 
@@ -45,6 +64,16 @@ Rules:
 | Repo / Source | Last Reviewed | Status | Surface | Principle or Anti-pattern | Notes |
 | ------------- | ------------- | ------ | ------- | ------------------------- | ----- |
 
+## Curated Example Samples
+
+| Source File | Last Reviewed | Status | Primitive | Principle Learned | What Not To Copy Literally | Notes |
+| ----------- | ------------- | ------ | --------- | ----------------- | -------------------------- | ----- |
+
+## Shared Cache Snapshot History
+
+| Snapshot | Checked On | Status | Accepted Items | Revalidated Items | Rejected or Downgraded Items | Notes |
+| -------- | ---------- | ------ | -------------- | ----------------- | ---------------------------- | ----- |
+
 ## Video / Transcript Samples
 
 | Source | Video / Topic | Last Reviewed | Status | Principle or Tension | Notes |
@@ -54,6 +83,21 @@ Rules:
 
 | Principle | Confidence | Last Revalidated | Supporting Evidence | Notes |
 | --------- | ---------- | ---------------- | ------------------- | ----- |
+
+## Prompting Principles and Anti-patterns
+
+| Type | Principle or Anti-pattern | Confidence | Last Revalidated | Supporting Evidence | Notes |
+| ---- | ------------------------- | ---------- | ---------------- | ------------------- | ----- |
+
+## Contribution Candidates
+
+| Candidate | Submitted On | Status | Evidence Quality | Applicability | Durability Days | Submission Count | Contradictions | Notes |
+| --------- | ------------ | ------ | ---------------- | ------------- | --------------- | ---------------- | -------------- | ----- |
+
+## Promotion Watchlist
+
+| Statement | State | Promotion Score | First Seen | Last Seen | Revalidated On | Promotion Notes |
+| --------- | ----- | --------------- | ---------- | --------- | -------------- | --------------- |
 
 ## Conflicts and Open Questions
 

@@ -1,0 +1,350 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/community-cache-consolidate.sh <validate|aggregate|rebuild-snapshot>
+EOF
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "[community-cache-consolidate] Missing required command: $1" >&2
+    exit 1
+  }
+}
+
+validate_candidate_file() {
+  local file="$1"
+
+  jq -e '
+    .schemaVersion == 1 and
+    (.kind | IN("principle", "anti-pattern", "example", "warning")) and
+    (.topic | IN("prompts", "instructions", "agents", "skills", "routing", "tooling", "workflow", "other")) and
+    (.statement | type == "string" and length >= 10) and
+    (.recommendationStrength | IN("required", "recommended", "optional", "illustrative")) and
+    (.applicability | IN("general", "prompt-design", "instruction-design", "agent-design", "skill-design", "routing", "tool-use", "workflow-general")) and
+    (.evidenceRefs | type == "array" and length >= 1) and
+    (.auditCompletedAt | type == "string") and
+    (.freshnessCheckedAt | type == "string") and
+    (.authoritativeSupport | IN("none", "weak", "medium", "strong")) and
+    (.liveRevalidated | type == "boolean") and
+    (.contradictionCount | type == "number") and
+    (.clientBehaviorVersion | type == "number") and
+    (.submittedAt | type == "string") and
+    (.submissionId | type == "string") and
+    (.statementHash | type == "string")
+  ' "$file" >/dev/null || {
+    echo "[community-cache-consolidate] Invalid candidate packet: $file" >&2
+    exit 1
+  }
+
+  jq -e '
+    has("repository") or
+    has("repo") or
+    has("workspace") or
+    has("projectName") or
+    has("filePath") or
+    has("localPath") or
+    has("directoryStructure") or
+    has("repoTypeSignals")
+    | not
+  ' "$file" >/dev/null || {
+    echo "[community-cache-consolidate] Forbidden repository-specific keys found in $file" >&2
+    exit 1
+  }
+
+  if grep -Eq '(/Users/|/home/|[A-Za-z]:\\\\|this repository|my workspace|our repo)' "$file"; then
+    echo "[community-cache-consolidate] Private or repo-specific text detected in $file" >&2
+    exit 1
+  fi
+}
+
+empty_outputs() {
+  mkdir -p community-cache/aggregation community-cache/staging
+  cat > community-cache/aggregation/candidate-index.json <<'EOF'
+{
+  "generatedAt": null,
+  "candidates": []
+}
+EOF
+  cat > community-cache/aggregation/promotion-report.json <<'EOF'
+{
+  "generatedAt": null,
+  "totals": {
+    "candidateFiles": 0,
+    "clusters": 0,
+    "promoted": 0,
+    "incubating": 0,
+    "watch": 0
+  },
+  "promotedCandidates": [],
+  "watchCandidates": [],
+  "notes": [
+    "No candidate files were present."
+  ]
+}
+EOF
+  cat > community-cache/staging/promoted-candidates.json <<'EOF'
+{
+  "generatedAt": null,
+  "promotedCandidates": []
+}
+EOF
+}
+
+aggregate_candidates() {
+  local generated_at="$1"
+  local tmp_dir="$2"
+  shift 2
+
+  jq -s --arg generatedAt "$generated_at" '
+    def support_value:
+      if . == "strong" then 1
+      elif . == "medium" then 0.66
+      elif . == "weak" then 0.33
+      else 0 end;
+    def bounded($n): if $n > 1 then 1 else $n end;
+    def duration_days($items):
+      ((($items | map(.auditCompletedAt | fromdateiso8601) | max) - ($items | map(.auditCompletedAt | fromdateiso8601) | min)) / 86400 | floor);
+    def freshness_score($items):
+      ((($items | map(.freshnessCheckedAt | fromdateiso8601) | max) - ($items | map(.freshnessCheckedAt | fromdateiso8601) | min)) / 86400 | floor) as $spread
+      | if $spread <= 30 then 1 else 0.5 end;
+    def applicability_score($items):
+      if ($items | all(.applicability == "general" or .applicability == "workflow-general" or .applicability == "tool-use" or .applicability == "routing")) then 1 else 0.7 end;
+    def contradiction_penalty($items):
+      bounded((($items | map(.contradictionCount) | add) / (($items | length) * 2)));
+    def novelty_penalty($items):
+      if ($items | length) == 1 then 0.5 else 0 end;
+    def promotion_score($items):
+      ($items | map(.authoritativeSupport | support_value) | max) as $A
+      | bounded((($items | length) / 5)) as $R
+      | bounded((duration_days($items) / 30)) as $D
+      | freshness_score($items) as $F
+      | bounded((($items | map(.evidenceRefs | length) | add) / (($items | length) * 4))) as $S
+      | applicability_score($items) as $P
+      | contradiction_penalty($items) as $C
+      | novelty_penalty($items) as $N
+      | (((0.35 * $A) + (0.20 * $R) + (0.15 * $D) + (0.10 * $F) + (0.10 * $S) + (0.10 * $P) - (0.20 * $C) - (0.10 * $N)) * 100);
+    group_by([.kind, .topic, .statement, .recommendationStrength, .applicability])
+    | map({
+        kind: .[0].kind,
+        topic: .[0].topic,
+        statement: .[0].statement,
+        statementHash: .[0].statementHash,
+        recommendationStrength: .[0].recommendationStrength,
+        applicability: .[0].applicability,
+        authoritativeSupport: (map(.authoritativeSupport) | if index("strong") then "strong" elif index("medium") then "medium" elif index("weak") then "weak" else "none" end),
+        liveRevalidatedCount: (map(select(.liveRevalidated == true)) | length),
+        submissionCount: length,
+        firstSeenAt: (map(.submittedAt) | min),
+        lastSeenAt: (map(.submittedAt) | max),
+        durabilityDays: duration_days(.),
+        contradictionCount: (map(.contradictionCount) | add),
+        promotionScore: (promotion_score(.) | floor),
+        evidenceRefs: (map(.evidenceRefs[]) | unique_by(.url)),
+        sampleSubmissionIds: (map(.submissionId) | sort | .[:5]),
+        status: (
+          if (promotion_score(.) >= 70 and length >= 3 and (map(select(.liveRevalidated == true)) | length) >= 1 and (map(.contradictionCount) | add) == 0) then "promoted"
+          elif (promotion_score(.) >= 55 and length >= 2) then "incubating"
+          elif (promotion_score(.) >= 40) then "watch"
+          else "candidate"
+          end
+        )
+      })
+    | sort_by(-.promotionScore, .statement)
+    | {
+        generatedAt: $generatedAt,
+        candidates: .
+      }
+  ' "$@" > "$tmp_dir/candidate-index.json"
+}
+
+build_reports() {
+  local generated_at="$1"
+  local tmp_dir="$2"
+
+  jq --arg generatedAt "$generated_at" '
+    .candidates as $candidates
+    | {
+        generatedAt: $generatedAt,
+        totals: {
+          candidateFiles: ($candidates | map(.submissionCount) | add // 0),
+          clusters: ($candidates | length),
+          promoted: ($candidates | map(select(.status == "promoted")) | length),
+          incubating: ($candidates | map(select(.status == "incubating")) | length),
+          watch: ($candidates | map(select(.status == "watch")) | length)
+        },
+        promotedCandidates: ($candidates | map(select(.status == "promoted"))),
+        watchCandidates: ($candidates | map(select(.status == "watch"))),
+        notes: [
+          "Promotion favors strong support, repeated recurrence, freshness, and low contradiction.",
+          "Only generalized Copilot guidance is eligible for promotion."
+        ]
+      }
+  ' "$tmp_dir/candidate-index.json" > "$tmp_dir/promotion-report.json"
+
+  jq --arg generatedAt "$generated_at" '{generatedAt: $generatedAt, promotedCandidates: (.promotedCandidates // [])}' \
+    "$tmp_dir/promotion-report.json" > "$tmp_dir/promoted-candidates.json"
+}
+
+main() {
+  local mode="${1:-}"
+  [[ -n "$mode" ]] || {
+    usage
+    exit 1
+  }
+
+  require_cmd jq
+  require_cmd find
+
+  local repo_root
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  cd "$repo_root"
+
+  local candidate_dir="community-cache/candidates"
+  mkdir -p "$candidate_dir"
+
+  local candidate_files=()
+  local candidate_count=0
+  while IFS= read -r file; do
+    candidate_files+=("$file")
+    candidate_count=$((candidate_count + 1))
+  done < <(find "$candidate_dir" -type f -name '*.json' ! -name 'README.md' | sort)
+
+  case "$mode" in
+    validate)
+      local validated=0
+      for file in "${candidate_files[@]:-}"; do
+        [[ -n "$file" ]] || continue
+        validate_candidate_file "$file"
+        validated=$((validated + 1))
+      done
+      echo "[community-cache-consolidate] Validated $validated candidate files." >&2
+      ;;
+    aggregate)
+      if [[ $candidate_count -eq 0 ]]; then
+        empty_outputs
+        echo "[community-cache-consolidate] No candidate files found; wrote empty outputs." >&2
+        exit 0
+      fi
+
+      for file in "${candidate_files[@]:-}"; do
+        [[ -n "$file" ]] || continue
+        validate_candidate_file "$file"
+      done
+
+      local tmp_dir
+      tmp_dir="$(mktemp -d -t community-cache-consolidate.XXXXXX)"
+      trap 'rm -rf "$tmp_dir"' EXIT
+      local generated_at
+      generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+      aggregate_candidates "$generated_at" "$tmp_dir" "${candidate_files[@]}"
+      build_reports "$generated_at" "$tmp_dir"
+
+      mkdir -p community-cache/aggregation community-cache/staging
+      cp "$tmp_dir/candidate-index.json" community-cache/aggregation/candidate-index.json
+      cp "$tmp_dir/promotion-report.json" community-cache/aggregation/promotion-report.json
+      cp "$tmp_dir/promoted-candidates.json" community-cache/staging/promoted-candidates.json
+
+      echo "[community-cache-consolidate] Aggregated $candidate_count candidate files." >&2
+      ;;
+    rebuild-snapshot)
+      # Rebuild snapshot from promoted candidates merged with current snapshot
+      local staging_file="community-cache/staging/promoted-candidates.json"
+      local manifest_file="community-cache/manifest.json"
+
+      if [[ ! -f "$staging_file" ]]; then
+        echo "[community-cache-consolidate] No staging file found at $staging_file" >&2
+        exit 1
+      fi
+
+      local promoted_count
+      promoted_count="$(jq '.promotedCandidates | length' "$staging_file" 2>/dev/null || echo 0)"
+      if [[ "$promoted_count" -eq 0 ]]; then
+        echo "[community-cache-consolidate] No promoted candidates to merge into snapshot." >&2
+        exit 0
+      fi
+
+      local current_snapshot
+      current_snapshot="$(jq -r '.recommendedSnapshot' "$manifest_file")"
+      local current_snapshot_dir="community-cache/snapshots/$current_snapshot"
+
+      if [[ ! -d "$current_snapshot_dir" ]]; then
+        echo "[community-cache-consolidate] Current snapshot dir not found: $current_snapshot_dir" >&2
+        exit 1
+      fi
+
+      local new_snapshot_id
+      new_snapshot_id="$(date -u +"%Y-%m-%d")-promoted"
+      local new_snapshot_dir="community-cache/snapshots/$new_snapshot_id"
+
+      # Copy current snapshot as base
+      if [[ -d "$new_snapshot_dir" ]]; then
+        rm -rf "$new_snapshot_dir"
+      fi
+      cp -R "$current_snapshot_dir" "$new_snapshot_dir"
+
+      # Merge promoted candidates into the appropriate packs
+      local tmp_dir
+      tmp_dir="$(mktemp -d -t community-cache-rebuild.XXXXXX)"
+      trap 'rm -rf "$tmp_dir"' EXIT
+
+      # Extract promoted candidates by kind
+      jq -r '.promotedCandidates[] | .kind' "$staging_file" | sort -u | while read -r kind; do
+        case "$kind" in
+          principle)
+            local target_file="$new_snapshot_dir/prompting-principles.json"
+            if [[ -f "$target_file" ]]; then
+              jq --slurpfile promoted <(jq "[.promotedCandidates[] | select(.kind == \"principle\") | {statement: .statement, recommendationStrength: .recommendationStrength, authoritativeSupport: .authoritativeSupport, applicability: (.applicability // \"general\"), topics: [.topic], evidenceRefs: .evidenceRefs}]" "$staging_file") \
+                '.principles += $promoted[0] | .generatedAt = (now | todate)' "$target_file" > "$tmp_dir/principles.json" && \
+                mv "$tmp_dir/principles.json" "$target_file"
+            fi
+            ;;
+          anti-pattern)
+            local target_file="$new_snapshot_dir/anti-patterns.json"
+            if [[ -f "$target_file" ]]; then
+              jq --slurpfile promoted <(jq "[.promotedCandidates[] | select(.kind == \"anti-pattern\") | {statement: .statement, recommendationStrength: .recommendationStrength, authoritativeSupport: .authoritativeSupport, applicability: (.applicability // \"general\"), topics: [.topic], evidenceRefs: .evidenceRefs}]" "$staging_file") \
+                '.antiPatterns += $promoted[0] | .generatedAt = (now | todate)' "$target_file" > "$tmp_dir/antipatterns.json" && \
+                mv "$tmp_dir/antipatterns.json" "$target_file"
+            fi
+            ;;
+          example|warning)
+            local target_file="$new_snapshot_dir/application-practices.json"
+            if [[ -f "$target_file" ]]; then
+              jq --slurpfile promoted <(jq "[.promotedCandidates[] | select(.kind == \"example\" or .kind == \"warning\") | {statement: .statement, recommendationStrength: .recommendationStrength, authoritativeSupport: .authoritativeSupport, applicability: (.applicability // \"general\"), topics: [.topic], evidenceRefs: .evidenceRefs}]" "$staging_file") \
+                '.practices += $promoted[0] | .generatedAt = (now | todate)' "$target_file" > "$tmp_dir/practices.json" && \
+                mv "$tmp_dir/practices.json" "$target_file"
+            fi
+            ;;
+        esac
+      done
+
+      # Update snapshot manifest
+      jq --arg id "$new_snapshot_id" --arg prev "$current_snapshot" \
+        '.snapshotId = $id | .previousSnapshot = $prev | .publishedAt = (now | todate) | .changeNotes = "Auto-rebuilt from promoted community candidates."' \
+        "$new_snapshot_dir/manifest.json" > "$tmp_dir/manifest.json" && \
+        mv "$tmp_dir/manifest.json" "$new_snapshot_dir/manifest.json"
+
+      # Update root manifest to point to new snapshot
+      jq --arg id "$new_snapshot_id" --arg prev "$current_snapshot" \
+        '.recommendedSnapshot = $id | .snapshotManifest = ("community-cache/snapshots/" + $id + "/manifest.json") | .publishedAt = (now | todate) | .previousSnapshots = ((.previousSnapshots // []) + [$prev] | unique)' \
+        "$manifest_file" > "$tmp_dir/root-manifest.json" && \
+        mv "$tmp_dir/root-manifest.json" "$manifest_file"
+
+      # Clear staging
+      jq '.promotedCandidates = [] | .generatedAt = (now | todate)' "$staging_file" > "$tmp_dir/staging.json" && \
+        mv "$tmp_dir/staging.json" "$staging_file"
+
+      echo "[community-cache-consolidate] Rebuilt snapshot: $new_snapshot_id with $promoted_count promoted candidates merged from $current_snapshot." >&2
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

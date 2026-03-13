@@ -1,0 +1,149 @@
+{
+  "snapshotId": "2026-07-09-deep-research",
+  "generatedAt": "2026-07-09T12:00:00Z",
+  "patterns": [
+    {
+      "id": "W01",
+      "name": "Phased Agent Workflow",
+      "description": "Agent defines numbered phases (Understand→Plan→Implement→Verify→Deliver) with clear entry/exit conditions per phase.",
+      "exemplars": ["desktop/desktop deskocat.agent.md"],
+      "applicability": "agent-design",
+      "topics": ["agents", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "desktop/desktop — deskocat.agent.md",
+          "url": "https://github.com/desktop/desktop/blob/development/.github/agents/deskocat.agent.md",
+          "sourceType": "public-example"
+        }
+      ]
+    },
+    {
+      "id": "W02",
+      "name": "Plan-then-Handoff",
+      "description": "A planning agent analyzes a request, builds a structured plan, then hands off to an implementation agent. The handoff carries the plan as context.",
+      "exemplars": ["PowerToys PlanIssue→FixIssue"],
+      "applicability": "agent-design",
+      "topics": ["agents", "handoffs"],
+      "evidenceRefs": [
+        {
+          "title": "microsoft/PowerToys — PlanIssue.agent.md",
+          "url": "https://github.com/microsoft/PowerToys/blob/main/.github/agents/PlanIssue.agent.md",
+          "sourceType": "public-example"
+        }
+      ]
+    },
+    {
+      "id": "W03",
+      "name": "Risk-Tiered Verification",
+      "description": "Agent classifies changes by risk level (low/medium/high) and applies proportional verification: low=lint, medium=tests, high=full review+build.",
+      "exemplars": ["desktop/desktop deskocat.agent.md"],
+      "applicability": "agent-design",
+      "topics": ["agents", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "desktop/desktop — deskocat.agent.md",
+          "url": "https://github.com/desktop/desktop/blob/development/.github/agents/deskocat.agent.md",
+          "sourceType": "public-example"
+        }
+      ]
+    },
+    {
+      "id": "W04",
+      "name": "Progressive Skill Loading",
+      "description": "Model-invoked skill loading: agent sees only name+description during routing, reads SKILL.md when invoked, then reads bundled resources only if needed. Saves context budget.",
+      "exemplars": ["VS Code skill loading docs"],
+      "applicability": "skill-design",
+      "topics": ["skills"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "W05",
+      "name": "Orchestrator-with-Subagents",
+      "description": "Top-level orchestrator agent delegates phases to context-isolated subagents via the agents field. Each subagent has its own context window and tool set, preventing cross-contamination.",
+      "exemplars": ["DevOpsAudit orchestration pattern"],
+      "applicability": "agent-design",
+      "topics": ["agents", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Subagents",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/subagents",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "W06",
+      "name": "Hook-Enforced Safety Net",
+      "description": "PreToolUse hooks block dangerous operations before execution. PostToolUse hooks run formatters/linters after edits. SessionStart hooks inject project context. This provides deterministic safety that instructions cannot guarantee.",
+      "exemplars": ["VS Code hooks documentation examples"],
+      "applicability": "general",
+      "topics": ["hooks"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent hooks",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/hooks",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "W07",
+      "name": "Audit-Submit-Consolidate Pipeline",
+      "description": "Audit extracts conclusions → Submit normalizes into privacy-safe packets → Consolidation validates, clusters, scores, and promotes to snapshots. Community growth through structured contribution.",
+      "exemplars": ["github-shell-helpers community cache"],
+      "applicability": "workflow-general",
+      "topics": ["workflow"]
+    },
+    {
+      "id": "W08",
+      "name": "Prompt-as-Entrypoint",
+      "description": "Slash command (.prompt.md) acts as thin entrypoint that routes to a specific agent with pre-configured tool restrictions. The prompt defines 'what to do', the agent defines 'how to do it', skills define the method.",
+      "exemplars": ["VS Code prompt docs"],
+      "applicability": "prompt-design",
+      "topics": ["prompts", "agents", "skills"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Prompt files",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/prompt-files",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "W09",
+      "name": "Agent-Scoped Hooks",
+      "description": "Hooks defined in .agent.md frontmatter that only run when that agent is active. Enables agent-specific automation (e.g., a 'Strict Formatter' agent with PostToolUse auto-format) without affecting other agents.",
+      "exemplars": ["VS Code hooks documentation"],
+      "applicability": "agent-design",
+      "topics": ["agents", "hooks"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent hooks (agent-scoped)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/hooks",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "W10",
+      "name": "Layered Instruction Architecture",
+      "description": "Always-on copilot-instructions.md provides baseline context. File-based .instructions.md with applyTo globs adds language/directory-specific rules. User-level ~/.copilot/instructions adds personal preferences. Priority: personal > repo > org.",
+      "exemplars": ["VS Code custom instructions docs"],
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom instructions",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        }
+      ]
+    }
+  ]
+}
