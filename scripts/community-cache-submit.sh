@@ -137,32 +137,66 @@ main() {
   local repo_settings_file="$repo_root/.github/devops-audit-community-settings.json"
 
   local global_mode="$(read_setting "$global_settings_file" mode)"
-  local global_repo="$(read_setting "$global_settings_file" communityRepo)"
-  local global_base_branch="$(read_setting "$global_settings_file" baseBranch)"
-  local global_branch_prefix="$(read_setting "$global_settings_file" branchPrefix)"
   local repo_mode="$(read_setting "$repo_settings_file" mode)"
-  local repo_repo="$(read_setting "$repo_settings_file" communityRepo)"
-  local repo_base_branch="$(read_setting "$repo_settings_file" baseBranch)"
-  local repo_branch_prefix="$(read_setting "$repo_settings_file" branchPrefix)"
 
   local configured_mode="${global_mode:-${repo_mode:-}}"
-  local configured_repo="${global_repo:-${repo_repo:-}}"
-  local configured_base_branch="${global_base_branch:-${repo_base_branch:-}}"
-  local configured_branch_prefix="${global_branch_prefix:-${repo_branch_prefix:-}}"
 
-  local community_repo="${COMMUNITY_CACHE_REPO:-${configured_repo:-$DEFAULT_COMMUNITY_REPO}}"
-  local base_branch="${COMMUNITY_CACHE_BASE_BRANCH:-${configured_base_branch:-main}}"
-  local branch_prefix="${COMMUNITY_CACHE_BRANCH_PREFIX:-${configured_branch_prefix:-automation/community-cache-submission}}"
+  local community_repo="${COMMUNITY_CACHE_REPO:-$DEFAULT_COMMUNITY_REPO}"
+  local base_branch="${COMMUNITY_CACHE_BASE_BRANCH:-main}"
+  local branch_prefix="${COMMUNITY_CACHE_BRANCH_PREFIX:-automation/community-cache-submission}"
 
   if [[ -z "$community_repo" ]]; then
-    echo "[community-cache-submit] COMMUNITY_CACHE_REPO is not set and no community repo is configured in global or repo settings" >&2
+    echo "[community-cache-submit] COMMUNITY_CACHE_REPO is not set and no community repo is configured" >&2
     exit 1
   fi
 
-  if [[ -n "$configured_mode" && "$configured_mode" != "pull-and-auto-submit" && -z "${COMMUNITY_CACHE_REPO:-}" ]]; then
-    echo "[community-cache-submit] Community participation mode is '$configured_mode'; automatic submission is disabled." >&2
-    exit 1
-  fi
+  # Check mode allows submission
+  local submit_allowed=false
+  case "${configured_mode}" in
+    pull-and-auto-submit)
+      submit_allowed=true
+      ;;
+    auto-submit-only-public)
+      # Check if the current repo is public via gh
+      local current_repo_visibility
+      current_repo_visibility="$(gh repo view --json visibility --jq '.visibility' 2>/dev/null || echo "")"
+      if [[ "$current_repo_visibility" == "PUBLIC" ]]; then
+        submit_allowed=true
+      else
+        echo "[community-cache-submit] Mode is 'auto-submit-only-public' but current repo is not public (visibility: ${current_repo_visibility:-unknown}). Skipping." >&2
+        exit 1
+      fi
+      ;;
+    auto-submit-whitelist)
+      # Check if current repo is in the whitelist
+      local current_nwo
+      current_nwo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo "")"
+      local global_whitelist
+      global_whitelist="$(jq -r '.whitelistedRepos[]? // empty' "$global_settings_file" 2>/dev/null || true)"
+      local repo_whitelist
+      repo_whitelist="$(jq -r '.whitelistedRepos[]? // empty' "$repo_settings_file" 2>/dev/null || true)"
+      local all_whitelist
+      all_whitelist="$(printf '%s\n%s' "$global_whitelist" "$repo_whitelist" | sort -u | grep -v '^$')"
+      if echo "$all_whitelist" | grep -qxF "$current_nwo"; then
+        submit_allowed=true
+      else
+        echo "[community-cache-submit] Mode is 'auto-submit-whitelist' but '${current_nwo:-unknown}' is not in the whitelist. Skipping." >&2
+        exit 1
+      fi
+      ;;
+    pull-only|disabled|"")
+      if [[ -z "${COMMUNITY_CACHE_REPO:-}" ]]; then
+        echo "[community-cache-submit] Community participation mode is '${configured_mode:-not set}'; automatic submission is disabled." >&2
+        exit 1
+      fi
+      # If COMMUNITY_CACHE_REPO is explicitly set via env, allow override
+      submit_allowed=true
+      ;;
+    *)
+      echo "[community-cache-submit] Unknown mode: '$configured_mode'" >&2
+      exit 1
+      ;;
+  esac
 
   validate_packet "$packet_file"
 
