@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "recommendedSnapshot": "2026-07-09-deep-research",
+  "publishedAt": "2026-07-09T12:00:00Z",
+  "minClientBehaviorVersion": 1,
+  "defaultCommunityRepo": "RockyWearsAHat/github-shell-helpers",
+  "snapshotManifest": "community-cache/snapshots/2026-07-09-deep-research/manifest.json",
+  "notes": "Community cache storing generalized Copilot best practices with verified URLs. Deep-research snapshot covers all six customization primitives.",
+  "previousSnapshots": ["2026-03-12-initial"],
+  "aggregation": {
+    "candidateIndex": "community-cache/aggregation/candidate-index.json",
+    "promotionReport": "community-cache/aggregation/promotion-report.json",
+    "stagedPromotions": "community-cache/staging/promoted-candidates.json"
+  }
+}

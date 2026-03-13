@@ -1,0 +1,102 @@
+{
+  "snapshotId": "2026-07-09-deep-research",
+  "generatedAt": "2026-07-09T12:00:00Z",
+  "description": "Cleaned plaintext transcripts from official Burke Holland / VS Code YouTube videos on Copilot customization. Raw VTT auto-captions were processed with community-cache-clean-transcript.sh to strip timing data, inline tags, and duplicate lines, then reflowed into natural paragraphs.",
+  "transcripts": [
+    {
+      "videoId": "fabAI1OKKww",
+      "title": "The complete guide to Agent Skills in VS Code",
+      "channel": "Visual Studio Code",
+      "presenter": "Burke Holland",
+      "uploadDate": "2025-06-19",
+      "url": "https://www.youtube.com/watch?v=fabAI1OKKww",
+      "file": "transcripts/fabAI1OKKww-agent-skills-guide.txt",
+      "topics": [
+        "skills",
+        "SKILL.md",
+        "skill-structure",
+        "scripts",
+        "templates",
+        "progressive-loading",
+        "instructions-vs-skills-vs-agents-vs-prompts"
+      ],
+      "keyInsights": [
+        "Skills are progressively loaded — only name+description go into system prompt; full content loaded on demand",
+        "Skills can bundle scripts, templates, and markdown files via relative path references",
+        "Use skills when you need to teach the agent a new capability beyond general instructions",
+        "Instructions = every prompt context, Prompts = reusable short prompts, Agents = modified agent workflows, Skills = everything else (domain knowledge, tool bundles)"
+      ]
+    },
+    {
+      "videoId": "5NxGqnTazR8",
+      "title": "The Ultimate Agent Mode Tutorial in VS Code: Vision, MCP, Custom Agents & More!",
+      "channel": "Visual Studio Code",
+      "presenter": "Burke Holland",
+      "uploadDate": "2025-04-22",
+      "url": "https://www.youtube.com/watch?v=5NxGqnTazR8",
+      "file": "transcripts/5NxGqnTazR8-ultimate-agent-mode-tutorial.txt",
+      "topics": [
+        "agent-mode",
+        "vision",
+        "MCP",
+        "custom-agents",
+        "agent.md",
+        "tools-restriction",
+        "model-selection"
+      ],
+      "keyInsights": [
+        "Agent mode can run terminal commands, edit files, and chain multi-step workflows autonomously",
+        "Custom agents (.agent.md) can restrict tools and set specific model preferences",
+        "Vision capability allows agents to process screenshots for UI debugging",
+        "MCP servers extend agent capabilities with external tool integrations"
+      ]
+    },
+    {
+      "videoId": "s7Qzq0ejhjg",
+      "title": "Ask, Edit, & Agent - In-depth Overview of GitHub Copilot Chat Modes",
+      "channel": "Visual Studio Code",
+      "presenter": "Burke Holland",
+      "uploadDate": "2025-03-12",
+      "url": "https://www.youtube.com/watch?v=s7Qzq0ejhjg",
+      "file": "transcripts/s7Qzq0ejhjg-ask-edit-agent-overview.txt",
+      "topics": [
+        "ask-mode",
+        "edit-mode",
+        "agent-mode",
+        "chat-modes",
+        "system-prompt",
+        "context-window",
+        "instructions"
+      ],
+      "keyInsights": [
+        "Ask mode is read-only — references files but makes no changes",
+        "Edit mode can modify files but does not run terminal commands",
+        "Agent mode has full autonomy — file edits, terminal, tool use",
+        "Instructions files (.github/copilot-instructions.md) are injected into the system prompt for every interaction"
+      ]
+    },
+    {
+      "videoId": "0XoXNG65rfg",
+      "title": "Level Up Your VS Code Productivity (Mastering AI Workflows)",
+      "channel": "Visual Studio Code",
+      "presenter": "Burke Holland",
+      "uploadDate": "2025-05-15",
+      "url": "https://www.youtube.com/watch?v=0XoXNG65rfg",
+      "file": "transcripts/0XoXNG65rfg-level-up-productivity.txt",
+      "topics": [
+        "productivity",
+        "workflows",
+        "prompt-files",
+        "instructions",
+        "copilot-instructions.md",
+        "custom-agents"
+      ],
+      "keyInsights": [
+        "Prompt files (.prompt.md) are reusable slash commands that can reference other files",
+        "Instructions files provide persistent project context without manual attachment",
+        "Combining prompt files with instructions creates powerful repeatable workflows",
+        "Custom agents enable team-specific workflows with enforced tool boundaries"
+      ]
+    }
+  ]
+}

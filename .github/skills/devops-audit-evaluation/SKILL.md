@@ -42,7 +42,9 @@ Evaluate in this order:
 6. Does it duplicate something else? (Is another file already covering this?)
 7. If it references audit tools or audit processes, is that a legitimate repo-local workflow asset or misplaced meta-process?
 8. Is it pushing a specialized workflow the project did not ask for and the research did not justify? (Optional workflows are not universal best practice.)
-9. If you recommend a change, how strong is that recommendation: required, recommended, optional, or illustrative only?
+9. Does it guide Copilot with clear principles, expectations, goals, and boundaries, or is it mostly trying to make the output "seem right"?
+10. Does it work with Copilot's intended workflow and primitive model, or does it fight the system by over-prescribing internals, duplicating methodology, or demanding fake certainty?
+11. If you recommend a change, how strong is that recommendation: required, recommended, optional, or illustrative only?
 
 ## What To Look For
 
@@ -73,6 +75,17 @@ Flag any file where content is in the wrong file type. This is a significant or 
 - Conflicting instructions across files
 - Files that were clearly auto-generated and never reviewed
 - Files whose structure is broken but whose underlying project knowledge may still be worth salvaging into a correct format
+
+### Prompting Quality and Workflow Fit Issues
+
+- Prompts, instructions, skills, or agents that judge quality by tone, confidence, polish, or whether something "looks right" instead of whether it gives Copilot a clear job and truthful constraints
+- Files that bury the real goal under style rules, forcing the model to optimize for appearances instead of useful behavior
+- Content that duplicates step-by-step methodology in prompts or agent files instead of letting skills carry the method
+- Guidance that fights Copilot's intended workflow by forcing rigid internal reasoning scripts, fake certainty, or unnecessary ceremony
+- Prompts that do not define success criteria, evidence expectations, or boundaries, leaving Copilot to guess what "good" means
+- Examples copied from strong repositories without translating them into this project's actual workflows and constraints
+
+When you find one of these, evaluate it as a real quality problem, not a style nit. If the wording drives Copilot toward confusion, false confidence, or misuse of primitives, that is a legitimate finding.
 
 ## What To Ignore
 
@@ -140,5 +153,7 @@ Things that should exist but do not. Only list gaps where:
 - Adding it would noticeably improve the development experience
 
 Do not invent problems. Do not list things that are fine. If the setup is good, say it is good and explain why.
+
+If a file is strong, explain why in behavioral terms: it gives Copilot a clear role, a concrete goal, honest boundaries, and a workflow that matches the intended primitive. Do not praise a file merely because it sounds polished.
 
 Do not hide behind a tiny findings list. If you conclude that only one or two files need changes, your file verdict coverage must still show that you evaluated the rest and found them sound.

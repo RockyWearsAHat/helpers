@@ -1,0 +1,152 @@
+{
+  "snapshotId": "2026-07-09-deep-research",
+  "generatedAt": "2026-07-09T12:00:00Z",
+  "lifecycleEvents": [
+    {
+      "event": "SessionStart",
+      "fires": "When a new agent session begins",
+      "input": { "source": "string (currently always 'new')" },
+      "output": { "additionalContext": "Context added to agent conversation" },
+      "useCases": [
+        "Initialize resources",
+        "Log session start",
+        "Inject project context (version, branch, env)"
+      ]
+    },
+    {
+      "event": "UserPromptSubmit",
+      "fires": "When user submits a prompt",
+      "input": { "prompt": "User's submitted text" },
+      "output": "Common format only (continue, stopReason, systemMessage)",
+      "useCases": [
+        "Audit user requests",
+        "Inject system context",
+        "Policy enforcement on input"
+      ]
+    },
+    {
+      "event": "PreToolUse",
+      "fires": "Before agent invokes any tool",
+      "input": {
+        "tool_name": "string",
+        "tool_input": "object",
+        "tool_use_id": "string"
+      },
+      "output": {
+        "permissionDecision": "'allow' | 'deny' | 'ask'",
+        "permissionDecisionReason": "string",
+        "updatedInput": "modified tool input (optional)",
+        "additionalContext": "extra context for model"
+      },
+      "useCases": [
+        "Block dangerous commands (rm -rf, DROP TABLE)",
+        "Require approval for sensitive tools",
+        "Modify tool input"
+      ],
+      "priority": "deny > ask > allow (most restrictive wins)"
+    },
+    {
+      "event": "PostToolUse",
+      "fires": "After tool completes successfully",
+      "input": {
+        "tool_name": "string",
+        "tool_input": "object",
+        "tool_use_id": "string",
+        "tool_response": "string"
+      },
+      "output": {
+        "decision": "'block' (optional)",
+        "reason": "string",
+        "additionalContext": "extra context injected into conversation"
+      },
+      "useCases": [
+        "Run formatters (prettier, black)",
+        "Run linters (eslint)",
+        "Log tool usage for auditing",
+        "Trigger follow-up actions"
+      ]
+    },
+    {
+      "event": "PreCompact",
+      "fires": "Before conversation context is compacted",
+      "input": { "trigger": "'auto' when conversation exceeds prompt budget" },
+      "output": "Common format only",
+      "useCases": ["Export important context before truncation", "Save state"]
+    },
+    {
+      "event": "SubagentStart",
+      "fires": "When a subagent is spawned",
+      "input": { "agent_id": "string", "agent_type": "string (agent name)" },
+      "output": {
+        "additionalContext": "Context added to subagent conversation"
+      },
+      "useCases": [
+        "Track nested agent usage",
+        "Initialize subagent resources",
+        "Inject guidelines"
+      ]
+    },
+    {
+      "event": "SubagentStop",
+      "fires": "When a subagent completes",
+      "input": {
+        "agent_id": "string",
+        "agent_type": "string",
+        "stop_hook_active": "boolean"
+      },
+      "output": { "decision": "'block'", "reason": "string" },
+      "useCases": [
+        "Aggregate results",
+        "Cleanup subagent resources",
+        "Continue if verification needed"
+      ]
+    },
+    {
+      "event": "Stop",
+      "fires": "When agent session ends",
+      "input": {
+        "stop_hook_active": "boolean (true if already continued from previous stop hook)"
+      },
+      "output": {
+        "decision": "'block'",
+        "reason": "string (tells agent why it should continue)"
+      },
+      "useCases": [
+        "Generate reports",
+        "Cleanup resources",
+        "Run final verification"
+      ],
+      "warning": "ALWAYS check stop_hook_active to prevent infinite loops. Blocking without checking causes unlimited premium request consumption."
+    }
+  ],
+  "configuration": {
+    "fileLocations": [
+      ".github/hooks/*.json (workspace)",
+      ".claude/settings.json (workspace, Claude format)",
+      ".claude/settings.local.json (workspace, local Claude)",
+      "~/.claude/settings.json (user-level)",
+      ".agent.md frontmatter hooks field (agent-scoped)"
+    ],
+    "commandProperties": {
+      "type": "Must be 'command'",
+      "command": "Default command (cross-platform)",
+      "windows": "Windows-specific override",
+      "linux": "Linux-specific override",
+      "osx": "macOS-specific override",
+      "cwd": "Working directory (relative to repo root)",
+      "env": "Additional environment variables",
+      "timeout": "Timeout in seconds (default: 30)"
+    },
+    "crossToolCompatibility": {
+      "claudeToVscode": "VS Code reads Claude hook format but ignores matchers. Tool input property names differ (snake_case vs camelCase). Tool names differ (Write/Edit vs create_file/replace_string_in_file).",
+      "copilotCliToVscode": "lowerCamelCase event names (preToolUse) converted to PascalCase (PreToolUse). bash→osx+linux, powershell→windows."
+    }
+  },
+  "security": [
+    "Review all hook scripts before enabling, especially from untrusted sources",
+    "Use principle of least privilege — hooks should only access what they need",
+    "Validate and sanitize all input from agents to prevent injection attacks",
+    "Never hardcode secrets; use environment variables or secure credential storage",
+    "Use chat.tools.edits.autoApprove to block agent from editing hook scripts"
+  ]
+}

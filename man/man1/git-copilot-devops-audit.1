@@ -44,8 +44,11 @@ The audit tooling is global on purpose. It audits the current workspace, but it
 should not create repository-local copies of its own agent or prompt files during
 normal use. The repository-local support files produced by this command are the
 audit snapshot at \fI.github/devops-audit-context.md\fR and the persistent research
-cache at \fI.github/devops-audit-research.md\fR. Audit findings themselves are
-returned in chat rather than written to a repository-local report file.
+cache at \fI.github/devops-audit-research.md\fR. When the shared community cache
+is configured, the command also refreshes a local bootstrap copy at
+\fI.github/devops-audit-community-seed.md\fR plus adjacent JSON support files.
+Audit findings themselves are returned in chat rather than written to a
+repository-local report file.
 
 The context snapshot is intentionally lightweight. It points the audit at the
 right workspace files and current inventory, but it should not duplicate the full
@@ -105,12 +108,14 @@ instruction, and the slash command.
 .B \-h, \-\-help
 Display usage information and exit.
 .SH FILES
-The following repository-local file is created by this command:
+The following repository-local files are created by this command:
 .PP
 .nf
 .github/
 ├── devops-audit-research.md        # Persistent research cache with freshness metadata
-└── devops-audit-context.md         # Snapshot of current config (input to audit)
+├── devops-audit-context.md         # Snapshot of current config (input to audit)
+├── devops-audit-community-seed.md  # Pulled community-cache bootstrap summary
+└── devops-audit-community-cache/   # Pulled privacy-safe snapshot JSON files
 .fi
 
 The following files are installed globally unless
@@ -123,9 +128,14 @@ The following files are installed globally unless
 │   ├── DevOpsAuditContext.agent.md    # Context subagent
 │   ├── DevOpsAuditResearch.agent.md   # Research subagent
 │   ├── DevOpsAuditEvaluate.agent.md   # Evaluation subagent
-│   └── DevOpsAuditImplement.agent.md  # Implementation subagent
+│   ├── DevOpsAuditImplement.agent.md  # Implementation subagent
+│   └── DevOpsAuditCommunitySubmit.agent.md  # Post-run community submitter
 ├── instructions/
 │   └── devops-audit-router.instructions.md
+├── devops-audit-community-settings.json
+├── devops-audit-community-cache/
+│   └── community-cache/
+│       └── ...
 └── skills/
     └── ...
 
@@ -135,7 +145,8 @@ The following files are installed globally unless
 │   ├── DevOpsAuditContext.agent.md    # Context subagent
 │   ├── DevOpsAuditResearch.agent.md   # Research subagent
 │   ├── DevOpsAuditEvaluate.agent.md   # Evaluation subagent
-│   └── DevOpsAuditImplement.agent.md  # Implementation subagent
+│   ├── DevOpsAuditImplement.agent.md  # Implementation subagent
+│   └── DevOpsAuditCommunitySubmit.agent.md  # Post-run community submitter
 └── prompts/
     └── copilot-devops-audit.prompt.md
 .fi
