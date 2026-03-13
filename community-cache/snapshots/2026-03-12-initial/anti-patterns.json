@@ -1,0 +1,31 @@
+{
+  "snapshotId": "2026-03-12-initial",
+  "generatedAt": "2026-03-12T18:00:00Z",
+  "antiPatterns": [
+    {
+      "statement": "Do not dump policy, methodology, persona, and routing rules into a single giant always-on file.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong"
+    },
+    {
+      "statement": "Do not stuff prompts or agents with full procedural playbooks when a skill should carry the method.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong"
+    },
+    {
+      "statement": "Do not reward wording that sounds authoritative if it does not specify inputs, boundaries, and verification expectations.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium"
+    },
+    {
+      "statement": "Do not over-privilege agents or allow generic fallback helpers to perform specialist phases that require bounded roles.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium"
+    },
+    {
+      "statement": "Do not publish workspace-specific context, private paths, or repository descriptions into a public cache, even when the conclusion itself looks useful.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong"
+    }
+  ]
+}

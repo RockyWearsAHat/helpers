@@ -1,0 +1,31 @@
+{
+  "snapshotId": "2026-03-12-initial",
+  "generatedAt": "2026-03-12T18:00:00Z",
+  "practices": [
+    {
+      "statement": "Keep repository instructions as the durable baseline and add extra layers only when a repeated workflow or routing need clearly justifies them.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong"
+    },
+    {
+      "statement": "Prefer references to existing docs, tasks, or files over duplicating the same guidance across prompts, instructions, and skills.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium"
+    },
+    {
+      "statement": "Validate frontmatter fields, file placement, and tool names before judging content quality because broken metadata silently defeats good guidance.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong"
+    },
+    {
+      "statement": "When a workflow is global or cross-workspace, verify installers, runtime commands, and documentation together so claims match actual behavior.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium"
+    },
+    {
+      "statement": "Use a shared cache only as a bootstrap source; every serious audit still needs live research and revalidation before promoting conclusions.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium"
+    }
+  ]
+}

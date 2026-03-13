@@ -20,6 +20,10 @@ REPO_RAW_BASE="https://raw.githubusercontent.com/RockyWearsAHat/github-shell-hel
 BIN_DIR="${HOME}/bin"
 MAN_DIR="${HOME}/man/man1"
 ZSHRC="${HOME}/.zshrc"
+COMMUNITY_SETTINGS_DIR="${HOME}/.copilot"
+COMMUNITY_SETTINGS_FILE="${COMMUNITY_SETTINGS_DIR}/devops-audit-community-settings.json"
+DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
+DEFAULT_COMMUNITY_BRANCH="main"
 
 ensure_dir() {
   local dir="$1"
@@ -47,6 +51,41 @@ fetch() {
 
   echo "[Git-Shell-Helpers-Installer] Fetching $src -> $dest"
   curl -fsSL "$src" -o "$dest"
+}
+
+write_community_settings() {
+  local mode="$1"
+
+  ensure_dir "$COMMUNITY_SETTINGS_DIR"
+  cat >"$COMMUNITY_SETTINGS_FILE" <<EOF
+{
+  "schemaVersion": 1,
+  "mode": "${mode}",
+  "communityRepo": "${DEFAULT_COMMUNITY_REPO}",
+  "baseBranch": "${DEFAULT_COMMUNITY_BRANCH}",
+  "branchPrefix": "automation/community-cache-submission"
+}
+EOF
+  echo "[Git-Shell-Helpers-Installer] Wrote community cache settings: $COMMUNITY_SETTINGS_FILE"
+}
+
+configure_community_cache() {
+  local reply=""
+  local mode="pull-only"
+
+  printf '[Git-Shell-Helpers-Installer] Enable privacy-safe community cache uploads after successful audits? [y/N]: '
+  read -r reply || reply=""
+  if [[ "$reply" == "y" || "$reply" == "Y" ]]; then
+    mode="pull-and-auto-submit"
+  fi
+
+  write_community_settings "$mode"
+
+  if "${BIN_DIR}/git-copilot-devops-audit-community-pull" >/dev/null 2>&1; then
+    echo "[Git-Shell-Helpers-Installer] Pulled the latest shared DevOps audit community cache."
+  else
+    echo "[Git-Shell-Helpers-Installer] WARNING: failed to pull the shared DevOps audit community cache." >&2
+  fi
 }
 
 find_vscode_cli() {
@@ -109,7 +148,11 @@ install_all() {
   fetch "$REPO_RAW_BASE/git-initialize" "$BIN_DIR/git-initialize"
   fetch "$REPO_RAW_BASE/git-fucked-the-push" "$BIN_DIR/git-fucked-the-push"
   fetch "$REPO_RAW_BASE/git-copilot-devops-audit" "$BIN_DIR/git-copilot-devops-audit"
-  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit"
+  fetch "$REPO_RAW_BASE/scripts/community-cache-submit.sh" "$BIN_DIR/git-copilot-devops-audit-community-submit"
+  fetch "$REPO_RAW_BASE/scripts/community-cache-pull.sh" "$BIN_DIR/git-copilot-devops-audit-community-pull"
+  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit" "$BIN_DIR/git-copilot-devops-audit-community-submit" "$BIN_DIR/git-copilot-devops-audit-community-pull"
+
+  configure_community_cache
 
   # Man pages (from repo's man/man1)
   fetch "$REPO_RAW_BASE/man/man1/git-upload.1"     "$MAN_DIR/git-upload.1"

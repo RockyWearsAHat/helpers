@@ -84,6 +84,8 @@ Do not let one example focus mutate into a default recommendation for every proj
 
 Use isolated subagents for the runtime workflow. In each subagent prompt, tell the subagent exactly which audit skill to load, what inputs to use, what boundaries to respect, and what output to return.
 
+If the repo includes a versioned community-cache contract or shared-cache manifest for the audit, pass that to the research phase as an allowed input. Shared-cache pull should be treated as normal bootstrap behavior when configured, but shared-cache publication must remain opt-in and should not be triggered unless the user explicitly asked for it.
+
 For natural-language-routed runs, keep the current main session as the coordinator and invoke the phase specialists directly. Do not first launch `DevOpsAudit` as a subagent. Nested orchestration is less reliable than keeping the coordinator at the top level, and it contradicts this skill's own execution model.
 
 When invoking a phase subagent, use the exact named audit specialist for that phase. Never intentionally fall back to a generic exploration agent.
@@ -149,6 +151,7 @@ Accept research only if all of these are true:
 - Every mandatory topic from `copilot-research` is addressed.
 - The output includes many concrete evidence references, not generic claims.
 - The output shows why the guidance is current for normative claims, how source types were weighted, and which older examples remain useful only as illustrative patterns.
+- If a shared community cache was available, the output states which manifest or snapshot was used and which cached items were revalidated, downgraded, or rejected.
 - Model validation is either verified or reported as a specific blocked check with the exact fallback used.
 - At least 3 real repositories were inspected at the file level, not just their landing pages.
 - Those repository examples were explored beyond the README: the research read actual `.github/` files and at least one other useful project artifact such as build config, CI, tests, or developer docs to understand why the customization fits the project.
@@ -192,3 +195,17 @@ Phase acceptance rule: accept only outputs that clearly pass the gate for that p
 If any required subagent cannot be invoked, stop immediately. Report the concrete runtime problem and do not fall back to manual execution. A manual fallback defeats the architecture and produces misleading behavior.
 
 After the last required agent finishes, review the accepted outputs against the approved findings, then report to the user what was found, whether anything changed, and whether any phase had to be rejected or retried. In report-only mode, explicitly say that no files were changed.
+
+## Optional Post-run Community Submission
+
+Community submission is not part of the core audit phases. It happens only after the required audit phases succeed.
+
+If all of these are true:
+
+- the client has community participation enabled
+- the audit reached an accepted final result
+- the conclusion can be reduced to generalized Copilot best practice or general application advice without repository-specific context
+
+Then invoke `DevOpsAuditCommunitySubmit` with the accepted final result and tell it to load `devops-audit-community-submit`.
+
+If any of those conditions are false, skip community submission silently unless the user asked about it.

@@ -1,0 +1,36 @@
+{
+  "snapshotId": "2026-03-12-initial",
+  "generatedAt": "2026-03-12T18:00:00Z",
+  "principles": [
+    {
+      "statement": "Use the right Copilot primitive for the job: instructions for ambient context, prompts for reusable entrypoints, agents for role and tool boundaries, and skills for methodology.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong"
+    },
+    {
+      "statement": "Keep always-on instructions short, factual, and narrowly scoped so they survive routing and reduce token drag.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong"
+    },
+    {
+      "statement": "Treat prompt files as thin manual entrypoints and move step-by-step workflow logic into skills or specialist agents.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong"
+    },
+    {
+      "statement": "Judge prompt quality by goals, boundaries, inputs, and success conditions rather than by tone or apparent confidence.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium"
+    },
+    {
+      "statement": "Constrain agents with narrow roles and least-privilege tool access so delegation and review stay legible.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong"
+    },
+    {
+      "statement": "Use public examples to extract durable principles, not to copy prose or assume any one repository is the platform standard.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium"
+    }
+  ]
+}

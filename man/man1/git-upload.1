@@ -42,6 +42,15 @@ generation. This includes files such as
 .IR CONTRIBUTING.md ,
 and
 .IR README.md .
+.PP
+If
+.B VERSION
+is staged with a new value and
+.IR release-notes/v<version>.md
+is missing,
+.B git upload
+will block the upload. In AI mode, it first attempts to generate and stage the
+missing release notes file before creating the commit message.
 .SH OPTIONS
 .TP
 .BR -ai ,
@@ -71,6 +80,11 @@ commit message (subject line plus optional body).
 The prompt also includes bounded excerpts from repo-authored guidance files so
 the model can follow project-specific commit and upload workflow rules without
 reading the repository itself.
+.PP
+When AI mode is enabled and a version bump is staged without matching release
+notes, the same AI command is also used to generate a concise
+.IR release-notes/v<version>.md
+file before the commit is created.
 .PP
 If the environment variable
 .B GIT_UPLOAD_AI_CMD
