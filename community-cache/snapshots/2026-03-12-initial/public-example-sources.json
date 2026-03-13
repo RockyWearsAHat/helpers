@@ -1,0 +1,24 @@
+{
+  "snapshotId": "2026-03-12-initial",
+  "generatedAt": "2026-03-12T18:00:00Z",
+  "sources": [
+    {
+      "title": "github/awesome-copilot examples",
+      "type": "public-repo",
+      "whyItMatters": "Useful for concrete file-level examples of prompts, agents, instructions, and skills when treated as illustrative rather than normative.",
+      "confidence": "medium"
+    },
+    {
+      "title": "microsoft/vscode Copilot customization examples",
+      "type": "public-repo",
+      "whyItMatters": "Shows how platform-adjacent teams separate reusable entrypoints from methodology and use narrow roles.",
+      "confidence": "medium"
+    },
+    {
+      "title": "PowerShell and other public repos with Copilot assets",
+      "type": "public-repo",
+      "whyItMatters": "Confirms repeated patterns across real projects: small always-on instructions, scoped files, and workflow packaging in skills.",
+      "confidence": "medium"
+    }
+  ]
+}

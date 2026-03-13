@@ -1,0 +1,95 @@
+name: Community Cache Consolidate
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - community-cache/candidates/**/*.json
+      - community-cache/staging/promoted-candidates.json
+      - scripts/community-cache-consolidate.sh
+      - community-cache/schemas/final-conclusion.schema.json
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Consolidate community cache candidates
+        run: ./scripts/community-cache-consolidate.sh aggregate
+
+      - name: Check for promoted candidates
+        id: check_promoted
+        run: |
+          count=$(jq '.promotedCandidates | length' community-cache/staging/promoted-candidates.json 2>/dev/null || echo 0)
+          echo "promoted_count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild snapshot from promoted candidates
+        if: steps.check_promoted.outputs.promoted_count != '0'
+        run: ./scripts/community-cache-consolidate.sh rebuild-snapshot
+
+      - name: Create consolidation pull request
+        id: create_pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: automation/community-cache-consolidation
+          delete-branch: true
+          commit-message: Update community cache aggregation
+          title: Update community cache aggregation
+          body: |
+            Automated consolidation of community cache candidate packets.
+
+            Updated artifacts:
+            - community-cache/aggregation/candidate-index.json
+            - community-cache/aggregation/promotion-report.json
+            - community-cache/staging/promoted-candidates.json
+
+            Promoted candidates: ${{ steps.check_promoted.outputs.promoted_count }}
+            ${{ steps.check_promoted.outputs.promoted_count != '0' && '- Snapshot rebuilt with promoted candidates merged' || '- No snapshot rebuild needed' }}
+          add-paths: |
+            community-cache/aggregation/candidate-index.json
+            community-cache/aggregation/promotion-report.json
+            community-cache/staging/promoted-candidates.json
+            community-cache/snapshots/
+            community-cache/manifest.json
+          labels: |
+            automation
+            community-cache
+
+      - name: Auto-merge promoted consolidation PR
+        if: steps.create_pr.outputs.pull-request-number && steps.check_promoted.outputs.promoted_count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pr_number="${{ steps.create_pr.outputs.pull-request-number }}"
+          promoted=${{ steps.check_promoted.outputs.promoted_count }}
+          echo "PR #${pr_number} has ${promoted} promoted candidates — enabling auto-merge"
+
+          # Validate promotion quality gates before merging:
+          # All promoted candidates must have score ≥70, ≥3 submissions,
+          # ≥1 live-revalidated, and 0 contradictions (enforced by consolidate.sh).
+          # This step only auto-merges when promotions exist as a double-check.
+          all_valid=$(jq '
+            [.promotedCandidates[] |
+              select(.promotionScore >= 70 and .submissionCount >= 3
+                and .liveRevalidatedCount >= 1 and .contradictionCount == 0)]
+            | length == (.promotedCandidates | length)
+          ' community-cache/staging/promoted-candidates.json)
+
+          if [ "$all_valid" = "true" ]; then
+            echo "All promoted candidates pass quality gates — merging"
+            gh pr merge "$pr_number" --squash --auto \
+              --subject "chore: auto-merge community cache consolidation (#${pr_number})" \
+              --body "Auto-merged: ${promoted} promoted candidate(s) passed all quality gates (score ≥70, ≥3 submissions, ≥1 live-revalidated, 0 contradictions)."
+          else
+            echo "::warning::Some promoted candidates did not pass quality gate re-check — skipping auto-merge"
+          fi

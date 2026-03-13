@@ -1,0 +1,124 @@
+{
+  "snapshotId": "2026-07-09-deep-research",
+  "generatedAt": "2026-07-09T12:00:00Z",
+  "primitives": {
+    "instructions": {
+      "alwaysOn": {
+        "file": ".github/copilot-instructions.md",
+        "alternates": ["AGENTS.md", "CLAUDE.md"],
+        "scope": "Injected into every prompt for the workspace",
+        "bestFor": "Repository overview, key directories, build/test commands, naming conventions"
+      },
+      "fileBased": {
+        "location": ".github/instructions/*.instructions.md",
+        "frontmatter": {
+          "required": [],
+          "optional": ["description", "applyTo", "name"]
+        },
+        "scope": "Applied only when editing files matching applyTo glob"
+      },
+      "userLevel": {
+        "location": "~/.copilot/instructions/*.instructions.md",
+        "scope": "Applied across all workspaces for the user"
+      },
+      "priority": "Personal > Repository > Organization"
+    },
+    "agents": {
+      "location": ".github/agents/*.agent.md",
+      "alternates": [".claude/agents/*.agent.md"],
+      "frontmatter": {
+        "required": [],
+        "optional": [
+          "description",
+          "name",
+          "tools",
+          "agents",
+          "model",
+          "user-invocable",
+          "disable-model-invocation",
+          "target",
+          "mcp-servers",
+          "handoffs",
+          "hooks"
+        ]
+      },
+      "handoffs": {
+        "fields": ["label", "agent", "prompt", "send", "model"],
+        "sendOptions": ["conversation", "summary"]
+      },
+      "bestFor": "Role definitions, tool restrictions, multi-agent delegation, security boundaries"
+    },
+    "skills": {
+      "location": ".github/skills/<skill-name>/SKILL.md",
+      "alternates": [
+        ".claude/skills/<skill-name>/SKILL.md",
+        ".agents/skills/<skill-name>/SKILL.md"
+      ],
+      "frontmatter": {
+        "required": ["name", "description"],
+        "optional": [
+          "argument-hint",
+          "user-invocable",
+          "disable-model-invocation"
+        ]
+      },
+      "loadingPhases": [
+        "discovery (name+description)",
+        "instructions (SKILL.md)",
+        "resources (bundled files)"
+      ],
+      "bestFor": "Step-by-step methodology, complex workflows, reusable domain knowledge, progressive loading"
+    },
+    "prompts": {
+      "location": ".github/prompts/*.prompt.md",
+      "frontmatter": {
+        "required": [],
+        "optional": [
+          "description",
+          "name",
+          "argument-hint",
+          "agent",
+          "model",
+          "tools"
+        ]
+      },
+      "note": "Being superseded by skills for complex workflows. Use for simple entrypoints.",
+      "bestFor": "Simple slash commands, thin entrypoints to agents, one-shot operations"
+    },
+    "hooks": {
+      "location": ".github/hooks/*.json",
+      "alternates": [".claude/settings.json", ".claude/settings.local.json"],
+      "events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PreCompact",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop"
+      ],
+      "commandProperties": [
+        "type",
+        "command",
+        "windows",
+        "linux",
+        "osx",
+        "cwd",
+        "env",
+        "timeout"
+      ],
+      "exitCodes": {
+        "0": "success (parse stdout JSON)",
+        "2": "blocking error",
+        "other": "non-blocking warning"
+      },
+      "bestFor": "Deterministic automation: formatters, linters, security policies, approval gates, audit logging"
+    }
+  },
+  "toolListPriority": "Prompt file > Custom agent > Default agent",
+  "supportedAlternateFormats": {
+    "claude": "VS Code reads .claude/agents, .claude/skills, .claude/settings.json natively",
+    "agentSkillsStandard": "agentskills.io open standard compatible with VS Code and Claude"
+  }
+}

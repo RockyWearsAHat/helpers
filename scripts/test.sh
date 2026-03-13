@@ -19,6 +19,8 @@ checks=(
 	"zsh -n git-fucked-the-push"
 	"zsh -n git-copilot-quickstart"
 	"zsh -n git-copilot-devops-audit"
+	"bash -n scripts/community-cache-submit.sh"
+	"bash -n scripts/community-cache-pull.sh"
 	"zsh -n git-help-i-pushed-an-env"
 	"zsh -n git-scan-for-leaked-envs"
 	"zsh -n Git-Shell-Helpers-Installer.sh"

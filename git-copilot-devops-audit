@@ -174,6 +174,7 @@ collect_copilot_files() {
 	COPILOT_BUGS=""
 	COPILOT_MEMORY=""
 	COPILOT_AUDIT_RESEARCH=""
+	COPILOT_AUDIT_COMMUNITY_SEED=""
 	MISPLACED_GITHUB_FILES=()
 
 	[ -f ".github/copilot-instructions.md" ] && COPILOT_MAIN=".github/copilot-instructions.md"
@@ -181,6 +182,7 @@ collect_copilot_files() {
 	[ -f ".github/bugs.md" ]                 && COPILOT_BUGS=".github/bugs.md"
 	[ -f ".github/instructions/memory.md" ]  && COPILOT_MEMORY=".github/instructions/memory.md"
 	[ -f ".github/devops-audit-research.md" ] && COPILOT_AUDIT_RESEARCH=".github/devops-audit-research.md"
+	[ -f ".github/devops-audit-community-seed.md" ] && COPILOT_AUDIT_COMMUNITY_SEED=".github/devops-audit-community-seed.md"
 
 	if [ -d ".github/agents" ]; then
 		setopt nullglob
@@ -272,6 +274,73 @@ seed_file_if_missing() {
 	mkdir -p "$dir"
 	printf '%s\n' "$content" > "$path"
 	ui_ok "Seeded: $path"
+}
+
+seed_global_community_settings() {
+	local settings_file="$HOME/.copilot/devops-audit-community-settings.json"
+	local default_repo="RockyWearsAHat/github-shell-helpers"
+
+	if [ -f "$settings_file" ]; then
+		return
+	fi
+
+	if [ "$dry_run" = true ]; then
+		ui_info "[dry-run] Would seed: $settings_file"
+		return
+	fi
+
+	mkdir -p "$(dirname "$settings_file")"
+	cat > "$settings_file" <<EOF
+{
+  "schemaVersion": 1,
+  "mode": "pull-only",
+  "communityRepo": "${default_repo}",
+  "baseBranch": "main",
+  "branchPrefix": "automation/community-cache-submission"
+}
+EOF
+	ui_ok "Seeded: $settings_file"
+}
+
+refresh_community_cache_bootstrap() {
+	local helper_script="$SCRIPT_DIR/scripts/community-cache-pull.sh"
+	local helper_cmd="git-copilot-devops-audit-community-pull"
+	local target_workspace=""
+
+	seed_global_community_settings
+
+	if [ "$update_agent" = false ]; then
+		target_workspace="$repo_root"
+	fi
+
+	if [ "$dry_run" = true ]; then
+		if [ -n "$target_workspace" ]; then
+			ui_info "[dry-run] Would refresh community cache for $target_workspace"
+		else
+			ui_info "[dry-run] Would refresh community cache"
+		fi
+		return
+	fi
+
+	if [ -x "$helper_script" ]; then
+		if [ -n "$target_workspace" ]; then
+			"$helper_script" --workspace "$target_workspace" >/dev/null 2>&1 || ui_warn "Community cache refresh failed; continuing without refreshed bootstrap"
+		else
+			"$helper_script" >/dev/null 2>&1 || ui_warn "Community cache refresh failed; continuing without refreshed bootstrap"
+		fi
+		return
+	fi
+
+	if command -v "$helper_cmd" >/dev/null 2>&1; then
+		if [ -n "$target_workspace" ]; then
+			"$helper_cmd" --workspace "$target_workspace" >/dev/null 2>&1 || ui_warn "Community cache refresh failed; continuing without refreshed bootstrap"
+		else
+			"$helper_cmd" >/dev/null 2>&1 || ui_warn "Community cache refresh failed; continuing without refreshed bootstrap"
+		fi
+		return
+	fi
+
+	ui_warn "Community cache pull helper was not found; continuing without refreshed bootstrap"
 }
 
 embed_file() {
@@ -415,6 +484,7 @@ build_inventory() {
 	# CI
 	[ -n "$DETECTED_CI" ] && inv+="- **CI/CD:** $DETECTED_CI\n" || inv+="- **CI/CD:** NONE DETECTED\n"
 	[ -n "$COPILOT_AUDIT_RESEARCH" ] && inv+="- **Audit research cache:** PRESENT\n" || inv+="- **Audit research cache:** MISSING ← baseline will be seeded\n"
+	[ -n "$COPILOT_AUDIT_COMMUNITY_SEED" ] && inv+="- **Community cache seed:** PRESENT\n" || inv+="- **Community cache seed:** MISSING ← will refresh when shared cache pull succeeds\n"
 
 	printf '%b' "$inv"
 }
@@ -441,6 +511,10 @@ generate_evaluate_agent() {
 
 generate_implement_agent() {
 	cat "$SCRIPT_DIR/.github/agents/DevOpsAuditImplement.agent.md"
+}
+
+generate_community_submit_agent() {
+	cat "$SCRIPT_DIR/.github/agents/DevOpsAuditCommunitySubmit.agent.md"
 }
 
 generate_router_instruction() {
@@ -607,6 +681,7 @@ generate_context_file() {
 	[ -n "$COPILOT_BUGS" ] && context+="- \`$COPILOT_BUGS\`\n"
 	[ -n "$COPILOT_MEMORY" ] && context+="- \`$COPILOT_MEMORY\`\n"
 	[ -n "$COPILOT_AUDIT_RESEARCH" ] && context+="- \`$COPILOT_AUDIT_RESEARCH\`\n"
+	[ -n "$COPILOT_AUDIT_COMMUNITY_SEED" ] && context+="- \`$COPILOT_AUDIT_COMMUNITY_SEED\`\n"
 
 	if [ ${#MISPLACED_GITHUB_FILES[@]} -gt 0 ]; then
 		context+="\n### Misplaced GitHub Customization Candidates\n"
@@ -637,12 +712,17 @@ echo ""
 
 # Step 1: Write context file (skipped when --update-agent)
 if [ "$update_agent" = false ]; then
+	ui_step "Refreshing shared community cache bootstrap..."
+	refresh_community_cache_bootstrap
+	collect_copilot_files
 	ui_step "Seeding audit research cache baseline..."
 	seed_file_if_missing ".github/devops-audit-research.md" "$(generate_research_cache_file "$project_name")"
 	[ -f ".github/devops-audit-research.md" ] && COPILOT_AUDIT_RESEARCH=".github/devops-audit-research.md"
 	ui_step "Writing audit context snapshot..."
 	write_file ".github/devops-audit-context.md" "$(generate_context_file "$project_name")"
 else
+	ui_step "Refreshing shared community cache bootstrap..."
+	refresh_community_cache_bootstrap
 	ui_info "Skipping context snapshot (--update-agent mode)"
 fi
 
@@ -673,6 +753,7 @@ if [ "$no_install" = false ]; then
 		[DevOpsAuditResearch.agent.md]=generate_research_agent
 		[DevOpsAuditEvaluate.agent.md]=generate_evaluate_agent
 		[DevOpsAuditImplement.agent.md]=generate_implement_agent
+		[DevOpsAuditCommunitySubmit.agent.md]=generate_community_submit_agent
 	)
 	global_prompt="$prompts_dir/copilot-devops-audit.prompt.md"
 
@@ -759,13 +840,18 @@ echo ""
 if [ "$update_agent" = false ]; then
 	printf '  %bAudit context saved to:%b .github/devops-audit-context.md\n' "$DIM" "$NC"
 	printf '  %bAudit research cache:%b .github/devops-audit-research.md\n' "$DIM" "$NC"
+	if [ -f ".github/devops-audit-community-seed.md" ]; then
+		printf '  %bCommunity seed:%b .github/devops-audit-community-seed.md\n' "$DIM" "$NC"
+	fi
 fi
-printf '  %bAudit results are returned in chat;%b repo-local support files are limited to the context snapshot and research cache\n' "$DIM" "$NC"
+printf '  %bAudit results are returned in chat;%b repo-local support files are limited to the context snapshot, research cache, and pulled community bootstrap\n' "$DIM" "$NC"
 printf '  %bAudit agents:%b %s/agents\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bMirror agents:%b %s/agents\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
 printf '  %bAudit router:%b %s/instructions\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit skills:%b %s/skills\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
+printf '  %bCommunity cache:%b %s/devops-audit-community-cache\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
+printf '  %bCommunity settings:%b %s/devops-audit-community-settings.json\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 echo ""
 ui_hr
 echo ""

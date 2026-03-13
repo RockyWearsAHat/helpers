@@ -1,0 +1,30 @@
+{
+  "snapshotId": "2026-03-12-initial",
+  "generatedAt": "2026-03-12T18:00:00Z",
+  "sources": [
+    {
+      "title": "Customize AI responses in VS Code",
+      "type": "official-doc",
+      "whyItMatters": "Defines the current platform primitives, file types, and routing model for instructions, prompts, agents, and skills.",
+      "confidence": "strong"
+    },
+    {
+      "title": "GitHub Copilot customizations documentation",
+      "type": "official-doc",
+      "whyItMatters": "Sets the normative expectations for repository and user customization surfaces and safe guidance layering.",
+      "confidence": "strong"
+    },
+    {
+      "title": "VS Code release notes for Copilot customization updates",
+      "type": "release-notes",
+      "whyItMatters": "Tracks capability shifts such as skills availability, prompt and agent behavior, diagnostics, and hook support.",
+      "confidence": "strong"
+    },
+    {
+      "title": "GitHub Copilot model and product guidance",
+      "type": "product-guidance",
+      "whyItMatters": "Confirms that hard-coded model assumptions age quickly and should be treated as fragile unless revalidated.",
+      "confidence": "medium"
+    }
+  ]
+}

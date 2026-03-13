@@ -1,0 +1,21 @@
+name: Community Cache Validate
+
+on:
+  pull_request:
+    paths:
+      - community-cache/candidates/**/*.json
+      - community-cache/schemas/final-conclusion.schema.json
+      - scripts/community-cache-consolidate.sh
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate candidate packets
+        run: ./scripts/community-cache-consolidate.sh validate

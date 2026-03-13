@@ -1,0 +1,115 @@
+Agent skills are here for Visual Studio Code. And if you're like me, you hear that and you think, please, please stop making me learn new things. Please, I just want to live my life. The good news is agent skills are actually pretty simple to understand and pretty powerful.
+
+So, in this video, we're going to jump in, take a look at what they are, how they work. We'll build one together, and then I'll explain the difference between skills and prompt files and instructions and custom agents. Let's do it. So, skills at the most basic description are just another way to provide instructions to the model, but they have some benefits over things like custom instructions in that they can bundle together scripts and templates and a bunch of different files to define a skill.
+
+And this doesn't make a lot of sense until you see one in action or build one. So, let's do that. Now, the first thing we're going to need to do is we're working in Visual Studio Code, but we should point out that skills are a spec from Anthropic, and so they work in Claude Code and other places, but here we're all copilot all the time. Skills are also experimental at the time of this recording, so there will be some changes.
+
+Uh, but you can see here, you just need to toggle on skills, and they won't be on by default. So, if skills aren't working for you, make sure you toggle this on. Now, skills, like we said, are just other instruction files. That's really all they are.
+
+And so, they just need to be in the right place. You can put them in GitHub skills, copilot skills, cloud skills, the cloud skills at the root of your project. And so, for us, since we have an empty project here, let's just start like this and create a new folder. We'll call it GitHub.
+
+And inside of that, we're going to put a skills folder. And inside of that, we're going to create a skill. And we're going to call it the Hello World skill. Yes.
+
+Yes. doing hello world and then inside of this hello world folder to define our skill we're going to create a new file and we just call it skill.md just a markdown file here now this file defines the skill and there are some things that are required in this file and that is some metadata at the top here so you need a name and you need a description these things are required for the skill you have to have them so I've added a name and a description here. And it's good to be descriptive as possible with the name and the description because of the way that skills are loaded and used, which we'll look at here in a second, because the agent should be able to pick these things up automatically when it needs them without you having to tell it in the chat, hey, you need to use this skill. Now that we have the metadata here, the next thing you want to do is start writing the instructions that give the skill to the model.
+
+So, let's just start like this. We'll just say this is the hello world skill. Use hello world skill to respond to the user when oh and it's fixing my grammar for me. When they enter the phrase hello world in the chat and then when they do that we want to uh respond with and then we can say hello world.
+
+This is my first skill. Yeah, that would work. Or even better, even more fun would be respond with um hello world and asky art. much more fun.
+
+So let's try this here. Now we have created this skill. How do we actually use this? Let's open our chat and then in chat let's just ask the chat what skills do you have?
+
+And we're going to make sure this is not attached. It is not attached. So let's send it. And the model will look and examine and see if it has any skills here in the current workspace and then should report back and tell us exactly what those skills are.
+
+So, I have access to domain specific skills. Hello world. A simple skill that responds when you enter the phrase hello world. And then it's checking for additional skills, which we do not have.
+
+Thank you, Claude. You've done enough. Now, how do we actually use this skill? Well, all we should really have to do is say hello world, right?
+
+Because the point of skills is that they get picked up automatically by the model and it knows when to use the skill. So you can see here it says I've read the hello world skill instructions and we'll respond appropriately and then we get hello world in asy art. Not bad. That's some pretty good ASI art.
+
+Now we could have done this in an instructions file. Yes. Or a prompt file. Yes.
+
+So what's special about skills? So as we talked about skills allow you to bundle a bunch of different files together. So in order to understand that we kind of need to build something out here, make this a little bit more complicated. So in our skill file here, what I want to do is uh I want to have a script here.
+
+So what I want to do here is just uh get info about the user's OS with OS, which is the node package for doing that. Uh and I'm going to use Haiku for this. I kind of like Haiku. I think Haiku gets a bad rap.
+
+It's fast. It's accurate. Perfect. Okay, so look, platform type, release, and architecture.
+
+I like it. Uh, so let's go ahead and keep this here. And then, so what we could do is say, um, you know, here's here's the workflow that we want this thing to follow. Workflow.
+
+Step one, um, run the following scripts to get system information. Respond with hello world and ask is step two. And then step three is uh, provide the system information obtained from the script. So now we have kind of a workflow here.
+
+So we should get something a little bit more interesting when we do our hello world. So let's try this again. Hello world. And now the skill should walk through our workflow and different do the different things that we've defined namely running the script in the terminal which you can see it's doing right here and then returning asky art for hello world and then returning the system information as part of the hello world response.
+
+Let's see if we get all that. And we do. So, here's hello world. This is exactly what we asked for in the skill.
+
+Now, in this format, this works just fine because there's just not a lot to it. But you can imagine if this was a really long skill, like we're teaching the AI maybe about how to write API endpoints for our company, this could start to get really long. And so, what skills allow you to do is kind of modularize. So, we're going to create a new folder here and call it scripts.
+
+And then inside of it, we're going to add a new file here called get OS or get system info.js. And then we can add this information here. This whole script can come out and go into our script here, right? And then we can reference that.
+
+You can reference this script with relative syntax, relative path syntax just like you would reference a normal markdown file. So we can say run the script like this right and then where's the script the script is here in scripts and then get system info to obtain system information respond with hello world and askard and provide this system information obtained from the script. So now let's run this again and we get the exact same thing but this time it runs the script from the directory instead of having an inline in the script file. But let's take this a step further and let's say that we want to have a template.
+
+So I'm going to create a new file here and we're just going to call it template. And you don't have to capitalize these. This is just a pattern that you'll see a lot that you don't have to capitalize. And then uh here we just have uh a template for a hello world response in chat with system info.
+
+Let's see what co-pilot gives us here. Hello. You've triggered the hello world skill. Oh, look.
+
+Ask art's coming in. I like that. It knows that we need this. Here's your system info.
+
+System info is here. And then maybe like feel free to ask. Okay. Right.
+
+So this is every time we hit hello world, we want the model to respond with this format and only this format. Right? And we could do that by coming into our skill and saying respond with um respond with uh the template and then again we can just use that relative path syntax right here and then here we don't need this anymore. Right?
+
+So now we are getting the operating system info from the script. We're using the template to define what the response looks like. Let's give it another shot here. All right, here we go.
+
+Hello world. And look at that. We get it back in exactly the format that we defined. Hello, you've triggered the hello world skill.
+
+Here's the asky art. Here's your system information. Please feel free to ask if you need any further assistance. Right?
+
+The models are really, really good at following the skill and following our template, which is exactly what we've defined right here. So, in a nutshell, this is what skills look like. Now you can do a lot of things here like you could provide your database schema in a markdown file or some other file and pass that into the skill. You can have multiple scripts in your skill.
+
+The possibilities are endless. Now one of the interesting things about skills is that they're sort of progressively loaded so that they don't take up a lot of room in the context window. And in order to understand that we need to have a look at the chat. So let's go to our chat debug view.
+
+And then we want to come all the way down to the bottom and let's take a look at our hello world which starts right right here. Not there but here you can see hello world. It's continued here and then it looks like it's continued down there. So if you haven't watched my video on prompt files instructions and custom agents I break down the system prompt in that video that that video anyway.
+
+You should watch that. But this is the system prompt. I'm going to scroll all the way down to the bottom. at the very bottom.
+
+What we'll see here is right here you'll see skills. Here's a list of skills that contain domain specific knowledge. And you can see the skill that we get here. It's hello world.
+
+So it's just the name and the description and then a path to the file. So when you pass a request to the model, any skills you have are passed here, but none of the other files that we've defined are passed, nor is the body of the skill. Only this right here gets passed on that first agent pass. Now on the second agent pass, let's go back to our debug view here.
+
+If you go if we scroll all the way down to the bottom, we can see that the agent responds with okay, I need to read the skill instructions and respond appropriately and this is the file path that it needs to read. It wants to read the skill.md file and it does that. That's the very next thing it does is it reads that file. And then if we come down again, so we're looking at the system prompt, the whole agent turn.
+
+So it calls it, right? It puts it's now in the the the prompt here as a tool call. You can see the response from the assistant is that it has read and now it knows that it needs to run this uh script to get the terminal output which is the very next thing it does. So it's progressively loading in these things that it needs.
+
+So these skills are super efficient. Uh and if we keep coming down you can see it reads the terminal, it reads the file. Let's go down to the bottom of this prompt and see now it sees this is uh this is the template. It's now read the template and it knows how to include this all in the response.
+
+So you can see it's sort of like progressively loading in these files and executing them as it needs to. Skills are very cool. That's how to create a very basic skill, right? You can do this right now.
+
+You can see they're very simple. I want to show you a more complex skill because the very next question you should be asking is well when should I use the skill. Let me show you. So technically speaking there isn't anything that the agent can't do because it can run any command in your terminal.
+
+So technically it can do anything but there are things that it doesn't know how to do that it will try to figure out how to do and it may or may not get those things right. So, for instance, I've added a PDF file here. And this PDF file is for the Logitech MX console, which is pull up here so you can see it. It's this thing here.
+
+Very handy. Should pick one of those up. They're very nice. Now, I want to see what's inside this file.
+
+And so, if we ask the AI to do this, we could just say, what is in this file here? And if we send this prompt, let's actually see what happens. And I'm using Opus 45, which I consider to be currently the most capable model for coding here. So it looks like it's found the file.
+
+It's going to try to read it, but it can't. So essentially, there is no support for PDFs here. So what we can do is use a skill to teach Copilot and Claude how to read PDFs. Now, how do we do that?
+
+Well, we could build our own skill or we can use some of the ones that already exist. So, if you go to the awesome co-pilot repo here on GitHub, github.com/github/awesomecopilot, there are some skills here and this list is growing. And then the other place is if you go to anthropic/skills, github.com/anthropic/skills. And you can see there's a few more in here.
+
+And we're going to use this PDF skill here. So, I've cloned that repo to my local machine. So, I'm going to copy in the PDF skill from there. I I cloned the repo and then I just copied in the PDF skill here.
+
+So, you can see it's right here. And you should recognize this format now after this video. So, we have the skill.md file. Here's the metadata here.
+
+And then you can see it's quite long. Uh there's a lot of different scripts in here. There's scripts in here, right? There's all kinds of PDF support here, not just reading PDFs, but it teaches the agent how to work with PDFs.
+
+So, now let's go back and try our prompt again now that we have this PDF skill and see what the experience is like now that we've taught the agent how to work with PDFs. And you can see it used the scripts and the skill to use some Python to extract the PDF contents here. And now it knows what the PDF is. and we can just pass PDFs with our prompts.
+
+Now, right, we've taught the agent a new skill with skills. Now, that's how you build skills and use them. Let's talk for just a second about when to use instruction files versus prompt files versus custom agents versus skills. So, admittedly, agents are new and we're sort of still figuring out where everything fits together.
+
+We've come up with a lot of different ways of passing instructions to models and some of this stuff was invented before skills and skills take the place of some of those things. But I think generally speaking, you can think about it like this. If you have instructions that you need to pass with every single prompt to the model, like general information about the project, that should be an instructions file. If you have a short prompt that you find yourself reusing a lot, that should be a prompt file.
+
+If you want to tweak the way that the agent behaves, in other words, you want to define specific workflows that you want it to follow every single time, that's a custom agent. Everything else is probably a skill. But again, remember that all of these are just building blocks to help you build out workflows that work for you and your team. There isn't really a right or wrong way to use these things.
+
+They're just different tools that you have in your toolbox to build out the optimal workflow. That's the new agent skills support in Visual Studio Code. It's available today in VS Code Insiders and Stable. Make sure that you look for that experimental setting and turn that on and you can start using them right away.
+
+Thanks for watching. And as always, happy coding.

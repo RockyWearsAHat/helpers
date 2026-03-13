@@ -33,10 +33,13 @@ The context agent already read the workspace. Do not repeat that work.
 - Do not search the workspace for more Copilot files during the research phase.
 - Do not treat workspace files as evidence of best practice.
 - Only read workspace artifacts that were explicitly handed to you for this phase, such as the context report or the persistent audit research cache.
+- If a repo-owned community-cache contract or shared-cache manifest is explicitly handed to you for this phase, you may use it as a lower-authority research accelerator.
 - Spend the research budget on external evidence: official docs, release notes, repository examples, transcripts, and model validation.
 - If you catch yourself reading local source files or `.github/` files to answer a research question, stop and switch back to external sources.
 
 Use the context only to understand the project type, the active workflows, the current Copilot surface area, and the user's focus. Do not let current repo wording anchor you to the current implementation if the documentation and strong examples point toward a better design.
+
+If a versioned community cache is available, use it as pre-research context rather than as proof. It is useful for candidate principles, example discovery, anti-pattern recall, and drift detection, but it must not override fresh official or product guidance.
 
 Use the user's focus and the inferred project intent aggressively. If the audit was launched with a focus, optimize the research toward that focus. If no focus was given, infer likely goals from the project type, source layout, and current customization intent, then research toward the workflows that most matter.
 
@@ -51,6 +54,10 @@ Research and verify the current intended purpose of each file type. Do not assum
 You are expected to come back with normative expectations, not just observations. Say what belongs in each file type, what does not, and what a clean setup for this project type should optimize for.
 
 Normative does not mean hardcoded taste. Do not turn one repo's preferences, one video's style, or one clever example into a universal rule unless stronger and more current evidence supports it. Derive the recommendation from current syntax requirements, current docs, release notes, strong product guidance, and project fit.
+
+For prompt quality, separate underlying design from surface phrasing. A strong prompt usually clarifies principles, expectations, goals, success criteria, boundaries, evidence standards, and handoff shape. A weak prompt tries to make the model "sound right", "seem correct", or imitate confidence without improving the workflow. Research the difference explicitly.
+
+The audited workflow must work with Copilot's intended operating model, not against it. Favor examples that help Copilot understand the job, the boundaries, and the desired collaboration pattern. Treat examples that over-script internal reasoning, force fake certainty, or duplicate methodology in the wrong primitive as anti-patterns unless stronger evidence proves otherwise.
 
 You are expected to convert complex findings into plain English. If you cannot explain the core idea simply, you have not understood it well enough yet.
 
@@ -76,6 +83,8 @@ When evidence conflicts, prefer the most current authoritative source that is st
 Treat invalid or deprecated customization syntax the same way you would treat compile errors in source code: as real errors to eliminate, not quirks to tolerate. When two approaches achieve the same result, prefer the currently supported, documented form because it is the more durable and lower-risk choice.
 
 Do not use Awesome Copilot, Anthropic skills, or any other meta-repository as your main source of truth for requirements. They are useful for examples, discovery, and common patterns, not for turning optional ideas into mandatory rules unless the official docs or stronger product guidance agree.
+
+Do not use a shared community cache as your main source of truth either. The cache can improve coverage and consistency across runs, but normative recommendations still require fresh verification against stronger sources.
 
 Do not treat product-team video evidence as optional flavor. It is one of the best sources for how the system is intended to be used in practice, how pieces fit together, and what high-quality agentic workflows actually look like. When product-team guidance and user-derived examples disagree, the product-team guidance should usually carry more weight for the normative recommendation.
 
@@ -162,7 +171,7 @@ The goal is not to recommend random skills. The goal is to understand what kinds
 
 ### Awesome Copilot and Curated Lists
 
-These repositories are link collections, not documentation. Their value is in the links they contain, not in their own README.
+These repositories are curated example libraries, not primary normative documentation. Their value is in both the links they contain and the working customization files they publish.
 
 ```bash
 # Get the README of awesome-copilot, which contains curated links
@@ -174,11 +183,31 @@ gh api repos/github/awesome-copilot/contents/README.md 2>/dev/null | \
 
 Read the README to find links. Then follow the links that relate to customization, agents, instructions, or workspace setup. The list itself is not the research — it's the starting point.
 
+For audits of Copilot customization quality, you must also inspect actual working examples from `github/awesome-copilot` itself. Read real prompt, instruction, agent, or skill files from that repository and extract why they work. Do not just say they look good. Explain what principle each example demonstrates: how it defines goals, expectations, boundaries, collaboration flow, or output shape.
+
+Do not copy Awesome Copilot wording into the target state by default. Translate useful ideas into this project's needs and the current supported Copilot workflow. If an example is strong mainly because it is clear about principles and intent, keep the principle, not the prose.
+
 Do not stop with a curated-list README. If your report cites curated guidance, it should mostly be to support or contrast conclusions already grounded in official docs and real project repositories.
 
 ### Burke Holland Videos
 
-Search for recent videos, then download and read the transcripts of the most relevant ones:
+The community cache includes pre-cleaned plaintext transcripts from key Burke Holland / VS Code YouTube videos. Use these first before downloading new transcripts.
+
+#### Using cached transcripts (preferred)
+
+1. Read `community-cache/snapshots/<current>/video-transcripts.json` to see available transcripts with topics and key insights.
+2. Read the relevant `.txt` files from `community-cache/snapshots/<current>/transcripts/` — these are clean flowing plaintext, not raw VTT.
+3. Extract concrete workflow principles, not just factual snippets.
+4. Note where transcript guidance reinforces, clarifies, or tensions with the official docs.
+
+Available cached transcripts:
+
+- `fabAI1OKKww-agent-skills-guide.txt` — Skills: structure, progressive loading, scripts, templates, when to use skills vs instructions vs agents vs prompts
+- `5NxGqnTazR8-ultimate-agent-mode-tutorial.txt` — Agent mode: vision, MCP, custom agents, tool restrictions, model selection
+- `s7Qzq0ejhjg-ask-edit-agent-overview.txt` — Chat modes: Ask vs Edit vs Agent, system prompt structure, instructions injection
+- `0XoXNG65rfg-level-up-productivity.txt` — Productivity workflows: prompt files, instructions, custom agents, combining them
+
+#### Downloading new transcripts (when cached ones don't cover the topic)
 
 If transcript tooling is unavailable locally, report that specific limitation and continue with the rest of the research instead of downgrading the entire pass to shallow research.
 
@@ -191,9 +220,14 @@ yt-dlp --flat-playlist --print "%(id)s %(title)s %(upload_date)s %(channel)s" \
 yt-dlp --write-auto-sub --write-subs --sub-lang en --sub-format vtt --skip-download \
   -o "/tmp/yt-transcript-%(id)s" "https://www.youtube.com/watch?v=VIDEO_ID" 2>/dev/null
 
-# Read the transcript
-cat /tmp/yt-transcript-VIDEO_ID.en.vtt 2>/dev/null
+# Clean the raw VTT into readable plaintext
+./scripts/community-cache-clean-transcript.sh /tmp/yt-transcript-VIDEO_ID.en.vtt /tmp/VIDEO_ID-clean.txt
+
+# Read the cleaned transcript (NOT the raw .vtt)
+cat /tmp/VIDEO_ID-clean.txt
 ```
+
+IMPORTANT: Always run raw VTT files through `community-cache-clean-transcript.sh` before reading. Raw VTT contains inline timing tags, duplicate lines, and alignment metadata that wastes context tokens and degrades comprehension.
 
 Pick videos by title relevance and recency. Read the transcripts for specific claims about how Copilot customization works, what fields do what, what changed, and what mistakes to avoid.
 
@@ -214,6 +248,47 @@ Transcript usage rules:
 4. If the transcript shows a more effective pattern than the current repo setup, surface that as an improvement opportunity.
 
 If no relevant transcript can be retrieved, document the exact commands attempted, the exact failure, and why the remaining research is still usable. A transcript blocker should be rare, specific, and visible.
+
+### Versioned Community Cache
+
+If the audit system provides a versioned shared community cache, consume it with these rules:
+
+1. Pulling the shared cache is the default behavior when the manifest or contract is available.
+2. Start by reading `community-cache/manifest.json` to find the recommended snapshot.
+3. Read the snapshot's `search-index.json` first — this is the fast-path to find relevant cached knowledge by topic, applicability, or kind.
+4. Use the search index to look up entries relevant to the current audit's focus areas. For example, if auditing agent design, look up `topicIndex.agents` and `applicabilityIndex.agent-design` to find all relevant principle, practice, anti-pattern, and workflow-pattern IDs.
+5. Read the specific pack files (prompting-principles.json, anti-patterns.json, etc.) to get full entries with evidenceRefs and real URLs.
+6. Check `deprecations.json` for known deprecated fields or features that may affect the audit target.
+7. Check `frontmatter-reference.json` for current correct field names, file locations, and format specifications.
+8. Check `hooks-reference.json` for lifecycle event details if hooks are in scope.
+9. Check `community-resources.json` for community repos, shared skills, and official doc URLs relevant to the audit.
+10. Still do the audit's own live research; the shared cache is only bootstrap context and comparison material.
+11. Record the snapshot or manifest version you used.
+12. Revalidate any normative claim you inherit from the cache against stronger live evidence before recommending it.
+13. Prefer append-only snapshot history and explicit changelogs so regressions can be tracked and rolled back.
+14. If the cache is unreachable, stale, or malformed, continue the research pass and report the issue instead of failing the audit.
+15. If community participation is enabled for the client, conclusion packets may be auto-submitted after the audit completes. Do not confuse that with replacing live research or with publishing raw mid-research notes.
+16. Any community-cache output must be reduced to generalized Copilot best practices and general application advice only. Do not publish repository-specific context, workspace-specific advice, local paths, or private project descriptions.
+
+#### Cache Consumption Quick-Path
+
+For efficient cache usage during research:
+
+```
+1. Read manifest.json → get recommendedSnapshot
+2. Read snapshots/<id>/search-index.json → find relevant IDs by topic/applicability
+3. Read specific pack files for those IDs → get full entries with evidence URLs
+4. Cross-reference against deprecations.json → avoid recommending deprecated patterns
+5. Use community-resources.json → find official doc URLs and community repos to verify against
+```
+
+When the system is configured to improve over time, preserve these distinctions:
+
+- `auto-pull` is normal and low-friction
+- `live research` still happens on every audit
+- `auto-submit conclusions` happens only for opted-in clients (can submit multiple per audit)
+- `community cache content` must stay general and privacy-safe
+- `snapshot rebuild` happens automatically when promoted candidates are available
 
 ## Thoroughness Rules
 
@@ -299,6 +374,8 @@ Every research pass must address all of these. If you skip one, say which and wh
 - Recent deprecations or breaking changes (field names that changed, features that were removed)
 - How 3+ real repositories structure their `.github/` Copilot files (read the actual files, not just the README)
 - How those same repositories connect their customization to real project workflows beyond `.github/`
+- How `github/awesome-copilot` demonstrates strong prompts, instructions, agents, or skills at the file level, and what principles those examples teach
+- If a shared community cache exists, what snapshot or manifest was used, what it contributed, and what had to be revalidated or rejected
 - At least 1 recent product-team video transcript for practical insights, and preferably 2 when the workflow is broad or architecture-heavy
 - Known common mistakes and what the correct version looks like
 - Concrete improvement opportunities or likely bugs in the audited setup, even when the current setup is not outright broken
@@ -308,6 +385,7 @@ Minimum evidence bar:
 - At least 10 concrete external references total
 - At least 4 official references across docs and release notes
 - At least 3 real project repositories explored at the file level
+- At least 2 concrete file-level examples from `github/awesome-copilot`, with the principle learned from each example spelled out
 - At least 1 transcript or equivalent product-team primary source
 - At least 3 major conclusions supported by more than one source type
 - At least 3 concrete patterns learned from real external skills, agents, prompts, or instruction files that are relevant to this workspace
@@ -326,10 +404,12 @@ Return findings in a structured format covering:
 - `Reference matrix`: numbered references with exact URLs and what each reference establishes
 - `Target-state blueprint`: the clean intended current workflow and file design for this project type and user focus
 - `Freshness notes`: what evidence is most current, what changed recently, which older patterns are still useful as examples, and which ones should not drive the current recommendation
+- `Community cache status`: whether a shared cache was consulted, which version or snapshot was used, how much it helped, and which cached items were accepted, revalidated, downgraded, or rejected
 - `Source weighting`: which sources are authoritative for normative claims, which are illustrative, and how conflicts were resolved
 - `Implementation cues`: concrete statements the evaluator can translate into per-file keep/fix/merge/move/delete decisions
 - `Improvement opportunities`: specific ways the audited setup could be better even if parts of it are technically valid
 - `Likely bugs or anti-patterns`: concrete failure risks, misleading guidance, routing problems, over-broad scope, duplication, or dead/inert files to look for
+- `Example-derived prompting principles`: what the best external examples teach about goals, expectations, boundaries, and collaboration with Copilot, plus what should not be copied literally
 - `Transcript takeaways`: concrete workflow and system-design lessons learned from product-team videos, plus how they change or sharpen the target state
 - `Triangulated conclusions`: major conclusions with the source types that support them
 - `Related skill patterns`: concrete skill ideas or structures discovered in external repositories that map to this workspace's workflows
@@ -351,7 +431,11 @@ The blueprint must stay proportional to the project. Do not bloat a simple repos
 
 The `Implementation cues` must be concrete enough that the evaluator can produce an implementation-ready plan without having to go back out to the web.
 
+The `Example-derived prompting principles` section must explain why a prompt is effective in Copilot terms. Prefer principles such as clear goals, explicit success criteria, truthful boundaries, delegated methodology, and evidence-backed expectations. Explicitly call out anti-patterns such as appearance-driven prompting, fake certainty, or instructions that fight Copilot's primitive model.
+
 The `Reference matrix` should be dense and specific. Prefer many precise references over a few broad overview pages.
+
+The `Community cache status` section must not blur trust boundaries. Make clear that the cache accelerated discovery or preserved prior lessons, but also make clear which items were revalidated live and which ones were discarded or downgraded.
 
 The `Transcript takeaways` must not be filler. They should capture what the product-team source teaches about composing agents, prompts, instructions, skills, tool use, iteration flow, or other practical workflow patterns that the docs alone do not make vivid.
 
@@ -401,6 +485,8 @@ You should have read the actual `.github/` files (not just READMEs) from at leas
 
 If you only read landing pages and search results, or READMEs, you have not seen how anyone actually does this.
 
+You should also have read real files from `github/awesome-copilot` that illustrate strong prompt, instruction, agent, or skill design. You should be able to explain what those examples teach about principles, expectations, and collaboration with Copilot, and which parts would be wrong to copy mechanically.
+
 ### 3. Do you know what has changed recently?
 
 Copilot customization changes frequently. You should be able to name:
@@ -423,6 +509,8 @@ Read through your report. If you replaced this project's name with any other pro
 ### 6. Did you reach real understanding, not just source collection?
 
 You should be able to explain not only what the docs say, but why strong examples are structured the way they are and how those patterns should or should not transfer to this workspace.
+
+If your explanation of "why this prompt is good" is mostly about tone, polish, or how convincing it sounds, you are not done. Good prompting is about guiding behavior with clear principles, expectations, goals, boundaries, and workflow fit.
 
 If you cannot do that, you are still at source collection, not research.
 
