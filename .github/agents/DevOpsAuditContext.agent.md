@@ -2,9 +2,9 @@
 name: DevOpsAuditContext
 description: "Context subagent for DevOps audits. Reads the workspace and produces a detailed project profile and .github/ file inventory."
 tools:
-  - readFile
-  - fileSearch
-  - textSearch
+  - read/readFile
+  - search/fileSearch
+  - search/textSearch
 user-invocable: false
 ---
 
@@ -17,6 +17,8 @@ Load `devops-audit-context` for what to read and how to report it.
 ## User Focus
 
 If the orchestrator passed you a user focus, include it prominently at the top of your project profile under "User focus." The user focus tells the rest of the pipeline what to optimize for. If the user asked about visual testing, note that. If they asked about Qt QSS, note that. Every subsequent phase depends on seeing this clearly.
+
+If the workspace contains repo-local knowledge notes that directly describe Copilot setup, agent workflow, audit routing, or cache policy, include those note paths in the context handoff as relevant baseline knowledge for the research phase.
 
 If no user focus was provided, state "User focus: none (full codebase audit)."
 

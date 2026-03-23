@@ -76,6 +76,16 @@ Flag any file where content is in the wrong file type. This is a significant or 
 - Files that were clearly auto-generated and never reviewed
 - Files whose structure is broken but whose underlying project knowledge may still be worth salvaging into a correct format
 
+### Tool and Discovery Design Issues
+
+- Agent descriptions and skill descriptions that are vague, generic, or missing. These are the discovery surface — the model selects tools, skills, and agents based on how well descriptions match the user's intent. A description that says "does stuff" is like a tool with no description.
+- Skill descriptions that don't state when to use AND when NOT to use the skill. Negative boundaries prevent mis-routing.
+- Agent descriptions that lack output format expectations. If an agent or skill produces structured output, the description should say so — models handle structured results better when they know the shape upfront.
+- Skills or agents with no concrete examples of expected invocation patterns. Anthropic's testing showed tool examples improve parameter accuracy from 72% to 90%. Skills that demonstrate concrete inputs and outputs are more reliably invoked.
+- Agents with overly broad tool access when they only need a focused subset. This is the `allowed_callers` / least-privilege principle applied to Copilot: give each agent only the tools it actually needs.
+- Multi-step workflows that keep all intermediate results in a single agent's context instead of delegating to subagents. This mirrors the programmatic tool calling principle: process intermediate data out of the main context window.
+- Skills that pre-load all their methodology into the agent description instead of using progressive loading. This is the `defer_loading` principle: load full definitions only when actually needed.
+
 ### Prompting Quality and Workflow Fit Issues
 
 - Prompts, instructions, skills, or agents that judge quality by tone, confidence, polish, or whether something "looks right" instead of whether it gives Copilot a clear job and truthful constraints

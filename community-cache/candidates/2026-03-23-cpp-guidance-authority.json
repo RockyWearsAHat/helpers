@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "When a repository keeps durable language-specific guidance for coding agents, that guidance should be anchored in authoritative references and carry a visible freshness date. Use community anecdotes for pattern recognition only; do not let unsourced forum or blog advice become the primary basis for persistent instruction files.",
+  "recommendationStrength": "recommended",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "C++ Core Guidelines",
+      "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines",
+      "sourceType": "other"
+    },
+    {
+      "title": "cppreference: Undefined behavior",
+      "url": "https://en.cppreference.com/w/cpp/language/ub",
+      "sourceType": "other"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T00:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T00:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Persistent language guidance should prefer authoritative references plus a last-verified date over unsourced community lore.",
+  "cautionNotes": "Generalized from durable C++ guidance curation. Applies to other language-specific instruction sets when official references exist.",
+  "nonGeneralizationNotes": "Does not prescribe any specific language rules; it only constrains how persistent guidance should be sourced.",
+  "submissionId": "2026-03-23-cpp-guidance-authority"
+}

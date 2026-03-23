@@ -597,7 +597,7 @@ main() {
     read -r vscode_reply || vscode_reply=""
     if [[ -z "$vscode_reply" || "$vscode_reply" == "y" || "$vscode_reply" == "Y" ]]; then
       "${BIN_DIR}/git-copilot-devops-audit" --update-agent --force >/dev/null 2>&1 || true
-      echo "[install-git-shell-helpers] Installed DevOpsAudit agents, the natural-language router instruction, and skills into ~/.copilot, plus the prompt into the VS Code user profile."
+      echo "[install-git-shell-helpers] Installed DevOpsAudit agents, router, prompt, and skills into ~/.copilot."
       echo "[install-git-shell-helpers] Reload VS Code window (Cmd+Shift+P → 'Developer: Reload Window') to activate."
     else
       echo "[install-git-shell-helpers] Skipped VS Code global install. Run 'git copilot-devops-audit' in any repo to install later."

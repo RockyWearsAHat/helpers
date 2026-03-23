@@ -18,9 +18,9 @@ Take the accepted final audit result and extract ALL generalizable GitHub Copilo
 - Never submit repository-specific guidance.
 - Never include private paths, private repo names, or project descriptions.
 - Submit only generalized Copilot best practices and general application advice.
-- Submit only if community participation is enabled for the client.
-- If community participation is disabled or the shared cache repo is not configured, skip submission and report why.
+- Always attempt submission — the submit script checks permissions and skips gracefully if disabled.
 - Extract as many generalizable conclusions as the audit supports — do not limit to one.
+- Tag every conclusion with the most specific `kind`, `topic`, and `applicability` values possible — accurate tagging drives search-index discoverability.
 
 ## Packet Shape
 
@@ -65,10 +65,7 @@ Before submitting, read `community-cache/snapshots/<current>/search-index.json` 
 
 ## Skip Conditions
 
-Skip submission entirely if any of these are true:
-
-- community participation is not enabled
-- the shared cache repo is not configured
+Do not pre-check community participation mode. The submit script handles permission gating.
 
 Skip individual conclusions if:
 

@@ -8,7 +8,8 @@ on:
       - scripts/community-cache-consolidate.sh
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
   validate:
@@ -16,6 +17,99 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Validate candidate packets
         run: ./scripts/community-cache-consolidate.sh validate
+
+      - name: Identify new candidates
+        id: new_files
+        run: |
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          git diff --name-only --diff-filter=A "$base_sha" HEAD \
+            -- 'community-cache/candidates/**/*.json' > /tmp/new-candidates.txt
+          count=$(grep -c '\.json$' /tmp/new-candidates.txt || echo 0)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Quality gate
+        if: steps.new_files.outputs.count != '0'
+        run: |
+          failed=0
+          while IFS= read -r file; do
+            [[ -n "$file" && -f "$file" ]] || continue
+
+            # Statement must have real substance (schema allows 10; intake requires 30)
+            stmt_len=$(jq -r '.statement | length' "$file")
+            if [[ "$stmt_len" -lt 30 ]]; then
+              echo "::error file=$file::Statement too short ($stmt_len chars, minimum 30)"
+              failed=1
+            fi
+
+            # Must cite at least weak authoritative backing
+            support=$(jq -r '.authoritativeSupport' "$file")
+            if [[ "$support" == "none" ]]; then
+              echo "::error file=$file::authoritativeSupport is 'none' — need at least 'weak'"
+              failed=1
+            fi
+
+            # Zero contradictions required for auto-intake
+            contradictions=$(jq '.contradictionCount' "$file")
+            if [[ "$contradictions" -gt 0 ]]; then
+              echo "::error file=$file::contradictionCount is $contradictions — must be 0"
+              failed=1
+            fi
+
+            # Evidence URLs must be reachable-looking (reject empty, localhost, file://)
+            bad_urls=$(jq '[.evidenceRefs[] | select(
+              .url == "" or
+              (.url | test("^(file://|https?://localhost|https?://127\\.0\\.0\\.1)"))
+            )] | length' "$file")
+            if [[ "$bad_urls" -gt 0 ]]; then
+              echo "::error file=$file::$bad_urls evidence ref(s) have invalid URLs"
+              failed=1
+            fi
+
+            # Reject exact duplicate by statement hash
+            stmt_hash=$(jq -r '.statementHash' "$file")
+            dup_count=$(find community-cache/candidates -type f -name '*.json' \
+              ! -path "$file" \
+              -exec jq -r --arg h "$stmt_hash" \
+                'select(.statementHash == $h) | .statementHash' {} + 2>/dev/null \
+              | wc -l | tr -d ' ')
+            if [[ "$dup_count" -gt 0 ]]; then
+              echo "::error file=$file::Duplicate statementHash $stmt_hash already exists in cache"
+              failed=1
+            fi
+          done < /tmp/new-candidates.txt
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "::error::Quality gate failed — PR stays open for review"
+            exit 1
+          fi
+          echo "All new candidates passed quality gate"
+
+      - name: Verify submission PR scope
+        if: startsWith(github.head_ref, 'automation/community-cache-submission-')
+        run: |
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          unexpected=$(git diff --name-only "$base_sha" HEAD \
+            | grep -v '^community-cache/candidates/' || true)
+          if [[ -n "$unexpected" ]]; then
+            echo "::error::Automated submission touches unexpected files:"
+            echo "$unexpected"
+            exit 1
+          fi
+
+      - name: Auto-merge validated submission
+        if: startsWith(github.head_ref, 'automation/community-cache-submission-')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pr_number="${{ github.event.pull_request.number }}"
+          echo "Submission #${pr_number} passed all gates — enabling auto-merge"
+          gh pr merge "$pr_number" \
+            --repo "${{ github.repository }}" \
+            --squash --auto --delete-branch \
+            --subject "chore: community cache submission (#${pr_number})" \
+            --body "Auto-merged after passing schema validation, quality gate, and scope verification."
