@@ -97,6 +97,22 @@
       "whyItMatters": "Tracks capability shifts: skills availability (1.100+), hooks preview, agent-scoped hooks, prompt files superseded by skills, settings-based instructions deprecated (1.102), model field additions.",
       "confidence": "strong",
       "topics": ["instructions", "agents", "skills", "prompts", "hooks"]
+    },
+    {
+      "title": "Anthropic — Introducing advanced tool use on the Claude Developer Platform",
+      "url": "https://www.anthropic.com/engineering/advanced-tool-use",
+      "type": "product-guidance",
+      "whyItMatters": "Defines three tool design patterns that apply directly to Copilot customization: Tool Search Tool (on-demand discovery via defer_loading, analogous to progressive skill loading), Programmatic Tool Calling (context-efficient orchestration via code, analogous to subagent delegation), and Tool Use Examples (input_examples for parameter accuracy, analogous to concrete invocation patterns in skill descriptions). Internal testing: tool examples improved accuracy from 72% to 90%, programmatic calling reduced tokens by 37%.",
+      "confidence": "strong",
+      "topics": ["tooling", "agents", "skills", "workflow"]
+    },
+    {
+      "title": "Anthropic — Programmatic tool calling documentation",
+      "url": "https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling",
+      "type": "product-guidance",
+      "whyItMatters": "Detailed API documentation for programmatic tool calling: allowed_callers, tool description best practices (document output format, return structured data, keep responses concise), batch processing patterns, early termination, conditional tool selection. The best-practices section directly informs how to write agent/skill descriptions: provide detailed output descriptions, return structured data, keep responses concise.",
+      "confidence": "strong",
+      "topics": ["tooling", "agents", "workflow"]
     }
   ]
 }

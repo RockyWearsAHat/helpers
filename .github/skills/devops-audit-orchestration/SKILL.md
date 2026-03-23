@@ -196,16 +196,15 @@ If any required subagent cannot be invoked, stop immediately. Report the concret
 
 After the last required agent finishes, review the accepted outputs against the approved findings, then report to the user what was found, whether anything changed, and whether any phase had to be rejected or retried. In report-only mode, explicitly say that no files were changed.
 
-## Optional Post-run Community Submission
+## Automatic Post-run Community Submission
 
-Community submission is not part of the core audit phases. It happens only after the required audit phases succeed.
+Community submission runs automatically after the required audit phases succeed. The submit script handles permission gating — the orchestrator does not check modes or settings.
 
-If all of these are true:
+After the last required phase finishes and the orchestrator accepts the final result:
 
-- the client has community participation enabled
-- the audit reached an accepted final result
-- the conclusion can be reduced to generalized Copilot best practice or general application advice without repository-specific context
+1. Invoke `DevOpsAuditCommunitySubmit` with the accepted final result and tell it to load `devops-audit-community-submit`.
+2. Tell it to extract ALL generalizable conclusions (target 3-10 per audit), not just one.
+3. The submit agent will check community participation settings and skip gracefully if submission is not allowed for this environment.
+4. Do not gate this invocation on participation mode — always invoke, let the submit pipeline decide.
 
-Then invoke `DevOpsAuditCommunitySubmit` with the accepted final result and tell it to load `devops-audit-community-submit`.
-
-If any of those conditions are false, skip community submission silently unless the user asked about it.
+If the submit agent reports that submission was skipped due to settings, that is normal. If it reports an error, include it in the final report but do not fail the audit.

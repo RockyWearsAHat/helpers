@@ -1,8 +1,7 @@
 // Git Shell Helpers — VS Code extension
 //
-// Provides a "Community Cache" tree view in the Explorer sidebar with actual
-// buttons for GitHub sign-in/out and repo whitelist selection.  The only
-// editable setting in VS Code Settings is the mode dropdown.
+// Provides a "Community Cache" webview panel in the Explorer sidebar with
+// styled buttons for GitHub sign-in/out, mode selection, and repo whitelist.
 //
 // Settings sync:
 //   User settings   → ~/.copilot/devops-audit-community-settings.json
@@ -21,10 +20,10 @@ const PREDEFINED = {
   branchPrefix: "automation/community-cache-submission",
 };
 
-// In-memory cache of fetched repos (populated on activation)
 let cachedRepos = [];
 let cachedUser = "";
-let treeProvider = null;
+let _context = null;
+let _webviewProvider = null;
 
 // ---------------------------------------------------------------------------
 // File helpers
@@ -116,101 +115,75 @@ async function fetchRepos() {
 }
 
 // ---------------------------------------------------------------------------
-// Settings sync (mode + whitelist → JSON files for shell scripts)
+// Whitelist + settings sync
 // ---------------------------------------------------------------------------
 
 function getWhitelist() {
-  // Whitelist is stored in globalState, not in settings (since the setting is type null)
   return _context?.globalState.get("whitelistedRepos", []) ?? [];
+}
+
+function getMode() {
+  return _context?.globalState.get("mode", "pull-only") ?? "pull-only";
+}
+
+async function setMode(mode) {
+  await _context?.globalState.update("mode", mode);
+  syncAllSettings();
+  _webviewProvider?.refresh();
 }
 
 async function setWhitelist(repos) {
   await _context?.globalState.update("whitelistedRepos", repos);
   syncAllSettings();
-  treeProvider?.refresh();
-  updateContextKeys();
+  _webviewProvider?.refresh();
 }
 
-function updateContextKeys() {
-  vscode.commands.executeCommand(
-    "setContext",
-    "gitShellHelpers:signedIn",
-    !!cachedUser,
-  );
-  vscode.commands.executeCommand(
-    "setContext",
-    "gitShellHelpers:hasWhitelistedRepos",
-    getWhitelist().length > 0,
-  );
-}
-
-let _context = null;
-
-function buildSettingsJson(config, whitelistedRepos) {
+function buildSettingsJson() {
   return {
     schemaVersion: SCHEMA_VERSION,
     ...PREDEFINED,
-    mode: config.get("mode") || "pull-only",
-    whitelistedRepos,
+    mode: getMode(),
+    whitelistedRepos: getWhitelist(),
   };
 }
 
-function writeGlobalSettingsFile() {
-  const config = vscode.workspace.getConfiguration(SECTION);
-  const inspected = config.inspect("mode");
-  if (!inspected?.globalValue) return;
-  const obj = buildSettingsJson(config, getWhitelist());
-  obj.mode = inspected.globalValue;
-  writeJsonFile(globalSettingsPath(), obj);
-}
-
-function writeWorkspaceSettingsFile(workspaceFolder) {
-  const config = vscode.workspace.getConfiguration(SECTION, workspaceFolder);
-  const inspected = config.inspect("mode");
-  const wsMode = inspected?.workspaceFolderValue ?? inspected?.workspaceValue;
-  if (!wsMode) return;
-  const obj = buildSettingsJson(config, getWhitelist());
-  obj.mode = wsMode;
-  writeJsonFile(workspaceSettingsPath(workspaceFolder), obj);
-}
-
 function syncAllSettings() {
-  writeGlobalSettingsFile();
+  writeJsonFile(globalSettingsPath(), buildSettingsJson());
   const folders = vscode.workspace.workspaceFolders;
   if (folders) {
     for (const folder of folders) {
-      writeWorkspaceSettingsFile(folder);
+      writeJsonFile(workspaceSettingsPath(folder), buildSettingsJson());
     }
   }
 }
 
 function importFromJson() {
-  const config = vscode.workspace.getConfiguration(SECTION);
-  const globalInspect = config.inspect("mode");
-  if (!globalInspect?.globalValue) {
+  const currentMode = _context?.globalState.get("mode");
+  if (!currentMode) {
     const globalData = readJsonFile(globalSettingsPath());
     if (globalData?.mode) {
-      config.update("mode", globalData.mode, vscode.ConfigurationTarget.Global);
+      _context?.globalState.update("mode", globalData.mode);
       if (Array.isArray(globalData.whitelistedRepos)) {
         _context?.globalState.update(
           "whitelistedRepos",
           globalData.whitelistedRepos,
         );
       }
+      return;
     }
-  }
-  const folders = vscode.workspace.workspaceFolders;
-  if (folders) {
-    for (const folder of folders) {
-      const wsInspect = config.inspect("mode");
-      if (!wsInspect?.workspaceFolderValue && !wsInspect?.workspaceValue) {
+    const folders = vscode.workspace.workspaceFolders;
+    if (folders) {
+      for (const folder of folders) {
         const wsData = readJsonFile(workspaceSettingsPath(folder));
         if (wsData?.mode) {
-          config.update(
-            "mode",
-            wsData.mode,
-            vscode.ConfigurationTarget.WorkspaceFolder,
-          );
+          _context?.globalState.update("mode", wsData.mode);
+          if (Array.isArray(wsData.whitelistedRepos)) {
+            _context?.globalState.update(
+              "whitelistedRepos",
+              wsData.whitelistedRepos,
+            );
+          }
+          return;
         }
       }
     }
@@ -218,58 +191,249 @@ function importFromJson() {
 }
 
 // ---------------------------------------------------------------------------
-// Tree view
+// Webview panel
 // ---------------------------------------------------------------------------
 
-class CommunityTreeProvider {
-  constructor() {
-    this._onDidChangeTreeData = new vscode.EventEmitter();
-    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+const MODES = [
+  { value: "disabled", label: "Disabled" },
+  { value: "pull-only", label: "Pull only — never submit" },
+  { value: "pull-and-auto-submit", label: "Submit from all repos" },
+  { value: "auto-submit-only-public", label: "Submit from public repos only" },
+  {
+    value: "auto-submit-whitelist",
+    label: "Submit from whitelisted repos only",
+  },
+];
+
+class CommunityCacheViewProvider {
+  static viewType = "gitShellHelpers.communityCache";
+
+  constructor(extensionUri) {
+    this._extensionUri = extensionUri;
+    this._view = null;
+  }
+
+  resolveWebviewView(webviewView) {
+    this._view = webviewView;
+    webviewView.webview.options = { enableScripts: true };
+    this._update();
+
+    webviewView.webview.onDidReceiveMessage(async (msg) => {
+      switch (msg.type) {
+        case "login":
+          await loginGitHub();
+          break;
+        case "logout":
+          await logoutGitHub();
+          break;
+        case "selectRepos":
+          await selectRepos();
+          break;
+        case "setMode":
+          await setMode(msg.value);
+          break;
+      }
+    });
+
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) this._update();
+    });
   }
 
   refresh() {
-    this._onDidChangeTreeData.fire();
+    this._update();
   }
 
-  getTreeItem(element) {
-    return element;
-  }
-
-  getChildren() {
-    if (!cachedUser) return [];
-
-    const items = [];
-
-    const userItem = new vscode.TreeItem(
-      cachedUser,
-      vscode.TreeItemCollapsibleState.None,
-    );
-    userItem.iconPath = new vscode.ThemeIcon("account");
-    userItem.description = "GitHub account";
-    items.push(userItem);
-
+  _update() {
+    if (!this._view) return;
+    const mode = getMode();
     const whitelist = getWhitelist();
-    if (whitelist.length > 0) {
-      for (const repo of whitelist) {
-        const item = new vscode.TreeItem(
-          repo,
-          vscode.TreeItemCollapsibleState.None,
-        );
-        item.iconPath = new vscode.ThemeIcon("repo");
-        items.push(item);
-      }
-    } else {
-      const hint = new vscode.TreeItem(
-        "No repos whitelisted",
-        vscode.TreeItemCollapsibleState.None,
-      );
-      hint.description = "use header icons to select";
-      hint.iconPath = new vscode.ThemeIcon("info");
-      items.push(hint);
+    this._view.webview.html = this._getHtml(mode, whitelist);
+  }
+
+  _getHtml(mode, whitelist) {
+    const modeOptions = MODES.map(
+      (m) =>
+        `<option value="${m.value}"${m.value === mode ? " selected" : ""}>${m.label}</option>`,
+    ).join("");
+
+    const modeDescriptions = {
+      disabled:
+        "Community cache is completely off. Audits will not pull or submit any shared data.",
+      "pull-only":
+        "All audits pull shared best-practice data from the community cache. Conclusions are never submitted back.",
+      "pull-and-auto-submit":
+        "All audits pull shared data. Conclusions are submitted back from every repository.",
+      "auto-submit-only-public":
+        "All audits pull shared data. Conclusions are submitted back only from your public repositories.",
+      "auto-submit-whitelist":
+        "All audits pull shared data. Conclusions are submitted back only from the repositories you select below.",
+    };
+    const modeDesc = modeDescriptions[mode] || "";
+
+    let scopeSection = "";
+    if (mode === "auto-submit-whitelist") {
+      const repoList =
+        whitelist.length > 0
+          ? whitelist
+              .map(
+                (r) =>
+                  `<div class="repo"><span class="codicon codicon-repo"></span> ${escapeHtml(r)}</div>`,
+              )
+              .join("")
+          : '<div class="muted">No repositories selected — submissions blocked</div>';
+      scopeSection = `
+        <h3>Whitelisted Repositories</h3>
+        ${repoList}
+        ${cachedUser ? '<button class="secondary" id="selectReposBtn">Select repositories\u2026</button>' : ""}`;
+    } else if (mode === "auto-submit-only-public") {
+      const publicCount = cachedRepos.filter(
+        (r) => r.visibility === "PUBLIC",
+      ).length;
+      scopeSection = `
+        <h3>Submission Scope</h3>
+        <div class="scope-info">Conclusions submitted from your <strong>${publicCount}</strong> public repo${publicCount !== 1 ? "s" : ""}. All repos still pull cache data during audits.</div>`;
+    } else if (mode === "pull-and-auto-submit") {
+      scopeSection = `
+        <h3>Submission Scope</h3>
+        <div class="scope-info">Conclusions submitted from <strong>all</strong> repositories.</div>`;
+    } else if (mode === "pull-only") {
+      scopeSection = `
+        <h3>Submission Scope</h3>
+        <div class="scope-info">No conclusions submitted. All repos still pull cache data during audits.</div>`;
     }
 
-    return items;
+    const authSection = cachedUser
+      ? `<div class="account">
+          <span class="codicon codicon-account"></span>
+          <span>Signed in as <strong>${escapeHtml(cachedUser)}</strong></span>
+        </div>
+        <button class="secondary" id="logoutBtn">Sign out</button>`
+      : `<div class="muted">Not signed in to GitHub</div>
+        <button class="primary" id="loginBtn">Sign in to GitHub</button>`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    padding: 12px 14px;
+    margin: 0;
   }
+  h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--vscode-descriptionForeground);
+    margin: 16px 0 6px;
+  }
+  h3:first-child { margin-top: 0; }
+  select {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--vscode-dropdown-border);
+    border-radius: 2px;
+    background: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    font-size: var(--vscode-font-size);
+    outline: none;
+  }
+  select:focus {
+    border-color: var(--vscode-focusBorder);
+  }
+  button {
+    display: block;
+    width: 100%;
+    padding: 6px 14px;
+    margin-top: 8px;
+    border: none;
+    border-radius: 2px;
+    font-size: var(--vscode-font-size);
+    cursor: pointer;
+  }
+  button.primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+  }
+  button.primary:hover {
+    background: var(--vscode-button-hoverBackground);
+  }
+  button.secondary {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+  }
+  button.secondary:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+  }
+  .account {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+  }
+  .repo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+    font-size: 12px;
+  }
+  .muted {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    padding: 4px 0;
+  }
+  .mode-desc {
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    padding: 4px 0 0;
+    line-height: 1.4;
+  }
+  .scope-info {
+    font-size: 12px;
+    padding: 4px 0;
+    line-height: 1.4;
+  }
+  .codicon {
+    font-family: codicon;
+    font-size: 14px;
+  }
+  .codicon-account::before { content: "\\eb99"; }
+  .codicon-repo::before { content: "\\ea62"; }
+</style>
+</head>
+<body>
+  <h3>GitHub Account</h3>
+  ${authSection}
+
+  <h3>Mode</h3>
+  <select id="modeSelect">${modeOptions}</select>
+  <div class="mode-desc">${modeDesc}</div>
+
+  ${scopeSection}
+
+  <script>
+    const vscode = acquireVsCodeApi();
+    document.getElementById("loginBtn")?.addEventListener("click", () => vscode.postMessage({type:"login"}));
+    document.getElementById("logoutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
+    document.getElementById("selectReposBtn")?.addEventListener("click", () => vscode.postMessage({type:"selectRepos"}));
+    document.getElementById("modeSelect")?.addEventListener("change", (e) => vscode.postMessage({type:"setMode", value: e.target.value}));
+  </script>
+</body>
+</html>`;
+  }
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 // ---------------------------------------------------------------------------
@@ -294,8 +458,7 @@ async function loginGitHub() {
       if (await isGhAuthed()) {
         cachedUser = await getGhUser();
         cachedRepos = await fetchRepos();
-        updateContextKeys();
-        treeProvider?.refresh();
+        _webviewProvider?.refresh();
         vscode.window.showInformationMessage(
           `Signed in as ${cachedUser}. ${cachedRepos.length} repos loaded.`,
         );
@@ -326,8 +489,7 @@ async function logoutGitHub() {
       disposable.dispose();
       cachedUser = "";
       cachedRepos = [];
-      updateContextKeys();
-      treeProvider?.refresh();
+      _webviewProvider?.refresh();
       vscode.window.showInformationMessage("Signed out of GitHub.");
     }
   });
@@ -378,8 +540,7 @@ async function selectRepos() {
 }
 
 function showCommunityStatus() {
-  const config = vscode.workspace.getConfiguration(SECTION);
-  const inspected = config.inspect("mode");
+  const mode = getMode();
   const whitelist = getWhitelist();
 
   const globalFile = globalSettingsPath();
@@ -390,9 +551,7 @@ function showCommunityStatus() {
     "Community Cache Status",
     "",
     `GitHub user: ${cachedUser || "(not signed in)"}`,
-    `User (machine) mode: ${inspected?.globalValue ?? "(not set)"}`,
-    `Workspace mode: ${inspected?.workspaceFolderValue ?? inspected?.workspaceValue ?? "(not set)"}`,
-    `Effective mode: ${config.get("mode")}`,
+    `Mode: ${mode}`,
     "",
     `Global JSON: ${globalExists ? globalFile : "not found"}`,
     globalData ? `  mode: ${globalData.mode}` : "",
@@ -428,32 +587,33 @@ function activate(context) {
 
   importFromJson();
 
-  // Tree view
-  treeProvider = new CommunityTreeProvider();
-  const treeView = vscode.window.createTreeView(
-    "gitShellHelpers.communityCache",
-    { treeDataProvider: treeProvider },
+  // Webview panel
+  _webviewProvider = new CommunityCacheViewProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      CommunityCacheViewProvider.viewType,
+      _webviewProvider,
+    ),
   );
-  context.subscriptions.push(treeView);
 
-  // Set initial context keys (not signed in yet)
-  updateContextKeys();
+  // On first activation in this workspace, reveal the panel so users discover it
+  const seenKey = "communityCache.introduced";
+  if (!context.globalState.get(seenKey)) {
+    context.globalState.update(seenKey, true);
+    // Small delay lets VS Code finish rendering before we focus the view
+    setTimeout(() => {
+      vscode.commands.executeCommand("gitShellHelpers.communityCache.focus");
+    }, 800);
+  }
 
-  // Auto-detect gh auth and load repos on startup
+  // Auto-detect gh auth on startup
   isGhAuthed().then(async (authed) => {
     if (authed) {
       cachedUser = await getGhUser();
       cachedRepos = await fetchRepos();
-      updateContextKeys();
-      treeProvider.refresh();
+      _webviewProvider.refresh();
     }
   });
-
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration(SECTION)) syncAllSettings();
-    }),
-  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(

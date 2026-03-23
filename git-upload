@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # git-upload
 #
@@ -43,10 +43,10 @@ start_spinner() {
 	local msg="$1"
 	(
 		local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-		local i=1
+		local i=0
 		while true; do
 			printf '\r\033[K[git-upload] %s %s' "${frames[$i]}" "$msg" >&2
-			i=$(( (i % 10) + 1 ))
+			i=$(( (i + 1) % 10 ))
 			sleep 0.1
 		done
 	) &
@@ -1057,40 +1057,35 @@ compute_diff_analysis() {
 		esac
 	done <<< "$changed_files"
 	
-	# Analyze the actual diff content
-	local in_hunk=0
-	local current_file=""
-	while IFS= read -r line; do
-		case "$line" in
-			"diff --git"*)
-				current_file=$(printf '%s' "$line" | sed 's/.*b\///')
-				;;
-			"+"[!+]*)
-				total_additions=$((total_additions + 1))
-				# Check if this is whitespace-only
-				local content="${line#?}"
-				if [ -z "${content// /}" ] || [ -z "${content//	/}" ]; then
-					whitespace_only_changes=$((whitespace_only_changes + 1))
-				# Check if this is a comment
-				elif printf '%s' "$content" | grep -qE '^[[:space:]]*(//|#|/\*|\*|<!--)'; then
-					comment_only_changes=$((comment_only_changes + 1))
-				else
-					code_additions=$((code_additions + 1))
-				fi
-				;;
-			"-"[!-]*)
-				total_deletions=$((total_deletions + 1))
-				local content="${line#?}"
-				if [ -z "${content// /}" ] || [ -z "${content//	/}" ]; then
-					whitespace_only_changes=$((whitespace_only_changes + 1))
-				elif printf '%s' "$content" | grep -qE '^[[:space:]]*(//|#|/\*|\*|<!--)'; then
-					comment_only_changes=$((comment_only_changes + 1))
-				else
-					code_deletions=$((code_deletions + 1))
-				fi
-				;;
-		esac
-	done <<< "$diff"
+	# Analyze the actual diff content in a single awk pass (fast for large diffs)
+	local awk_result
+	awk_result=$(printf '%s\n' "$diff" | awk '
+		/^\+[^+]/ {
+			add++
+			content = substr($0, 2)
+			# whitespace-only: nothing but spaces/tabs
+			gsub(/[ \t]/, "", content)
+			if (content == "") { ws++; next }
+			# comment line
+			if (content ~ /^(\/\/|#|\/\*|\*|<!--)/) { cmt++; next }
+			code_add++
+			next
+		}
+		/^-[^-]/ {
+			del++
+			content = substr($0, 2)
+			gsub(/[ \t]/, "", content)
+			if (content == "") { ws++; next }
+			if (content ~ /^(\/\/|#|\/\*|\*|<!--)/) { cmt++; next }
+			code_del++
+			next
+		}
+		END {
+			printf "%d %d %d %d %d %d\n", add, del, ws, cmt, code_add, code_del
+		}
+	')
+	read -r total_additions total_deletions whitespace_only_changes comment_only_changes \
+		code_additions code_deletions <<< "$awk_result"
 	
 	# Check for potential dead code patterns in additions
 	local dead_code_signals=0
@@ -1160,10 +1155,8 @@ compute_diff_analysis() {
 									printf '%s\n' "- TypeScript syntax/compile error (see tsc output)" >> "$syntax_tmpdir/errors"
 								fi
 							else
-								# No timeout available - run without timeout but skip if it takes too long
-								if ! (cd "$repo_root" && tsc --noEmit >/dev/null 2>&1); then
-									printf '%s\n' "- TypeScript syntax/compile error (see tsc output)" >> "$syntax_tmpdir/errors"
-								fi
+								# No timeout command available - skip tsc to avoid blocking
+								:
 							fi
 						) &
 						syntax_pids+=($!)
@@ -1939,7 +1932,7 @@ collect_repo_ai_guidance() {
 	local original_length=0
 	local remaining_chars=0
 	local block=""
-	typeset -a guidance_candidates
+	declare -a guidance_candidates
 	guidance_candidates=(
 		".github/COMMIT_GUIDELINES.md:Project commit guidelines:120"
 		".github/UPLOAD_GUIDELINES.md:Project upload workflow guidelines:120"
@@ -2454,7 +2447,7 @@ Additional context from user: $ai_extra_context"
 	
 	# Display streaming "thinking" output with spinner - show all thoughts
 	local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-	local frame_idx=1
+	local frame_idx=0
 	local last_line_count=0
 	local printed_lines=0
 	local elapsed=0
@@ -2494,7 +2487,7 @@ Additional context from user: $ai_extra_context"
 		elapsed=$((elapsed + 1))
 		elapsed_sec=$((elapsed / 7))  # roughly seconds (sleep 0.15 * 7 ≈ 1s)
 		printf '\r[git-upload] %s Generating commit message... (%ds)' "${frames[$frame_idx]}" "$elapsed_sec" >&2
-		frame_idx=$(( (frame_idx % 10) + 1 ))
+		frame_idx=$(( (frame_idx + 1) % 10 ))
 		sleep 0.15
 	done
 	
@@ -2557,6 +2550,160 @@ Additional context from user: $ai_extra_context"
 }
 
 main() {
+	local GIT_DIR
+	GIT_DIR=$(git rev-parse --git-dir 2>/dev/null || echo ".git")
+
+	# ── Phase 0: Recover from broken / in-progress git operations ──────
+	# Detect and attempt to resolve leftover state from interrupted
+	# operations (rebase, merge, cherry-pick, revert, bisect, am).
+	# With -ai, we try harder to auto-resolve; without it, we still
+	# attempt safe recovery but bail on conflicts.
+
+	# --- Bisect in progress ---
+	if [ -f "$GIT_DIR/BISECT_LOG" ]; then
+		echo "[git-upload] ⚠️  A bisect session is in progress." >&2
+		echo "[git-upload] Resetting bisect to return to your branch…" >&2
+		git bisect reset >/dev/null 2>&1 || {
+			echo "[git-upload] Failed to reset bisect. Run 'git bisect reset' manually." >&2
+			exit 1
+		}
+		echo "[git-upload] ✅ Bisect session ended." >&2
+	fi
+
+	# --- git am (mailbox apply) in progress ---
+	# Check BEFORE the rebase block because git-am also uses rebase-apply/.
+	if [ -d "$GIT_DIR/rebase-apply" ] && [ -f "$GIT_DIR/rebase-apply/applying" ]; then
+		echo "[git-upload] ⚠️  A 'git am' patch application is in progress. Aborting…" >&2
+		git am --abort >/dev/null 2>&1 || true
+		echo "[git-upload] ✅ Patch application aborted." >&2
+	fi
+
+	# --- Rebase in progress ---
+	if [ -d "$GIT_DIR/rebase-merge" ] || { [ -d "$GIT_DIR/rebase-apply" ] && [ ! -f "$GIT_DIR/rebase-apply/applying" ]; }; then
+		echo "[git-upload] ⚠️  A rebase is in progress." >&2
+		if git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null; then
+			# No conflicting files — try to continue
+			echo "[git-upload] No conflicts detected. Attempting to continue rebase…" >&2
+			if git rebase --continue >/dev/null 2>&1; then
+				echo "[git-upload] ✅ Rebase completed successfully." >&2
+			else
+				echo "[git-upload] Rebase --continue failed. Aborting rebase to preserve your work…" >&2
+				git rebase --abort >/dev/null 2>&1 || true
+				echo "[git-upload] ✅ Rebase aborted. Your branch is back to its pre-rebase state." >&2
+			fi
+		else
+			# There are conflicts or uncommitted changes
+			if [ "$use_ai" = true ]; then
+				# With -ai, attempt to resolve conflicts
+				local conflict_files
+				conflict_files=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+				if [ -n "$conflict_files" ]; then
+					echo "[git-upload] Conflict files detected during rebase:" >&2
+					printf '%s\n' "$conflict_files" | sed 's/^/  - /' >&2
+					echo "[git-upload] Attempting auto-resolution (accepting your rebased changes for conflicted files)…" >&2
+					printf '%s\n' "$conflict_files" | while IFS= read -r cf; do
+						[ -n "$cf" ] && git checkout --theirs -- "$cf" 2>/dev/null && git add "$cf" 2>/dev/null
+					done
+					if git rebase --continue >/dev/null 2>&1; then
+						echo "[git-upload] ✅ Rebase completed after auto-resolving conflicts." >&2
+					else
+						echo "[git-upload] Auto-resolution insufficient. Aborting rebase…" >&2
+						git rebase --abort >/dev/null 2>&1 || true
+						echo "[git-upload] ✅ Rebase aborted safely." >&2
+					fi
+				else
+					echo "[git-upload] Uncommitted changes exist mid-rebase. Aborting rebase…" >&2
+					git rebase --abort >/dev/null 2>&1 || true
+					echo "[git-upload] ✅ Rebase aborted safely." >&2
+				fi
+			else
+				echo "[git-upload] Aborting in-progress rebase to preserve your work…" >&2
+				git rebase --abort >/dev/null 2>&1 || true
+				echo "[git-upload] ✅ Rebase aborted. Use -ai for automatic conflict resolution." >&2
+			fi
+		fi
+	fi
+
+	# --- Merge in progress ---
+	if [ -f "$GIT_DIR/MERGE_HEAD" ]; then
+		echo "[git-upload] ⚠️  A merge is in progress." >&2
+		local merge_conflicts
+		merge_conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+		if [ -z "$merge_conflicts" ]; then
+			# Merge is resolved but not committed
+			echo "[git-upload] Merge appears resolved. Continuing…" >&2
+		elif [ "$use_ai" = true ]; then
+			echo "[git-upload] Merge conflicts detected:" >&2
+			printf '%s\n' "$merge_conflicts" | sed 's/^/  - /' >&2
+			echo "[git-upload] Attempting auto-resolution (accept incoming changes)…" >&2
+			printf '%s\n' "$merge_conflicts" | while IFS= read -r cf; do
+				[ -n "$cf" ] && git checkout --theirs -- "$cf" 2>/dev/null && git add "$cf" 2>/dev/null
+			done
+			local remaining_conflicts
+			remaining_conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+			if [ -n "$remaining_conflicts" ]; then
+				echo "[git-upload] Could not resolve all merge conflicts. Aborting merge…" >&2
+				git merge --abort >/dev/null 2>&1 || true
+				echo "[git-upload] ✅ Merge aborted. Resolve conflicts manually and retry." >&2
+			else
+				echo "[git-upload] ✅ All merge conflicts resolved." >&2
+			fi
+		else
+			echo "[git-upload] Merge has unresolved conflicts. Aborting merge…" >&2
+			git merge --abort >/dev/null 2>&1 || true
+			echo "[git-upload] ✅ Merge aborted. Use -ai for automatic conflict resolution." >&2
+		fi
+	fi
+
+	# --- Cherry-pick in progress ---
+	if [ -f "$GIT_DIR/CHERRY_PICK_HEAD" ]; then
+		echo "[git-upload] ⚠️  A cherry-pick is in progress." >&2
+		local cp_conflicts
+		cp_conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+		if [ -z "$cp_conflicts" ]; then
+			echo "[git-upload] Cherry-pick appears resolved. Continuing…" >&2
+			git cherry-pick --continue >/dev/null 2>&1 || {
+				echo "[git-upload] Cherry-pick --continue failed. Aborting…" >&2
+				git cherry-pick --abort >/dev/null 2>&1 || true
+			}
+		elif [ "$use_ai" = true ]; then
+			echo "[git-upload] Cherry-pick conflicts detected:" >&2
+			printf '%s\n' "$cp_conflicts" | sed 's/^/  - /' >&2
+			echo "[git-upload] Attempting auto-resolution…" >&2
+			printf '%s\n' "$cp_conflicts" | while IFS= read -r cf; do
+				[ -n "$cf" ] && git checkout --theirs -- "$cf" 2>/dev/null && git add "$cf" 2>/dev/null
+			done
+			if git cherry-pick --continue >/dev/null 2>&1; then
+				echo "[git-upload] ✅ Cherry-pick completed after auto-resolving conflicts." >&2
+			else
+				echo "[git-upload] Auto-resolution insufficient. Aborting cherry-pick…" >&2
+				git cherry-pick --abort >/dev/null 2>&1 || true
+			fi
+		else
+			echo "[git-upload] Cherry-pick has unresolved conflicts. Aborting…" >&2
+			git cherry-pick --abort >/dev/null 2>&1 || true
+			echo "[git-upload] ✅ Cherry-pick aborted. Use -ai for automatic resolution." >&2
+		fi
+	fi
+
+	# --- Revert in progress ---
+	if [ -f "$GIT_DIR/REVERT_HEAD" ]; then
+		echo "[git-upload] ⚠️  A revert is in progress." >&2
+		local rv_conflicts
+		rv_conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+		if [ -z "$rv_conflicts" ]; then
+			echo "[git-upload] Revert appears resolved. Continuing…" >&2
+			git revert --continue >/dev/null 2>&1 || {
+				echo "[git-upload] Revert --continue failed. Aborting…" >&2
+				git revert --abort >/dev/null 2>&1 || true
+			}
+		else
+			echo "[git-upload] Revert has conflicts. Aborting to preserve work…" >&2
+			git revert --abort >/dev/null 2>&1 || true
+		fi
+	fi
+
+	# ── Phase 1: Resolve detached HEAD ─────────────────────────────────
 	# Determine current branch and ensure we're not in detached HEAD.
 	# NOTE: `git rev-parse --abbrev-ref HEAD` can yield surprising output in
 	# brand-new repos (unborn branch / no commits yet). `git symbolic-ref` is
@@ -2600,10 +2747,44 @@ main() {
 			current_branch="$new_branch"
 			echo "[git-upload] Successfully created and switched to '$new_branch'." >&2
 		else
-			echo "[git-upload] You are in a detached HEAD state. The commit exists on multiple branches:" >&2
-			printf '%s\n' "$containing_branches" | sed 's/^/  - /' >&2
-			echo "[git-upload] Fix: checkout one of those branches (e.g., 'git switch <branch-name>') before running git-upload." >&2
-			exit 1
+			# Detached HEAD with commit on multiple branches
+			if [ "$use_ai" = true ]; then
+				# With -ai, pick the most likely branch: prefer main/master, then
+				# the branch whose tip is closest to HEAD.
+				local best_branch=""
+				while IFS= read -r candidate; do
+					[ -z "$candidate" ] && continue
+					case "$candidate" in
+						main|master|develop)
+							best_branch="$candidate"
+							break
+							;;
+					esac
+					[ -z "$best_branch" ] && best_branch="$candidate"
+				done <<< "$containing_branches"
+
+				if [ -n "$best_branch" ]; then
+					echo "[git-upload] Detached HEAD exists on multiple branches. With -ai, picking '$best_branch'…" >&2
+					printf '%s\n' "$containing_branches" | sed 's/^/  - /' >&2
+					git switch "$best_branch" >/dev/null 2>&1 || {
+						echo "[git-upload] Failed to switch to '$best_branch'." >&2
+						exit 1
+					}
+					current_branch="$best_branch"
+					echo "[git-upload] ✅ Switched to '$best_branch'." >&2
+				else
+					echo "[git-upload] You are in a detached HEAD state. The commit exists on multiple branches:" >&2
+					printf '%s\n' "$containing_branches" | sed 's/^/  - /' >&2
+					echo "[git-upload] Fix: checkout one of those branches (e.g., 'git switch <branch-name>') before running git-upload." >&2
+					exit 1
+				fi
+			else
+				echo "[git-upload] You are in a detached HEAD state. The commit exists on multiple branches:" >&2
+				printf '%s\n' "$containing_branches" | sed 's/^/  - /' >&2
+				echo "[git-upload] Fix: checkout one of those branches (e.g., 'git switch <branch-name>') before running git-upload." >&2
+				echo "[git-upload] Tip: Use -ai to auto-select the most likely branch." >&2
+				exit 1
+			fi
 		fi
 	fi
 
@@ -2615,7 +2796,7 @@ main() {
 		git fetch >/dev/null 2>&1 || true
 
 		ahead_behind=$(git rev-list --left-right --count "$upstream_ref"...HEAD 2>/dev/null || echo "")
-		behind_count=$(print -- "$ahead_behind" | awk '{print $1}')
+		behind_count=$(printf '%s\n' "$ahead_behind" | awk '{print $1}')
 
 		if [ -n "$behind_count" ] && [ "$behind_count" -gt 0 ]; then
 			echo "[git-upload] Branch '$current_branch' is $behind_count commit(s) behind its upstream. Rebasing..." >&2

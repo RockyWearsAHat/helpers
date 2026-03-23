@@ -1,3 +1,7 @@
+---
+description: "Repository baseline for shell-based Git helper commands, installer scripts, packaging assets, and man pages."
+---
+
 # Repository Baseline
 
 - This repository ships shell-based Git helper commands, installer scripts, packaging assets, and man pages. Most code changes are in shell scripts and release packaging files.

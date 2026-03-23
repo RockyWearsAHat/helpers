@@ -12,7 +12,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onView:gitShellHelpers.communityCache"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -23,72 +24,24 @@
       },
       {
         "command": "gitShellHelpers.loginGitHub",
-        "title": "Sign in to GitHub",
-        "icon": "$(sign-in)"
+        "title": "Git Shell Helpers: Sign in to GitHub"
       },
       {
         "command": "gitShellHelpers.logoutGitHub",
-        "title": "Sign out of GitHub",
-        "icon": "$(sign-out)"
+        "title": "Git Shell Helpers: Sign out of GitHub"
       },
       {
         "command": "gitShellHelpers.selectRepos",
-        "title": "Select Whitelisted Repositories",
-        "icon": "$(checklist)"
+        "title": "Git Shell Helpers: Select Whitelisted Repositories"
       }
     ],
-    "configuration": {
-      "title": "Git Shell Helpers",
-      "properties": {
-        "gitShellHelpers.communityCache.mode": {
-          "type": "string",
-          "enum": [
-            "disabled",
-            "pull-only",
-            "pull-and-auto-submit",
-            "auto-submit-only-public",
-            "auto-submit-whitelist"
-          ],
-          "enumDescriptions": [
-            "Disable all community cache interaction.",
-            "Pull shared community cache data but never submit audit conclusions.",
-            "Pull shared data and automatically submit privacy-safe audit conclusions from all repos.",
-            "Pull shared data and auto-submit conclusions only when working in public repositories.",
-            "Pull shared data and auto-submit conclusions only from whitelisted repositories."
-          ],
-          "default": "pull-only",
-          "markdownDescription": "Controls community cache participation mode.\n\nManage GitHub account and repository whitelist in the **Community Cache** panel in the Explorer sidebar.",
-          "scope": "resource"
-        }
-      }
-    },
     "views": {
       "explorer": [
         {
+          "type": "webview",
           "id": "gitShellHelpers.communityCache",
           "name": "Community Cache",
-          "visibility": "collapsed"
-        }
-      ]
-    },
-    "viewsWelcome": [
-      {
-        "view": "gitShellHelpers.communityCache",
-        "contents": "Sign in to GitHub to manage community cache repositories.\n[Sign in to GitHub](command:gitShellHelpers.loginGitHub)",
-        "when": "!gitShellHelpers:signedIn"
-      }
-    ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "gitShellHelpers.selectRepos",
-          "when": "view == gitShellHelpers.communityCache && gitShellHelpers:signedIn",
-          "group": "navigation"
-        },
-        {
-          "command": "gitShellHelpers.logoutGitHub",
-          "when": "view == gitShellHelpers.communityCache && gitShellHelpers:signedIn",
-          "group": "navigation"
+          "visibility": "visible"
         }
       ]
     }

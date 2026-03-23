@@ -43,6 +43,14 @@ If a versioned community cache is available, use it as pre-research context rath
 
 Use the user's focus and the inferred project intent aggressively. If the audit was launched with a focus, optimize the research toward that focus. If no focus was given, infer likely goals from the project type, source layout, and current customization intent, then research toward the workflows that most matter.
 
+The user focus is not a tag or a footnote — it defines what you should spend most of your research effort on. Examples:
+
+- User focus is "visual testing flow" → research how Copilot customization can support visual regression testing, screenshot comparison workflows, visual testing tools integration, and skills/agents for that workflow.
+- User focus is "qt qss" → research Qt/QSS patterns in Copilot customization, Style Sheet guidance, Qt-specific skills, and real Qt projects with `.github/` files.
+- No user focus → research broadly for this project type.
+
+Your general Copilot customization research (docs, file types, frontmatter, etc.) still matters, but the user-focus-specific research must be deep and specific, not a paragraph tacked onto generic findings.
+
 Do not smuggle in workflow preferences that the project did not ask for and the evidence does not justify. Visual testing, screenshot capture, replay tooling, autonomous debugging helpers, and other specialized flows are valid only when the user's focus, the project type, or the external evidence shows they are genuinely useful here. Do not recommend them as defaults for unrelated repositories just because they worked well somewhere else.
 
 ### File Type Purposes
@@ -73,8 +81,9 @@ When an older example teaches a useful idea but uses outdated syntax, outdated f
 2. Product-team guidance — Burke Holland's channel is especially useful for understanding how Copilot customization actually works in practice, not for templates but for understanding the design and intent behind features ([https://www.youtube.com/@BurkeHolland](https://www.youtube.com/@BurkeHolland))
 3. Well-maintained reference repositories — Awesome Copilot ([https://github.com/github/awesome-copilot](https://github.com/github/awesome-copilot)) and Anthropic's skills repo ([https://github.com/anthropics/skills](https://github.com/anthropics/skills))
    3 1/2. Public repositories that compile skills/agents/prompts, such as Antigravity or ANVIL
-4. Public repositories with similar project types that use `.github/` customization
-5. Community sources — only when backed up by something stronger
+4. Anthropic tool design guidance — the advanced tool use engineering post ([https://www.anthropic.com/engineering/advanced-tool-use](https://www.anthropic.com/engineering/advanced-tool-use)) and programmatic tool calling docs ([https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling)). These define how to design tools that AI agents use effectively: clear naming, detailed output format documentation, structured returns, on-demand discovery, context-efficient orchestration, and input examples for parameter accuracy. These principles apply directly to Copilot customization: skill descriptions are discovery surfaces (like tool search), progressive loading avoids context bloat (like defer_loading), and subagent delegation patterns mirror programmatic tool calling's code-based orchestration.
+5. Public repositories with similar project types that use `.github/` customization
+6. Community sources — only when backed up by something stronger
 
 Do not treat any single source as enough on its own. Cross-check everything.
 
@@ -87,6 +96,14 @@ Do not use Awesome Copilot, Anthropic skills, or any other meta-repository as yo
 Do not use a shared community cache as your main source of truth either. The cache can improve coverage and consistency across runs, but normative recommendations still require fresh verification against stronger sources.
 
 Do not treat product-team video evidence as optional flavor. It is one of the best sources for how the system is intended to be used in practice, how pieces fit together, and what high-quality agentic workflows actually look like. When product-team guidance and user-derived examples disagree, the product-team guidance should usually carry more weight for the normative recommendation.
+
+Do not treat Anthropic's tool design guidance as irrelevant to Copilot customization. The principles from the advanced tool use engineering post and Claude API docs apply directly to how you design agents, skills, and tool surfaces in `.github/`. Specifically:
+
+- **Tool discovery** — just as the Tool Search Tool uses `defer_loading` to keep only relevant tools in context, skills use progressive loading (name+description first, full SKILL.md only when invoked). Both solve the same problem: context bloat from pre-loading everything. Evaluate skill descriptions with the same rigor you would evaluate tool descriptions for discoverability.
+- **Tool descriptions** — Anthropic's guidance says: provide detailed output format documentation, return structured data, use clear descriptive names. The same applies to skill descriptions, agent descriptions, and instruction content. If a skill description doesn't tell the model when to use it, when NOT to use it, and what it produces, it is under-specified.
+- **Tool examples** — `input_examples` improved parameter accuracy from 72% to 90% in Anthropic's testing. The analog in Copilot customization is concrete invocation patterns in skill files and realistic usage examples in agent descriptions. Skills that show concrete expected inputs and outputs are more reliably invoked.
+- **Orchestration efficiency** — programmatic tool calling reduces context pollution by processing intermediate results in code rather than the model's context. The analog is subagent delegation: each subagent runs in its own context window, keeping intermediate results from polluting the main agent's context. Design multi-step workflows with this in mind.
+- **Least-privilege access** — `allowed_callers` restricts which contexts can invoke a tool. The `tools:` field in `.agent.md` serves the same purpose. Both follow the principle: give each component only the capabilities it needs.
 
 ## How to Actually Research (This Is the Critical Part)
 

@@ -393,6 +393,81 @@
       "authoritativeSupport": "medium",
       "applicability": "general",
       "topics": ["instructions", "agents", "skills", "prompts"]
+    },
+    {
+      "id": "P26",
+      "statement": "Write skill and agent descriptions as discovery surfaces with the same rigor as API tool descriptions: state what the component does, when to invoke it, when NOT to invoke it, and the shape of its output. Vague descriptions cause mis-routing and missed invocations.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills", "agents", "tooling"],
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Advanced tool use (Tool Search Tool)",
+          "url": "https://www.anthropic.com/engineering/advanced-tool-use",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P27",
+      "statement": "Use progressive loading to keep context lean — skills should expose only name and description during routing, deferring full methodology until invocation. This mirrors the defer_loading pattern: load definitions only when actually needed to preserve context budget.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills", "tooling", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Advanced tool use (Tool Search Tool, defer_loading)",
+          "url": "https://www.anthropic.com/engineering/advanced-tool-use",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "VS Code — Agent skills (progressive loading)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P28",
+      "statement": "Delegate multi-step workflows to subagents for context isolation. Each subagent runs in its own context window, preventing intermediate results from polluting the main agent's context — the same principle as programmatic tool calling where only final output enters the model's context.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "agent-design",
+      "topics": ["agents", "tooling", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Programmatic Tool Calling",
+          "url": "https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "VS Code — Subagents",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/subagents",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P29",
+      "statement": "Include concrete invocation examples in skills and agent descriptions. Anthropic's testing showed tool use examples improved parameter accuracy from 72% to 90%. Skills that demonstrate realistic inputs and expected outputs are more reliably selected and correctly invoked.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills", "agents", "tooling"],
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Advanced tool use (Tool Use Examples)",
+          "url": "https://www.anthropic.com/engineering/advanced-tool-use",
+          "sourceType": "product-guidance"
+        }
+      ]
     }
   ]
 }

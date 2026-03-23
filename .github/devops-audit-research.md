@@ -24,9 +24,9 @@ Rules:
 - Canonical manifest URL:
 - Recommended snapshot:
 - Candidate index version:
-- Last remote check:
+- Last remote check: 2026-03-12
 - Last accepted remote snapshot:
-- Remote cache status: unknown
+- Remote cache status: consumed (pull-only)
 - Community participation: disabled
 - Auto-submit final conclusions: no
 - Last submitted conclusion packet:
@@ -45,24 +45,28 @@ Rules:
 
 ## Current Review State
 
-- Last full refresh:
-- Next refresh due:
-- Highest-priority stale areas:
-- Confidence in current baseline:
+- Last full refresh: 2026-03-12
+- Next refresh due: 2026-03-26
+- Highest-priority stale areas: none (fresh baseline)
+- Confidence in current baseline: high
 
 ## Official Sources
 
-| Source                             | Last Reviewed | Status  | Importance | Notes |
-| ---------------------------------- | ------------- | ------- | ---------- | ----- |
-| VS Code Copilot customization docs |               | pending | critical   |       |
-| GitHub Copilot customization docs  |               | pending | critical   |       |
-| Latest VS Code update notes        |               | pending | high       |       |
-| Copilot model list / availability  |               | pending | high       |       |
+| Source                             | Last Reviewed | Status   | Importance | Notes                                                                                  |
+| ---------------------------------- | ------------- | -------- | ---------- | -------------------------------------------------------------------------------------- |
+| VS Code Copilot customization docs | 2026-03-12    | verified | critical   | Custom instructions, agents, prompt files, skills — current file types and frontmatter |
+| GitHub Copilot customization docs  | 2026-03-12    | verified | critical   | Organization-level and repo-level instruction files, `.github/copilot-instructions.md` |
+| VS Code custom agents docs         | 2026-03-12    | verified | critical   | `.agent.md` frontmatter: name, description, tools, agents, user-invocable              |
+| VS Code agent skills docs          | 2026-03-12    | verified | critical   | `SKILL.md` in `.github/skills/<name>/`, loaded by agent/instruction reference          |
+| VS Code 1.111 release notes        | 2026-03-12    | verified | high       | Latest Copilot customization changes, prompt file improvements, agent mode updates     |
 
 ## Repository Samples
 
-| Repo / Source | Last Reviewed | Status | Surface | Principle or Anti-pattern | Notes |
-| ------------- | ------------- | ------ | ------- | ------------------------- | ----- |
+| Repo / Source          | Last Reviewed | Status   | Surface                            | Principle or Anti-pattern                                                                 | Notes                                                  |
+| ---------------------- | ------------- | -------- | ---------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| microsoft/PowerToys    | 2026-03-12    | verified | instructions, copilot-instructions | Large monorepo with scoped `applyTo` instruction files; project-specific coding standards | Good model for multi-language repos with many modules  |
+| dotnet/macios          | 2026-03-12    | verified | instructions, agents               | .NET binding project with domain-specific Copilot instructions; scoped file conventions   | Shows how to tailor instructions to a binding workflow |
+| github/awesome-copilot | 2026-03-12    | verified | examples, curated links            | Reference examples for prompt, instruction, agent, and skill design patterns              | Used for file-level example inspection                 |
 
 ## Curated Example Samples
 
@@ -76,13 +80,25 @@ Rules:
 
 ## Video / Transcript Samples
 
-| Source | Video / Topic | Last Reviewed | Status | Principle or Tension | Notes |
-| ------ | ------------- | ------------- | ------ | -------------------- | ----- |
+| Source        | Video / Topic                              | Last Reviewed | Status   | Principle or Tension                                                                | Notes                                            |
+| ------------- | ------------------------------------------ | ------------- | -------- | ----------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Burke Holland | fabAI1OKKww — Agent skills guide           | 2026-03-12    | verified | Skills as progressive-loading methodology; keep agents thin, put steps in skills    | Primary source for skill structure and scoping   |
+| Burke Holland | 0XoXNG65rfg — Level up productivity        | 2026-03-12    | verified | Prompt files + instructions + agents compose; each primitive has one job            | Shows how primitives combine in practice         |
+| Burke Holland | s7Qzq0ejhjg — Ask/Edit/Agent overview      | 2026-03-12    | verified | System prompt layering: instructions inject into all modes; agents add role + tools | Clarifies how instructions flow into chat modes  |
+| Burke Holland | 5NxGqnTazR8 — Ultimate agent mode tutorial | 2026-03-12    | verified | Agent mode: vision, MCP, custom agents, tool restrictions, model selection          | Covers agent frontmatter fields and tool scoping |
 
 ## Current Principles
 
-| Principle | Confidence | Last Revalidated | Supporting Evidence | Notes |
-| --------- | ---------- | ---------------- | ------------------- | ----- |
+| Principle                                                                                         | Confidence | Last Revalidated | Supporting Evidence                                   | Notes                                              |
+| ------------------------------------------------------------------------------------------------- | ---------- | ---------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| TC1: Agent files define role + tools + boundaries; methodology belongs in skills                  | high       | 2026-03-12       | VS Code docs, fabAI1OKKww, PowerToys, awesome-copilot | Core primitive separation                          |
+| TC2: `copilot-instructions.md` is always-on context; keep it factual and brief                    | high       | 2026-03-12       | VS Code docs, s7Qzq0ejhjg, GitHub docs                | Avoid methodology in base instructions             |
+| TC3: Scoped `.instructions.md` files use `applyTo` for file-type-specific guidance                | high       | 2026-03-12       | VS Code docs, PowerToys, dotnet/macios                | Glob patterns match workspace-relative paths       |
+| TC4: YAML frontmatter requires opening and closing `---` fences; missing fence silently breaks it | high       | 2026-03-12       | VS Code docs, user memory, 0XoXNG65rfg                | Common silent failure mode                         |
+| TC5: `description` field enables natural-language routing for agents and instructions             | high       | 2026-03-12       | VS Code docs, 5NxGqnTazR8                             | Without it, files may not be selected by Copilot   |
+| TC6: Skills load on demand via `Load <skill-name>`; do not duplicate skill content in agents      | high       | 2026-03-12       | fabAI1OKKww, VS Code skills docs                      | Duplication wastes context and drifts over time    |
+| TC7: `user-invocable: false` keeps internal agents private from the user's agent picker           | high       | 2026-03-12       | VS Code docs, audit agent pattern                     | All audit subagents use this                       |
+| TC8: Prompt files (`.prompt.md`) use `agent:` not `mode:` — `mode:` is deprecated                 | high       | 2026-03-12       | VS Code docs, user memory                             | Using `mode:` causes slash command to not register |
 
 ## Prompting Principles and Anti-patterns
 

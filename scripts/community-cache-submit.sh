@@ -207,11 +207,11 @@ main() {
   local submitted_at
   submitted_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   local submission_id
-  submission_id="$(date -u +"%Y%m%dT%H%M%SZ")-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 8)"
+  submission_id="$(date -u +"%Y%m%dT%H%M%SZ")-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 8 || true)"
 
   local temp_dir
   temp_dir="$(mktemp -d -t community-cache-submit.XXXXXX)"
-  trap 'rm -rf "$temp_dir"' EXIT
+  trap 'rm -rf "${temp_dir:-}"' EXIT
 
   gh repo clone "$community_repo" "$temp_dir/repo" -- --quiet
   cd "$temp_dir/repo"

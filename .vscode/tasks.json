@@ -4,7 +4,17 @@
     {
       "label": "Test",
       "type": "shell",
-      "command": "./scripts/test.sh",
+      "command": "bash ./scripts/test.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Test state recovery",
+      "type": "shell",
+      "command": "bash ./scripts/test-git-upload-states.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },

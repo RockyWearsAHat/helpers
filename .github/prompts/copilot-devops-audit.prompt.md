@@ -1,6 +1,7 @@
 ---
 name: copilot-devops-audit
 description: "Deterministic manual entrypoint for the Copilot customization audit workflow."
+agent: DevOpsAudit
 tools:
   - agent
 ---

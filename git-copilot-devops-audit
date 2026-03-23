@@ -293,7 +293,7 @@ seed_global_community_settings() {
 	cat > "$settings_file" <<EOF
 {
   "schemaVersion": 1,
-  "mode": "pull-only",
+  "mode": "pull-and-auto-submit",
   "communityRepo": "${default_repo}",
   "baseBranch": "main",
   "branchPrefix": "automation/community-cache-submission"
@@ -734,17 +734,11 @@ if [ "$no_install" = false ]; then
 	[ "$update_agent" = true ] && install_force=true
 
 	ui_step "Installing audit agents, router instruction, prompt, and skills to standard user locations..."
-	mkdir -p "$COPILOT_USER_DIR/agents" "$COPILOT_USER_DIR/instructions" "$COPILOT_USER_DIR/skills"
-	if [ "$(uname -s)" = "Darwin" ]; then
-		mkdir -p "$VSCODE_USER_DIR/agents" "$VSCODE_USER_DIR/prompts"
-	fi
+	mkdir -p "$COPILOT_USER_DIR/agents" "$COPILOT_USER_DIR/instructions" "$COPILOT_USER_DIR/skills" "$COPILOT_USER_DIR/prompts"
 
-	agents_dirs=("$COPILOT_USER_DIR/agents")
-	if [ -d "$VSCODE_USER_DIR" ]; then
-		agents_dirs+=("$VSCODE_USER_DIR/agents")
-	fi
+	agents_dir="$COPILOT_USER_DIR/agents"
 	router_instruction="$COPILOT_USER_DIR/instructions/devops-audit-router.instructions.md"
-	prompts_dir="$VSCODE_USER_DIR/prompts"
+	prompts_dir="$COPILOT_USER_DIR/prompts"
 
 	# Define all agent files to install
 	typeset -A agent_generators=(
@@ -758,39 +752,31 @@ if [ "$no_install" = false ]; then
 	global_prompt="$prompts_dir/copilot-devops-audit.prompt.md"
 
 	if [ "$dry_run" = true ]; then
-		for agents_dir in "${agents_dirs[@]}"; do
-			obsolete="$agents_dir/DevOpsAuditFix.agent.md"
-			if [ -f "$obsolete" ]; then
-				ui_info "[dry-run] Would remove obsolete: $obsolete"
-			fi
-			for name in "${(@k)agent_generators}"; do
-				ui_info "[dry-run] Would write: $agents_dir/$name"
-			done
+		obsolete="$agents_dir/DevOpsAuditFix.agent.md"
+		if [ -f "$obsolete" ]; then
+			ui_info "[dry-run] Would remove obsolete: $obsolete"
+		fi
+		for name in "${(@k)agent_generators}"; do
+			ui_info "[dry-run] Would write: $agents_dir/$name"
 		done
 		ui_info "[dry-run] Would write: $router_instruction"
-		if [ -d "$VSCODE_USER_DIR" ]; then
-			ui_info "[dry-run] Would write: $global_prompt"
-		else
-			ui_warn "[dry-run] Would skip prompt install because VS Code user profile was not found"
-		fi
+		ui_info "[dry-run] Would write: $global_prompt"
 	else
-		for agents_dir in "${agents_dirs[@]}"; do
-			obsolete="$agents_dir/DevOpsAuditFix.agent.md"
-			if [ -f "$obsolete" ]; then
-				rm -f "$obsolete"
-				ui_ok "Removed obsolete agent: $obsolete"
-			fi
+		obsolete="$agents_dir/DevOpsAuditFix.agent.md"
+		if [ -f "$obsolete" ]; then
+			rm -f "$obsolete"
+			ui_ok "Removed obsolete agent: $obsolete"
+		fi
 
-			for name in "${(@k)agent_generators}"; do
-				target="$agents_dir/$name"
-				generator="${agent_generators[$name]}"
-				if [ -f "$target" ] && [ "$install_force" = false ]; then
-					ui_skip "$target"
-				else
-					printf '%s\n' "$($generator)" > "$target"
-					ui_ok "User agent: $target"
-				fi
-			done
+		for name in "${(@k)agent_generators}"; do
+			target="$agents_dir/$name"
+			generator="${agent_generators[$name]}"
+			if [ -f "$target" ] && [ "$install_force" = false ]; then
+				ui_skip "$target"
+			else
+				printf '%s\n' "$($generator)" > "$target"
+				ui_ok "User agent: $target"
+			fi
 		done
 
 		if [ -f "$router_instruction" ] && [ "$install_force" = false ]; then
@@ -800,15 +786,11 @@ if [ "$no_install" = false ]; then
 			ui_ok "User instruction: $router_instruction"
 		fi
 
-		if [ -d "$VSCODE_USER_DIR" ]; then
-			if [ -f "$global_prompt" ] && [ "$install_force" = false ]; then
-				ui_skip "$global_prompt"
-			else
-				printf '%s\n' "$(generate_prompt_file)" > "$global_prompt"
-				ui_ok "User prompt: $global_prompt"
-			fi
+		if [ -f "$global_prompt" ] && [ "$install_force" = false ]; then
+			ui_skip "$global_prompt"
 		else
-			ui_warn "VS Code user profile not found — skipped prompt install"
+			printf '%s\n' "$(generate_prompt_file)" > "$global_prompt"
+			ui_ok "User prompt: $global_prompt"
 		fi
 
 		install_global_skills
@@ -845,11 +827,10 @@ if [ "$update_agent" = false ]; then
 	fi
 fi
 printf '  %bAudit results are returned in chat;%b repo-local support files are limited to the context snapshot, research cache, and pulled community bootstrap\n' "$DIM" "$NC"
-printf '  %bAudit agents:%b %s/agents\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
-printf '  %bMirror agents:%b %s/agents\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
+printf '  %bAudit agents:%b %s/agents (mirrored to VS Code profile for discovery)\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit router:%b %s/instructions\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit skills:%b %s/skills\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
-printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
+printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bCommunity cache:%b %s/devops-audit-community-cache\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bCommunity settings:%b %s/devops-audit-community-settings.json\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 echo ""

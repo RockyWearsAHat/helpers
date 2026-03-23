@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # scripts/test.sh
 # Repo sanity checks intended to match what CI verifies.
@@ -10,26 +10,39 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 
-typeset -a checks
+# Determine which shell to use for syntax checks. On systems without zsh
+# (e.g. most Linux CI images), skip zsh-specific checks gracefully.
+has_zsh=false
+if command -v zsh >/dev/null 2>&1; then
+	has_zsh=true
+fi
+
+declare -a checks
 checks=(
-	"zsh -n git-upload"
-	"zsh -n git-get"
-	"zsh -n git-initialize"
-	"zsh -n git-resolve"
-	"zsh -n git-fucked-the-push"
-	"zsh -n git-copilot-quickstart"
-	"zsh -n git-copilot-devops-audit"
+	"bash -n git-upload"
 	"bash -n scripts/community-cache-submit.sh"
 	"bash -n scripts/community-cache-pull.sh"
-	"zsh -n git-help-i-pushed-an-env"
-	"zsh -n git-scan-for-leaked-envs"
-	"zsh -n Git-Shell-Helpers-Installer.sh"
-	"zsh -n install-git-shell-helpers"
-	"zsh ./scripts/test-git-upload-detect.sh"
+	"bash ./scripts/test-git-upload-detect.sh"
 	"bash ./scripts/build-dist.sh"
 )
 
-if command -v pkgbuild >/dev/null 2>&1; then
+# Scripts that still require zsh — only check when zsh is available
+if [ "$has_zsh" = true ]; then
+	checks+=(
+		"zsh -n git-get"
+		"zsh -n git-initialize"
+		"zsh -n git-resolve"
+		"zsh -n git-fucked-the-push"
+		"zsh -n git-copilot-quickstart"
+		"zsh -n git-copilot-devops-audit"
+		"zsh -n git-help-i-pushed-an-env"
+		"zsh -n git-scan-for-leaked-envs"
+		"zsh -n Git-Shell-Helpers-Installer.sh"
+		"zsh -n install-git-shell-helpers"
+	)
+fi
+
+if command -v pkgbuild >/dev/null 2>&1 && [ "$has_zsh" = true ]; then
 	checks+=("zsh ./scripts/build-pkg.sh")
 fi
 
