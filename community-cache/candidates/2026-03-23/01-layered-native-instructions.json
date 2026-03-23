@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "In large native C++ repositories, keep always-on instructions short and move language, framework, and subsystem rules into scoped .instructions.md files plus skills so high-signal native guidance appears only when relevant.",
+  "recommendationStrength": "required",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Custom instructions",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code — Customize AI responses (overview)",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/overview",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code — Agent skills",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T00:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T00:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Large C++ repos benefit from layered instructions because native-code rules are numerous, specific, and expensive to keep in always-on context.",
+  "cautionNotes": "Keep the scoped files concrete; do not duplicate the same prose across always-on instructions, scoped instructions, and skills.",
+  "nonGeneralizationNotes": "Do not encode private subsystem names or internal architecture details in the public conclusion.",
+  "submittedAt": "2026-03-23T00:00:00Z",
+  "submissionId": "20260323T000000Z-layered01",
+  "statementHash": "5dade6af6344f2222dff01043f459a296a8c602ae8e9842f2e9321a0c0a1bea2"
+}
