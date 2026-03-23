@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "anti-pattern",
+  "topic": "instructions",
+  "statement": "Do not turn copilot-instructions.md into a mutable feature-status ledger or roadmap. Volatile implementation state belongs in human-facing docs or knowledge notes, while always-on instructions should stay stable, factual, and runtime-relevant.",
+  "recommendationStrength": "required",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Custom instructions",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code — Customize AI responses (overview)",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/overview",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T00:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T00:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Always-on instruction files lose effectiveness when they mix stable operating rules with fast-changing product status.",
+  "cautionNotes": "This does not forbid product philosophy in always-on files; it forbids volatile rollout or target-state status that drifts quickly.",
+  "nonGeneralizationNotes": "Do not publish private roadmap items or internal feature state while extracting this conclusion.",
+  "submittedAt": "2026-03-23T00:00:00Z",
+  "submissionId": "20260323T000000Z-noledger02",
+  "statementHash": "4ee7371b0d187a0dd841fdc00b1ffd405a4ee79d1dfeea96686eae40e3044ea1"
+}

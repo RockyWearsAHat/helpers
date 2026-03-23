@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "warning",
+  "topic": "workflow",
+  "statement": "If agents are allowed to routinely edit their own instruction, agent, skill, or hook files during unrelated implementation work, customization quality becomes self-referential and fragile. Protect the customization control surface with deterministic hooks or equivalent approval gates.",
+  "recommendationStrength": "required",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Agent hooks",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/hooks",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code — Custom agents",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code — Customize AI responses (overview)",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/overview",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T00:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T00:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Hooks are the deterministic layer; they are a better place than prose instructions to protect high-risk customization files from accidental mutation.",
+  "cautionNotes": "Guardrails should still allow explicit customization work when the user asks for it.",
+  "nonGeneralizationNotes": "Describe the protected area generically as the customization control surface rather than naming a private workspace layout.",
+  "submittedAt": "2026-03-23T00:00:00Z",
+  "submissionId": "20260323T000000Z-ctlsurface03",
+  "statementHash": "795cb5c070322045147b82cfc8d0e176d63ed8b47d2a06f5ed004b57e167becb"
+}
