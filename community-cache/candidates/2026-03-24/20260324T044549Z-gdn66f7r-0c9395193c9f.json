@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "anti-pattern",
+  "topic": "skills",
+  "statement": "Do not embed current codebase state in skill files — phrases like 'what currently exists', file inventories, or implementation-specific examples become stale as soon as the code changes. Skills must contain only reusable methodology (decision rules, checklists, protocol steps). When live context is needed, instruct the agent to discover it through code reading or research at invocation time.",
+  "recommendationStrength": "recommended",
+  "applicability": "skill-design",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Agent skills",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Skills that embed frozen codebase state (file lists, 'what exists now' inventories, implementation examples) become stale and produce outdated agent outputs. Discovered during audit of 4 skill files — 2 were cut by over 50% after removing state snapshots.",
+  "cautionNotes": "Applies to SKILL.md files specifically. Instructions (.instructions.md) may legitimately reference current file conventions since they are scoped by applyTo globs to specific file patterns.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T04:45:49Z",
+  "submissionId": "20260324T044549Z-gdn66f7r",
+  "statementHash": "0c9395193c9f29059f863cf871aba511b1affb9cf52e8ce579c3b52dd7d5f94f"
+}
