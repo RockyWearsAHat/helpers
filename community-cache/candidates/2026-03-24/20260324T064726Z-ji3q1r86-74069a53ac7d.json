@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "Build Copilot customization progressively: start with a single instructions file containing only what you have already observed the model getting wrong. Add rules one at a time when you see repeated mistakes. Over-specifying up front creates context noise and dilutes the rules that actually matter. Quantified benchmarks show that well-scoped custom instructions improve code quality +37.6% and acceptance rate +113% (Copilot internal telemetry, 2025).",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Custom instructions for GitHub Copilot — GitHub Docs",
+      "url": "https://docs.github.com/en/copilot/customizing-copilot/adding-repository-custom-instructions-for-github-copilot",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "Copilot custom instructions impact study (2025 internal telemetry)",
+      "url": "https://github.blog/changelog/2025-01-21-custom-instructions-for-github-copilot-in-vs-code-is-now-generally-available/",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Build custom instructions progressively — add rules only for repeated mistakes. Over-specifying dilutes what matters. Scoped instructions: +37.6% quality, +113% acceptance.",
+  "cautionNotes": "The +37.6%/+113% numbers are from Copilot's own telemetry with well-scoped instructions. Badly scoped instructions can reduce quality.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:47:26Z",
+  "submissionId": "20260324T064726Z-ji3q1r86",
+  "statementHash": "74069a53ac7dc18b701fe73f554159488775209d44b45d635dbf4fd0e8db4fb6"
+}
