@@ -68,7 +68,9 @@ install_script() {
     return
   fi
 
-  cp "$src" "$dest"
+  if [ "$src" != "$dest" ]; then
+    cp "$src" "$dest"
+  fi
   chmod +x "$dest"
   echo "[install-git-shell-helpers] Installed script: $dest"
 }
@@ -84,7 +86,9 @@ install_support_script() {
     return
   fi
 
-  cp "$src" "$dest"
+  if [ "$src" != "$dest" ]; then
+    cp "$src" "$dest"
+  fi
   chmod +x "$dest"
   echo "[install-git-shell-helpers] Installed support script: $dest"
 }
