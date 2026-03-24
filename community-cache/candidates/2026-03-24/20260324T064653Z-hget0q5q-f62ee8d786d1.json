@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "workflow",
+  "statement": "Spend 70% of effort on problem definition and verification strategy, 30% on execution. Define acceptance criteria and write tests first; let the agent iterate until they pass. Specifying the destination clearly lets agents navigate there even through many failed attempts.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "The 80% Problem in Agentic Coding — Addy Osmani (Jan 2026)",
+      "url": "https://addyosmani.com/blog/the-80-percent-problem/",
+      "sourceType": "product-guidance"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Invest 70% in problem definition and verification; 30% in execution. Tests-first lets agents iterate to correctness.",
+  "cautionNotes": "The exact ratio varies; the principle is that specification quality dominates execution quality in agent workflows.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:46:53Z",
+  "submissionId": "20260324T064653Z-hget0q5q",
+  "statementHash": "f62ee8d786d1bec0dfdc493ea8bd38a9955632d3d63d3bd6664bb46de236da2f"
+}
