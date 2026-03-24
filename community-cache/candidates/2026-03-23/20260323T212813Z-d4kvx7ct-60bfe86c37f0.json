@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "warning",
+  "topic": "tooling",
+  "statement": "Do not teach Copilot customization workflows to rely on undocumented or unsupported built-in tool names. If guidance mentions a tool that is not in the current documented tool set, replace it with a supported tool path or a terminal fallback.",
+  "recommendationStrength": "required",
+  "applicability": "tool-use",
+  "evidenceRefs": [
+    {
+      "title": "VS Code - Custom agents",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code - Agent tools",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T21:28:13Z",
+  "freshnessCheckedAt": "2026-03-23T21:28:13Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Generalized from an accepted Copilot audit finding about stale tool guidance.",
+  "cautionNotes": "Removed all repository-specific references and did not include any private paths or local context.",
+  "nonGeneralizationNotes": "Specific obsolete tool names and repository context were intentionally omitted.",
+  "submittedAt": "2026-03-23T21:28:13Z",
+  "submissionId": "20260323T212813Z-d4kvx7ct",
+  "statementHash": "60bfe86c37f006afa68242bb2297d8b67ecc93b67fff8ef7769828394b4a23b7"
+}
