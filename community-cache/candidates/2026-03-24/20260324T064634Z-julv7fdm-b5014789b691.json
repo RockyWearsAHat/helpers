@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "anti-pattern",
+  "topic": "workflow",
+  "statement": "AI-generated code that passes tests may still contain security vulnerabilities (45% rate per Veracode 2025) or performance anti-patterns invisible to functional testing. Run a three-minute triage after every AI code change: linter, type checker, existing tests. This catches roughly 60% of AI code failures before deeper review.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Veracode State of Software Security 2025",
+      "url": "https://www.veracode.com/state-of-software-security-report",
+      "sourceType": "other"
+    },
+    {
+      "title": "Agentic AI Coding: Best Practice Patterns — CodeScene (Feb 2026)",
+      "url": "https://codescene.com/blog/agentic-ai-coding-best-practices",
+      "sourceType": "product-guidance"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Three-minute triage (lint, typecheck, test) catches ~60% of AI code failures. Security and performance bugs need additional verification beyond functional tests.",
+  "cautionNotes": "The 45% vulnerability rate is aggregate; rates vary by language (Java higher, Python lower).",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:46:34Z",
+  "submissionId": "20260324T064634Z-julv7fdm",
+  "statementHash": "b5014789b691fac726ef0b63bde1f8618abd8f11af0911736159ea62df5ae7c2"
+}
