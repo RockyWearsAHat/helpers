@@ -320,6 +320,51 @@
       "authoritativeSupport": "strong",
       "applicability": "general",
       "topics": ["instructions", "agents", "skills"]
+    },
+    {
+      "id": "AP21",
+      "statement": "When auditing technology-specific instruction files, assess content on three dimensions: (1) syntactic validity — does it load and apply correctly; (2) content depth — does it address design philosophy, architectural tradeoffs, and judgment calls that genuinely differ from AI defaults for this domain; (3) signal-to-noise — is it focused on non-obvious guidance, or is it padded with rules the toolchain already enforces.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions", "workflow"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "AP22",
+      "statement": "Use the community cache's domain-knowledge entries as the assessment baseline for technology-specific instruction files. If the cache has principles or practices for the relevant domain, cross-reference them against the actual instruction file content before rating quality. An instruction file whose content falls well below the domain baseline should be flagged for enrichment.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions", "workflow"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "AP23",
+      "statement": "Classify instruction file content quality in four explicit tiers: (1) broken — structural or metadata problems preventing the file from loading; (2) thin — structurally valid but only restating linter-level defaults or what the AI already knows; (3) adequate — covers key domain judgment calls without depth or tradeoff awareness; (4) excellent — addresses design philosophy, architectural tradeoffs, testability principles, and canonical judgment calls for the domain. Report the tier explicitly in audit output.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions", "workflow"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "AP24",
+      "statement": "After identifying thin instruction file content, produce a concise enrichment brief: what specific topics are undercovered, what domain principles the cache recommends addressing, and what concrete questions the instruction file should help the AI answer for this codebase. Do not just flag thinness — specify the gap so the implementer can act without additional research.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions", "workflow"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "AP25",
+      "statement": "Community cache domain entries are pre-researched baselines, not mandates for every project. The audit applies them as candidate gaps, not requirements. A project may deliberately omit certain domain principles because they do not apply to its specific use case and architecture. Always verify whether a missing principle is actually relevant to this codebase before recommending it.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions", "workflow"],
+      "liveRevalidated": false
     }
   ]
 }
