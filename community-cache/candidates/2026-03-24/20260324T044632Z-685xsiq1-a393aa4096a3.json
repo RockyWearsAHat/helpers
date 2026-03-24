@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "warning",
+  "topic": "tooling",
+  "statement": "githubRepo is not a built-in VS Code Copilot tool. Referencing it in agent frontmatter tools lists is silently ignored. To access GitHub repository content, use the web/fetch tool category with raw.githubusercontent.com URLs or the GitHub API.",
+  "recommendationStrength": "recommended",
+  "applicability": "tool-use",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Agent tools",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "githubRepo appeared in some early examples and AI-generated agent configs but is not a real VS Code tool. Agents referencing it get no error — it is silently skipped. Use web/fetch to read GitHub content instead.",
+  "cautionNotes": "GitHub may introduce a dedicated tool in the future. This reflects the tool inventory as of early 2026.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T04:46:32Z",
+  "submissionId": "20260324T044632Z-685xsiq1",
+  "statementHash": "a393aa4096a3c09244a84823107d36fae7ff0ea39747ef2c6f941503eae892a1"
+}
