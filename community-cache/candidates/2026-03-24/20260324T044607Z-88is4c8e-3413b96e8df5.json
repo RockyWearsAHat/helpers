@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "warning",
+  "topic": "agents",
+  "statement": "VS Code disables runSubagent for subagents. A subagent cannot invoke another subagent — nested delegation is impossible. Design multi-level orchestration using flat dispatch from a single user-invocable coordinator, or use session memory for indirect coordination between agents.",
+  "recommendationStrength": "required",
+  "applicability": "agent-design",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Subagents",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/subagents",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Observed in VS Code core: runSubagent is explicitly disabled for agents running as subagents. Agents designed with multi-level delegation hierarchies (coordinator → lead → engineer) must use a flat dispatch model from a single top-level agent, or use session memory as an indirect coordination mechanism.",
+  "cautionNotes": "This is observed VS Code behavior, not documented in official docs. May change in future releases.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T04:46:07Z",
+  "submissionId": "20260324T044607Z-88is4c8e",
+  "statementHash": "3413b96e8df5a00979012edf32f1ef4793d760023de458f7d3f4ac3ef2a1d127"
+}
