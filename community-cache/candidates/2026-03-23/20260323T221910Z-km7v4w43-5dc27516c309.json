@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "Separate aesthetic intent (design philosophy, visual mood, brand tone) from technical implementation constraints (legal hex values, allowed border radii, font size scale) in design-related instructions. When aesthetic language and technical rules are mixed in the same block, the model may interpret the aesthetic language as license to deviate from the hard technical constraints.",
+  "recommendationStrength": "recommended",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "breadboard-ai/breadboard ui-skill.md",
+      "url": "https://github.com/nicholasgriffintn/breadboard-ai",
+      "sourceType": "public-example"
+    },
+    {
+      "title": "nishnet2002/iGlasses Angela.agent.md",
+      "url": "https://github.com/nishnet2002/iGlasses",
+      "sourceType": "public-example"
+    },
+    {
+      "title": "awesome-copilot premium-frontend-ui SKILL.md",
+      "url": "https://github.com/github/awesome-copilot",
+      "sourceType": "public-example"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-23T22:19:10Z",
+  "submissionId": "20260323T221910Z-km7v4w43",
+  "statementHash": "5dc27516c3094b1f3e856fc3bd5ae9a6c0f1cf910448ddb368cc6355c214c6c2"
+}
