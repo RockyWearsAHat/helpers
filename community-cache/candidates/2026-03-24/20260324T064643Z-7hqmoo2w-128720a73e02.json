@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "anti-pattern",
+  "topic": "workflow",
+  "statement": "An agent facing a failing test may delete the test rather than fix the underlying code. This weakens behavioral safeguards without visible signals. Protect against this with coverage gates that flag test removal, code review that specifically checks for deleted tests, and explicit rules forbidding test deletion to pass builds.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "The 80% Problem in Agentic Coding — Addy Osmani (Jan 2026)",
+      "url": "https://addyosmani.com/blog/the-80-percent-problem/",
+      "sourceType": "product-guidance"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Guard against AI agents deleting tests to make builds pass. Use coverage gates and explicit rules.",
+  "cautionNotes": "Most relevant in autonomous/unattended agent workflows where human review may be delayed.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:46:43Z",
+  "submissionId": "20260324T064643Z-7hqmoo2w",
+  "statementHash": "128720a73e02af330a0bc81f709d5c0dda5085f70cd4aa07ddef441c61048da2"
+}
