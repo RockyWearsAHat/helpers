@@ -1,0 +1,128 @@
+{
+  "snapshotId": "2026-07-09-deep-research",
+  "generatedAt": "2026-07-09T12:00:00Z",
+  "description": "Search index for the community cache. Use this file to find relevant entries across all packs by topic, applicability, kind, or keyword. Every entry references its source pack and item ID.",
+  "topicIndex": {
+    "instructions": {
+      "principles": ["P02", "P03", "P04", "P05", "P06", "P18", "P19", "P25"],
+      "practices": ["AP01", "AP03", "AP05", "AP06", "AP08", "AP20"],
+      "antiPatterns": ["X01", "X07", "X12", "X13"],
+      "workflowPatterns": ["W10"],
+      "deprecations": ["D02"]
+    },
+    "agents": {
+      "principles": ["P07", "P08", "P09", "P10", "P16", "P18", "P20"],
+      "practices": ["AP05", "AP07", "AP08", "AP13", "AP14", "AP18"],
+      "antiPatterns": ["X04", "X08", "X09", "X15"],
+      "workflowPatterns": ["W01", "W02", "W03", "W05", "W09"]
+    },
+    "skills": {
+      "principles": ["P11", "P12", "P13", "P14", "P18", "P26", "P27", "P29"],
+      "practices": ["AP05", "AP09", "AP11", "AP15", "AP19"],
+      "antiPatterns": ["X02", "X11"],
+      "workflowPatterns": ["W04"],
+      "deprecations": ["D03"]
+    },
+    "prompts": {
+      "principles": ["P10", "P14", "P21"],
+      "practices": ["AP05", "AP11", "AP15"],
+      "antiPatterns": ["X02", "X06"],
+      "workflowPatterns": ["W08"],
+      "deprecations": ["D01", "D03"]
+    },
+    "hooks": {
+      "principles": ["P15", "P22", "P23"],
+      "practices": ["AP05", "AP10", "AP16", "AP17"],
+      "antiPatterns": ["X10", "X14", "X16", "X17"],
+      "workflowPatterns": ["W06", "W09"]
+    },
+    "handoffs": {
+      "principles": ["P08"],
+      "practices": ["AP07"],
+      "antiPatterns": ["X15"],
+      "workflowPatterns": ["W02"]
+    },
+    "workflow": {
+      "principles": ["P01", "P16", "P17", "P20", "P24", "P25"],
+      "practices": ["AP01", "AP04", "AP12", "AP14"],
+      "antiPatterns": ["X05", "X18"],
+      "workflowPatterns": ["W01", "W02", "W03", "W05", "W07"]
+    },
+    "tooling": {
+      "principles": ["P09", "P10", "P26", "P27", "P28", "P29"],
+      "practices": ["AP11"],
+      "antiPatterns": ["X04"]
+    }
+  },
+  "applicabilityIndex": {
+    "general": {
+      "principles": ["P01", "P15", "P17", "P18", "P22", "P23", "P24", "P25"],
+      "practices": [
+        "AP01",
+        "AP02",
+        "AP03",
+        "AP04",
+        "AP05",
+        "AP10",
+        "AP11",
+        "AP13",
+        "AP16",
+        "AP17",
+        "AP20"
+      ],
+      "antiPatterns": ["X03", "X10", "X14", "X16", "X17"]
+    },
+    "instruction-design": {
+      "principles": ["P02", "P03", "P04", "P05", "P06", "P19"],
+      "practices": ["AP06", "AP08"],
+      "antiPatterns": ["X01", "X07", "X12", "X13"],
+      "workflowPatterns": ["W10"]
+    },
+    "agent-design": {
+      "principles": ["P07", "P08", "P09", "P16", "P20"],
+      "practices": ["AP07", "AP14", "AP18"],
+      "antiPatterns": ["X04", "X08", "X09", "X15"],
+      "workflowPatterns": ["W01", "W02", "W03", "W05", "W09"]
+    },
+    "skill-design": {
+      "principles": ["P11", "P12", "P13"],
+      "practices": ["AP09", "AP15", "AP19"],
+      "antiPatterns": ["X11"],
+      "workflowPatterns": ["W04"]
+    },
+    "prompt-design": {
+      "principles": ["P14", "P21"],
+      "practices": ["AP15"],
+      "antiPatterns": ["X02", "X06"],
+      "workflowPatterns": ["W08"]
+    },
+    "workflow-general": {
+      "principles": ["P24"],
+      "practices": ["AP12"],
+      "antiPatterns": ["X05", "X18"],
+      "workflowPatterns": ["W07"]
+    }
+  },
+  "kindIndex": {
+    "principle": { "pack": "prompting-principles.json", "count": 25 },
+    "practice": { "pack": "application-practices.json", "count": 20 },
+    "anti-pattern": { "pack": "anti-patterns.json", "count": 18 },
+    "workflow-pattern": { "pack": "workflow-patterns.json", "count": 10 },
+    "official-source": { "pack": "official-sources.json", "count": 12 },
+    "public-example": { "pack": "public-example-sources.json", "count": 13 },
+    "deprecation": { "pack": "deprecations.json", "count": 5 },
+    "frontmatter-reference": {
+      "pack": "frontmatter-reference.json",
+      "count": 1
+    },
+    "hooks-reference": { "pack": "hooks-reference.json", "count": 1 },
+    "community-resource": { "pack": "community-resources.json", "count": 1 }
+  },
+  "searchHints": {
+    "byTopic": "Look up topicIndex[topic] to find all relevant item IDs across packs",
+    "byApplicability": "Look up applicabilityIndex[applicability] to find items for a specific design context",
+    "byKind": "Look up kindIndex[kind] to find which pack contains that type of entry",
+    "byId": "Item IDs are prefixed: P=principle, AP=practice, X=anti-pattern, W=workflow, D=deprecation",
+    "crossReference": "Each item in its pack has an evidenceRefs array linking to source documentation URLs"
+  }
+}

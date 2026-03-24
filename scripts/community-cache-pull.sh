@@ -2,7 +2,6 @@
 
 set -euo pipefail
 
-DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
 DEFAULT_BASE_BRANCH="main"
 DEFAULT_MANIFEST_PATH="community-cache/manifest.json"
 DEFAULT_INSTALL_DIR="${HOME}/.copilot/devops-audit-community-cache"
@@ -40,6 +39,64 @@ read_setting() {
   else
     printf '\n'
   fi
+}
+
+expand_path() {
+  local raw_path="$1"
+  local anchor_dir="$2"
+
+  [[ -n "$raw_path" ]] || return 0
+
+  case "$raw_path" in
+    ~)
+      printf '%s\n' "$HOME"
+      ;;
+    ~/*)
+      printf '%s\n' "$HOME/${raw_path#~/}"
+      ;;
+    /*)
+      printf '%s\n' "$raw_path"
+      ;;
+    ./*|../*|*)
+      if [[ -n "$anchor_dir" ]]; then
+        (cd "$anchor_dir" && cd "$raw_path" 2>/dev/null && pwd) || true
+      else
+        printf '%s\n' "$raw_path"
+      fi
+      ;;
+  esac
+}
+
+default_repo_from_manifest() {
+  local manifest_file="$1"
+
+  if [[ -f "$manifest_file" ]]; then
+    jq -r '.defaultCommunityRepo // ""' "$manifest_file"
+  else
+    printf '\n'
+  fi
+}
+
+repo_from_git_remote() {
+  local clone_dir="$1"
+  local remote_url=""
+
+  [[ -d "$clone_dir/.git" ]] || return 0
+  remote_url="$(git -C "$clone_dir" remote get-url origin 2>/dev/null || true)"
+  [[ -n "$remote_url" ]] || return 0
+
+  printf '%s\n' "$remote_url" | sed -E 's#^[^:]+:##; s#^https?://[^/]+/##; s#\.git$##'
+}
+
+copy_local_file() {
+  local clone_dir="$1"
+  local relative_path="$2"
+  local destination="$3"
+  local source_file="$clone_dir/$relative_path"
+
+  [[ -f "$source_file" ]] || return 1
+  mkdir -p "$(dirname "$destination")"
+  cp "$source_file" "$destination"
 }
 
 fetch_raw_file() {
@@ -133,11 +190,32 @@ main() {
 
   local global_repo="$(read_setting "$global_settings_file" communityRepo)"
   local global_branch="$(read_setting "$global_settings_file" baseBranch)"
+  local global_local_clone_raw="$(read_setting "$global_settings_file" localClone)"
   local repo_repo="$(read_setting "$repo_settings_file" communityRepo)"
   local repo_branch="$(read_setting "$repo_settings_file" baseBranch)"
+  local repo_local_clone_raw="$(read_setting "$repo_settings_file" localClone)"
+  local repo_local_clone="$(expand_path "$repo_local_clone_raw" "$workspace")"
+  local global_local_clone="$(expand_path "$global_local_clone_raw" "$HOME")"
+  local local_clone="${COMMUNITY_CACHE_LOCAL_CLONE:-${repo_local_clone:-${global_local_clone:-}}}"
+  local local_manifest=""
+  local manifest_default_repo=""
+  local inferred_repo=""
+  local fallback_default_repo="RockyWearsAHat/github-shell-helpers"
 
-  local community_repo="${COMMUNITY_CACHE_REPO:-${global_repo:-${repo_repo:-$DEFAULT_COMMUNITY_REPO}}}"
-  local base_branch="${COMMUNITY_CACHE_BASE_BRANCH:-${global_branch:-${repo_branch:-$DEFAULT_BASE_BRANCH}}}"
+  if [[ -n "$local_clone" && -f "$local_clone/$DEFAULT_MANIFEST_PATH" ]]; then
+    local_manifest="$local_clone/$DEFAULT_MANIFEST_PATH"
+  elif [[ -n "$workspace" && -f "$workspace/$DEFAULT_MANIFEST_PATH" ]]; then
+    local_clone="$workspace"
+    local_manifest="$workspace/$DEFAULT_MANIFEST_PATH"
+  fi
+
+  if [[ -n "$local_manifest" ]]; then
+    manifest_default_repo="$(default_repo_from_manifest "$local_manifest")"
+    inferred_repo="$(repo_from_git_remote "$local_clone")"
+  fi
+
+  local community_repo="${COMMUNITY_CACHE_REPO:-${repo_repo:-${global_repo:-${manifest_default_repo:-${inferred_repo:-$fallback_default_repo}}}}}"
+  local base_branch="${COMMUNITY_CACHE_BASE_BRANCH:-${repo_branch:-${global_branch:-$DEFAULT_BASE_BRANCH}}}"
   local manifest_path="${COMMUNITY_CACHE_MANIFEST_PATH:-$DEFAULT_MANIFEST_PATH}"
 
   INSTALL_DIR="${COMMUNITY_CACHE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
@@ -145,10 +223,14 @@ main() {
 
   local temp_dir
   temp_dir="$(mktemp -d -t community-cache-pull.XXXXXX)"
-  trap 'rm -rf "$temp_dir"' EXIT
+  trap 'rm -rf "${temp_dir:-}"' EXIT
 
   local manifest_file="$temp_dir/manifest.json"
-  fetch_raw_file "$community_repo" "$base_branch" "$manifest_path" "$manifest_file"
+  if [[ -n "$local_clone" ]] && copy_local_file "$local_clone" "$manifest_path" "$manifest_file"; then
+    :
+  else
+    fetch_raw_file "$community_repo" "$base_branch" "$manifest_path" "$manifest_file"
+  fi
 
   local recommended_snapshot
   local snapshot_manifest_path
@@ -164,14 +246,31 @@ main() {
   }
 
   local snapshot_manifest_file="$temp_dir/snapshot-manifest.json"
-  fetch_raw_file "$community_repo" "$base_branch" "$snapshot_manifest_path" "$snapshot_manifest_file"
+  if [[ -n "$local_clone" ]] && copy_local_file "$local_clone" "$snapshot_manifest_path" "$snapshot_manifest_file"; then
+    :
+  else
+    fetch_raw_file "$community_repo" "$base_branch" "$snapshot_manifest_path" "$snapshot_manifest_file"
+  fi
 
-  fetch_raw_file "$community_repo" "$base_branch" "$manifest_path" "$INSTALL_DIR/community-cache/manifest.json"
-  fetch_raw_file "$community_repo" "$base_branch" "$snapshot_manifest_path" "$INSTALL_DIR/community-cache/snapshot-manifest.json"
+  if [[ -n "$local_clone" ]] && copy_local_file "$local_clone" "$manifest_path" "$INSTALL_DIR/community-cache/manifest.json"; then
+    :
+  else
+    fetch_raw_file "$community_repo" "$base_branch" "$manifest_path" "$INSTALL_DIR/community-cache/manifest.json"
+  fi
+
+  if [[ -n "$local_clone" ]] && copy_local_file "$local_clone" "$snapshot_manifest_path" "$INSTALL_DIR/community-cache/snapshot-manifest.json"; then
+    :
+  else
+    fetch_raw_file "$community_repo" "$base_branch" "$snapshot_manifest_path" "$INSTALL_DIR/community-cache/snapshot-manifest.json"
+  fi
 
   while IFS= read -r relative_path; do
     [[ -n "$relative_path" ]] || continue
-    fetch_raw_file "$community_repo" "$base_branch" "$relative_path" "$INSTALL_DIR/$relative_path"
+    if [[ -n "$local_clone" ]] && copy_local_file "$local_clone" "$relative_path" "$INSTALL_DIR/$relative_path"; then
+      :
+    else
+      fetch_raw_file "$community_repo" "$base_branch" "$relative_path" "$INSTALL_DIR/$relative_path"
+    fi
   done < <(jq -r '.files | to_entries[] | .value' "$snapshot_manifest_file")
 
   if [[ -n "$workspace" ]]; then

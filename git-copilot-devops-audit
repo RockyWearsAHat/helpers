@@ -278,9 +278,15 @@ seed_file_if_missing() {
 
 seed_global_community_settings() {
 	local settings_file="$HOME/.copilot/devops-audit-community-settings.json"
-	local default_repo="RockyWearsAHat/github-shell-helpers"
+	local default_repo
+	local default_local_clone=""
+	local existing_json=""
+	local merged_json=""
 
-	if [ -f "$settings_file" ]; then
+	default_repo="$(resolve_default_community_repo)"
+	default_local_clone="$(resolve_default_local_clone)"
+
+	if [ -f "$settings_file" ] && ! command -v jq >/dev/null 2>&1; then
 		return
 	fi
 
@@ -290,16 +296,61 @@ seed_global_community_settings() {
 	fi
 
 	mkdir -p "$(dirname "$settings_file")"
-	cat > "$settings_file" <<EOF
-{
-  "schemaVersion": 1,
-  "mode": "pull-and-auto-submit",
-  "communityRepo": "${default_repo}",
-  "baseBranch": "main",
-  "branchPrefix": "automation/community-cache-submission"
-}
-EOF
+	if [ -f "$settings_file" ]; then
+		existing_json="$(cat "$settings_file")"
+		merged_json="$(printf '%s' "$existing_json" | jq \
+			--arg repo "$default_repo" \
+			--arg clone "$default_local_clone" \
+			'.schemaVersion = 1
+			| .mode = (.mode // "pull-and-auto-submit")
+			| .baseBranch = (.baseBranch // "main")
+			| .branchPrefix = (.branchPrefix // "automation/community-cache-submission")
+			| .communityRepo = (.communityRepo // $repo)
+			| if $clone != "" then .localClone = (.localClone // $clone) else . end
+			| .whitelistedRepos = (.whitelistedRepos // [])')"
+	else
+		merged_json="$(jq -n \
+			--arg repo "$default_repo" \
+			--arg clone "$default_local_clone" \
+			'{
+			  schemaVersion: 1,
+			  mode: "pull-and-auto-submit",
+			  communityRepo: $repo,
+			  baseBranch: "main",
+			  branchPrefix: "automation/community-cache-submission",
+			  whitelistedRepos: []
+			} | if $clone != "" then .localClone = $clone else . end')"
+	fi
+	printf '%s\n' "$merged_json" > "$settings_file"
 	ui_ok "Seeded: $settings_file"
+}
+
+resolve_default_community_repo() {
+	local manifest_file="$repo_root/community-cache/manifest.json"
+	local remote_url=""
+	local repo_name=""
+
+	if command -v jq >/dev/null 2>&1 && [ -f "$manifest_file" ]; then
+		repo_name="$(jq -r '.defaultCommunityRepo // ""' "$manifest_file")"
+		[ -n "$repo_name" ] && printf '%s' "$repo_name" && return
+	fi
+
+	remote_url="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
+	if [ -n "$remote_url" ]; then
+		repo_name="$(printf '%s' "$remote_url" | sed -E 's#^[^:]+:##; s#^https?://[^/]+/##; s#\.git$##')"
+		[ -n "$repo_name" ] && printf '%s' "$repo_name" && return
+	fi
+
+	printf '%s' "RockyWearsAHat/github-shell-helpers"
+}
+
+resolve_default_local_clone() {
+	if [ -f "$repo_root/community-cache/manifest.json" ]; then
+		printf '%s' "$repo_root"
+		return
+	fi
+
+	printf ''
 }
 
 refresh_community_cache_bootstrap() {

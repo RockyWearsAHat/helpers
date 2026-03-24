@@ -15,7 +15,6 @@ const { execFile } = require("child_process");
 const SECTION = "gitShellHelpers.communityCache";
 const SCHEMA_VERSION = 1;
 const PREDEFINED = {
-  communityRepo: "RockyWearsAHat/github-shell-helpers",
   baseBranch: "main",
   branchPrefix: "automation/community-cache-submission",
 };
@@ -45,6 +44,14 @@ function workspaceSettingsPath(workspaceFolder) {
   );
 }
 
+function workspaceManifestPath(workspaceFolder) {
+  return path.join(
+    workspaceFolder.uri.fsPath,
+    "community-cache",
+    "manifest.json",
+  );
+}
+
 function readJsonFile(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -57,6 +64,19 @@ function writeJsonFile(filePath, data) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf8");
+}
+
+function defaultCommunityRepoFromWorkspace(workspaceFolder) {
+  const manifest = readJsonFile(workspaceManifestPath(workspaceFolder));
+  return manifest?.defaultCommunityRepo || "";
+}
+
+function findLocalCommunityCloneFolder() {
+  const folders = vscode.workspace.workspaceFolders || [];
+  return (
+    folders.find((folder) => fs.existsSync(workspaceManifestPath(folder))) ||
+    null
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -139,11 +159,42 @@ async function setWhitelist(repos) {
 }
 
 function buildSettingsJson() {
+  const globalData = readJsonFile(globalSettingsPath()) || {};
+  const localCloneFolder = findLocalCommunityCloneFolder();
+  const derivedCommunityRepo =
+    globalData.communityRepo ||
+    (localCloneFolder
+      ? defaultCommunityRepoFromWorkspace(localCloneFolder)
+      : "") ||
+    "RockyWearsAHat/github-shell-helpers";
+
   return {
     schemaVersion: SCHEMA_VERSION,
+    communityRepo: derivedCommunityRepo,
     ...PREDEFINED,
     mode: getMode(),
     whitelistedRepos: getWhitelist(),
+    ...(globalData.localClone
+      ? { localClone: globalData.localClone }
+      : localCloneFolder
+        ? { localClone: localCloneFolder.uri.fsPath }
+        : {}),
+  };
+}
+
+function buildWorkspaceSettingsJson(workspaceFolder) {
+  const globalSettings = buildSettingsJson();
+  const workspaceCommunityRepo =
+    defaultCommunityRepoFromWorkspace(workspaceFolder);
+
+  return {
+    ...globalSettings,
+    ...(workspaceCommunityRepo
+      ? { communityRepo: workspaceCommunityRepo }
+      : {}),
+    ...(fs.existsSync(workspaceManifestPath(workspaceFolder))
+      ? { localClone: "." }
+      : {}),
   };
 }
 
@@ -152,7 +203,10 @@ function syncAllSettings() {
   const folders = vscode.workspace.workspaceFolders;
   if (folders) {
     for (const folder of folders) {
-      writeJsonFile(workspaceSettingsPath(folder), buildSettingsJson());
+      writeJsonFile(
+        workspaceSettingsPath(folder),
+        buildWorkspaceSettingsJson(folder),
+      );
     }
   }
 }

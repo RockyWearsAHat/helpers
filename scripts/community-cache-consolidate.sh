@@ -262,7 +262,7 @@ main() {
 
       local tmp_dir
       tmp_dir="$(mktemp -d -t community-cache-consolidate.XXXXXX)"
-      trap 'rm -rf "$tmp_dir"' EXIT
+      trap '[[ -n "${tmp_dir:-}" ]] && rm -rf "${tmp_dir:-}"' EXIT
       local generated_at
       generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -315,7 +315,7 @@ main() {
       # Merge promoted candidates into the appropriate packs
       local tmp_dir
       tmp_dir="$(mktemp -d -t community-cache-rebuild.XXXXXX)"
-      trap 'rm -rf "$tmp_dir"' EXIT
+      trap '[[ -n "${tmp_dir:-}" ]] && rm -rf "${tmp_dir:-}"' EXIT
 
       # Extract promoted candidates by kind
       jq -r '.promotedCandidates[] | .kind' "$staging_file" | sort -u | while read -r kind; do

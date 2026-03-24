@@ -10,6 +10,8 @@ Apply the approved fixes to `.github/` Copilot files. You receive an implementat
 
 If the user explicitly asked for no edits, read-only output, report-only mode, or a concise overview without changes, do not apply any fixes. Refuse the run and report that implementation should have been skipped.
 
+If the user focus is advisory, theoretical, or question-style and does not explicitly ask to change files, do not apply any fixes. Refuse the run and report that implementation should have been skipped.
+
 Existing repo-owned Copilot customization files inside `.github/` are in scope when the approved plan names them explicitly. Do not treat agents, prompts, skills, instructions, or the existing research cache as blocked just because they belong to the audit system.
 
 ## How Fixes Work
@@ -49,6 +51,8 @@ Verify all of the following:
 - No blocked files were created anywhere in the workspace
 - No new audit-system references were added outside the files and purposes explicitly approved in the plan
 - Every changed file has valid YAML frontmatter (if applicable)
+- VS Code diagnostics for the touched `.github/` files or folders were checked after the edits
+- Any resulting errors or warnings caused by the implementation were fixed and the diagnostics check was repeated until clean, unless a concrete blocker prevented that
 - The content of each changed file is accurate for this project
 - Any required non-`.github/` fixes that remain out of scope are listed as concrete follow-up actions
 
