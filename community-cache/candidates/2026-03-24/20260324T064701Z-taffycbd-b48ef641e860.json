@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "warning",
+  "topic": "workflow",
+  "statement": "Teams with high AI coding adoption merged 98% more PRs but review times increased 91% and PR size increased 154% (DORA 2025). The bottleneck shifts from writing code to reviewing it. Measure success by verified shipped features, not code volume. Automate verification aggressively to prevent the review bottleneck.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "DORA Report 2025 — AI Impact on Software Delivery",
+      "url": "https://dora.dev/research/",
+      "sourceType": "other"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "AI adoption shifts the bottleneck from writing to reviewing. Automate verification to prevent review debt.",
+  "cautionNotes": "DORA metrics are aggregate across many teams; individual team results vary.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:47:01Z",
+  "submissionId": "20260324T064701Z-taffycbd",
+  "statementHash": "b48ef641e860683cc15f3702987870e28b08ccd12b45237c98f3af25409af542"
+}
