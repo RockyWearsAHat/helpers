@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "anti-pattern",
+  "topic": "instructions",
+  "statement": "When multiple customization files define incompatible output formats for the same task (different scoring rubrics, conflicting template structures, contradictory field definitions), the model picks whichever definition it reads last, producing inconsistent outputs across runs. Keep authoritative format definitions in a single source and reference it from other files rather than redefining.",
+  "recommendationStrength": "required",
+  "applicability": "general",
+  "evidenceRefs": [
+    {
+      "title": "VS Code - Custom instructions",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "Burke Holland - Ultimate Agent Mode Tutorial",
+      "url": "https://www.youtube.com/watch?v=pKzETWV_EHE",
+      "sourceType": "public-video"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-23T22:18:53Z",
+  "submissionId": "20260323T221853Z-u7chhftv",
+  "statementHash": "4ec967a72620de05536ddbec633dadbf916ca5923f87901218e433c88d169116"
+}
