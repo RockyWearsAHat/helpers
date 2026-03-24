@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "other",
+  "statement": "Context engineering is the design of the full information environment an LLM operates in — system prompts, retrieved documents, tool outputs, conversation history, memory, and structured data — not just a single prompt. Output quality rises with context up to a point then degrades (lost-in-the-middle effect and context rot). Provide the minimum context that fully specifies the task.",
+  "recommendationStrength": "recommended",
+  "applicability": "general",
+  "evidenceRefs": [
+    {
+      "title": "Context Engineering Bootcamp — AI Hippocampus",
+      "url": "https://www.youtube.com/watch?v=xlUIiTSaFKI",
+      "sourceType": "public-video"
+    },
+    {
+      "title": "Lost in the Middle: How Language Models Use Long Contexts — Liu et al.",
+      "url": "https://arxiv.org/abs/2307.03172",
+      "sourceType": "other"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Context engineering: design the full information environment, not just the prompt. More context helps until it doesn't — find the sweet spot.",
+  "cautionNotes": "Optimal context size depends on the model, context window, and task complexity.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:47:09Z",
+  "submissionId": "20260324T064709Z-dcu1af0z",
+  "statementHash": "b516676168e706b6418c8389b8e9cf4d453ff4ea8289fae5a8ff4fea929bf5ae"
+}
