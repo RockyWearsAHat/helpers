@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "Instruction files covering C++ development are more effective when they treat testability as a design principle — code that is hard to test signals structural issues (hidden dependencies, side effects, mixed concerns) requiring design changes, not more complex test infrastructure.",
+  "recommendationStrength": "recommended",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "r/cpp Design Patterns thread — eyepatchOwl: if hard to test, make it easier to test (design principle, not testing infrastructure problem)",
+      "url": "https://www.reddit.com/r/cpp/comments/uu3vn4/c_design_patterns_and_architecture_for_building/",
+      "sourceType": "community-thread"
+    },
+    {
+      "title": "r/cpp Software Architecture thread — darthcoder: good test cases make large structural refactors safe",
+      "url": "https://www.reddit.com/r/cpp/comments/15awwlz/",
+      "sourceType": "community-thread"
+    },
+    {
+      "title": "C++ Core Guidelines — C.2: Use class if the class has an invariant; T.61: Do not over-parameterize",
+      "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines",
+      "sourceType": "official-docs"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T19:39:30Z",
+  "freshnessCheckedAt": "2026-03-24T19:39:30Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "C++ instruction files should frame testability as a design principle: code that is hard to test has a structural problem that design improvements (dependency injection, pure functions, separation of concerns) should fix.",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T19:40:14Z",
+  "submissionId": "20260324T194014Z-wircis0v",
+  "statementHash": "a0d2d23dd13db734e0b669c0968b6bf47471a3179f3282521111bd3879f7e70d"
+}
