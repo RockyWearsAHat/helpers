@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/community-cache-consolidate.sh <validate|aggregate|rebuild-snapshot>
+Usage: ./scripts/community-cache-consolidate.sh <validate|validate-one <file>|aggregate|rebuild-snapshot>
 EOF
 }
 
@@ -241,6 +241,12 @@ main() {
         validated=$((validated + 1))
       done
       echo "[community-cache-consolidate] Validated $validated candidate files." >&2
+      ;;
+    validate-one)
+      local target_file="${2:-}"
+      [[ -n "$target_file" ]] || { echo "[community-cache-consolidate] validate-one requires a file argument" >&2; exit 1; }
+      validate_candidate_file "$target_file"
+      echo "[community-cache-consolidate] Validated $target_file." >&2
       ;;
     aggregate)
       if [[ $candidate_count -eq 0 ]]; then
