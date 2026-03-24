@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "warning",
+  "topic": "agents",
+  "statement": "The chat.agentFilesLocations VS Code setting is an object with path keys and boolean values (e.g., {'.github/agents': true}), not an array. Setting it to an array of strings silently breaks agent discovery with no error message. The default value already includes .github/agents, .claude/agents, ~/.claude/agents, and ~/.copilot/agents.",
+  "recommendationStrength": "required",
+  "applicability": "agent-design",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Custom agents",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Setting chat.agentFilesLocations to an array (common assumption) silently disables agent discovery. The correct type is an object where keys are paths and values are booleans. The VS Code defaults already cover the 4 standard locations, so this setting rarely needs to be overridden.",
+  "cautionNotes": "Default paths may vary across VS Code versions. The 4-path default was confirmed in early 2026.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T04:46:15Z",
+  "submissionId": "20260324T044615Z-kh2d6su7",
+  "statementHash": "414f67c9f62b0b76a538720818ffada6fe94afc6ed07fc34f62317b9a76f62cd"
+}
