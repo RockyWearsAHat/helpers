@@ -88,23 +88,142 @@ function decodeHtmlEntities(text) {
     );
 }
 
+/**
+ * Extract the content between the LAST opening <tag> and LAST closing </tag>
+ * for a given tag name.  Greedy — captures everything including nested tags.
+ */
+function extractTagContent(html, tag) {
+  // Greedy: find the last </tag> and pair it with the first <tag>
+  const openRe = new RegExp(`<${tag}\\b[^>]*>`, "i");
+  const closeRe = new RegExp(`</${tag}>`, "gi");
+  const openMatch = html.match(openRe);
+  if (!openMatch) return null;
+
+  const startIdx = openMatch.index + openMatch[0].length;
+
+  // Find the last closing tag (greedy match)
+  let lastClose = -1;
+  let m;
+  while ((m = closeRe.exec(html)) !== null) {
+    lastClose = m.index;
+  }
+  if (lastClose <= startIdx) return null;
+
+  return html.slice(startIdx, lastClose);
+}
+
+/**
+ * Extract the main content region from an HTML document.
+ * Tries <article>, <main>, [role="main"], content-classed divs, then <body>.
+ * Strips nav/header/footer/aside/form chrome before returning.
+ */
+function extractMainContent(html) {
+  // Remove non-visible and non-content blocks first (global)
+  let cleaned = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gis, " ")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gis, " ")
+    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gis, " ")
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gis, " ")
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gis, " ");
+
+  // Try semantic content tags in priority order (greedy extraction)
+  const tagCandidates = ["article", "main"];
+  let content = "";
+
+  for (const tag of tagCandidates) {
+    const extracted = extractTagContent(cleaned, tag);
+    if (extracted && extracted.replace(/<[^>]+>/g, "").trim().length > 200) {
+      content = extracted;
+      break;
+    }
+  }
+
+  // Try role="main" div
+  if (!content) {
+    const roleMainMatch = cleaned.match(
+      /<div[^>]*role\s*=\s*["']main["'][^>]*>/i,
+    );
+    if (roleMainMatch) {
+      const start = roleMainMatch.index + roleMainMatch[0].length;
+      const rest = cleaned.slice(start);
+      // Grab a large chunk — divs nest, so take everything until a late </div>
+      const divClosePositions = [];
+      const closeRe = /<\/div>/gi;
+      let m;
+      while ((m = closeRe.exec(rest)) !== null) {
+        divClosePositions.push(m.index);
+      }
+      if (divClosePositions.length > 0) {
+        const candidate = rest.slice(
+          0,
+          divClosePositions[divClosePositions.length - 1],
+        );
+        if (candidate.replace(/<[^>]+>/g, "").trim().length > 200) {
+          content = candidate;
+        }
+      }
+    }
+  }
+
+  // Try content-classed divs (id or class containing article/post/entry/content)
+  if (!content) {
+    const contentDivRe =
+      /<div[^>]*(?:class|id)\s*=\s*["'][^"']*\b(?:article|post|entry|content|main-content|page-content)\b[^"']*["'][^>]*>/gi;
+    let bestCandidate = "";
+    let bestLen = 0;
+    let divMatch;
+    while ((divMatch = contentDivRe.exec(cleaned)) !== null) {
+      const start = divMatch.index + divMatch[0].length;
+      const rest = cleaned.slice(start);
+      // Find matching depth — take everything up to the last </div> in a
+      // reasonable window (first 500KB) to avoid runaway on huge pages
+      const window = rest.slice(0, 500000);
+      const lastDiv = window.lastIndexOf("</div>");
+      if (lastDiv > 0) {
+        const text = window.slice(0, lastDiv).replace(/<[^>]+>/g, "").trim();
+        if (text.length > bestLen) {
+          bestLen = text.length;
+          bestCandidate = window.slice(0, lastDiv);
+        }
+      }
+    }
+    if (bestLen > 200) {
+      content = bestCandidate;
+    }
+  }
+
+  // Fallback: use the body, or the whole document
+  if (!content) {
+    const bodyContent = extractTagContent(cleaned, "body");
+    content = bodyContent || cleaned;
+  }
+
+  // Strip navigation/chrome elements from the content region
+  content = content
+    .replace(/<nav\b[\s\S]*?<\/nav>/gis, " ")
+    .replace(/<header\b[\s\S]*?<\/header>/gis, " ")
+    .replace(/<footer\b[\s\S]*?<\/footer>/gis, " ")
+    .replace(/<aside\b[\s\S]*?<\/aside>/gis, " ")
+    .replace(/<form\b[\s\S]*?<\/form>/gis, " ")
+    .replace(/<button\b[\s\S]*?<\/button>/gis, " ")
+    .replace(/<select\b[\s\S]*?<\/select>/gis, " ")
+    .replace(/<dialog\b[\s\S]*?<\/dialog>/gis, " ");
+
+  return content;
+}
+
 function stripHtml(html) {
+  const content = extractMainContent(html);
   return decodeHtmlEntities(
-    html
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gis, " ")
-      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gis, " ")
-      .replace(
-        /<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gis,
-        " ",
-      )
-      .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gis, " ")
+    content
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(
-        /<\/(p|div|section|article|main|aside|header|footer|li|tr|table|h1|h2|h3|h4|h5|h6)>/gi,
+        /<\/(p|div|section|article|main|li|tr|table|h1|h2|h3|h4|h5|h6|blockquote|pre)>/gi,
         "$&\n",
       )
       .replace(/<[^>]+>/g, " ")
       .replace(/[ \t]+/g, " ")
+      .replace(/\n[ \t]+/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim(),
   );
@@ -587,7 +706,7 @@ async function fetchPages(args) {
   }
 
   const maxPages = toPositiveInt(urls.length, urls.length, 1, 5);
-  const maxChars = toPositiveInt(args.max_chars, 8000, 1000, 20000);
+  const maxChars = toPositiveInt(args.max_chars, 20000, 1000, 100000);
 
   const pages = [];
   for (const rawUrl of urls.slice(0, maxPages)) {
@@ -885,7 +1004,7 @@ async function handleRequest(request) {
           {
             name: "fetch_pages",
             description:
-              "Fetch up to 5 web pages and return cleaned text extracts for fast documentation review.",
+              "Fetch up to 5 web pages, extract main article content (strips nav/header/footer/sidebar chrome), and return cleaned text.",
             inputSchema: {
               type: "object",
               properties: {
@@ -899,7 +1018,7 @@ async function handleRequest(request) {
                 max_chars: {
                   type: "integer",
                   description:
-                    "Maximum extracted text per page (1000-20000). Default 8000.",
+                    "Maximum extracted text per page (1000-100000). Default 20000.",
                 },
               },
               required: ["urls"],
