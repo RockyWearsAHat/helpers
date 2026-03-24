@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "other",
+  "statement": "Persist compound learning across agent iterations through four channels: git commit history (semantic change log), progress log (chronological task outcomes), structured task state (status, criteria, pass/fail), and a knowledge file (patterns, gotchas, recent learnings). Each improvement makes future improvements easier because the knowledge base grows.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Self-Improving Coding Agents — Addy Osmani (Jan 2026)",
+      "url": "https://addyosmani.com/blog/self-improving-coding-agents/",
+      "sourceType": "product-guidance"
+    },
+    {
+      "title": "Building an agentic memory system for GitHub Copilot — GitHub Blog (Jan 2026)",
+      "url": "https://github.blog/engineering/platform-security/building-an-agentic-memory-system-for-github-copilot/",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Four channels of compound learning: git history, progress logs, task state, knowledge file. Each pass makes the next one better.",
+  "cautionNotes": "Knowledge files need periodic pruning to prevent context bloat — compound growth can become compound noise.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:47:17Z",
+  "submissionId": "20260324T064717Z-lxovpwez",
+  "statementHash": "59704ed64e8a938b2378fe16ad170617323b14f3de78bd88c42b563eab879163"
+}
