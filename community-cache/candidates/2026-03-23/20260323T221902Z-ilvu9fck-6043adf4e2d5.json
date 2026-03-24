@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "skills",
+  "statement": "Specifications, design briefs, and structured inputs for AI work must use concrete values (exact colors, pixel dimensions, specific component names, precise acceptance criteria) rather than aspirational language. Models interpret vague aesthetic language inconsistently; concrete values produce reproducible output.",
+  "recommendationStrength": "recommended",
+  "applicability": "general",
+  "evidenceRefs": [
+    {
+      "title": "niittymaa/Copilot-Ralph ralph-planner.agent.md",
+      "url": "https://github.com/niittymaa/Copilot-Ralph",
+      "sourceType": "public-example"
+    },
+    {
+      "title": "VS Code - Copilot Best Practices",
+      "url": "https://code.visualstudio.com/docs/copilot/copilot-best-practices",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-23T22:19:02Z",
+  "submissionId": "20260323T221902Z-ilvu9fck",
+  "statementHash": "6043adf4e2d5ca1110a185b19a41a5441d7f98a51046002a05fd9ea3c2cde2c7"
+}
