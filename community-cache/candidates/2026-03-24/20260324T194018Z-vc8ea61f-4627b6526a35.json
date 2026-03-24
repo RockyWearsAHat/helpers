@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "When a Copilot workspace includes technology-specific instruction files, audit research should include domain content research alongside Copilot mechanics research — an instruction file can be structurally correct and content-empty, and only domain knowledge can identify that gap.",
+  "recommendationStrength": "recommended",
+  "applicability": "general",
+  "evidenceRefs": [
+    {
+      "title": "r/cpp Design Patterns thread (83 upvotes) — practitioner consensus on what C++ design guidance should substantively cover",
+      "url": "https://www.reddit.com/r/cpp/comments/uu3vn4/c_design_patterns_and_architecture_for_building/",
+      "sourceType": "community-thread"
+    },
+    {
+      "title": "r/cpp Software Architecture and Design thread (88 upvotes) — practitioner consensus on what architecture guidance should include",
+      "url": "https://www.reddit.com/r/cpp/comments/15awwlz/",
+      "sourceType": "community-thread"
+    },
+    {
+      "title": "C++ Core Guidelines — the benchmark for what substantive C++ instruction content should align with",
+      "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines",
+      "sourceType": "official-docs"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T19:39:30Z",
+  "freshnessCheckedAt": "2026-03-24T19:39:30Z",
+  "authoritativeSupport": "weak",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Copilot audit research for projects with technology-specific instruction files should evaluate domain content quality against domain baselines, not only validate file structure — a correctly-formatted but content-empty instruction file is still an audit gap.",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T19:40:18Z",
+  "submissionId": "20260324T194018Z-vc8ea61f",
+  "statementHash": "4627b6526a353b0a3efbf0ae23dc02387ed59f77f857a4485b3bec3a9a38a86f"
+}
