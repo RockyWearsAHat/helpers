@@ -251,6 +251,42 @@
       "authoritativeSupport": "medium",
       "applicability": "general",
       "topics": ["workflow"]
+    },
+    {
+      "id": "X19",
+      "statement": "Do not fill domain-specific instruction files with rules the toolchain already enforces. Formatting rules, unused import detection, and basic type safety checks are linter, formatter, or compiler territory. Repeating them in instruction files wastes context tokens, signals low-effort content, and dilutes the rules that actually require judgment.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "X20",
+      "statement": "Do not prescribe a design pattern without explaining its tradeoffs and counterindications. Prescribing patterns without context causes over-application of abstractions in situations they were not designed for. Instruction files that include pattern guidance must also specify the signals that indicate the pattern is NOT the right choice.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "X21",
+      "statement": "Do not conflate architecture documentation with instruction files. A system architecture document that describes what the codebase IS belongs in docs. An instruction file must describe what the AI should DO differently in this codebase. Document-style writing in instruction files produces passive, descriptive content the model reads as background context, not as active guidance.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "X22",
+      "statement": "Do not treat instruction file content as a one-time setup artifact. AI-generated code reflects the instruction file content over time. If the codebase has evolved beyond what the instruction files describe, the AI generates code that fits the old state. Instruction file content has a maintenance lifecycle just like documentation — review it when significant architectural or domain knowledge changes occur.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
     }
   ]
 }

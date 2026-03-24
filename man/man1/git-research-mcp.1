@@ -1,0 +1,155 @@
+.TH GIT-RESEARCH-MCP 1 "March 2026" "git-research-mcp" "Git Manual"
+.SH NAME
+git-research-mcp \- MCP server providing web search and knowledge-cache tools
+.SH SYNOPSIS
+.B node
+.I git-research-mcp
+.SH DESCRIPTION
+.B git-research-mcp
+is a zero-dependency Node.js MCP (Model Context Protocol) server that exposes
+web search and repo-local knowledge-cache tools over stdio.
+It is designed to be registered in a project's
+.I mcp.json
+and used by AI assistants such as GitHub Copilot.
+.PP
+Web search is powered by a locally running SearXNG Docker container that
+queries Google, Bing, DuckDuckGo, and other engines simultaneously.
+No API keys or external credentials are required.
+.PP
+The knowledge cache operates on Markdown files under
+.I .github/knowledge/
+in the current working directory, providing persistent per-project research
+notes that survive across sessions.
+.SH MCP TOOLS
+.TP
+.B search_web
+Search the web via the local SearXNG instance.
+Accepts
+.IR query ,
+.IR num_results " (1\(en10),"
+.IR site_filter ,
+.IR exact_terms ,
+.IR exclude_terms ,
+.IR file_type ,
+.IR engines ,
+.IR language ,
+and
+.IR time_range .
+.TP
+.B fetch_pages
+Fetch up to 5 web pages and return cleaned text extracts.
+Accepts
+.IR urls
+and optional
+.IR max_chars " (1000\(en20000)."
+.TP
+.B search_knowledge_cache
+Search Markdown files under
+.I .github/knowledge/
+by keyword.
+Accepts
+.IR query
+and optional
+.IR max_results " (1\(en20)."
+.TP
+.B read_knowledge_note
+Read a specific knowledge note by workspace-relative path.
+Accepts
+.IR path
+and optional
+.IR max_chars " (500\(en20000)."
+.TP
+.B write_knowledge_note
+Create or overwrite a knowledge note.
+Accepts
+.IR path ,
+.IR content ,
+and optional
+.IR overwrite .
+.TP
+.B update_knowledge_note
+Replace a section (identified by heading) in an existing note.
+Accepts
+.IR path ,
+.IR heading ,
+and
+.IR content .
+.TP
+.B append_to_knowledge_note
+Append content to an existing note.
+Accepts
+.IR path
+and
+.IR content .
+.SH CONFIGURATION
+.B git-research-mcp
+reads environment variables from a
+.I .env
+file.  The search order is:
+.IP 1. 4
+.I ~/.config/git-research-mcp/.env
+.IP 2. 4
+.I .env
+in the same directory as the script (fallback).
+.PP
+Environment variables already set in the process take precedence over file
+values.
+.TP
+.B SEARXNG_URL
+Base URL of the SearXNG instance.
+Default:
+.IR http://localhost:8888 .
+.SH PREREQUISITES
+.IP \(bu 2
+Node.js >= 18 (uses built-in
+.BR fetch ).
+.IP \(bu 2
+A running SearXNG Docker container:
+.RS 4
+.EX
+docker run -d --name searxng -p 8888:8080 searxng/searxng:latest
+.EE
+.RE
+.SH MCP REGISTRATION
+Register in a project's
+.I .vscode/mcp.json
+(or user-level mcp.json):
+.PP
+.RS 4
+.EX
+{
+  "servers": {
+    "git-research-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["git-research-mcp"]
+    }
+  }
+}
+.EE
+.RE
+.PP
+If
+.B git-research-mcp
+is installed in a directory on your
+.BR PATH ,
+the above registration is sufficient.
+Otherwise, use the full path in
+.IR args .
+.SH EXAMPLES
+.TP
+Start SearXNG and verify the server responds to an MCP initialize request:
+.EX
+docker run -d --name searxng -p 8888:8080 searxng/searxng:latest
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | node git-research-mcp
+.EE
+.SH FILES
+.TP
+.I ~/.config/git-research-mcp/.env
+User-level configuration file (preferred).
+.TP
+.I .github/knowledge/
+Per-project knowledge cache directory (relative to cwd).
+.SH SEE ALSO
+.BR git-copilot-devops-audit (1),
+.BR git-upload (1)

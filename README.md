@@ -40,6 +40,7 @@ Small quality-of-life helpers wrapped as git subcommands:
 - `git initialize` – initialize the current directory as a repo, create an initial commit, set `origin`, and push.
 - `git fucked-the-push` – destructive recovery helper to undo the last pushed commit while keeping changes staged.
 - `git copilot-devops-audit` – install and run the Copilot customization audit workflow described above.
+- `git-research-mcp` – MCP server providing web search (via local SearXNG) and per-project knowledge-cache tools for AI assistants.
 
 ## Installation options
 
@@ -118,6 +119,58 @@ The script installer can also optionally:
   - Attempts the same VS Code global audit setup automatically for the logged-in macOS user during postinstall.
 
 Both install the same command-line tools and man pages; they just target different installation styles.
+
+## git-research-mcp (MCP server)
+
+`git-research-mcp` is a zero-dependency Node.js MCP server that provides web search and repo-local knowledge-cache tools over stdio. It requires Node.js >= 18 (uses built-in `fetch`).
+
+### Prerequisites
+
+A running SearXNG Docker container on port 8888:
+
+```sh
+docker run -d --name searxng -p 8888:8080 searxng/searxng:latest
+```
+
+No API keys or external credentials are required. SearXNG queries Google, Bing, DuckDuckGo, and other engines simultaneously.
+
+### Configuration
+
+The installer writes a default config to `~/.config/git-research-mcp/.env`:
+
+```
+SEARXNG_URL=http://localhost:8888
+```
+
+Edit this file to change the SearXNG URL. The `.env` is never written into the install directory.
+
+### MCP registration
+
+Add to your project's `.vscode/mcp.json` (or user-level mcp.json):
+
+```json
+{
+  "servers": {
+    "git-research-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["git-research-mcp"]
+    }
+  }
+}
+```
+
+### Exposed MCP tools
+
+| Tool                       | Description                                            |
+| -------------------------- | ------------------------------------------------------ |
+| `search_web`               | Web search via local SearXNG (Google, Bing, DDG, etc.) |
+| `fetch_pages`              | Fetch up to 5 URLs, strip HTML, return cleaned text    |
+| `search_knowledge_cache`   | Search `.github/knowledge/` Markdown files by keyword  |
+| `read_knowledge_note`      | Read a specific knowledge note                         |
+| `write_knowledge_note`     | Create or overwrite a knowledge note                   |
+| `update_knowledge_note`    | Replace a section by heading in a note                 |
+| `append_to_knowledge_note` | Append content to an existing note                     |
 
 ## Development
 
