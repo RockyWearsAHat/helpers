@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "skills",
+  "statement": "Verification workflows that score or judge output must include a structured fix-feedback step that translates failures into specific actionable changes (file, selector/location, property, current value, target value). Without this step, audits diagnose problems but do not produce fixes, breaking the closed loop.",
+  "recommendationStrength": "recommended",
+  "applicability": "skill-design",
+  "evidenceRefs": [
+    {
+      "title": "awesome-copilot web-design-reviewer SKILL.md",
+      "url": "https://github.com/github/awesome-copilot",
+      "sourceType": "public-example"
+    },
+    {
+      "title": "vm0-ai/vm0 ui-innovate skill.md",
+      "url": "https://github.com/nicholasgriffintn/vm0-ai",
+      "sourceType": "public-example"
+    },
+    {
+      "title": "Burke Holland - Complete Guide to Agent Skills",
+      "url": "https://www.youtube.com/watch?v=lM30gPPcfPM",
+      "sourceType": "public-video"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-23T22:18:28Z",
+  "submissionId": "20260323T221828Z-htlrbrbu",
+  "statementHash": "cf0192c8b815da433a69b02dd81560a9bbcdf258192d339ddb6acca0826cb29b"
+}
