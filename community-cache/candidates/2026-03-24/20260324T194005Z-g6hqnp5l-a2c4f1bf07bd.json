@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "anti-pattern",
+  "topic": "instructions",
+  "statement": "Instruction files that prescribe specific design patterns for specific situations without contextual heuristics for when to avoid patterns tend to produce over-engineered code — practitioners consistently report removing more forced patterns than adding them, and pattern choice should be context-driven not rule-driven.",
+  "recommendationStrength": "recommended",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "r/cpp Design Patterns thread — pedanticProgramer: has refactored 10+ forced patterns out; cballowe: patterns are discovered not invented",
+      "url": "https://www.reddit.com/r/cpp/comments/uu3vn4/c_design_patterns_and_architecture_for_building/",
+      "sourceType": "community-thread"
+    },
+    {
+      "title": "The Pragmatic Programmer, Hunt and Thomas — advises against forcing abstractions before they emerge naturally from recurring code structures",
+      "url": "https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/",
+      "sourceType": "book"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T19:39:30Z",
+  "freshnessCheckedAt": "2026-03-24T19:39:30Z",
+  "authoritativeSupport": "weak",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Anti-pattern: instruction files that prescribe specific design patterns without teaching recognition signals or avoidance heuristics. Patterns should be recognized from existing code structures, not imposed beforehand.",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T19:40:05Z",
+  "submissionId": "20260324T194005Z-g6hqnp5l",
+  "statementHash": "a2c4f1bf07bd4836e45735a557647873b0b4cff8cb3449445ab49ca1984c7947"
+}
