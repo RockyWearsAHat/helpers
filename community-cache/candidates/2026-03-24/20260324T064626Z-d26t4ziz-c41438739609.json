@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "workflow",
+  "statement": "LLM-guided self-debugging follows exponential decay — each successive attempt at the same bug is less likely to succeed. If 2-3 fix attempts fail, reset context entirely and try a completely different approach rather than letting the agent keep looping with minor variations.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Measuring and mitigating debugging effectiveness decay in code — Nature (2025)",
+      "url": "https://www.nature.com/articles/s41586-025-08693-4",
+      "sourceType": "other"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Debugging effectiveness decays exponentially per attempt. Reset context after 2-3 failed fixes.",
+  "cautionNotes": "The Nature paper measured LLM self-debugging specifically; human debugging may not follow the same curve.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:46:26Z",
+  "submissionId": "20260324T064626Z-d26t4ziz",
+  "statementHash": "c4143873960977589754be7946300048f9728e002f59e589912e0463e011c8be"
+}
