@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "Instruction files for domain-specific technology must address design philosophy and architecture patterns to guide AI output quality — files consisting only of syntax rules duplicate static analysis tools and provide minimal judgment guidance.",
+  "recommendationStrength": "recommended",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "r/cpp Design Patterns thread (83 upvotes) — practitioners report patterns should emerge from repeated code, not be imposed prescriptively",
+      "url": "https://www.reddit.com/r/cpp/comments/uu3vn4/c_design_patterns_and_architecture_for_building/",
+      "sourceType": "community-thread"
+    },
+    {
+      "title": "C++ Core Guidelines — P: Philosophy section covers judgment over mechanical rule-following",
+      "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines",
+      "sourceType": "official-docs"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T19:39:30Z",
+  "freshnessCheckedAt": "2026-03-24T19:39:30Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Domain-specific instruction files should cover design philosophy and architecture, not just syntax rules that static analysis tools already enforce.",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T19:39:40Z",
+  "submissionId": "20260324T193940Z-krw95b8b",
+  "statementHash": "eed263ff7b7400b17f51d9fff14a9e98448c04cdf916dd35e9e094b4d2f316a9"
+}
