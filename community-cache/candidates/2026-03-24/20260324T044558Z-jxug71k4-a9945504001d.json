@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "warning",
+  "topic": "agents",
+  "statement": "Agents with user-invocable: false that are not referenced in any reachable agent's agents: field are invisible dead code. VS Code builds the available-agents list by following the dependency chain from user-invocable roots. An agent file that exists on disk but is unreachable through the chain can never be invoked — by the user or by any other agent.",
+  "recommendationStrength": "required",
+  "applicability": "agent-design",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Custom agents",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code — Subagents",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/subagents",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Discovered 5 agent files on disk that were all user-invocable: false with no parent agent referencing them. They appeared in directory listings but were completely invisible to VS Code's agent picker and subagent invocation. Making the root agent user-invocable and wiring subagents via the agents: field resolved the issue.",
+  "cautionNotes": "This applies to VS Code agent discovery as of early 2026. The discovery mechanism may evolve.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T04:45:58Z",
+  "submissionId": "20260324T044558Z-jxug71k4",
+  "statementHash": "a9945504001d871bfe4fda95ad9838688c5239fa04bfc253d3ca6fbe10eded71"
+}
