@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "workflow",
+  "statement": "Reset agent context between iterations of a multi-task loop. A fresh, bounded prompt per task prevents context overflow, reduces hallucinations, and keeps the agent focused. Stateless-but-iterative design (pick task, implement, validate, commit, reset) is the foundation of reliable autonomous agent work.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Self-Improving Coding Agents — Addy Osmani (Jan 2026)",
+      "url": "https://addyosmani.com/blog/self-improving-coding-agents/",
+      "sourceType": "product-guidance"
+    },
+    {
+      "title": "Cursor team guidance on periodic fresh starts",
+      "url": "https://www.cursor.com/blog",
+      "sourceType": "product-guidance"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Reset context each iteration in multi-task agent loops to prevent drift and hallucinations.",
+  "cautionNotes": "Applies to autonomous loops; interactive single-session use may benefit from preserved context.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:46:16Z",
+  "submissionId": "20260324T064616Z-9gwp7kp1",
+  "statementHash": "6ed9313840f947e37df813e60b7b1d79b3621745236147fdb18bb99ee186641c"
+}
