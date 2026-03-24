@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "tooling",
+  "statement": "The tools field in agent frontmatter uses a category/tool format (e.g., read/readFile, search/textSearch, web/fetch, edit/editFiles, execute/runInTerminal). A bare category name enables all tools in that category. Bare tool names without a category prefix (e.g., 'readFile' or 'fetch') are silently ignored and grant no tool access.",
+  "recommendationStrength": "required",
+  "applicability": "tool-use",
+  "evidenceRefs": [
+    {
+      "title": "VS Code — Agent tools",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Agent frontmatter tools: field uses category/tool notation. Valid categories include read, search, web, edit, execute, agent, todo. Bare tool names without category prefix are silently ignored — agents appear to work but have no tool access. This is a common first-time mistake.",
+  "cautionNotes": "Tool categories may expand over time. The listed categories were confirmed in early 2026 VS Code.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T04:46:23Z",
+  "submissionId": "20260324T044623Z-q7x8u286",
+  "statementHash": "5eebe830d8869c8e015a1c1b1739f48875121e73ba3bd2d7dac1b73694be8057"
+}
