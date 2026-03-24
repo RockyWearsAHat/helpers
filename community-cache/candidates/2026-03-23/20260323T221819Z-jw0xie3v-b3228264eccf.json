@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "When instructions define a constrained set of legal values (design tokens, API versions, allowed dependencies), enumerate all legal values directly in the instruction file as hard constraints rather than referencing an external file. Models follow explicit inline value lists more reliably than indirect references, which require an extra file read that may be skipped or fail to load.",
+  "recommendationStrength": "recommended",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "paperclipai/paperclip design-guide SKILL.md",
+      "url": "https://github.com/paperclipai/paperclip",
+      "sourceType": "public-example"
+    },
+    {
+      "title": "breadboard-ai/breadboard ui-skill.md",
+      "url": "https://github.com/nicholasgriffintn/breadboard-ai",
+      "sourceType": "public-example"
+    },
+    {
+      "title": "awesome-copilot premium-frontend-ui SKILL.md",
+      "url": "https://github.com/github/awesome-copilot",
+      "sourceType": "public-example"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-23T22:18:19Z",
+  "submissionId": "20260323T221819Z-jw0xie3v",
+  "statementHash": "b3228264eccff2f59c0c9e31b71146b9e3981482e52ce35f72e91fe099cc3e88"
+}
