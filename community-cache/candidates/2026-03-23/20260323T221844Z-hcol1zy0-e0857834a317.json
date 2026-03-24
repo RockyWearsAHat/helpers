@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "skills",
+  "statement": "When using scoring rubrics in AI-assisted audit or verification workflows, each score category must map to specific actionable fix instructions: which files to check, which properties to change, and what target values to use. Scores without fix mappings produce diagnostic numbers but not improvements.",
+  "recommendationStrength": "recommended",
+  "applicability": "skill-design",
+  "evidenceRefs": [
+    {
+      "title": "awesome-copilot web-design-reviewer SKILL.md",
+      "url": "https://github.com/github/awesome-copilot",
+      "sourceType": "public-example"
+    },
+    {
+      "title": "vm0-ai/vm0 ui-innovate skill.md",
+      "url": "https://github.com/nicholasgriffintn/vm0-ai",
+      "sourceType": "public-example"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-23T22:18:44Z",
+  "submissionId": "20260323T221844Z-hcol1zy0",
+  "statementHash": "e0857834a317927a03b65b694b2f64e9f5baf53ff7d37d317d4967d5893fe80d"
+}
