@@ -24,7 +24,11 @@ Research should clarify uncertainty. It should not leave the next phase more con
 
 You are not researching the project itself. The project is fine.
 
-You are researching how Copilot customization works right now, what the correct file formats and field names are, what patterns exist for projects like this one, and what common mistakes look like. The goal is to know enough that when you look at the `.github/` folder, you can immediately tell what is correct, what is outdated, what is broken, what is missing, and what could be made cleaner or clearer even if it is not strictly broken.
+This phase has two research tracks. Both are required when the project has technology-specific instruction files. Run track 1 first; run track 2 in parallel once you have confirmed which technology domains the project's instruction files address.
+
+**Track 1 — Copilot mechanics**: You are researching how Copilot customization works right now, what the correct file formats and field names are, what patterns exist for projects like this one, and what common mistakes look like. The goal is to know enough that when you look at the `.github/` folder, you can immediately tell what is correct, what is outdated, what is broken, what is missing, and what could be made cleaner or clearer even if it is not strictly broken.
+
+**Track 2 — Domain content** (required when technology-specific instruction files are present): When the project has instruction files scoped to a specific language, framework, or technical domain, your research also establishes what *substantive* guidance for that domain looks like. Structural validity is not enough — an instruction file that only mirrors what a linter or type checker already enforces adds no real value. Track 2 research answers: what are the judgment calls, design philosophy choices, architectural tradeoffs, testability principles, and canonical practices that distinguish informed guidance for this domain from generic defaults? Pull from the community cache's domain-knowledge entries first, then from official specifications, canonical references, and community practitioner consensus for the relevant technology. Use this baseline to evaluate whether the project's instruction file content is genuinely useful or thinly scaffolded.
 
 ## Runtime Boundaries
 
@@ -84,6 +88,15 @@ When an older example teaches a useful idea but uses outdated syntax, outdated f
 4. Anthropic tool design guidance — the advanced tool use engineering post ([https://www.anthropic.com/engineering/advanced-tool-use](https://www.anthropic.com/engineering/advanced-tool-use)) and programmatic tool calling docs ([https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling)). These define how to design tools that AI agents use effectively: clear naming, detailed output format documentation, structured returns, on-demand discovery, context-efficient orchestration, and input examples for parameter accuracy. These principles apply directly to Copilot customization: skill descriptions are discovery surfaces (like tool search), progressive loading avoids context bloat (like defer_loading), and subagent delegation patterns mirror programmatic tool calling's code-based orchestration.
 5. Public repositories with similar project types that use `.github/` customization
 6. Community sources — only when backed up by something stronger
+
+**Domain content sources** (for Track 2 — evaluating technology-specific instruction file content):
+
+1. Community cache domain-knowledge entries for the relevant technology, if present — these are pre-researched, stable baselines that accelerate the audit
+2. Official language or framework documentation and specifications
+3. Canonical practitioner references widely recognized in that technology community (well-known books, published style guides, official engineering blogs)
+4. Community practitioner consensus from well-maintained resources for the relevant domain
+
+Domain content sources answer: what are the design philosophy tenets, architectural tradeoffs, testability signals, resource model constraints, and canonical judgment calls that an expert in this domain would put into an instruction file that a linter cannot express? The goal is a calibrated baseline — not a checklist of everything the domain could address, but the specific depth markers that distinguish genuine domain guidance from generic defaults.
 
 Do not treat any single source as enough on its own. Cross-check everything.
 
@@ -396,6 +409,7 @@ Every research pass must address all of these. If you skip one, say which and wh
 - At least 1 recent product-team video transcript for practical insights, and preferably 2 when the workflow is broad or architecture-heavy
 - Known common mistakes and what the correct version looks like
 - Concrete improvement opportunities or likely bugs in the audited setup, even when the current setup is not outright broken
+- If the project has technology-specific instruction files: for each such file, assess whether the content addresses substantive domain concerns — design philosophy, architectural tradeoffs, testability as a design signal, performance or resource model constraints, and judgment calls that the toolchain cannot enforce. A file that only restates linter-level defaults is a content failure even if it is structurally valid. Report each file's content quality tier: broken, thin, adequate, or excellent.
 
 Minimum evidence bar:
 
@@ -425,6 +439,7 @@ Return findings in a structured format covering:
 - `Source weighting`: which sources are authoritative for normative claims, which are illustrative, and how conflicts were resolved
 - `Implementation cues`: concrete statements the evaluator can translate into per-file keep/fix/merge/move/delete decisions
 - `Improvement opportunities`: specific ways the audited setup could be better even if parts of it are technically valid
+- `Domain content analysis`: For every technology-specific instruction file, state whether the content addresses substance beyond syntax: design philosophy, architectural tradeoffs, performance or resource model constraints, testability signals, and canonical judgment calls for the domain. Classify each file's content tier (broken / thin / adequate / excellent). For thin or missing content, produce a concise enrichment brief specifying which domain principles are undercovered and what concrete questions the file should help the AI answer. Skip this field only when no technology-specific instruction files are present.
 - `Likely bugs or anti-patterns`: concrete failure risks, misleading guidance, routing problems, over-broad scope, duplication, or dead/inert files to look for
 - `Example-derived prompting principles`: what the best external examples teach about goals, expectations, boundaries, and collaboration with Copilot, plus what should not be copied literally
 - `Transcript takeaways`: concrete workflow and system-design lessons learned from product-team videos, plus how they change or sharpen the target state

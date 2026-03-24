@@ -20,6 +20,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate candidate packets
+        run: ./scripts/community-cache-consolidate.sh validate
+
       - name: Identify new candidates
         id: new_files
         run: |
@@ -28,20 +31,6 @@ jobs:
             -- 'community-cache/candidates/**/*.json' > /tmp/new-candidates.txt
           count=$(grep -c '\.json$' /tmp/new-candidates.txt 2>/dev/null) || count=0
           echo "count=$count" >> "$GITHUB_OUTPUT"
-
-      - name: Validate new candidate packets
-        if: steps.new_files.outputs.count != '0'
-        run: |
-          failed=0
-          while IFS= read -r file; do
-            [[ -n "$file" && -f "$file" ]] || continue
-            ./scripts/community-cache-consolidate.sh validate-one "$file" || {
-              echo "::error file=$file::Schema validation failed for new candidate"
-              failed=1
-            }
-          done < /tmp/new-candidates.txt
-          [[ "$failed" -eq 0 ]] || exit 1
-          echo "All new candidates passed schema validation."
 
       - name: Quality gate
         if: steps.new_files.outputs.count != '0'
@@ -102,7 +91,6 @@ jobs:
 
       - name: Verify submission PR scope
         id: scope
-        if: steps.new_files.outputs.count != '0'
         run: |
           base_sha="${{ github.event.pull_request.base.sha }}"
           changed_files=$(git diff --name-only "$base_sha" HEAD || true)
@@ -111,10 +99,12 @@ jobs:
             -- 'community-cache/candidates/**/*.json' | grep -c '\.json$' || echo 0)
           total_changed=$(printf '%s\n' "$changed_files" | grep -c . || echo 0)
 
-          if [[ -n "$unexpected" ]] || [[ "$added_candidates" -eq 0 ]] || [[ "$added_candidates" -ne "$total_changed" ]]; then
+          if [[ -n "$unexpected" ]]; then
             echo "safe_to_merge=false" >> "$GITHUB_OUTPUT"
-          else
+          elif [[ "$added_candidates" -gt 0 && "$added_candidates" -eq "$total_changed" ]]; then
             echo "safe_to_merge=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "safe_to_merge=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Auto-merge validated submission

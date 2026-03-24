@@ -4,10 +4,10 @@
   "description": "Search index for the community cache. Use this file to find relevant entries across all packs by topic, applicability, kind, or keyword. Every entry references its source pack and item ID.",
   "topicIndex": {
     "instructions": {
-      "principles": ["P02", "P03", "P04", "P05", "P06", "P18", "P19", "P25"],
-      "practices": ["AP01", "AP03", "AP05", "AP06", "AP08", "AP20"],
-      "antiPatterns": ["X01", "X07", "X12", "X13"],
-      "workflowPatterns": ["W10"],
+      "principles": ["P02", "P03", "P04", "P05", "P06", "P18", "P19", "P25", "P30", "P31", "P32", "P33", "P34", "P35", "P36"],
+      "practices": ["AP01", "AP03", "AP05", "AP06", "AP08", "AP20", "AP21", "AP22", "AP23", "AP24", "AP25"],
+      "antiPatterns": ["X01", "X07", "X12", "X13", "X19", "X20", "X21", "X22"],
+      "workflowPatterns": ["W10", "W11"],
       "deprecations": ["D02"]
     },
     "agents": {
@@ -44,9 +44,9 @@
     },
     "workflow": {
       "principles": ["P01", "P16", "P17", "P20", "P24", "P25"],
-      "practices": ["AP01", "AP04", "AP12", "AP14"],
+      "practices": ["AP01", "AP04", "AP12", "AP14", "AP21", "AP22", "AP23", "AP24", "AP25"],
       "antiPatterns": ["X05", "X18"],
-      "workflowPatterns": ["W01", "W02", "W03", "W05", "W07"]
+      "workflowPatterns": ["W01", "W02", "W03", "W05", "W07", "W11"]
     },
     "tooling": {
       "principles": ["P09", "P10", "P26", "P27", "P28", "P29"],
@@ -73,10 +73,10 @@
       "antiPatterns": ["X03", "X10", "X14", "X16", "X17"]
     },
     "instruction-design": {
-      "principles": ["P02", "P03", "P04", "P05", "P06", "P19"],
-      "practices": ["AP06", "AP08"],
-      "antiPatterns": ["X01", "X07", "X12", "X13"],
-      "workflowPatterns": ["W10"]
+      "principles": ["P02", "P03", "P04", "P05", "P06", "P19", "P30", "P31", "P32", "P33", "P34", "P35", "P36"],
+      "practices": ["AP06", "AP08", "AP21", "AP22", "AP23", "AP24", "AP25"],
+      "antiPatterns": ["X01", "X07", "X12", "X13", "X19", "X20", "X21", "X22"],
+      "workflowPatterns": ["W10", "W11"]
     },
     "agent-design": {
       "principles": ["P07", "P08", "P09", "P16", "P20"],
@@ -104,10 +104,10 @@
     }
   },
   "kindIndex": {
-    "principle": { "pack": "prompting-principles.json", "count": 25 },
-    "practice": { "pack": "application-practices.json", "count": 20 },
-    "anti-pattern": { "pack": "anti-patterns.json", "count": 18 },
-    "workflow-pattern": { "pack": "workflow-patterns.json", "count": 10 },
+    "principle": { "pack": "prompting-principles.json", "count": 32 },
+    "practice": { "pack": "application-practices.json", "count": 25 },
+    "anti-pattern": { "pack": "anti-patterns.json", "count": 22 },
+    "workflow-pattern": { "pack": "workflow-patterns.json", "count": 11 },
     "official-source": { "pack": "official-sources.json", "count": 12 },
     "public-example": { "pack": "public-example-sources.json", "count": 13 },
     "deprecation": { "pack": "deprecations.json", "count": 5 },

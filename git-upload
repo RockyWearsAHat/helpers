@@ -1005,6 +1005,89 @@ api_removals|signature_changes)
 	done <<< "$__input"
 }
 
+run_with_timeout_capture() {
+	# Capture command output with a hard timeout, dependency-free.
+	# Usage: run_with_timeout_capture <seconds> <cmd> [args...]
+	local timeout_secs="$1"
+	shift
+
+	local tmp_out
+	tmp_out=$(mktemp -t git-upload-cmd.XXXXXX)
+
+	"$@" >"$tmp_out" 2>/dev/null &
+	local cmd_pid=$!
+	local ticks=0
+	local max_ticks=$((timeout_secs * 10))
+
+	while kill -0 "$cmd_pid" 2>/dev/null; do
+		sleep 0.1
+		ticks=$((ticks + 1))
+		if [ "$ticks" -ge "$max_ticks" ]; then
+			kill "$cmd_pid" 2>/dev/null || true
+			sleep 0.2
+			kill -9 "$cmd_pid" 2>/dev/null || true
+			# Do not wait here: if the child is stuck in an uninterruptible state,
+			# wait can block indefinitely and defeat the timeout safeguard.
+			rm -f "$tmp_out" >/dev/null 2>&1 || true
+			return 124
+		fi
+	done
+
+	wait "$cmd_pid" 2>/dev/null || true
+	cat "$tmp_out"
+	rm -f "$tmp_out" >/dev/null 2>&1 || true
+	return 0
+}
+
+get_staged_diff_for_analysis() {
+	# Safe staged-diff capture for analysis: disable external diff/textconv
+	# and enforce a timeout to avoid lockups on large repos or custom drivers.
+	# Usage: get_staged_diff_for_analysis [diff flags and pathspec...]
+	local diff_output=""
+	if diff_output=$(run_with_timeout_capture 15 git --no-pager diff --cached --no-ext-diff --no-textconv "$@"); then
+		printf '%s' "$diff_output"
+		return 0
+	fi
+
+	echo "[git-upload] ⚠️  Staged diff analysis timed out after 15s; continuing with reduced signals." >&2
+	printf '%s' ""
+	return 0
+}
+
+run_function_with_timeout_capture() {
+	# Run a shell function with a hard timeout and capture stdout.
+	# Usage: run_function_with_timeout_capture <seconds> <function_name>
+	local timeout_secs="$1"
+	local func_name="$2"
+
+	local tmp_out
+	tmp_out=$(mktemp -t git-upload-func.XXXXXX)
+
+	(
+		"$func_name"
+	) >"$tmp_out" 2>/dev/null &
+	local func_pid=$!
+	local ticks=0
+	local max_ticks=$((timeout_secs * 10))
+
+	while kill -0 "$func_pid" 2>/dev/null; do
+		sleep 0.1
+		ticks=$((ticks + 1))
+		if [ "$ticks" -ge "$max_ticks" ]; then
+			kill "$func_pid" 2>/dev/null || true
+			sleep 0.2
+			kill -9 "$func_pid" 2>/dev/null || true
+			rm -f "$tmp_out" >/dev/null 2>&1 || true
+			return 124
+		fi
+	done
+
+	wait "$func_pid" 2>/dev/null || true
+	cat "$tmp_out"
+	rm -f "$tmp_out" >/dev/null 2>&1 || true
+	return 0
+}
+
 compute_diff_analysis() {
 	# Comprehensive diff analysis that determines ACTUAL risk based on:
 	# 1. What type of changes are being made (code vs formatting vs comments)
@@ -1018,7 +1101,7 @@ compute_diff_analysis() {
 	# instead of eval to avoid shell injection from diff content.
 	
 	local diff
-	diff=$(git diff --cached 2>/dev/null || echo "")
+	diff=$(get_staged_diff_for_analysis --unified=0)
 	if [ -z "${diff// /}" ]; then
 		printf 'diff_empty=1\n'
 		return 0
@@ -1406,7 +1489,7 @@ compute_breaking_change_hints() {
 	# not just keyword matching.
 	
 	local diff
-	diff=$(git diff --cached -U3 2>/dev/null || echo "")
+	diff=$(get_staged_diff_for_analysis --unified=3)
 	if [ -z "${diff// /}" ]; then
 		printf '%s' 'Breaking-change hints: no staged diff detected.'
 		return 0
@@ -2057,7 +2140,7 @@ ensure_version_bump_release_notes() {
 	local stat_summary=""
 	stat_summary=$(git diff --cached --stat -- . ':(exclude)release-notes/*' 2>/dev/null | tail -1 || echo "")
 	local actual_diff=""
-	actual_diff=$(git diff --cached -U1 -- . ':(exclude)release-notes/*' 2>/dev/null || echo "")
+	actual_diff=$(get_staged_diff_for_analysis --unified=1 -- . ':(exclude)release-notes/*')
 	local diff_line_count
 	diff_line_count=$(printf '%s\n' "$actual_diff" | wc -l | tr -d ' ')
 	local diff_truncated=""
@@ -2186,12 +2269,18 @@ generate_ai_message() {
 	
 	echo "[git-upload] Checking for breaking changes..." >&2
 	local breaking_hints
-	breaking_hints=$(compute_breaking_change_hints)
+	if ! breaking_hints=$(run_function_with_timeout_capture 8 compute_breaking_change_hints); then
+		echo "[git-upload] ⚠️  Breaking-change analysis timed out after 8s; skipping detailed hints." >&2
+		breaking_hints='Breaking-change hints: analysis timed out; review staged diff manually.'
+	fi
 	
 	# Get comprehensive diff analysis for smart risk assessment
 	start_spinner "Running syntax checks & analyzing diff..."
 	local diff_analysis
-	diff_analysis=$(compute_diff_analysis)
+	if ! diff_analysis=$(run_function_with_timeout_capture 12 compute_diff_analysis); then
+		diff_analysis='diff_empty=1'
+		echo "[git-upload] ⚠️  Diff analysis timed out after 12s; using conservative defaults." >&2
+	fi
 	stop_spinner "✅ Diff analysis complete"
 	
 	# Compute actual risk based on meaningful criteria
@@ -2221,7 +2310,7 @@ $(printf '%s\n' "$changed_file_list" | sed 's/^/  - /')"
 	
 	# Get the actual diff - full content for complete context
 	local actual_diff
-	actual_diff=$(git diff --cached -U3 2>/dev/null || echo "")
+	actual_diff=$(get_staged_diff_for_analysis --unified=3)
 	local diff_line_count
 	diff_line_count=$(printf '%s\n' "$actual_diff" | wc -l | tr -d ' ')
 	local diff_truncated=""

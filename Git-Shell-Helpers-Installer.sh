@@ -55,6 +55,11 @@ fetch() {
 
 write_community_settings() {
   local mode="$1"
+  local local_clone=""
+
+  if [ -f "$(pwd)/community-cache/manifest.json" ]; then
+    local_clone="$(pwd)"
+  fi
 
   ensure_dir "$COMMUNITY_SETTINGS_DIR"
   cat >"$COMMUNITY_SETTINGS_FILE" <<EOF
@@ -63,7 +68,7 @@ write_community_settings() {
   "mode": "${mode}",
   "communityRepo": "${DEFAULT_COMMUNITY_REPO}",
   "baseBranch": "${DEFAULT_COMMUNITY_BRANCH}",
-  "branchPrefix": "automation/community-cache-submission"
+  "branchPrefix": "automation/community-cache-submission"$( [ -n "$local_clone" ] && printf ',\n  "localClone": "%s"' "$local_clone" )
 }
 EOF
   echo "[Git-Shell-Helpers-Installer] Wrote community cache settings: $COMMUNITY_SETTINGS_FILE"

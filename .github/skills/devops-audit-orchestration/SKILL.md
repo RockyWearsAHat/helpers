@@ -22,8 +22,10 @@ In both cases, the main chat session is the orchestrator. Do not invoke `DevOpsA
 The audit always runs the full pipeline required by the user's requested outcome.
 
 - User gave a short command with no extra text → run the default four phases for the whole codebase.
+- User asked a question, requested explanation, asked how to design or improve a setup, or otherwise framed the request as advisory/theoretical without asking for file changes → run Context, Research, and Evaluation, then stop and report. Do not run Implementation.
 - User gave a detailed multi-paragraph request → run the default four phases, focused on that request.
 - User explicitly asked for no edits, read-only output, report-only mode, or a concise overview without changes → run Context, Research, and Evaluation, then stop and report. Do not run Implementation.
+- User explicitly asked to apply, fix, update, rewrite, create, delete, or otherwise change files → run the default four phases for that scope.
 - User sent follow-up messages after the command → incorporate them and run the appropriate full pipeline for the updated request.
 - Previous audit artifacts exist → run the appropriate full pipeline anyway (reuse artifacts only if they pass the gate).
 
@@ -77,6 +79,8 @@ When writing the subagent prompt for each phase, include the user focus near the
 If no user focus exists, tell each phase: "No specific focus was provided. The entire codebase is the scope."
 
 If the user explicitly says not to make edits, include that near the top of every subagent prompt. The evaluation phase should still produce an implementation-ready plan, but the orchestrator must not invoke the implementation phase.
+
+When the user focus is a question or advisory request and does not explicitly ask to change files, treat that as report-only intent even if the user did not say "no edits" verbatim. Requests like "how do I write a good Copilot setup", "what should this look like", "review this design", or "what are best practices" are advisory unless the user also asks to apply the recommendations.
 
 The user focus determines what the research targets. If the user said "build a visual testing flow," the research must find evidence about visual testing patterns in Copilot customization, not just generic Copilot docs. If the user said "qt qss," the research must target Qt/QSS-specific Copilot guidance. The focus is not a tag — it drives the research direction.
 
@@ -181,8 +185,10 @@ Accept evaluation only if all of these are true:
 Accept implementation only if all of these are true:
 
 - The changed files match the approved fixes.
+- The run was actually in implementation mode because the user explicitly asked for file changes, or gave a direct audit command with no advisory-only wording.
 - The implementation input was concrete enough that the implementer did not need to infer the target state from raw links or a broad doc packet.
 - Verification was performed and reported.
+- VS Code diagnostics for the relevant `.github/` files or folders were checked after the edits, any resulting errors or warnings caused by the implementation were fixed, and the check was repeated until the edited `.github/` surface was clean or a concrete blocker was reported.
 - No blocked audit artifacts were created.
 - Any refused changes are explained clearly.
 

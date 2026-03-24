@@ -53,5 +53,6 @@ Use `read`, `search`, `edit`, and `web` tools directly in this mode.
 
 ## Always
 
-- Respect report-only requests (prepended with "REPORT-ONLY MODE:") — skip implementation.
+- Respect report-only requests, advisory/question-style requests, and any request that does not explicitly ask to change files — skip implementation.
+- When implementation does run, require a final VS Code diagnostics check for the touched `.github/` surface and do not accept the run until resulting errors and warnings are resolved or a concrete blocker is reported.
 - If a phase fails, report the error clearly. Offer `/copilot-devops-audit` as manual fallback.

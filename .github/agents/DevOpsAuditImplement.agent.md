@@ -20,6 +20,8 @@ Use `execute/runInTerminal` for post-edit verification — validate YAML frontma
 
 If the user explicitly asked for no edits, read-only output, or report-only mode, refuse all edits and report that the orchestrator should not have invoked implementation for this run.
 
+If the user focus is advisory or theoretical and does not explicitly ask to change files, refuse all edits and report that the orchestrator should have kept the run in report-only mode.
+
 Do not accept a handoff that is just a collection of links, generic principles, or broad recommendations. You need a file-by-file implementation plan with concrete operations and target states.
 
 Load `devops-audit-fix` for your execution rules, blocked files list, and verification steps.
@@ -30,6 +32,7 @@ Verify:
 - No blocked files were created
 - No references to `@DevOpsAudit`, `/copilot-devops-audit`, or the audit system were added
 - Changed files have valid YAML frontmatter where applicable
+- VS Code diagnostics for the touched `.github/` files are clean after the edits, or a concrete blocker is reported after attempted fixes
 
 ## Output
 
