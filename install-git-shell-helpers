@@ -520,6 +520,15 @@ install_man_git_copilot_devops_audit() {
   fi
 }
 
+install_man_git_research_mcp() {
+  local src="${SCRIPT_DIR}/man/man1/git-research-mcp.1"
+  local dest="${MAN_DIR}/git-research-mcp.1"
+  if [ -f "$src" ]; then
+    cp "$src" "$dest"
+    echo "[install-git-shell-helpers] Installed man page: $dest"
+  fi
+}
+
 main() {
   echo "[install-git-shell-helpers] Installing git shell helpers..."
 
@@ -531,8 +540,22 @@ main() {
   install_script "git-initialize"
   install_script "git-fucked-the-push"
   install_script "git-copilot-devops-audit"
+  install_script "git-research-mcp"
   install_support_script "scripts/community-cache-submit.sh" "git-copilot-devops-audit-community-submit"
   install_support_script "scripts/community-cache-pull.sh" "git-copilot-devops-audit-community-pull"
+
+  # Write default git-research-mcp config if it doesn't exist
+  local research_config_dir="${HOME}/.config/git-research-mcp"
+  local research_env_file="${research_config_dir}/.env"
+  if [ ! -f "$research_env_file" ]; then
+    ensure_dir "$research_config_dir"
+    cat >"$research_env_file" <<'RENV'
+# SearXNG — local meta-search instance (Docker container on port 8888).
+# Start with: docker run -d --name searxng -p 8888:8080 searxng/searxng:latest
+SEARXNG_URL=http://localhost:8888
+RENV
+    echo "[install-git-shell-helpers] Wrote default config: $research_env_file"
+  fi
 
   configure_community_cache
 
@@ -541,6 +564,7 @@ main() {
   install_man_git_initialize
   install_man_git_fucked_the_push
   install_man_git_copilot_devops_audit
+  install_man_git_research_mcp
 
   # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'

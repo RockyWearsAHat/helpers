@@ -41,6 +41,7 @@ cp "${ROOT_DIR}/git-fucked-the-push" "$BIN_PAYLOAD/git-fucked-the-push"
 cp "${ROOT_DIR}/git-copilot-devops-audit" "$BIN_PAYLOAD/git-copilot-devops-audit"
 cp "${ROOT_DIR}/scripts/community-cache-submit.sh" "$BIN_PAYLOAD/git-copilot-devops-audit-community-submit"
 cp "${ROOT_DIR}/scripts/community-cache-pull.sh" "$BIN_PAYLOAD/git-copilot-devops-audit-community-pull"
+cp "${ROOT_DIR}/git-research-mcp" "$BIN_PAYLOAD/git-research-mcp"
 chmod 755 "$BIN_PAYLOAD"/git-*
 
 # Copy man pages
@@ -49,6 +50,7 @@ cp "${ROOT_DIR}/man/man1/git-get.1"        "$MAN_PAYLOAD/git-get.1"
 cp "${ROOT_DIR}/man/man1/git-initialize.1" "$MAN_PAYLOAD/git-initialize.1"
 cp "${ROOT_DIR}/man/man1/git-fucked-the-push.1" "$MAN_PAYLOAD/git-fucked-the-push.1"
 cp "${ROOT_DIR}/man/man1/git-copilot-devops-audit.1" "$MAN_PAYLOAD/git-copilot-devops-audit.1"
+cp "${ROOT_DIR}/man/man1/git-research-mcp.1" "$MAN_PAYLOAD/git-research-mcp.1"
 
 # Build the package with a postinstall step that refreshes the global VS Code audit setup
 pkgbuild --root "$BUILD_DIR" \

@@ -468,6 +468,69 @@
           "sourceType": "product-guidance"
         }
       ]
+    },
+    {
+      "id": "P30",
+      "statement": "Instruction files should guide AI toward preserving architectural reversibility: loose coupling, dependency injection, interface separation, and explicit module boundaries. Architecture is defined by the decisions that are hard to reverse. Rules that protect reversibility belong in instruction files; style preferences that do not affect structural changeability usually do not.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P31",
+      "statement": "Testability is a design signal, not a testing concern. When code is hard to test, the test is not the problem — tight coupling, hidden state, global mutation, and mixed concerns are structural issues that surface as test complexity. Instruction files for any technology domain should establish testability as an architectural goal, not a QA afterthought.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P32",
+      "statement": "Pure functions and referential transparency compound across AI-assisted development sessions. A codebase with a strong pure-function basis produces more predictable behavior, more localized changes, and less session-to-session drift. Instruction files that establish 'prefer pure over impure functions when both are viable' systematically improve AI-generated code quality over time.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P33",
+      "statement": "Design philosophy addresses the 'why' layers that linters cannot express. A linter can catch missing error handling, but it cannot tell the AI whether the design should fail fast, fail silently, propagate, or degrade. Instruction files that only describe syntax and style leave the AI without guidance on the design decisions that matter most for a codebase's long-term coherence.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P34",
+      "statement": "Module boundaries should express system concepts, not filesystem habits. Instruction files that articulate what constitutes a coherent module — what belongs together, what should stay separate, and what crossing a module boundary should signal — prevent AI from generating code that compiles but introduces long-term coupling debt.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P35",
+      "statement": "Prescriptive tradeoff guidance outperforms descriptive tradeoff guidance. Engineering tradeoffs have no universal right answer, but a given team's codebase DOES have a preferred position. An instruction file that says 'prefer immutable data unless performance requirements prevent it' is more useful than one that says 'consider mutability tradeoffs'. Prefer concrete prescriptions over balanced descriptions where the team has a genuine position.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P36",
+      "statement": "The rate of change of a rule should guide which instruction file it belongs in. Stable architectural principles belong in always-on instruction files. Practices that evolve with the codebase belong in file-scoped instruction files. Workflow-specific guidance belongs in prompt files. Mixing stability classes in one file creates maintenance debt: every update risks touching stable rules alongside volatile ones.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
     }
   ]
 }
