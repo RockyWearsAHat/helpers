@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "anti-pattern",
+  "topic": "skills",
+  "statement": "An empty or skeleton skill file (SKILL.md with placeholder headings but no substantive instructions) is worse than having no skill at all. It wastes a tool call when the model loads it, then forces improvisation since no methodology is provided. Either fill a skill with complete step-by-step instructions and templates, or delete it entirely.",
+  "recommendationStrength": "recommended",
+  "applicability": "skill-design",
+  "evidenceRefs": [
+    {
+      "title": "Burke Holland - Complete Guide to Agent Skills",
+      "url": "https://www.youtube.com/watch?v=lM30gPPcfPM",
+      "sourceType": "public-video"
+    },
+    {
+      "title": "VS Code - Copilot extensibility overview",
+      "url": "https://code.visualstudio.com/docs/copilot/copilot-extensibility-overview",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-23T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-23T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "",
+  "cautionNotes": "",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-23T22:18:36Z",
+  "submissionId": "20260323T221836Z-3our4lpb",
+  "statementHash": "f6760adf15677e1be2ab1e258cef3efdbd42a56bc15dfbbc1a3eb76c9c013aec"
+}
