@@ -3,8 +3,12 @@ name: Cross-platform tests
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'community-cache/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'community-cache/**'
 
 permissions:
   contents: read

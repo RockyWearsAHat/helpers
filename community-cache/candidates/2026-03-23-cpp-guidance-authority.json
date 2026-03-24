@@ -26,5 +26,7 @@
   "publicSummary": "Persistent language guidance should prefer authoritative references plus a last-verified date over unsourced community lore.",
   "cautionNotes": "Generalized from durable C++ guidance curation. Applies to other language-specific instruction sets when official references exist.",
   "nonGeneralizationNotes": "Does not prescribe any specific language rules; it only constrains how persistent guidance should be sourced.",
-  "submissionId": "2026-03-23-cpp-guidance-authority"
+  "submittedAt": "2026-03-23T00:00:00Z",
+  "submissionId": "2026-03-23-cpp-guidance-authority",
+  "statementHash": "a6a1bef1523c1568b71f89880cbd372a4549a8b5281fd8f8ea00a49a6c8a5012"
 }
