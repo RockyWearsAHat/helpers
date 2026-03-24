@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "tooling",
+  "statement": "MCP tool schema descriptions are the primary signal an LLM uses to decide when and how to invoke a tool. Invest in clear, specific description strings — vague descriptions cause the model to skip the tool or pass wrong arguments. Include: what the tool does, when to use it vs alternatives, required vs optional params, and one concrete example in the description.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Model Context Protocol specification — Tool definition",
+      "url": "https://spec.modelcontextprotocol.io/specification/2025-03-26/server/tools/",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "Anthropic — Building effective agents (tool design guidance)",
+      "url": "https://docs.anthropic.com/en/docs/build-with-claude/tool-use/best-practices",
+      "sourceType": "product-guidance"
+    }
+  ],
+  "auditCompletedAt": "2026-03-24T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-24T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": false,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "MCP tool descriptions are the LLM's primary invocation signal. Make them specific: what it does, when to use, params, and an example.",
+  "cautionNotes": "Tool descriptions consume context tokens — keep them dense but not verbose.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-24T06:47:35Z",
+  "submissionId": "20260324T064735Z-ui3brnjm",
+  "statementHash": "52f2ac69ca70f4aacdbca060e036c0ac0a4696e838ebcebe71f211bab17b6693"
+}
