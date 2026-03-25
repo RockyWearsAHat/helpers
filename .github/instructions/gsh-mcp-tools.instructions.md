@@ -9,15 +9,17 @@ The `gsh` MCP server is installed globally and available in every workspace. It 
 
 ## Core — Git Checkpoint
 
-**`checkpoint`** — Create a local git commit.
+**`checkpoint`** — Create a local git commit with an AI-generated message.
 
-- The caller (the AI) writes the commit message. No AI generation happens inside the tool.
-- Stages changes, commits, and optionally pushes.
-- Returns the commit hash and summary.
+- Stages changes, generates a commit message from the diff via AI, and commits.
+- You do not write the message. Just call the tool.
+- Optionally pass `context` with extra hints (e.g. `"fixes the login race from PR #42"`).
+- Pass `message` only to override the AI output with a specific string.
 
 Parameters:
 
-- `message` (required) — The commit message.
+- `context` (string, optional) — Extra context for the AI message generator. Use when the diff alone doesn't tell the whole story.
+- `message` (string, optional) — Manual override. Skips AI generation entirely.
 - `all` (boolean) — Stage all changes including untracked files (`git add -A`) before committing. Default: `true`.
 - `push` (boolean) — Push to remote after committing. Default: `false`.
 - `force` (boolean) — Override a mid-session disable. Only use when the user explicitly asked for a checkpoint and the previous call returned `[no-op]`.

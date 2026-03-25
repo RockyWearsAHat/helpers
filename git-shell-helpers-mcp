@@ -69,19 +69,25 @@ const ALL_TOOLS = modules.flatMap((m) => m.tools || []);
 // Built-in tools (not delegated to sub-modules)
 // ---------------------------------------------------------------------------
 
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
+const fs = require("fs");
 
 const CHECKPOINT_TOOL = {
   name: "checkpoint",
   description:
-    "Create a local git commit. The caller provides the commit message — no AI generation happens inside this tool. Stages changes, commits, and optionally pushes. Returns the commit hash and summary.",
+    "Create a local git commit with an AI-generated message. Stages changes, generates a commit message from the diff, commits, and optionally pushes. Pass context for extra AI hints. Optionally override with a manual message.",
   inputSchema: {
     type: "object",
     properties: {
+      context: {
+        type: "string",
+        description:
+          "Optional extra context to include in the AI prompt (e.g. 'fixes the login bug introduced in last PR'). Ignored when message is provided.",
+      },
       message: {
         type: "string",
         description:
-          "The commit message. The model should write this — it already has full context.",
+          "Optional manual override for the commit message. If omitted, the message is AI-generated from the staged diff.",
       },
       all: {
         type: "boolean",
@@ -98,7 +104,7 @@ const CHECKPOINT_TOOL = {
           "Override a mid-session disable. Only use this when the user explicitly asked for a checkpoint and the previous call returned [no-op]. Never set force on automatic checkpoints.",
       },
     },
-    required: ["message"],
+    required: [],
   },
 };
 
@@ -116,12 +122,159 @@ function execGit(args, cwd) {
   });
 }
 
-async function handleCheckpoint(args) {
-  const message = String(args.message || "").trim();
-  if (!message) {
-    throw new Error("checkpoint requires a non-empty message.");
+async function generateAiCommitMessage(cwd, extraContext) {
+  function gitOut(gitArgs) {
+    return new Promise((resolve) => {
+      execFile("git", gitArgs, { cwd, timeout: 15000 }, (err, stdout) => {
+        resolve(err ? "" : (stdout || "").trim());
+      });
+    });
   }
 
+  const changedFiles = await gitOut(["diff", "--cached", "--name-only"]);
+  const statSummary = await gitOut(["diff", "--cached", "--stat"]);
+  let actualDiff = await gitOut(["diff", "--cached", "--unified=3"]);
+  const diffLines = actualDiff.split("\n").length;
+  if (diffLines > 2000) {
+    actualDiff =
+      actualDiff.split("\n").slice(0, 2000).join("\n") +
+      `\n(truncated — showing first 2000 of ${diffLines} lines)`;
+  }
+
+  const recentHistory = await gitOut([
+    "log",
+    "--oneline",
+    "-10",
+    "--no-decorate",
+  ]);
+  const detailedRecent = await gitOut([
+    "log",
+    "-3",
+    "--pretty=format:--- %h (%ar) ---%n%s%n%n%b",
+  ]);
+
+  // Load repo guidance
+  let repoGuidance = "";
+  for (const gf of [
+    ".github/COMMIT_GUIDELINES.md",
+    ".github/commit_guidelines.md",
+    ".github/COMMIT_MESSAGE.md",
+    ".github/commit_message.md",
+    ".github/copilot-instructions.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+  ]) {
+    try {
+      const raw = fs.readFileSync(path.join(cwd, gf), "utf8");
+      const snippet = raw.split("\n").slice(0, 120).join("\n").trim();
+      if (snippet) repoGuidance += `\n--- ${gf} ---\n${snippet}\n`;
+    } catch {
+      /* not present */
+    }
+  }
+
+  const prompt = `Write a commit message for the staged changes below.
+
+This is a CHECKPOINT commit — the developer is marking a meaningful moment:
+something works now that did not before, a logical unit of work is complete,
+or they are about to switch context. Frame the message accordingly.
+
+CONTEXT MATTERS MOST:
+Read the recent commit history. Each commit is part of an ongoing thread.
+Frame yours as the next step in that story.
+
+SUBJECT LINE:
+One line, <= 72 chars. Say what the commit DOES or FIXES, not what
+files it touches.
+
+BODY:
+Describe the situation, what you did, and why. Someone reading git blame
+should understand the reasoning without opening the diff.
+
+Do NOT use section headers like 'What changed:', 'Why this matters:', etc.
+For a tiny fix: one sentence or no body. For a real change: a short paragraph.
+
+Never anthropomorphize code. Never restate the subject in different words.
+
+OUTPUT FORMAT — output ONLY the commit between these markers:
+COMMIT_BEGIN
+<commit message>
+COMMIT_END
+`;
+
+  let fullPrompt = `${prompt}
+RECENT COMMIT HISTORY:
+${recentHistory}
+
+DETAILED RECENT COMMITS (last 3):
+${detailedRecent}`;
+
+  if (repoGuidance) fullPrompt += `\n\nREPOSITORY GUIDANCE:${repoGuidance}`;
+
+  fullPrompt += `\n\n---\n\nChanged files:\n${changedFiles
+    .split("\n")
+    .map((f) => `  - ${f}`)
+    .join(
+      "\n",
+    )}\n\nGit stat: ${statSummary.split("\n").pop()}\n\nDIFF (${diffLines} lines):\n\`\`\`diff\n${actualDiff}\n\`\`\``;
+
+  if (extraContext)
+    fullPrompt += `\n\nAdditional context from developer: ${extraContext}`;
+
+  const aiCmd =
+    process.env.GIT_UPLOAD_AI_CMD ||
+    'copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"';
+
+  const aiOutput = await new Promise((resolve, reject) => {
+    let out = "";
+    let err = "";
+    const child = spawn("sh", ["-c", aiCmd], {
+      env: { ...process.env, GIT_UPLOAD_AI_PROMPT: fullPrompt },
+      cwd,
+    });
+    child.stdout.on("data", (d) => {
+      out += d;
+    });
+    child.stderr.on("data", (d) => {
+      err += d;
+    });
+    child.on("close", (code) => {
+      if (code !== 0 || !out.trim())
+        reject(
+          new Error(
+            `AI message generation failed (exit ${code}): ${err.trim()}`,
+          ),
+        );
+      else resolve(out);
+    });
+  });
+
+  // Parse COMMIT_BEGIN/COMMIT_END
+  const lines = aiOutput.split("\n");
+  let capturing = false;
+  const msgLines = [];
+  for (const line of lines) {
+    if (line.trim() === "COMMIT_BEGIN") {
+      capturing = true;
+      continue;
+    }
+    if (line.trim() === "COMMIT_END") {
+      capturing = false;
+      break;
+    }
+    if (capturing) msgLines.push(line);
+  }
+  const commitMsg = msgLines.join("\n").trim();
+  if (!commitMsg) {
+    throw new Error(
+      "Could not parse AI output. Use the message parameter to provide a manual message.",
+    );
+  }
+  return commitMsg;
+}
+
+async function handleCheckpoint(args) {
   // Determine workspace root
   let cwd;
   try {
@@ -146,7 +299,7 @@ async function handleCheckpoint(args) {
     return [
       {
         type: "text",
-        text: "Checkpoint is disabled for this repo. Use `git checkpoint --enable` to turn on.",
+        text: "[no-op] Checkpoint is disabled for this repo. Use `git checkpoint --enable` to turn on.",
       },
     ];
   }
@@ -164,6 +317,15 @@ async function handleCheckpoint(args) {
     return [{ type: "text", text: "Nothing to commit — working tree clean." }];
   } catch {
     // Good — there are staged changes
+  }
+
+  // Get or generate commit message
+  let message = String(args.message || "").trim();
+  if (!message) {
+    message = await generateAiCommitMessage(
+      cwd,
+      String(args.context || "").trim(),
+    );
   }
 
   // Build commit args
@@ -218,7 +380,6 @@ async function handleCheckpoint(args) {
 // Tools config — filter disabled tools per user preferences
 // ---------------------------------------------------------------------------
 
-const fs = require("fs");
 const TOOLS_CONFIG_PATH = path.join(
   process.env.HOME || process.env.USERPROFILE || "",
   ".config",
