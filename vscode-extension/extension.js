@@ -35,10 +35,10 @@ function findGitShellHelpersMcpPath(context) {
     (folder) => path.join(folder.uri.fsPath, "git-shell-helpers-mcp"),
   );
   const candidates = uniquePaths([
-    GLOBAL_MCP_SERVER_PATH,
-    path.join(homeDir, "bin", "git-shell-helpers-mcp"),
-    context.asAbsolutePath("git-shell-helpers-mcp"),
     ...workspaceCandidates,
+    path.join(homeDir, "bin", "git-shell-helpers-mcp"),
+    GLOBAL_MCP_SERVER_PATH,
+    context.asAbsolutePath("git-shell-helpers-mcp"),
   ]);
 
   return candidates.find((candidate) => fs.existsSync(candidate)) || "";
