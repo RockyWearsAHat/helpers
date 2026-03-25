@@ -81,6 +81,49 @@ async function connectAndSend(request) {
 
 const VISION_TOOLS = [
   {
+    name: "take_screenshot",
+    description:
+      "Capture a screenshot on macOS. Returns the absolute path to the saved PNG. Use this to get images for analyze_images.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        output_path: {
+          type: "string",
+          description:
+            "Optional absolute path for the output PNG. Defaults to a timestamped file in the system temp directory.",
+        },
+        mode: {
+          type: "string",
+          enum: ["fullscreen", "window", "region"],
+          description:
+            "Capture mode. 'fullscreen' (default): entire screen. 'window': a specific window by owner name. 'region': a rectangle defined by x, y, width, height.",
+        },
+        app_name: {
+          type: "string",
+          description:
+            "Application name whose frontmost window to capture (used with mode 'window'). Example: 'AIO Server'.",
+        },
+        x: {
+          type: "number",
+          description: "X origin for region capture.",
+        },
+        y: {
+          type: "number",
+          description: "Y origin for region capture.",
+        },
+        width: {
+          type: "number",
+          description: "Width for region capture.",
+        },
+        height: {
+          type: "number",
+          description: "Height for region capture.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: "analyze_images",
     description:
       "Analyze up to 10 images with a vision model. Supports single inspection, comparisons, batch evaluation, and any custom analysis goal.",
@@ -116,19 +159,33 @@ const VISION_TOOLS = [
 ];
 
 async function handleVisionToolCall(toolName, toolArguments) {
-  if (toolName !== "analyze_images") {
-    return null;
+  if (toolName === "take_screenshot") {
+    const response = await connectAndSend({
+      method: toolName,
+      arguments: toolArguments,
+    });
+    if (!response.ok) {
+      throw new Error(response.error || "Extension IPC failed");
+    }
+    return [
+      { type: "text", text: response.result },
+    ];
   }
-  const response = await connectAndSend({
-    method: toolName,
-    arguments: toolArguments,
-  });
-  if (!response.ok) {
-    throw new Error(response.error || "Extension IPC failed");
+
+  if (toolName === "analyze_images") {
+    const response = await connectAndSend({
+      method: toolName,
+      arguments: toolArguments,
+    });
+    if (!response.ok) {
+      throw new Error(response.error || "Extension IPC failed");
+    }
+    return [
+      { type: "text", text: `Model: ${response.model}\n\n${response.result}` },
+    ];
   }
-  return [
-    { type: "text", text: `Model: ${response.model}\n\n${response.result}` },
-  ];
+
+  return null;
 }
 
 async function handleRequest(request) {

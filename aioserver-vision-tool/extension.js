@@ -3,6 +3,7 @@ const fs = require("fs");
 const net = require("net");
 const os = require("os");
 const path = require("path");
+const { execFile } = require("child_process");
 
 function mimeTypeForFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
@@ -136,6 +137,74 @@ async function selectVisionModel() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Screenshot capture (macOS)
+// ---------------------------------------------------------------------------
+
+function defaultScreenshotPath() {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  return path.join(os.tmpdir(), `screenshot-${ts}.png`);
+}
+
+function execPromise(cmd, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 15000, ...options }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout.trim());
+    });
+  });
+}
+
+async function findWindowIdByAppName(appName) {
+  // Use AppleScript to get the window ID of the frontmost window of the named app
+  const script = `
+    tell application "System Events"
+      set targetProc to first process whose name is "${appName.replace(/"/g, '\\"')}"
+      set targetWin to first window of targetProc
+      return id of targetWin
+    end tell
+  `;
+  const result = await execPromise("osascript", ["-e", script]);
+  return result.trim();
+}
+
+async function takeScreenshot(input) {
+  const outputPath = input.output_path || input.outputPath || defaultScreenshotPath();
+  const mode = input.mode || "fullscreen";
+
+  const dir = path.dirname(outputPath);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const args = ["-x"]; // silent — no camera shutter sound
+
+  if (mode === "window" && (input.app_name || input.appName)) {
+    const appName = input.app_name || input.appName;
+    const windowId = await findWindowIdByAppName(appName);
+    args.push("-l", windowId);
+  } else if (mode === "region") {
+    const x = input.x ?? 0;
+    const y = input.y ?? 0;
+    const w = input.width ?? 800;
+    const h = input.height ?? 600;
+    args.push("-R", `${x},${y},${w},${h}`);
+  }
+
+  args.push(outputPath);
+
+  await execPromise("screencapture", args);
+
+  if (!fs.existsSync(outputPath)) {
+    throw new Error("screencapture did not produce an output file.");
+  }
+
+  const stats = fs.statSync(outputPath);
+  return {
+    path: outputPath,
+    size: stats.size,
+    mode,
+  };
+}
+
 async function readOptionalSidecar(imageUri) {
   const sidecarUri = imageUri.with({ path: `${imageUri.path}.json` });
   try {
@@ -226,6 +295,15 @@ async function analyzeImages(input, token) {
 }
 
 async function handleVisionRequest(method, args, token) {
+  if (method === "take_screenshot") {
+    const result = await takeScreenshot(args);
+    return {
+      model: "screencapture",
+      response: `Screenshot saved to ${result.path} (${result.size} bytes, mode: ${result.mode})`,
+      path: result.path,
+    };
+  }
+
   if (method === "analyze_images") {
     return analyzeImages(
       {
@@ -354,7 +432,7 @@ function registerChatParticipant(context) {
 }
 
 function registerTool(context) {
-  const toolNames = [
+  const analyzeToolNames = [
     "aioserver-analyze-images",
     "aioserver_analyze_images",
   ];
@@ -375,8 +453,34 @@ function registerTool(context) {
     },
   };
 
-  for (const toolName of toolNames) {
+  for (const toolName of analyzeToolNames) {
     context.subscriptions.push(vscode.lm.registerTool(toolName, analyzeTool));
+  }
+
+  const screenshotToolNames = [
+    "aioserver-take-screenshot",
+    "aioserver_take_screenshot",
+  ];
+
+  const screenshotTool = {
+    async invoke(options) {
+      const result = await takeScreenshot(options.input);
+      return makeToolResult(
+        `Screenshot saved to ${result.path} (${result.size} bytes, mode: ${result.mode})`,
+      );
+    },
+    async prepareInvocation(options) {
+      const mode = options.input.mode || "fullscreen";
+      const appName = options.input.appName || options.input.app_name || "";
+      const label = mode === "window" && appName
+        ? `Capturing ${appName} window`
+        : `Capturing ${mode} screenshot`;
+      return { invocationMessage: label };
+    },
+  };
+
+  for (const toolName of screenshotToolNames) {
+    context.subscriptions.push(vscode.lm.registerTool(toolName, screenshotTool));
   }
 }
 

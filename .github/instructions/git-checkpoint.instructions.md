@@ -48,8 +48,15 @@ Per-repo git config keys:
 
 ## For AI assistants
 
-When you've completed a task and the changes are verified working, suggest:
+Run `git checkpoint -a` automatically when **both** conditions are met:
 
-> "These changes look good — want me to checkpoint this? `git checkpoint -a`"
+1. **A meaningful milestone occurred** — the user confirms something works, expresses satisfaction, or a fix has been verifiably solved (tests pass, build succeeds, error is gone).
+2. **A checkpoint has not been recently taken** — don't double-commit the same state. If you just checkpointed moments ago and no new changes have been made, skip it.
 
-Do NOT checkpoint without the user's knowledge. Always confirm first.
+Do NOT ask for permission — just run it. The whole point is frictionless local commits.
+Checkpoints are local-only (no push) and cheap to amend or squash later, so err on the side of committing.
+
+**Do NOT checkpoint** when:
+- You're still mid-change with uncommitted loose ends.
+- The user hasn't reacted yet and the work hasn't been validated.
+- The only change is a trivial typo fix with no user interaction.
