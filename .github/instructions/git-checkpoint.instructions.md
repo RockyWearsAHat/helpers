@@ -54,7 +54,7 @@ The tool stages changes, generates a commit message itself via AI (reading the a
 
 Optionally pass `context` with brief extra context if it would help the message (e.g. `"this fixes the login race condition from PR #42"`). Never pass `message` unless you need to override the AI output with a specific string.
 
-**CRITICAL — always pass `cwd`:** The `gsh` MCP server is global and its process starts in `~/bin`. Without `cwd`, every checkpoint call from every workspace commits to `~/bin` instead of the caller's repo. Always call with `{ "all": true, "cwd": "/absolute/path/to/workspace" }`. Omitting `cwd` is only safe when you are explicitly working inside `~/bin`.
+**`cwd` is auto-detected:** The server requests the active workspace root from VS Code via the MCP roots protocol on startup and whenever workspace folders change. When exactly one workspace folder is open, omitting `cwd` is safe — the server commits to that folder's repo. Pass `cwd` explicitly only in multi-root workspaces or when the target repo differs from the open workspace folder.
 
 ### When to checkpoint
 

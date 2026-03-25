@@ -18,7 +18,7 @@ const path = require("path");
 const readline = require("readline");
 
 const MCP_VERSION = "2024-11-05";
-const SERVER_VERSION = "1.1.0";
+const SERVER_VERSION = "1.2.0";
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -30,6 +30,39 @@ function sendError(id, code, message) {
     id,
     error: { code, message },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Server-initiated requests (e.g. roots/list to learn workspace folders)
+// ---------------------------------------------------------------------------
+
+const pendingRequests = new Map();
+let nextRequestId = 1;
+
+function sendRequest(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    const id = `srv-${nextRequestId++}`;
+    pendingRequests.set(id, { resolve, reject });
+    send({ jsonrpc: "2.0", id, method, params });
+    const timer = setTimeout(() => {
+      if (pendingRequests.has(id)) {
+        pendingRequests.delete(id);
+        reject(new Error(`Request "${method}" timed out`));
+      }
+    }, 5000);
+    if (timer.unref) timer.unref();
+  });
+}
+
+let knownRoots = [];
+
+async function refreshRoots() {
+  try {
+    const result = await sendRequest("roots/list");
+    knownRoots = result.roots || [];
+  } catch {
+    // Client may not support roots — fine, fall back to process.cwd()
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +139,7 @@ const CHECKPOINT_TOOL = {
       cwd: {
         type: "string",
         description:
-          "Absolute path to the git repository to commit in. Required when the calling agent is running in a different workspace than the one where the MCP server was started. If omitted, defaults to the server's working directory.",
+          "Absolute path to the git repository to commit in. If omitted, the server uses the active VS Code workspace root automatically (when exactly one folder is open). Only pass this when working in a multi-root workspace or a workspace that differs from the detected root.",
       },
     },
     required: [],
@@ -284,15 +317,28 @@ ${detailedRecent}`;
   return commitMsg;
 }
 
+function rootsToPath(roots) {
+  // Return the filesystem path for a single root, or null if ambiguous/unknown.
+  if (!roots || roots.length !== 1) return null;
+  const uri = roots[0].uri || "";
+  try {
+    return new URL(uri).pathname;
+  } catch {
+    return uri || null;
+  }
+}
+
 async function handleCheckpoint(args) {
-  // Determine workspace root
-  // Prefer caller-supplied cwd so agents in other workspaces commit to the right repo.
+  // Determine workspace root.
+  // Priority: caller-supplied cwd > single known VS Code workspace root > server cwd.
   let cwd;
   const callerCwd = String(args.cwd || "").trim();
+  const autoRoot = rootsToPath(knownRoots);
+  const startDir = callerCwd || autoRoot || process.cwd();
   try {
-    cwd = await execGit(["rev-parse", "--show-toplevel"], callerCwd || process.cwd());
+    cwd = await execGit(["rev-parse", "--show-toplevel"], startDir);
   } catch {
-    // Fallback: __dirname is the script's location (workspace root)
+    // Fallback: __dirname is the script's own directory
     try {
       cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
     } catch {
@@ -433,7 +479,7 @@ async function handleRequest(request) {
       id,
       result: {
         protocolVersion: MCP_VERSION,
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, roots: { listChanged: true } },
         serverInfo: { name: "gsh", version: SERVER_VERSION },
       },
     });
@@ -441,6 +487,13 @@ async function handleRequest(request) {
   }
 
   if (method === "notifications/initialized") {
+    // Handshake complete — ask client for workspace roots.
+    refreshRoots();
+    return;
+  }
+
+  if (method === "notifications/roots/listChanged") {
+    refreshRoots();
     return;
   }
 
@@ -522,8 +575,27 @@ lineReader.on("line", async (line) => {
   }
 
   try {
-    const request = JSON.parse(line);
-    await handleRequest(request);
+    const message = JSON.parse(line);
+    // Route responses to server-initiated requests (e.g. roots/list reply).
+    if (
+      message.id !== undefined &&
+      !message.method &&
+      (message.result !== undefined || message.error !== undefined)
+    ) {
+      const pending = pendingRequests.get(message.id);
+      if (pending) {
+        pendingRequests.delete(message.id);
+        if (message.error) {
+          pending.reject(
+            new Error(message.error.message || String(message.error)),
+          );
+        } else {
+          pending.resolve(message.result);
+        }
+        return;
+      }
+    }
+    await handleRequest(message);
   } catch {
     sendError(null, -32700, "Parse error");
   }

@@ -47,11 +47,13 @@ The compiler, type checker, linter, and VS Code's Problems panel (`read/problems
 3. **You think X might be wrong** → run the tool. Find out. Don't reason without evidence.
 
 **Never:**
+
 - Skip the diagnostics check to save time. It costs far less time to check now than to debug a broken build later.
 - Argue with a compiler error by reasoning from first principles. The compiler parsed the actual source tree. You did not.
 - Assume a file is correct because it "looks right." Read the errors.
 
 **The compiler is almost always correct.** The rare case where it appears to be wrong is almost always one of:
+
 - A stale build cache — clean and rebuild.
 - A missing import or uninstalled dependency — install it.
 - An outdated language server — reload the VS Code window.
