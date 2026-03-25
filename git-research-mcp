@@ -392,13 +392,11 @@ async function searchKnowledgeCache(args) {
   for (const { filePath: fp, root } of files) {
     const body = await fs.readFile(fp, "utf8");
     // Show workspace-relative path for workspace files, repo-relative for repo files
-    const relativePath = root === KNOWLEDGE_ROOT
-      ? path.relative(WORKSPACE_ROOT, fp)
-      : path.relative(path.resolve(__dirname), fp);
-    const title = getMarkdownTitle(
-      body,
-      path.basename(fp, path.extname(fp)),
-    );
+    const relativePath =
+      root === KNOWLEDGE_ROOT
+        ? path.relative(WORKSPACE_ROOT, fp)
+        : path.relative(path.resolve(__dirname), fp);
+    const title = getMarkdownTitle(body, path.basename(fp, path.extname(fp)));
     const score = scoreKnowledgeMatch(relativePath, title, body, terms);
     if (score <= 0) {
       continue;
@@ -442,8 +440,10 @@ async function readKnowledgeNote(args) {
   const relativeToRoot = path.relative(KNOWLEDGE_ROOT, resolvedPath);
   const relativeToRepo = path.relative(REPO_KNOWLEDGE_ROOT, resolvedPath);
 
-  const inWorkspace = !relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot);
-  const inRepo = !relativeToRepo.startsWith("..") && !path.isAbsolute(relativeToRepo);
+  const inWorkspace =
+    !relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot);
+  const inRepo =
+    !relativeToRepo.startsWith("..") && !path.isAbsolute(relativeToRepo);
 
   if (!inWorkspace && !inRepo) {
     throw new Error(
@@ -459,7 +459,10 @@ async function readKnowledgeNote(args) {
   } catch {
     if (inRepo || inWorkspace) {
       // Try the same relative note path under repo knowledge root
-      const repoPath = path.resolve(REPO_KNOWLEDGE_ROOT, relativeToRoot.startsWith("..") ? relativeToRepo : relativeToRoot);
+      const repoPath = path.resolve(
+        REPO_KNOWLEDGE_ROOT,
+        relativeToRoot.startsWith("..") ? relativeToRepo : relativeToRoot,
+      );
       await fs.access(repoPath);
       actualPath = repoPath;
       source = "repo";
