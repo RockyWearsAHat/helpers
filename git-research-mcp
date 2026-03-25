@@ -51,7 +51,142 @@ const WORKSPACE_ROOT = (() => {
 })();
 const KNOWLEDGE_ROOT = path.join(WORKSPACE_ROOT, ".github", "knowledge");
 const REPO_KNOWLEDGE_ROOT = path.join(__dirname, ".github", "knowledge");
-const KNOWLEDGE_INDEX_PATH = path.join(REPO_KNOWLEDGE_ROOT, "_index.json");
+
+// Local workspace index — built from WORKSPACE_ROOT/.github/knowledge/
+const LOCAL_INDEX_PATH = path.join(KNOWLEDGE_ROOT, "_index.json");
+
+// ─── GitHub-backed community knowledge ──────────────────────────────────────
+// The hosted repo is the source of truth for the community knowledge base.
+// The pre-built _index.json in the repo is the community index.
+// We fetch it (with ETag caching) so standalone installs without the repo work.
+const GITHUB_REPO = "RockyWearsAHat/github-shell-helpers";
+const GITHUB_BRANCH = "dev";
+const GITHUB_RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}`;
+const GITHUB_API_BASE = `https://api.github.com/repos/${GITHUB_REPO}`;
+const GITHUB_CACHE_DIR = path.join(
+  process.env.HOME || process.env.USERPROFILE || "/tmp",
+  ".cache",
+  "gsh",
+);
+const CACHE_META_PATH = path.join(GITHUB_CACHE_DIR, "_cache_meta.json");
+const INDEX_MAX_AGE_MS = 10 * 60 * 1000; // 10 min before re-checking freshness
+
+// Ensure cache dir exists (sync — once at startup).
+try {
+  fsSync.mkdirSync(GITHUB_CACHE_DIR, { recursive: true });
+} catch {
+  /* ignore */
+}
+
+let _cacheMeta = null;
+function loadCacheMeta() {
+  if (_cacheMeta) return _cacheMeta;
+  try {
+    _cacheMeta = JSON.parse(fsSync.readFileSync(CACHE_META_PATH, "utf8"));
+  } catch {
+    _cacheMeta = { etags: {}, fetched_at: {} };
+  }
+  return _cacheMeta;
+}
+
+function saveCacheMeta() {
+  if (!_cacheMeta) return;
+  try {
+    fsSync.writeFileSync(CACHE_META_PATH, JSON.stringify(_cacheMeta), "utf8");
+  } catch {
+    /* best effort */
+  }
+}
+
+function isCacheFresh(cacheKey) {
+  const meta = loadCacheMeta();
+  const ts = meta.fetched_at[cacheKey];
+  return ts && Date.now() - ts < INDEX_MAX_AGE_MS;
+}
+
+/**
+ * Fetch a file from GitHub raw content with ETag caching to ~/.cache/gsh/.
+ * Returns { text, fromCache }.
+ */
+async function fetchGitHubFile(repoPath) {
+  const meta = loadCacheMeta();
+  const cacheFile = path.join(GITHUB_CACHE_DIR, repoPath.replace(/\//g, "__"));
+  const url = `${GITHUB_RAW_BASE}/${repoPath}`;
+
+  const headers = { "User-Agent": "gsh-mcp/1.0" };
+  if (meta.etags[repoPath]) headers["If-None-Match"] = meta.etags[repoPath];
+
+  try {
+    const resp = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(15000),
+    });
+    if (resp.status === 304) {
+      meta.fetched_at[repoPath] = Date.now();
+      saveCacheMeta();
+      const cached = await fs.readFile(cacheFile, "utf8");
+      return { text: cached, fromCache: true };
+    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${repoPath}`);
+    const text = await resp.text();
+    const etag = resp.headers.get("etag");
+    if (etag) meta.etags[repoPath] = etag;
+    meta.fetched_at[repoPath] = Date.now();
+    saveCacheMeta();
+    await fs.mkdir(path.dirname(cacheFile), { recursive: true });
+    await fs.writeFile(cacheFile, text, "utf8");
+    return { text, fromCache: false };
+  } catch (err) {
+    // Network failure — try local cache fallback
+    try {
+      const cached = await fs.readFile(cacheFile, "utf8");
+      return { text: cached, fromCache: true };
+    } catch {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Fetch the community index (pre-built _index.json) from GitHub.
+ * Uses ETag caching so subsequent calls within 10 min are instant.
+ */
+async function fetchCommunityIndex() {
+  const cacheKey = ".github/knowledge/_index.json";
+  // Fast path: if we checked recently, use local cache.
+  if (isCacheFresh(cacheKey)) {
+    const cacheFile = path.join(
+      GITHUB_CACHE_DIR,
+      cacheKey.replace(/\//g, "__"),
+    );
+    try {
+      return JSON.parse(await fs.readFile(cacheFile, "utf8"));
+    } catch {
+      /* fall through to network */
+    }
+  }
+  const { text } = await fetchGitHubFile(cacheKey);
+  return JSON.parse(text);
+}
+
+/**
+ * Read a knowledge file content. Resolution order:
+ * 1. Local workspace (.github/knowledge/)
+ * 2. GitHub raw content (community knowledge, cached)
+ */
+async function readKnowledgeFileContent(filename) {
+  // Local first (fast — no network)
+  for (const root of [KNOWLEDGE_ROOT, REPO_KNOWLEDGE_ROOT]) {
+    try {
+      return await fs.readFile(path.join(root, filename), "utf8");
+    } catch {
+      /* not found locally */
+    }
+  }
+  // Fetch from GitHub community knowledge
+  const { text } = await fetchGitHubFile(`.github/knowledge/${filename}`);
+  return text;
+}
 
 const RETRY_MAX_ATTEMPTS = 4;
 const RETRY_BASE_DELAY_MS = 2000;
@@ -336,17 +471,126 @@ function buildKnowledgeSnippet(text, terms) {
 // ─── Knowledge TF-IDF Search Index ──────────────────────────────────────────
 
 const INDEX_STOPWORDS = new Set([
-  "a","about","above","after","again","all","also","am","an","and","any","are",
-  "as","at","be","because","been","before","being","between","both","but","by",
-  "can","could","did","do","does","doing","down","during","each","few","for",
-  "from","further","get","got","had","has","have","having","he","her","here",
-  "him","his","how","if","in","into","is","it","its","itself","just","let",
-  "me","more","most","must","my","new","no","nor","not","now","of","off","on",
-  "once","only","or","other","our","out","over","own","same","she","should",
-  "so","some","such","than","that","the","their","them","then","there","these",
-  "they","this","those","through","to","too","under","until","up","use","used",
-  "using","very","via","was","we","were","what","when","where","which","while",
-  "who","will","with","would","you","your",
+  "a",
+  "about",
+  "above",
+  "after",
+  "again",
+  "all",
+  "also",
+  "am",
+  "an",
+  "and",
+  "any",
+  "are",
+  "as",
+  "at",
+  "be",
+  "because",
+  "been",
+  "before",
+  "being",
+  "between",
+  "both",
+  "but",
+  "by",
+  "can",
+  "could",
+  "did",
+  "do",
+  "does",
+  "doing",
+  "down",
+  "during",
+  "each",
+  "few",
+  "for",
+  "from",
+  "further",
+  "get",
+  "got",
+  "had",
+  "has",
+  "have",
+  "having",
+  "he",
+  "her",
+  "here",
+  "him",
+  "his",
+  "how",
+  "if",
+  "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "itself",
+  "just",
+  "let",
+  "me",
+  "more",
+  "most",
+  "must",
+  "my",
+  "new",
+  "no",
+  "nor",
+  "not",
+  "now",
+  "of",
+  "off",
+  "on",
+  "once",
+  "only",
+  "or",
+  "other",
+  "our",
+  "out",
+  "over",
+  "own",
+  "same",
+  "she",
+  "should",
+  "so",
+  "some",
+  "such",
+  "than",
+  "that",
+  "the",
+  "their",
+  "them",
+  "then",
+  "there",
+  "these",
+  "they",
+  "this",
+  "those",
+  "through",
+  "to",
+  "too",
+  "under",
+  "until",
+  "up",
+  "use",
+  "used",
+  "using",
+  "very",
+  "via",
+  "was",
+  "we",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "who",
+  "will",
+  "with",
+  "would",
+  "you",
+  "your",
 ]);
 
 function tokenizeDocText(text) {
@@ -357,7 +601,9 @@ function tokenizeDocText(text) {
     .replace(/[#*_\[\]()>|~^=+]/g, " ")
     .replace(/\b\d+\b/g, " ")
     .toLowerCase();
-  return cleaned.split(/[^a-z]+/).filter((t) => t.length >= 3 && !INDEX_STOPWORDS.has(t));
+  return cleaned
+    .split(/[^a-z]+/)
+    .filter((t) => t.length >= 3 && !INDEX_STOPWORDS.has(t));
 }
 
 function computeDocTF(tokens) {
@@ -406,23 +652,25 @@ function cosineSim(normVecA, normVecB) {
 }
 
 async function buildKnowledgeIndex(_args) {
+  // Build a TF-IDF index for the LOCAL workspace's .github/knowledge/ files.
   let entries;
   try {
-    entries = await fs.readdir(REPO_KNOWLEDGE_ROOT);
+    entries = await fs.readdir(KNOWLEDGE_ROOT);
   } catch (err) {
-    throw new Error(`Cannot read knowledge directory: ${err.message}`);
+    throw new Error(
+      `Cannot read workspace knowledge directory (${KNOWLEDGE_ROOT}): ${err.message}`,
+    );
   }
-  // Skip index file itself and any underscore-prefixed meta files.
   const mdFiles = entries.filter(
     (f) => f.endsWith(".md") && !f.startsWith("_"),
   );
   if (!mdFiles.length)
-    throw new Error("No markdown files found in knowledge directory.");
+    throw new Error("No markdown files found in workspace .github/knowledge/.");
 
   // Phase 1: read files and compute per-doc term frequency.
   const docs = [];
   for (const filename of mdFiles) {
-    const fp = path.join(REPO_KNOWLEDGE_ROOT, filename);
+    const fp = path.join(KNOWLEDGE_ROOT, filename);
     const text = await fs.readFile(fp, "utf8");
     const title = getMarkdownTitle(text, path.basename(filename, ".md"));
     const tokens = tokenizeDocText(text);
@@ -488,14 +736,10 @@ async function buildKnowledgeIndex(_args) {
     posting,
   };
 
-  await fs.writeFile(
-    KNOWLEDGE_INDEX_PATH,
-    JSON.stringify(index, null, 2),
-    "utf8",
-  );
+  await fs.writeFile(LOCAL_INDEX_PATH, JSON.stringify(index, null, 2), "utf8");
   return {
     action: "built",
-    path: path.relative(WORKSPACE_ROOT, KNOWLEDGE_INDEX_PATH),
+    path: path.relative(WORKSPACE_ROOT, LOCAL_INDEX_PATH),
     file_count: docs.length,
     term_count: Object.keys(idf).length,
   };
@@ -507,14 +751,26 @@ async function searchKnowledgeIndex(args) {
     throw new Error("search_knowledge_index requires a non-empty query.");
   const maxResults = toPositiveInt(args.max_results, 5, 1, 20);
 
-  // Load index — fall back to keyword search if missing or corrupt.
-  let index;
+  // Load both indexes: local workspace + community (GitHub-hosted).
+  // Either or both may be absent — that's fine.
+  let localIndex = null;
+  let communityIndex = null;
+
   try {
-    const raw = await fs.readFile(KNOWLEDGE_INDEX_PATH, "utf8");
-    index = JSON.parse(raw);
+    const raw = await fs.readFile(LOCAL_INDEX_PATH, "utf8");
+    localIndex = JSON.parse(raw);
   } catch {
-    return searchKnowledgeCache(args);
+    /* no local index — OK */
   }
+
+  try {
+    communityIndex = await fetchCommunityIndex();
+  } catch {
+    /* community unavailable — OK */
+  }
+
+  // If neither index is available, fall back to keyword search.
+  if (!localIndex && !communityIndex) return searchKnowledgeCache(args);
 
   // Tokenize query: use both the aggressive doc tokenizer and a lighter pass
   // so short or hyphenated terms still match.
@@ -527,42 +783,78 @@ async function searchKnowledgeIndex(args) {
 
   if (!queryTerms.length) return searchKnowledgeCache(args);
 
-  // Candidate retrieval via posting list + prefix/substring expansion.
-  const candidates = new Set();
-  const indexTerms = Object.keys(index.posting);
-  for (const qTerm of queryTerms) {
-    if (index.posting[qTerm]) {
-      for (const f of index.posting[qTerm]) candidates.add(f);
-    }
-    if (qTerm.length >= 3) {
-      for (const iTerm of indexTerms) {
-        if (
-          iTerm !== qTerm &&
-          (iTerm.startsWith(qTerm) ||
-            (qTerm.length >= 5 && iTerm.includes(qTerm)))
-        ) {
-          for (const f of index.posting[iTerm]) candidates.add(f);
+  // Collect candidates from both indexes, tagging each with its source.
+  // "local" = filename from the local workspace index
+  // "community" = filename from the GitHub community index
+  // A file present in both gets the local version (user override).
+  const candidateSource = new Map(); // filename -> "local" | "community"
+  const candidateIndex = new Map(); // filename -> index it came from
+
+  function gatherCandidates(index, source) {
+    if (!index || !index.posting) return;
+    const indexTerms = Object.keys(index.posting);
+    for (const qTerm of queryTerms) {
+      if (index.posting[qTerm]) {
+        for (const f of index.posting[qTerm]) {
+          if (!candidateSource.has(f) || source === "local") {
+            candidateSource.set(f, source);
+            candidateIndex.set(f, index);
+          }
+        }
+      }
+      if (qTerm.length >= 3) {
+        for (const iTerm of indexTerms) {
+          if (
+            iTerm !== qTerm &&
+            (iTerm.startsWith(qTerm) ||
+              (qTerm.length >= 5 && iTerm.includes(qTerm)))
+          ) {
+            if (index.posting[iTerm]) {
+              for (const f of index.posting[iTerm]) {
+                if (!candidateSource.has(f) || source === "local") {
+                  candidateSource.set(f, source);
+                  candidateIndex.set(f, index);
+                }
+              }
+            }
+          }
         }
       }
     }
   }
+
+  // Local first so it wins on overlap.
+  gatherCandidates(localIndex, "local");
+  gatherCandidates(communityIndex, "community");
 
   // Broaden if nothing found yet.
-  if (!candidates.size) {
-    for (const qTerm of queryTerms) {
-      for (const iTerm of indexTerms) {
-        if (iTerm.includes(qTerm)) {
-          for (const f of index.posting[iTerm]) candidates.add(f);
+  if (!candidateSource.size) {
+    for (const idx of [localIndex, communityIndex]) {
+      if (!idx || !idx.posting) continue;
+      const src = idx === localIndex ? "local" : "community";
+      for (const qTerm of queryTerms) {
+        for (const iTerm of Object.keys(idx.posting)) {
+          if (iTerm.includes(qTerm)) {
+            for (const f of idx.posting[iTerm]) {
+              if (!candidateSource.has(f) || src === "local") {
+                candidateSource.set(f, src);
+                candidateIndex.set(f, idx);
+              }
+            }
+          }
         }
       }
     }
   }
 
-  if (!candidates.size) {
+  if (!candidateSource.size) {
     return {
       query,
       index_used: true,
-      built_at: index.built_at,
+      sources: {
+        local: !!localIndex,
+        community: !!communityIndex,
+      },
       total_results: "0",
       results: [],
     };
@@ -570,17 +862,17 @@ async function searchKnowledgeIndex(args) {
 
   // Score candidates: sum of normalized TF-IDF weights for query terms.
   const scored = [];
-  for (const filename of candidates) {
-    const fileInfo = index.files[filename];
+  for (const [filename, source] of candidateSource) {
+    const idx = candidateIndex.get(filename);
+    const fileInfo = idx.files[filename];
     if (!fileInfo) continue;
     const { norm_vec: vec, title } = fileInfo;
     let score = 0;
     for (const term of queryTerms) {
       if (vec[term] !== undefined) score += vec[term];
-      // Title boost: direct match on title text.
       if (title.toLowerCase().includes(term)) score += 0.4;
     }
-    if (score > 0) scored.push({ filename, score, fileInfo });
+    if (score > 0) scored.push({ filename, score, fileInfo, source });
   }
   scored.sort(
     (a, b) => b.score - a.score || a.filename.localeCompare(b.filename),
@@ -588,13 +880,10 @@ async function searchKnowledgeIndex(args) {
 
   const topScored = scored.slice(0, maxResults);
   const results = await Promise.all(
-    topScored.map(async ({ filename, score, fileInfo }) => {
+    topScored.map(async ({ filename, score, fileInfo, source }) => {
       let snippet = "";
       try {
-        const body = await fs.readFile(
-          path.join(REPO_KNOWLEDGE_ROOT, filename),
-          "utf8",
-        );
+        const body = await readKnowledgeFileContent(filename);
         snippet = buildKnowledgeSnippet(body, queryTerms);
       } catch {
         /* skip */
@@ -605,24 +894,39 @@ async function searchKnowledgeIndex(args) {
         score: Math.round(score * 1000) / 1000,
         top_terms: fileInfo.top_terms.slice(0, 8),
         related: fileInfo.related,
+        source,
         snippet,
       };
     }),
   );
 
+  const builtAt = localIndex
+    ? localIndex.built_at
+    : communityIndex
+      ? communityIndex.built_at
+      : null;
+
   return {
     query,
     index_used: true,
-    built_at: index.built_at,
+    sources: {
+      local: !!localIndex,
+      community: !!communityIndex,
+    },
+    built_at: builtAt,
     total_results: String(scored.length),
     results,
   };
 }
 
 function formatKnowledgeIndexSearchResult(result) {
+  const src = result.sources || {};
+  const srcLabel = [src.local && "local", src.community && "community"]
+    .filter(Boolean)
+    .join(" + ");
   const lines = [
     `Query: ${result.query}`,
-    `Index: ${result.built_at || "no index"} · ${result.total_results} candidates found`,
+    `Index: ${result.built_at || "no index"} · ${result.total_results} candidates · sources: ${srcLabel || "none"}`,
     "",
     "Results:",
   ];
@@ -631,7 +935,7 @@ function formatKnowledgeIndexSearchResult(result) {
     lines.push(`${i + 1}. ${r.title}`);
     lines.push(`   Path: ${r.path}`);
     lines.push(
-      `   Score: ${r.score}  |  Terms: ${r.top_terms.join(", ")}`,
+      `   Score: ${r.score}  |  Source: ${r.source || "unknown"}  |  Terms: ${r.top_terms.join(", ")}`,
     );
     if (r.related && r.related.length) {
       lines.push(`   Related: ${r.related.join(", ")}`);
@@ -784,36 +1088,60 @@ async function readKnowledgeNote(args) {
     );
   }
 
-  // Try workspace first, fall back to repo knowledge root
-  let actualPath = resolvedPath;
-  let source = "workspace";
+  // Determine the filename relative to .github/knowledge/
+  const filename = inWorkspace ? relativeToRoot : relativeToRepo;
+
+  // Resolution order: local workspace → repo knowledge root → GitHub community
+  let text;
+  let source;
+
+  // 1. Local workspace
   try {
-    await fs.access(actualPath);
+    text = await fs.readFile(path.join(KNOWLEDGE_ROOT, filename), "utf8");
+    source = "workspace";
   } catch {
-    if (inRepo || inWorkspace) {
-      // Try the same relative note path under repo knowledge root
-      const repoPath = path.resolve(
-        REPO_KNOWLEDGE_ROOT,
-        relativeToRoot.startsWith("..") ? relativeToRepo : relativeToRoot,
+    /* not found locally */
+  }
+
+  // 2. Repo knowledge root (when running inside the repo)
+  if (!text) {
+    try {
+      text = await fs.readFile(
+        path.join(REPO_KNOWLEDGE_ROOT, filename),
+        "utf8",
       );
-      await fs.access(repoPath);
-      actualPath = repoPath;
       source = "repo";
+    } catch {
+      /* not found in repo */
+    }
+  }
+
+  // 3. GitHub community knowledge (fetched with ETag cache)
+  if (!text) {
+    try {
+      const { text: fetched } = await fetchGitHubFile(
+        `.github/knowledge/${filename}`,
+      );
+      text = fetched;
+      source = "community";
+    } catch {
+      throw new Error(
+        `Knowledge note not found locally or in community: ${filename}`,
+      );
     }
   }
 
   const maxChars = args.max_chars
     ? toPositiveInt(args.max_chars, 0, 500, 100000)
     : 0;
-  const text = await fs.readFile(actualPath, "utf8");
   const trimmed = text.trim();
 
   return {
-    path: path.relative(WORKSPACE_ROOT, actualPath),
+    path: `.github/knowledge/${filename}`,
     source,
     title: getMarkdownTitle(
       trimmed,
-      path.basename(actualPath, path.extname(actualPath)),
+      path.basename(filename, path.extname(filename)),
     ),
     text: maxChars > 0 ? summarizeText(trimmed, maxChars) : trimmed,
   };
@@ -1455,7 +1783,7 @@ const RESEARCH_TOOLS = [
   {
     name: "build_knowledge_index",
     description:
-      "Build or rebuild the TF-IDF search index for the knowledge cache. Creates _index.json with an inverted index, per-document TF-IDF term vectors, and precomputed cosine-similarity clusters between related documents. Run manually after bulk additions; the index is also rebuilt automatically after write/update/append operations.",
+      "Build or rebuild the local workspace TF-IDF search index (_index.json) from files in <workspace>/.github/knowledge/. The community knowledge index is pre-built on GitHub and fetched automatically — this tool only rebuilds the local workspace index. Run manually after bulk additions; also rebuilt automatically after write/update/append operations.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -1465,7 +1793,7 @@ const RESEARCH_TOOLS = [
   {
     name: "search_knowledge_index",
     description:
-      "Search the knowledge cache using the prebuilt TF-IDF index. Returns ranked results with relevance scores, characteristic terms, related files clustered by content similarity, and text snippets. Automatically falls back to keyword search if no index exists — call build_knowledge_index first for best results.",
+      "Search the knowledge base using TF-IDF indexes. Merges results from the local workspace index (if built) and the community knowledge index (pre-built on GitHub, fetched with ETag caching). Returns ranked results with relevance scores, source tags (local/community), related files, and text snippets. Falls back to keyword search if no index is available.",
     inputSchema: {
       type: "object",
       properties: {

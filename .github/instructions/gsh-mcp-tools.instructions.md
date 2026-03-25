@@ -25,25 +25,29 @@ Parameters:
 - `force` (boolean) — Override a mid-session disable. Only use when the user explicitly asked for a checkpoint and the previous call returned `[no-op]`.
 - `cwd` (string, optional) — Absolute path to the git repository to commit in. The server auto-detects the workspace root via MCP roots when exactly one VS Code workspace folder is open. Pass `cwd` explicitly only when working in a multi-root workspace or when the auto-detected root is not the intended repo.
 
-## Research — Web Search & Knowledge Cache
+## Research — Web Search & Knowledge Base
 
 **`search_web`** — Search the web via a local SearXNG instance. Returns ranked results with titles, URLs, and snippets.
 
 **`scrape_webpage`** — Fetch and return the text content of a URL. Use for reading documentation, blog posts, or reference pages.
 
-**`search_knowledge_index`** — Search the knowledge cache using the prebuilt TF-IDF index. Returns ranked results with relevance scores, characteristic terms, related files clustered by content similarity, and snippets. **Prefer this over `search_knowledge_cache`** when the index exists. Falls back to keyword search automatically if no index is present.
+**`search_knowledge_index`** — Search the knowledge base using TF-IDF indexes. Merges results from two sources:
+  - **Local index** — built from `<workspace>/.github/knowledge/` (project-specific notes).
+  - **Community index** — pre-built on GitHub (`RockyWearsAHat/github-shell-helpers`), fetched with ETag caching to `~/.cache/gsh/`.
 
-**`build_knowledge_index`** — Build or rebuild the TF-IDF search index (`_index.json`). Computes per-document term vectors and precomputes cosine-similarity clusters between all documents. Called automatically after any write/update/append operation. Run manually after bulk additions to the knowledge base.
+  Results are tagged with `source: "local"` or `source: "community"`. Falls back to keyword search if neither index is available. **Prefer this over `search_knowledge_cache`**.
 
-**`search_knowledge_cache`** — Keyword search over `.github/knowledge/` files. Use when you need a quick grep-style search or the index is unavailable.
+**`build_knowledge_index`** — Build or rebuild the local workspace TF-IDF index (`<workspace>/.github/knowledge/_index.json`). Only affects the workspace index — the community index is pre-built on GitHub. Called automatically after write/update/append operations. Run manually after bulk additions.
 
-**`read_knowledge_note`** — Read the full content of a specific knowledge note file by path.
+**`search_knowledge_cache`** — Keyword search over `.github/knowledge/` files (both workspace and repo). Use when you need a quick grep-style search or the index is unavailable.
 
-**`write_knowledge_note`** — Write a new knowledge note to `.github/knowledge/`. Use for saving research findings for future use. Automatically rebuilds the search index.
+**`read_knowledge_note`** — Read the full content of a knowledge note by path. Resolution order: local workspace → repo knowledge root → GitHub community (fetched with ETag cache). Works for both local and community notes without needing the repo cloned.
 
-**`update_knowledge_note`** — Overwrite an existing knowledge note with new content. Automatically rebuilds the search index.
+**`write_knowledge_note`** — Write a new knowledge note to `<workspace>/.github/knowledge/`. Automatically rebuilds the local search index.
 
-**`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Automatically rebuilds the search index.
+**`update_knowledge_note`** — Overwrite an existing knowledge note with new content. Automatically rebuilds the local search index.
+
+**`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Automatically rebuilds the local search index.
 
 **`submit_community_research`** — Submit a privacy-safe research conclusion to the community cache. Only call when the workspace has community participation enabled in `.github/devops-audit-community-settings.json`.
 
