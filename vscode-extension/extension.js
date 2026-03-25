@@ -20,6 +20,8 @@ const PREDEFINED = {
 
 let cachedRepos = [];
 let cachedUser = "";
+let cachedGpgNeedsUpload = false;
+let cachedGpgUploadFailed = false;
 let _context = null;
 let _webviewProvider = null;
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
@@ -481,6 +483,16 @@ class CommunityCacheViewProvider {
         case "openMcpControls":
           await openMcpServerControls();
           break;
+        case "uploadGpgKey":
+          await uploadGpgKeyNow();
+          break;
+        case "reloginGpg":
+          cachedGpgUploadFailed = false;
+          cachedUser = "";
+          cachedRepos = [];
+          _webviewProvider?.refresh();
+          await loginGitHub();
+          break;
       }
     });
 
@@ -543,6 +555,12 @@ class CommunityCacheViewProvider {
   </script>
 </body></html>`;
     }
+
+    const gpgHint = cachedGpgNeedsUpload
+      ? cachedGpgUploadFailed
+        ? `<div style="font-size:10.5px;color:var(--vscode-descriptionForeground);margin-top:6px">Upload failed. <span role="button" id="reloginGpgBtn" style="color:var(--vscode-textLink-foreground);text-decoration:underline;cursor:pointer">Re-login</span></div>`
+        : `<div style="font-size:10.5px;color:var(--vscode-descriptionForeground);margin-top:6px">Key not on GitHub — commits show Unverified. <span role="button" id="uploadGpgBtn" style="color:var(--vscode-textLink-foreground);text-decoration:underline;cursor:pointer">Upload now</span></div>`
+      : "";
 
     const cpConfig = vscode.workspace.getConfiguration(
       "gitShellHelpers.checkpoint",
@@ -816,6 +834,7 @@ class CommunityCacheViewProvider {
   .footer-gear svg { width: 14px; height: 14px; fill: currentColor; }
   .footer-gear.active { opacity: 1; }
 
+  /* GPG warning banner */
   /* Account panel overlay */
   body { position: relative; }
   .acct-panel {
@@ -891,6 +910,7 @@ class CommunityCacheViewProvider {
         <div class="sect-title">Git Checkpoint</div>
       </div>
       ${cpRows}
+      ${gpgHint}
     </div>
     <div class="sect">
       <div class="sect-head">
@@ -924,6 +944,8 @@ class CommunityCacheViewProvider {
         vscode.postMessage({ type: 'setCheckpoint', key: el.dataset.cpkey });
       });
     });
+    document.getElementById("uploadGpgBtn")?.addEventListener("click", (e) => { e.preventDefault(); vscode.postMessage({type:"uploadGpgKey"}); });
+    document.getElementById("reloginGpgBtn")?.addEventListener("click", (e) => { e.preventDefault(); vscode.postMessage({type:"reloginGpg"}); });
     document.getElementById("manageMcpBtn")?.addEventListener("click", () => vscode.postMessage({type:"openMcpControls"}));
     const gearBtn = document.getElementById("gearBtn");
     const acctPanel = document.getElementById("acctPanel");
@@ -1100,10 +1122,56 @@ async function loginGitHub() {
     }
 
     cachedRepos = await fetchRepos();
+    await checkGpgUploadStatus();
     _webviewProvider?.refresh();
     syncAllSettings();
   } catch {
     /* User cancelled or auth failed */
+  }
+}
+
+async function checkGpgUploadStatus() {
+  cachedGpgNeedsUpload = false;
+  cachedGpgUploadFailed = false;
+  if (!cachedUser) return;
+  try {
+    const keyId = (
+      await execAsync("git", ["config", "--global", "user.signingkey"])
+    ).trim();
+    if (!keyId) return;
+    const list = await runGh(["gpg-key", "list"]);
+    // gh gpg-key list output contains key IDs — check if our key is already there
+    if (!list.toLowerCase().includes(keyId.toLowerCase().slice(-16))) {
+      cachedGpgNeedsUpload = true;
+    }
+  } catch {
+    // gh not available, no signingkey, or scope missing — skip silently
+  }
+}
+
+async function uploadGpgKeyNow() {
+  try {
+    const gpgCommand = await resolveGpgCommand();
+    if (!gpgCommand) return;
+    const keyId = (
+      await execAsync("git", ["config", "--global", "user.signingkey"])
+    ).trim();
+    if (!keyId) return;
+    const uploaded = await uploadGpgKeyToGitHub(keyId, gpgCommand);
+    if (uploaded) {
+      cachedGpgNeedsUpload = false;
+      cachedGpgUploadFailed = false;
+      _webviewProvider?.refresh();
+      vscode.window.showInformationMessage(
+        "GPG key uploaded — future commits will show as Verified.",
+      );
+    } else {
+      cachedGpgUploadFailed = true;
+      _webviewProvider?.refresh();
+    }
+  } catch {
+    cachedGpgUploadFailed = true;
+    _webviewProvider?.refresh();
   }
 }
 
@@ -1606,6 +1674,7 @@ function activate(context) {
     if (authed) {
       cachedUser = await getGhUser();
       cachedRepos = await fetchRepos();
+      await checkGpgUploadStatus();
       _webviewProvider.refresh();
     }
   });
