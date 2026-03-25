@@ -185,7 +185,7 @@ configure_mcp_tools() {
   echo "[Git-Shell-Helpers-Installer] MCP Tools (global via Git Shell Helpers extension)"
   echo "  Bundled tool modules:"
   echo "    1) git-research-mcp  — web search & knowledge cache for Copilot agents"
-  echo "    2) aioserver-vision  — screenshot analysis with vision models"
+  echo "    2) gsh-vision        — screenshot analysis with vision models"
   echo ""
   printf '[Git-Shell-Helpers-Installer] Install MCP tools into VS Code? [Y/n/pick]: '
   read -r mcp_reply || mcp_reply=""
@@ -214,9 +214,9 @@ configure_mcp_tools() {
 
   # Fetch vision tool files if selected
   if [ "$install_vision" = true ]; then
-    local vision_dir="${BIN_DIR}/aioserver-vision-tool"
+    local vision_dir="${BIN_DIR}/vision-tool"
     ensure_dir "$vision_dir"
-    fetch "$REPO_RAW_BASE/aioserver-vision-tool/mcp-server.js" "$vision_dir/mcp-server.js"
+    fetch "$REPO_RAW_BASE/vision-tool/mcp-server.js" "$vision_dir/mcp-server.js"
   fi
 
   local server_json='{

@@ -52,11 +52,7 @@ function buildGitShellHelpersMcpEnv(serverPath) {
     env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH = "1";
   }
 
-  if (
-    !fs.existsSync(
-      path.join(serverDir, "aioserver-vision-tool", "mcp-server.js"),
-    )
-  ) {
+  if (!fs.existsSync(path.join(serverDir, "vision-tool", "mcp-server.js"))) {
     env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION = "1";
   }
 

@@ -4,7 +4,7 @@
 //
 // Combined MCP server that exposes all git-shell-helpers tools under one
 // server entry. Delegates to the individual modules (git-research-mcp and
-// aioserver-vision-tool) which remain separate files for maintainability.
+// vision-tool) which remain separate files for maintainability.
 //
 // Usage (standalone):
 //   node git-shell-helpers-mcp
@@ -52,12 +52,12 @@ if (!process.env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH) {
 if (!process.env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION) {
   try {
     const vision = require(
-      path.join(__dirname, "aioserver-vision-tool", "mcp-server.js"),
+      path.join(__dirname, "vision-tool", "mcp-server.js"),
     );
     modules.push(vision);
   } catch (err) {
     process.stderr.write(
-      `[git-shell-helpers-mcp] WARNING: could not load aioserver-vision-tool: ${err.message}\n`,
+      `[git-shell-helpers-mcp] WARNING: could not load vision-tool: ${err.message}\n`,
     );
   }
 }
@@ -127,7 +127,12 @@ async function handleCheckpoint(args) {
   try {
     cwd = await execGit(["rev-parse", "--show-toplevel"], process.cwd());
   } catch {
-    throw new Error("Not inside a git repository.");
+    // Fallback: __dirname is the script's location (workspace root)
+    try {
+      cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
+    } catch {
+      throw new Error("Not inside a git repository.");
+    }
   }
 
   // Check if checkpoint is enabled for this repo

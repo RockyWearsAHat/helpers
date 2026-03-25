@@ -535,27 +535,27 @@ install_man_git_research_mcp() {
 
 VSCODE_MCP_JSON="$HOME/Library/Application Support/Code/User/mcp.json"
 
-install_mcp_aioserver_vision() {
-  local dest_dir="${BIN_DIR}/aioserver-vision-tool"
-  local src_dir="${SCRIPT_DIR}/aioserver-vision-tool"
+install_mcp_vision_tool() {
+  local dest_dir="${BIN_DIR}/vision-tool"
+  local src_dir="${SCRIPT_DIR}/vision-tool"
 
   if [ ! -d "$src_dir" ]; then
-    echo "[install-git-shell-helpers] WARNING: aioserver-vision-tool source not found: $src_dir" >&2
+    echo "[install-git-shell-helpers] WARNING: vision-tool source not found: $src_dir" >&2
     return 1
   fi
 
   ensure_dir "$dest_dir"
   for f in mcp-server.js extension.js package.json README.md LICENSE.txt; do
-    if [ -f "$src_dir/$f" ]; then
+    if [ -f "$src_dir/$f" ] && [ "$src_dir/$f" != "$dest_dir/$f" ]; then
       cp "$src_dir/$f" "$dest_dir/$f"
     fi
   done
-  echo "[install-git-shell-helpers] Installed MCP tool: aioserver-vision -> $dest_dir"
+  echo "[install-git-shell-helpers] Installed MCP tool: vision-tool -> $dest_dir"
 }
 
-maybe_install_aioserver_vision_extension() {
+maybe_install_vision_extension() {
   local code_cli="$1"
-  local ext_dir="${SCRIPT_DIR}/aioserver-vision-tool"
+  local ext_dir="${SCRIPT_DIR}/vision-tool"
 
   if [ ! -d "$ext_dir" ] || [ ! -f "$ext_dir/package.json" ]; then
     return
@@ -566,24 +566,24 @@ maybe_install_aioserver_vision_extension() {
 
   if [[ -z "$vsix_file" ]] || [[ "$ext_dir/package.json" -nt "$vsix_file" ]] || [[ "$ext_dir/extension.js" -nt "$vsix_file" ]]; then
     if command -v npx >/dev/null 2>&1; then
-      echo "[install-git-shell-helpers] Building aioserver-vision VS Code extension..."
+      echo "[install-git-shell-helpers] Building gsh-vision VS Code extension..."
       if (cd "$ext_dir" && npx @vscode/vsce package --no-dependencies --allow-missing-repository) >/dev/null 2>&1; then
         vsix_file=$(find "$ext_dir" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null)
       else
-        echo "[install-git-shell-helpers] WARNING: Failed to build aioserver-vision extension. Skipping." >&2
+        echo "[install-git-shell-helpers] WARNING: Failed to build gsh-vision extension. Skipping." >&2
         return
       fi
     else
-      echo "[install-git-shell-helpers] npx not found, cannot build aioserver-vision extension. Skipping."
+      echo "[install-git-shell-helpers] npx not found, cannot build gsh-vision extension. Skipping."
       return
     fi
   fi
 
   if [[ -n "$vsix_file" ]] && [[ -n "$code_cli" ]]; then
     if "$code_cli" --install-extension "$vsix_file" --force >/dev/null 2>&1; then
-      echo "[install-git-shell-helpers] Installed VS Code extension: aioserver-vision-tool"
+      echo "[install-git-shell-helpers] Installed VS Code extension: gsh-vision-tool"
     else
-      echo "[install-git-shell-helpers] WARNING: Failed to install aioserver-vision VS Code extension." >&2
+      echo "[install-git-shell-helpers] WARNING: Failed to install gsh-vision VS Code extension." >&2
     fi
   fi
 }
@@ -627,7 +627,7 @@ configure_mcp_tools() {
   echo "[install-git-shell-helpers] MCP Tools (global via Git Shell Helpers extension)"
   echo "  Bundled tool modules:"
   echo "    1) git-research-mcp  — web search & knowledge cache for Copilot agents"
-  echo "    2) aioserver-vision  — screenshot analysis with vision models"
+  echo "    2) gsh-vision        — screenshot analysis with vision models"
   echo ""
   printf '[install-git-shell-helpers] Install MCP tools into VS Code? [Y/n/pick]: '
   read -r mcp_reply || mcp_reply=""
@@ -660,9 +660,9 @@ configure_mcp_tools() {
 
   # Copy vision tool files if selected
   if [ "$install_vision" = true ]; then
-    install_mcp_aioserver_vision
+    install_mcp_vision_tool
     if [[ -n "$code_cli" ]]; then
-      maybe_install_aioserver_vision_extension "$code_cli"
+      maybe_install_vision_extension "$code_cli"
     fi
   fi
 
