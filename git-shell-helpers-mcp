@@ -65,6 +65,9 @@ async function refreshRoots() {
   }
 }
 
+// In-flight tool calls — keyed by request id, value is AbortController.
+const inFlightRequests = new Map();
+
 // ---------------------------------------------------------------------------
 // Load sub-modules
 // ---------------------------------------------------------------------------
@@ -160,7 +163,7 @@ function execGit(args, cwd) {
   });
 }
 
-async function generateAiCommitMessage(cwd, extraContext) {
+async function generateAiCommitMessage(cwd, extraContext, signal) {
   function gitOut(gitArgs) {
     return new Promise((resolve) => {
       execFile("git", gitArgs, { cwd, timeout: 15000 }, (err, stdout) => {
@@ -283,14 +286,23 @@ ${detailedRecent}`;
       err += d;
     });
     child.on("close", (code) => {
-      if (code !== 0 || !out.trim())
+      if (signal?.aborted) {
+        reject(Object.assign(new Error("Cancelled"), { cancelled: true }));
+      } else if (code !== 0 || !out.trim()) {
         reject(
           new Error(
             `AI message generation failed (exit ${code}): ${err.trim()}`,
           ),
         );
-      else resolve(out);
+      } else {
+        resolve(out);
+      }
     });
+    if (signal) {
+      signal.addEventListener("abort", () => child.kill("SIGTERM"), {
+        once: true,
+      });
+    }
   });
 
   // Parse COMMIT_BEGIN/COMMIT_END
@@ -328,7 +340,11 @@ function rootsToPath(roots) {
   }
 }
 
-async function handleCheckpoint(args) {
+async function handleCheckpoint(args, signal) {
+  function checkCancelled() {
+    if (signal?.aborted)
+      throw Object.assign(new Error("Cancelled"), { cancelled: true });
+  }
   // Determine workspace root.
   // Priority: caller-supplied cwd > single known VS Code workspace root > server cwd.
   let cwd;
@@ -362,6 +378,8 @@ async function handleCheckpoint(args) {
     ];
   }
 
+  checkCancelled();
+
   // Stage
   const stageAll = args.all !== false; // default true
   if (stageAll) {
@@ -377,14 +395,19 @@ async function handleCheckpoint(args) {
     // Good — there are staged changes
   }
 
+  checkCancelled();
+
   // Get or generate commit message
   let message = String(args.message || "").trim();
   if (!message) {
     message = await generateAiCommitMessage(
       cwd,
       String(args.context || "").trim(),
+      signal,
     );
   }
+
+  checkCancelled();
 
   // Build commit args
   const commitArgs = ["commit", "-m", message];
@@ -497,6 +520,15 @@ async function handleRequest(request) {
     return;
   }
 
+  if (method === "notifications/cancelled") {
+    const requestId = String(request.params?.requestId ?? "");
+    if (requestId) {
+      const ac = inFlightRequests.get(requestId);
+      if (ac) ac.abort();
+    }
+    return;
+  }
+
   if (method === "tools/list") {
     send({
       jsonrpc: "2.0",
@@ -509,6 +541,7 @@ async function handleRequest(request) {
   if (method === "tools/call") {
     const toolName = request.params?.name;
     const toolArguments = request.params?.arguments || {};
+    const requestId = String(id);
 
     // Guard: user may have disabled this tool mid-conversation via sidebar.
     // Return a clean no-op so the model doesn't error out or retry.
@@ -531,11 +564,15 @@ async function handleRequest(request) {
       return;
     }
 
+    const ac = new AbortController();
+    inFlightRequests.set(requestId, ac);
     try {
       // Built-in tools
       if (toolName === "checkpoint") {
-        const content = await handleCheckpoint(toolArguments);
-        send({ jsonrpc: "2.0", id, result: { content } });
+        const content = await handleCheckpoint(toolArguments, ac.signal);
+        if (!ac.signal.aborted) {
+          send({ jsonrpc: "2.0", id, result: { content } });
+        }
         return;
       }
 
@@ -543,14 +580,19 @@ async function handleRequest(request) {
       for (const mod of modules) {
         const content = await mod.handleToolCall(toolName, toolArguments);
         if (content) {
-          send({ jsonrpc: "2.0", id, result: { content } });
+          if (!ac.signal.aborted) {
+            send({ jsonrpc: "2.0", id, result: { content } });
+          }
           return;
         }
       }
     } catch (error) {
+      if (ac.signal.aborted) return; // swallow errors from cancelled requests
       const message = error instanceof Error ? error.message : String(error);
       sendError(id, -32603, message);
       return;
+    } finally {
+      inFlightRequests.delete(requestId);
     }
 
     sendError(id, -32601, `Unknown tool: ${toolName}`);
