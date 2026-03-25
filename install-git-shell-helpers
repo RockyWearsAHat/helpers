@@ -726,6 +726,7 @@ main() {
   install_script "git-shell-helpers-mcp"
   install_support_script "scripts/community-cache-submit.sh" "git-copilot-devops-audit-community-submit"
   install_support_script "scripts/community-cache-pull.sh" "git-copilot-devops-audit-community-pull"
+  install_support_script "scripts/community-research-submit.sh" "git-copilot-devops-audit-community-research-submit"
 
   # Write default git-research-mcp config if it doesn't exist
   local research_config_dir="${HOME}/.config/git-research-mcp"

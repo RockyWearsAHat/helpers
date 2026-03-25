@@ -4,6 +4,7 @@ const fs = require("fs/promises");
 const fsSync = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { execFile } = require("child_process");
 
 // Load .env — check ~/.config/git-research-mcp/.env first, then __dirname/.env
 const CONFIG_ENV_PATH = path.join(
@@ -615,6 +616,46 @@ async function appendToKnowledgeNote(args) {
   };
 }
 
+async function submitCommunityResearch(args) {
+  const notePath = String(args.path || "").trim();
+  if (!notePath) {
+    throw new Error("submit_community_research requires a non-empty path.");
+  }
+
+  const resolvedPath = resolveKnowledgePath(notePath);
+
+  // Verify the file exists
+  try {
+    await fs.access(resolvedPath);
+  } catch {
+    throw new Error(
+      `Knowledge note not found: ${path.relative(WORKSPACE_ROOT, resolvedPath)}`,
+    );
+  }
+
+  const scriptPath = path.join(__dirname, "scripts", "community-research-submit.sh");
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      "bash",
+      [scriptPath, resolvedPath],
+      { cwd: WORKSPACE_ROOT, timeout: 120000 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const msg = (stderr || err.message || "").trim();
+          reject(new Error(`Community research submit failed: ${msg}`));
+          return;
+        }
+        resolve({
+          action: "submitted",
+          path: path.relative(WORKSPACE_ROOT, resolvedPath),
+          output: (stderr || stdout || "").trim(),
+        });
+      },
+    );
+  });
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1059,6 +1100,22 @@ const RESEARCH_TOOLS = [
       required: ["urls"],
     },
   },
+  {
+    name: "submit_community_research",
+    description:
+      "Submit a knowledge note from .github/knowledge/ to the community repository as a pull request. Requires community research sharing to be enabled in settings. The note content is validated for privacy before submission.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Workspace-relative path to the knowledge note under .github/knowledge/.",
+        },
+      },
+      required: ["path"],
+    },
+  },
 ];
 
 async function handleResearchToolCall(toolName, toolArguments) {
@@ -1089,6 +1146,10 @@ async function handleResearchToolCall(toolName, toolArguments) {
   if (toolName === "scrape_webpage") {
     const result = await fetchPages(toolArguments);
     return [{ type: "text", text: formatFetchPagesResult(result) }];
+  }
+  if (toolName === "submit_community_research") {
+    const result = await submitCommunityResearch(toolArguments);
+    return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   return null;
 }

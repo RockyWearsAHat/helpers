@@ -277,7 +277,8 @@ install_all() {
   fetch "$REPO_RAW_BASE/git-research-mcp" "$BIN_DIR/git-research-mcp"
   fetch "$REPO_RAW_BASE/scripts/community-cache-submit.sh" "$BIN_DIR/git-copilot-devops-audit-community-submit"
   fetch "$REPO_RAW_BASE/scripts/community-cache-pull.sh" "$BIN_DIR/git-copilot-devops-audit-community-pull"
-  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit" "$BIN_DIR/git-research-mcp" "$BIN_DIR/git-copilot-devops-audit-community-submit" "$BIN_DIR/git-copilot-devops-audit-community-pull"
+  fetch "$REPO_RAW_BASE/scripts/community-research-submit.sh" "$BIN_DIR/git-copilot-devops-audit-community-research-submit"
+  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit" "$BIN_DIR/git-research-mcp" "$BIN_DIR/git-copilot-devops-audit-community-submit" "$BIN_DIR/git-copilot-devops-audit-community-pull" "$BIN_DIR/git-copilot-devops-audit-community-research-submit"
 
   configure_community_cache
 
