@@ -11,6 +11,7 @@
 ## Style Guide (Based on RuboCop / Community Guide)
 
 ### Naming
+
 - `snake_case` for methods, variables, files.
 - `PascalCase` for classes and modules.
 - `SCREAMING_SNAKE_CASE` for constants.
@@ -18,6 +19,7 @@
 - `dangerous_method!` modifies in place or may raise.
 
 ### Layout
+
 - 2-space indentation (not tabs, not 4).
 - `do...end` for multi-line blocks, `{ }` for single-line.
 - No parens for methods with no arguments: `user.name` not `user.name()`.
@@ -293,15 +295,15 @@ end
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **RuboCop** | Linting + style enforcement |
-| **Bundler** | Dependency management |
-| **RSpec** / **Minitest** | Testing |
-| **Sorbet** | Static type checking |
-| **Pry** / **IRB** | REPL / debugger |
-| **Steep** + **RBS** | Type checking / type signatures |
+| Tool                     | Purpose                         |
+| ------------------------ | ------------------------------- |
+| **RuboCop**              | Linting + style enforcement     |
+| **Bundler**              | Dependency management           |
+| **RSpec** / **Minitest** | Testing                         |
+| **Sorbet**               | Static type checking            |
+| **Pry** / **IRB**        | REPL / debugger                 |
+| **Steep** + **RBS**      | Type checking / type signatures |
 
 ---
 
-*Sources: Ruby Style Guide (rubocop), Practical Object-Oriented Design (Sandi Metz), Eloquent Ruby (Russ Olsen), The Well-Grounded Rubyist (David Black), Ruby documentation*
+_Sources: Ruby Style Guide (rubocop), Practical Object-Oriented Design (Sandi Metz), Eloquent Ruby (Russ Olsen), The Well-Grounded Rubyist (David Black), Ruby documentation_

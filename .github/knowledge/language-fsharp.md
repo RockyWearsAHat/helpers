@@ -203,4 +203,4 @@ Map.tryFind "d" lookup  // None
 
 ---
 
-*Sources: fsharp.org, F# for Fun and Profit (Scott Wlaschin), Domain Modeling Made Functional (Wlaschin), Microsoft F# Documentation*
+_Sources: fsharp.org, F# for Fun and Profit (Scott Wlaschin), Domain Modeling Made Functional (Wlaschin), Microsoft F# Documentation_

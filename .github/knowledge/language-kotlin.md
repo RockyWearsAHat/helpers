@@ -301,15 +301,15 @@ sealed interface ParseResult {
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **ktlint** | Linting + formatting |
-| **detekt** | Static analysis |
-| **Gradle** (Kotlin DSL) | Build system |
-| **JUnit 5** / **kotest** | Testing |
-| **MockK** | Mocking (Kotlin-native) |
+| Tool                      | Purpose                     |
+| ------------------------- | --------------------------- |
+| **ktlint**                | Linting + formatting        |
+| **detekt**                | Static analysis             |
+| **Gradle** (Kotlin DSL)   | Build system                |
+| **JUnit 5** / **kotest**  | Testing                     |
+| **MockK**                 | Mocking (Kotlin-native)     |
 | **kotlinx.serialization** | Multiplatform serialization |
 
 ---
 
-*Sources: Kotlin documentation, Kotlin in Action (Jemerov/Isakova), Effective Kotlin (Marcin Moskala), Android developer guidelines, KotlinConf talks*
+_Sources: Kotlin documentation, Kotlin in Action (Jemerov/Isakova), Effective Kotlin (Marcin Moskala), Android developer guidelines, KotlinConf talks_

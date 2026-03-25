@@ -164,13 +164,13 @@ class _CounterState extends State<Counter> {
 
 ### State Management
 
-| Approach | Complexity | Use Case |
-|----------|-----------|----------|
-| **setState** | Simple | Local widget state |
-| **Provider** | Medium | App-wide state (recommended by Flutter team) |
-| **Riverpod** | Medium | Type-safe Provider alternative |
-| **BLoC** | High | Complex business logic, event-driven |
-| **GetX** | Low | Rapid prototyping (controversial) |
+| Approach     | Complexity | Use Case                                     |
+| ------------ | ---------- | -------------------------------------------- |
+| **setState** | Simple     | Local widget state                           |
+| **Provider** | Medium     | App-wide state (recommended by Flutter team) |
+| **Riverpod** | Medium     | Type-safe Provider alternative               |
+| **BLoC**     | High       | Complex business logic, event-driven         |
+| **GetX**     | Low        | Rapid prototyping (controversial)            |
 
 ### Flutter Best Practices
 
@@ -182,15 +182,15 @@ class _CounterState extends State<Counter> {
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **dart analyze** | Static analysis |
-| **dart format** | Code formatting |
-| **dart fix** | Auto-apply lint fixes |
-| **flutter test** | Testing |
-| **DevTools** | Performance profiling, widget inspection |
-| **very_good_analysis** | Strict lint rules |
+| Tool                   | Purpose                                  |
+| ---------------------- | ---------------------------------------- |
+| **dart analyze**       | Static analysis                          |
+| **dart format**        | Code formatting                          |
+| **dart fix**           | Auto-apply lint fixes                    |
+| **flutter test**       | Testing                                  |
+| **DevTools**           | Performance profiling, widget inspection |
+| **very_good_analysis** | Strict lint rules                        |
 
 ---
 
-*Sources: Dart documentation, Effective Dart, Flutter documentation, Flutter architectural overview*
+_Sources: Dart documentation, Effective Dart, Flutter documentation, Flutter architectural overview_

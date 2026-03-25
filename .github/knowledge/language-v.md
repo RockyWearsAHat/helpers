@@ -243,4 +243,4 @@ fn test_parse_port() {
 
 ---
 
-*Sources: V Documentation (vlang.io), V Language Reference, V by Example, V Standard Library*
+_Sources: V Documentation (vlang.io), V Language Reference, V by Example, V Standard Library_

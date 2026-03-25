@@ -202,4 +202,4 @@ let rec eval : type a. a expr -> a = function
 
 ---
 
-*Sources: Real World OCaml (Minsky, Madhavapeddy, Hickey), OCaml Manual (ocaml.org), Cornell CS 3110, OCaml Standard Library docs*
+_Sources: Real World OCaml (Minsky, Madhavapeddy, Hickey), OCaml Manual (ocaml.org), Cornell CS 3110, OCaml Standard Library docs_

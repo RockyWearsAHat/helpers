@@ -4,7 +4,7 @@
 
 SQL is the universal language for relational data. Modern SQL (SQL:2016+) includes window functions, CTEs, JSON support, and lateral joins. The key to performant SQL is understanding how the query planner works and writing queries that help it.
 
-- **Declarative**: Say *what* you want, not *how* to get it. The optimizer picks the execution plan.
+- **Declarative**: Say _what_ you want, not _how_ to get it. The optimizer picks the execution plan.
 - **Set-based thinking**: Operate on sets of rows, not individual rows. Avoid row-by-row processing.
 - **CTEs for readability**: Break complex queries into named, composable steps.
 
@@ -195,4 +195,4 @@ COMMIT;
 
 ---
 
-*Sources: PostgreSQL Documentation, SQL Performance Explained (Markus Winand), use-the-index-luke.com, High Performance MySQL (Schwartz)*
+_Sources: PostgreSQL Documentation, SQL Performance Explained (Markus Winand), use-the-index-luke.com, High Performance MySQL (Schwartz)_

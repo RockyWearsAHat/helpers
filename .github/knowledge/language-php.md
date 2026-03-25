@@ -197,17 +197,17 @@ sum(...[1, 2, 3]);
 
 ## PSR Standards
 
-| PSR | Purpose |
-|-----|---------|
-| **PSR-1** | Basic coding standard |
-| **PSR-4** | Autoloading standard (namespace → directory mapping) |
-| **PSR-7** | HTTP message interfaces |
-| **PSR-11** | Container interface (DI) |
-| **PSR-12** | Extended coding style (superseded by PER) |
-| **PER-CS** | PHP Evolving Recommendation Coding Style (current) |
-| **PSR-14** | Event dispatcher |
-| **PSR-15** | HTTP server request handlers (middleware) |
-| **PSR-18** | HTTP client |
+| PSR        | Purpose                                              |
+| ---------- | ---------------------------------------------------- |
+| **PSR-1**  | Basic coding standard                                |
+| **PSR-4**  | Autoloading standard (namespace → directory mapping) |
+| **PSR-7**  | HTTP message interfaces                              |
+| **PSR-11** | Container interface (DI)                             |
+| **PSR-12** | Extended coding style (superseded by PER)            |
+| **PER-CS** | PHP Evolving Recommendation Coding Style (current)   |
+| **PSR-14** | Event dispatcher                                     |
+| **PSR-15** | HTTP server request handlers (middleware)            |
+| **PSR-18** | HTTP client                                          |
 
 ## Project Structure (Laravel/Symfony Style)
 
@@ -232,15 +232,15 @@ phpstan.neon
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **Composer** | Dependency management |
-| **PHPStan** / **Psalm** | Static analysis (use level max) |
-| **PHP-CS-Fixer** / **PHP_CodeSniffer** | Code formatting |
-| **PHPUnit** / **Pest** | Testing |
-| **Rector** | Automated refactoring & upgrades |
-| **Xdebug** / **SPX** | Debugging & profiling |
-| **OPcache** | Bytecode caching (production essential) |
+| Tool                                   | Purpose                                 |
+| -------------------------------------- | --------------------------------------- |
+| **Composer**                           | Dependency management                   |
+| **PHPStan** / **Psalm**                | Static analysis (use level max)         |
+| **PHP-CS-Fixer** / **PHP_CodeSniffer** | Code formatting                         |
+| **PHPUnit** / **Pest**                 | Testing                                 |
+| **Rector**                             | Automated refactoring & upgrades        |
+| **Xdebug** / **SPX**                   | Debugging & profiling                   |
+| **OPcache**                            | Bytecode caching (production essential) |
 
 ## Key Rules
 
@@ -253,4 +253,4 @@ phpstan.neon
 
 ---
 
-*Sources: PHP documentation, PHP-FIG PSR Standards, Laravel/Symfony documentation, PHP: The Right Way, Modern PHP (Josh Lockhart)*
+_Sources: PHP documentation, PHP-FIG PSR Standards, Laravel/Symfony documentation, PHP: The Right Way, Modern PHP (Josh Lockhart)_

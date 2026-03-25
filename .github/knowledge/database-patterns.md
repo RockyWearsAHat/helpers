@@ -15,18 +15,21 @@ Reduce data redundancy by organizing tables according to normal forms.
 Indexes speed up reads at the cost of slower writes and more storage.
 
 ### When to Index
+
 - Columns in WHERE clauses.
 - Columns in JOIN conditions.
 - Columns in ORDER BY / GROUP BY.
 - High-cardinality columns (many unique values) benefit most.
 
 ### When NOT to Index
+
 - Tables with very few rows (full scan is faster).
 - Columns with low cardinality (boolean flags — index doesn't help much).
 - Columns that are frequently updated (index maintenance overhead).
 - Write-heavy tables where read performance isn't critical.
 
 ### Index Types
+
 - **B-Tree** (default): Good for equality and range queries. Most common.
 - **Hash**: Only equality comparisons. Faster than B-Tree for exact matches.
 - **GIN/GiST**: Full-text search, JSONB, arrays, geometry (PostgreSQL).
@@ -35,10 +38,13 @@ Indexes speed up reads at the cost of slower writes and more storage.
 - **Covering index**: Includes all columns needed by a query — avoids table lookup.
 
 ### Use EXPLAIN
+
 Always analyze query plans before and after adding indexes:
+
 ```sql
 EXPLAIN ANALYZE SELECT * FROM orders WHERE user_id = 42 AND status = 'pending';
 ```
+
 Look for: Seq Scan (bad on large tables), Index Scan (good), Bitmap Index Scan (acceptable).
 
 ## The N+1 Query Problem
@@ -46,6 +52,7 @@ Look for: Seq Scan (bad on large tables), Index Scan (good), Bitmap Index Scan (
 The most common ORM performance anti-pattern.
 
 **Problem:** Loading a list of items, then issuing a separate query for each item's related data.
+
 ```python
 # N+1: 1 query for users + N queries for orders
 users = User.objects.all()         # SELECT * FROM users (1 query)
@@ -54,6 +61,7 @@ for user in users:
 ```
 
 **Fix:** Eager loading / JOINs.
+
 ```python
 # 1 query (or 2 with prefetch)
 users = User.objects.prefetch_related('orders').all()
@@ -102,19 +110,23 @@ Creating database connections is expensive (TCP handshake, authentication, SSL n
 ## Data Modeling Patterns
 
 ### Soft Deletes
+
 `deleted_at` timestamp instead of `DELETE`. Preserves audit trail. Add to all queries: `WHERE deleted_at IS NULL`. Consider: filtered indexes, periodic hard-delete of old records.
 
 ### Audit Trail
+
 Track who changed what and when. Options:
+
 - Trigger-based: database triggers write to audit table.
 - Application-level: middleware logs changes.
 - Event sourcing: events ARE the audit trail.
 
 ### Multi-Tenancy
+
 - **Shared database, shared schema**: Tenant ID column on every table. Simplest. Risk: data leaks if you forget the WHERE clause.
 - **Shared database, separate schemas**: Each tenant has own schema. Better isolation.
 - **Separate databases**: Full isolation. Most complex operationally.
 
 ---
 
-*Sources: PostgreSQL Documentation, Use The Index Luke (Markus Winand), High Performance MySQL (Baron Schwartz), Django ORM documentation, Martin Fowler (Patterns of Enterprise Application Architecture)*
+_Sources: PostgreSQL Documentation, Use The Index Luke (Markus Winand), High Performance MySQL (Baron Schwartz), Django ORM documentation, Martin Fowler (Patterns of Enterprise Application Architecture)_

@@ -211,4 +211,4 @@ describe_predicate(Name/Arity) :-
 
 ---
 
-*Sources: The Art of Prolog (Sterling & Shapiro), Programming in Prolog (Clocksin & Mellish), SWI-Prolog documentation, Bratko's Prolog Programming for Artificial Intelligence*
+_Sources: The Art of Prolog (Sterling & Shapiro), Programming in Prolog (Clocksin & Mellish), SWI-Prolog documentation, Bratko's Prolog Programming for Artificial Intelligence_

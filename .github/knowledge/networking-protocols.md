@@ -17,6 +17,7 @@ OSI Model                  TCP/IP (What We Actually Use)
 ## TCP — The Reliable Workhorse
 
 ### Three-Way Handshake
+
 ```
 Client          Server
   |--- SYN ------->|     "I want to connect"
@@ -25,6 +26,7 @@ Client          Server
 ```
 
 ### Key Mechanisms
+
 - **Sequence numbers**: Every byte is numbered. Receiver knows what it got and what's missing.
 - **Acknowledgments**: Receiver tells sender "I got everything up to byte N."
 - **Retransmission**: If no ACK within timeout, resend.
@@ -32,6 +34,7 @@ Client          Server
 - **Congestion control**: Slow start → congestion avoidance → fast retransmit/recovery.
 
 ### TCP Gotchas
+
 - **Head-of-line blocking**: One lost packet blocks all subsequent data until retransmitted.
 - **Nagle's algorithm**: Buffers small writes into larger packets. Adds latency. Disable with `TCP_NODELAY` for interactive protocols.
 - **TIME_WAIT**: After closing, socket stays in TIME_WAIT for 2×MSL (~60s). Can exhaust ports under high connection churn.
@@ -50,12 +53,14 @@ Just: "here's a packet, good luck."
 ## HTTP Evolution
 
 ### HTTP/1.1 (1997)
+
 - Text-based protocol
 - One request per TCP connection at a time (pipelining failed in practice)
 - Workaround: browsers open 6 parallel TCP connections per host
 - Persistent connections (`Connection: keep-alive`)
 
 ### HTTP/2 (2015)
+
 - Binary framing layer
 - **Multiplexing**: Multiple requests/responses over a single TCP connection
 - **Server push**: Server can proactively send resources
@@ -64,6 +69,7 @@ Just: "here's a packet, good luck."
 - **Still TCP underneath**: Head-of-line blocking at the TCP layer remains
 
 ### HTTP/3 (2022)
+
 - **Built on QUIC** (UDP-based, not TCP)
 - **No head-of-line blocking**: Lost packets only affect their stream
 - **0-RTT connection establishment**: Resuming connections with zero round trips
@@ -71,6 +77,7 @@ Just: "here's a packet, good luck."
 - **Connection migration**: Survives IP address changes (mobile switching networks)
 
 ### HTTP Methods
+
 ```
 GET     Retrieve a resource (idempotent, cacheable)
 POST    Create / submit data (not idempotent)
@@ -82,6 +89,7 @@ OPTIONS Pre-flight for CORS, discover methods
 ```
 
 ### Status Codes That Matter
+
 ```
 200 OK                    Success
 201 Created               Resource created (POST/PUT)
@@ -113,10 +121,10 @@ OPTIONS Pre-flight for CORS, discover methods
 
 ```javascript
 // Client
-const ws = new WebSocket('wss://example.com/ws');
-ws.onopen = () => ws.send('Hello');
+const ws = new WebSocket("wss://example.com/ws");
+ws.onopen = () => ws.send("Hello");
 ws.onmessage = (event) => console.log(event.data);
-ws.onclose = () => console.log('Disconnected');
+ws.onclose = () => console.log("Disconnected");
 ```
 
 **Use for:** Real-time apps (chat, live updates, gaming). NOT for: request-response patterns (use HTTP).
@@ -157,6 +165,7 @@ Browser → Recursive Resolver → Root (.com) → TLD (example.com) → Authori
 ```
 
 ### Record Types
+
 ```
 A       IPv4 address          example.com → 93.184.216.34
 AAAA    IPv6 address          example.com → 2606:2800:220:1:248:...
@@ -169,6 +178,7 @@ SRV     Service location       _http._tcp.example.com → port 80, target
 ```
 
 ### DNS Debugging
+
 ```bash
 dig example.com A              # Query A record
 dig +short example.com         # Just the IP
@@ -181,6 +191,7 @@ host example.com               # Simplest
 ## TLS — Transport Layer Security
 
 ### TLS 1.3 Handshake (1 round trip)
+
 ```
 Client                          Server
   |--- ClientHello + KeyShare -->|   Supported ciphers + key material
@@ -192,6 +203,7 @@ Client                          Server
 ```
 
 **TLS 1.3 improvements over 1.2:**
+
 - 1-RTT handshake (was 2-RTT)
 - 0-RTT resumption (with replay risk)
 - Removed insecure algorithms (RC4, 3DES, SHA-1, static RSA)
@@ -199,24 +211,26 @@ Client                          Server
 - Encrypted certificates (observer can't see which site)
 
 ### Certificate Chain
+
 ```
 Root CA (in browser/OS trust store)
   └── Intermediate CA
         └── Your certificate (for example.com)
 ```
+
 Let's Encrypt provides free, automated certificates via ACME protocol.
 
 ## REST vs GraphQL vs gRPC — When to Use What
 
-| Aspect | REST | GraphQL | gRPC |
-|--------|------|---------|------|
-| Data format | JSON (text) | JSON (text) | Protobuf (binary) |
-| Schema | OpenAPI (optional) | SDL (required) | .proto (required) |
-| Over/under-fetching | Common problem | Solved (query what you need) | N/A (defined messages) |
-| Caching | HTTP caching (easy) | Hard (POST everything) | Custom |
-| Browser support | Native | Native | Needs proxy |
-| Streaming | SSE/WebSocket | Subscriptions | Native |
-| Best for | Public APIs, CRUD | Flexible frontend queries | Microservices, high perf |
+| Aspect              | REST                | GraphQL                      | gRPC                     |
+| ------------------- | ------------------- | ---------------------------- | ------------------------ |
+| Data format         | JSON (text)         | JSON (text)                  | Protobuf (binary)        |
+| Schema              | OpenAPI (optional)  | SDL (required)               | .proto (required)        |
+| Over/under-fetching | Common problem      | Solved (query what you need) | N/A (defined messages)   |
+| Caching             | HTTP caching (easy) | Hard (POST everything)       | Custom                   |
+| Browser support     | Native              | Native                       | Needs proxy              |
+| Streaming           | SSE/WebSocket       | Subscriptions                | Native                   |
+| Best for            | Public APIs, CRUD   | Flexible frontend queries    | Microservices, high perf |
 
 ## Common Networking Mistakes
 
@@ -230,4 +244,4 @@ Let's Encrypt provides free, automated certificates via ACME protocol.
 
 ---
 
-*Networking is layers of abstraction. When something breaks, start at the bottom (can you ping it?) and work up.*
+_Networking is layers of abstraction. When something breaks, start at the bottom (can you ping it?) and work up._

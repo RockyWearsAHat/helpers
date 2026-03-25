@@ -3,6 +3,7 @@
 ## Shell Fundamentals Everyone Forgets
 
 ### Brace Expansion (No spaces!)
+
 ```bash
 echo {a,b,c}          # a b c
 echo file{1..5}.txt    # file1.txt file2.txt file3.txt file4.txt file5.txt
@@ -13,6 +14,7 @@ mv file.{txt,md}       # Rename file.txt to file.md
 ```
 
 ### Process Substitution
+
 ```bash
 # Compare outputs of two commands
 diff <(ls dir1) <(ls dir2)
@@ -25,6 +27,7 @@ comm -13 <(sort file1) <(sort file2)  # Lines only in file2
 ```
 
 ### Here Documents & Here Strings
+
 ```bash
 # Here document (multi-line input)
 cat <<EOF > config.json
@@ -39,6 +42,7 @@ grep "pattern" <<< "$variable"
 ```
 
 ### Parameter Expansion
+
 ```bash
 file="/path/to/photo.jpg"
 echo "${file##*/}"     # photo.jpg  (strip longest prefix up to /)
@@ -58,6 +62,7 @@ echo "${MUST_EXIST:?Error msg}" # Exit with error if unset/empty
 ```
 
 ### Job Control
+
 ```bash
 command &              # Run in background
 jobs                   # List background jobs
@@ -72,6 +77,7 @@ wait                   # Wait for all background jobs
 ## Essential CLI Tools
 
 ### fzf — Fuzzy Finder
+
 ```bash
 # Interactive file finder
 vim $(fzf)
@@ -93,6 +99,7 @@ fzf --preview 'bat --color=always {}'
 ```
 
 ### ripgrep (rg) — Fast Search
+
 ```bash
 rg "pattern"                     # Recursive search (respects .gitignore)
 rg "pattern" -t py               # Only Python files
@@ -106,6 +113,7 @@ rg -U "multi\nline"              # Multiline search
 ```
 
 ### fd — Better find
+
 ```bash
 fd "pattern"                     # Find files matching pattern
 fd -e py                         # Find by extension
@@ -116,6 +124,7 @@ fd "test" --exec wc -l           # Count lines in test files
 ```
 
 ### jq — JSON Swiss Army Knife
+
 ```bash
 # Pretty print
 cat data.json | jq '.'
@@ -141,6 +150,7 @@ jq '.version = "2.0"' package.json > tmp && mv tmp package.json
 ```
 
 ### bat — Better cat
+
 ```bash
 bat file.py                  # Syntax highlighting + line numbers
 bat -l json                  # Force language detection
@@ -150,6 +160,7 @@ bat --range 10:20 file.py   # Show lines 10-20
 ```
 
 ### eza / exa — Better ls
+
 ```bash
 eza -la                      # Long format, all files
 eza --tree --level=2         # Tree view
@@ -160,6 +171,7 @@ eza --icons                  # With file type icons
 ## Text Processing Power
 
 ### awk — Column and Pattern Processing
+
 ```bash
 # Print specific columns
 awk '{print $1, $3}' file.txt
@@ -181,6 +193,7 @@ awk '{count[$1]++} END {for (k in count) print k, count[k]}' access.log
 ```
 
 ### sed — Stream Editor
+
 ```bash
 # Replace (first per line vs global)
 sed 's/old/new/' file     # First occurrence per line
@@ -200,6 +213,7 @@ sed -e 's/a/b/' -e 's/c/d/' file
 ```
 
 ### cut, sort, uniq — The Unix Pipeline Staples
+
 ```bash
 # Extract columns
 cut -d: -f1,3 /etc/passwd        # Fields 1 and 3, colon-delimited
@@ -217,6 +231,7 @@ sort file.txt | uniq -c | sort -rn    # Most frequent lines first
 ```
 
 ### xargs — Build Commands from Input
+
 ```bash
 # Delete all .pyc files
 find . -name "*.pyc" | xargs rm
@@ -234,6 +249,7 @@ echo {1..100} | xargs -n 10 echo    # 10 args per line
 ## tmux — Terminal Multiplexer
 
 ### Essential Commands
+
 ```
 PREFIX = Ctrl-b (default)
 
@@ -262,6 +278,7 @@ PREFIX space Cycle layouts
 ```
 
 ### Recommended .tmux.conf
+
 ```bash
 # Prefix: Ctrl-a (easier than Ctrl-b)
 set -g prefix C-a
@@ -376,4 +393,4 @@ hyperfine 'command1' 'command2'  # Statistical benchmarking
 
 ---
 
-*Philosophy: The terminal is a composable IDE. Small tools, piped together, solve problems no single tool can. Learn the Unix pipeline and you'll never need to leave the shell.*
+_Philosophy: The terminal is a composable IDE. Small tools, piped together, solve problems no single tool can. Learn the Unix pipeline and you'll never need to leave the shell._

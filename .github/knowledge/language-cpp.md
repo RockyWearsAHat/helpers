@@ -31,6 +31,7 @@ std::string s = "hello";          // No char* management
 ```
 
 **Rules:**
+
 - `unique_ptr` by default (sole ownership).
 - `shared_ptr` only when ownership is genuinely shared.
 - `weak_ptr` to break cycles or for non-owning observers.
@@ -65,9 +66,11 @@ auto v2 = std::move(v1);  // v1 is now in a valid but unspecified state
 ```
 
 **Rules of thumb:**
+
 - Mark move operations `noexcept` (enables optimizations in containers).
 - After `std::move`, don't use the moved-from object (except to assign or destroy).
 - Pass sink parameters by value and move:
+
 ```cpp
 void setName(std::string name) {  // Takes by value
     name_ = std::move(name);       // Then moves into member
@@ -97,6 +100,7 @@ void process(const std::vector<int>& data);  // No copy, no modification
 ## C++20 Features
 
 ### Concepts (constrained templates)
+
 ```cpp
 // Before: cryptic error messages from templates
 // After: clear constraints
@@ -119,6 +123,7 @@ void print(const auto& value) {
 ```
 
 ### Ranges
+
 ```cpp
 #include <ranges>
 
@@ -134,6 +139,7 @@ for (int n : results) {
 ```
 
 ### Coroutines
+
 ```cpp
 // Generator (co_yield)
 std::generator<int> fibonacci() {
@@ -154,6 +160,7 @@ Task<Response> fetchData(std::string url) {
 ```
 
 ### Three-way comparison (spaceship operator)
+
 ```cpp
 struct Point {
     int x, y;
@@ -162,6 +169,7 @@ struct Point {
 ```
 
 ### std::format (C++20) / std::print (C++23)
+
 ```cpp
 std::string msg = std::format("Hello, {}! You are {} years old.", name, age);
 std::println("Result: {:.2f}", 3.14159);  // C++23
@@ -233,17 +241,17 @@ class NotFoundError : public AppError {
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **clang-tidy** | Static analysis + modernization suggestions |
-| **clang-format** | Code formatting |
-| **AddressSanitizer (ASan)** | Memory errors (use-after-free, buffer overflow) |
-| **ThreadSanitizer (TSan)** | Data races |
-| **UndefinedBehaviorSanitizer (UBSan)** | Undefined behavior detection |
-| **Valgrind** | Memory leak detection |
-| **CMake** | Build system (de facto standard) |
-| **Conan** / **vcpkg** | Package management |
+| Tool                                   | Purpose                                         |
+| -------------------------------------- | ----------------------------------------------- |
+| **clang-tidy**                         | Static analysis + modernization suggestions     |
+| **clang-format**                       | Code formatting                                 |
+| **AddressSanitizer (ASan)**            | Memory errors (use-after-free, buffer overflow) |
+| **ThreadSanitizer (TSan)**             | Data races                                      |
+| **UndefinedBehaviorSanitizer (UBSan)** | Undefined behavior detection                    |
+| **Valgrind**                           | Memory leak detection                           |
+| **CMake**                              | Build system (de facto standard)                |
+| **Conan** / **vcpkg**                  | Package management                              |
 
 ---
 
-*Sources: C++ Core Guidelines (Stroustrup/Sutter), Effective Modern C++ (Scott Meyers), A Tour of C++ (Stroustrup), CppReference, C++ Weekly (Jason Turner)*
+_Sources: C++ Core Guidelines (Stroustrup/Sutter), Effective Modern C++ (Scott Meyers), A Tour of C++ (Stroustrup), CppReference, C++ Weekly (Jason Turner)_

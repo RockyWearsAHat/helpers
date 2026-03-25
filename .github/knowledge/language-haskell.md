@@ -213,16 +213,16 @@ runApp config = runExceptT . flip runReaderT config
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **GHC** | Compiler |
-| **cabal** / **stack** | Build systems |
-| **HLS** | Language server (IDE support) |
-| **hlint** | Linting suggestions |
-| **fourmolu** / **ormolu** | Code formatting |
-| **Hspec** / **QuickCheck** | Testing / property testing |
-| **weeder** | Dead code detection |
+| Tool                       | Purpose                       |
+| -------------------------- | ----------------------------- |
+| **GHC**                    | Compiler                      |
+| **cabal** / **stack**      | Build systems                 |
+| **HLS**                    | Language server (IDE support) |
+| **hlint**                  | Linting suggestions           |
+| **fourmolu** / **ormolu**  | Code formatting               |
+| **Hspec** / **QuickCheck** | Testing / property testing    |
+| **weeder**                 | Dead code detection           |
 
 ---
 
-*Sources: Haskell Programming from First Principles (Allen/Moronuki), Real World Haskell (O'Sullivan/Goerzen/Stewart), Learn You a Haskell (Lipovača), GHC documentation*
+_Sources: Haskell Programming from First Principles (Allen/Moronuki), Real World Haskell (O'Sullivan/Goerzen/Stewart), Learn You a Haskell (Lipovača), GHC documentation_

@@ -43,24 +43,26 @@ The lexer converts a stream of characters into a stream of tokens.
 ```
 
 ### Key Decisions
+
 - **Maximal munch**: `>=` is one token (GTE), not `>` then `=`
 - **Whitespace**: Usually discarded (except Python, where indentation is syntactic)
 - **Comments**: Stripped (but preserved for doc generators / linters)
 - **String interpolation**: Tricky — lexer must handle nested expressions: `"Hello ${name}!"`
 
 ### Implementation
+
 ```python
 # Simple hand-written lexer
 class Lexer:
     def __init__(self, source):
         self.source = source
         self.pos = 0
-    
+
     def next_token(self):
         self.skip_whitespace()
         if self.pos >= len(self.source):
             return Token(EOF, "")
-        
+
         c = self.source[self.pos]
         if c.isdigit():
             return self.read_number()
@@ -77,6 +79,7 @@ class Lexer:
 The parser converts tokens into an AST (Abstract Syntax Tree).
 
 ### BNF Grammar (Backus-Naur Form)
+
 ```
 expression   ::= term (('+' | '-') term)*
 term         ::= factor (('*' | '/') factor)*
@@ -84,6 +87,7 @@ factor       ::= NUMBER | IDENT | '(' expression ')'
 ```
 
 ### Recursive Descent (Top-Down) — Most Common for Hand-Written Parsers
+
 ```python
 def parse_expression(tokens):
     left = parse_term(tokens)
@@ -112,28 +116,31 @@ def parse_factor(tokens):
 ```
 
 ### Pratt Parsing (Top-Down Operator Precedence)
+
 Elegant approach for expressions with infix operators:
+
 ```python
 def parse_expr(tokens, min_precedence=0):
     left = parse_prefix(tokens)  # number, identifier, unary op, grouped expr
-    
+
     while precedence(tokens.peek()) >= min_precedence:
         op = tokens.next()
         right = parse_expr(tokens, precedence(op) + (1 if left_assoc(op) else 0))
         left = BinaryExpr(op, left, right)
-    
+
     return left
 ```
 
 ### Parser Generators
-| Tool | Grammar Type | Language |
-|------|-------------|---------|
-| ANTLR | LL(*) | Java, Python, JS, C++, many |
-| Bison/Yacc | LALR(1) | C/C++ |
-| PEG.js / Ohm | PEG | JavaScript |
-| tree-sitter | GLR-like | C (used by editors for syntax highlighting) |
-| nom | Parser combinators | Rust |
-| pest | PEG | Rust |
+
+| Tool         | Grammar Type       | Language                                    |
+| ------------ | ------------------ | ------------------------------------------- |
+| ANTLR        | LL(\*)             | Java, Python, JS, C++, many                 |
+| Bison/Yacc   | LALR(1)            | C/C++                                       |
+| PEG.js / Ohm | PEG                | JavaScript                                  |
+| tree-sitter  | GLR-like           | C (used by editors for syntax highlighting) |
+| nom          | Parser combinators | Rust                                        |
+| pest         | PEG                | Rust                                        |
 
 ### The AST
 
@@ -151,6 +158,7 @@ AST (respecting precedence):
 ## Stage 3: Semantic Analysis
 
 ### Name Resolution
+
 ```python
 # Which 'x' does this refer to?
 x = 10
@@ -159,13 +167,15 @@ def foo():
     def bar():
         print(x)    # Captures foo's x (closure)
 ```
+
 Build a scope chain: each scope knows its parent. Look up names by walking the chain.
 
 ### Type Checking
+
 ```typescript
 // Type inference: deduce types from context
-let x = 42;           // x: number (inferred)
-let y = x + "hello";  // Error: can't add number and string (in strict languages)
+let x = 42; // x: number (inferred)
+let y = x + "hello"; // Error: can't add number and string (in strict languages)
 
 // Unification: solving type equations
 // Given: f(a, b) = a + b
@@ -175,6 +185,7 @@ let y = x + "hello";  // Error: can't add number and string (in strict languages
 ```
 
 ### Type Inference Algorithms
+
 - **Hindley-Milner (Algorithm W)**: Used by Haskell, ML, Rust (partially). Complete inference — you rarely write type annotations.
 - **Local type inference**: Used by TypeScript, Kotlin, Swift. Infers within expressions but requires annotations on function signatures.
 - **Bidirectional type checking**: Combines inference (synthesize type from expression) with checking (verify expression against expected type).
@@ -182,6 +193,7 @@ let y = x + "hello";  // Error: can't add number and string (in strict languages
 ## Stage 4: Intermediate Representation (IR)
 
 ### Three-Address Code
+
 ```
 Source: x = a + b * c
 
@@ -192,7 +204,9 @@ IR:
 ```
 
 ### SSA (Static Single Assignment)
+
 Each variable is assigned exactly once. Multiple assignments create new "versions":
+
 ```
 Source:                SSA form:
 x = 1                 x₁ = 1
@@ -208,31 +222,35 @@ y = x                  x₅ = φ(x₃, x₄)    ← phi function: "which version
 SSA makes optimizations easier because each "variable" has exactly one definition point.
 
 ### LLVM IR
+
 ```llvm
 define i32 @add(i32 %a, i32 %b) {
   %result = add i32 %a, %b
   ret i32 %result
 }
 ```
+
 LLVM IR is the lingua franca of compiler backends. Languages target LLVM IR → LLVM handles optimization and code generation for every CPU architecture.
 
 ## Stage 5: Optimization
 
 ### Classic Optimizations
-| Optimization | What it does | Example |
-|-------------|-------------|---------|
-| Constant folding | Evaluate at compile time | `3 + 4` → `7` |
-| Constant propagation | Replace variable with known value | `x = 5; y = x + 1` → `y = 6` |
-| Dead code elimination | Remove unreachable/unused code | Remove code after `return` |
-| Common subexpression elimination | Reuse computed values | `a*b + a*b` → `t = a*b; t + t` |
-| Function inlining | Replace call with function body | Small functions get "pasted in" |
-| Loop-invariant code motion | Move unchanging code out of loop | `for (i) { x = heavy(); use(x, i); }` → `x = heavy(); for (i) { use(x, i); }` |
-| Strength reduction | Replace expensive ops with cheaper ones | `x * 2` → `x << 1` |
-| Tail call optimization | Reuse stack frame for tail calls | Recursive → iterative |
-| Vectorization (SIMD) | Process multiple values per instruction | Loop over array → SIMD instructions |
-| Loop unrolling | Reduce loop overhead | One iteration → four iterations per loop step |
+
+| Optimization                     | What it does                            | Example                                                                       |
+| -------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------- |
+| Constant folding                 | Evaluate at compile time                | `3 + 4` → `7`                                                                 |
+| Constant propagation             | Replace variable with known value       | `x = 5; y = x + 1` → `y = 6`                                                  |
+| Dead code elimination            | Remove unreachable/unused code          | Remove code after `return`                                                    |
+| Common subexpression elimination | Reuse computed values                   | `a*b + a*b` → `t = a*b; t + t`                                                |
+| Function inlining                | Replace call with function body         | Small functions get "pasted in"                                               |
+| Loop-invariant code motion       | Move unchanging code out of loop        | `for (i) { x = heavy(); use(x, i); }` → `x = heavy(); for (i) { use(x, i); }` |
+| Strength reduction               | Replace expensive ops with cheaper ones | `x * 2` → `x << 1`                                                            |
+| Tail call optimization           | Reuse stack frame for tail calls        | Recursive → iterative                                                         |
+| Vectorization (SIMD)             | Process multiple values per instruction | Loop over array → SIMD instructions                                           |
+| Loop unrolling                   | Reduce loop overhead                    | One iteration → four iterations per loop step                                 |
 
 ### Optimization Levels
+
 ```bash
 gcc -O0 file.c    # No optimization (fast compile, debuggable)
 gcc -O1 file.c    # Basic optimizations
@@ -245,11 +263,13 @@ gcc -Og file.c    # Optimize for debugging
 ## Stage 6: Code Generation
 
 ### Register Allocation
+
 CPU has limited registers (x86-64: 16 general-purpose). The compiler must decide which variables live in registers vs. memory (spilling).
 
 **Graph coloring**: Build an interference graph (variables that are "live" at the same time can't share a register), then color the graph with K colors (K = number of registers).
 
 ### Instruction Selection
+
 Map IR operations to actual CPU instructions. Different CPUs have different instruction sets (x86, ARM, RISC-V).
 
 ```
@@ -260,15 +280,16 @@ ARM: ADD R0, R1, R2
 
 ## JIT vs AOT Compilation
 
-| Aspect | AOT (Ahead of Time) | JIT (Just in Time) |
-|--------|---------------------|-------------------|
-| When | Before execution | During execution |
-| Startup | Fast (already compiled) | Slow (compiles at start) |
-| Peak perf | Good (static analysis) | Potentially better (runtime profiling) |
-| Examples | C, C++, Rust, Go | Java HotSpot, V8 (JS), .NET RyuJIT |
-| Optimization | Based on static analysis | Based on actual runtime behavior |
+| Aspect       | AOT (Ahead of Time)      | JIT (Just in Time)                     |
+| ------------ | ------------------------ | -------------------------------------- |
+| When         | Before execution         | During execution                       |
+| Startup      | Fast (already compiled)  | Slow (compiles at start)               |
+| Peak perf    | Good (static analysis)   | Potentially better (runtime profiling) |
+| Examples     | C, C++, Rust, Go         | Java HotSpot, V8 (JS), .NET RyuJIT     |
+| Optimization | Based on static analysis | Based on actual runtime behavior       |
 
 ### JIT Tricks
+
 - **Tiered compilation**: Interpret first (fast startup), compile hot functions (peak performance)
 - **Speculative optimization**: Assume this branch is always taken → optimize for it → deoptimize if wrong
 - **Inline caching**: Monomorphic call sites → skip virtual dispatch
@@ -277,6 +298,7 @@ ARM: ADD R0, R1, R2
 ## Interpreters
 
 ### Tree-Walking Interpreter
+
 ```python
 def evaluate(node):
     if isinstance(node, NumberLit):
@@ -291,10 +313,13 @@ def evaluate(node):
             return evaluate(node.then_branch)
         return evaluate(node.else_branch)
 ```
+
 Simple but slow (pointer-chasing through AST nodes).
 
 ### Bytecode Interpreter
+
 Compile AST → bytecode, then execute bytecode in a virtual machine:
+
 ```
 Source: 1 + 2 * 3
 
@@ -305,6 +330,7 @@ Bytecode:
   MUL         # 2 * 3 = 6
   ADD         # 1 + 6 = 7
 ```
+
 Stack-based VM (Python, Java, Ruby) or register-based VM (Lua, Dalvik).
 
 ## Resources for Learning Compilers
@@ -316,4 +342,4 @@ Stack-based VM (Python, Java, Ruby) or register-based VM (Lua, Dalvik).
 
 ---
 
-*"A compiler is just a program that reads a program written in one language (the source) and translates it into another language (the target)." Simple definition. Infinite depth.*
+_"A compiler is just a program that reads a program written in one language (the source) and translates it into another language (the target)." Simple definition. Infinite depth._

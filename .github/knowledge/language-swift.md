@@ -42,6 +42,7 @@ let conn2 = conn1  // REFERENCE — both point to same object
 ```
 
 **When to use a class:**
+
 - When identity matters (two objects at the same address are "the same").
 - When you need inheritance.
 - When you need reference semantics (shared, mutable state).
@@ -308,15 +309,15 @@ func fetch(completion: @escaping (Result<Data, Error>) -> Void) { ... }
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **SwiftLint** | Style and convention enforcement |
-| **SwiftFormat** | Code formatting |
-| **XCTest** | Unit/integration testing (built-in) |
-| **Swift Testing** | Modern test framework (Swift 5.10+) |
-| **Instruments** | Performance profiling |
-| **Swift Package Manager** | Dependency management |
+| Tool                      | Purpose                             |
+| ------------------------- | ----------------------------------- |
+| **SwiftLint**             | Style and convention enforcement    |
+| **SwiftFormat**           | Code formatting                     |
+| **XCTest**                | Unit/integration testing (built-in) |
+| **Swift Testing**         | Modern test framework (Swift 5.10+) |
+| **Instruments**           | Performance profiling               |
+| **Swift Package Manager** | Dependency management               |
 
 ---
 
-*Sources: Swift Programming Language (Apple), Swift API Design Guidelines, Protocol-Oriented Programming in Swift (WWDC), Swift Evolution proposals*
+_Sources: Swift Programming Language (Apple), Swift API Design Guidelines, Protocol-Oriented Programming in Swift (WWDC), Swift Evolution proposals_

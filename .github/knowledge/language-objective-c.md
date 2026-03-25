@@ -199,4 +199,4 @@ NS_ASSUME_NONNULL_END
 
 ---
 
-*Sources: Apple Objective-C Programming Guide, iOS Programming (Big Nerd Ranch), Effective Objective-C 2.0 (Matt Galloway)*
+_Sources: Apple Objective-C Programming Guide, iOS Programming (Big Nerd Ranch), Effective Objective-C 2.0 (Matt Galloway)_

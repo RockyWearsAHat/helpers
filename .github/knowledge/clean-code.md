@@ -1,14 +1,16 @@
 # Clean Code — Robert C. Martin's Rules
 
-Condensed from *Clean Code: A Handbook of Agile Software Craftsmanship* (2008).
+Condensed from _Clean Code: A Handbook of Agile Software Craftsmanship_ (2008).
 
 ## General Rules
+
 1. Follow standard conventions of the language/project.
 2. Keep it simple — simpler is always better. Reduce complexity as much as possible.
 3. Boy Scout Rule: leave the campground cleaner than you found it.
 4. Always find root cause. Don't treat symptoms.
 
 ## Design Rules
+
 1. Keep configurable data at high levels (constants, config files).
 2. Prefer polymorphism to if/else or switch/case chains.
 3. Separate multi-threading code from business logic.
@@ -17,6 +19,7 @@ Condensed from *Clean Code: A Handbook of Agile Software Craftsmanship* (2008).
 6. Follow the Law of Demeter — a class should know only about its direct dependencies.
 
 ## Naming Rules
+
 1. Choose descriptive and unambiguous names.
 2. Make meaningful distinctions — `getActiveAccounts()` not `getAccounts2()`.
 3. Use pronounceable, searchable names.
@@ -25,6 +28,7 @@ Condensed from *Clean Code: A Handbook of Agile Software Craftsmanship* (2008).
 6. Names should describe side effects: `createOrReturnCachedUser()` not `getUser()`.
 
 ## Function Rules
+
 1. Small — functions should be tiny. 20 lines is a lot.
 2. Do one thing, and do it well.
 3. Use descriptive names — long descriptive names > short cryptic names.
@@ -33,15 +37,17 @@ Condensed from *Clean Code: A Handbook of Agile Software Craftsmanship* (2008).
 6. Don't use flag arguments — split into two functions instead.
 
 ## Comment Rules
+
 1. Always try to explain yourself in code first.
 2. Don't be redundant — `i++; // increment i` is noise.
 3. Don't add obvious noise or journal comments (that's what version control is for).
-4. Use comments to explain **intent** (the *why*), not *what* the code does.
+4. Use comments to explain **intent** (the _why_), not _what_ the code does.
 5. Use comments as warnings of consequences.
 6. TODO comments are acceptable but should be cleaned regularly.
 7. Don't comment out code — delete it. Version control remembers.
 
 ## Source Code Structure
+
 1. Separate concepts vertically with blank lines.
 2. Related code should appear vertically dense (close together).
 3. Declare variables close to their usage.
@@ -54,6 +60,7 @@ Condensed from *Clean Code: A Handbook of Agile Software Craftsmanship* (2008).
 10. Don't break indentation for short blocks — consistency matters.
 
 ## Objects and Data Structures
+
 1. Hide internal structure.
 2. Prefer data structures (no behavior) or objects (behavior, hidden data). Hybrids are the worst of both.
 3. Small number of instance variables.
@@ -62,6 +69,7 @@ Condensed from *Clean Code: A Handbook of Agile Software Craftsmanship* (2008).
 6. Prefer non-static methods — they can be polymorphic.
 
 ## Tests
+
 1. One assert per test (conceptually — one concept per test).
 2. Fast, independent, repeatable, self-validating, timely (F.I.R.S.T.).
 3. Readable — tests are documentation.
@@ -69,6 +77,7 @@ Condensed from *Clean Code: A Handbook of Agile Software Craftsmanship* (2008).
 5. Sufficient coverage — test the things that could break. Not just the happy path.
 
 ## Code Smells
+
 1. **Rigidity**: one change causes cascade of changes.
 2. **Fragility**: code breaks in places unrelated to the change.
 3. **Immobility**: code is hard to reuse in other contexts.
@@ -78,4 +87,4 @@ Condensed from *Clean Code: A Handbook of Agile Software Craftsmanship* (2008).
 
 ---
 
-*Source: "Clean Code" by Robert C. Martin, summarized from the community-maintained reference (github.com/ryanmcdermott/clean-code-javascript and wojteklu/clean-code gist)*
+_Source: "Clean Code" by Robert C. Martin, summarized from the community-maintained reference (github.com/ryanmcdermott/clean-code-javascript and wojteklu/clean-code gist)_

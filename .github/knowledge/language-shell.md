@@ -9,13 +9,14 @@ Every shell script should start with:
 set -euo pipefail
 ```
 
-| Flag | Effect |
-|------|--------|
-| `set -e` (errexit) | Exit immediately on non-zero return |
-| `set -u` (nounset) | Error on undefined variables |
-| `set -o pipefail` | Pipeline fails if ANY command fails (not just the last) |
+| Flag               | Effect                                                  |
+| ------------------ | ------------------------------------------------------- |
+| `set -e` (errexit) | Exit immediately on non-zero return                     |
+| `set -u` (nounset) | Error on undefined variables                            |
+| `set -o pipefail`  | Pipeline fails if ANY command fails (not just the last) |
 
 **Without `pipefail`:**
+
 ```bash
 curl http://bad-url | grep pattern  # grep returns 0 even if curl fails!
 ```
@@ -45,7 +46,7 @@ done
 # - Inside [[ ]] for regex: [[ $var =~ ^[0-9]+$ ]]
 ```
 
-## Use [[ ]] Not [ ]
+## Use [[]] Not [ ]
 
 ```bash
 # [[ ]] is a bash builtin — safer and more powerful than [ ]
@@ -203,6 +204,7 @@ command -v jq > /dev/null 2>&1 || die "jq is required but not installed"
 ## ShellCheck
 
 **Run ShellCheck on every script.** It catches:
+
 - Unquoted variables (SC2086)
 - Useless use of cat (SC2002)
 - Bash-specific features in sh scripts (SC2039)
@@ -261,4 +263,4 @@ If the script must run on non-bash shells (dash, sh, ash):
 
 ---
 
-*Sources: Google Shell Style Guide, Bash Pitfalls (Greg's Wiki), ShellCheck documentation, POSIX Shell specification, Advanced Bash-Scripting Guide, Wooledge BashFAQ*
+_Sources: Google Shell Style Guide, Bash Pitfalls (Greg's Wiki), ShellCheck documentation, POSIX Shell specification, Advanced Bash-Scripting Guide, Wooledge BashFAQ_

@@ -240,4 +240,4 @@ grid .greet_btn   -row 1 -column 0 -columnspan 2 -pady 10
 
 ---
 
-*Sources: Tcl Developer Xchange (tcl-lang.org), Practical Programming in Tcl and Tk (Welch), Tcl/Tk 8.6 Manual*
+_Sources: Tcl Developer Xchange (tcl-lang.org), Practical Programming in Tcl and Tk (Welch), Tcl/Tk 8.6 Manual_

@@ -3,17 +3,21 @@
 ## Fundamental Rules
 
 ### Knuth's Law
+
 "Premature optimization is the root of all evil" — Donald Knuth. The full quote adds: "Yet we should not pass up our opportunities in that critical 3%."
 
 Translation: Write clear code first. Profile to find the actual bottleneck. Optimize only the measured hot spots. Most code doesn't need optimization.
 
 ### Measure, Don't Guess
+
 Always profile before optimizing. Your intuition about what's slow is usually wrong.
+
 - **CPU profiling**: Where is time being spent? (flame graphs, sampling profilers)
 - **Memory profiling**: What's consuming RAM? Where are allocations?
 - **I/O profiling**: Which queries, network calls, or disk reads are slowest?
 
 Tools by language:
+
 - **JavaScript**: Chrome DevTools, `node --prof`, clinic.js
 - **Python**: cProfile, py-spy, memory_profiler, line_profiler
 - **Java**: JFR (Flight Recorder), async-profiler, VisualVM
@@ -25,19 +29,20 @@ Tools by language:
 
 Choose the right algorithm and data structure first — this dominates all micro-optimizations.
 
-| Operation | Array | Hash Map | Sorted Array | BST/Tree |
-|-----------|-------|----------|--------------|----------|
-| Access by index | O(1) | — | O(1) | O(log n) |
-| Search | O(n) | O(1) avg | O(log n) | O(log n) |
-| Insert | O(n)* | O(1) avg | O(n) | O(log n) |
-| Delete | O(n) | O(1) avg | O(n) | O(log n) |
+| Operation       | Array  | Hash Map | Sorted Array | BST/Tree |
+| --------------- | ------ | -------- | ------------ | -------- |
+| Access by index | O(1)   | —        | O(1)         | O(log n) |
+| Search          | O(n)   | O(1) avg | O(log n)     | O(log n) |
+| Insert          | O(n)\* | O(1) avg | O(n)         | O(log n) |
+| Delete          | O(n)   | O(1) avg | O(n)         | O(log n) |
 
-*O(1) amortized for append at end.
+\*O(1) amortized for append at end.
 
 **Common complexity classes** (best to worst):
 O(1) → O(log n) → O(n) → O(n log n) → O(n²) → O(2ⁿ) → O(n!)
 
 **Red flags:**
+
 - Nested loops over the same data → O(n²). Can often be replaced with hash maps for O(n).
 - Repeated linear searches → Add an index or use a set.
 - Sorting for every query → Sort once, binary search after.
@@ -90,4 +95,4 @@ I/O (disk, network, database) is almost always the bottleneck in real applicatio
 
 ---
 
-*Sources: Donald Knuth (Art of Computer Programming), Brendan Gregg (Systems Performance), Google Web Vitals, High Performance Browser Networking (Ilya Grigorik)*
+_Sources: Donald Knuth (Art of Computer Programming), Brendan Gregg (Systems Performance), Google Web Vitals, High Performance Browser Networking (Ilya Grigorik)_

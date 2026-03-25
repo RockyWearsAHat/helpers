@@ -3,6 +3,7 @@
 ## Branching Strategies
 
 ### Trunk-Based Development
+
 All developers commit to a single branch (`main`/`trunk`) frequently (at least daily). Short-lived feature branches (< 2 days) are acceptable. Feature flags hide incomplete work.
 
 **Best for:** Teams with strong CI/CD, continuous deployment, high trust environments.
@@ -10,6 +11,7 @@ All developers commit to a single branch (`main`/`trunk`) frequently (at least d
 **Cons:** Requires feature flags, good test coverage, and disciplined small commits.
 
 ### GitHub Flow
+
 Simple workflow: `main` is always deployable. Create feature branches, open pull requests, merge after review.
 
 1. Branch from `main`
@@ -22,7 +24,9 @@ Simple workflow: `main` is always deployable. Create feature branches, open pull
 **Best for:** SaaS, web apps, continuous deployment teams.
 
 ### Git Flow (Gitflow)
+
 Structured branching model with long-lived branches:
+
 - `main` — production releases (tagged)
 - `develop` — integration branch
 - `feature/*` — feature work (branched from develop)
@@ -33,12 +37,15 @@ Structured branching model with long-lived branches:
 **Cons:** Complex, slow integration, merge conflicts between long-lived branches.
 
 ### Release Branches
+
 Simpler than Gitflow. Cut a `release/X.Y` branch when ready to stabilize. Main continues to receive new features. Cherry-pick fixes between release and main.
 
 ## Commit Conventions
 
 ### Conventional Commits
+
 Structured commit messages that enable automated changelogs and semantic versioning:
+
 ```
 <type>(<scope>): <description>
 
@@ -50,6 +57,7 @@ Structured commit messages that enable automated changelogs and semantic version
 **Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`.
 
 **Examples:**
+
 ```
 feat(auth): add OAuth2 login support
 fix(api): handle null response from payment gateway
@@ -61,14 +69,16 @@ perf(search): add index on users.email column
 Breaking changes: add `!` after type or `BREAKING CHANGE:` in footer.
 
 ### Good Commit Messages
+
 1. **Subject line**: Imperative mood, < 72 chars. "Add feature" not "Added feature" or "Adds feature".
-2. **Body** (when needed): Explain *why*, not *what*. The diff shows what changed.
+2. **Body** (when needed): Explain _why_, not _what_. The diff shows what changed.
 3. **One logical change per commit**. Don't mix refactoring with feature work.
 4. **Reference issue/ticket numbers**: `Fixes #42`, `Closes PROJ-123`.
 
 ## Semantic Versioning (SemVer)
 
 Format: `MAJOR.MINOR.PATCH`
+
 - **MAJOR**: Breaking changes (incompatible API changes).
 - **MINOR**: New features (backward-compatible additions).
 - **PATCH**: Bug fixes (backward-compatible fixes).
@@ -76,6 +86,7 @@ Format: `MAJOR.MINOR.PATCH`
 Pre-release: `1.0.0-alpha.1`, `2.0.0-beta.3`, `1.0.0-rc.1`.
 
 **Rules:**
+
 - Start at 0.1.0 for initial development. Anything goes before 1.0.0.
 - Once you hit 1.0.0, the public API is defined and versioning matters.
 - Never modify a released version — always increment.
@@ -102,4 +113,4 @@ Pre-release: `1.0.0-alpha.1`, `2.0.0-beta.3`, `1.0.0-rc.1`.
 
 ---
 
-*Sources: Atlassian Git Tutorials, Martin Fowler (Branching Patterns), GitHub Flow documentation, Conventional Commits specification (conventionalcommits.org), semver.org*
+_Sources: Atlassian Git Tutorials, Martin Fowler (Branching Patterns), GitHub Flow documentation, Conventional Commits specification (conventionalcommits.org), semver.org_

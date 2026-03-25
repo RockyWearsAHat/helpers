@@ -205,4 +205,4 @@ waitFor main()
 
 ---
 
-*Sources: Nim Manual (nim-lang.org), Nim in Action (Picheta), Nim by Example, Nim Standard Library docs*
+_Sources: Nim Manual (nim-lang.org), Nim in Action (Picheta), Nim by Example, Nim Standard Library docs_

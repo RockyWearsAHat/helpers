@@ -196,4 +196,4 @@ Clojure is a modern Lisp on the JVM (and JavaScript via ClojureScript). It empha
 
 ---
 
-*Sources: Clojure.org, Programming Clojure (Halloway), Clojure Applied (Vandgrift & Miller), ClojureDocs.org*
+_Sources: Clojure.org, Programming Clojure (Halloway), Clojure Applied (Vandgrift & Miller), ClojureDocs.org_

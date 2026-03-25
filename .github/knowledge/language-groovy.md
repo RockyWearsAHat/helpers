@@ -178,4 +178,4 @@ class Point {
 
 ---
 
-*Sources: Groovy Documentation (groovy-lang.org), Groovy in Action (König et al.), Gradle User Guide, Making Java Groovy (Kousen)*
+_Sources: Groovy Documentation (groovy-lang.org), Groovy in Action (König et al.), Gradle User Guide, Making Java Groovy (Kousen)_

@@ -1,6 +1,7 @@
 # Refactoring Catalog
 
 ## Core Philosophy
+
 > "Refactoring is the process of changing a software system in a way that does not alter the external behavior of the code yet improves its internal structure." — Martin Fowler
 
 **When to refactor:** Rule of Three — first time you do something, just do it. Second time, wince at the duplication. Third time, refactor.
@@ -10,7 +11,9 @@
 ## Extract / Inline Refactorings
 
 ### Extract Function
+
 **When:** You have a code fragment that can be grouped together, or a comment explaining what a block does.
+
 ```python
 # Before
 def print_invoice(invoice):
@@ -38,22 +41,29 @@ def print_invoice(invoice):
 ```
 
 ### Extract Variable (Introduce Explaining Variable)
+
 **When:** A complex expression is hard to understand.
+
 ```javascript
 // Before
-return order.quantity * order.itemPrice -
+return (
+  order.quantity * order.itemPrice -
   Math.max(0, order.quantity - 500) * order.itemPrice * 0.05 +
-  Math.min(order.quantity * order.itemPrice * 0.1, 100);
+  Math.min(order.quantity * order.itemPrice * 0.1, 100)
+);
 
 // After
 const basePrice = order.quantity * order.itemPrice;
-const quantityDiscount = Math.max(0, order.quantity - 500) * order.itemPrice * 0.05;
+const quantityDiscount =
+  Math.max(0, order.quantity - 500) * order.itemPrice * 0.05;
 const shipping = Math.min(basePrice * 0.1, 100);
 return basePrice - quantityDiscount + shipping;
 ```
 
 ### Inline Function / Variable
+
 **When:** The function body is as clear as the name, or an intermediate variable adds no value.
+
 ```python
 # Before
 def get_rating(driver):
@@ -68,7 +78,9 @@ def get_rating(driver):
 ```
 
 ### Extract Class
+
 **When:** A class is doing two things (violates SRP). Split it.
+
 ```python
 # Before: Person has phone number logic mixed in
 class Person:
@@ -98,32 +110,38 @@ class Person:
 ## Moving Features
 
 ### Move Function / Field
+
 **When:** A function references elements of another context more than its own.
 
 ### Slide Statements
+
 **When:** Related code is scattered. Move declarations near their first use.
 
 ### Replace Loop with Pipeline
+
 **When:** A loop does filtering, mapping, or reducing.
+
 ```javascript
 // Before
 const results = [];
 for (const person of people) {
-    if (person.department === "engineering") {
-        results.push(person.name.toUpperCase());
-    }
+  if (person.department === "engineering") {
+    results.push(person.name.toUpperCase());
+  }
 }
 
 // After
 const results = people
-    .filter(p => p.department === "engineering")
-    .map(p => p.name.toUpperCase());
+  .filter((p) => p.department === "engineering")
+  .map((p) => p.name.toUpperCase());
 ```
 
 ## Simplifying Conditional Logic
 
 ### Decompose Conditional
+
 **When:** A complex conditional (if-then-else) is hard to read.
+
 ```python
 # Before
 if date.before(SUMMER_START) or date.after(SUMMER_END):
@@ -139,7 +157,9 @@ else:
 ```
 
 ### Consolidate Conditional Expression
+
 **When:** Multiple conditions yield the same result.
+
 ```python
 # Before
 def disability_amount(employee):
@@ -156,7 +176,9 @@ def disability_amount(employee):
 ```
 
 ### Replace Nested Conditional with Guard Clauses
+
 **When:** Deep nesting makes the normal path hard to see.
+
 ```python
 # Before
 def pay_amount(employee):
@@ -177,7 +199,9 @@ def pay_amount(employee):
 ```
 
 ### Replace Conditional with Polymorphism
+
 **When:** A switch/case or if-chain dispatches on type.
+
 ```python
 # Before
 def calculate_area(shape):
@@ -200,7 +224,9 @@ class Triangle:
 ```
 
 ### Introduce Special Case (Null Object)
+
 **When:** Many places check for a special value (often null) and do the same thing.
+
 ```python
 # Before — scattered null checks
 if customer is None:
@@ -219,6 +245,7 @@ class UnknownCustomer:
 ## Organizing Data
 
 ### Replace Magic Number with Symbolic Constant
+
 ```python
 # Before
 if speed > 9.8: ...  # what is 9.8?
@@ -229,7 +256,9 @@ if speed > GRAVITATIONAL_CONSTANT: ...
 ```
 
 ### Replace Primitive with Object (Value Object)
+
 **When:** A primitive carries domain meaning (phone numbers, currencies, coordinates).
+
 ```python
 # Before
 order.priority = "high"
@@ -244,7 +273,9 @@ class Priority:
 ```
 
 ### Replace Derived Variable with Query
+
 **When:** A variable can be calculated from other data.
+
 ```python
 # Before (mutable derived state)
 class ProductionPlan:
@@ -265,25 +296,26 @@ class ProductionPlan:
 
 ## Code Smells → Refactoring Map
 
-| Smell | Refactoring |
-|-------|-------------|
-| Long Function | Extract Function |
-| Large Class | Extract Class, Extract Superclass |
-| Long Parameter List | Introduce Parameter Object, Preserve Whole Object |
-| Divergent Change | Extract Class (split by axis of change) |
-| Shotgun Surgery | Move Function, Inline Class (consolidate) |
-| Feature Envy | Move Function to the envied class |
-| Data Clumps | Extract Class, Introduce Parameter Object |
-| Primitive Obsession | Replace Primitive with Object |
-| Repeated Switches | Replace Conditional with Polymorphism |
-| Lazy Element | Inline Function, Inline Class |
-| Speculative Generality | Remove Dead Code, Inline Function |
-| Temporary Field | Extract Class, Introduce Special Case |
-| Message Chains | Hide Delegate, Extract Function |
-| Middle Man | Remove Middle Man, Inline Function |
-| Comments (deodorant) | Extract Function, Rename |
+| Smell                  | Refactoring                                       |
+| ---------------------- | ------------------------------------------------- |
+| Long Function          | Extract Function                                  |
+| Large Class            | Extract Class, Extract Superclass                 |
+| Long Parameter List    | Introduce Parameter Object, Preserve Whole Object |
+| Divergent Change       | Extract Class (split by axis of change)           |
+| Shotgun Surgery        | Move Function, Inline Class (consolidate)         |
+| Feature Envy           | Move Function to the envied class                 |
+| Data Clumps            | Extract Class, Introduce Parameter Object         |
+| Primitive Obsession    | Replace Primitive with Object                     |
+| Repeated Switches      | Replace Conditional with Polymorphism             |
+| Lazy Element           | Inline Function, Inline Class                     |
+| Speculative Generality | Remove Dead Code, Inline Function                 |
+| Temporary Field        | Extract Class, Introduce Special Case             |
+| Message Chains         | Hide Delegate, Extract Function                   |
+| Middle Man             | Remove Middle Man, Inline Function                |
+| Comments (deodorant)   | Extract Function, Rename                          |
 
 ## Refactoring Safety Checklist
+
 1. **Tests pass** before you start
 2. **Small steps**: One refactoring at a time, test after each
 3. **Commit frequently**: Each refactoring is a commit point
@@ -293,4 +325,4 @@ class ProductionPlan:
 
 ---
 
-*Primary source: Martin Fowler's "Refactoring" (2nd edition, 2018). Supplemented with practical examples across languages.*
+_Primary source: Martin Fowler's "Refactoring" (2nd edition, 2018). Supplemented with practical examples across languages._

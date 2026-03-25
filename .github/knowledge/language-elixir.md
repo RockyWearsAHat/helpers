@@ -65,7 +65,7 @@ conn
 
 ```elixir
 # Spawn a process (extremely cheap — millions possible)
-pid = spawn(fn -> 
+pid = spawn(fn ->
   receive do
     {:greet, name} -> IO.puts("Hello, #{name}!")
   end
@@ -212,17 +212,17 @@ end
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **mix** | Build tool + package manager |
-| **ExUnit** | Testing (built-in) |
-| **Credo** | Static analysis / linting |
+| Tool         | Purpose                          |
+| ------------ | -------------------------------- |
+| **mix**      | Build tool + package manager     |
+| **ExUnit**   | Testing (built-in)               |
+| **Credo**    | Static analysis / linting        |
 | **Dialyxir** | Type checking (Dialyzer wrapper) |
-| **Ecto** | Database wrapper + query builder |
-| **Phoenix** | Web framework |
-| **Livebook** | Interactive notebooks |
-| **Observer** | Runtime system monitoring |
+| **Ecto**     | Database wrapper + query builder |
+| **Phoenix**  | Web framework                    |
+| **Livebook** | Interactive notebooks            |
+| **Observer** | Runtime system monitoring        |
 
 ---
 
-*Sources: Elixir documentation, Programming Elixir (Dave Thomas), Elixir in Action (Saša Jurić), Phoenix documentation*
+_Sources: Elixir documentation, Programming Elixir (Dave Thomas), Elixir in Action (Saša Jurić), Phoenix documentation_
