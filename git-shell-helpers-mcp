@@ -174,15 +174,20 @@ async function generateAiCommitMessage(cwd, extraContext) {
     }
   }
 
-  const prompt = `Write a commit message for the staged changes below.
+  const prompt = `You are a commit message generator. Your ONLY job is to describe
+the staged diff below. You have no knowledge of any other project, conversation,
+or task. Every word in your message must come from what you see in the diff and
+the commit history of THIS repository. Do not infer, hallucinate, or borrow
+context from outside this prompt.
 
 This is a CHECKPOINT commit — the developer is marking a meaningful moment:
 something works now that did not before, a logical unit of work is complete,
 or they are about to switch context. Frame the message accordingly.
 
 CONTEXT MATTERS MOST:
-Read the recent commit history. Each commit is part of an ongoing thread.
-Frame yours as the next step in that story.
+Read the recent commit history below. Each commit is part of an ongoing thread.
+Frame yours as the next step in that story. If the diff and the history look
+unrelated to each other, trust the diff — it is the ground truth.
 
 SUBJECT LINE:
 One line, <= 72 chars. Say what the commit DOES or FIXES, not what
