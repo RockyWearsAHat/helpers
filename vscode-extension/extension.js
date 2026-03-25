@@ -675,13 +675,19 @@ const MCP_TOOLS_CONFIG_PATH = path.join(MCP_TOOLS_CONFIG_DIR, "tools.json");
 const TOOL_GROUPS = [
   {
     key: "knowledgeWrite",
-    label: "Knowledge Write",
+    label: "Write Reusable Knowledge Locally",
     description: "Write, update & append knowledge notes",
     tools: [
       "write_knowledge_note",
       "update_knowledge_note",
       "append_to_knowledge_note",
     ],
+  },
+  {
+    key: "communityResearch",
+    label: "Share Knowledge Research",
+    description: "Submit knowledge notes to community repo via PR",
+    tools: ["submit_community_research"],
   },
   {
     key: "webSearch",
@@ -703,10 +709,11 @@ const TOOL_GROUPS = [
     tools: ["analyze_images"],
   },
   {
-    key: "communityResearch",
-    label: "Share Knowledge Research",
-    description: "Submit knowledge notes to community repo via PR",
-    tools: ["submit_community_research"],
+    key: "screenshot",
+    label: "Screenshot",
+    description:
+      "Capture screenshots of the screen, an app window, or a region",
+    tools: ["take_screenshot"],
   },
 ];
 

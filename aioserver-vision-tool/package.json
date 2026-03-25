@@ -23,6 +23,8 @@
 		"onStartupFinished",
 		"onLanguageModelTool:aioserver-analyze-images",
 		"onLanguageModelTool:aioserver_analyze_images",
+		"onLanguageModelTool:aioserver-take-screenshot",
+		"onLanguageModelTool:aioserver_take_screenshot",
 		"onChatParticipant:local.aioserver-vision"
 	],
 	"main": "./extension.js",
@@ -53,6 +55,34 @@
 			}
 		],
 		"languageModelTools": [
+			{
+				"name": "aioserver-take-screenshot",
+				"displayName": "Take Screenshot",
+				"userDescription": "Capture a screenshot on macOS. Returns the path to the saved PNG.",
+				"modelDescription": "Use this tool to capture a screenshot of the screen, a specific application window, or a screen region on macOS. Returns the absolute path to the saved PNG file. Chain with analyze_images to inspect, compare, or evaluate the captured screenshot. Modes: 'fullscreen' (entire screen, default), 'window' (specific app window by name), 'region' (rectangle by x/y/width/height).",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"outputPath": {
+							"type": "string",
+							"description": "Optional absolute path for the output PNG. Defaults to a timestamped file in the system temp directory."
+						},
+						"mode": {
+							"type": "string",
+							"enum": ["fullscreen", "window", "region"],
+							"description": "Capture mode. 'fullscreen' (default): entire screen. 'window': a specific window by app name. 'region': a rectangle defined by x, y, width, height."
+						},
+						"appName": {
+							"type": "string",
+							"description": "Application name whose frontmost window to capture (used with mode 'window'). Example: 'AIO Server'."
+						},
+						"x": { "type": "number", "description": "X origin for region capture." },
+						"y": { "type": "number", "description": "Y origin for region capture." },
+						"width": { "type": "number", "description": "Width for region capture." },
+						"height": { "type": "number", "description": "Height for region capture." }
+					}
+				}
+			},
 			{
 				"name": "aioserver-analyze-images",
 				"displayName": "Analyze AIOServer Images",
@@ -122,6 +152,34 @@
 							"type": "string",
 							"description": "Optional QSS/CSS stylesheet content for the page being viewed. Helps the model suggest concrete selector-level fixes."
 						}
+					}
+				}
+			},
+			{
+				"name": "aioserver_take_screenshot",
+				"displayName": "Take Screenshot",
+				"userDescription": "Capture a screenshot on macOS. Returns the path to the saved PNG.",
+				"modelDescription": "Use this tool to capture a screenshot of the screen, a specific application window, or a screen region on macOS. Returns the absolute path to the saved PNG file. Chain with analyze_images to inspect, compare, or evaluate the captured screenshot. Modes: 'fullscreen' (entire screen, default), 'window' (specific app window by name), 'region' (rectangle by x/y/width/height).",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"outputPath": {
+							"type": "string",
+							"description": "Optional absolute path for the output PNG. Defaults to a timestamped file in the system temp directory."
+						},
+						"mode": {
+							"type": "string",
+							"enum": ["fullscreen", "window", "region"],
+							"description": "Capture mode. 'fullscreen' (default): entire screen. 'window': a specific window by app name. 'region': a rectangle defined by x, y, width, height."
+						},
+						"appName": {
+							"type": "string",
+							"description": "Application name whose frontmost window to capture (used with mode 'window'). Example: 'AIO Server'."
+						},
+						"x": { "type": "number", "description": "X origin for region capture." },
+						"y": { "type": "number", "description": "Y origin for region capture." },
+						"width": { "type": "number", "description": "Width for region capture." },
+						"height": { "type": "number", "description": "Height for region capture." }
 					}
 				}
 			}
