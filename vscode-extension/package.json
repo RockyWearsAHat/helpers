@@ -2,7 +2,7 @@
   "name": "git-shell-helpers",
   "displayName": "Git Shell Helpers",
   "description": "Settings for git-shell-helpers community cache participation and DevOps audit configuration.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "RockyWearsAHat",
   "license": "MIT",
   "engines": {
@@ -12,8 +12,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onView:gitShellHelpers.communityCache"
+    "onStartupFinished"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -57,6 +56,26 @@
           "visibility": "visible"
         }
       ]
+    },
+    "configuration": {
+      "title": "Git Shell Helpers",
+      "properties": {
+        "gitShellHelpers.checkpoint.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable git-checkpoint in this workspace."
+        },
+        "gitShellHelpers.checkpoint.autoPush": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically push to remote after every checkpoint commit."
+        },
+        "gitShellHelpers.checkpoint.sign": {
+          "type": "boolean",
+          "default": false,
+          "description": "GPG-sign checkpoint commits (requires a GPG key configured in git)."
+        }
+      }
     }
   }
 }

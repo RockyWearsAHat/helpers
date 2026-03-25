@@ -295,6 +295,23 @@ class CommunityCacheViewProvider {
           setGroupEnabled(msg.key, msg.enabled);
           this._update();
           break;
+        case "setCheckpoint": {
+          const cpConfig = vscode.workspace.getConfiguration(
+            "gitShellHelpers.checkpoint",
+          );
+          const current = cpConfig.get(msg.key);
+          if (msg.key === "sign" && !current) {
+            const ok = await ensureGpgKey();
+            if (!ok) break;
+          }
+          await cpConfig.update(
+            msg.key,
+            !current,
+            vscode.ConfigurationTarget.Global,
+          );
+          this._update();
+          break;
+        }
       }
     });
 
@@ -357,6 +374,46 @@ class CommunityCacheViewProvider {
   </script>
 </body></html>`;
     }
+
+    const cpConfig = vscode.workspace.getConfiguration(
+      "gitShellHelpers.checkpoint",
+    );
+    const cpEnabled = cpConfig.get("enabled", true);
+    const cpAutoPush = cpConfig.get("autoPush", false);
+    const cpSign = cpConfig.get("sign", false);
+
+    const checkpointItems = [
+      {
+        key: "enabled",
+        label: "Enabled",
+        desc: "Enable git-checkpoint in this workspace",
+        value: cpEnabled,
+      },
+      {
+        key: "autoPush",
+        label: "Auto-Push",
+        desc: "Push to remote after every checkpoint commit",
+        value: cpAutoPush,
+      },
+      {
+        key: "sign",
+        label: "Verified Commits",
+        desc: "Sign commits with GPG so GitHub shows a \u2705 Verified badge",
+        value: cpSign,
+      },
+    ];
+    const cpRows = checkpointItems
+      .map(
+        (item) => `
+        <div class="tool-item${item.value ? " active" : ""}" data-cpkey="${item.key}">
+          <div class="cb${item.value ? " on" : ""}"><div class="cb-tick"></div></div>
+          <div class="tool-text">
+            <span class="tl">${escapeHtml(item.label)}</span>
+            <span class="td">${escapeHtml(item.desc)}</span>
+          </div>
+        </div>`,
+      )
+      .join("");
 
     const toolRows = TOOL_GROUPS.map((group) => {
       const enabled = isGroupEnabled(group.key);
@@ -551,6 +608,12 @@ class CommunityCacheViewProvider {
     </div>
     <div class="sect">
       <div class="sect-head">
+        <div class="sect-title">Git Checkpoint</div>
+      </div>
+      ${cpRows}
+    </div>
+    <div class="sect">
+      <div class="sect-head">
         <div class="sect-title">Community Submissions</div>
       </div>
       <select id="modeSelect">${modeOptions}</select>
@@ -574,6 +637,11 @@ class CommunityCacheViewProvider {
         const key = el.dataset.key;
         const active = el.classList.contains('active');
         vscode.postMessage({ type: 'toggleGroup', key, enabled: !active });
+      });
+    });
+    document.querySelectorAll('[data-cpkey]').forEach(el => {
+      el.addEventListener('click', () => {
+        vscode.postMessage({ type: 'setCheckpoint', key: el.dataset.cpkey });
       });
     });
     document.getElementById("logoutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
@@ -630,7 +698,8 @@ const TOOL_GROUPS = [
   {
     key: "vision",
     label: "Vision",
-    description: "Analyze images with a vision model",
+    description:
+      "Process images in-chat, allowing live analysis of visual output",
     tools: ["analyze_images"],
   },
   {
@@ -841,6 +910,216 @@ function showCommunityStatus() {
 // Activation
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GPG key provisioning for Verified Commits
+// ---------------------------------------------------------------------------
+
+function execAsync(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 30000, ...opts }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+function execAsyncStdin(cmd, args, input) {
+  return new Promise((resolve, reject) => {
+    const proc = execFile(
+      cmd,
+      args,
+      { timeout: 60000 },
+      (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout);
+      },
+    );
+    proc.stdin.write(input);
+    proc.stdin.end();
+  });
+}
+
+async function ensureGpgKey() {
+  // 1. Check if a signing key is already configured
+  try {
+    const existing = (
+      await execAsync("git", ["config", "--global", "user.signingkey"])
+    ).trim();
+    if (existing) return true; // already set up
+  } catch {
+    /* not configured yet */
+  }
+
+  // 2. Check for existing secret keys we can reuse
+  let email = "";
+  try {
+    email = (
+      await execAsync("git", ["config", "--global", "user.email"])
+    ).trim();
+  } catch {
+    /* no email configured */
+  }
+
+  if (email) {
+    try {
+      const keys = await execAsync("gpg", [
+        "--list-secret-keys",
+        "--keyid-format",
+        "long",
+        email,
+      ]);
+      const match = keys.match(/sec\s+\w+\/([A-F0-9]+)/i);
+      if (match) {
+        await execAsync("git", [
+          "config",
+          "--global",
+          "user.signingkey",
+          match[1],
+        ]);
+        vscode.window.showInformationMessage(
+          `Using existing GPG key ${match[1].slice(-8)} for signing.`,
+        );
+        await uploadGpgKeyToGitHub(match[1]);
+        return true;
+      }
+    } catch {
+      /* no matching key */
+    }
+  }
+
+  // 3. Need git user.name and user.email to generate a key
+  let name = "";
+  try {
+    name = (await execAsync("git", ["config", "--global", "user.name"])).trim();
+  } catch {
+    /* no name configured */
+  }
+
+  if (!name || !email) {
+    vscode.window.showErrorMessage(
+      "Set git user.name and user.email before enabling Verified Commits.\n" +
+        "Run: git config --global user.name 'Your Name' && git config --global user.email 'you@example.com'",
+    );
+    return false;
+  }
+
+  // 4. Generate a new GPG key
+  const progress = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Generating GPG key…",
+    },
+    async () => {
+      try {
+        const batch = [
+          "Key-Type: RSA",
+          "Key-Length: 4096",
+          `Name-Real: ${name}`,
+          `Name-Email: ${email}`,
+          "Expire-Date: 0",
+          "%no-protection",
+          "%commit",
+          "",
+        ].join("\n");
+        await execAsyncStdin("gpg", ["--batch", "--gen-key"], batch);
+        return true;
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Failed to generate GPG key: ${err.message}`,
+        );
+        return false;
+      }
+    },
+  );
+
+  if (!progress) return false;
+
+  // 5. Read back the new key ID
+  let keyId = "";
+  try {
+    const keys = await execAsync("gpg", [
+      "--list-secret-keys",
+      "--keyid-format",
+      "long",
+      email,
+    ]);
+    const match = keys.match(/sec\s+\w+\/([A-F0-9]+)/i);
+    if (match) keyId = match[1];
+  } catch {
+    /* failed to read key */
+  }
+
+  if (!keyId) {
+    vscode.window.showErrorMessage(
+      "GPG key was generated but could not read the key ID.",
+    );
+    return false;
+  }
+
+  // 6. Configure git to use this key
+  await execAsync("git", ["config", "--global", "user.signingkey", keyId]);
+
+  // 7. Upload to GitHub
+  const uploaded = await uploadGpgKeyToGitHub(keyId);
+  const suffix = uploaded
+    ? " and uploaded to GitHub ✅"
+    : " (upload to GitHub manually for the Verified badge)";
+  vscode.window.showInformationMessage(
+    `GPG key ${keyId.slice(-8)} generated${suffix}`,
+  );
+
+  return true;
+}
+
+async function uploadGpgKeyToGitHub(keyId) {
+  if (!cachedUser) return false;
+  try {
+    const pubKey = await execAsync("gpg", ["--armor", "--export", keyId]);
+    if (!pubKey.trim()) return false;
+    await runGh([
+      "api",
+      "/user/gpg_keys",
+      "-f",
+      `armored_public_key=${pubKey.trim()}`,
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoint settings → git config sync
+// ---------------------------------------------------------------------------
+
+function syncCheckpointSettings() {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) return;
+
+  const config = vscode.workspace.getConfiguration(
+    "gitShellHelpers.checkpoint",
+  );
+  const keys = [
+    { setting: "enabled", gitKey: "checkpoint.enabled" },
+    { setting: "autoPush", gitKey: "checkpoint.push" },
+    { setting: "sign", gitKey: "checkpoint.sign" },
+  ];
+
+  for (const folder of folders) {
+    const cwd = folder.uri.fsPath;
+    for (const { setting, gitKey } of keys) {
+      const value = config.get(setting);
+      if (value !== undefined) {
+        execFile("git", ["config", gitKey, String(value)], { cwd }, (err) => {
+          if (err) {
+            // Not a git repo or git not available — ignore silently
+          }
+        });
+      }
+    }
+  }
+}
+
 function activate(context) {
   _context = context;
 
@@ -897,6 +1176,16 @@ function activate(context) {
         );
       },
     ),
+  );
+
+  // Sync checkpoint settings to git config when changed
+  syncCheckpointSettings();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("gitShellHelpers.checkpoint")) {
+        syncCheckpointSettings();
+      }
+    }),
   );
 }
 
