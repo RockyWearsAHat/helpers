@@ -231,19 +231,47 @@ Frame yours as the next step in that story. If the diff and the history look
 unrelated to each other, trust the diff — it is the ground truth.
 
 SUBJECT LINE:
-One line, <= 72 chars. Say what the commit DOES or FIXES, not what
-files it touches.
+One line, <= 72 chars, that tells someone skimming git log what happened.
+Write it the way you'd describe the change to a coworker. Say what the
+commit DOES or FIXES, not what files it touches.
+
+Good:
+  'Fix install button showing up even after app is already installed'
+  'Stop blocking payouts until Stripe says so'
+  'Add loading text to clash fetch so users stop retrying'
+  'Local storage fixed so logged-out users can add items to cart'
+
+Bad:
+  'Update utils.ts' — robotic, says nothing useful
+  'Refactor implementation details' — meaningless
+  'Support cancelling MCP tool calls in server' — too jargony
+  'Auto-detect checkpoint cwd via MCP roots' — insider terminology
 
 BODY:
 Describe the situation, what you did, and why. Someone reading git blame
 should understand the reasoning without opening the diff.
 
-Do NOT use section headers like 'What changed:', 'Why this matters:', etc.
-For a tiny fix: one sentence or no body. For a real change: a short paragraph.
+DO NOT use section headers like 'What changed:', 'Why this matters:',
+or any rigid template. Those scream 'AI wrote this'. Just write naturally.
+
+For a tiny fix: one sentence or no body at all.
+For a small change: a short paragraph.
+For a medium change: a sentence of context, then bullets.
+
+The body should make it obvious WHY this change was made, not just
+WHAT code was touched. Name the specific things — the flag, the file,
+the function, the value.
 
 Never anthropomorphize code. Never restate the subject in different words.
+Never use corporate filler like 'formalize', 'artifacts', 'subsystem',
+'implement', 'enhance', 'leverage'. Write like a human developer talking
+to another developer. If a non-programmer couldn't roughly understand
+the subject line, it's too jargony.
 
-OUTPUT FORMAT — output ONLY the commit between these markers:
+OUTPUT FORMAT — output ONLY the commit message between these markers.
+Each marker MUST be on its own line with nothing else on it.
+Do NOT put COMMIT_END on the same line as message text.
+
 COMMIT_BEGIN
 <commit message>
 COMMIT_END
@@ -319,6 +347,13 @@ ${detailedRecent}`;
       break;
     }
     if (capturing) msgLines.push(line);
+  }
+  // Strip inline COMMIT_END from the last captured line (AI sometimes appends it)
+  if (msgLines.length > 0) {
+    const last = msgLines[msgLines.length - 1];
+    const cleaned = last.replace(/\s*COMMIT_END\s*$/, "");
+    if (cleaned !== last) msgLines[msgLines.length - 1] = cleaned;
+    if (!msgLines[msgLines.length - 1].trim()) msgLines.pop();
   }
   const commitMsg = msgLines.join("\n").trim();
   if (!commitMsg) {

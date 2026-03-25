@@ -2407,6 +2407,8 @@ Bad:
   '\''Update git-upload default-value regex quoting'\'' — robotic, says nothing useful
   '\''Fix bug in compute_diff_analysis'\'' — which bug? what was broken?
   '\''Refactor implementation details'\'' — meaningless
+  '\''Support cancelling MCP tool calls in server'\'' — too jargony
+  '\''Auto-detect checkpoint cwd via MCP roots'\'' — insider terminology
 
 BODY:
 Describe the situation, what you did, and why. Someone reading git blame
@@ -2445,7 +2447,10 @@ include it. Don'\''t pad a one-line fix with five bullets.
 
 Never anthropomorphize code — scripts don'\''t '\''learn'\'' or '\''understand'\''.
 Never restate the subject in different words.
-Never use corporate filler like '\''formalize'\'', '\''artifacts'\'', '\''subsystem'\''.
+Never use corporate filler like '\''formalize'\'', '\''artifacts'\'', '\''subsystem'\'',
+'\''implement'\'', '\''enhance'\'', '\''leverage'\''. Write like a human developer talking
+to another developer. If a non-programmer couldn'\''t roughly understand
+the subject line, it'\''s too jargony.
 
 METADATA FOOTER — always include at the end, after a blank line:
 
@@ -2457,7 +2462,10 @@ Risk: <low|medium|high> (<short reason>)
 
 Testing: <copy the provided testing status verbatim>
 
-OUTPUT FORMAT — output ONLY the commit between these markers, nothing else:
+OUTPUT FORMAT — output ONLY the commit message between these markers.
+Each marker MUST be on its own line with nothing else on it.
+Do NOT put COMMIT_END on the same line as message text.
+
 COMMIT_BEGIN
 <commit message>
 COMMIT_END
@@ -2520,8 +2528,8 @@ Additional context from user: $ai_extra_context"
 				local new_lines=$(head -n "$current_line_count" "$ai_output_file" 2>/dev/null | \
 					tail -n +$((printed_lines + 1)) | \
 					grep -v '^$' | \
-					grep -v '^COMMIT_BEGIN$' | \
-					grep -v '^COMMIT_END$' | \
+					grep -v '^[[:space:]]*COMMIT_BEGIN[[:space:]]*$' | \
+					grep -v '^[[:space:]]*COMMIT_END[[:space:]]*$' | \
 					grep -v '^COMMIT: ' || echo "")
 				
 				if [ -n "$new_lines" ]; then
@@ -2573,6 +2581,9 @@ Additional context from user: $ai_extra_context"
 		trimmed == "COMMIT_END" { inside=0 }
 		inside { print }
 	')
+
+	# Strip inline COMMIT_END from message (AI sometimes appends it to last line)
+	commit_block=$(printf '%s\n' "$commit_block" | sed 's/[[:space:]]*COMMIT_END[[:space:]]*$//')
 
 	if [ -n "${commit_block// /}" ]; then
 		# Trim trailing blank lines.

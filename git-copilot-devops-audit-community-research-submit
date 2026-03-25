@@ -10,7 +10,7 @@ Usage: community-research-submit.sh path/to/knowledge-note.md
 
 Submits a knowledge note to the community repository as a PR.
 
-Required: The file must be a .md file located under .github/knowledge/.
+Required: The file must be a .md file located under the knowledge directory.
 
 Optional environment:
   COMMUNITY_CACHE_REPO          Target GitHub repository in owner/repo form
@@ -215,7 +215,7 @@ main() {
   # Derive the target path inside the community repo
   local basename
   basename="$(basename "$note_file")"
-  local target_path=".github/knowledge/$basename"
+  local target_path="knowledge/$basename"
 
   local submission_id
   submission_id="$(date -u +"%Y%m%dT%H%M%SZ")-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 8 || true)"
