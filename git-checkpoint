@@ -198,6 +198,7 @@ else
 	# Load repo guidance if available — commit guidelines get priority
 	repo_guidance=""
 	for guidance_file in \
+		".github/knowledge/commit-message-craft.md" \
 		".github/COMMIT_GUIDELINES.md" \
 		".github/commit_guidelines.md" \
 		".github/COMMIT_MESSAGE.md" \
@@ -235,39 +236,46 @@ CONTEXT MATTERS MOST:
 Read the recent commit history. Each commit is part of an ongoing thread.
 Frame yours as the next step in that story.
 
+THE CARDINAL RULE: DESCRIBE BEHAVIOR, NOT CODE
+The diff already shows what code changed. Your job is to explain what the
+program DOES DIFFERENTLY now, and WHY that matters. A user, tester, or
+product manager should understand the subject line without reading code.
+
 SUBJECT LINE:
-One line, <= 72 chars. Say what the commit DOES or FIXES, not what
-files it touches. Write it like you would describe the change to a
-coworker.
+One line, <= 72 chars. Imperative mood. Describe the EFFECT of the change,
+not the mechanism. Must pass: "If applied, this commit will ___"
 
-Good:
-  '\''Fix install button showing up even after app is already installed'\''
-  '\''Stop blocking payouts until Stripe says so'\''
-  '\''Add loading text to clash fetch so users stop retrying'\''
-  '\''Local storage fixed so logged-out users can add items to cart'\''
+Good (behavior-focused):
+  '\''Checkpoint commits now generate their own message from the diff'\''
+  '\''Stop spinner from persisting after Ctrl-C'\''
+  '\''Fix install button showing up after app is already installed'\''
+  '\''Let callers pass context hints to improve commit messages'\''
 
-Bad:
-  '\''Update utils.ts'\'' — robotic, says nothing useful
-  '\''Refactor implementation details'\'' — meaningless
+Bad (code-focused — NEVER write these):
+  '\''Update handleCheckpoint() in mcp-server'\'' — narrates the diff
+  '\''Refactor prompt construction'\'' — says nothing about behavior
+  '\''Modify extension.js chip click handler'\'' — file names, not effects
+  '\''Improve error handling'\'' — vague, improve HOW?
 
 BODY:
-Describe the situation, what you did, and why. Someone reading git blame
-should understand the reasoning without opening the diff.
+First sentence: the situation or problem that existed BEFORE this change.
+Then: what you did and why — not how (the code shows how).
+Last: consequences, side effects, what someone should know next.
 
-DO NOT use section headers like '\''What changed:'\'', '\''Why this matters:'\'',
-or any rigid template. Just write naturally.
+Write like you are explaining this to a colleague at a whiteboard.
+Name specific observable behaviors, not function names or file paths.
+If there'\''s a number (speed, count, size, timeout), include it.
+If the change is pure refactoring with no behavior change, say so.
 
+DO NOT use section headers like '\''What changed:'\'', '\''Why this matters:'\''.
+DO NOT list file names — the diff already shows those.
+DO NOT restate the subject in different words in the body.
 For a tiny fix: one sentence or no body at all.
 For a small change: a short paragraph.
 For a medium change: a sentence of context, then bullets.
-For a large change: group under short topic-specific headers.
+For a large change: group by BEHAVIOR, not by file.
 
-The body should make it obvious WHY this change was made, not just
-WHAT code was touched. Name the specific things. If there'\''s a number
-(speed, count, size), include it.
-
-Never anthropomorphize code. Never restate the subject in different words.
-Never use corporate filler.
+Never anthropomorphize code. Never use corporate filler.
 
 OUTPUT FORMAT — output ONLY the commit between these markers:
 COMMIT_BEGIN
