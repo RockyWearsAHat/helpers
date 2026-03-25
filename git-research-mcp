@@ -688,7 +688,6 @@ async function searchWeb(args) {
     throw new Error("search_web requires a non-empty query.");
   }
 
-  const num = toPositiveInt(args.num_results, 5, 1, 10);
   const terms = [query];
 
   if (args.site_filter) {
@@ -746,7 +745,6 @@ async function searchWeb(args) {
       snippet: item.content || "",
       engines: (item.engines || []).join(", "),
     });
-    if (deduped.length >= num) break;
   }
 
   return {
@@ -932,10 +930,7 @@ const RESEARCH_TOOLS = [
           type: "string",
           description: "Search query.",
         },
-        num_results: {
-          type: "integer",
-          description: "Number of results to return (1-10).",
-        },
+
         site_filter: {
           type: "string",
           description:
