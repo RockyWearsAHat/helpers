@@ -4,7 +4,8 @@
 #
 # This creates a package that installs:
 #   - git-upload, git-get, git-initialize, git-fucked-the-push, git-copilot-devops-audit into /usr/local/bin
-#   - git-copilot-devops-audit-community-submit and git-copilot-devops-audit-community-pull into /usr/local/bin
+#   - git-copilot-devops-audit-community-submit, git-copilot-devops-audit-community-pull,
+#     and git-copilot-devops-audit-community-research-submit into /usr/local/bin
 #   - their man pages into /usr/local/share/man/man1
 #
 # Result:
@@ -41,6 +42,7 @@ cp "${ROOT_DIR}/git-fucked-the-push" "$BIN_PAYLOAD/git-fucked-the-push"
 cp "${ROOT_DIR}/git-copilot-devops-audit" "$BIN_PAYLOAD/git-copilot-devops-audit"
 cp "${ROOT_DIR}/scripts/community-cache-submit.sh" "$BIN_PAYLOAD/git-copilot-devops-audit-community-submit"
 cp "${ROOT_DIR}/scripts/community-cache-pull.sh" "$BIN_PAYLOAD/git-copilot-devops-audit-community-pull"
+cp "${ROOT_DIR}/scripts/community-research-submit.sh" "$BIN_PAYLOAD/git-copilot-devops-audit-community-research-submit"
 cp "${ROOT_DIR}/git-research-mcp" "$BIN_PAYLOAD/git-research-mcp"
 chmod 755 "$BIN_PAYLOAD"/git-*
 
