@@ -39,8 +39,14 @@ Small quality-of-life helpers wrapped as git subcommands:
 - `git get` – initialize a local repo from a remote (like a lightweight `git clone` flow).
 - `git initialize` – initialize the current directory as a repo, create an initial commit, set `origin`, and push.
 - `git fucked-the-push` – destructive recovery helper to undo the last pushed commit while keeping changes staged.
+- `git resolve` – safe helper for resolving merge/rebase conflicts with automatic backup branches.
+- `git remerge` – merge a branch (typically a detached-work branch from `git upload`) back into a target branch; aborts cleanly on conflicts.
+- `git copilot-quickstart` – scaffold a `.github/` Copilot self-iteration workflow for any repository, with Plan and Implement agents.
+- `git scan-for-leaked-envs` – scan the current repository for leaked secrets, API keys, and environment variables using GitHub Copilot.
+- `git help-i-pushed-an-env` – emergency tool to scrub secrets and sensitive files from git history, including batch operations across all GitHub repos.
 - `git copilot-devops-audit` – install and run the Copilot customization audit workflow described above.
 - `git-research-mcp` – MCP server providing web search (via local SearXNG) and per-project knowledge-cache tools for AI assistants.
+- `git-shell-helpers-mcp` – combined MCP server that exposes all git-shell-helpers tools (research + vision) under one server entry.
 
 ## Installation options
 
@@ -66,6 +72,11 @@ Once complete, the commands and man pages should be available immediately in any
 - `git get`
 - `git initialize`
 - `git fucked-the-push`
+- `git resolve`
+- `git remerge`
+- `git copilot-quickstart`
+- `git scan-for-leaked-envs`
+- `git help-i-pushed-an-env`
 - `git copilot-devops-audit`
 - `git help upload|get|initialize|fucked-the-push|copilot-devops-audit`
 
@@ -171,6 +182,29 @@ Add to your project's `.vscode/mcp.json` (or user-level mcp.json):
 | `write_knowledge_note`     | Create or overwrite a knowledge note                       |
 | `update_knowledge_note`    | Replace a section by heading in a note                     |
 | `append_to_knowledge_note` | Append content to an existing note                         |
+
+## git-shell-helpers-mcp (combined MCP server)
+
+`git-shell-helpers-mcp` is a combined Node.js MCP server that exposes all git-shell-helpers tools under a single server entry. It delegates to the individual modules (`git-research-mcp` for web search and knowledge-cache tools, `aioserver-vision-tool` for image analysis) which remain separate files for maintainability.
+
+### MCP registration
+
+```json
+{
+  "servers": {
+    "git-shell-helpers": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["git-shell-helpers-mcp"]
+    }
+  }
+}
+```
+
+Environment variables for selective disabling:
+
+- `GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH=1` – skip research tools
+- `GIT_SHELL_HELPERS_MCP_DISABLE_VISION=1` – skip vision tools
 
 ## Development
 

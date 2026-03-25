@@ -174,6 +174,7 @@ function buildSettingsJson() {
     ...PREDEFINED,
     mode: getMode(),
     whitelistedRepos: getWhitelist(),
+    shareResearch: isGroupEnabled("communityResearch"),
     ...(globalData.localClone
       ? { localClone: globalData.localClone }
       : localCloneFolder
@@ -631,6 +632,12 @@ const TOOL_GROUPS = [
     label: "Vision",
     description: "Analyze images with a vision model",
     tools: ["analyze_images"],
+  },
+  {
+    key: "communityResearch",
+    label: "Share Knowledge Research",
+    description: "Submit knowledge notes to community repo via PR",
+    tools: ["submit_community_research"],
   },
 ];
 
