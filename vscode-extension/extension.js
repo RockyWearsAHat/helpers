@@ -172,38 +172,35 @@ function getConfiguredGitShellHelpersMcpServer() {
 }
 
 function getMcpStatusViewModel(context) {
-  const { configPath, server, serverPath } =
-    getConfiguredGitShellHelpersMcpServer();
-  const resolvedPath = serverPath || findGitShellHelpersMcpPath(context);
+  const resolvedPath = findGitShellHelpersMcpPath(context);
   const binaryExists = resolvedPath ? fs.existsSync(resolvedPath) : false;
   const providerSupported =
     !!vscode.lm?.registerMcpServerDefinitionProvider &&
     typeof vscode.McpStdioServerDefinition === "function";
 
-  if (!server) {
-    return {
-      tone: "bad",
-      label: "Not registered",
-      detail: "Global MCP config does not contain a gsh server entry.",
-    };
-  }
-
   if (!binaryExists) {
     return {
       tone: "bad",
-      label: "Broken path",
+      label: "Not found",
       detail: resolvedPath
-        ? `Configured path is missing: ${resolvedPath}`
-        : "The gsh server entry does not point to a valid runtime.",
+        ? `Server binary is missing: ${resolvedPath}`
+        : "Could not locate git-shell-helpers-mcp. Reinstall may be needed.",
+    };
+  }
+
+  if (!providerSupported) {
+    return {
+      tone: "warn",
+      label: "Needs trust",
+      detail:
+        "VS Code MCP provider API unavailable. Start or trust the server from the MCP panel.",
     };
   }
 
   return {
-    tone: providerSupported ? "good" : "warn",
-    label: providerSupported ? "Starts on demand" : "Needs start or trust",
-    detail: providerSupported
-      ? "Server starts on demand via the extension provider."
-      : "Server is installed but VS Code needs to start or trust it.",
+    tone: "good",
+    label: "Starts on demand",
+    detail: `Registered via extension. Auto-starts when tools are used.\n${resolvedPath}`,
   };
 }
 
@@ -622,7 +619,6 @@ class CommunityCacheViewProvider {
     const mcpStatusHtml = `
       <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" title="${escapeHtml(mcpStatus.detail)}">
         <span class="mcp-dot"></span>
-        <span class="mcp-chip-label">MCP</span>
         <span class="mcp-chip-status">${escapeHtml(mcpStatus.label)}</span>
       </div>`;
 
@@ -739,13 +735,16 @@ class CommunityCacheViewProvider {
     margin-top: 6px; opacity: 0.65;
   }
 
+  .sect-head-left {
+    display: flex; align-items: center; gap: 8px;
+  }
   .mcp-chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 10px 3px 8px;
+    gap: 5px;
+    padding: 2px 8px 2px 6px;
     border-radius: 999px;
-    margin: 0 0 8px;
+    margin: 0;
     cursor: pointer;
     font-size: 11px;
     line-height: 1;
@@ -773,9 +772,6 @@ class CommunityCacheViewProvider {
   .mcp-chip.good .mcp-dot { background: var(--vscode-testing-iconPassed, #2ea043); }
   .mcp-chip.warn .mcp-dot { background: var(--vscode-inputValidation-warningBorder, #cca700); }
   .mcp-chip.bad .mcp-dot { background: var(--vscode-inputValidation-errorBorder, #be1100); }
-  .mcp-chip-label {
-    font-weight: 600;
-  }
   .mcp-chip-status {
     color: var(--vscode-descriptionForeground);
   }
@@ -898,10 +894,12 @@ class CommunityCacheViewProvider {
   <div class="content">
     <div class="sect">
       <div class="sect-head">
-        <div class="sect-title">MCP Tools</div>
+        <div class="sect-head-left">
+          <div class="sect-title">MCP Tools</div>
+          ${mcpStatusHtml}
+        </div>
         <div class="sect-count">${enabledCount}/${TOOL_GROUPS.length}</div>
       </div>
-      ${mcpStatusHtml}
       ${toolRows}
       <div class="hint">Read &amp; Search Knowledge are always on.</div>
     </div>
