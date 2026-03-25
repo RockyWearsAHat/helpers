@@ -103,6 +103,11 @@ const CHECKPOINT_TOOL = {
         description:
           "Override a mid-session disable. Only use this when the user explicitly asked for a checkpoint and the previous call returned [no-op]. Never set force on automatic checkpoints.",
       },
+      cwd: {
+        type: "string",
+        description:
+          "Absolute path to the git repository to commit in. Required when the calling agent is running in a different workspace than the one where the MCP server was started. If omitted, defaults to the server's working directory.",
+      },
     },
     required: [],
   },
@@ -281,9 +286,11 @@ ${detailedRecent}`;
 
 async function handleCheckpoint(args) {
   // Determine workspace root
+  // Prefer caller-supplied cwd so agents in other workspaces commit to the right repo.
   let cwd;
+  const callerCwd = String(args.cwd || "").trim();
   try {
-    cwd = await execGit(["rev-parse", "--show-toplevel"], process.cwd());
+    cwd = await execGit(["rev-parse", "--show-toplevel"], callerCwd || process.cwd());
   } catch {
     // Fallback: __dirname is the script's location (workspace root)
     try {

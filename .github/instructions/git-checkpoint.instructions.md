@@ -54,6 +54,8 @@ The tool stages changes, generates a commit message itself via AI (reading the a
 
 Optionally pass `context` with brief extra context if it would help the message (e.g. `"this fixes the login race condition from PR #42"`). Never pass `message` unless you need to override the AI output with a specific string.
 
+**CRITICAL — always pass `cwd`:** The `gsh` MCP server is global and its process starts in `~/bin`. Without `cwd`, every checkpoint call from every workspace commits to `~/bin` instead of the caller's repo. Always call with `{ "all": true, "cwd": "/absolute/path/to/workspace" }`. Omitting `cwd` is only safe when you are explicitly working inside `~/bin`.
+
 ### When to checkpoint
 
 Call `checkpoint` with `{ "all": true }` when **both** conditions are met:
