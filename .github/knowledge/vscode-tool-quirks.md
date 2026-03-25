@@ -25,6 +25,7 @@ grep -r "test" . # RHS → searches for "test" in ".", "#", "RHS"
 ### Shell Grammar Mismatch
 
 VS Code uses a **tree-sitter bash grammar** to parse terminal commands for all non-PowerShell shells. There is no zsh grammar. Consequences:
+
 - zsh-specific syntax that differs from bash may not be correctly parsed
 - The `;` operator in zsh may be handled differently than the parser expects
 - Auto-approve patterns that rely on subcommand detection can miss zsh-specific constructs
@@ -33,6 +34,7 @@ VS Code uses a **tree-sitter bash grammar** to parse terminal commands for all n
 ### Persistent Session State
 
 Non-background `run_in_terminal` calls share a **single persistent zsh session**:
+
 - Working directory (`cd`) persists between calls
 - Environment variables (`export`) persist between calls
 - Shell aliases and functions loaded from `.zshrc` are available
@@ -45,11 +47,12 @@ Background processes (`isBackground: true`) get their **own fresh shell** starti
 - Output is **automatically truncated at ~60KB**. When exceeded, the content is written to a temp file and a path is returned. Always filter large output with `head`, `tail`, `grep`, or `awk` BEFORE it gets too large.
 - Prefer `| head -N` or `| tail -N` to limit output proactively, especially for `find`, `ls -R`, `grep -r`, or any command that might produce unbounded output.
 - Long-running commands should use `isBackground: true` with `get_terminal_output` for checking later.
-- The `timeout` parameter stops *tracking* after the specified milliseconds, returning whatever output was collected. The command may still be running. Be conservative — always set timeouts longer than you think necessary, or use 0 for no timeout rather than guessing too low.
+- The `timeout` parameter stops _tracking_ after the specified milliseconds, returning whatever output was collected. The command may still be running. Be conservative — always set timeouts longer than you think necessary, or use 0 for no timeout rather than guessing too low.
 
 ### Shell Integration Fragility
 
 The terminal tool depends on VS Code's shell integration to detect when commands start and finish. This can break with:
+
 - Custom zsh themes that use **RPROMPT / RPS1** (right-side prompts). These interfere with VS Code's prompt detection, causing the agent to hang waiting for command completion.
 - The `DISABLE_MAGIC_FUNCTIONS=true` setting in `.zshrc`, which disables zsh hooks VS Code relies on.
 - Heavily customized oh-my-zsh or powerlevel10k configurations that override prompt sequences.
@@ -72,6 +75,7 @@ Every terminal tool invocation shows "Note: The tool simplified the command to..
 ### Exact Match: Character-for-Character
 
 The `oldString` must match the file content **exactly**:
+
 - Every space, tab, newline, and invisible character must match
 - Tab-indented code cannot be matched with space-indented strings
 - Trailing whitespace on lines must match (even if invisible)
@@ -81,6 +85,7 @@ The `oldString` must match the file content **exactly**:
 ### Uniqueness Requirement
 
 The `oldString` must appear **exactly once** in the file:
+
 - Zero matches → failure ("could not find exact match")
 - Multiple matches → failure (ambiguous)
 - Include **at least 3 lines of context** before and after the target to ensure uniqueness
@@ -150,6 +155,7 @@ Users can enable/disable tools at any time via the tools picker. A tool that wor
 ### Large File Scalability
 
 For files over ~1000 lines, `replace_string_in_file` becomes increasingly fragile because:
+
 - More potential for duplicate matches
 - More context needed for uniqueness
 - Higher chance of stale state between reads and edits
