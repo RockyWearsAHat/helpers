@@ -1,5 +1,7 @@
 # Copilot Customization Studybase
 
+_Last verified: 2026-03-25_
+
 Verified baseline for the research phase. Use as a starting point — verify freshness of normative claims against live sources before recommending.
 
 ## Six Primitives

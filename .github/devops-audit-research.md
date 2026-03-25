@@ -20,15 +20,15 @@ Rules:
 
 ## Shared Cache State
 
-- Community cache mode: pull-only
+- Community cache mode: pull-and-auto-submit
 - Canonical manifest URL:
 - Recommended snapshot:
 - Candidate index version:
 - Last remote check: 2026-03-12
 - Last accepted remote snapshot:
-- Remote cache status: consumed (pull-only)
-- Community participation: disabled
-- Auto-submit final conclusions: no
+- Remote cache status: consumed (pull-and-auto-submit)
+- Community participation: enabled
+- Auto-submit final conclusions: yes
 - Last submitted conclusion packet:
 - Last promotion report seen:
 
@@ -67,16 +67,6 @@ Rules:
 | microsoft/PowerToys    | 2026-03-12    | verified | instructions, copilot-instructions | Large monorepo with scoped `applyTo` instruction files; project-specific coding standards | Good model for multi-language repos with many modules  |
 | dotnet/macios          | 2026-03-12    | verified | instructions, agents               | .NET binding project with domain-specific Copilot instructions; scoped file conventions   | Shows how to tailor instructions to a binding workflow |
 | github/awesome-copilot | 2026-03-12    | verified | examples, curated links            | Reference examples for prompt, instruction, agent, and skill design patterns              | Used for file-level example inspection                 |
-
-## Curated Example Samples
-
-| Source File | Last Reviewed | Status | Primitive | Principle Learned | What Not To Copy Literally | Notes |
-| ----------- | ------------- | ------ | --------- | ----------------- | -------------------------- | ----- |
-
-## Shared Cache Snapshot History
-
-| Snapshot | Checked On | Status | Accepted Items | Revalidated Items | Rejected or Downgraded Items | Notes |
-| -------- | ---------- | ------ | -------------- | ----------------- | ---------------------------- | ----- |
 
 ## Video / Transcript Samples
 

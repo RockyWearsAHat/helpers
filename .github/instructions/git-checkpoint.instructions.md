@@ -11,16 +11,16 @@ It does NOT push. Use it at meaningful moments during development.
 ## When to checkpoint
 
 - **A fix is verified and working.** You changed something, tested it, it works now. That's a checkpoint.
-- **A logical unit of work is complete.** You added a feature, wired up a new endpoint, finished a refactor. Done? Checkpoint.
-- **You're about to switch context.** Moving to a different file, feature, or problem. Checkpoint what you have first.
+- **A logical unit of work is complete.** You added a feature entirely, wired up a new endpoint and wrote the handler, or entirely finished a refactor. Done? Checkpoint.
+- **You're about to switch context.** Moving to a different file/set of files, feature, or problem. Consider setting a checkpoint on what you have first.
 - **Before a risky change.** About to rewrite something that might break? Checkpoint the working state.
-- **Before deploying or pushing.** Code needs to go to a server? Checkpoint, then push.
+- **Deploying or pushing.** Code needs to go to a server? Push it with a checkpoint or ask the user to elevate command privleges to push if they don't have the setting enabled. Ask the user if they would like to set `gitShellHelpers.checkpoint.autoPush` to true in their config and if they agree do so promptly and push, otherwise if they disagree inform them to push it themselves and the local commit has been saved.
 
 ## When NOT to checkpoint
 
 - **Mid-change.** Don't commit half-finished work unless you're explicitly saving a WIP state.
-- **After every small edit.** Changing one typo doesn't need its own commit unless it fixes a real bug.
-- **Automatically on a timer.** Commits mark meaningful versions, not clock ticks.
+- **After every small edit.** Changing one typo doesn't need its own commit unless it verifiably fixes a real bug.
+- **On a timer.** Commits mark meaningful versions. Don't just commit because it's been ... amount of time. Let the work itself dictate when to checkpoint.
 
 ## How to use
 
