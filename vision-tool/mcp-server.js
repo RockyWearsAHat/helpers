@@ -9,6 +9,13 @@ const MCP_VERSION = "2024-11-05";
 const IPC_INFO_PATH = (() => {
   if (process.env.GSH_VISION_IPC_INFO_PATH)
     return process.env.GSH_VISION_IPC_INFO_PATH;
+  // Prefer the global location written by the extension
+  const globalPath = path.join(
+    process.env.HOME || require("os").homedir(),
+    ".cache", "gsh", "vision-ipc.json"
+  );
+  if (fs.existsSync(globalPath)) return globalPath;
+  // Legacy fallbacks for old workspace-scoped files
   const cwdPath = path.join(process.cwd(), ".vscode", "gsh-vision-ipc.json");
   if (fs.existsSync(cwdPath)) return cwdPath;
   return path.join(__dirname, "..", ".vscode", "gsh-vision-ipc.json");

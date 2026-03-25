@@ -52,12 +52,30 @@ Use the `checkpoint` MCP tool — **never** run `git checkpoint` in the terminal
 
 The MCP tool accepts a `message` you write, stages changes, and commits. No AI generation happens inside the tool — you ARE the AI, so you write the message. This avoids terminal stalling, recursive AI calls, and noisy command output.
 
+### When to checkpoint
+
 Call `checkpoint` with `{ "message": "...", "all": true }` when **both** conditions are met:
 
-1. **A meaningful milestone occurred** — the user confirms something works, expresses satisfaction, or a fix has been verifiably solved (tests pass, build succeeds, error is gone).
+1. **A meaningful milestone occurred.** This includes explicit confirmation AND implicit satisfaction signals — you do not need to wait for the user to say the words:
+   - Short positive replies: "great", "perfect", "nice", "ok", "that works", "👍", "exactly", "yes"
+   - The user moving on to a new unrelated task or topic without reporting a new problem
+   - The user asking to test, demo, or use what you just built
+   - Any reply where the user is clearly satisfied and not raising a new issue
+   - A build succeeds, tests pass, or an error that was being fixed is now gone
+   - The tone shifts from problem-solving to something new
+   Read the emotional intent. You do not need explicit permission.
 2. **A checkpoint has not been recently taken** — don't double-commit the same state. If you just checkpointed moments ago and no new changes have been made, skip it.
 
-Write the commit message yourself following the conventions in git-checkpoint's prompt: imperative subject line ≤72 chars describing what the commit does, optional body explaining why. Read the recent git log for tone and threading.
+### Writing the message
+
+**Before writing the message, read the actual diff.** Run `git diff HEAD` in the terminal to see what is actually staged or changed. Do not rely on your recollection of the conversation — chat context tells you *why* things changed, but the diff is the source of truth for *what* changed. A message written from memory will miss small edits, include reverted changes, or describe things that were discussed but ultimately not done.
+
+After reading the diff:
+- Write an imperative subject line ≤72 chars describing what the commit does
+- Write a body that explains *why* — the situation, what was broken, why this approach
+- Do NOT use section headers like "What changed:" or "Why this matters:" — write naturally
+- For a tiny fix: one sentence or no body. For a real change: a short paragraph.
+- Also run `git log --oneline -5` to read recent tone, threading, and project momentum
 
 Do NOT ask for permission — just call the tool. Checkpoints are local-only (no push) and cheap to amend or squash later, so err on the side of committing.
 
