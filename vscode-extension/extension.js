@@ -199,8 +199,8 @@ function getMcpStatusViewModel(context) {
 
   return {
     tone: "good",
-    label: "Starts on demand",
-    detail: `Registered via extension. Auto-starts when tools are used.\n${resolvedPath}`,
+    label: "Ready",
+    detail: `Auto-starts when tools are used.\n${resolvedPath}`,
   };
 }
 
@@ -480,6 +480,31 @@ class CommunityCacheViewProvider {
         case "openMcpControls":
           await openMcpServerControls();
           break;
+        case "mcpChipAction": {
+          if (msg.tone === "bad") {
+            const action = await vscode.window.showErrorMessage(
+              "git-shell-helpers-mcp binary not found. Reinstall the extension or run the installer script.",
+              "Run Installer",
+              "Open Terminal",
+            );
+            if (action === "Run Installer") {
+              const terminal = vscode.window.createTerminal("gsh installer");
+              terminal.show();
+              terminal.sendText("install-git-shell-helpers");
+            } else if (action === "Open Terminal") {
+              await vscode.commands.executeCommand("workbench.action.terminal.new");
+            }
+          } else if (msg.tone === "warn") {
+            const action = await vscode.window.showWarningMessage(
+              "MCP provider API unavailable. Open the MCP panel and start or trust the GitHub Shell Helpers server.",
+              "Open MCP Panel",
+            );
+            if (action === "Open MCP Panel") await openMcpServerControls();
+          } else {
+            await openMcpServerControls();
+          }
+          break;
+        }
         case "uploadGpgKey":
           await uploadGpgKeyNow();
           break;
@@ -617,7 +642,7 @@ class CommunityCacheViewProvider {
     ).length;
 
     const mcpStatusHtml = `
-      <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" title="${escapeHtml(mcpStatus.detail)}">
+      <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" data-tone="${mcpStatus.tone}" title="${escapeHtml(mcpStatus.detail)}">
         <span class="mcp-dot"></span>
         <span class="mcp-chip-status">${escapeHtml(mcpStatus.label)}</span>
       </div>`;
@@ -944,7 +969,12 @@ class CommunityCacheViewProvider {
     });
     document.getElementById("uploadGpgBtn")?.addEventListener("click", (e) => { e.preventDefault(); vscode.postMessage({type:"uploadGpgKey"}); });
     document.getElementById("reloginGpgBtn")?.addEventListener("click", (e) => { e.preventDefault(); vscode.postMessage({type:"reloginGpg"}); });
-    document.getElementById("manageMcpBtn")?.addEventListener("click", () => vscode.postMessage({type:"openMcpControls"}));
+    document.getElementById("manageMcpBtn")?.addEventListener("click", () => {
+      const tone = document.getElementById("manageMcpBtn").dataset.tone;
+      if (tone === "bad") vscode.postMessage({type:"mcpChipAction",tone:"bad"});
+      else if (tone === "warn") vscode.postMessage({type:"mcpChipAction",tone:"warn"});
+      else vscode.postMessage({type:"mcpChipAction",tone:"good"});
+    });
     const gearBtn = document.getElementById("gearBtn");
     const acctPanel = document.getElementById("acctPanel");
     gearBtn?.addEventListener("click", (e) => {
