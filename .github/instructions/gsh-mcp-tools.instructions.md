@@ -31,15 +31,19 @@ Parameters:
 
 **`scrape_webpage`** — Fetch and return the text content of a URL. Use for reading documentation, blog posts, or reference pages.
 
-**`search_knowledge_cache`** — Search the workspace's `.github/knowledge/` directory for existing notes. Always check here before doing web research.
+**`search_knowledge_index`** — Search the knowledge cache using the prebuilt TF-IDF index. Returns ranked results with relevance scores, characteristic terms, related files clustered by content similarity, and snippets. **Prefer this over `search_knowledge_cache`** when the index exists. Falls back to keyword search automatically if no index is present.
+
+**`build_knowledge_index`** — Build or rebuild the TF-IDF search index (`_index.json`). Computes per-document term vectors and precomputes cosine-similarity clusters between all documents. Called automatically after any write/update/append operation. Run manually after bulk additions to the knowledge base.
+
+**`search_knowledge_cache`** — Keyword search over `.github/knowledge/` files. Use when you need a quick grep-style search or the index is unavailable.
 
 **`read_knowledge_note`** — Read the full content of a specific knowledge note file by path.
 
-**`write_knowledge_note`** — Write a new knowledge note to `.github/knowledge/`. Use for saving research findings for future use.
+**`write_knowledge_note`** — Write a new knowledge note to `.github/knowledge/`. Use for saving research findings for future use. Automatically rebuilds the search index.
 
-**`update_knowledge_note`** — Overwrite an existing knowledge note with new content.
+**`update_knowledge_note`** — Overwrite an existing knowledge note with new content. Automatically rebuilds the search index.
 
-**`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it.
+**`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Automatically rebuilds the search index.
 
 **`submit_community_research`** — Submit a privacy-safe research conclusion to the community cache. Only call when the workspace has community participation enabled in `.github/devops-audit-community-settings.json`.
 

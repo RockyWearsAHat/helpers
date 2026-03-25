@@ -51,6 +51,7 @@ const WORKSPACE_ROOT = (() => {
 })();
 const KNOWLEDGE_ROOT = path.join(WORKSPACE_ROOT, ".github", "knowledge");
 const REPO_KNOWLEDGE_ROOT = path.join(__dirname, ".github", "knowledge");
+const KNOWLEDGE_INDEX_PATH = path.join(REPO_KNOWLEDGE_ROOT, "_index.json");
 
 const RETRY_MAX_ATTEMPTS = 4;
 const RETRY_BASE_DELAY_MS = 2000;
@@ -330,6 +331,327 @@ function buildKnowledgeSnippet(text, terms) {
   const prefix = start > 0 ? "..." : "";
   const suffix = end < compact.length ? "..." : "";
   return `${prefix}${compact.slice(start, end).trim()}${suffix}`;
+}
+
+// ─── Knowledge TF-IDF Search Index ──────────────────────────────────────────
+
+const INDEX_STOPWORDS = new Set([
+  "a","about","above","after","again","all","also","am","an","and","any","are",
+  "as","at","be","because","been","before","being","between","both","but","by",
+  "can","could","did","do","does","doing","down","during","each","few","for",
+  "from","further","get","got","had","has","have","having","he","her","here",
+  "him","his","how","if","in","into","is","it","its","itself","just","let",
+  "me","more","most","must","my","new","no","nor","not","now","of","off","on",
+  "once","only","or","other","our","out","over","own","same","she","should",
+  "so","some","such","than","that","the","their","them","then","there","these",
+  "they","this","those","through","to","too","under","until","up","use","used",
+  "using","very","via","was","we","were","what","when","where","which","while",
+  "who","will","with","would","you","your",
+]);
+
+function tokenizeDocText(text) {
+  const cleaned = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`\n]+`/g, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[#*_\[\]()>|~^=+]/g, " ")
+    .replace(/\b\d+\b/g, " ")
+    .toLowerCase();
+  return cleaned.split(/[^a-z]+/).filter((t) => t.length >= 3 && !INDEX_STOPWORDS.has(t));
+}
+
+function computeDocTF(tokens) {
+  const freq = {};
+  for (const t of tokens) freq[t] = (freq[t] || 0) + 1;
+  const total = tokens.length || 1;
+  const tf = {};
+  for (const [term, count] of Object.entries(freq)) tf[term] = count / total;
+  return tf;
+}
+
+function computeCorpusIDF(allTFs, docCount) {
+  const df = {};
+  for (const tf of allTFs) {
+    for (const term of Object.keys(tf)) df[term] = (df[term] || 0) + 1;
+  }
+  const idf = {};
+  for (const [term, count] of Object.entries(df)) {
+    // Smoothed IDF: log((N+1)/(df+1)) + 1
+    idf[term] = Math.log((docCount + 1) / (count + 1)) + 1;
+  }
+  return idf;
+}
+
+function l2NormalizeVec(vec) {
+  const magnitude = Math.sqrt(
+    Object.values(vec).reduce((s, v) => s + v * v, 0),
+  );
+  if (magnitude === 0) return {};
+  const out = {};
+  for (const [t, v] of Object.entries(vec)) out[t] = v / magnitude;
+  return out;
+}
+
+function cosineSim(normVecA, normVecB) {
+  // Both pre-normalized — dot product equals cosine similarity.
+  let sum = 0;
+  const [smaller, larger] =
+    Object.keys(normVecA).length <= Object.keys(normVecB).length
+      ? [normVecA, normVecB]
+      : [normVecB, normVecA];
+  for (const [term, val] of Object.entries(smaller)) {
+    if (larger[term] !== undefined) sum += val * larger[term];
+  }
+  return sum;
+}
+
+async function buildKnowledgeIndex(_args) {
+  let entries;
+  try {
+    entries = await fs.readdir(REPO_KNOWLEDGE_ROOT);
+  } catch (err) {
+    throw new Error(`Cannot read knowledge directory: ${err.message}`);
+  }
+  // Skip index file itself and any underscore-prefixed meta files.
+  const mdFiles = entries.filter(
+    (f) => f.endsWith(".md") && !f.startsWith("_"),
+  );
+  if (!mdFiles.length)
+    throw new Error("No markdown files found in knowledge directory.");
+
+  // Phase 1: read files and compute per-doc term frequency.
+  const docs = [];
+  for (const filename of mdFiles) {
+    const fp = path.join(REPO_KNOWLEDGE_ROOT, filename);
+    const text = await fs.readFile(fp, "utf8");
+    const title = getMarkdownTitle(text, path.basename(filename, ".md"));
+    const tokens = tokenizeDocText(text);
+    docs.push({ filename, title, tf: computeDocTF(tokens) });
+  }
+
+  // Phase 2: corpus IDF.
+  const idf = computeCorpusIDF(
+    docs.map((d) => d.tf),
+    docs.length,
+  );
+
+  // Phase 3: TF-IDF vectors, posting list.
+  const fileData = {};
+  const posting = {};
+  for (const doc of docs) {
+    const tfidf = {};
+    for (const [term, tfVal] of Object.entries(doc.tf)) {
+      if (idf[term]) tfidf[term] = tfVal * idf[term];
+    }
+    // Keep top 120 terms per doc to keep index compact.
+    const sortedTerms = Object.entries(tfidf).sort((a, b) => b[1] - a[1]);
+    const topTerms = sortedTerms.slice(0, 15).map(([t]) => t);
+    const sparseRaw = {};
+    for (const [term, val] of sortedTerms.slice(0, 120)) sparseRaw[term] = val;
+    const normVec = l2NormalizeVec(sparseRaw);
+
+    for (const term of Object.keys(normVec)) {
+      if (!posting[term]) posting[term] = [];
+      posting[term].push(doc.filename);
+    }
+
+    fileData[doc.filename] = {
+      title: doc.title,
+      top_terms: topTerms,
+      norm_vec: normVec,
+      related: [], // filled in next pass
+    };
+  }
+
+  // Phase 4: precompute cosine similarity between all doc pairs (O(N²)).
+  const fileNames = Object.keys(fileData);
+  for (let i = 0; i < fileNames.length; i++) {
+    const nameA = fileNames[i];
+    const vecA = fileData[nameA].norm_vec;
+    const sims = [];
+    for (let j = 0; j < fileNames.length; j++) {
+      if (i === j) continue;
+      const nameB = fileNames[j];
+      const sim = cosineSim(vecA, fileData[nameB].norm_vec);
+      if (sim > 0.03) sims.push({ name: nameB, sim });
+    }
+    sims.sort((a, b) => b.sim - a.sim);
+    fileData[nameA].related = sims.slice(0, 5).map((s) => s.name);
+  }
+
+  const index = {
+    version: 1,
+    built_at: new Date().toISOString(),
+    file_count: docs.length,
+    idf,
+    files: fileData,
+    posting,
+  };
+
+  await fs.writeFile(
+    KNOWLEDGE_INDEX_PATH,
+    JSON.stringify(index, null, 2),
+    "utf8",
+  );
+  return {
+    action: "built",
+    path: path.relative(WORKSPACE_ROOT, KNOWLEDGE_INDEX_PATH),
+    file_count: docs.length,
+    term_count: Object.keys(idf).length,
+  };
+}
+
+async function searchKnowledgeIndex(args) {
+  const query = String(args.query || "").trim();
+  if (!query)
+    throw new Error("search_knowledge_index requires a non-empty query.");
+  const maxResults = toPositiveInt(args.max_results, 5, 1, 20);
+
+  // Load index — fall back to keyword search if missing or corrupt.
+  let index;
+  try {
+    const raw = await fs.readFile(KNOWLEDGE_INDEX_PATH, "utf8");
+    index = JSON.parse(raw);
+  } catch {
+    return searchKnowledgeCache(args);
+  }
+
+  // Tokenize query: use both the aggressive doc tokenizer and a lighter pass
+  // so short or hyphenated terms still match.
+  const processedTerms = tokenizeDocText(query);
+  const rawTerms = query
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((t) => t.length >= 2 && !INDEX_STOPWORDS.has(t));
+  const queryTerms = [...new Set([...processedTerms, ...rawTerms])];
+
+  if (!queryTerms.length) return searchKnowledgeCache(args);
+
+  // Candidate retrieval via posting list + prefix/substring expansion.
+  const candidates = new Set();
+  const indexTerms = Object.keys(index.posting);
+  for (const qTerm of queryTerms) {
+    if (index.posting[qTerm]) {
+      for (const f of index.posting[qTerm]) candidates.add(f);
+    }
+    if (qTerm.length >= 3) {
+      for (const iTerm of indexTerms) {
+        if (
+          iTerm !== qTerm &&
+          (iTerm.startsWith(qTerm) ||
+            (qTerm.length >= 5 && iTerm.includes(qTerm)))
+        ) {
+          for (const f of index.posting[iTerm]) candidates.add(f);
+        }
+      }
+    }
+  }
+
+  // Broaden if nothing found yet.
+  if (!candidates.size) {
+    for (const qTerm of queryTerms) {
+      for (const iTerm of indexTerms) {
+        if (iTerm.includes(qTerm)) {
+          for (const f of index.posting[iTerm]) candidates.add(f);
+        }
+      }
+    }
+  }
+
+  if (!candidates.size) {
+    return {
+      query,
+      index_used: true,
+      built_at: index.built_at,
+      total_results: "0",
+      results: [],
+    };
+  }
+
+  // Score candidates: sum of normalized TF-IDF weights for query terms.
+  const scored = [];
+  for (const filename of candidates) {
+    const fileInfo = index.files[filename];
+    if (!fileInfo) continue;
+    const { norm_vec: vec, title } = fileInfo;
+    let score = 0;
+    for (const term of queryTerms) {
+      if (vec[term] !== undefined) score += vec[term];
+      // Title boost: direct match on title text.
+      if (title.toLowerCase().includes(term)) score += 0.4;
+    }
+    if (score > 0) scored.push({ filename, score, fileInfo });
+  }
+  scored.sort(
+    (a, b) => b.score - a.score || a.filename.localeCompare(b.filename),
+  );
+
+  const topScored = scored.slice(0, maxResults);
+  const results = await Promise.all(
+    topScored.map(async ({ filename, score, fileInfo }) => {
+      let snippet = "";
+      try {
+        const body = await fs.readFile(
+          path.join(REPO_KNOWLEDGE_ROOT, filename),
+          "utf8",
+        );
+        snippet = buildKnowledgeSnippet(body, queryTerms);
+      } catch {
+        /* skip */
+      }
+      return {
+        path: `.github/knowledge/${filename}`,
+        title: fileInfo.title,
+        score: Math.round(score * 1000) / 1000,
+        top_terms: fileInfo.top_terms.slice(0, 8),
+        related: fileInfo.related,
+        snippet,
+      };
+    }),
+  );
+
+  return {
+    query,
+    index_used: true,
+    built_at: index.built_at,
+    total_results: String(scored.length),
+    results,
+  };
+}
+
+function formatKnowledgeIndexSearchResult(result) {
+  const lines = [
+    `Query: ${result.query}`,
+    `Index: ${result.built_at || "no index"} · ${result.total_results} candidates found`,
+    "",
+    "Results:",
+  ];
+  for (let i = 0; i < result.results.length; i++) {
+    const r = result.results[i];
+    lines.push(`${i + 1}. ${r.title}`);
+    lines.push(`   Path: ${r.path}`);
+    lines.push(
+      `   Score: ${r.score}  |  Terms: ${r.top_terms.join(", ")}`,
+    );
+    if (r.related && r.related.length) {
+      lines.push(`   Related: ${r.related.join(", ")}`);
+    }
+    if (r.snippet) lines.push(`   Snippet: ${r.snippet}`);
+    lines.push("");
+  }
+  if (!result.results.length) {
+    lines.push("No matching knowledge notes found.");
+  }
+  return lines.join("\n");
+}
+
+function formatBuildIndexResult(result) {
+  return [
+    `Action: ${result.action}`,
+    `Files indexed: ${result.file_count}`,
+    `Unique terms: ${result.term_count}`,
+    `Index path: ${result.path}`,
+  ].join("\n");
 }
 
 function scoreKnowledgeMatch(relativePath, title, body, terms) {
@@ -1130,6 +1452,35 @@ const RESEARCH_TOOLS = [
       required: ["path"],
     },
   },
+  {
+    name: "build_knowledge_index",
+    description:
+      "Build or rebuild the TF-IDF search index for the knowledge cache. Creates _index.json with an inverted index, per-document TF-IDF term vectors, and precomputed cosine-similarity clusters between related documents. Run manually after bulk additions; the index is also rebuilt automatically after write/update/append operations.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "search_knowledge_index",
+    description:
+      "Search the knowledge cache using the prebuilt TF-IDF index. Returns ranked results with relevance scores, characteristic terms, related files clustered by content similarity, and text snippets. Automatically falls back to keyword search if no index exists — call build_knowledge_index first for best results.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query.",
+        },
+        max_results: {
+          type: "integer",
+          description: "Number of results to return (1-20). Default: 5.",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 async function handleResearchToolCall(toolName, toolArguments) {
@@ -1147,14 +1498,17 @@ async function handleResearchToolCall(toolName, toolArguments) {
   }
   if (toolName === "write_knowledge_note") {
     const result = await writeKnowledgeNote(toolArguments);
+    buildKnowledgeIndex({}).catch(() => {});
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "update_knowledge_note") {
     const result = await updateKnowledgeNote(toolArguments);
+    buildKnowledgeIndex({}).catch(() => {});
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "append_to_knowledge_note") {
     const result = await appendToKnowledgeNote(toolArguments);
+    buildKnowledgeIndex({}).catch(() => {});
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "scrape_webpage") {
@@ -1164,6 +1518,14 @@ async function handleResearchToolCall(toolName, toolArguments) {
   if (toolName === "submit_community_research") {
     const result = await submitCommunityResearch(toolArguments);
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
+  }
+  if (toolName === "build_knowledge_index") {
+    const result = await buildKnowledgeIndex(toolArguments);
+    return [{ type: "text", text: formatBuildIndexResult(result) }];
+  }
+  if (toolName === "search_knowledge_index") {
+    const result = await searchKnowledgeIndex(toolArguments);
+    return [{ type: "text", text: formatKnowledgeIndexSearchResult(result) }];
   }
   return null;
 }
