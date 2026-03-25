@@ -48,15 +48,27 @@ Per-repo git config keys:
 
 ## For AI assistants
 
-Run `git checkpoint -a` automatically when **both** conditions are met:
+Use the `checkpoint` MCP tool — **never** run `git checkpoint` in the terminal.
+
+The MCP tool accepts a `message` you write, stages changes, and commits. No AI generation happens inside the tool — you ARE the AI, so you write the message. This avoids terminal stalling, recursive AI calls, and noisy command output.
+
+Call `checkpoint` with `{ "message": "...", "all": true }` when **both** conditions are met:
 
 1. **A meaningful milestone occurred** — the user confirms something works, expresses satisfaction, or a fix has been verifiably solved (tests pass, build succeeds, error is gone).
 2. **A checkpoint has not been recently taken** — don't double-commit the same state. If you just checkpointed moments ago and no new changes have been made, skip it.
 
-Do NOT ask for permission — just run it. The whole point is frictionless local commits.
-Checkpoints are local-only (no push) and cheap to amend or squash later, so err on the side of committing.
+Write the commit message yourself following the conventions in git-checkpoint's prompt: imperative subject line ≤72 chars describing what the commit does, optional body explaining why. Read the recent git log for tone and threading.
+
+Do NOT ask for permission — just call the tool. Checkpoints are local-only (no push) and cheap to amend or squash later, so err on the side of committing.
+
+If the MCP tool is not available, first warn the user that the `gsh` MCP server may be stopped, untrusted, or disabled in VS Code. Tell them to open MCP server controls and start or trust `gsh` if needed. Only fall back to `git add -A && git commit -m "..."` in the terminal as a last resort when MCP still is not available.
+
+If the tool returns a `[no-op]` response, the user disabled it mid-session. Do not retry, do not ask about it, just continue your current task.
+
+The one exception: if the user **directly asked** you to checkpoint (e.g. "commit this", "checkpoint now") and the tool returned `[no-op]`, recall with `{ "force": true }` to override the mid-session disable — the user's explicit request takes priority. Never use `force` on automatic checkpoints.
 
 **Do NOT checkpoint** when:
+
 - You're still mid-change with uncommitted loose ends.
 - The user hasn't reacted yet and the work hasn't been validated.
 - The only change is a trivial typo fix with no user interaction.

@@ -20,6 +20,7 @@ DIST_DIR="${ROOT_DIR}/dist"
 
 BIN_PAYLOAD="${BUILD_DIR}/usr/local/bin"
 MAN_PAYLOAD="${BUILD_DIR}/usr/local/share/man/man1"
+VSCODE_PAYLOAD="${BUILD_DIR}/usr/local/share/github-shell-helpers/vscode"
 
 VERSION_FILE="${ROOT_DIR}/VERSION"
 if [ -f "$VERSION_FILE" ]; then
@@ -32,7 +33,9 @@ IDENTIFIER="com.rockywearsahat.github-shell-helpers"
 PKG_PATH="${DIST_DIR}/github-shell-helpers-${VERSION}.pkg"
 
 rm -rf "$BUILD_DIR" "$DIST_DIR"
-mkdir -p "$BIN_PAYLOAD" "$MAN_PAYLOAD" "$DIST_DIR"
+mkdir -p "$BIN_PAYLOAD" "$MAN_PAYLOAD" "$VSCODE_PAYLOAD" "$DIST_DIR"
+
+bash "${ROOT_DIR}/scripts/build-vsix.sh"
 
 # Copy scripts
 cp "${ROOT_DIR}/git-upload"     "$BIN_PAYLOAD/git-upload"
@@ -44,8 +47,11 @@ cp "${ROOT_DIR}/scripts/community-cache-submit.sh" "$BIN_PAYLOAD/git-copilot-dev
 cp "${ROOT_DIR}/scripts/community-cache-pull.sh" "$BIN_PAYLOAD/git-copilot-devops-audit-community-pull"
 cp "${ROOT_DIR}/scripts/community-research-submit.sh" "$BIN_PAYLOAD/git-copilot-devops-audit-community-research-submit"
 cp "${ROOT_DIR}/git-research-mcp" "$BIN_PAYLOAD/git-research-mcp"
+cp "${ROOT_DIR}/git-shell-helpers-mcp" "$BIN_PAYLOAD/git-shell-helpers-mcp"
 cp "${ROOT_DIR}/git-checkpoint" "$BIN_PAYLOAD/git-checkpoint"
 chmod 755 "$BIN_PAYLOAD"/git-*
+
+cp "${ROOT_DIR}/vscode-extension/git-shell-helpers-${VERSION}.vsix" "$VSCODE_PAYLOAD/"
 
 # Copy man pages
 cp "${ROOT_DIR}/man/man1/git-upload.1"     "$MAN_PAYLOAD/git-upload.1"
