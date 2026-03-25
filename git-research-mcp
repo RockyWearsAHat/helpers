@@ -39,6 +39,7 @@ const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const WORKSPACE_ROOT = process.cwd();
 const KNOWLEDGE_ROOT = path.join(WORKSPACE_ROOT, ".github", "knowledge");
+const REPO_KNOWLEDGE_ROOT = path.join(__dirname, ".github", "knowledge");
 
 const RETRY_MAX_ATTEMPTS = 4;
 const RETRY_BASE_DELAY_MS = 2000;
@@ -88,23 +89,145 @@ function decodeHtmlEntities(text) {
     );
 }
 
+/**
+ * Extract the content between the LAST opening <tag> and LAST closing </tag>
+ * for a given tag name.  Greedy — captures everything including nested tags.
+ */
+function extractTagContent(html, tag) {
+  // Greedy: find the last </tag> and pair it with the first <tag>
+  const openRe = new RegExp(`<${tag}\\b[^>]*>`, "i");
+  const closeRe = new RegExp(`</${tag}>`, "gi");
+  const openMatch = html.match(openRe);
+  if (!openMatch) return null;
+
+  const startIdx = openMatch.index + openMatch[0].length;
+
+  // Find the last closing tag (greedy match)
+  let lastClose = -1;
+  let m;
+  while ((m = closeRe.exec(html)) !== null) {
+    lastClose = m.index;
+  }
+  if (lastClose <= startIdx) return null;
+
+  return html.slice(startIdx, lastClose);
+}
+
+/**
+ * Extract the main content region from an HTML document.
+ * Tries <article>, <main>, [role="main"], content-classed divs, then <body>.
+ * Strips nav/header/footer/aside/form chrome before returning.
+ */
+function extractMainContent(html) {
+  // Remove non-visible and non-content blocks first (global)
+  let cleaned = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gis, " ")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gis, " ")
+    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gis, " ")
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gis, " ")
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gis, " ");
+
+  // Try semantic content tags in priority order (greedy extraction)
+  const tagCandidates = ["article", "main"];
+  let content = "";
+
+  for (const tag of tagCandidates) {
+    const extracted = extractTagContent(cleaned, tag);
+    if (extracted && extracted.replace(/<[^>]+>/g, "").trim().length > 200) {
+      content = extracted;
+      break;
+    }
+  }
+
+  // Try role="main" div
+  if (!content) {
+    const roleMainMatch = cleaned.match(
+      /<div[^>]*role\s*=\s*["']main["'][^>]*>/i,
+    );
+    if (roleMainMatch) {
+      const start = roleMainMatch.index + roleMainMatch[0].length;
+      const rest = cleaned.slice(start);
+      // Grab a large chunk — divs nest, so take everything until a late </div>
+      const divClosePositions = [];
+      const closeRe = /<\/div>/gi;
+      let m;
+      while ((m = closeRe.exec(rest)) !== null) {
+        divClosePositions.push(m.index);
+      }
+      if (divClosePositions.length > 0) {
+        const candidate = rest.slice(
+          0,
+          divClosePositions[divClosePositions.length - 1],
+        );
+        if (candidate.replace(/<[^>]+>/g, "").trim().length > 200) {
+          content = candidate;
+        }
+      }
+    }
+  }
+
+  // Try content-classed divs (id or class containing article/post/entry/content)
+  if (!content) {
+    const contentDivRe =
+      /<div[^>]*(?:class|id)\s*=\s*["'][^"']*\b(?:article|post|entry|content|main-content|page-content)\b[^"']*["'][^>]*>/gi;
+    let bestCandidate = "";
+    let bestLen = 0;
+    let divMatch;
+    while ((divMatch = contentDivRe.exec(cleaned)) !== null) {
+      const start = divMatch.index + divMatch[0].length;
+      const rest = cleaned.slice(start);
+      // Find matching depth — take everything up to the last </div> in a
+      // reasonable window (first 500KB) to avoid runaway on huge pages
+      const window = rest.slice(0, 500000);
+      const lastDiv = window.lastIndexOf("</div>");
+      if (lastDiv > 0) {
+        const text = window
+          .slice(0, lastDiv)
+          .replace(/<[^>]+>/g, "")
+          .trim();
+        if (text.length > bestLen) {
+          bestLen = text.length;
+          bestCandidate = window.slice(0, lastDiv);
+        }
+      }
+    }
+    if (bestLen > 200) {
+      content = bestCandidate;
+    }
+  }
+
+  // Fallback: use the body, or the whole document
+  if (!content) {
+    const bodyContent = extractTagContent(cleaned, "body");
+    content = bodyContent || cleaned;
+  }
+
+  // Strip navigation/chrome elements from the content region
+  content = content
+    .replace(/<nav\b[\s\S]*?<\/nav>/gis, " ")
+    .replace(/<header\b[\s\S]*?<\/header>/gis, " ")
+    .replace(/<footer\b[\s\S]*?<\/footer>/gis, " ")
+    .replace(/<aside\b[\s\S]*?<\/aside>/gis, " ")
+    .replace(/<form\b[\s\S]*?<\/form>/gis, " ")
+    .replace(/<button\b[\s\S]*?<\/button>/gis, " ")
+    .replace(/<select\b[\s\S]*?<\/select>/gis, " ")
+    .replace(/<dialog\b[\s\S]*?<\/dialog>/gis, " ");
+
+  return content;
+}
+
 function stripHtml(html) {
+  const content = extractMainContent(html);
   return decodeHtmlEntities(
-    html
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gis, " ")
-      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gis, " ")
-      .replace(
-        /<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gis,
-        " ",
-      )
-      .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gis, " ")
+    content
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(
-        /<\/(p|div|section|article|main|aside|header|footer|li|tr|table|h1|h2|h3|h4|h5|h6)>/gi,
+        /<\/(p|div|section|article|main|li|tr|table|h1|h2|h3|h4|h5|h6|blockquote|pre)>/gi,
         "$&\n",
       )
       .replace(/<[^>]+>/g, " ")
       .replace(/[ \t]+/g, " ")
+      .replace(/\n[ \t]+/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim(),
   );
@@ -228,29 +351,52 @@ async function searchKnowledgeCache(args) {
     );
   }
 
-  let files;
-  try {
-    files = await collectMarkdownFiles(KNOWLEDGE_ROOT);
-  } catch (error) {
-    if (error && error.code === "ENOENT") {
-      return {
-        query,
-        root: ".github/knowledge",
-        total_results: "0",
-        results: [],
-      };
+  // Collect files from both workspace and repo knowledge roots.
+  // Deduplicate when both resolve to the same directory (e.g. running
+  // inside the git-shell-helpers repo itself).
+  const roots = [KNOWLEDGE_ROOT];
+  const resolvedWorkspace = path.resolve(KNOWLEDGE_ROOT);
+  const resolvedRepo = path.resolve(REPO_KNOWLEDGE_ROOT);
+  if (resolvedRepo !== resolvedWorkspace) {
+    roots.push(REPO_KNOWLEDGE_ROOT);
+  }
+
+  const seenPaths = new Set();
+  const files = [];
+  for (const root of roots) {
+    try {
+      const found = await collectMarkdownFiles(root);
+      for (const f of found) {
+        const real = path.resolve(f);
+        if (!seenPaths.has(real)) {
+          seenPaths.add(real);
+          files.push({ filePath: f, root });
+        }
+      }
+    } catch (error) {
+      if (!error || error.code !== "ENOENT") throw error;
+      // root doesn't exist — skip
     }
-    throw error;
+  }
+
+  if (!files.length) {
+    return {
+      query,
+      root: ".github/knowledge",
+      total_results: "0",
+      results: [],
+    };
   }
 
   const results = [];
-  for (const filePath of files) {
-    const body = await fs.readFile(filePath, "utf8");
-    const relativePath = path.relative(WORKSPACE_ROOT, filePath);
-    const title = getMarkdownTitle(
-      body,
-      path.basename(filePath, path.extname(filePath)),
-    );
+  for (const { filePath: fp, root } of files) {
+    const body = await fs.readFile(fp, "utf8");
+    // Show workspace-relative path for workspace files, repo-relative for repo files
+    const relativePath =
+      root === KNOWLEDGE_ROOT
+        ? path.relative(WORKSPACE_ROOT, fp)
+        : path.relative(path.resolve(__dirname), fp);
+    const title = getMarkdownTitle(body, path.basename(fp, path.extname(fp)));
     const score = scoreKnowledgeMatch(relativePath, title, body, terms);
     if (score <= 0) {
       continue;
@@ -260,6 +406,7 @@ async function searchKnowledgeCache(args) {
       path: relativePath,
       title,
       score,
+      source: root === KNOWLEDGE_ROOT ? "workspace" : "repo",
       snippet: buildKnowledgeSnippet(body, terms),
     });
   }
@@ -277,6 +424,7 @@ async function searchKnowledgeCache(args) {
       rank: index + 1,
       path: result.path,
       title: result.title,
+      source: result.source,
       snippet: result.snippet,
     })),
   };
@@ -290,22 +438,51 @@ async function readKnowledgeNote(args) {
 
   const resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
   const relativeToRoot = path.relative(KNOWLEDGE_ROOT, resolvedPath);
-  if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+  const relativeToRepo = path.relative(REPO_KNOWLEDGE_ROOT, resolvedPath);
+
+  const inWorkspace =
+    !relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot);
+  const inRepo =
+    !relativeToRepo.startsWith("..") && !path.isAbsolute(relativeToRepo);
+
+  if (!inWorkspace && !inRepo) {
     throw new Error(
       "read_knowledge_note only allows files under .github/knowledge/.",
     );
   }
 
-  const maxChars = toPositiveInt(args.max_chars, 4000, 500, 20000);
-  const text = await fs.readFile(resolvedPath, "utf8");
+  // Try workspace first, fall back to repo knowledge root
+  let actualPath = resolvedPath;
+  let source = "workspace";
+  try {
+    await fs.access(actualPath);
+  } catch {
+    if (inRepo || inWorkspace) {
+      // Try the same relative note path under repo knowledge root
+      const repoPath = path.resolve(
+        REPO_KNOWLEDGE_ROOT,
+        relativeToRoot.startsWith("..") ? relativeToRepo : relativeToRoot,
+      );
+      await fs.access(repoPath);
+      actualPath = repoPath;
+      source = "repo";
+    }
+  }
+
+  const maxChars = args.max_chars
+    ? toPositiveInt(args.max_chars, 0, 500, 100000)
+    : 0;
+  const text = await fs.readFile(actualPath, "utf8");
+  const trimmed = text.trim();
 
   return {
-    path: path.relative(WORKSPACE_ROOT, resolvedPath),
+    path: path.relative(WORKSPACE_ROOT, actualPath),
+    source,
     title: getMarkdownTitle(
-      text,
-      path.basename(resolvedPath, path.extname(resolvedPath)),
+      trimmed,
+      path.basename(actualPath, path.extname(actualPath)),
     ),
-    text: summarizeText(text.trim(), maxChars),
+    text: maxChars > 0 ? summarizeText(trimmed, maxChars) : trimmed,
   };
 }
 
@@ -511,7 +688,6 @@ async function searchWeb(args) {
     throw new Error("search_web requires a non-empty query.");
   }
 
-  const num = toPositiveInt(args.num_results, 5, 1, 10);
   const terms = [query];
 
   if (args.site_filter) {
@@ -569,7 +745,6 @@ async function searchWeb(args) {
       snippet: item.content || "",
       engines: (item.engines || []).join(", "),
     });
-    if (deduped.length >= num) break;
   }
 
   return {
@@ -583,28 +758,31 @@ async function searchWeb(args) {
 async function fetchPages(args) {
   const urls = Array.isArray(args.urls) ? args.urls : [];
   if (!urls.length) {
-    throw new Error("fetch_pages requires at least one URL.");
+    throw new Error("scrape_webpage requires at least one URL.");
   }
 
-  const maxPages = toPositiveInt(urls.length, urls.length, 1, 5);
-  const maxChars = toPositiveInt(args.max_chars, 8000, 1000, 20000);
+  const outputFile = args.output_file ? String(args.output_file).trim() : "";
 
   const pages = [];
-  for (const rawUrl of urls.slice(0, maxPages)) {
+  for (const rawUrl of urls) {
     const url = String(rawUrl).trim();
-    if (!url) {
-      continue;
-    }
+    if (!url) continue;
 
     const html = await fetchText(url);
     const title = getTitle(html);
-    const text = summarizeText(stripHtml(html), maxChars);
+    const text = stripHtml(html);
 
-    pages.push({
-      url,
-      title,
-      text,
-    });
+    pages.push({ url, title, text });
+  }
+
+  if (outputFile) {
+    const resolvedPath = path.resolve(WORKSPACE_ROOT, outputFile);
+    await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+    const content = pages
+      .map((p) => `# ${p.title}\nSource: ${p.url}\n\n${p.text}`)
+      .join("\n\n---\n\n");
+    await fs.writeFile(resolvedPath, content, "utf8");
+    return { pages, output_file: path.relative(WORKSPACE_ROOT, resolvedPath) };
   }
 
   return { pages };
@@ -649,6 +827,9 @@ function formatKnowledgeSearchResult(result) {
   for (const item of result.results) {
     lines.push(`${item.rank}. ${item.title}`);
     lines.push(`   Path: ${item.path}`);
+    if (item.source) {
+      lines.push(`   Source: ${item.source}`);
+    }
     if (item.snippet) {
       lines.push(`   Snippet: ${item.snippet}`);
     }
@@ -681,6 +862,10 @@ function formatKnowledgeWriteResult(result) {
 function formatFetchPagesResult(result) {
   const lines = [];
 
+  if (result.output_file) {
+    lines.push(`Written to: ${result.output_file}`, "");
+  }
+
   result.pages.forEach((page, index) => {
     if (index > 0) {
       lines.push("", "---", "");
@@ -691,6 +876,221 @@ function formatFetchPagesResult(result) {
   });
 
   return lines.join("\n");
+}
+
+const RESEARCH_TOOLS = [
+  {
+    name: "search_knowledge_cache",
+    description:
+      "Search the repo-local durable knowledge cache under .github/knowledge/ and return matching note paths with snippets.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query.",
+        },
+        max_results: {
+          type: "integer",
+          description: "Number of note matches to return (1-20).",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "read_knowledge_note",
+    description:
+      "Read a specific knowledge note from .github/knowledge/ using a workspace-relative path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Workspace-relative path to a note under .github/knowledge/.",
+        },
+        max_chars: {
+          type: "integer",
+          description:
+            "Optional. Maximum characters to return (500-100000). Default: no limit (full content).",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "search_web",
+    description:
+      "Search the web via a local SearXNG meta-search instance that queries Google, Bing, DuckDuckGo, and other engines simultaneously. Returns deduplicated results with titles, URLs, snippets, and source engines.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query.",
+        },
+
+        site_filter: {
+          type: "string",
+          description:
+            "Optional domain to scope the search, for example gbatek.com or doc.qt.io.",
+        },
+        exact_terms: {
+          type: "string",
+          description: "Terms that must appear in results.",
+        },
+        exclude_terms: {
+          type: "string",
+          description: "Terms that should be excluded from results.",
+        },
+        file_type: {
+          type: "string",
+          description: "Optional file type filter, for example pdf.",
+        },
+        engines: {
+          type: "string",
+          description:
+            "Comma-separated SearXNG engine names, for example google,bing,duckduckgo. Omit to use all enabled engines.",
+        },
+        language: {
+          type: "string",
+          description: "Optional language code, for example en.",
+        },
+        time_range: {
+          type: "string",
+          description: "Optional time range filter: day, week, month, or year.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+
+  {
+    name: "write_knowledge_note",
+    description:
+      "Create or overwrite a knowledge note under .github/knowledge/. Use for persisting research findings, architecture facts, or debug lessons learned.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Workspace-relative path for the note, e.g. .github/knowledge/my-topic.md",
+        },
+        content: {
+          type: "string",
+          description: "Full markdown content to write.",
+        },
+        overwrite: {
+          type: "boolean",
+          description:
+            "Set to true to replace an existing file. Default false (fails if file exists).",
+        },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "update_knowledge_note",
+    description:
+      "Replace a specific section (identified by heading) in an existing knowledge note. Preserves all other sections.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Workspace-relative path to the note under .github/knowledge/.",
+        },
+        heading: {
+          type: "string",
+          description:
+            "Exact text of the heading to replace (without the # prefix).",
+        },
+        content: {
+          type: "string",
+          description:
+            "New content to place under the heading. The heading line is preserved; only the body below it is replaced.",
+        },
+      },
+      required: ["path", "heading", "content"],
+    },
+  },
+  {
+    name: "append_to_knowledge_note",
+    description:
+      "Append content to the end of an existing knowledge note. Use when adding new findings to an existing topic.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Workspace-relative path to the note under .github/knowledge/.",
+        },
+        content: {
+          type: "string",
+          description: "Markdown content to append at the end of the file.",
+        },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "scrape_webpage",
+    description:
+      "Fetch web pages, strip HTML chrome (nav, header, footer, sidebar), and return cleaned article text. Optionally write output to a file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        urls: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          description: "Absolute URLs to fetch.",
+        },
+        output_file: {
+          type: "string",
+          description:
+            "Optional workspace-relative path to write scraped content as markdown. When set, content is also returned in the response.",
+        },
+      },
+      required: ["urls"],
+    },
+  },
+];
+
+async function handleResearchToolCall(toolName, toolArguments) {
+  if (toolName === "search_knowledge_cache") {
+    const result = await searchKnowledgeCache(toolArguments);
+    return [{ type: "text", text: formatKnowledgeSearchResult(result) }];
+  }
+  if (toolName === "read_knowledge_note") {
+    const result = await readKnowledgeNote(toolArguments);
+    return [{ type: "text", text: formatKnowledgeNoteResult(result) }];
+  }
+  if (toolName === "search_web") {
+    const result = await searchWeb(toolArguments);
+    return [{ type: "text", text: formatSearchResult(result) }];
+  }
+  if (toolName === "write_knowledge_note") {
+    const result = await writeKnowledgeNote(toolArguments);
+    return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
+  }
+  if (toolName === "update_knowledge_note") {
+    const result = await updateKnowledgeNote(toolArguments);
+    return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
+  }
+  if (toolName === "append_to_knowledge_note") {
+    const result = await appendToKnowledgeNote(toolArguments);
+    return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
+  }
+  if (toolName === "scrape_webpage") {
+    const result = await fetchPages(toolArguments);
+    return [{ type: "text", text: formatFetchPagesResult(result) }];
+  }
+  return null;
 }
 
 async function handleRequest(request) {
@@ -717,196 +1117,7 @@ async function handleRequest(request) {
     send({
       jsonrpc: "2.0",
       id,
-      result: {
-        tools: [
-          {
-            name: "search_knowledge_cache",
-            description:
-              "Search the repo-local durable knowledge cache under .github/knowledge/ and return matching note paths with snippets.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                query: {
-                  type: "string",
-                  description: "Search query.",
-                },
-                max_results: {
-                  type: "integer",
-                  description: "Number of note matches to return (1-20).",
-                },
-              },
-              required: ["query"],
-            },
-          },
-          {
-            name: "read_knowledge_note",
-            description:
-              "Read a specific knowledge note from .github/knowledge/ using a workspace-relative path.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                path: {
-                  type: "string",
-                  description:
-                    "Workspace-relative path to a note under .github/knowledge/.",
-                },
-                max_chars: {
-                  type: "integer",
-                  description:
-                    "Maximum number of characters to return (500-20000). Default 4000.",
-                },
-              },
-              required: ["path"],
-            },
-          },
-          {
-            name: "search_web",
-            description:
-              "Search the web via a local SearXNG meta-search instance that queries Google, Bing, DuckDuckGo, and other engines simultaneously. Returns deduplicated results with titles, URLs, snippets, and source engines.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                query: {
-                  type: "string",
-                  description: "Search query.",
-                },
-                num_results: {
-                  type: "integer",
-                  description: "Number of results to return (1-10).",
-                },
-                site_filter: {
-                  type: "string",
-                  description:
-                    "Optional domain to scope the search, for example gbatek.com or doc.qt.io.",
-                },
-                exact_terms: {
-                  type: "string",
-                  description: "Terms that must appear in results.",
-                },
-                exclude_terms: {
-                  type: "string",
-                  description: "Terms that should be excluded from results.",
-                },
-                file_type: {
-                  type: "string",
-                  description: "Optional file type filter, for example pdf.",
-                },
-                engines: {
-                  type: "string",
-                  description:
-                    "Comma-separated SearXNG engine names, for example google,bing,duckduckgo. Omit to use all enabled engines.",
-                },
-                language: {
-                  type: "string",
-                  description: "Optional language code, for example en.",
-                },
-                time_range: {
-                  type: "string",
-                  description:
-                    "Optional time range filter: day, week, month, or year.",
-                },
-              },
-              required: ["query"],
-            },
-          },
-
-          {
-            name: "write_knowledge_note",
-            description:
-              "Create or overwrite a knowledge note under .github/knowledge/. Use for persisting research findings, architecture facts, or debug lessons learned.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                path: {
-                  type: "string",
-                  description:
-                    "Workspace-relative path for the note, e.g. .github/knowledge/my-topic.md",
-                },
-                content: {
-                  type: "string",
-                  description: "Full markdown content to write.",
-                },
-                overwrite: {
-                  type: "boolean",
-                  description:
-                    "Set to true to replace an existing file. Default false (fails if file exists).",
-                },
-              },
-              required: ["path", "content"],
-            },
-          },
-          {
-            name: "update_knowledge_note",
-            description:
-              "Replace a specific section (identified by heading) in an existing knowledge note. Preserves all other sections.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                path: {
-                  type: "string",
-                  description:
-                    "Workspace-relative path to the note under .github/knowledge/.",
-                },
-                heading: {
-                  type: "string",
-                  description:
-                    "Exact text of the heading to replace (without the # prefix).",
-                },
-                content: {
-                  type: "string",
-                  description:
-                    "New content to place under the heading. The heading line is preserved; only the body below it is replaced.",
-                },
-              },
-              required: ["path", "heading", "content"],
-            },
-          },
-          {
-            name: "append_to_knowledge_note",
-            description:
-              "Append content to the end of an existing knowledge note. Use when adding new findings to an existing topic.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                path: {
-                  type: "string",
-                  description:
-                    "Workspace-relative path to the note under .github/knowledge/.",
-                },
-                content: {
-                  type: "string",
-                  description:
-                    "Markdown content to append at the end of the file.",
-                },
-              },
-              required: ["path", "content"],
-            },
-          },
-          {
-            name: "fetch_pages",
-            description:
-              "Fetch up to 5 web pages and return cleaned text extracts for fast documentation review.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                urls: {
-                  type: "array",
-                  items: { type: "string" },
-                  minItems: 1,
-                  maxItems: 5,
-                  description: "Absolute URLs to fetch.",
-                },
-                max_chars: {
-                  type: "integer",
-                  description:
-                    "Maximum extracted text per page (1000-20000). Default 8000.",
-                },
-              },
-              required: ["urls"],
-            },
-          },
-        ],
-      },
+      result: { tools: RESEARCH_TOOLS },
     });
     return;
   }
@@ -916,122 +1127,9 @@ async function handleRequest(request) {
     const toolArguments = request.params?.arguments || {};
 
     try {
-      if (toolName === "search_knowledge_cache") {
-        const result = await searchKnowledgeCache(toolArguments);
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: formatKnowledgeSearchResult(result),
-              },
-            ],
-          },
-        });
-        return;
-      }
-
-      if (toolName === "read_knowledge_note") {
-        const result = await readKnowledgeNote(toolArguments);
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: formatKnowledgeNoteResult(result),
-              },
-            ],
-          },
-        });
-        return;
-      }
-
-      if (toolName === "search_web") {
-        const result = await searchWeb(toolArguments);
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: formatSearchResult(result),
-              },
-            ],
-          },
-        });
-        return;
-      }
-
-      if (toolName === "write_knowledge_note") {
-        const result = await writeKnowledgeNote(toolArguments);
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: formatKnowledgeWriteResult(result),
-              },
-            ],
-          },
-        });
-        return;
-      }
-
-      if (toolName === "update_knowledge_note") {
-        const result = await updateKnowledgeNote(toolArguments);
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: formatKnowledgeWriteResult(result),
-              },
-            ],
-          },
-        });
-        return;
-      }
-
-      if (toolName === "append_to_knowledge_note") {
-        const result = await appendToKnowledgeNote(toolArguments);
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: formatKnowledgeWriteResult(result),
-              },
-            ],
-          },
-        });
-        return;
-      }
-
-      if (toolName === "fetch_pages") {
-        const result = await fetchPages(toolArguments);
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: formatFetchPagesResult(result),
-              },
-            ],
-          },
-        });
+      const content = await handleResearchToolCall(toolName, toolArguments);
+      if (content) {
+        send({ jsonrpc: "2.0", id, result: { content } });
         return;
       }
     } catch (error) {
@@ -1047,20 +1145,29 @@ async function handleRequest(request) {
   sendError(id, -32601, `Unknown method: ${method}`);
 }
 
-const lineReader = readline.createInterface({
-  input: process.stdin,
-  crlfDelay: Infinity,
-});
+// When loaded as a module, export tools + handler for the combined server.
+// When run directly, start the standalone readline loop.
+module.exports = {
+  tools: RESEARCH_TOOLS,
+  handleToolCall: handleResearchToolCall,
+};
 
-lineReader.on("line", async (line) => {
-  if (!line.trim()) {
-    return;
-  }
+if (require.main === module) {
+  const lineReader = readline.createInterface({
+    input: process.stdin,
+    crlfDelay: Infinity,
+  });
 
-  try {
-    const request = JSON.parse(line);
-    await handleRequest(request);
-  } catch {
-    sendError(null, -32700, "Parse error");
-  }
-});
+  lineReader.on("line", async (line) => {
+    if (!line.trim()) {
+      return;
+    }
+
+    try {
+      const request = JSON.parse(line);
+      await handleRequest(request);
+    } catch {
+      sendError(null, -32700, "Parse error");
+    }
+  });
+}

@@ -162,15 +162,15 @@ Add to your project's `.vscode/mcp.json` (or user-level mcp.json):
 
 ### Exposed MCP tools
 
-| Tool                       | Description                                            |
-| -------------------------- | ------------------------------------------------------ |
-| `search_web`               | Web search via local SearXNG (Google, Bing, DDG, etc.) |
-| `fetch_pages`              | Fetch up to 5 URLs, strip HTML, return cleaned text    |
-| `search_knowledge_cache`   | Search `.github/knowledge/` Markdown files by keyword  |
-| `read_knowledge_note`      | Read a specific knowledge note                         |
-| `write_knowledge_note`     | Create or overwrite a knowledge note                   |
-| `update_knowledge_note`    | Replace a section by heading in a note                 |
-| `append_to_knowledge_note` | Append content to an existing note                     |
+| Tool                       | Description                                                |
+| -------------------------- | ---------------------------------------------------------- |
+| `search_web`               | Web search via local SearXNG (Google, Bing, DDG, etc.)     |
+| `scrape_webpage`           | Fetch up to 5 URLs, strip HTML chrome, return cleaned text |
+| `search_knowledge_cache`   | Search `.github/knowledge/` Markdown files by keyword      |
+| `read_knowledge_note`      | Read a specific knowledge note                             |
+| `write_knowledge_note`     | Create or overwrite a knowledge note                       |
+| `update_knowledge_note`    | Replace a section by heading in a note                     |
+| `append_to_knowledge_note` | Append content to an existing note                         |
 
 ## Development
 

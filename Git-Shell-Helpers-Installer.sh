@@ -141,6 +141,127 @@ maybe_install_vscode_extensions() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# MCP tools installation
+# ---------------------------------------------------------------------------
+
+VSCODE_MCP_JSON="$HOME/Library/Application Support/Code/User/mcp.json"
+
+# Read existing mcp.json, add/update a server entry, write back.
+upsert_mcp_server() {
+  local name="$1"
+  local block="$2"
+  local mcp_file="$VSCODE_MCP_JSON"
+
+  ensure_dir "$(dirname "$mcp_file")"
+
+  if [ ! -f "$mcp_file" ]; then
+    cat >"$mcp_file" <<MCPEOF
+{
+  "servers": {
+    ${name}: ${block}
+  }
+}
+MCPEOF
+    return
+  fi
+
+  python3 - "$mcp_file" "$name" "$block" <<'PYEOF'
+import json, sys
+mcp_path, srv_name, srv_block = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(mcp_path, "r") as f:
+        data = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    data = {}
+if "servers" not in data or not isinstance(data["servers"], dict):
+    data["servers"] = {}
+data["servers"][srv_name] = json.loads(srv_block)
+with open(mcp_path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PYEOF
+}
+
+configure_mcp_tools() {
+  local install_research=true
+  local install_vision=true
+
+  echo ""
+  echo "[Git-Shell-Helpers-Installer] MCP Tools (combined server: git-shell-helpers)"
+  echo "  Bundled tool modules:"
+  echo "    1) git-research-mcp  — web search & knowledge cache for Copilot agents"
+  echo "    2) aioserver-vision  — screenshot analysis with vision models"
+  echo ""
+  printf '[Git-Shell-Helpers-Installer] Install MCP tools into VS Code? [Y/n/pick]: '
+  read -r mcp_reply || mcp_reply=""
+
+  if [[ "$mcp_reply" == "n" || "$mcp_reply" == "N" ]]; then
+    echo "[Git-Shell-Helpers-Installer] Skipped MCP tool installation."
+    return
+  fi
+
+  if [[ "$mcp_reply" == "pick" || "$mcp_reply" == "p" ]]; then
+    printf '  Include research tools (web search, knowledge cache)? [Y/n]: '
+    read -r r1 || r1=""
+    if [[ "$r1" == "n" || "$r1" == "N" ]]; then
+      install_research=false
+    fi
+
+    printf '  Include vision tools (screenshot analysis)? [Y/n]: '
+    read -r r2 || r2=""
+    if [[ "$r2" == "n" || "$r2" == "N" ]]; then
+      install_vision=false
+    fi
+  fi
+
+  # Fetch the combined server entry point
+  fetch "$REPO_RAW_BASE/git-shell-helpers-mcp" "$BIN_DIR/git-shell-helpers-mcp"
+
+  # Fetch vision tool files if selected
+  if [ "$install_vision" = true ]; then
+    local vision_dir="${BIN_DIR}/aioserver-vision-tool"
+    ensure_dir "$vision_dir"
+    fetch "$REPO_RAW_BASE/aioserver-vision-tool/mcp-server.js" "$vision_dir/mcp-server.js"
+  fi
+
+  # Build the env block for disabling modules the user opted out of
+  local env_block=""
+  if [ "$install_research" = false ]; then
+    env_block="${env_block:+$env_block, }\"GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH\": \"1\""
+  fi
+  if [ "$install_vision" = false ]; then
+    env_block="${env_block:+$env_block, }\"GIT_SHELL_HELPERS_MCP_DISABLE_VISION\": \"1\""
+  fi
+
+  local server_json
+  if [ -n "$env_block" ]; then
+    server_json='{
+      "type": "stdio",
+      "command": "node",
+      "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"],
+      "env": { '"${env_block}"' }
+    }'
+  else
+    server_json='{
+      "type": "stdio",
+      "command": "node",
+      "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"]
+    }'
+  fi
+
+  upsert_mcp_server '"git-shell-helpers"' "$server_json"
+
+  echo "[Git-Shell-Helpers-Installer] Configured MCP server: git-shell-helpers"
+  if [ "$install_research" = true ]; then
+    echo "  ✓ research tools (web search, knowledge cache, fetch pages)"
+  fi
+  if [ "$install_vision" = true ]; then
+    echo "  ✓ vision tools (screenshot analysis)"
+  fi
+  echo "[Git-Shell-Helpers-Installer] MCP config written to: $VSCODE_MCP_JSON"
+}
+
 install_all() {
   echo "[Git-Shell-Helpers-Installer] Installing git shell helpers..."
 
@@ -153,9 +274,10 @@ install_all() {
   fetch "$REPO_RAW_BASE/git-initialize" "$BIN_DIR/git-initialize"
   fetch "$REPO_RAW_BASE/git-fucked-the-push" "$BIN_DIR/git-fucked-the-push"
   fetch "$REPO_RAW_BASE/git-copilot-devops-audit" "$BIN_DIR/git-copilot-devops-audit"
+  fetch "$REPO_RAW_BASE/git-research-mcp" "$BIN_DIR/git-research-mcp"
   fetch "$REPO_RAW_BASE/scripts/community-cache-submit.sh" "$BIN_DIR/git-copilot-devops-audit-community-submit"
   fetch "$REPO_RAW_BASE/scripts/community-cache-pull.sh" "$BIN_DIR/git-copilot-devops-audit-community-pull"
-  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit" "$BIN_DIR/git-copilot-devops-audit-community-submit" "$BIN_DIR/git-copilot-devops-audit-community-pull"
+  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit" "$BIN_DIR/git-research-mcp" "$BIN_DIR/git-copilot-devops-audit-community-submit" "$BIN_DIR/git-copilot-devops-audit-community-pull"
 
   configure_community_cache
 
@@ -226,6 +348,9 @@ install_all() {
     else
       echo "[Git-Shell-Helpers-Installer] Skipped VS Code global install. Run 'git copilot-devops-audit' in any repo to install later."
     fi
+
+    # MCP tools — always offer when VS Code is available
+    configure_mcp_tools
   fi
 
   echo "[Git-Shell-Helpers-Installer] Done. Open a new terminal or run:"

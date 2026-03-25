@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+
+// git-shell-helpers-mcp
+//
+// Combined MCP server that exposes all git-shell-helpers tools under one
+// server entry. Delegates to the individual modules (git-research-mcp and
+// aioserver-vision-tool) which remain separate files for maintainability.
+//
+// Usage (standalone):
+//   node git-shell-helpers-mcp
+//
+// MCP server name: "git-shell-helpers"
+// Configurable via environment variables:
+//   GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH=1  — skip research tools
+//   GIT_SHELL_HELPERS_MCP_DISABLE_VISION=1    — skip vision tools
+
+const path = require("path");
+const readline = require("readline");
+
+const MCP_VERSION = "2024-11-05";
+
+function send(message) {
+  process.stdout.write(`${JSON.stringify(message)}\n`);
+}
+
+function sendError(id, code, message) {
+  send({
+    jsonrpc: "2.0",
+    id,
+    error: { code, message },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Load sub-modules
+// ---------------------------------------------------------------------------
+
+const modules = [];
+
+if (!process.env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH) {
+  try {
+    const research = require(path.join(__dirname, "git-research-mcp"));
+    modules.push(research);
+  } catch (err) {
+    process.stderr.write(
+      `[git-shell-helpers-mcp] WARNING: could not load git-research-mcp: ${err.message}\n`,
+    );
+  }
+}
+
+if (!process.env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION) {
+  try {
+    const vision = require(
+      path.join(__dirname, "aioserver-vision-tool", "mcp-server.js"),
+    );
+    modules.push(vision);
+  } catch (err) {
+    process.stderr.write(
+      `[git-shell-helpers-mcp] WARNING: could not load aioserver-vision-tool: ${err.message}\n`,
+    );
+  }
+}
+
+// Merge tool lists from all loaded modules.
+const ALL_TOOLS = modules.flatMap((m) => m.tools || []);
+
+// ---------------------------------------------------------------------------
+// Tools config — filter disabled tools per user preferences
+// ---------------------------------------------------------------------------
+
+const fs = require("fs");
+const TOOLS_CONFIG_PATH = path.join(
+  process.env.HOME || process.env.USERPROFILE || "",
+  ".config",
+  "git-shell-helpers-mcp",
+  "tools.json",
+);
+
+function getEnabledTools() {
+  try {
+    const config = JSON.parse(fs.readFileSync(TOOLS_CONFIG_PATH, "utf8"));
+    const disabled = new Set(config.disabledTools || []);
+    if (disabled.size === 0) return ALL_TOOLS;
+    return ALL_TOOLS.filter((t) => !disabled.has(t.name));
+  } catch {
+    return ALL_TOOLS;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Protocol handler
+// ---------------------------------------------------------------------------
+
+async function handleRequest(request) {
+  const { id, method } = request;
+
+  if (method === "initialize") {
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        protocolVersion: MCP_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: { name: "git-shell-helpers", version: "1.0.0" },
+      },
+    });
+    return;
+  }
+
+  if (method === "notifications/initialized") {
+    return;
+  }
+
+  if (method === "tools/list") {
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: { tools: getEnabledTools() },
+    });
+    return;
+  }
+
+  if (method === "tools/call") {
+    const toolName = request.params?.name;
+    const toolArguments = request.params?.arguments || {};
+
+    try {
+      for (const mod of modules) {
+        const content = await mod.handleToolCall(toolName, toolArguments);
+        if (content) {
+          send({ jsonrpc: "2.0", id, result: { content } });
+          return;
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendError(id, -32603, message);
+      return;
+    }
+
+    sendError(id, -32601, `Unknown tool: ${toolName}`);
+    return;
+  }
+
+  sendError(id, -32601, `Unknown method: ${method}`);
+}
+
+// ---------------------------------------------------------------------------
+// Stdio transport
+// ---------------------------------------------------------------------------
+
+const lineReader = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+lineReader.on("line", async (line) => {
+  if (!line.trim()) {
+    return;
+  }
+
+  try {
+    const request = JSON.parse(line);
+    await handleRequest(request);
+  } catch {
+    sendError(null, -32700, "Parse error");
+  }
+});
