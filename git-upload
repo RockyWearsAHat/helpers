@@ -2004,6 +2004,9 @@ collect_repo_ai_guidance() {
 	declare -a guidance_candidates
 	guidance_candidates=(
 		".github/COMMIT_GUIDELINES.md:Project commit guidelines:120"
+		".github/commit_guidelines.md:Project commit guidelines:120"
+		".github/COMMIT_MESSAGE.md:Project commit message guide:120"
+		".github/commit_message.md:Project commit message guide:120"
 		".github/UPLOAD_GUIDELINES.md:Project upload workflow guidelines:120"
 		".github/copilot-instructions.md:Repository Copilot instructions:120"
 		"AGENTS.md:Repository agent instructions:100"
@@ -2368,130 +2371,96 @@ $detailed_recent
 $diff_summary"
 	fi
 
-	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
+	local default_prompt="Write a commit message for the staged changes below.
 
-OPERATING CONSTRAINTS:
-- You are running in READ-ONLY mode with no tool access.
-- You CANNOT read files, run commands, or access the filesystem.
-- ALL context you need is provided in this prompt (diff, file list, analysis).
-- Do NOT ask for more information or suggest running commands.
-- Work ONLY with the provided diff content below.
+If you have read tools available, use them to understand the codebase
+beyond just the diff — read related files, understand the project
+structure, and get the full picture. The better you understand what
+the project does and where these changes fit, the better the message.
+Do not invent changes that are not in the diff.
 
-HISTORY AWARENESS (CRITICAL):
-You are provided with RECENT COMMIT HISTORY. Use it to understand:
-- What the project has been working on lately
-- The INTENT behind the current changes (not just what they are)
-- Whether this commit is a FOLLOW-UP, TEST, CLEANUP, or NEW FEATURE
+CONTEXT MATTERS MOST:
+Read the recent commit history provided below. Understand what the project
+has been doing. Each commit is part of an ongoing thread of work — frame
+yours as the next step in that story. If the last few commits were fixing
+upload retries, and now there'\''s another tweak to the same area, say so:
+'\''Still seeing timeout issues on slow connections — bump retry delay from
+2s to 5s and add a log line so we can actually see what'\''s happening'\''
 
-Examples of history-aware reasoning:
-- If recent commits added 'git-help-i-pushed-an-env' (a secret-scrubbing tool), and now a .env with 'SECRET=test' is being added → this is OBVIOUSLY a test case for that tool, NOT an accidental secret leak!
-- If recent commits were bug fixes for feature X, and now there's a small tweak to X → this is likely a follow-up fix, not a new feature
-- If recent commits added a new module, and now tests are being added → celebrate the test coverage, link it to the module
-
-ALWAYS ask: 'Given what this project just shipped, WHY would someone make this change?'
-- A .env file after a secret-scanning tool = test case
-- A README update after new features = documentation
-- A config tweak after a deployment = hotfix/tuning
-
-VOICE & TONE (MOST IMPORTANT):
-Write like a competent engineer writing a clear commit message. Be direct and factual.
-- Use active, imperative language: 'Add', 'Fix', 'Remove', 'Update', 'Wire up', 'Hook up'
-- Quantify when possible: '6x more tests (120→700+)', 'coverage 30%→85%'
-- Avoid corporate/robotic language like 'artifacts', 'integration', 'subsystem', 'formalize'
-- NEVER anthropomorphize code. Scripts and files do not learn, get taught, understand, know, or want things.
-  BAD: 'Taught build-pkg.sh to bundle the new script' / 'Told the installer about dark mode'
-  GOOD: 'Add git-copilot-devops-audit-community-research-submit to build-pkg.sh bundle list'
-  GOOD: 'Wire up dark mode toggle in the installer prompt'
-- Do NOT editorialize, cheerleader, or hype. Let the facts speak.
-  BAD: 'Finally fix that annoying bug!' / 'Yes, finally!' / 'This is huge!'
-  GOOD: 'Fix Discord reconnect dropping messages after idle timeout'
+That'\''s what a useful commit message is. It tells the NEXT person what
+the situation was and what you did about it.
 
 SUBJECT LINE:
-- Imperative mood, specific, <= 72 characters
-- State WHAT changed, not how you feel about it
-- Good: 'Add dark mode support to settings panel'
-- Good: 'Fix Discord reconnect dropping messages after idle timeout'
-- Good: 'Speed up webpack builds 3x with parallel loaders'
-- Good: 'Bump test coverage from 120 to 700+ cases across GBA modules'
-- BAD: 'Add GBA integration test target and coverage artifacts' (vague)
-- BAD: 'Update test infrastructure' (what specifically?)
-- BAD: 'Refactor implementation details' (meaningless)
+One line, <= 72 chars, that tells someone skimming git log what happened.
+Write it the way you'\''d describe the change to a coworker. Say what the
+commit DOES or FIXES, not what files it touches.
 
-Note: Emoji in subject line is optional - use sparingly for genuinely big milestones, skip for routine changes.
+Good:
+  '\''Fix install button showing up even after app is already installed'\''
+  '\''Stop blocking payouts until Stripe says so'\''
+  '\''Add loading text to clash fetch so users stop retrying'\''
+  '\''Local storage fixed so logged-out users can add items to cart'\''
+  '\''Image scroller, mobile fixes, queue system, basic filtering'\''
+  '\''Remove automatic var() injection — causes issues with dashed idents'\''
 
-SPECIFICITY REQUIREMENTS:
-- NEVER use vague phrases like: 'core code', 'core helpers', 'default values', 'various improvements', 'minor changes', 'artifacts', 'infrastructure'.
-- ALWAYS name the SPECIFIC thing: 'git-upload', 'the --dry-run flag', 'MAX_RETRIES from 3 to 5', 'the parseConfig() function'.
-- If a new file was added, say WHAT it does: 'Add git-remerge script for re-applying failed merges' NOT 'Add new script'.
-- If behavior changed, describe the ACTUAL change: 'Skip empty commits instead of erroring' NOT 'Change default behavior'.
-- If you're refactoring, say WHAT was refactored and WHY: 'Extract notification logic into separate function to reduce Discord API spam' NOT 'Refactor implementation'.
+Bad:
+  '\''Update git-upload default-value regex quoting'\'' — robotic, says nothing useful
+  '\''Fix bug in compute_diff_analysis'\'' — which bug? what was broken?
+  '\''Refactor implementation details'\'' — meaningless
 
-QUANTIFIABLE WINS:
-When the diff contains measurable improvements, state them plainly:
-- Test count increases: 'Tests: 120→700+ across GBA modules'
-- Coverage improvements: 'Coverage: 30%→85% on APU, ARM7TDMI, PPU'
-- Performance: 'Webpack build time: 45s→15s with parallel loaders'
-- Deletions: 'Remove 300 lines of dead OAuth v1 code'
+BODY:
+Describe the situation, what you did, and why. Someone reading git blame
+should understand the reasoning without opening the diff.
 
-Content requirements:
-- Base everything on the staged diff (index) vs HEAD; do not invent changes.
-- Each bullet: WHAT changed, WHERE, and WHY it matters — factual, not narrative.
-- Frame the commit in context: what problem existed, how does this address it.
-- For new files: describe what each file IS, DOES, and WHY it was needed (e.g., 'Add git-remerge to handle the case where an upload fails and pushes to a new branch, allowing merge back into the original branch').
-- For modified files: describe the change AND its purpose (e.g., 'Add verbose logging to git-upload retry loop to help diagnose timeout issues on slow networks').
-- For config/default changes: state the OLD value, NEW value, and the reason (e.g., 'Bump MAX_RETRIES from 3 to 5 — users on satellite connections were hitting the limit before uploads completed').
-- For debugging additions: explain what can now be traced (e.g., 'Add logging for auth token refresh in oauth.py to aid SSO integration debugging').
-- Call out CLI/API behavior changes with concrete before/after.
+DO NOT use section headers like '\''What changed:'\'', '\''Why this matters:'\'',
+or any rigid template. Those scream '\''AI wrote this'\''. Just write naturally.
 
-Breaking changes format rules (STRICT):
-	- If there are NO breaking changes, output exactly: Breaking changes: none
-	- If there ARE breaking changes, output:
-		Breaking changes:
-		- <SPECIFIC bullet: name the flag/function/behavior and what breaks>
-		(Do NOT use Yes/No. Do NOT write 'Breaking changes: yes'.)
-		(BAD: 'Default values changed' - GOOD: '--verbose now defaults to true; scripts expecting quiet output will break')
+For a tiny fix: one sentence or no body at all.
 
-RISK ASSESSMENT: Use the pre-computed risk level unless you have strong evidence to change it.
-- Formatting-only, comment, and test-only changes are LOW risk.
-- Use the provided testing status EXACTLY (verbatim). Do not guess.
+For a small fix: a short paragraph about the problem and the solution.
+  '\''The regex for matching empty-string defaults wasn'\''t quoted, so ""
+  and '\'''\'' patterns slipped through breaking-change detection silently.'\''
 
-Style requirements:
-- Subject line: imperative mood; SPECIFIC; aim for <= 72 characters (emoji counts as ~2 chars).
-- Body: detailed with concrete specifics; prefer bullets; factual tone.
-- Do NOT mention checking status, diffs, tools, agents, prompts, or instructions.
-- Do NOT anthropomorphize: never say code/scripts 'learned', 'were taught', 'know', 'understand', or 'want' anything.
+For a medium change: a sentence of context, then bullets.
+  '\''Verification threads were getting auto-archived by Discord'\''s
+  inactivity timer, which broke the onboarding flow.
 
-Output protocol (IMPORTANT):
-- Output ONLY the commit message between these exact markers, with no other text:
+  - Touch open threads periodically to reset the archive timer
+  - Clean up threads for members who left
+  - Add /admin-unlink for force-unlinking stolen tags'\''
+
+For a large change: group under short topic-specific headers.
+  '\''Secret scanning:
+  - Add git-scan-for-leaked-envs with 40+ secret patterns
+  - Wire up pre-commit hook to block pushes with matches
+
+  Installer:
+  - Bundle the new command into both installers
+  - Add man page'\''
+
+The body should make it obvious WHY this change was made, not just
+WHAT code was touched. Name the specific things — the flag, the file,
+the function, the value. If there'\''s a number (speed, count, size),
+include it. Don'\''t pad a one-line fix with five bullets.
+
+Never anthropomorphize code — scripts don'\''t '\''learn'\'' or '\''understand'\''.
+Never restate the subject in different words.
+Never use corporate filler like '\''formalize'\'', '\''artifacts'\'', '\''subsystem'\''.
+
+METADATA FOOTER — always include at the end, after a blank line:
+
+Breaking changes: none
+  (or list specific breakage: '\''--verbose now defaults to true; quiet scripts break'\'')
+
+Risk: <low|medium|high> (<short reason>)
+  Use the pre-computed risk unless you have strong evidence otherwise.
+
+Testing: <copy the provided testing status verbatim>
+
+OUTPUT FORMAT — output ONLY the commit between these markers, nothing else:
 COMMIT_BEGIN
-<subject line>
-
-<body, multiple lines allowed>
+<commit message>
 COMMIT_END
-
-Body structure:
-What changed:
-- Lead with the most impactful change
-- Each bullet: WHAT changed and WHY, in one factual sentence
-- Good: 'APU, ARM7TDMI, and PPU module coverage up to 85%+ (was ~30%)'
-- Good: 'Add GBATests.cpp with 500+ test cases covering the full instruction set'
-- Good: 'Wire up LCOV reporting for in-IDE coverage display'
-- BAD: 'Updated coverage artifacts' (what does this mean??)
-- BAD: 'Extended cmake configuration' (boring, what'\''s the benefit?)
-- NEVER anthropomorphize: do NOT write 'Taught X to do Y' or 'Told X about Y'
-
-Why this matters:
-- Explain the practical effect of the changes, not how you feel about them
-- Good: 'GBA emulator modules now have regression coverage where there was none before'
-- Good: 'Clears the path to 100% coverage on core emulator modules'
-- BAD: 'Code is cleaner now' (vague)
-- BAD: 'Formalizes the coverage expansion effort' (corporate speak)
-
-Breaking changes: <use the strict format rules above - be SPECIFIC about what breaks>
-
-Risk: <low|medium|high> (<short rationale>)
-
-Testing: <use the provided testing status verbatim>
 "
 	local effective_prompt
 
