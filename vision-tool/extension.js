@@ -536,21 +536,12 @@ function registerCommand(context) {
   );
 }
 
-function getWorkspaceRoot() {
-  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-}
-
-function getIpcState(workspaceRoot) {
-  const workspaceName =
-    path
-      .basename(workspaceRoot)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "workspace";
-
+function getIpcState() {
+  const cacheDir = path.join(os.homedir(), ".cache", "gsh");
+  fs.mkdirSync(cacheDir, { recursive: true });
   return {
-    socketPath: path.join(os.tmpdir(), `gsh-vision-${workspaceName}.sock`),
-    infoPath: path.join(workspaceRoot, ".vscode", "gsh-vision-ipc.json"),
+    socketPath: path.join(os.tmpdir(), "gsh-vision.sock"),
+    infoPath: path.join(cacheDir, "vision-ipc.json"),
   };
 }
 
@@ -581,12 +572,7 @@ function writeIpcInfo(infoPath, socketPath) {
 }
 
 function startIpcServer(context) {
-  const workspaceRoot = getWorkspaceRoot();
-  if (!workspaceRoot) {
-    return;
-  }
-
-  const { socketPath, infoPath } = getIpcState(workspaceRoot);
+  const { socketPath, infoPath } = getIpcState();
   safeUnlink(socketPath);
   writeIpcInfo(infoPath, socketPath);
 

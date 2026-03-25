@@ -34,6 +34,19 @@ Do not re-read the workspace — the context report already covers it.
 
 Use the built-in `web/fetch` tool for official documentation and public repository examples, and `execute/runInTerminal` only when you need a fallback for evidence that `web/fetch` cannot provide.
 
+## Mandatory Page Scrape Rule
+
+After every `search_web` call, each result URL that you intend to use as evidence MUST be fetched with `scrape_webpage` (or `web/fetch` as fallback) before any finding from that result is used. Snippets alone are insufficient evidence.
+
+**Hard rule: Do not use a search result as evidence unless you have read the full page.**
+
+This applies without exception to:
+- Results used to support a normative recommendation
+- Results cited in the evidence ledger or reference matrix
+- Results used to establish whether a field, feature, or pattern is current
+
+Scanning a snippet and moving on is guessing with extra steps. Fetch the page.
+
 Load `copilot-research` for your research methodology and sources. **Start by reading the studybase** (`studybase.md` in the copilot-research skill directory) — it contains verified professional patterns, the native-vs-custom boundary, concrete examples from top repositories, and current syntax. Use it as your baseline rather than re-discovering what's already been verified. Your research builds on the studybase: verify freshness, find project-specific patterns it doesn't cover, and discover evidence for recommendations specific to this workspace.
 
 ## Community Cache — Load Before External Research
@@ -50,6 +63,14 @@ After the studybase, load the community cache. It is a versioned, evidence-backe
 In your report, include a `Community cache status` section stating: whether the remote cache was checked, which snapshot was loaded, which conclusions came from the cache, which were revalidated live, and which were rejected as stale or superseded.
 
 **Do not skip the community cache.** The studybase is the compact baseline; the community cache is the deep verified evidence backing. Using only the studybase when the cache is available means weaker research.
+
+**Blocking gate — self-check before open-web research begins**: Answer these three questions explicitly before issuing any `search_web` call:
+
+1. Did I read `~/.copilot/devops-audit-community-settings.json`?
+2. Did I fetch `community-cache/manifest.json` from the community repo and identify the recommended snapshot?
+3. Did I load `prompting-principles.json`, `anti-patterns.json`, `frontmatter-reference.json`, and `deprecations.json` from that snapshot?
+
+If the answer to any of these is "no" and the resource was reachable, load it now before continuing. If it was unreachable, log the failure and continue. This gate is not optional narration — it must hold before any open-web research occurs.
 
 ## Repo Knowledge Baseline — Load Before Open Web Research
 
@@ -78,6 +99,23 @@ You are also expected to bring back product-team transcript evidence when it is 
 You are also expected to bring back related skill patterns that genuinely map to this workspace's workflows. Do not bring back generic skill examples just to fill space.
 
 You must be able to explain the relevant system simply and clearly enough to define the intended current best-practices setup for this workspace. If the research still leaves you sounding confused, overloaded, vague about that target state, unclear about which evidence is current versus outdated, or unclear about which evidence is authoritative versus merely illustrative, the research is incomplete.
+
+## Mandatory Knowledge Note Write
+
+At the end of the research phase, before returning your report, write all findings that are broadly reusable (not specific to this workspace) to a dated knowledge note using `mcp_gsh_write_knowledge_note`. If a relevant existing note already covers the same topic area, update it with `mcp_gsh_update_knowledge_note` instead.
+
+Title format: `copilot-research-YYYY-MM-DD.md` (use today's date).
+
+What belongs in the note:
+- Verified current field names, valid values, and recent deprecations confirmed by official sources
+- Patterns from real repository examples that generalize across different projects
+- Sourced normative claims worth preserving to avoid re-researching next time
+
+What does not belong:
+- Workspace-specific paths, filenames, or project-specific recommendations
+- Unverified assumptions or working hypotheses
+
+**This step is required and not optional.** A research pass that produces no persisted knowledge note is incomplete by default. If `mcp_gsh_write_knowledge_note` is unavailable, state that explicitly in your report under `Community cache status` and continue.
 
 ## Before You Return: Check Your Own Work
 
