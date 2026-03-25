@@ -53,7 +53,7 @@ function normalizedModelFields(model) {
 }
 
 function parsePreferredModelIds() {
-  const raw = process.env.AIOSERVER_VISION_MODEL_IDS || "claude-sonnet-4.6";
+  const raw = process.env.GSH_VISION_MODEL_IDS || "claude-sonnet-4.6";
   return raw
     .split(",")
     .map((item) => item.trim().toLowerCase())
@@ -72,7 +72,7 @@ function modelMatchesPreference(model, preferredIds) {
 }
 
 function allowsUndeclaredImageModel() {
-  const raw = process.env.AIOSERVER_VISION_ALLOW_UNDECLARED_IMAGE_MODEL || "";
+  const raw = process.env.GSH_VISION_ALLOW_UNDECLARED_IMAGE_MODEL || "";
   if (!raw) {
     return true;
   }
@@ -130,7 +130,7 @@ async function selectVisionModel() {
 
   const guidance = allowsUndeclaredImageModel()
     ? "No preferred fallback model was found."
-    : "Set AIOSERVER_VISION_ALLOW_UNDECLARED_IMAGE_MODEL=1 to try a preferred model anyway.";
+    : "Set GSH_VISION_ALLOW_UNDECLARED_IMAGE_MODEL=1 to try a preferred model anyway.";
 
   throw new Error(
     `No chat model with image input capability is currently available. ${guidance} Candidates: ${JSON.stringify(candidates)}`,
@@ -238,7 +238,7 @@ async function analyzeImages(input, token) {
   const parts = [];
 
   const promptLines = [
-    "You are analyzing screenshots captured from AIOServer during visual development and testing.",
+    "You are analyzing screenshots during visual development and testing.",
     "Use the images themselves as the primary evidence. Answer directly and concisely.",
     `Number of images: ${paths.length}`,
     "",
@@ -392,7 +392,7 @@ function parseAnalyzePrompt(prompt) {
 
 function usageMarkdown() {
   return [
-    "Use `@aioserver-vision /analyze` with this format:",
+    "Use `@gsh-vision /analyze` with this format:",
     "",
     "`/analyze /path/to/image.png :: What should be evaluated?`",
     "",
@@ -408,7 +408,7 @@ function usageMarkdown() {
 
 function registerChatParticipant(context) {
   const participant = vscode.chat.createChatParticipant(
-    "local.aioserver-vision",
+    "local.gsh-vision",
     async (request, _chatContext, stream, token) => {
       try {
         if (request.command === "analyze") {
@@ -442,10 +442,7 @@ function registerChatParticipant(context) {
 }
 
 function registerTool(context) {
-  const analyzeToolNames = [
-    "aioserver-analyze-images",
-    "aioserver_analyze_images",
-  ];
+  const analyzeToolNames = ["gsh-analyze-images", "gsh_analyze_images"];
 
   const analyzeTool = {
     async invoke(options, token) {
@@ -467,10 +464,7 @@ function registerTool(context) {
     context.subscriptions.push(vscode.lm.registerTool(toolName, analyzeTool));
   }
 
-  const screenshotToolNames = [
-    "aioserver-take-screenshot",
-    "aioserver_take_screenshot",
-  ];
+  const screenshotToolNames = ["gsh-take-screenshot", "gsh_take_screenshot"];
 
   const screenshotTool = {
     async invoke(options) {
@@ -499,50 +493,46 @@ function registerTool(context) {
 
 function registerCommand(context) {
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "aioserver.inspectScreenshotManual",
-      async () => {
-        const imageUris = await vscode.window.showOpenDialog({
-          canSelectMany: true,
-          openLabel: "Analyze Images",
-          filters: {
-            Images: ["png", "jpg", "jpeg", "webp", "bmp", "gif"],
-          },
-        });
-        if (!imageUris || !imageUris.length) {
-          return;
-        }
+    vscode.commands.registerCommand("gsh.inspectScreenshotManual", async () => {
+      const imageUris = await vscode.window.showOpenDialog({
+        canSelectMany: true,
+        openLabel: "Analyze Images",
+        filters: {
+          Images: ["png", "jpg", "jpeg", "webp", "bmp", "gif"],
+        },
+      });
+      if (!imageUris || !imageUris.length) {
+        return;
+      }
 
-        const goal = await vscode.window.showInputBox({
-          prompt: "What should Copilot determine from these images?",
-          placeHolder:
-            "Example: Evaluate the visual quality and identify any UI issues.",
-        });
-        if (!goal) {
-          return;
-        }
+      const goal = await vscode.window.showInputBox({
+        prompt: "What should Copilot determine from these images?",
+        placeHolder:
+          "Example: Evaluate the visual quality and identify any UI issues.",
+      });
+      if (!goal) {
+        return;
+      }
 
-        try {
-          const imagePaths = imageUris.map((uri) => uri.fsPath);
-          const result = await analyzeImages(
-            { imagePaths, goal },
-            new vscode.CancellationTokenSource().token,
-          );
-          const pathList = imagePaths.map((p) => `- ${p}`).join("\n");
-          const document = await vscode.workspace.openTextDocument({
-            language: "markdown",
-            content: `# Image Analysis\n\nImages (${result.imageCount}):\n${pathList}\n\nModel: ${result.model}\n\n${result.response}\n`,
-          });
-          await vscode.window.showTextDocument(document, { preview: false });
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          void vscode.window.showErrorMessage(
-            `AIOServer image analysis failed: ${message}`,
-          );
-        }
-      },
-    ),
+      try {
+        const imagePaths = imageUris.map((uri) => uri.fsPath);
+        const result = await analyzeImages(
+          { imagePaths, goal },
+          new vscode.CancellationTokenSource().token,
+        );
+        const pathList = imagePaths.map((p) => `- ${p}`).join("\n");
+        const document = await vscode.workspace.openTextDocument({
+          language: "markdown",
+          content: `# Image Analysis\n\nImages (${result.imageCount}):\n${pathList}\n\nModel: ${result.model}\n\n${result.response}\n`,
+        });
+        await vscode.window.showTextDocument(document, { preview: false });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(
+          `Image analysis failed: ${message}`,
+        );
+      }
+    }),
   );
 }
 
@@ -559,11 +549,8 @@ function getIpcState(workspaceRoot) {
       .replace(/^-+|-+$/g, "") || "workspace";
 
   return {
-    socketPath: path.join(
-      os.tmpdir(),
-      `aioserver-vision-${workspaceName}.sock`,
-    ),
-    infoPath: path.join(workspaceRoot, ".vscode", "aioserver-vision-ipc.json"),
+    socketPath: path.join(os.tmpdir(), `gsh-vision-${workspaceName}.sock`),
+    infoPath: path.join(workspaceRoot, ".vscode", "gsh-vision-ipc.json"),
   };
 }
 

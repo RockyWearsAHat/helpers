@@ -6,9 +6,13 @@ const path = require("path");
 const readline = require("readline");
 
 const MCP_VERSION = "2024-11-05";
-const IPC_INFO_PATH =
-  process.env.AIOSERVER_VISION_IPC_INFO_PATH ||
-  path.join(process.cwd(), ".vscode", "aioserver-vision-ipc.json");
+const IPC_INFO_PATH = (() => {
+  if (process.env.GSH_VISION_IPC_INFO_PATH)
+    return process.env.GSH_VISION_IPC_INFO_PATH;
+  const cwdPath = path.join(process.cwd(), ".vscode", "gsh-vision-ipc.json");
+  if (fs.existsSync(cwdPath)) return cwdPath;
+  return path.join(__dirname, "..", ".vscode", "gsh-vision-ipc.json");
+})();
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -196,7 +200,7 @@ async function handleRequest(request) {
       result: {
         protocolVersion: MCP_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "aioserver-vision", version: "1.0.0" },
+        serverInfo: { name: "gsh-vision", version: "1.0.0" },
       },
     });
     return;

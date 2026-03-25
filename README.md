@@ -187,7 +187,7 @@ Add to your project's `.vscode/mcp.json` (or user-level mcp.json):
 
 ## git-shell-helpers-mcp (combined MCP server)
 
-`git-shell-helpers-mcp` is a combined Node.js MCP server that exposes all git-shell-helpers tools under a single server entry. It delegates to the individual modules (`git-research-mcp` for web search and knowledge-cache tools, `aioserver-vision-tool` for image analysis) which remain separate files for maintainability.
+`git-shell-helpers-mcp` is a combined Node.js MCP server that exposes all git-shell-helpers tools under a single server entry. It delegates to the individual modules (`git-research-mcp` for web search and knowledge-cache tools, `vision-tool` for image analysis) which remain separate files for maintainability.
 
 When the Git Shell Helpers VS Code extension is installed, it publishes this MCP server globally across workspaces so tools such as `checkpoint` are discoverable without editing a user-profile `mcp.json`.
 

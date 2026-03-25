@@ -38,7 +38,17 @@ if (envPath) {
 const MCP_VERSION = "2024-11-05";
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-const WORKSPACE_ROOT = process.cwd();
+// Prefer process.cwd() if it looks like a workspace (has .git or .github),
+// otherwise fall back to __dirname (script's location = workspace root).
+const WORKSPACE_ROOT = (() => {
+  const cwd = process.cwd();
+  if (
+    fsSync.existsSync(path.join(cwd, ".git")) ||
+    fsSync.existsSync(path.join(cwd, ".github"))
+  )
+    return cwd;
+  return __dirname;
+})();
 const KNOWLEDGE_ROOT = path.join(WORKSPACE_ROOT, ".github", "knowledge");
 const REPO_KNOWLEDGE_ROOT = path.join(__dirname, ".github", "knowledge");
 
@@ -633,7 +643,11 @@ async function submitCommunityResearch(args) {
     );
   }
 
-  const scriptPath = path.join(__dirname, "scripts", "community-research-submit.sh");
+  const scriptPath = path.join(
+    __dirname,
+    "scripts",
+    "community-research-submit.sh",
+  );
 
   return new Promise((resolve, reject) => {
     execFile(
