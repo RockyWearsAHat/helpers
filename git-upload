@@ -2408,25 +2408,30 @@ ALWAYS ask: 'Given what this project just shipped, WHY would someone make this c
 - A config tweak after a deployment = hotfix/tuning
 
 VOICE & TONE (MOST IMPORTANT):
-Write like a human developer who is PROUD of their work. This is YOUR commit - own it!
-- Lead with the WIN: What did you accomplish? What's better now?
-- Be enthusiastic about meaningful improvements (doubling test coverage IS exciting!)
-- Use active, confident language: 'Doubled test coverage' not 'Add test coverage improvements'
-- Quantify achievements when possible: '6x more tests (120→700+)', 'coverage jumped 30%→85%'
-- If tests/coverage improved significantly, CELEBRATE IT in the subject line!
+Write like a competent engineer writing a clear commit message. Be direct and factual.
+- Use active, imperative language: 'Add', 'Fix', 'Remove', 'Update', 'Wire up', 'Hook up'
+- Quantify when possible: '6x more tests (120→700+)', 'coverage 30%→85%'
 - Avoid corporate/robotic language like 'artifacts', 'integration', 'subsystem', 'formalize'
-- Write like you're telling a teammate what you just shipped, not filing a report
+- NEVER anthropomorphize code. Scripts and files do not learn, get taught, understand, know, or want things.
+  BAD: 'Taught build-pkg.sh to bundle the new script' / 'Told the installer about dark mode'
+  GOOD: 'Add git-copilot-devops-audit-community-research-submit to build-pkg.sh bundle list'
+  GOOD: 'Wire up dark mode toggle in the installer prompt'
+- Do NOT editorialize, cheerleader, or hype. Let the facts speak.
+  BAD: 'Finally fix that annoying bug!' / 'Yes, finally!' / 'This is huge!'
+  GOOD: 'Fix Discord reconnect dropping messages after idle timeout'
 
-SUBJECT LINE - LEAD WITH IMPACT:
-- Good: '🎉 6x test coverage! GBA emulator up from 120 to 700+ tests'
-- Good: 'Finally fix that annoying Discord reconnect bug'
-- Good: 'Speed up builds 3x by parallelizing webpack'
-- Good: 'Add dark mode (yes, finally!)'
-- BAD: 'Add GBA integration test target and coverage artifacts' (what does this even mean to a human?)
-- BAD: 'Update test infrastructure' (boring, what's the actual win?)
-- BAD: 'Refactor implementation details' (nobody cares about implementation details)
+SUBJECT LINE:
+- Imperative mood, specific, <= 72 characters
+- State WHAT changed, not how you feel about it
+- Good: 'Add dark mode support to settings panel'
+- Good: 'Fix Discord reconnect dropping messages after idle timeout'
+- Good: 'Speed up webpack builds 3x with parallel loaders'
+- Good: 'Bump test coverage from 120 to 700+ cases across GBA modules'
+- BAD: 'Add GBA integration test target and coverage artifacts' (vague)
+- BAD: 'Update test infrastructure' (what specifically?)
+- BAD: 'Refactor implementation details' (meaningless)
 
-Note: Emoji in subject line is optional - use it when celebrating a big win, skip for routine changes.
+Note: Emoji in subject line is optional - use sparingly for genuinely big milestones, skip for routine changes.
 
 SPECIFICITY REQUIREMENTS:
 - NEVER use vague phrases like: 'core code', 'core helpers', 'default values', 'various improvements', 'minor changes', 'artifacts', 'infrastructure'.
@@ -2435,23 +2440,21 @@ SPECIFICITY REQUIREMENTS:
 - If behavior changed, describe the ACTUAL change: 'Skip empty commits instead of erroring' NOT 'Change default behavior'.
 - If you're refactoring, say WHAT was refactored and WHY: 'Extract notification logic into separate function to reduce Discord API spam' NOT 'Refactor implementation'.
 
-DETECTING & CELEBRATING WINS:
-Look for these patterns in the diff and HIGHLIGHT them:
-- Test count increases: If tests go from X to Y, calculate the multiplier (e.g., 120→700 = ~6x)
-- Coverage improvements: If you see coverage percentages, highlight the jump
-- New features: Lead with what users/developers can now DO
-- Bug fixes: Emphasize what annoying thing is now gone
-- Performance: Quantify the speedup if possible
-- Deletions of bad code: Celebrate removing tech debt!
+QUANTIFIABLE WINS:
+When the diff contains measurable improvements, state them plainly:
+- Test count increases: 'Tests: 120→700+ across GBA modules'
+- Coverage improvements: 'Coverage: 30%→85% on APU, ARM7TDMI, PPU'
+- Performance: 'Webpack build time: 45s→15s with parallel loaders'
+- Deletions: 'Remove 300 lines of dead OAuth v1 code'
 
 Content requirements:
 - Base everything on the staged diff (index) vs HEAD; do not invent changes.
-- Write each change as a mini-narrative: WHAT changed, WHERE, and WHY it matters.
-- Frame the commit as a point in the project's history - where was it, what problem existed, and how does this move it forward.
-- For new files: describe what each file IS, DOES, and WHY it was needed (e.g., 'Added git-remerge to handle the case where an upload fails and pushes to a new branch, allows merging back into that branch').
-- For modified files: describe the change AND its purpose (e.g., 'Added verbose logging to the upload retry loop in git-upload to help diagnose timeout issues in slow network environments').
-- For config/default changes: state the OLD value, NEW value, and the reason for the change (e.g., 'Bumped MAX_RETRIES from 3 to 5 because users on satellite connections were hitting the limit before uploads completed').
-- For debugging additions: explain what can now be traced (e.g., 'Added logging to trace authentication token refresh in oauth.py, making it easier to debug SSO integration issues').
+- Each bullet: WHAT changed, WHERE, and WHY it matters — factual, not narrative.
+- Frame the commit in context: what problem existed, how does this address it.
+- For new files: describe what each file IS, DOES, and WHY it was needed (e.g., 'Add git-remerge to handle the case where an upload fails and pushes to a new branch, allowing merge back into the original branch').
+- For modified files: describe the change AND its purpose (e.g., 'Add verbose logging to git-upload retry loop to help diagnose timeout issues on slow networks').
+- For config/default changes: state the OLD value, NEW value, and the reason (e.g., 'Bump MAX_RETRIES from 3 to 5 — users on satellite connections were hitting the limit before uploads completed').
+- For debugging additions: explain what can now be traced (e.g., 'Add logging for auth token refresh in oauth.py to aid SSO integration debugging').
 - Call out CLI/API behavior changes with concrete before/after.
 
 Breaking changes format rules (STRICT):
@@ -2468,8 +2471,9 @@ RISK ASSESSMENT: Use the pre-computed risk level unless you have strong evidence
 
 Style requirements:
 - Subject line: imperative mood; SPECIFIC; aim for <= 72 characters (emoji counts as ~2 chars).
-- Body: detailed with concrete specifics; prefer bullets; write like a human!
+- Body: detailed with concrete specifics; prefer bullets; factual tone.
 - Do NOT mention checking status, diffs, tools, agents, prompts, or instructions.
+- Do NOT anthropomorphize: never say code/scripts 'learned', 'were taught', 'know', 'understand', or 'want' anything.
 
 Output protocol (IMPORTANT):
 - Output ONLY the commit message between these exact markers, with no other text:
@@ -2481,20 +2485,21 @@ COMMIT_END
 
 Body structure:
 What changed:
-- Lead with the most exciting/impactful change
-- Write each change as a narrative that explains WHAT and WHY in one sentence
-- Good: 'Blew past our coverage goals - APU, ARM7TDMI, and PPU modules now at 85%+ (was ~30%)'
-- Good: 'Added GBATests.cpp with 500+ new test cases covering the full instruction set'
-- Good: 'Hooked up LCOV reporting so we can actually see coverage in the IDE'
+- Lead with the most impactful change
+- Each bullet: WHAT changed and WHY, in one factual sentence
+- Good: 'APU, ARM7TDMI, and PPU module coverage up to 85%+ (was ~30%)'
+- Good: 'Add GBATests.cpp with 500+ test cases covering the full instruction set'
+- Good: 'Wire up LCOV reporting for in-IDE coverage display'
 - BAD: 'Updated coverage artifacts' (what does this mean??)
-- BAD: 'Extended cmake configuration' (boring, what's the benefit?)
+- BAD: 'Extended cmake configuration' (boring, what'\''s the benefit?)
+- NEVER anthropomorphize: do NOT write 'Taught X to do Y' or 'Told X about Y'
 
 Why this matters:
-- Frame changes in terms of the WIN - what's better now?
-- Good: 'We went from \"hope it works\" to \"know it works\" on the GBA emulator. This is huge for catching regressions.'
-- Good: 'This sets us up to hit 100% coverage on the core emulator - we'\''re finally in the home stretch!'
-- BAD: 'Code is cleaner now' (vague, doesn't explain the purpose)
-- BAD: 'Formalizes the coverage expansion effort' (corporate speak, nobody talks like this)
+- Explain the practical effect of the changes, not how you feel about them
+- Good: 'GBA emulator modules now have regression coverage where there was none before'
+- Good: 'Clears the path to 100% coverage on core emulator modules'
+- BAD: 'Code is cleaner now' (vague)
+- BAD: 'Formalizes the coverage expansion effort' (corporate speak)
 
 Breaking changes: <use the strict format rules above - be SPECIFIC about what breaks>
 
@@ -2555,7 +2560,10 @@ Additional context from user: $ai_extra_context"
 				printf '\r\033[K' >&2
 				
 				# Get and display all new non-empty, non-marker lines
-				local new_lines=$(tail -n +$((printed_lines + 1)) "$ai_output_file" 2>/dev/null | \
+				# Use head to cap at current_line_count to avoid printing
+				# an incomplete trailing line that wc -l hasn't counted yet.
+				local new_lines=$(head -n "$current_line_count" "$ai_output_file" 2>/dev/null | \
+					tail -n +$((printed_lines + 1)) | \
 					grep -v '^$' | \
 					grep -v '^COMMIT_BEGIN$' | \
 					grep -v '^COMMIT_END$' | \
