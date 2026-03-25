@@ -41,6 +41,7 @@ After every `search_web` call, each result URL that you intend to use as evidenc
 **Hard rule: Do not use a search result as evidence unless you have read the full page.**
 
 This applies without exception to:
+
 - Results used to support a normative recommendation
 - Results cited in the evidence ledger or reference matrix
 - Results used to establish whether a field, feature, or pattern is current
@@ -107,11 +108,13 @@ At the end of the research phase, before returning your report, write all findin
 Title format: `copilot-research-YYYY-MM-DD.md` (use today's date).
 
 What belongs in the note:
+
 - Verified current field names, valid values, and recent deprecations confirmed by official sources
 - Patterns from real repository examples that generalize across different projects
 - Sourced normative claims worth preserving to avoid re-researching next time
 
 What does not belong:
+
 - Workspace-specific paths, filenames, or project-specific recommendations
 - Unverified assumptions or working hypotheses
 

@@ -28,7 +28,7 @@ This phase has two research tracks. Both are required when the project has techn
 
 **Track 1 — Copilot mechanics**: You are researching how Copilot customization works right now, what the correct file formats and field names are, what patterns exist for projects like this one, and what common mistakes look like. The goal is to know enough that when you look at the `.github/` folder, you can immediately tell what is correct, what is outdated, what is broken, what is missing, and what could be made cleaner or clearer even if it is not strictly broken.
 
-**Track 2 — Domain content** (required when technology-specific instruction files are present): When the project has instruction files scoped to a specific language, framework, or technical domain, your research also establishes what *substantive* guidance for that domain looks like. Structural validity is not enough — an instruction file that only mirrors what a linter or type checker already enforces adds no real value. Track 2 research answers: what are the judgment calls, design philosophy choices, architectural tradeoffs, testability principles, and canonical practices that distinguish informed guidance for this domain from generic defaults? Pull from the community cache's domain-knowledge entries first, then from official specifications, canonical references, and community practitioner consensus for the relevant technology. Use this baseline to evaluate whether the project's instruction file content is genuinely useful or thinly scaffolded.
+**Track 2 — Domain content** (required when technology-specific instruction files are present): When the project has instruction files scoped to a specific language, framework, or technical domain, your research also establishes what _substantive_ guidance for that domain looks like. Structural validity is not enough — an instruction file that only mirrors what a linter or type checker already enforces adds no real value. Track 2 research answers: what are the judgment calls, design philosophy choices, architectural tradeoffs, testability principles, and canonical practices that distinguish informed guidance for this domain from generic defaults? Pull from the community cache's domain-knowledge entries first, then from official specifications, canonical references, and community practitioner consensus for the relevant technology. Use this baseline to evaluate whether the project's instruction file content is genuinely useful or thinly scaffolded.
 
 ## Runtime Boundaries
 
@@ -337,11 +337,13 @@ At the end of the research phase, before returning the report, write all finding
 Title format: `copilot-research-YYYY-MM-DD.md` (use today's date).
 
 What belongs in the note:
+
 - Verified current field names, valid values, and recent deprecations confirmed by official sources
 - Patterns from real repository examples that generalize across projects
 - Sourced normative claims worth preserving to avoid re-researching in future audits
 
 What does not belong:
+
 - Workspace-specific paths, filenames, or project-specific recommendations
 - Unverified assumptions
 
