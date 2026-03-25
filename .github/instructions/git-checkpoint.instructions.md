@@ -63,16 +63,17 @@ Call `checkpoint` with `{ "message": "...", "all": true }` when **both** conditi
    - Any reply where the user is clearly satisfied and not raising a new issue
    - A build succeeds, tests pass, or an error that was being fixed is now gone
    - The tone shifts from problem-solving to something new
-   Read the emotional intent. You do not need explicit permission.
+     Read the emotional intent. You do not need explicit permission.
 2. **A checkpoint has not been recently taken** — don't double-commit the same state. If you just checkpointed moments ago and no new changes have been made, skip it.
 
 ### Writing the message
 
-**Before writing the message, read the actual diff.** Run `git diff HEAD` in the terminal to see what is actually staged or changed. Do not rely on your recollection of the conversation — chat context tells you *why* things changed, but the diff is the source of truth for *what* changed. A message written from memory will miss small edits, include reverted changes, or describe things that were discussed but ultimately not done.
+**Before writing the message, read the actual diff.** Run `git diff HEAD` in the terminal to see what is actually staged or changed. Do not rely on your recollection of the conversation — chat context tells you _why_ things changed, but the diff is the source of truth for _what_ changed. A message written from memory will miss small edits, include reverted changes, or describe things that were discussed but ultimately not done.
 
 After reading the diff:
+
 - Write an imperative subject line ≤72 chars describing what the commit does
-- Write a body that explains *why* — the situation, what was broken, why this approach
+- Write a body that explains _why_ — the situation, what was broken, why this approach
 - Do NOT use section headers like "What changed:" or "Why this matters:" — write naturally
 - For a tiny fix: one sentence or no body. For a real change: a short paragraph.
 - Also run `git log --oneline -5` to read recent tone, threading, and project momentum
