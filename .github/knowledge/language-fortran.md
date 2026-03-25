@@ -13,31 +13,31 @@ Modern Fortran (2008/2018/2023) is the dominant language for high-performance sc
 ```fortran
 program example
     implicit none  ! Always use — prevents undeclared variables
-    
+
     integer :: i, n
     real(8) :: x, y
     character(len=50) :: name
     logical :: flag
-    
+
     ! Constants
     real(8), parameter :: PI = 3.141592653589793d0
-    
+
     ! Arrays
     real(8) :: matrix(3, 3)
     real(8), allocatable :: data(:)
-    
+
     n = 100
     allocate(data(n))
-    
+
     ! Array operations (whole-array)
     data = 0.0d0              ! set all elements
     data = [(real(i, 8), i = 1, n)]  ! implied do loop
-    
+
     ! Element-wise operations
     data = data ** 2 + 1.0d0  ! vectorized
     x = sum(data)
     y = maxval(data)
-    
+
     deallocate(data)
 end program example
 ```
@@ -82,23 +82,23 @@ module physics
     implicit none
     private                           ! default private
     public :: gravity_force, G        ! explicitly export
-    
+
     real(8), parameter :: G = 6.674d-11
-    
+
 contains
-    
+
     pure function gravity_force(m1, m2, r) result(F)
         real(8), intent(in) :: m1, m2, r
         real(8) :: F
         F = G * m1 * m2 / r**2
     end function gravity_force
-    
+
     pure function kinetic_energy(mass, velocity) result(KE)
         real(8), intent(in) :: mass, velocity
         real(8) :: KE
         KE = 0.5d0 * mass * velocity**2
     end function kinetic_energy
-    
+
 end module physics
 
 ! Usage:
@@ -144,14 +144,14 @@ end subroutine solve_linear
 ```fortran
 module shapes_mod
     implicit none
-    
+
     type, abstract :: shape
         real(8) :: x = 0.0d0, y = 0.0d0
     contains
         procedure(area_interface), deferred :: area
         procedure :: move
     end type
-    
+
     abstract interface
         pure function area_interface(self) result(a)
             import :: shape
@@ -159,40 +159,40 @@ module shapes_mod
             real(8) :: a
         end function
     end interface
-    
+
     type, extends(shape) :: circle
         real(8) :: radius
     contains
         procedure :: area => circle_area
     end type
-    
+
     type, extends(shape) :: rectangle
         real(8) :: width, height
     contains
         procedure :: area => rectangle_area
     end type
-    
+
 contains
-    
+
     pure function circle_area(self) result(a)
         class(circle), intent(in) :: self
         real(8) :: a
         a = 3.141592653589793d0 * self%radius**2
     end function
-    
+
     pure function rectangle_area(self) result(a)
         class(rectangle), intent(in) :: self
         real(8) :: a
         a = self%width * self%height
     end function
-    
+
     subroutine move(self, dx, dy)
         class(shape), intent(inout) :: self
         real(8), intent(in) :: dx, dy
         self%x = self%x + dx
         self%y = self%y + dy
     end subroutine
-    
+
 end module shapes_mod
 ```
 
@@ -205,20 +205,20 @@ program parallel_sum
     real(8) :: local_sum, global_sum
     real(8), allocatable :: data(:)[:]  ! coarray
     integer :: me, np, chunk
-    
+
     me = this_image()      ! process rank (1-based)
     np = num_images()      ! total processes
     chunk = 1000000 / np
-    
+
     allocate(data(chunk)[*])
-    
+
     ! Each image works on its chunk
     data = [(real(i + (me-1)*chunk, 8), i = 1, chunk)]
     local_sum = sum(data)
-    
+
     ! Collective reduction
     call co_sum(local_sum, global_sum)
-    
+
     if (me == 1) print *, "Total sum:", global_sum
 end program parallel_sum
 ```
@@ -234,4 +234,4 @@ end program parallel_sum
 
 ---
 
-*Sources: Modern Fortran Explained (Metcalf, Reid, Cohen), fortran-lang.org, Fortran 2018 Standard, Doctor Fortran blog*
+_Sources: Modern Fortran Explained (Metcalf, Reid, Cohen), fortran-lang.org, Fortran 2018 Standard, Doctor Fortran blog_

@@ -241,16 +241,16 @@ public void Process(string input) =>
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **dotnet format** | Code formatting |
-| **Roslyn analyzers** | Built-in static analysis |
-| **SonarAnalyzer** | Deep static analysis |
-| **xUnit** / **NUnit** | Testing |
-| **Moq** / **NSubstitute** | Mocking |
-| **BenchmarkDotNet** | Performance benchmarking |
-| **Rider** / **VS** | IDEs with deep C# support |
+| Tool                      | Purpose                   |
+| ------------------------- | ------------------------- |
+| **dotnet format**         | Code formatting           |
+| **Roslyn analyzers**      | Built-in static analysis  |
+| **SonarAnalyzer**         | Deep static analysis      |
+| **xUnit** / **NUnit**     | Testing                   |
+| **Moq** / **NSubstitute** | Mocking                   |
+| **BenchmarkDotNet**       | Performance benchmarking  |
+| **Rider** / **VS**        | IDEs with deep C# support |
 
 ---
 
-*Sources: C# Language Reference (Microsoft), .NET documentation, Effective C# (Bill Wagner), C# in Depth (Jon Skeet)*
+_Sources: C# Language Reference (Microsoft), .NET documentation, Effective C# (Bill Wagner), C# in Depth (Jon Skeet)_

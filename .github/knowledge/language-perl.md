@@ -193,4 +193,4 @@ die { code => 404, message => "Not found" };
 
 ---
 
-*Sources: Modern Perl (chromatic), perldoc.perl.org, Perl Best Practices (Conway), CPAN documentation*
+_Sources: Modern Perl (chromatic), perldoc.perl.org, Perl Best Practices (Conway), CPAN documentation_

@@ -225,4 +225,4 @@ end
 
 ---
 
-*Sources: Crystal Language Reference (crystal-lang.org), Crystal Programming (George Dietrich & Guilherme Bernal), Crystal Standard Library docs*
+_Sources: Crystal Language Reference (crystal-lang.org), Crystal Programming (George Dietrich & Guilherme Bernal), Crystal Standard Library docs_

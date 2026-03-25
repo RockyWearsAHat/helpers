@@ -25,16 +25,19 @@ Steps to reproduce:
 Narrow the search space systematically:
 
 **Binary search debugging (wolf fencing):**
+
 - The bug is somewhere in 1000 lines. Add a check at line 500.
 - Is the state correct at line 500? If yes, bug is in 500-1000. If no, bug is in 1-500.
 - Repeat. 10 iterations to find a bug in 1024 lines.
 
 **Delta debugging:**
+
 - Works on the input, not the code. You have a failing test case.
 - Remove half the input. Still fails? Keep the smaller input.
 - Doesn't fail? Try the other half. Narrow systematically.
 
 **Git bisect (the ultimate isolator):**
+
 ```bash
 git bisect start
 git bisect bad HEAD          # current version is broken
@@ -48,11 +51,13 @@ git bisect good              # or git bisect bad
 ### 3. Understand Before Fixing
 
 **Read the error message. Really read it.**
+
 - Stack traces read bottom-to-top. The root cause is often near the bottom.
 - The first error matters. Cascading errors are noise.
 - "Line 42" means the error was _detected_ at line 42 — the _cause_ may be elsewhere.
 
 **Rubber duck debugging:**
+
 - Explain the code line-by-line to an inanimate object (or a patient colleague).
 - The act of articulating your assumptions often reveals the invalid one.
 - If you can't explain what a line does, that's your bug.
@@ -75,6 +80,7 @@ Test: Disable cache → Does bug disappear?
 ## Common Bug Categories
 
 ### Off-by-One Errors
+
 ```python
 # Bug: skips last element
 for i in range(len(items) - 1):  # should be range(len(items))
@@ -86,6 +92,7 @@ for i in range(len(items) - 1):  # should be range(len(items))
 ```
 
 ### Null/Nil/None Dereferencing
+
 ```
 The billion-dollar mistake (Tony Hoare, 2009):
 "I call it my billion-dollar mistake. It was the invention of the null reference."
@@ -94,12 +101,15 @@ Fix: Use Option/Maybe types. Fail at compile time, not runtime.
 ```
 
 ### Race Conditions
+
 Signs: "works fine in development, fails randomly in production"
+
 - Non-deterministic failures
 - Failures under load that disappear when adding logging (Heisenbug — see below)
 - Different behavior with different timing
 
 ### State Mutation Bugs
+
 ```python
 # Bug: mutating default argument
 def add_item(item, items=[]):  # DEFAULT LIST IS SHARED
@@ -111,58 +121,75 @@ add_item("b")  # ["a", "b"]  — NOT ["b"]!
 ```
 
 ### Encoding Issues
+
 If you see: `Ã©` instead of `é`, `ðŸ˜€` instead of 😀, or `???` — it's encoding.
+
 - UTF-8 is always the answer. If your system doesn't default to UTF-8, fix that first.
 - Double-encoding: data encoded as UTF-8, then encoded again as if it were Latin-1.
 
 ## Bug Taxonomy by Name
 
 ### Heisenbug
+
 Changes behavior when you try to observe it. Adding a print statement "fixes" it. Removing the debugger makes it reappear.
+
 - **Cause**: Usually timing-related. The observation changes timing enough to mask a race condition.
 - **Fix**: Use logging that doesn't alter timing. Use thread sanitizers. Review synchronization.
 
 ### Bohrbug
+
 Deterministic, reproducible. The well-behaved bug. Follows well-defined conditions.
+
 - **Fix**: Standard debugging. Reliable reproduction → binary search → fix.
 
 ### Mandelbug
+
 Appears chaotic with complex, hard-to-trace causality. Depends on many interacting factors.
+
 - **Cause**: Complex state interactions, external dependencies, timing windows.
 - **Fix**: Simplify. Reduce state space. Add invariant assertions.
 
 ### Schroedinbug
+
 Code that should never have worked but somehow did — until someone read it and noticed the bug, at which point it stopped working.
+
 - **Cause**: Undefined behavior that happened to produce correct results by coincidence.
 
 ### Aging Bug (Lapsed Listener / Memory Leak)
+
 System works initially, degrades over time. Restarts "fix" it temporarily.
+
 - **Cause**: Resource leaks — memory, file handles, DB connections, event listeners.
 - **Fix**: Profiling over time. Watch for monotonically increasing metrics.
 
 ## Debugging Tools by Domain
 
 ### General
+
 - **Debugger**: Step through code. Inspect state at breakpoints. Conditional breakpoints for loop bugs.
 - **Logging**: Strategic print statements with context (timestamp, request ID, variable state).
 - **Assertions**: `assert` statements that document and verify invariants.
 
 ### Memory
+
 - **Valgrind** (C/C++): Memory leaks, use-after-free, buffer overflows.
 - **AddressSanitizer** (ASAN): Compile-time instrumentation for memory errors.
 - **Heap profilers**: Chrome DevTools (JS), `tracemalloc` (Python), `pprof` (Go).
 
 ### Concurrency
+
 - **ThreadSanitizer** (TSAN): Data races in C/C++/Go.
 - **Helgrind** (Valgrind): Lock ordering violations.
 - **Go race detector**: `go test -race`.
 
 ### Performance
+
 - **Profilers**: `perf` (Linux), Instruments (macOS), `py-spy` (Python), `pprof` (Go).
 - **Flame graphs**: Visualize where CPU time is spent. Look for wide bars (hot paths).
 - **APM tools**: Distributed tracing (OpenTelemetry, Jaeger, Datadog).
 
 ### Network
+
 - **Wireshark/tcpdump**: Packet-level inspection.
 - **curl -v**: HTTP request/response debugging.
 - **mitmproxy**: HTTPS interception for API debugging.
@@ -191,4 +218,4 @@ After fixing a bug that cost significant time:
 
 ---
 
-*Sources: "Why Programs Fail" (Andreas Zeller), "Debugging" (David Agans), "The Practice of Programming" (Kernighan & Pike), ACM/IEEE software debugging literature*
+_Sources: "Why Programs Fail" (Andreas Zeller), "Debugging" (David Agans), "The Practice of Programming" (Kernighan & Pike), ACM/IEEE software debugging literature_

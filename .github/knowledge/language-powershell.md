@@ -195,4 +195,4 @@ class Logger {
 
 ---
 
-*Sources: PowerShell Documentation (Microsoft), PowerShell in Action (Bruce Payette), The PowerShell Best Practices and Style Guide*
+_Sources: PowerShell Documentation (Microsoft), PowerShell in Action (Bruce Payette), The PowerShell Best Practices and Style Guide_

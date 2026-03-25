@@ -210,4 +210,4 @@ COBOL powers the world's financial infrastructure. Banks, insurance companies, a
 
 ---
 
-*Sources: Enterprise COBOL for z/OS Programming Guide (IBM), Beginning COBOL for Programmers (Coughlan), COBOL Standards (ANSI/ISO), Micro Focus COBOL documentation*
+_Sources: Enterprise COBOL for z/OS Programming Guide (IBM), Beginning COBOL for Programmers (Coughlan), COBOL Standards (ANSI/ISO), Micro Focus COBOL documentation_

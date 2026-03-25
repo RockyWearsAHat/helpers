@@ -208,4 +208,4 @@ end Load_Config;
 
 ---
 
-*Sources: Ada Reference Manual (ada-auth.org), Programming in Ada 2012 (John Barnes), Ada 2022 Language Standard, AdaCore documentation*
+_Sources: Ada Reference Manual (ada-auth.org), Programming in Ada 2012 (John Barnes), Ada 2022 Language Standard, AdaCore documentation_

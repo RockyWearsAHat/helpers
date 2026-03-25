@@ -5,6 +5,7 @@
 C is a sharp tool. It gives you absolute control and absolute responsibility. Every byte of memory, every pointer dereference, every buffer size — your problem.
 
 **C is appropriate when:**
+
 - Writing operating systems, kernels, embedded firmware.
 - Maximum performance with minimal overhead.
 - Interfacing with hardware directly.
@@ -34,6 +35,7 @@ arr = NULL;  // Prevent use-after-free (dangling pointer)
 ```
 
 **Rules:**
+
 1. **Every `malloc` must have a corresponding `free`.** No exceptions.
 2. **Always check `malloc` return value.** It can return NULL.
 3. **Set freed pointers to NULL.** Prevents double-free and use-after-free.
@@ -65,15 +67,15 @@ strlcat(dest, src, sizeof(dest));  // Always null-terminates
 
 ### Common Memory Bugs
 
-| Bug | Description | Consequence |
-|-----|-------------|-------------|
-| Buffer overflow | Writing past allocated bounds | Code execution, crashes |
-| Use-after-free | Accessing freed memory | Undefined behavior |
-| Double free | Freeing same pointer twice | Heap corruption |
-| Memory leak | Not freeing allocated memory | Resource exhaustion |
-| Null dereference | Dereferencing NULL pointer | Segfault/crash |
-| Uninitialized read | Reading before writing | Unpredictable values |
-| Integer overflow in size | `malloc(n * size)` overflows | Tiny allocation, later overflow |
+| Bug                      | Description                   | Consequence                     |
+| ------------------------ | ----------------------------- | ------------------------------- |
+| Buffer overflow          | Writing past allocated bounds | Code execution, crashes         |
+| Use-after-free           | Accessing freed memory        | Undefined behavior              |
+| Double free              | Freeing same pointer twice    | Heap corruption                 |
+| Memory leak              | Not freeing allocated memory  | Resource exhaustion             |
+| Null dereference         | Dereferencing NULL pointer    | Segfault/crash                  |
+| Uninitialized read       | Reading before writing        | Unpredictable values            |
+| Integer overflow in size | `malloc(n * size)` overflows  | Tiny allocation, later overflow |
 
 ## Defensive Programming
 
@@ -259,16 +261,16 @@ CFLAGS += -fstack-protector-strong -D_FORTIFY_SOURCE=2
 CFLAGS += -fsanitize=address,undefined  # Development builds
 ```
 
-| Tool | Purpose |
-|------|---------|
-| **AddressSanitizer (ASan)** | Buffer overflows, use-after-free, leaks |
+| Tool                                   | Purpose                                 |
+| -------------------------------------- | --------------------------------------- |
+| **AddressSanitizer (ASan)**            | Buffer overflows, use-after-free, leaks |
 | **UndefinedBehaviorSanitizer (UBSan)** | Integer overflow, null deref, alignment |
-| **Valgrind** | Memory leaks, uninitialized reads |
-| **cppcheck** | Static analysis |
-| **clang-tidy** | Static analysis + modernization |
-| **Coverity** | Deep static analysis (commercial) |
-| **AFL / libFuzzer** | Fuzz testing |
-| **clang-format** | Code formatting |
+| **Valgrind**                           | Memory leaks, uninitialized reads       |
+| **cppcheck**                           | Static analysis                         |
+| **clang-tidy**                         | Static analysis + modernization         |
+| **Coverity**                           | Deep static analysis (commercial)       |
+| **AFL / libFuzzer**                    | Fuzz testing                            |
+| **clang-format**                       | Code formatting                         |
 
 ## CERT C Coding Standard (Key Rules)
 
@@ -283,4 +285,4 @@ CFLAGS += -fsanitize=address,undefined  # Development builds
 
 ---
 
-*Sources: CERT C Coding Standard (SEI), C11/C17 Standard, Linux Kernel Coding Style, Expert C Programming (Peter van der Linden), Secure Coding in C and C++ (Seacord)*
+_Sources: CERT C Coding Standard (SEI), C11/C17 Standard, Linux Kernel Coding Style, Expert C Programming (Peter van der Linden), Secure Coding in C and C++ (Seacord)_

@@ -7,6 +7,7 @@ Functional programming (FP) is a paradigm where computation is treated as the ev
 ### 1. Pure Functions
 
 A function is pure if:
+
 - Given the same input, it always returns the same output (deterministic).
 - It has no side effects (doesn't modify external state, do I/O, etc.).
 
@@ -24,6 +25,7 @@ def add_to_total(x):
 ```
 
 **Why pure functions matter:**
+
 - **Testable**: No mocking, no setup. Input → output.
 - **Cacheable**: Same input = same output → memoize freely.
 - **Parallelizable**: No shared state → safe to run concurrently.
@@ -36,10 +38,10 @@ Data never changes after creation. Instead of modifying, create new values.
 ```javascript
 // ❌ Mutation
 const user = { name: "Alice", age: 30 };
-user.age = 31;  // Mutated in place
+user.age = 31; // Mutated in place
 
 // ✅ Immutable update
-const updated = { ...user, age: 31 };  // New object, original unchanged
+const updated = { ...user, age: 31 }; // New object, original unchanged
 ```
 
 ```rust
@@ -50,6 +52,7 @@ let x = 6;  // ✅ Shadowing creates a new binding
 ```
 
 **Benefits:**
+
 - No race conditions in concurrent code.
 - Easy to reason about — data doesn't change under you.
 - Time-travel debugging (keep old states).
@@ -62,24 +65,24 @@ Functions are values — they can be passed as arguments, returned from other fu
 ```javascript
 // Higher-order function: takes a function as argument
 function filter(arr, predicate) {
-    const result = [];
-    for (const item of arr) {
-        if (predicate(item)) result.push(item);
-    }
-    return result;
+  const result = [];
+  for (const item of arr) {
+    if (predicate(item)) result.push(item);
+  }
+  return result;
 }
 
-const adults = filter(people, person => person.age >= 18);
+const adults = filter(people, (person) => person.age >= 18);
 
 // Higher-order function: returns a function
 function multiplier(factor) {
-    return (n) => n * factor;
+  return (n) => n * factor;
 }
 
 const double = multiplier(2);
 const triple = multiplier(3);
-double(5);  // 10
-triple(5);  // 15
+double(5); // 10
+triple(5); // 15
 ```
 
 ### 4. Function Composition
@@ -91,15 +94,16 @@ Build complex behavior by combining simple functions.
 const process = (x) => format(validate(parse(x)));
 
 // Compose utility
-const compose = (...fns) => (x) => fns.reduceRight((v, f) => f(v), x);
-const pipe = (...fns) => (x) => fns.reduce((v, f) => f(v), x);
+const compose =
+  (...fns) =>
+  (x) =>
+    fns.reduceRight((v, f) => f(v), x);
+const pipe =
+  (...fns) =>
+  (x) =>
+    fns.reduce((v, f) => f(v), x);
 
-const processUser = pipe(
-    normalize,
-    validate,
-    enrichWithDefaults,
-    save
-);
+const processUser = pipe(normalize, validate, enrichWithDefaults, save);
 ```
 
 ```haskell
@@ -115,11 +119,11 @@ Transform a multi-argument function into a chain of single-argument functions.
 // Curried function
 const add = (a) => (b) => a + b;
 const add5 = add(5);
-add5(3);  // 8
+add5(3); // 8
 
 // Partial application
 const fetchFromAPI = (baseUrl) => (endpoint) => (params) =>
-    fetch(`${baseUrl}${endpoint}?${new URLSearchParams(params)}`);
+  fetch(`${baseUrl}${endpoint}?${new URLSearchParams(params)}`);
 
 const fetchFromMyAPI = fetchFromAPI("https://api.example.com");
 const fetchUsers = fetchFromMyAPI("/users");
@@ -137,7 +141,7 @@ add5 3           -- 8
 
 ### 6. Declarative Over Imperative
 
-Describe *what* to compute, not *how* to compute it step by step.
+Describe _what_ to compute, not _how_ to compute it step by step.
 
 ```python
 # Imperative (how)
@@ -154,15 +158,15 @@ result = [item.name.upper() for item in items if item.price > 100]
 // Imperative
 let total = 0;
 for (let i = 0; i < orders.length; i++) {
-    if (orders[i].status === "completed") {
-        total += orders[i].amount;
-    }
+  if (orders[i].status === "completed") {
+    total += orders[i].amount;
+  }
 }
 
 // Declarative
 const total = orders
-    .filter(o => o.status === "completed")
-    .reduce((sum, o) => sum + o.amount, 0);
+  .filter((o) => o.status === "completed")
+  .reduce((sum, o) => sum + o.amount, 0);
 ```
 
 ## Advanced Concepts
@@ -181,9 +185,9 @@ const street = user?.address?.street;
 
 // Result monad: chain operations that might fail
 fetchUser(id)
-    .andThen(user => fetchPosts(user.id))
-    .andThen(posts => renderTimeline(posts))
-    .unwrapOr(defaultTimeline);
+  .andThen((user) => fetchPosts(user.id))
+  .andThen((posts) => renderTimeline(posts))
+  .unwrapOr(defaultTimeline);
 ```
 
 ```rust
@@ -207,6 +211,7 @@ main = do
 ```
 
 **The monad laws** (for the mathematically inclined):
+
 1. **Left identity**: `return a >>= f  ≡  f a`
 2. **Right identity**: `m >>= return  ≡  m`
 3. **Associativity**: `(m >>= f) >>= g  ≡  m >>= (\x -> f x >>= g)`
@@ -260,24 +265,25 @@ let x = readLine()  -- Different every time
 ```
 
 This property enables:
+
 - **Equational reasoning**: Prove things about code algebraically.
 - **Compiler optimizations**: Common subexpression elimination, memoization.
 - **Fearless refactoring**: Extract/inline functions without fear.
 
 ## FP in Different Languages
 
-| Feature | Haskell | Rust | Scala | Kotlin | JS/TS | Python | Java |
-|---------|---------|------|-------|--------|-------|--------|------|
-| Pure functions | Enforced | Convention | Convention | Convention | Convention | Convention | Convention |
-| Immutability | Default | Default | Preferred | `val` default | `const` | Convention | `final` |
-| Pattern matching | ✅ Native | ✅ Native | ✅ Native | ✅ `when` | ❌ Limited | ✅ 3.10+ | ✅ 21+ |
-| ADTs (sum types) | ✅ Native | ✅ `enum` | ✅ `sealed` | ✅ `sealed` | ✅ Unions | ❌ Manual | ✅ `sealed` |
-| HO functions | ✅ | ✅ Closures | ✅ | ✅ Lambdas | ✅ Arrows | ✅ Lambdas | ✅ Lambdas |
-| Lazy evaluation | Default | Iterators | `lazy` | `lazy`/`Sequence` | Generators | Generators | Streams |
-| Monads | ✅ First-class | `Result`/`Option` | ✅ | `Result` | `Promise` | ❌ Manual | `Optional` |
-| Currying | Auto | Manual | Auto | Manual | Manual | Manual | Manual |
-| Type classes | ✅ | Traits | Implicits/Given | ❌ | ❌ | ❌ | ❌ |
-| TCO | ✅ | Limited | `@tailrec` | `tailrec` | ❌ | ❌ | ❌ |
+| Feature          | Haskell        | Rust              | Scala           | Kotlin            | JS/TS      | Python     | Java        |
+| ---------------- | -------------- | ----------------- | --------------- | ----------------- | ---------- | ---------- | ----------- |
+| Pure functions   | Enforced       | Convention        | Convention      | Convention        | Convention | Convention | Convention  |
+| Immutability     | Default        | Default           | Preferred       | `val` default     | `const`    | Convention | `final`     |
+| Pattern matching | ✅ Native      | ✅ Native         | ✅ Native       | ✅ `when`         | ❌ Limited | ✅ 3.10+   | ✅ 21+      |
+| ADTs (sum types) | ✅ Native      | ✅ `enum`         | ✅ `sealed`     | ✅ `sealed`       | ✅ Unions  | ❌ Manual  | ✅ `sealed` |
+| HO functions     | ✅             | ✅ Closures       | ✅              | ✅ Lambdas        | ✅ Arrows  | ✅ Lambdas | ✅ Lambdas  |
+| Lazy evaluation  | Default        | Iterators         | `lazy`          | `lazy`/`Sequence` | Generators | Generators | Streams     |
+| Monads           | ✅ First-class | `Result`/`Option` | ✅              | `Result`          | `Promise`  | ❌ Manual  | `Optional`  |
+| Currying         | Auto           | Manual            | Auto            | Manual            | Manual     | Manual     | Manual      |
+| Type classes     | ✅             | Traits            | Implicits/Given | ❌                | ❌         | ❌         | ❌          |
+| TCO              | ✅             | Limited           | `@tailrec`      | `tailrec`         | ❌         | ❌         | ❌          |
 
 ## Practical FP Guidelines
 
@@ -291,4 +297,4 @@ This property enables:
 
 ---
 
-*Sources: Structure and Interpretation of Computer Programs (Abelson/Sussman), Functional Programming in Scala (Chiusano/Bjarnason), Haskell Programming from First Principles, Professor Frisby's Mostly Adequate Guide to Functional Programming, Real World Haskell*
+_Sources: Structure and Interpretation of Computer Programs (Abelson/Sussman), Functional Programming in Scala (Chiusano/Bjarnason), Haskell Programming from First Principles, Professor Frisby's Mostly Adequate Guide to Functional Programming, Real World Haskell_

@@ -3,12 +3,14 @@
 ## The Basics (That Most People Get Wrong)
 
 ### Key Terminology
+
 - **Unicode**: A standard that assigns a number (code point) to every character in every writing system
 - **Code point**: A number, written as U+0041 (= 'A'). Range: U+0000 to U+10FFFF (~1.1 million possible)
 - **Encoding**: How code points are stored as bytes (UTF-8, UTF-16, UTF-32)
 - **Grapheme cluster**: What a user perceives as a single "character" (may be multiple code points)
 
 ### The Critical Distinction
+
 ```
 "é" can be represented TWO ways:
   1. U+00E9  (one code point: LATIN SMALL LETTER E WITH ACUTE)
@@ -29,6 +31,7 @@ U+10000..U+10FFFF      4       11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
 ```
 
 **Why UTF-8 won:**
+
 - ASCII-compatible (bytes 0-127 are identical)
 - Self-synchronizing (can detect boundaries by looking at any byte)
 - No byte-order issues (no BOM needed)
@@ -36,6 +39,7 @@ U+10000..U+10FFFF      4       11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
 - Variable-length prevents wasted space
 
 **UTF-16 still exists because:**
+
 - Windows NT and Java were designed around UCS-2 (predecessor, only 2 bytes)
 - JavaScript strings are UTF-16 internally
 - When Unicode exceeded U+FFFF, UTF-16 added surrogate pairs (2 × 16-bit)
@@ -61,22 +65,24 @@ len(family)     # 11 in Python/JS! (4 person emojis + 3 ZWJ characters)
 ```
 
 ### What "String Length" Really Means
-| Language | `len()`/`.length` counts... | "👨‍👩‍👧‍👦" length |
-|----------|---------------------------|-----------------|
-| Python 3 | Code points | 11 |
-| JavaScript | UTF-16 code units | 11 |
-| Rust `str::len()` | Bytes (UTF-8) | 25 |
-| Rust `str::chars().count()` | Code points (scalar values) | 11 |
-| Go `len(s)` | Bytes | 25 |
-| Go `utf8.RuneCount(s)` | Code points (runes) | 11 |
-| Swift `s.count` | Grapheme clusters | 1 ✓ |
-| Elixir `String.length(s)` | Grapheme clusters | 1 ✓ |
+
+| Language                    | `len()`/`.length` counts... | "👨‍👩‍👧‍👦" length |
+| --------------------------- | --------------------------- | ----------- |
+| Python 3                    | Code points                 | 11          |
+| JavaScript                  | UTF-16 code units           | 11          |
+| Rust `str::len()`           | Bytes (UTF-8)               | 25          |
+| Rust `str::chars().count()` | Code points (scalar values) | 11          |
+| Go `len(s)`                 | Bytes                       | 25          |
+| Go `utf8.RuneCount(s)`      | Code points (runes)         | 11          |
+| Swift `s.count`             | Grapheme clusters           | 1 ✓         |
+| Elixir `String.length(s)`   | Grapheme clusters           | 1 ✓         |
 
 **For user-facing text, grapheme clusters are the right count.** Only Swift and Elixir get this right by default.
 
 ## Normalization
 
 ### The Four Forms
+
 ```
 NFC  (Canonical Decomposition + Canonical Composition)
   → Precomposed: é = U+00E9 (single code point)
@@ -95,6 +101,7 @@ NFKD (Compatibility Decomposition)
 ```
 
 ### When Normalization Matters
+
 ```python
 # String comparison WITHOUT normalization
 s1 = "café"      # NFC: U+00E9
@@ -113,6 +120,7 @@ unicodedata.normalize("NFC", s1) == unicodedata.normalize("NFC", s2)  # True
 ## Collation (Sorting Text)
 
 "Alphabetical order" is locale-dependent:
+
 ```
 English:  a < b < c ... < z
 German:   ä sorts with a (DIN 5007-1) or after az (phonebooks)
@@ -152,6 +160,7 @@ sorted(["ö", "z", "a"], key=collator.getSortKey)
 ## Common Unicode Bugs
 
 ### 1. Truncation in the Middle of a Character
+
 ```python
 # WRONG: Truncating UTF-8 bytes can split a multi-byte character
 text = "café"
@@ -162,14 +171,17 @@ truncated.decode('utf-8')  # UnicodeDecodeError or mojibake
 ```
 
 ### 2. Mojibake (Encoding Mismatch)
+
 ```
 Stored as UTF-8: "café" → bytes: 63 61 66 C3 A9
 Read as Latin-1:                → "cafÃ©"     (classic mojibake)
 Read as ASCII:                  → Error or "caf??"
 ```
+
 Fix: Ensure encoding is specified everywhere (HTTP headers, DB connection, file reading).
 
 ### 3. Bidirectional Text Attacks
+
 ```
 A filename that LOOKS like "invoice.pdf" might actually be "invoice\u202Efdp.exe"
 The U+202E (RIGHT-TO-LEFT OVERRIDE) reverses display direction.
@@ -177,6 +189,7 @@ Used for social engineering attacks. Filter control characters in user input.
 ```
 
 ### 4. Homoglyph Attacks
+
 ```
 "apple.com" vs "аpple.com" (Cyrillic 'а' U+0430 vs Latin 'a' U+0061)
 They look identical but are different domains!
@@ -184,6 +197,7 @@ IDN homograph attacks use this for phishing.
 ```
 
 ### 5. Zero-Width Characters in Code
+
 ```
 Code that looks correct but contains invisible characters:
   - U+200B ZERO WIDTH SPACE
@@ -195,21 +209,25 @@ These can break identifiers, comparisons, and URLs while being invisible in edit
 ## Practical Guidelines
 
 ### For Storage
+
 1. **Always use UTF-8** unless you have a specific reason not to
 2. **Normalize to NFC** before storing
 3. **Store locale info** alongside text if locale-dependent processing is needed
 
 ### For Comparison
+
 1. **Normalize first** (NFC for exact match, NFKC for fuzzy/search)
 2. **Use casefold** for case-insensitive comparison (not `.lower()`)
 3. **Use ICU/locale-aware collation** for sorting user-visible text
 
 ### For Display
+
 1. **Count grapheme clusters** for UI width/truncation, not code points
 2. **Use terminal width** (East Asian characters are 2 columns wide)
 3. **Test with**: Arabic (RTL), Chinese (multi-byte), emoji (multi-codepoint), combining marks
 
 ### For Databases
+
 ```sql
 -- MySQL: Use utf8mb4 (NOT utf8, which is only 3 bytes = no emoji!)
 CREATE TABLE t (name VARCHAR(255)) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -220,4 +238,4 @@ CREATE COLLATION german_phonebook (provider = icu, locale = 'de-u-co-phonebk');
 
 ---
 
-*"There Ain't No Such Thing As Plain Text." — Joel Spolsky. Every string has an encoding. If you don't know what it is, you have a bug.*
+_"There Ain't No Such Thing As Plain Text." — Joel Spolsky. Every string has an encoding. If you don't know what it is, you have a bug._

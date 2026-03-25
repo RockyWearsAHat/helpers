@@ -218,4 +218,4 @@ Scheme is a minimalist Lisp dialect — a small core of powerful primitives. Rac
 
 ---
 
-*Sources: The Scheme Programming Language (R. Kent Dybvig), SICP (Abelson & Sussman), Racket Documentation (docs.racket-lang.org), How to Design Programs (Felleisen et al.)*
+_Sources: The Scheme Programming Language (R. Kent Dybvig), SICP (Abelson & Sussman), Racket Documentation (docs.racket-lang.org), How to Design Programs (Felleisen et al.)_

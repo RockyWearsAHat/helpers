@@ -13,6 +13,7 @@
 ## For Reviewers
 
 ### What to Focus On
+
 - **Correctness**: Does the code do what it claims? Are edge cases handled?
 - **Design**: Does it fit the architecture? Is it in the right place? Right level of abstraction?
 - **Readability**: Can you understand it without the PR description? Will someone understand it in 6 months?
@@ -21,6 +22,7 @@
 - **Testing**: Are the right things tested? Are the tests meaningful or just coverage padding?
 
 ### What NOT to Focus On
+
 - Style issues that linters can catch. Automate formatting (Prettier, Black, gofmt, rustfmt).
 - Personal preference that doesn't affect maintainability.
 - Nitpicks on code you didn't need to change for this PR (separate issue).
@@ -28,10 +30,12 @@
 ### How to Give Feedback
 
 **Be kind, specific, and constructive:**
+
 - Bad: "This is wrong."
 - Good: "This will throw if `user` is null — the endpoint doesn't require auth. Consider adding a null check or making auth required."
 
 **Use prefixes to signal intent:**
+
 - `nit:` — Minor style suggestion. Take it or leave it.
 - `question:` — I don't understand this, please explain.
 - `suggestion:` — Consider this alternative approach.
@@ -45,16 +49,21 @@
 ## Review Process
 
 ### Two-reviewer model
+
 Two active reviewers is the sweet spot for most teams (Microsoft, Google research). More reviewers means diminishing returns.
 
 ### Review turnaround
+
 Aim for < 24 hours to first review. Blocking PRs for days kills flow and morale.
 
 ### Approve with comments
+
 If feedback is minor (nits, suggestions), approve and trust the author to address them. Don't block merges for trivial issues.
 
 ### Automated checks
+
 Automate everything you can:
+
 - **Linting/formatting**: Pre-commit hooks or CI.
 - **Type checking**: TypeScript, mypy, Flow.
 - **Security scanning**: Dependabot, Snyk, CodeQL.
@@ -77,4 +86,4 @@ This frees human reviewers to focus on design, correctness, and architecture —
 
 ---
 
-*Sources: Microsoft Engineering Playbook, Google Engineering Practices, Michaela Greiler (Code Review Best Practices from Microsoft), SmartBear (Cisco study on code review effectiveness)*
+_Sources: Microsoft Engineering Playbook, Google Engineering Practices, Michaela Greiler (Code Review Best Practices from Microsoft), SmartBear (Cisco study on code review effectiveness)_

@@ -3,19 +3,32 @@
 ## The Three Pillars of Observability
 
 ### 1. Logs — What happened
+
 Discrete events with context. The most familiar signal.
 
 **Structured logging** (JSON, key-value) is mandatory for production:
+
 ```json
-{"timestamp": "2024-03-15T10:30:00Z", "level": "error", "service": "payment-api", "trace_id": "abc123", "user_id": 42, "message": "Payment declined", "error_code": "INSUFFICIENT_FUNDS", "amount": 99.50}
+{
+  "timestamp": "2024-03-15T10:30:00Z",
+  "level": "error",
+  "service": "payment-api",
+  "trace_id": "abc123",
+  "user_id": 42,
+  "message": "Payment declined",
+  "error_code": "INSUFFICIENT_FUNDS",
+  "amount": 99.5
+}
 ```
 
 **NOT this:**
+
 ```
 ERROR: Payment failed for user 42
 ```
 
 **Log levels:**
+
 - **TRACE/DEBUG**: Development only. Never in production (too verbose).
 - **INFO**: Normal operations. Service started, request completed, job finished.
 - **WARN**: Unexpected but handled. Retry succeeded, deprecated API used, slow query.
@@ -23,9 +36,11 @@ ERROR: Payment failed for user 42
 - **FATAL/CRITICAL**: System is unusable. Out of memory, data corruption, can't connect to required services.
 
 ### 2. Metrics — How is the system performing
+
 Numeric measurements aggregated over time. Cheap to collect, easy to alert on.
 
 **The four golden signals (Google SRE):**
+
 - **Latency**: How long requests take (p50, p95, p99).
 - **Traffic**: Requests per second.
 - **Errors**: Error rate (5xx responses, failed operations).
@@ -35,11 +50,13 @@ Numeric measurements aggregated over time. Cheap to collect, easy to alert on.
 **USE method (for resources):** Utilization, Saturation, Errors.
 
 **Metric types:**
+
 - **Counter**: Monotonically increasing (total requests, total errors).
 - **Gauge**: Current value that goes up and down (memory usage, queue depth).
 - **Histogram**: Distribution of values (request latency buckets).
 
 ### 3. Traces — The request journey
+
 Follow a single request across services and components.
 
 - **Trace**: The entire journey of a request.
@@ -54,6 +71,7 @@ Follow a single request across services and components.
 The industry standard for observability instrumentation. Vendor-neutral, supported by every major observability platform.
 
 **Components:**
+
 - **API**: Interfaces for creating traces, metrics, logs.
 - **SDK**: Reference implementation of the API.
 - **Collector**: Receives, processes, and exports telemetry data.
@@ -83,15 +101,15 @@ The industry standard for observability instrumentation. Vendor-neutral, support
 
 ## Observability Stack (Common Choices)
 
-| Component | Options |
-|-----------|---------|
-| Metrics | Prometheus, Datadog, CloudWatch, InfluxDB |
-| Logs | ELK (Elasticsearch/Logstash/Kibana), Loki, Datadog, CloudWatch Logs |
-| Traces | Jaeger, Tempo (Grafana), Zipkin, Datadog APM |
-| Dashboards | Grafana, Datadog, Kibana |
-| Alerting | PagerDuty, Opsgenie, Grafana Alerting |
-| Instrumentation | OpenTelemetry (universal) |
+| Component       | Options                                                             |
+| --------------- | ------------------------------------------------------------------- |
+| Metrics         | Prometheus, Datadog, CloudWatch, InfluxDB                           |
+| Logs            | ELK (Elasticsearch/Logstash/Kibana), Loki, Datadog, CloudWatch Logs |
+| Traces          | Jaeger, Tempo (Grafana), Zipkin, Datadog APM                        |
+| Dashboards      | Grafana, Datadog, Kibana                                            |
+| Alerting        | PagerDuty, Opsgenie, Grafana Alerting                               |
+| Instrumentation | OpenTelemetry (universal)                                           |
 
 ---
 
-*Sources: Google SRE Book (Monitoring Distributed Systems), OpenTelemetry documentation, Honeycomb (Observability Engineering), Brendan Gregg (Systems Performance)*
+_Sources: Google SRE Book (Monitoring Distributed Systems), OpenTelemetry documentation, Honeycomb (Observability Engineering), Brendan Gregg (Systems Performance)_

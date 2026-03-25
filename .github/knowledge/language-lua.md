@@ -206,4 +206,4 @@ mymodule.public_function()
 
 ---
 
-*Sources: Programming in Lua (Roberto Ierusalimschy), Lua 5.4 Reference Manual, LuaJIT documentation, Neovim Lua guide*
+_Sources: Programming in Lua (Roberto Ierusalimschy), Lua 5.4 Reference Manual, LuaJIT documentation, Neovim Lua guide_

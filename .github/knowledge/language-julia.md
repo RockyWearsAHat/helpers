@@ -219,4 +219,4 @@ end
 
 ---
 
-*Sources: Julia Documentation (julialang.org), Julia Performance Tips, Thinking Julia (Tom Kwong), JuliaAcademy*
+_Sources: Julia Documentation (julialang.org), Julia Performance Tips, Thinking Julia (Tom Kwong), JuliaAcademy_

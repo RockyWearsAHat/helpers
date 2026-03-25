@@ -177,14 +177,14 @@ pub fn main() void {
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
+| Tool          | Purpose                    |
+| ------------- | -------------------------- |
 | **zig build** | Build system (self-hosted) |
-| **zig test** | Built-in test runner |
-| **zig fmt** | Code formatting |
-| **ZLS** | Language server |
-| **zig cc** | Drop-in C/C++ compiler |
+| **zig test**  | Built-in test runner       |
+| **zig fmt**   | Code formatting            |
+| **ZLS**       | Language server            |
+| **zig cc**    | Drop-in C/C++ compiler     |
 
 ---
 
-*Sources: Zig documentation, Zig Language Reference, Andrew Kelley (creator) talks, Zig community wiki*
+_Sources: Zig documentation, Zig Language Reference, Andrew Kelley (creator) talks, Zig community wiki_

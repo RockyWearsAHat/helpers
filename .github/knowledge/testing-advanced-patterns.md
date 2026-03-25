@@ -49,6 +49,7 @@ prop_sort_idempotent xs = sort (sort xs) == sort xs
 ```
 
 **Key properties to test:**
+
 - **Idempotence**: `f(f(x)) == f(x)` (sort, normalize, sanitize)
 - **Round-trip**: `decode(encode(x)) == x` (serialization, compression)
 - **Invariants**: Size preserved, elements preserved, ordering maintained
@@ -77,6 +78,7 @@ Tools:
 ```
 
 **Reading results:**
+
 - **Mutation score** = killed mutations / total mutations
 - A mutation score of 100% means every code mutation is caught by at least one test
 - Mutation testing is slow (runs entire test suite per mutation) — use on critical code, not everything
@@ -109,7 +111,7 @@ Capture output once, then assert future runs match the snapshot. Good for UI ren
 
 ```javascript
 // Jest snapshot
-test('renders user profile', () => {
+test("renders user profile", () => {
   const tree = renderer.create(<UserProfile user={testUser} />).toJSON();
   expect(tree).toMatchSnapshot();
 });
@@ -120,6 +122,7 @@ test('renders user profile', () => {
 ```
 
 **Gotchas:**
+
 - Snapshots must be reviewed in code review — don't blindly update
 - Avoid snapshotting timestamps, random IDs, or other non-deterministic values
 - Large snapshots become meaningless (nobody reviews a 500-line diff)
@@ -210,6 +213,7 @@ def test_report_generation():
 ## Test Organization Patterns
 
 ### Arrange-Act-Assert (AAA)
+
 ```python
 def test_withdraw_sufficient_funds():
     # Arrange
@@ -223,6 +227,7 @@ def test_withdraw_sufficient_funds():
 ```
 
 ### Given-When-Then (BDD)
+
 ```gherkin
 Feature: Account withdrawal
 
@@ -233,6 +238,7 @@ Feature: Account withdrawal
 ```
 
 ### Test Fixture Patterns
+
 ```python
 # Builder pattern for test data
 user = UserBuilder().with_name("Alice").with_age(30).active().build()
@@ -276,4 +282,4 @@ assert user.email == IsValidEmail()
 
 ---
 
-*Sources: "Growing Object-Oriented Software Guided by Tests" (Freeman & Pryce), "Unit Testing Principles, Practices, and Patterns" (Khorikov), Hypothesis docs, Pact docs, Netflix Chaos Engineering*
+_Sources: "Growing Object-Oriented Software Guided by Tests" (Freeman & Pryce), "Unit Testing Principles, Practices, and Patterns" (Khorikov), Hypothesis docs, Pact docs, Netflix Chaos Engineering_

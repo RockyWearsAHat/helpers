@@ -5,6 +5,7 @@
 **Core principle:** Every developer integrates code into the shared mainline frequently (at least daily). Every integration triggers automated build + test.
 
 **CI pipeline essentials:**
+
 1. **Compile/build** — Catch syntax errors immediately.
 2. **Lint** — Enforce style and catch common bugs (ESLint, Pylint, ShellCheck, clippy).
 3. **Unit tests** — Fast, isolated, cover business logic.
@@ -13,6 +14,7 @@
 6. **Artifact creation** — Build the deployable artifact once. Deploy the same artifact everywhere.
 
 **CI best practices:**
+
 - Keep the build fast (< 10 minutes target). Parallelize tests.
 - Fix broken builds immediately — a broken mainline blocks everyone.
 - Run the full pipeline on every pull request before merge.
@@ -20,8 +22,8 @@
 
 ## Continuous Delivery (CD)
 
-**Continuous Delivery**: Every commit that passes CI is *deployable* to production. Deployment is a manual decision.
-**Continuous Deployment**: Every commit that passes CI *automatically deploys* to production. No human gate.
+**Continuous Delivery**: Every commit that passes CI is _deployable_ to production. Deployment is a manual decision.
+**Continuous Deployment**: Every commit that passes CI _automatically deploys_ to production. No human gate.
 
 **Deployment strategies:**
 | Strategy | Description | Risk | Rollback |
@@ -36,20 +38,20 @@
 
 Methodology for building SaaS applications (Heroku, 2011). Still the gold standard.
 
-| Factor | Principle |
-|--------|-----------|
-| I. Codebase | One codebase tracked in VCS, many deploys |
-| II. Dependencies | Explicitly declare and isolate dependencies |
-| III. Config | Store config in environment variables |
-| IV. Backing Services | Treat databases, queues, caches as attached resources |
-| V. Build, Release, Run | Strictly separate build and run stages |
-| VI. Processes | Execute the app as stateless processes |
-| VII. Port Binding | Export services via port binding |
-| VIII. Concurrency | Scale out via the process model |
-| IX. Disposability | Fast startup, graceful shutdown |
-| X. Dev/Prod Parity | Keep development, staging, and production as similar as possible |
-| XI. Logs | Treat logs as event streams (stdout) |
-| XII. Admin Processes | Run admin/management tasks as one-off processes |
+| Factor                 | Principle                                                        |
+| ---------------------- | ---------------------------------------------------------------- |
+| I. Codebase            | One codebase tracked in VCS, many deploys                        |
+| II. Dependencies       | Explicitly declare and isolate dependencies                      |
+| III. Config            | Store config in environment variables                            |
+| IV. Backing Services   | Treat databases, queues, caches as attached resources            |
+| V. Build, Release, Run | Strictly separate build and run stages                           |
+| VI. Processes          | Execute the app as stateless processes                           |
+| VII. Port Binding      | Export services via port binding                                 |
+| VIII. Concurrency      | Scale out via the process model                                  |
+| IX. Disposability      | Fast startup, graceful shutdown                                  |
+| X. Dev/Prod Parity     | Keep development, staging, and production as similar as possible |
+| XI. Logs               | Treat logs as event streams (stdout)                             |
+| XII. Admin Processes   | Run admin/management tasks as one-off processes                  |
 
 ## Infrastructure as Code (IaC)
 
@@ -64,6 +66,7 @@ Methodology for building SaaS applications (Heroku, 2011). Still the gold standa
 | Service mesh | Istio, Linkerd, Consul Connect |
 
 **IaC best practices:**
+
 - **Idempotent:** Running the same code twice produces the same result.
 - **Immutable infrastructure:** Don't patch servers. Build new images, replace old ones.
 - **State management:** Lock Terraform state. Use remote backends (S3, GCS).
@@ -73,6 +76,7 @@ Methodology for building SaaS applications (Heroku, 2011). Still the gold standa
 ## Containerization
 
 **Docker best practices:**
+
 - Use minimal base images (`alpine`, `distroless`, `scratch` for Go).
 - Multi-stage builds — build in one stage, copy artifacts to a slim runtime image.
 - Don't run as root. Use `USER` directive.
@@ -82,6 +86,7 @@ Methodology for building SaaS applications (Heroku, 2011). Still the gold standa
 - Layer ordering matters — put frequently changing layers last for cache efficiency.
 
 **Kubernetes essentials:**
+
 - **Pod**: Smallest deployable unit (one or more containers).
 - **Deployment**: Manages pod replicas and rolling updates.
 - **Service**: Stable network endpoint for a set of pods.
@@ -95,6 +100,7 @@ Methodology for building SaaS applications (Heroku, 2011). Still the gold standa
 **Principle:** Git is the single source of truth for both application code and infrastructure. Changes are applied by syncing git state to the cluster.
 
 **Workflow:**
+
 1. Developer opens PR with infrastructure/config change.
 2. PR reviewed and merged.
 3. GitOps operator (ArgoCD, Flux) detects the change.
@@ -113,4 +119,4 @@ Methodology for building SaaS applications (Heroku, 2011). Still the gold standa
 
 ---
 
-*Sources: The Twelve-Factor App (Adam Wiggins), Google SRE Book, Accelerate (Forsgren/Humble/Kim), Kubernetes documentation, Terraform documentation*
+_Sources: The Twelve-Factor App (Adam Wiggins), Google SRE Book, Accelerate (Forsgren/Humble/Kim), Kubernetes documentation, Terraform documentation_

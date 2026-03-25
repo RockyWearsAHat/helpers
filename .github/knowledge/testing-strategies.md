@@ -14,6 +14,7 @@ The test pyramid is a metaphor for how to balance test types:
 ```
 
 ### Unit Tests (Base — Many)
+
 - Test individual functions/methods in isolation.
 - Fast (milliseconds), no I/O, no network, no database.
 - Mock/stub external dependencies.
@@ -22,6 +23,7 @@ The test pyramid is a metaphor for how to balance test types:
 - Test names should describe the behavior being verified.
 
 ### Integration Tests (Middle — Moderate)
+
 - Test the interaction between components (API + database, service + cache).
 - Slower than unit tests (may hit real databases, filesystems, or HTTP).
 - Verify that wiring between components works correctly.
@@ -29,6 +31,7 @@ The test pyramid is a metaphor for how to balance test types:
 - Should make up 15-20% of your test suite.
 
 ### End-to-End Tests (Top — Few)
+
 - Test entire user workflows through the real system.
 - Slowest, most brittle (depend on UI, network, timing).
 - Use for critical happy paths only (login, checkout, core business flow).
@@ -38,6 +41,7 @@ The test pyramid is a metaphor for how to balance test types:
 ## Test-Driven Development (TDD)
 
 The Red-Green-Refactor cycle:
+
 1. **Red**: Write a failing test for the behavior you want.
 2. **Green**: Write the minimum code to make the test pass.
 3. **Refactor**: Clean up the code while keeping tests green.
@@ -49,6 +53,7 @@ The Red-Green-Refactor cycle:
 ## Behavior-Driven Development (BDD)
 
 Write tests in natural language that describe behavior from the user's perspective:
+
 ```
 Given a user with an active subscription
 When they request a premium feature
@@ -82,13 +87,13 @@ Tools: Cucumber, SpecFlow, pytest-bdd. Best for collaboration between developers
 
 ## Test Doubles
 
-| Type | Purpose |
-|------|---------|
-| **Stub** | Returns canned responses. No assertions. |
-| **Mock** | Verifies interactions (was method X called with args Y?). |
-| **Spy** | Records calls for later assertion. |
-| **Fake** | Working implementation with shortcuts (in-memory DB). |
-| **Dummy** | Passed as argument but never used. |
+| Type      | Purpose                                                   |
+| --------- | --------------------------------------------------------- |
+| **Stub**  | Returns canned responses. No assertions.                  |
+| **Mock**  | Verifies interactions (was method X called with args Y?). |
+| **Spy**   | Records calls for later assertion.                        |
+| **Fake**  | Working implementation with shortcuts (in-memory DB).     |
+| **Dummy** | Passed as argument but never used.                        |
 
 **Best practice:** Prefer stubs over mocks. Over-mocking makes tests brittle and coupled to implementation.
 
@@ -101,4 +106,4 @@ Tools: Cucumber, SpecFlow, pytest-bdd. Best for collaboration between developers
 
 ---
 
-*Sources: Martin Fowler (Practical Test Pyramid), Kent Beck (TDD By Example), Gerard Meszaros (xUnit Test Patterns), Google Testing Blog*
+_Sources: Martin Fowler (Practical Test Pyramid), Kent Beck (TDD By Example), Gerard Meszaros (xUnit Test Patterns), Google Testing Blog_

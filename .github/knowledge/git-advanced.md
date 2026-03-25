@@ -1,7 +1,9 @@
 # Git Advanced — Beyond the Basics
 
 ## The Object Model
+
 Git stores 4 object types, all content-addressed by SHA-1 (transitioning to SHA-256):
+
 - **blob**: File contents (no filename — just raw bytes)
 - **tree**: Directory listing (maps names → blobs/trees with mode bits)
 - **commit**: Points to a tree + parent commit(s) + author/committer + message
@@ -19,12 +21,14 @@ git rev-parse HEAD         # resolve ref to SHA
 ## Rebase Strategies
 
 ### Interactive Rebase
+
 ```bash
 git rebase -i HEAD~5       # Rewrite last 5 commits
 git rebase -i main         # Rebase onto main
 ```
 
 **Commands in `git rebase -i`:**
+
 ```
 pick    — use commit as-is
 reword  — use commit but edit message
@@ -36,12 +40,14 @@ exec    — run shell command
 ```
 
 ### Rebase onto (transplant commits)
+
 ```bash
 # Move commits from feature that branched off old-base onto new-base
 git rebase --onto new-base old-base feature
 ```
 
 ### Autosquash Workflow
+
 ```bash
 # While working, create fixup commits targeting earlier commits
 git commit --fixup=abc1234
@@ -52,6 +58,7 @@ git rebase -i --autosquash main
 ```
 
 ### When NOT to Rebase
+
 - **Published/shared branches**: Never rebase commits others have based work on
 - **Merge commits you want to preserve**: Rebase linearizes history by default
 - If the branch has been force-pushed and others have pulled — coordinate first
@@ -68,6 +75,7 @@ git cherry-pick -x abc1234           # Append "(cherry picked from ...)" to mess
 ```
 
 **Conflict resolution:**
+
 ```bash
 # Fix conflicts, then:
 git add .
@@ -95,6 +103,7 @@ git log -g --grep="keyword" # Search reflog entries
 ```
 
 **Reflog saves you from:**
+
 - Accidental `git reset --hard`
 - Bad rebase
 - Deleted branches (`git branch -D` — the commits still exist until GC)
@@ -115,6 +124,7 @@ git worktree remove ../hotfix-tree
 ```
 
 **Use cases:**
+
 - Review a PR while your main worktree has uncommitted changes
 - Run tests on one branch while developing on another
 - Compare behavior between branches side-by-side
@@ -122,6 +132,7 @@ git worktree remove ../hotfix-tree
 ## Submodules vs Subtrees
 
 ### Submodules
+
 ```bash
 # Add a submodule
 git submodule add https://github.com/user/lib.git lib/
@@ -135,9 +146,11 @@ git submodule update --remote --merge
 # Status
 git submodule status
 ```
+
 **Gotchas:** Submodules pin to a specific commit. `git pull` doesn't update them. Easy to get into detached HEAD state inside submodule.
 
 ### Subtrees (simpler alternative)
+
 ```bash
 # Add a subtree
 git subtree add --prefix=lib https://github.com/user/lib.git main --squash
@@ -148,6 +161,7 @@ git subtree pull --prefix=lib https://github.com/user/lib.git main --squash
 # Push changes back upstream
 git subtree push --prefix=lib https://github.com/user/lib.git main
 ```
+
 **Advantage:** No special clone steps. The code is just there. Contributors don't need to know it's a subtree.
 
 ## Advanced Log & Search
@@ -194,6 +208,7 @@ git bisect reset
 ```
 
 ### Automated Bisect
+
 ```bash
 # Run a test script automatically at each step
 git bisect start HEAD v1.0.0
@@ -221,6 +236,7 @@ git stash branch new-branch        # Create branch from stash
 ## Hooks
 
 ### Client-Side Hooks (in `.git/hooks/` or via `core.hooksPath`)
+
 ```
 pre-commit       Before commit (lint, format, run fast tests)
 prepare-commit-msg  Before editor opens (add ticket number)
@@ -231,6 +247,7 @@ post-merge       After merge (install deps if lockfile changed)
 ```
 
 ### Useful Hook Patterns
+
 ```bash
 #!/bin/sh
 # .git/hooks/pre-commit — prevent committing to main
@@ -281,20 +298,21 @@ git config --global diff.colorMoved zebra
 
 ## Dangerous Commands — Know Before You Run
 
-| Command | What it does | Recovery |
-|---------|-------------|----------|
-| `git reset --hard HEAD~n` | Discards last n commits AND working changes | Reflog (commits); working changes are gone |
-| `git push --force` | Overwrites remote history | Others may lose work; use `--force-with-lease` instead |
-| `git clean -fd` | Deletes all untracked files/dirs | Gone forever (not in git) |
-| `git checkout -- file` | Discards uncommitted changes to file | Gone forever |
-| `git rebase` (on shared branch) | Rewrites commit SHAs | Others must `git pull --rebase` or re-clone |
-| `git filter-branch` / `git filter-repo` | Rewrites entire history | Force-push required; all clones invalidated |
+| Command                                 | What it does                                | Recovery                                               |
+| --------------------------------------- | ------------------------------------------- | ------------------------------------------------------ |
+| `git reset --hard HEAD~n`               | Discards last n commits AND working changes | Reflog (commits); working changes are gone             |
+| `git push --force`                      | Overwrites remote history                   | Others may lose work; use `--force-with-lease` instead |
+| `git clean -fd`                         | Deletes all untracked files/dirs            | Gone forever (not in git)                              |
+| `git checkout -- file`                  | Discards uncommitted changes to file        | Gone forever                                           |
+| `git rebase` (on shared branch)         | Rewrites commit SHAs                        | Others must `git pull --rebase` or re-clone            |
+| `git filter-branch` / `git filter-repo` | Rewrites entire history                     | Force-push required; all clones invalidated            |
 
 **Safe alternatives:**
+
 - `git push --force-with-lease` — Refuses if remote has new commits you haven't seen
 - `git revert` instead of `git reset` for shared history — creates an undo commit
 - `git stash` before risky operations
 
 ---
 
-*This guide covers advanced Git operations. For basics, see `git help tutorial`. For internals, see `git help gitcore-tutorial`.*
+_This guide covers advanced Git operations. For basics, see `git help tutorial`. For internals, see `git help gitcore-tutorial`._

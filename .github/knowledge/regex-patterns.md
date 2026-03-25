@@ -1,6 +1,7 @@
 # Regular Expressions - Patterns & Pitfalls
 
 ## Engine Types
+
 - **NFA (backtracking)**: Perl, Python, Ruby, Java, JavaScript, .NET, Go. Most common. Supports backreferences, lookaround.
 - **DFA (Thompson)**: grep, awk, RE2 (Go's regexp). Linear time guarantee. No backreferences.
 - **PCRE**: "Perl Compatible Regular Expressions" — the de facto standard. Used by PHP, R, many tools.
@@ -8,6 +9,7 @@
 ## Syntax Quick Reference
 
 ### Character Classes
+
 ```
 .        Any character (except newline, unless DOTALL/s flag)
 \d       Digit [0-9] (most engines; Unicode-aware in Python 3, Java)
@@ -24,6 +26,7 @@
 ```
 
 ### Anchors
+
 ```
 ^        Start of string (or line with MULTILINE/m flag)
 $        End of string (or line with MULTILINE/m flag)
@@ -34,6 +37,7 @@ $        End of string (or line with MULTILINE/m flag)
 ```
 
 ### Quantifiers
+
 ```
 *        0 or more (greedy)
 +        1 or more (greedy)
@@ -48,6 +52,7 @@ $        End of string (or line with MULTILINE/m flag)
 ```
 
 ### Groups & Backreferences
+
 ```
 (abc)       Capturing group
 (?:abc)     Non-capturing group
@@ -63,57 +68,69 @@ $        End of string (or line with MULTILINE/m flag)
 ## Common Patterns Cookbook
 
 ### Email (Simplified, RFC 5322 compliant is 6000+ chars)
+
 ```regex
 ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
 ```
+
 **Reality check:** True RFC 5322 email validation is nearly impossible with regex. Validate format loosely, then send a confirmation email.
 
 ### URL
+
 ```regex
 https?://[^\s/$.?#].[^\s]*
 ```
 
 ### IPv4 Address
+
 ```regex
 \b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b
 ```
 
 ### Date (YYYY-MM-DD)
+
 ```regex
 \d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])
 ```
 
 ### Phone Number (North American)
+
 ```regex
 (?:\+?1[-.\s]?)?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4}
 ```
 
 ### Password Strength (min 8, upper, lower, digit, special)
+
 ```regex
 ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$
 ```
 
 ### Trim Whitespace
+
 ```regex
 ^\s+|\s+$
 ```
 
 ### Duplicate Words
+
 ```regex
 \b(\w+)\s+\1\b
 ```
 
 ### HTML Tag (don't parse HTML with regex — but for simple extraction)
+
 ```regex
 <([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>(.*?)</\1>
 ```
 
 ### UUID
+
 ```regex
 [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 ```
 
 ### Semantic Version
+
 ```regex
 (?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*)?(?:\+[\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*)?
 ```
@@ -121,7 +138,9 @@ https?://[^\s/$.?#].[^\s]*
 ## Dangerous Patterns — ReDoS (Catastrophic Backtracking)
 
 ### The Problem
+
 NFA engines backtrack exponentially on certain patterns with ambiguous quantifiers:
+
 ```regex
 # DANGEROUS — exponential backtracking on failure
 (a+)+$           # Nested quantifiers
@@ -132,6 +151,7 @@ NFA engines backtrack exponentially on certain patterns with ambiguous quantifie
 **Attack:** Input `aaaaaaaaaaaaaaaaaaaaaaaaaaa!` — the engine tries every possible way to split `a`s between the inner and outer `+` before failing at `!`.
 
 ### How to Avoid
+
 1. **No nested quantifiers** on overlapping patterns: `(a+)+` → `a+`
 2. **Use possessive quantifiers**: `(a++)` (PCRE/Java) — no backtracking
 3. **Use atomic groups**: `(?>a+)` — same effect
@@ -140,6 +160,7 @@ NFA engines backtrack exponentially on certain patterns with ambiguous quantifie
 6. **Test with tools**: [regex101.com](https://regex101.com) shows step count
 
 ### Safe Alternatives
+
 ```regex
 # Dangerous          # Safe equivalent
 (a+)+$              → a+$
@@ -151,6 +172,7 @@ NFA engines backtrack exponentially on certain patterns with ambiguous quantifie
 ## Engine-Specific Gotchas
 
 ### JavaScript
+
 - No lookbehind before ES2018 (`(?<=...)` and `(?<!...)`)
 - No possessive quantifiers or atomic groups
 - `/u` flag required for proper Unicode matching
@@ -159,6 +181,7 @@ NFA engines backtrack exponentially on certain patterns with ambiguous quantifie
 - Named groups: `(?<name>...)`, backreference `\k<name>`
 
 ### Python
+
 - `re` module: backtracking NFA, no possessive/atomic
 - `regex` module (pip): possessive quantifiers, atomic groups, fuzzy matching
 - `(?P<name>...)` for named groups (non-standard syntax)
@@ -166,23 +189,27 @@ NFA engines backtrack exponentially on certain patterns with ambiguous quantifie
 - `re.compile()` caches, but Python also internally caches recent patterns
 
 ### Go
+
 - Uses RE2 (linear time, no backtracking)
 - No backreferences, no lookahead/lookbehind
 - `(?i)` inline flag for case-insensitive
 - Returns `[]byte` by default; use `FindString` variants for strings
 
 ### Rust
+
 - `regex` crate: RE2-like, linear time, no backreferences
 - `fancy-regex` crate: adds backreferences and lookaround (with backtracking)
 - Unicode-aware by default; `(?-u)` to restrict to ASCII
 
 ### Java
+
 - `\b` is Unicode-aware
 - Possessive quantifiers: `a++`, `a*+`, `a?+`
 - Named groups: `(?<name>...)`, backreference `\k<name>`
 - `Pattern.UNICODE_CHARACTER_CLASS` for Unicode \w, \d, etc.
 
 ## Performance Tips
+
 1. **Anchor when possible**: `^pattern` lets the engine skip positions
 2. **Prefer character classes over alternation**: `[aeiou]` not `a|e|i|o|u`
 3. **Put common alternatives first**: `(common|rare)` not `(rare|common)`
@@ -194,6 +221,7 @@ NFA engines backtrack exponentially on certain patterns with ambiguous quantifie
 ## Regex in Practice — One-Liners
 
 ### sed (stream editor)
+
 ```bash
 # Replace first occurrence per line
 sed 's/old/new/' file.txt
@@ -206,6 +234,7 @@ sed -i '' 's/old/new/g' file.txt
 ```
 
 ### grep
+
 ```bash
 # Extended regex (-E, no need to escape +, ?, etc.)
 grep -E 'pattern1|pattern2' file.txt
@@ -221,6 +250,7 @@ grep -o 'pattern' file.txt
 ```
 
 ### Common Shell Regex Tasks
+
 ```bash
 # Extract IPs from a log
 grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' access.log
@@ -234,4 +264,4 @@ grep -rn 'TODO\|FIXME\|HACK\|XXX' src/
 
 ---
 
-*Tip: Always use https://regex101.com for testing — it shows the regex engine's step count, which reveals catastrophic backtracking before it hits production.*
+_Tip: Always use https://regex101.com for testing — it shows the regex engine's step count, which reveals catastrophic backtracking before it hits production._

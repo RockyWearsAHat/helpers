@@ -5,6 +5,7 @@
 Rust's defining feature — memory safety without garbage collection. The compiler enforces these rules at compile time.
 
 ### Ownership Rules
+
 1. Each value has exactly one owner.
 2. When the owner goes out of scope, the value is dropped.
 3. Ownership can be transferred (moved) or borrowed (referenced).
@@ -27,6 +28,7 @@ println!("{x} {y}");  // ✅ Both valid
 ```
 
 ### Borrowing
+
 ```rust
 // Immutable reference (&T) — many allowed simultaneously
 fn length(s: &str) -> usize {
@@ -45,6 +47,7 @@ fn push_greeting(s: &mut String) {
 ```
 
 ### Lifetimes
+
 ```rust
 // Lifetime annotations tell the compiler how long references live
 fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
@@ -262,22 +265,23 @@ async fn main() {
 
 ## Common Crates
 
-| Crate | Purpose |
-|-------|---------|
-| **serde** | Serialization/deserialization (JSON, TOML, YAML, etc.) |
-| **tokio** | Async runtime |
-| **reqwest** | HTTP client |
-| **axum** / **actix-web** | Web frameworks |
-| **sqlx** | Async SQL (compile-time checked queries) |
-| **clap** | CLI argument parsing |
-| **tracing** | Structured logging/tracing |
-| **thiserror** | Derive Error traits for library errors |
-| **anyhow** | Ergonomic error handling for applications |
-| **rayon** | Data parallelism (parallel iterators) |
+| Crate                    | Purpose                                                |
+| ------------------------ | ------------------------------------------------------ |
+| **serde**                | Serialization/deserialization (JSON, TOML, YAML, etc.) |
+| **tokio**                | Async runtime                                          |
+| **reqwest**              | HTTP client                                            |
+| **axum** / **actix-web** | Web frameworks                                         |
+| **sqlx**                 | Async SQL (compile-time checked queries)               |
+| **clap**                 | CLI argument parsing                                   |
+| **tracing**              | Structured logging/tracing                             |
+| **thiserror**            | Derive Error traits for library errors                 |
+| **anyhow**               | Ergonomic error handling for applications              |
+| **rayon**                | Data parallelism (parallel iterators)                  |
 
 ## Clippy Lints
 
 Run `cargo clippy` on every commit. Key categories:
+
 - **correctness**: Bugs and undefined behavior.
 - **suspicious**: Code that's probably wrong.
 - **style**: Idiomatic Rust conventions.
@@ -286,4 +290,4 @@ Run `cargo clippy` on every commit. Key categories:
 
 ---
 
-*Sources: The Rust Programming Language (Klabnik & Nichols), Rust by Example, Rust API Guidelines, Rust Design Patterns, Clippy documentation*
+_Sources: The Rust Programming Language (Klabnik & Nichols), Rust by Example, Rust API Guidelines, Rust Design Patterns, Clippy documentation_

@@ -10,6 +10,7 @@ Assembly     JavaScript (weak)      Python, Ruby         Rust, Haskell, Java    
 ```
 
 ### Key Distinctions
+
 - **Static vs Dynamic**: Types checked at compile time vs runtime
 - **Strong vs Weak**: Whether implicit type coercion happens (`"1" + 1` → `"11"` in JS = weak)
 - **Nominal vs Structural**: Types identified by name (Java) vs shape (TypeScript, Go interfaces)
@@ -18,27 +19,34 @@ Assembly     JavaScript (weak)      Python, Ruby         Rust, Haskell, Java    
 ## Generics / Parametric Polymorphism
 
 ### The Basic Idea
+
 Write code that works for any type while maintaining type safety:
+
 ```typescript
 // Without generics: lose type information
-function first(arr: any[]): any { return arr[0]; }
+function first(arr: any[]): any {
+  return arr[0];
+}
 
 // With generics: preserve type information
-function first<T>(arr: T[]): T { return arr[0]; }
-first([1, 2, 3]);        // TypeScript infers: number
-first(["a", "b", "c"]);  // TypeScript infers: string
+function first<T>(arr: T[]): T {
+  return arr[0];
+}
+first([1, 2, 3]); // TypeScript infers: number
+first(["a", "b", "c"]); // TypeScript infers: string
 ```
 
 ### Bounded Generics (Constraints)
+
 ```typescript
 // T must have a .length property
 function longest<T extends { length: number }>(a: T, b: T): T {
-    return a.length >= b.length ? a : b;
+  return a.length >= b.length ? a : b;
 }
 
-longest("abc", "de");     // OK: strings have length
-longest([1, 2], [1]);     // OK: arrays have length
-longest(10, 20);          // Error: numbers don't have length
+longest("abc", "de"); // OK: strings have length
+longest([1, 2], [1]); // OK: arrays have length
+longest(10, 20); // Error: numbers don't have length
 ```
 
 ```rust
@@ -65,13 +73,14 @@ Variance describes how subtyping between complex types relates to subtyping betw
 
 Given: `Dog extends Animal`
 
-| Variance | `Container<Dog>` vs `Container<Animal>` | Example |
-|----------|----------------------------------------|---------|
-| Covariant | `Container<Dog>` is subtype of `Container<Animal>` | Read-only collections, return types |
-| Contravariant | `Container<Animal>` is subtype of `Container<Dog>` | Write-only, function parameters |
-| Invariant | No subtype relationship | Mutable collections |
+| Variance      | `Container<Dog>` vs `Container<Animal>`            | Example                             |
+| ------------- | -------------------------------------------------- | ----------------------------------- |
+| Covariant     | `Container<Dog>` is subtype of `Container<Animal>` | Read-only collections, return types |
+| Contravariant | `Container<Animal>` is subtype of `Container<Dog>` | Write-only, function parameters     |
+| Invariant     | No subtype relationship                            | Mutable collections                 |
 
 ### Why Mutable Collections Must Be Invariant
+
 ```java
 // If List<Dog> were a subtype of List<Animal> (covariant):
 List<Dog> dogs = new ArrayList<>();
@@ -85,6 +94,7 @@ List<? super Dog> writable = animals;     // Contravariant (write-only)
 ```
 
 ### Variance in Different Languages
+
 ```typescript
 // TypeScript: Arrays are covariant (unsound by design!)
 let dogs: Dog[] = [new Dog()];
@@ -104,7 +114,9 @@ interface IComparer<in T> { ... }          // Contravariant
 ```
 
 ### The PECS Rule (Java)
+
 **Producer Extends, Consumer Super**
+
 - If you only READ from a collection → `<? extends T>` (covariant)
 - If you only WRITE to a collection → `<? super T>` (contravariant)
 - If you READ and WRITE → use exact type (invariant)
@@ -112,6 +124,7 @@ interface IComparer<in T> { ... }          // Contravariant
 ## Algebraic Data Types (ADTs)
 
 ### Sum Types (Tagged Unions / Discriminated Unions)
+
 A value that is one of several possible variants:
 
 ```rust
@@ -137,16 +150,18 @@ fn area(shape: &Shape) -> f64 {
 ```typescript
 // TypeScript: discriminated unions
 type Shape =
-    | { kind: "circle"; radius: number }
-    | { kind: "rectangle"; width: number; height: number }
-    | { kind: "triangle"; sides: [number, number, number] };
+  | { kind: "circle"; radius: number }
+  | { kind: "rectangle"; width: number; height: number }
+  | { kind: "triangle"; sides: [number, number, number] };
 
 function area(shape: Shape): number {
-    switch (shape.kind) {
-        case "circle": return Math.PI * shape.radius ** 2;
-        case "rectangle": return shape.width * shape.height;
-        case "triangle": /* ... */
-    } // TypeScript: exhaustiveness checking with --strict
+  switch (shape.kind) {
+    case "circle":
+      return Math.PI * shape.radius ** 2;
+    case "rectangle":
+      return shape.width * shape.height;
+    case "triangle": /* ... */
+  } // TypeScript: exhaustiveness checking with --strict
 }
 ```
 
@@ -164,9 +179,11 @@ area (Triangle a b c) = let s = (a + b + c) / 2
 ```
 
 ### Product Types (Records / Structs / Tuples)
+
 A value that contains ALL of several fields — `(A, B, C)` has an A AND a B AND a C.
 
 ### The Option/Maybe Pattern (Null Safety)
+
 ```rust
 // Rust: Option<T> replaces null
 fn find_user(id: u64) -> Option<User> {
@@ -186,6 +203,7 @@ let name = find_user(42)
 ```
 
 ### The Result Pattern (Error Handling)
+
 ```rust
 // Rust: Result<T, E> replaces exceptions
 fn parse_config(path: &str) -> Result<Config, ConfigError> {
@@ -224,17 +242,19 @@ let time = Quantity::<Seconds>::new(9.58);
 ## Type-Level Programming
 
 ### Conditional Types (TypeScript)
+
 ```typescript
 type IsString<T> = T extends string ? "yes" : "no";
-type A = IsString<string>;   // "yes"
-type B = IsString<number>;   // "no"
+type A = IsString<string>; // "yes"
+type B = IsString<number>; // "no"
 
 // Practical: Extract return type of a function
 type ReturnOf<T> = T extends (...args: any[]) => infer R ? R : never;
-type X = ReturnOf<() => string>;  // string
+type X = ReturnOf<() => string>; // string
 ```
 
 ### Associated Types (Rust)
+
 ```rust
 trait Iterator {
     type Item;  // Associated type — each impl specifies the concrete type
@@ -250,6 +270,7 @@ impl Iterator for Counter {
 ## Practical Type Safety Patterns
 
 ### Newtype Pattern (Prevent Primitive Obsession)
+
 ```rust
 struct UserId(u64);
 struct OrderId(u64);
@@ -261,6 +282,7 @@ fn get_order(user: UserId, order: OrderId) -> Order { /* ... */ }
 ```
 
 ### Builder Pattern with Types (Typestate)
+
 ```rust
 struct NoUrl;
 struct HasUrl(String);
@@ -286,34 +308,35 @@ impl RequestBuilder<HasUrl> {
 ```
 
 ### Making Illegal States Unrepresentable
+
 ```typescript
 // Bad: many invalid combinations possible
 interface User {
-    type: "guest" | "registered" | "admin";
-    email?: string;      // Required for registered/admin, not guest
-    adminLevel?: number; // Only for admin
+  type: "guest" | "registered" | "admin";
+  email?: string; // Required for registered/admin, not guest
+  adminLevel?: number; // Only for admin
 }
 
 // Good: impossible to construct an invalid user
 type User =
-    | { type: "guest" }
-    | { type: "registered"; email: string }
-    | { type: "admin"; email: string; adminLevel: number };
+  | { type: "guest" }
+  | { type: "registered"; email: string }
+  | { type: "admin"; email: string; adminLevel: number };
 ```
 
 ## Soundness vs Practicality
 
-| Language | Sound? | Why? |
-|----------|--------|------|
-| Rust | Yes | Borrow checker, lifetime system, no null |
-| Haskell | Yes* | Pure, immutable by default (*unsafe escape hatches exist) |
-| Java | Mostly | Generics erasure, null, array covariance are unsound |
-| TypeScript | No | Intentionally unsound for usability (`any`, array covariance) |
-| Python (mypy) | Gradual | Type: ignore, Any, incomplete stubs |
-| Go | Yes-ish | Simpler type system means fewer soundness holes, but `interface{}` |
+| Language      | Sound?  | Why?                                                               |
+| ------------- | ------- | ------------------------------------------------------------------ |
+| Rust          | Yes     | Borrow checker, lifetime system, no null                           |
+| Haskell       | Yes\*   | Pure, immutable by default (\*unsafe escape hatches exist)         |
+| Java          | Mostly  | Generics erasure, null, array covariance are unsound               |
+| TypeScript    | No      | Intentionally unsound for usability (`any`, array covariance)      |
+| Python (mypy) | Gradual | Type: ignore, Any, incomplete stubs                                |
+| Go            | Yes-ish | Simpler type system means fewer soundness holes, but `interface{}` |
 
 **TypeScript's philosophy:** "We'd rather let some incorrect programs through than reject correct ones." This is a deliberate design choice — soundness is sacrificed for developer productivity.
 
 ---
 
-*"Types are not just for the compiler — they're documentation that the compiler checks for you."*
+_"Types are not just for the compiler — they're documentation that the compiler checks for you."_

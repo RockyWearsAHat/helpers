@@ -106,13 +106,13 @@ model_result$r_squared  # 0.87
 # Functions with defaults and type discipline
 calculate_ci <- function(x, confidence = 0.95, na.rm = TRUE) {
   if (!is.numeric(x)) stop("x must be numeric")
-  
+
   x <- if (na.rm) x[!is.na(x)] else x
   n <- length(x)
   se <- sd(x) / sqrt(n)
   alpha <- 1 - confidence
   z <- qnorm(1 - alpha / 2)
-  
+
   list(
     mean = mean(x),
     lower = mean(x) - z * se,
@@ -190,4 +190,4 @@ dbDisconnect(con)
 
 ---
 
-*Sources: R for Data Science (Wickham & Grolemund), Advanced R (Wickham), tidyverse.org, CRAN documentation*
+_Sources: R for Data Science (Wickham & Grolemund), Advanced R (Wickham), tidyverse.org, CRAN documentation_

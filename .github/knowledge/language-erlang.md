@@ -188,4 +188,4 @@ end.
 
 ---
 
-*Sources: Learn You Some Erlang (Fred Hébert), Erlang/OTP documentation, Designing for Scalability with Erlang/OTP (Cesarini & Vinoski), Programming Erlang (Joe Armstrong)*
+_Sources: Learn You Some Erlang (Fred Hébert), Erlang/OTP documentation, Designing for Scalability with Erlang/OTP (Cesarini & Vinoski), Programming Erlang (Joe Armstrong)_

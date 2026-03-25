@@ -207,4 +207,4 @@ Common Lisp is the most full-featured Lisp dialect — a multi-paradigm, dynamic
 
 ---
 
-*Sources: Practical Common Lisp (Peter Seibel), Common Lisp HyperSpec, On Lisp (Paul Graham), ANSI Common Lisp Standard*
+_Sources: Practical Common Lisp (Peter Seibel), Common Lisp HyperSpec, On Lisp (Paul Graham), ANSI Common Lisp Standard_

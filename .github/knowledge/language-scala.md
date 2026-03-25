@@ -192,24 +192,24 @@ LazyList.from(1).filter(isPrime).take(10).toList
 
 ## Effect Systems
 
-| Library | Paradigm |
-|---------|----------|
-| **Cats Effect** | Tagless final, IO monad |
-| **ZIO** | ZIO effect type with built-in DI |
-| **Monix** | Task-based, reactive |
-| **Akka/Pekko** | Actor model |
+| Library         | Paradigm                         |
+| --------------- | -------------------------------- |
+| **Cats Effect** | Tagless final, IO monad          |
+| **ZIO**         | ZIO effect type with built-in DI |
+| **Monix**       | Task-based, reactive             |
+| **Akka/Pekko**  | Actor model                      |
 
 ## Build & Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **sbt** / **Mill** | Build system |
-| **Metals** | Language server (VS Code, etc.) |
-| **scalafmt** | Code formatting |
-| **scalafix** | Linting & refactoring |
-| **ScalaTest** / **MUnit** | Testing |
-| **Wartremover** | Additional linting rules |
+| Tool                      | Purpose                         |
+| ------------------------- | ------------------------------- |
+| **sbt** / **Mill**        | Build system                    |
+| **Metals**                | Language server (VS Code, etc.) |
+| **scalafmt**              | Code formatting                 |
+| **scalafix**              | Linting & refactoring           |
+| **ScalaTest** / **MUnit** | Testing                         |
+| **Wartremover**           | Additional linting rules        |
 
 ---
 
-*Sources: Scala 3 documentation, Functional Programming in Scala (Chiusano/Bjarnason), Programming in Scala (Odersky), Essential Effects (Adam Rosien)*
+_Sources: Scala 3 documentation, Functional Programming in Scala (Chiusano/Bjarnason), Programming in Scala (Odersky), Essential Effects (Adam Rosien)_

@@ -3,25 +3,30 @@
 ## REST API Principles
 
 ### Resource-Based URLs
+
 URLs represent resources (nouns), not actions (verbs).
+
 - Good: `GET /users/42`, `POST /orders`, `DELETE /products/7`
 - Bad: `GET /getUser?id=42`, `POST /createOrder`, `POST /deleteProduct`
 
 Use plural nouns for collections: `/users`, `/orders`, `/products`.
 
 ### HTTP Method Semantics
-| Method | Purpose | Idempotent | Safe |
-|--------|---------|------------|------|
-| GET | Read resource | Yes | Yes |
-| POST | Create resource | No | No |
-| PUT | Replace resource entirely | Yes | No |
-| PATCH | Partial update | No* | No |
-| DELETE | Remove resource | Yes | No |
 
-*PATCH can be made idempotent with proper design.
+| Method | Purpose                   | Idempotent | Safe |
+| ------ | ------------------------- | ---------- | ---- |
+| GET    | Read resource             | Yes        | Yes  |
+| POST   | Create resource           | No         | No   |
+| PUT    | Replace resource entirely | Yes        | No   |
+| PATCH  | Partial update            | No\*       | No   |
+| DELETE | Remove resource           | Yes        | No   |
+
+\*PATCH can be made idempotent with proper design.
 
 ### Status Codes
+
 Use meaningful HTTP status codes:
+
 - **200** OK — successful GET/PUT/PATCH
 - **201** Created — successful POST that created a resource
 - **204** No Content — successful DELETE
@@ -35,6 +40,7 @@ Use meaningful HTTP status codes:
 - **500** Internal Server Error — unexpected server failure
 
 ### Versioning
+
 - **URL path**: `/api/v1/users` — simple, explicit, most common.
 - **Header**: `Accept: application/vnd.myapi.v2+json` — cleaner URLs but harder to test.
 - **Query param**: `/users?version=2` — easy but can be missed.
@@ -42,18 +48,23 @@ Use meaningful HTTP status codes:
 Always version from the start. Breaking changes require a new version.
 
 ### Pagination
+
 Never return unbounded lists. Always paginate.
+
 - **Offset-based**: `?page=3&per_page=25` — simple, but degrades at large offsets.
 - **Cursor-based**: `?after=eyJpZCI6MTAwfQ&limit=25` — consistent performance, better for real-time data.
 - Include pagination metadata in response: `total`, `next_cursor`, `has_more`.
 
 ### Filtering, Sorting, Searching
+
 - Filter: `GET /users?status=active&role=admin`
 - Sort: `GET /users?sort=-created_at` (prefix `-` for descending)
 - Search: `GET /users?q=john`
 
 ### Error Responses
+
 Return consistent, structured error responses:
+
 ```json
 {
   "error": {
@@ -67,7 +78,9 @@ Return consistent, structured error responses:
 ```
 
 ### Idempotency
+
 For non-idempotent operations (POST), support idempotency keys:
+
 - Client sends `Idempotency-Key: <uuid>` header.
 - Server deduplicates — same key returns the same response.
 - Critical for payment APIs and any operation that must not double-execute.
@@ -96,4 +109,4 @@ For non-idempotent operations (POST), support idempotency keys:
 
 ---
 
-*Sources: RESTful Web APIs (Richardson & Ruby), Microsoft REST API Guidelines, Google API Design Guide, Stripe API (gold standard reference), GitHub API documentation*
+_Sources: RESTful Web APIs (Richardson & Ruby), Microsoft REST API Guidelines, Google API Design Guide, Stripe API (gold standard reference), GitHub API documentation_

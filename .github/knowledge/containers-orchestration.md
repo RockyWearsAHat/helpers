@@ -3,11 +3,13 @@
 ## Docker Fundamentals
 
 ### Image vs Container
+
 - **Image**: Read-only template. A filesystem snapshot + metadata. Built from a Dockerfile.
 - **Container**: Running instance of an image. Has its own writable layer, network, and process space.
 - **Registry**: Image storage (Docker Hub, GitHub Container Registry, ECR, GCR).
 
 ### Dockerfile Best Practices
+
 ```dockerfile
 # Use specific tags, not :latest (reproducibility)
 FROM node:20-alpine AS builder
@@ -36,12 +38,14 @@ CMD ["node", "src/index.js"]
 ```
 
 ### Layer Caching Rules
+
 1. Each Dockerfile instruction creates a layer
 2. If a layer's instruction hasn't changed AND all previous layers are cached → cached
 3. Once a cache miss occurs, ALL subsequent layers are rebuilt
 4. **Order matters:** Put rarely-changing instructions first (dependencies before source code)
 
 ### Docker Compose
+
 ```yaml
 # docker-compose.yml
 services:
@@ -55,7 +59,7 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./src:/app/src  # Dev: mount source for hot reload
+      - ./src:/app/src # Dev: mount source for hot reload
 
   db:
     image: postgres:16-alpine
@@ -75,6 +79,7 @@ volumes:
 ```
 
 ### Essential Docker Commands
+
 ```bash
 # Build
 docker build -t myapp:1.0 .
@@ -100,6 +105,7 @@ docker volume prune                        # Remove unused volumes
 ```
 
 ### Docker Networking
+
 ```
 bridge (default)  Containers on same bridge can communicate by name
 host              Container shares host network (no port mapping needed)
@@ -118,6 +124,7 @@ docker run --network mynet --name db postgres
 ## Kubernetes (k8s) Core Concepts
 
 ### Architecture
+
 ```
 Control Plane:
   ├── API Server (kubectl talks to this)
@@ -134,6 +141,7 @@ Worker Nodes:
 ### Key Resources
 
 #### Pod (smallest deployable unit)
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -165,6 +173,7 @@ spec:
 ```
 
 #### Deployment (manages Pod replicas with rolling updates)
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -191,6 +200,7 @@ spec:
 ```
 
 #### Service (stable network endpoint for Pods)
+
 ```yaml
 apiVersion: v1
 kind: Service
@@ -202,12 +212,13 @@ spec:
   ports:
     - port: 80
       targetPort: 3000
-  type: ClusterIP     # Internal only (default)
+  type: ClusterIP # Internal only (default)
   # type: LoadBalancer  # External LB (cloud provider)
   # type: NodePort      # Expose on every node's IP
 ```
 
 #### Ingress (HTTP routing)
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -228,6 +239,7 @@ spec:
 ```
 
 ### ConfigMaps and Secrets
+
 ```yaml
 # ConfigMap: non-sensitive config
 apiVersion: v1
@@ -249,6 +261,7 @@ data:
 ```
 
 ### Essential kubectl Commands
+
 ```bash
 # Context
 kubectl config get-contexts
@@ -295,6 +308,7 @@ kubectl top pods                        # Resource usage
 ## Volumes & Storage
 
 ### Docker Volumes
+
 ```bash
 # Named volume (Docker manages location)
 docker volume create mydata
@@ -308,6 +322,7 @@ docker run --tmpfs /app/tmp myapp
 ```
 
 ### Kubernetes Persistent Volumes
+
 ```yaml
 # PersistentVolumeClaim
 apiVersion: v1
@@ -324,17 +339,17 @@ spec:
 
 ## Local Development Tools
 
-| Tool | Purpose |
-|------|---------|
-| Docker Desktop | Docker + k8s on Mac/Windows |
-| Rancher Desktop | Open-source alternative to Docker Desktop |
-| minikube | Local k8s cluster (VM-based) |
-| kind | k8s in Docker containers (fast) |
-| k3d | k3s (lightweight k8s) in Docker |
-| Tilt | Dev workflow: auto-rebuild & deploy on file change |
-| Skaffold | Google's dev workflow tool for k8s |
-| Lens | Kubernetes IDE (GUI) |
+| Tool            | Purpose                                            |
+| --------------- | -------------------------------------------------- |
+| Docker Desktop  | Docker + k8s on Mac/Windows                        |
+| Rancher Desktop | Open-source alternative to Docker Desktop          |
+| minikube        | Local k8s cluster (VM-based)                       |
+| kind            | k8s in Docker containers (fast)                    |
+| k3d             | k3s (lightweight k8s) in Docker                    |
+| Tilt            | Dev workflow: auto-rebuild & deploy on file change |
+| Skaffold        | Google's dev workflow tool for k8s                 |
+| Lens            | Kubernetes IDE (GUI)                               |
 
 ---
 
-*Containers solve "works on my machine." Kubernetes solves "works on my cluster." Neither solves "works in my head."*
+_Containers solve "works on my machine." Kubernetes solves "works on my cluster." Neither solves "works in my head."_

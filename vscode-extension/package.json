@@ -33,14 +33,27 @@
       {
         "command": "gitShellHelpers.selectRepos",
         "title": "Git Shell Helpers: Select Whitelisted Repositories"
+      },
+      {
+        "command": "gitShellHelpers.restartMcpServer",
+        "title": "Git Shell Helpers: Restart MCP Server"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gitShellHelpers",
+          "title": "Git Helpers",
+          "icon": "media/git-helpers.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "gitShellHelpers": [
         {
           "type": "webview",
           "id": "gitShellHelpers.communityCache",
-          "name": "Community Cache",
+          "name": "Git Helpers",
           "visibility": "visible"
         }
       ]
