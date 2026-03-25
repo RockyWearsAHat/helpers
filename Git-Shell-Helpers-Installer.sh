@@ -293,31 +293,39 @@ install_all() {
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
   ensure_line_in_file "$ZSHRC" 'export MANPATH="$HOME/man:$MANPATH"'
 
-  # Optionally help the user install gh and copilot-cli if missing.
-  # We keep this macOS/Homebrew-centric and ask for confirmation.
-  if ! command -v gh >/dev/null 2>&1 || ! command -v copilot >/dev/null 2>&1; then
-    echo "[Git-Shell-Helpers-Installer] Detected missing dependencies for AI commits." >&2
-    echo "  - GitHub CLI (gh) present:        $(command -v gh >/dev/null 2>&1 && echo yes || echo no)" >&2
-    echo "  - GitHub Copilot CLI (copilot) present: $(command -v copilot >/dev/null 2>&1 && echo yes || echo no)" >&2
-
-    if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
-      printf "[Git-Shell-Helpers-Installer] Install missing tools via Homebrew now? [y/N]: " >&2
-      read -r reply || reply=""
-      if [[ "$reply" == "y" || "$reply" == "Y" ]]; then
-        if ! command -v gh >/dev/null 2>&1; then
-          echo "[Git-Shell-Helpers-Installer] Installing GitHub CLI (gh) via Homebrew..." >&2
-          brew install gh || echo "[Git-Shell-Helpers-Installer] Failed to install gh; please install it manually." >&2
-        fi
-        if ! command -v copilot >/dev/null 2>&1; then
-          echo "[Git-Shell-Helpers-Installer] Installing GitHub Copilot CLI (copilot) via Homebrew..." >&2
-          brew install copilot-cli || echo "[Git-Shell-Helpers-Installer] Failed to install copilot-cli; please install it manually." >&2
-        fi
+  # -----------------------------------------------------------------------------
+  # HIGHLY RECOMMENDED: Install/Update GitHub Copilot CLI
+  # Enables AI commit messages (git upload -ai) and improves Copilot integration
+  # -----------------------------------------------------------------------------
+  echo ""
+  if command -v gh >/dev/null 2>&1; then
+    if gh extension list 2>/dev/null | grep -q 'gh-copilot'; then
+      printf '[Git-Shell-Helpers-Installer] (HIGHLY RECOMMENDED) GitHub Copilot CLI is installed. Update it now? [Y/n]: ' >&2
+      read -r copilot_reply || copilot_reply=""
+      if [[ -z "$copilot_reply" || "$copilot_reply" == "y" || "$copilot_reply" == "Y" ]]; then
+        gh extension upgrade gh-copilot && \
+          echo "[Git-Shell-Helpers-Installer] GitHub Copilot CLI updated." >&2 || \
+          echo "[Git-Shell-Helpers-Installer] Update failed — try: gh extension upgrade gh-copilot" >&2
+      fi
+    else
+      printf '[Git-Shell-Helpers-Installer] (HIGHLY RECOMMENDED) Install GitHub Copilot CLI? Enables AI commit messages and better Copilot integration. [Y/n]: ' >&2
+      read -r copilot_reply || copilot_reply=""
+      if [[ -z "$copilot_reply" || "$copilot_reply" == "y" || "$copilot_reply" == "Y" ]]; then
+        gh extension install github/gh-copilot && \
+          echo "[Git-Shell-Helpers-Installer] GitHub Copilot CLI installed. Try: gh copilot suggest" >&2 || \
+          echo "[Git-Shell-Helpers-Installer] Install failed — try manually: gh extension install github/gh-copilot" >&2
       else
-        echo "[Git-Shell-Helpers-Installer] To use AI commit messages, please install:" >&2
-        echo "  - GitHub CLI: https://cli.github.com/" >&2
-        echo "  - GitHub Copilot CLI: https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli" >&2
+        echo "[Git-Shell-Helpers-Installer] Skipped. Install later with: gh extension install github/gh-copilot" >&2
       fi
-      fi
+    fi
+  else
+    echo "[Git-Shell-Helpers-Installer] (HIGHLY RECOMMENDED) GitHub CLI (gh) not found." >&2
+    echo "  Install it to enable AI commit messages and better Copilot integration:" >&2
+    if command -v brew >/dev/null 2>&1; then
+      echo "  brew install gh && gh extension install github/gh-copilot" >&2
+    else
+      echo "  https://cli.github.com  →  then: gh extension install github/gh-copilot" >&2
+    fi
   fi
 
   # Optional: install private audit agents and the slash command into standard user-level Copilot locations

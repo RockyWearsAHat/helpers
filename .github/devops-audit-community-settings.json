@@ -3,7 +3,8 @@
   "communityRepo": "RockyWearsAHat/github-shell-helpers",
   "baseBranch": "main",
   "branchPrefix": "automation/community-cache-submission",
-  "mode": "disabled",
+  "mode": "pull-and-auto-submit",
   "whitelistedRepos": [],
+  "shareResearch": true,
   "localClone": "."
 }

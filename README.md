@@ -9,11 +9,13 @@ After the global audit surfaces are installed in VS Code:
 - The audit can run as a full edit pass or as a report-only pass.
 - A normal repository run seeds `.github/devops-audit-context.md` and `.github/devops-audit-research.md`; findings themselves are returned in chat.
 
-Install or refresh the global audit surfaces from any cloned copy of this repo with:
+Install or refresh the global audit surfaces from a cloned copy of this repo with:
 
 ```sh
-git copilot-devops-audit --update-agent --force
+./git-copilot-devops-audit --update-agent --force
 ```
+
+If the helpers are already installed (i.e. `git-copilot-devops-audit` is in your PATH), `git copilot-devops-audit --update-agent --force` also works.
 
 That command installs or refreshes:
 
