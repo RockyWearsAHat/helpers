@@ -41,30 +41,33 @@ DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool s
 _spinner_pid=""
 start_spinner() {
 	local msg="$1"
+	# Only show spinner if stderr is a real terminal
+	if [ ! -t 2 ]; then
+		return 0
+	fi
 	(
+		trap 'exit 0' TERM
 		local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 		local i=0
 		while true; do
-			printf '\r\033[K[git-upload] %s %s' "${frames[$i]}" "$msg" >&2
+			printf '\033[2K\r[git-upload] %s %s' "${frames[$i]}" "$msg" >&2
 			i=$(( (i + 1) % 10 ))
-			sleep 0.1
+			sleep 0.3
 		done
 	) &
 	_spinner_pid=$!
-	disown $_spinner_pid 2>/dev/null || true
 }
 
 stop_spinner() {
 	local final_msg="${1:-}"
-	if [ -n "$_spinner_pid" ] && kill -0 "$_spinner_pid" 2>/dev/null; then
+	if [ -n "$_spinner_pid" ]; then
 		kill "$_spinner_pid" 2>/dev/null || true
 		wait "$_spinner_pid" 2>/dev/null || true
 	fi
 	_spinner_pid=""
+	printf '\033[2K\r' >&2
 	if [ -n "$final_msg" ]; then
-		printf '\r\033[K[git-upload] %s\n' "$final_msg" >&2
-	else
-		printf '\r\033[K' >&2
+		printf '[git-upload] %s\n' "$final_msg" >&2
 	fi
 }
 
@@ -2540,7 +2543,7 @@ Additional context from user: $ai_extra_context"
 			# Display new lines as they arrive
 			if [ "$current_line_count" -gt "$printed_lines" ]; then
 				# Clear the spinner line first
-				printf '\r\033[K' >&2
+				printf '\033[2K\r' >&2
 				
 				# Get and display all new non-empty, non-marker lines
 				# Use head to cap at current_line_count to avoid printing
@@ -2565,10 +2568,10 @@ Additional context from user: $ai_extra_context"
 		
 		# Update spinner on current line
 		elapsed=$((elapsed + 1))
-		elapsed_sec=$((elapsed / 7))  # roughly seconds (sleep 0.15 * 7 ≈ 1s)
-		printf '\r[git-upload] %s Generating commit message... (%ds)' "${frames[$frame_idx]}" "$elapsed_sec" >&2
+		elapsed_sec=$((elapsed / 3))  # roughly seconds (sleep 0.3 * 3 ≈ 1s)
+		printf '\033[2K\r[git-upload] %s Generating commit message... (%ds)' "${frames[$frame_idx]}" "$elapsed_sec" >&2
 		frame_idx=$(( (frame_idx + 1) % 10 ))
-		sleep 0.15
+		sleep 0.3
 	done
 	
 	# Get exit code
@@ -2576,7 +2579,7 @@ Additional context from user: $ai_extra_context"
 	ai_exit_code=$?
 	
 	# Clear spinner line
-	printf '\r\033[K' >&2
+	printf '\033[2K\r' >&2
 	
 	local ai_output
 	ai_output=$(cat "$ai_output_file" 2>/dev/null || echo "")
