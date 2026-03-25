@@ -56,17 +56,23 @@ Optionally pass `context` with brief extra context if it would help the message 
 
 ### When to checkpoint
 
-Call `checkpoint` with `{ "all": true }` when **both** conditions are met:
+Call `checkpoint` with `{ "all": true }` when the user's **intent shifts** — keep it dead simple:
 
-1. **A meaningful milestone occurred.** This includes explicit confirmation AND implicit satisfaction signals — you do not need to wait for the user to say the words:
-   - Short positive replies: "great", "perfect", "nice", "ok", "that works", "👍", "exactly", "yes"
-   - The user moving on to a new unrelated task or topic without reporting a new problem
-   - The user asking to test, demo, or use what you just built
-   - Any reply where the user is clearly satisfied and not raising a new issue
-   - A build succeeds, tests pass, or an error that was being fixed is now gone
-   - The tone shifts from problem-solving to something new
-     Read the emotional intent. You do not need explicit permission.
-2. **A checkpoint has not been recently taken** — don't double-commit the same state. If you just checkpointed moments ago and no new changes have been made, skip it.
+- **"Good. Now let's work on..."** — user is satisfied AND moving on. Checkpoint.
+- **"Perfect", "works", "nice", "👍"** then silence or a new topic — done with this thread. Checkpoint.
+- **User asks to test, demo, or deploy** — the work is considered ready. Checkpoint.
+- **Build passes / error is gone** after a fix cycle — the fix landed. Checkpoint.
+
+The pattern: the user signals something is **done enough** and their attention moves elsewhere. That's the checkpoint moment. Don't overthink it.
+
+**NOT a checkpoint moment:**
+
+- **"Good, but not great"** / **"almost, just change X"** — still refining. Make the edits first, THEN checkpoint after the user accepts.
+- **"Can you also..."** about the SAME feature — still iterating. Finish the iteration.
+
+If the user asks for one or two small follow-up edits on something they're broadly happy with, make the edits then checkpoint — don't checkpoint before the edits.
+
+Do not double-commit the same state. If you just checkpointed and nothing changed, skip it.
 
 Do NOT ask for permission — just call the tool. Checkpoints are local-only (no push) and cheap to amend or squash later, so err on the side of committing.
 
@@ -79,5 +85,6 @@ The one exception: if the user **directly asked** you to checkpoint (e.g. "commi
 **Do NOT checkpoint** when:
 
 - You're still mid-change with uncommitted loose ends.
+- The user is still refining — "good but..." means keep going, not commit.
 - The user hasn't reacted yet and the work hasn't been validated.
 - The only change is a trivial typo fix with no user interaction.

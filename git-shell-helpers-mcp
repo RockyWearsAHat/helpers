@@ -156,6 +156,7 @@ async function generateAiCommitMessage(cwd, extraContext) {
   // Load repo guidance
   let repoGuidance = "";
   for (const gf of [
+    ".github/knowledge/commit-message-craft.md",
     ".github/COMMIT_GUIDELINES.md",
     ".github/commit_guidelines.md",
     ".github/COMMIT_MESSAGE.md",
@@ -189,18 +190,46 @@ Read the recent commit history below. Each commit is part of an ongoing thread.
 Frame yours as the next step in that story. If the diff and the history look
 unrelated to each other, trust the diff — it is the ground truth.
 
+THE CARDINAL RULE: DESCRIBE BEHAVIOR, NOT CODE
+The diff already shows what code changed. Your job is to explain what the
+program DOES DIFFERENTLY now, and WHY that matters. A user, tester, or
+product manager should be able to understand the subject line without
+reading code.
+
 SUBJECT LINE:
-One line, <= 72 chars. Say what the commit DOES or FIXES, not what
-files it touches.
+One line, <= 72 chars. Imperative mood. Describe the EFFECT of the change,
+not the mechanism.
+
+The subject must pass this test: "If applied, this commit will ___"
+
+Good subjects (behavior-focused):
+  'Checkpoint commits now generate their own message from the diff'
+  'Stop spinner from persisting after Ctrl-C'
+  'Let callers pass context hints to improve commit messages'
+  'Fix install button showing up after app is already installed'
+
+Bad subjects (code-focused — NEVER write these):
+  'Update handleCheckpoint() in mcp-server' — narrates the diff
+  'Refactor prompt construction' — says nothing about behavior
+  'Modify extension.js chip click handler' — file names, not effects
+  'Improve error handling' — vague, improve HOW?
 
 BODY:
-Describe the situation, what you did, and why. Someone reading git blame
-should understand the reasoning without opening the diff.
+First sentence: the situation or problem that existed BEFORE this change.
+Then: what you did and why — not how (the code shows how).
+Last: consequences, side effects, what someone should know next.
+
+Write like you're explaining this to a colleague at a whiteboard.
+Name specific observable behaviors, not function names or file paths.
+If there's a number (speed, count, size, timeout), include it.
+If the change is pure refactoring with no behavior change, say so explicitly.
 
 Do NOT use section headers like 'What changed:', 'Why this matters:', etc.
+Do NOT list file names — the diff already shows those.
+Do NOT restate the subject in different words in the body.
 For a tiny fix: one sentence or no body. For a real change: a short paragraph.
 
-Never anthropomorphize code. Never restate the subject in different words.
+Never anthropomorphize code. Never use corporate filler.
 
 OUTPUT FORMAT — output ONLY the commit between these markers:
 COMMIT_BEGIN

@@ -15,41 +15,37 @@ This repository contains **git-shell-helpers**: a collection of shell scripts th
 
 ## Commit Message Style
 
+The cardinal rule: **describe behavior, not code**. The diff shows what code changed — the message explains what the program does differently now and why.
+
 ### Subject Line
 
-- Use imperative mood: "Add feature" not "Added feature"
-- Be specific: name the script/function affected
-- Max 72 characters
-- No period at end
+- Use imperative mood: "Fix", "Add", "Stop", "Let" — not past tense
+- Describe the EFFECT on behavior, not the mechanism or file names
+- Must pass: "If applied, this commit will \_\_\_"
+- ≤ 50 chars ideal, 72 hard max. No trailing period
 
-### Body Structure
+### Body
 
-```
-Summary:
-- Specific change 1 (name files/functions)
-- Specific change 2
-
-Why:
-- Motivation or problem solved
-
-Breaking changes: none | specific list of what breaks
-
-Risk: low|medium|high (rationale)
-
-Testing: <status from test suite>
-```
+- First sentence: the situation or problem BEFORE this change
+- Then: what you did and why (not how — the code shows how)
+- Last: consequences, side effects, things to know going forward
+- NO section headers like "What changed:" / "Why:" — just write naturally
+- If there's a number (speed, count, size), include it
+- Group large changes by behavior, not by file
 
 ### Examples of Good Subjects
 
-- `Add early-exit when nothing to commit in git-upload`
-- `Fix spinner not stopping on SIGINT in git-upload`
+- `Stop spinner from persisting after Ctrl-C`
+- `Checkpoint commits now generate their own AI message`
 - `Reduce AI timeout from 300s to 60s for faster failures`
+- `Fix install button showing up after app is already installed`
 
 ### Examples of Bad Subjects
 
-- `Update script` (which script?)
-- `Fix bug` (what bug?)
-- `Improve performance` (how? where?)
+- `Update git-upload` (what changed about it?)
+- `Refactor prompt construction` (no behavior described)
+- `Modify extension.js chip handler` (file names, not effects)
+- `Improve error handling` (improve HOW?)
 
 ## File Conventions
 
