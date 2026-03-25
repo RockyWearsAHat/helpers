@@ -249,6 +249,8 @@ Good:
 Bad:
   '\''Update utils.ts'\'' — robotic, says nothing useful
   '\''Refactor implementation details'\'' — meaningless
+  '\''Support cancelling MCP tool calls in server'\'' — too jargony
+  '\''Auto-detect checkpoint cwd via MCP roots'\'' — insider terminology
 
 BODY:
 Describe the situation, what you did, and why. Someone reading git blame
@@ -267,9 +269,15 @@ WHAT code was touched. Name the specific things. If there'\''s a number
 (speed, count, size), include it.
 
 Never anthropomorphize code. Never restate the subject in different words.
-Never use corporate filler.
+Never use corporate filler like '\''formalize'\'', '\''artifacts'\'', '\''subsystem'\'',
+'\''implement'\'', '\''enhance'\'', '\''leverage'\''. Write like a human developer talking
+to another developer. If a non-programmer couldn'\''t roughly understand
+the subject line, it'\''s too jargony.
 
-OUTPUT FORMAT — output ONLY the commit between these markers:
+OUTPUT FORMAT — output ONLY the commit message between these markers.
+Each marker MUST be on its own line with nothing else on it.
+Do NOT put COMMIT_END on the same line as message text.
+
 COMMIT_BEGIN
 <commit message>
 COMMIT_END
@@ -332,6 +340,9 @@ Additional context from developer: $extra_context"
 		/^COMMIT_END$/   { capture=0; exit }
 		capture { print }
 	')
+
+	# Strip inline COMMIT_END from message (AI sometimes appends it to last line)
+	commit_msg=$(printf '%s\n' "$commit_msg" | sed 's/[[:space:]]*COMMIT_END[[:space:]]*$//')
 
 	if [ -z "${commit_msg// /}" ]; then
 		# Fallback: try COMMIT: prefix

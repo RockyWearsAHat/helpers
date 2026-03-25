@@ -179,7 +179,7 @@ Add to your project's `.vscode/mcp.json` (or user-level mcp.json):
 | -------------------------- | ---------------------------------------------------------- |
 | `search_web`               | Web search via local SearXNG (Google, Bing, DDG, etc.)     |
 | `scrape_webpage`           | Fetch up to 5 URLs, strip HTML chrome, return cleaned text |
-| `search_knowledge_cache`   | Search `.github/knowledge/` Markdown files by keyword      |
+| `search_knowledge_cache`   | Search `knowledge/` Markdown files by keyword              |
 | `read_knowledge_note`      | Read a specific knowledge note                             |
 | `write_knowledge_note`     | Create or overwrite a knowledge note                       |
 | `update_knowledge_note`    | Replace a section by heading in a note                     |

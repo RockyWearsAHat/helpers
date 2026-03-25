@@ -18,7 +18,9 @@ No API keys or external credentials are required.
 .PP
 The knowledge cache operates on Markdown files under
 .I .github/knowledge/
-in the current working directory, providing persistent per-project research
+in the current working directory (or a bundled
+.I knowledge/
+directory shipped with the tool), providing persistent per-project research
 notes that survive across sessions.
 .SH MCP TOOLS
 .TP
@@ -150,6 +152,9 @@ User-level configuration file (preferred).
 .TP
 .I .github/knowledge/
 Per-project knowledge cache directory (relative to cwd).
+.TP
+.I knowledge/
+Bundled community knowledge directory (relative to the script).
 .SH SEE ALSO
 .BR git-copilot-devops-audit (1),
 .BR git-upload (1)

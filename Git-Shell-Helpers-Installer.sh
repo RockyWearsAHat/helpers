@@ -262,6 +262,42 @@ install_all() {
 
   configure_community_cache
 
+  # Copilot config (product source: agents, instructions, skills, prompts)
+  # Needed by git-copilot-devops-audit --update-agent to install globally
+  local CC="$BIN_DIR/copilot-config"
+  ensure_dir "$CC/agents"
+  ensure_dir "$CC/instructions"
+  ensure_dir "$CC/prompts"
+  ensure_dir "$CC/skills/copilot-research"
+  ensure_dir "$CC/skills/devops-audit-community-submit"
+  ensure_dir "$CC/skills/devops-audit-context"
+  ensure_dir "$CC/skills/devops-audit-evaluation"
+  ensure_dir "$CC/skills/devops-audit-fix"
+  ensure_dir "$CC/skills/devops-audit-orchestration"
+
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAudit.agent.md" "$CC/agents/DevOpsAudit.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditCommunitySubmit.agent.md" "$CC/agents/DevOpsAuditCommunitySubmit.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditContext.agent.md" "$CC/agents/DevOpsAuditContext.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditEvaluate.agent.md" "$CC/agents/DevOpsAuditEvaluate.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditImplement.agent.md" "$CC/agents/DevOpsAuditImplement.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditResearch.agent.md" "$CC/agents/DevOpsAuditResearch.agent.md"
+
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/devops-audit-router.instructions.md" "$CC/instructions/devops-audit-router.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/gsh-mcp-tools.instructions.md" "$CC/instructions/gsh-mcp-tools.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/git-checkpoint.instructions.md" "$CC/instructions/git-checkpoint.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/shell-scripts.instructions.md" "$CC/instructions/shell-scripts.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/vscode-tool-safety.instructions.md" "$CC/instructions/vscode-tool-safety.instructions.md"
+
+  fetch "$REPO_RAW_BASE/copilot-config/prompts/copilot-devops-audit.prompt.md" "$CC/prompts/copilot-devops-audit.prompt.md"
+
+  fetch "$REPO_RAW_BASE/copilot-config/skills/copilot-research/SKILL.md" "$CC/skills/copilot-research/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/copilot-research/studybase.md" "$CC/skills/copilot-research/studybase.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-community-submit/SKILL.md" "$CC/skills/devops-audit-community-submit/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-context/SKILL.md" "$CC/skills/devops-audit-context/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-evaluation/SKILL.md" "$CC/skills/devops-audit-evaluation/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-fix/SKILL.md" "$CC/skills/devops-audit-fix/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-orchestration/SKILL.md" "$CC/skills/devops-audit-orchestration/SKILL.md"
+
   # Man pages (from repo's man/man1)
   fetch "$REPO_RAW_BASE/man/man1/git-upload.1"     "$MAN_DIR/git-upload.1"
   fetch "$REPO_RAW_BASE/man/man1/git-get.1"        "$MAN_DIR/git-get.1"

@@ -5,7 +5,7 @@ description: "Critical rules for using VS Code's built-in agent tools correctly.
 
 # VS Code Tool Safety Rules
 
-For the full reference, see `.github/knowledge/vscode-tool-quirks.md`.
+For the full reference, see the `vscode-tool-quirks.md` knowledge note.
 
 ## Terminal Commands
 

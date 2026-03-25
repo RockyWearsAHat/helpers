@@ -32,14 +32,15 @@ Parameters:
 **`scrape_webpage`** — Fetch and return the text content of a URL. Use for reading documentation, blog posts, or reference pages.
 
 **`search_knowledge_index`** — Search the knowledge base using TF-IDF indexes. Merges results from two sources:
-  - **Local index** — built from `<workspace>/.github/knowledge/` (project-specific notes).
-  - **Community index** — pre-built on GitHub (`RockyWearsAHat/github-shell-helpers`), fetched with ETag caching to `~/.cache/gsh/`.
 
-  Results are tagged with `source: "local"` or `source: "community"`. Falls back to keyword search if neither index is available. **Prefer this over `search_knowledge_cache`**.
+- **Local index** — built from `<workspace>/.github/knowledge/` (project-specific notes) or the bundled `knowledge/` directory.
+- **Community index** — pre-built on GitHub (`RockyWearsAHat/github-shell-helpers`), fetched with ETag caching to `~/.cache/gsh/`.
+
+Results are tagged with `source: "local"` or `source: "community"`. Falls back to keyword search if neither index is available. **Prefer this over `search_knowledge_cache`**.
 
 **`build_knowledge_index`** — Build or rebuild the local workspace TF-IDF index (`<workspace>/.github/knowledge/_index.json`). Only affects the workspace index — the community index is pre-built on GitHub. Called automatically after write/update/append operations. Run manually after bulk additions.
 
-**`search_knowledge_cache`** — Keyword search over `.github/knowledge/` files (both workspace and repo). Use when you need a quick grep-style search or the index is unavailable.
+**`search_knowledge_cache`** — Keyword search over knowledge files (both workspace `.github/knowledge/` and bundled `knowledge/`). Use when you need a quick grep-style search or the index is unavailable.
 
 **`read_knowledge_note`** — Read the full content of a knowledge note by path. Resolution order: local workspace → repo knowledge root → GitHub community (fetched with ETag cache). Works for both local and community notes without needing the repo cloned.
 

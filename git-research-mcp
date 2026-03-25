@@ -50,7 +50,7 @@ const WORKSPACE_ROOT = (() => {
   return __dirname;
 })();
 const KNOWLEDGE_ROOT = path.join(WORKSPACE_ROOT, ".github", "knowledge");
-const REPO_KNOWLEDGE_ROOT = path.join(__dirname, ".github", "knowledge");
+const REPO_KNOWLEDGE_ROOT = path.join(__dirname, "knowledge");
 
 // Local workspace index — built from WORKSPACE_ROOT/.github/knowledge/
 const LOCAL_INDEX_PATH = path.join(KNOWLEDGE_ROOT, "_index.json");
@@ -152,7 +152,7 @@ async function fetchGitHubFile(repoPath) {
  * Uses ETag caching so subsequent calls within 10 min are instant.
  */
 async function fetchCommunityIndex() {
-  const cacheKey = ".github/knowledge/_index.json";
+  const cacheKey = "knowledge/_index.json";
   // Fast path: if we checked recently, use local cache.
   if (isCacheFresh(cacheKey)) {
     const cacheFile = path.join(
@@ -184,7 +184,7 @@ async function readKnowledgeFileContent(filename) {
     }
   }
   // Fetch from GitHub community knowledge
-  const { text } = await fetchGitHubFile(`.github/knowledge/${filename}`);
+  const { text } = await fetchGitHubFile(`knowledge/${filename}`);
   return text;
 }
 
@@ -665,7 +665,7 @@ async function buildKnowledgeIndex(_args) {
     (f) => f.endsWith(".md") && !f.startsWith("_"),
   );
   if (!mdFiles.length)
-    throw new Error("No markdown files found in workspace .github/knowledge/.");
+    throw new Error("No markdown files found in workspace knowledge directory.");
 
   // Phase 1: read files and compute per-doc term frequency.
   const docs = [];
@@ -889,7 +889,7 @@ async function searchKnowledgeIndex(args) {
         /* skip */
       }
       return {
-        path: `.github/knowledge/${filename}`,
+        path: `knowledge/${filename}`,
         title: fileInfo.title,
         score: Math.round(score * 1000) / 1000,
         top_terms: fileInfo.top_terms.slice(0, 8),
@@ -1019,7 +1019,7 @@ async function searchKnowledgeCache(args) {
   if (!files.length) {
     return {
       query,
-      root: ".github/knowledge",
+      root: "knowledge",
       total_results: "0",
       results: [],
     };
@@ -1055,7 +1055,7 @@ async function searchKnowledgeCache(args) {
 
   return {
     query,
-    root: ".github/knowledge",
+    root: "knowledge",
     total_results: String(results.length),
     results: results.slice(0, maxResults).map((result, index) => ({
       rank: index + 1,
@@ -1084,11 +1084,11 @@ async function readKnowledgeNote(args) {
 
   if (!inWorkspace && !inRepo) {
     throw new Error(
-      "read_knowledge_note only allows files under .github/knowledge/.",
+      "read_knowledge_note only allows files under the knowledge directory.",
     );
   }
 
-  // Determine the filename relative to .github/knowledge/
+  // Determine the filename relative to the knowledge root
   const filename = inWorkspace ? relativeToRoot : relativeToRepo;
 
   // Resolution order: local workspace → repo knowledge root → GitHub community
@@ -1120,7 +1120,7 @@ async function readKnowledgeNote(args) {
   if (!text) {
     try {
       const { text: fetched } = await fetchGitHubFile(
-        `.github/knowledge/${filename}`,
+        `knowledge/${filename}`,
       );
       text = fetched;
       source = "community";
@@ -1137,7 +1137,7 @@ async function readKnowledgeNote(args) {
   const trimmed = text.trim();
 
   return {
-    path: `.github/knowledge/${filename}`,
+    path: `knowledge/${filename}`,
     source,
     title: getMarkdownTitle(
       trimmed,
@@ -1151,7 +1151,7 @@ function resolveKnowledgePath(notePath) {
   const resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
   const relativeToRoot = path.relative(KNOWLEDGE_ROOT, resolvedPath);
   if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
-    throw new Error("Knowledge note path must be under .github/knowledge/.");
+    throw new Error("Knowledge note path must be under the knowledge directory.");
   }
   if (!resolvedPath.endsWith(".md")) {
     throw new Error("Knowledge notes must be .md files.");
@@ -1587,7 +1587,7 @@ const RESEARCH_TOOLS = [
   {
     name: "search_knowledge_cache",
     description:
-      "Search the repo-local durable knowledge cache under .github/knowledge/ and return matching note paths with snippets.",
+      "Search the durable knowledge cache and return matching note paths with snippets. Searches both the local workspace (.github/knowledge/) and the community knowledge base (knowledge/ in the repo or fetched from GitHub).",
     inputSchema: {
       type: "object",
       properties: {
@@ -1606,14 +1606,14 @@ const RESEARCH_TOOLS = [
   {
     name: "read_knowledge_note",
     description:
-      "Read a specific knowledge note from .github/knowledge/ using a workspace-relative path.",
+      "Read a specific knowledge note. Resolves from workspace (.github/knowledge/), then repo (knowledge/), then GitHub community.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description:
-            "Workspace-relative path to a note under .github/knowledge/.",
+            "Path to a knowledge note (e.g. .github/knowledge/my-topic.md or knowledge/my-topic.md).",
         },
         max_chars: {
           type: "integer",
@@ -1674,7 +1674,7 @@ const RESEARCH_TOOLS = [
   {
     name: "write_knowledge_note",
     description:
-      "Create or overwrite a knowledge note under .github/knowledge/. Use for persisting research findings, architecture facts, or debug lessons learned.",
+      "Create or overwrite a knowledge note in the workspace's .github/knowledge/ directory. Use for persisting research findings, architecture facts, or debug lessons learned.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1706,7 +1706,7 @@ const RESEARCH_TOOLS = [
         path: {
           type: "string",
           description:
-            "Workspace-relative path to the note under .github/knowledge/.",
+            "Path to the knowledge note.",
         },
         heading: {
           type: "string",
@@ -1732,7 +1732,7 @@ const RESEARCH_TOOLS = [
         path: {
           type: "string",
           description:
-            "Workspace-relative path to the note under .github/knowledge/.",
+            "Path to the knowledge note.",
         },
         content: {
           type: "string",
@@ -1767,14 +1767,14 @@ const RESEARCH_TOOLS = [
   {
     name: "submit_community_research",
     description:
-      "Submit a knowledge note from .github/knowledge/ to the community repository as a pull request. Requires community research sharing to be enabled in settings. The note content is validated for privacy before submission.",
+      "Submit a knowledge note to the community repository as a pull request. Requires community research sharing to be enabled in settings. The note content is validated for privacy before submission.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description:
-            "Workspace-relative path to the knowledge note under .github/knowledge/.",
+            "Path to the knowledge note to submit.",
         },
       },
       required: ["path"],
@@ -1783,7 +1783,7 @@ const RESEARCH_TOOLS = [
   {
     name: "build_knowledge_index",
     description:
-      "Build or rebuild the local workspace TF-IDF search index (_index.json) from files in <workspace>/.github/knowledge/. The community knowledge index is pre-built on GitHub and fetched automatically — this tool only rebuilds the local workspace index. Run manually after bulk additions; also rebuilt automatically after write/update/append operations.",
+      "Build or rebuild the local workspace TF-IDF search index (_index.json) from knowledge files. The community knowledge index is pre-built on GitHub and fetched automatically — this tool only rebuilds the local workspace index. Run manually after bulk additions; also rebuilt automatically after write/update/append operations.",
     inputSchema: {
       type: "object",
       properties: {},

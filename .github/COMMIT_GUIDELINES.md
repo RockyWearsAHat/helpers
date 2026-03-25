@@ -24,18 +24,21 @@ This repository contains **git-shell-helpers**: a collection of shell scripts th
 
 ### Body Structure
 
+Write naturally — describe the situation, what you did, and why. Someone
+reading git blame should understand the reasoning without opening the diff.
+
+DO NOT use rigid section headers like "Summary:", "Why:", "What changed:".
+Those scream "AI wrote this". Just write a short paragraph or bullets.
+
+For a tiny fix: one sentence or no body at all.
+For a small change: a short paragraph.
+For a medium change: a sentence of context, then bullets.
+
+Always include these at the end, after a blank line:
+
 ```
-Summary:
-- Specific change 1 (name files/functions)
-- Specific change 2
-
-Why:
-- Motivation or problem solved
-
 Breaking changes: none | specific list of what breaks
-
 Risk: low|medium|high (rationale)
-
 Testing: <status from test suite>
 ```
 
