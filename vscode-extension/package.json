@@ -1,6 +1,6 @@
 {
   "name": "git-shell-helpers",
-  "displayName": "Git Shell Helpers",
+  "displayName": "GitHub Shell Helpers",
   "description": "Settings for git-shell-helpers community cache participation and DevOps audit configuration.",
   "version": "0.3.4",
   "publisher": "RockyWearsAHat",
@@ -52,7 +52,7 @@
       "activitybar": [
         {
           "id": "gitShellHelpers",
-          "title": "Git Helpers",
+          "title": "GitHub Shell Helpers",
           "icon": "media/git-helpers.svg"
         }
       ]
@@ -62,7 +62,7 @@
         {
           "type": "webview",
           "id": "gitShellHelpers.communityCache",
-          "name": "Git Helpers",
+          "name": "GitHub Shell Helpers",
           "icon": "media/git-helpers.svg",
           "visibility": "visible"
         }

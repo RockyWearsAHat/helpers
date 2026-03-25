@@ -80,7 +80,7 @@ function registerMcpServerProvider(context) {
 
         return [
           new vscode.McpStdioServerDefinition(
-            "gsh",
+            "GitHub Shell Helpers",
             "node",
             [serverPath],
             buildGitShellHelpersMcpEnv(serverPath),
@@ -814,9 +814,68 @@ class CommunityCacheViewProvider {
   }
   .footer-gear:hover { opacity: 1; }
   .footer-gear svg { width: 14px; height: 14px; fill: currentColor; }
+  .footer-gear.active { opacity: 1; }
+
+  /* Account panel overlay */
+  body { position: relative; }
+  .acct-panel {
+    display: none;
+    position: absolute;
+    bottom: 40px;
+    left: 8px; right: 8px;
+    background: var(--vscode-editorWidget-background, var(--vscode-input-background, var(--vscode-editor-background)));
+    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(128,128,128,0.3)));
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.28);
+    z-index: 200;
+    overflow: hidden;
+  }
+  .acct-panel.open { display: block; }
+  .acct-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12));
+  }
+  .acct-avatar {
+    width: 32px; height: 32px; flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--vscode-button-background);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .acct-avatar svg { width: 18px; height: 18px; fill: var(--vscode-button-foreground, #fff); }
+  .acct-info { flex: 1; min-width: 0; }
+  .acct-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acct-host { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 1px; }
+  .acct-actions { padding: 6px; }
+  .acct-btn {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 6px 8px;
+    border: none; background: none; border-radius: 4px;
+    font-size: 12px; color: var(--vscode-foreground);
+    cursor: pointer; text-align: left; font-family: inherit;
+  }
+  .acct-btn:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
+  .acct-btn svg { width: 13px; height: 13px; fill: currentColor; flex-shrink: 0; opacity: 0.7; }
 </style>
 </head>
 <body>
+  <div class="acct-panel" id="acctPanel">
+    <div class="acct-header">
+      <div class="acct-avatar">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </div>
+      <div class="acct-info">
+        <div class="acct-name">${escapeHtml(cachedUser)}</div>
+        <div class="acct-host">github.com</div>
+      </div>
+    </div>
+    <div class="acct-actions">
+      <button class="acct-btn" id="signOutBtn">
+        <svg viewBox="0 0 16 16"><path d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/><path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/></svg>
+        Sign out
+      </button>
+    </div>
+  </div>
   <div class="content">
     <div class="sect">
       <div class="sect-head">
@@ -847,7 +906,7 @@ class CommunityCacheViewProvider {
       <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       <span>${escapeHtml(cachedUser)}</span>
     </div>
-    <div class="footer-gear" id="logoutBtn" title="Account settings">
+    <div class="footer-gear" id="gearBtn" title="Account">
       <svg viewBox="0 0 16 16"><path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.2.7-2.4.5v1.2l2.4.5.3.7-1.3 2 .8.8 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.8-.8-1.3-2 .3-.7 2.4-.5V6.8l-2.4-.5-.3-.7 1.3-2-.8-.8-2 1.3-.7-.2zM9.4 8c0 .8-.6 1.4-1.4 1.4S6.6 8.8 6.6 8 7.2 6.6 8 6.6s1.4.6 1.4 1.4z"/></svg>
     </div>
   </div>
@@ -866,7 +925,19 @@ class CommunityCacheViewProvider {
       });
     });
     document.getElementById("manageMcpBtn")?.addEventListener("click", () => vscode.postMessage({type:"openMcpControls"}));
-    document.getElementById("logoutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
+    const gearBtn = document.getElementById("gearBtn");
+    const acctPanel = document.getElementById("acctPanel");
+    gearBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = acctPanel.classList.toggle("open");
+      gearBtn.classList.toggle("active", open);
+    });
+    document.addEventListener("click", () => {
+      acctPanel?.classList.remove("open");
+      gearBtn?.classList.remove("active");
+    });
+    acctPanel?.addEventListener("click", (e) => e.stopPropagation());
+    document.getElementById("signOutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
     document.getElementById("selectReposBtn")?.addEventListener("click", () => vscode.postMessage({type:"selectRepos"}));
     document.getElementById("modeSelect")?.addEventListener("change", (e) => vscode.postMessage({type:"setMode", value: e.target.value}));
   </script>
@@ -994,9 +1065,20 @@ async function loginGitHub() {
     return;
   }
   try {
-    const session = await vscode.authentication.getSession("github", ["repo"], {
-      createIfNone: true,
-    });
+    const GITHUB_SCOPES = [
+      "repo",
+      "gist",
+      "read:org",
+      "workflow",
+      "write:gpg_key",
+    ];
+    const session = await vscode.authentication.getSession(
+      "github",
+      GITHUB_SCOPES,
+      {
+        createIfNone: true,
+      },
+    );
     if (!session) return;
 
     cachedUser = session.account.label;
