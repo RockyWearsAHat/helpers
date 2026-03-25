@@ -23,6 +23,7 @@ Parameters:
 - `all` (boolean) — Stage all changes including untracked files (`git add -A`) before committing. Default: `true`.
 - `push` (boolean) — Push to remote after committing. Default: `false`.
 - `force` (boolean) — Override a mid-session disable. Only use when the user explicitly asked for a checkpoint and the previous call returned `[no-op]`.
+- `cwd` (string, optional) — **Required when calling from any workspace that is not `~/bin`.** Absolute path to the git repository to commit in. The gsh server is global and defaults to `~/bin`; without `cwd`, all checkpoint calls from other workspaces will commit to the wrong repo.
 
 ## Research — Web Search & Knowledge Cache
 
@@ -53,4 +54,4 @@ Parameters:
 - The `gsh` server is registered globally via `~/Library/Application Support/Code/User/mcp.json`. It is not workspace-specific.
 - If research tools are unavailable (`search_web`, `scrape_webpage`), a local SearXNG instance may not be running. Start it with: `docker run -d --name searxng -p 8888:8080 searxng/searxng:latest`
 - If vision tools are unavailable, the gsh-vision VS Code extension may not be active. Install it via the git-shell-helpers installer.
-- The `checkpoint` tool always commits to the git repository containing the open workspace. It uses the workspace root, not the server's working directory.
+- The `checkpoint` tool defaults to the server's startup directory (`~/bin`). **Always pass `cwd` when calling from any other workspace**, otherwise the commit will land in the wrong repository.
