@@ -665,7 +665,9 @@ async function buildKnowledgeIndex(_args) {
     (f) => f.endsWith(".md") && !f.startsWith("_"),
   );
   if (!mdFiles.length)
-    throw new Error("No markdown files found in workspace knowledge directory.");
+    throw new Error(
+      "No markdown files found in workspace knowledge directory.",
+    );
 
   // Phase 1: read files and compute per-doc term frequency.
   const docs = [];
@@ -1119,9 +1121,7 @@ async function readKnowledgeNote(args) {
   // 3. GitHub community knowledge (fetched with ETag cache)
   if (!text) {
     try {
-      const { text: fetched } = await fetchGitHubFile(
-        `knowledge/${filename}`,
-      );
+      const { text: fetched } = await fetchGitHubFile(`knowledge/${filename}`);
       text = fetched;
       source = "community";
     } catch {
@@ -1151,7 +1151,9 @@ function resolveKnowledgePath(notePath) {
   const resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
   const relativeToRoot = path.relative(KNOWLEDGE_ROOT, resolvedPath);
   if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
-    throw new Error("Knowledge note path must be under the knowledge directory.");
+    throw new Error(
+      "Knowledge note path must be under the knowledge directory.",
+    );
   }
   if (!resolvedPath.endsWith(".md")) {
     throw new Error("Knowledge notes must be .md files.");
@@ -1705,8 +1707,7 @@ const RESEARCH_TOOLS = [
       properties: {
         path: {
           type: "string",
-          description:
-            "Path to the knowledge note.",
+          description: "Path to the knowledge note.",
         },
         heading: {
           type: "string",
@@ -1731,8 +1732,7 @@ const RESEARCH_TOOLS = [
       properties: {
         path: {
           type: "string",
-          description:
-            "Path to the knowledge note.",
+          description: "Path to the knowledge note.",
         },
         content: {
           type: "string",
@@ -1773,8 +1773,7 @@ const RESEARCH_TOOLS = [
       properties: {
         path: {
           type: "string",
-          description:
-            "Path to the knowledge note to submit.",
+          description: "Path to the knowledge note to submit.",
         },
       },
       required: ["path"],
