@@ -588,8 +588,6 @@ maybe_install_aioserver_vision_extension() {
   fi
 }
 
-# Read existing mcp.json, add/update a server entry, write back.
-# Usage: upsert_mcp_server <server_name> <json_block>
 upsert_mcp_server() {
   local name="$1"
   local block="$2"
@@ -597,30 +595,24 @@ upsert_mcp_server() {
 
   ensure_dir "$(dirname "$mcp_file")"
 
-  if [ ! -f "$mcp_file" ]; then
-    cat >"$mcp_file" <<MCPEOF
-{
-  "servers": {
-    ${name}: ${block}
-  }
-}
-MCPEOF
-    return
-  fi
-
-  # Use python3 (available on macOS) to safely merge JSON
   python3 - "$mcp_file" "$name" "$block" <<'PYEOF'
 import json, sys
+
 mcp_path, srv_name, srv_block = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
-    with open(mcp_path, "r") as f:
+    with open(mcp_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 except (json.JSONDecodeError, FileNotFoundError):
     data = {}
+
 if "servers" not in data or not isinstance(data["servers"], dict):
     data["servers"] = {}
+if "inputs" in data and not isinstance(data["inputs"], list):
+    data["inputs"] = []
+
 data["servers"][srv_name] = json.loads(srv_block)
-with open(mcp_path, "w") as f:
+
+with open(mcp_path, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
 PYEOF
@@ -632,7 +624,7 @@ configure_mcp_tools() {
   local install_vision=true
 
   echo ""
-  echo "[install-git-shell-helpers] MCP Tools (combined server: git-shell-helpers)"
+  echo "[install-git-shell-helpers] MCP Tools (global via Git Shell Helpers extension)"
   echo "  Bundled tool modules:"
   echo "    1) git-research-mcp  — web search & knowledge cache for Copilot agents"
   echo "    2) aioserver-vision  — screenshot analysis with vision models"
@@ -674,41 +666,29 @@ configure_mcp_tools() {
     fi
   fi
 
-  # Build the env block for disabling modules the user opted out of
-  local env_block=""
-  if [ "$install_research" = false ]; then
-    env_block="${env_block:+$env_block, }\"GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH\": \"1\""
-  fi
-  if [ "$install_vision" = false ]; then
-    env_block="${env_block:+$env_block, }\"GIT_SHELL_HELPERS_MCP_DISABLE_VISION\": \"1\""
-  fi
+  local server_json='{
+    "type": "stdio",
+    "command": "node",
+    "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"]
+  }'
+  upsert_mcp_server "gsh" "$server_json"
 
-  local server_json
-  if [ -n "$env_block" ]; then
-    server_json='{
-      "type": "stdio",
-      "command": "node",
-      "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"],
-      "env": { '"${env_block}"' }
-    }'
-  else
-    server_json='{
-      "type": "stdio",
-      "command": "node",
-      "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"]
-    }'
-  fi
-
-  upsert_mcp_server '"git-shell-helpers"' "$server_json"
-
-  echo "[install-git-shell-helpers] Configured MCP server: git-shell-helpers"
+  echo "[install-git-shell-helpers] Installed MCP server runtime: ${BIN_DIR}/git-shell-helpers-mcp"
   if [ "$install_research" = true ]; then
     echo "  ✓ research tools (web search, knowledge cache, fetch pages)"
+  else
+    echo "  - research tools left available for later install"
   fi
   if [ "$install_vision" = true ]; then
     echo "  ✓ vision tools (screenshot analysis)"
+  else
+    echo "  - vision tools not installed"
   fi
-  echo "[install-git-shell-helpers] MCP config written to: $VSCODE_MCP_JSON"
+  if [[ -n "$code_cli" ]]; then
+    echo "[install-git-shell-helpers] Global MCP config written to: $VSCODE_MCP_JSON"
+    echo "[install-git-shell-helpers] VS Code should discover git-shell-helpers from the global mcp.json entry above."
+    echo "[install-git-shell-helpers] Reload VS Code to refresh MCP server discovery."
+  fi
 }
 
 main() {

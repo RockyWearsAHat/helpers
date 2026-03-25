@@ -167,9 +167,7 @@ async function handleVisionToolCall(toolName, toolArguments) {
     if (!response.ok) {
       throw new Error(response.error || "Extension IPC failed");
     }
-    return [
-      { type: "text", text: response.result },
-    ];
+    return [{ type: "text", text: response.result }];
   }
 
   if (toolName === "analyze_images") {

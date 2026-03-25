@@ -3,6 +3,7 @@
 set -euo pipefail
 
 AUDIT_CMD="/usr/local/bin/git-copilot-devops-audit"
+VSCODE_EXTENSION_DIR="/usr/local/share/github-shell-helpers/vscode"
 
 log() {
 	echo "[github-shell-helpers pkg] $1"
@@ -33,6 +34,40 @@ run_as_console_user() {
 	/usr/bin/sudo -H -u "$user_name" -- "$@"
 }
 
+upsert_mcp_server_for_user() {
+	local user_name="$1"
+	local user_home="$2"
+	local server_path="$3"
+	local mcp_file="$user_home/Library/Application Support/Code/User/mcp.json"
+
+	run_as_console_user "$user_name" /bin/mkdir -p "$(dirname "$mcp_file")"
+	run_as_console_user "$user_name" /usr/bin/python3 - "$mcp_file" "$server_path" <<'PYEOF'
+import json, sys
+
+mcp_path, server_path = sys.argv[1], sys.argv[2]
+try:
+	with open(mcp_path, "r", encoding="utf-8") as f:
+		data = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+	data = {}
+
+if "servers" not in data or not isinstance(data["servers"], dict):
+	data["servers"] = {}
+if "inputs" in data and not isinstance(data["inputs"], list):
+	data["inputs"] = []
+
+data["servers"]["gsh"] = {
+	"type": "stdio",
+	"command": "node",
+	"args": [server_path],
+}
+
+with open(mcp_path, "w", encoding="utf-8") as f:
+	json.dump(data, f, indent=2)
+	f.write("\n")
+PYEOF
+}
+
 console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
 
 if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
@@ -52,6 +87,8 @@ fi
 
 vscode_user_dir="$user_home/Library/Application Support/Code/User"
 run_as_console_user "$console_user" /bin/mkdir -p "$vscode_user_dir/agents" "$vscode_user_dir/prompts"
+upsert_mcp_server_for_user "$console_user" "$user_home" "/usr/local/bin/git-shell-helpers-mcp"
+log "Wrote global MCP config for $console_user at $vscode_user_dir/mcp.json."
 
 if code_cli="$(find_vscode_cli "$user_home")"; then
 	if run_as_console_user "$console_user" "$code_cli" --install-extension GitHub.copilot --force >/dev/null 2>&1; then
@@ -64,6 +101,17 @@ if code_cli="$(find_vscode_cli "$user_home")"; then
 		log "Installed or updated VS Code extension GitHub.copilot-chat for $console_user."
 	else
 		log "Failed to install VS Code extension GitHub.copilot-chat for $console_user."
+	fi
+
+	bundled_vsix="$(find "$VSCODE_EXTENSION_DIR" -maxdepth 1 -name 'git-shell-helpers-*.vsix' -print -quit 2>/dev/null || true)"
+	if [ -n "$bundled_vsix" ]; then
+		if run_as_console_user "$console_user" "$code_cli" --install-extension "$bundled_vsix" --force >/dev/null 2>&1; then
+			log "Installed or updated VS Code extension git-shell-helpers for $console_user."
+		else
+			log "Failed to install VS Code extension git-shell-helpers for $console_user."
+		fi
+	else
+		log "Bundled git-shell-helpers VS Code extension not found at $VSCODE_EXTENSION_DIR."
 	fi
 	else
 	log "No usable VS Code CLI found for $console_user. The audit surfaces will still be installed, but the Copilot extensions may need to be installed manually."

@@ -148,10 +148,15 @@ function defaultScreenshotPath() {
 
 function execPromise(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 15000, ...options }, (err, stdout, stderr) => {
-      if (err) reject(new Error(stderr || err.message));
-      else resolve(stdout.trim());
-    });
+    execFile(
+      cmd,
+      args,
+      { timeout: 15000, ...options },
+      (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout.trim());
+      },
+    );
   });
 }
 
@@ -169,7 +174,8 @@ async function findWindowIdByAppName(appName) {
 }
 
 async function takeScreenshot(input) {
-  const outputPath = input.output_path || input.outputPath || defaultScreenshotPath();
+  const outputPath =
+    input.output_path || input.outputPath || defaultScreenshotPath();
   const mode = input.mode || "fullscreen";
 
   const dir = path.dirname(outputPath);
@@ -262,7 +268,11 @@ async function analyzeImages(input, token) {
     const imageUri = vscode.Uri.file(paths[i]);
     const sidecar = await readOptionalSidecar(imageUri);
     if (sidecar) {
-      promptLines.push("", `Image ${i + 1} (${path.basename(paths[i])}) metadata:`, sidecar);
+      promptLines.push(
+        "",
+        `Image ${i + 1} (${path.basename(paths[i])}) metadata:`,
+        sidecar,
+      );
     }
   }
 
@@ -472,15 +482,18 @@ function registerTool(context) {
     async prepareInvocation(options) {
       const mode = options.input.mode || "fullscreen";
       const appName = options.input.appName || options.input.app_name || "";
-      const label = mode === "window" && appName
-        ? `Capturing ${appName} window`
-        : `Capturing ${mode} screenshot`;
+      const label =
+        mode === "window" && appName
+          ? `Capturing ${appName} window`
+          : `Capturing ${mode} screenshot`;
       return { invocationMessage: label };
     },
   };
 
   for (const toolName of screenshotToolNames) {
-    context.subscriptions.push(vscode.lm.registerTool(toolName, screenshotTool));
+    context.subscriptions.push(
+      vscode.lm.registerTool(toolName, screenshotTool),
+    );
   }
 }
 
@@ -515,9 +528,7 @@ function registerCommand(context) {
             { imagePaths, goal },
             new vscode.CancellationTokenSource().token,
           );
-          const pathList = imagePaths
-            .map((p) => `- ${p}`)
-            .join("\n");
+          const pathList = imagePaths.map((p) => `- ${p}`).join("\n");
           const document = await vscode.workspace.openTextDocument({
             language: "markdown",
             content: `# Image Analysis\n\nImages (${result.imageCount}):\n${pathList}\n\nModel: ${result.model}\n\n${result.response}\n`,
