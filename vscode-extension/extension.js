@@ -143,7 +143,7 @@ function getWhitelist() {
 }
 
 function getMode() {
-  return _context?.globalState.get("mode", "pull-only") ?? "pull-only";
+  return _context?.globalState.get("mode", "disabled") ?? "disabled";
 }
 
 async function setMode(mode) {
@@ -213,6 +213,11 @@ function syncAllSettings() {
 
 function importFromJson() {
   const currentMode = _context?.globalState.get("mode");
+  // Migrate legacy "pull-only" → "disabled"
+  if (currentMode === "pull-only") {
+    _context?.globalState.update("mode", "disabled");
+    return;
+  }
   if (!currentMode) {
     const globalData = readJsonFile(globalSettingsPath());
     if (globalData?.mode) {
@@ -249,8 +254,7 @@ function importFromJson() {
 // ---------------------------------------------------------------------------
 
 const MODES = [
-  { value: "disabled", label: "Disabled" },
-  { value: "pull-only", label: "Pull only — never submit" },
+  { value: "disabled", label: "Submissions disabled" },
   { value: "pull-and-auto-submit", label: "Submit from all repos" },
   { value: "auto-submit-only-public", label: "Submit from public repos only" },
   {
@@ -286,6 +290,10 @@ class CommunityCacheViewProvider {
         case "setMode":
           await setMode(msg.value);
           break;
+        case "toggleGroup":
+          setGroupEnabled(msg.key, msg.enabled);
+          this._update();
+          break;
       }
     });
 
@@ -306,6 +314,66 @@ class CommunityCacheViewProvider {
   }
 
   _getHtml(mode, whitelist) {
+    // Gate: require GitHub sign-in
+    if (!cachedUser) {
+      return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--vscode-font-family); color: var(--vscode-foreground);
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 32px 20px;
+  }
+  .gate { text-align: center; max-width: 220px; }
+  .gate-icon { width: 40px; height: 40px; margin: 0 auto 16px; opacity: 0.4; }
+  .gate-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .gate-desc {
+    font-size: 12px; color: var(--vscode-descriptionForeground);
+    line-height: 1.5; margin-bottom: 20px;
+  }
+  .gate-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 9px 20px;
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer;
+  }
+  .gate-btn:hover { background: var(--vscode-button-hoverBackground); }
+  .gate-btn svg { width: 16px; height: 16px; fill: currentColor; }
+</style></head><body>
+  <div class="gate">
+    <svg class="gate-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    <div class="gate-title">Git Shell Helpers</div>
+    <div class="gate-desc">Sign in to GitHub to configure MCP tools and community cache.</div>
+    <button class="gate-btn" id="loginBtn">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Sign in with GitHub
+    </button>
+  </div>
+  <script>
+    const vscode = acquireVsCodeApi();
+    document.getElementById("loginBtn").addEventListener("click", () => vscode.postMessage({type:"login"}));
+  </script>
+</body></html>`;
+    }
+
+    const toolRows = TOOL_GROUPS.map((group) => {
+      const enabled = isGroupEnabled(group.key);
+      return `
+        <div class="tool-item${enabled ? " active" : ""}" data-key="${group.key}">
+          <div class="cb${enabled ? " on" : ""}"><div class="cb-tick"></div></div>
+          <div class="tool-text">
+            <span class="tl">${escapeHtml(group.label)}</span>
+            <span class="td">${escapeHtml(group.description)}</span>
+          </div>
+        </div>`;
+    }).join("");
+
+    const enabledCount = TOOL_GROUPS.filter((g) =>
+      isGroupEnabled(g.key),
+    ).length;
+
+    // --- Community Cache ---
     const modeOptions = MODES.map(
       (m) =>
         `<option value="${m.value}"${m.value === mode ? " selected" : ""}>${m.label}</option>`,
@@ -313,15 +381,13 @@ class CommunityCacheViewProvider {
 
     const modeDescriptions = {
       disabled:
-        "Community cache is completely off. Audits will not pull or submit any shared data.",
-      "pull-only":
-        "All audits pull shared best-practice data from the community cache. Conclusions are never submitted back.",
+        "Audits pull shared data from the community cache. No conclusions are submitted back.",
       "pull-and-auto-submit":
-        "All audits pull shared data. Conclusions are submitted back from every repository.",
+        "Audits pull shared data. Conclusions are submitted back from every repository.",
       "auto-submit-only-public":
-        "All audits pull shared data. Conclusions are submitted back only from your public repositories.",
+        "Audits pull shared data. Conclusions are submitted back only from your public repositories.",
       "auto-submit-whitelist":
-        "All audits pull shared data. Conclusions are submitted back only from the repositories you select below.",
+        "Audits pull shared data. Conclusions are submitted back only from the repositories you select below.",
     };
     const modeDesc = modeDescriptions[mode] || "";
 
@@ -330,41 +396,29 @@ class CommunityCacheViewProvider {
       const repoList =
         whitelist.length > 0
           ? whitelist
-              .map(
-                (r) =>
-                  `<div class="repo"><span class="codicon codicon-repo"></span> ${escapeHtml(r)}</div>`,
-              )
+              .map((r) => `<div class="repo-item">${escapeHtml(r)}</div>`)
               .join("")
-          : '<div class="muted">No repositories selected — submissions blocked</div>';
+          : '<div class="muted">No repositories selected</div>';
       scopeSection = `
-        <h3>Whitelisted Repositories</h3>
+        <div class="sub-label">Whitelisted Repositories</div>
         ${repoList}
-        ${cachedUser ? '<button class="secondary" id="selectReposBtn">Select repositories\u2026</button>' : ""}`;
+        <button class="btn-secondary" id="selectReposBtn">Select repositories\u2026</button>`;
     } else if (mode === "auto-submit-only-public") {
       const publicCount = cachedRepos.filter(
         (r) => r.visibility === "PUBLIC",
       ).length;
       scopeSection = `
-        <h3>Submission Scope</h3>
-        <div class="scope-info">Conclusions submitted from your <strong>${publicCount}</strong> public repo${publicCount !== 1 ? "s" : ""}. All repos still pull cache data during audits.</div>`;
+        <div class="sub-label">Scope</div>
+        <div class="scope-text">Submitting from <strong>${publicCount}</strong> public repo${publicCount !== 1 ? "s" : ""}.</div>`;
     } else if (mode === "pull-and-auto-submit") {
       scopeSection = `
-        <h3>Submission Scope</h3>
-        <div class="scope-info">Conclusions submitted from <strong>all</strong> repositories.</div>`;
-    } else if (mode === "pull-only") {
+        <div class="sub-label">Scope</div>
+        <div class="scope-text">Submitting from <strong>all</strong> repositories.</div>`;
+    } else if (mode === "disabled") {
       scopeSection = `
-        <h3>Submission Scope</h3>
-        <div class="scope-info">No conclusions submitted. All repos still pull cache data during audits.</div>`;
+        <div class="sub-label">Scope</div>
+        <div class="scope-text">No submissions. Cache data is still pulled during audits.</div>`;
     }
-
-    const authSection = cachedUser
-      ? `<div class="account">
-          <span class="codicon codicon-account"></span>
-          <span>Signed in as <strong>${escapeHtml(cachedUser)}</strong></span>
-        </div>
-        <button class="secondary" id="logoutBtn">Sign out</button>`
-      : `<div class="muted">Not signed in to GitHub</div>
-        <button class="primary" id="loginBtn">Sign in to GitHub</button>`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -372,108 +426,155 @@ class CommunityCacheViewProvider {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
     color: var(--vscode-foreground);
-    padding: 12px 14px;
-    margin: 0;
+    display: flex; flex-direction: column; min-height: 100vh;
   }
-  h3 {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+  .content { flex: 1; overflow-y: auto; }
+
+  /* Sections */
+  .sect { padding: 12px 14px; }
+  .sect + .sect { border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12)); }
+  .sect-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .sect-title {
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
     color: var(--vscode-descriptionForeground);
-    margin: 16px 0 6px;
   }
-  h3:first-child { margin-top: 0; }
+  .sect-count {
+    font-size: 10px; color: var(--vscode-descriptionForeground); opacity: 0.7;
+  }
+
+  /* Tool items — checkbox style */
+  .tool-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 5px 6px; margin: 0 -6px;
+    border-radius: 3px; cursor: pointer; user-select: none;
+  }
+  .tool-item:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
+  .cb {
+    flex-shrink: 0; width: 14px; height: 14px; margin-top: 1px;
+    border: 1.5px solid var(--vscode-checkbox-border, var(--vscode-input-border, rgba(128,128,128,0.5)));
+    border-radius: 3px; position: relative;
+    background: var(--vscode-checkbox-background, transparent);
+    transition: all 0.15s;
+  }
+  .cb.on {
+    background: var(--vscode-checkbox-selectBackground, var(--vscode-button-background));
+    border-color: var(--vscode-checkbox-selectBorder, var(--vscode-button-background));
+  }
+  .cb-tick {
+    position: absolute; left: 2.5px; top: 0.5px;
+    width: 5px; height: 9px;
+    border: solid var(--vscode-checkbox-foreground, var(--vscode-button-foreground, #fff));
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .cb.on .cb-tick { opacity: 1; }
+  .tool-text { flex: 1; min-width: 0; }
+  .tl { display: block; font-size: 12px; font-weight: 500; line-height: 1.3; }
+  .td { display: block; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.2; margin-top: 1px; }
+
+  .hint {
+    font-size: 10.5px; color: var(--vscode-descriptionForeground);
+    margin-top: 6px; opacity: 0.65;
+  }
+
+  /* Community cache */
   select {
-    width: 100%;
-    padding: 4px 6px;
-    border: 1px solid var(--vscode-dropdown-border);
-    border-radius: 2px;
+    width: 100%; padding: 4px 8px;
+    border: 1px solid var(--vscode-dropdown-border); border-radius: 3px;
     background: var(--vscode-dropdown-background);
     color: var(--vscode-dropdown-foreground);
-    font-size: var(--vscode-font-size);
-    outline: none;
+    font-size: var(--vscode-font-size); outline: none;
   }
-  select:focus {
-    border-color: var(--vscode-focusBorder);
+  select:focus { border-color: var(--vscode-focusBorder); }
+  .mode-desc {
+    font-size: 11px; color: var(--vscode-descriptionForeground);
+    line-height: 1.4; margin-top: 5px;
   }
-  button {
-    display: block;
-    width: 100%;
-    padding: 6px 14px;
-    margin-top: 8px;
-    border: none;
-    border-radius: 2px;
-    font-size: var(--vscode-font-size);
-    cursor: pointer;
+  .sub-label {
+    font-size: 11px; font-weight: 600; color: var(--vscode-descriptionForeground);
+    margin: 10px 0 4px;
   }
-  button.primary {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
+  .repo-item {
+    font-size: 11.5px; padding: 2px 0; line-height: 1.3;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  button.primary:hover {
-    background: var(--vscode-button-hoverBackground);
-  }
-  button.secondary {
+  .scope-text { font-size: 11.5px; line-height: 1.4; }
+  .muted { color: var(--vscode-descriptionForeground); font-style: italic; font-size: 11.5px; }
+  .btn-secondary {
+    display: block; width: 100%; padding: 5px 12px; margin-top: 6px;
+    border: none; border-radius: 3px; font-size: 12px; cursor: pointer;
     background: var(--vscode-button-secondaryBackground);
     color: var(--vscode-button-secondaryForeground);
   }
-  button.secondary:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
+  .btn-secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+
+  /* Footer */
+  .footer {
+    padding: 8px 14px;
+    border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12));
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: var(--vscode-descriptionForeground);
   }
-  .account {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 0;
+  .footer-user {
+    display: flex; align-items: center; gap: 4px; overflow: hidden;
   }
-  .repo {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 0;
-    font-size: 12px;
+  .footer-user svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.6; fill: currentColor; }
+  .footer-user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .footer-gear {
+    flex-shrink: 0; cursor: pointer; opacity: 0.5;
+    padding: 2px; transition: opacity 0.15s; display: flex; align-items: center;
   }
-  .muted {
-    color: var(--vscode-descriptionForeground);
-    font-style: italic;
-    padding: 4px 0;
-  }
-  .mode-desc {
-    color: var(--vscode-descriptionForeground);
-    font-size: 12px;
-    padding: 4px 0 0;
-    line-height: 1.4;
-  }
-  .scope-info {
-    font-size: 12px;
-    padding: 4px 0;
-    line-height: 1.4;
-  }
-  .codicon {
-    font-family: codicon;
-    font-size: 14px;
-  }
-  .codicon-account::before { content: "\\eb99"; }
-  .codicon-repo::before { content: "\\ea62"; }
+  .footer-gear:hover { opacity: 1; }
+  .footer-gear svg { width: 14px; height: 14px; fill: currentColor; }
 </style>
 </head>
 <body>
-  <h3>GitHub Account</h3>
-  ${authSection}
-
-  <h3>Mode</h3>
-  <select id="modeSelect">${modeOptions}</select>
-  <div class="mode-desc">${modeDesc}</div>
-
-  ${scopeSection}
-
+  <div class="content">
+    <div class="sect">
+      <div class="sect-head">
+        <div class="sect-title">MCP Tools</div>
+        <div class="sect-count">${enabledCount}/${TOOL_GROUPS.length}</div>
+      </div>
+      ${toolRows}
+      <div class="hint">Read &amp; Search Knowledge are always on.</div>
+    </div>
+    <div class="sect">
+      <div class="sect-head">
+        <div class="sect-title">Community Submissions</div>
+      </div>
+      <select id="modeSelect">${modeOptions}</select>
+      <div class="mode-desc">${modeDesc}</div>
+      ${scopeSection}
+    </div>
+  </div>
+  <div class="footer">
+    <div class="footer-user">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span>${escapeHtml(cachedUser)}</span>
+    </div>
+    <div class="footer-gear" id="logoutBtn" title="Account settings">
+      <svg viewBox="0 0 16 16"><path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.2.7-2.4.5v1.2l2.4.5.3.7-1.3 2 .8.8 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.8-.8-1.3-2 .3-.7 2.4-.5V6.8l-2.4-.5-.3-.7 1.3-2-.8-.8-2 1.3-.7-.2zM9.4 8c0 .8-.6 1.4-1.4 1.4S6.6 8.8 6.6 8 7.2 6.6 8 6.6s1.4.6 1.4 1.4z"/></svg>
+    </div>
+  </div>
   <script>
     const vscode = acquireVsCodeApi();
-    document.getElementById("loginBtn")?.addEventListener("click", () => vscode.postMessage({type:"login"}));
+    document.querySelectorAll('.tool-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const key = el.dataset.key;
+        const active = el.classList.contains('active');
+        vscode.postMessage({ type: 'toggleGroup', key, enabled: !active });
+      });
+    });
     document.getElementById("logoutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
     document.getElementById("selectReposBtn")?.addEventListener("click", () => vscode.postMessage({type:"selectRepos"}));
     document.getElementById("modeSelect")?.addEventListener("change", (e) => vscode.postMessage({type:"setMode", value: e.target.value}));
@@ -491,62 +592,159 @@ function escapeHtml(text) {
 }
 
 // ---------------------------------------------------------------------------
+// MCP Tools config
+// ---------------------------------------------------------------------------
+
+const MCP_TOOLS_CONFIG_DIR = path.join(
+  process.env.HOME || process.env.USERPROFILE || "",
+  ".config",
+  "git-shell-helpers-mcp",
+);
+const MCP_TOOLS_CONFIG_PATH = path.join(MCP_TOOLS_CONFIG_DIR, "tools.json");
+
+// Tool groups: key → { label, description, tools[], alwaysOn? }
+const TOOL_GROUPS = [
+  {
+    key: "knowledgeWrite",
+    label: "Knowledge Write",
+    description: "Write, update & append knowledge notes",
+    tools: [
+      "write_knowledge_note",
+      "update_knowledge_note",
+      "append_to_knowledge_note",
+    ],
+  },
+  {
+    key: "webSearch",
+    label: "Web Search",
+    description: "Search the web via SearXNG",
+    tools: ["search_web"],
+  },
+  {
+    key: "scrapeWebpage",
+    label: "Scrape Webpage",
+    description: "Fetch pages, strip HTML chrome, return clean text",
+    tools: ["scrape_webpage"],
+  },
+  {
+    key: "vision",
+    label: "Vision",
+    description: "Analyze images with a vision model",
+    tools: ["analyze_images"],
+  },
+];
+
+function readToolsConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(MCP_TOOLS_CONFIG_PATH, "utf8"));
+  } catch {
+    return { disabledTools: [] };
+  }
+}
+
+function writeToolsConfig(config) {
+  fs.mkdirSync(MCP_TOOLS_CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(
+    MCP_TOOLS_CONFIG_PATH,
+    JSON.stringify(config, null, 2) + "\n",
+    "utf8",
+  );
+}
+
+function isGroupEnabled(groupKey) {
+  const group = TOOL_GROUPS.find((g) => g.key === groupKey);
+  if (!group || group.alwaysOn) return true;
+  const config = readToolsConfig();
+  const disabled = config.disabledTools || [];
+  return !group.tools.some((t) => disabled.includes(t));
+}
+
+function setGroupEnabled(groupKey, enabled) {
+  const group = TOOL_GROUPS.find((g) => g.key === groupKey);
+  if (!group || group.alwaysOn) return;
+  const config = readToolsConfig();
+  const disabled = new Set(config.disabledTools || []);
+  for (const tool of group.tools) {
+    if (enabled) disabled.delete(tool);
+    else disabled.add(tool);
+  }
+  config.disabledTools = [...disabled];
+  writeToolsConfig(config);
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
 async function loginGitHub() {
   if (cachedUser) {
-    vscode.window.showInformationMessage(
-      `Already signed in to GitHub as ${cachedUser}.`,
-    );
+    vscode.window.showInformationMessage(`Already signed in as ${cachedUser}.`);
     return;
   }
+  try {
+    const session = await vscode.authentication.getSession("github", ["repo"], {
+      createIfNone: true,
+    });
+    if (!session) return;
 
-  const terminal = vscode.window.createTerminal("GitHub Sign In");
-  terminal.show();
-  terminal.sendText("gh auth login");
+    cachedUser = session.account.label;
 
-  const disposable = vscode.window.onDidCloseTerminal(async (t) => {
-    if (t === terminal) {
-      disposable.dispose();
-      if (await isGhAuthed()) {
-        cachedUser = await getGhUser();
-        cachedRepos = await fetchRepos();
-        _webviewProvider?.refresh();
-        vscode.window.showInformationMessage(
-          `Signed in as ${cachedUser}. ${cachedRepos.length} repos loaded.`,
+    // Forward token to gh CLI for shell script compatibility
+    try {
+      await new Promise((resolve, reject) => {
+        const proc = execFile(
+          "gh",
+          ["auth", "login", "--with-token"],
+          { timeout: 10000 },
+          (err) => (err ? reject(err) : resolve()),
         );
-      }
+        proc.stdin.write(session.accessToken);
+        proc.stdin.end();
+      });
+    } catch {
+      /* gh CLI not installed — OK */
     }
-  });
+
+    cachedRepos = await fetchRepos();
+    _webviewProvider?.refresh();
+    syncAllSettings();
+  } catch {
+    /* User cancelled or auth failed */
+  }
 }
 
 async function logoutGitHub() {
-  if (!cachedUser) {
-    vscode.window.showInformationMessage("Not currently signed in to GitHub.");
-    return;
-  }
-
+  if (!cachedUser) return;
   const action = await vscode.window.showWarningMessage(
-    `Sign out of GitHub account ${cachedUser}?`,
+    `Sign out of GitHub (${cachedUser})?`,
     "Sign out",
     "Cancel",
   );
   if (action !== "Sign out") return;
 
-  const terminal = vscode.window.createTerminal("GitHub Sign Out");
-  terminal.show();
-  terminal.sendText("gh auth logout --hostname github.com");
-
-  const disposable = vscode.window.onDidCloseTerminal(async (t) => {
-    if (t === terminal) {
-      disposable.dispose();
-      cachedUser = "";
-      cachedRepos = [];
-      _webviewProvider?.refresh();
-      vscode.window.showInformationMessage("Signed out of GitHub.");
+  try {
+    await runGh(["auth", "logout", "--hostname", "github.com", "--yes"]);
+  } catch {
+    try {
+      await new Promise((resolve) => {
+        const proc = execFile(
+          "gh",
+          ["auth", "logout", "--hostname", "github.com"],
+          { timeout: 5000 },
+          () => resolve(),
+        );
+        proc.stdin?.write("Y\n");
+        proc.stdin?.end();
+      });
+    } catch {
+      /* ignore */
     }
-  });
+  }
+
+  cachedUser = "";
+  cachedRepos = [];
+  _webviewProvider?.refresh();
 }
 
 async function selectRepos() {
@@ -641,7 +839,7 @@ function activate(context) {
 
   importFromJson();
 
-  // Webview panel
+  // Git Helpers webview (MCP Tools + Community Cache)
   _webviewProvider = new CommunityCacheViewProvider(context.extensionUri);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -650,11 +848,10 @@ function activate(context) {
     ),
   );
 
-  // On first activation in this workspace, reveal the panel so users discover it
-  const seenKey = "communityCache.introduced";
+  // On first activation, focus the Git Helpers panel so users discover it
+  const seenKey = "gitHelpers.introduced.v3";
   if (!context.globalState.get(seenKey)) {
     context.globalState.update(seenKey, true);
-    // Small delay lets VS Code finish rendering before we focus the view
     setTimeout(() => {
       vscode.commands.executeCommand("gitShellHelpers.communityCache.focus");
     }, 800);
@@ -669,6 +866,11 @@ function activate(context) {
     }
   });
 
+  // Write default tools config if none exists
+  if (!fs.existsSync(MCP_TOOLS_CONFIG_PATH)) {
+    writeToolsConfig({ disabledTools: [] });
+  }
+
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "gitShellHelpers.showCommunityStatus",
@@ -680,6 +882,14 @@ function activate(context) {
       logoutGitHub,
     ),
     vscode.commands.registerCommand("gitShellHelpers.selectRepos", selectRepos),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.restartMcpServer",
+      async () => {
+        vscode.window.showInformationMessage(
+          "Reload the window to restart the MCP server (Cmd+Shift+P → Reload Window).",
+        );
+      },
+    ),
   );
 }
 
