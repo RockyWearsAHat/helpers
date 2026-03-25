@@ -572,6 +572,10 @@ generate_router_instruction() {
 	cat "$SCRIPT_DIR/.github/instructions/devops-audit-router.instructions.md"
 }
 
+generate_gsh_mcp_tools_instruction() {
+	cat "$SCRIPT_DIR/.github/instructions/gsh-mcp-tools.instructions.md"
+}
+
 generate_prompt_file() {
   cat "$SCRIPT_DIR/.github/prompts/copilot-devops-audit.prompt.md"
 }
@@ -789,6 +793,7 @@ if [ "$no_install" = false ]; then
 
 	agents_dir="$COPILOT_USER_DIR/agents"
 	router_instruction="$COPILOT_USER_DIR/instructions/devops-audit-router.instructions.md"
+	gsh_mcp_instruction="$COPILOT_USER_DIR/instructions/gsh-mcp-tools.instructions.md"
 	prompts_dir="$COPILOT_USER_DIR/prompts"
 
 	# Define all agent files to install
@@ -811,6 +816,7 @@ if [ "$no_install" = false ]; then
 			ui_info "[dry-run] Would write: $agents_dir/$name"
 		done
 		ui_info "[dry-run] Would write: $router_instruction"
+		ui_info "[dry-run] Would write: $gsh_mcp_instruction"
 		ui_info "[dry-run] Would write: $global_prompt"
 	else
 		obsolete="$agents_dir/DevOpsAuditFix.agent.md"
@@ -835,6 +841,13 @@ if [ "$no_install" = false ]; then
 		else
 			printf '%s\n' "$(generate_router_instruction)" > "$router_instruction"
 			ui_ok "User instruction: $router_instruction"
+		fi
+
+		if [ -f "$gsh_mcp_instruction" ] && [ "$install_force" = false ]; then
+			ui_skip "$gsh_mcp_instruction"
+		else
+			printf '%s\n' "$(generate_gsh_mcp_tools_instruction)" > "$gsh_mcp_instruction"
+			ui_ok "User instruction: $gsh_mcp_instruction"
 		fi
 
 		if [ -f "$global_prompt" ] && [ "$install_force" = false ]; then
