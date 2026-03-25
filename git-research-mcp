@@ -415,16 +415,19 @@ async function readKnowledgeNote(args) {
     );
   }
 
-  const maxChars = toPositiveInt(args.max_chars, 4000, 500, 20000);
+  const maxChars = args.max_chars
+    ? toPositiveInt(args.max_chars, 0, 500, 100000)
+    : 0;
   const text = await fs.readFile(resolvedPath, "utf8");
+  const trimmed = text.trim();
 
   return {
     path: path.relative(WORKSPACE_ROOT, resolvedPath),
     title: getMarkdownTitle(
-      text,
+      trimmed,
       path.basename(resolvedPath, path.extname(resolvedPath)),
     ),
-    text: summarizeText(text.trim(), maxChars),
+    text: maxChars > 0 ? summarizeText(trimmed, maxChars) : trimmed,
   };
 }
 
@@ -706,7 +709,9 @@ async function fetchPages(args) {
   }
 
   const maxPages = toPositiveInt(urls.length, urls.length, 1, 5);
-  const maxChars = toPositiveInt(args.max_chars, 20000, 1000, 100000);
+  const maxChars = args.max_chars
+    ? toPositiveInt(args.max_chars, 0, 1000, 100000)
+    : 0;
 
   const pages = [];
   for (const rawUrl of urls.slice(0, maxPages)) {
@@ -717,7 +722,8 @@ async function fetchPages(args) {
 
     const html = await fetchText(url);
     const title = getTitle(html);
-    const text = summarizeText(stripHtml(html), maxChars);
+    const fullText = stripHtml(html);
+    const text = maxChars > 0 ? summarizeText(fullText, maxChars) : fullText;
 
     pages.push({
       url,
@@ -872,7 +878,7 @@ async function handleRequest(request) {
                 max_chars: {
                   type: "integer",
                   description:
-                    "Maximum number of characters to return (500-20000). Default 4000.",
+                    "Optional. Maximum characters to return (500-100000). Default: no limit (full content).",
                 },
               },
               required: ["path"],
@@ -1018,7 +1024,7 @@ async function handleRequest(request) {
                 max_chars: {
                   type: "integer",
                   description:
-                    "Maximum extracted text per page (1000-100000). Default 20000.",
+                    "Optional. Maximum extracted text per page (1000-100000). Default: no limit (full content).",
                 },
               },
               required: ["urls"],
