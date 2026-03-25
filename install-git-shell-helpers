@@ -691,6 +691,93 @@ configure_mcp_tools() {
   fi
 }
 
+setup_gpg_signing() {
+  if ! command -v gpg >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] gpg not found — skipping commit signing setup."
+    echo "  Install with: brew install gnupg"
+    return 0
+  fi
+
+  local git_email git_name
+  git_email="$(git config --global user.email 2>/dev/null || true)"
+  git_name="$(git config --global user.name 2>/dev/null || echo "$USER")"
+
+  if [[ -z "$git_email" ]]; then
+    echo "[install-git-shell-helpers] No git user.email configured — skipping GPG signing setup."
+    return 0
+  fi
+
+  # Find existing secret key for this email
+  local key_id
+  key_id="$(gpg --list-secret-keys --keyid-format=long "$git_email" 2>/dev/null \
+    | awk '/^sec/{split($2,a,"/"); print a[2]; exit}')"
+
+  if [[ -z "$key_id" ]]; then
+    echo "[install-git-shell-helpers] No GPG key found for $git_email — generating one..."
+    gpg --batch --gen-key <<GPGEOF
+%no-protection
+Key-Type: RSA
+Key-Length: 4096
+Subkey-Type: RSA
+Subkey-Length: 4096
+Name-Real: $git_name
+Name-Email: $git_email
+Expire-Date: 0
+GPGEOF
+    key_id="$(gpg --list-secret-keys --keyid-format=long "$git_email" 2>/dev/null \
+      | awk '/^sec/{split($2,a,"/"); print a[2]; exit}')"
+    echo "[install-git-shell-helpers] GPG key generated: $key_id"
+  else
+    echo "[install-git-shell-helpers] Found existing GPG key: $key_id"
+  fi
+
+  if [[ -z "$key_id" ]]; then
+    echo "[install-git-shell-helpers] ERROR: Could not determine GPG key ID." >&2
+    return 1
+  fi
+
+  # Configure git to sign all commits with this key
+  git config --global user.signingkey "$key_id"
+  git config --global commit.gpgsign true
+  echo "[install-git-shell-helpers] Git configured to sign commits with key $key_id."
+
+  # Upload public key to GitHub
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] gh CLI not found — add your GPG public key manually at:"
+    echo "  https://github.com/settings/keys"
+    return 0
+  fi
+
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] Not logged in to GitHub — add your GPG public key manually at:"
+    echo "  https://github.com/settings/keys"
+    return 0
+  fi
+
+  # Ensure write:gpg_key scope — open browser directly instead of device code flow
+  if ! gh auth status 2>&1 | grep -qE 'write:gpg_key|admin:gpg_key'; then
+    echo "[install-git-shell-helpers] Requesting write:gpg_key scope from GitHub..."
+    gh auth refresh -s write:gpg_key --web
+  fi
+
+  # Skip upload if key is already present on GitHub
+  if gh gpg-key list 2>/dev/null | grep -qi "$key_id"; then
+    echo "[install-git-shell-helpers] GPG key already on GitHub — commits will show as Verified."
+    return 0
+  fi
+
+  local tmpfile
+  tmpfile="$(mktemp)"
+  gpg --armor --export "$key_id" >"$tmpfile"
+  if gh gpg-key add "$tmpfile" 2>/dev/null; then
+    echo "[install-git-shell-helpers] GPG public key uploaded to GitHub — commits will now show as Verified."
+  else
+    echo "[install-git-shell-helpers] Could not upload GPG key automatically — add it manually at:"
+    echo "  https://github.com/settings/keys"
+  fi
+  rm -f "$tmpfile"
+}
+
 main() {
   echo "[install-git-shell-helpers] Installing git shell helpers..."
 
@@ -733,6 +820,9 @@ RENV
   # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
   ensure_line_in_file "$ZSHRC" 'export MANPATH="$HOME/man:$MANPATH"'
+
+  echo ""
+  setup_gpg_signing
 
   # Optional: install private audit agents and /copilot-devops-audit prompt globally
   # -----------------------------------------------------------------------------
