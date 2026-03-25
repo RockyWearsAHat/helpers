@@ -1338,7 +1338,7 @@ compute_diff_analysis() {
 
 	# Changed default values
 	local changed_defaults
-	changed_defaults=$(printf '%s\n' "$diff" | grep -E '^[-+].*=[[:space:]]*(true|false|null|nil|None|0|1|""|\'\')' | wc -l | tr -d ' ')
+	changed_defaults=$(printf '%s\n' "$diff" | grep -E "^[-+].*=[[:space:]]*(true|false|null|nil|None|0|1|\"\"|'')" | wc -l | tr -d ' ')
 	if [ "$changed_defaults" -gt 2 ]; then
 		has_potential=1
 		breaking_hints_text="${breaking_hints_text}Potential: Default values modified. "
