@@ -104,7 +104,7 @@ function chatCompletion(messages, retries = 3) {
       messages,
       temperature: 0.1,
       response_format: { type: "json_object" },
-      max_tokens: 4000,
+      max_completion_tokens: 4000,
     });
 
     const reqOptions = {
@@ -124,7 +124,14 @@ function chatCompletion(messages, retries = 3) {
       res.on("data", (chunk) => (data += chunk));
       res.on("end", () => {
         if (res.statusCode === 429 && retries > 0) {
-          const delay = parseInt(res.headers["retry-after"] || "5", 10) * 1000;
+          // Parse wait time from retry-after header or error body
+          let delay = parseInt(res.headers["retry-after"] || "0", 10) * 1000;
+          if (!delay) {
+            // Try to extract "wait N seconds" from the error message
+            const waitMatch = data.match(/wait (\d+) seconds/i);
+            delay = waitMatch ? parseInt(waitMatch[1], 10) * 1000 : 60000;
+          }
+          console.log(`rate-limited, retrying in ${delay / 1000}s...`);
           setTimeout(
             () => chatCompletion(messages, retries - 1).then(resolve, reject),
             delay,
@@ -162,7 +169,8 @@ function chatCompletion(messages, retries = 3) {
 }
 
 // ─── Concurrency helper ─────────────────────────────────────────────────────
-const CONCURRENCY = parseInt(process.env.AUDIT_CONCURRENCY || "10", 10);
+const CONCURRENCY = parseInt(process.env.AUDIT_CONCURRENCY || "1", 10);
+const REQUEST_DELAY_MS = parseInt(process.env.AUDIT_DELAY_MS || "3000", 10);
 
 async function pooled(items, concurrency, fn) {
   const results = new Array(items.length);
@@ -243,10 +251,11 @@ async function auditFile(filename) {
   const filepath = path.join(KNOWLEDGE_ROOT, filename);
   const content = await fsp.readFile(filepath, "utf8");
 
-  // Truncate very long files to stay within token limits
+  // Truncate to stay within model's 4000-token input limit
+  // ~6000 chars of content ≈ 1500 tokens, plus ~600 tokens for system prompt
   const truncated =
-    content.length > 25000
-      ? content.slice(0, 25000) + "\n\n[...truncated for review]"
+    content.length > 6000
+      ? content.slice(0, 6000) + "\n\n[...truncated for review]"
       : content;
 
   const messages = [
@@ -334,7 +343,7 @@ async function main() {
   }
 
   console.log(
-    `Audit run #${state.runCount} — reviewing ${files.length} files with ${MODEL} (concurrency: ${CONCURRENCY})`,
+    `Audit run #${state.runCount} — reviewing ${files.length} files with ${MODEL} (concurrency: ${CONCURRENCY}, delay: ${REQUEST_DELAY_MS}ms)`,
   );
 
   const now = new Date().toISOString();
@@ -343,7 +352,9 @@ async function main() {
   let passCount = 0;
   let errorCount = 0;
 
-  await pooled(files, CONCURRENCY, async (filename) => {
+  await pooled(files, CONCURRENCY, async (filename, idx) => {
+    // Rate-limit: wait between requests (24/min limit on GitHub Models)
+    if (idx > 0) await new Promise(r => setTimeout(r, REQUEST_DELAY_MS));
     process.stdout.write(`  ${filename} ... `);
     try {
       const result = await auditFile(filename);
