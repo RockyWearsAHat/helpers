@@ -88,6 +88,7 @@ For each assigned topic, research it properly before writing anything.
 ### Writing
 
 Call `mcp_gsh_write_knowledge_note` with:
+
 - `path`: just the filename, e.g. `networking-dns.md` (tool handles directory)
 - `content`: full markdown content
 

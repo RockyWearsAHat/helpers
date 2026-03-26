@@ -60,7 +60,9 @@ const KNOWLEDGE_ROOT = (() => {
   try {
     const entries = fsSync.readdirSync(atRoot);
     if (entries.some((f) => f.endsWith(".md"))) return atRoot;
-  } catch { /* dir may not exist */ }
+  } catch {
+    /* dir may not exist */
+  }
   return atGithub;
 })();
 
@@ -1733,7 +1735,8 @@ const RESEARCH_TOOLS = [
       properties: {
         path: {
           type: "string",
-          description: "Filename (e.g. networking-dns.md) or workspace-relative path to the knowledge note.",
+          description:
+            "Filename (e.g. networking-dns.md) or workspace-relative path to the knowledge note.",
         },
         heading: {
           type: "string",
@@ -1758,7 +1761,8 @@ const RESEARCH_TOOLS = [
       properties: {
         path: {
           type: "string",
-          description: "Filename (e.g. networking-dns.md) or workspace-relative path to the knowledge note.",
+          description:
+            "Filename (e.g. networking-dns.md) or workspace-relative path to the knowledge note.",
         },
         content: {
           type: "string",

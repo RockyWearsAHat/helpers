@@ -3,18 +3,19 @@
 ## TypeScript: Type Safety First
 
 ### Core Principle
+
 TypeScript exists to catch bugs at compile time. Use it strictly.
 
 ```jsonc
 // tsconfig.json — recommended strict settings
 {
   "compilerOptions": {
-    "strict": true,                    // Enables ALL strict checks
-    "noUncheckedIndexedAccess": true,  // array[0] is T | undefined
+    "strict": true, // Enables ALL strict checks
+    "noUncheckedIndexedAccess": true, // array[0] is T | undefined
     "exactOptionalPropertyTypes": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true
-  }
+    "noFallthroughCasesInSwitch": true,
+  },
 }
 ```
 
@@ -26,7 +27,7 @@ interface User {
   readonly id: string;
   name: string;
   email: string;
-  role: "admin" | "user" | "viewer";  // Union literal types > enums
+  role: "admin" | "user" | "viewer"; // Union literal types > enums
 }
 
 // Use type for unions, intersections, mapped types
@@ -40,9 +41,12 @@ type Shape =
 
 function area(shape: Shape): number {
   switch (shape.kind) {
-    case "circle":    return Math.PI * shape.radius ** 2;
-    case "rectangle": return shape.width * shape.height;
-    case "triangle":  return 0.5 * shape.base * shape.height;
+    case "circle":
+      return Math.PI * shape.radius ** 2;
+    case "rectangle":
+      return shape.width * shape.height;
+    case "triangle":
+      return 0.5 * shape.base * shape.height;
   }
   // Exhaustiveness check — compiler error if a case is missed
   const _exhaustive: never = shape;
@@ -62,10 +66,10 @@ const ROUTES = {
   about: "/about",
   users: "/users",
 } as const;
-type Route = typeof ROUTES[keyof typeof ROUTES]; // "/" | "/about" | "/users"
+type Route = (typeof ROUTES)[keyof typeof ROUTES]; // "/" | "/about" | "/users"
 
 // Template literal types
-type EventName = `on${Capitalize<string>}`;  // "onClick", "onLoad", etc.
+type EventName = `on${Capitalize<string>}`; // "onClick", "onLoad", etc.
 ```
 
 ### Avoid These
@@ -108,19 +112,19 @@ const [first, ...remaining] = items;
 const city = user?.address?.city ?? "Unknown";
 
 // Logical assignment
-options.timeout ??= 5000;  // Set only if null/undefined
-options.retries ||= 3;      // Set if falsy
+options.timeout ??= 5000; // Set only if null/undefined
+options.retries ||= 3; // Set if falsy
 
 // Array methods (avoid manual loops)
-const adults = users.filter(u => u.age >= 18);
-const names = users.map(u => u.name);
+const adults = users.filter((u) => u.age >= 18);
+const names = users.map((u) => u.name);
 const total = prices.reduce((sum, p) => sum + p, 0);
-const found = users.find(u => u.id === targetId);
-const allValid = items.every(item => item.isValid);
-const hasError = items.some(item => item.error);
+const found = users.find((u) => u.id === targetId);
+const allValid = items.every((item) => item.isValid);
+const hasError = items.some((item) => item.error);
 
 // Object.groupBy (ES2024)
-const byRole = Object.groupBy(users, u => u.role);
+const byRole = Object.groupBy(users, (u) => u.role);
 // { admin: [...], user: [...] }
 
 // Structured clone (deep copy)
@@ -153,14 +157,11 @@ const results = await Promise.allSettled([
   fetchFromBackup(),
 ]);
 const successes = results
-  .filter(r => r.status === "fulfilled")
-  .map(r => r.value);
+  .filter((r) => r.status === "fulfilled")
+  .map((r) => r.value);
 
 // Race (first to resolve wins)
-const fastest = await Promise.race([
-  fetchFromCDN1(url),
-  fetchFromCDN2(url),
-]);
+const fastest = await Promise.race([fetchFromCDN1(url), fetchFromCDN2(url)]);
 
 // Error handling
 async function fetchUser(id) {
@@ -212,7 +213,10 @@ class AppError extends Error {
 
 class NotFoundError extends AppError {
   constructor(resource, id) {
-    super(`${resource} ${id} not found`, { code: "NOT_FOUND", statusCode: 404 });
+    super(`${resource} ${id} not found`, {
+      code: "NOT_FOUND",
+      statusCode: 404,
+    });
   }
 }
 
@@ -233,15 +237,15 @@ try {
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **ESLint** | Linting (catch bugs, enforce patterns) |
-| **Prettier** | Formatting (end style debates) |
-| **TypeScript** | Type checking |
-| **Vitest** / **Jest** | Testing |
-| **Biome** | All-in-one (lint + format, Rust-based, fast) |
-| **tsx** | Run TypeScript directly (dev) |
-| **esbuild** / **Vite** | Bundling |
+| Tool                   | Purpose                                      |
+| ---------------------- | -------------------------------------------- |
+| **ESLint**             | Linting (catch bugs, enforce patterns)       |
+| **Prettier**           | Formatting (end style debates)               |
+| **TypeScript**         | Type checking                                |
+| **Vitest** / **Jest**  | Testing                                      |
+| **Biome**              | All-in-one (lint + format, Rust-based, fast) |
+| **tsx**                | Run TypeScript directly (dev)                |
+| **esbuild** / **Vite** | Bundling                                     |
 
 ## Common Pitfalls
 
@@ -254,4 +258,4 @@ try {
 
 ---
 
-*Sources: TypeScript Handbook, MDN Web Docs, TC39 Proposals, Effective TypeScript (Dan Vanderkam), JavaScript: The Good Parts (Douglas Crockford)*
+_Sources: TypeScript Handbook, MDN Web Docs, TC39 Proposals, Effective TypeScript (Dan Vanderkam), JavaScript: The Good Parts (Douglas Crockford)_

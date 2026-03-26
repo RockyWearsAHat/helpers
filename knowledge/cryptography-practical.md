@@ -31,13 +31,13 @@ Properties: deterministic, fast, one-way, collision-resistant, avalanche effect
 
 Regular hashes are too fast. Attackers can try billions per second.
 
-| Algorithm        | Status       | Notes                                                                  |
-| ---------------- | ------------ | ---------------------------------------------------------------------- |
-| bcrypt           | Good         | Time-tested, 72-byte input limit                                       |
-| scrypt           | Good         | Memory-hard (resists GPU attacks)                                      |
-| Argon2id         | Recommended  | Winner of Password Hashing Competition (2015). Memory-hard + time-hard |
-| PBKDF2           | Acceptable   | NIST approved, but not memory-hard                                     |
-| MD5/SHA unsalted | Broken       | Rainbow tables crack these instantly                                   |
+| Algorithm        | Status      | Notes                                                                  |
+| ---------------- | ----------- | ---------------------------------------------------------------------- |
+| bcrypt           | Good        | Time-tested, 72-byte input limit                                       |
+| scrypt           | Good        | Memory-hard (resists GPU attacks)                                      |
+| Argon2id         | Recommended | Winner of Password Hashing Competition (2015). Memory-hard + time-hard |
+| PBKDF2           | Acceptable  | NIST approved, but not memory-hard                                     |
+| MD5/SHA unsalted | Broken      | Rainbow tables crack these instantly                                   |
 
 ```python
 # Python: Use passlib or argon2-cffi
