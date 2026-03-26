@@ -18,6 +18,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  models: read
 
 jobs:
   audit:
@@ -34,7 +35,7 @@ jobs:
 
       - name: Run knowledge auditor
         env:
-          AUDIT_API_KEY: ${{ secrets.AUDIT_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUDIT_MODEL: ${{ inputs.model || 'gpt-4.1-mini' }}
           AUDIT_BATCH_SIZE: ${{ inputs.batch_size || '15' }}
         run: node scripts/knowledge-auditor.js
