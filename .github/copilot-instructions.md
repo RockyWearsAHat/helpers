@@ -97,6 +97,8 @@ Two installer methods ship the same commands and man pages:
 - `build-installer.yml` — builds script + pkg installers, creates releases on main push
 - `test.yml` — runs test suite
 - `community-cache-consolidate.yml` / `community-cache-validate.yml` — community cache CI
+- `knowledge-audit.yml` — automated knowledge base auditing (disabled; replaced by local `@AuditKBCC` agent)
+- `knowledge-index-rebuild.yml` — rebuilds TF-IDF search index on knowledge file changes
 
 # Shell Conventions
 
