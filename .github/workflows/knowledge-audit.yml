@@ -38,6 +38,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUDIT_MODEL: ${{ inputs.model || 'gpt-5-mini' }}
           AUDIT_BATCH_SIZE: ${{ inputs.batch_size || '250' }}
+          AUDIT_CONCURRENCY: "1"
+          AUDIT_DELAY_MS: "3000"
         run: node scripts/knowledge-auditor.js
 
       - name: Check for changes
