@@ -47,6 +47,12 @@ The memory hierarchy is a foundational concept in computer architecture, organiz
 
 **Miss Penalties** — the latency stall incurred when data is not found at a given level. L1 miss to L2: ~12 cycles lost. L3 miss to DRAM: ~100+ cycles lost. Prefetching (hardware or software) can hide some of this latency.
 
+**Prefetching Strategies** — hardware prefetchers (stride-based, correlation-based) learn access patterns and speculatively fetch cache lines before the CPU demands them. Software prefetching (via explicit instructions or compiler generation) places hints in the instruction stream. Prefetching trades bandwidth for latency; aggressive prefetching can pollute cache if patterns mispredicted.
+
+**Cache Replacement Policies** — LRU (Least Recently Used) is standard but hardware track full temporal order is expensive. Pseudo-LRU uses tree of bits for O(log n) update. Random replacement surprisingly effective in many workloads. Set-associative sizes (256, 512, 1024 sets) chosen to minimize conflicts for typical working sets.
+
+**Memory Wall** — gap between CPU speed and DRAM latency grows exponentially; multi-level caching is fundamental to any modern CPU design. Halting memory bandwidth would instantly unblock vast speedups; each new architecture generation devotes ~30% area to caches trying to narrow this gap.
+
 ## Design Trade-offs
 
 Larger caches reduce miss rate but increase latency of hits and area/power. Smaller caches are faster and cheaper but incur more misses. Inclusive caches simplify coherence but waste capacity; exclusive caches maximize capacity but complicate coherence logic. The hierarchy reflects this fundamental tension between speed and capacity.
