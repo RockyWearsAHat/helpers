@@ -68,3 +68,15 @@ Cells wear out after finite write cycles: SLC ~100k program-erase cycles; QLC ~1
 ---
 
 See also: RAID recovery, FTL algorithms, endurance prediction models.
+
+## Flash Degradation and Failure Modes
+
+**Single Bit Errors (SBE)** — NAND cells occasionally flip bits due to read disturb (repeated reads weaken charge), program disturb, or thermal effects. ECC (Hamming codes, BCH, LDPC on modern drives) corrects single/multiple bit errors on-the-fly. Raw BER (Bit Error Rate) of NAND ~10^-6 to 10^-5; ECC reduces to <10^-15.
+
+**Program Erase Cycles (P/E)** — each write cycles the cell; wear accelerates after ~90% of rated cycles. Monitoring bit error rate (BER) escalation reveals wear state. Some drives preemptively fail blocks when BER exceeds threshold, reducing usable capacity over time.
+
+**Bit Rot vs Wear** — SSDs age in two independent ways: time-at-power (data retention risk, especially TLC/QLC) and program cycles (cell wear). A drive unused for 2 years may have data loss risk equal to a heavily written drive from bit rot, orthogonal failure modes.
+
+**Transcoding** — copying data between NAND technologies (SLC→MLC→TLC) increases density but reduces reliability. Enterprise drives often skip transcoding to maintain endurance; consumer drives rely on it to extend capacity.
+
+**SMART Attributes** — drives expose predictive health indicators: remaining lifetime (cycles), reallocated sector count (retired cells), uncorrectable errors (ECC limit exceeded). SMART failures often precede actual data loss by weeks; proactive replacement advisable.

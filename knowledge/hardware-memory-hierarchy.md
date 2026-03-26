@@ -58,3 +58,15 @@ The memory hierarchy is a foundational concept in computer architecture, organiz
 Larger caches reduce miss rate but increase latency of hits and area/power. Smaller caches are faster and cheaper but incur more misses. Inclusive caches simplify coherence but waste capacity; exclusive caches maximize capacity but complicate coherence logic. The hierarchy reflects this fundamental tension between speed and capacity.
 
 See also: cache replacement policies, memory consistency models, performance profiling.
+
+## Virtual Memory and Paging
+
+**Page Faults** — when accessing virtual address not in TLB/page tables, CPU raises exception. OS page fault handler determines if address is valid (in swap) or invalid (segmentation fault). Valid faults trigger disk I/O (expensive, ~3-5 ms for HDD). Invalid faults terminate process.
+
+**Working Set** — the set of virtual pages actively used by a process. OS page replacement algorithms (LRU, LFU, Clock) attempt to keep working set in physical memory. Working set size determines minimum physical memory needed to avoid thrashing (constant page faults).
+
+**Swap** — overflow storage on disk when physical memory full. Rarely used today in systems with abundant DRAM; remains critical for embedded systems and overloaded servers. Performance severely degraded when swapping active (disk latency >>cache latency by factors of 10^6).
+
+**Memory Mapping** — pages loaded on-demand, not at process start. Enables large sparse address spaces (e.g., 64-bit). Shared libraries mapped to same physical pages across processes (reduces memory). Mmap syscall allows efficient file I/O (let OS manage paging rather than explicit read/write).
+
+**Dirty Page Writeback** — modified pages in page cache written to disk asynchronously. Kernel writeback threads batch dirty pages to amortize disk seeks. Stalled writeback can block memory allocation (no free pages available) and harm responsiveness.
