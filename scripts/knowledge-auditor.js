@@ -102,7 +102,6 @@ function chatCompletion(messages, retries = 3) {
     const body = JSON.stringify({
       model: MODEL,
       messages,
-      temperature: 0.1,
       response_format: { type: "json_object" },
       max_completion_tokens: 4000,
     });
@@ -170,7 +169,7 @@ function chatCompletion(messages, retries = 3) {
 
 // ─── Concurrency helper ─────────────────────────────────────────────────────
 const CONCURRENCY = parseInt(process.env.AUDIT_CONCURRENCY || "1", 10);
-const REQUEST_DELAY_MS = parseInt(process.env.AUDIT_DELAY_MS || "3000", 10);
+const REQUEST_DELAY_MS = parseInt(process.env.AUDIT_DELAY_MS || "5000", 10);
 
 async function pooled(items, concurrency, fn) {
   const results = new Array(items.length);
