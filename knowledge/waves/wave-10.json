@@ -1,0 +1,385 @@
+{
+  "wave": 10,
+  "description": "Closing Critical Gaps — AI Agent Engineering, IDE Architecture, Advanced Developer Practice",
+  "agent": "KnowledgeBuilder",
+  "prefix": "Software Engineering Knowledge Base — this is NOT about Copilot configuration (that's community-cache). This is pure engineering knowledge that fills AI instructions so it understands software from end to end.\n\nVIDEO SOURCES: When researching topics that reference video content (YouTube talks, conference presentations), you MUST:\n1. Scrape the video page for transcript/description\n2. Use take_screenshot and analyze_images tools to capture and analyze visual content from the video at key timestamps\n3. Combine transcript + visual analysis into ONE comprehensive knowledge doc\n4. Do NOT just summarize the transcript — visual information (code on screen, diagrams, UI demos) contains critical context that text alone misses\n5. If a video's actual content turns out to be about non-developer tools (e.g., Microsoft 365 Copilot, desktop productivity) rather than software engineering, DISCARD it and note why\n\nQUALITY BAR: Each note should be so comprehensive that an AI reading it doesn't need to do its own research. Cover the WHY, the HOW, the edge cases, the caveats, and the real-world patterns. Reference specific sources (URLs, paper titles, tool versions) wherever possible.",
+  "suffix": "Write an encyclopedia-quality knowledge note. This must be thorough enough that an AI developer assistant can base decisions on it without additional research. Cover fundamentals, advanced patterns, caveats, edge cases, and real-world trade-offs. Reference specific tools, versions, papers, and URLs where possible. Aim for 800-2000 words of dense, actionable knowledge.",
+  "assignments": [
+    {
+      "id": 1,
+      "label": "AI Agent Architecture & Engineering",
+      "topics": [
+        {
+          "filename": "genai-agent-architecture.md",
+          "description": "Multi-agent architecture patterns: planner-generator-evaluator, GAN-inspired loops, orchestrator-workers, evaluator-optimizer. Based on Anthropic's research (https://www.anthropic.com/engineering/harness-design-long-running-apps). Cover when to use each pattern, cost/latency tradeoffs, specialization vs generalization."
+        },
+        {
+          "filename": "genai-context-engineering.md",
+          "description": "Context engineering for AI agents: context window management, compaction vs context resets, structured handoff artifacts, progress tracking files, git-based state management. Why compaction alone isn't sufficient. Context anxiety in models. Based on Anthropic's harness research."
+        },
+        {
+          "filename": "genai-agent-harness-design.md",
+          "description": "Long-running agent harness design: initializer agents, incremental coding agents, feature lists in JSON, sprint decomposition, environment management, init.sh patterns, claude-progress.txt patterns. The two-part solution (initializer + coding agent). Failure modes and solutions. Based on https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+        },
+        {
+          "filename": "genai-agent-evaluation-patterns.md",
+          "description": "Agent self-evaluation failures and solutions: why agents praise their own work, separation of generation from evaluation, calibrating evaluators with few-shot examples, grading criteria design (subjective + objective), QA agents with browser automation (Playwright MCP), sprint contracts. From Anthropic's harness design research."
+        },
+        {
+          "filename": "genai-agent-tool-design.md",
+          "description": "Agent-Computer Interface (ACI) design: tool formatting (diffs vs rewrites, markdown vs JSON), poka-yoke tools, absolute vs relative paths, tool documentation as prompt engineering, parameter naming. From Anthropic's 'Prompt Engineering your Tools' appendix and SWE-bench experience."
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "label": "AI Engineering Practice",
+      "topics": [
+        {
+          "filename": "genai-agentic-coding.md",
+          "description": "Agentic coding patterns and practices: autonomous software development, multi-agent coding pipelines, code review agents, test-driven agent loops, the 'Ralph Wiggum' method, iteration hooks. Cost analysis of agent runs. Based on Anthropic's 2026 Agentic Coding Trends Report and harness design papers."
+        },
+        {
+          "filename": "genai-agent-memory.md",
+          "description": "Memory patterns for AI agents: short-term (context window), medium-term (conversation/session), long-term (persistent files, databases, vector stores). External memory design, knowledge base patterns, progress files, git as memory. Retrieval strategies for agent context."
+        },
+        {
+          "filename": "genai-model-routing.md",
+          "description": "Model selection and routing: choosing models for tasks based on cost vs capability, routing easy questions to cheap models and hard to expensive ones. Haiku vs Sonnet vs Opus tradeoffs. When to use which model class. Practical routing architectures."
+        },
+        {
+          "filename": "genai-prompt-testing.md",
+          "description": "Prompt evaluation and testing: eval frameworks, A/B testing prompts, regression testing for prompts, benchmark design, human eval vs automated eval, scoring rubrics, statistical significance in prompt comparisons."
+        },
+        {
+          "filename": "genai-multiagent-orchestration.md",
+          "description": "Multi-agent orchestration patterns: file-based communication between agents, sprint contracts, agent negotiation, parallel agent execution, sequential handoffs, supervisor patterns. How agents coordinate without shared memory. Practical implementation with Claude Agent SDK."
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "label": "Language Server Protocol & IDE Architecture",
+      "topics": [
+        {
+          "filename": "lsp-protocol.md",
+          "description": "Language Server Protocol (LSP) specification deep dive: client-server architecture, JSON-RPC transport, initialization handshake, capabilities negotiation. Core features: textDocument/completion, textDocument/hover, textDocument/definition, textDocument/references, diagnostics. Why LSP exists and how it decoupled editors from language tooling."
+        },
+        {
+          "filename": "lsp-implementation-patterns.md",
+          "description": "Building language servers: incremental document sync, diagnostic publishing, completion providers, semantic tokens, code actions, rename support. Performance patterns: incremental parsing, debouncing, cancellation. Common pitfalls and best practices."
+        },
+        {
+          "filename": "ide-vscode-architecture.md",
+          "description": "VS Code architecture deep dive: Electron shell, renderer process, extension host process, file system providers, text model, editor viewports. The workbench layout system. How extensions load and activate. The contribution point system. Performance characteristics."
+        },
+        {
+          "filename": "ide-extension-development.md",
+          "description": "VS Code extension API: activation events, TreeView/WebView providers, custom editors, language features, debugging, testing extensions. The vscode.d.ts API surface. Extension marketplace, packaging with vsce. Common patterns and anti-patterns."
+        },
+        {
+          "filename": "ide-debug-adapter-protocol.md",
+          "description": "Debug Adapter Protocol (DAP): architecture, launch vs attach configurations, breakpoints (conditional, logpoint, hit count), variables, stack frames, watch expressions, step operations. How DAP decouples debuggers from editors."
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "label": "Advanced Debugging & Profiling",
+      "topics": [
+        {
+          "filename": "debugging-memory-leaks.md",
+          "description": "Memory leak detection and analysis: heap snapshots, allocation timelines, GC pressure analysis, reference cycle detection. Tools: Chrome DevTools Memory panel, Valgrind, AddressSanitizer, heaptrack. Language-specific patterns: JS closures, Python circular refs, Rust lifetimes preventing leaks, Go goroutine leaks."
+        },
+        {
+          "filename": "debugging-race-conditions.md",
+          "description": "Concurrency bug patterns: data races, deadlocks, livelocks, priority inversion, ABA problem. Detection tools: ThreadSanitizer, Go race detector, Rust's ownership preventing data races. Debugging strategies: deterministic replay, logging with causality, stress testing."
+        },
+        {
+          "filename": "debugging-performance-profiling.md",
+          "description": "CPU profiling techniques: sampling vs instrumentation, flame graphs (Brendan Gregg), CPU time vs wall time. Tools: perf, dtrace, async-profiler, py-spy, Node.js --prof. Interpreting flame graphs, identifying hot paths, optimizing critical sections."
+        },
+        {
+          "filename": "debugging-production.md",
+          "description": "Production debugging: observability-driven debugging, distributed tracing with correlation IDs, log analysis, metrics-driven investigation. Tools: Jaeger, Zipkin, Datadog APM. Techniques: canary debugging, traffic replay, shadow traffic analysis. Safety: read-only debugging, avoiding side effects."
+        },
+        {
+          "filename": "debugging-browser-devtools.md",
+          "description": "Chrome DevTools deep dive: Elements panel, Console, Sources (breakpoints, conditional, logpoints), Network panel (waterfall, timing), Performance panel (flame chart, long tasks), Application panel (storage, service workers). Lighthouse audits. Remote debugging mobile devices."
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "label": "Advanced Git & Version Control",
+      "topics": [
+        {
+          "filename": "git-internals-deep.md",
+          "description": "Git object model: blobs, trees, commits, tags. Packfiles and delta compression. The reflog as safety net. git fsck, git gc, git prune. How git stores data on disk (.git/ directory structure). SHA-1 content addressing. Merge strategies: recursive, ort, octopus."
+        },
+        {
+          "filename": "git-branching-strategies.md",
+          "description": "Branching models compared: GitFlow (heavy, release-oriented), GitHub Flow (simple, CD-friendly), trunk-based development (Google/Facebook style), GitLab Flow (environment branches). When each works. Branch naming conventions. Long-lived vs short-lived branches."
+        },
+        {
+          "filename": "git-rebase-mastery.md",
+          "description": "Interactive rebase deep: squash, fixup, reword, edit, drop, exec. Autosquash with fixup! commits. Rebase vs merge: tradeoffs, team conventions, when to prefer each. Rebase onto, rebase --update-refs. Recovering from bad rebases with reflog."
+        },
+        {
+          "filename": "git-advanced-operations.md",
+          "description": "Git power tools: bisect (automated bug hunting with scripts), cherry-pick (selective commits), worktrees (multiple checkouts), subtree (vendoring), sparse-checkout (monorepo partial clone), filter-repo (history rewriting), blame and log archaeology."
+        },
+        {
+          "filename": "git-monorepo-tooling.md",
+          "description": "Monorepo tools and patterns: Nx (computation caching, affected commands), Turborepo (pipeline orchestration), Lerna (package publishing), Rush (enterprise). Sparse checkout for scale. Task orchestration, dependency graphs, incremental builds. Pros and cons vs polyrepo."
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "label": "Shell Scripting & CLI Mastery",
+      "topics": [
+        {
+          "filename": "shell-posix-mastery.md",
+          "description": "POSIX shell fundamentals: parameter expansion (${var:-default}, ${var%pattern}), here-documents, command substitution, exit codes and traps, signal handling, file descriptors and redirection (2>&1, process substitution). Portability considerations across sh, bash, zsh, dash."
+        },
+        {
+          "filename": "shell-bash-advanced.md",
+          "description": "Bash-specific features: arrays and associative arrays, process substitution <(), extended globbing, brace expansion, here-strings, coproc, mapfile/readarray, getopts, bash completion API. set -euo pipefail explained. Debugging with set -x, PS4, BASH_SOURCE."
+        },
+        {
+          "filename": "shell-zsh-power.md",
+          "description": "Zsh power features: glob qualifiers (*(om[1,5])), extended glob operators, prompt customization (RPROMPT, vcs_info), completion system (compdef, _arguments), zsh modules, history substring search, named directories, zmv for mass rename. Oh My Zsh and Prezto."
+        },
+        {
+          "filename": "cli-ux-engineering.md",
+          "description": "CLI UX design: progress indicators, color output (ANSI codes, tput), interactive prompts (select, fzf), help text formatting, exit codes convention, signal handling for cleanup, piping and streaming output, machine-readable vs human-readable modes (--json, --quiet)."
+        },
+        {
+          "filename": "shell-testing-quality.md",
+          "description": "Shell script quality: ShellCheck (static analysis), BATS (Bash Automated Testing System), shunit2. Linting, testing, CI integration for shell scripts. Common shell pitfalls: word splitting, globbing, quoting, subshell variable scope, pipefail edge cases."
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "label": "Package Management & Dependencies",
+      "topics": [
+        {
+          "filename": "packages-npm-ecosystem.md",
+          "description": "npm ecosystem deep dive: npm vs yarn vs pnpm architecture differences, node_modules resolution algorithm, hoisting, phantom dependencies, lockfiles (package-lock.json, yarn.lock, pnpm-lock.yaml). Workspaces for monorepos. Peer dependencies. npm scripts lifecycle. .npmrc configuration."
+        },
+        {
+          "filename": "packages-dependency-resolution.md",
+          "description": "Dependency resolution algorithms: version constraint solving (semver ranges), diamond dependency problem, dependency hell, constraint satisfaction. How different package managers resolve conflicts differently. Lockfile importance and security. Reproducible builds."
+        },
+        {
+          "filename": "packages-python-ecosystem.md",
+          "description": "Python packaging: pip, poetry, uv (Astral), pdm, hatch. pyproject.toml as the standard. Virtual environments (venv, conda, virtualenv). Requirements.txt vs lock files. Dependency groups. Python version management (pyenv). The evolving PEP landscape for packaging."
+        },
+        {
+          "filename": "packages-cargo-ecosystem.md",
+          "description": "Rust Cargo deep dive: Cargo.toml features, workspace management, build scripts (build.rs), conditional compilation (#[cfg]), edition system, dev-dependencies vs build-dependencies. Cargo install, cargo publish. crates.io ecosystem. Why Cargo is considered the gold standard."
+        },
+        {
+          "filename": "packages-supply-chain-security.md",
+          "description": "Package supply chain security: typosquatting, dependency confusion, malicious packages, event-stream incident, ua-parser-js compromise. Mitigations: lockfiles, hash verification, Sigstore, npm provenance, cargo-vet, socket.dev. SBOM generation. Private registries."
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "label": "Refactoring & Code Quality Deep",
+      "topics": [
+        {
+          "filename": "refactoring-strategies.md",
+          "description": "Refactoring catalog (Fowler): Extract Method, Extract Class, Move Method, Inline, Introduce Parameter Object, Replace Conditional with Polymorphism, Replace Temp with Query. When to apply each. Safe refactoring with IDE support. Automated refactoring tools."
+        },
+        {
+          "filename": "refactoring-legacy-code.md",
+          "description": "Working Effectively with Legacy Code (Feathers): seam identification, characterization tests, sprout method/class, wrap method/class. The Legacy Code Dilemma. Getting untested code under test. Dependency-breaking techniques. Strangler fig for legacy systems."
+        },
+        {
+          "filename": "refactoring-database.md",
+          "description": "Database refactoring: Ambler & Sadalage patterns. Expand-and-contract pattern for zero-downtime schema changes. Backward-compatible migrations. Rename column, split table, move column. Tools: Flyway, Liquibase, gh-ost, pt-online-schema-change. Testing migrations."
+        },
+        {
+          "filename": "code-quality-metrics.md",
+          "description": "Code quality metrics: cyclomatic complexity, cognitive complexity (SonarQube), coupling (afferent/efferent), cohesion (LCOM), code churn, tech debt ratio. Static analysis tools: SonarQube, CodeClimate, ESLint, Pylint. Metrics that matter vs vanity metrics. DORA metrics for team health."
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "label": "Error Handling & Resilience Across Languages",
+      "topics": [
+        {
+          "filename": "error-handling-language-patterns.md",
+          "description": "Error handling paradigms across languages: exceptions (Java, Python, C#), Result/Option types (Rust, Haskell, Swift), error codes (C, Go), panic/recover (Go), Either monad. Checked vs unchecked exceptions debate. Error handling philosophy: fail fast vs graceful degradation. When to use which pattern."
+        },
+        {
+          "filename": "error-boundaries-frontend.md",
+          "description": "Frontend error handling: React Error Boundaries (componentDidCatch, getDerivedStateFromError), Vue errorHandler, Svelte error components. Global error handlers (window.onerror, unhandledrejection). Error reporting to services. User-facing error messages. Retry patterns in UI."
+        },
+        {
+          "filename": "error-reporting-systems.md",
+          "description": "Error monitoring and reporting: Sentry, Datadog, Bugsnag, Rollbar architecture and integration. Source map upload, stack trace deobfuscation. Error grouping and deduplication. Alert fatigue prevention. Release tracking. Error budgets tied to SLOs."
+        },
+        {
+          "filename": "error-handling-distributed.md",
+          "description": "Error handling in distributed systems: partial failures, timeout vs failure distinction, compensating transactions, idempotency for retries. Circuit breaker integration. Dead letter queues. Poison message handling. Graceful degradation patterns. Bulkhead isolation."
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "label": "Build Systems & Compilation",
+      "topics": [
+        {
+          "filename": "build-systems-deep.md",
+          "description": "Build system fundamentals: dependency graphs, incremental builds, build caching, deterministic builds, reproducibility. Make vs modern alternatives. Build graph parallelism. Content-addressable caching. Remote build caches (Nx Cloud, Turborepo Remote Cache, Bazel Remote Execution)."
+        },
+        {
+          "filename": "build-bundlers-modern.md",
+          "description": "Modern JavaScript bundlers: Vite (dev server + Rollup production), esbuild (Go-based speed), SWC (Rust-based Babel replacement), Rspack (Rust Webpack). Code splitting strategies, tree shaking, dynamic imports, module federation. Bundle analysis and optimization."
+        },
+        {
+          "filename": "build-compilation-incremental.md",
+          "description": "Incremental compilation: TypeScript --incremental and project references, Rust incremental compilation, Go build cache, Java incremental compilation (Gradle). Watch mode implementations. Hot Module Replacement (HMR) internals. File system watchers (chokidar, fs.watch)."
+        },
+        {
+          "filename": "build-bazel-gradle.md",
+          "description": "Enterprise build systems: Bazel (hermetic builds, Starlark rules, remote execution), Gradle (Groovy/Kotlin DSL, task graph, build scans), Maven (convention over configuration, lifecycle phases). When to use each. Migration strategies."
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "label": "Testing Deep Dives",
+      "topics": [
+        {
+          "filename": "testing-mocking-deep.md",
+          "description": "Test doubles deep dive: mocks, stubs, fakes, spies, dummies — when to use each (Meszaros taxonomy). Mocking libraries: Jest mocks, Mockito, unittest.mock, gomock. Over-mocking anti-pattern. Sociable vs solitary unit tests. Mocking HTTP (MSW, nock, WireMock). Database fakes vs testcontainers."
+        },
+        {
+          "filename": "testing-e2e-architecture.md",
+          "description": "E2E test architecture: Page Object Model, Screenplay pattern, fixtures and test data factories. Playwright vs Cypress vs Selenium comparison. Parallel execution, test isolation, flaky test detection and quarantine. Visual regression (Percy, Chromatic). Accessibility testing in E2E."
+        },
+        {
+          "filename": "testing-tdd-practice.md",
+          "description": "TDD workflow in practice: red-green-refactor cycle, outside-in (London school) vs inside-out (Chicago school). Test list, starter test selection. When TDD helps vs when it hurts. TDD with legacy code. BDD and Cucumber-style specifications. Kent Beck's original rules."
+        },
+        {
+          "filename": "testing-ci-optimization.md",
+          "description": "Testing in CI pipelines: test parallelization strategies, test selection (affected tests only), flaky test management, test splitting. Tools: Jest --shard, pytest-split, Nx affected. Caching test results. Test impact analysis. Shift-left testing. Pre-merge vs post-merge testing."
+        },
+        {
+          "filename": "process-dogfooding-self-hosting.md",
+          "description": "Dogfooding (self-hosting) as a software engineering practice: using your own product internally before shipping. History: Microsoft 'eating your own dog food' memo (1988). Why it works: developers experience the same friction users will, bugs surface in real workflows, feedback loops tighten. Famous examples: VS Code team uses Copilot agent mode across 200+ internal repos (source: https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode), Google uses Chromium builds internally, Apple engineers use pre-release iOS. The principle: 'if it's not good enough for the team, it's not good enough to ship.' Risks: internal users aren't representative of all users, survivorship bias, Stockholm syndrome with bad UX. Relationship to beta testing, canary releases, and staged rollouts. How dogfooding fits into quality culture alongside TDD, code review, and CI/CD."
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "label": "Configuration & Deployment Engineering",
+      "topics": [
+        {
+          "filename": "config-management-practice.md",
+          "description": "Configuration management in practice: 12-factor config, environment variables vs config files, .env patterns, config precedence chains. Typesafe config: zod for runtime validation, convict, rcfile conventions. Config schema validation. Secret injection patterns (Vault, AWS SSM)."
+        },
+        {
+          "filename": "deployment-strategies-deep.md",
+          "description": "Deployment strategies compared: blue-green (instant cutover, double infrastructure), canary (gradual rollout, metric-gated), rolling (zero-downtime, in-place), A/B testing (feature-based routing), shadow/dark launching. Database migration compatibility. Rollback procedures for each."
+        },
+        {
+          "filename": "deployment-database-migrations.md",
+          "description": "Zero-downtime database migrations: expand-and-contract pattern, online DDL tools (gh-ost, pt-online-schema-change), advisory locks. Migration ordering, idempotent migrations, data backfills. Flyway, Liquibase, Alembic, Prisma migrate, Knex migrations. Testing migrations in CI."
+        },
+        {
+          "filename": "release-engineering.md",
+          "description": "Release engineering: semantic versioning (semver) specification and edge cases, changelogging (conventional commits, keep-a-changelog), release trains, release candidates, hotfix branches. Automated release tools: semantic-release, release-please, changesets. Artifact signing and provenance."
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "label": "Documentation & Technical Communication",
+      "topics": [
+        {
+          "filename": "documentation-code-docs.md",
+          "description": "Code documentation: JSDoc, Javadoc, Python docstrings (Google/NumPy/Sphinx styles), Rust doc comments, Go godoc. Self-documenting code vs essential comments. When to comment vs when to refactor. Documentation generation tools. API surface documentation."
+        },
+        {
+          "filename": "documentation-architecture-records.md",
+          "description": "Architecture Decision Records (ADRs): format (title, status, context, decision, consequences), MADR template, when to write ADRs, maintaining a decision log. C4 model for architecture visualization (Context, Container, Component, Code). Diagrams-as-code: Mermaid, PlantUML, Structurizr."
+        },
+        {
+          "filename": "documentation-runbooks-playbooks.md",
+          "description": "Operational documentation: runbooks for incident response, playbooks for common procedures, decision trees for on-call engineers. Structure: symptoms, diagnosis steps, remediation, escalation. Living documentation patterns. Post-incident documentation requirements."
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "label": "VS Code Agent Capabilities Reference",
+      "topics": [
+        {
+          "filename": "ide-vscode-agent-tools.md",
+          "description": "COMPREHENSIVE reference of every capability a VS Code agent has access to. This is TEACHING MATERIAL — explain it like you're a teacher explaining to a very capable student what tools they have available and how to use them effectively. PRIMARY SOURCE: https://code.visualstudio.com/docs/copilot/agents/agent-tools and https://code.visualstudio.com/docs/copilot/reference/copilot-vscode-features\n\nDocument ALL built-in tool sets and individual tools:\n- #read tools: read/problems (ALL compile errors, lint warnings, diagnostics — the agent can see every error the IDE shows), read/readFile, read/terminalLastCommand, read/terminalSelection, read/getNotebookSummary, read/readNotebookCellOutput\n- #edit tools: edit/createFile, edit/createDirectory, edit/editFiles, edit/editNotebook\n- #execute tools: execute/runInTerminal (run ANY shell command), execute/getTerminalOutput, execute/createAndRunTask, execute/runNotebookCell, execute/testFailure\n- #search tools: search/codebase, search/textSearch, search/fileSearch, search/listDirectory, search/changes, search/usages\n- #web tools: web/fetch (access any URL)\n- #agent tools: agent/runSubagent (delegate tasks)\n- #browser tools: navigate, screenshot, click, type, hover (experimental)\n- #vscode tools: askQuestions, extensions, installExtension, runCommand, VSCodeAPI, getProjectSetupInfo\n- #todos tool for tracking progress\n- Slash commands (/fix, /explain, /tests, /doc, /plan, /compact, /fork, /debug)\n- Tool sets: grouping tools into reusable collections\n\nEmphasize the READ/PROBLEMS tool — it gives the agent access to every compiler error, lint warning, and diagnostic in the workspace in real time. This is enormously powerful for self-correcting code generation. Explain how the agent uses it in practice. Note that VS Code validates its own workspace config files (.vscode/settings.json, tasks.json, launch.json) via built-in JSON schema validation, so diagnostics cover configuration as well as source code.\n\nEmphasize TERMINAL EXECUTION — the agent can run literally any command on the system. It can install packages, run build scripts, execute tests, start servers, curl APIs. Combined with tool-building capability, this means the agent can build custom tools (MCP servers, scripts, extensions) to extend its own capabilities.\n\nAlso cover: permission levels (Default, Bypass Approvals, Autopilot), terminal sandboxing, tool approval system, context window indicator."
+        },
+        {
+          "filename": "ide-vscode-diagnostics-system.md",
+          "description": "VS Code diagnostics system deep dive — the technical architecture behind the Problems panel and how language servers publish diagnostics. Cover: DiagnosticCollection API, how LSP textDocument/publishDiagnostics works, severity levels (Error, Warning, Information, Hint), diagnostic tags (unnecessary, deprecated), related information links, code actions attached to diagnostics (quick fixes), how TypeScript/ESLint/Pylance publish their diagnostics. This is the system that powers read/problems — understanding it means understanding exactly what error information is available and how it's structured. Include: how diagnostics update on file save vs on keystroke, debouncing, incremental diagnostic updates, workspace-wide vs file-scope diagnostics."
+        },
+        {
+          "filename": "ide-vscode-terminal-integration.md",
+          "description": "VS Code integrated terminal architecture: PTY (pseudo-terminal) hosting, shell integration (how VS Code tracks command boundaries, working directory, exit codes), terminal profiles, terminal links, shell detection. How the agent's execute/runInTerminal works under the hood — the command is sent to a PTY, shell integration markers detect when it completes, output is captured. Background terminals and the isBackground pattern for long-running processes (servers, watchers). Terminal sandboxing via Apple Sandbox (macOS) for file system and network restrictions. This is pure engineering knowledge about how the IDE's terminal works."
+        },
+        {
+          "filename": "ide-mcp-integration.md",
+          "description": "Model Context Protocol (MCP) in VS Code: how MCP servers extend agent capabilities, the stdio and SSE transports, tool discovery, server configuration in settings.json and .vscode/mcp.json. How MCP tools appear alongside built-in tools. The MCP lifecycle: server startup, tool listing, tool invocation, response. Building custom MCP servers (Node.js, Python) to give agents new capabilities. Real examples: database access, API integration, vision/screenshot tools, web scraping. The key insight: because the agent can run terminal commands AND build files, it can literally build its own MCP server from scratch, install it, and start using its new tools within the same session."
+        },
+        {
+          "filename": "ide-vscode-extension-tools-api.md",
+          "description": "VS Code Language Model Tools API: how extensions contribute tools to Copilot chat. The lm.registerTool API, tool metadata (name, description, parameters schema), input/output types. How chat participants differ from tools (participants handle full requests, tools perform specific actions within an agent flow). The contribution point system in package.json. How extension-contributed tools appear in the tools picker. Practical patterns: building a tool that wraps an external API, a tool that reads from a database, a tool that takes screenshots. Reference: https://code.visualstudio.com/api/extension-guides/tools"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "label": "Agent Incremental Execution & Task Decomposition",
+      "topics": [
+        {
+          "filename": "genai-task-decomposition.md",
+          "description": "Task decomposition patterns for AI agents: how to break complex problems into atomic, verifiable sub-tasks. Research WHY agents excel at small incremental goals — from Anthropic's harness research (one-feature-at-a-time), OpenAI's cookbook patterns, and practical evidence from Beast Mode's todo-driven workflow. Cover: the role of the context window in limiting attention span, why one-shotting large tasks fails, how structured progress tracking (todo lists, feature checklists) keeps agents on track, the verify-after-each-step pattern. This is engineering knowledge about how LLMs process instructions, not Copilot configuration."
+        },
+        {
+          "filename": "genai-natural-language-to-code.md",
+          "description": "How AI translates natural language to code: the pipeline from user intent to implementation. Token-level processing, attention patterns, how models resolve ambiguity. The gap between intent and specification — why detailed prompts produce better code. Research on instruction following: how chain-of-thought, structured formatting, and explicit constraints improve output quality. Why agents benefit from planning before acting (plan-then-code vs stream-of-consciousness). The role of concrete examples and references in reducing hallucination."
+        },
+        {
+          "filename": "genai-feedback-loops.md",
+          "description": "Feedback loop patterns for code-generating AI: compile-check-fix loops, test-driven generation, lint-fix cycles, self-review patterns. How read/problems creates a tight feedback loop: generate code → check diagnostics → fix errors → repeat. Why this loop is more reliable than one-shot generation. The evaluator-optimizer pattern applied to coding: generate, evaluate (tests, linting, type checking), iterate. Error-driven refinement vs specification-driven generation. Research from Anthropic's QA agent patterns and practical coding agent implementations. SOURCE: https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode describes the compile/lint error auto-correction loop as the core design principle of agent mode."
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "label": "Video-Sourced Deep Research",
+      "topics": [
+        {
+          "filename": "genai-anthropic-agent-patterns.md",
+          "description": "COMPREHENSIVE synthesis of Anthropic's published agent architecture research. PRIMARY SOURCES: (1) https://www.anthropic.com/engineering/harness-design-long-running-apps — 3-agent architecture, GAN-inspired design, (2) https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents — initializer/coding agent pattern, (3) https://www.anthropic.com/research/building-effective-agents — 6 composable patterns (prompt chaining, routing, parallelization, orchestrator-workers, evaluator-optimizer, agents). This is the definitive reference on building production AI agents as of 2026. USE VISION TOOLS on the video at https://www.youtube.com/watch?v=9d5bzxVsocw to capture diagrams, architecture visuals, and code examples shown on screen."
+        },
+        {
+          "filename": "genai-coding-agent-state-of-art.md",
+          "description": "State of the art in AI coding agents (2025-2026): Claude Agent SDK, cursor, aider, continue.dev, copilot agent mode, the Ralph Wiggum loop pattern, Beast Mode workflow patterns. Research via web search and video sources. What works, what doesn't, cost analysis, quality tradeoffs. Search YouTube for recent conference talks on coding agents — USE VISION TOOLS to capture code shown on screen."
+        },
+        {
+          "filename": "ide-vscode-devs-youtube.md",
+          "description": "Research the VS Code team's YouTube channel (https://www.youtube.com/@code) and the VS Code Podcast for engineering deep dives. Key topics to find and document: how the extension host process isolation works, how the webview bridge operates, terminal shell integration implementation, how the language model integration was designed. ALSO search Burke Holland's channel (https://www.youtube.com/@BurkeHolland) for VS Code agent workflow demonstrations — USE VISION TOOLS to capture code/UI shown on screen. Focus on content about VS Code's internal architecture and agent capabilities, NOT general productivity tips."
+        }
+      ]
+    }
+  ]
+}
