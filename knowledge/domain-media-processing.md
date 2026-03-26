@@ -122,24 +122,108 @@ Use `exiftool`, ImageMagick `identify`, FFprobe (for video), or cloud APIs (Goog
 
 ## Typical Architecture
 
-**Async pipeline:**
-1. User uploads image/video to pre-signed S3 URL
-2. S3 event triggers Lambda / Cloud Function
-3. Process spawns workers: resize images, transcode video, extract metadata, run moderation
-4. Store outputs to S3, update database with asset metadata
-5. CDN caches outputs
-6. User notified (webhook, polling) when ready
-
-**Tools:**
-
-| Operation | Tools | Notes |
-| --- | --- | --- |
+| Component | Examples |
+| --- | --- |
 | Image resize/crop | Sharp (Node.js), Pillow (Python), ImageMagick | Sharp is fastest for Node.js |
 | Image optimization | PNGQUANT, guetzli, jpegoptim | Post-processing |
 | Video transcode | FFmpeg, HandBrake, AWS MediaConvert | FFmpeg most flexible |
 | Metadata extraction | exiftool, FFprobe, Sharp `.metadata()` | Always strip EXIF before CDN for privacy |
 | Moderation | AWS Rekognition, Google Vision, Clarifai | Hybrid: auto + human |
 | CDN | Cloudflare, Fastly, AWS CloudFront | Cache invalidation strategy critical |
+
+## Advanced Optimization Techniques
+
+### Adaptive Bitrate Streaming
+
+Video streaming adapts bitrate based on measured network speed. Player measures bandwidth during playback; if bandwidth drops, switch to lower bitrate.
+
+**HLS / DASH playlists:** Instead of one 2-hour video, segment into 6-second chunks. Playlist variant contains links to multiple bitrates (500k, 1M, 2M, 5M). Player picks bitrate per-segment based on current conditions.
+
+**Bandwidth estimation:** Player measures time to download segment (6 seconds of video in 4 real seconds = higher bandwidth). Exponential moving average smooths jitter.
+
+**Switching overhead:** Switching bitrates causes re-buffering (50-200 ms pause). Minimize by preloading future segments and using predictable bandwidth estimators.
+
+**Backoff:** If bitrate too high, switch down immediately. If too low, ramp up gradually (avoid oscillation).
+
+### GPU Acceleration
+
+Video transcoding (H.264, H.265) uses significant CPU; GPU can accelerate 5-10×. Options:
+
+**Hardware encoders:** NVIDIA NVENC (CUDA cores), Intel QSV, Apple VideoToolbox (hardware encoders on modern Macs).
+
+**Library support:**
+- FFmpeg with `cuvid` (NVIDIA) or `videotoolbox` (macOS)
+- AWS MediaConvert with GPU workers
+- HandBrake with GPU acceleration (slower but simpler than FFmpeg)
+
+**Cost:** GPU instances cost 3-5× more than CPU but reduce transcoding time to 1/5th, improving ROI for high-volume processing.
+
+### Sprite Sheets & Film Strips
+
+Video thumbnails as single image file containing multiple frames reduces HTTP requests and improves cache efficiency.
+
+**Construction:** Use FFmpeg to extract keyframes, tile into grid:
+```
+ffmpeg -i video.mp4 -vf fps=1/30,scale=160:90,tile=10x10 sprites.jpg
+```
+Result: Single 1600×900 image containing 100 thumbnail frames.
+
+**Serving:** Generate `.vtt` (WebVTT) manifest:
+```
+00:00:00.000 --> 00:00:30.000
+sprites.jpg#xywh=0,0,160,90
+
+00:00:30.000 --> 00:01:00.000
+sprites.jpg#xywh=160,0,160,90
+```
+Browser handles scrubbing visualization automatically.
+
+### Watermarking & DRM
+
+Protect premium content from copying.
+
+**Visible watermark:** Overlay logo on video. Deters casual piracy but impacts viewing experience.
+
+**Invisible watermark:** Embed perceptual hash (robust to compression, cropping). Requires ML model to extract and verify.
+
+**DRM (Digital Rights Management):** Encrypt video content. Requires license key per viewer (Widevine, PlayReady, FairPlay). High friction but prevents wholesale copying.
+
+**Tradeoff:** Watermarking deterrent vs UX. Most platforms use visible logo + reporting system (user reports pirated content for takedown).
+
+## Compliance & Standards
+
+**HEIF / HEIC:** Apple's image format; smaller than JPEG but limited support on web. Serve fallback (WebP, JPEG).
+
+**Codec licensing:** Some codecs require royalty payments (H.264, H.265). Royalty-free alternatives: VP9, AV1, Opus (audio).
+
+**Accessibility:** Provide captions for videos (both auto-generated and human-edited). Video transcripts aid SEO and accommodate deaf/hard-of-hearing users.
+
+**Retention:** Legal requirements often mandate data retention (medical records 7 years, financial 10 years). After retention expires, delete media from CDN and object storage.
+
+## Performance Impact on Page Load
+
+Media is often >50% of page bytes. Optimization directly impacts Core Web Vitals:
+
+- **Largest Contentful Paint (LCP):** Lazy-load images below fold. Don't block page render on image decode.
+- **Cumulative Layout Shift (CLS):** Specify image dimensions in HTML to prevent re-layout when image loads.
+- **First Input Delay (FID):** Avoid main-thread blocking during image processing; offload to workers.
+
+## Failure Handling & Recovery
+
+**Transcoding failure:** Queue job again with exponential backoff. If persistent, fallback to lower quality (encode H.264 only instead of full range).
+
+**CDN unavailability:** Origin fallback. If CDN returns 500, serve from origin directly (slower but accessible). Cache in browser; user sees stale version if all sources fail.
+
+**Storage corruption:** Periodic integrity checks (verify S3 object checksums). If checksum mismatch, re-transcode from original.
+
+## See Also
+
+- [web-image-optimization.md](web-image-optimization.md) — Responsive image delivery, formats, lazy loading
+- [algorithms-compression.md](algorithms-compression.md) — Compression algorithms behind JPEG, WebP, AVIF
+- [performance-web-vitals.md](performance-web-vitals.md) — Impact of media optimization on page speed
+- [scaling-load-balancing.md](scaling-load-balancing.md) — Load balancing video transcoding workers
+- [architecture-data-pipeline.md](architecture-data-pipeline.md) — General pipeline architecture patterns
+- [systems-io-models.md](systems-io-models.md) — I/O and parallelization in media workers
 
 ## Performance & Cost Trade-offs
 

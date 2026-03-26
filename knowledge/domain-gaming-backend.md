@@ -153,6 +153,8 @@ Players take sequential actions with **no strict latency requirements**. Turn-ba
 
 ## Typical Technology Stack
 
+## Typical Technology Stack
+
 - **Game server runtime:** Custom C++ (Unreal, custom), Erlang (Elixir GenServer for turn-based), Go (low-latency)
 - **Matchmaker:** Custom logic or managed service (AWS GameLift, PlayFab)
 - **Leaderboards:** Redis sorted sets, DynamoDB with GSI
@@ -160,6 +162,67 @@ Players take sequential actions with **no strict latency requirements**. Turn-ba
 - **Persistence:** PostgreSQL (with conn pooling), CockroachDB (global scale)
 - **Message queue:** Kafka for economy events (purchase → inventory → leaderboard update)
 - **In-memory cache:** Redis for session tokens, hot inventory
+
+## Session & Queue Management
+
+### Long-Running Sessions
+
+A gaming session can last hours (MMO play, campaign progress). Sessions must survive brief network outages without dropping the player to login. Strategies:
+
+**Heartbeat / keep-alive:** Client sends ping every 30s; server responds pong. If pong missing after 3 attempts (90s), session times out.
+
+**Session resumption:** When client reconnects after network hiccup, use session token to resume instead of re-authenticating. Session must be fresh (< 1 hour old) and player's presence unchanged (still in same game).
+
+**Session state reconstruction:** If server crashed, reconstruct player's in-game state from database:
+- Health: reload from persistence
+- Position: last checkpoint + delta from replay
+- Inventory: deterministic from transaction log
+
+### Queue State Persistence
+
+Player joins matchmaking queue. Server reboots. What happens to queue membership? Strategies:
+
+**Ephemeral queue (Redis):** Queue lives in memory only. Player must rejoin after restart (acceptable for fast games, < 10 min queue waits).
+
+**Durable queue (database):** Queue written to database. On server restart, reload queue from disk. Survives infrastructure failure but slower (DB latency per operation).
+
+**Hybrid:** Hot queue in Redis (fast), periodically checkpoint to database (every 1000 players or 5 min).
+
+## Rate Limiting & Abuse Prevention
+
+Prevent exploitation: player spamming requests, cheater automating account creation, bot farming currency.
+
+**Per-player rate limits:** Max 100 API requests per second per player. Block subsequent requests with 429 (Too Many Requests).
+
+**Per-IP rate limits:** Block obvious bot farms (1000+ accounts from same IP). Whitelist ISPs/datacenters.
+
+**Cooldowns:** Matchmaking button clickable only every 5 seconds; prevents UI spam. Able-to-equip-item only if 1 second since last equip.
+
+**Captcha on suspicious:** If account creation spikes or login attempts spike, require Captcha. Adds friction but stops automation.
+
+**Stat anomaly detection:** Account level jumps from 1 to 100 in 1 hour = suspicious. Mark for review.
+
+## Replay & Recording Infrastructure
+
+Replays serve evidence for disputes and cheat investigation. Recording must balance **storage cost**, **latency** (how fast replay is available), and **fidelity** (how accurately replay reproduces the match).
+
+**Input-based replays:** Record player inputs (keystroke, mouse movement) + server random seed. Replay = reinitialize game engine with same seed, apply inputs, deterministic output. Cheap storage but requires deterministic engine.
+
+**State snapshots + delta:** Record full game state every 10 frames, plus delta between (300 frames per second recording of 1 frame snapshot = 30 MB). Resync detection: if replay state diverges from live state, record new snapshot.
+
+**Compression:** Input is highly repetitive (player holding forward key = same input for 60 frames). Delta-encode: store "input X for 60 frames" instead of 60 copies. Reduces size 10-100×.
+
+**TTL policy:** Keep replays for recent matches (7 days) in hot storage (SSD). Archive older replays to cold storage (S3 Glacier, $1 per TB/month).
+
+## See Also
+
+- [gamedev-networking.md](gamedev-networking.md) — Client-server synchronization, prediction, lag compensation
+- [gamedev-ecs.md](gamedev-ecs.md) — Entity-component systems for game state
+- [scaling-load-balancing.md](scaling-load-balancing.md) — Load balancing match servers
+- [api-rate-limiting.md](api-rate-limiting.md) — Protecting matchmaker API from spam
+- [security-rate-limiting-protection.md](security-rate-limiting-protection.md) — Anti-bot matchmaking
+- [database-concurrency.md](database-concurrency.md) — Handling concurrent inventory updates
+- [distributed-replication.md](distributed-replication.md) — Cross-region leaderboard replication
 
 ## See Also
 
