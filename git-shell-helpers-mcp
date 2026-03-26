@@ -76,7 +76,9 @@ async function withCheckpointLock(fn) {
     await _checkpointLock;
   }
   let resolve;
-  _checkpointLock = new Promise((r) => { resolve = r; });
+  _checkpointLock = new Promise((r) => {
+    resolve = r;
+  });
   try {
     return await fn();
   } finally {
