@@ -9,7 +9,7 @@ on:
       batch_size:
         description: "Number of files to audit this run"
         required: false
-        default: "250"
+        default: "50"
       model:
         description: "LLM model to use"
         required: false
@@ -37,9 +37,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUDIT_MODEL: ${{ inputs.model || 'gpt-5-mini' }}
-          AUDIT_BATCH_SIZE: ${{ inputs.batch_size || '250' }}
+          AUDIT_BATCH_SIZE: ${{ inputs.batch_size || '50' }}
           AUDIT_CONCURRENCY: "1"
-          AUDIT_DELAY_MS: "3000"
+          AUDIT_DELAY_MS: "10000"
         run: node scripts/knowledge-auditor.js
 
       - name: Check for changes
