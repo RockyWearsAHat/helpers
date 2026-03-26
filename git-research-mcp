@@ -1880,7 +1880,7 @@ const RESEARCH_TOOLS = [
   {
     name: "search_web",
     description:
-      "Search the web via a local SearXNG meta-search instance that queries Google, Bing, DuckDuckGo, and other engines simultaneously. Returns deduplicated results with titles, URLs, snippets, and source engines.",
+      "Search the web via Google. Scrapes google.com directly with rate limiting and empty-result retry logic. Returns deduplicated results with titles, URLs, and snippets.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1906,14 +1906,9 @@ const RESEARCH_TOOLS = [
           type: "string",
           description: "Optional file type filter, for example pdf.",
         },
-        engines: {
-          type: "string",
-          description:
-            "Comma-separated SearXNG engine names, for example google,bing,duckduckgo. Omit to use all enabled engines.",
-        },
         language: {
           type: "string",
-          description: "Optional language code, for example en.",
+          description: "Optional language code, for example en. Defaults to en.",
         },
         time_range: {
           type: "string",
