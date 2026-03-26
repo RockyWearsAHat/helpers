@@ -124,5 +124,6 @@ Call `mcp_gsh_write_knowledge_note` with:
 3. `mcp_gsh_read_knowledge_note` — read related notes for context and tone
 4. `mcp_gsh_write_knowledge_note` — write each note (bare filename)
 5. Skip topics where a note already exists — report the skip
-6. `mcp_gsh_checkpoint` — commit the batch
-7. Report: filenames created, line counts, key sources consulted
+6. Report: filenames created, line counts, key sources consulted
+
+**Do NOT call `mcp_gsh_checkpoint`.** The orchestrator handles git commits after verifying all subagent output. Parallel agents calling checkpoint causes git lock conflicts and empty pushes.
