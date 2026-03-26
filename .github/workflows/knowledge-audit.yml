@@ -2,14 +2,14 @@ name: Knowledge Base Audit
 
 on:
   schedule:
-    # Run every 4 hours — free via Copilot tokens
-    - cron: "0 */4 * * *"
+    # Run every 2 hours — free via Copilot tokens
+    - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
       batch_size:
         description: "Number of files to audit this run"
         required: false
-        default: "3"
+        default: "250"
       model:
         description: "LLM model to use"
         required: false
@@ -37,7 +37,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUDIT_MODEL: ${{ inputs.model || 'gpt-5-mini' }}
-          AUDIT_BATCH_SIZE: ${{ inputs.batch_size || '3' }}
+          AUDIT_BATCH_SIZE: ${{ inputs.batch_size || '250' }}
         run: node scripts/knowledge-auditor.js
 
       - name: Check for changes

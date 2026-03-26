@@ -1470,11 +1470,13 @@ async function fetchText(url) {
 // ---------------------------------------------------------------------------
 
 // Minimum delay between Google requests to avoid rate-limiting (ms).
-const GOOGLE_MIN_DELAY_MS = parseInt(process.env.GOOGLE_MIN_DELAY_MS || "2000", 10);
-// Extra delay added per retry when results come back empty.
-const GOOGLE_EMPTY_RETRY_DELAY_MS = 5000;
-// Max attempts specifically for empty-result retries (separate from HTTP retries).
-const GOOGLE_EMPTY_RETRY_MAX = 3;
+const GOOGLE_MIN_DELAY_MS = parseInt(process.env.GOOGLE_MIN_DELAY_MS || "3000", 10);
+// Extra delay added per retry when results come back empty or rate-limited.
+const GOOGLE_EMPTY_RETRY_DELAY_MS = 10000;
+// Max attempts specifically for empty-result / rate-limit retries.
+const GOOGLE_EMPTY_RETRY_MAX = 4;
+// Long backoff for 429 specifically (starts at 30s, doubles each attempt).
+const GOOGLE_429_BASE_DELAY_MS = 30000;
 
 let _lastGoogleRequestMs = 0;
 
@@ -1488,6 +1490,67 @@ async function googleRateLimit() {
     await sleep(GOOGLE_MIN_DELAY_MS - elapsed);
   }
   _lastGoogleRequestMs = Date.now();
+}
+
+/**
+ * Fetch a Google search page with Google-specific retry logic.
+ * Unlike the generic fetchWithRetry, this handles 429s with much longer
+ * backoff (30s, 60s, 120s) since Google rate limits are minutes, not seconds.
+ */
+async function fetchGoogleSearch(url) {
+  let lastError;
+  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
+    const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(url, {
+        signal: timeoutSignal,
+        headers: {
+          "user-agent": DEFAULT_USER_AGENT,
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+          "accept-encoding": "gzip, deflate, br",
+          cookie: "CONSENT=PENDING+987; SOCS=CAESHAgBEhJnd3NfMjAyMzA4MTUtMF9SQzIaAmVuIAEaBgiA_LSmBg",
+        },
+        redirect: "follow",
+      });
+    } catch (fetchErr) {
+      if (attempt < RETRY_MAX_ATTEMPTS - 1) {
+        const delayMs = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, attempt), RETRY_MAX_DELAY_MS);
+        process.stderr.write(
+          `[git-research-mcp] Google fetch error: ${fetchErr.message} — retrying in ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+        );
+        lastError = fetchErr;
+        await sleep(delayMs);
+        continue;
+      }
+      throw fetchErr;
+    }
+    if (response.ok) {
+      return await response.text();
+    }
+    if (response.status === 429) {
+      // Google 429s need much longer backoff than the generic retry.
+      const delayMs = Math.min(GOOGLE_429_BASE_DELAY_MS * Math.pow(2, attempt), 120_000);
+      process.stderr.write(
+        `[git-research-mcp] Google 429 rate-limited — waiting ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+      );
+      lastError = new Error(`Google 429 rate-limited`);
+      await sleep(delayMs);
+      continue;
+    }
+    if (!isRetryable(response.status)) {
+      const body = await response.text();
+      throw new Error(`HTTP ${response.status} from Google: ${body.slice(0, 400)}`);
+    }
+    const delayMs = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, attempt), RETRY_MAX_DELAY_MS);
+    process.stderr.write(
+      `[git-research-mcp] Google HTTP ${response.status} — retrying in ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+    );
+    lastError = new Error(`HTTP ${response.status} from Google`);
+    await sleep(delayMs);
+  }
+  throw lastError;
 }
 
 /**
@@ -1637,20 +1700,12 @@ async function searchWeb(args) {
     const searchUrl = `https://www.google.com/search?${params.toString()}`;
     let html;
     try {
-      const response = await fetchWithRetry(searchUrl, {
-        headers: {
-          "user-agent": DEFAULT_USER_AGENT,
-          accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
-          "accept-language": "en-US,en;q=0.9",
-        },
-        redirect: "follow",
-      });
-      html = await response.text();
+      html = await fetchGoogleSearch(searchUrl);
     } catch (err) {
       process.stderr.write(
-        `[git-research-mcp] Google fetch error: ${err.message}\n`,
+        `[git-research-mcp] Google search failed: ${err.message}\n`,
       );
-      // On network error, wait and retry
+      // On error, wait and retry at the search level
       if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
         await sleep(GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1));
         continue;
