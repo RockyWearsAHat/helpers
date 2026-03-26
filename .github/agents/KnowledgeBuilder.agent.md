@@ -6,8 +6,10 @@ model:
   - GPT-5.4 mini (copilot)
   - GPT-5 mini (copilot)
   - GPT-4.1
-mcp-servers:
-  - gsh
+tools:
+  - read
+  - search
+  - todo
 user-invocable: false
 ---
 
@@ -41,7 +43,6 @@ Use these FIRST before any web research. The knowledge base may already cover re
 ### Maintenance
 
 - **`mcp_gsh_build_knowledge_index`** — Manually rebuild the TF-IDF index. Auto-called after writes, but use after bulk operations.
-- **`mcp_gsh_checkpoint`** — Commit changes with an AI-generated message. Use after writing a batch.
 
 ## Phase 1: Research
 

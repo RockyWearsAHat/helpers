@@ -58,6 +58,21 @@ Results are tagged with `source: "local"` or `source: "community"`. Falls back t
 
 **`analyze_images`** — Analyze one or more images using a vision model. Pass base64-encoded image data. Use after `take_screenshot` to interpret UI state, errors, or visual content.
 
+## Knowledge-First Protocol
+
+When you encounter uncertainty, need background on an unfamiliar topic, or want to verify an assumption, **check the knowledge base before searching the web**. The knowledge base contains ~950 encyclopedia-quality reference notes covering algorithms, architectures, languages, frameworks, security, infrastructure, and more.
+
+Research order:
+
+1. **`search_knowledge_index`** — TF-IDF search across local + community knowledge. Start here.
+2. **`read_knowledge_note`** — Read the full note for any promising result.
+3. **`search_knowledge_cache`** — Keyword fallback for exact term matching.
+4. **`search_web` + `scrape_webpage`** — Only after exhausting local knowledge, or when you need current/volatile information (API versions, recent releases, pricing).
+
+The community cache (`community-cache/` in the source repo, fetched remotely with ETag caching) contains crowdsourced Copilot customization best practices. Use `search_knowledge_index` (which merges local + community results) to search both at once.
+
+Treat knowledge notes as informed starting context — they are accurate but not infallible. Verify volatile details (version numbers, API signatures, tool flags) against current sources. See `knowledge-philosophy.md` for the full uncertainty gradient.
+
 ## Usage Notes
 
 - The `gsh` server is registered by the GitHub Shell Helpers VS Code extension. It can also be configured manually via `~/Library/Application Support/Code/User/mcp.json`.
