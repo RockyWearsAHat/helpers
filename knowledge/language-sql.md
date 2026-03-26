@@ -1,4 +1,4 @@
-# SQL Best Practices
+# SQL Conventions and Idioms
 
 ## SQL Philosophy
 
@@ -184,7 +184,7 @@ BEGIN;
 COMMIT;
 ```
 
-## Key Rules
+## Conventions
 
 1. **Use CTEs for readability.** Break complex queries into named steps.
 2. **Always use parameterized queries** in application code. Never concatenate user input into SQL (prevents SQL injection).

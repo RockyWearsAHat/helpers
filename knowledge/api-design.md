@@ -1,4 +1,4 @@
-# API Design Best Practices
+# API Design Principles
 
 ## REST API Principles
 

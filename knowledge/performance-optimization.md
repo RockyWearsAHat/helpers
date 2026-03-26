@@ -10,7 +10,7 @@ Translation: Write clear code first. Profile to find the actual bottleneck. Opti
 
 ### Measure, Don't Guess
 
-Always profile before optimizing. Your intuition about what's slow is usually wrong.
+Profiling before optimizing is essential. Intuition about performance bottlenecks is often wrong.
 
 - **CPU profiling**: Where is time being spent? (flame graphs, sampling profilers)
 - **Memory profiling**: What's consuming RAM? Where are allocations?
@@ -74,8 +74,8 @@ I/O (disk, network, database) is almost always the bottleneck in real applicatio
 - **Avoid N+1 queries**: Load related data in one query (JOIN, eager loading). ORMs are notorious for this.
 - **Use EXPLAIN/ANALYZE**: Read query execution plans to find full table scans.
 - **Denormalize when justified**: Sometimes duplicating data avoids expensive JOINs. Measure first.
-- **Connection pooling**: Always use a connection pool. Never open/close connections per query.
-- **Pagination**: Never `SELECT *` without LIMIT. Use cursor-based pagination for large datasets.
+- **Connection pooling**: Reusing connections avoids the overhead of opening/closing per query.
+- **Pagination**: Unbounded result sets (`SELECT *` without LIMIT) are a common performance trap. Cursor-based pagination handles large datasets well.
 
 ## Frontend Performance
 

@@ -1,4 +1,4 @@
-# Erlang Best Practices
+# Erlang Conventions and Idioms
 
 ## Erlang Philosophy
 
@@ -177,7 +177,7 @@ after
 end.
 ```
 
-## Key Rules
+## Conventions
 
 1. **Let it crash.** Design for recovery, not prevention. Supervisors handle failures.
 2. **Use OTP behaviors.** `gen_server`, `gen_statem`, `supervisor` — don't roll your own process loops.

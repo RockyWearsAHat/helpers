@@ -428,11 +428,11 @@ Containers use **Linux cgroups** (resource limits) and **namespaces** (isolation
 ### Docker Image Layers — Why Build Order Matters
 
 ```dockerfile
-# BAD: Any code change invalidates npm install cache
+# Fragile: any code change invalidates npm install cache
 COPY . /app
 RUN npm install
 
-# GOOD: Dependencies cached unless package.json changes
+# Stable: dependencies cached unless package.json changes
 COPY package.json package-lock.json /app/
 RUN npm install
 COPY . /app

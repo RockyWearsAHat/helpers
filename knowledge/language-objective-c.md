@@ -1,4 +1,4 @@
-# Objective-C Best Practices
+# Objective-C Conventions and Idioms
 
 ## Objective-C Context
 
@@ -188,7 +188,7 @@ NS_ASSUME_NONNULL_END
 // func fetchUser(_ userId: String, completion: @escaping (User?, Error?) -> Void)
 ```
 
-## Key Rules
+## Conventions
 
 1. **Use ARC.** Never manually call `retain`, `release`, or `autorelease`. ARC handles it.
 2. **Avoid retain cycles.** Use `weak` for delegates and `__weak`/`__strong` pattern in blocks.

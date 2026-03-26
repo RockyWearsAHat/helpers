@@ -1,4 +1,4 @@
-# Scala Best Practices
+# Scala Conventions and Idioms
 
 ## Scala Philosophy
 

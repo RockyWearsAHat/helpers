@@ -1,4 +1,4 @@
-# JavaScript & TypeScript Best Practices
+# JavaScript & TypeScript Conventions and Idioms
 
 ## TypeScript: Type Safety First
 
@@ -6,7 +6,7 @@
 TypeScript exists to catch bugs at compile time. Use it strictly.
 
 ```jsonc
-// tsconfig.json — non-negotiable settings
+// tsconfig.json — recommended strict settings
 {
   "compilerOptions": {
     "strict": true,                    // Enables ALL strict checks
@@ -245,7 +245,7 @@ try {
 
 ## Common Pitfalls
 
-1. **`==` vs `===`**: Always use `===`. The `==` operator has bizarre coercion rules.
+1. **`==` vs `===`**: Prefer `===`. The `==` operator has surprising coercion rules.
 2. **`typeof null === "object"`**: Historical bug. Check with `value === null`.
 3. **Floating point**: `0.1 + 0.2 !== 0.3`. Use integers (cents, not dollars) for money.
 4. **`for...in` on arrays**: Iterates keys (strings), not values. Use `for...of` or array methods.

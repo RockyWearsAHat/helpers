@@ -1,4 +1,4 @@
-# Groovy Best Practices
+# Groovy Conventions and Idioms
 
 ## Groovy Philosophy
 
@@ -167,7 +167,7 @@ class Point {
 }
 ```
 
-## Key Rules
+## Conventions
 
 1. **Use `@CompileStatic`** for performance-critical code. Dynamic dispatch is 10-100x slower than static.
 2. **Use `def` for local variables** when the type is obvious. Use explicit types for method signatures and public APIs.

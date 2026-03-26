@@ -162,12 +162,12 @@ sorted(["ö", "z", "a"], key=collator.getSortKey)
 ### 1. Truncation in the Middle of a Character
 
 ```python
-# WRONG: Truncating UTF-8 bytes can split a multi-byte character
+# Unsafe: truncating UTF-8 bytes can split a multi-byte character
 text = "café"
 truncated = text.encode('utf-8')[:4]  # Might split the é!
 truncated.decode('utf-8')  # UnicodeDecodeError or mojibake
 
-# RIGHT: Truncate by code points or graphemes, then encode
+# Safe: truncate by code points or graphemes, then encode
 ```
 
 ### 2. Mojibake (Encoding Mismatch)

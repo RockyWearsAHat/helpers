@@ -1,4 +1,4 @@
-# Common Lisp Best Practices
+# Common Lisp Conventions and Idioms
 
 ## Common Lisp Philosophy
 
@@ -196,7 +196,7 @@ Common Lisp is the most full-featured Lisp dialect — a multi-paradigm, dynamic
                (:file "main" :depends-on ("config"))))
 ```
 
-## Key Rules
+## Conventions
 
 1. **Use `let` for lexical bindings, `defvar`/`defparameter` for globals.** Earmuffs (`*var*`) for dynamic variables.
 2. **Macros are a last resort.** Use functions first. Only write a macro when a function can't express the abstraction (new syntax, control flow).

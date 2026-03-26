@@ -1,6 +1,6 @@
 # Problem-Solving Methodology — How to Attack Any Problem From Scratch
 
-This is the document about _process_ — how elite developers actually work through problems they've never seen before. Not "here's the pattern to apply" but "here's how to FIND the right approach when you don't know what it is yet."
+This document covers _process_ — how experienced developers work through problems they haven't seen before. Not "here's the pattern to apply" but "here's how to find the right approach when the path isn't clear."
 
 ---
 
@@ -333,17 +333,17 @@ This is "characterization testing." It protects you from breaking things you don
 Legacy code isn't bad code. It's code that works, makes money, and was written under different constraints. Respect what it provides while improving it.
 
 ```
-DON'T: "This is terrible, let's rewrite everything"
+Risky: "This is terrible, let's rewrite everything"
   → Rewrites take 3x longer than expected
   → You'll lose edge cases the old code handles
   → The business can't stop while you rewrite
 
-DO: "Strangler Fig Pattern"
+Better: "Strangler Fig Pattern"
   → New features go in new code
   → Gradually route traffic from old to new
   → Old code shrinks over time until it can be deleted
 
-DO: "Sprout Method"
+Also: "Sprout Method"
   → Need new functionality? Write it as a new function/class
   → Call the new code from the minimal touch point in old code
   → Old code unchanged except for one call site
@@ -433,11 +433,11 @@ The best code in the world is useless if your team doesn't understand it, your p
 **Commit message discipline:**
 
 ```
-BAD:  "fix bug"
-BAD:  "update stuff"
-BAD:  "WIP"
+Vague:    "fix bug"
+Vague:    "update stuff"
+Vague:    "WIP"
 
-GOOD: "Fix race condition in order processing when concurrent users
+Descriptive: "Fix race condition in order processing when concurrent users
        checkout the same item. The inventory check and decrement
        were not atomic, allowing overselling under load."
 ```
@@ -447,9 +447,9 @@ The commit message should say WHY, not WHAT. The diff shows WHAT. Only you know 
 ### How to Ask for Help Effectively
 
 ```
-BAD:  "It doesn't work"
+Vague: "It doesn't work"
 
-GOOD:
+Effective:
   WHAT I'm trying to do: [goal]
   WHAT I expected to happen: [expected behavior]
   WHAT actually happened: [actual behavior, exact error message]
@@ -516,4 +516,4 @@ If you can answer these three questions within 5 minutes of an incident starting
 5. POSTMORTEM: Blameless analysis. What happened? Why? How do we prevent it?
 ```
 
-**The golden rule:** MITIGATE before you DIAGNOSE. Rolling back a bad deploy takes 2 minutes. Debugging the bug takes 2 hours. Your users shouldn't wait 2 hours.
+**Key principle:** MITIGATE before you DIAGNOSE. Rolling back a bad deploy takes 2 minutes. Debugging the bug takes 2 hours. Users shouldn't wait 2 hours.

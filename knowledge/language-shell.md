@@ -1,4 +1,4 @@
-# Shell Scripting Best Practices
+# Shell Scripting Conventions and Idioms
 
 ## The Foundation: Safe Defaults
 
@@ -24,12 +24,12 @@ curl http://bad-url | grep pattern  # grep returns 0 even if curl fails!
 ## Quoting — The #1 Source of Shell Bugs
 
 ```bash
-# ✅ ALWAYS quote variables
+# ✅ Quote variables
 echo "$name"
 cp "$source" "$dest"
 if [[ "$var" == "value" ]]; then
 
-# ❌ NEVER leave variables unquoted
+# ❌ Unquoted variables risk word splitting + glob expansion
 echo $name          # Word splitting + glob expansion
 cp $source $dest    # Breaks on spaces in filenames
 if [ $var == value ] # Fails if var is empty
@@ -94,7 +94,7 @@ if validate_port "$port"; then
 fi
 ```
 
-## Variable Best Practices
+## Variable Conventions
 
 ```bash
 # Use lowercase for local variables, UPPERCASE for exported/environment
@@ -124,7 +124,7 @@ echo "${files[0]}"   # First element
 ## Command Substitution & Process Substitution
 
 ```bash
-# Command substitution: $() (never backticks)
+# Command substitution: $() (preferred over backticks)
 count=$(wc -l < "$file")
 today=$(date +%Y-%m-%d)
 

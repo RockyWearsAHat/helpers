@@ -31,7 +31,7 @@ Errors are objects thrown up the call stack until caught. Separates the "happy p
 
 **Unchecked/runtime exceptions (Python, Ruby, C#):** Throw freely, catch where appropriate. Less boilerplate but error conditions are invisible at the call site.
 
-**Best practices:**
+**Common conventions:**
 
 - Catch specific exceptions, not base `Exception`.
 - Don't use exceptions for flow control (they're expensive and misleading).
@@ -74,9 +74,9 @@ try {
 }
 ```
 
-**Best practices:**
+**Common conventions:**
 
-- Never ignore promise rejections — add `.catch()` or wrap in `try/catch`.
+- Avoid ignoring promise rejections — add `.catch()` or wrap in `try/catch`.
 - `async` functions always return promises — callers must handle rejection.
 - Use `Promise.allSettled()` when you need all results regardless of individual failures.
 

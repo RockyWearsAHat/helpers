@@ -1,4 +1,4 @@
-# C# Best Practices (.NET)
+# C# Conventions and Idioms (.NET)
 
 ## Modern C# (12/13 — .NET 8/9)
 

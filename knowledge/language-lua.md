@@ -1,4 +1,4 @@
-# Lua Best Practices
+# Lua Conventions and Idioms
 
 ## Lua Philosophy
 
@@ -195,7 +195,7 @@ local mymodule = require("mymodule")
 mymodule.public_function()
 ```
 
-## Key Rules
+## Conventions
 
 1. **Local everything.** Always use `local`. Global variables are a debugging nightmare.
 2. **1-indexed arrays.** Lua arrays start at 1, not 0. All standard library functions expect this.

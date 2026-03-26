@@ -1,4 +1,4 @@
-# Scheme & Racket Best Practices
+# Scheme & Racket Conventions and Idioms
 
 ## Scheme/Racket Philosophy
 
@@ -207,7 +207,7 @@ Scheme is a minimalist Lisp dialect — a small core of powerful primitives. Rac
   (check-equal? (factorial 10) 3628800))
 ```
 
-## Key Rules
+## Conventions
 
 1. **Tail recursion is mandatory for loops.** Scheme guarantees TCO. Use named `let` or accumulator patterns.
 2. **Use `match` (Racket) for destructuring.** Pattern matching is cleaner than nested `car`/`cdr`.

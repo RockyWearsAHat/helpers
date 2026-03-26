@@ -104,7 +104,7 @@ Both work. The second one doesn't require the reader to pause and decode a neste
 A name that requires a comment is a failed name. A name that describes the _intent_ (not the implementation) is a good name.
 
 ```python
-# BAD: Implementation-focused names
+# Implementation-focused names
 def process(d):        # process what? d is what?
     temp = []
     for x in d:
@@ -112,7 +112,7 @@ def process(d):        # process what? d is what?
             temp.append(x)
     return temp
 
-# GOOD: Intent-focused names
+# Intent-focused names
 def filter_active_users(users):
     return [user for user in users if user['login_count'] > 0]
 ```
@@ -195,11 +195,11 @@ fn withdraw(account: &mut Account, amount: PositiveAmount) -> Result<Receipt, In
 }
 ```
 
-**The golden rule of error messages:** Include the context needed to fix the problem.
+**On error messages:** Include the context needed to fix the problem.
 
 ```
-BAD:  "Error: connection failed"
-GOOD: "Error: connection to database at db.prod.internal:5432 failed after 3 retries (last error: connection refused). Check that the database is running and the host/port are correct."
+Vague:    "Error: connection failed"
+Helpful:  "Error: connection to database at db.prod.internal:5432 failed after 3 retries (last error: connection refused). Check that the database is running and the host/port are correct."
 ```
 
 ---
@@ -219,9 +219,9 @@ Innovation tokens well spent:
   ✓ Custom infrastructure for a genuine scaling cliff
 
 Innovation tokens wasted:
-  ✗ New database because it's trendy (PostgreSQL works fine)
-  ✗ Custom deployment system (use the standard CI/CD)
-  ✗ Rewrite in Rust because "performance" (profile first)
+  ✗ New database because it's trendy (when a well-understood option is sufficient)
+  ✗ Custom deployment system (when standard CI/CD covers the need)
+  ✗ Rewrite in a faster language because "performance" (profiling should come first)
 ```
 
 ### Technology Evaluation Checklist
@@ -239,19 +239,22 @@ Before adopting a technology, answer these questions:
 
 ### Database Selection Intuition
 
-Don't learn 20 databases. Understand 3 archetypes:
+Three archetypes cover the majority of use cases:
 
 ```
-PostgreSQL:   "I need a database."
-              Relational data? PostgreSQL. Document data? PostgreSQL (JSONB).
-              Time-series? PostgreSQL (TimescaleDB). Search? PostgreSQL (full-text + trigram).
-              Start here. Move away only when you hit a specific wall.
+Relational (e.g., PostgreSQL, MySQL):
+              "I need structured data with strong consistency."
+              Relational data, ACID transactions, flexible querying.
+              Most applications start here. Move away only when
+              hitting a specific limitation.
 
-Redis:        "I need it faster."
+In-Memory (e.g., Redis, Memcached):
+              "I need sub-millisecond access."
               Caching, sessions, rate limiting, real-time leaderboards, pub/sub.
-              In-memory. Blazing fast. Not durable by default (RDB/AOF optional).
+              In-memory stores trade durability for speed.
 
-Kafka:        "I need systems to talk asynchronously."
+Event Streaming (e.g., Kafka, Pulsar):
+              "I need systems to talk asynchronously."
               Event streaming, decoupled microservices, audit logs, data pipelines.
               Durable, replayable, high-throughput.
 ```
@@ -431,9 +434,10 @@ Current code makes X hard to add.
   → Refactor the specific code that blocks X.
   → NOW add X cleanly.
 
-DON'T: Add X awkwardly, plan to refactor "later" (you won't).
-DON'T: Refactor everything while you're in there (scope creep).
-DO:    Refactor just enough to make X clean.
+Common pitfalls:
+  - Adding X awkwardly with plans to refactor "later" (which often never happens)
+  - Refactoring everything while you're in there (scope creep)
+  - Better: Refactor just enough to make X clean.
 ```
 
 This is the **Boy Scout Rule** applied with judgment: "Leave the code better than you found it" — but only the code you're touching, and only enough to serve your current purpose.

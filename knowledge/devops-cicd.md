@@ -13,12 +13,12 @@
 5. **Security scanning** — SAST (static analysis), dependency vulnerability scanning.
 6. **Artifact creation** — Build the deployable artifact once. Deploy the same artifact everywhere.
 
-**CI best practices:**
+**CI patterns:**
 
 - Keep the build fast (< 10 minutes target). Parallelize tests.
 - Fix broken builds immediately — a broken mainline blocks everyone.
 - Run the full pipeline on every pull request before merge.
-- Never skip tests to "ship faster."
+- Skipping tests to "ship faster" usually creates more work downstream.
 
 ## Continuous Delivery (CD)
 
@@ -65,7 +65,7 @@ Methodology for building SaaS applications (Heroku, 2011). Still the gold standa
 | Container orchestration | Kubernetes, Docker Compose, Nomad |
 | Service mesh | Istio, Linkerd, Consul Connect |
 
-**IaC best practices:**
+**IaC patterns:**
 
 - **Idempotent:** Running the same code twice produces the same result.
 - **Immutable infrastructure:** Don't patch servers. Build new images, replace old ones.
@@ -75,7 +75,7 @@ Methodology for building SaaS applications (Heroku, 2011). Still the gold standa
 
 ## Containerization
 
-**Docker best practices:**
+**Docker patterns:**
 
 - Use minimal base images (`alpine`, `distroless`, `scratch` for Go).
 - Multi-stage builds — build in one stage, copy artifacts to a slim runtime image.
@@ -112,8 +112,8 @@ Methodology for building SaaS applications (Heroku, 2011). Still the gold standa
 ## Environment Management
 
 - **Dev → Staging → Production** (minimum).
-- Config per environment via env vars or config files (never hardcoded).
-- Use secrets management (Vault, AWS Secrets Manager, SOPS) — never commit secrets.
+- Config per environment via env vars or config files (hardcoding config invites environment-specific bugs).
+- Secrets management (Vault, AWS Secrets Manager, SOPS) keeps credentials out of source control.
 - Database migrations run as part of the deployment pipeline, not manually.
 - Feature flags decouple deployment from release.
 

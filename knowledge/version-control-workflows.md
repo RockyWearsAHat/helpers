@@ -91,7 +91,7 @@ Pre-release: `1.0.0-alpha.1`, `2.0.0-beta.3`, `1.0.0-rc.1`.
 - Once you hit 1.0.0, the public API is defined and versioning matters.
 - Never modify a released version — always increment.
 
-## Pull Request Best Practices
+## Pull Request Conventions
 
 1. **Keep PRs small** — < 400 lines of meaningful changes. Large PRs get rubber-stamped.
 2. **Write a clear description** — what changed, why, how to test, screenshots for UI.
@@ -101,7 +101,7 @@ Pre-release: `1.0.0-alpha.1`, `2.0.0-beta.3`, `1.0.0-rc.1`.
 6. **Include tests** — PR without tests for changed behavior is incomplete.
 7. **Respond to all comments** — resolve or explain why you won't change.
 
-## Git Best Practices
+## Git Conventions
 
 - **Pull with rebase**: `git pull --rebase` keeps history linear.
 - **Don't rewrite shared history**: Never `--force` push to branches others are using.

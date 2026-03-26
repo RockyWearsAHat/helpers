@@ -33,20 +33,20 @@ Parameters:
 
 **`search_knowledge_index`** — Search the knowledge base using TF-IDF indexes. Merges results from two sources:
 
-- **Local index** — built from `<workspace>/.github/knowledge/` (project-specific notes) or the bundled `knowledge/` directory.
+- **Local index** — built from the workspace's knowledge directory (auto-detected: `knowledge/` in the source repo, `.github/knowledge/` elsewhere).
 - **Community index** — pre-built on GitHub (`RockyWearsAHat/github-shell-helpers`), fetched with ETag caching to `~/.cache/gsh/`.
 
 Results are tagged with `source: "local"` or `source: "community"`. Falls back to keyword search if neither index is available. **Prefer this over `search_knowledge_cache`**.
 
-**`build_knowledge_index`** — Build or rebuild the local workspace TF-IDF index (`<workspace>/.github/knowledge/_index.json`). Only affects the workspace index — the community index is pre-built on GitHub. Called automatically after write/update/append operations. Run manually after bulk additions.
+**`build_knowledge_index`** — Build or rebuild the local workspace TF-IDF index. Only affects the workspace index — the community index is pre-built on GitHub. Called automatically after write/update/append operations. Run manually after bulk additions.
 
-**`search_knowledge_cache`** — Keyword search over knowledge files (both workspace `.github/knowledge/` and bundled `knowledge/`). Use when you need a quick grep-style search or the index is unavailable.
+**`search_knowledge_cache`** — Keyword search over knowledge files (both workspace knowledge directory and bundled repo knowledge). Use when you need a quick grep-style search or the index is unavailable.
 
-**`read_knowledge_note`** — Read the full content of a knowledge note by path. Resolution order: local workspace → repo knowledge root → GitHub community (fetched with ETag cache). Works for both local and community notes without needing the repo cloned.
+**`read_knowledge_note`** — Read the full content of a knowledge note. Pass just a filename (e.g. `networking-dns.md`) or a workspace-relative path. Resolution order: local workspace → repo knowledge root → GitHub community (fetched with ETag cache). Works for both local and community notes without needing the repo cloned.
 
-**`write_knowledge_note`** — Write a new knowledge note to `<workspace>/.github/knowledge/`. Automatically rebuilds the local search index.
+**`write_knowledge_note`** — Create a knowledge note. Pass just the filename (e.g. `networking-dns.md`) — the tool auto-detects the correct knowledge directory. Automatically rebuilds the local search index.
 
-**`update_knowledge_note`** — Overwrite an existing knowledge note with new content. Automatically rebuilds the local search index.
+**`update_knowledge_note`** — Replace a specific section (by heading) in an existing knowledge note. Automatically rebuilds the local search index.
 
 **`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Automatically rebuilds the local search index.
 
@@ -60,7 +60,7 @@ Results are tagged with `source: "local"` or `source: "community"`. Falls back t
 
 ## Usage Notes
 
-- The `gsh` server is registered globally via `~/Library/Application Support/Code/User/mcp.json`. It is not workspace-specific.
+- The `gsh` server is registered by the GitHub Shell Helpers VS Code extension. It can also be configured manually via `~/Library/Application Support/Code/User/mcp.json`.
 - If research tools are unavailable (`search_web`, `scrape_webpage`), a local SearXNG instance may not be running. Start it with: `docker run -d --name searxng -p 8888:8080 searxng/searxng:latest`
 - If vision tools are unavailable, the gsh-vision VS Code extension may not be active. Install it via the git-shell-helpers installer.
 - The `checkpoint` tool auto-detects the active VS Code workspace root via MCP roots (when exactly one workspace folder is open). Pass `cwd` explicitly when using a multi-root workspace or when you need to commit in a different repo than the detected root.

@@ -1,4 +1,4 @@
-# COBOL Best Practices
+# COBOL Conventions and Idioms
 
 ## COBOL Context
 
@@ -199,7 +199,7 @@ COBOL powers the world's financial infrastructure. Banks, insurance companies, a
            MOVE WS-DATE(5:2) TO WS-MONTH.
 ```
 
-## Key Rules
+## Conventions
 
 1. **Always check FILE STATUS** after every file operation. Don't assume I/O succeeds.
 2. **Use `COMP-3` (packed decimal)** for financial calculations. Never use COMP (binary) for money.

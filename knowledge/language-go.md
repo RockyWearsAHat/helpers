@@ -1,4 +1,4 @@
-# Go Best Practices
+# Go Conventions and Idioms
 
 ## Go Philosophy
 
@@ -52,11 +52,11 @@ var (
 )
 ```
 
-**Rules:**
-- Always check errors. Never use `_ = doSomething()` unless you truly don't care.
-- Always wrap errors with context: `fmt.Errorf("operation context: %w", err)`.
+**Conventions:**
+- Check errors at every call site. Discarding with `_ = doSomething()` should be a conscious, justified choice.
+- Wrap errors with context: `fmt.Errorf("operation context: %w", err)`.
 - Use `%w` (not `%v`) for wrapping — preserves the error chain.
-- Don't panic in libraries. Panic is for unrecoverable programmer errors.
+- Prefer returning errors over panicking in libraries. Panic is typically reserved for unrecoverable programmer errors.
 
 ## Interfaces
 
@@ -134,11 +134,11 @@ if err := g.Wait(); err != nil {
 }
 ```
 
-**Concurrency rules:**
-- Don't communicate by sharing memory; share memory by communicating.
-- Always use `context.Context` for cancellation and timeouts.
-- Close channels from the sender side, never the receiver.
-- Use `sync.Mutex` for simple shared state, channels for coordination.
+**Concurrency conventions:**
+- "Don't communicate by sharing memory; share memory by communicating" is a core Go proverb.
+- `context.Context` is the standard mechanism for cancellation and timeouts.
+- Closing channels from the sender side avoids races; receivers should not close.
+- `sync.Mutex` works well for simple shared state; channels suit coordination patterns.
 
 ## Context
 
@@ -298,7 +298,7 @@ func ReadFile(path string) ([]byte, error) {
 
 ## Tooling
 
-- `go fmt` / `gofmt` — Format code (mandatory, non-negotiable).
+- `go fmt` / `gofmt` — Format code (the standard, universally expected in Go projects).
 - `go vet` — Catch common bugs.
 - `golangci-lint` — Meta-linter (runs many linters together).
 - `go test -race` — Detect data races.

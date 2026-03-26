@@ -1,4 +1,4 @@
-# Swift Best Practices
+# Swift Conventions and Idioms
 
 ## Swift Philosophy
 

@@ -125,7 +125,7 @@ Functions that take multiple boolean arguments. Impossible to read at the call s
 # What do these booleans mean?
 create_user("Alice", True, False, True, False)
 
-# Fix: use named parameters, enums, or option objects
+# Alternative: use named parameters, enums, or option objects
 create_user("Alice", admin=True, verified=False, active=True, newsletter=False)
 ```
 

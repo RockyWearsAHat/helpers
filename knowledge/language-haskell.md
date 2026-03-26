@@ -1,4 +1,4 @@
-# Haskell Best Practices
+# Haskell Conventions and Idioms
 
 ## Haskell Philosophy
 
