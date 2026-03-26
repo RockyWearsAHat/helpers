@@ -96,3 +96,17 @@ always @(posedge clk or posedge reset)
 
 **Partial Reconfiguration (FPGA)** — update portions of design at runtime without affecting others. Enables iterative hardware updates, dynamic service loading, or multi-tenancy in shared FPGA. Requires careful isolation between reconfigurable regions.
 
+
+## Reconfigurable Computing Trade-offs
+
+**Area Efficiency vs Flexibility** — custom ASIC ~100% efficient for intended task (gates optimized). FPGA reconfigurability requires routing fabric overhead (~70-80% area overhead in logic, ~30-40% in interconnect). For single-task deployment, ASIC wins decisively; for multi-task or evolving specs, FPGA amortizes overhead.
+
+**Power Comparison** — ASIC at 5nm consumes sub-milliwatt for simple operations; FPGA reconfigurable fabric dissipates ~10-100x more for equivalent compute due to multiplexing and routing. ASIC fabrication cost ($50-100M for leading-edge, $1-5M for older nodes) dominates at high volumes (>100k units); FPGA cost per unit high (~$100-10k) but zero NRE.
+
+**Time-to-Market** — ASIC tape-out to volume production: 6-18 months including design, verification, mask making, fabrication, packaging, testing. FPGA deployment: hours (after place-and-route) to days (including integration testing). ASIC risk: bugs unfixable after fabrication; FPGA risk: performance shortfalls.
+
+**Training Barrier** — FPGA development requires hardware expertise (Verilog/VHDL, timing closure, place-and-route tools). ASIC adds tape-out process, DFM sign-off, and collaboration with foundry. GPU programming simpler for domain experts (CUDA for data parallelism); barriers lower than FPGA.
+
+**Heterogeneous Integration** — modern SoCs integrate multiple compute types: CPU+GPU, CPU+FPGA, or application-specific accelerators (TPU, AI engines). Architectural choice reflects workload: general-purpose CPU + specialized accelerators for common operations (encryption, floating point, inference).
+
+**Thermal Constraints** — power density limits clock frequency. Dense ASIC designs (5nm, multiple billions of transistors) run at GHz but dissipate 10-100W in millimeters, requiring advanced packaging (chiplets, 3D stacking). FPGA typically looser density, lower power but wider thermal footprint.

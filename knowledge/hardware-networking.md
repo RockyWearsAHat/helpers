@@ -62,3 +62,15 @@ Network hardware encompasses the physical components moving data across systems,
 
 **Software-Defined Networking (SDN)** — decouples control plane (routing decisions via central controller) from data plane (switch forwarding). OpenFlow protocol (1.0 through 1.6) defines communication. Enables dynamic routing, traffic engineering, and policy enforcement; introduces controller latency and availability concerns.
 
+
+## Switch Buffer Management and Latency
+
+**Tail Latency Amplification** — in datacenter networks, slow flows (mice) can be blocked behind large flows (elephants) in shared buffers. Priority queuing, per-flow buffering, or explicit congestion notification (ECN) mitigate. TCP CUBIC or BBR implementations react to ECN; older TCP Reno relies on packet loss (slower convergence).
+
+**In-Network Switching Latency** — crossing a line-rate switch adds ~100-200 ns in store-and-forward (full packet buffered, then forwarded); cut-through (begin forwarding before full packet received) reduces to ~20-50 ns. Cut-through requires deep pipelining; most datacenter switches use cut-through to minimize latency.
+
+**Buffering Equations** — rule of thumb: buffer size B = C × RTT / √N where C = link capacity, RTT = round-trip time, N = number of flows. For 100 Gbps, 100 µs RTT, 10k flows: B ~ 100 Mbps × 100 µs / 100 = 100 MB. In-flight packet density in large datacenters is surprisingly low (microseconds RTT vs milliseconds queuing budgets).
+
+**Queue Fairness** — simple FIFO starves flows with different RTTs (short RTT flows get high throughput). Fair queuing ensures each flow gets 1/N of link capacity. Hash-based multiqueue (RSS equivalent at switch) approximates fairness at modest computational cost.
+
+**Burst Absorption** — sudden traffic spikes cause temporary buffer filling. Regulators (token bucket, leaky bucket) shape flows to prevent sustained burstiness. Scheduling discipline (WFQ, Deficit RR) ensures fairness under bursty traffic.
