@@ -1,4 +1,4 @@
-# Ruby Best Practices
+# Ruby Conventions and Idioms
 
 ## Ruby Philosophy
 

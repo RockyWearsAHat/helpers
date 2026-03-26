@@ -1,4 +1,4 @@
-# Prolog Best Practices
+# Prolog Conventions and Idioms
 
 ## Prolog Philosophy
 
@@ -200,7 +200,7 @@ describe_predicate(Name/Arity) :-
            (write(Head), write(' :- '), writeln(Body))).
 ```
 
-## Key Rules
+## Conventions
 
 1. **Think relationally, not procedurally.** Define relationships, not steps. Let Prolog search.
 2. **Use cuts (`!`) sparingly.** Green cuts (optimization) are OK. Red cuts (change semantics) make code fragile.

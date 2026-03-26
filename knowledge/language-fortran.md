@@ -1,4 +1,4 @@
-# Fortran Best Practices
+# Fortran Conventions and Idioms
 
 ## Modern Fortran Philosophy
 
@@ -223,7 +223,7 @@ program parallel_sum
 end program parallel_sum
 ```
 
-## Key Rules
+## Conventions
 
 1. **Always use `implicit none`.** Prevents silent variable creation from typos.
 2. **Declare `intent`** on all procedure arguments: `intent(in)`, `intent(out)`, `intent(inout)`.

@@ -1,4 +1,4 @@
-# Kotlin Best Practices
+# Kotlin Conventions and Idioms
 
 ## Kotlin Philosophy
 

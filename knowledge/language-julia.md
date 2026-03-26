@@ -1,4 +1,4 @@
-# Julia Best Practices
+# Julia Conventions and Idioms
 
 ## Julia Philosophy
 
@@ -61,7 +61,7 @@ Point(1, 2)      # Point{Int64}
 
 ```julia
 # Type stability: function should always return the same type
-# BAD
+# Type-unstable
 function bad_sqrt(x)
     if x < 0
         return "error"  # String return breaks type stability
@@ -69,18 +69,18 @@ function bad_sqrt(x)
     return sqrt(x)
 end
 
-# GOOD
+# Type-stable
 function good_sqrt(x)
     x < 0 && throw(DomainError(x, "negative input"))
     return sqrt(x)
 end
 
 # Avoid global variables in hot paths
-# BAD
+# Allocating
 x = 10
 f() = x + 1  # type of x is unknown at compile time
 
-# GOOD
+# In-place
 const X = 10
 f() = X + 1
 
@@ -208,7 +208,7 @@ end
 end
 ```
 
-## Key Rules
+## Conventions
 
 1. **Write type-stable functions.** Use `@code_warntype` to check. Type instability is the #1 performance killer.
 2. **Don't over-annotate types.** Use type annotations for dispatch and documentation, not for performance (the compiler infers types).

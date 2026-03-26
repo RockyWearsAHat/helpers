@@ -1,4 +1,4 @@
-# Python Best Practices
+# Python Conventions and Idioms
 
 ## The Zen of Python (PEP 20)
 
@@ -24,7 +24,7 @@ If the implementation is easy to explain, it may be a good idea.
 Namespaces are one honking great idea -- let's do more of those!
 ```
 
-## PEP 8 Style Guide (Key Rules)
+## PEP 8 Style Guide (Key Conventions)
 
 ### Naming
 - `snake_case` for functions, methods, variables, modules.
@@ -40,10 +40,10 @@ Namespaces are one honking great idea -- let's do more of those!
 - Imports at the top: stdlib → third-party → local (separated by blank lines).
 - Use absolute imports over relative imports.
 
-### Formatting tools (use these, don't argue about style):
-- **Black**: Opinionated formatter. Use it, stop debating.
-- **isort**: Sort imports automatically.
-- **Ruff**: Linter + formatter. Extremely fast (Rust-based). Replaces flake8, isort, and more.
+### Formatting tools (automate style consistency):
+- **Black**: Opinionated formatter that eliminates style debates.
+- **isort**: Sorts imports automatically.
+- **Ruff**: Linter + formatter. Extremely fast (Rust-based). Can replace flake8, isort, and more.
 
 ## Type Hints (Modern Python 3.10+)
 
@@ -75,7 +75,7 @@ class Config(TypedDict):
     debug: bool
 ```
 
-**Use type hints everywhere in new code.** Run `mypy` or `pyright` in CI.
+**Type hints are strongly encouraged in new code.** Running `mypy` or `pyright` in CI catches type errors early.
 
 ## Dataclasses & Modern Classes
 
@@ -245,7 +245,7 @@ my_project/
 
 **Use `pyproject.toml`** for all config (not setup.py). Single source of truth for dependencies, tool config, and metadata.
 
-**Virtual environments:** Always. Use `uv` (fast Rust-based) or `venv`. Never install packages globally.
+**Virtual environments:** Strongly recommended. `uv` (fast, Rust-based) or `venv` are common choices. Installing packages globally risks version conflicts.
 
 ## Testing with pytest
 

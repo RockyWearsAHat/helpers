@@ -1,4 +1,4 @@
-# Ada Best Practices
+# Ada Conventions and Idioms
 
 ## Ada Philosophy
 
@@ -197,7 +197,7 @@ exception
 end Load_Config;
 ```
 
-## Key Rules
+## Conventions
 
 1. **Use strong typing aggressively.** Create distinct types for distinct concepts. `type Meters is new Float` prevents unit confusion.
 2. **Use range constraints** on all numeric types. The compiler generates runtime checks automatically.

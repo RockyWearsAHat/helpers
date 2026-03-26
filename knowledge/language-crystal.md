@@ -1,4 +1,4 @@
-# Crystal Best Practices
+# Crystal Conventions and Idioms
 
 ## Crystal Philosophy
 
@@ -214,7 +214,7 @@ class Config
 end
 ```
 
-## Key Rules
+## Conventions
 
 1. **Trust the type inference.** Only annotate types in method signatures and instance variables. The compiler infers everything else.
 2. **Handle nil at compile time.** Use flow typing (`if user`), `try`, or `not_nil!`. The compiler prevents nil crashes.

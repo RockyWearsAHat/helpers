@@ -1,4 +1,4 @@
-# V Best Practices
+# V Conventions and Idioms
 
 ## V Philosophy
 
@@ -232,7 +232,7 @@ fn test_parse_port() {
 // Run specific: v test file_test.v
 ```
 
-## Key Rules
+## Conventions
 
 1. **Immutable by default.** Use `mut` explicitly when mutation is needed.
 2. **No null.** Use option types (`?T`) and handle with `or {}` blocks.

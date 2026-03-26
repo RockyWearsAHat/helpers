@@ -1,6 +1,6 @@
 # Computational Thinking — How to Reason About Problems Like a Computer Scientist
 
-This isn't a reference sheet. This is how you _think_. Every great solution starts with thinking clearly about the problem before writing a single line of code. These mental tools transfer to every domain, every language, every project.
+Computational thinking is the set of mental models and reasoning techniques that underpin effective problem-solving in software. These tools transfer across domains, languages, and project types — they're about structuring thought, not specific technologies.
 
 ---
 
@@ -47,7 +47,7 @@ Abstraction is choosing what to _ignore_. A map is useful because it leaves out 
 **The test:** If someone asks "how does X work?" and your answer includes details from inside Y, your abstraction is leaking.
 
 ```python
-# BAD: Leaky abstraction — caller must know about internals
+# Leaky abstraction — caller must know about internals
 def get_user(user_id):
     connection = psycopg2.connect(host='db.prod', port=5432)
     cursor = connection.cursor()
@@ -56,7 +56,7 @@ def get_user(user_id):
     connection.close()
     return {"id": row[0], "name": row[1], "email": row[2]}
 
-# GOOD: Clean abstraction — caller doesn't know or care about the database
+# Encapsulated — caller is shielded from storage details
 def get_user(user_id: str) -> User:
     return user_repository.find_by_id(user_id)
 ```
@@ -69,7 +69,7 @@ System calls → Runtime/VM → Standard library → Frameworks → Your code �
 API → User interface
 ```
 
-You should be fluent in thinking at ANY level. The mark of expertise is moving between levels effortlessly — zooming in when debugging, zooming out when designing.
+Fluency across multiple levels — zooming in when debugging, zooming out when designing — is a hallmark of deep understanding.
 
 **The Leaky Abstraction Law (Joel Spolsky):** All non-trivial abstractions leak. TCP pretends the network is reliable, but packets do get lost. HTTP pretends connections are stateless, but there are keep-alives and cookies. When abstractions leak, you need to understand the layer below. That's why fundamentals matter.
 
@@ -106,7 +106,7 @@ Efficiency isn't premature optimization. It's choosing the right approach from t
 4. **Better constant factors** (cache-friendly memory layout, SIMD) — 2-5x
 5. **Micro-optimization** (loop unrolling, branch prediction) — 1.1-1.5x
 
-**Always think about complexity BEFORE coding:**
+**Considering complexity before writing code helps avoid costly rewrites:**
 
 ```
 n = 10:        O(n²) = 100 operations        (anything works)
@@ -116,7 +116,7 @@ n = 1,000,000: O(n²) = 1,000,000,000,000     (takes hours)
                O(n) = 1,000,000               (takes milliseconds)
 ```
 
-**The question to always ask:** "What's the input size? What happens when it's 10x bigger? 1000x bigger?"
+**A useful question to ask:** "What's the input size? What happens when it's 10x bigger? 1000x bigger?"
 
 ---
 
@@ -262,19 +262,19 @@ Don't memorize data structures. Understand what each one is _good at_ and _bad a
 ### When the "Obvious" Data Structure Is Wrong
 
 ```python
-# MISTAKE: Using a list when you need fast lookup
+# Using a list when you need fast lookup
 users = [...]  # Finding user by ID: O(n) scan every time
 
-# FIX: Use a dict
+# Alternative: a dict gives O(1) lookup
 users_by_id = {u.id: u for u in users}  # O(1) lookup
 
-# MISTAKE: Using a dict when you need sorted iteration
+# Using a dict when you need sorted iteration
 events = {"2024-01-15": ..., "2024-01-03": ..., "2024-01-20": ...}
 # dict doesn't guarantee order by key value (insertion order only)
 
-# FIX: Use a sorted container (SortedDict, TreeMap, BTreeMap)
+# Alternative: a sorted container (SortedDict, TreeMap, BTreeMap)
 
-# MISTAKE: Appending to a linked list for "fast insert"
+# Appending to a linked list for "fast insert"
 # In practice, array-backed lists (ArrayList, Vec, list) are faster
 # because CPU caches love sequential memory access.
 # Linked lists scatter nodes across the heap → cache misses → slow.
@@ -310,7 +310,7 @@ Imagine taking every instruction from every thread and shuffling them into every
 4. **Locks** — Mutual exclusion. Simple to understand, hard to get right. (Mutex, ReadWriteLock)
 5. **Lock-free data structures** — Correctness without locks. Very hard to implement correctly. (CAS loops, hazard pointers)
 
-**Rule of thumb:** Prefer solutions higher on the list. Each step down adds complexity and bug surface.
+Solutions higher on this list tend to be simpler and less error-prone. Each step down adds complexity and bug surface.
 
 ### Deadlock — The Four Conditions (ALL must be present)
 
@@ -334,7 +334,7 @@ Types aren't bureaucracy. Types are **proofs that your program can't do certain 
 ### Making Illegal States Unrepresentable
 
 ```typescript
-// BAD: Legal but meaningless states exist
+// Permissive: legal but meaningless states exist
 interface User {
   status: "active" | "suspended" | "deleted";
   suspensionReason?: string; // meaningless if status != "suspended"
@@ -342,7 +342,7 @@ interface User {
   lastLoginAt?: Date; // meaningless if status == "deleted"
 }
 
-// GOOD: Each state carries exactly its own data
+// Precise: each state carries exactly its own data
 type User =
   | { status: "active"; lastLoginAt: Date }
   | { status: "suspended"; suspensionReason: string; lastLoginAt: Date }
@@ -370,7 +370,7 @@ fn transfer(from: &mut Account, to: &mut Account, amount: PositiveAmount) -> Res
 Validate data ONCE at the boundary. After that, use types to guarantee validity.
 
 ```python
-# BAD: Validating everywhere
+# Redundant validation scattered across call sites
 def send_email(email: str):
     if "@" not in email:
         raise ValueError("invalid email")
@@ -381,7 +381,7 @@ def log_email(email: str):
         raise ValueError("invalid email")
     # ... log
 
-# GOOD: Parse once, use typed value thereafter
+# Parse once, use typed value thereafter
 class Email:
     def __init__(self, raw: str):
         if "@" not in raw or "." not in raw.split("@")[1]:

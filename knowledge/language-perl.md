@@ -1,4 +1,4 @@
-# Perl Best Practices
+# Perl Conventions and Idioms
 
 ## Modern Perl Philosophy
 
@@ -182,7 +182,7 @@ try {
 die { code => 404, message => "Not found" };
 ```
 
-## Key Rules
+## Conventions
 
 1. **Always `use strict; use warnings;`** — or `use v5.36;` which enables both.
 2. **Use lexical filehandles** (`open my $fh, ...`) — never bareword handles.

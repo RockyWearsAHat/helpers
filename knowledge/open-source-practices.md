@@ -191,7 +191,7 @@ Semantic Versioning: MAJOR.MINOR.PATCH
 Pre-release: 1.0.0-alpha.1, 1.0.0-beta.1, 1.0.0-rc.1
 ```
 
-### Changelog Best Practices
+### Changelog Conventions
 
 ```markdown
 ## [1.2.0] - 2024-03-15

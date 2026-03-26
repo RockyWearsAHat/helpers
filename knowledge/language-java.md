@@ -1,4 +1,4 @@
-# Java Best Practices (Modern Java 21+)
+# Java Conventions and Idioms (Modern Java 21+)
 
 ## Modern Java: Not Your Grandfather's Java
 

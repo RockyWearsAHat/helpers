@@ -1,4 +1,4 @@
-# Zig Best Practices
+# Zig Conventions and Idioms
 
 ## Zig Philosophy
 

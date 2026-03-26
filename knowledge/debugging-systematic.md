@@ -75,7 +75,7 @@ Test: Disable cache → Does bug disappear?
   No  → Hypothesis falsified. Move to next.
 ```
 
-**Never change multiple things at once.** One change → one test → one conclusion.
+**Changing multiple things at once makes it hard to isolate the cause.** One change → one test → one conclusion.
 
 ## Common Bug Categories
 
@@ -124,7 +124,7 @@ add_item("b")  # ["a", "b"]  — NOT ["b"]!
 
 If you see: `Ã©` instead of `é`, `ðŸ˜€` instead of 😀, or `???` — it's encoding.
 
-- UTF-8 is always the answer. If your system doesn't default to UTF-8, fix that first.
+- UTF-8 is the dominant modern encoding. If a system doesn't default to UTF-8, that's often the first thing to check.
 - Double-encoding: data encoded as UTF-8, then encoded again as if it were Latin-1.
 
 ## Bug Taxonomy by Name

@@ -1,4 +1,4 @@
-# Nim Best Practices
+# Nim Conventions and Idioms
 
 ## Nim Philosophy
 
@@ -194,7 +194,7 @@ proc main() {.async.} =
 waitFor main()
 ```
 
-## Key Rules
+## Conventions
 
 1. **Use `let` by default.** Only `var` when mutation is needed. `const` for compile-time values.
 2. **Nim is case-insensitive and ignores underscores** in identifiers: `fooBar`, `foo_bar`, `foobar` are the same. Pick one style and be consistent.

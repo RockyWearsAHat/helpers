@@ -18,7 +18,7 @@
 
 ### Mutex (Mutual Exclusion)
 
-Protects a critical section — only one thread can hold the lock at a time. Always lock and unlock in the same scope. Avoid holding locks while doing I/O.
+Protects a critical section — only one thread can hold the lock at a time. Locking and unlocking in the same scope is conventional. Holding locks during I/O is a common source of contention.
 
 ### Read-Write Lock (RWLock)
 
@@ -30,7 +30,7 @@ Controls access to a finite pool of resources. Allows N concurrent accessors (mu
 
 ### Condition Variable
 
-Allows threads to wait for a specific condition to become true. Always use with a mutex. Avoids busy-waiting.
+Allows threads to wait for a specific condition to become true. Typically used with a mutex. Avoids busy-waiting.
 
 ### Atomic Operations
 
@@ -46,7 +46,7 @@ Two or more threads access shared data simultaneously and at least one modifies 
 
 Two or more threads each hold a lock and wait for the other's lock. Neither can proceed. Prevention:
 
-1. Always acquire locks in the same order.
+1. Acquire locks in a consistent global order.
 2. Use timeouts on lock acquisition.
 3. Prefer lock-free designs.
 4. Use `try_lock` instead of blocking.
@@ -95,9 +95,9 @@ Pre-create a fixed number of threads. Submit tasks to a queue; idle threads pick
 
 ### Event Loop
 
-Single thread processes events from a queue. When I/O completes, its callback is queued. Node.js, browser JavaScript, Python asyncio, Tokio (Rust). Extremely efficient for I/O-bound workloads. Must never block the loop — offload CPU work to worker threads.
+Single thread processes events from a queue. When I/O completes, its callback is queued. Node.js, browser JavaScript, Python asyncio, Tokio (Rust). Extremely efficient for I/O-bound workloads. Blocking the loop starves other tasks — CPU work is typically offloaded to worker threads.
 
-## Best Practices
+## Design Considerations
 
 1. **Prefer immutable data.** If nothing is mutable, there are no race conditions.
 2. **Prefer message passing over shared state.** Channels > locks.

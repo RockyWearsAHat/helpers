@@ -1,4 +1,4 @@
-# R Best Practices
+# R Conventions and Idioms
 
 ## R Philosophy
 
@@ -37,13 +37,13 @@ results <- data |>
 ## Vectorization
 
 ```r
-# BAD: scalar loop
+# Scalar loop (slow)
 result <- numeric(length(x))
 for (i in seq_along(x)) {
   result[i] <- x[i]^2 + 1
 }
 
-# GOOD: vectorized
+# Vectorized (idiomatic, fast)
 result <- x^2 + 1
 
 # Conditional vectorization
@@ -179,7 +179,7 @@ results <- dbGetQuery(con, "SELECT * FROM users WHERE age > 18")
 dbDisconnect(con)
 ```
 
-## Key Rules
+## Conventions
 
 1. **Vectorize, don't loop.** If you have a for loop, there's probably a vectorized alternative.
 2. **Use `NA` correctly.** `na.rm = TRUE` in aggregations. Check with `is.na()`, never `== NA`.

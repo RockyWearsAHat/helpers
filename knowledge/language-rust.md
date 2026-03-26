@@ -1,4 +1,4 @@
-# Rust Best Practices
+# Rust Conventions and Idioms
 
 ## Core Concepts: Ownership & Borrowing
 

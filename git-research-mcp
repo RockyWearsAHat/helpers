@@ -49,10 +49,22 @@ const WORKSPACE_ROOT = (() => {
     return cwd;
   return __dirname;
 })();
-const KNOWLEDGE_ROOT = path.join(WORKSPACE_ROOT, ".github", "knowledge");
 const REPO_KNOWLEDGE_ROOT = path.join(__dirname, "knowledge");
 
-// Local workspace index — built from WORKSPACE_ROOT/.github/knowledge/
+// Detect the local knowledge root for this workspace.
+// Source repo: knowledge/ at workspace root has .md files → use it directly.
+// Other workspaces: .github/knowledge/ is the standard location.
+const KNOWLEDGE_ROOT = (() => {
+  const atRoot = path.join(WORKSPACE_ROOT, "knowledge");
+  const atGithub = path.join(WORKSPACE_ROOT, ".github", "knowledge");
+  try {
+    const entries = fsSync.readdirSync(atRoot);
+    if (entries.some((f) => f.endsWith(".md"))) return atRoot;
+  } catch { /* dir may not exist */ }
+  return atGithub;
+})();
+
+// Local workspace index — built from the detected knowledge root.
 const LOCAL_INDEX_PATH = path.join(KNOWLEDGE_ROOT, "_index.json");
 
 // ─── GitHub-backed community knowledge ──────────────────────────────────────
@@ -1075,7 +1087,13 @@ async function readKnowledgeNote(args) {
     throw new Error("read_knowledge_note requires a non-empty path.");
   }
 
-  const resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
+  // Accept bare filenames — resolve to KNOWLEDGE_ROOT.
+  let resolvedPath;
+  if (!notePath.includes(path.sep) && !notePath.includes("/")) {
+    resolvedPath = path.join(KNOWLEDGE_ROOT, notePath);
+  } else {
+    resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
+  }
   const relativeToRoot = path.relative(KNOWLEDGE_ROOT, resolvedPath);
   const relativeToRepo = path.relative(REPO_KNOWLEDGE_ROOT, resolvedPath);
 
@@ -1148,11 +1166,19 @@ async function readKnowledgeNote(args) {
 }
 
 function resolveKnowledgePath(notePath) {
-  const resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
+  // Accept bare filenames (e.g. "networking-dns.md") — prepend KNOWLEDGE_ROOT.
+  // Also accept full workspace-relative paths for backward compat.
+  let resolvedPath;
+  if (!notePath.includes(path.sep) && !notePath.includes("/")) {
+    // Bare filename — place in KNOWLEDGE_ROOT.
+    resolvedPath = path.join(KNOWLEDGE_ROOT, notePath);
+  } else {
+    resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
+  }
   const relativeToRoot = path.relative(KNOWLEDGE_ROOT, resolvedPath);
   if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
     throw new Error(
-      "Knowledge note path must be under the knowledge directory.",
+      `Knowledge note path must be under the knowledge directory (${path.relative(WORKSPACE_ROOT, KNOWLEDGE_ROOT)}/).`,
     );
   }
   if (!resolvedPath.endsWith(".md")) {
@@ -1608,14 +1634,14 @@ const RESEARCH_TOOLS = [
   {
     name: "read_knowledge_note",
     description:
-      "Read a specific knowledge note. Resolves from workspace (.github/knowledge/), then repo (knowledge/), then GitHub community.",
+      "Read a specific knowledge note. Pass a bare filename (e.g. networking-dns.md) or a workspace-relative path. Resolves from workspace knowledge root, then repo bundled, then GitHub community.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description:
-            "Path to a knowledge note (e.g. .github/knowledge/my-topic.md or knowledge/my-topic.md).",
+            "Filename (e.g. networking-dns.md) or workspace-relative path. Bare filenames resolve to the detected knowledge root.",
         },
         max_chars: {
           type: "integer",
@@ -1676,14 +1702,14 @@ const RESEARCH_TOOLS = [
   {
     name: "write_knowledge_note",
     description:
-      "Create or overwrite a knowledge note in the workspace's .github/knowledge/ directory. Use for persisting research findings, architecture facts, or debug lessons learned.",
+      "Create or overwrite a knowledge note. Writes to the workspace's knowledge directory (auto-detected: knowledge/ in source repo, .github/knowledge/ elsewhere). Use for persisting research findings, architecture facts, or debug lessons learned.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description:
-            "Workspace-relative path for the note, e.g. .github/knowledge/my-topic.md",
+            "Filename for the note, e.g. networking-dns.md. Can also be a workspace-relative path. The tool places bare filenames in the detected knowledge root automatically.",
         },
         content: {
           type: "string",
@@ -1707,7 +1733,7 @@ const RESEARCH_TOOLS = [
       properties: {
         path: {
           type: "string",
-          description: "Path to the knowledge note.",
+          description: "Filename (e.g. networking-dns.md) or workspace-relative path to the knowledge note.",
         },
         heading: {
           type: "string",
@@ -1732,7 +1758,7 @@ const RESEARCH_TOOLS = [
       properties: {
         path: {
           type: "string",
-          description: "Path to the knowledge note.",
+          description: "Filename (e.g. networking-dns.md) or workspace-relative path to the knowledge note.",
         },
         content: {
           type: "string",

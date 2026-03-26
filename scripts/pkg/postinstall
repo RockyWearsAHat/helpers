@@ -34,37 +34,29 @@ run_as_console_user() {
 	/usr/bin/sudo -H -u "$user_name" -- "$@"
 }
 
-upsert_mcp_server_for_user() {
+remove_mcp_server_for_user() {
 	local user_name="$1"
 	local user_home="$2"
-	local server_path="$3"
 	local mcp_file="$user_home/Library/Application Support/Code/User/mcp.json"
 
-	run_as_console_user "$user_name" /bin/mkdir -p "$(dirname "$mcp_file")"
-	run_as_console_user "$user_name" /usr/bin/python3 - "$mcp_file" "$server_path" <<'PYEOF'
+	[ -f "$mcp_file" ] || return 0
+
+	run_as_console_user "$user_name" /usr/bin/python3 - "$mcp_file" <<'PYEOF'
 import json, sys
 
-mcp_path, server_path = sys.argv[1], sys.argv[2]
+mcp_path = sys.argv[1]
 try:
 	with open(mcp_path, "r", encoding="utf-8") as f:
 		data = json.load(f)
 except (json.JSONDecodeError, FileNotFoundError):
-	data = {}
+	sys.exit(0)
 
-if "servers" not in data or not isinstance(data["servers"], dict):
-	data["servers"] = {}
-if "inputs" in data and not isinstance(data["inputs"], list):
-	data["inputs"] = []
-
-data["servers"]["gsh"] = {
-	"type": "stdio",
-	"command": "node",
-	"args": [server_path],
-}
-
-with open(mcp_path, "w", encoding="utf-8") as f:
-	json.dump(data, f, indent=2)
-	f.write("\n")
+if "servers" in data and isinstance(data["servers"], dict):
+	if "gsh" in data["servers"]:
+		del data["servers"]["gsh"]
+		with open(mcp_path, "w", encoding="utf-8") as f:
+			json.dump(data, f, indent=2)
+			f.write("\n")
 PYEOF
 }
 
@@ -87,8 +79,10 @@ fi
 
 vscode_user_dir="$user_home/Library/Application Support/Code/User"
 run_as_console_user "$console_user" /bin/mkdir -p "$vscode_user_dir/agents" "$vscode_user_dir/prompts"
-upsert_mcp_server_for_user "$console_user" "$user_home" "/usr/local/bin/git-shell-helpers-mcp"
-log "Wrote global MCP config for $console_user at $vscode_user_dir/mcp.json."
+# Remove legacy mcp.json entry — the VS Code extension now registers the
+# gsh MCP server automatically via registerMcpServerDefinitionProvider.
+remove_mcp_server_for_user "$console_user" "$user_home"
+log "Cleaned legacy gsh entry from mcp.json for $console_user (now extension-managed)."
 
 if code_cli="$(find_vscode_cli "$user_home")"; then
 	if run_as_console_user "$console_user" "$code_cli" --install-extension GitHub.copilot --force >/dev/null 2>&1; then

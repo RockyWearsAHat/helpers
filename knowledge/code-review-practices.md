@@ -1,4 +1,4 @@
-# Code Review Best Practices
+# Code Review Practices
 
 ## For Authors (Submitting Code)
 

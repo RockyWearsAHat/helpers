@@ -6,7 +6,7 @@
 
 Discrete events with context. The most familiar signal.
 
-**Structured logging** (JSON, key-value) is mandatory for production:
+**Structured logging** (JSON, key-value) is strongly preferred for production systems:
 
 ```json
 {
@@ -29,7 +29,7 @@ ERROR: Payment failed for user 42
 
 **Log levels:**
 
-- **TRACE/DEBUG**: Development only. Never in production (too verbose).
+- **TRACE/DEBUG**: Typically development-only. Rarely enabled in production due to volume.
 - **INFO**: Normal operations. Service started, request completed, job finished.
 - **WARN**: Unexpected but handled. Retry succeeded, deprecated API used, slow query.
 - **ERROR**: Something failed. Request failed, unhandled exception, external service down.
@@ -79,7 +79,7 @@ The industry standard for observability instrumentation. Vendor-neutral, support
 
 **Auto-instrumentation** available for most frameworks — add a library and get HTTP, DB, and framework traces automatically.
 
-## Logging Best Practices
+## Logging Patterns
 
 1. **Use structured logging from day one.** Switching later is painful.
 2. **Include correlation IDs.** Trace ID in every log line. Link logs to traces.
@@ -91,7 +91,7 @@ The industry standard for observability instrumentation. Vendor-neutral, support
 8. **Set up log rotation and retention.** Logs grow fast. Archive or delete based on policy.
 9. **Use sampling for high-volume services.** Log 10% of successful requests, 100% of errors.
 
-## Alerting Best Practices
+## Alerting Patterns
 
 - **Alert on symptoms, not causes.** Alert on "error rate > 5%" not "database CPU > 80%."
 - **Every alert must be actionable.** If nobody needs to do anything, it's not an alert — it's a metric.

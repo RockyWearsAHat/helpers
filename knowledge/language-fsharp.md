@@ -1,4 +1,4 @@
-# F# Best Practices
+# F# Conventions and Idioms
 
 ## F# Philosophy
 
@@ -192,7 +192,7 @@ Map.find "b" lookup  // 2
 Map.tryFind "d" lookup  // None
 ```
 
-## Key Rules
+## Conventions
 
 1. **Use discriminated unions for domain modeling.** They make illegal states unrepresentable.
 2. **Prefer `Result` over exceptions** for expected failure paths. Exceptions for unexpected/bug scenarios.

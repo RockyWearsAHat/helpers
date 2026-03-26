@@ -1,4 +1,4 @@
-# Dart & Flutter Best Practices
+# Dart & Flutter Conventions and Idioms
 
 ## Dart Language
 
@@ -172,7 +172,7 @@ class _CounterState extends State<Counter> {
 | **BLoC**     | High       | Complex business logic, event-driven         |
 | **GetX**     | Low        | Rapid prototyping (controversial)            |
 
-### Flutter Best Practices
+### Flutter Conventions
 
 1. **const constructors** — Use `const` wherever possible for widget reuse.
 2. **Small widgets** — Extract widgets into separate classes, not methods.

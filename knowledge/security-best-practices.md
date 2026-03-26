@@ -1,4 +1,4 @@
-# Security Best Practices (OWASP & Industry Standards)
+# Security Principles (OWASP & Industry Standards)
 
 ## OWASP Top 10 (2025)
 

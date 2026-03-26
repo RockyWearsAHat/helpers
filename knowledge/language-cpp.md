@@ -1,4 +1,4 @@
-# C++ Best Practices (Modern C++20/23)
+# C++ Conventions and Idioms (Modern C++20/23)
 
 ## Core Principles
 
@@ -209,7 +209,7 @@ std::mdspan<int, std::extents<int, 3, 3>> matrix(data.data());
 // Use exceptions for errors that can't be handled locally
 // Use std::expected/std::optional for expected failures
 
-// Exception best practices:
+// Exception conventions:
 // 1. Throw by value, catch by const reference
 try {
     process();

@@ -268,16 +268,16 @@ Are there better alternatives for any of the current dependencies?
 When designing project-specific instructions (copilot-instructions.md, instruction files, etc.):
 
 ```
-DON'T: Restate generic language conventions (Copilot already knows those)
-DON'T: Include information that changes frequently (version numbers, API specifics)
-DON'T: State preferences as facts ("always use X" without explaining when and why)
+Avoid: Restating generic language conventions (Copilot already knows those)
+Avoid: Including information that changes frequently (version numbers, API specifics)
+Avoid: Stating preferences as facts ("always use X" without explaining when and why)
 
-DO: Describe the project's architecture and conventions
-DO: Explain domain-specific terminology and business logic
-DO: Document non-obvious decisions and their rationale
-DO: Specify where the project diverges from ecosystem defaults
-DO: Point to the project's actual patterns (specific files, specific conventions)
-DO: Include the "why" behind conventions, so they can be intelligently adapted
+Include: The project's architecture and conventions
+Include: Domain-specific terminology and business logic
+Include: Non-obvious decisions and their rationale
+Include: Where the project diverges from ecosystem defaults
+Include: References to the project's actual patterns (specific files, specific conventions)
+Include: The "why" behind conventions, so they can be intelligently adapted
 ```
 
 ---
@@ -289,7 +289,7 @@ You're not limited to static knowledge files. Use every tool available:
 ```
 TOOL                    WHEN TO USE IT
 ──────────────────────  ──────────────────────────────────────────────
-Official documentation  ALWAYS. The primary source. Read before coding.
+Official documentation  First priority. The primary source. Read before coding.
 Package repository      Evaluate libraries (npm, crates.io, PyPI, Maven Central)
 GitHub repo             Read source, issues, PRs, release notes, stars, activity
 Changelog / RELEASES    What changed between versions? Migration paths?

@@ -72,17 +72,17 @@ Everything truthy/falsy:       Python, JavaScript, Ruby (know the falsy values!)
 ### Python
 
 - **The GIL** — Threads don't give CPU parallelism. Use `multiprocessing` or `asyncio` for I/O.
-- **Virtual environments are mandatory** — Never `pip install` globally. Use `venv`, `uv`, or `poetry`.
+- **Virtual environments are recommended** — Installing packages globally can cause version conflicts. `venv`, `uv`, and `poetry` are common approaches.
 - **Type hints don't enforce anything at runtime** — They're for tooling (mypy, Pylance, pyright).
 - **f-strings > .format() > %** — Use f-strings. They're faster and more readable.
-- **Ruff** — Currently the one linter/formatter to use. Replaces flake8, isort, black, pyupgrade.
-- **`uv`** — Fast Python package manager (Rust-based). Rapidly becoming the default.
+- **Ruff** — A popular linter/formatter that consolidates the roles of flake8, isort, black, and pyupgrade.
+- **`uv`** — A Rust-based Python package manager gaining rapid adoption for its speed.
 
 ### JavaScript / TypeScript
 
-- **`===` not `==`** — Always. `==` has insane coercion rules.
-- **`strictNullChecks: true`** — Non-negotiable in TypeScript. Without it, types lie.
-- **`"strict": true`** in tsconfig — Enables all strict checks. Start every project with this.
+- **`===` not `==`** — Preferred in most cases. `==` applies type coercion with surprising rules.
+- **`strictNullChecks: true`** — Strongly recommended in TypeScript. Without it, types don't reflect nullability.
+- **`"strict": true`** in tsconfig — Enables all strict checks. A good default for new projects.
 - **Closures capture by reference** — Classic loop variable bug. Use `let`, not `var`.
 - **Node.js is single-threaded** — One event loop. CPU-bound work blocks everything. Use worker threads.
 - **ESM over CJS** — `import/export` over `require/module.exports`. The ecosystem is migrating.
@@ -93,13 +93,13 @@ Everything truthy/falsy:       Python, JavaScript, Ruby (know the falsy values!)
 - **`unwrap()` is a code smell in production** — Handle errors with `?`, `match`, or combinators.
 - **Lifetimes are about relationships** — `'a` means "this reference lives at least as long as that thing."
 - **`clone()` is fine while learning** — Optimize later. Premature optimization is worse in Rust.
-- **`cargo clippy`** — The best linter in any ecosystem. Run it, listen to it.
+- **`cargo clippy`** — A highly regarded linter for Rust. Worth incorporating into the workflow.
 
 ### Go
 
 - **Accept interfaces, return structs** — The Go proverb. Keeps signatures flexible, returns concrete.
 - **Errors are values, handle them explicitly** — `if err != nil` is idiomatic, not ugly. Embrace it.
-- **`go vet` + `golangci-lint`** — The standard linting setup.
+- **`go vet` + `golangci-lint`** — A common linting setup in the Go ecosystem.
 - **Small interfaces** — `io.Reader` is one method. Compose small interfaces, don't build large ones.
 - **No generics until 1.18** — Code written before that uses `interface{}` everywhere. Modernize when you can.
 
@@ -126,10 +126,10 @@ Everything truthy/falsy:       Python, JavaScript, Ruby (know the falsy values!)
 
 ### Shell (Bash/Zsh)
 
-- **`set -euo pipefail`** — Start every script with this. `-e` exits on error, `-u` errors on undefined vars, `-o pipefail` catches pipe failures.
+- **`set -euo pipefail`** — A widely used safety preamble. `-e` exits on error, `-u` errors on undefined vars, `-o pipefail` catches pipe failures.
 - **Quote everything** — `"$var"` not `$var`. Word splitting is the #1 source of shell bugs.
-- **`[[ ]]` not `[ ]`** — Double brackets are safer (no word splitting, supports `&&`/`||`/regex).
-- **ShellCheck** — Run it on every shell script. It catches real bugs.
+- **`[[ ]]` not `[ ]`** — Double brackets avoid word splitting and support `&&`/`||`/regex.
+- **ShellCheck** — A popular static analysis tool for shell scripts that catches real bugs.
 - **Arrays are tricky** — Bash arrays have surprising behavior. Test edge cases.
 
 ### Ruby
@@ -147,7 +147,7 @@ Everything truthy/falsy:       Python, JavaScript, Ruby (know the falsy values!)
 
 ### SQL
 
-- **Indexes are not optional for production** — Every `WHERE` column, every `JOIN` column, every `ORDER BY` column. Check `EXPLAIN`.
+- **Indexes matter for production queries** — Columns in `WHERE`, `JOIN`, and `ORDER BY` clauses are candidates. `EXPLAIN` helps verify.
 - **ORMs hide the query** — When performance matters, read the generated SQL. Optimize the query, not the ORM call.
 - **N+1 is the default bug** — Eager load (`JOIN`/`INCLUDE`) when you know you need the related data.
 - **Transactions have cost** — Long transactions hold locks. Keep them short.
@@ -172,4 +172,4 @@ Need: Enterprise backend → Java, C#, Kotlin
 Need: What the team already knows → That language (usually the right answer)
 ```
 
-**The last line is usually the most important.** A team that knows Python will ship faster in Python than in the "theoretically better" language they'd need to learn.
+**The last line is often the most important.** A team that knows Python will typically ship faster in Python than in a "theoretically better" language they'd need to learn.

@@ -147,33 +147,28 @@ maybe_install_vscode_extensions() {
 
 VSCODE_MCP_JSON="$HOME/Library/Application Support/Code/User/mcp.json"
 
-upsert_mcp_server() {
+remove_mcp_server() {
   local name="$1"
-  local block="$2"
   local mcp_file="$VSCODE_MCP_JSON"
 
-  ensure_dir "$(dirname "$mcp_file")"
+  [ -f "$mcp_file" ] || return 0
 
-  python3 - "$mcp_file" "$name" "$block" <<'PYEOF'
+  python3 - "$mcp_file" "$name" <<'PYEOF'
 import json, sys
 
-mcp_path, srv_name, srv_block = sys.argv[1], sys.argv[2], sys.argv[3]
+mcp_path, srv_name = sys.argv[1], sys.argv[2]
 try:
   with open(mcp_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 except (json.JSONDecodeError, FileNotFoundError):
-  data = {}
+  sys.exit(0)
 
-if "servers" not in data or not isinstance(data["servers"], dict):
-  data["servers"] = {}
-if "inputs" in data and not isinstance(data["inputs"], list):
-  data["inputs"] = []
-
-data["servers"][srv_name] = json.loads(srv_block)
-
-with open(mcp_path, "w", encoding="utf-8") as f:
-  json.dump(data, f, indent=2)
-  f.write("\n")
+if "servers" in data and isinstance(data["servers"], dict):
+  if srv_name in data["servers"]:
+    del data["servers"][srv_name]
+    with open(mcp_path, "w", encoding="utf-8") as f:
+      json.dump(data, f, indent=2)
+      f.write("\n")
 PYEOF
 }
 
@@ -219,12 +214,9 @@ configure_mcp_tools() {
     fetch "$REPO_RAW_BASE/vision-tool/mcp-server.js" "$vision_dir/mcp-server.js"
   fi
 
-  local server_json='{
-    "type": "stdio",
-    "command": "node",
-    "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"]
-  }'
-  upsert_mcp_server "gsh" "$server_json"
+  # Remove legacy mcp.json entry — the VS Code extension now registers the
+  # gsh MCP server automatically via registerMcpServerDefinitionProvider.
+  remove_mcp_server "gsh"
 
   echo "[Git-Shell-Helpers-Installer] Installed MCP server runtime: ${BIN_DIR}/git-shell-helpers-mcp"
   if [ "$install_research" = true ]; then
@@ -237,8 +229,7 @@ configure_mcp_tools() {
   else
     echo "  - vision tools not installed"
   fi
-  echo "[Git-Shell-Helpers-Installer] Global MCP config written to: $VSCODE_MCP_JSON"
-  echo "[Git-Shell-Helpers-Installer] VS Code should discover git-shell-helpers from that global mcp.json entry."
+  echo "[Git-Shell-Helpers-Installer] The gsh MCP server is registered by the Git Shell Helpers VS Code extension."
   echo "[Git-Shell-Helpers-Installer] Reload VS Code after installing the extension to refresh MCP server discovery."
 }
 

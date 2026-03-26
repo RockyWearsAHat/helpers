@@ -1,4 +1,4 @@
-# Clojure Best Practices
+# Clojure Conventions and Idioms
 
 ## Clojure Philosophy
 
@@ -185,7 +185,7 @@ Clojure is a modern Lisp on the JVM (and JavaScript via ClojureScript). It empha
   (<!! (async/into [] out)))
 ```
 
-## Key Rules
+## Conventions
 
 1. **Prefer data over objects.** Use maps and vectors. Only reach for records/protocols when you need polymorphism.
 2. **Keep functions pure.** Side effects at the edges. Pure transformation in the middle.

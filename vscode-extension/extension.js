@@ -82,7 +82,7 @@ function registerMcpServerProvider(context) {
 
         return [
           new vscode.McpStdioServerDefinition(
-            "GitHub Shell Helpers",
+            "gsh",
             "node",
             [serverPath],
             buildGitShellHelpersMcpEnv(serverPath),
@@ -492,11 +492,13 @@ class CommunityCacheViewProvider {
               terminal.show();
               terminal.sendText("install-git-shell-helpers");
             } else if (action === "Open Terminal") {
-              await vscode.commands.executeCommand("workbench.action.terminal.new");
+              await vscode.commands.executeCommand(
+                "workbench.action.terminal.new",
+              );
             }
           } else if (msg.tone === "warn") {
             const action = await vscode.window.showWarningMessage(
-              "MCP provider API unavailable. Open the MCP panel and start or trust the GitHub Shell Helpers server.",
+              "MCP provider API unavailable. Open the MCP panel and start or trust the gsh server.",
               "Open MCP Panel",
             );
             if (action === "Open MCP Panel") await openMcpServerControls();

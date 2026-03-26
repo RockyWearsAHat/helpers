@@ -1,4 +1,4 @@
-# PHP Best Practices (Modern PHP 8.3+)
+# PHP Conventions and Idioms (Modern PHP 8.3+)
 
 ## Modern PHP Is Not 2005 PHP
 
@@ -7,7 +7,7 @@ PHP has undergone a massive transformation. Modern PHP is typed, performant, and
 ## Type System
 
 ```php
-// Strict types — ALWAYS enable
+// Strict types — strongly recommended
 declare(strict_types=1);
 
 // Typed properties, parameters, and return types
@@ -242,14 +242,14 @@ phpstan.neon
 | **Xdebug** / **SPX**                   | Debugging & profiling                   |
 | **OPcache**                            | Bytecode caching (production essential) |
 
-## Key Rules
+## Conventions
 
-1. **`declare(strict_types=1)`** in every file.
+1. **`declare(strict_types=1)`** in every file enables stricter type coercion.
 2. **Type everything**: parameters, returns, properties.
-3. **Use PHPStan at maximum level** in CI.
-4. **Never use `@` error suppression** or `extract()`.
-5. **Use prepared statements** for SQL (PDO or ORM). Never concatenate user input into queries.
-6. **Autoload via Composer PSR-4.** No manual `require` chains.
+3. **PHPStan at maximum level** in CI catches bugs the type system alone misses.
+4. **Avoid `@` error suppression** and `extract()` — both obscure bugs.
+5. **Use prepared statements** for SQL (PDO or ORM). Concatenating user input into queries opens SQL injection risks.
+6. **Autoload via Composer PSR-4.** Eliminates manual `require` chains.
 
 ---
 

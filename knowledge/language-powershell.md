@@ -1,4 +1,4 @@
-# PowerShell Best Practices
+# PowerShell Conventions and Idioms
 
 ## PowerShell Philosophy
 
@@ -184,7 +184,7 @@ class Logger {
 }
 ```
 
-## Key Rules
+## Conventions
 
 1. **Use `[CmdletBinding()]`** on all functions. It adds `-Verbose`, `-Debug`, `-ErrorAction`, and other common parameters.
 2. **Use `-ErrorAction Stop`** in `try` blocks. PowerShell non-terminating errors don't trigger `catch` by default.

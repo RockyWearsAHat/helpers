@@ -1,4 +1,4 @@
-# Elixir Best Practices
+# Elixir Conventions and Idioms
 
 ## Elixir Philosophy
 

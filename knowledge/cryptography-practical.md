@@ -1,12 +1,12 @@
 # Practical Cryptography for Developers
 
-## Golden Rules
+## Core Principles
 
-1. **Never roll your own crypto.** Use well-audited libraries (libsodium, OpenSSL, Web Crypto API).
-2. **Encryption is not authentication.** Encrypted data can be tampered with. Use authenticated encryption (AEAD).
+1. **Avoid rolling your own crypto.** Well-audited libraries (libsodium, OpenSSL, Web Crypto API) have survived extensive scrutiny.
+2. **Encryption is not authentication.** Encrypted data can be tampered with unless authenticated encryption (AEAD) is used.
 3. **Hashing is not encryption.** Hashes are one-way. You can't "decrypt" a hash.
 4. **Keys are the hardest part.** The algorithm is public. Security comes from key management.
-5. **Crypto is easy to use wrong.** One mistake (reused nonce, timing leak, weak RNG) breaks everything.
+5. **Crypto is easy to misuse.** A single mistake (reused nonce, timing leak, weak RNG) can undermine the entire scheme.
 
 ## Hashing
 
@@ -35,9 +35,9 @@ Regular hashes are too fast. Attackers can try billions per second.
 | ---------------- | ------------ | ---------------------------------------------------------------------- |
 | bcrypt           | Good         | Time-tested, 72-byte input limit                                       |
 | scrypt           | Good         | Memory-hard (resists GPU attacks)                                      |
-| Argon2id         | Best         | Winner of Password Hashing Competition (2015). Memory-hard + time-hard |
+| Argon2id         | Recommended  | Winner of Password Hashing Competition (2015). Memory-hard + time-hard |
 | PBKDF2           | Acceptable   | NIST approved, but not memory-hard                                     |
-| MD5/SHA unsalted | CATASTROPHIC | Rainbow tables crack instantly                                         |
+| MD5/SHA unsalted | Broken       | Rainbow tables crack these instantly                                   |
 
 ```python
 # Python: Use passlib or argon2-cffi
@@ -61,11 +61,11 @@ The standard. 128, 192, or 256-bit keys.
 **Modes of operation:**
 | Mode | Properties | Use? |
 |------|-----------|------|
-| ECB | Identical blocks → identical ciphertext. The penguin problem. | NEVER |
+| ECB | Identical blocks → identical ciphertext. The penguin problem. | Avoid — insecure |
 | CBC | Each block XORed with previous. Needs IV. | Legacy only |
 | CTR | Counter mode. Parallelizable. | With HMAC |
-| **GCM** | Counter + authentication tag. AEAD. | **YES — use this** |
-| **ChaCha20-Poly1305** | Stream cipher + MAC. AEAD. | **YES — alternative to AES-GCM** |
+| **GCM** | Counter + authentication tag. AEAD. | **Preferred** |
+| **ChaCha20-Poly1305** | Stream cipher + MAC. AEAD. | **Strong alternative to AES-GCM** |
 
 ### AEAD (Authenticated Encryption with Associated Data)
 
@@ -90,7 +90,7 @@ ciphertext = aesgcm.encrypt(nonce, b"secret data", aad)
 plaintext = aesgcm.decrypt(nonce, ciphertext, aad)
 ```
 
-**CRITICAL:** Never reuse a nonce with the same key. AES-GCM with a repeated nonce is catastrophically broken (leaks authentication key).
+**CRITICAL:** Reusing a nonce with the same key in AES-GCM is catastrophically broken (leaks authentication key). Nonces must be unique per encryption operation.
 
 ## Asymmetric Encryption (Public/Private Key Pairs)
 
@@ -165,10 +165,10 @@ hmac.compare_digest(tag, received_tag)  # NOT tag == received_tag
 ### 1. Timing Attacks
 
 ```python
-# WRONG — early exit leaks information about how many bytes match
+# Vulnerable — early exit leaks information about how many bytes match
 if computed_mac == received_mac:  # String comparison
 
-# RIGHT — constant-time comparison
+# Secure alternative — constant-time comparison
 import hmac
 hmac.compare_digest(computed_mac, received_mac)
 ```
@@ -176,18 +176,18 @@ hmac.compare_digest(computed_mac, received_mac)
 ### 2. Using Math.random() / random.random() for Security
 
 ```python
-# WRONG — predictable PRNG
+# Predictable PRNG — not suitable for security
 import random
 token = random.randint(0, 2**128)
 
-# RIGHT — cryptographically secure
+# Cryptographically secure alternative
 import secrets
 token = secrets.token_hex(32)
 ```
 
 ### 3. ECB Mode (The Penguin Problem)
 
-ECB encrypts identical blocks identically. An encrypted image of a penguin... still looks like a penguin. Always use GCM or ChaCha20-Poly1305.
+ECB encrypts identical blocks identically. An encrypted image of a penguin… still looks like a penguin. AEAD modes like GCM or ChaCha20-Poly1305 avoid this.
 
 ### 4. Storing Passwords in Plaintext or Reversible Encryption
 
@@ -200,10 +200,10 @@ AES-GCM with a reused nonce leaks the authentication key. ChaCha20-Poly1305 with
 ### 6. Rolling Custom Token Generation
 
 ```python
-# WRONG — predictable "random" ID
+# Predictable — derived from user ID
 user_id_hash = md5(str(user_id)).hexdigest()
 
-# RIGHT — opaque, unpredictable token
+# Opaque, unpredictable token
 token = secrets.token_urlsafe(32)
 ```
 
@@ -211,11 +211,11 @@ token = secrets.token_urlsafe(32)
 
 ### Principles
 
-1. **Never hardcode keys** in source code, config files, or environment variables in images
+1. **Avoid hardcoding keys** in source code, config files, or environment variables in images
 2. **Rotate keys** regularly (and have a rotation plan before you need one)
-3. **Use a KMS** (Key Management Service): AWS KMS, GCP KMS, Azure Key Vault, HashiCorp Vault
+3. **Use a KMS** (Key Management Service): AWS KMS, GCP KMS, Azure Key Vault, HashiCorp Vault are common options
 4. **Separate encryption keys from data** — different storage, different access controls
-5. **Key derivation**: Use HKDF to derive multiple keys from one master key
+5. **Key derivation**: HKDF can derive multiple keys from one master key
 
 ### Envelope Encryption (How Cloud KMS Works)
 
@@ -235,11 +235,11 @@ header.payload.signature
 
 ### JWT Gotchas
 
-- **`alg: none` attack**: Some libraries accept unsigned tokens. Always require and validate the algorithm.
+- **`alg: none` attack**: Some libraries accept unsigned tokens. Requiring and validating the algorithm prevents this.
 - **`alg: HS256` with RSA public key**: Attacker switches from RS256 to HS256, using the public key as HMAC secret. Verify algorithm type.
-- **No expiration**: Always set `exp` claim. Short-lived (minutes, not days).
+- **No expiration**: Setting the `exp` claim with short-lived tokens (minutes, not days) limits exposure.
 - **Sensitive data in payload**: JWT payload is base64-encoded, NOT encrypted. Anyone can read it.
-- **Can't be invalidated**: JWTs are stateless. Once issued, they're valid until expiration. Use short expiry + refresh tokens.
+- **Can't be invalidated**: JWTs are stateless. Once issued, they're valid until expiration. Short expiry + refresh tokens help mitigate this.
 
 ---
 

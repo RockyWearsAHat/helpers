@@ -95,7 +95,7 @@ Functions deployed individually, triggered by events. No server management.
 | Operational cost    | Low      | Low              | High          |
 | Scaling flexibility | Limited  | Limited          | High          |
 
-**Golden rule:** Start simple. Add complexity only when the current architecture demonstrably fails to meet requirements.
+**General principle:** Start simple. Add complexity only when the current architecture demonstrably fails to meet requirements.
 
 ---
 

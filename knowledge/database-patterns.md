@@ -1,4 +1,4 @@
-# Database Patterns & Best Practices
+# Database Patterns & Design Considerations
 
 ## Normalization
 
@@ -39,7 +39,7 @@ Indexes speed up reads at the cost of slower writes and more storage.
 
 ### Use EXPLAIN
 
-Always analyze query plans before and after adding indexes:
+Analyzing query plans before and after adding indexes reveals whether they're helping:
 
 ```sql
 EXPLAIN ANALYZE SELECT * FROM orders WHERE user_id = 42 AND status = 'pending';
@@ -60,7 +60,7 @@ for user in users:
     orders = user.orders.all()     # SELECT * FROM orders WHERE user_id = ? (N queries)
 ```
 
-**Fix:** Eager loading / JOINs.
+**Solution:** Eager loading / JOINs.
 
 ```python
 # 1 query (or 2 with prefetch)
@@ -82,8 +82,8 @@ Every ORM has this problem. Django: `select_related`/`prefetch_related`. SQLAlch
 
 Creating database connections is expensive (TCP handshake, authentication, SSL negotiation).
 
-- **Always use a connection pool** in production.
-- Pool size = 2 × CPU cores + disk spindles (empirical starting point).
+- **Connection pools are strongly recommended** in production.
+- A common starting point for pool size: 2 × CPU cores + disk spindles (adjust empirically).
 - Set connection timeouts and idle timeouts.
 - Tools: PgBouncer (PostgreSQL), HikariCP (Java), SQLAlchemy pool (Python).
 
@@ -99,11 +99,11 @@ Creating database connections is expensive (TCP handshake, authentication, SSL n
 - Use optimistic locking (version column) for low-contention updates.
 - Use pessimistic locking (`SELECT ... FOR UPDATE`) only when contention is high.
 
-## Migration Best Practices
+## Migration Patterns
 
-- **Version all schema changes** in migration files (Flyway, Alembic, Knex, ActiveRecord migrations).
+- **Version all schema changes** in migration files (Flyway, Alembic, Knex, ActiveRecord migrations are common tools).
 - **Make migrations reversible** when possible.
-- **Avoid destructive changes in production**: Add new columns as nullable, backfill, then add constraints. Never rename or drop columns without a deprecation period.
+- **Prefer additive changes in production**: Add new columns as nullable, backfill, then add constraints. Renaming or dropping columns benefits from a deprecation period.
 - **Test migrations** on a copy of production data before deploying.
 - **Separate deploy from migrate**: Deploy code that works with both old and new schema, then migrate, then clean up.
 

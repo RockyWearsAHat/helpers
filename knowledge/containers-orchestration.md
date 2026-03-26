@@ -8,7 +8,7 @@
 - **Container**: Running instance of an image. Has its own writable layer, network, and process space.
 - **Registry**: Image storage (Docker Hub, GitHub Container Registry, ECR, GCR).
 
-### Dockerfile Best Practices
+### Dockerfile Patterns
 
 ```dockerfile
 # Use specific tags, not :latest (reproducibility)
@@ -294,7 +294,7 @@ kubectl top pods                        # Resource usage
 
 ## Container Security Checklist
 
-1. **Non-root user**: `USER 1001` in Dockerfile. Never run as root.
+1. **Non-root user**: `USER 1001` in Dockerfile. Running as root expands the attack surface significantly.
 2. **Read-only filesystem**: `readOnlyRootFilesystem: true` in k8s security context
 3. **No privileged mode**: `privileged: false`
 4. **Drop capabilities**: `drop: ["ALL"]`, add only what's needed

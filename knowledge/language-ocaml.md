@@ -1,4 +1,4 @@
-# OCaml Best Practices
+# OCaml Conventions and Idioms
 
 ## OCaml Philosophy
 
@@ -191,7 +191,7 @@ let rec eval : type a. a expr -> a = function
 (* The type system guarantees: Add only takes ints, If branches match types *)
 ```
 
-## Key Rules
+## Conventions
 
 1. **Exhaustive pattern matching.** Never use `_` as a catch-all unless you truly mean "any other case." The compiler warns about missing cases — listen to it.
 2. **Use `Option` and `Result`, not exceptions**, for expected failure paths. Exceptions for bugs and truly exceptional conditions.

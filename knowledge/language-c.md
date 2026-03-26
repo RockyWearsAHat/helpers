@@ -1,4 +1,4 @@
-# C Best Practices
+# C Conventions and Idioms
 
 ## The Reality of C
 

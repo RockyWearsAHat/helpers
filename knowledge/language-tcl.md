@@ -1,4 +1,4 @@
-# Tcl Best Practices
+# Tcl Conventions and Idioms
 
 ## Tcl Philosophy
 
@@ -229,7 +229,7 @@ grid .name_entry  -row 0 -column 1 -padx 5 -pady 5
 grid .greet_btn   -row 1 -column 0 -columnspan 2 -pady 10
 ```
 
-## Key Rules
+## Conventions
 
 1. **Always brace expressions.** `expr {$a + $b}` not `expr $a + $b` — braces prevent double substitution and enable byte-compilation.
 2. **Use `dict` over arrays** for structured data. Dicts are values (passable, returnable); arrays are not.
