@@ -131,7 +131,11 @@ function chatCompletion(messages, retries = 3) {
           }
           // If API says wait > 2min, we've hit a daily/hourly quota — abort
           if (delay > MAX_RETRY_DELAY_MS) {
-            reject(new Error(`QUOTA_EXCEEDED: API says wait ${Math.round(delay / 1000)}s — hit daily/hourly limit`));
+            reject(
+              new Error(
+                `QUOTA_EXCEEDED: API says wait ${Math.round(delay / 1000)}s — hit daily/hourly limit`,
+              ),
+            );
             return;
           }
           if (retries > 0) {
@@ -365,7 +369,7 @@ async function main() {
     // Abort remaining files if we hit a daily/hourly quota
     if (quotaExceeded) return;
     // Rate-limit: wait between requests
-    if (idx > 0) await new Promise(r => setTimeout(r, REQUEST_DELAY_MS));
+    if (idx > 0) await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
     process.stdout.write(`  ${filename} ... `);
     try {
       const result = await auditFile(filename);
@@ -403,7 +407,9 @@ async function main() {
       console.log(`ERROR: ${err.message}`);
       errorCount++;
       if (err.message.startsWith("QUOTA_EXCEEDED")) {
-        console.log("\n⚠ Daily/hourly quota hit — stopping early. Will resume next run.");
+        console.log(
+          "\n⚠ Daily/hourly quota hit — stopping early. Will resume next run.",
+        );
         quotaExceeded = true;
       }
     }
