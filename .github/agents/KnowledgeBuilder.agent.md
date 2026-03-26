@@ -2,10 +2,10 @@
 name: KnowledgeBuilder
 description: "Knowledge base builder — researches topics via web search, page scraping, and the existing knowledge index, then creates encyclopedia-quality reference notes. Invoked as a subagent by the orchestrator."
 model:
-  - Claude Haiku 4.5
+  - Claude Haiku 4.5 (copilot)
   - GPT-5.4 mini (copilot)
   - GPT-5 mini (copilot)
-  - GPT-4.1
+  - GPT-4.1 (copilot)
 tools:
   - read
   - search

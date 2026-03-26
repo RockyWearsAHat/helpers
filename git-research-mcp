@@ -37,7 +37,67 @@ if (envPath) {
 
 const MCP_VERSION = "2024-11-05";
 const DEFAULT_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+const CHROME_EXECUTABLE_PATH =
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const HEADLESS_CHROME_EXECUTABLE = process.env.GSH_HEADLESS_CHROME_EXECUTABLE || "";
+const GOOGLE_CONSENT_COOKIES = [
+  {
+    name: "CONSENT",
+    value: "PENDING+987",
+    domain: ".google.com",
+    path: "/",
+    secure: true,
+  },
+  {
+    name: "SOCS",
+    value: "CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjUwMzI0LjA1X3AwGgJlbiADGgYIgN_JvAY",
+    domain: ".google.com",
+    path: "/",
+    secure: true,
+  },
+];
+const GOOGLE_NAVIGATION_HEADERS = {
+  accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+  "accept-language": "en-US,en;q=0.9",
+  "cache-control": "max-age=0",
+  priority: "u=0, i",
+  "sec-ch-ua": '"Chromium";v="146", "Google Chrome";v="146", "Not:A-Brand";v="99"',
+  "sec-ch-ua-arch": '"arm"',
+  "sec-ch-ua-bitness": '"64"',
+  "sec-ch-ua-full-version": '"146.0.7680.165"',
+  "sec-ch-ua-full-version-list": '"Chromium";v="146.0.7680.165", "Google Chrome";v="146.0.7680.165", "Not:A-Brand";v="99.0.0.0"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-model": '""',
+  "sec-ch-ua-platform": '"macOS"',
+  "sec-ch-ua-platform-version": '"15.5.0"',
+  "sec-fetch-dest": "document",
+  "sec-fetch-mode": "navigate",
+  "sec-fetch-site": "none",
+  "sec-fetch-user": "?1",
+  "upgrade-insecure-requests": "1",
+};
+const GOOGLE_UA_METADATA = {
+  brands: [
+    { brand: "Chromium", version: "146" },
+    { brand: "Google Chrome", version: "146" },
+    { brand: "Not:A-Brand", version: "99" },
+  ],
+  fullVersionList: [
+    { brand: "Chromium", version: "146.0.7680.165" },
+    { brand: "Google Chrome", version: "146.0.7680.165" },
+    { brand: "Not:A-Brand", version: "99.0.0.0" },
+  ],
+  fullVersion: "146.0.7680.165",
+  platform: "macOS",
+  platformVersion: "15.5.0",
+  architecture: "arm",
+  model: "",
+  mobile: false,
+  bitness: "64",
+  wow64: false,
+};
 // Prefer process.cwd() if it looks like a workspace (has .git or .github),
 // otherwise fall back to __dirname (script's location = workspace root).
 const WORKSPACE_ROOT = (() => {
@@ -898,6 +958,9 @@ async function searchKnowledgeIndex(args) {
   }
 
   // Score candidates: sum of normalized TF-IDF weights for query terms.
+  // Local results get a 15% boost — tailors results toward the workspace's own
+  // knowledge while still surfacing highly-relevant community articles.
+  const LOCAL_BOOST = 1.15;
   const scored = [];
   for (const [filename, source] of candidateSource) {
     const idx = candidateIndex.get(filename);
@@ -909,10 +972,15 @@ async function searchKnowledgeIndex(args) {
       if (vec[term] !== undefined) score += vec[term];
       if (title.toLowerCase().includes(term)) score += 0.4;
     }
+    if (source === "local") score *= LOCAL_BOOST;
     if (score > 0) scored.push({ filename, score, fileInfo, source });
   }
+  // Sort by score desc; at equal scores, local wins; then alphabetical.
   scored.sort(
-    (a, b) => b.score - a.score || a.filename.localeCompare(b.filename),
+    (a, b) =>
+      b.score - a.score ||
+      (a.source === "local" ? -1 : 0) - (b.source === "local" ? -1 : 0) ||
+      a.filename.localeCompare(b.filename),
   );
 
   const topScored = scored.slice(0, maxResults);
@@ -1375,6 +1443,20 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function execFileAsync(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, options, (err, stdout, stderr) => {
+      if (err) {
+        err.stdout = stdout;
+        err.stderr = stderr;
+        reject(err);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
 function isRetryable(status) {
   return status === 429 || (status >= 500 && status < 600);
 }
@@ -1492,63 +1574,384 @@ async function googleRateLimit() {
   _lastGoogleRequestMs = Date.now();
 }
 
+// ---------------------------------------------------------------------------
+// Headless Chrome via Puppeteer — Google requires JS rendering
+// ---------------------------------------------------------------------------
+let _puppeteer = null;
+let _browser = null;
+let _browserLaunchPromise = null;
+let _liveChromeSearchQueue = Promise.resolve();
+
+function canUseLiveChromeFallback() {
+  return process.platform === "darwin" && fsSync.existsSync(CHROME_EXECUTABLE_PATH);
+}
+
+function normalizeGoogleResultUrl(rawHref) {
+  const href = String(rawHref || "").trim();
+  if (!href) return "";
+
+  try {
+    if (href.startsWith("/url?")) {
+      const parsed = new URL(href, "https://www.google.com");
+      return parsed.searchParams.get("q") || "";
+    }
+    if (href.startsWith("http://") || href.startsWith("https://")) {
+      return href;
+    }
+    return new URL(href, "https://www.google.com").toString();
+  } catch {
+    return "";
+  }
+}
+
+function postProcessGoogleResults(results) {
+  const deduped = [];
+  const seenUrls = new Set();
+
+  for (const item of Array.isArray(results) ? results : []) {
+    const url = normalizeGoogleResultUrl(item.url || item.href || item.rawHref || "");
+    if (!url || seenUrls.has(url)) continue;
+
+    let hostname = "";
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      continue;
+    }
+    if (/google\./i.test(hostname)) continue;
+
+    const title = String(item.title || "").replace(/\s+/g, " ").trim();
+    if (!title) continue;
+
+    const snippet = String(item.snippet || item.text || "")
+      .replace(/\s+/g, " ")
+      .replace(new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`), "")
+      .trim();
+
+    seenUrls.add(url);
+    deduped.push({ url, title, snippet: snippet.slice(0, 500) });
+  }
+
+  return deduped;
+}
+
+async function extractGoogleResultsFromPage(page) {
+  const payload = await page.evaluate(() => {
+    const bodyText = document.body ? document.body.innerText || "" : "";
+    const challenge =
+      location.href.includes("/sorry/") ||
+      /detected unusual traffic|about this page/i.test(bodyText);
+
+    const results = [];
+    const seen = new Set();
+    for (const anchor of document.querySelectorAll("a")) {
+      const heading = anchor.querySelector("h3");
+      if (!heading) continue;
+
+      const rawHref = anchor.getAttribute("href") || anchor.href || "";
+      if (!rawHref || seen.has(rawHref)) continue;
+      seen.add(rawHref);
+
+      const title = (heading.textContent || "").replace(/\s+/g, " ").trim();
+      if (!title) continue;
+
+      const container =
+        anchor.closest("div[data-snc]") ||
+        anchor.closest("div.g") ||
+        anchor.closest("div[data-ved]") ||
+        anchor.closest("div.MjjYud") ||
+        anchor.closest("div.N54PNb") ||
+        anchor.closest("div");
+
+      let snippet = "";
+      if (container) {
+        snippet = (container.innerText || "").replace(/\s+/g, " ").trim();
+      }
+
+      results.push({
+        rawHref,
+        title,
+        snippet,
+        text: (anchor.textContent || "").replace(/\s+/g, " ").trim(),
+      });
+    }
+
+    return {
+      challenge,
+      title: document.title,
+      href: location.href,
+      bodyText: bodyText.slice(0, 1200),
+      results,
+    };
+  });
+
+  return {
+    challenge: Boolean(payload.challenge),
+    pageTitle: payload.title || "",
+    pageUrl: payload.href || "",
+    bodyText: payload.bodyText || "",
+    results: postProcessGoogleResults(payload.results),
+  };
+}
+
+async function runSerializedLiveChromeSearch(task) {
+  const next = _liveChromeSearchQueue.then(task, task);
+  _liveChromeSearchQueue = next.catch(() => {});
+  return next;
+}
+
+async function searchGoogleViaLiveChrome(searchUrl) {
+  if (!canUseLiveChromeFallback()) {
+    throw new Error("Live Chrome fallback is unavailable on this platform.");
+  }
+
+  return runSerializedLiveChromeSearch(async () => {
+    const pageScript = String.raw`JSON.stringify((() => {
+      const body = document.body ? document.body.innerText || "" : "";
+      const challenge =
+        location.href.includes("/sorry/") ||
+        /detected unusual traffic|about this page/i.test(body);
+      const results = Array.from(document.querySelectorAll("a"))
+        .map((a) => {
+          const h3 = a.querySelector("h3");
+          if (!h3) return null;
+          const container =
+            a.closest("div[data-snc]") ||
+            a.closest("div.g") ||
+            a.closest("div[data-ved]") ||
+            a.closest("div.MjjYud") ||
+            a.closest("div.N54PNb") ||
+            a.closest("div") ||
+            a.parentElement ||
+            a;
+          return {
+            rawHref: a.getAttribute("href") || a.href || "",
+            title: (h3.textContent || "").replace(/\s+/g, " ").trim(),
+            snippet: ((container && container.innerText) || "").replace(/\s+/g, " ").trim(),
+            text: (a.textContent || "").replace(/\s+/g, " ").trim(),
+          };
+        })
+        .filter(Boolean);
+      return {
+        ready: challenge || results.length > 0 || document.readyState === "complete",
+        challenge,
+        title: document.title,
+        href: location.href,
+        bodyText: body.slice(0, 1200),
+        results,
+      };
+    })())`;
+
+    const scriptLines = [
+      "on run argv",
+      "  set targetUrl to item 1 of argv",
+      "  set jsSource to item 2 of argv",
+      "  tell application \"Google Chrome\"",
+      "    set hadWindow to ((count of windows) > 0)",
+      "    if not hadWindow then make new window",
+      "    tell front window",
+      "      set previousTabIndex to active tab index",
+      "      set createdTab to make new tab at end of tabs with properties {URL:targetUrl}",
+      "      set createdTabIndex to (count of tabs)",
+      "      set active tab index to createdTabIndex",
+      "    end tell",
+      "  end tell",
+      "",
+      "  set payload to \"\"",
+      "  repeat 20 times",
+      "    delay 0.5",
+      "    tell application \"Google Chrome\"",
+      "      tell active tab of front window",
+      "        set payload to execute javascript jsSource",
+      "      end tell",
+      "    end tell",
+      "    if payload contains \"\\\"ready\\\":true\" then exit repeat",
+      "  end repeat",
+      "",
+      "  if payload contains \"\\\"challenge\\\":true\" then",
+      "    tell application \"Google Chrome\"",
+      "      activate",
+      "      tell front window to set active tab index to createdTabIndex",
+      "    end tell",
+      "    return payload",
+      "  end if",
+      "",
+      "  tell application \"Google Chrome\"",
+      "    tell front window",
+      "      close createdTab",
+      "      set tabCount to count of tabs",
+      "      if tabCount > 0 then",
+      "        if previousTabIndex > tabCount then",
+      "          set active tab index to tabCount",
+      "        else",
+      "          set active tab index to previousTabIndex",
+      "        end if",
+      "      end if",
+      "    end tell",
+      "  end tell",
+      "",
+      "  return payload",
+      "end run",
+    ];
+
+    const args = [];
+    for (const line of scriptLines) {
+      args.push("-e", line);
+    }
+    args.push("--", searchUrl, pageScript);
+
+    const { stdout } = await execFileAsync("osascript", args, {
+      timeout: 60000,
+      maxBuffer: 1024 * 1024,
+    });
+
+    let payload;
+    try {
+      payload = JSON.parse(String(stdout || "").trim());
+    } catch (err) {
+      throw new Error(`Live Chrome extraction returned invalid JSON: ${err.message}`);
+    }
+
+    return {
+      challenge: Boolean(payload.challenge),
+      pageTitle: payload.title || "",
+      pageUrl: payload.href || "",
+      bodyText: payload.bodyText || "",
+      results: postProcessGoogleResults(payload.results),
+    };
+  });
+}
+
+function getPuppeteer() {
+  if (_puppeteer) return _puppeteer;
+  try {
+    _puppeteer = require("puppeteer");
+  } catch {
+    // Global install — need NODE_PATH
+    const globalRoot = path.join(
+      process.env.HOME || "",
+      ".nvm/versions/node",
+      process.version,
+      "lib/node_modules",
+    );
+    _puppeteer = require(path.join(globalRoot, "puppeteer"));
+  }
+  return _puppeteer;
+}
+
+async function getBrowser() {
+  if (_browser && _browser.connected) return _browser;
+  if (_browserLaunchPromise) return _browserLaunchPromise;
+  _browserLaunchPromise = (async () => {
+    const puppeteer = getPuppeteer();
+    _browser = await puppeteer.launch({
+      executablePath:
+        HEADLESS_CHROME_EXECUTABLE && fsSync.existsSync(HEADLESS_CHROME_EXECUTABLE)
+          ? HEADLESS_CHROME_EXECUTABLE
+          : undefined,
+      headless: true,
+      ignoreDefaultArgs: ["--enable-automation"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-blink-features=AutomationControlled",
+        "--window-size=1440,900",
+      ],
+    });
+    _browser.on("disconnected", () => {
+      _browser = null;
+      _browserLaunchPromise = null;
+    });
+    process.stderr.write("[git-research-mcp] Headless Chrome launched\n");
+    return _browser;
+  })();
+  return _browserLaunchPromise;
+}
+
+// Shut down browser on process exit
+process.on("exit", () => { if (_browser) try { _browser.close(); } catch {} });
+process.on("SIGTERM", () => { if (_browser) try { _browser.close(); } catch {} process.exit(0); });
+
+async function applyGoogleNavigationProfile(page) {
+  const cdp = await page.target().createCDPSession();
+  await cdp.send("Network.enable");
+  await cdp.send("Network.setUserAgentOverride", {
+    userAgent: DEFAULT_USER_AGENT,
+    acceptLanguage: GOOGLE_NAVIGATION_HEADERS["accept-language"],
+    platform: "macOS",
+    userAgentMetadata: GOOGLE_UA_METADATA,
+  });
+  await cdp.send("Network.setExtraHTTPHeaders", {
+    headers: GOOGLE_NAVIGATION_HEADERS,
+  });
+  await cdp.send("Network.setCookies", {
+    cookies: GOOGLE_CONSENT_COOKIES.map((cookie) => ({
+      ...cookie,
+      url: "https://www.google.com/",
+    })),
+  });
+
+  await page.setViewport({ width: 1440, height: 900 });
+  await page.setExtraHTTPHeaders({
+    "accept-language": GOOGLE_NAVIGATION_HEADERS["accept-language"],
+  });
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => undefined,
+    });
+  });
+}
+
 /**
- * Fetch a Google search page with Google-specific retry logic.
- * Unlike the generic fetchWithRetry, this handles 429s with much longer
- * backoff (30s, 60s, 120s) since Google rate limits are minutes, not seconds.
+ * Search Google using headless Chrome.
+ * Returns rendered results when possible, otherwise signals a challenge.
  */
-async function fetchGoogleSearch(url) {
+async function searchGoogleHeadless(url) {
   let lastError;
   for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
-    const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-    let response;
+    let page;
     try {
-      response = await fetch(url, {
-        signal: timeoutSignal,
-        headers: {
-          "user-agent": DEFAULT_USER_AGENT,
-          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "accept-language": "en-US,en;q=0.9",
-          "accept-encoding": "gzip, deflate, br",
-          cookie: "CONSENT=PENDING+987; SOCS=CAESHAgBEhJnd3NfMjAyMzA4MTUtMF9SQzIaAmVuIAEaBgiA_LSmBg",
-        },
-        redirect: "follow",
+      const browser = await getBrowser();
+      page = await browser.newPage();
+      await applyGoogleNavigationProfile(page);
+
+      const response = await page.goto(url, {
+        waitUntil: "networkidle2",
+        timeout: 30000,
       });
-    } catch (fetchErr) {
+
+      try {
+        await page.waitForSelector("#search", { timeout: 8000 });
+      } catch {
+        // #search may not exist on challenge pages.
+      }
+
+      const outcome = await extractGoogleResultsFromPage(page);
+      await page.close();
+
+      if (response && response.status() === 429) {
+        return {
+          ...outcome,
+          challenge: true,
+        };
+      }
+
+      return outcome;
+    } catch (err) {
+      if (page) try { await page.close(); } catch {}
       if (attempt < RETRY_MAX_ATTEMPTS - 1) {
         const delayMs = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, attempt), RETRY_MAX_DELAY_MS);
         process.stderr.write(
-          `[git-research-mcp] Google fetch error: ${fetchErr.message} — retrying in ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+          `[git-research-mcp] Google fetch error: ${err.message} — retrying in ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
         );
-        lastError = fetchErr;
+        lastError = err;
         await sleep(delayMs);
         continue;
       }
-      throw fetchErr;
+      throw err;
     }
-    if (response.ok) {
-      return await response.text();
-    }
-    if (response.status === 429) {
-      // Google 429s need much longer backoff than the generic retry.
-      const delayMs = Math.min(GOOGLE_429_BASE_DELAY_MS * Math.pow(2, attempt), 120_000);
-      process.stderr.write(
-        `[git-research-mcp] Google 429 rate-limited — waiting ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
-      );
-      lastError = new Error(`Google 429 rate-limited`);
-      await sleep(delayMs);
-      continue;
-    }
-    if (!isRetryable(response.status)) {
-      const body = await response.text();
-      throw new Error(`HTTP ${response.status} from Google: ${body.slice(0, 400)}`);
-    }
-    const delayMs = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, attempt), RETRY_MAX_DELAY_MS);
-    process.stderr.write(
-      `[git-research-mcp] Google HTTP ${response.status} — retrying in ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
-    );
-    lastError = new Error(`HTTP ${response.status} from Google`);
-    await sleep(delayMs);
   }
   throw lastError;
 }
@@ -1712,9 +2115,9 @@ async function searchWeb(args) {
     }
 
     const searchUrl = `https://www.google.com/search?${params.toString()}`;
-    let html;
+    let outcome;
     try {
-      html = await fetchGoogleSearch(searchUrl);
+      outcome = await searchGoogleHeadless(searchUrl);
     } catch (err) {
       process.stderr.write(
         `[git-research-mcp] Google search failed: ${err.message}\n`,
@@ -1727,22 +2130,29 @@ async function searchWeb(args) {
       throw err;
     }
 
-    // Check for CAPTCHA / consent page
-    if (html.includes("detected unusual traffic") || html.includes("/sorry/")) {
-      process.stderr.write(
-        `[git-research-mcp] Google rate-limited (CAPTCHA) — waiting ${GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1)}ms before retry (attempt ${attempt + 1}/${GOOGLE_EMPTY_RETRY_MAX})\n`,
-      );
-      if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
-        await sleep(GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1));
-        continue;
+    if (outcome.challenge || outcome.results.length === 0) {
+      if (canUseLiveChromeFallback()) {
+        process.stderr.write(
+          `[git-research-mcp] Falling back to live Chrome session for Google search\n`,
+        );
+        const liveOutcome = await searchGoogleViaLiveChrome(searchUrl);
+        if (liveOutcome.challenge) {
+          throw new Error(
+            "Google presented a CAPTCHA in Chrome. The tab has been focused and left open so you can solve it, then retry the search.",
+          );
+        }
+        if (liveOutcome.results.length > 0) {
+          results = liveOutcome.results;
+          provider = "google-live-chrome";
+          break;
+        }
       }
-      // Last attempt — return whatever we have
-      break;
     }
 
-    results = parseGoogleResults(html);
-
-    if (results.length > 0) break;
+    if (outcome.results.length > 0) {
+      results = outcome.results;
+      break;
+    }
 
     // Empty results — could be transient, wait longer and retry
     if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
