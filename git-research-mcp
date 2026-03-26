@@ -1465,7 +1465,127 @@ async function fetchText(url) {
   return response.text();
 }
 
-const SEARXNG_BASE_URL = process.env.SEARXNG_URL || "http://localhost:8888";
+// ---------------------------------------------------------------------------
+// Direct Google Search — scrapes google.com/search with rate limiting
+// ---------------------------------------------------------------------------
+
+// Minimum delay between Google requests to avoid rate-limiting (ms).
+const GOOGLE_MIN_DELAY_MS = parseInt(process.env.GOOGLE_MIN_DELAY_MS || "2000", 10);
+// Extra delay added per retry when results come back empty.
+const GOOGLE_EMPTY_RETRY_DELAY_MS = 5000;
+// Max attempts specifically for empty-result retries (separate from HTTP retries).
+const GOOGLE_EMPTY_RETRY_MAX = 3;
+
+let _lastGoogleRequestMs = 0;
+
+/**
+ * Enforce a minimum gap between Google requests so we don't burst.
+ */
+async function googleRateLimit() {
+  const now = Date.now();
+  const elapsed = now - _lastGoogleRequestMs;
+  if (elapsed < GOOGLE_MIN_DELAY_MS) {
+    await sleep(GOOGLE_MIN_DELAY_MS - elapsed);
+  }
+  _lastGoogleRequestMs = Date.now();
+}
+
+/**
+ * Parse Google search result HTML into structured results.
+ * Google's DOM changes occasionally — this targets the data-attribute
+ * structure that has been stable since ~2023.
+ */
+function parseGoogleResults(html) {
+  const results = [];
+  const seenUrls = new Set();
+
+  // Strategy 1: Match <a href="/url?q=..." blocks (Google's redirect links)
+  // Each search result has a heading inside an <h3> and a snippet in a nearby div.
+  // We extract URL, title, and snippet from the raw HTML.
+
+  // Extract all result blocks: Google wraps results in <div class="g"> or
+  // data-ved attributes. We look for the /url?q= redirect pattern.
+  const linkPattern = /<a[^>]+href="\/url\?q=([^"&]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = linkPattern.exec(html)) !== null) {
+    let url;
+    try {
+      url = decodeURIComponent(match[1]);
+    } catch {
+      continue;
+    }
+    // Skip Google's own links
+    if (
+      url.startsWith("https://accounts.google.com") ||
+      url.startsWith("https://support.google.com") ||
+      url.startsWith("https://policies.google.com") ||
+      url.startsWith("https://maps.google.com") ||
+      url.startsWith("/")
+    )
+      continue;
+    if (seenUrls.has(url)) continue;
+    seenUrls.add(url);
+
+    // Extract title from <h3> inside the link
+    const h3Match = match[2].match(/<h3[^>]*>([\s\S]*?)<\/h3>/i);
+    const title = h3Match
+      ? h3Match[1].replace(/<[^>]+>/g, "").trim()
+      : match[2].replace(/<[^>]+>/g, "").trim();
+
+    if (!title) continue;
+
+    results.push({ url, title, snippet: "" });
+  }
+
+  // Strategy 2: If Strategy 1 found URLs, try to extract snippets.
+  // Snippets typically live in <div> elements near the result blocks.
+  // We do a second pass looking for <span> blocks after each result URL.
+  if (results.length > 0) {
+    for (const result of results) {
+      // Find the result URL in the HTML and look for snippet text nearby.
+      const urlEscaped = result.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const snippetPattern = new RegExp(
+        urlEscaped + "[\\s\\S]{0,1500}?<(?:span|div)[^>]*class=\"[^\"]*(?:VwiC3b|st|IsZvec|s3v9rd)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/(?:span|div)>",
+        "i"
+      );
+      const snippetMatch = snippetPattern.exec(html);
+      if (snippetMatch) {
+        result.snippet = snippetMatch[1]
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 500);
+      }
+    }
+  }
+
+  // Strategy 3: Fallback — if redirect links didn't work, try direct hrefs
+  // to external sites (Google sometimes uses direct links).
+  if (results.length === 0) {
+    const directPattern = /<h3[^>]*>([\s\S]*?)<\/h3>[\s\S]*?<a[^>]+href="(https?:\/\/(?!(?:www\.)?google\.com)[^"]+)"[^>]*>/gi;
+    while ((match = directPattern.exec(html)) !== null) {
+      const title = match[1].replace(/<[^>]+>/g, "").trim();
+      const url = match[2];
+      if (!title || !url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      results.push({ url, title, snippet: "" });
+    }
+  }
+
+  // Also try reversed order: <a href="https://..."><h3>...</h3></a>
+  if (results.length === 0) {
+    const reversePattern = /<a[^>]+href="(https?:\/\/(?!(?:www\.)?google\.com)[^"]+)"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>/gi;
+    while ((match = reversePattern.exec(html)) !== null) {
+      const url = match[1];
+      const title = match[2].replace(/<[^>]+>/g, "").trim();
+      if (!title || !url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      results.push({ url, title, snippet: "" });
+    }
+  }
+
+  return results;
+}
 
 async function searchWeb(args) {
   const query = String(args.query || "").trim();
@@ -1492,50 +1612,91 @@ async function searchWeb(args) {
     terms.push(`filetype:${String(args.file_type).trim()}`);
   }
 
-  const params = new URLSearchParams({
-    q: terms.join(" "),
-    format: "json",
-    pageno: "1",
-  });
+  const fullQuery = terms.join(" ");
 
-  // SearXNG queries Google, Bing, DuckDuckGo, and others simultaneously.
-  if (args.engines) {
-    params.set("engines", String(args.engines));
-  }
-  if (args.language) {
-    params.set("language", String(args.language));
-  }
-  if (args.time_range) {
-    params.set("time_range", String(args.time_range));
-  }
+  // Try Google directly with empty-result retry logic.
+  let results = [];
+  let provider = "google";
 
-  const searchUrl = `${SEARXNG_BASE_URL}/search?${params.toString()}`;
-  const response = await fetchWithRetry(searchUrl, {
-    headers: { accept: "application/json" },
-  });
-  const payload = await response.json();
+  for (let attempt = 0; attempt < GOOGLE_EMPTY_RETRY_MAX; attempt++) {
+    await googleRateLimit();
 
-  const items = Array.isArray(payload.results) ? payload.results : [];
-  const deduped = [];
-  const seenUrls = new Set();
-  for (const item of items) {
-    const url = item.url;
-    if (!url || seenUrls.has(url)) continue;
-    seenUrls.add(url);
-    deduped.push({
-      rank: deduped.length + 1,
-      title: item.title || "Untitled",
-      url,
-      display_url: item.pretty_url || url,
-      snippet: item.content || "",
-      engines: (item.engines || []).join(", "),
+    const params = new URLSearchParams({
+      q: fullQuery,
+      hl: args.language || "en",
+      num: "20",
     });
+    if (args.time_range) {
+      // Google's tbs param: qdr:d (day), qdr:w (week), qdr:m (month), qdr:y (year)
+      const tbs = { day: "qdr:d", week: "qdr:w", month: "qdr:m", year: "qdr:y" };
+      if (tbs[args.time_range]) {
+        params.set("tbs", tbs[args.time_range]);
+      }
+    }
+
+    const searchUrl = `https://www.google.com/search?${params.toString()}`;
+    let html;
+    try {
+      const response = await fetchWithRetry(searchUrl, {
+        headers: {
+          "user-agent": DEFAULT_USER_AGENT,
+          accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+          "accept-language": "en-US,en;q=0.9",
+        },
+        redirect: "follow",
+      });
+      html = await response.text();
+    } catch (err) {
+      process.stderr.write(
+        `[git-research-mcp] Google fetch error: ${err.message}\n`,
+      );
+      // On network error, wait and retry
+      if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
+        await sleep(GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+
+    // Check for CAPTCHA / consent page
+    if (html.includes("detected unusual traffic") || html.includes("/sorry/")) {
+      process.stderr.write(
+        `[git-research-mcp] Google rate-limited (CAPTCHA) — waiting ${GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1)}ms before retry (attempt ${attempt + 1}/${GOOGLE_EMPTY_RETRY_MAX})\n`,
+      );
+      if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
+        await sleep(GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1));
+        continue;
+      }
+      // Last attempt — return whatever we have
+      break;
+    }
+
+    results = parseGoogleResults(html);
+
+    if (results.length > 0) break;
+
+    // Empty results — could be transient, wait longer and retry
+    if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
+      process.stderr.write(
+        `[git-research-mcp] Google returned 0 results — retrying in ${GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1)}ms (attempt ${attempt + 1}/${GOOGLE_EMPTY_RETRY_MAX})\n`,
+      );
+      await sleep(GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1));
+    }
   }
+
+  const deduped = results.map((item, i) => ({
+    rank: i + 1,
+    title: item.title || "Untitled",
+    url: item.url,
+    display_url: item.url,
+    snippet: item.snippet || "",
+    engines: provider,
+  }));
 
   return {
-    query: terms.join(" "),
-    provider: "searxng",
-    total_results: String(payload.number_of_results || deduped.length),
+    query: fullQuery,
+    provider,
+    total_results: String(deduped.length),
     results: deduped,
   };
 }

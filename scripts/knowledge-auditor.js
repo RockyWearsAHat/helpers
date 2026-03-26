@@ -15,8 +15,8 @@
  *   GITHUB_TOKEN       — GitHub token with Copilot access (uses GitHub Models API)
  *   AUDIT_API_KEY      — Override: explicit API key (skips GITHUB_TOKEN)
  *   AUDIT_API_BASE     — Override: base URL (default: https://models.inference.ai.azure.com)
- *   AUDIT_MODEL        — Model name (default: gpt-4.1-mini)
- *   AUDIT_BATCH_SIZE   — Files per run (default: 15)
+ *   AUDIT_MODEL        — Model name (default: gpt-5-mini)
+ *   AUDIT_BATCH_SIZE   — Files per run (default: 30)
  *   AUDIT_WAVE_DIR     — Where to write wave files (default: knowledge/waves)
  *   KNOWLEDGE_DIR      — Knowledge directory (default: auto-detect)
  */
@@ -30,8 +30,8 @@ const http = require("http");
 // ─── Configuration ──────────────────────────────────────────────────────────
 const API_KEY = process.env.AUDIT_API_KEY || process.env.GITHUB_TOKEN;
 const API_BASE = (process.env.AUDIT_API_BASE || "https://models.inference.ai.azure.com").replace(/\/+$/, "");
-const MODEL = process.env.AUDIT_MODEL || "gpt-4.1-mini";
-const BATCH_SIZE = parseInt(process.env.AUDIT_BATCH_SIZE || "15", 10);
+const MODEL = process.env.AUDIT_MODEL || "gpt-5-mini";
+const BATCH_SIZE = parseInt(process.env.AUDIT_BATCH_SIZE || "30", 10);
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const KNOWLEDGE_ROOT = (() => {
