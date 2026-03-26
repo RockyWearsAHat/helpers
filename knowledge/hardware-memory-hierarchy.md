@@ -70,3 +70,25 @@ See also: cache replacement policies, memory consistency models, performance pro
 **Memory Mapping** — pages loaded on-demand, not at process start. Enables large sparse address spaces (e.g., 64-bit). Shared libraries mapped to same physical pages across processes (reduces memory). Mmap syscall allows efficient file I/O (let OS manage paging rather than explicit read/write).
 
 **Dirty Page Writeback** — modified pages in page cache written to disk asynchronously. Kernel writeback threads batch dirty pages to amortize disk seeks. Stalled writeback can block memory allocation (no free pages available) and harm responsiveness.
+
+## Coherence Protocols and Invalidation
+
+**Write Invalidate vs Write Update** — when core A writes to cache line, two strategies: (1) Invalidate: send invalidates to other cores owning line, they discard stale copy; (2) Update: broadcast new value to all cores. Invalidate dominates modern designs (reduced bandwidth vs invalidate). Update causes write amplification (value broadcasted multiple times).
+
+**Snoop-Based Coherence** — all cores listen to bus (or network) transactions involving their cached data. Write by core A triggers snoop to all other cores; those with line either respond with current data or accept invalidation. Scales poorly beyond ~8-16 cores (bus bandwidth exhausted).
+
+**Directory-Based Coherence** — directory stores ownership/sharing information per cache line in main memory or dedicated hardware. Miss at core A queries directory, which directs request to owner(s). No snooping overhead; scales well to 1000+ cores. Increased latency for some misses (directory lookup adds 1-2 cycles).
+
+**False Sharing** — two cores modify different variables in the same cache line. Even though logically independent, hardware view treats as shared. Results in expensive coherence traffic. Padding (aligning data to cache line boundaries) avoids false sharing; costs ~60 bytes per variable.
+
+**Coherence Traffic Fraction** — measured as % of total memory traffic. Small caches: ~2-5% coherence traffic. Large shared caches: ~20-30% in multi-core systems. Fine-grained synchronization (many shared variables) maximizes coherence cost.
+
+## Memory Models and Consistency
+
+**Strong Consistency** — all cores see writes in same order; simplest model for programmers but expensive (requires invalidating all cached copies immediately).
+
+**Sequential Consistency** — individual load/store ordering preserved per core, but overall write order may differ. Still expensive; requires write-acquire/release semantics.
+
+**Weak Consistency** — explicit synchronization (barriers, locks) provide guarantees; ordinary loads/stores may be reordered. Modern hardware and compiler support; programmers must understand synchronization.
+
+**Release Consistency** — acquire (lock) and release (unlock) form synchronization points. Loads before acquire stall until acquire completes; stores after release stall until release completes. Enables aggressive reordering between synchronization points.

@@ -80,3 +80,27 @@ See also: RAID recovery, FTL algorithms, endurance prediction models.
 **Transcoding** — copying data between NAND technologies (SLC→MLC→TLC) increases density but reduces reliability. Enterprise drives often skip transcoding to maintain endurance; consumer drives rely on it to extend capacity.
 
 **SMART Attributes** — drives expose predictive health indicators: remaining lifetime (cycles), reallocated sector count (retired cells), uncorrectable errors (ECC limit exceeded). SMART failures often precede actual data loss by weeks; proactive replacement advisable.
+
+## Form Factors and Standards
+
+**2.5" (U.2, U.3)** — enterprise standard form factor. U.2 carries SAS/PCIe; U.3 adds NVMe. Larger than M.2, accommodates more NAND dies and faster heat dissipation. Common in datacenters.
+
+**"Add-in Card (AIC)" / HHHL** — PCIe card format for high-throughput designs. 4x-8x PCIe lanes. Enables maximum performance but requires dedicated slot; less common than M.2 in consumer space.
+
+**EDSFF (Enterprise and Datacenter SSD Form Factor)** — newer standard for 1U/2U rack servers. 1U form (E1.S) ~18x30x3 mm. Optimizes for density and thermal management in datacenter environments. Emerging standard (2020s); adoption growing.
+
+**CFexpress and SD Cards** — used in portable systems (cameras, embedded devices). CFA 2.0 standard brings PCIe connectivity to traditional CompactFlash slot. SD Cards remain limited to UHS (High Speed) speeds; not suitable for high-performance storage.
+
+## Interface Evolution and Performance Scaling
+
+**SATA 3.0** — 6 Gbps theoretical, ~530 MB/s effective after protocol overhead. Max 550 MB/s with AHCI. Became bottleneck as SSDs improved; NVMe adoption accelerated post-2015.
+
+**NVMe 1.0 vs 2.0** — NVMe 1.x: up to 4 lanes PCIe Gen 3 (4 GB/s). NVMe 2.0: up to 16 lanes PCIe Gen 5 (64 GB/s, though few drives exceed 10 GB/s). Command queue depth from 64k queues (1.x) unchanged, but parallelism improves with larger stripe sizes.
+
+**Protocol Latency** — NVMe command processing <1 µs vs SATA >10 µs. SAS/SATA legacy polling (controller checks device status register repeatedly) replaced by NVMe MSI-X interrupts (device notifies controller on completion). Dramatic latency reduction for highly parallel workloads.
+
+## Long-term Reliability and Archival
+
+**Cold Storage Durability** — SSDs disconnected for years show charge loss; data integrity questionable after 2-3 years even with TLC/QLC. HDDs drift over years due to thermal cycling but remain more stable offline. Tape (~10-year rated lifetime) superior for archival.
+
+**Atomic/Molecular Limits** — 3D NAND approaches atomic scales (3nm floating-gate width); further shrinking increasingly difficult. Physical limits suggest NAND capacity growth slowing 2030-2040 unless new materials (graphene, chalcogenide) adopted.

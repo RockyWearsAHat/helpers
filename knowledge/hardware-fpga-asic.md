@@ -110,3 +110,21 @@ always @(posedge clk or posedge reset)
 **Heterogeneous Integration** — modern SoCs integrate multiple compute types: CPU+GPU, CPU+FPGA, or application-specific accelerators (TPU, AI engines). Architectural choice reflects workload: general-purpose CPU + specialized accelerators for common operations (encryption, floating point, inference).
 
 **Thermal Constraints** — power density limits clock frequency. Dense ASIC designs (5nm, multiple billions of transistors) run at GHz but dissipate 10-100W in millimeters, requiring advanced packaging (chiplets, 3D stacking). FPGA typically looser density, lower power but wider thermal footprint.
+
+## Advanced Synthesis Techniques
+
+**Register Transfer Level (RTL) Synthesis** — converts behavioral HDL (if/else, loops) into gate-level netlist. Tools like Synopsys Design Compiler, Vivado synthesize to technology-specific gates (NAND, NOR, multiplexer). Synthesis quality (area, delay) varies; tuning rarely worth effort for algorithmic improvements.
+
+**First-Pass Silicon Success** — achieving working silicon on first tape-out requires meticulous verification. Simulation coverage >95% typical for success. Bugs escaping to silicon cost $30M+ (respins, delays). Example: Pentium FDIV bug (1994) cost Intel <$500M but illustrated extreme cost-benefit of verification.
+
+**Gate-Level Simulation** — post-synthesis, verify gate-level netlist against testbenches. Much slower than RTL simulation (100-1000x) but catches synthesis bugs. Only feasible for critical paths.
+
+**Formal Verification** — mathematically prove design properties without exhaustive simulation. Model checking explores all reachable states; infeasible for large designs but essential for critical logic (cache coherence, memory protection). Theorem proving more scalable; requires manual lemma guidance.
+
+**Clock Domain Crossing (CDC)** — synchronization between modules running different clock frequencies. Naive flip-flops between domains risk metastability (random delay/corruption). Synchronizers (chains of flip-flops, gray-coded counters) ensure reliability at cost of latency (2-3 cycles added).
+
+**Scan Chains and Design for Test (DFT)** — test circuitry added to designs for manufacturing test. Scan chains allow shifting test patterns and results without functional I/O. Overhead: ~10-20% area; essential for volume production.
+
+## Verification Challenges Beyond Simulation
+
+**Electrical Characterization** — at 3nm, electrical behavior varies significantly by temperature, process corner, voltage. Timing analysis conducted at multiple corners (SS: slow-slow, FF: fast-fast, TT: typical-typical). Sign-off at multiple corners ensures timing closure across process variation.
