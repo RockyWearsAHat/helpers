@@ -74,3 +74,29 @@ Network hardware encompasses the physical components moving data across systems,
 **Queue Fairness** — simple FIFO starves flows with different RTTs (short RTT flows get high throughput). Fair queuing ensures each flow gets 1/N of link capacity. Hash-based multiqueue (RSS equivalent at switch) approximates fairness at modest computational cost.
 
 **Burst Absorption** — sudden traffic spikes cause temporary buffer filling. Regulators (token bucket, leaky bucket) shape flows to prevent sustained burstiness. Scheduling discipline (WFQ, Deficit RR) ensures fairness under bursty traffic.
+
+## Offloading and Slow Path Acceleration
+
+**Tunnel/Encapsulation Offload** — packets often encapsulated (VXLAN, Geneve, MPLS). NICs can add/remove headers at line rate (~100 Gbps), freeing CPU for application. Software parsing overhead scales linearly with packet rate; hardware ~0 cost.
+
+**Filter and Mirror** — traffic filters (ACLs, port mirroring) commonly executed in NIC or switch ASIC. Reduces CPU load for replicated traffic.
+
+**Stateless Offloads** — checksum, segmentation, reassembly, VLAN tagging. Widely deployed; mature implementations. CPU cost saved ~2-5% of core utilization per 100 Gbps line rate.
+
+**Stateful Offloads** — NIC maintains TCP state for connection tracking, congestion control, or encryption. More complex; fewer implementations. Enables hardware to handle steady-state traffic without CPU intervention; control plane (new connections) still CPU-driven.
+
+## Advanced NIC Features
+
+**Intel i740 iSCSI Offload** — TCP/IP + iSCSI protocol offload (2000s). Reduced CPU overhead for storage I/O; later superseded by SmartNICs.
+
+**Mellanox BlueField** — DPU with ARM cores, enabling in-NIC packet processing, encryption/decryption, firewall rules. Reduces CPU load for security/virtualization workloads by 20-40%.
+
+**Xilinx Alveo U50/U70** — FPGA-based SmartNIC for data center. Programmable packet processing; user-defined offloads. Trade-off: flexibility vs longer deployment cycle (recompiling bitstream).
+
+## Kernel Bypass and DPDK
+
+**DPDK (Data Plane Development Kit)** — userspace driver library for high-performance packet processing. Typical performance: 10+ Gbps in userspace (vs 1-3 Gbps with kernel stack). Trade-off: explicit CPU scheduling required (no kernel scheduler), loss of standard networking abstractions.
+
+**io_uring** — newer kernel interface for async I/O (not packet I/O specific). Reduces syscall overhead; enables batch operations. Emerging as alternative to DPDK for some workloads.
+
+**Virtual NIC Acceleration** — containers/VMs use virtual NICs (tap, vhost, SR-IOV). Passthrough/SR-IOV (Single-Root I/O Virtualization) allows direct VM access to physical NIC, bypassing hypervisor. Enables near-native performance; reduces flexibility (device pinned to VM).
