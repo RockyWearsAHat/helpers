@@ -34,7 +34,7 @@ const API_BASE = (
   process.env.AUDIT_API_BASE || "https://models.inference.ai.azure.com"
 ).replace(/\/+$/, "");
 const MODEL = process.env.AUDIT_MODEL || "gpt-5-mini";
-const BATCH_SIZE = parseInt(process.env.AUDIT_BATCH_SIZE || "250", 10);
+const BATCH_SIZE = parseInt(process.env.AUDIT_BATCH_SIZE || "50", 10);
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const KNOWLEDGE_ROOT = (() => {
@@ -122,19 +122,27 @@ function chatCompletion(messages, retries = 3) {
       let data = "";
       res.on("data", (chunk) => (data += chunk));
       res.on("end", () => {
-        if (res.statusCode === 429 && retries > 0) {
+        if (res.statusCode === 429) {
           // Parse wait time from retry-after header or error body
           let delay = parseInt(res.headers["retry-after"] || "0", 10) * 1000;
           if (!delay) {
-            // Try to extract "wait N seconds" from the error message
             const waitMatch = data.match(/wait (\d+) seconds/i);
             delay = waitMatch ? parseInt(waitMatch[1], 10) * 1000 : 60000;
           }
-          console.log(`rate-limited, retrying in ${delay / 1000}s...`);
-          setTimeout(
-            () => chatCompletion(messages, retries - 1).then(resolve, reject),
-            delay,
-          );
+          // If API says wait > 2min, we've hit a daily/hourly quota — abort
+          if (delay > MAX_RETRY_DELAY_MS) {
+            reject(new Error(`QUOTA_EXCEEDED: API says wait ${Math.round(delay / 1000)}s — hit daily/hourly limit`));
+            return;
+          }
+          if (retries > 0) {
+            console.log(`rate-limited, retrying in ${delay / 1000}s...`);
+            setTimeout(
+              () => chatCompletion(messages, retries - 1).then(resolve, reject),
+              delay,
+            );
+            return;
+          }
+          reject(new Error(`Rate limited with no retries left`));
           return;
         }
         if (res.statusCode >= 400) {
@@ -169,7 +177,8 @@ function chatCompletion(messages, retries = 3) {
 
 // ─── Concurrency helper ─────────────────────────────────────────────────────
 const CONCURRENCY = parseInt(process.env.AUDIT_CONCURRENCY || "1", 10);
-const REQUEST_DELAY_MS = parseInt(process.env.AUDIT_DELAY_MS || "5000", 10);
+const REQUEST_DELAY_MS = parseInt(process.env.AUDIT_DELAY_MS || "10000", 10);
+const MAX_RETRY_DELAY_MS = 120000; // 2 min max — if API says wait longer, abort
 
 async function pooled(items, concurrency, fn) {
   const results = new Array(items.length);
@@ -350,9 +359,12 @@ async function main() {
   const findings = [];
   let passCount = 0;
   let errorCount = 0;
+  let quotaExceeded = false;
 
   await pooled(files, CONCURRENCY, async (filename, idx) => {
-    // Rate-limit: wait between requests (24/min limit on GitHub Models)
+    // Abort remaining files if we hit a daily/hourly quota
+    if (quotaExceeded) return;
+    // Rate-limit: wait between requests
     if (idx > 0) await new Promise(r => setTimeout(r, REQUEST_DELAY_MS));
     process.stdout.write(`  ${filename} ... `);
     try {
@@ -390,6 +402,10 @@ async function main() {
     } catch (err) {
       console.log(`ERROR: ${err.message}`);
       errorCount++;
+      if (err.message.startsWith("QUOTA_EXCEEDED")) {
+        console.log("\n⚠ Daily/hourly quota hit — stopping early. Will resume next run.");
+        quotaExceeded = true;
+      }
     }
   });
 
