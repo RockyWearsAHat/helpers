@@ -12,8 +12,9 @@
  * agents can pick up to research and fix.
  *
  * Environment:
- *   AUDIT_API_KEY      — API key for the LLM provider (required)
- *   AUDIT_API_BASE     — Base URL (default: https://api.openai.com/v1)
+ *   GITHUB_TOKEN       — GitHub token with Copilot access (uses GitHub Models API)
+ *   AUDIT_API_KEY      — Override: explicit API key (skips GITHUB_TOKEN)
+ *   AUDIT_API_BASE     — Override: base URL (default: https://models.inference.ai.azure.com)
  *   AUDIT_MODEL        — Model name (default: gpt-4.1-mini)
  *   AUDIT_BATCH_SIZE   — Files per run (default: 15)
  *   AUDIT_WAVE_DIR     — Where to write wave files (default: knowledge/waves)
@@ -27,8 +28,8 @@ const https = require("https");
 const http = require("http");
 
 // ─── Configuration ──────────────────────────────────────────────────────────
-const API_KEY = process.env.AUDIT_API_KEY;
-const API_BASE = (process.env.AUDIT_API_BASE || "https://api.openai.com/v1").replace(/\/+$/, "");
+const API_KEY = process.env.AUDIT_API_KEY || process.env.GITHUB_TOKEN;
+const API_BASE = (process.env.AUDIT_API_BASE || "https://models.inference.ai.azure.com").replace(/\/+$/, "");
 const MODEL = process.env.AUDIT_MODEL || "gpt-4.1-mini";
 const BATCH_SIZE = parseInt(process.env.AUDIT_BATCH_SIZE || "15", 10);
 
@@ -258,7 +259,7 @@ function buildWaveFile(findings, date) {
 // ─── Main ───────────────────────────────────────────────────────────────────
 async function main() {
   if (!API_KEY) {
-    console.error("AUDIT_API_KEY is required. Set it as an environment variable or GitHub secret.");
+    console.error("No API key found. Set GITHUB_TOKEN (Copilot subscription) or AUDIT_API_KEY.");
     process.exit(1);
   }
 
