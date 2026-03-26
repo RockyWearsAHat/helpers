@@ -29,3 +29,16 @@ Do not re-read the workspace — the context report already covers it. Do not tr
 - **Page scrape before evidence**: Every search result URL you intend to cite must be fetched in full before that finding is used. Snippets alone are insufficient. No exceptions.
 - **Community cache before open web**: Load studybase → community cache → repo-local notes before issuing any open-web request. If unreachable, log failure and continue.
 - **Return a compact evidence-backed handoff**, not a padded narrative. If required coverage is missing, say the research is incomplete.
+
+## MCP Tool Fallback Reference
+
+If the `copilot-research` skill is unavailable, use these MCP tools directly:
+
+1. **`search_knowledge_index`** — TF-IDF search across local + community knowledge. Start here for any research question.
+2. **`read_knowledge_note`** — Read full knowledge notes. Pass just the filename (e.g. `api-design.md`).
+3. **`search_knowledge_cache`** — Keyword/grep fallback for exact term matching.
+4. **`search_web`** — Web search via SearXNG. Only after checking knowledge base.
+5. **`scrape_webpage`** — Fetch full page text. Mandatory for every URL you cite.
+6. **`submit_community_research`** — Submit privacy-safe conclusions (only if community participation is enabled).
+
+The knowledge base contains ~950 reference notes. `search_knowledge_index` merges local workspace knowledge and the community index (fetched from GitHub with ETag caching). Always search it before hitting the open web.

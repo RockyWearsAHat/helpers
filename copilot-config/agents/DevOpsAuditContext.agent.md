@@ -20,6 +20,8 @@ If the orchestrator passed you a user focus, include it prominently at the top o
 
 If the workspace contains repo-local knowledge notes that directly describe Copilot setup, agent workflow, audit routing, or cache policy, include those note paths in the context handoff as relevant baseline knowledge for the research phase.
 
+To proactively discover relevant knowledge notes, use `search_knowledge_index` with terms derived from the project's technology stack, framework, and domain. Include any high-relevance hits (score > 5) in the context handoff so the research phase starts from established knowledge rather than from scratch. For example, if the project uses React and TypeScript, search for those terms and include matching note paths.
+
 If no user focus was provided, state "User focus: none (full codebase audit)."
 
 - Be accurate. If you cannot parse something, report it as-is and note the problem.

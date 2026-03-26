@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "workflow",
+  "statement": "Decompose complex tasks into small, atomic, verifiable sub-tasks using a todo list or feature checklist. Mark each item in-progress before starting, complete the work, verify it (check diagnostics, run tests), then mark completed before moving to the next. One task at a time, verified before proceeding.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Effective Harnesses for Long-Running Agents",
+      "url": "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents",
+      "sourceType": "product-guidance"
+    },
+    {
+      "title": "Building Effective Agents",
+      "url": "https://www.anthropic.com/research/building-effective-agents",
+      "sourceType": "product-guidance"
+    }
+  ],
+  "auditCompletedAt": "2026-03-26T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-26T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Break work into small verified steps \u2014 one todo at a time, verify each before moving on.",
+  "cautionNotes": "Over-decomposition into trivially small tasks can slow throughput. Balance granularity with task complexity.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-26T12:00:00Z",
+  "submissionId": "20260326T120008Z-zav7ixac",
+  "statementHash": "19b5305dba20e62857ae2f7097595327a62cf4c58654802ccaf118073526452e"
+}

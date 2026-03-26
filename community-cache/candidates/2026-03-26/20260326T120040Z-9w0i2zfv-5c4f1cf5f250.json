@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "instructions",
+  "statement": "Instruct agents to treat diagnostic output as ground truth. When the compiler or linter reports an error, fix it. Three rare exceptions: stale cache (clean and rebuild), missing dependency (install it), outdated language server (reload window). In all other cases, the diagnostic parsed the actual source tree and is correct.",
+  "recommendationStrength": "required",
+  "applicability": "instruction-design",
+  "evidenceRefs": [
+    {
+      "title": "Introducing Copilot Agent Mode",
+      "url": "https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code Diagnostics API",
+      "url": "https://code.visualstudio.com/api/references/vscode-api#DiagnosticCollection",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-26T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-26T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Diagnostics are ground truth. Only three exceptions: stale cache, missing dep, outdated language server.",
+  "cautionNotes": "Very rarely, language servers have genuine bugs. If an agent believes a diagnostic is wrong, it should state this explicitly.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-26T12:00:00Z",
+  "submissionId": "20260326T120040Z-9w0i2zfv",
+  "statementHash": "5c4f1cf5f250d678751bdbc32618073b3e07dc3b95f973f7b2cefb0c3b3bffae"
+}

@@ -1,0 +1,69 @@
+name: Knowledge Base Audit
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: "Number of files to audit this run"
+        required: false
+        default: "15"
+      model:
+        description: "LLM model to use"
+        required: false
+        default: "gpt-4.1-mini"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run knowledge auditor
+        env:
+          AUDIT_API_KEY: ${{ secrets.AUDIT_API_KEY }}
+          AUDIT_MODEL: ${{ inputs.model || 'gpt-4.1-mini' }}
+          AUDIT_BATCH_SIZE: ${{ inputs.batch_size || '15' }}
+        run: node scripts/knowledge-auditor.js
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet knowledge/waves/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR with audit findings
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: knowledge-audit/${{ github.run_id }}
+          commit-message: "knowledge: automated audit findings [skip ci]"
+          title: "Knowledge Audit — Findings from ${{ github.run_id }}"
+          body: |
+            Automated knowledge base audit run.
+
+            This PR contains:
+            - Updated `_audit-state.json` with audit progress
+            - Wave file(s) with remediation topics for KnowledgeBuilder agents
+
+            Review the wave file to see which articles need corrections.
+            Approve and merge to make them available for the next KnowledgeBuilder run.
+          labels: knowledge-audit,automated
+          base: dev

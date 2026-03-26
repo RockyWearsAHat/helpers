@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "workflow",
+  "statement": "After every code edit, call read/problems (or get_errors) to check for compile errors, lint warnings, and diagnostics before moving on. The agent mode compile-check-fix loop is the core design principle: generate code, check diagnostics, fix errors, repeat until clean. Never reason past compiler errors; the compiler parsed the actual source tree.",
+  "recommendationStrength": "required",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Introducing Copilot Agent Mode",
+      "url": "https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code Agent Tools Reference",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-26T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-26T12:00:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Always check diagnostics after every edit \u2014 the compile-check-fix loop is how agent mode self-corrects.",
+  "cautionNotes": "In rare cases diagnostics may be stale (language server restart needed) or report false positives from cached state.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-26T12:00:00Z",
+  "submissionId": "20260326T120000Z-os2awszh",
+  "statementHash": "523accd638560987696a4213994262ee9d3ddf50588c5c0b8246d275d9036fe4"
+}
