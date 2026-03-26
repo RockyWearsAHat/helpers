@@ -1597,28 +1597,42 @@ function parseGoogleResults(html) {
 
     if (!title) continue;
 
-    results.push({ url, title, snippet: "" });
+    results.push({ url, title, snippet: "", _matchEnd: linkPattern.lastIndex });
   }
 
   // Strategy 2: If Strategy 1 found URLs, try to extract snippets.
-  // Snippets typically live in <div> elements near the result blocks.
-  // We do a second pass looking for <span> blocks after each result URL.
+  // Snippets typically live in <div>/<span> elements after each result link.
+  // We use the saved match position from Strategy 1 to search a bounded
+  // window of HTML for snippet-class elements. The window is capped at the
+  // start of the next result (to prevent cross-result bleed) or 3000 chars.
   if (results.length > 0) {
-    for (const result of results) {
-      // Find the result URL in the HTML and look for snippet text nearby.
-      const urlEscaped = result.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const snippetPattern = new RegExp(
-        urlEscaped + "[\\s\\S]{0,1500}?<(?:span|div)[^>]*class=\"[^\"]*(?:VwiC3b|st|IsZvec|s3v9rd)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/(?:span|div)>",
-        "i"
-      );
-      const snippetMatch = snippetPattern.exec(html);
-      if (snippetMatch) {
-        result.snippet = snippetMatch[1]
+    const snippetClassRe = /<(?:span|div)[^>]*class="[^"]*(?:VwiC3b|st|IsZvec|s3v9rd|lEBKkf)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/gi;
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const windowStart = result._matchEnd || 0;
+      // Bound the window to the next result's match position (prevent bleed)
+      const nextStart = i + 1 < results.length ? (results[i + 1]._matchEnd || windowStart + 3000) : windowStart + 3000;
+      const windowEnd = Math.min(windowStart + 3000, nextStart);
+      const window = html.slice(windowStart, windowEnd);
+
+      // Find all snippet-class matches in the window and pick the longest
+      snippetClassRe.lastIndex = 0;
+      let best = "";
+      let m;
+      while ((m = snippetClassRe.exec(window)) !== null) {
+        const text = m[1]
           .replace(/<[^>]+>/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
           .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 500);
+          .trim();
+        if (text.length > best.length) best = text;
       }
+      if (best) result.snippet = best.slice(0, 500);
+      delete result._matchEnd;
     }
   }
 
