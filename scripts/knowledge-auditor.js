@@ -17,6 +17,7 @@
  *   AUDIT_API_BASE     — Override: base URL (default: https://models.inference.ai.azure.com)
  *   AUDIT_MODEL        — Model name (default: gpt-5-mini)
  *   AUDIT_BATCH_SIZE   — Files per run (default: 250)
+ *   AUDIT_CONCURRENCY  — Parallel requests (default: 10)
  *   AUDIT_WAVE_DIR     — Where to write wave files (default: knowledge/waves)
  *   KNOWLEDGE_DIR      — Knowledge directory (default: auto-detect)
  */
@@ -29,7 +30,9 @@ const http = require("http");
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 const API_KEY = process.env.AUDIT_API_KEY || process.env.GITHUB_TOKEN;
-const API_BASE = (process.env.AUDIT_API_BASE || "https://models.inference.ai.azure.com").replace(/\/+$/, "");
+const API_BASE = (
+  process.env.AUDIT_API_BASE || "https://models.inference.ai.azure.com"
+).replace(/\/+$/, "");
 const MODEL = process.env.AUDIT_MODEL || "gpt-5-mini";
 const BATCH_SIZE = parseInt(process.env.AUDIT_BATCH_SIZE || "250", 10);
 
@@ -41,11 +44,14 @@ const KNOWLEDGE_ROOT = (() => {
   const atGithub = path.join(REPO_ROOT, ".github", "knowledge");
   try {
     if (fs.readdirSync(atRoot).some((f) => f.endsWith(".md"))) return atRoot;
-  } catch { /* fallthrough */ }
+  } catch {
+    /* fallthrough */
+  }
   return atGithub;
 })();
 
-const WAVE_DIR = process.env.AUDIT_WAVE_DIR || path.join(KNOWLEDGE_ROOT, "waves");
+const WAVE_DIR =
+  process.env.AUDIT_WAVE_DIR || path.join(KNOWLEDGE_ROOT, "waves");
 const STATE_PATH = path.join(WAVE_DIR, "_audit-state.json");
 
 // ─── State management ───────────────────────────────────────────────────────
@@ -98,7 +104,7 @@ function chatCompletion(messages, retries = 3) {
       messages,
       temperature: 0.1,
       response_format: { type: "json_object" },
-      max_tokens: 2000,
+      max_tokens: 4000,
     });
 
     const reqOptions = {
@@ -119,7 +125,10 @@ function chatCompletion(messages, retries = 3) {
       res.on("end", () => {
         if (res.statusCode === 429 && retries > 0) {
           const delay = parseInt(res.headers["retry-after"] || "5", 10) * 1000;
-          setTimeout(() => chatCompletion(messages, retries - 1).then(resolve, reject), delay);
+          setTimeout(
+            () => chatCompletion(messages, retries - 1).then(resolve, reject),
+            delay,
+          );
           return;
         }
         if (res.statusCode >= 400) {
@@ -138,7 +147,10 @@ function chatCompletion(messages, retries = 3) {
 
     req.on("error", (err) => {
       if (retries > 0) {
-        setTimeout(() => chatCompletion(messages, retries - 1).then(resolve, reject), 3000);
+        setTimeout(
+          () => chatCompletion(messages, retries - 1).then(resolve, reject),
+          3000,
+        );
       } else {
         reject(err);
       }
@@ -149,21 +161,64 @@ function chatCompletion(messages, retries = 3) {
   });
 }
 
+// ─── Concurrency helper ─────────────────────────────────────────────────────
+const CONCURRENCY = parseInt(process.env.AUDIT_CONCURRENCY || "10", 10);
+
+async function pooled(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+
+  async function worker() {
+    while (next < items.length) {
+      const idx = next++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+  return results;
+}
+
 // ─── Audit prompt ───────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are a technical encyclopedia fact-checker with expertise across software engineering. Your job is to review knowledge base articles for accuracy. These articles are used by AI coding assistants — if they contain errors, millions of developers may receive bad advice.
+const SYSTEM_PROMPT = `You are a senior technical reviewer auditing an encyclopedia used by AI coding assistants. Millions of developers will rely on what these articles say. Your review must be thorough and methodical.
 
-Be CONSERVATIVE. Only flag issues you are confident about. Do not flag stylistic preferences or subjective matters. Focus on:
+For each article, work through these steps IN ORDER:
 
-1. FACTUAL ERRORS: Wrong algorithms, wrong complexity claims, incorrect attributions, wrong behavior descriptions.
-2. OUTDATED INFORMATION: Version numbers that have changed, APIs that were deprecated, tools that no longer exist, ecosystem shifts.
-3. MISSING CRITICAL CONTEXT: Important caveats omitted, security implications not mentioned, major alternatives ignored.
-4. UNVERIFIABLE CLAIMS: Statements that sound authoritative but cannot be traced to a standard reference.
+## Step 1 — Read and understand the article's scope
+Identify what the article covers and what it claims. Note the key assertions:
+algorithmic complexities, API behaviors, version-specific claims, historical attributions,
+security properties, performance characteristics, and trade-off assessments.
 
-Do NOT flag:
+## Step 2 — Verify factual claims against your knowledge
+For EACH significant claim, check:
+- Is the algorithm/complexity/behavior described correctly?
+- Are version numbers and release dates accurate?
+- Are API signatures and behaviors current?
+- Are attributions to authors/papers/organizations correct?
+- Are security implications accurately described?
+- Are trade-offs and limitations fairly represented?
+
+## Step 3 — Check for staleness
+Consider whether the article's information has been superseded:
+- Have major new versions been released that change the described behavior?
+- Have APIs been deprecated or replaced?
+- Have best practices shifted in the community?
+- Are there important newer alternatives the article should mention?
+
+## Step 4 — Assess completeness of critical context
+Determine if any omission could lead a developer to make a bad decision:
+- Missing security caveats that could cause vulnerabilities
+- Missing performance gotchas that could cause production issues
+- Missing compatibility notes that could cause integration failures
+
+## Step 5 — Render verdict
+Only flag issues you are CONFIDENT about. Do not flag:
 - Stylistic choices or writing quality (unless genuinely misleading)
 - Minor omissions that don't affect correctness
+- Subjective trade-off assessments clearly presented as opinions
 - Topics that could be deeper (every article has scope limits)
-- Subjective trade-off assessments that are clearly presented as opinions
 
 Return JSON with this exact schema:
 {
@@ -174,22 +229,25 @@ Return JSON with this exact schema:
       "type": "factual" | "outdated" | "incomplete" | "unverifiable",
       "severity": "critical" | "major" | "minor",
       "location": "approximate heading or section where the issue is",
-      "description": "what is wrong — be specific",
-      "suggestion": "what the correct information should be"
+      "description": "what is wrong — be specific, cite the exact claim and why it is wrong",
+      "suggestion": "what the correct information should be, with enough detail to fix it"
     }
   ],
   "summary": "one-line assessment of the article"
 }
 
-If the article is accurate, return status "pass" with an empty issues array.
-Err on the side of "pass" — only flag what you are genuinely confident is wrong or outdated.`;
+If the article is accurate and current, return status "pass" with an empty issues array.
+Err on the side of thoroughness — but only flag what you can substantiate.`;
 
 async function auditFile(filename) {
   const filepath = path.join(KNOWLEDGE_ROOT, filename);
   const content = await fsp.readFile(filepath, "utf8");
 
   // Truncate very long files to stay within token limits
-  const truncated = content.length > 15000 ? content.slice(0, 15000) + "\n\n[...truncated for review]" : content;
+  const truncated =
+    content.length > 25000
+      ? content.slice(0, 25000) + "\n\n[...truncated for review]"
+      : content;
 
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -213,9 +271,8 @@ function buildWaveFile(findings, date) {
       !f.issues.some((i) => i.severity === "critical") &&
       f.issues.some((i) => i.severity === "major"),
   );
-  const minor = findings.filter(
-    (f) =>
-      f.issues.every((i) => i.severity === "minor"),
+  const minor = findings.filter((f) =>
+    f.issues.every((i) => i.severity === "minor"),
   );
 
   const assignments = [];
@@ -226,7 +283,9 @@ function buildWaveFile(findings, date) {
     const topics = items.map((item) => ({
       filename: item.filename,
       description: item.issues
-        .map((i) => `[${i.severity}/${i.type}] ${i.description} → ${i.suggestion}`)
+        .map(
+          (i) => `[${i.severity}/${i.type}] ${i.description} → ${i.suggestion}`,
+        )
         .join(" | "),
     }));
     assignments.push({ id: id++, label, topics });
@@ -259,7 +318,9 @@ function buildWaveFile(findings, date) {
 // ─── Main ───────────────────────────────────────────────────────────────────
 async function main() {
   if (!API_KEY) {
-    console.error("No API key found. Set GITHUB_TOKEN (Copilot subscription) or AUDIT_API_KEY.");
+    console.error(
+      "No API key found. Set GITHUB_TOKEN (Copilot subscription) or AUDIT_API_KEY.",
+    );
     process.exit(1);
   }
 
@@ -272,7 +333,9 @@ async function main() {
     process.exit(0);
   }
 
-  console.log(`Audit run #${state.runCount} — reviewing ${files.length} files with ${MODEL}`);
+  console.log(
+    `Audit run #${state.runCount} — reviewing ${files.length} files with ${MODEL} (concurrency: ${CONCURRENCY})`,
+  );
 
   const now = new Date().toISOString();
   const date = now.slice(0, 10);
@@ -280,17 +343,16 @@ async function main() {
   let passCount = 0;
   let errorCount = 0;
 
-  for (const filename of files) {
+  await pooled(files, CONCURRENCY, async (filename) => {
     process.stdout.write(`  ${filename} ... `);
     try {
       const result = await auditFile(filename);
       if (!result) {
         console.log("no response");
         errorCount++;
-        continue;
+        return;
       }
 
-      // Update state regardless of result
       state.files[filename] = {
         lastAudited: now,
         status: result.status,
@@ -304,7 +366,9 @@ async function main() {
         passCount++;
       } else {
         const issues = result.issues || [];
-        const critCount = issues.filter((i) => i.severity === "critical").length;
+        const critCount = issues.filter(
+          (i) => i.severity === "critical",
+        ).length;
         const majCount = issues.filter((i) => i.severity === "major").length;
         console.log(
           `${result.status.toUpperCase()} — ${issues.length} issues (${critCount} critical, ${majCount} major)`,
@@ -317,7 +381,7 @@ async function main() {
       console.log(`ERROR: ${err.message}`);
       errorCount++;
     }
-  }
+  });
 
   // Check if we've audited every file (full pass complete)
   const allFiles = (await fsp.readdir(KNOWLEDGE_ROOT)).filter(
@@ -328,7 +392,9 @@ async function main() {
   ).length;
   if (auditedCount >= allFiles.length) {
     state.lastFullPass = now;
-    console.log(`\nFull pass complete — all ${allFiles.length} files audited at least once.`);
+    console.log(
+      `\nFull pass complete — all ${allFiles.length} files audited at least once.`,
+    );
   }
 
   // Write wave file if there are findings
@@ -342,7 +408,9 @@ async function main() {
         ? path.join(WAVE_DIR, `audit-${date}-run${state.runCount}.json`)
         : wavePath;
       await fsp.writeFile(finalPath, JSON.stringify(wave, null, 2), "utf8");
-      console.log(`\nWave file written: ${path.relative(REPO_ROOT, finalPath)}`);
+      console.log(
+        `\nWave file written: ${path.relative(REPO_ROOT, finalPath)}`,
+      );
       console.log(
         `  ${wave.assignments.reduce((n, a) => n + a.topics.length, 0)} remediation topics across ${wave.assignments.length} priority groups`,
       );
