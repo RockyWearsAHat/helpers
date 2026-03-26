@@ -1,0 +1,221 @@
+{
+  "wave": 9,
+  "description": "CS Knowledge from Pop Culture & Informal Media",
+  "agent": "KnowledgeBuilder",
+  "prefix": "CS from Pop Culture — real computer science knowledge found in memes, YouTube, movies, games, viral incidents, webcomics, social media, conferences, jokes, and internet culture. Each note should reference specific media (URLs/titles where possible) and explain the actual CS embedded in it.",
+  "suffix": "Write an encyclopedia-quality knowledge note. Reference specific media (URLs, titles, dates) wherever possible. Explain the real CS concepts embedded in each cultural artifact. Aim for depth: what can a developer actually learn from this?",
+  "assignments": [
+    {
+      "id": 1,
+      "label": "Webcomics & visual humor",
+      "topics": [
+        {
+          "filename": "popculture-xkcd-cs-lessons.md",
+          "description": "xkcd strips that teach real CS (#327 Bobby Tables, #1205 passwords, #1597 Git, #353 Python, #979 Stack Overflow, #208 regex)"
+        },
+        {
+          "filename": "popculture-commitstrip-devlife.md",
+          "description": "CommitStrip comics on dev patterns: technical debt, scope creep, works-on-my-machine, shipping Friday"
+        },
+        {
+          "filename": "popculture-programming-memes.md",
+          "description": "Memes that actually teach CS: exit vim, this-is-fine as production monitoring, Drake format for code preferences, expanding brain for algorithms"
+        },
+        {
+          "filename": "popculture-monkeyuser-comics.md",
+          "description": "MonkeyUser.com on the bug lifecycle, code review dynamics, estimation theater, deployment anxiety"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "label": "Conference talks & technical comedy",
+      "topics": [
+        {
+          "filename": "popculture-wat-talks.md",
+          "description": "Gary Bernhardt's WAT talk, Destroy All Software screencasts, JavaScript type coercion humor that teaches language semantics"
+        },
+        {
+          "filename": "popculture-james-mickens.md",
+          "description": "James Mickens essays and talks — The Night Watch, The Slow Winter, Life as a Developer; security and systems via comedy"
+        },
+        {
+          "filename": "popculture-conference-lightning.md",
+          "description": "Legendary conference lightning talks: The Birth & Death of JavaScript, Wat, Hammock Driven Development, Simple Made Easy, Are We There Yet"
+        },
+        {
+          "filename": "popculture-tech-comedians.md",
+          "description": "Programmers who teach via comedy — Tom Scott, Fireship 100-seconds, Ben Awad, ThePrimeagen, code review streams"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "label": "Movies, TV & games with real CS",
+      "topics": [
+        {
+          "filename": "popculture-hackers-in-film.md",
+          "description": "CS accuracy in films: WarGames (social engineering), Hackers, The Social Network, Tron, Sneakers, Office Space (IEEE floating point), The Imitation Game"
+        },
+        {
+          "filename": "popculture-mr-robot-accuracy.md",
+          "description": "Mr. Robot technical accuracy — real exploits (Raspberry Pi drops, femtocells, social engineering), why security researchers praised it"
+        },
+        {
+          "filename": "popculture-silicon-valley-hbo.md",
+          "description": "Silicon Valley HBO — middle-out compression (real Weissman score), tech startup culture, Pied Piper as distributed web, TechCrunch Disrupt"
+        },
+        {
+          "filename": "popculture-games-teaching-cs.md",
+          "description": "Games that teach programming: Zachtronics (TIS-100, Shenzhen I/O), Human Resource Machine, Factorio (logistics/optimization), Screeps (JS), SpaceChem"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "label": "Viral incidents & famous bugs",
+      "topics": [
+        {
+          "filename": "popculture-famous-bugs.md",
+          "description": "Bugs that went viral: Y2K, Gangnam Style 32-bit overflow, Therac-25, Ariane 5 integer overflow, Knight Capital $440M, 2038 problem, null island"
+        },
+        {
+          "filename": "popculture-outage-postmortems.md",
+          "description": "Famous outages as CS lessons: AWS us-east-1, Facebook BGP (Oct 2021), Cloudflare regex, GitLab database deletion, CrowdStrike July 2024"
+        },
+        {
+          "filename": "popculture-stackoverflow-questions.md",
+          "description": "Legendary StackOverflow questions: exit vim (1M+ SO views), components vs elements, why processing sorted array faster, RegEx HTML parsing answer"
+        },
+        {
+          "filename": "popculture-falsehoods-programmers-believe.md",
+          "description": "Falsehoods Programmers Believe series: names, time, addresses, phone numbers, email — real data modeling lessons from crowdsourced edge cases"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "label": "Internet culture & social coding",
+      "topics": [
+        {
+          "filename": "popculture-github-readme-culture.md",
+          "description": "GitHub README as landing page, awesome lists, profile READMEs, trophy repos, star economy, trending mechanics"
+        },
+        {
+          "filename": "popculture-hackernews-culture.md",
+          "description": "Hacker News culture: Show HN, flagging, karma, Paul Graham essays, Rewrite It In Rust meme, Hug of Death, front page dynamics"
+        },
+        {
+          "filename": "popculture-devops-war-stories.md",
+          "description": "DevOps via war stories: everything is on fire meme, Friday deploy meme, postmortem culture, SRE via war stories, Sad Mac, BSOD, kernel panic icons"
+        },
+        {
+          "filename": "popculture-salary-transparency.md",
+          "description": "levels.fyi, blind.com, equity vs salary debate, FAANG TC discourse, Wrapped as data viz, microservices architecture debates"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "label": "Open source drama",
+      "topics": [
+        {
+          "filename": "popculture-open-source-burnout.md",
+          "description": "Nadia Eghbal Working in Public, core-js plea, colors.js protest, Roads and Bridges report, left-pad incident"
+        },
+        {
+          "filename": "popculture-license-drama.md",
+          "description": "Redis/Elastic license changes, MongoDB SSPL, HashiCorp BSL, Open Source Definition wars, copyleft vs permissive debate"
+        },
+        {
+          "filename": "popculture-linus-rants.md",
+          "description": "Linus Torvalds moments: F YOU NVIDIA, CoC adoption, Tanenbaum debate (monolithic vs micro), kernel design philosophy via flame wars"
+        },
+        {
+          "filename": "popculture-hacktoberfest.md",
+          "description": "Hacktoberfest: good (onboarding contributors), bad (2020 spam wave), maintainer revolt, incentive design lessons"
+        },
+        {
+          "filename": "popculture-code-review-culture.md",
+          "description": "LGTM stamp, nitpicking, ship-it vs one-more-thing, PR description art, code review as knowledge transfer"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "label": "AI hype & discourse",
+      "topics": [
+        {
+          "filename": "popculture-ai-hype-cycles.md",
+          "description": "AI hype cycles in pop culture: Copilot copyright debate, ChatGPT launch discourse, AI winter history, Turing test in media, AGI timeline debates"
+        },
+        {
+          "filename": "popculture-prompt-engineering-culture.md",
+          "description": "Prompt engineering as cultural phenomenon: jailbreaks, DAN, system prompt leaks, prompt injection as the new SQL injection"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "label": "Platform engineering lore",
+      "topics": [
+        {
+          "filename": "popculture-reddit-engineering.md",
+          "description": "Reddit engineering lore: the hug of death, distributed coordination, Digg migration, moderation as governance, subreddit architecture"
+        },
+        {
+          "filename": "popculture-twitter-engineering.md",
+          "description": "Twitter/X engineering: Fail Whale, Ruby to JVM migration, snowflake IDs, Elon acquisition chaos, rate limiting drama"
+        },
+        {
+          "filename": "popculture-youtube-engineering.md",
+          "description": "YouTube engineering: Gangnam Style 32-bit overflow, recommendation algorithm discourse, Content ID, compression pipeline, Flash to HTML5"
+        },
+        {
+          "filename": "popculture-discord-engineering.md",
+          "description": "Discord engineering: Go to Rust migration blog post, real-time messaging at scale, bot ecosystem as API economy"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "label": "Esoteric & artistic programming",
+      "topics": [
+        {
+          "filename": "popculture-esolangs-art.md",
+          "description": "Esoteric languages as art: Brainfuck, Piet (programs as pixel art), Shakespeare Programming Language, INTERCAL, code golf culture"
+        },
+        {
+          "filename": "popculture-demoscene.md",
+          "description": "Demoscene culture: 64K intros, size coding, shader art, Revision/Assembly parties, real optimization techniques via artistic constraint"
+        },
+        {
+          "filename": "popculture-obfuscated-code.md",
+          "description": "IOCCC (International Obfuscated C Code Contest), JS1K, code golf — real language mastery via creative constraint"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "label": "Historical & cultural touchstones",
+      "topics": [
+        {
+          "filename": "popculture-could-have-been-email.md",
+          "description": "This meeting could have been an email — Agile estimation theater, standup culture, meeting-driven development as anti-pattern"
+        },
+        {
+          "filename": "popculture-flash-era.md",
+          "description": "Flash era: Homestar Runner, Newgrounds, ActionScript as first programming language for a generation, death of Flash and web standards victory"
+        },
+        {
+          "filename": "popculture-wikipedia-engineering.md",
+          "description": "Wikipedia/MediaWiki architecture, bot ecosystem, vandalism detection ML, Wikidata, remarkably small team for global scale"
+        },
+        {
+          "filename": "popculture-tiktok-algorithm.md",
+          "description": "TikTok For You Page recommendation discourse, content graph vs social graph, addictiveness debate, ByteDance engineering"
+        }
+      ]
+    }
+  ]
+}

@@ -259,9 +259,7 @@ if (require.main === module) {
       return;
     }
     handleRequest(request).catch((err) => {
-      process.stderr.write(
-        `[vision-tool] Unhandled error: ${err.message}\n`,
-      );
+      process.stderr.write(`[vision-tool] Unhandled error: ${err.message}\n`);
       if (request.id != null) {
         sendError(request.id, -32603, err.message);
       }
