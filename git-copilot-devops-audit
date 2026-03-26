@@ -545,39 +545,43 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Generate agent files ──────────────────────────────────────────────────────
 generate_orchestrator_agent() {
-  cat "$SCRIPT_DIR/.github/agents/DevOpsAudit.agent.md"
+  cat "$SCRIPT_DIR/copilot-config/agents/DevOpsAudit.agent.md"
 }
 
 generate_research_agent() {
-  cat "$SCRIPT_DIR/.github/agents/DevOpsAuditResearch.agent.md"
+  cat "$SCRIPT_DIR/copilot-config/agents/DevOpsAuditResearch.agent.md"
 }
 
 generate_context_agent() {
-	cat "$SCRIPT_DIR/.github/agents/DevOpsAuditContext.agent.md"
+	cat "$SCRIPT_DIR/copilot-config/agents/DevOpsAuditContext.agent.md"
 }
 
 generate_evaluate_agent() {
-  cat "$SCRIPT_DIR/.github/agents/DevOpsAuditEvaluate.agent.md"
+  cat "$SCRIPT_DIR/copilot-config/agents/DevOpsAuditEvaluate.agent.md"
 }
 
 generate_implement_agent() {
-	cat "$SCRIPT_DIR/.github/agents/DevOpsAuditImplement.agent.md"
+	cat "$SCRIPT_DIR/copilot-config/agents/DevOpsAuditImplement.agent.md"
 }
 
 generate_community_submit_agent() {
-	cat "$SCRIPT_DIR/.github/agents/DevOpsAuditCommunitySubmit.agent.md"
+	cat "$SCRIPT_DIR/copilot-config/agents/DevOpsAuditCommunitySubmit.agent.md"
 }
 
 generate_router_instruction() {
-	cat "$SCRIPT_DIR/.github/instructions/devops-audit-router.instructions.md"
+	cat "$SCRIPT_DIR/copilot-config/instructions/devops-audit-router.instructions.md"
+}
+
+generate_gsh_mcp_tools_instruction() {
+	cat "$SCRIPT_DIR/copilot-config/instructions/gsh-mcp-tools.instructions.md"
 }
 
 generate_prompt_file() {
-  cat "$SCRIPT_DIR/.github/prompts/copilot-devops-audit.prompt.md"
+  cat "$SCRIPT_DIR/copilot-config/prompts/copilot-devops-audit.prompt.md"
 }
 
 install_global_skills() {
-	local skills_root="$SCRIPT_DIR/.github/skills"
+	local skills_root="$SCRIPT_DIR/copilot-config/skills"
 	local target_root="$COPILOT_USER_DIR/skills"
 	local source_skill
 	local relative_dir
@@ -789,6 +793,7 @@ if [ "$no_install" = false ]; then
 
 	agents_dir="$COPILOT_USER_DIR/agents"
 	router_instruction="$COPILOT_USER_DIR/instructions/devops-audit-router.instructions.md"
+	gsh_mcp_instruction="$COPILOT_USER_DIR/instructions/gsh-mcp-tools.instructions.md"
 	prompts_dir="$COPILOT_USER_DIR/prompts"
 
 	# Define all agent files to install
@@ -811,6 +816,7 @@ if [ "$no_install" = false ]; then
 			ui_info "[dry-run] Would write: $agents_dir/$name"
 		done
 		ui_info "[dry-run] Would write: $router_instruction"
+		ui_info "[dry-run] Would write: $gsh_mcp_instruction"
 		ui_info "[dry-run] Would write: $global_prompt"
 	else
 		obsolete="$agents_dir/DevOpsAuditFix.agent.md"
@@ -836,6 +842,33 @@ if [ "$no_install" = false ]; then
 			printf '%s\n' "$(generate_router_instruction)" > "$router_instruction"
 			ui_ok "User instruction: $router_instruction"
 		fi
+
+		if [ -f "$gsh_mcp_instruction" ] && [ "$install_force" = false ]; then
+			ui_skip "$gsh_mcp_instruction"
+		else
+			printf '%s\n' "$(generate_gsh_mcp_tools_instruction)" > "$gsh_mcp_instruction"
+			ui_ok "User instruction: $gsh_mcp_instruction"
+		fi
+
+		# Install additional product instructions globally
+		local extra_instructions=(
+			"git-checkpoint.instructions.md"
+			"shell-scripts.instructions.md"
+			"vscode-tool-safety.instructions.md"
+		)
+		for inst_name in "${extra_instructions[@]}"; do
+			local inst_src="$SCRIPT_DIR/copilot-config/instructions/$inst_name"
+			local inst_dst="$COPILOT_USER_DIR/instructions/$inst_name"
+			if [ ! -f "$inst_src" ]; then
+				continue
+			fi
+			if [ -f "$inst_dst" ] && [ "$install_force" = false ]; then
+				ui_skip "$inst_dst"
+			else
+				cp "$inst_src" "$inst_dst"
+				ui_ok "User instruction: $inst_dst"
+			fi
+		done
 
 		if [ -f "$global_prompt" ] && [ "$install_force" = false ]; then
 			ui_skip "$global_prompt"

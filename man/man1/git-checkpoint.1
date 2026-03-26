@@ -1,0 +1,121 @@
+.TH GIT-CHECKPOINT 1 "March 2026" "git-checkpoint" "Git Manual"
+
+.SH NAME
+git-checkpoint \- commit the current working state with a proper message
+
+.SH SYNOPSIS
+.B git checkpoint
+.RI [ options ]
+.RI [ context ]
+
+.SH DESCRIPTION
+Commit the current working state with a proper AI-generated commit message.
+Designed for intentional moments during development: a fix is verified,
+a feature works, you're about to switch context, or you need to deploy.
+.PP
+Unlike
+.BR git-upload (1),
+this command only commits locally \(em it never pushes unless
+.B \-\-push
+is specified.
+.PP
+The AI prompt reads recent commit history and the staged diff to write
+a commit message that continues the project's narrative thread, following
+the same quality standards as
+.BR git-upload\ \-ai .
+
+.SH OPTIONS
+.TP
+.BI \-m " message"
+Use this message instead of generating one with AI.
+.TP
+.BR \-a ", " \-\-all
+Stage all tracked changes before committing (equivalent to
+.BR "git add \-u" ).
+.TP
+.B \-\-push
+Push after committing. Delegates to
+.BR git-upload (1)
+if available, otherwise calls
+.BR "git push" .
+.TP
+.B \-\-dry\-run
+Show what would be committed without actually committing.
+.TP
+.B \-\-no\-verify
+Skip pre-commit and commit-msg hooks.
+.TP
+.B \-\-status
+Show whether checkpoint is enabled and current configuration.
+.TP
+.B \-\-enable
+Enable checkpoint for this repository (sets
+.BR checkpoint.enabled =true
+in git config).
+.TP
+.B \-\-disable
+Disable checkpoint for this repository.
+.TP
+.BR \-h ", " \-\-help
+Show usage information.
+
+.SH CONFIGURATION
+Per-repository settings via
+.BR "git config" :
+.TP
+.B checkpoint.enabled
+Gate for the command. When
+.I false
+the command exits immediately. Default:
+.IR true .
+.TP
+.B checkpoint.push
+Always push after committing. Default:
+.IR false .
+.TP
+.B checkpoint.sign
+GPG-sign commits. Default:
+.IR false .
+
+.SH ENVIRONMENT
+.TP
+.B GIT_UPLOAD_AI_CMD
+Override the AI command used to generate commit messages. By default uses
+GitHub Copilot CLI.
+
+.SH EXAMPLES
+.TP
+Stage everything and commit with an AI message:
+.EX
+git checkpoint -a
+.EE
+.TP
+Commit with a manual message:
+.EX
+git checkpoint -m "Fix login redirect loop"
+.EE
+.TP
+Commit and push:
+.EX
+git checkpoint -a --push
+.EE
+.TP
+Preview what would be committed:
+.EX
+git checkpoint --dry-run
+.EE
+.TP
+Provide extra context for the AI:
+.EX
+git checkpoint "finished the auth rework"
+.EE
+.TP
+Enable/disable per repo:
+.EX
+git checkpoint --enable
+git checkpoint --disable
+.EE
+
+.SH SEE ALSO
+.BR git-upload (1),
+.BR git-commit (1)

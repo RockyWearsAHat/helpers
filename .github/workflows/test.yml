@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'community-cache/**'
+      - "community-cache/**"
   pull_request:
     branches: [main]
     paths-ignore:
-      - 'community-cache/**'
+      - "community-cache/**"
 
 permissions:
   contents: read
@@ -37,7 +37,9 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           chmod +x git-upload scripts/test.sh scripts/test-git-upload-detect.sh \
-            scripts/test-git-upload-states.sh scripts/build-dist.sh
+            scripts/test-git-upload-states.sh scripts/build-dist.sh \
+            scripts/community-cache-submit.sh scripts/community-cache-pull.sh \
+            scripts/community-research-submit.sh
 
       - name: Configure git identity (required by state tests)
         run: |

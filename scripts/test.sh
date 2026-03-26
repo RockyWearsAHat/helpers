@@ -20,8 +20,10 @@ fi
 declare -a checks
 checks=(
 	"bash -n git-upload"
+	"bash -n git-checkpoint"
 	"bash -n scripts/community-cache-submit.sh"
 	"bash -n scripts/community-cache-pull.sh"
+	"bash -n scripts/community-research-submit.sh"
 	"bash ./scripts/test-git-upload-detect.sh"
 	"bash ./scripts/build-dist.sh"
 )

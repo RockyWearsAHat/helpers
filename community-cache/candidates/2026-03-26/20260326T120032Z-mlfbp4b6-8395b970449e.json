@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "workflow",
+  "statement": "When working with visual output (web pages, charts, UI components), use browser/screenshot or take_screenshot tools to verify the rendered result rather than assuming correctness from code alone. Code that compiles and passes lint may still render incorrectly.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "VS Code Agent Tools \u2014 Browser Tools",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "Harness Design for Long-Running Apps",
+      "url": "https://www.anthropic.com/engineering/harness-design-long-running-apps",
+      "sourceType": "product-guidance"
+    }
+  ],
+  "auditCompletedAt": "2026-03-26T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-26T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Use screenshot tools to visually verify rendered output \u2014 passing lint is not the same as looking correct.",
+  "cautionNotes": "Browser tools are experimental and may not be available in all environments. Fall back to asking the user to verify.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-26T12:00:00Z",
+  "submissionId": "20260326T120032Z-mlfbp4b6",
+  "statementHash": "8395b970449e6dc4baa0bebe140597133fdcb3d192dc3b0ec8c30bd336ae48ef"
+}

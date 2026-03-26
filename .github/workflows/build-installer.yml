@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'community-cache/**'
+      - "community-cache/**"
   pull_request:
     branches: [main]
     paths-ignore:
-      - 'community-cache/**'
+      - "community-cache/**"
 
 permissions:
   contents: write
@@ -79,7 +79,9 @@ jobs:
       - name: Make scripts executable
         run: |
           chmod +x Git-Shell-Helpers-Installer.sh scripts/build-dist.sh \
-            git-upload scripts/test-git-upload-detect.sh scripts/test-git-upload-states.sh
+            git-upload scripts/test-git-upload-detect.sh scripts/test-git-upload-states.sh \
+            scripts/community-cache-submit.sh scripts/community-cache-pull.sh \
+            scripts/community-research-submit.sh
 
       - name: Configure git identity (required by state tests)
         run: |
@@ -109,7 +111,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Make scripts executable
-        run: chmod +x scripts/build-dist.sh scripts/build-pkg.sh git-upload git-get git-initialize git-fucked-the-push
+        run: |
+          chmod +x scripts/build-dist.sh scripts/build-pkg.sh \
+            git-upload git-get git-initialize git-fucked-the-push \
+            git-copilot-devops-audit scripts/community-cache-submit.sh \
+            scripts/community-cache-pull.sh scripts/community-research-submit.sh
 
       - name: Build macOS pkg
         run: ./scripts/build-pkg.sh

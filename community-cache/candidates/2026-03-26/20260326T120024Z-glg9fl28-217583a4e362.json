@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "tooling",
+  "statement": "Agents with terminal execution and file creation can build their own tools mid-session: custom MCP servers, shell scripts, or VS Code extensions. When a task requires capabilities beyond built-in tools, consider building a purpose-specific tool rather than working around the limitation.",
+  "recommendationStrength": "optional",
+  "applicability": "tool-use",
+  "evidenceRefs": [
+    {
+      "title": "MCP Integration in VS Code",
+      "url": "https://code.visualstudio.com/docs/copilot/chat/mcp-servers",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code Agent Tools Reference",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-26T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-26T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Agents can build custom MCP servers or scripts mid-session to extend their own capabilities.",
+  "cautionNotes": "Building tools adds complexity and time. Only justified when the task genuinely requires unavailable capabilities or the tool will be reused.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-26T12:00:00Z",
+  "submissionId": "20260326T120024Z-glg9fl28",
+  "statementHash": "217583a4e3623308f31029fe7344ef8045ab77c028ecc20c190eda60c5a15d59"
+}

@@ -41,30 +41,33 @@ DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool s
 _spinner_pid=""
 start_spinner() {
 	local msg="$1"
+	# Only show spinner if stderr is a real terminal
+	if [ ! -t 2 ]; then
+		return 0
+	fi
 	(
+		trap 'exit 0' TERM
 		local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 		local i=0
 		while true; do
-			printf '\r\033[K[git-upload] %s %s' "${frames[$i]}" "$msg" >&2
+			printf '\033[2K\r[git-upload] %s %s' "${frames[$i]}" "$msg" >&2
 			i=$(( (i + 1) % 10 ))
-			sleep 0.1
+			sleep 0.3
 		done
 	) &
 	_spinner_pid=$!
-	disown $_spinner_pid 2>/dev/null || true
 }
 
 stop_spinner() {
 	local final_msg="${1:-}"
-	if [ -n "$_spinner_pid" ] && kill -0 "$_spinner_pid" 2>/dev/null; then
+	if [ -n "$_spinner_pid" ]; then
 		kill "$_spinner_pid" 2>/dev/null || true
 		wait "$_spinner_pid" 2>/dev/null || true
 	fi
 	_spinner_pid=""
+	printf '\033[2K\r' >&2
 	if [ -n "$final_msg" ]; then
-		printf '\r\033[K[git-upload] %s\n' "$final_msg" >&2
-	else
-		printf '\r\033[K' >&2
+		printf '[git-upload] %s\n' "$final_msg" >&2
 	fi
 }
 
@@ -976,6 +979,7 @@ parse_diff_analysis() {
 	syntax_error_count=0
 	api_removals=0
 	signature_changes=0
+	breaking_hints=""
 	
 	while IFS= read -r __line; do
 		# Skip empty lines
@@ -988,12 +992,12 @@ parse_diff_analysis() {
 		__key="${__line%%=*}"
 		__value="${__line#*=}"
 		
-		# Only allow known safe variable names (numeric values only)
+		# Only allow known safe variable names
 		case "$__key" in
 			diff_empty|files_changed|test_files_changed|config_files_changed|\
 core_files_changed|total_additions|total_deletions|code_additions|\
 code_deletions|whitespace_changes|comment_changes|syntax_error_count|\
-api_removals|signature_changes)
+api_removals|signature_changes|breaking_hints)
 				# Safely assign the value without executing it
 				printf -v "$__key" '%s' "$__value"
 				;;
@@ -1301,6 +1305,54 @@ compute_diff_analysis() {
 		signature_changes=$((modified_signatures / 2))  # Roughly - a change has both - and +
 	fi
 	
+	# ── Breaking-change hints (formerly a separate pass) ──
+	local breaking_hints_text=""
+	local has_breaking=0
+	local has_potential=0
+
+	# Removed exports already detected above in api_removals / removed_exports
+	if [ -n "${removed_exports// /}" ]; then
+		has_breaking=1
+		breaking_hints_text="${breaking_hints_text}Likely breaking: Public API/export removed: $(printf '%s' "$removed_exports" | head -c 200). "
+	fi
+
+	# Changed function definitions (signature changes)
+	local removed_funcs
+	local added_funcs
+	removed_funcs=$(printf '%s\n' "$diff" | grep -E '^-[[:space:]]*(def|function|func|fn|public|private|protected)[[:space:]]+[a-zA-Z_]' | head -n 10 || true)
+	added_funcs=$(printf '%s\n' "$diff" | grep -E '^\+[[:space:]]*(def|function|func|fn|public|private|protected)[[:space:]]+[a-zA-Z_]' | head -n 10 || true)
+	if [ -n "${removed_funcs// /}" ] && [ -n "${added_funcs// /}" ]; then
+		has_potential=1
+		breaking_hints_text="${breaking_hints_text}Potential breaking: Function definitions modified (check for signature changes). "
+	fi
+
+	# Removed error handling without replacement
+	local removed_validation
+	removed_validation=$(printf '%s\n' "$diff" | grep -E '^-.*\b(throw|raise|assert|panic|error\(|Error\(|Exception)\b' | grep -Ev '^-\s*(//|#|/\*|\*)' | head -n 3 || true)
+	local added_validation
+	added_validation=$(printf '%s\n' "$diff" | grep -E '^\+.*\b(throw|raise|assert|panic|error\(|Error\(|Exception)\b' | grep -Ev '^\+\s*(//|#|/\*|\*)' | head -n 3 || true)
+	if [ -n "${removed_validation// /}" ] && [ -z "${added_validation// /}" ]; then
+		has_potential=1
+		breaking_hints_text="${breaking_hints_text}Potential breaking: Error handling/validation removed. "
+	fi
+
+	# Changed default values
+	local changed_defaults
+	changed_defaults=$(printf '%s\n' "$diff" | grep -E "^[-+].*=[[:space:]]*(true|false|null|nil|None|0|1|\"\"|'')" | wc -l | tr -d ' ')
+	if [ "$changed_defaults" -gt 2 ]; then
+		has_potential=1
+		breaking_hints_text="${breaking_hints_text}Potential: Default values modified. "
+	fi
+
+	local breaking_hints_summary
+	if [ "$has_breaking" -eq 1 ]; then
+		breaking_hints_summary="LIKELY BREAKING changes detected: ${breaking_hints_text}"
+	elif [ "$has_potential" -eq 1 ]; then
+		breaking_hints_summary="Potential behavior changes detected (review recommended): ${breaking_hints_text}"
+	else
+		breaking_hints_summary="No obvious breaking-change patterns detected."
+	fi
+
 	# Output structured analysis
 	printf 'diff_empty=0\n'
 	printf 'files_changed=%d\n' "$files_changed"
@@ -1316,6 +1368,7 @@ compute_diff_analysis() {
 	printf 'syntax_error_count=%d\n' "$syntax_error_count"
 	printf 'api_removals=%d\n' "$api_removals"
 	printf 'signature_changes=%d\n' "$signature_changes"
+	printf 'breaking_hints=%s\n' "$breaking_hints_summary"
 	if [ -n "$syntax_errors" ]; then
 		printf 'syntax_errors=%s\n' "$syntax_errors"
 	fi
@@ -1363,6 +1416,7 @@ compute_risk_score() {
 	local syntax_error_count=0
 	local api_removals=0
 	local signature_changes=0
+	local breaking_hints=""
 	
 	# Safely parse diff_analysis without using eval to prevent shell injection
 	parse_diff_analysis "$diff_analysis"
@@ -1482,74 +1536,6 @@ compute_risk_score() {
 	fi
 	
 	printf '%s|%s' "$risk_level" "$risk_reasons"
-}
-
-compute_breaking_change_hints() {
-	# Smarter breaking change detection based on actual semantic impact,
-	# not just keyword matching.
-	
-	local diff
-	diff=$(get_staged_diff_for_analysis --unified=3)
-	if [ -z "${diff// /}" ]; then
-		printf '%s' 'Breaking-change hints: no staged diff detected.'
-		return 0
-	fi
-
-	local hints=""
-	local has_breaking=0
-	local has_potential=0
-	
-	# 1. Check for removed public APIs/exports (ACTUAL breaking changes)
-	local removed_exports
-	removed_exports=$(printf '%s\n' "$diff" | grep -E '^-[[:space:]]*(export|public|def |function |class |module\.exports)' | grep -Ev '^-\s*(//|#|/\*|\*)' | head -n 5 || true)
-	if [ -n "${removed_exports// /}" ]; then
-		has_breaking=1
-		hints="$hints\nLikely breaking: Public API/export removed:\n$(printf '%s\n' "$removed_exports" | sed 's/^/  /')"
-	fi
-	
-	# 2. Check for changed function/method signatures
-	# Look for functions where parameters changed
-	local removed_funcs
-	local added_funcs
-	removed_funcs=$(printf '%s\n' "$diff" | grep -E '^-[[:space:]]*(def|function|func|fn|public|private|protected)[[:space:]]+[a-zA-Z_]' | head -n 10 || true)
-	added_funcs=$(printf '%s\n' "$diff" | grep -E '^\+[[:space:]]*(def|function|func|fn|public|private|protected)[[:space:]]+[a-zA-Z_]' | head -n 10 || true)
-	
-	if [ -n "${removed_funcs// /}" ] && [ -n "${added_funcs// /}" ]; then
-		# Function definitions changed - could be signature change
-		has_potential=1
-		hints="$hints\nPotential breaking: Function definitions modified (check for signature changes)"
-	fi
-	
-	# 3. Check for removed error handling (relaxed validation)
-	local removed_validation
-	removed_validation=$(printf '%s\n' "$diff" | grep -E '^-.*\b(throw|raise|assert|panic|error\(|Error\(|Exception)\b' | grep -Ev '^-\s*(//|#|/\*|\*)' | head -n 3 || true)
-	local added_validation
-	added_validation=$(printf '%s\n' "$diff" | grep -E '^\+.*\b(throw|raise|assert|panic|error\(|Error\(|Exception)\b' | grep -Ev '^\+\s*(//|#|/\*|\*)' | head -n 3 || true)
-	
-	if [ -n "${removed_validation// /}" ] && [ -z "${added_validation// /}" ]; then
-		has_potential=1
-		hints="$hints\nPotential breaking: Error handling/validation removed"
-	fi
-	
-	# 4. Check for changed default values
-	local changed_defaults
-	changed_defaults=$(printf '%s\n' "$diff" | grep -E '^[-+].*=[[:space:]]*(true|false|null|nil|None|0|1|""|'"'"''"'"')' | wc -l | tr -d ' ')
-	if [ "$changed_defaults" -gt 2 ]; then
-		has_potential=1
-		hints="$hints\nPotential: Default values modified"
-	fi
-	
-	# 5. Do NOT flag simple keyword matches as breaking
-	# The old logic flagged things like "deprecated" in comments - we don't do that anymore
-	
-	# Build final output
-	if [ "$has_breaking" -eq 1 ]; then
-		printf 'Breaking-change hints: LIKELY BREAKING changes detected:%s' "$hints"
-	elif [ "$has_potential" -eq 1 ]; then
-		printf 'Breaking-change hints: Potential behavior changes detected (review recommended):%s' "$hints"
-	else
-		printf '%s' 'Breaking-change hints: No obvious breaking-change patterns detected.'
-	fi
 }
 
 compute_testing_status() {
@@ -2018,6 +2004,9 @@ collect_repo_ai_guidance() {
 	declare -a guidance_candidates
 	guidance_candidates=(
 		".github/COMMIT_GUIDELINES.md:Project commit guidelines:120"
+		".github/commit_guidelines.md:Project commit guidelines:120"
+		".github/COMMIT_MESSAGE.md:Project commit message guide:120"
+		".github/commit_message.md:Project commit message guide:120"
 		".github/UPLOAD_GUIDELINES.md:Project upload workflow guidelines:120"
 		".github/copilot-instructions.md:Repository Copilot instructions:120"
 		"AGENTS.md:Repository agent instructions:100"
@@ -2267,19 +2256,12 @@ generate_ai_message() {
 	local testing_status
 	testing_status=$(compute_testing_status)
 	
-	echo "[git-upload] Checking for breaking changes..." >&2
-	local breaking_hints
-	if ! breaking_hints=$(run_function_with_timeout_capture 8 compute_breaking_change_hints); then
-		echo "[git-upload] ⚠️  Breaking-change analysis timed out after 8s; skipping detailed hints." >&2
-		breaking_hints='Breaking-change hints: analysis timed out; review staged diff manually.'
-	fi
-	
-	# Get comprehensive diff analysis for smart risk assessment
+	# Combined diff analysis: syntax checks, risk signals, and breaking-change hints in one pass
 	start_spinner "Running syntax checks & analyzing diff..."
 	local diff_analysis
-	if ! diff_analysis=$(run_function_with_timeout_capture 12 compute_diff_analysis); then
+	if ! diff_analysis=$(run_function_with_timeout_capture 15 compute_diff_analysis); then
 		diff_analysis='diff_empty=1'
-		echo "[git-upload] ⚠️  Diff analysis timed out after 12s; using conservative defaults." >&2
+		echo "[git-upload] ⚠️  Diff analysis timed out after 15s; using conservative defaults." >&2
 	fi
 	stop_spinner "✅ Diff analysis complete"
 	
@@ -2292,7 +2274,14 @@ generate_ai_message() {
 	# Build diff summary for AI context
 	local diff_summary=""
 	# Safely parse diff_analysis without using eval to prevent shell injection
+	local breaking_hints=""
 	parse_diff_analysis "$diff_analysis"
+	# breaking_hints is now set by parse_diff_analysis
+	if [ -z "$breaking_hints" ]; then
+		breaking_hints='Breaking-change hints: No obvious breaking-change patterns detected.'
+	else
+		breaking_hints="Breaking-change hints: $breaking_hints"
+	fi
 	
 	# Get the actual file names for context
 	local changed_file_list
@@ -2382,125 +2371,104 @@ $detailed_recent
 $diff_summary"
 	fi
 
-	local default_prompt="You are generating a git commit message for the CURRENT STAGED CHANGES.
+	local default_prompt="Write a commit message for the staged changes below.
 
-OPERATING CONSTRAINTS:
-- You are running in READ-ONLY mode with no tool access.
-- You CANNOT read files, run commands, or access the filesystem.
-- ALL context you need is provided in this prompt (diff, file list, analysis).
-- Do NOT ask for more information or suggest running commands.
-- Work ONLY with the provided diff content below.
+If you have read tools available, use them to understand the codebase
+beyond just the diff — read related files, understand the project
+structure, and get the full picture. The better you understand what
+the project does and where these changes fit, the better the message.
+Do not invent changes that are not in the diff.
 
-HISTORY AWARENESS (CRITICAL):
-You are provided with RECENT COMMIT HISTORY. Use it to understand:
-- What the project has been working on lately
-- The INTENT behind the current changes (not just what they are)
-- Whether this commit is a FOLLOW-UP, TEST, CLEANUP, or NEW FEATURE
+CONTEXT MATTERS MOST:
+Read the recent commit history provided below. Understand what the project
+has been doing. Each commit is part of an ongoing thread of work — frame
+yours as the next step in that story. If the last few commits were fixing
+upload retries, and now there'\''s another tweak to the same area, say so:
+'\''Still seeing timeout issues on slow connections — bump retry delay from
+2s to 5s and add a log line so we can actually see what'\''s happening'\''
 
-Examples of history-aware reasoning:
-- If recent commits added 'git-help-i-pushed-an-env' (a secret-scrubbing tool), and now a .env with 'SECRET=test' is being added → this is OBVIOUSLY a test case for that tool, NOT an accidental secret leak!
-- If recent commits were bug fixes for feature X, and now there's a small tweak to X → this is likely a follow-up fix, not a new feature
-- If recent commits added a new module, and now tests are being added → celebrate the test coverage, link it to the module
+That'\''s what a useful commit message is. It tells the NEXT person what
+the situation was and what you did about it.
 
-ALWAYS ask: 'Given what this project just shipped, WHY would someone make this change?'
-- A .env file after a secret-scanning tool = test case
-- A README update after new features = documentation
-- A config tweak after a deployment = hotfix/tuning
+SUBJECT LINE:
+One line, <= 72 chars, that tells someone skimming git log what happened.
+Write it the way you'\''d describe the change to a coworker. Say what the
+commit DOES or FIXES, not what files it touches.
 
-VOICE & TONE (MOST IMPORTANT):
-Write like a human developer who is PROUD of their work. This is YOUR commit - own it!
-- Lead with the WIN: What did you accomplish? What's better now?
-- Be enthusiastic about meaningful improvements (doubling test coverage IS exciting!)
-- Use active, confident language: 'Doubled test coverage' not 'Add test coverage improvements'
-- Quantify achievements when possible: '6x more tests (120→700+)', 'coverage jumped 30%→85%'
-- If tests/coverage improved significantly, CELEBRATE IT in the subject line!
-- Avoid corporate/robotic language like 'artifacts', 'integration', 'subsystem', 'formalize'
-- Write like you're telling a teammate what you just shipped, not filing a report
+Good:
+  '\''Fix install button showing up even after app is already installed'\''
+  '\''Stop blocking payouts until Stripe says so'\''
+  '\''Add loading text to clash fetch so users stop retrying'\''
+  '\''Local storage fixed so logged-out users can add items to cart'\''
+  '\''Image scroller, mobile fixes, queue system, basic filtering'\''
+  '\''Remove automatic var() injection — causes issues with dashed idents'\''
 
-SUBJECT LINE - LEAD WITH IMPACT:
-- Good: '🎉 6x test coverage! GBA emulator up from 120 to 700+ tests'
-- Good: 'Finally fix that annoying Discord reconnect bug'
-- Good: 'Speed up builds 3x by parallelizing webpack'
-- Good: 'Add dark mode (yes, finally!)'
-- BAD: 'Add GBA integration test target and coverage artifacts' (what does this even mean to a human?)
-- BAD: 'Update test infrastructure' (boring, what's the actual win?)
-- BAD: 'Refactor implementation details' (nobody cares about implementation details)
+Bad:
+  '\''Update git-upload default-value regex quoting'\'' — robotic, says nothing useful
+  '\''Fix bug in compute_diff_analysis'\'' — which bug? what was broken?
+  '\''Refactor implementation details'\'' — meaningless
+  '\''Support cancelling MCP tool calls in server'\'' — too jargony
+  '\''Auto-detect checkpoint cwd via MCP roots'\'' — insider terminology
 
-Note: Emoji in subject line is optional - use it when celebrating a big win, skip for routine changes.
+BODY:
+Describe the situation, what you did, and why. Someone reading git blame
+should understand the reasoning without opening the diff.
 
-SPECIFICITY REQUIREMENTS:
-- NEVER use vague phrases like: 'core code', 'core helpers', 'default values', 'various improvements', 'minor changes', 'artifacts', 'infrastructure'.
-- ALWAYS name the SPECIFIC thing: 'git-upload', 'the --dry-run flag', 'MAX_RETRIES from 3 to 5', 'the parseConfig() function'.
-- If a new file was added, say WHAT it does: 'Add git-remerge script for re-applying failed merges' NOT 'Add new script'.
-- If behavior changed, describe the ACTUAL change: 'Skip empty commits instead of erroring' NOT 'Change default behavior'.
-- If you're refactoring, say WHAT was refactored and WHY: 'Extract notification logic into separate function to reduce Discord API spam' NOT 'Refactor implementation'.
+DO NOT use section headers like '\''What changed:'\'', '\''Why this matters:'\'',
+or any rigid template. Those scream '\''AI wrote this'\''. Just write naturally.
 
-DETECTING & CELEBRATING WINS:
-Look for these patterns in the diff and HIGHLIGHT them:
-- Test count increases: If tests go from X to Y, calculate the multiplier (e.g., 120→700 = ~6x)
-- Coverage improvements: If you see coverage percentages, highlight the jump
-- New features: Lead with what users/developers can now DO
-- Bug fixes: Emphasize what annoying thing is now gone
-- Performance: Quantify the speedup if possible
-- Deletions of bad code: Celebrate removing tech debt!
+For a tiny fix: one sentence or no body at all.
 
-Content requirements:
-- Base everything on the staged diff (index) vs HEAD; do not invent changes.
-- Write each change as a mini-narrative: WHAT changed, WHERE, and WHY it matters.
-- Frame the commit as a point in the project's history - where was it, what problem existed, and how does this move it forward.
-- For new files: describe what each file IS, DOES, and WHY it was needed (e.g., 'Added git-remerge to handle the case where an upload fails and pushes to a new branch, allows merging back into that branch').
-- For modified files: describe the change AND its purpose (e.g., 'Added verbose logging to the upload retry loop in git-upload to help diagnose timeout issues in slow network environments').
-- For config/default changes: state the OLD value, NEW value, and the reason for the change (e.g., 'Bumped MAX_RETRIES from 3 to 5 because users on satellite connections were hitting the limit before uploads completed').
-- For debugging additions: explain what can now be traced (e.g., 'Added logging to trace authentication token refresh in oauth.py, making it easier to debug SSO integration issues').
-- Call out CLI/API behavior changes with concrete before/after.
+For a small fix: a short paragraph about the problem and the solution.
+  '\''The regex for matching empty-string defaults wasn'\''t quoted, so ""
+  and '\'''\'' patterns slipped through breaking-change detection silently.'\''
 
-Breaking changes format rules (STRICT):
-	- If there are NO breaking changes, output exactly: Breaking changes: none
-	- If there ARE breaking changes, output:
-		Breaking changes:
-		- <SPECIFIC bullet: name the flag/function/behavior and what breaks>
-		(Do NOT use Yes/No. Do NOT write 'Breaking changes: yes'.)
-		(BAD: 'Default values changed' - GOOD: '--verbose now defaults to true; scripts expecting quiet output will break')
+For a medium change: a sentence of context, then bullets.
+  '\''Verification threads were getting auto-archived by Discord'\''s
+  inactivity timer, which broke the onboarding flow.
 
-RISK ASSESSMENT: Use the pre-computed risk level unless you have strong evidence to change it.
-- Formatting-only, comment, and test-only changes are LOW risk.
-- Use the provided testing status EXACTLY (verbatim). Do not guess.
+  - Touch open threads periodically to reset the archive timer
+  - Clean up threads for members who left
+  - Add /admin-unlink for force-unlinking stolen tags'\''
 
-Style requirements:
-- Subject line: imperative mood; SPECIFIC; aim for <= 72 characters (emoji counts as ~2 chars).
-- Body: detailed with concrete specifics; prefer bullets; write like a human!
-- Do NOT mention checking status, diffs, tools, agents, prompts, or instructions.
+For a large change: group under short topic-specific headers.
+  '\''Secret scanning:
+  - Add git-scan-for-leaked-envs with 40+ secret patterns
+  - Wire up pre-commit hook to block pushes with matches
 
-Output protocol (IMPORTANT):
-- Output ONLY the commit message between these exact markers, with no other text:
+  Installer:
+  - Bundle the new command into both installers
+  - Add man page'\''
+
+The body should make it obvious WHY this change was made, not just
+WHAT code was touched. Name the specific things — the flag, the file,
+the function, the value. If there'\''s a number (speed, count, size),
+include it. Don'\''t pad a one-line fix with five bullets.
+
+Never anthropomorphize code — scripts don'\''t '\''learn'\'' or '\''understand'\''.
+Never restate the subject in different words.
+Never use corporate filler like '\''formalize'\'', '\''artifacts'\'', '\''subsystem'\'',
+'\''implement'\'', '\''enhance'\'', '\''leverage'\''. Write like a human developer talking
+to another developer. If a non-programmer couldn'\''t roughly understand
+the subject line, it'\''s too jargony.
+
+METADATA FOOTER — always include at the end, after a blank line:
+
+Breaking changes: none
+  (or list specific breakage: '\''--verbose now defaults to true; quiet scripts break'\'')
+
+Risk: <low|medium|high> (<short reason>)
+  Use the pre-computed risk unless you have strong evidence otherwise.
+
+Testing: <copy the provided testing status verbatim>
+
+OUTPUT FORMAT — output ONLY the commit message between these markers.
+Each marker MUST be on its own line with nothing else on it.
+Do NOT put COMMIT_END on the same line as message text.
+
 COMMIT_BEGIN
-<subject line>
-
-<body, multiple lines allowed>
+<commit message>
 COMMIT_END
-
-Body structure:
-What changed:
-- Lead with the most exciting/impactful change
-- Write each change as a narrative that explains WHAT and WHY in one sentence
-- Good: 'Blew past our coverage goals - APU, ARM7TDMI, and PPU modules now at 85%+ (was ~30%)'
-- Good: 'Added GBATests.cpp with 500+ new test cases covering the full instruction set'
-- Good: 'Hooked up LCOV reporting so we can actually see coverage in the IDE'
-- BAD: 'Updated coverage artifacts' (what does this mean??)
-- BAD: 'Extended cmake configuration' (boring, what's the benefit?)
-
-Why this matters:
-- Frame changes in terms of the WIN - what's better now?
-- Good: 'We went from \"hope it works\" to \"know it works\" on the GBA emulator. This is huge for catching regressions.'
-- Good: 'This sets us up to hit 100% coverage on the core emulator - we'\''re finally in the home stretch!'
-- BAD: 'Code is cleaner now' (vague, doesn't explain the purpose)
-- BAD: 'Formalizes the coverage expansion effort' (corporate speak, nobody talks like this)
-
-Breaking changes: <use the strict format rules above - be SPECIFIC about what breaks>
-
-Risk: <low|medium|high> (<short rationale>)
-
-Testing: <use the provided testing status verbatim>
 "
 	local effective_prompt
 
@@ -2552,13 +2520,16 @@ Additional context from user: $ai_extra_context"
 			# Display new lines as they arrive
 			if [ "$current_line_count" -gt "$printed_lines" ]; then
 				# Clear the spinner line first
-				printf '\r\033[K' >&2
+				printf '\033[2K\r' >&2
 				
 				# Get and display all new non-empty, non-marker lines
-				local new_lines=$(tail -n +$((printed_lines + 1)) "$ai_output_file" 2>/dev/null | \
+				# Use head to cap at current_line_count to avoid printing
+				# an incomplete trailing line that wc -l hasn't counted yet.
+				local new_lines=$(head -n "$current_line_count" "$ai_output_file" 2>/dev/null | \
+					tail -n +$((printed_lines + 1)) | \
 					grep -v '^$' | \
-					grep -v '^COMMIT_BEGIN$' | \
-					grep -v '^COMMIT_END$' | \
+					grep -v '^[[:space:]]*COMMIT_BEGIN[[:space:]]*$' | \
+					grep -v '^[[:space:]]*COMMIT_END[[:space:]]*$' | \
 					grep -v '^COMMIT: ' || echo "")
 				
 				if [ -n "$new_lines" ]; then
@@ -2574,10 +2545,10 @@ Additional context from user: $ai_extra_context"
 		
 		# Update spinner on current line
 		elapsed=$((elapsed + 1))
-		elapsed_sec=$((elapsed / 7))  # roughly seconds (sleep 0.15 * 7 ≈ 1s)
-		printf '\r[git-upload] %s Generating commit message... (%ds)' "${frames[$frame_idx]}" "$elapsed_sec" >&2
+		elapsed_sec=$((elapsed / 3))  # roughly seconds (sleep 0.3 * 3 ≈ 1s)
+		printf '\033[2K\r[git-upload] %s Generating commit message... (%ds)' "${frames[$frame_idx]}" "$elapsed_sec" >&2
 		frame_idx=$(( (frame_idx + 1) % 10 ))
-		sleep 0.15
+		sleep 0.3
 	done
 	
 	# Get exit code
@@ -2585,7 +2556,7 @@ Additional context from user: $ai_extra_context"
 	ai_exit_code=$?
 	
 	# Clear spinner line
-	printf '\r\033[K' >&2
+	printf '\033[2K\r' >&2
 	
 	local ai_output
 	ai_output=$(cat "$ai_output_file" 2>/dev/null || echo "")
@@ -2610,6 +2581,9 @@ Additional context from user: $ai_extra_context"
 		trimmed == "COMMIT_END" { inside=0 }
 		inside { print }
 	')
+
+	# Strip inline COMMIT_END from message (AI sometimes appends it to last line)
+	commit_block=$(printf '%s\n' "$commit_block" | sed 's/[[:space:]]*COMMIT_END[[:space:]]*$//')
 
 	if [ -n "${commit_block// /}" ]; then
 		# Trim trailing blank lines.

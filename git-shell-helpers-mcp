@@ -4,12 +4,12 @@
 //
 // Combined MCP server that exposes all git-shell-helpers tools under one
 // server entry. Delegates to the individual modules (git-research-mcp and
-// aioserver-vision-tool) which remain separate files for maintainability.
+// vision-tool) which remain separate files for maintainability.
 //
 // Usage (standalone):
 //   node git-shell-helpers-mcp
 //
-// MCP server name: "git-shell-helpers"
+// MCP server name: "gsh"
 // Configurable via environment variables:
 //   GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH=1  — skip research tools
 //   GIT_SHELL_HELPERS_MCP_DISABLE_VISION=1    — skip vision tools
@@ -18,6 +18,7 @@ const path = require("path");
 const readline = require("readline");
 
 const MCP_VERSION = "2024-11-05";
+const SERVER_VERSION = "1.2.0";
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -29,6 +30,61 @@ function sendError(id, code, message) {
     id,
     error: { code, message },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Server-initiated requests (e.g. roots/list to learn workspace folders)
+// ---------------------------------------------------------------------------
+
+const pendingRequests = new Map();
+let nextRequestId = 1;
+
+function sendRequest(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    const id = `srv-${nextRequestId++}`;
+    pendingRequests.set(id, { resolve, reject });
+    send({ jsonrpc: "2.0", id, method, params });
+    const timer = setTimeout(() => {
+      if (pendingRequests.has(id)) {
+        pendingRequests.delete(id);
+        reject(new Error(`Request "${method}" timed out`));
+      }
+    }, 5000);
+    if (timer.unref) timer.unref();
+  });
+}
+
+let knownRoots = [];
+
+async function refreshRoots() {
+  try {
+    const result = await sendRequest("roots/list");
+    knownRoots = result.roots || [];
+  } catch {
+    // Client may not support roots — fine, fall back to process.cwd()
+  }
+}
+
+// In-flight tool calls — keyed by request id, value is AbortController.
+const inFlightRequests = new Map();
+
+// Checkpoint mutex — only one checkpoint can run at a time.
+// Second callers wait in line and will naturally see "nothing to commit."
+let _checkpointLock = null;
+async function withCheckpointLock(fn) {
+  while (_checkpointLock) {
+    await _checkpointLock;
+  }
+  let resolve;
+  _checkpointLock = new Promise((r) => {
+    resolve = r;
+  });
+  try {
+    return await fn();
+  } finally {
+    _checkpointLock = null;
+    resolve();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -51,12 +107,12 @@ if (!process.env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH) {
 if (!process.env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION) {
   try {
     const vision = require(
-      path.join(__dirname, "aioserver-vision-tool", "mcp-server.js"),
+      path.join(__dirname, "vision-tool", "mcp-server.js"),
     );
     modules.push(vision);
   } catch (err) {
     process.stderr.write(
-      `[git-shell-helpers-mcp] WARNING: could not load aioserver-vision-tool: ${err.message}\n`,
+      `[git-shell-helpers-mcp] WARNING: could not load vision-tool: ${err.message}\n`,
     );
   }
 }
@@ -65,10 +121,400 @@ if (!process.env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION) {
 const ALL_TOOLS = modules.flatMap((m) => m.tools || []);
 
 // ---------------------------------------------------------------------------
+// Built-in tools (not delegated to sub-modules)
+// ---------------------------------------------------------------------------
+
+const { execFile, spawn } = require("child_process");
+const fs = require("fs");
+
+const CHECKPOINT_TOOL = {
+  name: "checkpoint",
+  description:
+    "Create a local git commit with an AI-generated message. Stages changes, generates a commit message from the diff, commits, and optionally pushes. Pass context for extra AI hints. Optionally override with a manual message.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      context: {
+        type: "string",
+        description:
+          "Optional extra context to include in the AI prompt (e.g. 'fixes the login bug introduced in last PR'). Ignored when message is provided.",
+      },
+      message: {
+        type: "string",
+        description:
+          "Optional manual override for the commit message. If omitted, the message is AI-generated from the staged diff.",
+      },
+      all: {
+        type: "boolean",
+        description:
+          "Stage all changes including untracked files (git add -A) before committing. Default: true.",
+      },
+      push: {
+        type: "boolean",
+        description: "Push to remote after committing. Default: false.",
+      },
+      force: {
+        type: "boolean",
+        description:
+          "Override a mid-session disable. Only use this when the user explicitly asked for a checkpoint and the previous call returned [no-op]. Never set force on automatic checkpoints.",
+      },
+      cwd: {
+        type: "string",
+        description:
+          "Absolute path to the git repository to commit in. If omitted, the server uses the active VS Code workspace root automatically (when exactly one folder is open). Only pass this when working in a multi-root workspace or a workspace that differs from the detected root.",
+      },
+    },
+    required: [],
+  },
+};
+
+ALL_TOOLS.push(CHECKPOINT_TOOL);
+
+function execGit(args, cwd) {
+  return new Promise((resolve, reject) => {
+    execFile("git", args, { cwd, timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) {
+        reject(new Error((stderr || err.message || "").trim()));
+      } else {
+        resolve((stdout || "").trim());
+      }
+    });
+  });
+}
+
+async function generateAiCommitMessage(cwd, extraContext, signal) {
+  function gitOut(gitArgs) {
+    return new Promise((resolve) => {
+      execFile("git", gitArgs, { cwd, timeout: 15000 }, (err, stdout) => {
+        resolve(err ? "" : (stdout || "").trim());
+      });
+    });
+  }
+
+  const changedFiles = await gitOut(["diff", "--cached", "--name-only"]);
+  const statSummary = await gitOut(["diff", "--cached", "--stat"]);
+  let actualDiff = await gitOut(["diff", "--cached", "--unified=3"]);
+  const diffLines = actualDiff.split("\n").length;
+  if (diffLines > 2000) {
+    actualDiff =
+      actualDiff.split("\n").slice(0, 2000).join("\n") +
+      `\n(truncated — showing first 2000 of ${diffLines} lines)`;
+  }
+
+  const recentHistory = await gitOut([
+    "log",
+    "--oneline",
+    "-10",
+    "--no-decorate",
+  ]);
+  const detailedRecent = await gitOut([
+    "log",
+    "-3",
+    "--pretty=format:--- %h (%ar) ---%n%s%n%n%b",
+  ]);
+
+  // Load repo guidance
+  let repoGuidance = "";
+  for (const gf of [
+    ".github/COMMIT_GUIDELINES.md",
+    ".github/commit_guidelines.md",
+    ".github/COMMIT_MESSAGE.md",
+    ".github/commit_message.md",
+    ".github/copilot-instructions.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+  ]) {
+    try {
+      const raw = fs.readFileSync(path.join(cwd, gf), "utf8");
+      const snippet = raw.split("\n").slice(0, 120).join("\n").trim();
+      if (snippet) repoGuidance += `\n--- ${gf} ---\n${snippet}\n`;
+    } catch {
+      /* not present */
+    }
+  }
+
+  const prompt = `You are a commit message generator. Your ONLY job is to describe
+the staged diff below. You have no knowledge of any other project, conversation,
+or task. Every word in your message must come from what you see in the diff and
+the commit history of THIS repository. Do not infer, hallucinate, or borrow
+context from outside this prompt.
+
+This is a CHECKPOINT commit — the developer is marking a meaningful moment:
+something works now that did not before, a logical unit of work is complete,
+or they are about to switch context. Frame the message accordingly.
+
+CONTEXT MATTERS MOST:
+Read the recent commit history below. Each commit is part of an ongoing thread.
+Frame yours as the next step in that story. If the diff and the history look
+unrelated to each other, trust the diff — it is the ground truth.
+
+SUBJECT LINE:
+One line, <= 72 chars, that tells someone skimming git log what happened.
+Write it the way you'd describe the change to a coworker. Say what the
+commit DOES or FIXES, not what files it touches.
+
+Good:
+  'Fix install button showing up even after app is already installed'
+  'Stop blocking payouts until Stripe says so'
+  'Add loading text to clash fetch so users stop retrying'
+  'Local storage fixed so logged-out users can add items to cart'
+
+Bad:
+  'Update utils.ts' — robotic, says nothing useful
+  'Refactor implementation details' — meaningless
+  'Support cancelling MCP tool calls in server' — too jargony
+  'Auto-detect checkpoint cwd via MCP roots' — insider terminology
+
+BODY:
+Describe the situation, what you did, and why. Someone reading git blame
+should understand the reasoning without opening the diff.
+
+DO NOT use section headers like 'What changed:', 'Why this matters:',
+or any rigid template. Those scream 'AI wrote this'. Just write naturally.
+
+For a tiny fix: one sentence or no body at all.
+For a small change: a short paragraph.
+For a medium change: a sentence of context, then bullets.
+
+The body should make it obvious WHY this change was made, not just
+WHAT code was touched. Name the specific things — the flag, the file,
+the function, the value.
+
+Never anthropomorphize code. Never restate the subject in different words.
+Never use corporate filler like 'formalize', 'artifacts', 'subsystem',
+'implement', 'enhance', 'leverage'. Write like a human developer talking
+to another developer. If a non-programmer couldn't roughly understand
+the subject line, it's too jargony.
+
+OUTPUT FORMAT — output ONLY the commit message between these markers.
+Each marker MUST be on its own line with nothing else on it.
+Do NOT put COMMIT_END on the same line as message text.
+
+COMMIT_BEGIN
+<commit message>
+COMMIT_END
+`;
+
+  let fullPrompt = `${prompt}
+RECENT COMMIT HISTORY:
+${recentHistory}
+
+DETAILED RECENT COMMITS (last 3):
+${detailedRecent}`;
+
+  if (repoGuidance) fullPrompt += `\n\nREPOSITORY GUIDANCE:${repoGuidance}`;
+
+  fullPrompt += `\n\n---\n\nChanged files:\n${changedFiles
+    .split("\n")
+    .map((f) => `  - ${f}`)
+    .join(
+      "\n",
+    )}\n\nGit stat: ${statSummary.split("\n").pop()}\n\nDIFF (${diffLines} lines):\n\`\`\`diff\n${actualDiff}\n\`\`\``;
+
+  if (extraContext)
+    fullPrompt += `\n\nAdditional context from developer: ${extraContext}`;
+
+  const aiCmd =
+    process.env.GIT_UPLOAD_AI_CMD ||
+    'copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"';
+
+  const aiOutput = await new Promise((resolve, reject) => {
+    let out = "";
+    let err = "";
+    const child = spawn("sh", ["-c", aiCmd], {
+      env: { ...process.env, GIT_UPLOAD_AI_PROMPT: fullPrompt },
+      cwd,
+    });
+    child.stdout.on("data", (d) => {
+      out += d;
+    });
+    child.stderr.on("data", (d) => {
+      err += d;
+    });
+    child.on("close", (code) => {
+      if (signal?.aborted) {
+        reject(Object.assign(new Error("Cancelled"), { cancelled: true }));
+      } else if (code !== 0 || !out.trim()) {
+        reject(
+          new Error(
+            `AI message generation failed (exit ${code}): ${err.trim()}`,
+          ),
+        );
+      } else {
+        resolve(out);
+      }
+    });
+    if (signal) {
+      signal.addEventListener("abort", () => child.kill("SIGTERM"), {
+        once: true,
+      });
+    }
+  });
+
+  // Parse COMMIT_BEGIN/COMMIT_END
+  const lines = aiOutput.split("\n");
+  let capturing = false;
+  const msgLines = [];
+  for (const line of lines) {
+    if (line.trim() === "COMMIT_BEGIN") {
+      capturing = true;
+      continue;
+    }
+    if (line.trim() === "COMMIT_END") {
+      capturing = false;
+      break;
+    }
+    if (capturing) msgLines.push(line);
+  }
+  // Strip inline COMMIT_END from the last captured line (AI sometimes appends it)
+  if (msgLines.length > 0) {
+    const last = msgLines[msgLines.length - 1];
+    const cleaned = last.replace(/\s*COMMIT_END\s*$/, "");
+    if (cleaned !== last) msgLines[msgLines.length - 1] = cleaned;
+    if (!msgLines[msgLines.length - 1].trim()) msgLines.pop();
+  }
+  const commitMsg = msgLines.join("\n").trim();
+  if (!commitMsg) {
+    throw new Error(
+      "Could not parse AI output. Use the message parameter to provide a manual message.",
+    );
+  }
+  return commitMsg;
+}
+
+function rootsToPath(roots) {
+  // Return the filesystem path for a single root, or null if ambiguous/unknown.
+  if (!roots || roots.length !== 1) return null;
+  const uri = roots[0].uri || "";
+  try {
+    return new URL(uri).pathname;
+  } catch {
+    return uri || null;
+  }
+}
+
+async function handleCheckpoint(args, signal) {
+  function checkCancelled() {
+    if (signal?.aborted)
+      throw Object.assign(new Error("Cancelled"), { cancelled: true });
+  }
+  // Determine workspace root.
+  // Priority: caller-supplied cwd > single known VS Code workspace root > server cwd.
+  let cwd;
+  const callerCwd = String(args.cwd || "").trim();
+  const autoRoot = rootsToPath(knownRoots);
+  const startDir = callerCwd || autoRoot || process.cwd();
+  try {
+    cwd = await execGit(["rev-parse", "--show-toplevel"], startDir);
+  } catch {
+    // Fallback: __dirname is the script's own directory
+    try {
+      cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
+    } catch {
+      throw new Error("Not inside a git repository.");
+    }
+  }
+
+  // Check if checkpoint is enabled for this repo
+  let enabled = "true";
+  try {
+    enabled = await execGit(["config", "--get", "checkpoint.enabled"], cwd);
+  } catch {
+    // Not set — default true
+  }
+  if (enabled === "false") {
+    return [
+      {
+        type: "text",
+        text: "[no-op] Checkpoint is disabled for this repo. Use `git checkpoint --enable` to turn on.",
+      },
+    ];
+  }
+
+  checkCancelled();
+
+  // Stage
+  const stageAll = args.all !== false; // default true
+  if (stageAll) {
+    await execGit(["add", "-A"], cwd);
+  }
+
+  // Check if there's anything staged
+  try {
+    await execGit(["diff", "--cached", "--quiet"], cwd);
+    // If the command succeeds, nothing is staged
+    return [{ type: "text", text: "Nothing to commit — working tree clean." }];
+  } catch {
+    // Good — there are staged changes
+  }
+
+  checkCancelled();
+
+  // Get or generate commit message
+  let message = String(args.message || "").trim();
+  if (!message) {
+    message = await generateAiCommitMessage(
+      cwd,
+      String(args.context || "").trim(),
+      signal,
+    );
+  }
+
+  checkCancelled();
+
+  // Build commit args
+  const commitArgs = ["commit", "-m", message];
+
+  // GPG signing
+  let signCommits = "false";
+  try {
+    signCommits = await execGit(["config", "--get", "checkpoint.sign"], cwd);
+  } catch {
+    // Not set
+  }
+  if (signCommits === "true") {
+    commitArgs.push("-S");
+  }
+
+  // Commit
+  await execGit(commitArgs, cwd);
+
+  // Get the result
+  const commitHash = await execGit(["rev-parse", "--short", "HEAD"], cwd);
+  const oneline = await execGit(["log", "--oneline", "-1"], cwd);
+  const stat = await execGit(["diff", "--stat", "HEAD~1..HEAD"], cwd);
+
+  // Optional push
+  let pushResult = "";
+  const doPush = args.push === true;
+  let pushDefault = "false";
+  try {
+    pushDefault = await execGit(["config", "--get", "checkpoint.push"], cwd);
+  } catch {
+    // Not set
+  }
+  if (doPush || pushDefault === "true") {
+    try {
+      await execGit(["push"], cwd);
+      pushResult = "\nPushed to remote.";
+    } catch (err) {
+      pushResult = `\nPush failed: ${err.message}`;
+    }
+  }
+
+  return [
+    {
+      type: "text",
+      text: `Committed ${commitHash}\n${oneline}\n\n${stat}${pushResult}`,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Tools config — filter disabled tools per user preferences
 // ---------------------------------------------------------------------------
 
-const fs = require("fs");
 const TOOLS_CONFIG_PATH = path.join(
   process.env.HOME || process.env.USERPROFILE || "",
   ".config",
@@ -87,6 +533,16 @@ function getEnabledTools() {
   }
 }
 
+function isToolDisabled(toolName) {
+  try {
+    const config = JSON.parse(fs.readFileSync(TOOLS_CONFIG_PATH, "utf8"));
+    const disabled = config.disabledTools || [];
+    return disabled.includes(toolName);
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Protocol handler
 // ---------------------------------------------------------------------------
@@ -100,14 +556,30 @@ async function handleRequest(request) {
       id,
       result: {
         protocolVersion: MCP_VERSION,
-        capabilities: { tools: {} },
-        serverInfo: { name: "git-shell-helpers", version: "1.0.0" },
+        capabilities: { tools: {}, roots: { listChanged: true } },
+        serverInfo: { name: "gsh", version: SERVER_VERSION },
       },
     });
     return;
   }
 
   if (method === "notifications/initialized") {
+    // Handshake complete — ask client for workspace roots.
+    refreshRoots();
+    return;
+  }
+
+  if (method === "notifications/roots/listChanged") {
+    refreshRoots();
+    return;
+  }
+
+  if (method === "notifications/cancelled") {
+    const requestId = String(request.params?.requestId ?? "");
+    if (requestId) {
+      const ac = inFlightRequests.get(requestId);
+      if (ac) ac.abort();
+    }
     return;
   }
 
@@ -123,19 +595,60 @@ async function handleRequest(request) {
   if (method === "tools/call") {
     const toolName = request.params?.name;
     const toolArguments = request.params?.arguments || {};
+    const requestId = String(id);
 
+    // Guard: user may have disabled this tool mid-conversation via sidebar.
+    // Return a clean no-op so the model doesn't error out or retry.
+    // Exception: force=true on checkpoint overrides a mid-session disable
+    // (used only when the user explicitly asked to checkpoint).
+    const isForced = toolName === "checkpoint" && toolArguments.force === true;
+    if (isToolDisabled(toolName) && !isForced) {
+      send({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: `[no-op] The "${toolName}" tool was disabled by the user during this session. This is not an error — continue your current task normally. If the user explicitly asked for this action, recall with { "force": true } to override.`,
+            },
+          ],
+        },
+      });
+      return;
+    }
+
+    const ac = new AbortController();
+    inFlightRequests.set(requestId, ac);
     try {
+      // Built-in tools — checkpoint is serialized (mutex).
+      if (toolName === "checkpoint") {
+        const content = await withCheckpointLock(() =>
+          handleCheckpoint(toolArguments, ac.signal),
+        );
+        if (!ac.signal.aborted) {
+          send({ jsonrpc: "2.0", id, result: { content } });
+        }
+        return;
+      }
+
+      // Delegated sub-module tools
       for (const mod of modules) {
         const content = await mod.handleToolCall(toolName, toolArguments);
         if (content) {
-          send({ jsonrpc: "2.0", id, result: { content } });
+          if (!ac.signal.aborted) {
+            send({ jsonrpc: "2.0", id, result: { content } });
+          }
           return;
         }
       }
     } catch (error) {
+      if (ac.signal.aborted) return; // swallow errors from cancelled requests
       const message = error instanceof Error ? error.message : String(error);
       sendError(id, -32603, message);
       return;
+    } finally {
+      inFlightRequests.delete(requestId);
     }
 
     sendError(id, -32601, `Unknown tool: ${toolName}`);
@@ -154,15 +667,47 @@ const lineReader = readline.createInterface({
   crlfDelay: Infinity,
 });
 
-lineReader.on("line", async (line) => {
+lineReader.on("line", (line) => {
   if (!line.trim()) {
     return;
   }
 
+  let message;
   try {
-    const request = JSON.parse(line);
-    await handleRequest(request);
+    message = JSON.parse(line);
   } catch {
     sendError(null, -32700, "Parse error");
+    return;
   }
+
+  // Route responses to server-initiated requests (e.g. roots/list reply).
+  if (
+    message.id !== undefined &&
+    !message.method &&
+    (message.result !== undefined || message.error !== undefined)
+  ) {
+    const pending = pendingRequests.get(message.id);
+    if (pending) {
+      pendingRequests.delete(message.id);
+      if (message.error) {
+        pending.reject(
+          new Error(message.error.message || String(message.error)),
+        );
+      } else {
+        pending.resolve(message.result);
+      }
+      return;
+    }
+  }
+
+  // Fire-and-forget: handle requests concurrently so parallel tool calls
+  // don't queue behind each other and time out.
+  handleRequest(message).catch((err) => {
+    process.stderr.write(
+      `[gsh] Unhandled error in request ${message.id}: ${err.message}\n`,
+    );
+    if (message.id != null) {
+      sendError(message.id, -32603, err.message);
+    }
+  });
 });

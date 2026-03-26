@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "agents",
+  "statement": "Use subagent delegation for independent, well-scoped tasks that do not require sharing state with the parent. Good targets: research, file exploration, test execution, documentation. Poor targets: tasks requiring iterative user feedback or complex parent context dependency.",
+  "recommendationStrength": "recommended",
+  "applicability": "agent-design",
+  "evidenceRefs": [
+    {
+      "title": "Building Effective Agents",
+      "url": "https://www.anthropic.com/research/building-effective-agents",
+      "sourceType": "product-guidance"
+    },
+    {
+      "title": "VS Code Agent Tools Reference",
+      "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-26T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-26T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Delegate independent, well-scoped tasks to subagents. Keep interactive and context-heavy tasks in the parent.",
+  "cautionNotes": "Subagents cannot invoke nested subagents (VS Code limitation). Design agents to detect subagent mode and fall back.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-26T12:00:00Z",
+  "submissionId": "20260326T120048Z-84ym68vg",
+  "statementHash": "31792ace6a999b78ecd6f87795abd6a1531411c4b4d89206ea37c4c4a3de7431"
+}

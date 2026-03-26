@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "workflow",
+  "statement": "Before acting on knowledge that may be outdated (API signatures, framework versions, library behavior, CLI flags), use web/fetch or search_web to verify against current documentation. Training data has a cutoff \u2014 volatile details change faster than model training cycles.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Building Effective Agents",
+      "url": "https://www.anthropic.com/research/building-effective-agents",
+      "sourceType": "product-guidance"
+    },
+    {
+      "title": "VS Code Copilot Features Reference",
+      "url": "https://code.visualstudio.com/docs/copilot/reference/copilot-vscode-features",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-26T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-26T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Verify volatile knowledge (API versions, flags, defaults) against live docs before acting on it.",
+  "cautionNotes": "Not needed for stable concepts (algorithms, language syntax). Focus on recently-changed or version-dependent details.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-26T12:00:00Z",
+  "submissionId": "20260326T120016Z-1v8988q8",
+  "statementHash": "794edf1bebf657ab7ad80ffe2f8616fa5b55320005bcfbaf6c1a963a14e1f967"
+}
