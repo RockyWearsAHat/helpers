@@ -27,6 +27,7 @@ Namespaces are one honking great idea -- let's do more of those!
 ## PEP 8 Style Guide (Key Conventions)
 
 ### Naming
+
 - `snake_case` for functions, methods, variables, modules.
 - `PascalCase` for classes.
 - `UPPER_SNAKE_CASE` for constants.
@@ -34,6 +35,7 @@ Namespaces are one honking great idea -- let's do more of those!
 - `__mangled` for name mangling (double underscore — rare, avoid unless needed).
 
 ### Formatting
+
 - 4 spaces per indent (never tabs).
 - 79 characters max line length (99 is common in practice).
 - 2 blank lines before top-level definitions. 1 blank line between methods.
@@ -41,6 +43,7 @@ Namespaces are one honking great idea -- let's do more of those!
 - Use absolute imports over relative imports.
 
 ### Formatting tools (automate style consistency):
+
 - **Black**: Opinionated formatter that eliminates style debates.
 - **isort**: Sorts imports automatically.
 - **Ruff**: Linter + formatter. Extremely fast (Rust-based). Can replace flake8, isort, and more.
@@ -105,6 +108,7 @@ class Event:
 **Prefer dataclasses over plain classes or namedtuples** for data containers. Use `attrs` for more advanced features.
 
 **Pydantic** for validation + serialization (API models, config):
+
 ```python
 from pydantic import BaseModel, Field
 
@@ -192,6 +196,7 @@ async def process_all(items: list[Item]) -> list[Result]:
 ## Modern Python Features (3.10–3.13)
 
 ### Structural pattern matching (3.10)
+
 ```python
 match command:
     case ["quit"]:
@@ -205,6 +210,7 @@ match command:
 ```
 
 ### Exception groups (3.11)
+
 ```python
 try:
     async with asyncio.TaskGroup() as tg:
@@ -219,6 +225,7 @@ except* TypeError as eg:
 ```
 
 ### Performance annotations (3.13)
+
 ```python
 # Free-threaded Python (no GIL) — experimental in 3.13
 # JIT compiler — experimental in 3.13
@@ -276,4 +283,4 @@ def test_create_user(db_session):
 
 ---
 
-*Sources: PEP 8, PEP 20, PEP 484, PEP 526, PEP 612, PEP 695, Python documentation, Effective Python (Brett Slatkin), Fluent Python (Luciano Ramalho), Real Python*
+_Sources: PEP 8, PEP 20, PEP 484, PEP 526, PEP 612, PEP 695, Python documentation, Effective Python (Brett Slatkin), Fluent Python (Luciano Ramalho), Real Python_

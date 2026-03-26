@@ -53,6 +53,7 @@ var (
 ```
 
 **Conventions:**
+
 - Check errors at every call site. Discarding with `_ = doSomething()` should be a conscious, justified choice.
 - Wrap errors with context: `fmt.Errorf("operation context: %w", err)`.
 - Use `%w` (not `%v`) for wrapping — preserves the error chain.
@@ -135,6 +136,7 @@ if err := g.Wait(); err != nil {
 ```
 
 **Concurrency conventions:**
+
 - "Don't communicate by sharing memory; share memory by communicating" is a core Go proverb.
 - `context.Context` is the standard mechanism for cancellation and timeouts.
 - Closing channels from the sender side avoids races; receivers should not close.
@@ -307,4 +309,4 @@ func ReadFile(path string) ([]byte, error) {
 
 ---
 
-*Sources: Effective Go (golang.org), Go Code Review Comments, Go Proverbs (Rob Pike), 100 Go Mistakes and How to Avoid Them (Teiva Harsanyi), Standard library documentation*
+_Sources: Effective Go (golang.org), Go Code Review Comments, Go Proverbs (Rob Pike), 100 Go Mistakes and How to Avoid Them (Teiva Harsanyi), Standard library documentation_

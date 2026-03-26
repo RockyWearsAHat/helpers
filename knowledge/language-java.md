@@ -263,17 +263,17 @@ src/
 
 ## Tooling
 
-| Tool | Purpose |
-|------|---------|
-| **Gradle** / **Maven** | Build system |
-| **JUnit 5** | Testing framework |
-| **Mockito** | Mocking for tests |
-| **SpotBugs** | Static analysis (bugs) |
-| **Error Prone** | Compile-time bug detection (Google) |
-| **Checkstyle** | Style enforcement |
-| **JaCoCo** | Code coverage |
-| **jlink** | Custom runtime images (smaller deployments) |
+| Tool                   | Purpose                                     |
+| ---------------------- | ------------------------------------------- |
+| **Gradle** / **Maven** | Build system                                |
+| **JUnit 5**            | Testing framework                           |
+| **Mockito**            | Mocking for tests                           |
+| **SpotBugs**           | Static analysis (bugs)                      |
+| **Error Prone**        | Compile-time bug detection (Google)         |
+| **Checkstyle**         | Style enforcement                           |
+| **JaCoCo**             | Code coverage                               |
+| **jlink**              | Custom runtime images (smaller deployments) |
 
 ---
 
-*Sources: Effective Java (Joshua Bloch), Java Language Specification, JEP proposals (Loom, Amber, Valhalla), Spring documentation, Modern Java in Action*
+_Sources: Effective Java (Joshua Bloch), Java Language Specification, JEP proposals (Loom, Amber, Valhalla), Spring documentation, Modern Java in Action_
