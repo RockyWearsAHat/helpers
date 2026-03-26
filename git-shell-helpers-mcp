@@ -68,6 +68,23 @@ async function refreshRoots() {
 // In-flight tool calls — keyed by request id, value is AbortController.
 const inFlightRequests = new Map();
 
+// Checkpoint mutex — only one checkpoint can run at a time.
+// Second callers wait in line and will naturally see "nothing to commit."
+let _checkpointLock = null;
+async function withCheckpointLock(fn) {
+  while (_checkpointLock) {
+    await _checkpointLock;
+  }
+  let resolve;
+  _checkpointLock = new Promise((r) => { resolve = r; });
+  try {
+    return await fn();
+  } finally {
+    _checkpointLock = null;
+    resolve();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Load sub-modules
 // ---------------------------------------------------------------------------
@@ -602,9 +619,11 @@ async function handleRequest(request) {
     const ac = new AbortController();
     inFlightRequests.set(requestId, ac);
     try {
-      // Built-in tools
+      // Built-in tools — checkpoint is serialized (mutex).
       if (toolName === "checkpoint") {
-        const content = await handleCheckpoint(toolArguments, ac.signal);
+        const content = await withCheckpointLock(() =>
+          handleCheckpoint(toolArguments, ac.signal),
+        );
         if (!ac.signal.aborted) {
           send({ jsonrpc: "2.0", id, result: { content } });
         }
@@ -646,34 +665,47 @@ const lineReader = readline.createInterface({
   crlfDelay: Infinity,
 });
 
-lineReader.on("line", async (line) => {
+lineReader.on("line", (line) => {
   if (!line.trim()) {
     return;
   }
 
+  let message;
   try {
-    const message = JSON.parse(line);
-    // Route responses to server-initiated requests (e.g. roots/list reply).
-    if (
-      message.id !== undefined &&
-      !message.method &&
-      (message.result !== undefined || message.error !== undefined)
-    ) {
-      const pending = pendingRequests.get(message.id);
-      if (pending) {
-        pendingRequests.delete(message.id);
-        if (message.error) {
-          pending.reject(
-            new Error(message.error.message || String(message.error)),
-          );
-        } else {
-          pending.resolve(message.result);
-        }
-        return;
-      }
-    }
-    await handleRequest(message);
+    message = JSON.parse(line);
   } catch {
     sendError(null, -32700, "Parse error");
+    return;
   }
+
+  // Route responses to server-initiated requests (e.g. roots/list reply).
+  if (
+    message.id !== undefined &&
+    !message.method &&
+    (message.result !== undefined || message.error !== undefined)
+  ) {
+    const pending = pendingRequests.get(message.id);
+    if (pending) {
+      pendingRequests.delete(message.id);
+      if (message.error) {
+        pending.reject(
+          new Error(message.error.message || String(message.error)),
+        );
+      } else {
+        pending.resolve(message.result);
+      }
+      return;
+    }
+  }
+
+  // Fire-and-forget: handle requests concurrently so parallel tool calls
+  // don't queue behind each other and time out.
+  handleRequest(message).catch((err) => {
+    process.stderr.write(
+      `[gsh] Unhandled error in request ${message.id}: ${err.message}\n`,
+    );
+    if (message.id != null) {
+      sendError(message.id, -32603, err.message);
+    }
+  });
 });

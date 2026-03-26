@@ -246,16 +246,25 @@ if (require.main === module) {
     crlfDelay: Infinity,
   });
 
-  lineReader.on("line", async (line) => {
+  lineReader.on("line", (line) => {
     if (!line.trim()) {
       return;
     }
 
+    let request;
     try {
-      const request = JSON.parse(line);
-      await handleRequest(request);
+      request = JSON.parse(line);
     } catch {
       sendError(null, -32700, "Parse error");
+      return;
     }
+    handleRequest(request).catch((err) => {
+      process.stderr.write(
+        `[vision-tool] Unhandled error: ${err.message}\n`,
+      );
+      if (request.id != null) {
+        sendError(request.id, -32603, err.message);
+      }
+    });
   });
 }

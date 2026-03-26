@@ -206,6 +206,27 @@ const RETRY_MAX_ATTEMPTS = 4;
 const RETRY_BASE_DELAY_MS = 2000;
 const RETRY_MAX_DELAY_MS = 30000;
 
+// Debounced index rebuild — coalesces rapid-fire writes into a single rebuild.
+let _indexRebuildTimer = null;
+let _indexRebuildRunning = false;
+function scheduleIndexRebuild() {
+  if (_indexRebuildTimer) clearTimeout(_indexRebuildTimer);
+  _indexRebuildTimer = setTimeout(async () => {
+    _indexRebuildTimer = null;
+    if (_indexRebuildRunning) return; // skip if one is already in progress
+    _indexRebuildRunning = true;
+    try {
+      await buildKnowledgeIndex({});
+    } catch (err) {
+      process.stderr.write(
+        `[git-research-mcp] Index rebuild failed: ${err.message}\n`,
+      );
+    } finally {
+      _indexRebuildRunning = false;
+    }
+  }, 2000); // 2s debounce
+}
+
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -1358,10 +1379,39 @@ function isRetryable(status) {
   return status === 429 || (status >= 500 && status < 600);
 }
 
+// Default per-request timeout (2 minutes). Prevents indefinite hangs when
+// SearXNG or scraped sites stop responding. Callers can pass a custom
+// signal through options to override.
+const FETCH_TIMEOUT_MS = 120_000;
+
 async function fetchWithRetry(url, options) {
   let lastError;
   for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
-    const response = await fetch(url, options);
+    // Compose caller-supplied signal with a per-attempt timeout so fetches
+    // never hang forever, even under heavy concurrent load.
+    const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
+    let response;
+    try {
+      response = await fetch(url, { ...options, signal });
+    } catch (fetchErr) {
+      // Network-level error (timeout, DNS, refused) — treat as retryable
+      if (attempt < RETRY_MAX_ATTEMPTS - 1) {
+        const delayMs = Math.min(
+          RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
+          RETRY_MAX_DELAY_MS,
+        );
+        process.stderr.write(
+          `[git-research-mcp] Fetch error from ${url}: ${fetchErr.message} — retrying in ${(delayMs / 1000).toFixed(1)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+        );
+        lastError = fetchErr;
+        await sleep(delayMs);
+        continue;
+      }
+      throw fetchErr;
+    }
     if (response.ok) {
       return response;
     }
@@ -1498,16 +1548,28 @@ async function fetchPages(args) {
 
   const outputFile = args.output_file ? String(args.output_file).trim() : "";
 
+  // Scrape all URLs concurrently — the fetchWithRetry timeout prevents any
+  // single fetch from blocking the rest.
+  const settled = await Promise.allSettled(
+    urls.map(async (rawUrl) => {
+      const url = String(rawUrl).trim();
+      if (!url) return null;
+      const html = await fetchText(url);
+      const title = getTitle(html);
+      const text = stripHtml(html);
+      return { url, title, text };
+    }),
+  );
+
   const pages = [];
-  for (const rawUrl of urls) {
-    const url = String(rawUrl).trim();
-    if (!url) continue;
-
-    const html = await fetchText(url);
-    const title = getTitle(html);
-    const text = stripHtml(html);
-
-    pages.push({ url, title, text });
+  for (const result of settled) {
+    if (result.status === "fulfilled" && result.value) {
+      pages.push(result.value);
+    } else if (result.status === "rejected") {
+      process.stderr.write(
+        `[git-research-mcp] Scrape failed: ${result.reason?.message || result.reason}\n`,
+      );
+    }
   }
 
   if (outputFile) {
@@ -1855,17 +1917,17 @@ async function handleResearchToolCall(toolName, toolArguments) {
   }
   if (toolName === "write_knowledge_note") {
     const result = await writeKnowledgeNote(toolArguments);
-    buildKnowledgeIndex({}).catch(() => {});
+    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "update_knowledge_note") {
     const result = await updateKnowledgeNote(toolArguments);
-    buildKnowledgeIndex({}).catch(() => {});
+    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "append_to_knowledge_note") {
     const result = await appendToKnowledgeNote(toolArguments);
-    buildKnowledgeIndex({}).catch(() => {});
+    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "scrape_webpage") {
@@ -1952,16 +2014,26 @@ if (require.main === module) {
     crlfDelay: Infinity,
   });
 
-  lineReader.on("line", async (line) => {
+  lineReader.on("line", (line) => {
     if (!line.trim()) {
       return;
     }
 
+    let request;
     try {
-      const request = JSON.parse(line);
-      await handleRequest(request);
+      request = JSON.parse(line);
     } catch {
       sendError(null, -32700, "Parse error");
+      return;
     }
+    // Fire-and-forget so concurrent requests don't queue.
+    handleRequest(request).catch((err) => {
+      process.stderr.write(
+        `[git-research-mcp] Unhandled error: ${err.message}\n`,
+      );
+      if (request.id != null) {
+        sendError(request.id, -32603, err.message);
+      }
+    });
   });
 }
