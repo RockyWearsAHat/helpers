@@ -45,15 +45,21 @@ Cells wear out after finite write cycles: SLC ~100k program-erase cycles; QLC ~1
 ## RAID and Storage Tiering
 
 **RAID Levels** — distribute data across multiple drives:
-- **RAID 0**: striping for capacity/bandwidth; no redundancy
-- **RAID 1**: mirroring for redundancy; 50% capacity overhead
-- **RAID 5**: striping with parity; one drive failure tolerance
-- **RAID 6**: dual parity; two drive failure tolerance
-- **RAID 10**: striped mirrors, higher cost but faster rebuild
+- **RAID 0**: striping for capacity/bandwidth; no redundancy; single-drive failure = total data loss
+- **RAID 1**: mirroring for redundancy; 50% capacity overhead; read throughput improves (parallel reads from two mirrors)
+- **RAID 5**: striping with XOR parity; one drive failure tolerance; read performance good; write performance hit (parity recomputation)
+- **RAID 6**: dual parity (P and Q using Galois field math); two drive failure tolerance; higher write overhead than RAID 5
+- **RAID 10**: striped mirrors (RAID 1 of RAID 0s), higher cost but faster rebuild and good write performance
 
 **Rebuild Risk** — RAID 5 with large drives: rebuilding a 10 TB drive takes 24-48 hours during which another failure is catastrophic. Large capacity + slow rebuild = high URE (Unrecoverable Read Error) risk. RAID 6 or RAID 10 preferred for high-availability systems with large drives.
 
-**Storage Tiering** — hot data on SSD, warm data on HDD, cold data on tape. Automatic tiering (OS or array controller moves data) reduces manual management but risks performance surprises.
+**Rebuild Performance Tuning** — stripe size, chunk size, and resync parallelism affect rebuild speed. Smaller chunks provide better load distribution but increase overhead. OS/RAID controller can throttle rebuild to avoid I/O stalls on production workloads.
+
+**Storage Tiering** — hot data on SSD, warm data on HDD, cold data on tape. Automatic tiering (OS or array controller moves data) reduces manual management but risks performance surprises. Tiering metadata overhead can be significant (~1% of capacity).
+
+**Write Hole in UPS + RAID** — power loss during RAID write can leave parity inconsistent. Solution: battery-backed write cache (holds writes in NVRAM until safely on persistent media) or journal-based recovery (redo/undo logs). Enterprise arrays all use write caches.
+
+**Erasure Coding** — generalization of RAID allowing k data blocks + m parity blocks (tolerates m concurrent failures). Used in distributed systems (Amazon EC2 RAID-like, Google Colossus); introduces network/CPU overhead compared to single-machine RAID.
 
 ## Persistent Memory (Intel Optane Deprecated)
 

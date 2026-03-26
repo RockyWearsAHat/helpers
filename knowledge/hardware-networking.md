@@ -50,10 +50,15 @@ Network hardware encompasses the physical components moving data across systems,
 
 ## Network Topologies
 
-**Spine-Leaf** — recommended for datacenters. Leaf switches at ToR (Top of Rack), each connected to all spines. Provides 1:1 oversubscription and enables efficient load-balancing across spines. Replaces hierarchical tree topology (core-aggregation-access) which had bandwidth bottlenecks.
+**Spine-Leaf** — recommended for datacenters. Leaf switches at ToR (Top of Rack), each connected to all spines. Provides 1:1 oversubscription and enables efficient load-balancing across spines. Replaces hierarchical tree topology (core-aggregation-access) which had bandwidth bottlenecks at aggregation layer.
 
 **Fat-Tree** — oversubscribed tree with multiple uplinks from lower levels to spread traffic. Enables greater throughput than single uplink; tradeoff: higher latency for non-local traffic as packets may take longer paths through tree.
 
----
+**Packet Scheduling** — output port contention resolved by queuing algorithms: FIFO (simple, unfair), Priority Queuing (high-priority traffic first, starves low-priority), Weighted Fair Queuing (WFQ, per-flow fairness), or Deficit Round Robin (simpler to implement than WFQ).
 
-See also: packet scheduling algorithms, network simulation, OpenFlow/SDN.
+**Congestion Control** — detect overloads (queue depth, ECN bits in IP header) and throttle sources. TCP congestion control (AIMD: additive increase, multiplicative decrease) common in endpoints. Active Queue Management (random early detection, drop/mark packets early to signal congestion before buffer fills).
+
+**Buffer Requirements** — switch fabric throughput N × line rate; total buffer capacity (DRAM, SRAM) determines how long packets can queue during contention. Undersized buffers lose packets; oversized buffers add latency. Buffering equations (e.g., Gupta et al.) estimate required capacity given traffic patterns.
+
+**Software-Defined Networking (SDN)** — decouples control plane (routing decisions via central controller) from data plane (switch forwarding). OpenFlow protocol (1.0 through 1.6) defines communication. Enables dynamic routing, traffic engineering, and policy enforcement; introduces controller latency and availability concerns.
+

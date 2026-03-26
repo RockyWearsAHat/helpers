@@ -84,6 +84,15 @@ always @(posedge clk or posedge reset)
 7. Power analysis: estimate/validate power budget
 8. Sign-off: final checks before manufacturing (ASIC) or programming (FPGA)
 
----
+**Simulation and Verification** — testbenches driving RTL with stimulus vectors, checking outputs against golden reference. Coverage metrics track how much design logic is exercised. Formal verification (model checking, theorem proving) proves correctness for critical paths; computationally expensive.
 
-See also: compile-time reconfiguration, partial reconfiguration, design space exploration.
+**Timing Closure** — meeting clock frequency targets requires iterative synthesis/P&R tuning: reduce fan-out (buffer critical signals), break long combinational paths (add pipeline stages), or relax clock period. Timing-driven place-and-route places cells on critical paths close together to minimize wire delay.
+
+**Power Analysis** — static power (leakage) dominates at advanced nodes; dynamic power (switching) decreases. Techniques: clock gating (disable clock to inactive blocks), power gating (cut supply to unused regions), voltage scaling (reduce supply when performance headroom exists).
+
+**Design for Manufacturing (DFM)** — account for lithography limitations, process variation, and reliability. At 5nm/3nm, variations in critical dimension (line width) ~±10%, causing speed/leakage shifts. DFM checks flag designs at risk before expensive tape-out.
+
+**IP Core Integration** — reuse existing designs (memory compilers, high-speed SerDes, processors) via licensing. Integrating third-party IP requires interface compatibility, power/thermal budgeting, and design rule compliance.
+
+**Partial Reconfiguration (FPGA)** — update portions of design at runtime without affecting others. Enables iterative hardware updates, dynamic service loading, or multi-tenancy in shared FPGA. Requires careful isolation between reconfigurable regions.
+
