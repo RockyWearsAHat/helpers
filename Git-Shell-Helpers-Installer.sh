@@ -147,39 +147,28 @@ maybe_install_vscode_extensions() {
 
 VSCODE_MCP_JSON="$HOME/Library/Application Support/Code/User/mcp.json"
 
-# Read existing mcp.json, add/update a server entry, write back.
-upsert_mcp_server() {
+remove_mcp_server() {
   local name="$1"
-  local block="$2"
   local mcp_file="$VSCODE_MCP_JSON"
 
-  ensure_dir "$(dirname "$mcp_file")"
+  [ -f "$mcp_file" ] || return 0
 
-  if [ ! -f "$mcp_file" ]; then
-    cat >"$mcp_file" <<MCPEOF
-{
-  "servers": {
-    ${name}: ${block}
-  }
-}
-MCPEOF
-    return
-  fi
-
-  python3 - "$mcp_file" "$name" "$block" <<'PYEOF'
+  python3 - "$mcp_file" "$name" <<'PYEOF'
 import json, sys
-mcp_path, srv_name, srv_block = sys.argv[1], sys.argv[2], sys.argv[3]
+
+mcp_path, srv_name = sys.argv[1], sys.argv[2]
 try:
-    with open(mcp_path, "r") as f:
-        data = json.load(f)
+  with open(mcp_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
 except (json.JSONDecodeError, FileNotFoundError):
-    data = {}
-if "servers" not in data or not isinstance(data["servers"], dict):
-    data["servers"] = {}
-data["servers"][srv_name] = json.loads(srv_block)
-with open(mcp_path, "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
+  sys.exit(0)
+
+if "servers" in data and isinstance(data["servers"], dict):
+  if srv_name in data["servers"]:
+    del data["servers"][srv_name]
+    with open(mcp_path, "w", encoding="utf-8") as f:
+      json.dump(data, f, indent=2)
+      f.write("\n")
 PYEOF
 }
 
@@ -188,10 +177,10 @@ configure_mcp_tools() {
   local install_vision=true
 
   echo ""
-  echo "[Git-Shell-Helpers-Installer] MCP Tools (combined server: git-shell-helpers)"
+  echo "[Git-Shell-Helpers-Installer] MCP Tools (global via Git Shell Helpers extension)"
   echo "  Bundled tool modules:"
   echo "    1) git-research-mcp  — web search & knowledge cache for Copilot agents"
-  echo "    2) aioserver-vision  — screenshot analysis with vision models"
+  echo "    2) gsh-vision        — screenshot analysis with vision models"
   echo ""
   printf '[Git-Shell-Helpers-Installer] Install MCP tools into VS Code? [Y/n/pick]: '
   read -r mcp_reply || mcp_reply=""
@@ -220,46 +209,28 @@ configure_mcp_tools() {
 
   # Fetch vision tool files if selected
   if [ "$install_vision" = true ]; then
-    local vision_dir="${BIN_DIR}/aioserver-vision-tool"
+    local vision_dir="${BIN_DIR}/vision-tool"
     ensure_dir "$vision_dir"
-    fetch "$REPO_RAW_BASE/aioserver-vision-tool/mcp-server.js" "$vision_dir/mcp-server.js"
+    fetch "$REPO_RAW_BASE/vision-tool/mcp-server.js" "$vision_dir/mcp-server.js"
   fi
 
-  # Build the env block for disabling modules the user opted out of
-  local env_block=""
-  if [ "$install_research" = false ]; then
-    env_block="${env_block:+$env_block, }\"GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH\": \"1\""
-  fi
-  if [ "$install_vision" = false ]; then
-    env_block="${env_block:+$env_block, }\"GIT_SHELL_HELPERS_MCP_DISABLE_VISION\": \"1\""
-  fi
+  # Remove legacy mcp.json entry — the VS Code extension now registers the
+  # gsh MCP server automatically via registerMcpServerDefinitionProvider.
+  remove_mcp_server "gsh"
 
-  local server_json
-  if [ -n "$env_block" ]; then
-    server_json='{
-      "type": "stdio",
-      "command": "node",
-      "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"],
-      "env": { '"${env_block}"' }
-    }'
-  else
-    server_json='{
-      "type": "stdio",
-      "command": "node",
-      "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"]
-    }'
-  fi
-
-  upsert_mcp_server '"git-shell-helpers"' "$server_json"
-
-  echo "[Git-Shell-Helpers-Installer] Configured MCP server: git-shell-helpers"
+  echo "[Git-Shell-Helpers-Installer] Installed MCP server runtime: ${BIN_DIR}/git-shell-helpers-mcp"
   if [ "$install_research" = true ]; then
     echo "  ✓ research tools (web search, knowledge cache, fetch pages)"
+  else
+    echo "  - research tools left available for later install"
   fi
   if [ "$install_vision" = true ]; then
     echo "  ✓ vision tools (screenshot analysis)"
+  else
+    echo "  - vision tools not installed"
   fi
-  echo "[Git-Shell-Helpers-Installer] MCP config written to: $VSCODE_MCP_JSON"
+  echo "[Git-Shell-Helpers-Installer] The gsh MCP server is registered by the Git Shell Helpers VS Code extension."
+  echo "[Git-Shell-Helpers-Installer] Reload VS Code after installing the extension to refresh MCP server discovery."
 }
 
 install_all() {
@@ -277,9 +248,46 @@ install_all() {
   fetch "$REPO_RAW_BASE/git-research-mcp" "$BIN_DIR/git-research-mcp"
   fetch "$REPO_RAW_BASE/scripts/community-cache-submit.sh" "$BIN_DIR/git-copilot-devops-audit-community-submit"
   fetch "$REPO_RAW_BASE/scripts/community-cache-pull.sh" "$BIN_DIR/git-copilot-devops-audit-community-pull"
-  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit" "$BIN_DIR/git-research-mcp" "$BIN_DIR/git-copilot-devops-audit-community-submit" "$BIN_DIR/git-copilot-devops-audit-community-pull"
+  fetch "$REPO_RAW_BASE/scripts/community-research-submit.sh" "$BIN_DIR/git-copilot-devops-audit-community-research-submit"
+  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit" "$BIN_DIR/git-research-mcp" "$BIN_DIR/git-copilot-devops-audit-community-submit" "$BIN_DIR/git-copilot-devops-audit-community-pull" "$BIN_DIR/git-copilot-devops-audit-community-research-submit"
 
   configure_community_cache
+
+  # Copilot config (product source: agents, instructions, skills, prompts)
+  # Needed by git-copilot-devops-audit --update-agent to install globally
+  local CC="$BIN_DIR/copilot-config"
+  ensure_dir "$CC/agents"
+  ensure_dir "$CC/instructions"
+  ensure_dir "$CC/prompts"
+  ensure_dir "$CC/skills/copilot-research"
+  ensure_dir "$CC/skills/devops-audit-community-submit"
+  ensure_dir "$CC/skills/devops-audit-context"
+  ensure_dir "$CC/skills/devops-audit-evaluation"
+  ensure_dir "$CC/skills/devops-audit-fix"
+  ensure_dir "$CC/skills/devops-audit-orchestration"
+
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAudit.agent.md" "$CC/agents/DevOpsAudit.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditCommunitySubmit.agent.md" "$CC/agents/DevOpsAuditCommunitySubmit.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditContext.agent.md" "$CC/agents/DevOpsAuditContext.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditEvaluate.agent.md" "$CC/agents/DevOpsAuditEvaluate.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditImplement.agent.md" "$CC/agents/DevOpsAuditImplement.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditResearch.agent.md" "$CC/agents/DevOpsAuditResearch.agent.md"
+
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/devops-audit-router.instructions.md" "$CC/instructions/devops-audit-router.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/gsh-mcp-tools.instructions.md" "$CC/instructions/gsh-mcp-tools.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/git-checkpoint.instructions.md" "$CC/instructions/git-checkpoint.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/shell-scripts.instructions.md" "$CC/instructions/shell-scripts.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/vscode-tool-safety.instructions.md" "$CC/instructions/vscode-tool-safety.instructions.md"
+
+  fetch "$REPO_RAW_BASE/copilot-config/prompts/copilot-devops-audit.prompt.md" "$CC/prompts/copilot-devops-audit.prompt.md"
+
+  fetch "$REPO_RAW_BASE/copilot-config/skills/copilot-research/SKILL.md" "$CC/skills/copilot-research/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/copilot-research/studybase.md" "$CC/skills/copilot-research/studybase.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-community-submit/SKILL.md" "$CC/skills/devops-audit-community-submit/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-context/SKILL.md" "$CC/skills/devops-audit-context/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-evaluation/SKILL.md" "$CC/skills/devops-audit-evaluation/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-fix/SKILL.md" "$CC/skills/devops-audit-fix/SKILL.md"
+  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-orchestration/SKILL.md" "$CC/skills/devops-audit-orchestration/SKILL.md"
 
   # Man pages (from repo's man/man1)
   fetch "$REPO_RAW_BASE/man/man1/git-upload.1"     "$MAN_DIR/git-upload.1"
@@ -292,31 +300,39 @@ install_all() {
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
   ensure_line_in_file "$ZSHRC" 'export MANPATH="$HOME/man:$MANPATH"'
 
-  # Optionally help the user install gh and copilot-cli if missing.
-  # We keep this macOS/Homebrew-centric and ask for confirmation.
-  if ! command -v gh >/dev/null 2>&1 || ! command -v copilot >/dev/null 2>&1; then
-    echo "[Git-Shell-Helpers-Installer] Detected missing dependencies for AI commits." >&2
-    echo "  - GitHub CLI (gh) present:        $(command -v gh >/dev/null 2>&1 && echo yes || echo no)" >&2
-    echo "  - GitHub Copilot CLI (copilot) present: $(command -v copilot >/dev/null 2>&1 && echo yes || echo no)" >&2
-
-    if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
-      printf "[Git-Shell-Helpers-Installer] Install missing tools via Homebrew now? [y/N]: " >&2
-      read -r reply || reply=""
-      if [[ "$reply" == "y" || "$reply" == "Y" ]]; then
-        if ! command -v gh >/dev/null 2>&1; then
-          echo "[Git-Shell-Helpers-Installer] Installing GitHub CLI (gh) via Homebrew..." >&2
-          brew install gh || echo "[Git-Shell-Helpers-Installer] Failed to install gh; please install it manually." >&2
-        fi
-        if ! command -v copilot >/dev/null 2>&1; then
-          echo "[Git-Shell-Helpers-Installer] Installing GitHub Copilot CLI (copilot) via Homebrew..." >&2
-          brew install copilot-cli || echo "[Git-Shell-Helpers-Installer] Failed to install copilot-cli; please install it manually." >&2
-        fi
+  # -----------------------------------------------------------------------------
+  # HIGHLY RECOMMENDED: Install/Update GitHub Copilot CLI
+  # Enables AI commit messages (git upload -ai) and improves Copilot integration
+  # -----------------------------------------------------------------------------
+  echo ""
+  if command -v gh >/dev/null 2>&1; then
+    if gh extension list 2>/dev/null | grep -q 'gh-copilot'; then
+      printf '[Git-Shell-Helpers-Installer] (HIGHLY RECOMMENDED) GitHub Copilot CLI is installed. Update it now? [Y/n]: ' >&2
+      read -r copilot_reply || copilot_reply=""
+      if [[ -z "$copilot_reply" || "$copilot_reply" == "y" || "$copilot_reply" == "Y" ]]; then
+        gh extension upgrade gh-copilot && \
+          echo "[Git-Shell-Helpers-Installer] GitHub Copilot CLI updated." >&2 || \
+          echo "[Git-Shell-Helpers-Installer] Update failed — try: gh extension upgrade gh-copilot" >&2
+      fi
+    else
+      printf '[Git-Shell-Helpers-Installer] (HIGHLY RECOMMENDED) Install GitHub Copilot CLI? Enables AI commit messages and better Copilot integration. [Y/n]: ' >&2
+      read -r copilot_reply || copilot_reply=""
+      if [[ -z "$copilot_reply" || "$copilot_reply" == "y" || "$copilot_reply" == "Y" ]]; then
+        gh extension install github/gh-copilot && \
+          echo "[Git-Shell-Helpers-Installer] GitHub Copilot CLI installed. Try: gh copilot suggest" >&2 || \
+          echo "[Git-Shell-Helpers-Installer] Install failed — try manually: gh extension install github/gh-copilot" >&2
       else
-        echo "[Git-Shell-Helpers-Installer] To use AI commit messages, please install:" >&2
-        echo "  - GitHub CLI: https://cli.github.com/" >&2
-        echo "  - GitHub Copilot CLI: https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli" >&2
+        echo "[Git-Shell-Helpers-Installer] Skipped. Install later with: gh extension install github/gh-copilot" >&2
       fi
-      fi
+    fi
+  else
+    echo "[Git-Shell-Helpers-Installer] (HIGHLY RECOMMENDED) GitHub CLI (gh) not found." >&2
+    echo "  Install it to enable AI commit messages and better Copilot integration:" >&2
+    if command -v brew >/dev/null 2>&1; then
+      echo "  brew install gh && gh extension install github/gh-copilot" >&2
+    else
+      echo "  https://cli.github.com  →  then: gh extension install github/gh-copilot" >&2
+    fi
   fi
 
   # Optional: install private audit agents and the slash command into standard user-level Copilot locations

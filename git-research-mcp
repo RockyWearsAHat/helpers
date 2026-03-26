@@ -4,6 +4,7 @@ const fs = require("fs/promises");
 const fsSync = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { execFile } = require("child_process");
 
 // Load .env — check ~/.config/git-research-mcp/.env first, then __dirname/.env
 const CONFIG_ENV_PATH = path.join(
@@ -37,13 +38,194 @@ if (envPath) {
 const MCP_VERSION = "2024-11-05";
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-const WORKSPACE_ROOT = process.cwd();
-const KNOWLEDGE_ROOT = path.join(WORKSPACE_ROOT, ".github", "knowledge");
-const REPO_KNOWLEDGE_ROOT = path.join(__dirname, ".github", "knowledge");
+// Prefer process.cwd() if it looks like a workspace (has .git or .github),
+// otherwise fall back to __dirname (script's location = workspace root).
+const WORKSPACE_ROOT = (() => {
+  const cwd = process.cwd();
+  if (
+    fsSync.existsSync(path.join(cwd, ".git")) ||
+    fsSync.existsSync(path.join(cwd, ".github"))
+  )
+    return cwd;
+  return __dirname;
+})();
+const REPO_KNOWLEDGE_ROOT = path.join(__dirname, "knowledge");
+
+// Detect the local knowledge root for this workspace.
+// Source repo: knowledge/ at workspace root has .md files → use it directly.
+// Other workspaces: .github/knowledge/ is the standard location.
+const KNOWLEDGE_ROOT = (() => {
+  const atRoot = path.join(WORKSPACE_ROOT, "knowledge");
+  const atGithub = path.join(WORKSPACE_ROOT, ".github", "knowledge");
+  try {
+    const entries = fsSync.readdirSync(atRoot);
+    if (entries.some((f) => f.endsWith(".md"))) return atRoot;
+  } catch {
+    /* dir may not exist */
+  }
+  return atGithub;
+})();
+
+// Local workspace index — built from the detected knowledge root.
+const LOCAL_INDEX_PATH = path.join(KNOWLEDGE_ROOT, "_index.json");
+
+// ─── GitHub-backed community knowledge ──────────────────────────────────────
+// The hosted repo is the source of truth for the community knowledge base.
+// The pre-built _index.json in the repo is the community index.
+// We fetch it (with ETag caching) so standalone installs without the repo work.
+const GITHUB_REPO = "RockyWearsAHat/github-shell-helpers";
+const GITHUB_BRANCH = "dev";
+const GITHUB_RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}`;
+const GITHUB_API_BASE = `https://api.github.com/repos/${GITHUB_REPO}`;
+const GITHUB_CACHE_DIR = path.join(
+  process.env.HOME || process.env.USERPROFILE || "/tmp",
+  ".cache",
+  "gsh",
+);
+const CACHE_META_PATH = path.join(GITHUB_CACHE_DIR, "_cache_meta.json");
+const INDEX_MAX_AGE_MS = 10 * 60 * 1000; // 10 min before re-checking freshness
+
+// Ensure cache dir exists (sync — once at startup).
+try {
+  fsSync.mkdirSync(GITHUB_CACHE_DIR, { recursive: true });
+} catch {
+  /* ignore */
+}
+
+let _cacheMeta = null;
+function loadCacheMeta() {
+  if (_cacheMeta) return _cacheMeta;
+  try {
+    _cacheMeta = JSON.parse(fsSync.readFileSync(CACHE_META_PATH, "utf8"));
+  } catch {
+    _cacheMeta = { etags: {}, fetched_at: {} };
+  }
+  return _cacheMeta;
+}
+
+function saveCacheMeta() {
+  if (!_cacheMeta) return;
+  try {
+    fsSync.writeFileSync(CACHE_META_PATH, JSON.stringify(_cacheMeta), "utf8");
+  } catch {
+    /* best effort */
+  }
+}
+
+function isCacheFresh(cacheKey) {
+  const meta = loadCacheMeta();
+  const ts = meta.fetched_at[cacheKey];
+  return ts && Date.now() - ts < INDEX_MAX_AGE_MS;
+}
+
+/**
+ * Fetch a file from GitHub raw content with ETag caching to ~/.cache/gsh/.
+ * Returns { text, fromCache }.
+ */
+async function fetchGitHubFile(repoPath) {
+  const meta = loadCacheMeta();
+  const cacheFile = path.join(GITHUB_CACHE_DIR, repoPath.replace(/\//g, "__"));
+  const url = `${GITHUB_RAW_BASE}/${repoPath}`;
+
+  const headers = { "User-Agent": "gsh-mcp/1.0" };
+  if (meta.etags[repoPath]) headers["If-None-Match"] = meta.etags[repoPath];
+
+  try {
+    const resp = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(15000),
+    });
+    if (resp.status === 304) {
+      meta.fetched_at[repoPath] = Date.now();
+      saveCacheMeta();
+      const cached = await fs.readFile(cacheFile, "utf8");
+      return { text: cached, fromCache: true };
+    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${repoPath}`);
+    const text = await resp.text();
+    const etag = resp.headers.get("etag");
+    if (etag) meta.etags[repoPath] = etag;
+    meta.fetched_at[repoPath] = Date.now();
+    saveCacheMeta();
+    await fs.mkdir(path.dirname(cacheFile), { recursive: true });
+    await fs.writeFile(cacheFile, text, "utf8");
+    return { text, fromCache: false };
+  } catch (err) {
+    // Network failure — try local cache fallback
+    try {
+      const cached = await fs.readFile(cacheFile, "utf8");
+      return { text: cached, fromCache: true };
+    } catch {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Fetch the community index (pre-built _index.json) from GitHub.
+ * Uses ETag caching so subsequent calls within 10 min are instant.
+ */
+async function fetchCommunityIndex() {
+  const cacheKey = "knowledge/_index.json";
+  // Fast path: if we checked recently, use local cache.
+  if (isCacheFresh(cacheKey)) {
+    const cacheFile = path.join(
+      GITHUB_CACHE_DIR,
+      cacheKey.replace(/\//g, "__"),
+    );
+    try {
+      return JSON.parse(await fs.readFile(cacheFile, "utf8"));
+    } catch {
+      /* fall through to network */
+    }
+  }
+  const { text } = await fetchGitHubFile(cacheKey);
+  return JSON.parse(text);
+}
+
+/**
+ * Read a knowledge file content. Resolution order:
+ * 1. Local workspace (.github/knowledge/)
+ * 2. GitHub raw content (community knowledge, cached)
+ */
+async function readKnowledgeFileContent(filename) {
+  // Local first (fast — no network)
+  for (const root of [KNOWLEDGE_ROOT, REPO_KNOWLEDGE_ROOT]) {
+    try {
+      return await fs.readFile(path.join(root, filename), "utf8");
+    } catch {
+      /* not found locally */
+    }
+  }
+  // Fetch from GitHub community knowledge
+  const { text } = await fetchGitHubFile(`knowledge/${filename}`);
+  return text;
+}
 
 const RETRY_MAX_ATTEMPTS = 4;
 const RETRY_BASE_DELAY_MS = 2000;
 const RETRY_MAX_DELAY_MS = 30000;
+
+// Debounced index rebuild — coalesces rapid-fire writes into a single rebuild.
+let _indexRebuildTimer = null;
+let _indexRebuildRunning = false;
+function scheduleIndexRebuild() {
+  if (_indexRebuildTimer) clearTimeout(_indexRebuildTimer);
+  _indexRebuildTimer = setTimeout(async () => {
+    _indexRebuildTimer = null;
+    if (_indexRebuildRunning) return; // skip if one is already in progress
+    _indexRebuildRunning = true;
+    try {
+      await buildKnowledgeIndex({});
+    } catch (err) {
+      process.stderr.write(
+        `[git-research-mcp] Index rebuild failed: ${err.message}\n`,
+      );
+    } finally {
+      _indexRebuildRunning = false;
+    }
+  }, 2000); // 2s debounce
+}
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -321,6 +503,498 @@ function buildKnowledgeSnippet(text, terms) {
   return `${prefix}${compact.slice(start, end).trim()}${suffix}`;
 }
 
+// ─── Knowledge TF-IDF Search Index ──────────────────────────────────────────
+
+const INDEX_STOPWORDS = new Set([
+  "a",
+  "about",
+  "above",
+  "after",
+  "again",
+  "all",
+  "also",
+  "am",
+  "an",
+  "and",
+  "any",
+  "are",
+  "as",
+  "at",
+  "be",
+  "because",
+  "been",
+  "before",
+  "being",
+  "between",
+  "both",
+  "but",
+  "by",
+  "can",
+  "could",
+  "did",
+  "do",
+  "does",
+  "doing",
+  "down",
+  "during",
+  "each",
+  "few",
+  "for",
+  "from",
+  "further",
+  "get",
+  "got",
+  "had",
+  "has",
+  "have",
+  "having",
+  "he",
+  "her",
+  "here",
+  "him",
+  "his",
+  "how",
+  "if",
+  "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "itself",
+  "just",
+  "let",
+  "me",
+  "more",
+  "most",
+  "must",
+  "my",
+  "new",
+  "no",
+  "nor",
+  "not",
+  "now",
+  "of",
+  "off",
+  "on",
+  "once",
+  "only",
+  "or",
+  "other",
+  "our",
+  "out",
+  "over",
+  "own",
+  "same",
+  "she",
+  "should",
+  "so",
+  "some",
+  "such",
+  "than",
+  "that",
+  "the",
+  "their",
+  "them",
+  "then",
+  "there",
+  "these",
+  "they",
+  "this",
+  "those",
+  "through",
+  "to",
+  "too",
+  "under",
+  "until",
+  "up",
+  "use",
+  "used",
+  "using",
+  "very",
+  "via",
+  "was",
+  "we",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "who",
+  "will",
+  "with",
+  "would",
+  "you",
+  "your",
+]);
+
+function tokenizeDocText(text) {
+  const cleaned = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`\n]+`/g, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[#*_\[\]()>|~^=+]/g, " ")
+    .replace(/\b\d+\b/g, " ")
+    .toLowerCase();
+  return cleaned
+    .split(/[^a-z]+/)
+    .filter((t) => t.length >= 3 && !INDEX_STOPWORDS.has(t));
+}
+
+function computeDocTF(tokens) {
+  const freq = {};
+  for (const t of tokens) freq[t] = (freq[t] || 0) + 1;
+  const total = tokens.length || 1;
+  const tf = {};
+  for (const [term, count] of Object.entries(freq)) tf[term] = count / total;
+  return tf;
+}
+
+function computeCorpusIDF(allTFs, docCount) {
+  const df = {};
+  for (const tf of allTFs) {
+    for (const term of Object.keys(tf)) df[term] = (df[term] || 0) + 1;
+  }
+  const idf = {};
+  for (const [term, count] of Object.entries(df)) {
+    // Smoothed IDF: log((N+1)/(df+1)) + 1
+    idf[term] = Math.log((docCount + 1) / (count + 1)) + 1;
+  }
+  return idf;
+}
+
+function l2NormalizeVec(vec) {
+  const magnitude = Math.sqrt(
+    Object.values(vec).reduce((s, v) => s + v * v, 0),
+  );
+  if (magnitude === 0) return {};
+  const out = {};
+  for (const [t, v] of Object.entries(vec)) out[t] = v / magnitude;
+  return out;
+}
+
+function cosineSim(normVecA, normVecB) {
+  // Both pre-normalized — dot product equals cosine similarity.
+  let sum = 0;
+  const [smaller, larger] =
+    Object.keys(normVecA).length <= Object.keys(normVecB).length
+      ? [normVecA, normVecB]
+      : [normVecB, normVecA];
+  for (const [term, val] of Object.entries(smaller)) {
+    if (larger[term] !== undefined) sum += val * larger[term];
+  }
+  return sum;
+}
+
+async function buildKnowledgeIndex(_args) {
+  // Build a TF-IDF index for the LOCAL workspace's .github/knowledge/ files.
+  let entries;
+  try {
+    entries = await fs.readdir(KNOWLEDGE_ROOT);
+  } catch (err) {
+    throw new Error(
+      `Cannot read workspace knowledge directory (${KNOWLEDGE_ROOT}): ${err.message}`,
+    );
+  }
+  const mdFiles = entries.filter(
+    (f) => f.endsWith(".md") && !f.startsWith("_"),
+  );
+  if (!mdFiles.length)
+    throw new Error(
+      "No markdown files found in workspace knowledge directory.",
+    );
+
+  // Phase 1: read files and compute per-doc term frequency.
+  const docs = [];
+  for (const filename of mdFiles) {
+    const fp = path.join(KNOWLEDGE_ROOT, filename);
+    const text = await fs.readFile(fp, "utf8");
+    const title = getMarkdownTitle(text, path.basename(filename, ".md"));
+    const tokens = tokenizeDocText(text);
+    docs.push({ filename, title, tf: computeDocTF(tokens) });
+  }
+
+  // Phase 2: corpus IDF.
+  const idf = computeCorpusIDF(
+    docs.map((d) => d.tf),
+    docs.length,
+  );
+
+  // Phase 3: TF-IDF vectors, posting list.
+  const fileData = {};
+  const posting = {};
+  for (const doc of docs) {
+    const tfidf = {};
+    for (const [term, tfVal] of Object.entries(doc.tf)) {
+      if (idf[term]) tfidf[term] = tfVal * idf[term];
+    }
+    // Keep top 120 terms per doc to keep index compact.
+    const sortedTerms = Object.entries(tfidf).sort((a, b) => b[1] - a[1]);
+    const topTerms = sortedTerms.slice(0, 15).map(([t]) => t);
+    const sparseRaw = {};
+    for (const [term, val] of sortedTerms.slice(0, 120)) sparseRaw[term] = val;
+    const normVec = l2NormalizeVec(sparseRaw);
+
+    for (const term of Object.keys(normVec)) {
+      if (!posting[term]) posting[term] = [];
+      posting[term].push(doc.filename);
+    }
+
+    fileData[doc.filename] = {
+      title: doc.title,
+      top_terms: topTerms,
+      norm_vec: normVec,
+      related: [], // filled in next pass
+    };
+  }
+
+  // Phase 4: precompute cosine similarity between all doc pairs (O(N²)).
+  const fileNames = Object.keys(fileData);
+  for (let i = 0; i < fileNames.length; i++) {
+    const nameA = fileNames[i];
+    const vecA = fileData[nameA].norm_vec;
+    const sims = [];
+    for (let j = 0; j < fileNames.length; j++) {
+      if (i === j) continue;
+      const nameB = fileNames[j];
+      const sim = cosineSim(vecA, fileData[nameB].norm_vec);
+      if (sim > 0.03) sims.push({ name: nameB, sim });
+    }
+    sims.sort((a, b) => b.sim - a.sim);
+    fileData[nameA].related = sims.slice(0, 5).map((s) => s.name);
+  }
+
+  const index = {
+    version: 1,
+    built_at: new Date().toISOString(),
+    file_count: docs.length,
+    idf,
+    files: fileData,
+    posting,
+  };
+
+  await fs.writeFile(LOCAL_INDEX_PATH, JSON.stringify(index, null, 2), "utf8");
+  return {
+    action: "built",
+    path: path.relative(WORKSPACE_ROOT, LOCAL_INDEX_PATH),
+    file_count: docs.length,
+    term_count: Object.keys(idf).length,
+  };
+}
+
+async function searchKnowledgeIndex(args) {
+  const query = String(args.query || "").trim();
+  if (!query)
+    throw new Error("search_knowledge_index requires a non-empty query.");
+  const maxResults = toPositiveInt(args.max_results, 5, 1, 20);
+
+  // Load both indexes: local workspace + community (GitHub-hosted).
+  // Either or both may be absent — that's fine.
+  let localIndex = null;
+  let communityIndex = null;
+
+  try {
+    const raw = await fs.readFile(LOCAL_INDEX_PATH, "utf8");
+    localIndex = JSON.parse(raw);
+  } catch {
+    /* no local index — OK */
+  }
+
+  try {
+    communityIndex = await fetchCommunityIndex();
+  } catch {
+    /* community unavailable — OK */
+  }
+
+  // If neither index is available, fall back to keyword search.
+  if (!localIndex && !communityIndex) return searchKnowledgeCache(args);
+
+  // Tokenize query: use both the aggressive doc tokenizer and a lighter pass
+  // so short or hyphenated terms still match.
+  const processedTerms = tokenizeDocText(query);
+  const rawTerms = query
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((t) => t.length >= 2 && !INDEX_STOPWORDS.has(t));
+  const queryTerms = [...new Set([...processedTerms, ...rawTerms])];
+
+  if (!queryTerms.length) return searchKnowledgeCache(args);
+
+  // Collect candidates from both indexes, tagging each with its source.
+  // "local" = filename from the local workspace index
+  // "community" = filename from the GitHub community index
+  // A file present in both gets the local version (user override).
+  const candidateSource = new Map(); // filename -> "local" | "community"
+  const candidateIndex = new Map(); // filename -> index it came from
+
+  function gatherCandidates(index, source) {
+    if (!index || !index.posting) return;
+    const indexTerms = Object.keys(index.posting);
+    for (const qTerm of queryTerms) {
+      if (index.posting[qTerm]) {
+        for (const f of index.posting[qTerm]) {
+          if (!candidateSource.has(f) || source === "local") {
+            candidateSource.set(f, source);
+            candidateIndex.set(f, index);
+          }
+        }
+      }
+      if (qTerm.length >= 3) {
+        for (const iTerm of indexTerms) {
+          if (
+            iTerm !== qTerm &&
+            (iTerm.startsWith(qTerm) ||
+              (qTerm.length >= 5 && iTerm.includes(qTerm)))
+          ) {
+            if (index.posting[iTerm]) {
+              for (const f of index.posting[iTerm]) {
+                if (!candidateSource.has(f) || source === "local") {
+                  candidateSource.set(f, source);
+                  candidateIndex.set(f, index);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Local first so it wins on overlap.
+  gatherCandidates(localIndex, "local");
+  gatherCandidates(communityIndex, "community");
+
+  // Broaden if nothing found yet.
+  if (!candidateSource.size) {
+    for (const idx of [localIndex, communityIndex]) {
+      if (!idx || !idx.posting) continue;
+      const src = idx === localIndex ? "local" : "community";
+      for (const qTerm of queryTerms) {
+        for (const iTerm of Object.keys(idx.posting)) {
+          if (iTerm.includes(qTerm)) {
+            for (const f of idx.posting[iTerm]) {
+              if (!candidateSource.has(f) || src === "local") {
+                candidateSource.set(f, src);
+                candidateIndex.set(f, idx);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (!candidateSource.size) {
+    return {
+      query,
+      index_used: true,
+      sources: {
+        local: !!localIndex,
+        community: !!communityIndex,
+      },
+      total_results: "0",
+      results: [],
+    };
+  }
+
+  // Score candidates: sum of normalized TF-IDF weights for query terms.
+  const scored = [];
+  for (const [filename, source] of candidateSource) {
+    const idx = candidateIndex.get(filename);
+    const fileInfo = idx.files[filename];
+    if (!fileInfo) continue;
+    const { norm_vec: vec, title } = fileInfo;
+    let score = 0;
+    for (const term of queryTerms) {
+      if (vec[term] !== undefined) score += vec[term];
+      if (title.toLowerCase().includes(term)) score += 0.4;
+    }
+    if (score > 0) scored.push({ filename, score, fileInfo, source });
+  }
+  scored.sort(
+    (a, b) => b.score - a.score || a.filename.localeCompare(b.filename),
+  );
+
+  const topScored = scored.slice(0, maxResults);
+  const results = await Promise.all(
+    topScored.map(async ({ filename, score, fileInfo, source }) => {
+      let snippet = "";
+      try {
+        const body = await readKnowledgeFileContent(filename);
+        snippet = buildKnowledgeSnippet(body, queryTerms);
+      } catch {
+        /* skip */
+      }
+      return {
+        path: `knowledge/${filename}`,
+        title: fileInfo.title,
+        score: Math.round(score * 1000) / 1000,
+        top_terms: fileInfo.top_terms.slice(0, 8),
+        related: fileInfo.related,
+        source,
+        snippet,
+      };
+    }),
+  );
+
+  const builtAt = localIndex
+    ? localIndex.built_at
+    : communityIndex
+      ? communityIndex.built_at
+      : null;
+
+  return {
+    query,
+    index_used: true,
+    sources: {
+      local: !!localIndex,
+      community: !!communityIndex,
+    },
+    built_at: builtAt,
+    total_results: String(scored.length),
+    results,
+  };
+}
+
+function formatKnowledgeIndexSearchResult(result) {
+  const src = result.sources || {};
+  const srcLabel = [src.local && "local", src.community && "community"]
+    .filter(Boolean)
+    .join(" + ");
+  const lines = [
+    `Query: ${result.query}`,
+    `Index: ${result.built_at || "no index"} · ${result.total_results} candidates · sources: ${srcLabel || "none"}`,
+    "",
+    "Results:",
+  ];
+  for (let i = 0; i < result.results.length; i++) {
+    const r = result.results[i];
+    lines.push(`${i + 1}. ${r.title}`);
+    lines.push(`   Path: ${r.path}`);
+    lines.push(
+      `   Score: ${r.score}  |  Source: ${r.source || "unknown"}  |  Terms: ${r.top_terms.join(", ")}`,
+    );
+    if (r.related && r.related.length) {
+      lines.push(`   Related: ${r.related.join(", ")}`);
+    }
+    if (r.snippet) lines.push(`   Snippet: ${r.snippet}`);
+    lines.push("");
+  }
+  if (!result.results.length) {
+    lines.push("No matching knowledge notes found.");
+  }
+  return lines.join("\n");
+}
+
+function formatBuildIndexResult(result) {
+  return [
+    `Action: ${result.action}`,
+    `Files indexed: ${result.file_count}`,
+    `Unique terms: ${result.term_count}`,
+    `Index path: ${result.path}`,
+  ].join("\n");
+}
+
 function scoreKnowledgeMatch(relativePath, title, body, terms) {
   const pathText = relativePath.toLowerCase();
   const titleText = title.toLowerCase();
@@ -382,7 +1056,7 @@ async function searchKnowledgeCache(args) {
   if (!files.length) {
     return {
       query,
-      root: ".github/knowledge",
+      root: "knowledge",
       total_results: "0",
       results: [],
     };
@@ -418,7 +1092,7 @@ async function searchKnowledgeCache(args) {
 
   return {
     query,
-    root: ".github/knowledge",
+    root: "knowledge",
     total_results: String(results.length),
     results: results.slice(0, maxResults).map((result, index) => ({
       rank: index + 1,
@@ -436,7 +1110,13 @@ async function readKnowledgeNote(args) {
     throw new Error("read_knowledge_note requires a non-empty path.");
   }
 
-  const resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
+  // Accept bare filenames — resolve to KNOWLEDGE_ROOT.
+  let resolvedPath;
+  if (!notePath.includes(path.sep) && !notePath.includes("/")) {
+    resolvedPath = path.join(KNOWLEDGE_ROOT, notePath);
+  } else {
+    resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
+  }
   const relativeToRoot = path.relative(KNOWLEDGE_ROOT, resolvedPath);
   const relativeToRepo = path.relative(REPO_KNOWLEDGE_ROOT, resolvedPath);
 
@@ -447,50 +1127,82 @@ async function readKnowledgeNote(args) {
 
   if (!inWorkspace && !inRepo) {
     throw new Error(
-      "read_knowledge_note only allows files under .github/knowledge/.",
+      "read_knowledge_note only allows files under the knowledge directory.",
     );
   }
 
-  // Try workspace first, fall back to repo knowledge root
-  let actualPath = resolvedPath;
-  let source = "workspace";
+  // Determine the filename relative to the knowledge root
+  const filename = inWorkspace ? relativeToRoot : relativeToRepo;
+
+  // Resolution order: local workspace → repo knowledge root → GitHub community
+  let text;
+  let source;
+
+  // 1. Local workspace
   try {
-    await fs.access(actualPath);
+    text = await fs.readFile(path.join(KNOWLEDGE_ROOT, filename), "utf8");
+    source = "workspace";
   } catch {
-    if (inRepo || inWorkspace) {
-      // Try the same relative note path under repo knowledge root
-      const repoPath = path.resolve(
-        REPO_KNOWLEDGE_ROOT,
-        relativeToRoot.startsWith("..") ? relativeToRepo : relativeToRoot,
+    /* not found locally */
+  }
+
+  // 2. Repo knowledge root (when running inside the repo)
+  if (!text) {
+    try {
+      text = await fs.readFile(
+        path.join(REPO_KNOWLEDGE_ROOT, filename),
+        "utf8",
       );
-      await fs.access(repoPath);
-      actualPath = repoPath;
       source = "repo";
+    } catch {
+      /* not found in repo */
+    }
+  }
+
+  // 3. GitHub community knowledge (fetched with ETag cache)
+  if (!text) {
+    try {
+      const { text: fetched } = await fetchGitHubFile(`knowledge/${filename}`);
+      text = fetched;
+      source = "community";
+    } catch {
+      throw new Error(
+        `Knowledge note not found locally or in community: ${filename}`,
+      );
     }
   }
 
   const maxChars = args.max_chars
     ? toPositiveInt(args.max_chars, 0, 500, 100000)
     : 0;
-  const text = await fs.readFile(actualPath, "utf8");
   const trimmed = text.trim();
 
   return {
-    path: path.relative(WORKSPACE_ROOT, actualPath),
+    path: `knowledge/${filename}`,
     source,
     title: getMarkdownTitle(
       trimmed,
-      path.basename(actualPath, path.extname(actualPath)),
+      path.basename(filename, path.extname(filename)),
     ),
     text: maxChars > 0 ? summarizeText(trimmed, maxChars) : trimmed,
   };
 }
 
 function resolveKnowledgePath(notePath) {
-  const resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
+  // Accept bare filenames (e.g. "networking-dns.md") — prepend KNOWLEDGE_ROOT.
+  // Also accept full workspace-relative paths for backward compat.
+  let resolvedPath;
+  if (!notePath.includes(path.sep) && !notePath.includes("/")) {
+    // Bare filename — place in KNOWLEDGE_ROOT.
+    resolvedPath = path.join(KNOWLEDGE_ROOT, notePath);
+  } else {
+    resolvedPath = path.resolve(WORKSPACE_ROOT, notePath);
+  }
   const relativeToRoot = path.relative(KNOWLEDGE_ROOT, resolvedPath);
   if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
-    throw new Error("Knowledge note path must be under .github/knowledge/.");
+    throw new Error(
+      `Knowledge note path must be under the knowledge directory (${path.relative(WORKSPACE_ROOT, KNOWLEDGE_ROOT)}/).`,
+    );
   }
   if (!resolvedPath.endsWith(".md")) {
     throw new Error("Knowledge notes must be .md files.");
@@ -615,6 +1327,50 @@ async function appendToKnowledgeNote(args) {
   };
 }
 
+async function submitCommunityResearch(args) {
+  const notePath = String(args.path || "").trim();
+  if (!notePath) {
+    throw new Error("submit_community_research requires a non-empty path.");
+  }
+
+  const resolvedPath = resolveKnowledgePath(notePath);
+
+  // Verify the file exists
+  try {
+    await fs.access(resolvedPath);
+  } catch {
+    throw new Error(
+      `Knowledge note not found: ${path.relative(WORKSPACE_ROOT, resolvedPath)}`,
+    );
+  }
+
+  const scriptPath = path.join(
+    __dirname,
+    "scripts",
+    "community-research-submit.sh",
+  );
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      "bash",
+      [scriptPath, resolvedPath],
+      { cwd: WORKSPACE_ROOT, timeout: 120000 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const msg = (stderr || err.message || "").trim();
+          reject(new Error(`Community research submit failed: ${msg}`));
+          return;
+        }
+        resolve({
+          action: "submitted",
+          path: path.relative(WORKSPACE_ROOT, resolvedPath),
+          output: (stderr || stdout || "").trim(),
+        });
+      },
+    );
+  });
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -623,10 +1379,39 @@ function isRetryable(status) {
   return status === 429 || (status >= 500 && status < 600);
 }
 
+// Default per-request timeout (2 minutes). Prevents indefinite hangs when
+// SearXNG or scraped sites stop responding. Callers can pass a custom
+// signal through options to override.
+const FETCH_TIMEOUT_MS = 120_000;
+
 async function fetchWithRetry(url, options) {
   let lastError;
   for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
-    const response = await fetch(url, options);
+    // Compose caller-supplied signal with a per-attempt timeout so fetches
+    // never hang forever, even under heavy concurrent load.
+    const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
+    let response;
+    try {
+      response = await fetch(url, { ...options, signal });
+    } catch (fetchErr) {
+      // Network-level error (timeout, DNS, refused) — treat as retryable
+      if (attempt < RETRY_MAX_ATTEMPTS - 1) {
+        const delayMs = Math.min(
+          RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
+          RETRY_MAX_DELAY_MS,
+        );
+        process.stderr.write(
+          `[git-research-mcp] Fetch error from ${url}: ${fetchErr.message} — retrying in ${(delayMs / 1000).toFixed(1)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+        );
+        lastError = fetchErr;
+        await sleep(delayMs);
+        continue;
+      }
+      throw fetchErr;
+    }
     if (response.ok) {
       return response;
     }
@@ -680,7 +1465,190 @@ async function fetchText(url) {
   return response.text();
 }
 
-const SEARXNG_BASE_URL = process.env.SEARXNG_URL || "http://localhost:8888";
+// ---------------------------------------------------------------------------
+// Direct Google Search — scrapes google.com/search with rate limiting
+// ---------------------------------------------------------------------------
+
+// Minimum delay between Google requests to avoid rate-limiting (ms).
+const GOOGLE_MIN_DELAY_MS = parseInt(process.env.GOOGLE_MIN_DELAY_MS || "3000", 10);
+// Extra delay added per retry when results come back empty or rate-limited.
+const GOOGLE_EMPTY_RETRY_DELAY_MS = 10000;
+// Max attempts specifically for empty-result / rate-limit retries.
+const GOOGLE_EMPTY_RETRY_MAX = 4;
+// Long backoff for 429 specifically (starts at 30s, doubles each attempt).
+const GOOGLE_429_BASE_DELAY_MS = 30000;
+
+let _lastGoogleRequestMs = 0;
+
+/**
+ * Enforce a minimum gap between Google requests so we don't burst.
+ */
+async function googleRateLimit() {
+  const now = Date.now();
+  const elapsed = now - _lastGoogleRequestMs;
+  if (elapsed < GOOGLE_MIN_DELAY_MS) {
+    await sleep(GOOGLE_MIN_DELAY_MS - elapsed);
+  }
+  _lastGoogleRequestMs = Date.now();
+}
+
+/**
+ * Fetch a Google search page with Google-specific retry logic.
+ * Unlike the generic fetchWithRetry, this handles 429s with much longer
+ * backoff (30s, 60s, 120s) since Google rate limits are minutes, not seconds.
+ */
+async function fetchGoogleSearch(url) {
+  let lastError;
+  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
+    const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(url, {
+        signal: timeoutSignal,
+        headers: {
+          "user-agent": DEFAULT_USER_AGENT,
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+          "accept-encoding": "gzip, deflate, br",
+          cookie: "CONSENT=PENDING+987; SOCS=CAESHAgBEhJnd3NfMjAyMzA4MTUtMF9SQzIaAmVuIAEaBgiA_LSmBg",
+        },
+        redirect: "follow",
+      });
+    } catch (fetchErr) {
+      if (attempt < RETRY_MAX_ATTEMPTS - 1) {
+        const delayMs = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, attempt), RETRY_MAX_DELAY_MS);
+        process.stderr.write(
+          `[git-research-mcp] Google fetch error: ${fetchErr.message} — retrying in ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+        );
+        lastError = fetchErr;
+        await sleep(delayMs);
+        continue;
+      }
+      throw fetchErr;
+    }
+    if (response.ok) {
+      return await response.text();
+    }
+    if (response.status === 429) {
+      // Google 429s need much longer backoff than the generic retry.
+      const delayMs = Math.min(GOOGLE_429_BASE_DELAY_MS * Math.pow(2, attempt), 120_000);
+      process.stderr.write(
+        `[git-research-mcp] Google 429 rate-limited — waiting ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+      );
+      lastError = new Error(`Google 429 rate-limited`);
+      await sleep(delayMs);
+      continue;
+    }
+    if (!isRetryable(response.status)) {
+      const body = await response.text();
+      throw new Error(`HTTP ${response.status} from Google: ${body.slice(0, 400)}`);
+    }
+    const delayMs = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, attempt), RETRY_MAX_DELAY_MS);
+    process.stderr.write(
+      `[git-research-mcp] Google HTTP ${response.status} — retrying in ${(delayMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})\n`,
+    );
+    lastError = new Error(`HTTP ${response.status} from Google`);
+    await sleep(delayMs);
+  }
+  throw lastError;
+}
+
+/**
+ * Parse Google search result HTML into structured results.
+ * Google's DOM changes occasionally — this targets the data-attribute
+ * structure that has been stable since ~2023.
+ */
+function parseGoogleResults(html) {
+  const results = [];
+  const seenUrls = new Set();
+
+  // Strategy 1: Match <a href="/url?q=..." blocks (Google's redirect links)
+  // Each search result has a heading inside an <h3> and a snippet in a nearby div.
+  // We extract URL, title, and snippet from the raw HTML.
+
+  // Extract all result blocks: Google wraps results in <div class="g"> or
+  // data-ved attributes. We look for the /url?q= redirect pattern.
+  const linkPattern = /<a[^>]+href="\/url\?q=([^"&]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = linkPattern.exec(html)) !== null) {
+    let url;
+    try {
+      url = decodeURIComponent(match[1]);
+    } catch {
+      continue;
+    }
+    // Skip Google's own links
+    if (
+      url.startsWith("https://accounts.google.com") ||
+      url.startsWith("https://support.google.com") ||
+      url.startsWith("https://policies.google.com") ||
+      url.startsWith("https://maps.google.com") ||
+      url.startsWith("/")
+    )
+      continue;
+    if (seenUrls.has(url)) continue;
+    seenUrls.add(url);
+
+    // Extract title from <h3> inside the link
+    const h3Match = match[2].match(/<h3[^>]*>([\s\S]*?)<\/h3>/i);
+    const title = h3Match
+      ? h3Match[1].replace(/<[^>]+>/g, "").trim()
+      : match[2].replace(/<[^>]+>/g, "").trim();
+
+    if (!title) continue;
+
+    results.push({ url, title, snippet: "" });
+  }
+
+  // Strategy 2: If Strategy 1 found URLs, try to extract snippets.
+  // Snippets typically live in <div> elements near the result blocks.
+  // We do a second pass looking for <span> blocks after each result URL.
+  if (results.length > 0) {
+    for (const result of results) {
+      // Find the result URL in the HTML and look for snippet text nearby.
+      const urlEscaped = result.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const snippetPattern = new RegExp(
+        urlEscaped + "[\\s\\S]{0,1500}?<(?:span|div)[^>]*class=\"[^\"]*(?:VwiC3b|st|IsZvec|s3v9rd)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/(?:span|div)>",
+        "i"
+      );
+      const snippetMatch = snippetPattern.exec(html);
+      if (snippetMatch) {
+        result.snippet = snippetMatch[1]
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 500);
+      }
+    }
+  }
+
+  // Strategy 3: Fallback — if redirect links didn't work, try direct hrefs
+  // to external sites (Google sometimes uses direct links).
+  if (results.length === 0) {
+    const directPattern = /<h3[^>]*>([\s\S]*?)<\/h3>[\s\S]*?<a[^>]+href="(https?:\/\/(?!(?:www\.)?google\.com)[^"]+)"[^>]*>/gi;
+    while ((match = directPattern.exec(html)) !== null) {
+      const title = match[1].replace(/<[^>]+>/g, "").trim();
+      const url = match[2];
+      if (!title || !url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      results.push({ url, title, snippet: "" });
+    }
+  }
+
+  // Also try reversed order: <a href="https://..."><h3>...</h3></a>
+  if (results.length === 0) {
+    const reversePattern = /<a[^>]+href="(https?:\/\/(?!(?:www\.)?google\.com)[^"]+)"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>/gi;
+    while ((match = reversePattern.exec(html)) !== null) {
+      const url = match[1];
+      const title = match[2].replace(/<[^>]+>/g, "").trim();
+      if (!title || !url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      results.push({ url, title, snippet: "" });
+    }
+  }
+
+  return results;
+}
 
 async function searchWeb(args) {
   const query = String(args.query || "").trim();
@@ -707,50 +1675,83 @@ async function searchWeb(args) {
     terms.push(`filetype:${String(args.file_type).trim()}`);
   }
 
-  const params = new URLSearchParams({
-    q: terms.join(" "),
-    format: "json",
-    pageno: "1",
-  });
+  const fullQuery = terms.join(" ");
 
-  // SearXNG queries Google, Bing, DuckDuckGo, and others simultaneously.
-  if (args.engines) {
-    params.set("engines", String(args.engines));
-  }
-  if (args.language) {
-    params.set("language", String(args.language));
-  }
-  if (args.time_range) {
-    params.set("time_range", String(args.time_range));
-  }
+  // Try Google directly with empty-result retry logic.
+  let results = [];
+  let provider = "google";
 
-  const searchUrl = `${SEARXNG_BASE_URL}/search?${params.toString()}`;
-  const response = await fetchWithRetry(searchUrl, {
-    headers: { accept: "application/json" },
-  });
-  const payload = await response.json();
+  for (let attempt = 0; attempt < GOOGLE_EMPTY_RETRY_MAX; attempt++) {
+    await googleRateLimit();
 
-  const items = Array.isArray(payload.results) ? payload.results : [];
-  const deduped = [];
-  const seenUrls = new Set();
-  for (const item of items) {
-    const url = item.url;
-    if (!url || seenUrls.has(url)) continue;
-    seenUrls.add(url);
-    deduped.push({
-      rank: deduped.length + 1,
-      title: item.title || "Untitled",
-      url,
-      display_url: item.pretty_url || url,
-      snippet: item.content || "",
-      engines: (item.engines || []).join(", "),
+    const params = new URLSearchParams({
+      q: fullQuery,
+      hl: args.language || "en",
+      num: "20",
     });
+    if (args.time_range) {
+      // Google's tbs param: qdr:d (day), qdr:w (week), qdr:m (month), qdr:y (year)
+      const tbs = { day: "qdr:d", week: "qdr:w", month: "qdr:m", year: "qdr:y" };
+      if (tbs[args.time_range]) {
+        params.set("tbs", tbs[args.time_range]);
+      }
+    }
+
+    const searchUrl = `https://www.google.com/search?${params.toString()}`;
+    let html;
+    try {
+      html = await fetchGoogleSearch(searchUrl);
+    } catch (err) {
+      process.stderr.write(
+        `[git-research-mcp] Google search failed: ${err.message}\n`,
+      );
+      // On error, wait and retry at the search level
+      if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
+        await sleep(GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+
+    // Check for CAPTCHA / consent page
+    if (html.includes("detected unusual traffic") || html.includes("/sorry/")) {
+      process.stderr.write(
+        `[git-research-mcp] Google rate-limited (CAPTCHA) — waiting ${GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1)}ms before retry (attempt ${attempt + 1}/${GOOGLE_EMPTY_RETRY_MAX})\n`,
+      );
+      if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
+        await sleep(GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1));
+        continue;
+      }
+      // Last attempt — return whatever we have
+      break;
+    }
+
+    results = parseGoogleResults(html);
+
+    if (results.length > 0) break;
+
+    // Empty results — could be transient, wait longer and retry
+    if (attempt < GOOGLE_EMPTY_RETRY_MAX - 1) {
+      process.stderr.write(
+        `[git-research-mcp] Google returned 0 results — retrying in ${GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1)}ms (attempt ${attempt + 1}/${GOOGLE_EMPTY_RETRY_MAX})\n`,
+      );
+      await sleep(GOOGLE_EMPTY_RETRY_DELAY_MS * (attempt + 1));
+    }
   }
+
+  const deduped = results.map((item, i) => ({
+    rank: i + 1,
+    title: item.title || "Untitled",
+    url: item.url,
+    display_url: item.url,
+    snippet: item.snippet || "",
+    engines: provider,
+  }));
 
   return {
-    query: terms.join(" "),
-    provider: "searxng",
-    total_results: String(payload.number_of_results || deduped.length),
+    query: fullQuery,
+    provider,
+    total_results: String(deduped.length),
     results: deduped,
   };
 }
@@ -763,16 +1764,28 @@ async function fetchPages(args) {
 
   const outputFile = args.output_file ? String(args.output_file).trim() : "";
 
+  // Scrape all URLs concurrently — the fetchWithRetry timeout prevents any
+  // single fetch from blocking the rest.
+  const settled = await Promise.allSettled(
+    urls.map(async (rawUrl) => {
+      const url = String(rawUrl).trim();
+      if (!url) return null;
+      const html = await fetchText(url);
+      const title = getTitle(html);
+      const text = stripHtml(html);
+      return { url, title, text };
+    }),
+  );
+
   const pages = [];
-  for (const rawUrl of urls) {
-    const url = String(rawUrl).trim();
-    if (!url) continue;
-
-    const html = await fetchText(url);
-    const title = getTitle(html);
-    const text = stripHtml(html);
-
-    pages.push({ url, title, text });
+  for (const result of settled) {
+    if (result.status === "fulfilled" && result.value) {
+      pages.push(result.value);
+    } else if (result.status === "rejected") {
+      process.stderr.write(
+        `[git-research-mcp] Scrape failed: ${result.reason?.message || result.reason}\n`,
+      );
+    }
   }
 
   if (outputFile) {
@@ -882,7 +1895,7 @@ const RESEARCH_TOOLS = [
   {
     name: "search_knowledge_cache",
     description:
-      "Search the repo-local durable knowledge cache under .github/knowledge/ and return matching note paths with snippets.",
+      "Search the durable knowledge cache and return matching note paths with snippets. Searches both the local workspace (.github/knowledge/) and the community knowledge base (knowledge/ in the repo or fetched from GitHub).",
     inputSchema: {
       type: "object",
       properties: {
@@ -901,14 +1914,14 @@ const RESEARCH_TOOLS = [
   {
     name: "read_knowledge_note",
     description:
-      "Read a specific knowledge note from .github/knowledge/ using a workspace-relative path.",
+      "Read a specific knowledge note. Pass a bare filename (e.g. networking-dns.md) or a workspace-relative path. Resolves from workspace knowledge root, then repo bundled, then GitHub community.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description:
-            "Workspace-relative path to a note under .github/knowledge/.",
+            "Filename (e.g. networking-dns.md) or workspace-relative path. Bare filenames resolve to the detected knowledge root.",
         },
         max_chars: {
           type: "integer",
@@ -922,7 +1935,7 @@ const RESEARCH_TOOLS = [
   {
     name: "search_web",
     description:
-      "Search the web via a local SearXNG meta-search instance that queries Google, Bing, DuckDuckGo, and other engines simultaneously. Returns deduplicated results with titles, URLs, snippets, and source engines.",
+      "Search the web via Google. Scrapes google.com directly with rate limiting and empty-result retry logic. Returns deduplicated results with titles, URLs, and snippets.",
     inputSchema: {
       type: "object",
       properties: {
@@ -948,14 +1961,9 @@ const RESEARCH_TOOLS = [
           type: "string",
           description: "Optional file type filter, for example pdf.",
         },
-        engines: {
-          type: "string",
-          description:
-            "Comma-separated SearXNG engine names, for example google,bing,duckduckgo. Omit to use all enabled engines.",
-        },
         language: {
           type: "string",
-          description: "Optional language code, for example en.",
+          description: "Optional language code, for example en. Defaults to en.",
         },
         time_range: {
           type: "string",
@@ -969,14 +1977,14 @@ const RESEARCH_TOOLS = [
   {
     name: "write_knowledge_note",
     description:
-      "Create or overwrite a knowledge note under .github/knowledge/. Use for persisting research findings, architecture facts, or debug lessons learned.",
+      "Create or overwrite a knowledge note. Writes to the workspace's knowledge directory (auto-detected: knowledge/ in source repo, .github/knowledge/ elsewhere). Use for persisting research findings, architecture facts, or debug lessons learned.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description:
-            "Workspace-relative path for the note, e.g. .github/knowledge/my-topic.md",
+            "Filename for the note, e.g. networking-dns.md. Can also be a workspace-relative path. The tool places bare filenames in the detected knowledge root automatically.",
         },
         content: {
           type: "string",
@@ -1001,7 +2009,7 @@ const RESEARCH_TOOLS = [
         path: {
           type: "string",
           description:
-            "Workspace-relative path to the note under .github/knowledge/.",
+            "Filename (e.g. networking-dns.md) or workspace-relative path to the knowledge note.",
         },
         heading: {
           type: "string",
@@ -1027,7 +2035,7 @@ const RESEARCH_TOOLS = [
         path: {
           type: "string",
           description:
-            "Workspace-relative path to the note under .github/knowledge/.",
+            "Filename (e.g. networking-dns.md) or workspace-relative path to the knowledge note.",
         },
         content: {
           type: "string",
@@ -1059,6 +2067,50 @@ const RESEARCH_TOOLS = [
       required: ["urls"],
     },
   },
+  {
+    name: "submit_community_research",
+    description:
+      "Submit a knowledge note to the community repository as a pull request. Requires community research sharing to be enabled in settings. The note content is validated for privacy before submission.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Path to the knowledge note to submit.",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "build_knowledge_index",
+    description:
+      "Build or rebuild the local workspace TF-IDF search index (_index.json) from knowledge files. The community knowledge index is pre-built on GitHub and fetched automatically — this tool only rebuilds the local workspace index. Run manually after bulk additions; also rebuilt automatically after write/update/append operations.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "search_knowledge_index",
+    description:
+      "Search the knowledge base using TF-IDF indexes. Merges results from the local workspace index (if built) and the community knowledge index (pre-built on GitHub, fetched with ETag caching). Returns ranked results with relevance scores, source tags (local/community), related files, and text snippets. Falls back to keyword search if no index is available.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query.",
+        },
+        max_results: {
+          type: "integer",
+          description: "Number of results to return (1-20). Default: 5.",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 async function handleResearchToolCall(toolName, toolArguments) {
@@ -1076,19 +2128,34 @@ async function handleResearchToolCall(toolName, toolArguments) {
   }
   if (toolName === "write_knowledge_note") {
     const result = await writeKnowledgeNote(toolArguments);
+    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "update_knowledge_note") {
     const result = await updateKnowledgeNote(toolArguments);
+    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "append_to_knowledge_note") {
     const result = await appendToKnowledgeNote(toolArguments);
+    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "scrape_webpage") {
     const result = await fetchPages(toolArguments);
     return [{ type: "text", text: formatFetchPagesResult(result) }];
+  }
+  if (toolName === "submit_community_research") {
+    const result = await submitCommunityResearch(toolArguments);
+    return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
+  }
+  if (toolName === "build_knowledge_index") {
+    const result = await buildKnowledgeIndex(toolArguments);
+    return [{ type: "text", text: formatBuildIndexResult(result) }];
+  }
+  if (toolName === "search_knowledge_index") {
+    const result = await searchKnowledgeIndex(toolArguments);
+    return [{ type: "text", text: formatKnowledgeIndexSearchResult(result) }];
   }
   return null;
 }
@@ -1158,16 +2225,26 @@ if (require.main === module) {
     crlfDelay: Infinity,
   });
 
-  lineReader.on("line", async (line) => {
+  lineReader.on("line", (line) => {
     if (!line.trim()) {
       return;
     }
 
+    let request;
     try {
-      const request = JSON.parse(line);
-      await handleRequest(request);
+      request = JSON.parse(line);
     } catch {
       sendError(null, -32700, "Parse error");
+      return;
     }
+    // Fire-and-forget so concurrent requests don't queue.
+    handleRequest(request).catch((err) => {
+      process.stderr.write(
+        `[git-research-mcp] Unhandled error: ${err.message}\n`,
+      );
+      if (request.id != null) {
+        sendError(request.id, -32603, err.message);
+      }
+    });
   });
 }

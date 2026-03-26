@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "principle",
+  "topic": "workflow",
+  "statement": "After editing .github/ customization files or .vscode/ configuration files, use read/problems to check for YAML frontmatter syntax errors, invalid JSON, incorrect tool names, and missing required fields. VS Code validates these files natively via built-in schema validation, so diagnostics catch configuration errors the same way they catch code errors.",
+  "recommendationStrength": "recommended",
+  "applicability": "workflow-general",
+  "evidenceRefs": [
+    {
+      "title": "Introducing Copilot Agent Mode",
+      "url": "https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code JSON Schema Validation",
+      "url": "https://code.visualstudio.com/docs/languages/json",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-26T12:00:00Z",
+  "freshnessCheckedAt": "2026-03-26T12:00:00Z",
+  "authoritativeSupport": "medium",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Check read/problems after editing .github/ and .vscode/ config files \u2014 VS Code lints them natively.",
+  "cautionNotes": "Not all .github/ files have full schema validation. YAML frontmatter linting depends on installed extensions.",
+  "nonGeneralizationNotes": "",
+  "submittedAt": "2026-03-26T12:00:00Z",
+  "submissionId": "20260326T120056Z-uc4k50bd",
+  "statementHash": "6d8e3706b58c04ccf51992ffc919023f235fad323d5215c62d13c19e66d11eb5"
+}

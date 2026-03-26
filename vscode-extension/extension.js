@@ -12,7 +12,6 @@ const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 
-const SECTION = "gitShellHelpers.communityCache";
 const SCHEMA_VERSION = 1;
 const PREDEFINED = {
   baseBranch: "main",
@@ -21,8 +20,80 @@ const PREDEFINED = {
 
 let cachedRepos = [];
 let cachedUser = "";
+let cachedGpgNeedsUpload = false;
+let cachedGpgUploadFailed = false;
 let _context = null;
 let _webviewProvider = null;
+const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
+const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
+
+function uniquePaths(paths) {
+  return [...new Set(paths.filter(Boolean))];
+}
+
+function findGitShellHelpersMcpPath(context) {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const workspaceCandidates = (vscode.workspace.workspaceFolders || []).map(
+    (folder) => path.join(folder.uri.fsPath, "git-shell-helpers-mcp"),
+  );
+  const candidates = uniquePaths([
+    ...workspaceCandidates,
+    path.join(homeDir, "bin", "git-shell-helpers-mcp"),
+    GLOBAL_MCP_SERVER_PATH,
+    context.asAbsolutePath("git-shell-helpers-mcp"),
+  ]);
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || "";
+}
+
+function buildGitShellHelpersMcpEnv(serverPath) {
+  const serverDir = path.dirname(serverPath);
+  const env = {};
+
+  if (!fs.existsSync(path.join(serverDir, "git-research-mcp"))) {
+    env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH = "1";
+  }
+
+  if (!fs.existsSync(path.join(serverDir, "vision-tool", "mcp-server.js"))) {
+    env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION = "1";
+  }
+
+  return env;
+}
+
+function registerMcpServerProvider(context) {
+  if (
+    !vscode.lm?.registerMcpServerDefinitionProvider ||
+    typeof vscode.McpStdioServerDefinition !== "function"
+  ) {
+    return;
+  }
+
+  const changeEmitter = new vscode.EventEmitter();
+  context.subscriptions.push(changeEmitter);
+  context.subscriptions.push(
+    vscode.lm.registerMcpServerDefinitionProvider(MCP_PROVIDER_ID, {
+      onDidChangeMcpServerDefinitions: changeEmitter.event,
+      provideMcpServerDefinitions: async () => {
+        const serverPath = findGitShellHelpersMcpPath(context);
+        if (!serverPath) {
+          return [];
+        }
+
+        return [
+          new vscode.McpStdioServerDefinition(
+            "gsh",
+            "node",
+            [serverPath],
+            buildGitShellHelpersMcpEnv(serverPath),
+            "0.3.4",
+          ),
+        ];
+      },
+      resolveMcpServerDefinition: async (server) => server,
+    }),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // File helpers
@@ -64,6 +135,100 @@ function writeJsonFile(filePath, data) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf8");
+}
+
+function userMcpConfigPath() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  if (process.platform === "darwin") {
+    return path.join(
+      homeDir,
+      "Library",
+      "Application Support",
+      "Code",
+      "User",
+      "mcp.json",
+    );
+  }
+  if (process.platform === "win32") {
+    return path.join(
+      process.env.APPDATA || path.join(homeDir, "AppData", "Roaming"),
+      "Code",
+      "User",
+      "mcp.json",
+    );
+  }
+  return path.join(homeDir, ".config", "Code", "User", "mcp.json");
+}
+
+function getConfiguredGitShellHelpersMcpServer() {
+  const configPath = userMcpConfigPath();
+  const config = readJsonFile(configPath);
+  const server = config?.servers?.["gsh"];
+  const serverPath =
+    server?.command === "node" && Array.isArray(server?.args)
+      ? server.args[0] || ""
+      : "";
+  return { configPath, server, serverPath };
+}
+
+function getMcpStatusViewModel(context) {
+  const resolvedPath = findGitShellHelpersMcpPath(context);
+  const binaryExists = resolvedPath ? fs.existsSync(resolvedPath) : false;
+  const providerSupported =
+    !!vscode.lm?.registerMcpServerDefinitionProvider &&
+    typeof vscode.McpStdioServerDefinition === "function";
+
+  if (!binaryExists) {
+    return {
+      tone: "bad",
+      label: "Not found",
+      detail: resolvedPath
+        ? `Server binary is missing: ${resolvedPath}`
+        : "Could not locate git-shell-helpers-mcp. Reinstall may be needed.",
+    };
+  }
+
+  if (!providerSupported) {
+    return {
+      tone: "warn",
+      label: "Needs trust",
+      detail:
+        "VS Code MCP provider API unavailable. Start or trust the server from the MCP panel.",
+    };
+  }
+
+  return {
+    tone: "good",
+    label: "Ready",
+    detail: `Auto-starts when tools are used.\n${resolvedPath}`,
+  };
+}
+
+async function openMcpServerControls() {
+  const commands = await vscode.commands.getCommands(true);
+  const exactCandidates = [
+    "mcp.listServers",
+    "workbench.action.mcp.listServers",
+    "chat.mcp.listServers",
+  ];
+  const commandId =
+    exactCandidates.find((candidate) => commands.includes(candidate)) ||
+    commands.find(
+      (candidate) =>
+        candidate.toLowerCase().includes("mcp") &&
+        candidate.toLowerCase().includes("list") &&
+        candidate.toLowerCase().includes("server"),
+    );
+
+  if (commandId) {
+    await vscode.commands.executeCommand(commandId);
+    return;
+  }
+
+  await vscode.commands.executeCommand(
+    "workbench.action.quickOpen",
+    ">MCP: List Servers",
+  );
 }
 
 function defaultCommunityRepoFromWorkspace(workspaceFolder) {
@@ -174,6 +339,7 @@ function buildSettingsJson() {
     ...PREDEFINED,
     mode: getMode(),
     whitelistedRepos: getWhitelist(),
+    shareResearch: isGroupEnabled("communityResearch"),
     ...(globalData.localClone
       ? { localClone: globalData.localClone }
       : localCloneFolder
@@ -294,6 +460,63 @@ class CommunityCacheViewProvider {
           setGroupEnabled(msg.key, msg.enabled);
           this._update();
           break;
+        case "setCheckpoint": {
+          const cpConfig = vscode.workspace.getConfiguration(
+            "gitShellHelpers.checkpoint",
+          );
+          const current = cpConfig.get(msg.key);
+          if (msg.key === "sign" && !current) {
+            const ok = await ensureGpgKey();
+            if (!ok) break;
+          }
+          await cpConfig.update(
+            msg.key,
+            !current,
+            vscode.ConfigurationTarget.Global,
+          );
+          this._update();
+          break;
+        }
+        case "openMcpControls":
+          await openMcpServerControls();
+          break;
+        case "mcpChipAction": {
+          if (msg.tone === "bad") {
+            const action = await vscode.window.showErrorMessage(
+              "git-shell-helpers-mcp binary not found. Reinstall the extension or run the installer script.",
+              "Run Installer",
+              "Open Terminal",
+            );
+            if (action === "Run Installer") {
+              const terminal = vscode.window.createTerminal("gsh installer");
+              terminal.show();
+              terminal.sendText("install-git-shell-helpers");
+            } else if (action === "Open Terminal") {
+              await vscode.commands.executeCommand(
+                "workbench.action.terminal.new",
+              );
+            }
+          } else if (msg.tone === "warn") {
+            const action = await vscode.window.showWarningMessage(
+              "MCP provider API unavailable. Open the MCP panel and start or trust the gsh server.",
+              "Open MCP Panel",
+            );
+            if (action === "Open MCP Panel") await openMcpServerControls();
+          } else {
+            await openMcpServerControls();
+          }
+          break;
+        }
+        case "uploadGpgKey":
+          await uploadGpgKeyNow();
+          break;
+        case "reloginGpg":
+          cachedGpgUploadFailed = false;
+          cachedUser = "";
+          cachedRepos = [];
+          _webviewProvider?.refresh();
+          await loginGitHub();
+          break;
       }
     });
 
@@ -357,6 +580,53 @@ class CommunityCacheViewProvider {
 </body></html>`;
     }
 
+    const gpgHint = cachedGpgNeedsUpload
+      ? cachedGpgUploadFailed
+        ? `<div style="font-size:10.5px;color:var(--vscode-descriptionForeground);margin-top:6px">Upload failed. <span role="button" id="reloginGpgBtn" style="color:var(--vscode-textLink-foreground);text-decoration:underline;cursor:pointer">Re-login</span></div>`
+        : `<div style="font-size:10.5px;color:var(--vscode-descriptionForeground);margin-top:6px">Key not on GitHub — commits show Unverified. <span role="button" id="uploadGpgBtn" style="color:var(--vscode-textLink-foreground);text-decoration:underline;cursor:pointer">Upload now</span></div>`
+      : "";
+
+    const cpConfig = vscode.workspace.getConfiguration(
+      "gitShellHelpers.checkpoint",
+    );
+    const cpEnabled = cpConfig.get("enabled", true);
+    const cpAutoPush = cpConfig.get("autoPush", false);
+    const cpSign = cpConfig.get("sign", false);
+    const mcpStatus = getMcpStatusViewModel(_context);
+
+    const checkpointItems = [
+      {
+        key: "enabled",
+        label: "Enabled",
+        desc: "Enable git-checkpoint in this workspace",
+        value: cpEnabled,
+      },
+      {
+        key: "autoPush",
+        label: "Auto-Push",
+        desc: "Push to remote after every checkpoint commit",
+        value: cpAutoPush,
+      },
+      {
+        key: "sign",
+        label: "Verified Commits",
+        desc: "Sign commits with GPG so GitHub shows a \u2705 Verified badge",
+        value: cpSign,
+      },
+    ];
+    const cpRows = checkpointItems
+      .map(
+        (item) => `
+        <div class="tool-item${item.value ? " active" : ""}" data-cpkey="${item.key}">
+          <div class="cb${item.value ? " on" : ""}"><div class="cb-tick"></div></div>
+          <div class="tool-text">
+            <span class="tl">${escapeHtml(item.label)}</span>
+            <span class="td">${escapeHtml(item.desc)}</span>
+          </div>
+        </div>`,
+      )
+      .join("");
+
     const toolRows = TOOL_GROUPS.map((group) => {
       const enabled = isGroupEnabled(group.key);
       return `
@@ -372,6 +642,12 @@ class CommunityCacheViewProvider {
     const enabledCount = TOOL_GROUPS.filter((g) =>
       isGroupEnabled(g.key),
     ).length;
+
+    const mcpStatusHtml = `
+      <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" data-tone="${mcpStatus.tone}" title="${escapeHtml(mcpStatus.detail)}">
+        <span class="mcp-dot"></span>
+        <span class="mcp-chip-status">${escapeHtml(mcpStatus.label)}</span>
+      </div>`;
 
     // --- Community Cache ---
     const modeOptions = MODES.map(
@@ -433,7 +709,6 @@ class CommunityCacheViewProvider {
     color: var(--vscode-foreground);
     display: flex; flex-direction: column; min-height: 100vh;
   }
-  .content { flex: 1; overflow-y: auto; }
 
   /* Sections */
   .sect { padding: 12px 14px; }
@@ -487,6 +762,47 @@ class CommunityCacheViewProvider {
     margin-top: 6px; opacity: 0.65;
   }
 
+  .sect-head-left {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .mcp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px 2px 6px;
+    border-radius: 999px;
+    margin: 0;
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.16));
+    background: var(--vscode-editorWidget-background, rgba(128,128,128,0.04));
+    user-select: none;
+  }
+  .mcp-chip:hover { opacity: 0.85; }
+  .mcp-chip.good {
+    border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #2ea043) 35%, var(--vscode-panel-border, rgba(128,128,128,0.16)));
+  }
+  .mcp-chip.warn {
+    border-color: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 40%, var(--vscode-panel-border, rgba(128,128,128,0.16)));
+  }
+  .mcp-chip.bad {
+    border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 45%, var(--vscode-panel-border, rgba(128,128,128,0.16)));
+  }
+  .mcp-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    background: var(--vscode-descriptionForeground);
+  }
+  .mcp-chip.good .mcp-dot { background: var(--vscode-testing-iconPassed, #2ea043); }
+  .mcp-chip.warn .mcp-dot { background: var(--vscode-inputValidation-warningBorder, #cca700); }
+  .mcp-chip.bad .mcp-dot { background: var(--vscode-inputValidation-errorBorder, #be1100); }
+  .mcp-chip-status {
+    color: var(--vscode-descriptionForeground);
+  }
+
   /* Community cache */
   select {
     width: 100%; padding: 4px 8px;
@@ -520,11 +836,14 @@ class CommunityCacheViewProvider {
 
   /* Footer */
   .footer {
+    position: sticky; bottom: 0; left: 0; right: 0;
     padding: 8px 14px;
     border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12));
+    background: var(--vscode-sideBar-background, var(--vscode-editor-background));
     display: flex; align-items: center; justify-content: space-between;
     font-size: 11px; color: var(--vscode-descriptionForeground);
   }
+  .content { flex: 1; overflow-y: auto; padding-bottom: 36px; }
   .footer-user {
     display: flex; align-items: center; gap: 4px; overflow: hidden;
   }
@@ -536,17 +855,87 @@ class CommunityCacheViewProvider {
   }
   .footer-gear:hover { opacity: 1; }
   .footer-gear svg { width: 14px; height: 14px; fill: currentColor; }
+  .footer-gear.active { opacity: 1; }
+
+  /* GPG warning banner */
+  /* Account panel overlay */
+  body { position: relative; }
+  .acct-panel {
+    display: none;
+    position: absolute;
+    bottom: 40px;
+    left: 8px; right: 8px;
+    background: var(--vscode-editorWidget-background, var(--vscode-input-background, var(--vscode-editor-background)));
+    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(128,128,128,0.3)));
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.28);
+    z-index: 200;
+    overflow: hidden;
+  }
+  .acct-panel.open { display: block; }
+  .acct-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12));
+  }
+  .acct-avatar {
+    width: 32px; height: 32px; flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--vscode-button-background);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .acct-avatar svg { width: 18px; height: 18px; fill: var(--vscode-button-foreground, #fff); }
+  .acct-info { flex: 1; min-width: 0; }
+  .acct-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acct-host { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 1px; }
+  .acct-actions { padding: 6px; }
+  .acct-btn {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 6px 8px;
+    border: none; background: none; border-radius: 4px;
+    font-size: 12px; color: var(--vscode-foreground);
+    cursor: pointer; text-align: left; font-family: inherit;
+  }
+  .acct-btn:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
+  .acct-btn svg { width: 13px; height: 13px; fill: currentColor; flex-shrink: 0; opacity: 0.7; }
 </style>
 </head>
 <body>
+  <div class="acct-panel" id="acctPanel">
+    <div class="acct-header">
+      <div class="acct-avatar">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </div>
+      <div class="acct-info">
+        <div class="acct-name">${escapeHtml(cachedUser)}</div>
+        <div class="acct-host">github.com</div>
+      </div>
+    </div>
+    <div class="acct-actions">
+      <button class="acct-btn" id="signOutBtn">
+        <svg viewBox="0 0 16 16"><path d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/><path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/></svg>
+        Sign out
+      </button>
+    </div>
+  </div>
   <div class="content">
     <div class="sect">
       <div class="sect-head">
-        <div class="sect-title">MCP Tools</div>
+        <div class="sect-head-left">
+          <div class="sect-title">MCP Tools</div>
+          ${mcpStatusHtml}
+        </div>
         <div class="sect-count">${enabledCount}/${TOOL_GROUPS.length}</div>
       </div>
       ${toolRows}
       <div class="hint">Read &amp; Search Knowledge are always on.</div>
+    </div>
+    <div class="sect">
+      <div class="sect-head">
+        <div class="sect-title">Git Checkpoint</div>
+      </div>
+      ${cpRows}
+      ${gpgHint}
     </div>
     <div class="sect">
       <div class="sect-head">
@@ -562,7 +951,7 @@ class CommunityCacheViewProvider {
       <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       <span>${escapeHtml(cachedUser)}</span>
     </div>
-    <div class="footer-gear" id="logoutBtn" title="Account settings">
+    <div class="footer-gear" id="gearBtn" title="Account">
       <svg viewBox="0 0 16 16"><path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.2.7-2.4.5v1.2l2.4.5.3.7-1.3 2 .8.8 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.8-.8-1.3-2 .3-.7 2.4-.5V6.8l-2.4-.5-.3-.7 1.3-2-.8-.8-2 1.3-.7-.2zM9.4 8c0 .8-.6 1.4-1.4 1.4S6.6 8.8 6.6 8 7.2 6.6 8 6.6s1.4.6 1.4 1.4z"/></svg>
     </div>
   </div>
@@ -575,7 +964,32 @@ class CommunityCacheViewProvider {
         vscode.postMessage({ type: 'toggleGroup', key, enabled: !active });
       });
     });
-    document.getElementById("logoutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
+    document.querySelectorAll('[data-cpkey]').forEach(el => {
+      el.addEventListener('click', () => {
+        vscode.postMessage({ type: 'setCheckpoint', key: el.dataset.cpkey });
+      });
+    });
+    document.getElementById("uploadGpgBtn")?.addEventListener("click", (e) => { e.preventDefault(); vscode.postMessage({type:"uploadGpgKey"}); });
+    document.getElementById("reloginGpgBtn")?.addEventListener("click", (e) => { e.preventDefault(); vscode.postMessage({type:"reloginGpg"}); });
+    document.getElementById("manageMcpBtn")?.addEventListener("click", () => {
+      const tone = document.getElementById("manageMcpBtn").dataset.tone;
+      if (tone === "bad") vscode.postMessage({type:"mcpChipAction",tone:"bad"});
+      else if (tone === "warn") vscode.postMessage({type:"mcpChipAction",tone:"warn"});
+      else vscode.postMessage({type:"mcpChipAction",tone:"good"});
+    });
+    const gearBtn = document.getElementById("gearBtn");
+    const acctPanel = document.getElementById("acctPanel");
+    gearBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = acctPanel.classList.toggle("open");
+      gearBtn.classList.toggle("active", open);
+    });
+    document.addEventListener("click", () => {
+      acctPanel?.classList.remove("open");
+      gearBtn?.classList.remove("active");
+    });
+    acctPanel?.addEventListener("click", (e) => e.stopPropagation());
+    document.getElementById("signOutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
     document.getElementById("selectReposBtn")?.addEventListener("click", () => vscode.postMessage({type:"selectRepos"}));
     document.getElementById("modeSelect")?.addEventListener("change", (e) => vscode.postMessage({type:"setMode", value: e.target.value}));
   </script>
@@ -606,13 +1020,19 @@ const MCP_TOOLS_CONFIG_PATH = path.join(MCP_TOOLS_CONFIG_DIR, "tools.json");
 const TOOL_GROUPS = [
   {
     key: "knowledgeWrite",
-    label: "Knowledge Write",
+    label: "Write Reusable Knowledge Locally",
     description: "Write, update & append knowledge notes",
     tools: [
       "write_knowledge_note",
       "update_knowledge_note",
       "append_to_knowledge_note",
     ],
+  },
+  {
+    key: "communityResearch",
+    label: "Share Knowledge Research",
+    description: "Submit knowledge notes to community repo via PR",
+    tools: ["submit_community_research"],
   },
   {
     key: "webSearch",
@@ -629,8 +1049,22 @@ const TOOL_GROUPS = [
   {
     key: "vision",
     label: "Vision",
-    description: "Analyze images with a vision model",
+    description:
+      "Process images in-chat, allowing live analysis of visual output",
     tools: ["analyze_images"],
+  },
+  {
+    key: "screenshot",
+    label: "Screenshot",
+    description:
+      "Capture screenshots of the screen, an app window, or a region",
+    tools: ["take_screenshot"],
+  },
+  {
+    key: "checkpoint",
+    label: "Git Checkpoint",
+    description: "Commit working state via MCP tool — no terminal, no stalling",
+    tools: ["checkpoint"],
   },
 ];
 
@@ -683,9 +1117,20 @@ async function loginGitHub() {
     return;
   }
   try {
-    const session = await vscode.authentication.getSession("github", ["repo"], {
-      createIfNone: true,
-    });
+    const GITHUB_SCOPES = [
+      "repo",
+      "gist",
+      "read:org",
+      "workflow",
+      "write:gpg_key",
+    ];
+    const session = await vscode.authentication.getSession(
+      "github",
+      GITHUB_SCOPES,
+      {
+        createIfNone: true,
+      },
+    );
     if (!session) return;
 
     cachedUser = session.account.label;
@@ -707,10 +1152,56 @@ async function loginGitHub() {
     }
 
     cachedRepos = await fetchRepos();
+    await checkGpgUploadStatus();
     _webviewProvider?.refresh();
     syncAllSettings();
   } catch {
     /* User cancelled or auth failed */
+  }
+}
+
+async function checkGpgUploadStatus() {
+  cachedGpgNeedsUpload = false;
+  cachedGpgUploadFailed = false;
+  if (!cachedUser) return;
+  try {
+    const keyId = (
+      await execAsync("git", ["config", "--global", "user.signingkey"])
+    ).trim();
+    if (!keyId) return;
+    const list = await runGh(["gpg-key", "list"]);
+    // gh gpg-key list output contains key IDs — check if our key is already there
+    if (!list.toLowerCase().includes(keyId.toLowerCase().slice(-16))) {
+      cachedGpgNeedsUpload = true;
+    }
+  } catch {
+    // gh not available, no signingkey, or scope missing — skip silently
+  }
+}
+
+async function uploadGpgKeyNow() {
+  try {
+    const gpgCommand = await resolveGpgCommand();
+    if (!gpgCommand) return;
+    const keyId = (
+      await execAsync("git", ["config", "--global", "user.signingkey"])
+    ).trim();
+    if (!keyId) return;
+    const uploaded = await uploadGpgKeyToGitHub(keyId, gpgCommand);
+    if (uploaded) {
+      cachedGpgNeedsUpload = false;
+      cachedGpgUploadFailed = false;
+      _webviewProvider?.refresh();
+      vscode.window.showInformationMessage(
+        "GPG key uploaded — future commits will show as Verified.",
+      );
+    } else {
+      cachedGpgUploadFailed = true;
+      _webviewProvider?.refresh();
+    }
+  } catch {
+    cachedGpgUploadFailed = true;
+    _webviewProvider?.refresh();
   }
 }
 
@@ -834,10 +1325,361 @@ function showCommunityStatus() {
 // Activation
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GPG key provisioning for Verified Commits
+// ---------------------------------------------------------------------------
+
+function execAsync(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 30000, ...opts }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+function execAsyncStdin(cmd, args, input) {
+  return new Promise((resolve, reject) => {
+    const proc = execFile(
+      cmd,
+      args,
+      { timeout: 60000 },
+      (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout);
+      },
+    );
+    proc.stdin.write(input);
+    proc.stdin.end();
+  });
+}
+
+const GPG_CANDIDATES = [
+  "gpg",
+  "gpg2",
+  "/opt/homebrew/bin/gpg",
+  "/opt/homebrew/bin/gpg2",
+  "/usr/local/bin/gpg",
+  "/usr/local/bin/gpg2",
+  "/usr/local/MacGPG2/bin/gpg",
+  "/usr/local/MacGPG2/bin/gpg2",
+];
+
+const BREW_CANDIDATES = [
+  "brew",
+  "/opt/homebrew/bin/brew",
+  "/usr/local/bin/brew",
+];
+
+let cachedGpgCommand;
+let cachedBrewCommand;
+
+async function resolveGpgCommand() {
+  if (cachedGpgCommand) return cachedGpgCommand;
+
+  for (const candidate of GPG_CANDIDATES) {
+    if (candidate.includes(path.sep) && !fs.existsSync(candidate)) {
+      continue;
+    }
+
+    try {
+      await execAsync(candidate, ["--version"]);
+      cachedGpgCommand = candidate;
+      return candidate;
+    } catch {
+      /* try next candidate */
+    }
+  }
+
+  return "";
+}
+
+async function resolveBrewCommand() {
+  if (cachedBrewCommand) return cachedBrewCommand;
+
+  for (const candidate of BREW_CANDIDATES) {
+    if (candidate.includes(path.sep) && !fs.existsSync(candidate)) {
+      continue;
+    }
+
+    try {
+      await execAsync(candidate, ["--version"]);
+      cachedBrewCommand = candidate;
+      return candidate;
+    } catch {
+      /* try next candidate */
+    }
+  }
+
+  return "";
+}
+
+async function installGpgWithBrew() {
+  if (process.platform !== "darwin") return false;
+
+  const brewCommand = await resolveBrewCommand();
+  if (!brewCommand) {
+    vscode.window.showErrorMessage(
+      "Verified Commits requires GPG, and Homebrew is not installed. Install Homebrew first, then try again.",
+    );
+    return false;
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    "Verified Commits requires GPG. Install GnuPG with Homebrew now?",
+    { modal: true },
+    "Install",
+    "Cancel",
+  );
+  if (choice !== "Install") return false;
+
+  const installed = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Installing GnuPG with Homebrew…",
+      cancellable: false,
+    },
+    async () => {
+      try {
+        await execAsync(brewCommand, ["install", "gnupg"], {
+          timeout: 10 * 60 * 1000,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+        return true;
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Failed to install GnuPG with Homebrew: ${err.message}`,
+        );
+        return false;
+      }
+    },
+  );
+
+  if (!installed) return false;
+
+  cachedGpgCommand = undefined;
+  const gpgCommand = await resolveGpgCommand();
+  if (!gpgCommand) {
+    vscode.window.showErrorMessage(
+      "GnuPG installed, but VS Code still could not find 'gpg'. Reload the window and try again.",
+    );
+    return false;
+  }
+
+  vscode.window.showInformationMessage(
+    "GnuPG installed. Continuing Verified Commits setup.",
+  );
+  return true;
+}
+
+async function ensureGpgAvailable() {
+  let gpgCommand = await resolveGpgCommand();
+  if (gpgCommand) return gpgCommand;
+
+  if (process.platform === "darwin") {
+    const installed = await installGpgWithBrew();
+    if (!installed) return "";
+    gpgCommand = await resolveGpgCommand();
+    if (gpgCommand) return gpgCommand;
+  }
+
+  vscode.window.showErrorMessage(
+    "Verified Commits requires GPG, but no gpg executable was found.",
+  );
+  return "";
+}
+
+async function ensureGpgKey() {
+  const gpgCommand = await ensureGpgAvailable();
+  if (!gpgCommand) {
+    return false;
+  }
+
+  // 1. Check if a signing key is already configured
+  try {
+    const existing = (
+      await execAsync("git", ["config", "--global", "user.signingkey"])
+    ).trim();
+    if (existing) return true; // already set up
+  } catch {
+    /* not configured yet */
+  }
+
+  // 2. Check for existing secret keys we can reuse
+  let email = "";
+  try {
+    email = (
+      await execAsync("git", ["config", "--global", "user.email"])
+    ).trim();
+  } catch {
+    /* no email configured */
+  }
+
+  if (email) {
+    try {
+      const keys = await execAsync(gpgCommand, [
+        "--list-secret-keys",
+        "--keyid-format",
+        "long",
+        email,
+      ]);
+      const match = keys.match(/sec\s+\w+\/([A-F0-9]+)/i);
+      if (match) {
+        await execAsync("git", [
+          "config",
+          "--global",
+          "user.signingkey",
+          match[1],
+        ]);
+        vscode.window.showInformationMessage(
+          `Using existing GPG key ${match[1].slice(-8)} for signing.`,
+        );
+        await uploadGpgKeyToGitHub(match[1], gpgCommand);
+        return true;
+      }
+    } catch {
+      /* no matching key */
+    }
+  }
+
+  // 3. Need git user.name and user.email to generate a key
+  let name = "";
+  try {
+    name = (await execAsync("git", ["config", "--global", "user.name"])).trim();
+  } catch {
+    /* no name configured */
+  }
+
+  if (!name || !email) {
+    vscode.window.showErrorMessage(
+      "Set git user.name and user.email before enabling Verified Commits.\n" +
+        "Run: git config --global user.name 'Your Name' && git config --global user.email 'you@example.com'",
+    );
+    return false;
+  }
+
+  // 4. Generate a new GPG key
+  const progress = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Generating GPG key…",
+    },
+    async () => {
+      try {
+        const batch = [
+          "Key-Type: RSA",
+          "Key-Length: 4096",
+          `Name-Real: ${name}`,
+          `Name-Email: ${email}`,
+          "Expire-Date: 0",
+          "%no-protection",
+          "%commit",
+          "",
+        ].join("\n");
+        await execAsyncStdin(gpgCommand, ["--batch", "--gen-key"], batch);
+        return true;
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Failed to generate GPG key: ${err.message}`,
+        );
+        return false;
+      }
+    },
+  );
+
+  if (!progress) return false;
+
+  // 5. Read back the new key ID
+  let keyId = "";
+  try {
+    const keys = await execAsync(gpgCommand, [
+      "--list-secret-keys",
+      "--keyid-format",
+      "long",
+      email,
+    ]);
+    const match = keys.match(/sec\s+\w+\/([A-F0-9]+)/i);
+    if (match) keyId = match[1];
+  } catch {
+    /* failed to read key */
+  }
+
+  if (!keyId) {
+    vscode.window.showErrorMessage(
+      "GPG key was generated but could not read the key ID.",
+    );
+    return false;
+  }
+
+  // 6. Configure git to use this key
+  await execAsync("git", ["config", "--global", "user.signingkey", keyId]);
+
+  // 7. Upload to GitHub
+  const uploaded = await uploadGpgKeyToGitHub(keyId, gpgCommand);
+  const suffix = uploaded
+    ? " and uploaded to GitHub ✅"
+    : " (upload to GitHub manually for the Verified badge)";
+  vscode.window.showInformationMessage(
+    `GPG key ${keyId.slice(-8)} generated${suffix}`,
+  );
+
+  return true;
+}
+
+async function uploadGpgKeyToGitHub(keyId, gpgCommand) {
+  if (!cachedUser) return false;
+  try {
+    const pubKey = await execAsync(gpgCommand, ["--armor", "--export", keyId]);
+    if (!pubKey.trim()) return false;
+    await runGh([
+      "api",
+      "/user/gpg_keys",
+      "-f",
+      `armored_public_key=${pubKey.trim()}`,
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoint settings → git config sync
+// ---------------------------------------------------------------------------
+
+function syncCheckpointSettings() {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) return;
+
+  const config = vscode.workspace.getConfiguration(
+    "gitShellHelpers.checkpoint",
+  );
+  const keys = [
+    { setting: "enabled", gitKey: "checkpoint.enabled" },
+    { setting: "autoPush", gitKey: "checkpoint.push" },
+    { setting: "sign", gitKey: "checkpoint.sign" },
+  ];
+
+  for (const folder of folders) {
+    const cwd = folder.uri.fsPath;
+    for (const { setting, gitKey } of keys) {
+      const value = config.get(setting);
+      if (value !== undefined) {
+        execFile("git", ["config", gitKey, String(value)], { cwd }, (err) => {
+          if (err) {
+            // Not a git repo or git not available — ignore silently
+          }
+        });
+      }
+    }
+  }
+}
+
 function activate(context) {
   _context = context;
 
   importFromJson();
+  registerMcpServerProvider(context);
 
   // Git Helpers webview (MCP Tools + Community Cache)
   _webviewProvider = new CommunityCacheViewProvider(context.extensionUri);
@@ -862,6 +1704,7 @@ function activate(context) {
     if (authed) {
       cachedUser = await getGhUser();
       cachedRepos = await fetchRepos();
+      await checkGpgUploadStatus();
       _webviewProvider.refresh();
     }
   });
@@ -885,11 +1728,30 @@ function activate(context) {
     vscode.commands.registerCommand(
       "gitShellHelpers.restartMcpServer",
       async () => {
-        vscode.window.showInformationMessage(
-          "Reload the window to restart the MCP server (Cmd+Shift+P → Reload Window).",
+        const choice = await vscode.window.showInformationMessage(
+          "Reload the window now to restart MCP servers and refresh chat tools?",
+          "Reload Window",
+          "Cancel",
         );
+        if (choice === "Reload Window") {
+          await vscode.commands.executeCommand("workbench.action.reloadWindow");
+        }
       },
     ),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.openMcpServerControls",
+      openMcpServerControls,
+    ),
+  );
+
+  // Sync checkpoint settings to git config when changed
+  syncCheckpointSettings();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("gitShellHelpers.checkpoint")) {
+        syncCheckpointSettings();
+      }
+    }),
   );
 }
 

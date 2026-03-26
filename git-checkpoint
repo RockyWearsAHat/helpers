@@ -1,0 +1,391 @@
+#!/usr/bin/env bash
+
+# git-checkpoint
+#
+# Usage:
+#   git checkpoint [options] [context]
+#
+# Description:
+#   Commit the current working state with a proper AI-generated message.
+#   Designed for intentional moments: a fix is verified, a feature works,
+#   you're about to deploy, or you're switching context. Unlike git-upload,
+#   this only commits locally — it never pushes.
+#
+# Options:
+#   -m <message>     Use this message instead of generating one with AI
+#   -a, --all        Stage all tracked changes before committing (git add -u)
+#   --push           Also push after committing (delegates to git-upload)
+#   --dry-run        Show what would be committed without actually committing
+#   --status         Show whether checkpoint is enabled for this repo
+#   --enable         Enable checkpoint for this repo (git config)
+#   --disable        Disable checkpoint for this repo (git config)
+#   --no-verify      Skip pre-commit hooks
+#   -h, --help       Show this help
+#
+# Configuration (git config):
+#   checkpoint.enabled    true/false — gate for external callers (default: true)
+#   checkpoint.push       true/false — always push after commit (default: false)
+#   checkpoint.sign       true/false — GPG-sign commits (default: false)
+#
+# Examples:
+#   git checkpoint                    # stage + AI message + commit
+#   git checkpoint -a                 # stage all tracked + AI message + commit
+#   git checkpoint -m "Fix login"     # stage + manual message + commit
+#   git checkpoint --push             # commit and push
+#   git checkpoint "auth rework"      # extra context for the AI prompt
+#   git checkpoint --enable           # enable per-repo
+#   git checkpoint --disable          # disable per-repo
+#   git checkpoint --dry-run          # preview without committing
+
+set -euo pipefail
+
+# ── Defaults ──────────────────────────────────────────────────────────
+use_manual_msg=false
+manual_msg=""
+stage_all=false
+do_push=false
+dry_run=false
+no_verify=false
+extra_context=""
+
+DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"'
+
+# ── Argument parsing ──────────────────────────────────────────────────
+expect_msg_next=false
+
+for arg in "$@"; do
+	if [ "$expect_msg_next" = true ]; then
+		manual_msg="$arg"
+		use_manual_msg=true
+		expect_msg_next=false
+		continue
+	fi
+	case "$arg" in
+		-m)
+			expect_msg_next=true
+			;;
+		-a|--all)
+			stage_all=true
+			;;
+		--push)
+			do_push=true
+			;;
+		--dry-run)
+			dry_run=true
+			;;
+		--no-verify)
+			no_verify=true
+			;;
+		--status)
+			enabled=$(git config --get checkpoint.enabled 2>/dev/null || echo "true")
+			push_default=$(git config --get checkpoint.push 2>/dev/null || echo "false")
+			sign=$(git config --get checkpoint.sign 2>/dev/null || echo "false")
+			echo "[git-checkpoint] enabled: $enabled"
+			echo "[git-checkpoint] push after commit: $push_default"
+			echo "[git-checkpoint] sign commits: $sign"
+			exit 0
+			;;
+		--enable)
+			git config checkpoint.enabled true
+			echo "[git-checkpoint] Enabled for this repo." >&2
+			exit 0
+			;;
+		--disable)
+			git config checkpoint.enabled false
+			echo "[git-checkpoint] Disabled for this repo." >&2
+			exit 0
+			;;
+		-h|--help)
+			sed -n '3,/^[^#]/s/^# \{0,1\}//p' "$0" | head -40
+			exit 0
+			;;
+		--*)
+			echo "[git-checkpoint] Unknown option: $arg" >&2
+			exit 1
+			;;
+		*)
+			if [ -z "$extra_context" ]; then
+				extra_context="$arg"
+			fi
+			;;
+	esac
+done
+
+if [ "$expect_msg_next" = true ]; then
+	echo "[git-checkpoint] -m requires a message argument." >&2
+	exit 1
+fi
+
+# ── Gate: check if enabled ────────────────────────────────────────────
+enabled=$(git config --get checkpoint.enabled 2>/dev/null || echo "true")
+if [ "$enabled" = "false" ]; then
+	echo "[git-checkpoint] Disabled for this repo. Use 'git checkpoint --enable' to turn on." >&2
+	exit 0
+fi
+
+# ── Ensure we're in a git repo ────────────────────────────────────────
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	echo "[git-checkpoint] Not inside a git repository." >&2
+	exit 1
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+
+# ── Stage changes ────────────────────────────────────────────────────
+if [ "$stage_all" = true ]; then
+	git add -u
+fi
+
+# Check there's something to commit
+if git diff --cached --quiet 2>/dev/null; then
+	# Nothing staged — try to find unstaged changes
+	if ! git diff --quiet 2>/dev/null; then
+		echo "[git-checkpoint] No staged changes. Use -a to stage tracked changes, or stage manually." >&2
+		exit 1
+	fi
+	echo "[git-checkpoint] Nothing to commit — working tree clean." >&2
+	exit 0
+fi
+
+# ── Dry run: show what would be committed ─────────────────────────────
+if [ "$dry_run" = true ]; then
+	echo "[git-checkpoint] DRY RUN — would commit these changes:" >&2
+	git diff --cached --stat
+	if [ "$use_manual_msg" = true ]; then
+		echo ""
+		echo "Message: $manual_msg"
+	else
+		echo ""
+		echo "(AI message would be generated at commit time)"
+	fi
+	exit 0
+fi
+
+# ── Build commit message ─────────────────────────────────────────────
+commit_msg=""
+
+if [ "$use_manual_msg" = true ]; then
+	commit_msg="$manual_msg"
+else
+	# Generate AI message
+	ai_cmd="${GIT_UPLOAD_AI_CMD:-$DEFAULT_AI_CMD}"
+	ai_binary=${ai_cmd%% *}
+	if ! command -v "$ai_binary" >/dev/null 2>&1; then
+		echo "[git-checkpoint] AI command '$ai_binary' not found." >&2
+		echo "[git-checkpoint] Use -m to provide a manual message, or install copilot CLI." >&2
+		exit 1
+	fi
+
+	echo "" >&2
+	echo "[git-checkpoint] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+	echo "[git-checkpoint] 📌 CHECKPOINT" >&2
+	echo "[git-checkpoint] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+
+	# Gather context
+	changed_files=$(git diff --cached --name-only 2>/dev/null | head -30 || echo "")
+	stat_summary=$(git diff --cached --stat 2>/dev/null | tail -1 || echo "")
+	actual_diff=$(git diff --cached --unified=3 2>/dev/null || echo "")
+	diff_lines=$(printf '%s\n' "$actual_diff" | wc -l | tr -d ' ')
+	if [ "$diff_lines" -gt 2000 ]; then
+		actual_diff=$(printf '%s\n' "$actual_diff" | head -2000)
+		actual_diff="$actual_diff
+(truncated — showing first 2000 of $diff_lines lines)"
+	fi
+
+	recent_history=$(git log --oneline -10 --no-decorate 2>/dev/null | head -10 || echo "")
+	detailed_recent=$(git log -3 --pretty=format:"--- %h (%ar) ---%n%s%n%n%b" 2>/dev/null || echo "")
+
+	# Load repo guidance if available — commit guidelines get priority
+	repo_guidance=""
+	for guidance_file in \
+		".github/COMMIT_GUIDELINES.md" \
+		".github/commit_guidelines.md" \
+		".github/COMMIT_MESSAGE.md" \
+		".github/commit_message.md" \
+		".github/UPLOAD_GUIDELINES.md" \
+		".github/copilot-instructions.md" \
+		"AGENTS.md" \
+		"CLAUDE.md" \
+		"CONTRIBUTING.md" \
+		"README.md"; do
+		if [ -f "$repo_root/$guidance_file" ]; then
+			snippet=$(head -120 "$repo_root/$guidance_file" 2>/dev/null || true)
+			if [ -n "$snippet" ]; then
+				repo_guidance="$repo_guidance
+--- $guidance_file ---
+$snippet
+"
+			fi
+		fi
+	done
+
+	prompt='Write a commit message for the staged changes below.
+
+If you have read tools available, use them to understand the codebase
+beyond just the diff — read related files, understand the project
+structure, and get the full picture. The better you understand what
+the project does and where these changes fit, the better the message.
+Do not invent changes that are not in the diff.
+
+This is a CHECKPOINT commit — the developer is marking a meaningful moment:
+something works now that did not before, a logical unit of work is complete,
+or they are about to switch context. Frame the message accordingly.
+
+CONTEXT MATTERS MOST:
+Read the recent commit history. Each commit is part of an ongoing thread.
+Frame yours as the next step in that story.
+
+SUBJECT LINE:
+One line, <= 72 chars. Say what the commit DOES or FIXES, not what
+files it touches. Write it like you would describe the change to a
+coworker.
+
+Good:
+  '\''Fix install button showing up even after app is already installed'\''
+  '\''Stop blocking payouts until Stripe says so'\''
+  '\''Add loading text to clash fetch so users stop retrying'\''
+  '\''Local storage fixed so logged-out users can add items to cart'\''
+
+Bad:
+  '\''Update utils.ts'\'' — robotic, says nothing useful
+  '\''Refactor implementation details'\'' — meaningless
+  '\''Support cancelling MCP tool calls in server'\'' — too jargony
+  '\''Auto-detect checkpoint cwd via MCP roots'\'' — insider terminology
+
+BODY:
+Describe the situation, what you did, and why. Someone reading git blame
+should understand the reasoning without opening the diff.
+
+DO NOT use section headers like '\''What changed:'\'', '\''Why this matters:'\'',
+or any rigid template. Just write naturally.
+
+For a tiny fix: one sentence or no body at all.
+For a small change: a short paragraph.
+For a medium change: a sentence of context, then bullets.
+For a large change: group under short topic-specific headers.
+
+The body should make it obvious WHY this change was made, not just
+WHAT code was touched. Name the specific things. If there'\''s a number
+(speed, count, size), include it.
+
+Never anthropomorphize code. Never restate the subject in different words.
+Never use corporate filler like '\''formalize'\'', '\''artifacts'\'', '\''subsystem'\'',
+'\''implement'\'', '\''enhance'\'', '\''leverage'\''. Write like a human developer talking
+to another developer. If a non-programmer couldn'\''t roughly understand
+the subject line, it'\''s too jargony.
+
+OUTPUT FORMAT — output ONLY the commit message between these markers.
+Each marker MUST be on its own line with nothing else on it.
+Do NOT put COMMIT_END on the same line as message text.
+
+COMMIT_BEGIN
+<commit message>
+COMMIT_END
+'
+
+	full_prompt="$prompt
+
+RECENT COMMIT HISTORY:
+$recent_history
+
+DETAILED RECENT COMMITS (last 3):
+$detailed_recent"
+
+	if [ -n "$repo_guidance" ]; then
+		full_prompt="$full_prompt
+
+REPOSITORY GUIDANCE:
+$repo_guidance"
+	fi
+
+	full_prompt="$full_prompt
+
+---
+
+Changed files:
+$(printf '%s\n' "$changed_files" | sed 's/^/  - /')
+
+Git stat: $stat_summary
+
+DIFF ($diff_lines lines):
+\`\`\`diff
+$actual_diff
+\`\`\`"
+
+	if [ -n "$extra_context" ]; then
+		full_prompt="$full_prompt
+
+Additional context from developer: $extra_context"
+	fi
+
+	echo "[git-checkpoint] Generating commit message..." >&2
+
+	ai_output_file=$(mktemp -t git-checkpoint-ai.XXXXXX)
+	ai_exit=0
+	if ! GIT_UPLOAD_AI_PROMPT="$full_prompt" eval "$ai_cmd" > "$ai_output_file" 2>&1; then
+		ai_exit=$?
+	fi
+
+	ai_output=$(cat "$ai_output_file" 2>/dev/null || echo "")
+	rm -f "$ai_output_file" >/dev/null 2>&1 || true
+
+	if [ "$ai_exit" -ne 0 ] || [ -z "${ai_output// /}" ]; then
+		echo "[git-checkpoint] AI failed (exit $ai_exit). Use -m for a manual message." >&2
+		exit 1
+	fi
+
+	# Extract COMMIT_BEGIN/COMMIT_END block
+	commit_msg=$(printf '%s\n' "$ai_output" | awk '
+		/^COMMIT_BEGIN$/ { capture=1; next }
+		/^COMMIT_END$/   { capture=0; exit }
+		capture { print }
+	')
+
+	# Strip inline COMMIT_END from message (AI sometimes appends it to last line)
+	commit_msg=$(printf '%s\n' "$commit_msg" | sed 's/[[:space:]]*COMMIT_END[[:space:]]*$//')
+
+	if [ -z "${commit_msg// /}" ]; then
+		# Fallback: try COMMIT: prefix
+		commit_msg=$(printf '%s\n' "$ai_output" | grep -E '^[[:space:]]*COMMIT: ' | tail -n 1 | sed 's/^[[:space:]]*COMMIT: //')
+	fi
+
+	if [ -z "${commit_msg// /}" ]; then
+		echo "[git-checkpoint] Could not parse AI output. Use -m for a manual message." >&2
+		exit 1
+	fi
+
+	echo "[git-checkpoint] ✅ Message generated" >&2
+fi
+
+# ── Commit ────────────────────────────────────────────────────────────
+commit_args=()
+if [ "$no_verify" = true ]; then
+	commit_args+=("--no-verify")
+fi
+
+# GPG signing
+sign_commits=$(git config --get checkpoint.sign 2>/dev/null || echo "false")
+if [ "$sign_commits" = "true" ]; then
+	commit_args+=("-S")
+fi
+
+git commit "${commit_args[@]}" -m "$commit_msg"
+
+echo "" >&2
+echo "[git-checkpoint] ✅ Committed." >&2
+
+# Show what was committed
+git log --oneline -1 >&2
+
+# ── Optional push ────────────────────────────────────────────────────
+push_default=$(git config --get checkpoint.push 2>/dev/null || echo "false")
+if [ "$do_push" = true ] || [ "$push_default" = "true" ]; then
+	echo "" >&2
+	echo "[git-checkpoint] Pushing..." >&2
+	if command -v git-upload >/dev/null 2>&1; then
+		# Delegate to git-upload for its push logic (remote tracking, etc.)
+		git-upload "$commit_msg"
+	else
+		git push
+	fi
+fi

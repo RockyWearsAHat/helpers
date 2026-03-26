@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "communityRepo": "RockyWearsAHat/github-shell-helpers",
-  "baseBranch": "main",
-  "branchPrefix": "automation/community-cache-submission",
-  "mode": "disabled",
-  "whitelistedRepos": [],
-  "localClone": "."
-}

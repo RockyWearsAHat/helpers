@@ -535,27 +535,27 @@ install_man_git_research_mcp() {
 
 VSCODE_MCP_JSON="$HOME/Library/Application Support/Code/User/mcp.json"
 
-install_mcp_aioserver_vision() {
-  local dest_dir="${BIN_DIR}/aioserver-vision-tool"
-  local src_dir="${SCRIPT_DIR}/aioserver-vision-tool"
+install_mcp_vision_tool() {
+  local dest_dir="${BIN_DIR}/vision-tool"
+  local src_dir="${SCRIPT_DIR}/vision-tool"
 
   if [ ! -d "$src_dir" ]; then
-    echo "[install-git-shell-helpers] WARNING: aioserver-vision-tool source not found: $src_dir" >&2
+    echo "[install-git-shell-helpers] WARNING: vision-tool source not found: $src_dir" >&2
     return 1
   fi
 
   ensure_dir "$dest_dir"
   for f in mcp-server.js extension.js package.json README.md LICENSE.txt; do
-    if [ -f "$src_dir/$f" ]; then
+    if [ -f "$src_dir/$f" ] && [ "$src_dir/$f" != "$dest_dir/$f" ]; then
       cp "$src_dir/$f" "$dest_dir/$f"
     fi
   done
-  echo "[install-git-shell-helpers] Installed MCP tool: aioserver-vision -> $dest_dir"
+  echo "[install-git-shell-helpers] Installed MCP tool: vision-tool -> $dest_dir"
 }
 
-maybe_install_aioserver_vision_extension() {
+maybe_install_vision_extension() {
   local code_cli="$1"
-  local ext_dir="${SCRIPT_DIR}/aioserver-vision-tool"
+  local ext_dir="${SCRIPT_DIR}/vision-tool"
 
   if [ ! -d "$ext_dir" ] || [ ! -f "$ext_dir/package.json" ]; then
     return
@@ -566,63 +566,50 @@ maybe_install_aioserver_vision_extension() {
 
   if [[ -z "$vsix_file" ]] || [[ "$ext_dir/package.json" -nt "$vsix_file" ]] || [[ "$ext_dir/extension.js" -nt "$vsix_file" ]]; then
     if command -v npx >/dev/null 2>&1; then
-      echo "[install-git-shell-helpers] Building aioserver-vision VS Code extension..."
+      echo "[install-git-shell-helpers] Building gsh-vision VS Code extension..."
       if (cd "$ext_dir" && npx @vscode/vsce package --no-dependencies --allow-missing-repository) >/dev/null 2>&1; then
         vsix_file=$(find "$ext_dir" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null)
       else
-        echo "[install-git-shell-helpers] WARNING: Failed to build aioserver-vision extension. Skipping." >&2
+        echo "[install-git-shell-helpers] WARNING: Failed to build gsh-vision extension. Skipping." >&2
         return
       fi
     else
-      echo "[install-git-shell-helpers] npx not found, cannot build aioserver-vision extension. Skipping."
+      echo "[install-git-shell-helpers] npx not found, cannot build gsh-vision extension. Skipping."
       return
     fi
   fi
 
   if [[ -n "$vsix_file" ]] && [[ -n "$code_cli" ]]; then
     if "$code_cli" --install-extension "$vsix_file" --force >/dev/null 2>&1; then
-      echo "[install-git-shell-helpers] Installed VS Code extension: aioserver-vision-tool"
+      echo "[install-git-shell-helpers] Installed VS Code extension: gsh-vision-tool"
     else
-      echo "[install-git-shell-helpers] WARNING: Failed to install aioserver-vision VS Code extension." >&2
+      echo "[install-git-shell-helpers] WARNING: Failed to install gsh-vision VS Code extension." >&2
     fi
   fi
 }
 
-# Read existing mcp.json, add/update a server entry, write back.
-# Usage: upsert_mcp_server <server_name> <json_block>
-upsert_mcp_server() {
+remove_mcp_server() {
   local name="$1"
-  local block="$2"
   local mcp_file="$VSCODE_MCP_JSON"
 
-  ensure_dir "$(dirname "$mcp_file")"
+  [ -f "$mcp_file" ] || return 0
 
-  if [ ! -f "$mcp_file" ]; then
-    cat >"$mcp_file" <<MCPEOF
-{
-  "servers": {
-    ${name}: ${block}
-  }
-}
-MCPEOF
-    return
-  fi
-
-  # Use python3 (available on macOS) to safely merge JSON
-  python3 - "$mcp_file" "$name" "$block" <<'PYEOF'
+  python3 - "$mcp_file" "$name" <<'PYEOF'
 import json, sys
-mcp_path, srv_name, srv_block = sys.argv[1], sys.argv[2], sys.argv[3]
+
+mcp_path, srv_name = sys.argv[1], sys.argv[2]
 try:
-    with open(mcp_path, "r") as f:
+    with open(mcp_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 except (json.JSONDecodeError, FileNotFoundError):
-    data = {}
-if "servers" not in data or not isinstance(data["servers"], dict):
-    data["servers"] = {}
-data["servers"][srv_name] = json.loads(srv_block)
-with open(mcp_path, "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
+    sys.exit(0)
+
+if "servers" in data and isinstance(data["servers"], dict):
+    if srv_name in data["servers"]:
+        del data["servers"][srv_name]
+        with open(mcp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
 PYEOF
 }
 
@@ -632,10 +619,10 @@ configure_mcp_tools() {
   local install_vision=true
 
   echo ""
-  echo "[install-git-shell-helpers] MCP Tools (combined server: git-shell-helpers)"
+  echo "[install-git-shell-helpers] MCP Tools (global via Git Shell Helpers extension)"
   echo "  Bundled tool modules:"
   echo "    1) git-research-mcp  — web search & knowledge cache for Copilot agents"
-  echo "    2) aioserver-vision  — screenshot analysis with vision models"
+  echo "    2) gsh-vision        — screenshot analysis with vision models"
   echo ""
   printf '[install-git-shell-helpers] Install MCP tools into VS Code? [Y/n/pick]: '
   read -r mcp_reply || mcp_reply=""
@@ -668,47 +655,116 @@ configure_mcp_tools() {
 
   # Copy vision tool files if selected
   if [ "$install_vision" = true ]; then
-    install_mcp_aioserver_vision
+    install_mcp_vision_tool
     if [[ -n "$code_cli" ]]; then
-      maybe_install_aioserver_vision_extension "$code_cli"
+      maybe_install_vision_extension "$code_cli"
     fi
   fi
 
-  # Build the env block for disabling modules the user opted out of
-  local env_block=""
-  if [ "$install_research" = false ]; then
-    env_block="${env_block:+$env_block, }\"GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH\": \"1\""
-  fi
-  if [ "$install_vision" = false ]; then
-    env_block="${env_block:+$env_block, }\"GIT_SHELL_HELPERS_MCP_DISABLE_VISION\": \"1\""
-  fi
+  # Remove legacy mcp.json entry — the VS Code extension now registers the
+  # gsh MCP server automatically via registerMcpServerDefinitionProvider.
+  remove_mcp_server "gsh"
 
-  local server_json
-  if [ -n "$env_block" ]; then
-    server_json='{
-      "type": "stdio",
-      "command": "node",
-      "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"],
-      "env": { '"${env_block}"' }
-    }'
-  else
-    server_json='{
-      "type": "stdio",
-      "command": "node",
-      "args": ["'"${BIN_DIR}/git-shell-helpers-mcp"'"]
-    }'
-  fi
-
-  upsert_mcp_server '"git-shell-helpers"' "$server_json"
-
-  echo "[install-git-shell-helpers] Configured MCP server: git-shell-helpers"
+  echo "[install-git-shell-helpers] Installed MCP server runtime: ${BIN_DIR}/git-shell-helpers-mcp"
   if [ "$install_research" = true ]; then
     echo "  ✓ research tools (web search, knowledge cache, fetch pages)"
+  else
+    echo "  - research tools left available for later install"
   fi
   if [ "$install_vision" = true ]; then
     echo "  ✓ vision tools (screenshot analysis)"
+  else
+    echo "  - vision tools not installed"
   fi
-  echo "[install-git-shell-helpers] MCP config written to: $VSCODE_MCP_JSON"
+  echo "[install-git-shell-helpers] The gsh MCP server is registered by the Git Shell Helpers VS Code extension."
+  echo "[install-git-shell-helpers] Reload VS Code to refresh MCP server discovery."
+}
+
+setup_gpg_signing() {
+  if ! command -v gpg >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] gpg not found — skipping commit signing setup."
+    echo "  Install with: brew install gnupg"
+    return 0
+  fi
+
+  local git_email git_name
+  git_email="$(git config --global user.email 2>/dev/null || true)"
+  git_name="$(git config --global user.name 2>/dev/null || echo "$USER")"
+
+  if [[ -z "$git_email" ]]; then
+    echo "[install-git-shell-helpers] No git user.email configured — skipping GPG signing setup."
+    return 0
+  fi
+
+  # Find existing secret key for this email
+  local key_id
+  key_id="$(gpg --list-secret-keys --keyid-format=long "$git_email" 2>/dev/null \
+    | awk '/^sec/{split($2,a,"/"); print a[2]; exit}')"
+
+  if [[ -z "$key_id" ]]; then
+    echo "[install-git-shell-helpers] No GPG key found for $git_email — generating one..."
+    gpg --batch --gen-key <<GPGEOF
+%no-protection
+Key-Type: RSA
+Key-Length: 4096
+Subkey-Type: RSA
+Subkey-Length: 4096
+Name-Real: $git_name
+Name-Email: $git_email
+Expire-Date: 0
+GPGEOF
+    key_id="$(gpg --list-secret-keys --keyid-format=long "$git_email" 2>/dev/null \
+      | awk '/^sec/{split($2,a,"/"); print a[2]; exit}')"
+    echo "[install-git-shell-helpers] GPG key generated: $key_id"
+  else
+    echo "[install-git-shell-helpers] Found existing GPG key: $key_id"
+  fi
+
+  if [[ -z "$key_id" ]]; then
+    echo "[install-git-shell-helpers] ERROR: Could not determine GPG key ID." >&2
+    return 1
+  fi
+
+  # Configure git to sign all commits with this key
+  git config --global user.signingkey "$key_id"
+  git config --global commit.gpgsign true
+  echo "[install-git-shell-helpers] Git configured to sign commits with key $key_id."
+
+  # Upload public key to GitHub
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] gh CLI not found — add your GPG public key manually at:"
+    echo "  https://github.com/settings/keys"
+    return 0
+  fi
+
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] Not logged in to GitHub — add your GPG public key manually at:"
+    echo "  https://github.com/settings/keys"
+    return 0
+  fi
+
+  # Ensure write:gpg_key scope — open browser directly instead of device code flow
+  if ! gh auth status 2>&1 | grep -qE 'write:gpg_key|admin:gpg_key'; then
+    echo "[install-git-shell-helpers] Requesting write:gpg_key scope from GitHub..."
+    gh auth refresh -s write:gpg_key --web
+  fi
+
+  # Skip upload if key is already present on GitHub
+  if gh gpg-key list 2>/dev/null | grep -qi "$key_id"; then
+    echo "[install-git-shell-helpers] GPG key already on GitHub — commits will show as Verified."
+    return 0
+  fi
+
+  local tmpfile
+  tmpfile="$(mktemp)"
+  gpg --armor --export "$key_id" >"$tmpfile"
+  if gh gpg-key add "$tmpfile" 2>/dev/null; then
+    echo "[install-git-shell-helpers] GPG public key uploaded to GitHub — commits will now show as Verified."
+  else
+    echo "[install-git-shell-helpers] Could not upload GPG key automatically — add it manually at:"
+    echo "  https://github.com/settings/keys"
+  fi
+  rm -f "$tmpfile"
 }
 
 main() {
@@ -726,6 +782,7 @@ main() {
   install_script "git-shell-helpers-mcp"
   install_support_script "scripts/community-cache-submit.sh" "git-copilot-devops-audit-community-submit"
   install_support_script "scripts/community-cache-pull.sh" "git-copilot-devops-audit-community-pull"
+  install_support_script "scripts/community-research-submit.sh" "git-copilot-devops-audit-community-research-submit"
 
   # Write default git-research-mcp config if it doesn't exist
   local research_config_dir="${HOME}/.config/git-research-mcp"
@@ -752,6 +809,9 @@ RENV
   # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
   ensure_line_in_file "$ZSHRC" 'export MANPATH="$HOME/man:$MANPATH"'
+
+  echo ""
+  setup_gpg_signing
 
   # Optional: install private audit agents and /copilot-devops-audit prompt globally
   # -----------------------------------------------------------------------------
