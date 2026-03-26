@@ -1,9 +1,10 @@
 name: Knowledge Base Audit
 
+# DISABLED — replaced by local @AuditKBCC agent invocation.
+# Kept for reference; can be re-enabled by uncommenting the schedule.
 on:
-  schedule:
-    # Run every 2 hours — free via Copilot tokens
-    - cron: "0 */2 * * *"
+  # schedule:
+  #   - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
       batch_size:
