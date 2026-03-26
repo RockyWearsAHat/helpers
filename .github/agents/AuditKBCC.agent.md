@@ -25,7 +25,7 @@ You are a **manager only**. You do NOT read or review articles yourself. You par
 
 ### Step 2 — Partition into Assignments
 
-Split the file list into batches of **40-60 files per subagent**. Each batch becomes one `@AuditKBCCReviewer` invocation.
+Split the file list into batches of **20-30 files per subagent**. Each batch becomes one `@AuditKBCCReviewer` invocation.
 
 Group files by category prefix when possible (e.g. all `algorithms-*.md` together, all `api-*.md` together) so each reviewer builds domain context as it works.
 
@@ -54,7 +54,7 @@ FILENAME: status
 - [severity/type] description → suggestion
 ```
 
-**Launch subagents in parallel** — do not wait for one to finish before starting the next.
+**CRITICAL: Launch at most 3 subagents in parallel.** Wait for a batch of 3 to finish before launching the next 3. Launching too many parallel subagents will crash VS Code.
 
 Use the todo list to track each batch assignment.
 
@@ -111,6 +111,7 @@ If the user says "fix them" or "update them":
 - **You do NOT read articles.** Subagents do all the reading and verification.
 - **You do NOT verify claims.** That's the reviewer's job.
 - **You DO partition, dispatch, collect, and present.**
-- **Maximize parallelism.** Launch all subagent batches at once.
+- **Max 3 parallel subagents.** Launch in waves of 3, wait for all 3 to return, then launch the next 3. More than 3 concurrent subagents crashes VS Code.
 - **Track progress** via the todo list — one item per batch.
 - **No state files.** Your output to the user IS the audit result.
+- **Default scope:** If the user says nothing specific, audit ~100 files (3-4 subagents). Only audit everything if explicitly asked.
