@@ -172,6 +172,11 @@ if "servers" in data and isinstance(data["servers"], dict):
 PYEOF
 }
 
+remove_legacy_gsh_mcp_servers() {
+  remove_mcp_server "gsh"
+  remove_mcp_server "git-shell-helpers"
+}
+
 configure_mcp_tools() {
   local install_research=true
   local install_vision=true
@@ -214,9 +219,9 @@ configure_mcp_tools() {
     fetch "$REPO_RAW_BASE/vision-tool/mcp-server.js" "$vision_dir/mcp-server.js"
   fi
 
-  # Remove legacy mcp.json entry — the VS Code extension now registers the
-  # gsh MCP server automatically via registerMcpServerDefinitionProvider.
-  remove_mcp_server "gsh"
+  # Remove legacy static mcp.json entries — the VS Code extension now
+  # registers GitHub Shell Helpers automatically.
+  remove_legacy_gsh_mcp_servers
 
   echo "[Git-Shell-Helpers-Installer] Installed MCP server runtime: ${BIN_DIR}/git-shell-helpers-mcp"
   if [ "$install_research" = true ]; then
@@ -229,7 +234,7 @@ configure_mcp_tools() {
   else
     echo "  - vision tools not installed"
   fi
-  echo "[Git-Shell-Helpers-Installer] The gsh MCP server is registered by the Git Shell Helpers VS Code extension."
+  echo "[Git-Shell-Helpers-Installer] GitHub Shell Helpers is registered by the Git Shell Helpers VS Code extension."
   echo "[Git-Shell-Helpers-Installer] Reload VS Code after installing the extension to refresh MCP server discovery."
 }
 

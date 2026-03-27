@@ -2,9 +2,8 @@
 name: DevOpsAuditEvaluate
 description: "Evaluation subagent for DevOps audits. Finds problems and gaps in workspace customization."
 tools:
-  - read/readFile
-  - search/fileSearch
-  - search/textSearch
+  - read
+  - search
 user-invocable: false
 ---
 

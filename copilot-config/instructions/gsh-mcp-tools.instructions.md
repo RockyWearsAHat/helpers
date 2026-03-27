@@ -7,6 +7,16 @@ applyTo: "**"
 
 The `gsh` MCP server is installed globally and available in every workspace. It exposes three groups of tools.
 
+## Default Request Preamble
+
+Apply this guidance before processing each user request:
+
+- Prefer direct MCP tool calls when a matching gsh tool exists; avoid terminal emulation for tool behavior checks.
+- For diagnostics, use `strict_lint` first.
+- `strict_lint` defaults to `severityFilter: "all"` when omitted (includes error, warning, info, and hint diagnostics).
+- Only pass `severityFilter` when the user explicitly asks to narrow severity.
+- If there is a reported mismatch with VS Code squiggles, rerun `strict_lint` on the exact file path with default severity before deeper debugging.
+
 ## Core — Git Checkpoint
 
 **`checkpoint`** — Create a local git commit with an AI-generated message.

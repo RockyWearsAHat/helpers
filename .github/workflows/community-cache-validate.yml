@@ -7,13 +7,21 @@ on:
       - community-cache/schemas/final-conclusion.schema.json
       - scripts/community-cache-consolidate.sh
 
+concurrency:
+  group: community-cache-validate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -108,7 +116,7 @@ jobs:
           fi
 
       - name: Auto-merge validated submission
-        if: steps.new_files.outputs.count != '0' && steps.scope.outputs.safe_to_merge == 'true'
+        if: steps.new_files.outputs.count != '0' && steps.scope.outputs.safe_to_merge == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

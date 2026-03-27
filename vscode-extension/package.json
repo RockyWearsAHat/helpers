@@ -12,7 +12,9 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onLanguageModelTool:gsh-inspect-copilot-customization-warnings",
+    "onLanguageModelTool:gsh-strict-lint"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -26,6 +28,10 @@
       {
         "command": "gitShellHelpers.showCommunityStatus",
         "title": "Git Shell Helpers: Show Community Cache Status"
+      },
+      {
+        "command": "gitShellHelpers.inspectCopilotCustomizationWarnings",
+        "title": "Git Shell Helpers: Run Strict Linting"
       },
       {
         "command": "gitShellHelpers.loginGitHub",
@@ -46,6 +52,52 @@
       {
         "command": "gitShellHelpers.openMcpServerControls",
         "title": "Git Shell Helpers: Open MCP Server Controls"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "gsh-inspect-copilot-customization-warnings",
+        "displayName": "Strict Linting (Customization File)",
+        "userDescription": "Read live VS Code errors, warnings, hover details, and quick fixes for a Copilot customization file's frontmatter tools list.",
+        "modelDescription": "Use this tool when working on Copilot customization files such as .agent.md, .instructions.md, .prompt.md, SKILL.md, or copilot-instructions.md and you need the real VS Code diagnostics for the frontmatter tools list. It reads editor errors, warnings, hover details, and available quick fixes, then returns a readable report directly in chat.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Optional absolute path to a Copilot customization file to inspect. When omitted, the active editor file is used."
+            }
+          }
+        }
+      },
+      {
+        "name": "gsh-strict-lint",
+        "displayName": "Strict Linting",
+        "userDescription": "Read live VS Code errors and warnings for any file, folder, or the whole workspace.",
+        "modelDescription": "Use this tool to get real VS Code diagnostics (errors, warnings, info) for any file, folder, or the entire workspace. Pass filePath for a single file, folderPath to scan a directory recursively, or omit both for a full workspace scan. Use severityFilter to limit results to errors-only or warnings-and-above.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute path to a specific file to lint. Omit to scan a folder or the whole workspace."
+            },
+            "folderPath": {
+              "type": "string",
+              "description": "Absolute path to a folder. Returns diagnostics for all files within it."
+            },
+            "severityFilter": {
+              "type": "string",
+              "enum": [
+                "all",
+                "warnings-and-above",
+                "errors-only"
+              ],
+              "default": "all",
+              "description": "Filter by minimum severity. Defaults to 'all'."
+            }
+          }
+        }
       }
     ],
     "viewsContainers": {
@@ -85,6 +137,11 @@
           "type": "boolean",
           "default": false,
           "description": "GPG-sign checkpoint commits (requires a GPG key configured in git)."
+        },
+        "gitShellHelpers.customizationInspector.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Strict Linting, a chat tool that reads live VS Code errors, warnings, and quick fixes for Copilot customization files."
         }
       }
     }
