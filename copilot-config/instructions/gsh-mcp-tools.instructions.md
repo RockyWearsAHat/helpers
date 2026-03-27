@@ -33,7 +33,8 @@ Parameters:
 - `all` (boolean) — Stage all changes including untracked files (`git add -A`) before committing. Default: `true`.
 - `push` (boolean) — Push to remote after committing. Default: `false`.
 - `force` (boolean) — Override a mid-session disable. Only use when the user explicitly asked for a checkpoint and the previous call returned `[no-op]`.
-- `cwd` (string, optional) — Absolute path to the git repository to commit in. The server auto-detects the workspace root via MCP roots when exactly one VS Code workspace folder is open. Pass `cwd` explicitly only when working in a multi-root workspace or when the auto-detected root is not the intended repo.
+- `cwd` (string, optional) — Absolute path to the git repository to commit in. Auto-detected from the server's working directory when omitted. Pass explicitly when working in a multi-root workspace, a git worktree, or when the target repo differs from the auto-detected root.
+- `branch` (string, optional) — Assert that HEAD is on this branch before committing. If the current branch does not match, the commit is aborted with an error. Use this to prevent accidentally committing to the wrong branch.
 
 ## Research — Web Search & Knowledge Base
 

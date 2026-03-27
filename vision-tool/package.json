@@ -15,6 +15,9 @@
   "files": [
     "extension.js",
     "mcp-server.js",
+    "lib/video-frames.js",
+    "lib/video-analysis.js",
+    "lib/video-report.js",
     "package.json",
     "README.md",
     "LICENSE.txt"
@@ -25,6 +28,8 @@
     "onLanguageModelTool:gsh_analyze_images",
     "onLanguageModelTool:gsh-take-screenshot",
     "onLanguageModelTool:gsh_take_screenshot",
+    "onLanguageModelTool:gsh-analyze-video",
+    "onLanguageModelTool:gsh_analyze_video",
     "onChatParticipant:local.gsh-vision"
   ],
   "main": "./extension.js",
@@ -50,6 +55,10 @@
           {
             "name": "analyze",
             "description": "Analyze images. Usage: /analyze /path/to/img1.png :: /path/to/img2.png :: What to evaluate?"
+          },
+          {
+            "name": "analyze-video",
+            "description": "Analyze a video. Usage: /analyze-video /path/to/video.mp4 :: What to analyze?"
           }
         ]
       }
@@ -211,6 +220,132 @@
             "height": {
               "type": "number",
               "description": "Height for region capture."
+            }
+          }
+        }
+      },
+      {
+        "name": "gsh-analyze-video",
+        "displayName": "Analyze Video",
+        "userDescription": "Analyze a video by extracting frames and running them through a vision model.",
+        "modelDescription": "Use this tool to analyze video content. Extracts frames at regular intervals using ffmpeg, analyzes each batch with a vision model, and optionally merges with transcript/caption data from an external parser. Returns a structured JSON timeline with per-frame visual descriptions, OCR-like text extraction, and a human-readable report. Requires ffmpeg/ffprobe to be installed. Accepts local video paths or URLs (via yt-dlp). Supports time window restriction and custom sampling intervals.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "videoPath",
+            "goal"
+          ],
+          "properties": {
+            "videoPath": {
+              "type": "string",
+              "description": "Absolute path to a local video file, or a URL (YouTube/Shorts) if yt-dlp is installed."
+            },
+            "goal": {
+              "type": "string",
+              "description": "What to analyze or determine from the video. Be specific about what visual evidence to look for."
+            },
+            "transcriptSegments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "start": { "type": "number" },
+                  "end": { "type": "number" },
+                  "text": { "type": "string" }
+                }
+              },
+              "description": "Pre-segmented transcript/caption JSON from an external audio parser."
+            },
+            "transcriptText": {
+              "type": "string",
+              "description": "Raw transcript text (unaligned). Use when segmented transcript is not available."
+            },
+            "startSec": {
+              "type": "number",
+              "description": "Optional start time in seconds. Limits analysis to a time window."
+            },
+            "endSec": {
+              "type": "number",
+              "description": "Optional end time in seconds."
+            },
+            "sampleEverySec": {
+              "type": "number",
+              "description": "Interval between frame samples in seconds. Auto-calculated if omitted."
+            },
+            "maxFrames": {
+              "type": "number",
+              "description": "Maximum number of frames to extract and analyze. Default: 30, max: 60."
+            },
+            "includeReport": {
+              "type": "boolean",
+              "description": "Include a human-readable report in the output. Default: true."
+            },
+            "includeTimeline": {
+              "type": "boolean",
+              "description": "Include the structured timeline segments in the output. Default: true."
+            }
+          }
+        }
+      },
+      {
+        "name": "gsh_analyze_video",
+        "displayName": "Analyze Video",
+        "userDescription": "Analyze a video by extracting frames and running them through a vision model.",
+        "modelDescription": "Use this tool to analyze video content. Extracts frames at regular intervals using ffmpeg, analyzes each batch with a vision model, and optionally merges with transcript/caption data from an external parser. Returns a structured JSON timeline with per-frame visual descriptions, OCR-like text extraction, and a human-readable report. Requires ffmpeg/ffprobe to be installed. Accepts local video paths or URLs (via yt-dlp). Supports time window restriction and custom sampling intervals.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "videoPath",
+            "goal"
+          ],
+          "properties": {
+            "videoPath": {
+              "type": "string",
+              "description": "Absolute path to a local video file, or a URL (YouTube/Shorts) if yt-dlp is installed."
+            },
+            "goal": {
+              "type": "string",
+              "description": "What to analyze or determine from the video. Be specific about what visual evidence to look for."
+            },
+            "transcriptSegments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "start": { "type": "number" },
+                  "end": { "type": "number" },
+                  "text": { "type": "string" }
+                }
+              },
+              "description": "Pre-segmented transcript/caption JSON from an external audio parser."
+            },
+            "transcriptText": {
+              "type": "string",
+              "description": "Raw transcript text (unaligned). Use when segmented transcript is not available."
+            },
+            "startSec": {
+              "type": "number",
+              "description": "Optional start time in seconds. Limits analysis to a time window."
+            },
+            "endSec": {
+              "type": "number",
+              "description": "Optional end time in seconds."
+            },
+            "sampleEverySec": {
+              "type": "number",
+              "description": "Interval between frame samples in seconds. Auto-calculated if omitted."
+            },
+            "maxFrames": {
+              "type": "number",
+              "description": "Maximum number of frames to extract and analyze. Default: 30, max: 60."
+            },
+            "includeReport": {
+              "type": "boolean",
+              "description": "Include a human-readable report in the output. Default: true."
+            },
+            "includeTimeline": {
+              "type": "boolean",
+              "description": "Include the structured timeline segments in the output. Default: true."
             }
           }
         }

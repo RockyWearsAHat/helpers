@@ -156,6 +156,74 @@ const VISION_TOOLS = [
       required: ["image_paths", "goal"],
     },
   },
+  {
+    name: "analyze_video",
+    description:
+      "Analyze a video by extracting frames at intervals, running them through a vision model, and optionally merging with transcript/caption data. Returns a structured timeline and human-readable report. Requires ffmpeg and ffprobe. Accepts local video paths or URLs (via yt-dlp).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        video_path: {
+          type: "string",
+          description:
+            "Absolute path to a local video file, or a URL (YouTube/Shorts) if yt-dlp is installed.",
+        },
+        goal: {
+          type: "string",
+          description:
+            "What to analyze or determine from the video. Be specific about what visual evidence to look for.",
+        },
+        transcript_segments: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              start: { type: "number", description: "Segment start time in seconds." },
+              end: { type: "number", description: "Segment end time in seconds." },
+              text: { type: "string", description: "Transcript text for this segment." },
+            },
+          },
+          description:
+            "Pre-segmented transcript/caption JSON from an external audio parser. Each segment has start, end (seconds), and text.",
+        },
+        transcript_text: {
+          type: "string",
+          description:
+            "Raw transcript text (unaligned). Use when segmented transcript is not available.",
+        },
+        start_sec: {
+          type: "number",
+          description:
+            "Optional start time in seconds. Limits analysis to a time window.",
+        },
+        end_sec: {
+          type: "number",
+          description: "Optional end time in seconds.",
+        },
+        sample_every_sec: {
+          type: "number",
+          description:
+            "Interval between frame samples in seconds. Auto-calculated if omitted.",
+        },
+        max_frames: {
+          type: "number",
+          description:
+            "Maximum number of frames to extract and analyze. Default: 30, max: 60.",
+        },
+        include_report: {
+          type: "boolean",
+          description:
+            "Include a human-readable report in the output. Default: true.",
+        },
+        include_timeline: {
+          type: "boolean",
+          description:
+            "Include the structured timeline segments in the output. Default: true.",
+        },
+      },
+      required: ["video_path", "goal"],
+    },
+  },
 ];
 
 async function handleVisionToolCall(toolName, toolArguments) {
@@ -181,6 +249,17 @@ async function handleVisionToolCall(toolName, toolArguments) {
     return [
       { type: "text", text: `Model: ${response.model}\n\n${response.result}` },
     ];
+  }
+
+  if (toolName === "analyze_video") {
+    const response = await connectAndSend({
+      method: toolName,
+      arguments: toolArguments,
+    });
+    if (!response.ok) {
+      throw new Error(response.error || "Extension IPC failed");
+    }
+    return [{ type: "text", text: response.result }];
   }
 
   return null;
