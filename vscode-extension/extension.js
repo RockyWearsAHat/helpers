@@ -9,6 +9,8 @@
 
 const vscode = require("vscode");
 const fs = require("fs");
+const net = require("net");
+const os = require("os");
 const path = require("path");
 const { execFile } = require("child_process");
 
@@ -24,11 +26,547 @@ let cachedGpgNeedsUpload = false;
 let cachedGpgUploadFailed = false;
 let _context = null;
 let _webviewProvider = null;
+let _diagnosticsOutputChannel = null;
+let _customizationInspectorToolDisposable = null;
+let _strictLintIpcServer = null;
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
 
 function uniquePaths(paths) {
   return [...new Set(paths.filter(Boolean))];
+}
+
+function getDiagnosticsOutputChannel() {
+  if (!_diagnosticsOutputChannel) {
+    _diagnosticsOutputChannel = vscode.window.createOutputChannel(
+      "Git Shell Helpers Diagnostics",
+    );
+  }
+  return _diagnosticsOutputChannel;
+}
+
+function getFrontmatterRange(text) {
+  if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) {
+    return null;
+  }
+
+  const lines = text.split(/\r?\n/);
+  if (!lines.length || lines[0].trim() !== "---") {
+    return null;
+  }
+
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index].trim() === "---") {
+      return { startLine: 0, endLine: index };
+    }
+  }
+
+  return null;
+}
+
+function getFrontmatterListEntries(document, key) {
+  const frontmatter = getFrontmatterRange(document.getText());
+  if (!frontmatter) {
+    return [];
+  }
+
+  const entries = [];
+  let insideTargetList = false;
+  let baseIndent = 0;
+
+  for (
+    let lineIndex = frontmatter.startLine + 1;
+    lineIndex < frontmatter.endLine;
+    lineIndex += 1
+  ) {
+    const line = document.lineAt(lineIndex).text;
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const indent = line.length - line.trimStart().length;
+
+    if (!insideTargetList && trimmed === `${key}:`) {
+      insideTargetList = true;
+      baseIndent = indent;
+      continue;
+    }
+
+    if (!insideTargetList) {
+      continue;
+    }
+
+    if (indent <= baseIndent && !trimmed.startsWith("- ")) {
+      break;
+    }
+
+    const match = line.match(/^(\s*)-\s+(.+?)\s*$/);
+    if (!match) {
+      if (indent <= baseIndent) {
+        break;
+      }
+      continue;
+    }
+
+    const value = match[2].trim().replace(/^['"]|['"]$/g, "");
+    const valueColumn = line.indexOf(value);
+    if (valueColumn >= 0) {
+      entries.push({
+        key,
+        value,
+        line: lineIndex,
+        column: valueColumn,
+      });
+    }
+  }
+
+  return entries;
+}
+
+function formatHoverContents(hovers) {
+  const rendered = [];
+  for (const hover of hovers || []) {
+    for (const item of hover.contents || []) {
+      if (typeof item === "string") {
+        rendered.push(item);
+      } else if (item?.value) {
+        rendered.push(item.value);
+      }
+    }
+  }
+  return rendered.join("\n---\n").trim();
+}
+
+function makeToolResult(value) {
+  return new vscode.LanguageModelToolResult([
+    new vscode.LanguageModelTextPart(value),
+  ]);
+}
+
+function formatDiagnosticSeverity(severity) {
+  switch (severity) {
+    case vscode.DiagnosticSeverity.Error:
+      return "error";
+    case vscode.DiagnosticSeverity.Warning:
+      return "warning";
+    case vscode.DiagnosticSeverity.Information:
+      return "info";
+    case vscode.DiagnosticSeverity.Hint:
+      return "hint";
+    default:
+      return "diagnostic";
+  }
+}
+
+function isCustomizationInspectorEnabled() {
+  return vscode.workspace
+    .getConfiguration("gitShellHelpers.customizationInspector")
+    .get("enabled", true);
+}
+
+function formatCustomizationInspectionReport(result) {
+  if (!result?.ok) {
+    if (result?.reason === "no-active-editor") {
+      return [
+        "Strict Linting",
+        "",
+        "No active editor. Open a Copilot customization file first.",
+      ].join("\n");
+    }
+    if (result?.reason === "no-tools-list") {
+      return [
+        "Strict Linting",
+        "",
+        `No frontmatter tools list found in ${result.file || "the active file"}.`,
+      ].join("\n");
+    }
+    return "Strict Linting\n\nInspection did not return any result.";
+  }
+
+  const entries = result.results || [];
+  const errorCount = entries.reduce(
+    (count, entry) =>
+      count +
+      (entry.diagnostics || []).filter(
+        (diagnostic) => diagnostic.severity === vscode.DiagnosticSeverity.Error,
+      ).length,
+    0,
+  );
+  const warningCount = entries.reduce(
+    (count, entry) =>
+      count +
+      (entry.diagnostics || []).filter(
+        (diagnostic) =>
+          diagnostic.severity === vscode.DiagnosticSeverity.Warning,
+      ).length,
+    0,
+  );
+  const infoCount = entries.reduce(
+    (count, entry) =>
+      count +
+      (entry.diagnostics || []).filter(
+        (diagnostic) =>
+          diagnostic.severity !== vscode.DiagnosticSeverity.Error &&
+          diagnostic.severity !== vscode.DiagnosticSeverity.Warning,
+      ).length,
+    0,
+  );
+  const codeActionCount = entries.reduce(
+    (count, entry) => count + (entry.codeActions?.length || 0),
+    0,
+  );
+  const hoverCount = entries.reduce(
+    (count, entry) => count + (entry.hoverText ? 1 : 0),
+    0,
+  );
+
+  const lines = [
+    "Strict Linting",
+    "",
+    `File: ${result.file}`,
+    `Summary: ${errorCount} error(s), ${warningCount} warning(s), ${infoCount} other diagnostic(s), ${codeActionCount} quick fix(es), ${hoverCount} hover note(s).`,
+    "",
+  ];
+
+  for (const entry of entries) {
+    lines.push(`tools -> ${entry.value} (${entry.line}:${entry.column})`);
+
+    if (entry.diagnostics?.length) {
+      lines.push("Diagnostics:");
+      for (const diagnostic of entry.diagnostics) {
+        lines.push(
+          `- [${formatDiagnosticSeverity(diagnostic.severity)}${diagnostic.source ? ` | ${diagnostic.source}` : ""}] ${diagnostic.message}`,
+        );
+      }
+    }
+
+    if (entry.hoverText) {
+      lines.push("Hover:");
+      lines.push(entry.hoverText);
+    }
+
+    if (entry.codeActions?.length) {
+      lines.push("Code Actions:");
+      for (const action of entry.codeActions) {
+        lines.push(`- ${action}`);
+      }
+    }
+
+    if (!entry.hasSignal) {
+      lines.push("No diagnostics, hover text, or code actions returned.");
+    }
+
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function resolveCustomizationDocument(filePath) {
+  const explicitPath = String(filePath || "").trim();
+  if (explicitPath) {
+    return vscode.workspace.openTextDocument(explicitPath);
+  }
+
+  const editor = vscode.window.activeTextEditor;
+  if (editor) {
+    return editor.document;
+  }
+
+  return null;
+}
+
+async function inspectCopilotCustomizationWarnings(options = {}) {
+  const normalizedOptions =
+    typeof options === "string" ? { filePath: options } : options;
+  const filePath = normalizedOptions.filePath || "";
+  const revealOutput = normalizedOptions.revealOutput === true;
+  const notify = normalizedOptions.notify !== false;
+
+  const document = await resolveCustomizationDocument(filePath);
+  if (!document) {
+    if (notify) {
+      vscode.window.showWarningMessage("Open a customization file first.");
+    }
+    return { ok: false, reason: "no-active-editor" };
+  }
+
+  const entries = getFrontmatterListEntries(document, "tools");
+  if (entries.length === 0) {
+    if (notify) {
+      vscode.window.showInformationMessage(
+        "No frontmatter tools list found in the active file.",
+      );
+    }
+    return { ok: false, reason: "no-tools-list", file: document.uri.fsPath };
+  }
+
+  const allDiagnostics = vscode.languages.getDiagnostics(document.uri);
+  const output = getDiagnosticsOutputChannel();
+  output.clear();
+  output.appendLine(`File: ${document.uri.fsPath}`);
+  output.appendLine("");
+
+  let foundSignal = false;
+  const results = [];
+  for (const entry of entries) {
+    const position = new vscode.Position(entry.line, entry.column);
+    const range = new vscode.Range(position, position);
+    const diagnostics = allDiagnostics.filter((diagnostic) =>
+      diagnostic.range.contains(position),
+    );
+    const hovers = await vscode.commands.executeCommand(
+      "vscode.executeHoverProvider",
+      document.uri,
+      position,
+    );
+    const actions = await vscode.commands.executeCommand(
+      "vscode.executeCodeActionProvider",
+      document.uri,
+      range,
+    );
+
+    const hoverText = formatHoverContents(hovers);
+    const relevantActions = (actions || []).map((action) => action.title);
+    const hasEntrySignal =
+      diagnostics.length > 0 || hoverText || relevantActions.length > 0;
+    foundSignal ||= hasEntrySignal;
+    results.push({
+      value: entry.value,
+      line: entry.line + 1,
+      column: entry.column + 1,
+      diagnostics: diagnostics.map((diagnostic) => ({
+        source: diagnostic.source || "unknown",
+        message: diagnostic.message,
+        severity: diagnostic.severity,
+      })),
+      hoverText,
+      codeActions: relevantActions,
+      hasSignal: hasEntrySignal,
+    });
+
+    output.appendLine(
+      `tools -> ${entry.value} (${entry.line + 1}:${entry.column + 1})`,
+    );
+
+    if (diagnostics.length > 0) {
+      output.appendLine("  Diagnostics:");
+      for (const diagnostic of diagnostics) {
+        output.appendLine(
+          `    - [${diagnostic.source || "unknown"}] ${diagnostic.message}`,
+        );
+      }
+    }
+
+    if (hoverText) {
+      output.appendLine("  Hover:");
+      for (const line of hoverText.split("\n")) {
+        output.appendLine(`    ${line}`);
+      }
+    }
+
+    if (relevantActions.length > 0) {
+      output.appendLine("  Code Actions:");
+      for (const title of relevantActions) {
+        output.appendLine(`    - ${title}`);
+      }
+    }
+
+    if (!hasEntrySignal) {
+      output.appendLine(
+        "  No diagnostics, hover text, or code actions returned.",
+      );
+    }
+
+    output.appendLine("");
+  }
+
+  if (revealOutput) {
+    output.show(true);
+  }
+
+  if (notify && foundSignal) {
+    vscode.window.showInformationMessage(
+      "Strict Linting finished. See Git Shell Helpers Diagnostics output.",
+    );
+  } else if (notify) {
+    vscode.window.showInformationMessage(
+      "Strict Linting found no editor errors, warnings, or quick fixes for the tools list.",
+    );
+  }
+
+  return {
+    ok: true,
+    file: document.uri.fsPath,
+    foundSignal,
+    results,
+  };
+}
+
+async function runStrictLinting(options = {}) {
+  const filePath = String(options.filePath || "").trim();
+  const folderPath = String(options.folderPath || "").trim();
+  const severityFilter = options.severityFilter || "all";
+
+  const severityThreshold =
+    severityFilter === "errors-only"
+      ? vscode.DiagnosticSeverity.Error
+      : severityFilter === "warnings-and-above"
+        ? vscode.DiagnosticSeverity.Warning
+        : vscode.DiagnosticSeverity.Hint;
+
+  let diagnosticPairs;
+  if (filePath) {
+    const uri = vscode.Uri.file(filePath);
+    diagnosticPairs = [[uri, vscode.languages.getDiagnostics(uri)]];
+  } else if (folderPath) {
+    const normalizedFolder = folderPath.endsWith("/")
+      ? folderPath
+      : folderPath + "/";
+    diagnosticPairs = vscode.languages
+      .getDiagnostics()
+      .filter(
+        ([uri]) =>
+          uri.fsPath.startsWith(normalizedFolder) || uri.fsPath === folderPath,
+      );
+  } else {
+    const workspaceRoots = (vscode.workspace.workspaceFolders || []).map(
+      (f) => f.uri.fsPath,
+    );
+    const all = vscode.languages.getDiagnostics();
+    diagnosticPairs =
+      workspaceRoots.length > 0
+        ? all.filter(([uri]) =>
+            workspaceRoots.some((root) => uri.fsPath.startsWith(root)),
+          )
+        : all;
+  }
+
+  const filtered = diagnosticPairs
+    .map(([uri, diags]) => [
+      uri,
+      diags.filter((d) => d.severity <= severityThreshold),
+    ])
+    .filter(([, diags]) => diags.length > 0);
+
+  const totalErrors = filtered.reduce(
+    (n, [, diags]) =>
+      n +
+      diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Error)
+        .length,
+    0,
+  );
+  const totalWarnings = filtered.reduce(
+    (n, [, diags]) =>
+      n +
+      diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Warning)
+        .length,
+    0,
+  );
+  const totalOther = filtered.reduce(
+    (n, [, diags]) =>
+      n +
+      diags.filter((d) => d.severity > vscode.DiagnosticSeverity.Warning)
+        .length,
+    0,
+  );
+
+  const scope = filePath
+    ? path.basename(filePath)
+    : folderPath
+      ? folderPath
+      : "workspace";
+
+  const lines = [
+    `Strict Linting — ${scope}`,
+    "",
+    `Summary: ${totalErrors} error(s), ${totalWarnings} warning(s), ${totalOther} other(s) across ${filtered.length} file(s).`,
+    "",
+  ];
+
+  if (filtered.length === 0) {
+    lines.push("No diagnostics found.");
+  } else {
+    for (const [uri, diags] of filtered) {
+      lines.push(`File: ${uri.fsPath}`);
+      for (const diag of diags) {
+        const sev = formatDiagnosticSeverity(diag.severity);
+        const src = diag.source ? ` [${diag.source}]` : "";
+        const loc = `${diag.range.start.line + 1}:${diag.range.start.character + 1}`;
+        lines.push(`  ${sev}${src} (${loc}): ${diag.message}`);
+      }
+      lines.push("");
+    }
+  }
+
+  return lines.join("\n").trim();
+}
+
+let _strictLintToolDisposable = null;
+
+function registerCustomizationInspectorTool(context) {
+  _customizationInspectorToolDisposable?.dispose();
+  _customizationInspectorToolDisposable = null;
+  _strictLintToolDisposable?.dispose();
+  _strictLintToolDisposable = null;
+
+  if (!isCustomizationInspectorEnabled()) {
+    return;
+  }
+
+  _customizationInspectorToolDisposable = vscode.lm.registerTool(
+    "gsh-inspect-copilot-customization-warnings",
+    {
+      async invoke(options, token) {
+        const filePath = options?.input?.filePath || "";
+        const result = await inspectCopilotCustomizationWarnings({
+          filePath,
+          notify: false,
+          revealOutput: false,
+        });
+        return makeToolResult(formatCustomizationInspectionReport(result));
+      },
+      async prepareInvocation(options) {
+        const explicitPath = String(options?.input?.filePath || "").trim();
+        const targetName = explicitPath
+          ? path.basename(explicitPath)
+          : path.basename(
+              vscode.window.activeTextEditor?.document?.uri?.fsPath ||
+                "customization file",
+            );
+        return {
+          invocationMessage: `Strict Linting is reading live VS Code errors and warnings for ${targetName}`,
+        };
+      },
+    },
+  );
+  context.subscriptions.push(_customizationInspectorToolDisposable);
+
+  _strictLintToolDisposable = vscode.lm.registerTool("gsh-strict-lint", {
+    async invoke(options, token) {
+      const report = await runStrictLinting({
+        filePath: options?.input?.filePath || "",
+        folderPath: options?.input?.folderPath || "",
+        severityFilter: options?.input?.severityFilter || "all",
+      });
+      return makeToolResult(report);
+    },
+    async prepareInvocation(options) {
+      const filePath = String(options?.input?.filePath || "").trim();
+      const folderPath = String(options?.input?.folderPath || "").trim();
+      const scope = filePath
+        ? path.basename(filePath)
+        : folderPath
+          ? folderPath
+          : "workspace";
+      return {
+        invocationMessage: `Strict Linting — scanning ${scope} for errors and warnings`,
+      };
+    },
+  });
+  context.subscriptions.push(_strictLintToolDisposable);
 }
 
 function findGitShellHelpersMcpPath(context) {
@@ -500,6 +1038,12 @@ class CommunityCacheViewProvider {
           setGroupEnabled(msg.key, msg.enabled);
           this._update();
           break;
+        case "toggleStrictLinting":
+          await vscode.workspace
+            .getConfiguration("gitShellHelpers.customizationInspector")
+            .update("enabled", msg.enabled, vscode.ConfigurationTarget.Global);
+          this._update();
+          break;
         case "setCheckpoint": {
           const cpConfig = vscode.workspace.getConfiguration(
             "gitShellHelpers.checkpoint",
@@ -682,11 +1226,21 @@ class CommunityCacheViewProvider {
     const enabledCount = TOOL_GROUPS.filter((g) =>
       isGroupEnabled(g.key),
     ).length;
+    const strictLintingEnabled = isStrictLintingEnabled();
 
     const mcpStatusHtml = `
       <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" data-tone="${mcpStatus.tone}" title="${escapeHtml(mcpStatus.detail)}">
         <span class="mcp-dot"></span>
         <span class="mcp-chip-status">${escapeHtml(mcpStatus.label)}</span>
+      </div>`;
+
+    const strictLintingRow = `
+      <div class="tool-item${strictLintingEnabled ? " active" : ""}" data-strict-linting="enabled">
+        <div class="cb${strictLintingEnabled ? " on" : ""}"><div class="cb-tick"></div></div>
+        <div class="tool-text">
+          <span class="tl">Strict Linting</span>
+          <span class="td">Reads live VS Code errors, warnings, hover details, and quick fixes in chat</span>
+        </div>
       </div>`;
 
     // --- Community Cache ---
@@ -979,6 +1533,13 @@ class CommunityCacheViewProvider {
     </div>
     <div class="sect">
       <div class="sect-head">
+        <div class="sect-title">Chat Tools</div>
+        <div class="sect-count">${strictLintingEnabled ? "1/1" : "0/1"}</div>
+      </div>
+      ${strictLintingRow}
+    </div>
+    <div class="sect">
+      <div class="sect-head">
         <div class="sect-title">Community Submissions</div>
       </div>
       <select id="modeSelect">${modeOptions}</select>
@@ -998,10 +1559,17 @@ class CommunityCacheViewProvider {
   <script>
     const vscode = acquireVsCodeApi();
     document.querySelectorAll('.tool-item').forEach(el => {
+      if (el.dataset.strictLinting) return;
       el.addEventListener('click', () => {
         const key = el.dataset.key;
         const active = el.classList.contains('active');
         vscode.postMessage({ type: 'toggleGroup', key, enabled: !active });
+      });
+    });
+    document.querySelectorAll('[data-strict-linting]').forEach(el => {
+      el.addEventListener('click', () => {
+        const active = el.classList.contains('active');
+        vscode.postMessage({ type: 'toggleStrictLinting', enabled: !active });
       });
     });
     document.querySelectorAll('[data-cpkey]').forEach(el => {
@@ -1144,6 +1712,10 @@ function setGroupEnabled(groupKey, enabled) {
   }
   config.disabledTools = [...disabled];
   writeToolsConfig(config);
+}
+
+function isStrictLintingEnabled() {
+  return isCustomizationInspectorEnabled();
 }
 
 // ---------------------------------------------------------------------------
@@ -1721,6 +2293,7 @@ function activate(context) {
   importFromJson();
   migrateLegacyMcpRegistrations();
   registerMcpServerProvider(context);
+  registerCustomizationInspectorTool(context);
 
   // Git Helpers webview (MCP Tools + Community Cache)
   _webviewProvider = new CommunityCacheViewProvider(context.extensionUri);
@@ -1750,6 +2323,9 @@ function activate(context) {
     }
   });
 
+  // Start strict lint IPC server so the gsh MCP tool can query VS Code diagnostics
+  startStrictLintIpcServer();
+
   // Write default tools config if none exists
   if (!fs.existsSync(MCP_TOOLS_CONFIG_PATH)) {
     writeToolsConfig({ disabledTools: [] });
@@ -1759,6 +2335,17 @@ function activate(context) {
     vscode.commands.registerCommand(
       "gitShellHelpers.showCommunityStatus",
       showCommunityStatus,
+    ),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.inspectCopilotCustomizationWarnings",
+      async (filePath) => {
+        const result = await inspectCopilotCustomizationWarnings({
+          filePath,
+          notify: true,
+          revealOutput: true,
+        });
+        return formatCustomizationInspectionReport(result);
+      },
     ),
     vscode.commands.registerCommand("gitShellHelpers.loginGitHub", loginGitHub),
     vscode.commands.registerCommand(
@@ -1792,10 +2379,119 @@ function activate(context) {
       if (e.affectsConfiguration("gitShellHelpers.checkpoint")) {
         syncCheckpointSettings();
       }
+      if (e.affectsConfiguration("gitShellHelpers.customizationInspector")) {
+        registerCustomizationInspectorTool(context);
+      }
     }),
   );
 }
 
-function deactivate() {}
+// ---------------------------------------------------------------------------
+// Strict Lint IPC server — allows the gsh MCP server to request diagnostics
+// from VS Code's live language servers via a Unix socket.
+// ---------------------------------------------------------------------------
+
+const STRICT_LINT_SOCKET_PATH = path.join(os.tmpdir(), "gsh-strict-lint.sock");
+const STRICT_LINT_IPC_INFO_PATH = path.join(
+  os.homedir(),
+  ".cache",
+  "gsh",
+  "strict-lint-ipc.json",
+);
+
+function startStrictLintIpcServer() {
+  if (_strictLintIpcServer) return;
+
+  try {
+    if (fs.existsSync(STRICT_LINT_SOCKET_PATH)) {
+      fs.unlinkSync(STRICT_LINT_SOCKET_PATH);
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(STRICT_LINT_IPC_INFO_PATH), { recursive: true });
+    fs.writeFileSync(
+      STRICT_LINT_IPC_INFO_PATH,
+      JSON.stringify(
+        {
+          socketPath: STRICT_LINT_SOCKET_PATH,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+  } catch {
+    // ignore — non-fatal
+  }
+
+  _strictLintIpcServer = net.createServer((socket) => {
+    let buffer = "";
+    socket.setEncoding("utf8");
+
+    socket.on("data", async (chunk) => {
+      buffer += chunk;
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        let request;
+        try {
+          request = JSON.parse(line);
+        } catch {
+          socket.write(
+            JSON.stringify({ ok: false, error: "Invalid JSON" }) + "\n",
+          );
+          continue;
+        }
+
+        try {
+          const result = await runStrictLinting(request.arguments || {});
+          socket.write(JSON.stringify({ ok: true, result }) + "\n");
+        } catch (err) {
+          socket.write(
+            JSON.stringify({
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            }) + "\n",
+          );
+        }
+      }
+    });
+
+    socket.on("error", () => {});
+  });
+
+  _strictLintIpcServer.listen(STRICT_LINT_SOCKET_PATH);
+  _strictLintIpcServer.on("error", () => {
+    _strictLintIpcServer = null;
+  });
+}
+
+function stopStrictLintIpcServer() {
+  if (_strictLintIpcServer) {
+    _strictLintIpcServer.close();
+    _strictLintIpcServer = null;
+  }
+  try {
+    fs.unlinkSync(STRICT_LINT_SOCKET_PATH);
+  } catch {
+    // ignore
+  }
+  try {
+    fs.unlinkSync(STRICT_LINT_IPC_INFO_PATH);
+  } catch {
+    // ignore
+  }
+}
+
+function deactivate() {
+  stopStrictLintIpcServer();
+}
 
 module.exports = { activate, deactivate };

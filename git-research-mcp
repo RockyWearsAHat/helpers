@@ -1634,9 +1634,13 @@ async function runInteractiveGoogleBrowser(task) {
   });
 
   try {
-    process.stderr.write("[git-research-mcp] Interactive Chrome launch complete\n");
+    process.stderr.write(
+      "[git-research-mcp] Interactive Chrome launch complete\n",
+    );
     const page = await browser.newPage();
-    process.stderr.write("[git-research-mcp] Interactive Chrome fresh page created\n");
+    process.stderr.write(
+      "[git-research-mcp] Interactive Chrome fresh page created\n",
+    );
     await applyGoogleNavigationProfile(page);
     process.stderr.write(
       `[git-research-mcp] Interactive Chrome launched with ${executablePath || "default browser"} on a fresh page\n`,
@@ -1666,7 +1670,9 @@ function normalizeChromeUserAgent(userAgent) {
 
 function extractChromeVersion(...values) {
   for (const value of values) {
-    const match = String(value || "").match(/(?:Chrome|HeadlessChrome)\/([\d.]+)/);
+    const match = String(value || "").match(
+      /(?:Chrome|HeadlessChrome)\/([\d.]+)/,
+    );
     if (match) return match[1];
   }
   return "";
@@ -1674,7 +1680,10 @@ function extractChromeVersion(...values) {
 
 function buildGoogleAcceptLanguage(languages, language) {
   const ordered = [];
-  for (const value of [language, ...(Array.isArray(languages) ? languages : [])]) {
+  for (const value of [
+    language,
+    ...(Array.isArray(languages) ? languages : []),
+  ]) {
     const normalized = String(value || "").trim();
     if (!normalized || ordered.includes(normalized)) continue;
     ordered.push(normalized);
@@ -1747,7 +1756,9 @@ function buildGoogleUaMetadata(runtime, fullVersion, platform) {
     { brand: "Google Chrome", version: majorVersion },
     { brand: "Not:A-Brand", version: "99" },
   ];
-  const resolvedBrands = normalizedBrands.length ? normalizedBrands : fallbackBrands;
+  const resolvedBrands = normalizedBrands.length
+    ? normalizedBrands
+    : fallbackBrands;
   const normalizedFullVersionList = Array.isArray(runtime?.fullVersionList)
     ? runtime.fullVersionList
         .map((entry) => ({
@@ -1795,8 +1806,11 @@ async function getGoogleNavigationProfile(browser) {
         const lowEntropy = {
           userAgent: navigator.userAgent || "",
           language: navigator.language || "",
-          languages: Array.isArray(navigator.languages) ? navigator.languages : [],
-          platform: navigator.userAgentData?.platform || navigator.platform || "",
+          languages: Array.isArray(navigator.languages)
+            ? navigator.languages
+            : [],
+          platform:
+            navigator.userAgentData?.platform || navigator.platform || "",
           mobile: Boolean(navigator.userAgentData?.mobile),
           brands: Array.isArray(navigator.userAgentData?.brands)
             ? navigator.userAgentData.brands
@@ -1807,15 +1821,16 @@ async function getGoogleNavigationProfile(browser) {
           navigator.userAgentData &&
           typeof navigator.userAgentData.getHighEntropyValues === "function"
         ) {
-          const highEntropy = await navigator.userAgentData.getHighEntropyValues([
-            "architecture",
-            "bitness",
-            "fullVersionList",
-            "model",
-            "platformVersion",
-            "uaFullVersion",
-            "wow64",
-          ]);
+          const highEntropy =
+            await navigator.userAgentData.getHighEntropyValues([
+              "architecture",
+              "bitness",
+              "fullVersionList",
+              "model",
+              "platformVersion",
+              "uaFullVersion",
+              "wow64",
+            ]);
           return { ...lowEntropy, ...highEntropy };
         }
 
@@ -1942,8 +1957,9 @@ async function extractGoogleResultsFromPage(page) {
         'form[action*="sorry"], iframe[src*="recaptcha"], #captcha, input[name="captcha"], textarea#g-recaptcha-response, div.g-recaptcha, form#captcha-form',
       ),
     );
-    const challengeText =
-      `${pageTitle}\n${bodyText}`.replace(/\s+/g, " ").slice(0, 4000);
+    const challengeText = `${pageTitle}\n${bodyText}`
+      .replace(/\s+/g, " ")
+      .slice(0, 4000);
 
     const results = [];
     const seen = new Set();
