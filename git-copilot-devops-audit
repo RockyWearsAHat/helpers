@@ -853,6 +853,7 @@ if [ "$no_install" = false ]; then
 		# Install additional product instructions globally
 		local extra_instructions=(
 			"git-checkpoint.instructions.md"
+			"provider-subagents.instructions.md"
 			"shell-scripts.instructions.md"
 			"vscode-tool-safety.instructions.md"
 		)

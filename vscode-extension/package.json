@@ -52,6 +52,14 @@
       {
         "command": "gitShellHelpers.openMcpServerControls",
         "title": "Git Shell Helpers: Open MCP Server Controls"
+      },
+      {
+        "command": "gitShellHelpers.refreshModels",
+        "title": "Git Shell Helpers: Refresh Available Models"
+      },
+      {
+        "command": "gitShellHelpers.openModelPicker",
+        "title": "Git Shell Helpers: Set Active Chat Model"
       }
     ],
     "languageModelTools": [
