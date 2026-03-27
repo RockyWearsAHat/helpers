@@ -1,13 +1,16 @@
 # GSH Vision Tool
 
-This workspace-local VS Code extension contributes one unified image analysis tool (with two naming variants for compatibility):
+This workspace-local VS Code extension contributes image analysis and video analysis tools:
 
-- `gsh-analyze-images`
-- `gsh_analyze_images`
+**Image analysis:**
+- `gsh-analyze-images` / `gsh_analyze_images`
+
+**Video analysis:**
+- `gsh-analyze-video` / `gsh_analyze_video`
 
 It also contributes one chat participant:
 
-- `@gsh-vision`
+- `@gsh-vision` (commands: `/analyze`, `/analyze-video`)
 
 The tool accepts 1–10 image paths and a freeform goal. It reads the image bytes from disk, attaches them all as real image data to a vision-capable Copilot model (Claude Sonnet 4.6 by default), and returns the model's analysis. Use it for single-image inspection, before/after comparisons, batch design evaluation, or any visual analysis.
 
@@ -114,3 +117,103 @@ The `mcp_` prefix and the `gsh-vis` server name come from how VS Code exposes MC
 | `Extension IPC timeout` or `ENOENT` on socket | Extension not active, socket stale                   | Reload VS Code window                                     |
 | `No chat model with image input capability`   | No vision model available in current Copilot session | Check `GSH_VISION_MODEL_IDS`; ensure Copilot is signed in |
 | Tool not visible to agent                     | `mcp.json` not picked up                             | Restart VS Code; confirm `.vscode/mcp.json` exists        |
+
+## Video Analysis
+
+The `analyze_video` tool extracts frames from a video at regular intervals, analyzes each batch through the existing vision model pipeline, and optionally merges results with externally supplied transcript/caption segments.
+
+### Dependencies
+
+- **ffmpeg** and **ffprobe** — required for frame extraction and metadata inspection. Install with `brew install ffmpeg`.
+- **yt-dlp** — optional, only needed for URL ingestion (YouTube, Shorts). Install with `brew install yt-dlp`.
+
+### MCP tool input
+
+```json
+{
+  "video_path": "/absolute/path/to/video.mp4",
+  "goal": "Describe the visual content and any on-screen text over the course of this video.",
+  "transcript_segments": [
+    { "start": 0, "end": 5.2, "text": "Welcome to the demo." },
+    { "start": 5.2, "end": 12.0, "text": "Here we see the dashboard." }
+  ],
+  "start_sec": 0,
+  "end_sec": 60,
+  "sample_every_sec": 2,
+  "max_frames": 30,
+  "include_report": true,
+  "include_timeline": true
+}
+```
+
+### VS Code language model tool input (camelCase)
+
+```json
+{
+  "videoPath": "/absolute/path/to/video.mp4",
+  "goal": "Describe the visual content over the course of this video.",
+  "transcriptSegments": [
+    { "start": 0, "end": 5.2, "text": "Welcome to the demo." }
+  ],
+  "sampleEverySec": 2,
+  "maxFrames": 30,
+  "includeReport": true,
+  "includeTimeline": true
+}
+```
+
+### Chat participant usage
+
+```
+@gsh-vision /analyze-video /path/to/video.mp4 :: What happens in this video?
+```
+
+### Output shape
+
+```json
+{
+  "metadata": {
+    "sourceType": "local-video",
+    "videoPath": "/path/to/video.mp4",
+    "durationSec": 120.5,
+    "fps": 30,
+    "width": 1920,
+    "height": 1080
+  },
+  "sampling": {
+    "strategy": "auto-interval",
+    "interval": 5,
+    "framesAnalyzed": 24,
+    "batchCount": 3
+  },
+  "segments": [
+    {
+      "start": 0,
+      "end": 1,
+      "transcript": "Welcome to the demo.",
+      "visual": "A person standing at a podium in a conference room...",
+      "ocrLikeText": "TechConf 2026 — Opening Keynote",
+      "confidence": 0.9
+    }
+  ],
+  "globalSummary": "...",
+  "report": "# Video Analysis Report\n..."
+}
+```
+
+### Transcript handling
+
+- **Segmented**: pass `transcript_segments` (array of `{start, end, text}`). Visual findings are aligned to segment timestamps with high confidence.
+- **Raw text**: pass `transcript_text` (string). Output includes the transcript but marks alignment confidence lower since timestamps are not present.
+- **None**: omit both. Visual-only analysis is produced.
+
+### Sampling behavior
+
+| Video duration | Default interval | Expected frames |
+| -------------- | ---------------- | --------------- |
+| ≤ 10s          | 1s               | up to 10        |
+| 10–60s         | 2s               | up to 30        |
+| 60–300s        | 5s               | up to 30        |
+| > 300s         | 10s              | up to 30        |
+
+Hard cap: 60 frames maximum. Frames are sent to the vision model in batches of 8.

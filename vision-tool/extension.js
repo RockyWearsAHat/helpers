@@ -326,6 +326,30 @@ async function handleVisionRequest(method, args, token) {
     );
   }
 
+  if (method === "analyze_video") {
+    const { analyzeVideo: analyzeVideoCore } = require("./lib/video-analysis");
+    const output = await analyzeVideoCore(
+      {
+        videoPath: args.videoPath || args.video_path,
+        goal: args.goal,
+        transcriptSegments: args.transcriptSegments || args.transcript_segments,
+        transcriptText: args.transcriptText || args.transcript_text,
+        startSec: args.startSec || args.start_sec,
+        endSec: args.endSec || args.end_sec,
+        sampleEverySec: args.sampleEverySec || args.sample_every_sec,
+        maxFrames: args.maxFrames || args.max_frames,
+        includeReport: args.includeReport ?? args.include_report,
+        includeTimeline: args.includeTimeline ?? args.include_timeline,
+        keepTempDir: args.keepTempDir || args.keep_temp_dir,
+      },
+      async (imageInput) => analyzeImages(imageInput, token),
+    );
+    return {
+      model: "video-analysis-pipeline",
+      response: JSON.stringify(output, null, 2),
+    };
+  }
+
   // Legacy compat: map old tool names to the unified function
   if (method === "inspect_screenshot") {
     const imagePath = args.imagePath || args.image_path;
@@ -400,6 +424,10 @@ function usageMarkdown() {
     "",
     "`/analyze /path/to/img1.png :: /path/to/img2.png :: /path/to/img3.png :: Compare these and identify differences`",
     "",
+    "Use `@gsh-vision /analyze-video` for video analysis:",
+    "",
+    "`/analyze-video /path/to/video.mp4 :: What should be analyzed?`",
+    "",
     "Example:",
     "",
     "`/analyze /Users/alexwaldmann/Desktop/AIO Server/tmp/before.png :: /Users/alexwaldmann/Desktop/AIO Server/tmp/after.png :: How has the homescreen design changed between these two versions?`",
@@ -427,6 +455,35 @@ function registerChatParticipant(context) {
           stream.markdown(
             `Model: ${result.model} | Images: ${result.imageCount}\n\n${result.response}`,
           );
+          return;
+        }
+
+        if (request.command === "analyze-video") {
+          const parts = (request.prompt || "").trim().split("::").map((p) => p.trim());
+          if (parts.length < 2 || !parts[0]) {
+            stream.markdown(
+              "Usage: `/analyze-video /path/to/video.mp4 :: What to analyze?`",
+            );
+            return;
+          }
+
+          const videoPath = parts[0].replace(/^['"]|['"]$/g, "");
+          const goal = parts.slice(1).join(" :: ");
+
+          stream.progress(`Analyzing video: ${path.basename(videoPath)}`);
+          const { analyzeVideo: analyzeVideoCore } = require("./lib/video-analysis");
+          const output = await analyzeVideoCore(
+            { videoPath, goal },
+            async (imageInput) => analyzeImages(imageInput, token),
+          );
+
+          if (output.report) {
+            stream.markdown(output.report);
+          } else {
+            stream.markdown(
+              `Video analysis complete.\n\n\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\``,
+            );
+          }
           return;
         }
 
@@ -488,6 +545,31 @@ function registerTool(context) {
     context.subscriptions.push(
       vscode.lm.registerTool(toolName, screenshotTool),
     );
+  }
+
+  // Video analysis tool
+  const videoToolNames = ["gsh-analyze-video", "gsh_analyze_video"];
+
+  const videoTool = {
+    async invoke(options, token) {
+      const { analyzeVideo: analyzeVideoCore } = require("./lib/video-analysis");
+      const output = await analyzeVideoCore(
+        options.input,
+        async (imageInput) => analyzeImages(imageInput, token),
+      );
+      return makeToolResult(JSON.stringify(output, null, 2));
+    },
+    async prepareInvocation(options) {
+      const videoPath =
+        options.input.videoPath || options.input.video_path || "video";
+      return {
+        invocationMessage: `Analyzing video: ${path.basename(videoPath)}`,
+      };
+    },
+  };
+
+  for (const toolName of videoToolNames) {
+    context.subscriptions.push(vscode.lm.registerTool(toolName, videoTool));
   }
 }
 

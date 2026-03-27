@@ -159,6 +159,7 @@ function formatActivityLabel(toolName, args) {
   if (toolName === "build_knowledge_index") return "Rebuild Index";
   if (toolName === "take_screenshot") return "Screenshot";
   if (toolName === "analyze_images") return "Analyze Images";
+  if (toolName === "analyze_video") return "Analyze Video";
   if (toolName === "submit_community_research") return "Submit Research";
   return toolName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -246,6 +247,16 @@ const CHECKPOINT_TOOL = {
         type: "boolean",
         description:
           "Override a mid-session disable. Only use this when the user explicitly asked for a checkpoint and the previous call returned [no-op]. Never set force on automatic checkpoints.",
+      },
+      cwd: {
+        type: "string",
+        description:
+          "Absolute path to the git repository to commit in. Auto-detected from the workspace root when omitted. Pass explicitly when working in a multi-root workspace, a git worktree, or when the target repo differs from the server's working directory.",
+      },
+      branch: {
+        type: "string",
+        description:
+          "Assert that HEAD is on this branch before committing. If the current branch does not match, the commit is aborted with an error. Use this to prevent accidentally committing to the wrong branch (e.g. committing to dev when you meant to commit to a feature branch).",
       },
     },
     required: [],
@@ -424,16 +435,47 @@ ${detailedRecent}`;
 }
 
 async function handleCheckpoint(args) {
-  // Determine workspace root
+  // Determine workspace root — prefer explicit cwd from caller, then
+  // process.cwd(), then __dirname.
   let cwd;
-  try {
-    cwd = await execGit(["rev-parse", "--show-toplevel"], process.cwd());
-  } catch {
-    // Fallback: __dirname is the script's location (workspace root)
+  if (args.cwd) {
     try {
-      cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
+      cwd = await execGit(["rev-parse", "--show-toplevel"], args.cwd);
     } catch {
-      throw new Error("Not inside a git repository.");
+      throw new Error(
+        `Specified cwd is not inside a git repository: ${args.cwd}`,
+      );
+    }
+  } else {
+    try {
+      cwd = await execGit(["rev-parse", "--show-toplevel"], process.cwd());
+    } catch {
+      // Fallback: __dirname is the script's location (workspace root)
+      try {
+        cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
+      } catch {
+        throw new Error("Not inside a git repository.");
+      }
+    }
+  }
+
+  // Branch assertion — if the caller specified a branch, verify HEAD is on it.
+  let currentBranch = "";
+  try {
+    currentBranch = await execGit(["symbolic-ref", "--short", "HEAD"], cwd);
+  } catch {
+    // Detached HEAD — currentBranch stays empty
+  }
+  if (args.branch) {
+    if (!currentBranch) {
+      throw new Error(
+        `Branch assertion failed: HEAD is detached, expected branch '${args.branch}'. Switch to the correct branch before checkpointing.`,
+      );
+    }
+    if (currentBranch !== args.branch) {
+      throw new Error(
+        `Branch assertion failed: HEAD is on '${currentBranch}', expected '${args.branch}'. Switch to the correct branch before checkpointing.`,
+      );
     }
   }
 
@@ -517,10 +559,13 @@ async function handleCheckpoint(args) {
     }
   }
 
+  const branchInfo = currentBranch
+    ? ` on branch '${currentBranch}'`
+    : " (detached HEAD)";
   return [
     {
       type: "text",
-      text: `Committed ${commitHash}\n${oneline}\n\n${stat}${pushResult}`,
+      text: `Committed ${commitHash}${branchInfo}\n${oneline}\n\n${stat}${pushResult}`,
     },
   ];
 }
