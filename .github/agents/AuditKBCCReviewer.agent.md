@@ -59,24 +59,28 @@ You receive ONE focused assignment from the orchestrator. Execute exactly that a
 When evaluating quality, check for:
 
 **Context Overload**
+
 - Article tries to cover too many subtopics, none get adequate treatment
 - Key concepts buried under walls of less-important detail
 - Reader would struggle to find the one thing they need
 - Article exceeds ~2000 words without justification
 
 **Bad Explanations**
+
 - Concepts introduced without sufficient context
 - Jargon used without definition when simpler language would work
 - Logical jumps — explanation skips critical intermediate steps
 - Cause/effect stated without explaining WHY
 
 **Misleading Information**
+
 - Technically true statements that create wrong impressions
 - Oversimplifications that lead to bad decisions
 - Missing critical caveats (benefits without tradeoffs)
 - "Best practice" claims without context about when they apply
 
 **Structural Problems**
+
 - No clear progression — jumps between topics
 - Important info buried late when it should be upfront
 - Redundant sections repeating the same point
@@ -99,6 +103,7 @@ Severity: `critical`, `major`, `minor`
 Types: `factual`, `outdated`, `overloaded`, `unclear`, `misleading`, `structural`
 
 Examples:
+
 - `[major] [outdated] Section "Python's Sort" says Timsort is current → CPython 3.11+ uses Powersort variant`
 - `[major] [overloaded] Covers 12 sorting algorithms at equal depth. Needs comparison table + focus on 3-4 most important.`
 - `[minor] [unclear] Amortized complexity explanation assumes knowledge of potential functions without introduction`

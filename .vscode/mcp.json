@@ -1,9 +1,0 @@
-{
-  "servers": {
-    "git-shell-helpers": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["${workspaceFolder}/git-shell-helpers-mcp"]
-    }
-  }
-}

@@ -160,6 +160,46 @@ function userMcpConfigPath() {
   return path.join(homeDir, ".config", "Code", "User", "mcp.json");
 }
 
+function workspaceMcpConfigPaths() {
+  return (vscode.workspace.workspaceFolders || []).map((folder) =>
+    path.join(folder.uri.fsPath, ".vscode", "mcp.json"),
+  );
+}
+
+function removeStaticGitShellHelpersServers(configPath) {
+  const legacyServerNames = ["gsh", "git-shell-helpers"];
+  const config = readJsonFile(configPath);
+  if (!config?.servers || typeof config.servers !== "object") {
+    return false;
+  }
+
+  let changed = false;
+  for (const serverName of legacyServerNames) {
+    if (config.servers[serverName]) {
+      delete config.servers[serverName];
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    return false;
+  }
+
+  if (Object.keys(config.servers).length === 0) {
+    delete config.servers;
+  }
+
+  writeJsonFile(configPath, config);
+  return true;
+}
+
+function migrateLegacyMcpRegistrations() {
+  const configPaths = [userMcpConfigPath(), ...workspaceMcpConfigPaths()];
+  for (const configPath of configPaths) {
+    removeStaticGitShellHelpersServers(configPath);
+  }
+}
+
 function getConfiguredGitShellHelpersMcpServer() {
   const configPath = userMcpConfigPath();
   const config = readJsonFile(configPath);
@@ -1679,6 +1719,7 @@ function activate(context) {
   _context = context;
 
   importFromJson();
+  migrateLegacyMcpRegistrations();
   registerMcpServerProvider(context);
 
   // Git Helpers webview (MCP Tools + Community Cache)
