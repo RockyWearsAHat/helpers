@@ -62,6 +62,18 @@ A 4-phase pipeline (Context → Research → Evaluation → Implementation) for 
 
 `vscode-extension/` — settings panel for community cache participation and MCP server auto-registration. Built with `scripts/build-vsix.sh`.
 
+## Always-On Tool Preamble
+
+Treat this as a persistent preamble that should be applied before every user request in this workspace.
+
+1. Prefer direct MCP tool calls over shell simulations when an MCP tool exists for the task.
+2. For lint/diagnostics, call `mcp_gsh_strict_lint` first instead of ad-hoc terminal checks.
+3. `mcp_gsh_strict_lint` default behavior is `severityFilter: "all"` when omitted; this includes errors, warnings, and low-severity diagnostics (info/hints).
+4. Use explicit filters only when requested:
+	- `"warnings-and-above"` for warning+error focus
+	- `"errors-only"` for error-only focus
+5. If users report a mismatch between editor squiggles and strict-lint output, rerun `mcp_gsh_strict_lint` against the exact file path with default severity before any further diagnosis.
+
 ## Knowledge Base
 
 `knowledge/` — ~80 reference files covering languages, patterns, CS topics, and ecosystem state. Used by `git-research-mcp`'s `search_knowledge_cache` tool. Treat as informed starting context, not authoritative truth — always verify volatile details against current docs. See `knowledge-philosophy.md` for interpretation guidelines.
