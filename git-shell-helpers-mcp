@@ -126,6 +126,8 @@ const ALL_TOOLS = modules.flatMap((m) => m.tools || []);
 
 const { execFile, spawn } = require("child_process");
 const fs = require("fs");
+const net = require("net");
+const os = require("os");
 
 const CHECKPOINT_TOOL = {
   name: "checkpoint",
@@ -169,6 +171,124 @@ const CHECKPOINT_TOOL = {
 };
 
 ALL_TOOLS.push(CHECKPOINT_TOOL);
+
+// ---------------------------------------------------------------------------
+// Strict Lint tool — queries live VS Code diagnostics via the gsh extension IPC
+// ---------------------------------------------------------------------------
+
+const STRICT_LINT_IPC_INFO_PATH =
+  process.env.GSH_STRICT_LINT_IPC_INFO_PATH ||
+  `${os.homedir()}/.cache/gsh/strict-lint-ipc.json`;
+
+const STRICT_LINT_TOOL = {
+  name: "strict_lint",
+  description:
+    "Read live VS Code errors and warnings for a file, folder, or the entire workspace. " +
+    "Returns diagnostics from all active language servers (TypeScript, ESLint, shellcheck, etc.) " +
+    "exactly as shown in the VS Code Problems panel. Requires the Git Shell Helpers extension to be active.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      filePath: {
+        type: "string",
+        description:
+          "Absolute path to a specific file to lint. When provided, only this file is checked.",
+      },
+      folderPath: {
+        type: "string",
+        description:
+          "Absolute path to a folder. Only diagnostics for files within this folder are returned.",
+      },
+      severityFilter: {
+        type: "string",
+        enum: ["all", "warnings-and-above", "errors-only"],
+        default: "all",
+        description: "Filter by severity. Default: all.",
+      },
+    },
+    required: [],
+  },
+};
+
+ALL_TOOLS.push(STRICT_LINT_TOOL);
+
+async function handleStrictLint(args) {
+  const requestedSeverity = String(args?.severityFilter || "").trim();
+  const severityFilter =
+    requestedSeverity === "errors-only" ||
+    requestedSeverity === "warnings-and-above" ||
+    requestedSeverity === "all"
+      ? requestedSeverity
+      : "all";
+  const normalizedArgs = {
+    ...(args || {}),
+    severityFilter,
+  };
+
+  let ipcInfo;
+  try {
+    const raw = fs.readFileSync(STRICT_LINT_IPC_INFO_PATH, "utf8");
+    ipcInfo = JSON.parse(raw);
+    if (!ipcInfo.socketPath) throw new Error("Missing socketPath");
+  } catch {
+    return [
+      {
+        type: "text",
+        text: "Strict Lint IPC not available. The Git Shell Helpers VS Code extension must be installed and active. Reload the VS Code window to reconnect.",
+      },
+    ];
+  }
+
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const socket = net.createConnection(ipcInfo.socketPath, () => {
+          socket.write(JSON.stringify({ arguments: normalizedArgs }) + "\n");
+        });
+        let buf = "";
+        socket.setEncoding("utf8");
+        socket.on("data", (chunk) => {
+          buf += chunk;
+          const lines = buf.split("\n");
+          buf = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const resp = JSON.parse(line);
+              socket.destroy();
+              resolve(resp);
+              return;
+            } catch {
+              // wait for more
+            }
+          }
+        });
+        socket.on("error", reject);
+        socket.setTimeout(10000, () =>
+          socket.destroy(new Error("Strict lint IPC timeout")),
+        );
+      });
+
+      if (!result.ok) {
+        return [{ type: "text", text: `Strict Lint error: ${result.error}` }];
+      }
+      return [{ type: "text", text: result.result }];
+    } catch (err) {
+      lastError = err;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+
+  return [
+    {
+      type: "text",
+      text: `Could not connect to Strict Lint IPC: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }. Reload the VS Code window and try again.`,
+    },
+  ];
+}
 
 function execGit(args, cwd) {
   return new Promise((resolve, reject) => {
@@ -626,6 +746,15 @@ async function handleRequest(request) {
         const content = await withCheckpointLock(() =>
           handleCheckpoint(toolArguments, ac.signal),
         );
+        if (!ac.signal.aborted) {
+          send({ jsonrpc: "2.0", id, result: { content } });
+        }
+        return;
+      }
+
+      // Strict lint — queries VS Code diagnostics via extension IPC.
+      if (toolName === "strict_lint") {
+        const content = await handleStrictLint(toolArguments);
         if (!ac.signal.aborted) {
           send({ jsonrpc: "2.0", id, result: { content } });
         }
