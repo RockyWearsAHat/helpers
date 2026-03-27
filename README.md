@@ -21,6 +21,7 @@ That command installs or refreshes:
 
 - private audit agents under `~/.copilot/agents/`
 - the natural-language router under `~/.copilot/instructions/`
+- optional provider-routing guidance for paid provider subagents under `~/.copilot/instructions/`
 - audit skills under `~/.copilot/skills/`
 - the `/copilot-devops-audit` prompt in `~/Library/Application Support/Code/User/prompts/`
 

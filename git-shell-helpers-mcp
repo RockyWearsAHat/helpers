@@ -16,6 +16,7 @@
 
 const path = require("path");
 const readline = require("readline");
+const net = require("net");
 
 const MCP_VERSION = "2024-11-05";
 const SERVER_VERSION = "1.1.0";
@@ -71,6 +72,149 @@ const ALL_TOOLS = modules.flatMap((m) => m.tools || []);
 
 const { execFile, spawn } = require("child_process");
 const fs = require("fs");
+
+// ---------------------------------------------------------------------------
+// Activity IPC client — notify VS Code extension of active tool calls
+// ---------------------------------------------------------------------------
+
+const ACTIVITY_IPC_INFO_PATH = path.join(
+  process.env.HOME || process.env.USERPROFILE || "",
+  ".cache",
+  "gsh",
+  "activity-ipc.json",
+);
+
+let _activitySocket = null;
+let _activityConnecting = false;
+let _activityNotifySeq = 0;
+let _activityQueue = []; // messages queued while connecting
+
+function connectActivityIpc() {
+  if (_activitySocket || _activityConnecting) return;
+  let socketPath;
+  try {
+    const info = JSON.parse(fs.readFileSync(ACTIVITY_IPC_INFO_PATH, "utf8"));
+    socketPath = info.socketPath;
+  } catch {
+    return;
+  }
+  if (!socketPath) return;
+  _activityConnecting = true;
+  const sock = net.createConnection(socketPath);
+  sock.on("connect", () => {
+    _activitySocket = sock;
+    _activityConnecting = false;
+    // Flush any messages queued while connecting
+    const queued = _activityQueue.splice(0);
+    for (const line of queued) {
+      try {
+        sock.write(line);
+      } catch {
+        _activitySocket = null;
+        break;
+      }
+    }
+  });
+  sock.on("error", () => {
+    _activitySocket = null;
+    _activityConnecting = false;
+    _activityQueue = [];
+  });
+  sock.on("close", () => {
+    _activitySocket = null;
+    _activityConnecting = false;
+  });
+}
+
+function formatActivityLabel(toolName, args) {
+  if (toolName === "checkpoint") return "Checkpoint";
+  if (toolName === "search_web") {
+    return args?.query
+      ? `Search: ${String(args.query).substring(0, 40)}`
+      : "Search Web";
+  }
+  if (toolName === "scrape_webpage") {
+    try {
+      return `Scrape: ${new URL(args.url).hostname}`;
+    } catch {
+      return "Scrape Webpage";
+    }
+  }
+  if (
+    toolName === "search_knowledge_index" ||
+    toolName === "search_knowledge_cache"
+  ) {
+    return args?.query
+      ? `Find: ${String(args.query).substring(0, 35)}`
+      : "Search Knowledge";
+  }
+  if (toolName === "read_knowledge_note")
+    return `Read: ${args?.filename || "note"}`;
+  if (toolName === "write_knowledge_note")
+    return `Write: ${args?.filename || "note"}`;
+  if (toolName === "update_knowledge_note")
+    return `Update: ${args?.filename || "note"}`;
+  if (toolName === "append_to_knowledge_note")
+    return `Append: ${args?.filename || "note"}`;
+  if (toolName === "build_knowledge_index") return "Rebuild Index";
+  if (toolName === "take_screenshot") return "Screenshot";
+  if (toolName === "analyze_images") return "Analyze Images";
+  if (toolName === "submit_community_research") return "Submit Research";
+  return toolName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function notifyActivityBegin(toolName, args) {
+  connectActivityIpc();
+  const id = `ext-${++_activityNotifySeq}`;
+  const line =
+    JSON.stringify({
+      type: "activityBegin",
+      id,
+      tool: toolName,
+      label: formatActivityLabel(toolName, args),
+      args,
+    }) + "\n";
+  if (_activitySocket) {
+    try {
+      _activitySocket.write(line);
+    } catch {
+      _activitySocket = null;
+      return null;
+    }
+  } else if (_activityConnecting) {
+    // Queue it — will be flushed when socket connects
+    _activityQueue.push(line);
+  } else {
+    return null; // No socket and not connecting — IPC unavailable
+  }
+  return id;
+}
+
+function notifyActivityEnd(id) {
+  if (!id || !_activitySocket) return;
+  try {
+    _activitySocket.write(JSON.stringify({ type: "activityEnd", id }) + "\n");
+  } catch {
+    _activitySocket = null;
+  }
+}
+
+function notifySessionPulse() {
+  connectActivityIpc();
+  const line = JSON.stringify({ type: "sessionPulse" }) + "\n";
+  if (_activitySocket) {
+    try {
+      _activitySocket.write(line);
+    } catch {
+      _activitySocket = null;
+    }
+  } else if (_activityConnecting) {
+    _activityQueue.push(line);
+  }
+}
+
+// Attempt initial connection on startup
+connectActivityIpc();
 
 const CHECKPOINT_TOOL = {
   name: "checkpoint",
@@ -438,6 +582,7 @@ async function handleRequest(request) {
   }
 
   if (method === "tools/list") {
+    notifySessionPulse();
     send({
       jsonrpc: "2.0",
       id,
@@ -471,29 +616,34 @@ async function handleRequest(request) {
       return;
     }
 
+    const actId = notifyActivityBegin(toolName, toolArguments);
     try {
-      // Built-in tools
-      if (toolName === "checkpoint") {
-        const content = await handleCheckpoint(toolArguments);
-        send({ jsonrpc: "2.0", id, result: { content } });
-        return;
-      }
-
-      // Delegated sub-module tools
-      for (const mod of modules) {
-        const content = await mod.handleToolCall(toolName, toolArguments);
-        if (content) {
+      try {
+        // Built-in tools
+        if (toolName === "checkpoint") {
+          const content = await handleCheckpoint(toolArguments);
           send({ jsonrpc: "2.0", id, result: { content } });
           return;
         }
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      sendError(id, -32603, message);
-      return;
-    }
 
-    sendError(id, -32601, `Unknown tool: ${toolName}`);
+        // Delegated sub-module tools
+        for (const mod of modules) {
+          const content = await mod.handleToolCall(toolName, toolArguments);
+          if (content) {
+            send({ jsonrpc: "2.0", id, result: { content } });
+            return;
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        sendError(id, -32603, message);
+        return;
+      }
+
+      sendError(id, -32601, `Unknown tool: ${toolName}`);
+    } finally {
+      notifyActivityEnd(actId);
+    }
     return;
   }
 

@@ -24,11 +24,23 @@ let cachedRepos = [];
 let cachedUser = "";
 let cachedGpgNeedsUpload = false;
 let cachedGpgUploadFailed = false;
+let cachedModels = [];
+let cachedOllamaModels = []; // [] | string[] of model names
+let cachedOllamaRunning = false;
+let _ollamaPinned = new Set(); // model names the user has enabled/pinned
+let activeToolCalls = new Map(); // id → { id, tool, label, startedAt, args }
+let _activitySeq = 0;
+// Chat sessions are tracked by watching the VS Code chatSessions directory directly.
+// No timers or heuristics — we read pendingRequests:null from the JSONL as the end marker.
+let _chatSessions = new Map(); // sessionId → { title, active, startedAt, filePath }
+let _chatSessionWatcher = null;
 let _context = null;
 let _webviewProvider = null;
 let _diagnosticsOutputChannel = null;
 let _customizationInspectorToolDisposable = null;
 let _strictLintIpcServer = null;
+let _activityIpcServer = null;
+const _externalToInternal = new Map(); // externalId → internalId
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
 
@@ -521,12 +533,21 @@ function registerCustomizationInspectorTool(context) {
     {
       async invoke(options, token) {
         const filePath = options?.input?.filePath || "";
-        const result = await inspectCopilotCustomizationWarnings({
-          filePath,
-          notify: false,
-          revealOutput: false,
-        });
-        return makeToolResult(formatCustomizationInspectionReport(result));
+        const callId = beginToolCall(
+          "inspect-customization",
+          `Strict Linting: ${filePath ? path.basename(filePath) : "active editor"}`,
+          { filePath: filePath || "(active editor)" },
+        );
+        try {
+          const result = await inspectCopilotCustomizationWarnings({
+            filePath,
+            notify: false,
+            revealOutput: false,
+          });
+          return makeToolResult(formatCustomizationInspectionReport(result));
+        } finally {
+          endToolCall(callId);
+        }
       },
       async prepareInvocation(options) {
         const explicitPath = String(options?.input?.filePath || "").trim();
@@ -546,12 +567,29 @@ function registerCustomizationInspectorTool(context) {
 
   _strictLintToolDisposable = vscode.lm.registerTool("gsh-strict-lint", {
     async invoke(options, token) {
-      const report = await runStrictLinting({
-        filePath: options?.input?.filePath || "",
-        folderPath: options?.input?.folderPath || "",
-        severityFilter: options?.input?.severityFilter || "all",
+      const filePath = String(options?.input?.filePath || "").trim();
+      const folderPath = String(options?.input?.folderPath || "").trim();
+      const severityFilter = options?.input?.severityFilter || "all";
+      const scope = filePath
+        ? path.basename(filePath)
+        : folderPath
+          ? folderPath
+          : "workspace";
+      const callId = beginToolCall("strict-lint", `Strict Lint: ${scope}`, {
+        filePath,
+        folderPath,
+        severityFilter,
       });
-      return makeToolResult(report);
+      try {
+        const report = await runStrictLinting({
+          filePath,
+          folderPath,
+          severityFilter,
+        });
+        return makeToolResult(report);
+      } finally {
+        endToolCall(callId);
+      }
     },
     async prepareInvocation(options) {
       const filePath = String(options?.input?.filePath || "").trim();
@@ -997,6 +1035,18 @@ function importFromJson() {
 // Webview panel
 // ---------------------------------------------------------------------------
 
+const QUICK_ACTIONS = [
+  {
+    id: "runAudit",
+    label: "Run Audit",
+    desc: "Copilot customization audit",
+    query: "/copilot-devops-audit",
+    // SVG path for a magnifying-glass / audit icon
+    iconPath:
+      "M10.5 0a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM.22 14.78a.75.75 0 0 1 0-1.06l4.5-4.5a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0z",
+  },
+];
+
 const MODES = [
   { value: "disabled", label: "Submissions disabled" },
   { value: "pull-and-auto-submit", label: "Submit from all repos" },
@@ -1027,6 +1077,9 @@ class CommunityCacheViewProvider {
           break;
         case "logout":
           await logoutGitHub();
+          break;
+        case "openChatSession":
+          vscode.commands.executeCommand("workbench.action.chat.open");
           break;
         case "selectRepos":
           await selectRepos();
@@ -1064,6 +1117,60 @@ class CommunityCacheViewProvider {
         case "openMcpControls":
           await openMcpServerControls();
           break;
+        case "openModelPicker":
+          await openModelPicker();
+          break;
+        case "refreshModels":
+          await refreshModels();
+          break;
+        case "openAgent":
+          await openAgentInChat(msg.name || "");
+          break;
+        case "runQuickAction":
+          await runQuickAction(msg.action || "");
+          break;
+        case "openQuickActionWithoutSend":
+          await openQuickActionWithoutSend(msg.action || "");
+          break;
+        case "saveApiKey": {
+          const keyId =
+            msg.provider === "anthropic" ? API_KEY_ANTHROPIC : API_KEY_OPENAI;
+          const val = String(msg.value || "").trim();
+          await setApiKey(keyId, val);
+          vscode.window.showInformationMessage(
+            val
+              ? `${msg.provider === "anthropic" ? "Anthropic" : "OpenAI"} API key saved.`
+              : `${msg.provider === "anthropic" ? "Anthropic" : "OpenAI"} API key cleared.`,
+          );
+          this._update();
+          break;
+        }
+        case "refreshOllama":
+          await detectOllama();
+          this._update();
+          break;
+        case "ollamaToggle": {
+          const m = String(msg.model || "").trim();
+          if (!m) break;
+          if (_ollamaPinned.has(m)) {
+            _ollamaPinned.delete(m);
+          } else {
+            _ollamaPinned.add(m);
+          }
+          _context.globalState.update("gsh.ollama.pinned", [..._ollamaPinned]);
+          this._update();
+          break;
+        }
+        case "ollamaRun": {
+          const model = String(msg.model || "").trim();
+          if (!model) break;
+          const term = vscode.window.createTerminal({
+            name: `ollama: ${model}`,
+          });
+          term.show();
+          term.sendText(`ollama run ${model}`);
+          break;
+        }
         case "mcpChipAction": {
           if (msg.tone === "bad") {
             const action = await vscode.window.showErrorMessage(
@@ -1113,14 +1220,19 @@ class CommunityCacheViewProvider {
     this._update();
   }
 
-  _update() {
+  pushUpdate(data) {
+    if (!this._view?.visible) return;
+    this._view.webview.postMessage(data);
+  }
+
+  async _update() {
     if (!this._view) return;
     const mode = getMode();
     const whitelist = getWhitelist();
-    this._view.webview.html = this._getHtml(mode, whitelist);
+    this._view.webview.html = await this._getHtml(mode, whitelist);
   }
 
-  _getHtml(mode, whitelist) {
+  async _getHtml(mode, whitelist) {
     // Gate: require GitHub sign-in
     if (!cachedUser) {
       return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
@@ -1228,6 +1340,145 @@ class CommunityCacheViewProvider {
     ).length;
     const strictLintingEnabled = isStrictLintingEnabled();
 
+    // --- Provider status ---
+    const providerStatus = await getProviderStatus();
+    const providerConfigured = [
+      providerStatus.ollamaRunning,
+      providerStatus.anthropicKey,
+      providerStatus.openaiKey,
+    ].filter(Boolean).length;
+
+    // Ollama: pinned models shown as agent-style rows; not-running shows refresh nudge
+    const ollamaRows =
+      providerStatus.ollamaRunning && providerStatus.ollamaModels.length > 0
+        ? providerStatus.ollamaModels
+            .filter((m) => _ollamaPinned.has(m))
+            .map(
+              (m) => `
+        <div class="provider-model-row">
+          <span class="provider-model-dot"></span>
+          <span class="provider-model-name">${escapeHtml(m)}</span>
+          <button class="provider-model-run" data-ollamarun="${escapeHtml(m)}" title="ollama run ${escapeHtml(m)}">run</button>
+          <button class="provider-model-remove" data-ollamatoggle="${escapeHtml(m)}" title="Remove">×</button>
+        </div>`,
+            )
+            .join("")
+        : "";
+
+    const ollamaAddBtn =
+      providerStatus.ollamaRunning && providerStatus.ollamaModels.length > 0
+        ? `<button class="provider-add-btn" id="ollamaAddModelsBtn">+ Add model</button>`
+        : "";
+
+    // Ollama add-model panel (all available, click to pin)
+    const ollamaAddPanel =
+      providerStatus.ollamaRunning && providerStatus.ollamaModels.length > 0
+        ? `<div class="provider-acc-panel" id="ollamaAccPanel"><div class="ollama-models">${providerStatus.ollamaModels
+            .map((m) => {
+              const pinned = _ollamaPinned.has(m);
+              return `<div class="ollama-model-row${pinned ? " on" : ""}">
+            <span class="ollama-model-check">\u2713</span>
+            <button class="ollama-tag${pinned ? " on" : ""}" data-ollamatoggle="${escapeHtml(m)}">${escapeHtml(m)}</button>
+          </div>`;
+            })
+            .join("")}</div></div>`
+        : "";
+
+    const ollamaStatusRow = !providerStatus.ollamaRunning
+      ? `<div class="provider-row provider-row-dim" id="ollamaRefreshChip" style="cursor:pointer" title="Click to recheck"><span class="provider-row-dot"></span><span class="provider-row-label">Ollama not running</span><span class="provider-row-action">recheck</span></div>`
+      : "";
+
+    // Anthropic / OpenAI: clean row with inline expand for key entry
+    const anthropicRow = `
+      <div class="provider-row${providerStatus.anthropicKey ? " provider-row-set" : ""}">
+        <span class="provider-row-dot${providerStatus.anthropicKey ? " set" : ""}"></span>
+        <span class="provider-row-label">Anthropic</span>
+        <button class="provider-row-action provider-chip-clickable" id="anthropicChipBtn" data-acc="anthropic">${providerStatus.anthropicKey ? "change key" : "add key"}</button>
+      </div>
+      <div class="provider-acc-panel" id="anthropicAccPanel">
+        <div class="key-input-row">
+          <input class="key-input" id="anthropicKeyInput" type="password"
+            placeholder="${providerStatus.anthropicKey ? "●●●●●●●● (saved)" : "sk-ant-…"}"
+            autocomplete="off" data-provider="anthropic" />
+          <button class="key-save-btn" data-savekey="anthropic">Save</button>
+          ${providerStatus.anthropicKey ? `<button class="key-clear-btn" data-clearkey="anthropic">Clear</button>` : ""}
+        </div>
+      </div>`;
+    const openaiRow = `
+      <div class="provider-row${providerStatus.openaiKey ? " provider-row-set" : ""}">
+        <span class="provider-row-dot${providerStatus.openaiKey ? " set" : ""}"></span>
+        <span class="provider-row-label">OpenAI</span>
+        <button class="provider-row-action provider-chip-clickable" id="openaiChipBtn" data-acc="openai">${providerStatus.openaiKey ? "change key" : "add key"}</button>
+      </div>
+      <div class="provider-acc-panel" id="openaiAccPanel">
+        <div class="key-input-row">
+          <input class="key-input" id="openaiKeyInput" type="password"
+            placeholder="${providerStatus.openaiKey ? "●●●●●●●● (saved)" : "sk-…"}"
+            autocomplete="off" data-provider="openai" />
+          <button class="key-save-btn" data-savekey="openai">Save</button>
+          ${providerStatus.openaiKey ? `<button class="key-clear-btn" data-clearkey="openai">Clear</button>` : ""}
+        </div>
+      </div>`;
+
+    // --- Local agents section ---
+    const allAgents = scanLocalAgents().filter((a) => a.userInvocable);
+    const agentRows =
+      allAgents.length > 0
+        ? allAgents
+            .map(
+              (a, i) => `
+        <div class="agent-item${i >= 3 ? " agent-overflow" : ""}" data-agent="${escapeHtml(a.name)}">
+          <div class="agent-dot"></div>
+          <div class="agent-text">
+            <span class="agent-name"><span class="agent-at">@</span>${escapeHtml(a.name)}</span>
+            ${a.description ? `<span class="agent-desc">${escapeHtml(a.description)}</span>` : ""}
+          </div>
+          <button class="agent-start-btn" data-agentname="${escapeHtml(a.name)}" title="Open @${escapeHtml(a.name)} in Copilot chat">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.5 2A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5V8.75a.75.75 0 0 0-1.5 0v3.75h-9v-9H8a.75.75 0 0 0 0-1.5H3.5zm7.25.25a.75.75 0 0 0 0 1.5H12.2L7.47 8.47a.75.75 0 0 0 1.06 1.06L13 5.05v1.45a.75.75 0 0 0 1.5 0V2.75a.5.5 0 0 0-.5-.5h-3.25z"/></svg>
+          </button>
+        </div>`,
+            )
+            .join("") +
+          (allAgents.length > 3
+            ? `<button class="view-more-btn" id="viewMoreAgentsBtn">+ ${allAgents.length - 3} more</button>`
+            : "")
+        : `<div class="muted">No agents found in .github/agents/</div>`;
+
+    // --- Activity section ---
+    const activityItems = getActivityItems();
+    const activityRows =
+      activityItems.length > 0
+        ? activityItems
+            .map((item) =>
+              item.linger
+                ? `
+        <div class="activity-item activity-item--linger">
+          <div class="activity-summary">
+            <span class="activity-pulse activity-pulse--linger"></span>
+            <span class="activity-label">${escapeHtml(item.label)}</span>
+            <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
+          </div>
+        </div>`
+                : `
+        <details class="activity-item">
+          <summary class="activity-summary">
+            <span class="activity-pulse"></span>
+            <span class="activity-label">${escapeHtml(item.label)}</span>
+            <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
+            <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
+          </summary>
+          <div class="activity-detail"><pre>${escapeHtml(item.args)}</pre></div>
+        </details>`,
+            )
+            .join("")
+        : `<div class="activity-idle"><span class="activity-idle-dot"></span>idle</div>`;
+    const activityCountLabel =
+      activityItems.length === 0
+        ? "idle"
+        : activityItems.every((i) => i.linger)
+          ? "running"
+          : `${activityItems.length} running`;
+
     const mcpStatusHtml = `
       <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" data-tone="${mcpStatus.tone}" title="${escapeHtml(mcpStatus.detail)}">
         <span class="mcp-dot"></span>
@@ -1290,6 +1541,23 @@ class CommunityCacheViewProvider {
         <div class="scope-text">No submissions. Cache data is still pulled during audits.</div>`;
     }
 
+    // --- Quick Actions ---
+    const quickActionsHtml = QUICK_ACTIONS.map(
+      (qa) => `
+      <div class="qa-item" data-qaaction="${escapeHtml(qa.id)}">
+        <div class="qa-icon">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="${escapeHtml(qa.iconPath)}"/></svg>
+        </div>
+        <div class="qa-text">
+          <span class="qa-label">${escapeHtml(qa.label)}</span>
+          <span class="qa-desc">${escapeHtml(qa.desc)}</span>
+        </div>
+        <button class="qa-run-btn" data-qa="${escapeHtml(qa.id)}" title="Run in chat">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 2.5A.5.5 0 0 1 3.5 2l10 5.5a.5.5 0 0 1 0 .87l-10 5.5A.5.5 0 0 1 3 13.5v-11z"/></svg>
+        </button>
+      </div>`,
+    ).join("");
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1305,30 +1573,33 @@ class CommunityCacheViewProvider {
   }
 
   /* Sections */
-  .sect { padding: 12px 14px; }
+  .sect { padding: 10px 14px 13px; }
   .sect + .sect { border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12)); }
   .sect-head {
     display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 8px;
+    margin-bottom: 9px;
   }
   .sect-title {
-    font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.5px;
-    color: var(--vscode-descriptionForeground);
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--vscode-foreground); opacity: 0.65;
   }
   .sect-count {
-    font-size: 10px; color: var(--vscode-descriptionForeground); opacity: 0.7;
+    font-size: 10px; line-height: 1.6; font-weight: 500;
+    color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground));
+    background: var(--vscode-badge-background, rgba(128,128,128,0.14));
+    padding: 0 6px; border-radius: 10px;
   }
 
   /* Tool items — checkbox style */
   .tool-item {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 5px 6px; margin: 0 -6px;
-    border-radius: 3px; cursor: pointer; user-select: none;
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 5px 6px; margin: 1px -6px;
+    border-radius: 4px; cursor: pointer; user-select: none;
+    transition: background 0.1s;
   }
   .tool-item:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
   .cb {
-    flex-shrink: 0; width: 14px; height: 14px; margin-top: 1px;
+    flex-shrink: 0; width: 14px; height: 14px; margin-top: 2px;
     border: 1.5px solid var(--vscode-checkbox-border, var(--vscode-input-border, rgba(128,128,128,0.5)));
     border-radius: 3px; position: relative;
     background: var(--vscode-checkbox-background, transparent);
@@ -1348,32 +1619,27 @@ class CommunityCacheViewProvider {
   }
   .cb.on .cb-tick { opacity: 1; }
   .tool-text { flex: 1; min-width: 0; }
-  .tl { display: block; font-size: 12px; font-weight: 500; line-height: 1.3; }
-  .td { display: block; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.2; margin-top: 1px; }
+  .tl { display: block; font-size: 12.5px; font-weight: 500; line-height: 1.3; }
+  .td { display: block; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.3; margin-top: 2px; }
 
   .hint {
-    font-size: 10.5px; color: var(--vscode-descriptionForeground);
-    margin-top: 6px; opacity: 0.65;
+    font-size: 11px; color: var(--vscode-descriptionForeground);
+    margin-top: 8px; padding: 0; opacity: 0.6;
+    background: none; border-radius: 0;
   }
 
   .sect-head-left {
     display: flex; align-items: center; gap: 8px;
   }
   .mcp-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 2px 8px 2px 6px;
-    border-radius: 999px;
-    margin: 0;
-    cursor: pointer;
-    font-size: 11px;
-    line-height: 1;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 8px 2px 6px; border-radius: 999px;
+    cursor: pointer; font-size: 11px; line-height: 1.5;
     border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.16));
     background: var(--vscode-editorWidget-background, rgba(128,128,128,0.04));
-    user-select: none;
+    user-select: none; transition: opacity 0.12s;
   }
-  .mcp-chip:hover { opacity: 0.85; }
+  .mcp-chip:hover { opacity: 0.8; }
   .mcp-chip.good {
     border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #2ea043) 35%, var(--vscode-panel-border, rgba(128,128,128,0.16)));
   }
@@ -1384,23 +1650,18 @@ class CommunityCacheViewProvider {
     border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 45%, var(--vscode-panel-border, rgba(128,128,128,0.16)));
   }
   .mcp-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    flex-shrink: 0;
+    width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0;
     background: var(--vscode-descriptionForeground);
   }
   .mcp-chip.good .mcp-dot { background: var(--vscode-testing-iconPassed, #2ea043); }
   .mcp-chip.warn .mcp-dot { background: var(--vscode-inputValidation-warningBorder, #cca700); }
   .mcp-chip.bad .mcp-dot { background: var(--vscode-inputValidation-errorBorder, #be1100); }
-  .mcp-chip-status {
-    color: var(--vscode-descriptionForeground);
-  }
+  .mcp-chip-status { color: var(--vscode-descriptionForeground); }
 
   /* Community cache */
   select {
-    width: 100%; padding: 4px 8px;
-    border: 1px solid var(--vscode-dropdown-border); border-radius: 3px;
+    width: 100%; padding: 5px 8px;
+    border: 1px solid var(--vscode-dropdown-border); border-radius: 4px;
     background: var(--vscode-dropdown-background);
     color: var(--vscode-dropdown-foreground);
     font-size: var(--vscode-font-size); outline: none;
@@ -1408,50 +1669,367 @@ class CommunityCacheViewProvider {
   select:focus { border-color: var(--vscode-focusBorder); }
   .mode-desc {
     font-size: 11px; color: var(--vscode-descriptionForeground);
-    line-height: 1.4; margin-top: 5px;
+    line-height: 1.5; margin-top: 6px;
   }
   .sub-label {
-    font-size: 11px; font-weight: 600; color: var(--vscode-descriptionForeground);
-    margin: 10px 0 4px;
+    font-size: 10.5px; font-weight: 600; color: var(--vscode-descriptionForeground);
+    margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;
   }
   .repo-item {
-    font-size: 11.5px; padding: 2px 0; line-height: 1.3;
+    font-size: 11.5px; padding: 2px 0; line-height: 1.4;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .scope-text { font-size: 11.5px; line-height: 1.4; }
+  .scope-text { font-size: 11.5px; line-height: 1.5; }
   .muted { color: var(--vscode-descriptionForeground); font-style: italic; font-size: 11.5px; }
   .btn-secondary {
-    display: block; width: 100%; padding: 5px 12px; margin-top: 6px;
-    border: none; border-radius: 3px; font-size: 12px; cursor: pointer;
+    display: block; width: 100%; padding: 6px 12px; margin-top: 8px;
+    border: 1px solid transparent; border-radius: 4px; font-size: 12px; cursor: pointer;
     background: var(--vscode-button-secondaryBackground);
     color: var(--vscode-button-secondaryForeground);
+    transition: background 0.12s;
   }
   .btn-secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
 
   /* Footer */
   .footer {
     position: sticky; bottom: 0; left: 0; right: 0;
-    padding: 8px 14px;
+    padding: 7px 14px;
     border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12));
     background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
     font-size: 11px; color: var(--vscode-descriptionForeground);
   }
   .content { flex: 1; overflow-y: auto; padding-bottom: 36px; }
-  .footer-user {
-    display: flex; align-items: center; gap: 4px; overflow: hidden;
+
+  /* Local agents */
+  .agent-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 5px 6px; margin: 2px -6px;
+    border-radius: 4px; cursor: pointer; user-select: none;
+    transition: background 0.1s;
   }
-  .footer-user svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.6; fill: currentColor; }
+  .agent-item:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
+  .agent-overflow { display: none; }
+  .agent-dot {
+    flex-shrink: 0; width: 7px; height: 7px; border-radius: 999px;
+    background: var(--vscode-testing-iconPassed, #2ea043);
+    transition: box-shadow 0.15s;
+  }
+  .agent-item:hover .agent-dot {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-testing-iconPassed, #2ea043) 22%, transparent);
+  }
+  .agent-text { flex: 1; min-width: 0; }
+  .agent-name { display: block; font-size: 12.5px; font-weight: 500; line-height: 1.3; }
+  .agent-desc {
+    display: block; font-size: 10.5px;
+    color: var(--vscode-descriptionForeground); line-height: 1.3; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .agent-start-btn {
+    flex-shrink: 0; padding: 4px; margin-left: auto;
+    border: none; background: none; cursor: pointer;
+    color: var(--vscode-descriptionForeground);
+    border-radius: 4px; display: flex; align-items: center;
+    opacity: 0; transition: opacity 0.12s, background 0.1s;
+  }
+  .agent-item:hover .agent-start-btn {
+    opacity: 1;
+    background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12));
+    color: var(--vscode-foreground);
+  }
+  .agent-start-btn svg { width: 13px; height: 13px; }
+  .view-more-btn {
+    display: inline-block; padding: 3px 6px; margin-top: 6px;
+    border: none; background: none; cursor: pointer;
+    font-size: 11.5px; color: var(--vscode-textLink-foreground);
+    font-family: inherit; border-radius: 3px;
+  }
+  .view-more-btn:hover { text-decoration: underline; }
+
+  /* Providers */
+  .provider-row {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 2px; font-size: 12px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.1));
+  }
+  .provider-row:last-of-type { border-bottom: none; }
+  .provider-row-dim { opacity: 0.5; }
+  .provider-row-dot {
+    width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0;
+    background: var(--vscode-descriptionForeground); opacity: 0.3;
+  }
+  .provider-row-dot.set { background: var(--vscode-testing-iconPassed, #2ea043); opacity: 1; }
+  .provider-row-label { flex: 1; font-weight: 500; }
+  .provider-row-action {
+    flex-shrink: 0; padding: 2px 8px; font-size: 11px;
+    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.25));
+    border-radius: 4px; background: none;
+    color: var(--vscode-foreground); font-family: inherit;
+    cursor: pointer; opacity: 0.7; transition: opacity 0.12s;
+  }
+  .provider-row-action:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.1)); }
+  /* Pinned Ollama models */
+  .provider-model-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 2px; font-size: 12px;
+    border-radius: 4px; margin: 0 -4px; padding-left: 4px; padding-right: 4px;
+    transition: background 0.1s;
+  }
+  .provider-model-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
+  .provider-model-dot {
+    width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0;
+    background: var(--vscode-testing-iconPassed, #2ea043);
+  }
+  .provider-model-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .provider-model-run, .provider-model-remove {
+    flex-shrink: 0; padding: 2px 7px; border-radius: 3px; font-size: 10.5px;
+    border: none; cursor: pointer; font-family: inherit;
+    opacity: 0; transition: opacity 0.12s; line-height: 1.5;
+  }
+  .provider-model-row:hover .provider-model-run,
+  .provider-model-row:hover .provider-model-remove { opacity: 1; }
+  .provider-model-run {
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+  }
+  .provider-model-run:hover { background: var(--vscode-button-hoverBackground); }
+  .provider-model-remove {
+    background: none; color: var(--vscode-descriptionForeground);
+    font-size: 14px; padding: 0 5px;
+  }
+  .provider-model-remove:hover { color: var(--vscode-errorForeground); }
+  .provider-add-btn {
+    display: block; width: 100%; margin: 6px 0 2px;
+    padding: 5px 0; text-align: center;
+    background: none; border: 1px dashed var(--vscode-panel-border, rgba(128,128,128,0.3));
+    border-radius: 4px; font-size: 11.5px; font-family: inherit;
+    color: var(--vscode-foreground); opacity: 0.55; cursor: pointer;
+    transition: opacity 0.12s, border-color 0.12s;
+  }
+  .provider-add-btn:hover { opacity: 0.9; border-color: var(--vscode-focusBorder, #007fd4); }
+  .key-row { margin-bottom: 8px; }
+  .key-row:last-child { margin-bottom: 0; }
+  .key-label { font-size: 11px; font-weight: 600; color: var(--vscode-descriptionForeground); margin-bottom: 3px; }
+  .key-input-row { display: flex; gap: 5px; align-items: center; }
+  .key-input {
+    flex: 1; min-width: 0;
+    padding: 5px 7px; font-size: 12px;
+    border: 1px solid var(--vscode-input-border, rgba(128,128,128,0.3));
+    border-radius: 4px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    font-family: inherit; outline: none;
+  }
+  .key-input:focus { border-color: var(--vscode-focusBorder); }
+  .key-save-btn, .key-clear-btn {
+    flex-shrink: 0; padding: 5px 10px; border: none; border-radius: 4px;
+    font-size: 11px; cursor: pointer; font-family: inherit; transition: background 0.12s;
+  }
+  .key-save-btn {
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+  }
+  .key-save-btn:hover { background: var(--vscode-button-hoverBackground); }
+  .key-clear-btn {
+    background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground);
+  }
+  .key-clear-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+
+  /* Ollama "add model" accordion list */
+  .ollama-models { display: flex; flex-direction: column; gap: 1px; padding: 2px 0; }
+  .ollama-model-row {
+    display: flex; align-items: center; gap: 0;
+    padding: 3px 6px; margin: 0 -6px; border-radius: 4px;
+    transition: background 0.1s;
+  }
+  .ollama-model-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
+  .ollama-tag {
+    flex: 1; padding: 0; text-align: left;
+    border: none; background: none;
+    font-size: 12px; font-family: inherit; font-weight: 400;
+    color: var(--vscode-foreground);
+    cursor: pointer; user-select: none; transition: color 0.12s; line-height: 1.4;
+  }
+  .ollama-tag.on { font-weight: 500; }
+  .ollama-model-check {
+    width: 14px; flex-shrink: 0; font-size: 11px; margin-right: 5px;
+    color: var(--vscode-testing-iconPassed, #2ea043); font-weight: 700; opacity: 0;
+  }
+  .ollama-model-row.on .ollama-model-check { opacity: 1; }
+
+  /* Activity */
+  .activity-item {
+    border-radius: 4px; margin: 3px -5px;
+    background: var(--vscode-editorWidget-background, rgba(128,128,128,0.04));
+    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.1));
+  }
+  .activity-summary {
+    display: flex; align-items: center; gap: 7px;
+    padding: 6px 9px; cursor: pointer; list-style: none;
+    font-size: 12px; user-select: none;
+  }
+  .activity-summary::-webkit-details-marker { display: none; }
+  .activity-pulse {
+    flex-shrink: 0; width: 7px; height: 7px; border-radius: 999px;
+    background: var(--vscode-notificationsInfoIcon-foreground, #3794ff);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .activity-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity-elapsed {
+    flex-shrink: 0; font-size: 10.5px;
+    color: var(--vscode-descriptionForeground); opacity: 0.7;
+  }
+  .activity-chevron {
+    flex-shrink: 0; width: 10px; height: 10px;
+    transition: transform 0.15s; opacity: 0.5;
+  }
+  details[open] .activity-chevron { transform: rotate(90deg); }
+  .activity-detail {
+    padding: 0 9px 7px;
+    font-size: 10.5px; color: var(--vscode-descriptionForeground);
+  }
+  .activity-detail pre {
+    margin: 0; white-space: pre-wrap; word-break: break-all;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 10px;
+    max-height: 120px; overflow-y: auto;
+  }
+  .footer-user {
+    display: flex; align-items: center; gap: 5px; overflow: hidden;
+  }
+  .footer-user svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.55; fill: currentColor; }
   .footer-user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .footer-gear {
-    flex-shrink: 0; cursor: pointer; opacity: 0.5;
-    padding: 2px; transition: opacity 0.15s; display: flex; align-items: center;
+    flex-shrink: 0; cursor: pointer; opacity: 0.45;
+    padding: 3px; border-radius: 3px;
+    transition: opacity 0.15s, background 0.1s; display: flex; align-items: center;
   }
-  .footer-gear:hover { opacity: 1; }
+  .footer-gear:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.1)); }
   .footer-gear svg { width: 14px; height: 14px; fill: currentColor; }
   .footer-gear.active { opacity: 1; }
 
-  /* GPG warning banner */
+  /* Activity idle indicator */
+  .activity-idle {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--vscode-descriptionForeground);
+    padding: 4px 2px; opacity: 0.7;
+  }
+  .activity-idle-dot {
+    width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0;
+    background: var(--vscode-descriptionForeground); opacity: 0.45;
+  }
+  /* When activity is idle, collapse the section to just the header row */
+  .sect--idle { padding-bottom: 4px; }
+  .activity-list-hidden { display: none; }
+  /* The sect-count shows "idle" inline — style it softer */
+  .sect--idle .sect-count {
+    background: none; padding: 0;
+    font-weight: 400; font-size: 11px;
+    color: var(--vscode-descriptionForeground); opacity: 0.6;
+  }
+  /* Collapsible sections */
+  details.sect > summary.sect-head {
+    list-style: none; cursor: pointer; user-select: none;
+  }
+  details.sect > summary.sect-head::-webkit-details-marker { display: none; }
+  details.sect > summary .sect-title::before {
+    content: '\u25B8'; display: inline-block; margin-right: 4px; font-size: 9px; opacity: 0.6;
+  }
+  details[open] > summary .sect-title::before {
+    content: '\u25BE';
+  }
+  details.sect:not([open]) { padding-bottom: 6px; }
+  /* Linger (between-tool-call) indicator */
+  .activity-item--linger {
+    border-radius: 3px; margin: 2px -4px;
+    background: var(--vscode-editorWidget-background, rgba(128,128,128,0.04));
+    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.1));
+    opacity: 0.75;
+  }
+  .activity-pulse--linger {
+    background: var(--vscode-charts-yellow, #cca700) !important;
+    animation: pulse 2s ease-in-out infinite !important;
+  }
+  .activity-item--session {
+    cursor: pointer;
+    border-radius: 3px; margin: 2px -4px; padding: 2px 4px;
+  }
+  .activity-item--session:hover {
+    background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.1));
+  }
+  .activity-item--session:hover .activity-label {
+    text-decoration: underline;
+  }
+
+  /* Provider key accordion */
+  .provider-acc-panel {
+    max-height: 0; overflow: hidden;
+    transition: max-height 0.22s ease, opacity 0.15s ease;
+    opacity: 0;
+  }
+  .provider-acc-panel.open { max-height: 400px; opacity: 1; padding-top: 6px; }
+  .provider-chip-clickable { cursor: pointer; transition: opacity 0.12s; }
+  .provider-chip-clickable:hover { opacity: 0.85; }
+  .provider-chip-clickable.active {
+    border-color: var(--vscode-focusBorder, #007fd4) !important; opacity: 1;
+  }
+
+  /* Quick Actions */
+  .qa-list { display: flex; flex-direction: column; gap: 1px; }
+  .qa-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 5px 6px; margin: 1px -6px;
+    border-radius: 4px; cursor: pointer; user-select: none;
+    transition: background 0.1s;
+  }
+  .qa-item:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
+  .qa-icon {
+    flex-shrink: 0; width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px;
+    background: rgba(128,128,128,0.12);
+    opacity: 0.85;
+  }
+  .qa-icon svg { width: 12px; height: 12px; fill: currentColor; }
+  .qa-text { flex: 1; min-width: 0; }
+  .qa-label { display: block; font-size: 12.5px; font-weight: 500; line-height: 1.3; }
+  .qa-desc { display: block; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.3; margin-top: 2px; }
+  .qa-run-btn {
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; padding: 0;
+    border: none; border-radius: 4px; cursor: pointer;
+    background: transparent; color: var(--vscode-foreground); opacity: 0.55;
+    transition: opacity 0.12s, background 0.12s;
+  }
+  .qa-run-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.14)); }
+  .qa-run-btn svg { width: 11px; height: 11px; fill: currentColor; }
+  /* Context menu */
+  .qa-ctx-menu {
+    display: none; position: fixed;
+    background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border, rgba(128,128,128,0.3)));
+    border-radius: 5px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+    z-index: 9999; overflow: hidden; min-width: 200px;
+    padding: 2px 0;
+  }
+  .qa-ctx-item {
+    padding: 5px 12px;
+    font-size: 12px; line-height: 1.5; cursor: pointer;
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    display: flex; align-items: center; gap: 7px;
+    transition: background 0.08s;
+  }
+  .qa-ctx-item:hover { background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-menu-selectionForeground, var(--vscode-foreground)); }
+  .qa-ctx-sep { height: 1px; background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border, rgba(128,128,128,0.18))); margin: 2px 0; }
+
+  /* Agent @ prefix */
+  .agent-at {
+    font-size: 11px; font-weight: 700;
+    color: var(--vscode-textLink-foreground);
+    letter-spacing: -0.2px; opacity: 0.9; margin-right: 0.5px;
+  }
   /* Account panel overlay */
   body { position: relative; }
   .acct-panel {
@@ -1513,45 +2091,80 @@ class CommunityCacheViewProvider {
     </div>
   </div>
   <div class="content">
-    <div class="sect">
-      <div class="sect-head">
+    <details class="sect" open>
+      <summary class="sect-head">
+        <div class="sect-title">Quick Actions</div>
+      </summary>
+      <div class="qa-list">
+        ${quickActionsHtml}
+      </div>
+    </details>
+    <details class="sect sect--activity${activityItems.length === 0 ? " sect--idle" : ""}" open>
+      <summary class="sect-head">
+        <div class="sect-title">Activity</div>
+        <div class="sect-count" id="activityCount">${activityCountLabel}</div>
+      </summary>
+      <div id="activityList"${activityItems.length === 0 ? ' class="activity-list-hidden"' : ""}>${activityItems.length === 0 ? "" : activityRows}</div>
+    </details>
+    <details class="sect" open>
+      <summary class="sect-head">
+        <div class="sect-title">Local Agents</div>
+        <div class="sect-count">${allAgents.length} available</div>
+      </summary>
+      <div id="agentsList">${agentRows}</div>
+    </details>
+    <details class="sect">
+      <summary class="sect-head">
+        <div class="sect-title">Providers</div>
+        <div class="sect-count">${providerConfigured}/3</div>
+      </summary>
+      ${ollamaStatusRow}
+      ${ollamaRows}
+      ${ollamaAddBtn}
+      ${ollamaAddPanel}
+      ${anthropicRow}
+      ${openaiRow}
+    </details>
+    <details class="sect">
+      <summary class="sect-head">
         <div class="sect-head-left">
           <div class="sect-title">MCP Tools</div>
           ${mcpStatusHtml}
         </div>
         <div class="sect-count">${enabledCount}/${TOOL_GROUPS.length}</div>
-      </div>
+      </summary>
       ${toolRows}
       <div class="hint">Read &amp; Search Knowledge are always on.</div>
-    </div>
-    <div class="sect">
-      <div class="sect-head">
+    </details>
+    <details class="sect">
+      <summary class="sect-head">
         <div class="sect-title">Git Checkpoint</div>
-      </div>
+      </summary>
       ${cpRows}
       ${gpgHint}
-    </div>
-    <div class="sect">
-      <div class="sect-head">
+    </details>
+    <details class="sect">
+      <summary class="sect-head">
         <div class="sect-title">Chat Tools</div>
         <div class="sect-count">${strictLintingEnabled ? "1/1" : "0/1"}</div>
-      </div>
+      </summary>
       ${strictLintingRow}
-    </div>
-    <div class="sect">
-      <div class="sect-head">
+    </details>
+    <details class="sect">
+      <summary class="sect-head">
         <div class="sect-title">Community Submissions</div>
-      </div>
+      </summary>
       <select id="modeSelect">${modeOptions}</select>
       <div class="mode-desc">${modeDesc}</div>
       ${scopeSection}
-    </div>
+    </details>
   </div>
   <div class="footer">
     <div class="footer-user">
       <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       <span>${escapeHtml(cachedUser)}</span>
     </div>
+
     <div class="footer-gear" id="gearBtn" title="Account">
       <svg viewBox="0 0 16 16"><path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.2.7-2.4.5v1.2l2.4.5.3.7-1.3 2 .8.8 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.8-.8-1.3-2 .3-.7 2.4-.5V6.8l-2.4-.5-.3-.7 1.3-2-.8-.8-2 1.3-.7-.2zM9.4 8c0 .8-.6 1.4-1.4 1.4S6.6 8.8 6.6 8 7.2 6.6 8 6.6s1.4.6 1.4 1.4z"/></svg>
     </div>
@@ -1559,7 +2172,7 @@ class CommunityCacheViewProvider {
   <script>
     const vscode = acquireVsCodeApi();
     document.querySelectorAll('.tool-item').forEach(el => {
-      if (el.dataset.strictLinting) return;
+      if (el.dataset.strictLinting || el.dataset.cpkey) return;
       el.addEventListener('click', () => {
         const key = el.dataset.key;
         const active = el.classList.contains('active');
@@ -1585,6 +2198,140 @@ class CommunityCacheViewProvider {
       else if (tone === "warn") vscode.postMessage({type:"mcpChipAction",tone:"warn"});
       else vscode.postMessage({type:"mcpChipAction",tone:"good"});
     });
+
+    document.querySelectorAll(".agent-item").forEach(item => {
+      item.addEventListener("click", () => {
+        const name = item.dataset.agent;
+        if (name) vscode.postMessage({ type: "openAgent", name });
+      });
+    });
+    document.querySelectorAll(".agent-start-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ type: "openAgent", name: btn.dataset.agentname });
+      });
+    });
+    document.getElementById("viewMoreAgentsBtn")?.addEventListener("click", () => {
+      document.querySelectorAll(".agent-overflow").forEach(el => { el.style.display = "flex"; });
+      document.getElementById("viewMoreAgentsBtn").style.display = "none";
+    });
+    document.getElementById("ollamaRefreshChip")?.addEventListener("click", () => vscode.postMessage({type:"refreshOllama"}));
+    document.querySelectorAll(".ollama-tag[data-ollamatoggle]").forEach(btn => {
+      btn.addEventListener("click", () => vscode.postMessage({ type: "ollamaToggle", model: btn.dataset.ollamatoggle }));
+    });
+    document.querySelectorAll(".provider-model-run[data-ollamarun]").forEach(btn => {
+      btn.addEventListener("click", (e) => { e.stopPropagation(); vscode.postMessage({ type: "ollamaRun", model: btn.dataset.ollamarun }); });
+    });
+    document.querySelectorAll(".provider-model-remove[data-ollamatoggle]").forEach(btn => {
+      btn.addEventListener("click", (e) => { e.stopPropagation(); vscode.postMessage({ type: "ollamaToggle", model: btn.dataset.ollamatoggle }); });
+    });
+    document.querySelectorAll(".key-save-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const provider = btn.dataset.savekey;
+        const input = document.getElementById(provider + "KeyInput");
+        const value = input ? input.value.trim() : "";
+        if (!value) return;
+        vscode.postMessage({ type: "saveApiKey", provider, value });
+        input.value = "";
+      });
+    });
+    document.querySelectorAll(".key-clear-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        vscode.postMessage({ type: "saveApiKey", provider: btn.dataset.clearkey, value: "" });
+      });
+    });
+    document.querySelectorAll(".key-input").forEach(inp => {
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          const provider = inp.dataset.provider;
+          const value = inp.value.trim();
+          if (!value) return;
+          vscode.postMessage({ type: "saveApiKey", provider, value });
+          inp.value = "";
+        }
+      });
+    });
+    // Live activity updates from extension
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+      if (msg?.type === "activityUpdate") {
+        const list = document.getElementById("activityList");
+        const count = document.getElementById("activityCount");
+        if (!list) return;
+        const items = msg.items || [];
+        const allLinger = items.length > 0 && items.every(i => i.linger);
+        if (count) count.textContent = items.length === 0 ? "idle" : allLinger ? "running" : items.length + " running";
+        const sect = list.closest(".sect--activity");
+        if (items.length === 0) {
+          if (sect) sect.classList.add("sect--idle");
+          list.classList.add("activity-list-hidden");
+          list.innerHTML = "";
+          return;
+        }
+        if (sect) sect.classList.remove("sect--idle");
+        list.classList.remove("activity-list-hidden");
+        list.innerHTML = items.map(item => item.linger
+          ? \`<div class="activity-item activity-item--linger">
+            <div class="activity-summary">
+              <span class="activity-pulse activity-pulse--linger"></span>
+              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
+              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
+            </div>
+          </div>\`
+          : item.sessionId
+          ? \`<div class="activity-item activity-item--session" data-sessionid="\${item.sessionId}">
+            <div class="activity-summary">
+              <span class="activity-pulse"></span>
+              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
+              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
+            </div>
+          </div>\`
+          : \`
+          <details class="activity-item">
+            <summary class="activity-summary">
+              <span class="activity-pulse"></span>
+              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
+              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
+              <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
+            </summary>
+            <div class="activity-detail"><pre>\${item.args.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</pre></div>
+          </details>\`).join("");
+        list.querySelectorAll('.activity-item--session').forEach(el => {
+          el.addEventListener('click', () => {
+            vscode.postMessage({ type: 'openChatSession', sessionId: el.dataset.sessionid });
+          });
+        });
+      }
+    });
+    // Live elapsed-time ticker
+    setInterval(() => {
+      document.querySelectorAll('.activity-elapsed[data-started]').forEach(el => {
+        const started = parseInt(el.dataset.started, 10);
+        if (!isNaN(started)) el.textContent = Math.floor((Date.now() - started) / 1000) + 's';
+      });
+    }, 1000);
+    // Provider clickable: antropic/openai key buttons, ollama "Add model" button
+    document.querySelectorAll('.provider-chip-clickable').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const acc = btn.dataset.acc;
+        if (!acc) return;
+        const panel = document.getElementById(acc + 'AccPanel');
+        if (!panel) return;
+        const isOpen = panel.classList.toggle('open');
+        btn.classList.toggle('active', isOpen);
+        if (isOpen && acc !== 'ollama') {
+          const input = document.getElementById(acc + 'KeyInput');
+          setTimeout(() => input?.focus(), 60);
+        }
+      });
+    });
+    document.getElementById('ollamaAddModelsBtn')?.addEventListener('click', () => {
+      const panel = document.getElementById('ollamaAccPanel');
+      const btn = document.getElementById('ollamaAddModelsBtn');
+      if (!panel) return;
+      const isOpen = panel.classList.toggle('open');
+      if (btn) btn.textContent = isOpen ? '− Close' : '+ Add model';
+    });
     const gearBtn = document.getElementById("gearBtn");
     const acctPanel = document.getElementById("acctPanel");
     gearBtn?.addEventListener("click", (e) => {
@@ -1600,7 +2347,51 @@ class CommunityCacheViewProvider {
     document.getElementById("signOutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
     document.getElementById("selectReposBtn")?.addEventListener("click", () => vscode.postMessage({type:"selectRepos"}));
     document.getElementById("modeSelect")?.addEventListener("change", (e) => vscode.postMessage({type:"setMode", value: e.target.value}));
+    // Quick Actions
+    let _qaContextTarget = null;
+    const qaCtxMenu = document.getElementById('qaContextMenu');
+    document.querySelectorAll('.qa-run-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ type: 'runQuickAction', action: btn.dataset.qa });
+      });
+    });
+    document.querySelectorAll('.qa-item').forEach(item => {
+      item.addEventListener('click', () => {
+        vscode.postMessage({ type: 'runQuickAction', action: item.dataset.qaaction });
+      });
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        _qaContextTarget = item.dataset.qaaction;
+        if (!qaCtxMenu) return;
+        qaCtxMenu.style.display = 'block';
+        const menuW = 210, menuH = 60;
+        qaCtxMenu.style.left = Math.min(e.clientX, window.innerWidth - menuW) + 'px';
+        qaCtxMenu.style.top = Math.min(e.clientY, window.innerHeight - menuH) + 'px';
+      });
+    });
+    document.getElementById('ctxOpenWithoutSend')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (_qaContextTarget) {
+        vscode.postMessage({ type: 'openQuickActionWithoutSend', action: _qaContextTarget });
+        _qaContextTarget = null;
+      }
+      if (qaCtxMenu) qaCtxMenu.style.display = 'none';
+    });
+    document.addEventListener('click', () => {
+      if (qaCtxMenu) qaCtxMenu.style.display = 'none';
+      _qaContextTarget = null;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && qaCtxMenu) qaCtxMenu.style.display = 'none';
+    });
   </script>
+  <div id="qaContextMenu" class="qa-ctx-menu">
+    <div class="qa-ctx-item" id="ctxOpenWithoutSend">
+      <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M2 2.5A.5.5 0 0 1 2.5 2h11a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H2.5a.5.5 0 0 1-.5-.5v-1zM2 6.5A.5.5 0 0 1 2.5 6h7a.5.5 0 0 1 0 1h-7A.5.5 0 0 1 2 6.5zM2.5 10a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-5z"/></svg>
+      Open in new chat without sending
+    </div>
+  </div>
 </body>
 </html>`;
   }
@@ -2256,6 +3047,556 @@ async function uploadGpgKeyToGitHub(keyId, gpgCommand) {
 }
 
 // ---------------------------------------------------------------------------
+// Activity tracking — tool invocations visible in the webview panel
+// ---------------------------------------------------------------------------
+
+function beginToolCall(tool, label, args) {
+  // Cancel linger — a new tool call means the session is still active
+  if (_sessionLingerTimer) {
+    clearTimeout(_sessionLingerTimer);
+    _sessionLingerTimer = null;
+  }
+  if (!_sessionStartedAt) {
+    _sessionStartedAt = Date.now();
+  }
+  const id = `tc-${++_activitySeq}`;
+  activeToolCalls.set(id, {
+    id,
+    tool,
+    label,
+    startedAt: Date.now(),
+    args: args || {},
+  });
+  _webviewProvider?.pushUpdate({
+    type: "activityUpdate",
+    items: getActivityItems(),
+  });
+  return id;
+}
+
+function endToolCall(id) {
+  activeToolCalls.delete(id);
+  _webviewProvider?.pushUpdate({
+    type: "activityUpdate",
+    items: getActivityItems(),
+  });
+}
+
+function getActivityItems() {
+  const now = Date.now();
+  const items = [...activeToolCalls.values()].map((c) => ({
+    id: c.id,
+    label: c.label,
+    elapsed: Math.floor((now - c.startedAt) / 1000),
+    startedAt: c.startedAt,
+    args: JSON.stringify(c.args, null, 2),
+    linger: false,
+  }));
+  // Active chat sessions from the fs.watch JSONL tracker
+  for (const [sessionId, sess] of _chatSessions) {
+    if (sess.active) {
+      items.push({
+        id: `chat-${sessionId}`,
+        label: sess.title,
+        elapsed: Math.floor((now - sess.startedAt) / 1000),
+        startedAt: sess.startedAt,
+        args: "{}",
+        linger: false,
+        sessionId,
+      });
+    }
+  }
+  return items;
+}
+
+// ---------------------------------------------------------------------------
+// Chat session watcher — reads Copilot's own JSONL files to track activity
+// No timers. The only "done" signal needed is pendingRequests:null in the file.
+// ---------------------------------------------------------------------------
+
+function _chatSessionsDir(ctx) {
+  // globalStorageUri is always set; chatSessions sits two levels up from it:
+  // .../workspaceStorage/<hash>/<extId>/  ← globalStorageUri
+  // .../workspaceStorage/<hash>/          ← parent
+  // .../workspaceStorage/<hash>/chatSessions/
+  // But globalStorageUri is actually under globalStorage, not workspaceStorage.
+  // The correct path uses storageUri (workspace-scoped) OR we derive it from the
+  // known VS Code path convention: workspaceStorage/<workspaceHash>/chatSessions
+  //
+  // Safest approach: try storageUri parent first, then globalStorageUri grandparent.
+  const candidates = [];
+  if (ctx?.storageUri?.fsPath) {
+    candidates.push(
+      path.join(path.dirname(ctx.storageUri.fsPath), "chatSessions"),
+    );
+  }
+  if (ctx?.globalStorageUri?.fsPath) {
+    // globalStorage/<extId> → globalStorage → User → workspaceStorage (sibling)
+    // This path is not reliable for chatSessions, skip.
+  }
+  // Fallback: scan known workspaceStorage dirs for chatSessions
+  if (!candidates.length || !candidates.some(fs.existsSync)) {
+    const wsStorage = path.join(
+      os.homedir(),
+      "Library",
+      "Application Support",
+      "Code",
+      "User",
+      "workspaceStorage",
+    );
+    if (fs.existsSync(wsStorage)) {
+      // Pick the most-recently-modified dir that has chatSessions
+      try {
+        const dirs = fs
+          .readdirSync(wsStorage)
+          .map((d) => path.join(wsStorage, d, "chatSessions"))
+          .filter((d) => {
+            try {
+              return fs.statSync(d).isDirectory();
+            } catch {
+              return false;
+            }
+          })
+          .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+        if (dirs.length) candidates.push(dirs[0]);
+      } catch {}
+    }
+  }
+  return candidates.find(fs.existsSync) || null;
+}
+
+function startChatSessionWatcher(ctx) {
+  const chatSessionsDir = _chatSessionsDir(ctx);
+  if (!chatSessionsDir) return;
+
+  // On macOS, fs.watch often delivers null filename for file-change events
+  // (FSEvents batches events and omits per-file detail). When filename is null,
+  // scan the directory for recently-modified .jsonl files and process them.
+  let _lastScanMs = 0;
+  const _scanRecentFiles = () => {
+    const now = Date.now();
+    if (now - _lastScanMs < 800) return; // debounce
+    _lastScanMs = now;
+    try {
+      const files = fs
+        .readdirSync(chatSessionsDir)
+        .filter((f) => f.endsWith(".jsonl"));
+      for (const f of files) {
+        const fp = path.join(chatSessionsDir, f);
+        try {
+          const stat = fs.statSync(fp);
+          if (now - stat.mtimeMs < 5000) {
+            const sid = f.slice(0, -6);
+            _onChatSessionWrite(sid, fp);
+          }
+        } catch {}
+      }
+    } catch {}
+  };
+
+  _chatSessionWatcher = fs.watch(
+    chatSessionsDir,
+    { persistent: false },
+    (_evt, filename) => {
+      if (!filename) {
+        // macOS: filename is null — scan for recent changes
+        _scanRecentFiles();
+        return;
+      }
+      if (!filename.endsWith(".jsonl")) return;
+      const sessionId = filename.slice(0, -6);
+      _onChatSessionWrite(sessionId, path.join(chatSessionsDir, filename));
+    },
+  );
+}
+
+function _chatSessionReadTail(filePath) {
+  // Read last 3 KB — enough to catch the pendingRequests:null end-marker
+  try {
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const { size } = fs.fstatSync(fd);
+      const readLen = Math.min(3072, size);
+      const buf = Buffer.alloc(readLen);
+      fs.readSync(fd, buf, 0, readLen, size - readLen);
+      return buf.toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+}
+
+function _chatSessionReadTitle(filePath, existing) {
+  if (existing) return existing;
+  // customTitle record is written near the start, scan first 4 KB
+  try {
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const buf = Buffer.alloc(4096);
+      const n = fs.readSync(fd, buf, 0, 4096, 0);
+      for (const line of buf.slice(0, n).toString("utf8").split("\n")) {
+        try {
+          const rec = JSON.parse(line);
+          if (
+            rec.kind === 1 &&
+            rec.k?.[0] === "customTitle" &&
+            typeof rec.v === "string"
+          ) {
+            return rec.v;
+          }
+        } catch {}
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {}
+  return "Copilot Chat";
+}
+
+function _onChatSessionWrite(sessionId, filePath) {
+  const existing = _chatSessions.get(sessionId);
+  const tail = _chatSessionReadTail(filePath);
+  const lines = tail.split("\n");
+
+  // Detect mid-stream: if the last non-empty line is an incomplete JSON record,
+  // Copilot is actively writing to the file right now.
+  const lastLine = [...lines].reverse().find((l) => l.trim());
+  let isStreaming = false;
+  if (lastLine) {
+    try {
+      JSON.parse(lastLine);
+    } catch {
+      isStreaming = true;
+    }
+  }
+
+  // Scan completed lines for the last pendingRequests record — it's the ground truth.
+  // null → response complete    array/object → request pending    undefined → no record in tail
+  let lastPR = undefined;
+  for (const line of lines) {
+    try {
+      const rec = JSON.parse(line);
+      if (
+        rec.kind === 2 &&
+        Array.isArray(rec.k) &&
+        rec.k[0] === "pendingRequests"
+      ) {
+        lastPR = rec.v;
+      }
+    } catch {}
+  }
+
+  const title = _chatSessionReadTitle(filePath, existing?.title);
+  // Session is active if: currently streaming, OR last pendingRequests was non-null
+  const isActive = isStreaming || (lastPR !== null && lastPR !== undefined);
+
+  if (!isActive && lastPR === null) {
+    // Definitive done marker received
+    if (existing?.active) {
+      _chatSessions.set(sessionId, { ...existing, title, active: false });
+      _webviewProvider?.pushUpdate({
+        type: "activityUpdate",
+        items: getActivityItems(),
+      });
+    } else if (existing) {
+      _chatSessions.set(sessionId, { ...existing, title });
+    }
+  } else if (isActive) {
+    const startedAt = existing?.active ? existing.startedAt : Date.now();
+    const wasActive = existing?.active ?? false;
+    _chatSessions.set(sessionId, {
+      title,
+      active: true,
+      startedAt,
+      filePath,
+      sessionId,
+    });
+    if (!wasActive) {
+      _webviewProvider?.pushUpdate({
+        type: "activityUpdate",
+        items: getActivityItems(),
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Models — enumerate available Copilot language models
+// ---------------------------------------------------------------------------
+
+async function refreshModels() {
+  try {
+    const models = await vscode.lm.selectChatModels({});
+    cachedModels = (models || []).map((m) => ({
+      id: m.id,
+      name: m.name || m.id,
+      vendor: m.vendor || "",
+      family: m.family || "",
+      version: m.version || "",
+      maxInputTokens: m.maxInputTokens || 0,
+    }));
+    // deduplicate by id
+    const seen = new Set();
+    cachedModels = cachedModels.filter((m) => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+  } catch {
+    cachedModels = [];
+  }
+  _webviewProvider?.refresh();
+}
+
+async function openModelPicker() {
+  const commands = await vscode.commands.getCommands(true);
+  const exactCandidates = [
+    "chat.openLanguageModelPicker",
+    "github.copilot.chat.openLanguageModelPicker",
+    "workbench.action.chat.openLanguageModelPicker",
+    "workbench.action.chat.changeDefaultModel",
+    "github.copilot.chat.changeModel",
+  ];
+  const commandId =
+    exactCandidates.find((c) => commands.includes(c)) ||
+    commands.find(
+      (c) =>
+        c.toLowerCase().includes("chat") &&
+        (c.toLowerCase().includes("model") ||
+          c.toLowerCase().includes("language")) &&
+        (c.toLowerCase().includes("pick") ||
+          c.toLowerCase().includes("select") ||
+          c.toLowerCase().includes("change")),
+    );
+  if (commandId) {
+    await vscode.commands.executeCommand(commandId);
+    return;
+  }
+  // Fallback: open quick-open with a model-related search
+  await vscode.commands.executeCommand(
+    "workbench.action.quickOpen",
+    ">chat model",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ollama detection
+// ---------------------------------------------------------------------------
+
+const OLLAMA_BASE = "http://127.0.0.1:11434";
+
+async function detectOllama() {
+  return new Promise((resolve) => {
+    const http = require("http");
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: 11434,
+        path: "/api/tags",
+        method: "GET",
+        timeout: 2000,
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (c) => {
+          raw += c;
+        });
+        res.on("end", () => {
+          try {
+            const body = JSON.parse(raw);
+            const names = (body.models || [])
+              .map((m) => m.name || m.model || "")
+              .filter(Boolean);
+            cachedOllamaRunning = true;
+            cachedOllamaModels = names;
+          } catch {
+            cachedOllamaRunning = true;
+            cachedOllamaModels = [];
+          }
+          resolve();
+        });
+      },
+    );
+    req.on("error", () => {
+      cachedOllamaRunning = false;
+      cachedOllamaModels = [];
+      resolve();
+    });
+    req.on("timeout", () => {
+      req.destroy();
+      cachedOllamaRunning = false;
+      cachedOllamaModels = [];
+      resolve();
+    });
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// API key helpers (stored in VS Code SecretStorage — never on disk)
+// ---------------------------------------------------------------------------
+
+const API_KEY_ANTHROPIC = "gsh.apiKey.anthropic";
+const API_KEY_OPENAI = "gsh.apiKey.openai";
+
+async function getApiKey(key) {
+  try {
+    return (await _context?.secrets.get(key)) || "";
+  } catch {
+    return "";
+  }
+}
+
+async function setApiKey(key, value) {
+  try {
+    if (value) await _context?.secrets.store(key, value);
+    else await _context?.secrets.delete(key);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function getProviderStatus() {
+  const [anthropicKey, openaiKey] = await Promise.all([
+    getApiKey(API_KEY_ANTHROPIC),
+    getApiKey(API_KEY_OPENAI),
+  ]);
+  return {
+    anthropicKey: anthropicKey ? "set" : "",
+    openaiKey: openaiKey ? "set" : "",
+    ollamaRunning: cachedOllamaRunning,
+    ollamaModels: cachedOllamaModels,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Local agents — scan and launch .github/agents/*.agent.md files
+// ---------------------------------------------------------------------------
+
+function parseAgentFrontmatter(content, fileName) {
+  if (!content.startsWith("---")) return null;
+  const eod = content.indexOf("\n---", 3);
+  if (eod === -1) return null;
+  const fm = content.slice(3, eod);
+  const nameMatch = fm.match(/^name:\s*(.+)$/m);
+  const descMatch = fm.match(/^description:\s*(.+)$/m);
+  const invocableMatch = fm.match(/^user-invocable:\s*(true|false)\s*/m);
+  const name = nameMatch
+    ? nameMatch[1].trim().replace(/^["']|["']$/g, "")
+    : fileName.replace(".agent.md", "");
+  const description = descMatch
+    ? descMatch[1].trim().replace(/^["']|["']$/g, "")
+    : "";
+  const userInvocable = invocableMatch
+    ? invocableMatch[1].trim() !== "false"
+    : true;
+  return { name, description, userInvocable, fileName };
+}
+
+function scanLocalAgents() {
+  const agents = [];
+  const folders = vscode.workspace.workspaceFolders || [];
+  for (const folder of folders) {
+    const agentsDir = path.join(folder.uri.fsPath, ".github", "agents");
+    if (!fs.existsSync(agentsDir)) continue;
+    let files;
+    try {
+      files = fs.readdirSync(agentsDir).filter((f) => f.endsWith(".agent.md"));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(agentsDir, file), "utf8");
+        const agent = parseAgentFrontmatter(content, file);
+        if (agent) agents.push(agent);
+      } catch {
+        /* skip */
+      }
+    }
+  }
+  return agents.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function openAgentInChat(agentName) {
+  if (!agentName) return;
+  try {
+    const commands = await vscode.commands.getCommands(true);
+    const candidates = [
+      "workbench.action.chat.open",
+      "workbench.panel.chat.view.copilot.focus",
+    ];
+    const cmd = candidates.find((c) => commands.includes(c));
+    if (cmd) {
+      await vscode.commands.executeCommand(cmd, { query: `@${agentName} ` });
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  await vscode.commands.executeCommand(
+    "workbench.action.quickOpen",
+    `@${agentName}`,
+  );
+}
+
+async function runQuickAction(actionId) {
+  const qa = QUICK_ACTIONS.find((a) => a.id === actionId);
+  if (!qa) return;
+  try {
+    const commands = await vscode.commands.getCommands(true);
+    if (commands.includes("workbench.action.chat.open")) {
+      // Pass the query without isPartialQuery so VS Code submits it immediately
+      await vscode.commands.executeCommand("workbench.action.chat.open", {
+        query: qa.query,
+      });
+      return;
+    }
+    if (commands.includes("workbench.panel.chat.view.copilot.focus")) {
+      await vscode.commands.executeCommand(
+        "workbench.panel.chat.view.copilot.focus",
+        { query: qa.query },
+      );
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  await vscode.commands.executeCommand("workbench.action.quickOpen", qa.query);
+}
+
+async function openQuickActionWithoutSend(actionId) {
+  const qa = QUICK_ACTIONS.find((a) => a.id === actionId);
+  if (!qa) return;
+  try {
+    const commands = await vscode.commands.getCommands(true);
+    if (commands.includes("workbench.action.chat.open")) {
+      await vscode.commands.executeCommand("workbench.action.chat.open", {
+        query: qa.query,
+        isPartialQuery: true,
+      });
+      return;
+    }
+    if (commands.includes("workbench.panel.chat.view.copilot.focus")) {
+      await vscode.commands.executeCommand(
+        "workbench.panel.chat.view.copilot.focus",
+        { query: qa.query, isPartialQuery: true },
+      );
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  // Last resort: copy to clipboard and notify
+  await vscode.env.clipboard.writeText(qa.query);
+  vscode.window.showInformationMessage(
+    `Copied "${qa.query}" to clipboard — paste it into a new chat.`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Checkpoint settings → git config sync
 // ---------------------------------------------------------------------------
 
@@ -2290,6 +3631,10 @@ function syncCheckpointSettings() {
 function activate(context) {
   _context = context;
 
+  // Restore persisted Ollama pinned models
+  const savedPinned = context.globalState.get("gsh.ollama.pinned", []);
+  _ollamaPinned = new Set(Array.isArray(savedPinned) ? savedPinned : []);
+
   importFromJson();
   migrateLegacyMcpRegistrations();
   registerMcpServerProvider(context);
@@ -2323,8 +3668,30 @@ function activate(context) {
     }
   });
 
+  // Detect Ollama on startup
+  detectOllama();
+
+  // Load available Copilot models on startup and whenever the model list changes
+  refreshModels();
+  if (vscode.lm?.onDidChangeChatModels) {
+    context.subscriptions.push(
+      vscode.lm.onDidChangeChatModels(() => refreshModels()),
+    );
+  }
+
   // Start strict lint IPC server so the gsh MCP tool can query VS Code diagnostics
   startStrictLintIpcServer();
+  // Start activity IPC server so the gsh MCP server can report active tool calls
+  startActivityIpcServer();
+  // Watch Copilot Chat's JSONL session files for live activity.
+  // The end-of-response marker is pendingRequests:null written to the JSONL.
+  startChatSessionWatcher(context);
+  context.subscriptions.push({
+    dispose: () => {
+      _chatSessionWatcher?.close();
+      _chatSessionWatcher = null;
+    },
+  });
 
   // Write default tools config if none exists
   if (!fs.existsSync(MCP_TOOLS_CONFIG_PATH)) {
@@ -2369,6 +3736,19 @@ function activate(context) {
     vscode.commands.registerCommand(
       "gitShellHelpers.openMcpServerControls",
       openMcpServerControls,
+    ),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.refreshModels",
+      async () => {
+        await refreshModels();
+        vscode.window.showInformationMessage(
+          `Git Shell Helpers: ${cachedModels.length} Copilot model(s) found.`,
+        );
+      },
+    ),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.openModelPicker",
+      openModelPicker,
     ),
   );
 
@@ -2451,8 +3831,17 @@ function startStrictLintIpcServer() {
         }
 
         try {
-          const result = await runStrictLinting(request.arguments || {});
-          socket.write(JSON.stringify({ ok: true, result }) + "\n");
+          const callId = beginToolCall(
+            "strict-lint-mcp",
+            `MCP Strict Lint: ${request.arguments?.filePath ? path.basename(request.arguments.filePath) : "workspace"}`,
+            request.arguments || {},
+          );
+          try {
+            const result = await runStrictLinting(request.arguments || {});
+            socket.write(JSON.stringify({ ok: true, result }) + "\n");
+          } finally {
+            endToolCall(callId);
+          }
         } catch (err) {
           socket.write(
             JSON.stringify({
@@ -2490,8 +3879,125 @@ function stopStrictLintIpcServer() {
   }
 }
 
+const ACTIVITY_SOCKET_PATH = path.join(os.tmpdir(), "gsh-activity.sock");
+const ACTIVITY_IPC_INFO_PATH = path.join(
+  os.homedir(),
+  ".cache",
+  "gsh",
+  "activity-ipc.json",
+);
+
+function startActivityIpcServer() {
+  if (_activityIpcServer) return;
+
+  try {
+    if (fs.existsSync(ACTIVITY_SOCKET_PATH)) {
+      fs.unlinkSync(ACTIVITY_SOCKET_PATH);
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(ACTIVITY_IPC_INFO_PATH), { recursive: true });
+    fs.writeFileSync(
+      ACTIVITY_IPC_INFO_PATH,
+      JSON.stringify(
+        {
+          socketPath: ACTIVITY_SOCKET_PATH,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+  } catch {
+    // ignore — non-fatal
+  }
+
+  _activityIpcServer = net.createServer((socket) => {
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (msg.type === "activityBegin" && msg.id) {
+          const internalId = beginToolCall(
+            msg.tool || "mcp",
+            msg.label || msg.tool || "MCP Tool",
+            msg.args || {},
+          );
+          _externalToInternal.set(msg.id, internalId);
+        } else if (msg.type === "activityEnd" && msg.id) {
+          const internalId = _externalToInternal.get(msg.id);
+          if (internalId) {
+            _externalToInternal.delete(msg.id);
+            endToolCall(internalId);
+          }
+        } else if (msg.type === "sessionPulse") {
+          // Agent turn starting — begin or refresh the session linger
+          if (_sessionLingerTimer) {
+            clearTimeout(_sessionLingerTimer);
+            _sessionLingerTimer = null;
+          }
+          if (!_sessionStartedAt) {
+            _sessionStartedAt = Date.now();
+          }
+          _sessionLingerTimer = setTimeout(() => {
+            _sessionLingerTimer = null;
+            _sessionStartedAt = 0;
+            _webviewProvider?.pushUpdate({
+              type: "activityUpdate",
+              items: getActivityItems(),
+            });
+          }, SESSION_LINGER_MS);
+          _webviewProvider?.pushUpdate({
+            type: "activityUpdate",
+            items: getActivityItems(),
+          });
+        }
+      }
+    });
+    socket.on("error", () => {});
+  });
+
+  _activityIpcServer.listen(ACTIVITY_SOCKET_PATH);
+  _activityIpcServer.on("error", () => {
+    _activityIpcServer = null;
+  });
+}
+
+function stopActivityIpcServer() {
+  if (_activityIpcServer) {
+    _activityIpcServer.close();
+    _activityIpcServer = null;
+  }
+  try {
+    fs.unlinkSync(ACTIVITY_SOCKET_PATH);
+  } catch {
+    // ignore
+  }
+  try {
+    fs.unlinkSync(ACTIVITY_IPC_INFO_PATH);
+  } catch {
+    // ignore
+  }
+  _externalToInternal.clear();
+}
+
 function deactivate() {
   stopStrictLintIpcServer();
+  stopActivityIpcServer();
 }
 
 module.exports = { activate, deactivate };
