@@ -2,11 +2,10 @@
 name: DevOpsAuditResearch
 description: "Research subagent for DevOps audits. Gathers current Copilot guidance relevant to the project."
 tools:
-  - web/fetch
-  - execute/runInTerminal
-  - read/readFile
-  - search/fileSearch
-  - search/textSearch
+  - web
+  - read
+  - search
+  - execute
 user-invocable: false
 ---
 
@@ -27,7 +26,8 @@ Do not re-read the workspace — the context report already covers it. Do not tr
 ## Hard Rules
 
 - **Page scrape before evidence**: Every search result URL you intend to cite must be fetched in full before that finding is used. Snippets alone are insufficient. No exceptions.
-- **Community cache before open web**: Load studybase → community cache → repo-local notes before issuing any open-web request. If unreachable, log failure and continue.
+- **Web browsing first for live evidence**: Run open-web discovery early using available web tools, then scrape cited pages. Do not spend the opening phase reading local resource packs only.
+- **Community cache is an accelerator, not a gate**: Use studybase/community cache to bootstrap and triangulate, but it must not block or replace live web verification.
 - **Return a compact evidence-backed handoff**, not a padded narrative. If required coverage is missing, say the research is incomplete.
 
 ## MCP Tool Fallback Reference

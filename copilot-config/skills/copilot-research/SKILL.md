@@ -322,13 +322,13 @@ When the system is configured to improve over time, preserve these distinctions:
 - `community cache content` must stay general and privacy-safe
 - `snapshot rebuild` happens automatically when promoted candidates are available
 
-**Blocking gate — self-check before open-web research begins**: Before issuing any `search_web` call, answer these three questions explicitly:
+**Blocking gate — mixed evidence before final conclusions**: Before finalizing recommendations, answer these three questions explicitly:
 
-1. Did I read `~/.copilot/devops-audit-community-settings.json`?
-2. Did I fetch `community-cache/manifest.json` from the community repo and identify the recommended snapshot?
-3. Did I load `prompting-principles.json`, `anti-patterns.json`, `frontmatter-reference.json`, and `deprecations.json` from that snapshot?
+1. Did I run live web browsing and scrape at least one official source URL relevant to this audit?
+2. If the community cache was reachable, did I load `community-cache/manifest.json`, `search-index.json`, and at least one relevant pack file?
+3. Did I cross-check at least one normative claim using both live web evidence and cache evidence?
 
-If the answer to any of these is "no" and the resource was reachable, load it now before continuing. If it was unreachable, log the failure and continue. Open-web research must not begin until this gate passes.
+If the answer to any reachable requirement is "no", complete it before finishing. If a source is unreachable, log the exact failure and continue with available evidence.
 
 ## Mandatory Knowledge Note Write
 
