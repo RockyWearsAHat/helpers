@@ -30,10 +30,12 @@ let cachedOllamaRunning = false;
 let _ollamaPinned = new Set(); // model names the user has enabled/pinned
 let activeToolCalls = new Map(); // id → { id, tool, label, startedAt, args }
 let _activitySeq = 0;
-// Chat sessions are tracked by watching the VS Code chatSessions directory directly.
-// No timers or heuristics — we read pendingRequests:null from the JSONL as the end marker.
-let _chatSessions = new Map(); // sessionId → { title, active, startedAt, filePath }
+// Chat sessions are tracked from VS Code's chatSessions JSONL files.
+// Detection is content-based: parse JSONL records to check if the last request
+// has a modelState.value===1 completion record (no mtime heuristics).
+let _chatSessions = new Map(); // sessionId → { title, active, startedAt, completedAt, filePath, lastSize, preview, requestCount }
 let _chatSessionWatcher = null;
+let _chatSessionPoller = null;
 let _context = null;
 let _webviewProvider = null;
 let _diagnosticsOutputChannel = null;
@@ -1449,35 +1451,10 @@ class CommunityCacheViewProvider {
     const activityRows =
       activityItems.length > 0
         ? activityItems
-            .map((item) =>
-              item.linger
-                ? `
-        <div class="activity-item activity-item--linger">
-          <div class="activity-summary">
-            <span class="activity-pulse activity-pulse--linger"></span>
-            <span class="activity-label">${escapeHtml(item.label)}</span>
-            <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
-          </div>
-        </div>`
-                : `
-        <details class="activity-item">
-          <summary class="activity-summary">
-            <span class="activity-pulse"></span>
-            <span class="activity-label">${escapeHtml(item.label)}</span>
-            <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
-            <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
-          </summary>
-          <div class="activity-detail"><pre>${escapeHtml(item.args)}</pre></div>
-        </details>`,
-            )
+            .map((item) => _renderActivityItem(item, escapeHtml))
             .join("")
         : `<div class="activity-idle"><span class="activity-idle-dot"></span>idle</div>`;
-    const activityCountLabel =
-      activityItems.length === 0
-        ? "idle"
-        : activityItems.every((i) => i.linger)
-          ? "running"
-          : `${activityItems.length} running`;
+    const activityCountLabel = _activityCountLabel(activityItems);
 
     const mcpStatusHtml = `
       <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" data-tone="${mcpStatus.tone}" title="${escapeHtml(mcpStatus.detail)}">
@@ -1856,26 +1833,61 @@ class CommunityCacheViewProvider {
 
   /* Activity */
   .activity-item {
-    border-radius: 4px; margin: 3px -5px;
+    border-radius: 4px; margin: 2px -5px;
     background: var(--vscode-editorWidget-background, rgba(128,128,128,0.04));
     border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.1));
   }
-  .activity-summary {
+  .activity-item--done {
+    background: none; border-color: transparent;
+    opacity: 0.7;
+  }
+  .activity-item--done:hover { opacity: 1; }
+  .activity-row {
     display: flex; align-items: center; gap: 7px;
-    padding: 6px 9px; cursor: pointer; list-style: none;
+    padding: 5px 9px; cursor: pointer; list-style: none;
     font-size: 12px; user-select: none;
   }
-  .activity-summary::-webkit-details-marker { display: none; }
+  .activity-row::-webkit-details-marker { display: none; }
+  .activity-title {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 500;
+  }
+  .activity-item--done .activity-title { font-weight: 400; }
+  .activity-sub {
+    padding: 0 9px 5px 28px;
+    font-size: 11px; line-height: 1.3;
+    color: var(--vscode-descriptionForeground);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    opacity: 0.8;
+  }
+  .activity-meta {
+    flex-shrink: 0; font-size: 10.5px;
+    color: var(--vscode-descriptionForeground); opacity: 0.6;
+  }
   .activity-pulse {
     flex-shrink: 0; width: 7px; height: 7px; border-radius: 999px;
     background: var(--vscode-notificationsInfoIcon-foreground, #3794ff);
     animation: pulse 1.4s ease-in-out infinite;
   }
+  .activity-spinner {
+    flex-shrink: 0; width: 14px; height: 14px; border-radius: 999px;
+    border: 2px solid transparent;
+    border-top-color: var(--vscode-notificationsInfoIcon-foreground, #3794ff);
+    border-right-color: var(--vscode-notificationsInfoIcon-foreground, #3794ff);
+    animation: spin 0.8s linear infinite;
+  }
+  .activity-dot-done {
+    flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px;
+    background: var(--vscode-descriptionForeground); opacity: 0.4;
+    margin: 0 4px;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
   }
-  .activity-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .activity-elapsed {
     flex-shrink: 0; font-size: 10.5px;
     color: var(--vscode-descriptionForeground); opacity: 0.7;
@@ -2259,8 +2271,8 @@ class CommunityCacheViewProvider {
         const count = document.getElementById("activityCount");
         if (!list) return;
         const items = msg.items || [];
-        const allLinger = items.length > 0 && items.every(i => i.linger);
-        if (count) count.textContent = items.length === 0 ? "idle" : allLinger ? "running" : items.length + " running";
+        const active = items.filter(i => i.type === "session-active" || i.type === "tool");
+        if (count) count.textContent = active.length === 0 && items.length === 0 ? "idle" : active.length === 0 ? items.length + " recent" : active.length + " running";
         const sect = list.closest(".sect--activity");
         if (items.length === 0) {
           if (sect) sect.classList.add("sect--idle");
@@ -2270,33 +2282,38 @@ class CommunityCacheViewProvider {
         }
         if (sect) sect.classList.remove("sect--idle");
         list.classList.remove("activity-list-hidden");
-        list.innerHTML = items.map(item => item.linger
-          ? \`<div class="activity-item activity-item--linger">
-            <div class="activity-summary">
-              <span class="activity-pulse activity-pulse--linger"></span>
-              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
-              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
-            </div>
-          </div>\`
-          : item.sessionId
-          ? \`<div class="activity-item activity-item--session" data-sessionid="\${item.sessionId}">
-            <div class="activity-summary">
-              <span class="activity-pulse"></span>
-              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
-              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
-            </div>
-          </div>\`
-          : \`
-          <details class="activity-item">
-            <summary class="activity-summary">
-              <span class="activity-pulse"></span>
-              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
-              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
-              <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
-            </summary>
-            <div class="activity-detail"><pre>\${item.args.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</pre></div>
-          </details>\`).join("");
-        list.querySelectorAll('.activity-item--session').forEach(el => {
+        const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        list.innerHTML = items.map(item => {
+          if (item.type === "session-active") return \`
+            <div class="activity-item activity-item--session" data-sessionid="\${item.sessionId}">
+              <div class="activity-row">
+                <span class="activity-spinner"></span>
+                <span class="activity-title">\${esc(item.label)}</span>
+                <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
+              </div>
+              \${item.preview ? \`<div class="activity-sub">\${esc(item.preview)}</div>\` : ""}
+            </div>\`;
+          if (item.type === "session-done") return \`
+            <div class="activity-item activity-item--done" data-sessionid="\${item.sessionId}">
+              <div class="activity-row">
+                <span class="activity-dot-done"></span>
+                <span class="activity-title">\${esc(item.label)}</span>
+                <span class="activity-meta">completed</span>
+              </div>
+              \${item.preview ? \`<div class="activity-sub">\${esc(item.preview)}</div>\` : ""}
+            </div>\`;
+          return \`
+            <details class="activity-item">
+              <summary class="activity-row">
+                <span class="activity-pulse"></span>
+                <span class="activity-title">\${esc(item.label)}</span>
+                <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
+                <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
+              </summary>
+              <div class="activity-detail"><pre>\${esc(item.args)}</pre></div>
+            </details>\`;
+        }).join("");
+        list.querySelectorAll('.activity-item--session, .activity-item--done').forEach(el => {
           el.addEventListener('click', () => {
             vscode.postMessage({ type: 'openChatSession', sessionId: el.dataset.sessionid });
           });
@@ -3084,115 +3101,244 @@ function endToolCall(id) {
 
 function getActivityItems() {
   const now = Date.now();
-  const items = [...activeToolCalls.values()].map((c) => ({
-    id: c.id,
-    label: c.label,
-    elapsed: Math.floor((now - c.startedAt) / 1000),
-    startedAt: c.startedAt,
-    args: JSON.stringify(c.args, null, 2),
-    linger: false,
-  }));
-  // Active chat sessions from the fs.watch JSONL tracker
+  const items = [];
+  // Active tool calls from MCP IPC
+  for (const c of activeToolCalls.values()) {
+    items.push({
+      id: c.id,
+      type: "tool",
+      label: c.label,
+      elapsed: Math.floor((now - c.startedAt) / 1000),
+      startedAt: c.startedAt,
+      args: JSON.stringify(c.args, null, 2),
+    });
+  }
+  // Collect all sessions, sort by most recent activity, take top 3
+  const allSessions = [];
   for (const [sessionId, sess] of _chatSessions) {
+    const recency = sess.active
+      ? sess.startedAt
+      : sess.completedAt || sess.startedAt;
+    allSessions.push({ sessionId, recency, ...sess });
+  }
+  allSessions.sort((a, b) => b.recency - a.recency);
+  const top3 = allSessions.slice(0, 3);
+  for (const sess of top3) {
     if (sess.active) {
       items.push({
-        id: `chat-${sessionId}`,
+        id: `chat-${sess.sessionId}`,
+        type: "session-active",
         label: sess.title,
-        elapsed: Math.floor((now - sess.startedAt) / 1000),
-        startedAt: sess.startedAt,
-        args: "{}",
-        linger: false,
-        sessionId,
+        elapsed: Math.floor((now - (sess.activeAt || sess.startedAt)) / 1000),
+        startedAt: sess.activeAt || sess.startedAt,
+        preview: sess.preview || "Working\u2026",
+        sessionId: sess.sessionId,
+      });
+    } else {
+      items.push({
+        id: `chat-${sess.sessionId}`,
+        type: "session-done",
+        label: sess.title,
+        preview: sess.preview || "",
+        sessionId: sess.sessionId,
       });
     }
   }
   return items;
 }
 
+function _formatDuration(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m} min ${rem}s` : `${m} min`;
+}
+
+function _formatAgo(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  return `${h} hr ago`;
+}
+
+function _activityCountLabel(items) {
+  const active = items.filter(
+    (i) => i.type === "session-active" || i.type === "tool",
+  );
+  if (items.length === 0) return "idle";
+  if (active.length === 0) return `${items.length} recent`;
+  return `${active.length} running`;
+}
+
+function _renderActivityItem(item, esc) {
+  if (item.type === "session-active") {
+    return `
+      <div class="activity-item activity-item--session" data-sessionid="${item.sessionId}">
+        <div class="activity-row">
+          <span class="activity-spinner"></span>
+          <span class="activity-title">${esc(item.label)}</span>
+          <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
+        </div>
+        ${item.preview ? `<div class="activity-sub">${esc(item.preview)}</div>` : ""}
+      </div>`;
+  }
+  if (item.type === "session-done") {
+    return `
+      <div class="activity-item activity-item--done" data-sessionid="${item.sessionId}">
+        <div class="activity-row">
+          <span class="activity-dot-done"></span>
+          <span class="activity-title">${esc(item.label)}</span>
+          <span class="activity-meta">completed</span>
+        </div>
+        ${item.preview ? `<div class="activity-sub">${esc(item.preview)}</div>` : ""}
+      </div>`;
+  }
+  // tool call
+  return `
+    <details class="activity-item">
+      <summary class="activity-row">
+        <span class="activity-pulse"></span>
+        <span class="activity-title">${esc(item.label)}</span>
+        <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
+        <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
+      </summary>
+      <div class="activity-detail"><pre>${esc(item.args)}</pre></div>
+    </details>`;
+}
+
 // ---------------------------------------------------------------------------
 // Chat session watcher — reads Copilot's own JSONL files to track activity
-// No timers. The only "done" signal needed is pendingRequests:null in the file.
+// Completion is detected by parsing JSONL content: a session is active when
+// the last request index N has no modelState record with value===1 (complete).
+// This correctly handles the "thinking" phase where the file is static but
+// the LLM is running — mtime/size heuristics fail here.
 // ---------------------------------------------------------------------------
 
 function _chatSessionsDir(ctx) {
-  // globalStorageUri is always set; chatSessions sits two levels up from it:
-  // .../workspaceStorage/<hash>/<extId>/  ← globalStorageUri
-  // .../workspaceStorage/<hash>/          ← parent
-  // .../workspaceStorage/<hash>/chatSessions/
-  // But globalStorageUri is actually under globalStorage, not workspaceStorage.
-  // The correct path uses storageUri (workspace-scoped) OR we derive it from the
-  // known VS Code path convention: workspaceStorage/<workspaceHash>/chatSessions
-  //
-  // Safest approach: try storageUri parent first, then globalStorageUri grandparent.
-  const candidates = [];
+  // storageUri points to workspaceStorage/<hash>/<extId>/ — the directory may not
+  // exist (lazy-created), but its PARENT is the workspace hash dir, and chatSessions
+  // is always a sibling there. Check the chatSessions path directly, not storageUri.
   if (ctx?.storageUri?.fsPath) {
-    candidates.push(
-      path.join(path.dirname(ctx.storageUri.fsPath), "chatSessions"),
+    const candidate = path.join(
+      path.dirname(ctx.storageUri.fsPath),
+      "chatSessions",
     );
+    if (fs.existsSync(candidate)) return candidate;
   }
-  if (ctx?.globalStorageUri?.fsPath) {
-    // globalStorage/<extId> → globalStorage → User → workspaceStorage (sibling)
-    // This path is not reliable for chatSessions, skip.
+  // Fallback: scan workspaceStorage for the workspace matching the open folder
+  const wsStorage = path.join(
+    os.homedir(),
+    "Library",
+    "Application Support",
+    "Code",
+    "User",
+    "workspaceStorage",
+  );
+  if (!fs.existsSync(wsStorage)) return null;
+  // Try to match workspace.json to the currently open folder
+  const openFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+  if (openFolder) {
+    try {
+      for (const d of fs.readdirSync(wsStorage)) {
+        const wsjson = path.join(wsStorage, d, "workspace.json");
+        const csDir = path.join(wsStorage, d, "chatSessions");
+        try {
+          const raw = fs.readFileSync(wsjson, "utf8");
+          const data = JSON.parse(raw);
+          const folder =
+            data?.folder ||
+            (Array.isArray(data?.folders) && data.folders[0]?.path) ||
+            "";
+          // folder is a URI like file:///Users/... — compare
+          const folderPath = folder.startsWith("file://")
+            ? decodeURIComponent(folder.replace(/^file:\/\//, ""))
+            : folder;
+          if (folderPath === openFolder && fs.existsSync(csDir)) return csDir;
+        } catch {}
+      }
+    } catch {}
   }
-  // Fallback: scan known workspaceStorage dirs for chatSessions
-  if (!candidates.length || !candidates.some(fs.existsSync)) {
-    const wsStorage = path.join(
-      os.homedir(),
-      "Library",
-      "Application Support",
-      "Code",
-      "User",
-      "workspaceStorage",
-    );
-    if (fs.existsSync(wsStorage)) {
-      // Pick the most-recently-modified dir that has chatSessions
-      try {
-        const dirs = fs
-          .readdirSync(wsStorage)
-          .map((d) => path.join(wsStorage, d, "chatSessions"))
-          .filter((d) => {
-            try {
-              return fs.statSync(d).isDirectory();
-            } catch {
-              return false;
-            }
-          })
-          .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-        if (dirs.length) candidates.push(dirs[0]);
-      } catch {}
-    }
-  }
-  return candidates.find(fs.existsSync) || null;
+  // Last resort: most-recently-modified chatSessions dir
+  try {
+    const dirs = fs
+      .readdirSync(wsStorage)
+      .map((d) => path.join(wsStorage, d, "chatSessions"))
+      .filter((d) => {
+        try {
+          return fs.statSync(d).isDirectory();
+        } catch {
+          return false;
+        }
+      })
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+    if (dirs.length) return dirs[0];
+  } catch {}
+  return null;
 }
 
 function startChatSessionWatcher(ctx) {
+  _chatSessionWatcher?.close();
+  _chatSessionWatcher = null;
+  if (_chatSessionPoller) {
+    clearInterval(_chatSessionPoller);
+    _chatSessionPoller = null;
+  }
+
   const chatSessionsDir = _chatSessionsDir(ctx);
   if (!chatSessionsDir) return;
 
-  // On macOS, fs.watch often delivers null filename for file-change events
-  // (FSEvents batches events and omits per-file detail). When filename is null,
-  // scan the directory for recently-modified .jsonl files and process them.
+  // Scan .jsonl session files and process likely-active candidates.
+  // Used as fallback when fs.watch gives null filename (macOS) and for polling.
   let _lastScanMs = 0;
+  let _didBootstrapScan = false;
   const _scanRecentFiles = () => {
     const now = Date.now();
-    if (now - _lastScanMs < 800) return; // debounce
+    if (now - _lastScanMs < 800) return; // debounce directory scans only
     _lastScanMs = now;
     try {
       const files = fs
         .readdirSync(chatSessionsDir)
-        .filter((f) => f.endsWith(".jsonl"));
-      for (const f of files) {
-        const fp = path.join(chatSessionsDir, f);
-        try {
-          const stat = fs.statSync(fp);
-          if (now - stat.mtimeMs < 5000) {
-            const sid = f.slice(0, -6);
-            _onChatSessionWrite(sid, fp);
-          }
-        } catch {}
+        .filter((f) => f.endsWith(".jsonl"))
+        .map((f) => {
+          const fp = path.join(chatSessionsDir, f);
+          let mtimeMs = 0;
+          try {
+            mtimeMs = fs.statSync(fp).mtimeMs;
+          } catch {}
+          return { f, fp, sid: f.slice(0, -6), mtimeMs };
+        })
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+      // Re-check known active sessions so they can transition to done.
+      const candidate = new Map();
+      for (const [sid, sess] of _chatSessions) {
+        if (sess?.active && sess.filePath) {
+          candidate.set(sid, { sid, fp: sess.filePath });
+        }
       }
+
+      // Only consider files modified in the last 5 minutes as potentially active.
+      // Older files are definitely completed — no model thinks for 5+ minutes
+      // without writing anything to the JSONL.
+      const recentFiles = files.filter((f) => now - f.mtimeMs < 300000);
+      for (const file of recentFiles) {
+        candidate.set(file.sid, { sid: file.sid, fp: file.fp });
+      }
+
+      for (const c of candidate.values()) {
+        _onChatSessionWrite(c.sid, c.fp);
+      }
+      _didBootstrapScan = true;
     } catch {}
+    // Always push update (keeps elapsed time fresh)
+    _pushActivityUpdate();
   };
+
+  // Seed activity state immediately
+  _scanRecentFiles();
 
   _chatSessionWatcher = fs.watch(
     chatSessionsDir,
@@ -3204,50 +3350,136 @@ function startChatSessionWatcher(ctx) {
         return;
       }
       if (!filename.endsWith(".jsonl")) return;
+      // Process this specific file IMMEDIATELY — no debounce
       const sessionId = filename.slice(0, -6);
       _onChatSessionWrite(sessionId, path.join(chatSessionsDir, filename));
+      _pushActivityUpdate();
     },
   );
+
+  // Poll every 2s — keeps elapsed time fresh and catches events fs.watch misses
+  _chatSessionPoller = setInterval(_scanRecentFiles, 2000);
 }
 
-function _chatSessionReadTail(filePath) {
-  // Read last 3 KB — enough to catch the pendingRequests:null end-marker
+function _pushActivityUpdate() {
+  _webviewProvider?.pushUpdate({
+    type: "activityUpdate",
+    items: getActivityItems(),
+  });
+}
+
+function _chatSessionReadTail(filePath, bytes) {
+  // Read last N bytes from the JSONL file
+  const readLen = bytes || 65536; // 64 KB default — large sessions need more tail
   try {
     const fd = fs.openSync(filePath, "r");
     try {
       const { size } = fs.fstatSync(fd);
-      const readLen = Math.min(3072, size);
-      const buf = Buffer.alloc(readLen);
-      fs.readSync(fd, buf, 0, readLen, size - readLen);
-      return buf.toString("utf8");
+      const actual = Math.min(readLen, size);
+      const buf = Buffer.alloc(actual);
+      fs.readSync(fd, buf, 0, actual, size - actual);
+      return { tail: buf.toString("utf8"), size };
     } finally {
       fs.closeSync(fd);
     }
   } catch {
-    return "";
+    return { tail: "", size: 0 };
   }
 }
 
 function _chatSessionReadTitle(filePath, existing) {
-  if (existing) return existing;
-  // customTitle record is written near the start, scan first 4 KB
+  if (existing && existing !== "Copilot Chat") return existing;
   try {
     const fd = fs.openSync(filePath, "r");
     try {
-      const buf = Buffer.alloc(4096);
-      const n = fs.readSync(fd, buf, 0, 4096, 0);
-      for (const line of buf.slice(0, n).toString("utf8").split("\n")) {
-        try {
-          const rec = JSON.parse(line);
-          if (
-            rec.kind === 1 &&
-            rec.k?.[0] === "customTitle" &&
-            typeof rec.v === "string"
-          ) {
-            return rec.v;
+      const stat = fs.fstatSync(fd);
+      const fileSize = stat.size;
+      let customTitle = null;
+      let firstPrompt = null;
+
+      // Helper: scan JSONL lines in a buffer for title data
+      const scanLines = (buf, len) => {
+        for (const line of buf.slice(0, len).toString("utf8").split("\n")) {
+          try {
+            const rec = JSON.parse(line);
+            if (
+              rec.kind === 1 &&
+              rec.k?.[0] === "customTitle" &&
+              typeof rec.v === "string"
+            ) {
+              customTitle = rec.v;
+            }
+            if (
+              !firstPrompt &&
+              rec.kind === 2 &&
+              rec.k?.[0] === "requests" &&
+              rec.k.length === 1 &&
+              Array.isArray(rec.v)
+            ) {
+              for (const req of rec.v) {
+                const msg =
+                  req?.message?.text ||
+                  req?.message ||
+                  req?.text ||
+                  req?.prompt;
+                if (typeof msg === "string" && msg.trim()) {
+                  firstPrompt = msg.trim().slice(0, 80);
+                  break;
+                }
+              }
+            }
+          } catch {}
+        }
+      };
+
+      // Pass 1: read first 8KB — covers small sessions where kind=0 snapshot fits
+      const headBuf = Buffer.alloc(8192);
+      const headN = fs.readSync(fd, headBuf, 0, 8192, 0);
+      scanLines(headBuf, headN);
+      if (customTitle) return customTitle;
+
+      // Pass 2: if first line is huge (snapshot > 8KB), find first newline and read lines 2-10
+      if (headN >= 8192 && !headBuf.slice(0, headN).includes(0x0a)) {
+        // Scan forward in 64KB chunks to find the first newline
+        const chunkSize = 65536;
+        const scanBuf = Buffer.alloc(chunkSize);
+        let offset = 8192;
+        let nlOffset = -1;
+        while (offset < fileSize && offset < 100 * 1024 * 1024) {
+          const toRead = Math.min(chunkSize, fileSize - offset);
+          const got = fs.readSync(fd, scanBuf, 0, toRead, offset);
+          if (got === 0) break;
+          const idx = scanBuf.indexOf(0x0a, 0);
+          if (idx !== -1 && idx < got) {
+            nlOffset = offset + idx;
+            break;
           }
-        } catch {}
+          offset += got;
+        }
+        if (nlOffset !== -1 && nlOffset + 1 < fileSize) {
+          // Read 16KB after the first newline (lines 2-N)
+          const afterBuf = Buffer.alloc(16384);
+          const afterN = fs.readSync(fd, afterBuf, 0, 16384, nlOffset + 1);
+          scanLines(afterBuf, afterN);
+          if (customTitle) return customTitle;
+        }
       }
+
+      // Pass 3: read tail 32KB — catches customTitle written later in session
+      if (!customTitle && fileSize > 8192) {
+        const tailSize = Math.min(32768, fileSize);
+        const tailBuf = Buffer.alloc(tailSize);
+        const tailN = fs.readSync(
+          fd,
+          tailBuf,
+          0,
+          tailSize,
+          fileSize - tailSize,
+        );
+        scanLines(tailBuf, tailN);
+      }
+
+      return customTitle || firstPrompt || "Copilot Chat";
     } finally {
       fs.closeSync(fd);
     }
@@ -3255,70 +3487,217 @@ function _chatSessionReadTitle(filePath, existing) {
   return "Copilot Chat";
 }
 
-function _onChatSessionWrite(sessionId, filePath) {
-  const existing = _chatSessions.get(sessionId);
-  const tail = _chatSessionReadTail(filePath);
+/** Extract a preview description from the tail of the JSONL file. */
+function _chatSessionExtractPreview(tail) {
   const lines = tail.split("\n");
-
-  // Detect mid-stream: if the last non-empty line is an incomplete JSON record,
-  // Copilot is actively writing to the file right now.
-  const lastLine = [...lines].reverse().find((l) => l.trim());
-  let isStreaming = false;
-  if (lastLine) {
+  let lastToolCall = null;
+  let lastProgress = null;
+  // Walk backwards through parsed lines for the most recent tool invocation or progress
+  for (let i = lines.length - 1; i >= 0; i--) {
     try {
-      JSON.parse(lastLine);
-    } catch {
-      isStreaming = true;
-    }
+      const rec = JSON.parse(lines[i]);
+      // Tool call invocation messages appear as response part mutations
+      if (rec.kind === 2 || rec.kind === 1) {
+        const val = rec.v;
+        // Check if this is a response part with tool info
+        if (val && typeof val === "object") {
+          // invocationMessage from tool calls (e.g. "Reading file.ts")
+          if (!lastToolCall && typeof val.invocationMessage === "string") {
+            lastToolCall = val.invocationMessage;
+          }
+          // Progress messages
+          if (
+            !lastProgress &&
+            typeof val.content === "string" &&
+            val.kind === "progressMessage"
+          ) {
+            lastProgress = val.content;
+          }
+          // Array of response parts
+          if (Array.isArray(val)) {
+            for (let j = val.length - 1; j >= 0; j--) {
+              const part = val[j];
+              if (
+                !lastToolCall &&
+                typeof part?.invocationMessage === "string"
+              ) {
+                lastToolCall = part.invocationMessage;
+              }
+              if (
+                !lastProgress &&
+                typeof part?.content === "string" &&
+                part?.kind === "progressMessage"
+              ) {
+                lastProgress = part.content;
+              }
+            }
+          }
+        }
+      }
+      if (lastToolCall) break; // found what we need
+    } catch {}
   }
+  return lastToolCall || lastProgress || null;
+}
 
-  // Scan completed lines for the last pendingRequests record — it's the ground truth.
-  // null → response complete    array/object → request pending    undefined → no record in tail
-  let lastPR = undefined;
+/**
+ * Parse the JSONL tail to determine if the last request is still in progress.
+ * A session is active when the last request index N has no modelState record
+ * with value===1 (completed). This works correctly during the LLM "thinking"
+ * phase when the file is static (mtime does not change).
+ */
+function _chatSessionParseState(tail) {
+  const lines = tail.split("\n");
+  let lastRequestIdx = -1;
+  const doneRequests = new Set(); // requests with a terminal modelState
+
   for (const line of lines) {
+    if (!line.trim()) continue;
     try {
       const rec = JSON.parse(line);
+      const k = rec.k;
+      if (!Array.isArray(k)) continue;
+
+      // Track the highest request index seen from any per-request record
+      if (k[0] === "requests" && typeof k[1] === "number") {
+        if (k[1] > lastRequestIdx) lastRequestIdx = k[1];
+      }
+      // kind=2 splice of the TOP-LEVEL requests array tells us a new request was added.
       if (
         rec.kind === 2 &&
-        Array.isArray(rec.k) &&
-        rec.k[0] === "pendingRequests"
+        k.length === 1 &&
+        k[0] === "requests" &&
+        Array.isArray(rec.v)
       ) {
-        lastPR = rec.v;
+        const spliceEnd = (rec.offset || 0) + rec.v.length - 1;
+        if (spliceEnd > lastRequestIdx) lastRequestIdx = spliceEnd;
+      }
+
+      // modelState values: 0=Failed, 1=Completed, 2=InProgress, 3=NeedsInput
+      // Only value 2 means truly active. Everything else is a terminal state.
+      if (
+        k[0] === "requests" &&
+        typeof k[1] === "number" &&
+        k[2] === "modelState" &&
+        typeof rec.v?.value === "number"
+      ) {
+        if (rec.v.value !== 2) {
+          doneRequests.add(k[1]);
+        }
       }
     } catch {}
   }
 
-  const title = _chatSessionReadTitle(filePath, existing?.title);
-  // Session is active if: currently streaming, OR last pendingRequests was non-null
-  const isActive = isStreaming || (lastPR !== null && lastPR !== undefined);
+  if (lastRequestIdx < 0) return { active: false, lastRequestIdx: -1 };
+  return {
+    active: !doneRequests.has(lastRequestIdx),
+    lastRequestIdx,
+  };
+}
 
-  if (!isActive && lastPR === null) {
-    // Definitive done marker received
-    if (existing?.active) {
-      _chatSessions.set(sessionId, { ...existing, title, active: false });
-      _webviewProvider?.pushUpdate({
-        type: "activityUpdate",
-        items: getActivityItems(),
-      });
-    } else if (existing) {
-      _chatSessions.set(sessionId, { ...existing, title });
+function _chatSessionReadCreationDate(filePath) {
+  // Extract creationDate from the kind=0 snapshot (first line) or early mutation.
+  // The snapshot can be huge (multi-MB), so scan bytewise for the key.
+  try {
+    const fd = fs.openSync(filePath, "r");
+    try {
+      // Read first 4KB — creationDate is near the start of the snapshot JSON
+      const buf = Buffer.alloc(4096);
+      const n = fs.readSync(fd, buf, 0, 4096, 0);
+      const str = buf.slice(0, n).toString("utf8");
+      const m = str.match(/"creationDate"\s*:\s*(\d+)/);
+      if (m) return parseInt(m[1], 10);
+    } finally {
+      fs.closeSync(fd);
     }
-  } else if (isActive) {
-    const startedAt = existing?.active ? existing.startedAt : Date.now();
-    const wasActive = existing?.active ?? false;
+  } catch {}
+  return null;
+}
+
+function _onChatSessionWrite(sessionId, filePath) {
+  const existing = _chatSessions.get(sessionId);
+  const now = Date.now();
+
+  // Always read the tail — content-based detection, not mtime
+  const { tail, size: fileSize } = _chatSessionReadTail(filePath);
+  if (!tail) return;
+
+  // Skip if file hasn't changed since last check
+  if (existing && existing.lastSize === fileSize && !existing.active) return;
+
+  // Hard mtime guard: if the file hasn't been modified in 5+ minutes, it cannot
+  // be an active session. This catches cases where the 64KB tail doesn't contain
+  // the completion record for large/old sessions.
+  let fileMtimeMs = 0;
+  try {
+    fileMtimeMs = fs.statSync(filePath).mtimeMs;
+  } catch {}
+  const fileStaleMs = Date.now() - fileMtimeMs;
+  const forceCompleted = fileStaleMs > 300000; // 5 minutes
+
+  const { active: rawActive, lastRequestIdx } = _chatSessionParseState(tail);
+  const isActive = rawActive && !forceCompleted;
+  const title = _chatSessionReadTitle(filePath, existing?.title);
+
+  // Always extract preview from tail so completed sessions retain their last summary
+  const newPreview = _chatSessionExtractPreview(tail);
+  let preview = newPreview || existing?.preview || null;
+
+  // Determine startedAt: prefer existing, then creationDate from JSONL, then now
+  let startedAt = existing?.startedAt;
+  if (!startedAt || (existing && !existing.active && isActive)) {
+    startedAt = _chatSessionReadCreationDate(filePath) || now;
+  }
+
+  if (isActive) {
+    // Staleness guard: if the file hasn't changed in 2+ minutes and the session
+    // was already known, treat it as done (the model may have disconnected).
+    if (existing && existing.lastSize === fileSize && existing.active) {
+      const staleMs = now - (existing._lastChangedAt || existing.startedAt);
+      if (staleMs > 120000) {
+        _chatSessions.set(sessionId, {
+          title,
+          active: false,
+          startedAt,
+          completedAt: existing._lastChangedAt || now,
+          filePath,
+          sessionId,
+          lastSize: fileSize,
+          preview: preview || existing?.preview || null,
+          requestCount: lastRequestIdx + 1,
+          _lastChangedAt: existing._lastChangedAt || now,
+        });
+        return;
+      }
+    }
     _chatSessions.set(sessionId, {
       title,
       active: true,
       startedAt,
+      completedAt: null,
       filePath,
       sessionId,
+      lastSize: fileSize,
+      preview: preview || "Working…",
+      requestCount: lastRequestIdx + 1,
+      _lastChangedAt:
+        existing?.lastSize !== fileSize ? now : existing?._lastChangedAt || now,
     });
-    if (!wasActive) {
-      _webviewProvider?.pushUpdate({
-        type: "activityUpdate",
-        items: getActivityItems(),
-      });
-    }
+  } else {
+    const completedAt = existing?.active ? now : existing?.completedAt || now;
+    _chatSessions.set(sessionId, {
+      title,
+      active: false,
+      startedAt,
+      activeAt: null,
+      completedAt,
+      filePath,
+      sessionId,
+      lastSize: fileSize,
+      preview: preview || existing?.preview || null,
+      requestCount: lastRequestIdx + 1,
+      _lastChangedAt: now,
+    });
   }
 }
 
@@ -3690,6 +4069,10 @@ function activate(context) {
     dispose: () => {
       _chatSessionWatcher?.close();
       _chatSessionWatcher = null;
+      if (_chatSessionPoller) {
+        clearInterval(_chatSessionPoller);
+        _chatSessionPoller = null;
+      }
     },
   });
 

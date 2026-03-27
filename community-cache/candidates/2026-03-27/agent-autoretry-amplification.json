@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "kind": "warning",
+  "topic": "tooling",
+  "statement": "Under VS Code's higher autonomy modes (Autopilot), failed terminal commands trigger automatic retry loops without user input. This means the cost of a bad terminal pattern (heredocs, complex shell constructs) is multiplicative, not linear — a single failure can consume 5-10 retries worth of context budget before the agent tries an alternative approach. Instructions that prohibit fragile terminal patterns prevent this amplification.",
+  "recommendationStrength": "required",
+  "applicability": "tool-use",
+  "evidenceRefs": [
+    {
+      "title": "VS Code Agent Mode — autonomy levels and auto-approval",
+      "url": "https://code.visualstudio.com/docs/copilot/chat/chat-agent-mode",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-27T21:11:00Z",
+  "freshnessCheckedAt": "2026-03-27T21:11:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Agent auto-retry under Autopilot mode makes fragile terminal patterns multiplicatively expensive. Prevention via instructions is far cheaper than cleanup after a retry spiral.",
+  "cautionNotes": "Auto-retry behavior may change in future VS Code versions. Verify current autonomy mode behavior against release notes.",
+  "nonGeneralizationNotes": "Specific to VS Code Copilot agent mode. Other agent runtimes may have different retry policies.",
+  "submittedAt": "2026-03-27T21:11:00Z",
+  "submissionId": "2026-03-27-agent-autoretry-amplification"
+}
