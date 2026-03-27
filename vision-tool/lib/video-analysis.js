@@ -53,19 +53,6 @@ function validateInput(input) {
   return resolved;
 }
 
-function parseTranscriptSegments(input) {
-  const segments = input.transcriptSegments || input.transcript_segments;
-  const rawText = input.transcriptText || input.transcript_text;
-
-  if (segments && Array.isArray(segments) && segments.length > 0) {
-    return { type: "segmented", segments };
-  }
-  if (rawText && typeof rawText === "string" && rawText.trim()) {
-    return { type: "raw", text: rawText.trim() };
-  }
-  return { type: "none" };
-}
-
 function buildFramePrompt(frames, batchIndex, totalBatches, goal) {
   const lines = [
     "You are analyzing video frames extracted at specific timestamps.",
@@ -153,6 +140,14 @@ async function downloadVideo(url) {
         "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "--merge-output-format",
         "mp4",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-langs",
+        "en.*,en",
+        "--sub-format",
+        "vtt/srt/best",
+        "--convert-subs",
+        "vtt",
         "-o",
         outputTemplate,
         "--no-playlist",
@@ -161,23 +156,87 @@ async function downloadVideo(url) {
       { timeout: 300000, cwd: tempDir },
       (err, stdout, stderr) => {
         if (err)
-          reject(
-            new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`),
-          );
+          reject(new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`));
         else resolve(stdout);
       },
     );
   });
 
   const files = fs.readdirSync(tempDir).filter((f) => !f.startsWith("."));
-  if (!files.length)
-    throw new Error("yt-dlp did not produce an output file.");
+  const videoFile = files.find((f) => VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()));
+  if (!videoFile) throw new Error("yt-dlp did not produce an output file.");
+
+  // Look for downloaded subtitle files (.vtt)
+  const subtitleFile = files.find((f) => f.endsWith(".vtt"));
+  let subtitleSegments = null;
+  if (subtitleFile) {
+    try {
+      const vttContent = fs.readFileSync(path.join(tempDir, subtitleFile), "utf-8");
+      subtitleSegments = parseVttSubtitles(vttContent);
+    } catch (_) {
+      // Subtitle parsing failed — continue without
+    }
+  }
 
   return {
-    videoPath: path.join(tempDir, files[0]),
+    videoPath: path.join(tempDir, videoFile),
     tempDownloadDir: tempDir,
     sourceUrl: url,
+    subtitleSegments,
   };
+}
+
+/**
+ * Parse a WebVTT file into transcript segments [{start, end, text}].
+ */
+function parseVttSubtitles(vttContent) {
+  const segments = [];
+  const lines = vttContent.split("\n");
+  let i = 0;
+
+  // Skip header
+  while (i < lines.length && !lines[i].includes("-->")) i++;
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    const match = line.match(
+      /(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})/,
+    );
+    if (match) {
+      const start =
+        parseInt(match[1]) * 3600 +
+        parseInt(match[2]) * 60 +
+        parseInt(match[3]) +
+        parseInt(match[4]) / 1000;
+      const end =
+        parseInt(match[5]) * 3600 +
+        parseInt(match[6]) * 60 +
+        parseInt(match[7]) +
+        parseInt(match[8]) / 1000;
+      i++;
+      const textLines = [];
+      while (i < lines.length && lines[i].trim() !== "" && !lines[i].includes("-->")) {
+        // Strip VTT formatting tags like <c>, </c>, <00:00:01.234>
+        const cleaned = lines[i].trim().replace(/<[^>]+>/g, "");
+        if (cleaned) textLines.push(cleaned);
+        i++;
+      }
+      const text = textLines.join(" ").trim();
+      if (text) {
+        // Deduplicate consecutive identical segments (common in auto-subs)
+        const prev = segments[segments.length - 1];
+        if (!prev || prev.text !== text) {
+          segments.push({ start, end, text });
+        } else {
+          prev.end = end; // Extend previous segment
+        }
+      }
+    } else {
+      i++;
+    }
+  }
+
+  return segments.length > 0 ? segments : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +250,8 @@ async function analyzeVideo(input, analyzeImagesFn) {
   let sourceType = "local-video";
   let tempDownloadDir = null;
   let sourceUrl = null;
+  let transcript = { type: "none" };
+  let transcriptSource = null;
 
   const rawPath = input.videoPath || input.video_path || "";
 
@@ -200,6 +261,12 @@ async function analyzeVideo(input, analyzeImagesFn) {
     tempDownloadDir = download.tempDownloadDir;
     sourceType = "url-video";
     sourceUrl = download.sourceUrl;
+
+    // Use yt-dlp subtitles if available
+    if (download.subtitleSegments) {
+      transcript = { type: "segmented", segments: download.subtitleSegments };
+      transcriptSource = "yt-dlp-subtitles";
+    }
   } else {
     videoPath = validateInput(input);
   }
@@ -210,11 +277,10 @@ async function analyzeVideo(input, analyzeImagesFn) {
   const includeTimeline = input.includeTimeline !== false;
   const keepTempDir =
     input.keepTempDir === true || input.keep_temp_dir === true;
-  let transcript = parseTranscriptSegments(input);
 
   const metadata = await getVideoMetadata(videoPath);
 
-  // Auto-transcribe if no transcript provided and not explicitly disabled
+  // Auto-transcribe via ASR if no transcript yet and not explicitly disabled
   const autoTranscribe =
     (input.autoTranscribe ?? input.auto_transcribe) !== false;
   let asrInfo = null;
@@ -228,6 +294,7 @@ async function analyzeVideo(input, analyzeImagesFn) {
           keepTempDir,
         });
         transcript = { type: "segmented", segments: asrResult.segments };
+        transcriptSource = asrResult.backend;
         asrInfo = {
           backend: asrResult.backend,
           segmentCount: asrResult.segmentCount,
@@ -265,7 +332,8 @@ async function analyzeVideo(input, analyzeImagesFn) {
       const result = await analyzeImagesFn({
         imagePaths,
         goal: prompt,
-        context: `Video analysis batch ${i + 1}/${batches.length}. ` +
+        context:
+          `Video analysis batch ${i + 1}/${batches.length}. ` +
           `Frames from ${batch[0].timestamp.toFixed(1)}s to ` +
           `${batch[batch.length - 1].timestamp.toFixed(1)}s.`,
       });
@@ -318,6 +386,10 @@ async function analyzeVideo(input, analyzeImagesFn) {
       output.asr = asrInfo;
     }
 
+    if (transcriptSource) {
+      output.transcriptSource = transcriptSource;
+    }
+
     if (includeTimeline) {
       output.segments = segments;
     }
@@ -343,5 +415,4 @@ module.exports = {
   analyzeVideo,
   downloadVideo,
   validateInput,
-  parseTranscriptSegments,
 };

@@ -332,8 +332,6 @@ async function handleVisionRequest(method, args, token) {
       {
         videoPath: args.videoPath || args.video_path,
         goal: args.goal,
-        transcriptSegments: args.transcriptSegments || args.transcript_segments,
-        transcriptText: args.transcriptText || args.transcript_text,
         startSec: args.startSec || args.start_sec,
         endSec: args.endSec || args.end_sec,
         sampleEverySec: args.sampleEverySec || args.sample_every_sec,
@@ -459,7 +457,10 @@ function registerChatParticipant(context) {
         }
 
         if (request.command === "analyze-video") {
-          const parts = (request.prompt || "").trim().split("::").map((p) => p.trim());
+          const parts = (request.prompt || "")
+            .trim()
+            .split("::")
+            .map((p) => p.trim());
           if (parts.length < 2 || !parts[0]) {
             stream.markdown(
               "Usage: `/analyze-video /path/to/video.mp4 :: What to analyze?`",
@@ -471,7 +472,9 @@ function registerChatParticipant(context) {
           const goal = parts.slice(1).join(" :: ");
 
           stream.progress(`Analyzing video: ${path.basename(videoPath)}`);
-          const { analyzeVideo: analyzeVideoCore } = require("./lib/video-analysis");
+          const {
+            analyzeVideo: analyzeVideoCore,
+          } = require("./lib/video-analysis");
           const output = await analyzeVideoCore(
             { videoPath, goal },
             async (imageInput) => analyzeImages(imageInput, token),
@@ -552,10 +555,11 @@ function registerTool(context) {
 
   const videoTool = {
     async invoke(options, token) {
-      const { analyzeVideo: analyzeVideoCore } = require("./lib/video-analysis");
-      const output = await analyzeVideoCore(
-        options.input,
-        async (imageInput) => analyzeImages(imageInput, token),
+      const {
+        analyzeVideo: analyzeVideoCore,
+      } = require("./lib/video-analysis");
+      const output = await analyzeVideoCore(options.input, async (imageInput) =>
+        analyzeImages(imageInput, token),
       );
       return makeToolResult(JSON.stringify(output, null, 2));
     },

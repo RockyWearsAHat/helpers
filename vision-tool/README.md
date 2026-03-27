@@ -3,9 +3,11 @@
 This workspace-local VS Code extension contributes image analysis and video analysis tools:
 
 **Image analysis:**
+
 - `gsh-analyze-images` / `gsh_analyze_images`
 
 **Video analysis:**
+
 - `gsh-analyze-video` / `gsh_analyze_video`
 
 It also contributes one chat participant:
@@ -120,12 +122,13 @@ The `mcp_` prefix and the `gsh-vis` server name come from how VS Code exposes MC
 
 ## Video Analysis
 
-The `analyze_video` tool extracts frames from a video at regular intervals, analyzes each batch through the existing vision model pipeline, and optionally merges results with externally supplied transcript/caption segments.
+The `analyze_video` tool extracts frames from a video at regular intervals, analyzes each batch through the existing vision model pipeline, and automatically generates a transcript via local ASR (whisper/mlx_whisper/whisper-cpp) or yt-dlp subtitle download for URLs. Returns a structured timeline merging visual and audio evidence.
 
 ### Dependencies
 
 - **ffmpeg** and **ffprobe** — required for frame extraction and metadata inspection. Install with `brew install ffmpeg`.
-- **yt-dlp** — optional, only needed for URL ingestion (YouTube, Shorts). Install with `brew install yt-dlp`.
+- **yt-dlp** — optional, needed for URL ingestion (YouTube, Shorts). Also auto-downloads subtitles when available. Install with `brew install yt-dlp`.
+- **whisper** / **mlx_whisper** / **whisper-cpp** — optional, for local ASR transcription. Install with `pip install openai-whisper` or `pip install mlx_whisper`.
 
 ### MCP tool input
 
@@ -133,16 +136,14 @@ The `analyze_video` tool extracts frames from a video at regular intervals, anal
 {
   "video_path": "/absolute/path/to/video.mp4",
   "goal": "Describe the visual content and any on-screen text over the course of this video.",
-  "transcript_segments": [
-    { "start": 0, "end": 5.2, "text": "Welcome to the demo." },
-    { "start": 5.2, "end": 12.0, "text": "Here we see the dashboard." }
-  ],
   "start_sec": 0,
   "end_sec": 60,
   "sample_every_sec": 2,
   "max_frames": 30,
   "include_report": true,
-  "include_timeline": true
+  "include_timeline": true,
+  "auto_transcribe": true,
+  "whisper_model": "base"
 }
 ```
 
@@ -152,13 +153,12 @@ The `analyze_video` tool extracts frames from a video at regular intervals, anal
 {
   "videoPath": "/absolute/path/to/video.mp4",
   "goal": "Describe the visual content over the course of this video.",
-  "transcriptSegments": [
-    { "start": 0, "end": 5.2, "text": "Welcome to the demo." }
-  ],
   "sampleEverySec": 2,
   "maxFrames": 30,
   "includeReport": true,
-  "includeTimeline": true
+  "includeTimeline": true,
+  "autoTranscribe": true,
+  "whisperModel": "base"
 }
 ```
 
@@ -186,6 +186,11 @@ The `analyze_video` tool extracts frames from a video at regular intervals, anal
     "framesAnalyzed": 24,
     "batchCount": 3
   },
+  "transcriptSource": "whisper",
+  "asr": {
+    "backend": "whisper",
+    "segmentCount": 42
+  },
   "segments": [
     {
       "start": 0,
@@ -201,11 +206,13 @@ The `analyze_video` tool extracts frames from a video at regular intervals, anal
 }
 ```
 
-### Transcript handling
+### Transcript acquisition
 
-- **Segmented**: pass `transcript_segments` (array of `{start, end, text}`). Visual findings are aligned to segment timestamps with high confidence.
-- **Raw text**: pass `transcript_text` (string). Output includes the transcript but marks alignment confidence lower since timestamps are not present.
-- **None**: omit both. Visual-only analysis is produced.
+Transcripts are acquired automatically — there are no user-facing transcript parameters.
+
+1. **URL videos (yt-dlp)**: Subtitles are downloaded alongside the video (`--write-subs --write-auto-subs`). If available, parsed into timestamped segments. This is the fastest path and produces high-quality captions for YouTube/Shorts content.
+2. **Local ASR (whisper/mlx_whisper/whisper-cpp)**: If no subtitles were obtained (local files, or URLs without captions), the audio is extracted and transcribed locally. Backend is auto-detected at runtime in priority order: whisper → mlx_whisper → whisper-cpp.
+3. **Visual-only**: If ASR is disabled (`auto_transcribe: false`) or no backend is available, the pipeline produces visual-only analysis without transcript alignment.
 
 ### Sampling behavior
 

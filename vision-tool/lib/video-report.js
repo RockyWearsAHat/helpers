@@ -113,7 +113,14 @@ function buildTimeline(batchResults, transcript, metadata) {
   return segments;
 }
 
-function buildReport(videoPath, metadata, plan, segments, globalSummary, transcript) {
+function buildReport(
+  videoPath,
+  metadata,
+  plan,
+  segments,
+  globalSummary,
+  transcript,
+) {
   const lines = [];
 
   lines.push("# Video Analysis Report");
