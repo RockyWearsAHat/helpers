@@ -159,7 +159,7 @@ const VISION_TOOLS = [
   {
     name: "analyze_video",
     description:
-      "Analyze a video by extracting frames at intervals, running them through a vision model, and optionally merging with transcript/caption data. Returns a structured timeline and human-readable report. Requires ffmpeg and ffprobe. Accepts local video paths or URLs (via yt-dlp).",
+      "Analyze a video by extracting frames at intervals, running them through a vision model, and merging with auto-generated transcript (via local ASR or yt-dlp subtitles for URLs). Returns a structured timeline and human-readable report. Requires ffmpeg and ffprobe. Accepts local video paths or URLs (via yt-dlp).",
     inputSchema: {
       type: "object",
       properties: {
@@ -172,24 +172,6 @@ const VISION_TOOLS = [
           type: "string",
           description:
             "What to analyze or determine from the video. Be specific about what visual evidence to look for.",
-        },
-        transcript_segments: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              start: { type: "number", description: "Segment start time in seconds." },
-              end: { type: "number", description: "Segment end time in seconds." },
-              text: { type: "string", description: "Transcript text for this segment." },
-            },
-          },
-          description:
-            "Pre-segmented transcript/caption JSON from an external audio parser. Each segment has start, end (seconds), and text.",
-        },
-        transcript_text: {
-          type: "string",
-          description:
-            "Raw transcript text (unaligned). Use when segmented transcript is not available.",
         },
         start_sec: {
           type: "number",
@@ -223,7 +205,7 @@ const VISION_TOOLS = [
         auto_transcribe: {
           type: "boolean",
           description:
-            "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp) when no transcript is provided. Default: true. Set to false to skip ASR entirely.",
+            "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp). Default: true. Set to false to skip ASR entirely.",
         },
         whisper_model: {
           type: "string",

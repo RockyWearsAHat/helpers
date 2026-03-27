@@ -25,7 +25,11 @@ function execPromise(cmd, args, options = {}) {
       { timeout: options.timeout || 600000, ...options },
       (err, stdout, stderr) => {
         if (err) reject(new Error((stderr || err.message || "").trim()));
-        else resolve({ stdout: (stdout || "").trim(), stderr: (stderr || "").trim() });
+        else
+          resolve({
+            stdout: (stdout || "").trim(),
+            stderr: (stderr || "").trim(),
+          });
       },
     );
   });
@@ -255,7 +259,13 @@ async function runMlxWhisper(audioPath, tempDir, cmdPath, model) {
 async function runWhisperCpp(audioPath, tempDir) {
   const { stdout } = await execPromise(
     "whisper-cpp",
-    ["-f", audioPath, "--output-srt", "--output-file", path.join(tempDir, "audio")],
+    [
+      "-f",
+      audioPath,
+      "--output-srt",
+      "--output-file",
+      path.join(tempDir, "audio"),
+    ],
     { timeout: 600000 },
   );
 
@@ -275,7 +285,12 @@ async function runWhisperCpp(audioPath, tempDir) {
         const parseTs = (ts) => {
           const [h, m, rest] = ts.split(":");
           const [s, ms] = rest.split(".");
-          return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s) + parseInt(ms) / 1000;
+          return (
+            parseInt(h) * 3600 +
+            parseInt(m) * 60 +
+            parseInt(s) +
+            parseInt(ms) / 1000
+          );
         };
         segments.push({
           start: parseTs(match[1]),
@@ -297,8 +312,7 @@ async function transcribeVideo(videoPath, options = {}) {
       "\n",
     );
     throw new Error(
-      `No ASR backend found. Install one of:\n${installs}\n\n` +
-        "Or pass transcriptSegments / transcriptText from your external parser.",
+      `No ASR backend found. Install one of:\n${installs}`,
     );
   }
 

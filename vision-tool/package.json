@@ -229,7 +229,7 @@
         "name": "gsh-analyze-video",
         "displayName": "Analyze Video",
         "userDescription": "Analyze a video by extracting frames and running them through a vision model.",
-        "modelDescription": "Use this tool to analyze video content. Extracts frames at regular intervals using ffmpeg, analyzes each batch with a vision model, and optionally merges with transcript/caption data from an external parser. Returns a structured JSON timeline with per-frame visual descriptions, OCR-like text extraction, and a human-readable report. Requires ffmpeg/ffprobe to be installed. Accepts local video paths or URLs (via yt-dlp). Supports time window restriction and custom sampling intervals.",
+        "modelDescription": "Use this tool to analyze video content. Extracts frames at regular intervals using ffmpeg, analyzes each batch with a vision model, and merges with auto-generated transcript (via local ASR or yt-dlp subtitles for URLs). Returns a structured JSON timeline with per-frame visual descriptions, OCR-like text extraction, and a human-readable report. Requires ffmpeg/ffprobe to be installed. Accepts local video paths or URLs (via yt-dlp). Supports time window restriction and custom sampling intervals.",
         "inputSchema": {
           "type": "object",
           "required": [
@@ -244,22 +244,6 @@
             "goal": {
               "type": "string",
               "description": "What to analyze or determine from the video. Be specific about what visual evidence to look for."
-            },
-            "transcriptSegments": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "start": { "type": "number" },
-                  "end": { "type": "number" },
-                  "text": { "type": "string" }
-                }
-              },
-              "description": "Pre-segmented transcript/caption JSON from an external audio parser."
-            },
-            "transcriptText": {
-              "type": "string",
-              "description": "Raw transcript text (unaligned). Use when segmented transcript is not available."
             },
             "startSec": {
               "type": "number",
@@ -287,7 +271,7 @@
             },
             "autoTranscribe": {
               "type": "boolean",
-              "description": "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp) when no transcript is provided. Default: true."
+              "description": "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp). Default: true."
             },
             "whisperModel": {
               "type": "string",
@@ -300,7 +284,7 @@
         "name": "gsh_analyze_video",
         "displayName": "Analyze Video",
         "userDescription": "Analyze a video by extracting frames and running them through a vision model.",
-        "modelDescription": "Use this tool to analyze video content. Extracts frames at regular intervals using ffmpeg, analyzes each batch with a vision model, and optionally merges with transcript/caption data from an external parser. Returns a structured JSON timeline with per-frame visual descriptions, OCR-like text extraction, and a human-readable report. Requires ffmpeg/ffprobe to be installed. Accepts local video paths or URLs (via yt-dlp). Supports time window restriction and custom sampling intervals.",
+        "modelDescription": "Use this tool to analyze video content. Extracts frames at regular intervals using ffmpeg, analyzes each batch with a vision model, and merges with auto-generated transcript (via local ASR or yt-dlp subtitles for URLs). Returns a structured JSON timeline with per-frame visual descriptions, OCR-like text extraction, and a human-readable report. Requires ffmpeg/ffprobe to be installed. Accepts local video paths or URLs (via yt-dlp). Supports time window restriction and custom sampling intervals.",
         "inputSchema": {
           "type": "object",
           "required": [
@@ -315,22 +299,6 @@
             "goal": {
               "type": "string",
               "description": "What to analyze or determine from the video. Be specific about what visual evidence to look for."
-            },
-            "transcriptSegments": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "start": { "type": "number" },
-                  "end": { "type": "number" },
-                  "text": { "type": "string" }
-                }
-              },
-              "description": "Pre-segmented transcript/caption JSON from an external audio parser."
-            },
-            "transcriptText": {
-              "type": "string",
-              "description": "Raw transcript text (unaligned). Use when segmented transcript is not available."
             },
             "startSec": {
               "type": "number",
@@ -358,7 +326,7 @@
             },
             "autoTranscribe": {
               "type": "boolean",
-              "description": "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp) when no transcript is provided. Default: true."
+              "description": "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp). Default: true."
             },
             "whisperModel": {
               "type": "string",
