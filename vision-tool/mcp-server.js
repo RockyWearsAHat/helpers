@@ -220,6 +220,16 @@ const VISION_TOOLS = [
           description:
             "Include the structured timeline segments in the output. Default: true.",
         },
+        auto_transcribe: {
+          type: "boolean",
+          description:
+            "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp) when no transcript is provided. Default: true. Set to false to skip ASR entirely.",
+        },
+        whisper_model: {
+          type: "string",
+          description:
+            "Whisper model name to use for ASR. Default: 'base' for whisper/whisper-cpp, 'mlx-community/whisper-base-mlx' for mlx_whisper. Larger models (small, medium, large) are more accurate but slower.",
+        },
       },
       required: ["video_path", "goal"],
     },
