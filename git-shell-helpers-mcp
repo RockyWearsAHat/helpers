@@ -18,7 +18,7 @@ const path = require("path");
 const readline = require("readline");
 
 const MCP_VERSION = "2024-11-05";
-const SERVER_VERSION = "1.2.0";
+const SERVER_VERSION = "1.1.0";
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -30,61 +30,6 @@ function sendError(id, code, message) {
     id,
     error: { code, message },
   });
-}
-
-// ---------------------------------------------------------------------------
-// Server-initiated requests (e.g. roots/list to learn workspace folders)
-// ---------------------------------------------------------------------------
-
-const pendingRequests = new Map();
-let nextRequestId = 1;
-
-function sendRequest(method, params = {}) {
-  return new Promise((resolve, reject) => {
-    const id = `srv-${nextRequestId++}`;
-    pendingRequests.set(id, { resolve, reject });
-    send({ jsonrpc: "2.0", id, method, params });
-    const timer = setTimeout(() => {
-      if (pendingRequests.has(id)) {
-        pendingRequests.delete(id);
-        reject(new Error(`Request "${method}" timed out`));
-      }
-    }, 5000);
-    if (timer.unref) timer.unref();
-  });
-}
-
-let knownRoots = [];
-
-async function refreshRoots() {
-  try {
-    const result = await sendRequest("roots/list");
-    knownRoots = result.roots || [];
-  } catch {
-    // Client may not support roots — fine, fall back to process.cwd()
-  }
-}
-
-// In-flight tool calls — keyed by request id, value is AbortController.
-const inFlightRequests = new Map();
-
-// Checkpoint mutex — only one checkpoint can run at a time.
-// Second callers wait in line and will naturally see "nothing to commit."
-let _checkpointLock = null;
-async function withCheckpointLock(fn) {
-  while (_checkpointLock) {
-    await _checkpointLock;
-  }
-  let resolve;
-  _checkpointLock = new Promise((r) => {
-    resolve = r;
-  });
-  try {
-    return await fn();
-  } finally {
-    _checkpointLock = null;
-    resolve();
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,11 +103,6 @@ const CHECKPOINT_TOOL = {
         description:
           "Override a mid-session disable. Only use this when the user explicitly asked for a checkpoint and the previous call returned [no-op]. Never set force on automatic checkpoints.",
       },
-      cwd: {
-        type: "string",
-        description:
-          "Absolute path to the git repository to commit in. If omitted, the server uses the active VS Code workspace root automatically (when exactly one folder is open). Only pass this when working in a multi-root workspace or a workspace that differs from the detected root.",
-      },
     },
     required: [],
   },
@@ -182,7 +122,7 @@ function execGit(args, cwd) {
   });
 }
 
-async function generateAiCommitMessage(cwd, extraContext, signal) {
+async function generateAiCommitMessage(cwd, extraContext) {
   function gitOut(gitArgs) {
     return new Promise((resolve) => {
       execFile("git", gitArgs, { cwd, timeout: 15000 }, (err, stdout) => {
@@ -250,47 +190,19 @@ Frame yours as the next step in that story. If the diff and the history look
 unrelated to each other, trust the diff — it is the ground truth.
 
 SUBJECT LINE:
-One line, <= 72 chars, that tells someone skimming git log what happened.
-Write it the way you'd describe the change to a coworker. Say what the
-commit DOES or FIXES, not what files it touches.
-
-Good:
-  'Fix install button showing up even after app is already installed'
-  'Stop blocking payouts until Stripe says so'
-  'Add loading text to clash fetch so users stop retrying'
-  'Local storage fixed so logged-out users can add items to cart'
-
-Bad:
-  'Update utils.ts' — robotic, says nothing useful
-  'Refactor implementation details' — meaningless
-  'Support cancelling MCP tool calls in server' — too jargony
-  'Auto-detect checkpoint cwd via MCP roots' — insider terminology
+One line, <= 72 chars. Say what the commit DOES or FIXES, not what
+files it touches.
 
 BODY:
 Describe the situation, what you did, and why. Someone reading git blame
 should understand the reasoning without opening the diff.
 
-DO NOT use section headers like 'What changed:', 'Why this matters:',
-or any rigid template. Those scream 'AI wrote this'. Just write naturally.
-
-For a tiny fix: one sentence or no body at all.
-For a small change: a short paragraph.
-For a medium change: a sentence of context, then bullets.
-
-The body should make it obvious WHY this change was made, not just
-WHAT code was touched. Name the specific things — the flag, the file,
-the function, the value.
+Do NOT use section headers like 'What changed:', 'Why this matters:', etc.
+For a tiny fix: one sentence or no body. For a real change: a short paragraph.
 
 Never anthropomorphize code. Never restate the subject in different words.
-Never use corporate filler like 'formalize', 'artifacts', 'subsystem',
-'implement', 'enhance', 'leverage'. Write like a human developer talking
-to another developer. If a non-programmer couldn't roughly understand
-the subject line, it's too jargony.
 
-OUTPUT FORMAT — output ONLY the commit message between these markers.
-Each marker MUST be on its own line with nothing else on it.
-Do NOT put COMMIT_END on the same line as message text.
-
+OUTPUT FORMAT — output ONLY the commit between these markers:
 COMMIT_BEGIN
 <commit message>
 COMMIT_END
@@ -333,23 +245,14 @@ ${detailedRecent}`;
       err += d;
     });
     child.on("close", (code) => {
-      if (signal?.aborted) {
-        reject(Object.assign(new Error("Cancelled"), { cancelled: true }));
-      } else if (code !== 0 || !out.trim()) {
+      if (code !== 0 || !out.trim())
         reject(
           new Error(
             `AI message generation failed (exit ${code}): ${err.trim()}`,
           ),
         );
-      } else {
-        resolve(out);
-      }
+      else resolve(out);
     });
-    if (signal) {
-      signal.addEventListener("abort", () => child.kill("SIGTERM"), {
-        once: true,
-      });
-    }
   });
 
   // Parse COMMIT_BEGIN/COMMIT_END
@@ -367,13 +270,6 @@ ${detailedRecent}`;
     }
     if (capturing) msgLines.push(line);
   }
-  // Strip inline COMMIT_END from the last captured line (AI sometimes appends it)
-  if (msgLines.length > 0) {
-    const last = msgLines[msgLines.length - 1];
-    const cleaned = last.replace(/\s*COMMIT_END\s*$/, "");
-    if (cleaned !== last) msgLines[msgLines.length - 1] = cleaned;
-    if (!msgLines[msgLines.length - 1].trim()) msgLines.pop();
-  }
   const commitMsg = msgLines.join("\n").trim();
   if (!commitMsg) {
     throw new Error(
@@ -383,32 +279,13 @@ ${detailedRecent}`;
   return commitMsg;
 }
 
-function rootsToPath(roots) {
-  // Return the filesystem path for a single root, or null if ambiguous/unknown.
-  if (!roots || roots.length !== 1) return null;
-  const uri = roots[0].uri || "";
-  try {
-    return new URL(uri).pathname;
-  } catch {
-    return uri || null;
-  }
-}
-
-async function handleCheckpoint(args, signal) {
-  function checkCancelled() {
-    if (signal?.aborted)
-      throw Object.assign(new Error("Cancelled"), { cancelled: true });
-  }
-  // Determine workspace root.
-  // Priority: caller-supplied cwd > single known VS Code workspace root > server cwd.
+async function handleCheckpoint(args) {
+  // Determine workspace root
   let cwd;
-  const callerCwd = String(args.cwd || "").trim();
-  const autoRoot = rootsToPath(knownRoots);
-  const startDir = callerCwd || autoRoot || process.cwd();
   try {
-    cwd = await execGit(["rev-parse", "--show-toplevel"], startDir);
+    cwd = await execGit(["rev-parse", "--show-toplevel"], process.cwd());
   } catch {
-    // Fallback: __dirname is the script's own directory
+    // Fallback: __dirname is the script's location (workspace root)
     try {
       cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
     } catch {
@@ -432,8 +309,6 @@ async function handleCheckpoint(args, signal) {
     ];
   }
 
-  checkCancelled();
-
   // Stage
   const stageAll = args.all !== false; // default true
   if (stageAll) {
@@ -449,19 +324,14 @@ async function handleCheckpoint(args, signal) {
     // Good — there are staged changes
   }
 
-  checkCancelled();
-
   // Get or generate commit message
   let message = String(args.message || "").trim();
   if (!message) {
     message = await generateAiCommitMessage(
       cwd,
       String(args.context || "").trim(),
-      signal,
     );
   }
-
-  checkCancelled();
 
   // Build commit args
   const commitArgs = ["commit", "-m", message];
@@ -556,7 +426,7 @@ async function handleRequest(request) {
       id,
       result: {
         protocolVersion: MCP_VERSION,
-        capabilities: { tools: {}, roots: { listChanged: true } },
+        capabilities: { tools: {} },
         serverInfo: { name: "gsh", version: SERVER_VERSION },
       },
     });
@@ -564,22 +434,6 @@ async function handleRequest(request) {
   }
 
   if (method === "notifications/initialized") {
-    // Handshake complete — ask client for workspace roots.
-    refreshRoots();
-    return;
-  }
-
-  if (method === "notifications/roots/listChanged") {
-    refreshRoots();
-    return;
-  }
-
-  if (method === "notifications/cancelled") {
-    const requestId = String(request.params?.requestId ?? "");
-    if (requestId) {
-      const ac = inFlightRequests.get(requestId);
-      if (ac) ac.abort();
-    }
     return;
   }
 
@@ -595,7 +449,6 @@ async function handleRequest(request) {
   if (method === "tools/call") {
     const toolName = request.params?.name;
     const toolArguments = request.params?.arguments || {};
-    const requestId = String(id);
 
     // Guard: user may have disabled this tool mid-conversation via sidebar.
     // Return a clean no-op so the model doesn't error out or retry.
@@ -618,17 +471,11 @@ async function handleRequest(request) {
       return;
     }
 
-    const ac = new AbortController();
-    inFlightRequests.set(requestId, ac);
     try {
-      // Built-in tools — checkpoint is serialized (mutex).
+      // Built-in tools
       if (toolName === "checkpoint") {
-        const content = await withCheckpointLock(() =>
-          handleCheckpoint(toolArguments, ac.signal),
-        );
-        if (!ac.signal.aborted) {
-          send({ jsonrpc: "2.0", id, result: { content } });
-        }
+        const content = await handleCheckpoint(toolArguments);
+        send({ jsonrpc: "2.0", id, result: { content } });
         return;
       }
 
@@ -636,19 +483,14 @@ async function handleRequest(request) {
       for (const mod of modules) {
         const content = await mod.handleToolCall(toolName, toolArguments);
         if (content) {
-          if (!ac.signal.aborted) {
-            send({ jsonrpc: "2.0", id, result: { content } });
-          }
+          send({ jsonrpc: "2.0", id, result: { content } });
           return;
         }
       }
     } catch (error) {
-      if (ac.signal.aborted) return; // swallow errors from cancelled requests
       const message = error instanceof Error ? error.message : String(error);
       sendError(id, -32603, message);
       return;
-    } finally {
-      inFlightRequests.delete(requestId);
     }
 
     sendError(id, -32601, `Unknown tool: ${toolName}`);
@@ -667,47 +509,15 @@ const lineReader = readline.createInterface({
   crlfDelay: Infinity,
 });
 
-lineReader.on("line", (line) => {
+lineReader.on("line", async (line) => {
   if (!line.trim()) {
     return;
   }
 
-  let message;
   try {
-    message = JSON.parse(line);
+    const request = JSON.parse(line);
+    await handleRequest(request);
   } catch {
     sendError(null, -32700, "Parse error");
-    return;
   }
-
-  // Route responses to server-initiated requests (e.g. roots/list reply).
-  if (
-    message.id !== undefined &&
-    !message.method &&
-    (message.result !== undefined || message.error !== undefined)
-  ) {
-    const pending = pendingRequests.get(message.id);
-    if (pending) {
-      pendingRequests.delete(message.id);
-      if (message.error) {
-        pending.reject(
-          new Error(message.error.message || String(message.error)),
-        );
-      } else {
-        pending.resolve(message.result);
-      }
-      return;
-    }
-  }
-
-  // Fire-and-forget: handle requests concurrently so parallel tool calls
-  // don't queue behind each other and time out.
-  handleRequest(message).catch((err) => {
-    process.stderr.write(
-      `[gsh] Unhandled error in request ${message.id}: ${err.message}\n`,
-    );
-    if (message.id != null) {
-      sendError(message.id, -32603, err.message);
-    }
-  });
 });
