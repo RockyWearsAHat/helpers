@@ -14,6 +14,7 @@ const {
   checkDependency,
 } = require("./video-frames");
 const { buildReport, buildTimeline } = require("./video-report");
+const { transcribeVideo, detectBackend } = require("./video-asr");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -209,9 +210,33 @@ async function analyzeVideo(input, analyzeImagesFn) {
   const includeTimeline = input.includeTimeline !== false;
   const keepTempDir =
     input.keepTempDir === true || input.keep_temp_dir === true;
-  const transcript = parseTranscriptSegments(input);
+  let transcript = parseTranscriptSegments(input);
 
   const metadata = await getVideoMetadata(videoPath);
+
+  // Auto-transcribe if no transcript provided and not explicitly disabled
+  const autoTranscribe =
+    (input.autoTranscribe ?? input.auto_transcribe) !== false;
+  let asrInfo = null;
+
+  if (transcript.type === "none" && autoTranscribe) {
+    const backend = await detectBackend();
+    if (backend) {
+      try {
+        const asrResult = await transcribeVideo(videoPath, {
+          whisperModel: input.whisperModel || input.whisper_model,
+          keepTempDir,
+        });
+        transcript = { type: "segmented", segments: asrResult.segments };
+        asrInfo = {
+          backend: asrResult.backend,
+          segmentCount: asrResult.segmentCount,
+        };
+      } catch (asrErr) {
+        asrInfo = { backend: backend.name, error: asrErr.message };
+      }
+    }
+  }
 
   const plan = computeSamplingPlan(metadata.durationSec, {
     startSec: input.startSec || input.start_sec,
@@ -288,6 +313,10 @@ async function analyzeVideo(input, analyzeImagesFn) {
         tempDir: keepTempDir ? tempDir : undefined,
       },
     };
+
+    if (asrInfo) {
+      output.asr = asrInfo;
+    }
 
     if (includeTimeline) {
       output.segments = segments;
