@@ -10,12 +10,19 @@ on:
     paths-ignore:
       - "community-cache/**"
 
+concurrency:
+  group: build-installer-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   version-guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,6 +79,9 @@ jobs:
   build-installer:
     runs-on: ubuntu-latest
     needs: [version-guard]
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,6 +116,9 @@ jobs:
   build-macos-pkg:
     runs-on: macos-latest
     needs: [version-guard]
+    timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4

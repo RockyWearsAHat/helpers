@@ -2,9 +2,8 @@
 name: DevOpsAuditContext
 description: "Context subagent for DevOps audits. Reads the workspace and produces a detailed project profile and .github/ file inventory."
 tools:
-  - read/readFile
-  - search/fileSearch
-  - search/textSearch
+  - read
+  - search
 user-invocable: false
 ---
 

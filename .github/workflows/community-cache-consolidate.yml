@@ -9,17 +9,23 @@ on:
       - community-cache/staging/promoted-candidates.json
       - scripts/community-cache-consolidate.sh
       - community-cache/schemas/final-conclusion.schema.json
-  schedule:
-    - cron: "17 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: community-cache-consolidate-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 jobs:
   consolidate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
