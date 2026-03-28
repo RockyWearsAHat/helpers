@@ -46,7 +46,7 @@ These files are large and tightly coupled. **Check actual size with `wc -l` befo
 - Shell commands: repo root (`git-upload`, `git-checkpoint`, etc.) — **no `.sh` extension**
 - MCP servers: `git-research-mcp` (Node.js), `git-shell-helpers-mcp` (Node.js)
 - VS Code extension: `vscode-extension/`
-- Vision tools: `vision-tool/`, `aioserver-vision-tool/`
+- Vision tools: `vision-tool/`
 - Community cache: `community-cache/`
 - Build/test scripts: `scripts/`
 - Man pages: `man/man1/`

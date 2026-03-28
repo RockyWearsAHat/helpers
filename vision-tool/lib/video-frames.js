@@ -26,6 +26,24 @@ function execPromise(cmd, args, options = {}) {
   });
 }
 
+function execPromiseBoth(cmd, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      cmd,
+      args,
+      { timeout: 120000, maxBuffer: 10 * 1024 * 1024, ...options },
+      (err, stdout, stderr) => {
+        if (err) reject(new Error((stderr || err.message || "").trim()));
+        else
+          resolve({
+            stdout: (stdout || "").trim(),
+            stderr: (stderr || "").trim(),
+          });
+      },
+    );
+  });
+}
+
 function checkDependency(name) {
   return new Promise((resolve) => {
     execFile("which", [name], (err, stdout) => {
@@ -114,6 +132,54 @@ async function getVideoMetadata(videoPath) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Scene-change detection — uses ffmpeg's scene filter to find cut points
+// ---------------------------------------------------------------------------
+
+async function detectSceneChanges(
+  videoPath,
+  startSec,
+  endSec,
+  threshold = 0.3,
+) {
+  const { ffmpeg } = await ensureDependencies();
+  const duration = endSec - startSec;
+
+  try {
+    const { stderr } = await execPromiseBoth(ffmpeg, [
+      "-ss",
+      String(startSec),
+      "-i",
+      videoPath,
+      "-t",
+      String(duration),
+      "-vf",
+      `select='gt(scene,${threshold})',showinfo`,
+      "-vsync",
+      "vfr",
+      "-f",
+      "null",
+      "-",
+    ]);
+
+    const timestamps = [];
+    const lines = stderr.split("\n");
+    for (const line of lines) {
+      const match = line.match(/pts_time:\s*([\d.]+)/);
+      if (match) {
+        const t = parseFloat(match[1]) + startSec;
+        if (t >= startSec && t <= endSec) {
+          timestamps.push(Math.round(t * 100) / 100);
+        }
+      }
+    }
+
+    return timestamps;
+  } catch {
+    return [];
+  }
+}
+
 function computeSamplingPlan(durationSec, options = {}) {
   const startSec = Math.max(0, options.startSec || 0);
   const endSec = options.endSec
@@ -165,6 +231,101 @@ function computeSamplingPlan(durationSec, options = {}) {
   };
 }
 
+async function computeSmartSamplingPlan(videoPath, durationSec, options = {}) {
+  const startSec = Math.max(0, options.startSec || 0);
+  const endSec = options.endSec
+    ? Math.min(options.endSec, durationSec)
+    : durationSec;
+  const effectiveDuration = endSec - startSec;
+
+  if (effectiveDuration <= 0) {
+    throw new Error(
+      `Invalid time window: ${startSec}s to ${endSec}s (video is ${durationSec}s)`,
+    );
+  }
+
+  const maxFrames = Math.min(options.maxFrames || 30, 60);
+
+  // Phase 1: detect scene changes via ffmpeg
+  const sceneTimestamps = await detectSceneChanges(
+    videoPath,
+    startSec,
+    endSec,
+    0.3,
+  );
+
+  // Phase 2: build interval-based fallback for coverage gaps
+  let coverageInterval;
+  if (effectiveDuration <= 10) coverageInterval = 2;
+  else if (effectiveDuration <= 60) coverageInterval = 5;
+  else if (effectiveDuration <= 300) coverageInterval = 15;
+  else coverageInterval = 30;
+
+  const coverageTimestamps = [];
+  for (let t = startSec; t < endSec; t += coverageInterval) {
+    coverageTimestamps.push(Math.round(t * 100) / 100);
+  }
+
+  // Phase 3: merge scene-change and coverage timestamps, deduplicate
+  const MIN_GAP = 1.0;
+  const allCandidates = [];
+
+  // Scene-change frames get priority (tagged)
+  for (const t of sceneTimestamps) {
+    allCandidates.push({ t, source: "scene" });
+  }
+  // Coverage frames fill gaps
+  for (const t of coverageTimestamps) {
+    allCandidates.push({ t, source: "coverage" });
+  }
+  // Always include first and last moment
+  allCandidates.push({ t: startSec, source: "boundary" });
+  if (endSec - startSec > 1) {
+    allCandidates.push({
+      t: Math.round((endSec - 0.1) * 100) / 100,
+      source: "boundary",
+    });
+  }
+
+  // Sort by time, then deduplicate with minimum gap
+  allCandidates.sort((a, b) => a.t - b.t);
+
+  // Priority: scene > boundary > coverage
+  const priorityOrder = { scene: 0, boundary: 1, coverage: 2 };
+  const selected = [];
+
+  // First pass: take all scene-change frames
+  for (const c of allCandidates) {
+    if (c.source === "scene" && selected.length < maxFrames) {
+      const tooClose = selected.some((s) => Math.abs(s.t - c.t) < MIN_GAP);
+      if (!tooClose) selected.push(c);
+    }
+  }
+
+  // Second pass: fill with boundary + coverage frames
+  for (const c of allCandidates) {
+    if (c.source !== "scene" && selected.length < maxFrames) {
+      const tooClose = selected.some((s) => Math.abs(s.t - c.t) < MIN_GAP);
+      if (!tooClose) selected.push(c);
+    }
+  }
+
+  selected.sort((a, b) => a.t - b.t);
+  const timestamps = selected.map((s) => s.t);
+  const sceneCount = selected.filter((s) => s.source === "scene").length;
+
+  return {
+    strategy: sceneCount > 0 ? "scene-change" : "auto-interval",
+    sceneChangesDetected: sceneTimestamps.length,
+    sceneFramesUsed: sceneCount,
+    coverageFramesUsed: selected.length - sceneCount,
+    startSec,
+    endSec,
+    frameCount: timestamps.length,
+    timestamps,
+  };
+}
+
 function createTempDir() {
   const id = `gsh-video-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const dir = path.join(os.tmpdir(), id);
@@ -195,8 +356,10 @@ async function extractFrames(videoPath, timestamps, tempDir) {
       videoPath,
       "-frames:v",
       "1",
+      "-vf",
+      "scale='min(1024,iw)':-2",
       "-q:v",
-      "2",
+      "4",
       "-y",
       outputPath,
     ]);
@@ -213,6 +376,8 @@ module.exports = {
   ensureDependencies,
   getVideoMetadata,
   computeSamplingPlan,
+  computeSmartSamplingPlan,
+  detectSceneChanges,
   createTempDir,
   cleanupTempDir,
   extractFrames,
