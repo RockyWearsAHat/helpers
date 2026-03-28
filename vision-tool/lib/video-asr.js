@@ -311,9 +311,7 @@ async function transcribeVideo(videoPath, options = {}) {
     const installs = BACKENDS.map((b) => `  - ${b.name}: ${b.install}`).join(
       "\n",
     );
-    throw new Error(
-      `No ASR backend found. Install one of:\n${installs}`,
-    );
+    throw new Error(`No ASR backend found. Install one of:\n${installs}`);
   }
 
   const tempDir =
