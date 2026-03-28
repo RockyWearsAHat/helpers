@@ -49,6 +49,8 @@ let _sessionStartedAt = 0;
 // Persisted in context.globalState under "worktreeBindings" so bindings survive
 // extension reloads. The extension manages workspace folders based on these bindings.
 let _worktreeBindings = new Map(); // sessionId → { branch, worktreePath, baseBranch, baseCommit, createdAt }
+let _chatTabToSession = new Map(); // tabUri.toString() → sessionId (built by temporal correlation + title fallback)
+let _activeWorktreeFolder = null; // currently focused worktree path, or null
 
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
@@ -3760,6 +3762,17 @@ function _onChatSessionWrite(sessionId, filePath) {
     if (binding && fs.existsSync(binding.worktreePath)) {
       ensureWorktreeFolder(binding.worktreePath);
     }
+    // Temporal correlation: if a chat editor tab is active right now,
+    // it must be the tab for this session — record the mapping.
+    try {
+      const activeTab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
+      if (
+        activeTab?.input?.viewType === "workbench.editor.chatSession" &&
+        activeTab.input.uri
+      ) {
+        _chatTabToSession.set(activeTab.input.uri.toString(), sessionId);
+      }
+    } catch {}
   } else {
     const completedAt = existing?.active ? now : existing?.completedAt || now;
     _chatSessions.set(sessionId, {
@@ -4144,6 +4157,11 @@ function activate(context) {
   // Load persisted worktree↔session bindings and reconcile workspace folders
   loadWorktreeBindings();
   reconcileWorktreeBindings();
+  // Track chat editor tabs — switch explorer focus to the active worktree
+  context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs(() => _onActiveTabChanged()),
+    vscode.window.tabGroups.onDidChangeTabGroups(() => _onActiveTabChanged()),
+  );
   // Watch Copilot Chat's JSONL session files for live activity.
   // The end-of-response marker is pendingRequests:null written to the JSONL.
   startChatSessionWatcher(context);
@@ -4462,6 +4480,79 @@ function reconcileWorktreeBindings() {
     }
   }
   if (changed) saveWorktreeBindings();
+}
+
+// ---------------------------------------------------------------------------
+// Tab ↔ Worktree Focus Switching
+// When the user switches to a chat editor tab that has a bound worktree,
+// reveal that worktree folder in the Explorer. When switching away from
+// all chat tabs (or to a chat with no binding), return to the main repo.
+// ---------------------------------------------------------------------------
+
+function _focusWorktreeFolder(worktreePath) {
+  if (_activeWorktreeFolder === worktreePath) return;
+  _activeWorktreeFolder = worktreePath;
+  vscode.commands.executeCommand(
+    "revealInExplorer",
+    vscode.Uri.file(worktreePath),
+  );
+}
+
+function _unfocusWorktreeFolder() {
+  if (!_activeWorktreeFolder) return;
+  _activeWorktreeFolder = null;
+  const mainFolder = vscode.workspace.workspaceFolders?.[0];
+  if (mainFolder) {
+    vscode.commands.executeCommand("revealInExplorer", mainFolder.uri);
+  }
+}
+
+function _onActiveTabChanged() {
+  const branchSessionsEnabled = vscode.workspace
+    .getConfiguration("gitShellHelpers")
+    .get("branchSessions.enabled", false);
+  if (!branchSessionsEnabled) return;
+  if (_worktreeBindings.size === 0) return;
+
+  let activeTab;
+  try {
+    activeTab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
+  } catch {
+    return;
+  }
+
+  // Check if the active tab is a chat editor tab
+  if (
+    activeTab?.input?.viewType === "workbench.editor.chatSession" &&
+    activeTab.input.uri
+  ) {
+    const tabKey = activeTab.input.uri.toString();
+    let sessionId = _chatTabToSession.get(tabKey);
+
+    // Fallback: match tab label to session titles that have worktree bindings
+    if (!sessionId && activeTab.label) {
+      for (const [sid, sess] of _chatSessions) {
+        if (sess.title === activeTab.label && _worktreeBindings.has(sid)) {
+          sessionId = sid;
+          _chatTabToSession.set(tabKey, sid);
+          break;
+        }
+      }
+    }
+
+    if (sessionId) {
+      const binding = _worktreeBindings.get(sessionId);
+      if (binding && fs.existsSync(binding.worktreePath)) {
+        _focusWorktreeFolder(binding.worktreePath);
+        return;
+      }
+    }
+  }
+
+  // Non-chat tab or chat without a binding — return to main repo
+  if (_activeWorktreeFolder) {
+    _unfocusWorktreeFolder();
+  }
 }
 
 const ACTIVITY_SOCKET_PATH = path.join(os.tmpdir(), "gsh-activity.sock");
