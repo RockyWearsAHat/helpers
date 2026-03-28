@@ -50,7 +50,10 @@ const _sessionBranchMap = new Map(); // chatSessionId → { branch, path }
 let _sessionLingerTimer = null;
 let _sessionStartedAt = 0;
 let _focusedBranchPath = null; // currently focused worktree path (for "back" navigation)
+let _startWorkspacePath = null; // workspace folder path of the branch the user opened with
+let _branchIdleTimer = null; // timer to return to start branch when user leaves a branch-mapped session
 const SESSION_LINGER_MS = 8000;
+const BRANCH_IDLE_MS = 3000; // how long after last branch-session activity before returning to start
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
 
@@ -1104,16 +1107,18 @@ class CommunityCacheViewProvider {
           // Navigate the file explorer to the worktree folder
           if (msg.path) {
             const folderUri = vscode.Uri.file(msg.path);
-            // Check if this path is one of our workspace folders
             const folders = vscode.workspace.workspaceFolders || [];
             const match = folders.find(
               (f) => f.uri.fsPath === folderUri.fsPath,
             );
             if (match) {
-              // Reveal in explorer — open a sentinel file or the folder itself
+              if (_branchIdleTimer) {
+                clearTimeout(_branchIdleTimer);
+                _branchIdleTimer = null;
+              }
+              _focusedBranchPath = folderUri.fsPath;
               vscode.commands.executeCommand("revealInExplorer", match.uri);
             } else {
-              // Folder not in workspace — open it in the explorer
               vscode.commands.executeCommand("vscode.openFolder", folderUri, {
                 forceNewWindow: false,
               });
@@ -3750,17 +3755,43 @@ function _navigateToBranchSession(sessionId) {
   const match = folders.find((f) => f.uri.fsPath === mapping.path);
   if (match && _focusedBranchPath !== mapping.path) {
     _focusedBranchPath = mapping.path;
+    // Cancel any pending idle return — user is actively viewing a branch session
+    if (_branchIdleTimer) {
+      clearTimeout(_branchIdleTimer);
+      _branchIdleTimer = null;
+    }
     vscode.commands.executeCommand("revealInExplorer", match.uri);
   }
 }
 
-function _navigateBackToMainWorkspace() {
-  if (!_focusedBranchPath) return;
+function _navigateBackToStartBranch() {
   _focusedBranchPath = null;
-  const mainFolder = (vscode.workspace.workspaceFolders || [])[0];
-  if (mainFolder) {
-    vscode.commands.executeCommand("revealInExplorer", mainFolder.uri);
+  if (_branchIdleTimer) {
+    clearTimeout(_branchIdleTimer);
+    _branchIdleTimer = null;
   }
+  // Navigate to the original workspace folder the user opened with
+  const startPath = _startWorkspacePath;
+  const folders = vscode.workspace.workspaceFolders || [];
+  const match = startPath
+    ? folders.find((f) => f.uri.fsPath === startPath)
+    : folders[0];
+  if (match) {
+    vscode.commands.executeCommand("revealInExplorer", match.uri);
+  }
+}
+
+function _scheduleBranchIdleReturn() {
+  // After a branch-mapped session goes quiet, return to start branch
+  if (_branchIdleTimer) {
+    clearTimeout(_branchIdleTimer);
+  }
+  _branchIdleTimer = setTimeout(() => {
+    _branchIdleTimer = null;
+    if (_focusedBranchPath) {
+      _navigateBackToStartBranch();
+    }
+  }, BRANCH_IDLE_MS);
 }
 
 function _onChatSessionWrite(sessionId, filePath) {
@@ -3832,8 +3863,14 @@ function _onChatSessionWrite(sessionId, filePath) {
       _lastChangedAt:
         existing?.lastSize !== fileSize ? now : existing?._lastChangedAt || now,
     });
-    // Auto-navigate: if this session is mapped to a branch, focus its worktree
-    _navigateToBranchSession(sessionId);
+    // Auto-navigate: if this session is mapped to a branch, focus its worktree.
+    // If this is a non-branch session and we're currently on a branch, schedule
+    // return to start (user switched to a different chat).
+    if (_sessionBranchMap.has(sessionId)) {
+      _navigateToBranchSession(sessionId);
+    } else if (_focusedBranchPath) {
+      _scheduleBranchIdleReturn();
+    }
   } else {
     const completedAt = existing?.active ? now : existing?.completedAt || now;
     _chatSessions.set(sessionId, {
@@ -3849,9 +3886,9 @@ function _onChatSessionWrite(sessionId, filePath) {
       requestCount: lastRequestIdx + 1,
       _lastChangedAt: now,
     });
-    // If a branch-associated session just completed, navigate back
+    // If a branch-associated session just completed, return to start branch
     if (existing?.active && _sessionBranchMap.has(sessionId)) {
-      _navigateBackToMainWorkspace();
+      _scheduleBranchIdleReturn();
     }
   }
 }
@@ -4162,114 +4199,18 @@ function syncCheckpointSettings() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Chat Participant: @branches — manage parallel branch worktrees
-// ---------------------------------------------------------------------------
-
-async function handleChatRequest(request, context, stream, token) {
-  try {
-    if (request.command === "status") {
-      // Show all active and recently completed branch sessions
-      await stream.markdown("### Active Branch Sessions\n");
-
-      if (_activeBranchSessions.size === 0) {
-        await stream.markdown("No active branch sessions.\n");
-      } else {
-        for (const sess of _activeBranchSessions.values()) {
-          const elapsed = Math.floor((Date.now() - sess.startedAt) / 1000);
-          await stream.markdown(
-            `- **${sess.branch}** (${elapsed}s)\n  \`${sess.path}\`\n`,
-          );
-          await stream.button({
-            command: "gitShellHelpers.focusBranch",
-            title: "Focus Branch",
-            arguments: [sess.path, sess.branch],
-          });
-        }
-      }
-
-      if (_completedBranchSessions.length > 0) {
-        await stream.markdown("\n### Recently Completed\n");
-        const recent = _completedBranchSessions.slice(-3).reverse();
-        for (const sess of recent) {
-          await stream.markdown(`- ${sess.branch}\n`);
-        }
-      }
-    } else if (request.command === "focus") {
-      // Extract branch path from user prompt or list branches to choose from
-      const prompt = request.prompt?.trim();
-      let targetPath = null;
-
-      if (prompt) {
-        // Try to match branch name from prompt
-        for (const sess of _activeBranchSessions.values()) {
-          if (
-            sess.branch.includes(prompt) ||
-            prompt.includes(sess.branch) ||
-            sess.path.includes(prompt)
-          ) {
-            targetPath = sess.path;
-            break;
-          }
-        }
-      }
-
-      if (targetPath) {
-        _focusedBranchPath = targetPath;
-        const uri = vscode.Uri.file(targetPath);
-        vscode.commands.executeCommand("revealInExplorer", uri);
-        await stream.markdown(
-          `✓ Focused branch worktree: \`${targetPath}\`\n`,
-        );
-        await stream.button({
-          command: "gitShellHelpers.returnToMainWorkspace",
-          title: "Return to Main",
-        });
-      } else if (_activeBranchSessions.size > 0) {
-        await stream.markdown("Choose a branch to focus:\n");
-        for (const sess of _activeBranchSessions.values()) {
-          await stream.button({
-            command: "gitShellHelpers.focusBranch",
-            title: `Focus: ${sess.branch}`,
-            arguments: [sess.path, sess.branch],
-          });
-        }
-      } else {
-        await stream.markdown("No active branch sessions to focus on.\n");
-      }
-    } else if (request.command === "back") {
-      // Return to main workspace
-      _navigateBackToMainWorkspace();
-      await stream.markdown("✓ Returned to main workspace.\n");
-    } else {
-      // Default: show status
-      await stream.markdown("Use `/status`, `/focus`, or `/back`.\n\n");
-      await handleChatRequest(
-        { ...request, command: "status" },
-        context,
-        stream,
-        token,
-      );
-    }
-  } catch (err) {
-    await stream.markdown(`Error: ${err.message}`);
-  }
-}
-
-function commandFocusBranch(path, branch) {
-  _focusedBranchPath = path;
-  const uri = vscode.Uri.file(path);
-  vscode.commands.executeCommand("revealInExplorer", uri);
-  vscode.window.showInformationMessage(`Focused branch: ${branch}`);
-}
-
-function commandReturnToMainWorkspace() {
-  _navigateBackToMainWorkspace();
-  vscode.window.showInformationMessage("Returned to main workspace.");
+function commandReturnToStartBranch() {
+  _navigateBackToStartBranch();
 }
 
 function activate(context) {
   _context = context;
+
+  // Record the workspace folder the user opened with — this is the "start branch"
+  const startFolder = (vscode.workspace.workspaceFolders || [])[0];
+  if (startFolder) {
+    _startWorkspacePath = startFolder.uri.fsPath;
+  }
 
   // Restore persisted Ollama pinned models
   const savedPinned = context.globalState.get("gsh.ollama.pinned", []);
@@ -4395,36 +4336,10 @@ function activate(context) {
       openModelPicker,
     ),
     vscode.commands.registerCommand(
-      "gitShellHelpers.focusBranch",
-      commandFocusBranch,
-    ),
-    vscode.commands.registerCommand(
-      "gitShellHelpers.returnToMainWorkspace",
-      commandReturnToMainWorkspace,
+      "gitShellHelpers.returnToStartBranch",
+      commandReturnToStartBranch,
     ),
   );
-
-  // Register @branches chat participant
-  const branchesParticipant = vscode.chat.createChatParticipant(
-    "gitShellHelpers.branches",
-    handleChatRequest,
-  );
-  branchesParticipant.iconPath = new vscode.ThemeIcon("git-branch");
-  branchesParticipant.followupProvider = {
-    provideFollowups: async (result, context, token) => {
-      if (_activeBranchSessions.size > 0) {
-        return [
-          {
-            prompt: "/status",
-            label: "Show Sessions",
-            tooltip: "List all active and completed branch sessions",
-          },
-        ];
-      }
-      return [];
-    },
-  };
-  context.subscriptions.push(branchesParticipant);
 
   // Sync checkpoint settings to git config when changed
   syncCheckpointSettings();
@@ -4643,18 +4558,28 @@ function startActivityIpcServer() {
             startedAt: Date.now(),
           });
           // Associate the currently active chat session with this branch
+          let userIsViewingThisChat = false;
           for (const [sessionId, sess] of _chatSessions) {
             if (sess.active) {
               _sessionBranchMap.set(sessionId, {
                 branch: msg.branch || path.basename(msg.path),
                 path: folderUri.fsPath,
               });
+              userIsViewingThisChat = true;
               break;
             }
           }
-          // Auto-focus the new worktree folder
-          _focusedBranchPath = folderUri.fsPath;
-          vscode.commands.executeCommand("revealInExplorer", folderUri);
+          // Only auto-focus if the user is currently viewing the chat
+          // that spawned this branch (requirement: user follows the agent
+          // they are watching; otherwise it's a no-op)
+          if (userIsViewingThisChat) {
+            if (_branchIdleTimer) {
+              clearTimeout(_branchIdleTimer);
+              _branchIdleTimer = null;
+            }
+            _focusedBranchPath = folderUri.fsPath;
+            vscode.commands.executeCommand("revealInExplorer", folderUri);
+          }
           _webviewProvider?.pushUpdate({
             type: "activityUpdate",
             items: getActivityItems(),
@@ -4689,16 +4614,9 @@ function startActivityIpcServer() {
               _sessionBranchMap.delete(sessionId);
             }
           }
-          // Navigate back to main workspace
+          // Navigate back to start branch
           if (_focusedBranchPath === folderUri.fsPath) {
-            _focusedBranchPath = null;
-            const mainFolder = (vscode.workspace.workspaceFolders || [])[0];
-            if (mainFolder) {
-              vscode.commands.executeCommand(
-                "revealInExplorer",
-                mainFolder.uri,
-              );
-            }
+            _navigateBackToStartBranch();
           }
           _webviewProvider?.pushUpdate({
             type: "activityUpdate",
@@ -4758,6 +4676,10 @@ function stopActivityIpcServer() {
 function deactivate() {
   stopStrictLintIpcServer();
   stopActivityIpcServer();
+  if (_branchIdleTimer) {
+    clearTimeout(_branchIdleTimer);
+    _branchIdleTimer = null;
+  }
 }
 
 module.exports = { activate, deactivate };
