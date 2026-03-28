@@ -483,6 +483,66 @@ const BRANCH_STATUS_TOOL = {
 
 ALL_TOOLS.push(BRANCH_STATUS_TOOL);
 
+const NAVIGATE_TO_BRANCH_TOOL = {
+  name: "navigate_to_branch",
+  description:
+    "Navigate the VS Code workspace to a branch worktree or back to the start branch. Updates the file explorer and editor focus to show the target branch's files. Only navigate to your own session's worktree or the start branch — never to another agent's worktree. The branch must have an active worktree (created via branch_session_start) or be the workspace's main checkout.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      branch: {
+        type: "string",
+        description:
+          "The branch name to navigate to. The extension will find the corresponding workspace folder.",
+      },
+      path: {
+        type: "string",
+        description:
+          "Absolute path of the worktree folder to navigate to. Use this when you know the exact path (returned by branch_session_start). Takes priority over branch if both are provided.",
+      },
+    },
+  },
+};
+
+ALL_TOOLS.push(NAVIGATE_TO_BRANCH_TOOL);
+
+function notifyNavigateToBranch(branch, wtPath) {
+  connectActivityIpc();
+  const line =
+    JSON.stringify({
+      type: "navigateToBranch",
+      branch: branch || "",
+      path: wtPath || "",
+    }) + "\n";
+  if (_activitySocket) {
+    try {
+      _activitySocket.write(line);
+    } catch {
+      _activitySocket = null;
+    }
+  } else if (_activityConnecting) {
+    _activityQueue.push(line);
+  }
+}
+
+async function handleNavigateToBranch(args) {
+  const branch = String(args?.branch || "").trim();
+  const wtPath = String(args?.path || "").trim();
+  if (!branch && !wtPath) {
+    return [
+      { type: "text", text: "Error: provide branch or path to navigate to." },
+    ];
+  }
+  notifyNavigateToBranch(branch, wtPath);
+  const target = wtPath || branch;
+  return [
+    {
+      type: "text",
+      text: `Navigating workspace to ${target}. The VS Code explorer will switch to show this branch's files.`,
+    },
+  ];
+}
+
 async function resolveRepoRoot() {
   const candidates = [];
   if (process.env.GSH_WORKSPACE_ROOTS) {
@@ -1270,6 +1330,12 @@ async function handleRequest(request) {
 
         if (toolName === "branch_status") {
           const content = await handleBranchStatus();
+          send({ jsonrpc: "2.0", id, result: { content } });
+          return;
+        }
+
+        if (toolName === "navigate_to_branch") {
+          const content = await handleNavigateToBranch(toolArguments);
           send({ jsonrpc: "2.0", id, result: { content } });
           return;
         }

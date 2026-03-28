@@ -14,7 +14,8 @@
   "activationEvents": [
     "onStartupFinished",
     "onLanguageModelTool:gsh-inspect-copilot-customization-warnings",
-    "onLanguageModelTool:gsh-strict-lint"
+    "onLanguageModelTool:gsh-strict-lint",
+    "onLanguageModelTool:gsh-branch-state"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -67,6 +68,16 @@
       }
     ],
     "languageModelTools": [
+      {
+        "name": "gsh-branch-state",
+        "displayName": "Branch State",
+        "userDescription": "Get the current workspace branch state including worktrees, chat bindings, and active sessions.",
+        "modelDescription": "Returns the full branch state of the VS Code workspace: start branch, focused branch, active worktree sessions, chat-to-branch bindings, and recently completed sessions. Call this at the start of any branch-related work to understand what other agents are doing and avoid collisions. Branch binding is AUTOMATIC when you call branch_session_start — you do not need to bind manually. Use the worktree path returned by branch_session_start for all file operations.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
       {
         "name": "gsh-inspect-copilot-customization-warnings",
         "displayName": "Strict Linting (Customization File)",
