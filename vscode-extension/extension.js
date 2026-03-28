@@ -43,17 +43,13 @@ let _customizationInspectorToolDisposable = null;
 let _strictLintIpcServer = null;
 let _activityIpcServer = null;
 const _externalToInternal = new Map(); // externalId → internalId
-const _worktreeFolders = new Set(); // paths added via branch_session_start
-const _activeBranchSessions = new Map(); // path → { branch, path, startedAt }
-const _completedBranchSessions = []; // { branch, path, startedAt, completedAt }
-const _sessionBranchMap = new Map(); // chatSessionId → { branch, path }
-let _sessionLingerTimer = null;
 let _sessionStartedAt = 0;
-let _focusedBranchPath = null; // currently focused worktree path (for "back" navigation)
-let _startWorkspacePath = null; // workspace folder path of the branch the user opened with
-let _branchIdleTimer = null; // no longer used, kept for cleanup
-let _focusedChatSessionId = null; // currently focused chat (from Copilot's chat visibility)
-const SESSION_LINGER_MS = 8000;
+
+// Worktree-to-chat-session bindings — maps chat session IDs to worktree info.
+// Persisted in context.globalState under "worktreeBindings" so bindings survive
+// extension reloads. The extension manages workspace folders based on these bindings.
+let _worktreeBindings = new Map(); // sessionId → { branch, worktreePath, baseBranch, baseCommit, createdAt }
+
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
 
@@ -627,115 +623,6 @@ function registerCustomizationInspectorTool(context) {
 // extension auto-binds the active chat to that branch. No manual steps.
 // ---------------------------------------------------------------------------
 
-let _branchStateToolDisposable = null;
-
-function _buildBranchStatePayload() {
-  const folders = vscode.workspace.workspaceFolders || [];
-  const activeSessions = [];
-  for (const [p, sess] of _activeBranchSessions) {
-    activeSessions.push({
-      branch: sess.branch,
-      path: sess.path,
-      startedAt: new Date(sess.startedAt).toISOString(),
-    });
-  }
-  const chatBindings = [];
-  for (const [sessionId, mapping] of _sessionBranchMap) {
-    const sess = _chatSessions.get(sessionId);
-    chatBindings.push({
-      chatSessionId: sessionId,
-      chatTitle: sess?.title || "unknown",
-      branch: mapping.branch,
-      path: mapping.path,
-      active: sess?.active || false,
-    });
-  }
-  const recentCompleted = _completedBranchSessions.slice(-3).map((s) => ({
-    branch: s.branch,
-    path: s.path,
-    completedAt: new Date(s.completedAt).toISOString(),
-  }));
-
-  return {
-    startBranch: _startWorkspacePath || "(unknown)",
-    focusedBranchPath: _focusedBranchPath || "(start branch)",
-    workspaceFolders: folders.map((f) => ({
-      name: f.name,
-      path: f.uri.fsPath,
-      isWorktree: _worktreeFolders.has(f.uri.fsPath),
-    })),
-    activeBranchSessions: activeSessions,
-    chatBranchBindings: chatBindings,
-    recentlyCompleted: recentCompleted,
-  };
-}
-
-function registerBranchTools(context) {
-  // gsh-branch-state: Returns full branch context so agents can understand
-  // which branches exist, which chats own which branches, and where to work.
-  // Agents call this at the start of work to avoid colliding with other agents.
-  _branchStateToolDisposable?.dispose();
-  _branchStateToolDisposable = vscode.lm.registerTool("gsh-branch-state", {
-    async invoke(_options, _token) {
-      const callId = beginToolCall("branch-state", "Branch State", {});
-      try {
-        const state = _buildBranchStatePayload();
-        const lines = [
-          "# Branch State",
-          "",
-          `**Start branch workspace:** ${state.startBranch}`,
-          `**Currently focused:** ${state.focusedBranchPath}`,
-          "",
-          "## Workspace Folders",
-          ...state.workspaceFolders.map(
-            (f) => `- ${f.name}: ${f.path}${f.isWorktree ? " (worktree)" : ""}`,
-          ),
-        ];
-        if (state.activeBranchSessions.length > 0) {
-          lines.push("", "## Active Branch Sessions (other agents working)");
-          for (const s of state.activeBranchSessions) {
-            lines.push(
-              `- **${s.branch}** at ${s.path} (started ${s.startedAt})`,
-            );
-          }
-        }
-        if (state.chatBranchBindings.length > 0) {
-          lines.push("", "## Chat → Branch Bindings");
-          for (const b of state.chatBranchBindings) {
-            lines.push(
-              `- Chat "${b.chatTitle}" → branch **${b.branch}** at ${b.path} [${b.active ? "active" : "idle"}]`,
-            );
-          }
-        }
-        if (state.recentlyCompleted.length > 0) {
-          lines.push("", "## Recently Completed Sessions");
-          for (const c of state.recentlyCompleted) {
-            lines.push(`- ${c.branch} (completed ${c.completedAt})`);
-          }
-        }
-        lines.push(
-          "",
-          "## Agent Isolation Rules",
-          "- Call `branch_session_start` to create your isolated worktree. Chat-to-branch binding is AUTOMATIC.",
-          "- Use the returned worktree path for ALL file operations, terminal commands, and checkpoints.",
-          "- Other agents' worktrees are listed above — do NOT modify files in their paths.",
-          "- Call `branch_session_end` when done. Cleanup is automatic.",
-          "- Call `navigate_to_branch` to switch the user's workspace view to your worktree.",
-        );
-        return makeToolResult(lines.join("\n"));
-      } finally {
-        endToolCall(callId);
-      }
-    },
-    async prepareInvocation(_options) {
-      return {
-        invocationMessage: "Reading branch state for this workspace",
-      };
-    },
-  });
-  context.subscriptions.push(_branchStateToolDisposable);
-}
-
 function findGitShellHelpersMcpPath(context) {
   const homeDir = process.env.HOME || process.env.USERPROFILE || "";
   const workspaceCandidates = (vscode.workspace.workspaceFolders || []).map(
@@ -761,6 +648,14 @@ function buildGitShellHelpersMcpEnv(serverPath) {
 
   if (!fs.existsSync(path.join(serverDir, "vision-tool", "mcp-server.js"))) {
     env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION = "1";
+  }
+
+  // Branch sessions toggle — when disabled, hide branch worktree tools
+  const branchEnabled = vscode.workspace
+    .getConfiguration("gitShellHelpers.branchSessions")
+    .get("enabled", false);
+  if (!branchEnabled) {
+    env.GSH_DISABLE_BRANCH_SESSIONS = "1";
   }
 
   // Pass workspace folder paths so the MCP server can resolve workspace
@@ -1219,25 +1114,6 @@ class CommunityCacheViewProvider {
         case "openChatSession":
           vscode.commands.executeCommand("workbench.action.chat.open");
           break;
-        case "focusBranchSession": {
-          // Navigate the file explorer to the worktree folder
-          if (msg.path) {
-            const folderUri = vscode.Uri.file(msg.path);
-            const folders = vscode.workspace.workspaceFolders || [];
-            const match = folders.find(
-              (f) => f.uri.fsPath === folderUri.fsPath,
-            );
-            if (match) {
-              _focusedBranchPath = folderUri.fsPath;
-              vscode.commands.executeCommand("revealInExplorer", match.uri);
-            } else {
-              vscode.commands.executeCommand("vscode.openFolder", folderUri, {
-                forceNewWindow: false,
-              });
-            }
-          }
-          break;
-        }
         case "selectRepos":
           await selectRepos();
           break;
@@ -3264,11 +3140,6 @@ async function uploadGpgKeyToGitHub(keyId, gpgCommand) {
 // ---------------------------------------------------------------------------
 
 function beginToolCall(tool, label, args) {
-  // Cancel linger — a new tool call means the session is still active
-  if (_sessionLingerTimer) {
-    clearTimeout(_sessionLingerTimer);
-    _sessionLingerTimer = null;
-  }
   if (!_sessionStartedAt) {
     _sessionStartedAt = Date.now();
   }
@@ -3340,27 +3211,6 @@ function getActivityItems() {
       });
     }
   }
-  // Active branch sessions (worktrees)
-  for (const sess of _activeBranchSessions.values()) {
-    items.push({
-      id: `branch-${sess.path}`,
-      type: "branch-active",
-      label: sess.branch,
-      elapsed: Math.floor((now - sess.startedAt) / 1000),
-      startedAt: sess.startedAt,
-      path: sess.path,
-    });
-  }
-  // Recently completed branch sessions (newest first, max 3)
-  const recentCompleted = _completedBranchSessions.slice(-3).reverse();
-  for (const sess of recentCompleted) {
-    items.push({
-      id: `branch-done-${sess.path}`,
-      type: "branch-done",
-      label: sess.branch,
-      path: sess.path,
-    });
-  }
   return items;
 }
 
@@ -3385,8 +3235,7 @@ function _activityCountLabel(items) {
   const active = items.filter(
     (i) =>
       i.type === "session-active" ||
-      i.type === "tool" ||
-      i.type === "branch-active",
+      i.type === "tool",
   );
   if (items.length === 0) return "idle";
   if (active.length === 0) return `${items.length} recent`;
@@ -3394,27 +3243,6 @@ function _activityCountLabel(items) {
 }
 
 function _renderActivityItem(item, esc) {
-  if (item.type === "branch-active") {
-    return `
-      <div class="activity-item activity-item--branch" data-branchpath="${esc(item.path)}">
-        <div class="activity-row">
-          <svg class="activity-branch-icon" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
-          <span class="activity-title">${esc(item.label)}</span>
-          <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
-        </div>
-        <div class="activity-sub">Click to focus worktree</div>
-      </div>`;
-  }
-  if (item.type === "branch-done") {
-    return `
-      <div class="activity-item activity-item--branch-done" data-branchpath="${esc(item.path)}">
-        <div class="activity-row">
-          <svg class="activity-branch-icon activity-branch-icon--done" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
-          <span class="activity-title">${esc(item.label)}</span>
-          <span class="activity-meta">merged</span>
-        </div>
-      </div>`;
-  }
   if (item.type === "session-active") {
     return `
       <div class="activity-item activity-item--session" data-sessionid="${item.sessionId}">
@@ -3856,33 +3684,7 @@ function _chatSessionReadCreationDate(filePath) {
 }
 
 // ---------------------------------------------------------------------------
-// Branch session navigation — auto-switch explorer view when chat changes
 // ---------------------------------------------------------------------------
-
-function _navigateToBranchSession(sessionId) {
-  const mapping = _sessionBranchMap.get(sessionId);
-  if (!mapping) return;
-  // Only navigate if the worktree is still a workspace folder
-  const folders = vscode.workspace.workspaceFolders || [];
-  const match = folders.find((f) => f.uri.fsPath === mapping.path);
-  if (match && _focusedBranchPath !== mapping.path) {
-    _focusedBranchPath = mapping.path;
-    vscode.commands.executeCommand("revealInExplorer", match.uri);
-  }
-}
-
-function _navigateBackToStartBranch() {
-  _focusedBranchPath = null;
-  // Navigate to the original workspace folder the user opened with
-  const startPath = _startWorkspacePath;
-  const folders = vscode.workspace.workspaceFolders || [];
-  const match = startPath
-    ? folders.find((f) => f.uri.fsPath === startPath)
-    : folders[0];
-  if (match) {
-    vscode.commands.executeCommand("revealInExplorer", match.uri);
-  }
-}
 
 function _onChatSessionWrite(sessionId, filePath) {
   const existing = _chatSessions.get(sessionId);
@@ -3953,10 +3755,10 @@ function _onChatSessionWrite(sessionId, filePath) {
       _lastChangedAt:
         existing?.lastSize !== fileSize ? now : existing?._lastChangedAt || now,
     });
-    // Auto-navigate: if this session is mapped to a branch, focus its worktree.
-    // Only navigate if this is a branch-mapped chat becoming active.
-    if (_sessionBranchMap.has(sessionId)) {
-      _navigateToBranchSession(sessionId);
+    // If this session has a bound worktree, ensure the workspace folder is present
+    const binding = _worktreeBindings.get(sessionId);
+    if (binding && fs.existsSync(binding.worktreePath)) {
+      ensureWorktreeFolder(binding.worktreePath);
     }
   } else {
     const completedAt = existing?.active ? now : existing?.completedAt || now;
@@ -4284,18 +4086,8 @@ function syncCheckpointSettings() {
   }
 }
 
-function commandReturnToStartBranch() {
-  _navigateBackToStartBranch();
-}
-
 function activate(context) {
   _context = context;
-
-  // Record the workspace folder the user opened with — this is the "start branch"
-  const startFolder = (vscode.workspace.workspaceFolders || [])[0];
-  if (startFolder) {
-    _startWorkspacePath = startFolder.uri.fsPath;
-  }
 
   // Restore persisted Ollama pinned models
   const savedPinned = context.globalState.get("gsh.ollama.pinned", []);
@@ -4305,7 +4097,6 @@ function activate(context) {
   migrateLegacyMcpRegistrations();
   registerMcpServerProvider(context);
   registerCustomizationInspectorTool(context);
-  registerBranchTools(context);
 
   // Git Helpers webview (MCP Tools + Community Cache)
   _webviewProvider = new CommunityCacheViewProvider(context.extensionUri);
@@ -4350,6 +4141,9 @@ function activate(context) {
   startStrictLintIpcServer();
   // Start activity IPC server so the gsh MCP server can report active tool calls
   startActivityIpcServer();
+  // Load persisted worktree↔session bindings and reconcile workspace folders
+  loadWorktreeBindings();
+  reconcileWorktreeBindings();
   // Watch Copilot Chat's JSONL session files for live activity.
   // The end-of-response marker is pendingRequests:null written to the JSONL.
   startChatSessionWatcher(context);
@@ -4420,10 +4214,6 @@ function activate(context) {
     vscode.commands.registerCommand(
       "gitShellHelpers.openModelPicker",
       openModelPicker,
-    ),
-    vscode.commands.registerCommand(
-      "gitShellHelpers.returnToStartBranch",
-      commandReturnToStartBranch,
     ),
   );
 
@@ -4554,6 +4344,126 @@ function stopStrictLintIpcServer() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Worktree ↔ Chat Session Binding
+// ---------------------------------------------------------------------------
+
+const WORKTREE_BINDINGS_KEY = "worktreeBindings";
+
+function loadWorktreeBindings() {
+  try {
+    const raw = _context?.globalState?.get(WORKTREE_BINDINGS_KEY);
+    if (Array.isArray(raw)) {
+      _worktreeBindings = new Map(raw);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function saveWorktreeBindings() {
+  try {
+    _context?.globalState?.update(
+      WORKTREE_BINDINGS_KEY,
+      Array.from(_worktreeBindings.entries()),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function findActiveSessionId() {
+  // Return the ID of the currently active chat session (most recently active).
+  let bestId = null;
+  let bestAt = 0;
+  for (const [sid, sess] of _chatSessions) {
+    if (sess.active) {
+      const at = sess._lastChangedAt || sess.startedAt || 0;
+      if (at > bestAt) {
+        bestAt = at;
+        bestId = sid;
+      }
+    }
+  }
+  return bestId;
+}
+
+function bindWorktreeToSession(sessionId, binding) {
+  _worktreeBindings.set(sessionId, binding);
+  saveWorktreeBindings();
+  ensureWorktreeFolder(binding.worktreePath);
+}
+
+function unbindWorktreeFromSession(worktreePath) {
+  let removedSessionId = null;
+  for (const [sid, binding] of _worktreeBindings) {
+    if (binding.worktreePath === worktreePath) {
+      removedSessionId = sid;
+      _worktreeBindings.delete(sid);
+      break;
+    }
+  }
+  saveWorktreeBindings();
+  removeWorktreeFolder(worktreePath);
+  return removedSessionId;
+}
+
+function ensureWorktreeFolder(worktreePath) {
+  if (!fs.existsSync(worktreePath)) return;
+  const folders = vscode.workspace.workspaceFolders || [];
+  const alreadyPresent = folders.some(
+    (f) => f.uri.fsPath === worktreePath,
+  );
+  if (alreadyPresent) return;
+
+  // Add at the end of the workspace folders list.
+  // The name includes the branch for clarity in the explorer sidebar.
+  const dirName = path.basename(worktreePath);
+  vscode.workspace.updateWorkspaceFolders(folders.length, 0, {
+    uri: vscode.Uri.file(worktreePath),
+    name: `🌿 ${dirName}`,
+  });
+}
+
+function removeWorktreeFolder(worktreePath) {
+  const folders = vscode.workspace.workspaceFolders || [];
+  const idx = folders.findIndex((f) => f.uri.fsPath === worktreePath);
+  if (idx === -1) return;
+  vscode.workspace.updateWorkspaceFolders(idx, 1);
+}
+
+function handleWorktreeIpcMessage(msg) {
+  if (msg.type === "worktreeCreated") {
+    const sessionId = findActiveSessionId();
+    if (!sessionId) return;
+    const binding = {
+      branch: msg.branch,
+      worktreePath: msg.worktreePath,
+      baseBranch: msg.baseBranch || "",
+      baseCommit: msg.baseCommit || "",
+      createdAt: Date.now(),
+    };
+    bindWorktreeToSession(sessionId, binding);
+  } else if (msg.type === "worktreeRemoved") {
+    unbindWorktreeFromSession(msg.worktreePath);
+  }
+}
+
+// Reconcile workspace folders on activation: add folders for bindings that
+// still have valid worktrees, remove stale bindings whose worktrees are gone.
+function reconcileWorktreeBindings() {
+  let changed = false;
+  for (const [sid, binding] of _worktreeBindings) {
+    if (!fs.existsSync(binding.worktreePath)) {
+      _worktreeBindings.delete(sid);
+      changed = true;
+    } else {
+      ensureWorktreeFolder(binding.worktreePath);
+    }
+  }
+  if (changed) saveWorktreeBindings();
+}
+
 const ACTIVITY_SOCKET_PATH = path.join(os.tmpdir(), "gsh-activity.sock");
 const ACTIVITY_IPC_INFO_PATH = path.join(
   os.homedir(),
@@ -4619,136 +4529,19 @@ function startActivityIpcServer() {
             _externalToInternal.delete(msg.id);
             endToolCall(internalId);
           }
-        } else if (msg.type === "addWorkspaceFolder" && msg.path) {
-          // Branch session started — add worktree as a workspace folder
-          const folderUri = vscode.Uri.file(msg.path);
-          const existing = (vscode.workspace.workspaceFolders || []).find(
-            (f) => f.uri.fsPath === folderUri.fsPath,
-          );
-          if (!existing) {
-            const folderCount = (vscode.workspace.workspaceFolders || [])
-              .length;
-            const name = msg.branch
-              ? `[branch] ${msg.branch}`
-              : path.basename(msg.path);
-            vscode.workspace.updateWorkspaceFolders(folderCount, 0, {
-              uri: folderUri,
-              name,
-            });
-            _worktreeFolders.add(folderUri.fsPath);
-          }
-          // Track as active branch session for the activity panel
-          _activeBranchSessions.set(folderUri.fsPath, {
-            branch: msg.branch || path.basename(msg.path),
-            path: folderUri.fsPath,
-            startedAt: Date.now(),
-          });
-          // Associate the currently active chat session with this branch
-          let userIsViewingThisChat = false;
-          for (const [sessionId, sess] of _chatSessions) {
-            if (sess.active) {
-              _sessionBranchMap.set(sessionId, {
-                branch: msg.branch || path.basename(msg.path),
-                path: folderUri.fsPath,
-              });
-              userIsViewingThisChat = true;
-              break;
-            }
-          }
-          // Only auto-focus if the user is currently viewing the chat
-          // that spawned this branch (requirement: user follows the agent
-          // they are watching; otherwise it's a no-op)
-          if (userIsViewingThisChat) {
-            _focusedBranchPath = folderUri.fsPath;
-            vscode.commands.executeCommand("revealInExplorer", folderUri);
-          }
-          _webviewProvider?.pushUpdate({
-            type: "activityUpdate",
-            items: getActivityItems(),
-          });
-        } else if (msg.type === "removeWorkspaceFolder" && msg.path) {
-          // Branch session ended — remove worktree workspace folder
-          const folderUri = vscode.Uri.file(msg.path);
-          const folders = vscode.workspace.workspaceFolders || [];
-          const idx = folders.findIndex(
-            (f) => f.uri.fsPath === folderUri.fsPath,
-          );
-          if (idx >= 0) {
-            vscode.workspace.updateWorkspaceFolders(idx, 1);
-          }
-          _worktreeFolders.delete(folderUri.fsPath);
-          // Move from active → completed for the activity panel
-          const sess = _activeBranchSessions.get(folderUri.fsPath);
-          if (sess) {
-            _activeBranchSessions.delete(folderUri.fsPath);
-            _completedBranchSessions.push({
-              ...sess,
-              completedAt: Date.now(),
-            });
-            // Keep only last 5 completed sessions
-            while (_completedBranchSessions.length > 5) {
-              _completedBranchSessions.shift();
-            }
-          }
-          // Clean up session-branch mapping
-          for (const [sessionId, mapping] of _sessionBranchMap) {
-            if (mapping.path === folderUri.fsPath) {
-              _sessionBranchMap.delete(sessionId);
-            }
-          }
-          // Navigate back to start branch
-          if (_focusedBranchPath === folderUri.fsPath) {
-            _navigateBackToStartBranch();
-          }
-          _webviewProvider?.pushUpdate({
-            type: "activityUpdate",
-            items: getActivityItems(),
-          });
-        } else if (msg.type === "navigateToBranch") {
-          // Agent requested explicit branch navigation
-          const targetPath = msg.path || "";
-          const targetBranch = msg.branch || "";
-          const folders = vscode.workspace.workspaceFolders || [];
-          let match = null;
-          if (targetPath) {
-            match = folders.find((f) => f.uri.fsPath === targetPath);
-          }
-          if (!match && targetBranch) {
-            // Find worktree folder whose name contains the branch
-            match = folders.find((f) => {
-              const session = _activeBranchSessions.get(f.uri.fsPath);
-              return session && session.branch === targetBranch;
-            });
-            // Also check if the start workspace is on that branch
-            if (!match && _startWorkspacePath) {
-              match = folders.find((f) => f.uri.fsPath === _startWorkspacePath);
-            }
-          }
-          if (match) {
-            _focusedBranchPath = match.uri.fsPath;
-            vscode.commands.executeCommand("revealInExplorer", match.uri);
-          }
         } else if (msg.type === "sessionPulse") {
-          // Agent turn starting — begin or refresh the session linger
-          if (_sessionLingerTimer) {
-            clearTimeout(_sessionLingerTimer);
-            _sessionLingerTimer = null;
-          }
           if (!_sessionStartedAt) {
             _sessionStartedAt = Date.now();
           }
-          _sessionLingerTimer = setTimeout(() => {
-            _sessionLingerTimer = null;
-            _sessionStartedAt = 0;
-            _webviewProvider?.pushUpdate({
-              type: "activityUpdate",
-              items: getActivityItems(),
-            });
-          }, SESSION_LINGER_MS);
           _webviewProvider?.pushUpdate({
             type: "activityUpdate",
             items: getActivityItems(),
           });
+        } else if (
+          msg.type === "worktreeCreated" ||
+          msg.type === "worktreeRemoved"
+        ) {
+          handleWorktreeIpcMessage(msg);
         }
       }
     });
@@ -4782,10 +4575,6 @@ function stopActivityIpcServer() {
 function deactivate() {
   stopStrictLintIpcServer();
   stopActivityIpcServer();
-  if (_branchIdleTimer) {
-    clearTimeout(_branchIdleTimer);
-    _branchIdleTimer = null;
-  }
 }
 
 module.exports = { activate, deactivate };
