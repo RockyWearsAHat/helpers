@@ -141,9 +141,9 @@ const GOOGLE_EMPTY_RETRY_DELAY_MS = 10000;
 const GOOGLE_EMPTY_RETRY_MAX = 4;
 // Long backoff for 429 specifically (starts at 30s, doubles each attempt).
 const GOOGLE_429_BASE_DELAY_MS = 30000;
-const GOOGLE_RESULTS_PER_PAGE = 10;
+const GOOGLE_RESULTS_PER_PAGE = 100;
 const GOOGLE_DEFAULT_PAGE_COUNT = parseInt(
-  process.env.GOOGLE_DEFAULT_PAGE_COUNT || "10",
+  process.env.GOOGLE_DEFAULT_PAGE_COUNT || "1",
   10,
 );
 const GOOGLE_CAPTCHA_POLL_DELAY_SECONDS = 1;
