@@ -339,7 +339,7 @@ const RESEARCH_TOOLS = [
   {
     name: "search_web",
     description:
-      "Search the web via Google. Returns up to max_results deduplicated results (default 20, max 100). Page 1 is fetched first; additional pages are fetched in parallel.",
+      "Search the web via Google. Returns up to max_results deduplicated results (default 20, max 100). Page 1 is fetched first; additional pages are fetched in parallel. Set auto_scrape to fetch full page content for the top N results inline, eliminating the need for a separate scrape_webpage call.",
     inputSchema: {
       type: "object",
       properties: {
@@ -378,6 +378,11 @@ const RESEARCH_TOOLS = [
           type: "number",
           description:
             "Maximum results to return. Default 20, max 100. Each Google page yields ~10 results, so 50 means 5 pages.",
+        },
+        auto_scrape: {
+          type: "number",
+          description:
+            "Automatically scrape and return full page content for the top N results (0-10). Default 0, which returns only snippets. Set to 3-5 when you need page content, avoiding a separate scrape_webpage call.",
         },
       },
       required: ["query"],
