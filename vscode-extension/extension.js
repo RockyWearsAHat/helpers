@@ -43,6 +43,9 @@ let _customizationInspectorToolDisposable = null;
 let _strictLintIpcServer = null;
 let _activityIpcServer = null;
 const _externalToInternal = new Map(); // externalId → internalId
+const _worktreeFolders = new Set(); // paths added via branch_session_start
+const _activeBranchSessions = new Map(); // path → { branch, path, startedAt }
+const _completedBranchSessions = []; // { branch, path, startedAt, completedAt }
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
 
@@ -1092,6 +1095,27 @@ class CommunityCacheViewProvider {
         case "openChatSession":
           vscode.commands.executeCommand("workbench.action.chat.open");
           break;
+        case "focusBranchSession": {
+          // Navigate the file explorer to the worktree folder
+          if (msg.path) {
+            const folderUri = vscode.Uri.file(msg.path);
+            // Check if this path is one of our workspace folders
+            const folders = vscode.workspace.workspaceFolders || [];
+            const match = folders.find(
+              (f) => f.uri.fsPath === folderUri.fsPath,
+            );
+            if (match) {
+              // Reveal in explorer — open a sentinel file or the folder itself
+              vscode.commands.executeCommand("revealInExplorer", match.uri);
+            } else {
+              // Folder not in workspace — open it in the explorer
+              vscode.commands.executeCommand("vscode.openFolder", folderUri, {
+                forceNewWindow: false,
+              });
+            }
+          }
+          break;
+        }
         case "selectRepos":
           await selectRepos();
           break;
@@ -1983,6 +2007,25 @@ class CommunityCacheViewProvider {
     text-decoration: underline;
   }
 
+  /* Branch session items */
+  .activity-item--branch, .activity-item--branch-done {
+    cursor: pointer;
+    border-radius: 3px; margin: 2px -4px; padding: 2px 4px;
+  }
+  .activity-item--branch {
+    border-left: 2px solid var(--vscode-gitDecoration-untrackedResourceForeground, #73c991);
+  }
+  .activity-item--branch:hover, .activity-item--branch-done:hover {
+    background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.1));
+  }
+  .activity-branch-icon {
+    flex-shrink: 0; width: 14px; height: 14px;
+    fill: var(--vscode-gitDecoration-untrackedResourceForeground, #73c991);
+  }
+  .activity-branch-icon--done {
+    fill: var(--vscode-descriptionForeground); opacity: 0.5;
+  }
+
   /* Provider key accordion */
   .provider-acc-panel {
     max-height: 0; overflow: hidden;
@@ -2280,7 +2323,7 @@ class CommunityCacheViewProvider {
         const count = document.getElementById("activityCount");
         if (!list) return;
         const items = msg.items || [];
-        const active = items.filter(i => i.type === "session-active" || i.type === "tool");
+        const active = items.filter(i => i.type === "session-active" || i.type === "tool" || i.type === "branch-active");
         if (count) count.textContent = active.length === 0 && items.length === 0 ? "idle" : active.length === 0 ? items.length + " recent" : active.length + " running";
         const sect = list.closest(".sect--activity");
         if (items.length === 0) {
@@ -2293,6 +2336,23 @@ class CommunityCacheViewProvider {
         list.classList.remove("activity-list-hidden");
         const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
         list.innerHTML = items.map(item => {
+          if (item.type === "branch-active") return \`
+            <div class="activity-item activity-item--branch" data-branchpath="\${esc(item.path)}">
+              <div class="activity-row">
+                <svg class="activity-branch-icon" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
+                <span class="activity-title">\${esc(item.label)}</span>
+                <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
+              </div>
+              <div class="activity-sub">Click to focus worktree</div>
+            </div>\`;
+          if (item.type === "branch-done") return \`
+            <div class="activity-item activity-item--branch-done" data-branchpath="\${esc(item.path)}">
+              <div class="activity-row">
+                <svg class="activity-branch-icon activity-branch-icon--done" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
+                <span class="activity-title">\${esc(item.label)}</span>
+                <span class="activity-meta">merged</span>
+              </div>
+            </div>\`;
           if (item.type === "session-active") return \`
             <div class="activity-item activity-item--session" data-sessionid="\${item.sessionId}">
               <div class="activity-row">
@@ -2325,6 +2385,11 @@ class CommunityCacheViewProvider {
         list.querySelectorAll('.activity-item--session, .activity-item--done').forEach(el => {
           el.addEventListener('click', () => {
             vscode.postMessage({ type: 'openChatSession', sessionId: el.dataset.sessionid });
+          });
+        });
+        list.querySelectorAll('.activity-item--branch, .activity-item--branch-done').forEach(el => {
+          el.addEventListener('click', () => {
+            vscode.postMessage({ type: 'focusBranchSession', path: el.dataset.branchpath });
           });
         });
       }
@@ -3153,6 +3218,27 @@ function getActivityItems() {
       });
     }
   }
+  // Active branch sessions (worktrees)
+  for (const sess of _activeBranchSessions.values()) {
+    items.push({
+      id: `branch-${sess.path}`,
+      type: "branch-active",
+      label: sess.branch,
+      elapsed: Math.floor((now - sess.startedAt) / 1000),
+      startedAt: sess.startedAt,
+      path: sess.path,
+    });
+  }
+  // Recently completed branch sessions (newest first, max 3)
+  const recentCompleted = _completedBranchSessions.slice(-3).reverse();
+  for (const sess of recentCompleted) {
+    items.push({
+      id: `branch-done-${sess.path}`,
+      type: "branch-done",
+      label: sess.branch,
+      path: sess.path,
+    });
+  }
   return items;
 }
 
@@ -3175,7 +3261,10 @@ function _formatAgo(ms) {
 
 function _activityCountLabel(items) {
   const active = items.filter(
-    (i) => i.type === "session-active" || i.type === "tool",
+    (i) =>
+      i.type === "session-active" ||
+      i.type === "tool" ||
+      i.type === "branch-active",
   );
   if (items.length === 0) return "idle";
   if (active.length === 0) return `${items.length} recent`;
@@ -3183,6 +3272,27 @@ function _activityCountLabel(items) {
 }
 
 function _renderActivityItem(item, esc) {
+  if (item.type === "branch-active") {
+    return `
+      <div class="activity-item activity-item--branch" data-branchpath="${esc(item.path)}">
+        <div class="activity-row">
+          <svg class="activity-branch-icon" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
+          <span class="activity-title">${esc(item.label)}</span>
+          <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
+        </div>
+        <div class="activity-sub">Click to focus worktree</div>
+      </div>`;
+  }
+  if (item.type === "branch-done") {
+    return `
+      <div class="activity-item activity-item--branch-done" data-branchpath="${esc(item.path)}">
+        <div class="activity-row">
+          <svg class="activity-branch-icon activity-branch-icon--done" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
+          <span class="activity-title">${esc(item.label)}</span>
+          <span class="activity-meta">merged</span>
+        </div>
+      </div>`;
+  }
   if (item.type === "session-active") {
     return `
       <div class="activity-item activity-item--session" data-sessionid="${item.sessionId}">
@@ -4336,6 +4446,62 @@ function startActivityIpcServer() {
             _externalToInternal.delete(msg.id);
             endToolCall(internalId);
           }
+        } else if (msg.type === "addWorkspaceFolder" && msg.path) {
+          // Branch session started — add worktree as a workspace folder
+          const folderUri = vscode.Uri.file(msg.path);
+          const existing = (vscode.workspace.workspaceFolders || []).find(
+            (f) => f.uri.fsPath === folderUri.fsPath,
+          );
+          if (!existing) {
+            const folderCount = (vscode.workspace.workspaceFolders || [])
+              .length;
+            const name = msg.branch
+              ? `[branch] ${msg.branch}`
+              : path.basename(msg.path);
+            vscode.workspace.updateWorkspaceFolders(folderCount, 0, {
+              uri: folderUri,
+              name,
+            });
+            _worktreeFolders.add(folderUri.fsPath);
+          }
+          // Track as active branch session for the activity panel
+          _activeBranchSessions.set(folderUri.fsPath, {
+            branch: msg.branch || path.basename(msg.path),
+            path: folderUri.fsPath,
+            startedAt: Date.now(),
+          });
+          _webviewProvider?.pushUpdate({
+            type: "activityUpdate",
+            items: getActivityItems(),
+          });
+        } else if (msg.type === "removeWorkspaceFolder" && msg.path) {
+          // Branch session ended — remove worktree workspace folder
+          const folderUri = vscode.Uri.file(msg.path);
+          const folders = vscode.workspace.workspaceFolders || [];
+          const idx = folders.findIndex(
+            (f) => f.uri.fsPath === folderUri.fsPath,
+          );
+          if (idx >= 0) {
+            vscode.workspace.updateWorkspaceFolders(idx, 1);
+          }
+          _worktreeFolders.delete(folderUri.fsPath);
+          // Move from active → completed for the activity panel
+          const sess = _activeBranchSessions.get(folderUri.fsPath);
+          if (sess) {
+            _activeBranchSessions.delete(folderUri.fsPath);
+            _completedBranchSessions.push({
+              ...sess,
+              completedAt: Date.now(),
+            });
+            // Keep only last 5 completed sessions
+            while (_completedBranchSessions.length > 5) {
+              _completedBranchSessions.shift();
+            }
+          }
+          _webviewProvider?.pushUpdate({
+            type: "activityUpdate",
+            items: getActivityItems(),
+          });
         } else if (msg.type === "sessionPulse") {
           // Agent turn starting — begin or refresh the session linger
           if (_sessionLingerTimer) {
