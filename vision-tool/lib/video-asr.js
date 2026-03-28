@@ -139,10 +139,48 @@ async function getTranscriber(model) {
   const modelId = model || DEFAULT_MODEL;
   if (_transcriber && _loadedModel === modelId) return _transcriber;
 
-  const { pipeline } = require("@huggingface/transformers");
-  _transcriber = await pipeline("automatic-speech-recognition", modelId, {
-    dtype: "fp32",
-  });
+  let transformers;
+  try {
+    transformers = require("@huggingface/transformers");
+  } catch {
+    // When running inside VSIX (no bundled node_modules), resolve from dev source
+    const devPath = path.join(
+      __dirname,
+      "..",
+      "node_modules",
+      "@huggingface",
+      "transformers",
+    );
+    const srcPath = path.join(
+      os.homedir(),
+      "bin",
+      "vision-tool",
+      "node_modules",
+      "@huggingface",
+      "transformers",
+    );
+    for (const p of [devPath, srcPath]) {
+      try {
+        transformers = require(p);
+        break;
+      } catch {
+        /* try next */
+      }
+    }
+    if (!transformers) {
+      throw new Error(
+        "Cannot find @huggingface/transformers. " +
+          "Run: cd ~/bin/vision-tool && npm install",
+      );
+    }
+  }
+  _transcriber = await transformers.pipeline(
+    "automatic-speech-recognition",
+    modelId,
+    {
+      dtype: "fp32",
+    },
+  );
   _loadedModel = modelId;
   return _transcriber;
 }

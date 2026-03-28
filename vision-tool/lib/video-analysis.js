@@ -8,6 +8,7 @@ const {
   ensureDependencies,
   getVideoMetadata,
   computeSamplingPlan,
+  computeSmartSamplingPlan,
   createTempDir,
   cleanupTempDir,
   extractFrames,
@@ -331,10 +332,9 @@ async function analyzeVideo(input, analyzeImagesFn) {
     }
   }
 
-  const plan = computeSamplingPlan(metadata.durationSec, {
+  const plan = await computeSmartSamplingPlan(videoPath, metadata.durationSec, {
     startSec: input.startSec || input.start_sec,
     endSec: input.endSec || input.end_sec,
-    sampleEverySec: input.sampleEverySec || input.sample_every_sec,
     maxFrames: input.maxFrames || input.max_frames,
   });
 
