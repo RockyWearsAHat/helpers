@@ -14,7 +14,7 @@ const {
   checkDependency,
 } = require("./video-frames");
 const { buildReport, buildTimeline } = require("./video-report");
-const { transcribeVideo, detectBackend } = require("./video-asr");
+const { transcribeVideo } = require("./video-asr");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -178,7 +178,6 @@ async function directHttpDownload(url) {
     videoPath: videoFile,
     tempDownloadDir: tempDir,
     sourceUrl: url,
-    subtitleSegments: null,
   };
 }
 
@@ -196,15 +195,6 @@ async function downloadWithYtdlp(url) {
         "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "--merge-output-format",
         "mp4",
-        "--write-subs",
-        "--write-auto-subs",
-        "--sub-langs",
-        "en.*,en",
-        "--sub-format",
-        "vtt/srt/best",
-        "--convert-subs",
-        "vtt",
-        "--ignore-errors",
         "-o",
         outputTemplate,
         "--no-playlist",
@@ -213,22 +203,9 @@ async function downloadWithYtdlp(url) {
       { timeout: 300000, cwd: tempDir },
       (err, stdout, stderr) => {
         if (err) {
-          // yt-dlp may exit non-zero for subtitle-only failures while
-          // the video was downloaded successfully. Check if a video file
-          // exists before treating the error as fatal.
-          const outputFiles = fs
-            .readdirSync(tempDir)
-            .filter((f) => !f.startsWith("."));
-          const hasVideo = outputFiles.some((f) =>
-            VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()),
+          reject(
+            new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`),
           );
-          if (hasVideo) {
-            resolve(stdout || "");
-          } else {
-            reject(
-              new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`),
-            );
-          }
         } else {
           resolve(stdout);
         }
@@ -242,84 +219,11 @@ async function downloadWithYtdlp(url) {
   );
   if (!videoFile) throw new Error("yt-dlp did not produce an output file.");
 
-  // Look for downloaded subtitle files (.vtt)
-  const subtitleFile = files.find((f) => f.endsWith(".vtt"));
-  let subtitleSegments = null;
-  if (subtitleFile) {
-    try {
-      const vttContent = fs.readFileSync(
-        path.join(tempDir, subtitleFile),
-        "utf-8",
-      );
-      subtitleSegments = parseVttSubtitles(vttContent);
-    } catch (_) {
-      // Subtitle parsing failed — continue without
-    }
-  }
-
   return {
     videoPath: path.join(tempDir, videoFile),
     tempDownloadDir: tempDir,
     sourceUrl: url,
-    subtitleSegments,
   };
-}
-
-/**
- * Parse a WebVTT file into transcript segments [{start, end, text}].
- */
-function parseVttSubtitles(vttContent) {
-  const segments = [];
-  const lines = vttContent.split("\n");
-  let i = 0;
-
-  // Skip header
-  while (i < lines.length && !lines[i].includes("-->")) i++;
-
-  while (i < lines.length) {
-    const line = lines[i].trim();
-    const match = line.match(
-      /(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})/,
-    );
-    if (match) {
-      const start =
-        parseInt(match[1]) * 3600 +
-        parseInt(match[2]) * 60 +
-        parseInt(match[3]) +
-        parseInt(match[4]) / 1000;
-      const end =
-        parseInt(match[5]) * 3600 +
-        parseInt(match[6]) * 60 +
-        parseInt(match[7]) +
-        parseInt(match[8]) / 1000;
-      i++;
-      const textLines = [];
-      while (
-        i < lines.length &&
-        lines[i].trim() !== "" &&
-        !lines[i].includes("-->")
-      ) {
-        // Strip VTT formatting tags like <c>, </c>, <00:00:01.234>
-        const cleaned = lines[i].trim().replace(/<[^>]+>/g, "");
-        if (cleaned) textLines.push(cleaned);
-        i++;
-      }
-      const text = textLines.join(" ").trim();
-      if (text) {
-        // Deduplicate consecutive identical segments (common in auto-subs)
-        const prev = segments[segments.length - 1];
-        if (!prev || prev.text !== text) {
-          segments.push({ start, end, text });
-        } else {
-          prev.end = end; // Extend previous segment
-        }
-      }
-    } else {
-      i++;
-    }
-  }
-
-  return segments.length > 0 ? segments : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,12 +248,6 @@ async function analyzeVideo(input, analyzeImagesFn) {
     tempDownloadDir = download.tempDownloadDir;
     sourceType = "url-video";
     sourceUrl = download.sourceUrl;
-
-    // Use yt-dlp subtitles if available
-    if (download.subtitleSegments) {
-      transcript = { type: "segmented", segments: download.subtitleSegments };
-      transcriptSource = "yt-dlp-subtitles";
-    }
   } else {
     videoPath = validateInput(input);
   }
@@ -363,28 +261,25 @@ async function analyzeVideo(input, analyzeImagesFn) {
 
   const metadata = await getVideoMetadata(videoPath);
 
-  // Auto-transcribe via ASR if no transcript yet and not explicitly disabled
+  // Auto-transcribe via local ASR (always available — uses bundled JS whisper)
   const autoTranscribe =
     (input.autoTranscribe ?? input.auto_transcribe) !== false;
   let asrInfo = null;
 
-  if (transcript.type === "none" && autoTranscribe) {
-    const backend = await detectBackend();
-    if (backend) {
-      try {
-        const asrResult = await transcribeVideo(videoPath, {
-          whisperModel: input.whisperModel || input.whisper_model,
-          keepTempDir,
-        });
-        transcript = { type: "segmented", segments: asrResult.segments };
-        transcriptSource = asrResult.backend;
-        asrInfo = {
-          backend: asrResult.backend,
-          segmentCount: asrResult.segmentCount,
-        };
-      } catch (asrErr) {
-        asrInfo = { backend: backend.name, error: asrErr.message };
-      }
+  if (autoTranscribe) {
+    try {
+      const asrResult = await transcribeVideo(videoPath, {
+        whisperModel: input.whisperModel || input.whisper_model,
+        keepTempDir,
+      });
+      transcript = { type: "segmented", segments: asrResult.segments };
+      transcriptSource = asrResult.backend;
+      asrInfo = {
+        backend: asrResult.backend,
+        segmentCount: asrResult.segmentCount,
+      };
+    } catch (asrErr) {
+      asrInfo = { error: asrErr.message };
     }
   }
 
@@ -498,5 +393,4 @@ module.exports = {
   analyzeVideo,
   downloadVideo,
   validateInput,
-  parseVttSubtitles,
 };

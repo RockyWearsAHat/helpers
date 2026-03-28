@@ -1,21 +1,25 @@
 // vision-tool/lib/video-asr.js
 //
-// Lightweight ASR (Automatic Speech Recognition) adapter.
-// Extracts audio from a video file using ffmpeg, runs a locally-installed
-// speech-to-text tool, and parses the output into transcript segments
-// compatible with the video analysis pipeline.
+// Local ASR (Automatic Speech Recognition) for the video analysis pipeline.
+// Extracts audio from video using bundled ffmpeg, transcribes with Whisper.
 //
-// Supported backends (checked in priority order):
-//   1. whisper  (OpenAI whisper CLI — `pip install openai-whisper`)
-//   2. mlx_whisper (Apple Silicon optimized — `pip install mlx-whisper`)
-//   3. whisper-cpp (C++ port — `brew install whisper-cpp`)
+// Backend priority:
+//   1. @huggingface/transformers — JS-native, ships with the extension, zero setup
+//   2. whisper CLI (OpenAI) — if user has it installed (faster for long videos)
+//   3. mlx_whisper — Apple Silicon optimized CLI
+//   4. whisper-cpp — C++ port CLI
 //
-// If no backend is found, returns a clear error with install instructions.
+// The JS-native backend is always available. External CLI backends are optional
+// and used when present because they can be faster on long videos.
 
 const { execFile } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function execPromise(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -54,11 +58,10 @@ function checkPythonModule(moduleName) {
   });
 }
 
-const BACKENDS = [
+const CLI_BACKENDS = [
   {
     name: "whisper",
     check: () => checkCommand("whisper"),
-    install: "pip install openai-whisper",
   },
   {
     name: "mlx_whisper",
@@ -68,23 +71,23 @@ const BACKENDS = [
       const hasMod = await checkPythonModule("mlx_whisper");
       return hasMod ? "python3 -m mlx_whisper" : null;
     },
-    install: "pip install mlx-whisper",
   },
   {
     name: "whisper-cpp",
     check: () => checkCommand("whisper-cpp"),
-    install: "brew install whisper-cpp",
   },
 ];
 
 async function detectBackend() {
-  for (const backend of BACKENDS) {
+  // Check for faster CLI backends first
+  for (const backend of CLI_BACKENDS) {
     const result = await backend.check();
     if (result) {
-      return { name: backend.name, path: result };
+      return { name: backend.name, path: result, type: "cli" };
     }
   }
-  return null;
+  // JS-native backend is always available
+  return { name: "transformers.js", type: "js-native" };
 }
 
 // Resolve ffmpeg binary: bundled npm package first, then system PATH
@@ -122,6 +125,66 @@ async function extractAudio(videoPath, tempDir) {
 
   return audioPath;
 }
+
+// ---------------------------------------------------------------------------
+// JS-native Whisper via @huggingface/transformers (primary, zero-setup)
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MODEL = "onnx-community/whisper-tiny.en";
+
+let _transcriber = null;
+let _loadedModel = null;
+
+async function getTranscriber(model) {
+  const modelId = model || DEFAULT_MODEL;
+  if (_transcriber && _loadedModel === modelId) return _transcriber;
+
+  const { pipeline } = require("@huggingface/transformers");
+  _transcriber = await pipeline("automatic-speech-recognition", modelId, {
+    dtype: "fp32",
+  });
+  _loadedModel = modelId;
+  return _transcriber;
+}
+
+function readWavAsFloat32(wavPath) {
+  const buf = fs.readFileSync(wavPath);
+  const headerSize = 44;
+  const sampleCount = (buf.length - headerSize) / 2;
+  const samples = new Int16Array(
+    buf.buffer,
+    buf.byteOffset + headerSize,
+    sampleCount,
+  );
+  const float32 = new Float32Array(sampleCount);
+  for (let i = 0; i < sampleCount; i++) {
+    float32[i] = samples[i] / 32768.0;
+  }
+  return float32;
+}
+
+async function runJsNativeWhisper(audioPath, model) {
+  const transcriber = await getTranscriber(model);
+  const audioData = readWavAsFloat32(audioPath);
+
+  const result = await transcriber(audioData, {
+    return_timestamps: true,
+    chunk_length_s: 30,
+    stride_length_s: 5,
+  });
+
+  const segments = (result.chunks || []).map((chunk) => ({
+    start: chunk.timestamp[0] || 0,
+    end: chunk.timestamp[1] || chunk.timestamp[0] || 0,
+    text: (chunk.text || "").trim(),
+  }));
+
+  return segments.filter((s) => s.text);
+}
+
+// ---------------------------------------------------------------------------
+// CLI backend runners (optional, for users who have them installed)
+// ---------------------------------------------------------------------------
 
 function parseWhisperJson(jsonPath) {
   const data = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
@@ -319,12 +382,6 @@ async function runWhisperCpp(audioPath, tempDir) {
 
 async function transcribeVideo(videoPath, options = {}) {
   const backend = await detectBackend();
-  if (!backend) {
-    const installs = BACKENDS.map((b) => `  - ${b.name}: ${b.install}`).join(
-      "\n",
-    );
-    throw new Error(`No ASR backend found. Install one of:\n${installs}`);
-  }
 
   const tempDir =
     options.tempDir ||
@@ -339,6 +396,9 @@ async function transcribeVideo(videoPath, options = {}) {
 
     let segments;
     switch (backend.name) {
+      case "transformers.js":
+        segments = await runJsNativeWhisper(audioPath, options.whisperModel);
+        break;
       case "whisper":
         segments = await runWhisper(audioPath, tempDir, options.whisperModel);
         break;
@@ -377,7 +437,4 @@ module.exports = {
   transcribeVideo,
   detectBackend,
   extractAudio,
-  parseWhisperJson,
-  parseWhisperSrt,
-  parseWhisperVtt,
 };

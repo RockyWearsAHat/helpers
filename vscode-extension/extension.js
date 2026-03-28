@@ -636,6 +636,15 @@ function buildGitShellHelpersMcpEnv(serverPath) {
     env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION = "1";
   }
 
+  // Pass workspace folder paths so the MCP server can resolve workspace
+  // context (branch, worktree status) without relying on process.cwd().
+  const folders = (vscode.workspace.workspaceFolders || []).map(
+    (f) => f.uri.fsPath,
+  );
+  if (folders.length > 0) {
+    env.GSH_WORKSPACE_ROOTS = JSON.stringify(folders);
+  }
+
   return env;
 }
 
