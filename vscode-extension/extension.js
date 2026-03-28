@@ -3235,9 +3235,7 @@ function _formatAgo(ms) {
 
 function _activityCountLabel(items) {
   const active = items.filter(
-    (i) =>
-      i.type === "session-active" ||
-      i.type === "tool",
+    (i) => i.type === "session-active" || i.type === "tool",
   );
   if (items.length === 0) return "idle";
   if (active.length === 0) return `${items.length} recent`;
@@ -4429,9 +4427,7 @@ function unbindWorktreeFromSession(worktreePath) {
 function ensureWorktreeFolder(worktreePath) {
   if (!fs.existsSync(worktreePath)) return;
   const folders = vscode.workspace.workspaceFolders || [];
-  const alreadyPresent = folders.some(
-    (f) => f.uri.fsPath === worktreePath,
-  );
+  const alreadyPresent = folders.some((f) => f.uri.fsPath === worktreePath);
   if (alreadyPresent) return;
 
   // Add at the end of the workspace folders list.
