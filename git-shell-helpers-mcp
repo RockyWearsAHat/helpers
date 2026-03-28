@@ -214,6 +214,37 @@ function notifySessionPulse() {
   }
 }
 
+function notifyWorkspaceFolderAdd(wtPath, branch) {
+  connectActivityIpc();
+  const line =
+    JSON.stringify({ type: "addWorkspaceFolder", path: wtPath, branch }) + "\n";
+  if (_activitySocket) {
+    try {
+      _activitySocket.write(line);
+    } catch {
+      _activitySocket = null;
+    }
+  } else if (_activityConnecting) {
+    _activityQueue.push(line);
+  }
+}
+
+function notifyWorkspaceFolderRemove(wtPath, branch) {
+  connectActivityIpc();
+  const line =
+    JSON.stringify({ type: "removeWorkspaceFolder", path: wtPath, branch }) +
+    "\n";
+  if (_activitySocket) {
+    try {
+      _activitySocket.write(line);
+    } catch {
+      _activitySocket = null;
+    }
+  } else if (_activityConnecting) {
+    _activityQueue.push(line);
+  }
+}
+
 // Attempt initial connection on startup
 connectActivityIpc();
 
@@ -496,6 +527,7 @@ async function handleBranchSessionStart(args) {
         wtPath,
       );
       const status = await execGit(["status", "--short"], wtPath);
+      notifyWorkspaceFolderAdd(wtPath, existingBranch.trim());
       return [
         {
           type: "text",
@@ -547,6 +579,9 @@ async function handleBranchSessionStart(args) {
   }
 
   const status = await execGit(["status", "--short", "--branch"], wtPath);
+
+  // Notify VS Code extension to add worktree as workspace folder
+  notifyWorkspaceFolderAdd(wtPath, branch);
 
   return [
     {
@@ -618,6 +653,9 @@ async function handleBranchSessionEnd(args) {
   } catch {
     // ignore
   }
+
+  // Notify VS Code extension to remove worktree workspace folder
+  notifyWorkspaceFolderRemove(wtPath, branch);
 
   // Remove the worktree
   try {

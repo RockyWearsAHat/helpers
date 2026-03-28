@@ -60,6 +60,10 @@
       {
         "command": "gitShellHelpers.openModelPicker",
         "title": "Git Shell Helpers: Set Active Chat Model"
+      },
+      {
+        "command": "gitShellHelpers.returnToStartBranch",
+        "title": "Git Shell Helpers: Return to Start Branch"
       }
     ],
     "languageModelTools": [
