@@ -143,7 +143,7 @@ const GOOGLE_EMPTY_RETRY_MAX = 4;
 const GOOGLE_429_BASE_DELAY_MS = 30000;
 const GOOGLE_RESULTS_PER_PAGE = 10;
 const GOOGLE_DEFAULT_PAGE_COUNT = parseInt(
-  process.env.GOOGLE_DEFAULT_PAGE_COUNT || "10",
+  process.env.GOOGLE_DEFAULT_PAGE_COUNT || "2",
   10,
 );
 const GOOGLE_CAPTCHA_POLL_DELAY_SECONDS = 1;
@@ -339,7 +339,7 @@ const RESEARCH_TOOLS = [
   {
     name: "search_web",
     description:
-      "Search the web via Google. Scrapes google.com directly with rate limiting and empty-result retry logic. Returns deduplicated results with titles, URLs, and snippets.",
+      "Search the web via Google. Returns up to max_results deduplicated results (default 20, max 100). Page 1 is fetched first; additional pages are fetched in parallel.",
     inputSchema: {
       type: "object",
       properties: {
@@ -373,6 +373,11 @@ const RESEARCH_TOOLS = [
         time_range: {
           type: "string",
           description: "Optional time range filter: day, week, month, or year.",
+        },
+        max_results: {
+          type: "number",
+          description:
+            "Maximum results to return. Default 20, max 100. Each Google page yields ~10 results, so 50 means 5 pages.",
         },
       },
       required: ["query"],
