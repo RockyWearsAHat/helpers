@@ -51,9 +51,8 @@ let _sessionLingerTimer = null;
 let _sessionStartedAt = 0;
 let _focusedBranchPath = null; // currently focused worktree path (for "back" navigation)
 let _startWorkspacePath = null; // workspace folder path of the branch the user opened with
-let _branchIdleTimer = null; // timer to return to start branch when user leaves a branch-mapped session
+let _branchIdleTimer = null; // no longer used, kept for cleanup
 const SESSION_LINGER_MS = 8000;
-const BRANCH_IDLE_MS = 3000; // how long after last branch-session activity before returning to start
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
 
@@ -1112,10 +1111,6 @@ class CommunityCacheViewProvider {
               (f) => f.uri.fsPath === folderUri.fsPath,
             );
             if (match) {
-              if (_branchIdleTimer) {
-                clearTimeout(_branchIdleTimer);
-                _branchIdleTimer = null;
-              }
               _focusedBranchPath = folderUri.fsPath;
               vscode.commands.executeCommand("revealInExplorer", match.uri);
             } else {
@@ -3755,21 +3750,12 @@ function _navigateToBranchSession(sessionId) {
   const match = folders.find((f) => f.uri.fsPath === mapping.path);
   if (match && _focusedBranchPath !== mapping.path) {
     _focusedBranchPath = mapping.path;
-    // Cancel any pending idle return — user is actively viewing a branch session
-    if (_branchIdleTimer) {
-      clearTimeout(_branchIdleTimer);
-      _branchIdleTimer = null;
-    }
     vscode.commands.executeCommand("revealInExplorer", match.uri);
   }
 }
 
 function _navigateBackToStartBranch() {
   _focusedBranchPath = null;
-  if (_branchIdleTimer) {
-    clearTimeout(_branchIdleTimer);
-    _branchIdleTimer = null;
-  }
   // Navigate to the original workspace folder the user opened with
   const startPath = _startWorkspacePath;
   const folders = vscode.workspace.workspaceFolders || [];
@@ -3779,19 +3765,6 @@ function _navigateBackToStartBranch() {
   if (match) {
     vscode.commands.executeCommand("revealInExplorer", match.uri);
   }
-}
-
-function _scheduleBranchIdleReturn() {
-  // After a branch-mapped session goes quiet, return to start branch
-  if (_branchIdleTimer) {
-    clearTimeout(_branchIdleTimer);
-  }
-  _branchIdleTimer = setTimeout(() => {
-    _branchIdleTimer = null;
-    if (_focusedBranchPath) {
-      _navigateBackToStartBranch();
-    }
-  }, BRANCH_IDLE_MS);
 }
 
 function _onChatSessionWrite(sessionId, filePath) {
@@ -3864,12 +3837,9 @@ function _onChatSessionWrite(sessionId, filePath) {
         existing?.lastSize !== fileSize ? now : existing?._lastChangedAt || now,
     });
     // Auto-navigate: if this session is mapped to a branch, focus its worktree.
-    // If this is a non-branch session and we're currently on a branch, schedule
-    // return to start (user switched to a different chat).
+    // Only navigate if this is a branch-mapped chat becoming active.
     if (_sessionBranchMap.has(sessionId)) {
       _navigateToBranchSession(sessionId);
-    } else if (_focusedBranchPath) {
-      _scheduleBranchIdleReturn();
     }
   } else {
     const completedAt = existing?.active ? now : existing?.completedAt || now;
@@ -3886,10 +3856,8 @@ function _onChatSessionWrite(sessionId, filePath) {
       requestCount: lastRequestIdx + 1,
       _lastChangedAt: now,
     });
-    // If a branch-associated session just completed, return to start branch
-    if (existing?.active && _sessionBranchMap.has(sessionId)) {
-      _scheduleBranchIdleReturn();
-    }
+    // When a session completes, do nothing — workspace stays on current branch.
+    // Only other chats becoming active or user clicking back will change the view.
   }
 }
 
@@ -4573,10 +4541,6 @@ function startActivityIpcServer() {
           // that spawned this branch (requirement: user follows the agent
           // they are watching; otherwise it's a no-op)
           if (userIsViewingThisChat) {
-            if (_branchIdleTimer) {
-              clearTimeout(_branchIdleTimer);
-              _branchIdleTimer = null;
-            }
             _focusedBranchPath = folderUri.fsPath;
             vscode.commands.executeCommand("revealInExplorer", folderUri);
           }
