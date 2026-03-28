@@ -1,5 +1,6 @@
 {
   "files.associations": {
     "VERSION": "plaintext"
-  }
+  },
+  "gitShellHelpers.branchSessions.enabled": true
 }
