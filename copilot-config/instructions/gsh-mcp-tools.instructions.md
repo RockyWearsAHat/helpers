@@ -46,6 +46,45 @@ Call this:
 
 No parameters. Returns one block per workspace root with: root path, branch name, worktree flag, remote URL, and short git status.
 
+## Core — Branch Sessions
+
+Branch sessions give agents isolated working directories via git worktrees. Each session gets its own filesystem checkout under `~/.cache/gsh/worktrees/`, leaving the main workspace untouched. Agents can work on different branches independently — like developers on a team each having their own clone.
+
+**`branch_session_start`** — Start an isolated branch session.
+
+- Creates a worktree for the given branch (or creates the branch if it doesn't exist).
+- Returns the absolute path to the worktree.
+- **Use this path for all subsequent file operations and terminal commands.**
+- If a session already exists for the branch, returns the existing path.
+
+Parameters:
+- `branch` (string, required) — The branch to work on.
+- `base` (string, optional) — Create the branch from this ref. Only used for new branches. Defaults to HEAD.
+
+**`branch_session_end`** — End an isolated branch session.
+
+- Auto-commits any uncommitted work, then removes the worktree.
+- The branch and all its commits are preserved for later merge.
+- Pass `discard: true` to throw away uncommitted changes instead of committing them.
+
+Parameters:
+- `branch` (string, required) — The branch whose session to end.
+- `discard` (boolean, optional) — Discard uncommitted changes instead of auto-committing. Default: false.
+
+**`branch_read_file`** — Read a file from any branch without a worktree.
+
+- Uses `git show` to read directly from the commit tree.
+- No checkout or worktree needed — fast and safe for cross-branch inspection.
+
+Parameters:
+- `branch` (string, required) — The branch to read from.
+- `filePath` (string, required) — Repository-relative path (e.g. `lib/upload-ai-message.sh`).
+
+**`branch_status`** — Show all active branch sessions and local branches.
+
+- Reports: active worktree sessions with their status, the main workspace branch, and all local branches with latest commits.
+- No parameters.
+
 ## Research — Web Search & Knowledge Base
 
 **`search_web`** — Search the web via a local SearXNG instance. Returns ranked results with titles, URLs, and snippets.
