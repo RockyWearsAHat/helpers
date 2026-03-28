@@ -4474,7 +4474,10 @@ function _bindWorktreeWithRetry(msg, attempt) {
   }
   // Retry up to 5 times (0.5s, 1s, 1.5s, 2s, 2.5s = ~7.5s total)
   if (attempt < 5) {
-    setTimeout(() => _bindWorktreeWithRetry(msg, attempt + 1), 500 * (attempt + 1));
+    setTimeout(
+      () => _bindWorktreeWithRetry(msg, attempt + 1),
+      500 * (attempt + 1),
+    );
   }
 }
 
@@ -4518,7 +4521,8 @@ function _unfocusWorktreeFolder() {
   if (!_activeWorktreeFolder) return;
   _activeWorktreeFolder = null;
   // Return to the folder the user was on before any worktree focus.
-  const returnUri = _originalWorkspaceUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+  const returnUri =
+    _originalWorkspaceUri || vscode.workspace.workspaceFolders?.[0]?.uri;
   _originalWorkspaceUri = null;
   if (returnUri) {
     vscode.commands.executeCommand("revealInExplorer", returnUri);
