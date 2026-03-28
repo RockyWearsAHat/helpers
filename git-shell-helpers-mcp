@@ -452,17 +452,25 @@ const BRANCH_STATUS_TOOL = {
 
 ALL_TOOLS.push(BRANCH_STATUS_TOOL);
 
-function resolveRepoRoot() {
-  let roots = [];
+async function resolveRepoRoot() {
+  const candidates = [];
   if (process.env.GSH_WORKSPACE_ROOTS) {
     try {
-      roots = JSON.parse(process.env.GSH_WORKSPACE_ROOTS);
+      const roots = JSON.parse(process.env.GSH_WORKSPACE_ROOTS);
+      if (Array.isArray(roots)) candidates.push(...roots);
     } catch {
       // ignore
     }
   }
-  if (roots.length > 0) return roots[0];
-  return process.cwd() || __dirname;
+  candidates.push(process.cwd(), __dirname);
+  for (const dir of candidates.filter(Boolean)) {
+    try {
+      return await execGit(["rev-parse", "--show-toplevel"], dir);
+    } catch {
+      // not a git repo — try next
+    }
+  }
+  throw new Error("Not inside a git repository.");
 }
 
 function worktreePath(branch) {
@@ -475,13 +483,7 @@ async function handleBranchSessionStart(args) {
   const { branch, base } = args;
   if (!branch) throw new Error("branch is required");
 
-  const repoRoot = resolveRepoRoot();
-  let toplevel;
-  try {
-    toplevel = await execGit(["rev-parse", "--show-toplevel"], repoRoot);
-  } catch {
-    throw new Error("Not inside a git repository.");
-  }
+  const toplevel = await resolveRepoRoot();
 
   const wtPath = worktreePath(branch);
 
@@ -567,13 +569,7 @@ async function handleBranchSessionEnd(args) {
   const { branch, discard } = args;
   if (!branch) throw new Error("branch is required");
 
-  const repoRoot = resolveRepoRoot();
-  let toplevel;
-  try {
-    toplevel = await execGit(["rev-parse", "--show-toplevel"], repoRoot);
-  } catch {
-    throw new Error("Not inside a git repository.");
-  }
+  const toplevel = await resolveRepoRoot();
 
   const wtPath = worktreePath(branch);
 
@@ -659,13 +655,7 @@ async function handleBranchReadFile(args) {
   if (!branch) throw new Error("branch is required");
   if (!filePath) throw new Error("filePath is required");
 
-  const repoRoot = resolveRepoRoot();
-  let toplevel;
-  try {
-    toplevel = await execGit(["rev-parse", "--show-toplevel"], repoRoot);
-  } catch {
-    throw new Error("Not inside a git repository.");
-  }
+  const toplevel = await resolveRepoRoot();
 
   let content;
   try {
@@ -692,13 +682,7 @@ async function handleBranchReadFile(args) {
 }
 
 async function handleBranchStatus() {
-  const repoRoot = resolveRepoRoot();
-  let toplevel;
-  try {
-    toplevel = await execGit(["rev-parse", "--show-toplevel"], repoRoot);
-  } catch {
-    throw new Error("Not inside a git repository.");
-  }
+  const toplevel = await resolveRepoRoot();
 
   const sections = [];
 
@@ -1007,30 +991,7 @@ async function handleCheckpoint(args) {
       );
     }
   } else {
-    // Try workspace roots from extension env first
-    let resolved = false;
-    if (process.env.GSH_WORKSPACE_ROOTS) {
-      try {
-        const roots = JSON.parse(process.env.GSH_WORKSPACE_ROOTS);
-        if (roots.length > 0) {
-          cwd = await execGit(["rev-parse", "--show-toplevel"], roots[0]);
-          resolved = true;
-        }
-      } catch {
-        // malformed or not a git repo — fall through
-      }
-    }
-    if (!resolved) {
-      try {
-        cwd = await execGit(["rev-parse", "--show-toplevel"], process.cwd());
-      } catch {
-        try {
-          cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
-        } catch {
-          throw new Error("Not inside a git repository.");
-        }
-      }
-    }
+    cwd = await resolveRepoRoot();
   }
 
   // Branch assertion — if the caller specified a branch, verify HEAD is on it.
