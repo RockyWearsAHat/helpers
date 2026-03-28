@@ -1088,6 +1088,9 @@ ${detailedRecent}`;
 async function handleCheckpoint(args) {
   // Determine workspace root — prefer explicit cwd from caller, then
   // GSH_WORKSPACE_ROOTS (set by extension), then process.cwd(), then __dirname.
+  // When a branch is specified and no cwd is given, check for an active worktree
+  // on that branch and use it automatically — this lets callers pass just
+  // branch:"feature/foo" without needing to know the worktree path.
   let cwd;
   if (args.cwd) {
     try {
@@ -1096,6 +1099,24 @@ async function handleCheckpoint(args) {
       throw new Error(
         `Specified cwd is not inside a git repository: ${args.cwd}`,
       );
+    }
+  } else if (args.branch) {
+    const wtPath = worktreePath(args.branch);
+    if (fs.existsSync(wtPath)) {
+      try {
+        const wtBranch = await execGit(
+          ["symbolic-ref", "--short", "HEAD"],
+          wtPath,
+        );
+        if (wtBranch === args.branch) {
+          cwd = await execGit(["rev-parse", "--show-toplevel"], wtPath);
+        }
+      } catch {
+        // Not a valid worktree — fall through
+      }
+    }
+    if (!cwd) {
+      cwd = await resolveRepoRoot();
     }
   } else {
     cwd = await resolveRepoRoot();
