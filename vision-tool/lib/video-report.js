@@ -144,42 +144,57 @@ function buildReport(
   }
   lines.push("");
 
-  if (transcript.type === "raw") {
+  if (transcript.type === "segmented" && transcript.segments) {
+    lines.push(
+      `## Transcript (${transcript.segments.length} segments, auto-transcribed)`,
+    );
+    lines.push("");
+    // Include full transcript for reference
+    for (const seg of transcript.segments) {
+      const ts = (seg.start || 0).toFixed(1);
+      lines.push(`- **[${ts}s]** ${seg.text}`);
+    }
+    lines.push("");
+  } else if (transcript.type === "raw") {
     lines.push("## Transcript (raw, unaligned)");
     lines.push(transcript.text);
     lines.push("");
-  } else if (transcript.type === "segmented") {
-    lines.push(
-      `## Transcript (${transcript.segments.length} segments, aligned)`,
-    );
-    lines.push("");
   } else {
     lines.push("## Transcript");
-    lines.push(
-      "_No transcript available (no ASR backend or subtitles found)._",
-    );
+    lines.push("_No transcript available._");
     lines.push("");
   }
 
-  lines.push("## Visual Timeline");
+  lines.push("## Visual + Audio Timeline");
+  lines.push("");
+  lines.push(
+    "_Each entry combines what is seen on screen with what is being said._",
+  );
   lines.push("");
 
   for (const seg of segments) {
     lines.push(`### ${seg.start.toFixed(1)}s – ${seg.end.toFixed(1)}s`);
+    lines.push("");
+
+    if (seg.transcript) {
+      lines.push(`> **"${seg.transcript}"**`);
+      lines.push("");
+    }
 
     if (seg.visual) {
       lines.push(seg.visual);
     }
-    if (seg.transcript && seg.transcript !== "[see raw transcript]") {
-      lines.push(`> **Speech**: ${seg.transcript}`);
-    }
+
     if (seg.ocrLikeText) {
-      lines.push(`> **On-screen text**: ${seg.ocrLikeText}`);
+      lines.push("");
+      lines.push(`**On-screen text**: ${seg.ocrLikeText}`);
     }
+
     lines.push("");
   }
 
   lines.push("## Summary");
+  lines.push("");
   lines.push(globalSummary);
   lines.push("");
 

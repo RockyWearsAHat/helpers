@@ -159,7 +159,7 @@ const VISION_TOOLS = [
   {
     name: "analyze_video",
     description:
-      "Analyze a video by extracting frames at intervals, running them through a vision model, and merging with auto-generated transcript (via local ASR or yt-dlp subtitles for URLs). Returns a structured timeline and human-readable report. Requires ffmpeg and ffprobe. Accepts local video paths or URLs (via yt-dlp).",
+      "Analyze a video by extracting frames, running them through a vision model with transcript context, and producing a synthesized visual+audio timeline and report. The vision model sees both the frames AND what is being said, so it can detect visual gags, comedic timing, editing choices, and how speech relates to what's shown. Requires ffmpeg. Accepts local paths or URLs (YouTube etc via yt-dlp).",
     inputSchema: {
       type: "object",
       properties: {
@@ -205,15 +205,36 @@ const VISION_TOOLS = [
         auto_transcribe: {
           type: "boolean",
           description:
-            "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp). Default: true. Set to false to skip ASR entirely.",
+            "Automatically transcribe the video audio using local Whisper ASR. Default: true.",
         },
         whisper_model: {
           type: "string",
           description:
-            "Whisper model name to use for ASR. Default: 'base' for whisper/whisper-cpp, 'mlx-community/whisper-base-mlx' for mlx_whisper. Larger models (small, medium, large) are more accurate but slower.",
+            "Whisper model name for ASR. Default: onnx-community/whisper-tiny.en. Larger models are more accurate but slower.",
         },
       },
       required: ["video_path", "goal"],
+    },
+  },
+  {
+    name: "transcribe_video",
+    description:
+      "Transcribe a video's audio to text using local Whisper ASR. No vision model needed — fast and lightweight. Returns timestamped segments and full text. Accepts local paths or URLs (YouTube etc via yt-dlp). Use this when you only need what was said, not what was shown.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        video_path: {
+          type: "string",
+          description:
+            "Absolute path to a local video file, or a URL (YouTube etc) if yt-dlp is installed.",
+        },
+        whisper_model: {
+          type: "string",
+          description:
+            "Whisper model name. Default: onnx-community/whisper-tiny.en. Use whisper-small.en or whisper-medium.en for better accuracy on complex audio.",
+        },
+      },
+      required: ["video_path"],
     },
   },
 ];
@@ -252,6 +273,13 @@ async function handleVisionToolCall(toolName, toolArguments) {
       throw new Error(response.error || "Extension IPC failed");
     }
     return [{ type: "text", text: response.result }];
+  }
+
+  if (toolName === "transcribe_video") {
+    // Transcription runs locally — no vision model needed, no IPC required
+    const { transcribeOnly } = require("./lib/video-analysis");
+    const result = await transcribeOnly(toolArguments);
+    return [{ type: "text", text: JSON.stringify(result, null, 2) }];
   }
 
   return null;
