@@ -214,10 +214,16 @@ function notifySessionPulse() {
   }
 }
 
-function notifyWorkspaceFolderAdd(wtPath, branch) {
+function notifyWorktreeCreated(branch, worktreePath, baseBranch, baseCommit) {
   connectActivityIpc();
   const line =
-    JSON.stringify({ type: "addWorkspaceFolder", path: wtPath, branch }) + "\n";
+    JSON.stringify({
+      type: "worktreeCreated",
+      branch,
+      worktreePath,
+      baseBranch,
+      baseCommit,
+    }) + "\n";
   if (_activitySocket) {
     try {
       _activitySocket.write(line);
@@ -229,11 +235,10 @@ function notifyWorkspaceFolderAdd(wtPath, branch) {
   }
 }
 
-function notifyWorkspaceFolderRemove(wtPath, branch) {
+function notifyWorktreeRemoved(branch, worktreePath) {
   connectActivityIpc();
   const line =
-    JSON.stringify({ type: "removeWorkspaceFolder", path: wtPath, branch }) +
-    "\n";
+    JSON.stringify({ type: "worktreeRemoved", branch, worktreePath }) + "\n";
   if (_activitySocket) {
     try {
       _activitySocket.write(line);
@@ -386,7 +391,54 @@ async function handleWorkspaceContext() {
     return parts.join("\n");
   });
 
-  return [{ type: "text", text: lines.join("\n\n---\n\n") }];
+  // Scan for active branch session worktrees and include them
+  const activeWorktrees = [];
+  try {
+    if (fs.existsSync(WORKTREE_BASE)) {
+      const entries = fs.readdirSync(WORKTREE_BASE);
+      for (const entry of entries) {
+        const entryPath = path.join(WORKTREE_BASE, entry);
+        try {
+          const stat = fs.statSync(entryPath);
+          if (!stat.isDirectory()) continue;
+          const wtBranch = await execGit(
+            ["symbolic-ref", "--short", "HEAD"],
+            entryPath,
+          );
+          const wtStatus = await execGit(
+            ["status", "--short", "--branch"],
+            entryPath,
+          );
+          activeWorktrees.push({
+            path: entryPath,
+            branch: wtBranch,
+            status: wtStatus,
+          });
+        } catch {
+          // not a valid worktree — skip
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  let output = lines.join("\n\n---\n\n");
+  if (activeWorktrees.length > 0) {
+    output += "\n\n=== Active Branch Sessions ===\n\n";
+    output += activeWorktrees
+      .map((wt) => {
+        const parts = [
+          `Path: ${wt.path}`,
+          `Branch: ${wt.branch}`,
+        ];
+        if (wt.status) parts.push(`Status:\n${wt.status}`);
+        return parts.join("\n");
+      })
+      .join("\n\n---\n\n");
+  }
+
+  return [{ type: "text", text: output }];
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +451,11 @@ const WORKTREE_BASE = path.join(
   "gsh",
   "worktrees",
 );
+
+// Branch session tools — gated by GSH_DISABLE_BRANCH_SESSIONS env var.
+// When the VS Code setting gitShellHelpers.branchSessions.enabled is off,
+// the extension sets this env var and these tools are hidden from agents.
+if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
 
 const BRANCH_SESSION_START_TOOL = {
   name: "branch_session_start",
@@ -483,65 +540,7 @@ const BRANCH_STATUS_TOOL = {
 
 ALL_TOOLS.push(BRANCH_STATUS_TOOL);
 
-const NAVIGATE_TO_BRANCH_TOOL = {
-  name: "navigate_to_branch",
-  description:
-    "Navigate the VS Code workspace to a branch worktree or back to the start branch. Updates the file explorer and editor focus to show the target branch's files. Only navigate to your own session's worktree or the start branch — never to another agent's worktree. The branch must have an active worktree (created via branch_session_start) or be the workspace's main checkout.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      branch: {
-        type: "string",
-        description:
-          "The branch name to navigate to. The extension will find the corresponding workspace folder.",
-      },
-      path: {
-        type: "string",
-        description:
-          "Absolute path of the worktree folder to navigate to. Use this when you know the exact path (returned by branch_session_start). Takes priority over branch if both are provided.",
-      },
-    },
-  },
-};
-
-ALL_TOOLS.push(NAVIGATE_TO_BRANCH_TOOL);
-
-function notifyNavigateToBranch(branch, wtPath) {
-  connectActivityIpc();
-  const line =
-    JSON.stringify({
-      type: "navigateToBranch",
-      branch: branch || "",
-      path: wtPath || "",
-    }) + "\n";
-  if (_activitySocket) {
-    try {
-      _activitySocket.write(line);
-    } catch {
-      _activitySocket = null;
-    }
-  } else if (_activityConnecting) {
-    _activityQueue.push(line);
-  }
-}
-
-async function handleNavigateToBranch(args) {
-  const branch = String(args?.branch || "").trim();
-  const wtPath = String(args?.path || "").trim();
-  if (!branch && !wtPath) {
-    return [
-      { type: "text", text: "Error: provide branch or path to navigate to." },
-    ];
-  }
-  notifyNavigateToBranch(branch, wtPath);
-  const target = wtPath || branch;
-  return [
-    {
-      type: "text",
-      text: `Navigating workspace to ${target}. The VS Code explorer will switch to show this branch's files.`,
-    },
-  ];
-}
+} // end branch session tools gate
 
 async function resolveRepoRoot() {
   const candidates = [];
@@ -587,7 +586,6 @@ async function handleBranchSessionStart(args) {
         wtPath,
       );
       const status = await execGit(["status", "--short"], wtPath);
-      notifyWorkspaceFolderAdd(wtPath, existingBranch.trim());
       return [
         {
           type: "text",
@@ -640,8 +638,24 @@ async function handleBranchSessionStart(args) {
 
   const status = await execGit(["status", "--short", "--branch"], wtPath);
 
-  // Notify VS Code extension to add worktree as workspace folder
-  notifyWorkspaceFolderAdd(wtPath, branch);
+  // Determine the base branch name for the binding
+  let baseBranch = base || "";
+  if (!baseBranch) {
+    try {
+      baseBranch = await execGit(["symbolic-ref", "--short", "HEAD"], toplevel);
+    } catch {
+      baseBranch = "HEAD";
+    }
+  }
+  let baseCommit = "";
+  try {
+    baseCommit = await execGit(["rev-parse", "--short", "HEAD"], wtPath);
+  } catch {
+    // ignore
+  }
+
+  // Notify extension that a worktree was created (for session binding)
+  notifyWorktreeCreated(branch, wtPath, baseBranch, baseCommit);
 
   return [
     {
@@ -714,9 +728,6 @@ async function handleBranchSessionEnd(args) {
     // ignore
   }
 
-  // Notify VS Code extension to remove worktree workspace folder
-  notifyWorkspaceFolderRemove(wtPath, branch);
-
   // Remove the worktree
   try {
     await execGit(["worktree", "remove", "--force", wtPath], toplevel);
@@ -729,6 +740,9 @@ async function handleBranchSessionEnd(args) {
       // ignore
     }
   }
+
+  // Notify extension that the worktree was removed (unbind from session)
+  notifyWorktreeRemoved(branch, wtPath);
 
   return [
     {
@@ -1330,12 +1344,6 @@ async function handleRequest(request) {
 
         if (toolName === "branch_status") {
           const content = await handleBranchStatus();
-          send({ jsonrpc: "2.0", id, result: { content } });
-          return;
-        }
-
-        if (toolName === "navigate_to_branch") {
-          const content = await handleNavigateToBranch(toolArguments);
           send({ jsonrpc: "2.0", id, result: { content } });
           return;
         }
