@@ -51,6 +51,7 @@ let _sessionStartedAt = 0;
 let _worktreeBindings = new Map(); // sessionId → { branch, worktreePath, baseBranch, baseCommit, createdAt }
 let _chatTabToSession = new Map(); // tabUri.toString() → sessionId (built by temporal correlation + title fallback)
 let _activeWorktreeFolder = null; // currently focused worktree path, or null
+let _originalWorkspaceUri = null; // URI of the workspace folder to return to when leaving a worktree view
 
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
@@ -4448,8 +4449,17 @@ function removeWorktreeFolder(worktreePath) {
 
 function handleWorktreeIpcMessage(msg) {
   if (msg.type === "worktreeCreated") {
-    const sessionId = findActiveSessionId();
-    if (!sessionId) return;
+    _bindWorktreeWithRetry(msg, 0);
+  } else if (msg.type === "worktreeRemoved") {
+    unbindWorktreeFromSession(msg.worktreePath);
+  }
+}
+
+// The IPC message from the MCP server may arrive before the JSONL watcher
+// detects this chat session as active. Retry a few times with back-off.
+function _bindWorktreeWithRetry(msg, attempt) {
+  const sessionId = findActiveSessionId();
+  if (sessionId) {
     const binding = {
       branch: msg.branch,
       worktreePath: msg.worktreePath,
@@ -4458,8 +4468,13 @@ function handleWorktreeIpcMessage(msg) {
       createdAt: Date.now(),
     };
     bindWorktreeToSession(sessionId, binding);
-  } else if (msg.type === "worktreeRemoved") {
-    unbindWorktreeFromSession(msg.worktreePath);
+    // Immediately focus the new worktree folder so the user "moves with" the agent.
+    _focusWorktreeFolder(msg.worktreePath);
+    return;
+  }
+  // Retry up to 5 times (0.5s, 1s, 1.5s, 2s, 2.5s = ~7.5s total)
+  if (attempt < 5) {
+    setTimeout(() => _bindWorktreeWithRetry(msg, attempt + 1), 500 * (attempt + 1));
   }
 }
 
@@ -4487,6 +4502,11 @@ function reconcileWorktreeBindings() {
 
 function _focusWorktreeFolder(worktreePath) {
   if (_activeWorktreeFolder === worktreePath) return;
+  // Remember where we came from so we can return later.
+  if (!_activeWorktreeFolder && !_originalWorkspaceUri) {
+    const mainFolder = vscode.workspace.workspaceFolders?.[0];
+    if (mainFolder) _originalWorkspaceUri = mainFolder.uri;
+  }
   _activeWorktreeFolder = worktreePath;
   vscode.commands.executeCommand(
     "revealInExplorer",
@@ -4497,17 +4517,15 @@ function _focusWorktreeFolder(worktreePath) {
 function _unfocusWorktreeFolder() {
   if (!_activeWorktreeFolder) return;
   _activeWorktreeFolder = null;
-  const mainFolder = vscode.workspace.workspaceFolders?.[0];
-  if (mainFolder) {
-    vscode.commands.executeCommand("revealInExplorer", mainFolder.uri);
+  // Return to the folder the user was on before any worktree focus.
+  const returnUri = _originalWorkspaceUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+  _originalWorkspaceUri = null;
+  if (returnUri) {
+    vscode.commands.executeCommand("revealInExplorer", returnUri);
   }
 }
 
 function _onActiveTabChanged() {
-  const branchSessionsEnabled = vscode.workspace
-    .getConfiguration("gitShellHelpers")
-    .get("branchSessions.enabled", false);
-  if (!branchSessionsEnabled) return;
   if (_worktreeBindings.size === 0) return;
 
   let activeTab;
