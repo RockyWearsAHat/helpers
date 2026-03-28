@@ -350,6 +350,18 @@ async function handleVisionRequest(method, args, token) {
     };
   }
 
+  if (method === "transcribe_video") {
+    const { transcribeOnly } = require("./lib/video-analysis");
+    const result = await transcribeOnly({
+      videoPath: args.videoPath || args.video_path,
+      whisperModel: args.whisperModel || args.whisper_model,
+    });
+    return {
+      model: "local-asr",
+      response: JSON.stringify(result, null, 2),
+    };
+  }
+
   // Legacy compat: map old tool names to the unified function
   if (method === "inspect_screenshot") {
     const imagePath = args.imagePath || args.image_path;
@@ -576,6 +588,30 @@ function registerTool(context) {
 
   for (const toolName of videoToolNames) {
     context.subscriptions.push(vscode.lm.registerTool(toolName, videoTool));
+  }
+
+  // Transcription-only tool (no vision model needed)
+  const transcribeToolNames = ["gsh-transcribe-video", "gsh_transcribe_video"];
+
+  const transcribeTool = {
+    async invoke(options) {
+      const { transcribeOnly } = require("./lib/video-analysis");
+      const result = await transcribeOnly(options.input);
+      return makeToolResult(JSON.stringify(result, null, 2));
+    },
+    async prepareInvocation(options) {
+      const videoPath =
+        options.input.videoPath || options.input.video_path || "video";
+      return {
+        invocationMessage: `Transcribing: ${path.basename(videoPath)}`,
+      };
+    },
+  };
+
+  for (const toolName of transcribeToolNames) {
+    context.subscriptions.push(
+      vscode.lm.registerTool(toolName, transcribeTool),
+    );
   }
 }
 

@@ -53,25 +53,51 @@ function validateInput(input) {
   return resolved;
 }
 
-function buildFramePrompt(frames, batchIndex, totalBatches, goal) {
+function buildFramePrompt(frames, batchIndex, totalBatches, goal, transcript) {
   const lines = [
     "You are analyzing video frames extracted at specific timestamps.",
-    "Describe what you observe with evidence-grounded, timestamp-oriented detail.",
+    "Your job is to reconstruct what is ACTUALLY HAPPENING in the video —",
+    "not just what objects exist, but the story, tone, and intent.",
     "",
     `Batch ${batchIndex + 1} of ${totalBatches}.`,
     `Analysis goal: ${goal}`,
     "",
     "For EACH frame, describe:",
-    "- People present and their actions/expressions",
-    "- Objects and their arrangement",
-    "- Scene/setting and lighting",
-    "- On-screen UI elements, text, overlays, or captions",
-    "- Camera angle and any transitions from previous frame",
-    "- Any text visible in the frame (extract it verbatim)",
-    "- What changed compared to adjacent frames",
+    "- **Who** is on screen: facial expressions, body language, gestures, costumes/outfit",
+    "- **What** they are doing: actions, reactions, physical comedy, dramatic pauses",
+    "- **Scene type**: is this talking head, skit/sketch, montage, cutaway, B-roll, screen recording?",
+    "- **Editing/visual style**: jump cuts, zoom-ins, split screen, color grading shifts",
+    "- **On-screen text & graphics**: titles, captions, memes, overlays, lower thirds — extract verbatim",
+    "- **Props and visual gags**: anything deliberately placed for humor, irony, or emphasis",
+    "- **Tone/energy**: comedic timing, sarcasm cues, deadpan delivery, exaggerated reactions",
+    "- **What changed** from the previous frame: new scene? same scene with movement? cut to different angle?",
     "",
-    "Frame timestamps in this batch:",
   ];
+
+  // Include transcript context so the vision model knows what's being said
+  if (transcript && transcript.type === "segmented" && transcript.segments) {
+    const batchStart = frames[0].timestamp;
+    const batchEnd = frames[frames.length - 1].timestamp;
+    const relevantSegs = transcript.segments.filter((s) => {
+      const segStart = s.start || 0;
+      const segEnd = s.end || segStart + 2;
+      return segEnd >= batchStart - 1 && segStart <= batchEnd + 1;
+    });
+    if (relevantSegs.length > 0) {
+      lines.push("**Audio transcript during these frames:**");
+      for (const seg of relevantSegs) {
+        lines.push(`  [${(seg.start || 0).toFixed(1)}s] "${seg.text}"`);
+      }
+      lines.push("");
+      lines.push(
+        "Use the transcript to understand context: what the speaker is reacting to,",
+        "what the visual gags are referencing, and how speech and visuals work together.",
+      );
+      lines.push("");
+    }
+  }
+
+  lines.push("Frame timestamps in this batch:");
 
   for (const frame of frames) {
     lines.push(`  - ${frame.filename}: ${frame.timestamp.toFixed(2)}s`);
@@ -82,7 +108,8 @@ function buildFramePrompt(frames, batchIndex, totalBatches, goal) {
     "Respond with a structured description for EACH frame, clearly labeled by timestamp.",
   );
   lines.push(
-    "Be specific and factual. Do not speculate about what might be happening off-screen.",
+    "Focus on STORYTELLING: what is the video communicating at this moment?",
+    "Connect what you see to what is being said. Note visual punchlines, irony, and editing choices.",
   );
 
   return lines.join("\n");
@@ -96,22 +123,45 @@ function batchFrames(frames) {
   return batches;
 }
 
-function buildGlobalSummary(batchResults) {
-  const allAnalysis = batchResults.map((b) => b.analysis).join("\n\n");
-  const lineCount = allAnalysis.split("\n").length;
+function buildGlobalSummary(batchResults, transcript) {
+  const parts = [];
 
-  if (lineCount <= 30) return allAnalysis;
+  for (const b of batchResults) {
+    const startTs = b.frames[0].timestamp.toFixed(1);
+    const endTs = b.frames[b.frames.length - 1].timestamp.toFixed(1);
+    // Take the first meaningful lines (up to 500 chars) from each batch
+    const condensed = b.analysis
+      .split("\n")
+      .filter((l) => l.trim())
+      .slice(0, 5)
+      .join(" ")
+      .slice(0, 500);
+    parts.push(`**[${startTs}s–${endTs}s]** ${condensed}`);
+  }
 
-  return batchResults
-    .map((b, i) => {
-      const firstLines = b.analysis
-        .split("\n")
-        .filter((l) => l.trim())
-        .slice(0, 3)
-        .join(" ");
-      return `[Batch ${i + 1}: ${b.frames[0].timestamp.toFixed(1)}s–${b.frames[b.frames.length - 1].timestamp.toFixed(1)}s] ${firstLines.slice(0, 300)}`;
-    })
-    .join("\n\n");
+  // Append a high-level transcript summary if available
+  if (
+    transcript &&
+    transcript.type === "segmented" &&
+    transcript.segments &&
+    transcript.segments.length > 0
+  ) {
+    const totalSegs = transcript.segments.length;
+    const firstText = transcript.segments
+      .slice(0, 3)
+      .map((s) => s.text)
+      .join(" ");
+    const lastText = transcript.segments
+      .slice(-2)
+      .map((s) => s.text)
+      .join(" ");
+    parts.push("");
+    parts.push(
+      `**Transcript overview** (${totalSegs} segments): Opens with "${firstText.slice(0, 200)}" … closes with "${lastText.slice(0, 200)}"`,
+    );
+  }
+
+  return parts.join("\n\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +352,13 @@ async function analyzeVideo(input, analyzeImagesFn) {
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
-      const prompt = buildFramePrompt(batch, i, batches.length, goal);
+      const prompt = buildFramePrompt(
+        batch,
+        i,
+        batches.length,
+        goal,
+        transcript,
+      );
       const imagePaths = batch.map((f) => f.path);
 
       const result = await analyzeImagesFn({
@@ -326,7 +382,7 @@ async function analyzeVideo(input, analyzeImagesFn) {
     }
 
     const segments = buildTimeline(batchResults, transcript, metadata);
-    const globalSummary = buildGlobalSummary(batchResults);
+    const globalSummary = buildGlobalSummary(batchResults, transcript);
     const displayPath = sourceUrl || videoPath;
 
     const report = includeReport
@@ -387,8 +443,52 @@ async function analyzeVideo(input, analyzeImagesFn) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Standalone transcription — no vision model needed
+// ---------------------------------------------------------------------------
+
+async function transcribeOnly(input) {
+  await ensureDependencies();
+
+  let videoPath;
+  let tempDownloadDir = null;
+
+  const rawPath = input.videoPath || input.video_path || "";
+
+  if (rawPath.startsWith("http://") || rawPath.startsWith("https://")) {
+    const download = await downloadVideo(rawPath);
+    videoPath = download.videoPath;
+    tempDownloadDir = download.tempDownloadDir;
+  } else {
+    videoPath = validateInput(input);
+  }
+
+  try {
+    const metadata = await getVideoMetadata(videoPath);
+    const asrResult = await transcribeVideo(videoPath, {
+      whisperModel: input.whisperModel || input.whisper_model,
+    });
+
+    const fullText = asrResult.segments.map((s) => s.text).join(" ");
+
+    return {
+      videoPath: rawPath,
+      durationSec: metadata.durationSec,
+      backend: asrResult.backend,
+      segmentCount: asrResult.segmentCount,
+      segments: asrResult.segments,
+      fullText,
+    };
+  } finally {
+    if (tempDownloadDir) {
+      cleanupTempDir(tempDownloadDir);
+    }
+  }
+}
+
 module.exports = {
   analyzeVideo,
+  transcribeOnly,
   downloadVideo,
   validateInput,
 };
