@@ -29,6 +29,8 @@ module.exports = function createWebviewProviderClass(deps) {
     getProviderStatus,
     scanLocalAgents,
     getActivityItems,
+    _renderActivityItem,
+    _activityCountLabel,
     // Constants
     API_KEY_ANTHROPIC,
     API_KEY_OPENAI,
@@ -456,35 +458,10 @@ module.exports = function createWebviewProviderClass(deps) {
       const activityRows =
         activityItems.length > 0
           ? activityItems
-              .map((item) =>
-                item.linger
-                  ? `
-        <div class="activity-item activity-item--linger">
-          <div class="activity-summary">
-            <span class="activity-pulse activity-pulse--linger"></span>
-            <span class="activity-label">${escapeHtml(item.label)}</span>
-            <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
-          </div>
-        </div>`
-                  : `
-        <details class="activity-item">
-          <summary class="activity-summary">
-            <span class="activity-pulse"></span>
-            <span class="activity-label">${escapeHtml(item.label)}</span>
-            <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
-            <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
-          </summary>
-          <div class="activity-detail"><pre>${escapeHtml(item.args)}</pre></div>
-        </details>`,
-              )
+              .map((item) => _renderActivityItem(item, escapeHtml))
               .join("")
           : `<div class="activity-idle"><span class="activity-idle-dot"></span>idle</div>`;
-      const activityCountLabel =
-        activityItems.length === 0
-          ? "idle"
-          : activityItems.every((i) => i.linger)
-            ? "running"
-            : `${activityItems.length} running`;
+      const activityCountLabel = _activityCountLabel(activityItems);
 
       const mcpStatusHtml = `
       <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" data-tone="${mcpStatus.tone}" title="${escapeHtml(mcpStatus.detail)}">
