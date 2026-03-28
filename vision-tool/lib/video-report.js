@@ -155,7 +155,9 @@ function buildReport(
     lines.push("");
   } else {
     lines.push("## Transcript");
-    lines.push("_No transcript available (no ASR backend or subtitles found)._");
+    lines.push(
+      "_No transcript available (no ASR backend or subtitles found)._",
+    );
     lines.push("");
   }
 

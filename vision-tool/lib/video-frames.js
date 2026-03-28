@@ -2,6 +2,10 @@
 //
 // ffmpeg / ffprobe operations for video frame extraction.
 // Used by the video analysis pipeline. No vscode dependencies.
+//
+// Binaries are resolved automatically:
+//   1. Bundled npm packages (ffmpeg-static / ffprobe-static) — zero setup
+//   2. System PATH fallback (brew install ffmpeg)
 
 const { execFile } = require("child_process");
 const fs = require("fs");
@@ -30,9 +34,33 @@ function checkDependency(name) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Binary resolution — bundled npm packages first, system PATH second
+// ---------------------------------------------------------------------------
+
+let _deps = null;
+
+function tryRequire(id) {
+  try {
+    return require(id);
+  } catch (_) {
+    return null;
+  }
+}
+
 async function ensureDependencies() {
-  const ffmpeg = await checkDependency("ffmpeg");
-  const ffprobe = await checkDependency("ffprobe");
+  if (_deps) return _deps;
+
+  // 1. Try bundled static binaries (zero-setup path)
+  let ffmpeg = tryRequire("ffmpeg-static");
+  let ffprobe = null;
+  const fpStatic = tryRequire("ffprobe-static");
+  if (fpStatic && fpStatic.path) ffprobe = fpStatic.path;
+
+  // 2. Fall back to system PATH
+  if (!ffmpeg) ffmpeg = await checkDependency("ffmpeg");
+  if (!ffprobe) ffprobe = await checkDependency("ffprobe");
+
   const missing = [];
   if (!ffmpeg) missing.push("ffmpeg");
   if (!ffprobe) missing.push("ffprobe");
@@ -42,7 +70,9 @@ async function ensureDependencies() {
         "Install with: brew install ffmpeg",
     );
   }
-  return { ffmpeg, ffprobe };
+
+  _deps = { ffmpeg, ffprobe };
+  return _deps;
 }
 
 function parseFps(fpsStr) {
@@ -57,7 +87,8 @@ function parseFps(fpsStr) {
 }
 
 async function getVideoMetadata(videoPath) {
-  const result = await execPromise("ffprobe", [
+  const { ffprobe } = await ensureDependencies();
+  const result = await execPromise(ffprobe, [
     "-v",
     "quiet",
     "-print_format",
@@ -150,13 +181,14 @@ function cleanupTempDir(dir) {
 }
 
 async function extractFrames(videoPath, timestamps, tempDir) {
+  const { ffmpeg } = await ensureDependencies();
   const frames = [];
 
   for (const ts of timestamps) {
     const filename = `frame_${ts.toFixed(2).replace(".", "s")}.jpg`;
     const outputPath = path.join(tempDir, filename);
 
-    await execPromise("ffmpeg", [
+    await execPromise(ffmpeg, [
       "-ss",
       String(ts),
       "-i",

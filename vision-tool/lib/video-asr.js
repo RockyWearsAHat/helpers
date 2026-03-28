@@ -87,10 +87,22 @@ async function detectBackend() {
   return null;
 }
 
+// Resolve ffmpeg binary: bundled npm package first, then system PATH
+function resolveFfmpeg() {
+  try {
+    const p = require("ffmpeg-static");
+    if (p) return p;
+  } catch (_) {
+    // Not installed — fall through
+  }
+  return "ffmpeg";
+}
+
 async function extractAudio(videoPath, tempDir) {
   const audioPath = path.join(tempDir, "audio.wav");
+  const ffmpeg = resolveFfmpeg();
 
-  await execPromise("ffmpeg", [
+  await execPromise(ffmpeg, [
     "-i",
     videoPath,
     "-vn",
