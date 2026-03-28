@@ -428,10 +428,7 @@ async function handleWorkspaceContext() {
     output += "\n\n=== Active Branch Sessions ===\n\n";
     output += activeWorktrees
       .map((wt) => {
-        const parts = [
-          `Path: ${wt.path}`,
-          `Branch: ${wt.branch}`,
-        ];
+        const parts = [`Path: ${wt.path}`, `Branch: ${wt.branch}`];
         if (wt.status) parts.push(`Status:\n${wt.status}`);
         return parts.join("\n");
       })
@@ -456,90 +453,88 @@ const WORKTREE_BASE = path.join(
 // When the VS Code setting gitShellHelpers.branchSessions.enabled is off,
 // the extension sets this env var and these tools are hidden from agents.
 if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
-
-const BRANCH_SESSION_START_TOOL = {
-  name: "branch_session_start",
-  description:
-    "Start an isolated branch session. Creates a git worktree so the agent can read and write files on a specific branch without affecting the main workspace checkout. Returns the absolute path to the worktree — use that path for all file operations, terminal commands, and checkpoint calls during this session. If the branch does not exist yet, it is created from the specified base (defaults to HEAD). If a worktree for this branch already exists, returns its path without recreating it.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      branch: {
-        type: "string",
-        description:
-          "The branch to work on. If it does not exist, it will be created from 'base'.",
+  const BRANCH_SESSION_START_TOOL = {
+    name: "branch_session_start",
+    description:
+      "Start an isolated branch session. Creates a git worktree so the agent can read and write files on a specific branch without affecting the main workspace checkout. Returns the absolute path to the worktree — use that path for all file operations, terminal commands, and checkpoint calls during this session. If the branch does not exist yet, it is created from the specified base (defaults to HEAD). If a worktree for this branch already exists, returns its path without recreating it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        branch: {
+          type: "string",
+          description:
+            "The branch to work on. If it does not exist, it will be created from 'base'.",
+        },
+        base: {
+          type: "string",
+          description:
+            "The commit, branch, or tag to create a new branch from. Only used when creating a new branch. Defaults to HEAD.",
+        },
       },
-      base: {
-        type: "string",
-        description:
-          "The commit, branch, or tag to create a new branch from. Only used when creating a new branch. Defaults to HEAD.",
-      },
+      required: ["branch"],
     },
-    required: ["branch"],
-  },
-};
+  };
 
-ALL_TOOLS.push(BRANCH_SESSION_START_TOOL);
+  ALL_TOOLS.push(BRANCH_SESSION_START_TOOL);
 
-const BRANCH_SESSION_END_TOOL = {
-  name: "branch_session_end",
-  description:
-    "End an isolated branch session. Commits any uncommitted changes on the worktree branch (with an auto-generated message), then removes the worktree. The branch and its commits remain intact for later merge. Pass discard: true to remove the worktree without committing (discards uncommitted changes).",
-  inputSchema: {
-    type: "object",
-    properties: {
-      branch: {
-        type: "string",
-        description: "The branch whose worktree session to end.",
+  const BRANCH_SESSION_END_TOOL = {
+    name: "branch_session_end",
+    description:
+      "End an isolated branch session. Commits any uncommitted changes on the worktree branch (with an auto-generated message), then removes the worktree. The branch and its commits remain intact for later merge. Pass discard: true to remove the worktree without committing (discards uncommitted changes).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        branch: {
+          type: "string",
+          description: "The branch whose worktree session to end.",
+        },
+        discard: {
+          type: "boolean",
+          description:
+            "If true, remove the worktree without committing uncommitted changes. Default: false.",
+        },
       },
-      discard: {
-        type: "boolean",
-        description:
-          "If true, remove the worktree without committing uncommitted changes. Default: false.",
-      },
+      required: ["branch"],
     },
-    required: ["branch"],
-  },
-};
+  };
 
-ALL_TOOLS.push(BRANCH_SESSION_END_TOOL);
+  ALL_TOOLS.push(BRANCH_SESSION_END_TOOL);
 
-const BRANCH_READ_FILE_TOOL = {
-  name: "branch_read_file",
-  description:
-    "Read a file from any branch without checking it out or needing a worktree. Uses git show to read the file directly from the branch's commit tree. Useful for inspecting code on another branch before deciding to start a session, or for comparing implementations across branches.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      branch: {
-        type: "string",
-        description: "The branch (or commit/tag) to read from.",
+  const BRANCH_READ_FILE_TOOL = {
+    name: "branch_read_file",
+    description:
+      "Read a file from any branch without checking it out or needing a worktree. Uses git show to read the file directly from the branch's commit tree. Useful for inspecting code on another branch before deciding to start a session, or for comparing implementations across branches.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        branch: {
+          type: "string",
+          description: "The branch (or commit/tag) to read from.",
+        },
+        filePath: {
+          type: "string",
+          description:
+            "The repository-relative path to the file (e.g. 'lib/upload-ai-message.sh').",
+        },
       },
-      filePath: {
-        type: "string",
-        description:
-          "The repository-relative path to the file (e.g. 'lib/upload-ai-message.sh').",
-      },
+      required: ["branch", "filePath"],
     },
-    required: ["branch", "filePath"],
-  },
-};
+  };
 
-ALL_TOOLS.push(BRANCH_READ_FILE_TOOL);
+  ALL_TOOLS.push(BRANCH_READ_FILE_TOOL);
 
-const BRANCH_STATUS_TOOL = {
-  name: "branch_status",
-  description:
-    "Show the status of all active branch sessions and local branches. Reports: which worktrees are active, their branches, dirty/clean state, and recent commits. Also lists local branches with their latest commit. Use to understand the state of ongoing parallel work before switching context or merging.",
-  inputSchema: {
-    type: "object",
-    properties: {},
-    required: [],
-  },
-};
+  const BRANCH_STATUS_TOOL = {
+    name: "branch_status",
+    description:
+      "Show the status of all active branch sessions and local branches. Reports: which worktrees are active, their branches, dirty/clean state, and recent commits. Also lists local branches with their latest commit. Use to understand the state of ongoing parallel work before switching context or merging.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  };
 
-ALL_TOOLS.push(BRANCH_STATUS_TOOL);
-
+  ALL_TOOLS.push(BRANCH_STATUS_TOOL);
 } // end branch session tools gate
 
 async function resolveRepoRoot() {
