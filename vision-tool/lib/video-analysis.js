@@ -203,9 +203,7 @@ async function downloadWithYtdlp(url) {
       { timeout: 300000, cwd: tempDir },
       (err, stdout, stderr) => {
         if (err) {
-          reject(
-            new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`),
-          );
+          reject(new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`));
         } else {
           resolve(stdout);
         }
