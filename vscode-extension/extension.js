@@ -2750,12 +2750,18 @@ function activate(context) {
     MODES,
     QUICK_ACTIONS,
     getCachedUser: () => cachedUser,
-    setCachedUser: (v) => { cachedUser = v; },
+    setCachedUser: (v) => {
+      cachedUser = v;
+    },
     getCachedRepos: () => cachedRepos,
-    setCachedRepos: (v) => { cachedRepos = v; },
+    setCachedRepos: (v) => {
+      cachedRepos = v;
+    },
     getCachedGpgNeedsUpload: () => cachedGpgNeedsUpload,
     getCachedGpgUploadFailed: () => cachedGpgUploadFailed,
-    setCachedGpgUploadFailed: (v) => { cachedGpgUploadFailed = v; },
+    setCachedGpgUploadFailed: (v) => {
+      cachedGpgUploadFailed = v;
+    },
     _ollamaPinned,
     _context,
   });
