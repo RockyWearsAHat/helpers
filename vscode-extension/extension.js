@@ -54,6 +54,11 @@ let _chatTabToSession = new Map(); // tabUri.toString() → sessionId (built by 
 let _activeWorktreeFolder = null; // currently focused worktree path, or null
 let _originalWorkspaceUri = null; // URI of the workspace folder to return to when leaving a worktree view
 let _focusedSessionId = null; // session ID whose worktree currently has Explorer focus
+// Bridge from VS Code's internal chatWidgetService.onDidChangeFocusedSession
+// (exposed via patched workbench bundle writing to active-chat-session.json)
+// to our session IDs. Populated when worktrees are bound.
+let _sessionResourceMap = new Map(); // vscode-local-chat-session URI string → sessionId
+let _activeChatSessionWatcher = null;
 
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
@@ -2043,35 +2048,91 @@ function _pushActivityUpdate() {
     type: "activityUpdate",
     items: getActivityItems(),
   });
-  // Drive worktree focus from session state — works for sidebar chat where
-  // tab-change events never fire.
-  _updateWorktreeFocus();
 }
 
-// Check whether the most-recently-active chat session has changed and, if it
-// has a worktree binding, switch the Explorer to show that worktree.  Called on
-// every activity poll / JSONL update so focus follows the active session
-// regardless of whether chat is in the sidebar or an editor tab.
-function _updateWorktreeFocus() {
-  if (_worktreeBindings.size === 0) return;
-  const activeId = findActiveSessionId();
-  if (activeId === _focusedSessionId) return; // no change
+// ---------------------------------------------------------------------------
+// Active Chat Session Bridge
+// ---------------------------------------------------------------------------
+// A patched VS Code workbench bundle writes {s: sessionResourceURI, t: timestamp}
+// to ~/.cache/gsh/active-chat-session.json whenever the focused chat widget
+// changes.  We watch that file for changes (event-driven, not polling) and map
+// the session resource URI back to our session IDs via _sessionResourceMap.
 
-  const binding = activeId ? _worktreeBindings.get(activeId) : null;
-  getDiagnosticsOutputChannel().appendLine(
-    `[worktree] Focus switch: ${_focusedSessionId || "(none)"} → ${activeId || "(none)"} binding=${!!binding}`,
-  );
-  _focusedSessionId = activeId;
+const ACTIVE_CHAT_SESSION_PATH = path.join(
+  os.homedir(),
+  ".cache",
+  "gsh",
+  "active-chat-session.json",
+);
 
-  if (!activeId) {
-    if (_activeWorktreeFolder) _unfocusWorktreeFolder();
-    return;
+function startActiveChatSessionWatcher() {
+  // Ensure the directory exists so fs.watch doesn't fail.
+  const dir = path.dirname(ACTIVE_CHAT_SESSION_PATH);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+
+  // If the file already exists, do an initial read.
+  _onActiveChatSessionChanged();
+
+  try {
+    _activeChatSessionWatcher = fs.watch(
+      dir,
+      { persistent: false },
+      (eventType, filename) => {
+        if (filename === "active-chat-session.json") {
+          _onActiveChatSessionChanged();
+        }
+      },
+    );
+  } catch (err) {
+    getDiagnosticsOutputChannel().appendLine(
+      `[worktree] Failed to watch active-chat-session dir: ${err.message}`,
+    );
   }
+}
+
+function _onActiveChatSessionChanged() {
+  if (_worktreeBindings.size === 0 && _activeWorktreeFolder === null) return;
+
+  let sessionResourceUri = null;
+  try {
+    const raw = fs.readFileSync(ACTIVE_CHAT_SESSION_PATH, "utf8");
+    const data = JSON.parse(raw);
+    sessionResourceUri = data.s || null;
+  } catch {
+    return; // file doesn't exist yet or is being written
+  }
+
+  // Map VS Code's internal session resource URI to our session ID
+  let sessionId = null;
+  if (sessionResourceUri) {
+    sessionId = _sessionResourceMap.get(sessionResourceUri) || null;
+  }
+
+  if (sessionId === _focusedSessionId) return; // no change
+
+  const binding = sessionId ? _worktreeBindings.get(sessionId) : null;
+  getDiagnosticsOutputChannel().appendLine(
+    `[worktree] Session focus event: ${_focusedSessionId || "(none)"} → ${sessionId || "(none)"} resource=${sessionResourceUri || "(none)"} binding=${!!binding}`,
+  );
+  _focusedSessionId = sessionId;
 
   if (binding && fs.existsSync(binding.worktreePath)) {
     _focusWorktreeFolder(binding.worktreePath);
   } else if (_activeWorktreeFolder) {
     _unfocusWorktreeFolder();
+  }
+}
+
+// Read the current session resource URI from the bridge file (synchronous).
+function _readCurrentSessionResource() {
+  try {
+    const raw = fs.readFileSync(ACTIVE_CHAT_SESSION_PATH, "utf8");
+    const data = JSON.parse(raw);
+    return data.s || null;
+  } catch {
+    return null;
   }
 }
 
@@ -2841,6 +2902,9 @@ function activate(context) {
   // Load persisted worktree↔session bindings and reconcile workspace folders
   loadWorktreeBindings();
   reconcileWorktreeBindings();
+  // Event-driven worktree focus: watch the bridge file written by the patched
+  // workbench bundle whenever the focused chat session changes.
+  startActiveChatSessionWatcher();
   // Track chat editor tabs — switch explorer focus to the active worktree
   context.subscriptions.push(
     vscode.window.tabGroups.onDidChangeTabs(() => _onActiveTabChanged()),
@@ -2857,6 +2921,8 @@ function activate(context) {
         clearInterval(_chatSessionPoller);
         _chatSessionPoller = null;
       }
+      _activeChatSessionWatcher?.close();
+      _activeChatSessionWatcher = null;
     },
   });
 
@@ -3105,6 +3171,15 @@ function unbindWorktreeFromSession(worktreePath) {
       break;
     }
   }
+  // Clean up session resource mapping for the removed session
+  if (removedSessionId) {
+    for (const [uri, sid] of _sessionResourceMap) {
+      if (sid === removedSessionId) {
+        _sessionResourceMap.delete(uri);
+        break;
+      }
+    }
+  }
   saveWorktreeBindings();
   removeWorktreeFolder(worktreePath);
   return removedSessionId;
@@ -3162,6 +3237,17 @@ function _bindWorktreeWithRetry(msg, attempt) {
       createdAt: Date.now(),
     };
     bindWorktreeToSession(sessionId, binding);
+
+    // Record the VS Code session resource URI → our session ID mapping so the
+    // file-watcher-based focus system can resolve future session switches.
+    const currentResource = _readCurrentSessionResource();
+    if (currentResource) {
+      _sessionResourceMap.set(currentResource, sessionId);
+      getDiagnosticsOutputChannel().appendLine(
+        `[worktree] Mapped resource ${currentResource} → ${sessionId}`,
+      );
+    }
+
     // Immediately focus the new worktree folder so the user "moves with" the agent.
     // Small delay: updateWorkspaceFolders (inside bindWorktreeToSession) needs a
     // tick to register before revealInExplorer can find the folder.
