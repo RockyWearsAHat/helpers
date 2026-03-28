@@ -115,18 +115,74 @@ function buildGlobalSummary(batchResults) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: URL ingestion via yt-dlp
+// Phase 2: URL ingestion — yt-dlp preferred, direct HTTP fallback
 // ---------------------------------------------------------------------------
 
+const STREAMING_PATTERNS = [
+  /youtube\.com/i,
+  /youtu\.be/i,
+  /vimeo\.com/i,
+  /dailymotion\.com/i,
+  /twitch\.tv/i,
+  /tiktok\.com/i,
+  /facebook\.com.*video/i,
+  /instagram\.com/i,
+  /x\.com/i,
+  /twitter\.com/i,
+  /reddit\.com/i,
+];
+
+function isStreamingSite(url) {
+  return STREAMING_PATTERNS.some((p) => p.test(url));
+}
+
 async function downloadVideo(url) {
+  // Prefer yt-dlp when available (handles streaming sites + subtitle download)
   const ytdlp = await checkDependency("yt-dlp");
-  if (!ytdlp) {
+  if (ytdlp) {
+    return downloadWithYtdlp(url);
+  }
+
+  // No yt-dlp — streaming sites require it, direct URLs can use HTTP fetch
+  if (isStreamingSite(url)) {
     throw new Error(
-      "yt-dlp is required for URL video ingestion but was not found. " +
+      `Streaming site detected (${new URL(url).hostname}) but yt-dlp is not installed. ` +
         "Install with: brew install yt-dlp",
     );
   }
 
+  return directHttpDownload(url);
+}
+
+async function directHttpDownload(url) {
+  const tempDir = path.join(os.tmpdir(), `gsh-video-dl-${Date.now()}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  const urlPath = new URL(url).pathname;
+  let ext = path.extname(urlPath).toLowerCase();
+  if (!VIDEO_EXTENSIONS.includes(ext)) ext = ".mp4";
+  const videoFile = path.join(tempDir, `video${ext}`);
+
+  const response = await fetch(url, { redirect: "follow" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} downloading video from ${url}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  fs.writeFileSync(videoFile, buffer);
+
+  if (fs.statSync(videoFile).size === 0) {
+    throw new Error("Direct download produced an empty file.");
+  }
+
+  return {
+    videoPath: videoFile,
+    tempDownloadDir: tempDir,
+    sourceUrl: url,
+    subtitleSegments: null,
+  };
+}
+
+async function downloadWithYtdlp(url) {
   const tempDir = path.join(os.tmpdir(), `gsh-video-dl-${Date.now()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   const outputTemplate = path.join(tempDir, "video.%(ext)s");
@@ -159,14 +215,18 @@ async function downloadVideo(url) {
           // yt-dlp may exit non-zero for subtitle-only failures while
           // the video was downloaded successfully. Check if a video file
           // exists before treating the error as fatal.
-          const outputFiles = fs.readdirSync(tempDir).filter((f) => !f.startsWith("."));
+          const outputFiles = fs
+            .readdirSync(tempDir)
+            .filter((f) => !f.startsWith("."));
           const hasVideo = outputFiles.some((f) =>
             VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()),
           );
           if (hasVideo) {
             resolve(stdout || "");
           } else {
-            reject(new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`));
+            reject(
+              new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`),
+            );
           }
         } else {
           resolve(stdout);

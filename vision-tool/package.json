@@ -341,5 +341,9 @@
     "installedTimestamp": 1773514928762,
     "targetPlatform": "undefined",
     "size": 35607
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0"
   }
 }
