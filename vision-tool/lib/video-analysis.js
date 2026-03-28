@@ -204,6 +204,7 @@ async function downloadWithYtdlp(url) {
         "vtt/srt/best",
         "--convert-subs",
         "vtt",
+        "--ignore-errors",
         "-o",
         outputTemplate,
         "--no-playlist",
