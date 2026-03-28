@@ -14,7 +14,8 @@
   "activationEvents": [
     "onStartupFinished",
     "onLanguageModelTool:gsh-inspect-copilot-customization-warnings",
-    "onLanguageModelTool:gsh-strict-lint"
+    "onLanguageModelTool:gsh-strict-lint",
+    "onChatParticipant:gitShellHelpers.branches"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -60,6 +61,37 @@
       {
         "command": "gitShellHelpers.openModelPicker",
         "title": "Git Shell Helpers: Set Active Chat Model"
+      },
+      {
+        "command": "gitShellHelpers.focusBranch",
+        "title": "Git Shell Helpers: Focus Branch Worktree"
+      },
+      {
+        "command": "gitShellHelpers.returnToMainWorkspace",
+        "title": "Git Shell Helpers: Return to Main Workspace"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "gitShellHelpers.branches",
+        "name": "branches",
+        "fullName": "Branch Sessions",
+        "description": "Manage parallel branch worktrees. Show active sessions, focus a branch, or return to the main workspace.",
+        "isSticky": false,
+        "commands": [
+          {
+            "name": "status",
+            "description": "Show all active and recently completed branch sessions"
+          },
+          {
+            "name": "focus",
+            "description": "Switch the VS Code explorer to a specific branch worktree"
+          },
+          {
+            "name": "back",
+            "description": "Return the VS Code explorer to the main workspace"
+          }
+        ]
       }
     ],
     "languageModelTools": [
