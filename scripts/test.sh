@@ -25,6 +25,7 @@ checks=(
 	"bash -n scripts/community-cache-pull.sh"
 	"bash -n scripts/community-research-submit.sh"
 	"bash ./scripts/test-git-upload-detect.sh"
+	"node ./scripts/test-resolve-repo-root.js"
 	"bash ./scripts/build-dist.sh"
 )
 
