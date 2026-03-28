@@ -28,18 +28,18 @@ Always run tests after modifying shell commands or the VS Code extension.
 
 ### Monolithic files — handle with care
 
-These files are large and tightly coupled. Read the FULL file before making changes. Do not make small patches without understanding surrounding context.
+These files are large and tightly coupled. **Check actual size with `wc -l` before planning edits** — line counts change as modules are extracted. Do not make small patches without understanding surrounding context.
 
-| File                            | Lines  | Domain                                                                 |
-| ------------------------------- | ------ | ---------------------------------------------------------------------- |
-| `vscode-extension/extension.js` | ~4,400 | VS Code extension (MCP client, commands, config)                       |
-| `git-research-mcp`              | ~3,000 | Node.js MCP server (web search, knowledge index, headless Chrome)      |
-| `git-upload`                    | ~2,960 | Bash: stage/commit/push with AI messages, test detection, risk scoring |
-| `git-help-i-pushed-an-env`      | ~2,500 | Bash: secret scrubbing from git history                                |
-| `git-copilot-quickstart`        | ~1,180 | Bash: scaffold Copilot workflows                                       |
-| `git-copilot-devops-audit`      | ~920   | Bash: install/run audit agents                                         |
+| File                            | Domain                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `vscode-extension/extension.js` | VS Code extension (MCP client, commands, config)                       |
+| `git-research-mcp`              | Node.js MCP server (web search, knowledge index, headless Chrome)      |
+| `git-upload`                    | Bash: stage/commit/push with AI messages, test detection, risk scoring |
+| `git-help-i-pushed-an-env`      | Bash: secret scrubbing from git history                                |
+| `git-copilot-quickstart`        | Bash: scaffold Copilot workflows                                       |
+| `git-copilot-devops-audit`      | Bash: install/run audit agents                                         |
 
-**Before editing any file over 500 lines**: read at least the function index (`grep -n 'function \|^[a-z_]*()' <file>`) and understand the call chain you are modifying. Do not submit an 8-line patch to a 3000-line file without understanding the surrounding 200+ lines of context.
+**Before editing any file over 500 lines**: check `wc -l`, read at least the function index (`grep -n 'function \|^[a-z_]*()' <file>`), and understand the call chain you are modifying. Do not submit an 8-line patch to a large file without understanding the surrounding 200+ lines of context.
 
 ### Directory structure
 

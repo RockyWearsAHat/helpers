@@ -1,6 +1,5 @@
 ---
-description: "Reference for the gsh MCP server tools available in all workspaces. Use this when working with git history, committing, web research, knowledge notes, screenshots, or image analysis."
-applyTo: "**"
+description: "Reference for the gsh MCP server tools available in all workspaces. Use when working with git history, committing, web research, knowledge notes, screenshots, image analysis, or MCP tool calls."
 ---
 
 # gsh MCP Server Tools

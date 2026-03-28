@@ -339,6 +339,8 @@ async function handleVisionRequest(method, args, token) {
         includeReport: args.includeReport ?? args.include_report,
         includeTimeline: args.includeTimeline ?? args.include_timeline,
         keepTempDir: args.keepTempDir || args.keep_temp_dir,
+        autoTranscribe: args.autoTranscribe ?? args.auto_transcribe,
+        whisperModel: args.whisperModel || args.whisper_model,
       },
       async (imageInput) => analyzeImages(imageInput, token),
     );

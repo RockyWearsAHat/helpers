@@ -136,10 +136,12 @@ function buildReport(
   lines.push("## Sampling");
   lines.push(`- **Strategy**: ${plan.strategy}`);
   lines.push(`- **Interval**: ${plan.interval}s`);
-  lines.push(`- **Frames analyzed**: ${plan.frameCount}`);
-  lines.push(
-    `- **Window**: ${plan.startSec.toFixed(1)}s – ${plan.endSec.toFixed(1)}s`,
-  );
+  lines.push(`- **Frames analyzed**: ${plan.frameCount || "N/A"}`);
+  if (plan.startSec != null && plan.endSec != null) {
+    lines.push(
+      `- **Window**: ${plan.startSec.toFixed(1)}s – ${plan.endSec.toFixed(1)}s`,
+    );
+  }
   lines.push("");
 
   if (transcript.type === "raw") {
@@ -153,7 +155,7 @@ function buildReport(
     lines.push("");
   } else {
     lines.push("## Transcript");
-    lines.push("_No transcript provided._");
+    lines.push("_No transcript available (no ASR backend or subtitles found)._");
     lines.push("");
   }
 

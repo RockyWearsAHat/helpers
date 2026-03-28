@@ -155,15 +155,30 @@ async function downloadVideo(url) {
       ],
       { timeout: 300000, cwd: tempDir },
       (err, stdout, stderr) => {
-        if (err)
-          reject(new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`));
-        else resolve(stdout);
+        if (err) {
+          // yt-dlp may exit non-zero for subtitle-only failures while
+          // the video was downloaded successfully. Check if a video file
+          // exists before treating the error as fatal.
+          const outputFiles = fs.readdirSync(tempDir).filter((f) => !f.startsWith("."));
+          const hasVideo = outputFiles.some((f) =>
+            VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()),
+          );
+          if (hasVideo) {
+            resolve(stdout || "");
+          } else {
+            reject(new Error(`yt-dlp failed: ${(stderr || err.message).trim()}`));
+          }
+        } else {
+          resolve(stdout);
+        }
       },
     );
   });
 
   const files = fs.readdirSync(tempDir).filter((f) => !f.startsWith("."));
-  const videoFile = files.find((f) => VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()));
+  const videoFile = files.find((f) =>
+    VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()),
+  );
   if (!videoFile) throw new Error("yt-dlp did not produce an output file.");
 
   // Look for downloaded subtitle files (.vtt)
@@ -171,7 +186,10 @@ async function downloadVideo(url) {
   let subtitleSegments = null;
   if (subtitleFile) {
     try {
-      const vttContent = fs.readFileSync(path.join(tempDir, subtitleFile), "utf-8");
+      const vttContent = fs.readFileSync(
+        path.join(tempDir, subtitleFile),
+        "utf-8",
+      );
       subtitleSegments = parseVttSubtitles(vttContent);
     } catch (_) {
       // Subtitle parsing failed — continue without
@@ -215,7 +233,11 @@ function parseVttSubtitles(vttContent) {
         parseInt(match[8]) / 1000;
       i++;
       const textLines = [];
-      while (i < lines.length && lines[i].trim() !== "" && !lines[i].includes("-->")) {
+      while (
+        i < lines.length &&
+        lines[i].trim() !== "" &&
+        !lines[i].includes("-->")
+      ) {
         // Strip VTT formatting tags like <c>, </c>, <00:00:01.234>
         const cleaned = lines[i].trim().replace(/<[^>]+>/g, "");
         if (cleaned) textLines.push(cleaned);
@@ -415,4 +437,5 @@ module.exports = {
   analyzeVideo,
   downloadVideo,
   validateInput,
+  parseVttSubtitles,
 };
