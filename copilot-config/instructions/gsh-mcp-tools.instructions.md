@@ -32,8 +32,19 @@ Parameters:
 - `all` (boolean) — Stage all changes including untracked files (`git add -A`) before committing. Default: `true`.
 - `push` (boolean) — Push to remote after committing. Default: `false`.
 - `force` (boolean) — Override a mid-session disable. Only use when the user explicitly asked for a checkpoint and the previous call returned `[no-op]`.
-- `cwd` (string, optional) — Absolute path to the git repository to commit in. Auto-detected from the server's working directory when omitted. Pass explicitly when working in a multi-root workspace, a git worktree, or when the target repo differs from the auto-detected root.
+- `cwd` (string, optional) — Absolute path to the git repository to commit in. Auto-detected from the workspace root when omitted. Pass explicitly when working in a multi-root workspace, a git worktree, or when the target repo differs from the auto-detected root.
 - `branch` (string, optional) — Assert that HEAD is on this branch before committing. If the current branch does not match, the commit is aborted with an error. Use this to prevent accidentally committing to the wrong branch.
+
+## Core — Workspace Context
+
+**`workspace_context`** — Return the current workspace context: root folders, branch, worktree status, and remote URL for each.
+
+Call this:
+- **At the start of a session** to orient yourself (which repo, which branch, what state).
+- **Before cross-branch operations** to confirm you're on the right branch.
+- **When working on a feature branch** to verify your branch before making changes.
+
+No parameters. Returns one block per workspace root with: root path, branch name, worktree flag, remote URL, and short git status.
 
 ## Research — Web Search & Knowledge Base
 

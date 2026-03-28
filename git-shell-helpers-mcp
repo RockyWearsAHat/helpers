@@ -265,6 +265,99 @@ const CHECKPOINT_TOOL = {
 
 ALL_TOOLS.push(CHECKPOINT_TOOL);
 
+// ---------------------------------------------------------------------------
+// workspace_context tool — returns branch, worktree, and workspace root info
+// ---------------------------------------------------------------------------
+
+const WORKSPACE_CONTEXT_TOOL = {
+  name: "workspace_context",
+  description:
+    "Return the current workspace context: workspace root folders, the active git branch in each, whether each is a worktree, and the remote URL. Call this at the start of a session or before making cross-branch operations to understand which branch and repository you are working in.",
+  inputSchema: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+};
+
+ALL_TOOLS.push(WORKSPACE_CONTEXT_TOOL);
+
+async function handleWorkspaceContext() {
+  // Resolve workspace roots: prefer GSH_WORKSPACE_ROOTS env from the
+  // extension, fall back to process.cwd() / __dirname.
+  let roots = [];
+  if (process.env.GSH_WORKSPACE_ROOTS) {
+    try {
+      roots = JSON.parse(process.env.GSH_WORKSPACE_ROOTS);
+    } catch {
+      // malformed — ignore
+    }
+  }
+  if (roots.length === 0) {
+    roots = [process.cwd(), __dirname].filter(Boolean);
+  }
+
+  // De-duplicate and resolve to git toplevel
+  const seen = new Set();
+  const results = [];
+  for (const root of roots) {
+    let toplevel;
+    try {
+      toplevel = await execGit(["rev-parse", "--show-toplevel"], root);
+    } catch {
+      continue; // not a git repo
+    }
+    if (seen.has(toplevel)) continue;
+    seen.add(toplevel);
+
+    let branch = "";
+    try {
+      branch = await execGit(["symbolic-ref", "--short", "HEAD"], toplevel);
+    } catch {
+      branch = "(detached HEAD)";
+    }
+
+    let isWorktree = false;
+    try {
+      const gitDir = await execGit(["rev-parse", "--git-dir"], toplevel);
+      // Worktrees have a --git-dir that contains ".git/worktrees/"
+      isWorktree = gitDir.includes(path.join(".git", "worktrees"));
+    } catch {
+      // ignore
+    }
+
+    let remote = "";
+    try {
+      remote = await execGit(["remote", "get-url", "origin"], toplevel);
+    } catch {
+      // no remote
+    }
+
+    let status = "";
+    try {
+      status = await execGit(["status", "--short", "--branch"], toplevel);
+    } catch {
+      // ignore
+    }
+
+    results.push({ root: toplevel, branch, isWorktree, remote, status });
+  }
+
+  if (results.length === 0) {
+    return [{ type: "text", text: "No git repositories found in workspace." }];
+  }
+
+  const lines = results.map((r) => {
+    const parts = [`Root: ${r.root}`, `Branch: ${r.branch}`];
+    if (r.isWorktree) parts.push("Worktree: yes");
+    if (r.remote) parts.push(`Remote: ${r.remote}`);
+    if (r.status) parts.push(`Status:\n${r.status}`);
+    return parts.join("\n");
+  });
+
+  return [{ type: "text", text: lines.join("\n\n---\n\n") }];
+}
+
 function execGit(args, cwd) {
   return new Promise((resolve, reject) => {
     execFile("git", args, { cwd, timeout: 30000 }, (err, stdout, stderr) => {
@@ -436,7 +529,7 @@ ${detailedRecent}`;
 
 async function handleCheckpoint(args) {
   // Determine workspace root — prefer explicit cwd from caller, then
-  // process.cwd(), then __dirname.
+  // GSH_WORKSPACE_ROOTS (set by extension), then process.cwd(), then __dirname.
   let cwd;
   if (args.cwd) {
     try {
@@ -447,14 +540,28 @@ async function handleCheckpoint(args) {
       );
     }
   } else {
-    try {
-      cwd = await execGit(["rev-parse", "--show-toplevel"], process.cwd());
-    } catch {
-      // Fallback: __dirname is the script's location (workspace root)
+    // Try workspace roots from extension env first
+    let resolved = false;
+    if (process.env.GSH_WORKSPACE_ROOTS) {
       try {
-        cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
+        const roots = JSON.parse(process.env.GSH_WORKSPACE_ROOTS);
+        if (roots.length > 0) {
+          cwd = await execGit(["rev-parse", "--show-toplevel"], roots[0]);
+          resolved = true;
+        }
       } catch {
-        throw new Error("Not inside a git repository.");
+        // malformed or not a git repo — fall through
+      }
+    }
+    if (!resolved) {
+      try {
+        cwd = await execGit(["rev-parse", "--show-toplevel"], process.cwd());
+      } catch {
+        try {
+          cwd = await execGit(["rev-parse", "--show-toplevel"], __dirname);
+        } catch {
+          throw new Error("Not inside a git repository.");
+        }
       }
     }
   }
@@ -667,6 +774,12 @@ async function handleRequest(request) {
         // Built-in tools
         if (toolName === "checkpoint") {
           const content = await handleCheckpoint(toolArguments);
+          send({ jsonrpc: "2.0", id, result: { content } });
+          return;
+        }
+
+        if (toolName === "workspace_context") {
+          const content = await handleWorkspaceContext();
           send({ jsonrpc: "2.0", id, result: { content } });
           return;
         }
