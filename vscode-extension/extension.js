@@ -1214,6 +1214,7 @@ function isStrictLintingEnabled() {
 async function loginGitHub() {
   if (cachedUser) {
     vscode.window.showInformationMessage(`Already signed in as ${cachedUser}.`);
+    _webviewProvider?.refresh();
     return;
   }
   try {
@@ -2741,6 +2742,8 @@ function activate(context) {
     getProviderStatus,
     scanLocalAgents,
     getActivityItems,
+    _renderActivityItem,
+    _activityCountLabel,
     API_KEY_ANTHROPIC,
     API_KEY_OPENAI,
     TOOL_GROUPS,
