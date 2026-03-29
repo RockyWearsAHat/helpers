@@ -51,8 +51,11 @@ let _sessionStartedAt = 0;
 // extension reloads. The extension manages workspace folders based on these bindings.
 let _worktreeBindings = new Map(); // sessionId → { branch, worktreePath, baseBranch, baseCommit, createdAt }
 let _chatTabToSession = new Map(); // tabUri.toString() → sessionId (built by temporal correlation + title fallback)
+let _pendingBranchSessionStarts = new Map(); // activityId → { sessionId, tabKey, title, capturedAt }
+let _pendingWorktreeBindings = new Map(); // activityId|worktreePath → { msg, context, createdAt }
 let _activeWorktreeFolder = null; // currently focused worktree path, or null
 let _focusedSessionId = null; // session ID whose worktree currently has Explorer focus
+let _suppressTabDrivenUnfocusUntil = 0;
 // Focus switching is driven entirely by JSONL file activity — see
 // _maybeUpdateWorktreeFocus in the "Activity-Driven Worktree Focus" section.
 
@@ -2425,7 +2428,12 @@ function _onChatSessionWrite(sessionId, filePath) {
         activeTab?.input?.viewType === "workbench.editor.chatSession" &&
         activeTab.input.uri
       ) {
-        _chatTabToSession.set(activeTab.input.uri.toString(), sessionId);
+        const tabKey = activeTab.input.uri.toString();
+        setChatTabSessionBinding(tabKey, sessionId);
+        bindPendingWorktreesForSession(sessionId, {
+          tabKey,
+          title,
+        });
       }
     } catch {}
   } else {
@@ -2859,6 +2867,7 @@ function activate(context) {
   startActivityIpcServer();
   // Load persisted worktree↔session bindings and reconcile
   loadWorktreeBindings();
+  loadChatTabBindings();
   reconcileWorktreeBindings();
   // Register worktree file browser tree view
   _registerWorktreeFileView(context);
@@ -3072,6 +3081,7 @@ function stopStrictLintIpcServer() {
 // ---------------------------------------------------------------------------
 
 const WORKTREE_BINDINGS_KEY = "worktreeBindings";
+const CHAT_TAB_BINDINGS_KEY = "chatTabSessionBindings";
 const ORIGINAL_WORKSPACE_URI_KEY = "gsh.originalWorkspaceUri";
 
 function loadWorktreeBindings() {
@@ -3094,6 +3104,169 @@ function saveWorktreeBindings() {
   } catch {
     // ignore
   }
+}
+
+function loadChatTabBindings() {
+  try {
+    const raw = _context?.globalState?.get(CHAT_TAB_BINDINGS_KEY);
+    if (Array.isArray(raw)) {
+      _chatTabToSession = new Map(raw);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function saveChatTabBindings() {
+  try {
+    const entries = Array.from(_chatTabToSession.entries());
+    _context?.globalState?.update(CHAT_TAB_BINDINGS_KEY, entries.slice(-200));
+  } catch {
+    // ignore
+  }
+}
+
+function setChatTabSessionBinding(tabKey, sessionId) {
+  if (!tabKey || !sessionId) return;
+  _chatTabToSession.delete(tabKey);
+  _chatTabToSession.set(tabKey, sessionId);
+  saveChatTabBindings();
+}
+
+function findBestSessionIdByTitle(title, requireBinding) {
+  if (!title) return null;
+
+  let bestId = null;
+  let bestScore = -1;
+  for (const [sid, sess] of _chatSessions) {
+    if (sess?.title !== title) continue;
+    if (requireBinding && !_worktreeBindings.has(sid)) continue;
+    const score =
+      (sess.active ? 1_000_000_000_000_000 : 0) +
+      (sess._lastChangedAt || sess.completedAt || sess.startedAt || 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = sid;
+    }
+  }
+  return bestId;
+}
+
+function getActiveChatTabContext() {
+  let activeTab;
+  try {
+    activeTab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
+  } catch {
+    return null;
+  }
+
+  if (
+    activeTab?.input?.viewType !== "workbench.editor.chatSession" ||
+    !activeTab.input.uri
+  ) {
+    const sessionId = findActiveSessionId();
+    return sessionId
+      ? { sessionId, tabKey: null, title: "", capturedAt: Date.now() }
+      : null;
+  }
+
+  const tabKey = activeTab.input.uri.toString();
+  let sessionId = _chatTabToSession.get(tabKey);
+  if (!sessionId && activeTab.label) {
+    sessionId = findBestSessionIdByTitle(activeTab.label, false);
+    if (sessionId) {
+      setChatTabSessionBinding(tabKey, sessionId);
+    }
+  }
+
+  return {
+    sessionId: sessionId || null,
+    tabKey,
+    title: activeTab.label || "",
+    capturedAt: Date.now(),
+  };
+}
+
+function findSessionIdForContext(context) {
+  if (!context) return null;
+  if (context.sessionId) return context.sessionId;
+  if (context.tabKey) {
+    const sessionId = _chatTabToSession.get(context.tabKey);
+    if (sessionId) return sessionId;
+  }
+  if (context.title) {
+    return findBestSessionIdByTitle(context.title, false);
+  }
+  return null;
+}
+
+function prunePendingWorktreeState() {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+
+  for (const [activityId, context] of _pendingBranchSessionStarts) {
+    if ((context?.capturedAt || 0) < cutoff) {
+      _pendingBranchSessionStarts.delete(activityId);
+    }
+  }
+
+  for (const [key, pending] of _pendingWorktreeBindings) {
+    if ((pending?.createdAt || 0) < cutoff) {
+      _pendingWorktreeBindings.delete(key);
+    }
+  }
+}
+
+function isPathWithinRoot(candidatePath, rootPath) {
+  if (!candidatePath || !rootPath) return false;
+  const relativePath = path.relative(rootPath, candidatePath);
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
+  );
+}
+
+function bindPendingWorktreesForSession(sessionId, context) {
+  if (!sessionId) return;
+
+  prunePendingWorktreeState();
+  for (const [key, pending] of Array.from(_pendingWorktreeBindings.entries())) {
+    const pendingContext = pending?.context || {};
+    const sameSession = pendingContext.sessionId === sessionId;
+    const sameTab = context?.tabKey && pendingContext.tabKey === context.tabKey;
+    const sameTitle = context?.title && pendingContext.title === context.title;
+    if (!sameSession && !sameTab && !sameTitle) continue;
+
+    _pendingWorktreeBindings.delete(key);
+    bindWorktreeToResolvedSession(
+      sessionId,
+      pending.msg,
+      sameSession
+        ? "pending-session"
+        : sameTab
+          ? "pending-tab"
+          : "pending-title",
+    );
+  }
+}
+
+function bindWorktreeToResolvedSession(sessionId, msg, reason) {
+  if (!sessionId || !msg?.worktreePath) return false;
+  if (!fs.existsSync(msg.worktreePath)) return false;
+
+  const binding = {
+    branch: msg.branch,
+    worktreePath: msg.worktreePath,
+    baseBranch: msg.baseBranch || "",
+    baseCommit: msg.baseCommit || "",
+    createdAt: Date.now(),
+  };
+  bindWorktreeToSession(sessionId, binding);
+  _focusedSessionId = sessionId;
+  getDiagnosticsOutputChannel().appendLine(
+    `[worktree] Bound branch=${msg.branch} session=${sessionId} via ${reason}`,
+  );
+  _focusWorktreeFolder(msg.worktreePath);
+  return true;
 }
 
 function findActiveSessionId() {
@@ -3135,6 +3308,14 @@ function findActiveSessionId() {
 }
 
 function bindWorktreeToSession(sessionId, binding) {
+  for (const [sid, existingBinding] of _worktreeBindings) {
+    if (
+      sid !== sessionId &&
+      existingBinding.worktreePath === binding.worktreePath
+    ) {
+      _worktreeBindings.delete(sid);
+    }
+  }
   _worktreeBindings.set(sessionId, binding);
   saveWorktreeBindings();
   ensureWorktreeFolder(binding.worktreePath);
@@ -3171,12 +3352,22 @@ function handleWorktreeIpcMessage(msg) {
     getDiagnosticsOutputChannel().appendLine(
       `[worktree] IPC received: worktreeCreated branch=${msg.branch} path=${msg.worktreePath}`,
     );
-    _writeWorktreeDebug(`IPC worktreeCreated branch=${msg.branch}`);
-    _bindWorktreeWithRetry(msg, 0);
+    _writeWorktreeDebug(
+      `IPC worktreeCreated branch=${msg.branch} activity=${msg.activityId || "null"}`,
+    );
+    const context = msg.activityId
+      ? _pendingBranchSessionStarts.get(msg.activityId) || null
+      : null;
+    _bindWorktreeWithRetry(msg, 0, context);
   } else if (msg.type === "worktreeRemoved") {
     getDiagnosticsOutputChannel().appendLine(
       `[worktree] IPC received: worktreeRemoved path=${msg.worktreePath}`,
     );
+    for (const [key, pending] of _pendingWorktreeBindings) {
+      if (pending?.msg?.worktreePath === msg.worktreePath) {
+        _pendingWorktreeBindings.delete(key);
+      }
+    }
     unbindWorktreeFromSession(msg.worktreePath);
   }
 }
@@ -3194,38 +3385,38 @@ function _writeWorktreeDebug(msg) {
   } catch {}
 }
 
-// The IPC message from the MCP server may arrive before the JSONL watcher
-// detects this chat session as active. Retry a few times with back-off.
-function _bindWorktreeWithRetry(msg, attempt) {
-  const sessionId = findActiveSessionId();
+// The IPC message from the MCP server may arrive before the chat session's
+// JSONL file or tab mapping has been observed. Retry against the initiating
+// tool-call context first, then fall back to the most likely active session.
+function _bindWorktreeWithRetry(msg, attempt, context) {
+  prunePendingWorktreeState();
+  const sessionId = findSessionIdForContext(context) || findActiveSessionId();
   _writeWorktreeDebug(
-    `bindRetry attempt=${attempt} sessionId=${sessionId || "null"} sessions=${_chatSessions.size} bindings=${_worktreeBindings.size}`,
+    `bindRetry attempt=${attempt} sessionId=${sessionId || "null"} sessions=${_chatSessions.size} bindings=${_worktreeBindings.size} activity=${msg.activityId || "null"}`,
   );
   if (sessionId) {
     getDiagnosticsOutputChannel().appendLine(
       `[worktree] Bound to session ${sessionId} on attempt ${attempt}`,
     );
-    const binding = {
-      branch: msg.branch,
-      worktreePath: msg.worktreePath,
-      baseBranch: msg.baseBranch || "",
-      baseCommit: msg.baseCommit || "",
-      createdAt: Date.now(),
-    };
-    bindWorktreeToSession(sessionId, binding);
-
-    // Set focus — the tree view will refresh to show this worktree's files.
-    _focusedSessionId = sessionId;
-    _focusWorktreeFolder(msg.worktreePath);
+    bindWorktreeToResolvedSession(sessionId, msg, `retry-${attempt}`);
     return;
   }
-  // Retry up to 5 times (0.5s, 1s, 1.5s, 2s, 2.5s = ~7.5s total)
-  if (attempt < 5) {
+
+  if (attempt < 10) {
     setTimeout(
-      () => _bindWorktreeWithRetry(msg, attempt + 1),
-      500 * (attempt + 1),
+      () => _bindWorktreeWithRetry(msg, attempt + 1, context),
+      Math.min(750 * (attempt + 1), 3000),
     );
+    return;
   }
+
+  const pendingKey = msg.activityId || msg.worktreePath;
+  _pendingWorktreeBindings.set(pendingKey, {
+    msg,
+    context: context || {},
+    createdAt: Date.now(),
+  });
+  _writeWorktreeDebug(`bindDeferred key=${pendingKey} branch=${msg.branch}`);
 }
 
 // Reconcile bindings on activation: remove stale bindings whose worktrees
@@ -3304,6 +3495,7 @@ function _focusWorktreeFolder(worktreePath) {
   if (_activeWorktreeFolder === worktreePath) return;
   if (!fs.existsSync(worktreePath)) return;
   _activeWorktreeFolder = worktreePath;
+  _suppressTabDrivenUnfocusUntil = Date.now() + 3000;
 
   // Swap the workspace root to the worktree folder.
   // First switch (FOLDER→WORKSPACE) restarts extension hosts silently (~2s).
@@ -3314,16 +3506,18 @@ function _focusWorktreeFolder(worktreePath) {
     const worktreeUri = vscode.Uri.file(worktreePath).toString();
     if (currentUri !== worktreeUri) {
       // Persist the original workspace URI for "return" on unfocus
-      const storedOriginal = _context?.globalState?.get(ORIGINAL_WORKSPACE_URI_KEY);
+      const storedOriginal = _context?.globalState?.get(
+        ORIGINAL_WORKSPACE_URI_KEY,
+      );
       if (!storedOriginal) {
         _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, currentUri);
       }
       getDiagnosticsOutputChannel().appendLine(
         `[worktree] Swapping workspace root → ${worktreePath}`,
       );
-      vscode.workspace.updateWorkspaceFolders(0, 1,
-        { uri: vscode.Uri.file(worktreePath) },
-      );
+      vscode.workspace.updateWorkspaceFolders(0, 1, {
+        uri: vscode.Uri.file(worktreePath),
+      });
     }
   }
 
@@ -3338,6 +3532,7 @@ function _unfocusWorktreeFolder() {
   if (!_activeWorktreeFolder) return;
   const prev = _activeWorktreeFolder;
   _activeWorktreeFolder = null;
+  _suppressTabDrivenUnfocusUntil = Date.now() + 1500;
 
   // Switch workspace root back to the original project folder.
   const originalUri = _context?.globalState?.get(ORIGINAL_WORKSPACE_URI_KEY);
@@ -3348,9 +3543,9 @@ function _unfocusWorktreeFolder() {
       getDiagnosticsOutputChannel().appendLine(
         `[worktree] Restoring workspace root → ${originalUri}`,
       );
-      vscode.workspace.updateWorkspaceFolders(0, 1,
-        { uri: vscode.Uri.parse(originalUri) },
-      );
+      vscode.workspace.updateWorkspaceFolders(0, 1, {
+        uri: vscode.Uri.parse(originalUri),
+      });
     }
   }
 
@@ -3464,7 +3659,8 @@ function _registerWorktreeFileView(context) {
 }
 
 function _onActiveTabChanged() {
-  if (_worktreeBindings.size === 0) return;
+  prunePendingWorktreeState();
+  if (_worktreeBindings.size === 0 && !_activeWorktreeFolder) return;
 
   let activeTab;
   try {
@@ -3481,18 +3677,19 @@ function _onActiveTabChanged() {
     const tabKey = activeTab.input.uri.toString();
     let sessionId = _chatTabToSession.get(tabKey);
 
-    // Fallback: match tab label to session titles that have worktree bindings
+    // Fallback: match tab label to the most likely chat session.
     if (!sessionId && activeTab.label) {
-      for (const [sid, sess] of _chatSessions) {
-        if (sess.title === activeTab.label && _worktreeBindings.has(sid)) {
-          sessionId = sid;
-          _chatTabToSession.set(tabKey, sid);
-          break;
-        }
+      sessionId = findBestSessionIdByTitle(activeTab.label, false);
+      if (sessionId) {
+        setChatTabSessionBinding(tabKey, sessionId);
       }
     }
 
     if (sessionId) {
+      bindPendingWorktreesForSession(sessionId, {
+        tabKey,
+        title: activeTab.label || "",
+      });
       const binding = _worktreeBindings.get(sessionId);
       if (binding && fs.existsSync(binding.worktreePath)) {
         _focusedSessionId = sessionId;
@@ -3500,14 +3697,25 @@ function _onActiveTabChanged() {
         return;
       }
     }
+
+    if (_activeWorktreeFolder && Date.now() >= _suppressTabDrivenUnfocusUntil) {
+      _focusedSessionId = null;
+      _unfocusWorktreeFolder();
+    }
+    return;
   }
 
-  // Non-chat tab or chat without a binding — do NOT unfocus here.
-  // Unfocus is driven solely by JSONL activity (a different unbound session
-  // becomes active).  Tab switching must not trigger workspace root swaps
-  // because updateWorkspaceFolders(0,1,...) restarts the extension host,
-  // and after restart the active tab is always a code editor (not chat),
-  // which would immediately undo the swap.
+  if (_activeWorktreeFolder && Date.now() < _suppressTabDrivenUnfocusUntil) {
+    return;
+  }
+
+  const activePath = activeTab?.input?.uri?.fsPath;
+  if (_activeWorktreeFolder && activePath) {
+    if (!isPathWithinRoot(activePath, _activeWorktreeFolder)) {
+      _focusedSessionId = null;
+      _unfocusWorktreeFolder();
+    }
+  }
 }
 
 const ACTIVITY_SOCKET_PATH = path.join(os.tmpdir(), "gsh-activity.sock");
@@ -3569,6 +3777,15 @@ function startActivityIpcServer() {
             msg.args || {},
           );
           _externalToInternal.set(msg.id, internalId);
+          if (msg.tool === "branch_session_start") {
+            const context = getActiveChatTabContext();
+            if (context) {
+              _pendingBranchSessionStarts.set(msg.id, context);
+              _writeWorktreeDebug(
+                `activityBegin branch_session_start activity=${msg.id} session=${context.sessionId || "null"} tab=${context.tabKey || "null"} title=${context.title || ""}`,
+              );
+            }
+          }
         } else if (msg.type === "activityEnd" && msg.id) {
           const internalId = _externalToInternal.get(msg.id);
           if (internalId) {
