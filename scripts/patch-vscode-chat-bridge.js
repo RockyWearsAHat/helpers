@@ -52,7 +52,9 @@ if (src.includes("active-chat-session.json")) {
 const idx = src.indexOf(OLD);
 if (idx === -1) {
   console.error("Could not find injection point in bundle.");
-  console.error("VS Code version may have changed — check setLastFocusedWidget signature.");
+  console.error(
+    "VS Code version may have changed — check setLastFocusedWidget signature.",
+  );
   process.exit(1);
 }
 

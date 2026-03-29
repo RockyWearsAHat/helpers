@@ -52,7 +52,6 @@ let _sessionStartedAt = 0;
 let _worktreeBindings = new Map(); // sessionId → { branch, worktreePath, baseBranch, baseCommit, createdAt }
 let _chatTabToSession = new Map(); // tabUri.toString() → sessionId (built by temporal correlation + title fallback)
 let _activeWorktreeFolder = null; // currently focused worktree path, or null
-let _originalWorkspaceUri = null; // URI of the workspace folder to return to when leaving a worktree view
 let _focusedSessionId = null; // session ID whose worktree currently has Explorer focus
 // Focus switching is driven entirely by JSONL file activity — see
 // _maybeUpdateWorktreeFocus in the "Activity-Driven Worktree Focus" section.
@@ -2059,10 +2058,18 @@ function _pushActivityUpdate() {
 function _maybeUpdateWorktreeFocus(sessionId, fileSizeGrew) {
   if (!fileSizeGrew) return;
   if (_worktreeBindings.size === 0 && !_activeWorktreeFolder) return;
+  const bindingKeys = [..._worktreeBindings.keys()].join(",");
+  _writeWorktreeDebug(
+    `focusCheck session=${sessionId} bindings=${_worktreeBindings.size} keys=[${bindingKeys}] activeFolder=${_activeWorktreeFolder || "null"} focusedSession=${_focusedSessionId || "null"}`,
+  );
 
   const binding = _worktreeBindings.get(sessionId);
+  _writeWorktreeDebug(
+    `binding=${binding ? JSON.stringify(binding) : "null"} exists=${binding ? fs.existsSync(binding.worktreePath) : "n/a"} focusedSession=${_focusedSessionId || "null"}`,
+  );
   if (binding && fs.existsSync(binding.worktreePath)) {
     if (_focusedSessionId !== sessionId) {
+      _writeWorktreeDebug(`FOCUSING worktree=${binding.worktreePath}`);
       getDiagnosticsOutputChannel().appendLine(
         `[worktree] JSONL activity → focus ${sessionId} worktree=${binding.worktreePath}`,
       );
@@ -2850,9 +2857,11 @@ function activate(context) {
   startStrictLintIpcServer();
   // Start activity IPC server so the gsh MCP server can report active tool calls
   startActivityIpcServer();
-  // Load persisted worktree↔session bindings and reconcile workspace folders
+  // Load persisted worktree↔session bindings and reconcile
   loadWorktreeBindings();
   reconcileWorktreeBindings();
+  // Register worktree file browser tree view
+  _registerWorktreeFileView(context);
   // Track chat editor tabs — switch explorer focus to the active worktree
   context.subscriptions.push(
     vscode.window.tabGroups.onDidChangeTabs(() => _onActiveTabChanged()),
@@ -3088,11 +3097,33 @@ function saveWorktreeBindings() {
 
 function findActiveSessionId() {
   // Return the ID of the currently active chat session (most recently active).
+  // Primary: look for sessions explicitly marked active.
   let bestId = null;
   let bestAt = 0;
   for (const [sid, sess] of _chatSessions) {
     if (sess.active) {
       const at = sess._lastChangedAt || sess.startedAt || 0;
+      if (at > bestAt) {
+        bestAt = at;
+        bestId = sid;
+      }
+    }
+  }
+  if (bestId) return bestId;
+
+  // Fallback: after an extension host restart, sessions may not yet be marked
+  // active.  Accept a session whose JSONL file was modified in the last 30s.
+  const now = Date.now();
+  for (const [sid, sess] of _chatSessions) {
+    if (!sess.filePath) continue;
+    let mtimeMs = 0;
+    try {
+      mtimeMs = fs.statSync(sess.filePath).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (now - mtimeMs < 30000) {
+      const at = mtimeMs;
       if (at > bestAt) {
         bestAt = at;
         bestId = sid;
@@ -3122,26 +3153,16 @@ function unbindWorktreeFromSession(worktreePath) {
   return removedSessionId;
 }
 
-function ensureWorktreeFolder(worktreePath) {
-  if (!fs.existsSync(worktreePath)) return;
-  const folders = vscode.workspace.workspaceFolders || [];
-  const alreadyPresent = folders.some((f) => f.uri.fsPath === worktreePath);
-  if (alreadyPresent) return;
-
-  // Add at the end of the workspace folders list.
-  // The name includes the branch for clarity in the explorer sidebar.
-  const dirName = path.basename(worktreePath);
-  vscode.workspace.updateWorkspaceFolders(folders.length, 0, {
-    uri: vscode.Uri.file(worktreePath),
-    name: `🌿 ${dirName}`,
-  });
+function ensureWorktreeFolder(_worktreePath) {
+  // No-op — worktrees are browsed via the sidebar tree view, not workspace folders.
 }
 
 function removeWorktreeFolder(worktreePath) {
-  const folders = vscode.workspace.workspaceFolders || [];
-  const idx = folders.findIndex((f) => f.uri.fsPath === worktreePath);
-  if (idx === -1) return;
-  vscode.workspace.updateWorkspaceFolders(idx, 1);
+  // If this worktree is currently focused, unfocus it.
+  if (_activeWorktreeFolder === worktreePath) {
+    _focusedSessionId = null;
+    _unfocusWorktreeFolder();
+  }
 }
 
 function handleWorktreeIpcMessage(msg) {
@@ -3149,6 +3170,7 @@ function handleWorktreeIpcMessage(msg) {
     getDiagnosticsOutputChannel().appendLine(
       `[worktree] IPC received: worktreeCreated branch=${msg.branch} path=${msg.worktreePath}`,
     );
+    _writeWorktreeDebug(`IPC worktreeCreated branch=${msg.branch}`);
     _bindWorktreeWithRetry(msg, 0);
   } else if (msg.type === "worktreeRemoved") {
     getDiagnosticsOutputChannel().appendLine(
@@ -3158,10 +3180,26 @@ function handleWorktreeIpcMessage(msg) {
   }
 }
 
+// Temporary file-based diagnostics for worktree focus debugging
+function _writeWorktreeDebug(msg) {
+  try {
+    const debugPath = path.join(
+      os.homedir(),
+      ".cache",
+      "gsh",
+      "worktree-debug.log",
+    );
+    fs.appendFileSync(debugPath, `${new Date().toISOString()} ${msg}\n`);
+  } catch {}
+}
+
 // The IPC message from the MCP server may arrive before the JSONL watcher
 // detects this chat session as active. Retry a few times with back-off.
 function _bindWorktreeWithRetry(msg, attempt) {
   const sessionId = findActiveSessionId();
+  _writeWorktreeDebug(
+    `bindRetry attempt=${attempt} sessionId=${sessionId || "null"} sessions=${_chatSessions.size} bindings=${_worktreeBindings.size}`,
+  );
   if (sessionId) {
     getDiagnosticsOutputChannel().appendLine(
       `[worktree] Bound to session ${sessionId} on attempt ${attempt}`,
@@ -3175,11 +3213,9 @@ function _bindWorktreeWithRetry(msg, attempt) {
     };
     bindWorktreeToSession(sessionId, binding);
 
-    // Immediately focus the new worktree folder so the user "moves with" the agent.
-    // Small delay: updateWorkspaceFolders (inside bindWorktreeToSession) needs a
-    // tick to register before revealInExplorer can find the folder.
+    // Set focus — the tree view will refresh to show this worktree's files.
     _focusedSessionId = sessionId;
-    setTimeout(() => _focusWorktreeFolder(msg.worktreePath), 500);
+    _focusWorktreeFolder(msg.worktreePath);
     return;
   }
   // Retry up to 5 times (0.5s, 1s, 1.5s, 2s, 2.5s = ~7.5s total)
@@ -3191,69 +3227,181 @@ function _bindWorktreeWithRetry(msg, attempt) {
   }
 }
 
-// Reconcile workspace folders on activation: add folders for bindings that
-// still have valid worktrees, remove stale bindings whose worktrees are gone.
+// Reconcile bindings on activation: remove stale bindings whose worktrees
+// are gone, and clean up any legacy workspace folders from the old multi-root
+// approach (which added worktree folders alongside the main repo).
 function reconcileWorktreeBindings() {
   let changed = false;
   for (const [sid, binding] of _worktreeBindings) {
     if (!fs.existsSync(binding.worktreePath)) {
       _worktreeBindings.delete(sid);
       changed = true;
-    } else {
-      ensureWorktreeFolder(binding.worktreePath);
     }
   }
   if (changed) saveWorktreeBindings();
+
+  // Remove leftover worktree workspace folders from the old multi-root approach.
+  _cleanupLegacyWorktreeFolders();
+}
+
+// Remove any workspace folders under ~/.cache/gsh/worktrees/ that were added
+// by the previous multi-root approach.  The new approach swaps the single
+// workspace root instead of adding additional folders.
+function _cleanupLegacyWorktreeFolders() {
+  const folders = vscode.workspace.workspaceFolders || [];
+  if (folders.length <= 1) return;
+
+  const worktreeBase = path.join(os.homedir(), ".cache", "gsh", "worktrees");
+  // Keep index 0 (main repo) and any non-worktree folders; drop worktree folders.
+  const keep = folders.filter(
+    (f) => f.index === 0 || !f.uri.fsPath.startsWith(worktreeBase),
+  );
+  const removeCount = folders.length - keep.length;
+  if (removeCount === 0) return;
+
+  getDiagnosticsOutputChannel().appendLine(
+    `[worktree] Cleaning up ${removeCount} legacy worktree folder(s)`,
+  );
+  // Replace everything after index 0 with only the non-worktree folders.
+  const foldersToAdd = keep.slice(1).map((f) => ({ uri: f.uri, name: f.name }));
+  vscode.workspace.updateWorkspaceFolders(
+    1,
+    folders.length - 1,
+    ...foldersToAdd,
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Tab ↔ Worktree Focus Switching
-// When the user switches to a chat editor tab that has a bound worktree,
-// reveal that worktree folder in the Explorer. When switching away from
-// all chat tabs (or to a chat with no binding), return to the main repo.
+// Focus tracking drives the sidebar tree view that browses worktree files.
+// No workspace folder manipulation — files are opened directly from the
+// worktree path when clicked in the tree.
 // ---------------------------------------------------------------------------
+
+let _worktreeFileProvider = null;
 
 function _focusWorktreeFolder(worktreePath) {
   if (_activeWorktreeFolder === worktreePath) return;
-  // Remember where we came from so we can return later.
-  if (!_activeWorktreeFolder && !_originalWorkspaceUri) {
-    const mainFolder = vscode.workspace.workspaceFolders?.[0];
-    if (mainFolder) _originalWorkspaceUri = mainFolder.uri;
-  }
+  if (!fs.existsSync(worktreePath)) return;
   _activeWorktreeFolder = worktreePath;
-  // revealInExplorer is more reliable when given a file URI rather than a bare
-  // directory root.  Find the first file inside the worktree to use as the
-  // reveal target; fall back to the root itself.
-  let revealUri = vscode.Uri.file(worktreePath);
-  try {
-    const entries = fs.readdirSync(worktreePath);
-    const file = entries.find((e) => {
-      try {
-        return fs.statSync(path.join(worktreePath, e)).isFile();
-      } catch {
-        return false;
-      }
-    });
-    if (file) {
-      revealUri = vscode.Uri.file(path.join(worktreePath, file));
-    }
-  } catch {}
+  _worktreeFileProvider?.refresh();
+  _writeWorktreeDebug(`FOCUSED worktree: ${worktreePath}`);
   getDiagnosticsOutputChannel().appendLine(
-    `[worktree] revealInExplorer → ${revealUri.fsPath}`,
+    `[worktree] Focused: ${worktreePath}`,
   );
-  vscode.commands.executeCommand("revealInExplorer", revealUri);
 }
 
 function _unfocusWorktreeFolder() {
   if (!_activeWorktreeFolder) return;
+  const prev = _activeWorktreeFolder;
   _activeWorktreeFolder = null;
-  // Return to the folder the user was on before any worktree focus.
-  const returnUri =
-    _originalWorkspaceUri || vscode.workspace.workspaceFolders?.[0]?.uri;
-  _originalWorkspaceUri = null;
-  if (returnUri) {
-    vscode.commands.executeCommand("revealInExplorer", returnUri);
+  _worktreeFileProvider?.refresh();
+  _writeWorktreeDebug(`UNFOCUSED worktree: ${prev}`);
+  getDiagnosticsOutputChannel().appendLine(
+    `[worktree] Unfocused: ${prev}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Worktree File Browser — TreeDataProvider
+// Shows the focused worktree's files in the sidebar.  Clicking a file opens
+// it in an editor.  No workspace folders are touched.
+// ---------------------------------------------------------------------------
+
+class WorktreeFileProvider {
+  constructor() {
+    this._onDidChangeTreeData = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
   }
+
+  refresh() {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element) {
+    return element;
+  }
+
+  getChildren(element) {
+    if (!_activeWorktreeFolder) {
+      // No active worktree — show a placeholder.
+      const item = new vscode.TreeItem('No active branch session');
+      item.description = 'Start a branch session to browse files';
+      return [item];
+    }
+
+    const dirPath = element ? element.resourceUri.fsPath : _activeWorktreeFolder;
+    if (!fs.existsSync(dirPath)) return [];
+
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      // Sort: directories first, then files, both alphabetical.
+      // Skip .git directory.
+      const sorted = entries
+        .filter((e) => e.name !== '.git')
+        .sort((a, b) => {
+          if (a.isDirectory() !== b.isDirectory()) {
+            return a.isDirectory() ? -1 : 1;
+          }
+          return a.name.localeCompare(b.name);
+        });
+
+      return sorted.map((entry) => {
+        const fullPath = path.join(dirPath, entry.name);
+        const uri = vscode.Uri.file(fullPath);
+        if (entry.isDirectory()) {
+          const item = new vscode.TreeItem(
+            uri,
+            vscode.TreeItemCollapsibleState.Collapsed,
+          );
+          item.contextValue = 'worktreeDir';
+          return item;
+        } else {
+          const item = new vscode.TreeItem(
+            uri,
+            vscode.TreeItemCollapsibleState.None,
+          );
+          item.command = {
+            command: 'vscode.open',
+            title: 'Open File',
+            arguments: [uri],
+          };
+          item.contextValue = 'worktreeFile';
+          return item;
+        }
+      });
+    } catch {
+      return [];
+    }
+  }
+}
+
+function _registerWorktreeFileView(context) {
+  _worktreeFileProvider = new WorktreeFileProvider();
+  const treeView = vscode.window.createTreeView(
+    'gitShellHelpers.worktreeFiles',
+    {
+      treeDataProvider: _worktreeFileProvider,
+      showCollapseAll: true,
+    },
+  );
+
+  // Update the tree view title to show the active branch.
+  const updateTitle = () => {
+    if (_activeWorktreeFolder) {
+      const binding = [..._worktreeBindings.values()].find(
+        (b) => b.worktreePath === _activeWorktreeFolder,
+      );
+      const branch = binding?.branch || path.basename(_activeWorktreeFolder);
+      treeView.title = `🌿 ${branch}`;
+    } else {
+      treeView.title = 'Branch Files';
+    }
+  };
+  _worktreeFileProvider.onDidChangeTreeData(updateTitle);
+  updateTitle();
+
+  context.subscriptions.push(treeView);
 }
 
 function _onActiveTabChanged() {
@@ -3295,11 +3443,12 @@ function _onActiveTabChanged() {
     }
   }
 
-  // Non-chat tab or chat without a binding — return to main repo
-  if (_activeWorktreeFolder) {
-    _focusedSessionId = null;
-    _unfocusWorktreeFolder();
-  }
+  // Non-chat tab or chat without a binding — do NOT unfocus here.
+  // Unfocus is driven solely by JSONL activity (a different unbound session
+  // becomes active).  Tab switching must not trigger workspace root swaps
+  // because updateWorkspaceFolders(0,1,...) restarts the extension host,
+  // and after restart the active tab is always a code editor (not chat),
+  // which would immediately undo the swap.
 }
 
 const ACTIVITY_SOCKET_PATH = path.join(os.tmpdir(), "gsh-activity.sock");
