@@ -3083,11 +3083,22 @@ function stopStrictLintIpcServer() {
 
 // ---------------------------------------------------------------------------
 // Worktree ↔ Chat Session Binding
+//
+// Architecture:
+//   1. Tool-driven binding: When an agent calls branch_session_start, the MCP
+//      server threads an activityId through the IPC message.  The extension
+//      captures the chat tab context at activityBegin time and uses it to
+//      deterministically bind the worktree to the correct session.
+//   2. Tab ↔ session resolution: _chatTabToSession maps tab URIs to session
+//      IDs (discovered from JSONL files).  Persisted across restarts.
+//   3. Branch checkout on focus: When the user switches to a chat tab with a
+//      bound worktree, the main repo checks out that branch (the worktree
+//      HEAD is temporarily detached to free the branch name).  Switching
+//      away restores the user's original branch and pops any stash.
 // ---------------------------------------------------------------------------
 
 const WORKTREE_BINDINGS_KEY = "worktreeBindings";
 const CHAT_TAB_BINDINGS_KEY = "chatTabSessionBindings";
-const ORIGINAL_WORKSPACE_URI_KEY = "gsh.originalWorkspaceUri";
 const ORIGINAL_BRANCH_KEY = "gsh.originalBranch";
 
 function loadWorktreeBindings() {
@@ -3353,6 +3364,9 @@ function removeWorktreeFolder(worktreePath) {
   }
 }
 
+// IPC message handler — routes worktreeCreated/worktreeRemoved from the MCP
+// server.  On creation, looks up the captured chat context by activityId and
+// starts the binding retry loop.  On removal, cleans up bindings and unfocuses.
 function handleWorktreeIpcMessage(msg) {
   if (msg.type === "worktreeCreated") {
     getDiagnosticsOutputChannel().appendLine(
@@ -3378,7 +3392,9 @@ function handleWorktreeIpcMessage(msg) {
   }
 }
 
-// Temporary file-based diagnostics for worktree focus debugging
+// Debug logger — writes to ~/.cache/gsh/worktree-debug.log for post-mortem
+// inspection of focus/binding events.  Safe to leave enabled: the log is
+// append-only with timestamped lines and naturally bounded by session lifetime.
 function _writeWorktreeDebug(msg) {
   try {
     const debugPath = path.join(
@@ -3391,9 +3407,12 @@ function _writeWorktreeDebug(msg) {
   } catch {}
 }
 
-// The IPC message from the MCP server may arrive before the chat session's
-// JSONL file or tab mapping has been observed. Retry against the initiating
-// tool-call context first, then fall back to the most likely active session.
+// Binding retry loop — the IPC worktreeCreated message may arrive before the
+// chat session's JSONL record has been parsed.  Strategy:
+//   1. Try the captured tool-call context (deterministic, from activityBegin)
+//   2. Fall back to findActiveSessionId() (heuristic, by mtime)
+//   3. Retry up to 10 times with increasing delay (750ms → 3s)
+//   4. If all retries fail, defer to _pendingWorktreeBindings for late resolution
 function _bindWorktreeWithRetry(msg, attempt, context) {
   prunePendingWorktreeState();
   const sessionId = findSessionIdForContext(context) || findActiveSessionId();
@@ -3425,9 +3444,10 @@ function _bindWorktreeWithRetry(msg, attempt, context) {
   _writeWorktreeDebug(`bindDeferred key=${pendingKey} branch=${msg.branch}`);
 }
 
-// Reconcile bindings on activation: remove stale bindings whose worktrees
-// are gone, and clean up any legacy workspace folders from the old multi-root
-// approach (which added worktree folders alongside the main repo).
+// Reconcile bindings on activation:
+//   - Remove stale bindings whose worktree directories no longer exist
+//   - Clean up legacy workspace folders from the old multi-root approach
+//   - Restore the user's original branch if the extension restarted mid-focus
 function reconcileWorktreeBindings() {
   let changed = false;
   for (const [sid, binding] of _worktreeBindings) {
@@ -3438,32 +3458,10 @@ function reconcileWorktreeBindings() {
   }
   if (changed) saveWorktreeBindings();
 
-  // Remove leftover worktree workspace folders from the old multi-root approach.
   _cleanupLegacyWorktreeFolders();
 
-  // Transition safety net: if a previous version of the extension swapped the
-  // workspace root to a worktree folder, restore the original workspace now.
-  const originalUri = _context?.globalState?.get(ORIGINAL_WORKSPACE_URI_KEY);
-  const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const worktreeBase = path.join(os.homedir(), ".cache", "gsh", "worktrees");
-  if (currentFolder && currentFolder.startsWith(worktreeBase) && originalUri) {
-    getDiagnosticsOutputChannel().appendLine(
-      `[worktree] Workspace stuck on worktree folder: ${currentFolder} — restoring to ${originalUri}`,
-    );
-    _writeWorktreeDebug(
-      `reconcile: stuck workspace ${currentFolder} → restoring to ${originalUri}`,
-    );
-    _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, undefined);
-    vscode.workspace.updateWorkspaceFolders(0, 1, {
-      uri: vscode.Uri.parse(originalUri),
-    });
-  } else if (originalUri) {
-    // Clean up stale key — workspace is already on the correct folder.
-    _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, undefined);
-  }
-
-  // Restore original branch if the extension restarted while a branch was
-  // focused (e.g. the main repo was checked out to a worktree branch).
+  // Restore original branch if the extension restarted while a worktree
+  // branch was checked out in the main repo (persisted under ORIGINAL_BRANCH_KEY).
   const savedOrigBranch = _context?.globalState?.get(ORIGINAL_BRANCH_KEY);
   if (savedOrigBranch) {
     const mainRepo = _getMainRepoPath();
@@ -3472,7 +3470,7 @@ function reconcileWorktreeBindings() {
       _writeWorktreeDebug(
         `reconcile: restoring branch ${savedOrigBranch} (was ${currentBranch})`,
       );
-      // Find the worktree that was holding this branch and re-attach it
+      // Re-attach the worktree that owns this branch before switching away
       for (const [, binding] of _worktreeBindings) {
         if (
           binding.branch === currentBranch &&
@@ -3486,7 +3484,7 @@ function reconcileWorktreeBindings() {
           break;
         }
       }
-      // If no worktree found for the branch, just checkout original
+      // If no worktree matched, just checkout the original branch directly
       if (_gitCurrentBranch(mainRepo) !== savedOrigBranch) {
         _gitCheckout(savedOrigBranch, mainRepo);
       }
@@ -3532,7 +3530,9 @@ function _cleanupLegacyWorktreeFolders() {
 // detached to free the branch name for the main repo.
 // ---------------------------------------------------------------------------
 
-// Git helpers for branch switching (synchronous — fast local ops)
+// Git helpers for branch switching — all synchronous (local git ops <10ms).
+// These are used by _focusWorktreeFolder/_unfocusWorktreeFolder to swap
+// which branch the main repo has checked out.
 function _getMainRepoPath() {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || null;
 }
@@ -3607,7 +3607,9 @@ function _gitStashPush(cwd) {
     );
     return true;
   } catch (err) {
-    _writeWorktreeDebug(`git stash push failed: ${err.message?.split("\n")[0] || err}`);
+    _writeWorktreeDebug(
+      `git stash push failed: ${err.message?.split("\n")[0] || err}`,
+    );
     return false;
   }
 }
@@ -3631,7 +3633,9 @@ function _gitStashPopIfMarked(cwd) {
       return true;
     }
   } catch (err) {
-    _writeWorktreeDebug(`git stash pop failed: ${err.message?.split("\n")[0] || err}`);
+    _writeWorktreeDebug(
+      `git stash pop failed: ${err.message?.split("\n")[0] || err}`,
+    );
   }
   return false;
 }
@@ -3649,7 +3653,8 @@ function _focusWorktreeFolder(worktreePath) {
   const targetBranch = binding?.branch;
 
   if (mainRepo && targetBranch && _focusedBranch !== targetBranch) {
-    // First focus: save the user's current branch and stash if dirty
+    // First focus in this navigation sequence: save the user's branch and
+    // stash any uncommitted changes so we can restore them on unfocus.
     if (!_originalBranch) {
       _originalBranch = _gitCurrentBranch(mainRepo);
       _context?.globalState?.update(ORIGINAL_BRANCH_KEY, _originalBranch);
@@ -3662,12 +3667,11 @@ function _focusWorktreeFolder(worktreePath) {
       }
     }
 
-    // If switching between two focused branches, free the old one first
+    // Switching between two focused branches: free the old branch first by
+    // returning to a neutral state, then re-attach the old worktree.
     if (_focusedBranch && _activeWorktreeFolder) {
-      // Checkout a neutral branch (original) to release _focusedBranch
       _gitCheckout(_originalBranch, mainRepo);
-      // Re-attach the old worktree to its branch (skip if dir removed)
-      if (require('fs').existsSync(_activeWorktreeFolder)) {
+      if (fs.existsSync(_activeWorktreeFolder)) {
         _gitCheckout(_focusedBranch, _activeWorktreeFolder);
         _writeWorktreeDebug(
           `re-attached worktree ${_activeWorktreeFolder} to ${_focusedBranch}`,
@@ -3675,9 +3679,9 @@ function _focusWorktreeFolder(worktreePath) {
       }
     }
 
-    // Detach target worktree so its branch is free for the main repo
+    // Detach target worktree HEAD (freeing the branch name), then checkout
+    // that branch in the main repo so VS Code's status bar reflects it.
     if (_gitDetachWorktree(worktreePath)) {
-      // Checkout the branch in the main repo
       if (_gitCheckout(targetBranch, mainRepo)) {
         _focusedBranch = targetBranch;
         _writeWorktreeDebug(
@@ -3702,20 +3706,17 @@ function _unfocusWorktreeFolder() {
   const prev = _activeWorktreeFolder;
   const mainRepo = _getMainRepoPath();
 
-  // Restore: re-attach the worktree's branch, checkout original in main repo
+  // Reverse the focus sequence: checkout original branch → re-attach worktree → pop stash
   if (mainRepo && _focusedBranch) {
     const branchToReattach = _focusedBranch;
-    // First checkout original branch in main repo to free the focused branch
     if (_originalBranch && _gitCheckout(_originalBranch, mainRepo)) {
       _writeWorktreeDebug(`restored original branch: ${_originalBranch}`);
-      // Re-attach the worktree to its branch (skip if dir removed)
-      if (require('fs').existsSync(prev)) {
+      if (fs.existsSync(prev)) {
         _gitCheckout(branchToReattach, prev);
         _writeWorktreeDebug(
           `re-attached worktree ${prev} to ${branchToReattach}`,
         );
       }
-      // Pop stash if we created one
       if (_focusStashCreated) {
         _gitStashPopIfMarked(mainRepo);
         _focusStashCreated = false;
@@ -3837,6 +3838,10 @@ function _registerWorktreeFileView(context) {
   context.subscriptions.push(treeView);
 }
 
+// Tab change handler — drives the focus/unfocus cycle.
+// When a chat tab with a bound worktree becomes active → focus that worktree.
+// When the user navigates away (different chat, file tab, etc.) → unfocus and
+// restore the original branch.
 function _onActiveTabChanged() {
   prunePendingWorktreeState();
   if (_worktreeBindings.size === 0 && !_activeWorktreeFolder) return;
