@@ -214,7 +214,13 @@ function notifySessionPulse() {
   }
 }
 
-function notifyWorktreeCreated(branch, worktreePath, baseBranch, baseCommit) {
+function notifyWorktreeCreated(
+  branch,
+  worktreePath,
+  baseBranch,
+  baseCommit,
+  activityId,
+) {
   connectActivityIpc();
   const line =
     JSON.stringify({
@@ -223,6 +229,7 @@ function notifyWorktreeCreated(branch, worktreePath, baseBranch, baseCommit) {
       worktreePath,
       baseBranch,
       baseCommit,
+      activityId: activityId || null,
     }) + "\n";
   if (_activitySocket) {
     try {
@@ -564,7 +571,7 @@ function worktreePath(branch) {
   return path.join(WORKTREE_BASE, safeName);
 }
 
-async function handleBranchSessionStart(args) {
+async function handleBranchSessionStart(args, activityId) {
   const { branch, base } = args;
   if (!branch) throw new Error("branch is required");
 
@@ -650,7 +657,7 @@ async function handleBranchSessionStart(args) {
   }
 
   // Notify extension that a worktree was created (for session binding)
-  notifyWorktreeCreated(branch, wtPath, baseBranch, baseCommit);
+  notifyWorktreeCreated(branch, wtPath, baseBranch, baseCommit, activityId);
 
   return [
     {
@@ -1341,7 +1348,7 @@ async function handleRequest(request) {
         }
 
         if (toolName === "branch_session_start") {
-          const content = await handleBranchSessionStart(toolArguments);
+          const content = await handleBranchSessionStart(toolArguments, actId);
           send({ jsonrpc: "2.0", id, result: { content } });
           return;
         }
