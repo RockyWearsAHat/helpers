@@ -12,7 +12,7 @@ const fs = require("fs");
 const net = require("net");
 const os = require("os");
 const path = require("path");
-const { execFile } = require("child_process");
+const { execFile, execFileSync } = require("child_process");
 const createWebviewProviderClass = require("./src/webview-provider");
 
 const SCHEMA_VERSION = 1;
@@ -56,8 +56,11 @@ let _pendingWorktreeBindings = new Map(); // activityId|worktreePath → { msg, 
 let _activeWorktreeFolder = null; // currently focused worktree path, or null
 let _focusedSessionId = null; // session ID whose worktree currently has Explorer focus
 let _suppressTabDrivenUnfocusUntil = 0;
-// Focus switching is driven entirely by JSONL file activity — see
-// _maybeUpdateWorktreeFocus in the "Activity-Driven Worktree Focus" section.
+// Branch checkout tracking — when a chat with a branch session is focused,
+// the main repo checks out that branch so VS Code's status bar reflects it.
+let _originalBranch = null; // user's branch before any focus-driven checkout
+let _focusedBranch = null; // branch checked out in main repo due to focus
+let _focusStashCreated = false; // true if we stashed user changes on first focus
 
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
@@ -3085,6 +3088,7 @@ function stopStrictLintIpcServer() {
 const WORKTREE_BINDINGS_KEY = "worktreeBindings";
 const CHAT_TAB_BINDINGS_KEY = "chatTabSessionBindings";
 const ORIGINAL_WORKSPACE_URI_KEY = "gsh.originalWorkspaceUri";
+const ORIGINAL_BRANCH_KEY = "gsh.originalBranch";
 
 function loadWorktreeBindings() {
   try {
@@ -3457,6 +3461,40 @@ function reconcileWorktreeBindings() {
     // Clean up stale key — workspace is already on the correct folder.
     _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, undefined);
   }
+
+  // Restore original branch if the extension restarted while a branch was
+  // focused (e.g. the main repo was checked out to a worktree branch).
+  const savedOrigBranch = _context?.globalState?.get(ORIGINAL_BRANCH_KEY);
+  if (savedOrigBranch) {
+    const mainRepo = _getMainRepoPath();
+    const currentBranch = mainRepo ? _gitCurrentBranch(mainRepo) : null;
+    if (mainRepo && currentBranch && currentBranch !== savedOrigBranch) {
+      _writeWorktreeDebug(
+        `reconcile: restoring branch ${savedOrigBranch} (was ${currentBranch})`,
+      );
+      // Find the worktree that was holding this branch and re-attach it
+      for (const [, binding] of _worktreeBindings) {
+        if (
+          binding.branch === currentBranch &&
+          fs.existsSync(binding.worktreePath)
+        ) {
+          _gitCheckout(savedOrigBranch, mainRepo);
+          _gitCheckout(currentBranch, binding.worktreePath);
+          _writeWorktreeDebug(
+            `reconcile: re-attached ${binding.worktreePath} to ${currentBranch}`,
+          );
+          break;
+        }
+      }
+      // If no worktree found for the branch, just checkout original
+      if (_gitCurrentBranch(mainRepo) !== savedOrigBranch) {
+        _gitCheckout(savedOrigBranch, mainRepo);
+      }
+    }
+    _context?.globalState?.update(ORIGINAL_BRANCH_KEY, undefined);
+    _originalBranch = null;
+    _focusedBranch = null;
+  }
 }
 
 // Remove any workspace folders under ~/.cache/gsh/worktrees/ that were added
@@ -3489,29 +3527,207 @@ function _cleanupLegacyWorktreeFolders() {
 // ---------------------------------------------------------------------------
 // Tab ↔ Worktree Focus Switching
 // Focus tracking updates the sidebar tree view to show the active worktree.
-// The workspace root is never swapped — the user's folder stays constant.
-// The agent operates in the worktree via MCP server CWD.
+// When a branch session is focused, the main repo checks out the branch so
+// VS Code's status bar and SCM view reflect it.  The worktree is temporarily
+// detached to free the branch name for the main repo.
 // ---------------------------------------------------------------------------
+
+// Git helpers for branch switching (synchronous — fast local ops)
+function _getMainRepoPath() {
+  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || null;
+}
+
+function _gitCurrentBranch(cwd) {
+  try {
+    return execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
+      cwd,
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .toString()
+      .trim();
+  } catch {
+    return null;
+  }
+}
+
+function _gitCheckout(branch, cwd) {
+  try {
+    execFileSync("git", ["checkout", branch], {
+      cwd,
+      timeout: 10000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch (err) {
+    _writeWorktreeDebug(
+      `git checkout ${branch} in ${cwd} failed: ${err.message?.split("\n")[0] || err}`,
+    );
+    return false;
+  }
+}
+
+function _gitDetachWorktree(worktreePath) {
+  try {
+    execFileSync("git", ["checkout", "--detach"], {
+      cwd: worktreePath,
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch (err) {
+    _writeWorktreeDebug(
+      `git detach in ${worktreePath} failed: ${err.message?.split("\n")[0] || err}`,
+    );
+    return false;
+  }
+}
+
+function _gitIsDirty(cwd) {
+  try {
+    const out = execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .toString()
+      .trim();
+    return out.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function _gitStashPush(cwd) {
+  try {
+    execFileSync(
+      "git",
+      ["stash", "push", "--include-untracked", "-m", "gsh-branch-focus"],
+      { cwd, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
+    );
+    return true;
+  } catch (err) {
+    _writeWorktreeDebug(`git stash push failed: ${err.message?.split("\n")[0] || err}`);
+    return false;
+  }
+}
+
+function _gitStashPopIfMarked(cwd) {
+  try {
+    const list = execFileSync("git", ["stash", "list", "--format=%s"], {
+      cwd,
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .toString()
+      .trim();
+    // Only pop if the top stash is our marker
+    if (list.split("\n")[0]?.includes("gsh-branch-focus")) {
+      execFileSync("git", ["stash", "pop"], {
+        cwd,
+        timeout: 10000,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      return true;
+    }
+  } catch (err) {
+    _writeWorktreeDebug(`git stash pop failed: ${err.message?.split("\n")[0] || err}`);
+  }
+  return false;
+}
 
 let _worktreeFileProvider = null;
 
 function _focusWorktreeFolder(worktreePath) {
   if (_activeWorktreeFolder === worktreePath) return;
   if (!fs.existsSync(worktreePath)) return;
-  _activeWorktreeFolder = worktreePath;
 
+  const mainRepo = _getMainRepoPath();
+  const binding = [..._worktreeBindings.values()].find(
+    (b) => b.worktreePath === worktreePath,
+  );
+  const targetBranch = binding?.branch;
+
+  if (mainRepo && targetBranch && _focusedBranch !== targetBranch) {
+    // First focus: save the user's current branch and stash if dirty
+    if (!_originalBranch) {
+      _originalBranch = _gitCurrentBranch(mainRepo);
+      _context?.globalState?.update(ORIGINAL_BRANCH_KEY, _originalBranch);
+      _writeWorktreeDebug(`saved original branch: ${_originalBranch}`);
+      if (_gitIsDirty(mainRepo)) {
+        _focusStashCreated = _gitStashPush(mainRepo);
+        _writeWorktreeDebug(
+          `stashed dirty tree: ${_focusStashCreated ? "yes" : "no"}`,
+        );
+      }
+    }
+
+    // If switching between two focused branches, free the old one first
+    if (_focusedBranch && _activeWorktreeFolder) {
+      // Checkout a neutral branch (original) to release _focusedBranch
+      _gitCheckout(_originalBranch, mainRepo);
+      // Re-attach the old worktree to its branch (skip if dir removed)
+      if (require('fs').existsSync(_activeWorktreeFolder)) {
+        _gitCheckout(_focusedBranch, _activeWorktreeFolder);
+        _writeWorktreeDebug(
+          `re-attached worktree ${_activeWorktreeFolder} to ${_focusedBranch}`,
+        );
+      }
+    }
+
+    // Detach target worktree so its branch is free for the main repo
+    if (_gitDetachWorktree(worktreePath)) {
+      // Checkout the branch in the main repo
+      if (_gitCheckout(targetBranch, mainRepo)) {
+        _focusedBranch = targetBranch;
+        _writeWorktreeDebug(
+          `checked out ${targetBranch} in main repo for focus`,
+        );
+      }
+    }
+  }
+
+  _activeWorktreeFolder = worktreePath;
   _worktreeFileProvider?.refresh();
-  _writeWorktreeDebug(`FOCUSED worktree: ${worktreePath}`);
+  _writeWorktreeDebug(
+    `FOCUSED worktree: ${worktreePath} branch: ${targetBranch || "unknown"}`,
+  );
   getDiagnosticsOutputChannel().appendLine(
-    `[worktree] Focused: ${worktreePath}`,
+    `[worktree] Focused: ${worktreePath} branch=${targetBranch || "?"}`,
   );
 }
 
 function _unfocusWorktreeFolder() {
   if (!_activeWorktreeFolder) return;
   const prev = _activeWorktreeFolder;
-  _activeWorktreeFolder = null;
+  const mainRepo = _getMainRepoPath();
 
+  // Restore: re-attach the worktree's branch, checkout original in main repo
+  if (mainRepo && _focusedBranch) {
+    const branchToReattach = _focusedBranch;
+    // First checkout original branch in main repo to free the focused branch
+    if (_originalBranch && _gitCheckout(_originalBranch, mainRepo)) {
+      _writeWorktreeDebug(`restored original branch: ${_originalBranch}`);
+      // Re-attach the worktree to its branch (skip if dir removed)
+      if (require('fs').existsSync(prev)) {
+        _gitCheckout(branchToReattach, prev);
+        _writeWorktreeDebug(
+          `re-attached worktree ${prev} to ${branchToReattach}`,
+        );
+      }
+      // Pop stash if we created one
+      if (_focusStashCreated) {
+        _gitStashPopIfMarked(mainRepo);
+        _focusStashCreated = false;
+        _writeWorktreeDebug(`popped stash on original branch`);
+      }
+    }
+    _focusedBranch = null;
+    _originalBranch = null;
+    _context?.globalState?.update(ORIGINAL_BRANCH_KEY, undefined);
+  }
+
+  _activeWorktreeFolder = null;
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(`UNFOCUSED worktree: ${prev}`);
   getDiagnosticsOutputChannel().appendLine(`[worktree] Unfocused: ${prev}`);
