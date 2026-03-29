@@ -3072,6 +3072,7 @@ function stopStrictLintIpcServer() {
 // ---------------------------------------------------------------------------
 
 const WORKTREE_BINDINGS_KEY = "worktreeBindings";
+const ORIGINAL_WORKSPACE_URI_KEY = "gsh.originalWorkspaceUri";
 
 function loadWorktreeBindings() {
   try {
@@ -3242,6 +3243,25 @@ function reconcileWorktreeBindings() {
 
   // Remove leftover worktree workspace folders from the old multi-root approach.
   _cleanupLegacyWorktreeFolders();
+
+  // After extension host restart (first folder switch), detect if the current
+  // workspace root IS a bound worktree and restore focus state.
+  const originalUri = _context?.globalState?.get(ORIGINAL_WORKSPACE_URI_KEY);
+  if (originalUri && !_activeWorktreeFolder) {
+    const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (currentFolder) {
+      for (const [sid, binding] of _worktreeBindings) {
+        if (binding.worktreePath === currentFolder) {
+          _activeWorktreeFolder = currentFolder;
+          _focusedSessionId = sid;
+          getDiagnosticsOutputChannel().appendLine(
+            `[worktree] Restored focus after ext host restart: ${currentFolder} (session ${sid})`,
+          );
+          break;
+        }
+      }
+    }
+  }
 }
 
 // Remove any workspace folders under ~/.cache/gsh/worktrees/ that were added
@@ -3273,9 +3293,9 @@ function _cleanupLegacyWorktreeFolders() {
 
 // ---------------------------------------------------------------------------
 // Tab ↔ Worktree Focus Switching
-// Focus tracking drives the sidebar tree view that browses worktree files.
-// No workspace folder manipulation — files are opened directly from the
-// worktree path when clicked in the tree.
+// Focus tracking swaps the workspace root to the active worktree folder.
+// First switch (FOLDER→WORKSPACE) triggers a silent ext host restart (~2s).
+// Subsequent switches are instant dynamic updates (already in WORKSPACE state).
 // ---------------------------------------------------------------------------
 
 let _worktreeFileProvider = null;
@@ -3284,6 +3304,29 @@ function _focusWorktreeFolder(worktreePath) {
   if (_activeWorktreeFolder === worktreePath) return;
   if (!fs.existsSync(worktreePath)) return;
   _activeWorktreeFolder = worktreePath;
+
+  // Swap the workspace root to the worktree folder.
+  // First switch (FOLDER→WORKSPACE) restarts extension hosts silently (~2s).
+  // Subsequent switches are instant dynamic updates.
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    const currentUri = folders[0].uri.toString();
+    const worktreeUri = vscode.Uri.file(worktreePath).toString();
+    if (currentUri !== worktreeUri) {
+      // Persist the original workspace URI for "return" on unfocus
+      const storedOriginal = _context?.globalState?.get(ORIGINAL_WORKSPACE_URI_KEY);
+      if (!storedOriginal) {
+        _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, currentUri);
+      }
+      getDiagnosticsOutputChannel().appendLine(
+        `[worktree] Swapping workspace root → ${worktreePath}`,
+      );
+      vscode.workspace.updateWorkspaceFolders(0, 1,
+        { uri: vscode.Uri.file(worktreePath) },
+      );
+    }
+  }
+
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(`FOCUSED worktree: ${worktreePath}`);
   getDiagnosticsOutputChannel().appendLine(
@@ -3295,11 +3338,25 @@ function _unfocusWorktreeFolder() {
   if (!_activeWorktreeFolder) return;
   const prev = _activeWorktreeFolder;
   _activeWorktreeFolder = null;
+
+  // Switch workspace root back to the original project folder.
+  const originalUri = _context?.globalState?.get(ORIGINAL_WORKSPACE_URI_KEY);
+  if (originalUri) {
+    _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, undefined);
+    const currentUri = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
+    if (currentUri !== originalUri) {
+      getDiagnosticsOutputChannel().appendLine(
+        `[worktree] Restoring workspace root → ${originalUri}`,
+      );
+      vscode.workspace.updateWorkspaceFolders(0, 1,
+        { uri: vscode.Uri.parse(originalUri) },
+      );
+    }
+  }
+
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(`UNFOCUSED worktree: ${prev}`);
-  getDiagnosticsOutputChannel().appendLine(
-    `[worktree] Unfocused: ${prev}`,
-  );
+  getDiagnosticsOutputChannel().appendLine(`[worktree] Unfocused: ${prev}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -3325,12 +3382,14 @@ class WorktreeFileProvider {
   getChildren(element) {
     if (!_activeWorktreeFolder) {
       // No active worktree — show a placeholder.
-      const item = new vscode.TreeItem('No active branch session');
-      item.description = 'Start a branch session to browse files';
+      const item = new vscode.TreeItem("No active branch session");
+      item.description = "Start a branch session to browse files";
       return [item];
     }
 
-    const dirPath = element ? element.resourceUri.fsPath : _activeWorktreeFolder;
+    const dirPath = element
+      ? element.resourceUri.fsPath
+      : _activeWorktreeFolder;
     if (!fs.existsSync(dirPath)) return [];
 
     try {
@@ -3338,7 +3397,7 @@ class WorktreeFileProvider {
       // Sort: directories first, then files, both alphabetical.
       // Skip .git directory.
       const sorted = entries
-        .filter((e) => e.name !== '.git')
+        .filter((e) => e.name !== ".git")
         .sort((a, b) => {
           if (a.isDirectory() !== b.isDirectory()) {
             return a.isDirectory() ? -1 : 1;
@@ -3354,7 +3413,7 @@ class WorktreeFileProvider {
             uri,
             vscode.TreeItemCollapsibleState.Collapsed,
           );
-          item.contextValue = 'worktreeDir';
+          item.contextValue = "worktreeDir";
           return item;
         } else {
           const item = new vscode.TreeItem(
@@ -3362,11 +3421,11 @@ class WorktreeFileProvider {
             vscode.TreeItemCollapsibleState.None,
           );
           item.command = {
-            command: 'vscode.open',
-            title: 'Open File',
+            command: "vscode.open",
+            title: "Open File",
             arguments: [uri],
           };
-          item.contextValue = 'worktreeFile';
+          item.contextValue = "worktreeFile";
           return item;
         }
       });
@@ -3379,7 +3438,7 @@ class WorktreeFileProvider {
 function _registerWorktreeFileView(context) {
   _worktreeFileProvider = new WorktreeFileProvider();
   const treeView = vscode.window.createTreeView(
-    'gitShellHelpers.worktreeFiles',
+    "gitShellHelpers.worktreeFiles",
     {
       treeDataProvider: _worktreeFileProvider,
       showCollapseAll: true,
@@ -3395,7 +3454,7 @@ function _registerWorktreeFileView(context) {
       const branch = binding?.branch || path.basename(_activeWorktreeFolder);
       treeView.title = `🌿 ${branch}`;
     } else {
-      treeView.title = 'Branch Files';
+      treeView.title = "Branch Files";
     }
   };
   _worktreeFileProvider.onDidChangeTreeData(updateTitle);
