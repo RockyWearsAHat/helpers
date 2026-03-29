@@ -125,6 +125,13 @@
           "name": "GitHub Shell Helpers",
           "icon": "media/git-helpers.svg",
           "visibility": "visible"
+        },
+        {
+          "id": "gitShellHelpers.worktreeFiles",
+          "name": "Branch Files",
+          "icon": "media/git-helpers.svg",
+          "visibility": "visible",
+          "when": "config.gitShellHelpers.branchSessions.enabled"
         }
       ]
     },
