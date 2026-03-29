@@ -1,6 +1,6 @@
 ---
 applyTo: "**"
-description: "Branch isolation via git worktrees. Opt-in via the gitShellHelpers.branchSessions.enabled setting. Worktrees are automatically bound to chat sessions for per-chat branch isolation."
+description: "Branch isolation via git worktrees. Opt-in via the gitShellHelpers.branchSessions.enabled setting. Worktrees appear as normal branches — the extension manages focus so git status and Explorer reflect the active chat's branch."
 ---
 
 # Branch Workspace Control
@@ -13,18 +13,25 @@ Settings → Git Shell Helpers → Branch Sessions → Enabled
 
 When **disabled** (default): agents use direct branching (`git checkout -b`) per the branch-lifecycle instructions. No worktree tools are exposed.
 
-When **enabled**: agents get MCP tools to create isolated git worktrees for parallel branch work. Worktrees are **automatically bound to the current chat session** — each chat gets its own isolated workspace.
+When **enabled**: agents get MCP tools to create isolated git worktrees for parallel branch work. Worktrees are **automatically bound to the active chat** — each chat gets its own isolated branch.
 
-## How Session Binding Works
+## How It Looks to the User
 
-When you call `branch_session_start`, the system:
+Branch sessions are designed to be **invisible infrastructure**. The user sees normal branches:
 
-1. Creates an isolated git worktree at `~/.cache/gsh/worktrees/<branch>`
-2. Notifies the VS Code extension via IPC
-3. Extension binds the worktree to the currently active chat session
-4. Extension adds the worktree as a workspace folder (visible in the Explorer sidebar with a 🌿 prefix)
+- `git branch` in the repo root shows the feature branch as current
+- VS Code's source control panel shows the feature branch
+- The Explorer sidebar reflects the feature branch's files
+- Switching between chat sessions switches the visible branch automatically
 
-When you switch between chat sessions, the extension automatically ensures the correct worktree folder is present. When you call `branch_session_end`, the extension removes the workspace folder.
+Under the hood, the extension:
+
+1. Creates an isolated git worktree in `~/.cache/gsh/worktrees/<branch>`
+2. Checks out the feature branch in the **main repo** when the chat is focused
+3. Stashes any uncommitted work before switching, restores it after
+4. Switches the main repo back to the baseline branch when the chat loses focus or the session ends
+
+This means the user never needs to know about worktrees, cache directories, or binding mechanics. They just see branches that follow their chats.
 
 ## MCP Tools (available when enabled)
 
@@ -76,7 +83,7 @@ Before starting a new session, call `branch_status` to see what other agents are
 
 ## Key Concepts
 
-- **Worktree**: An isolated checkout in `~/.cache/gsh/worktrees/`. Each branch session gets its own directory. Fully independent of other worktrees and the main checkout.
-- **Session binding**: The VS Code extension tracks which chat created which worktree. Bindings persist across extension reloads. Stale bindings (where the worktree was removed externally) are cleaned up automatically.
-- **Workspace folders**: Active worktree paths appear as additional workspace folders in VS Code. The main repository folder is always present. Worktree folders are added/removed as sessions start/end.
+- **Worktree**: An isolated checkout in `~/.cache/gsh/worktrees/`. Each branch session gets its own directory. The user never interacts with this directory directly — the extension focuses the main repo checkout onto the worktree's branch.
+- **Focus**: When a chat with an active branch session is focused, the extension checks out that branch in the main repo and stashes/restores any prior work. This means `git branch`, `git status`, and the VS Code Explorer all reflect the session's branch.
+- **Session binding**: The VS Code extension tracks which chat owns which worktree. Bindings persist across extension reloads. Stale bindings (where the worktree was removed externally) are cleaned up automatically.
 - **Toggle**: The `gitShellHelpers.branchSessions.enabled` setting controls whether branch tools appear. Restart the MCP server after changing it (reload window).

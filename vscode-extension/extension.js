@@ -3203,15 +3203,24 @@ function _bindWorktreeWithRetry(msg, tabKey, attempt) {
     _writeWorktreeDebug(
       `bindWorktree: tab=${tabKey} branch=${msg.branch} attempt=${attempt}`,
     );
-    _bindWorktree(msg.worktreePath, msg.branch, msg.baseBranch, msg.baseCommit, tabKey);
+    _bindWorktree(
+      msg.worktreePath,
+      msg.branch,
+      msg.baseBranch,
+      msg.baseCommit,
+      tabKey,
+    );
     return;
   }
 
   if (attempt < 5) {
-    setTimeout(() => {
-      const newTabKey = _getActiveChatTabKey();
-      _bindWorktreeWithRetry(msg, newTabKey, attempt + 1);
-    }, 500 * (attempt + 1));
+    setTimeout(
+      () => {
+        const newTabKey = _getActiveChatTabKey();
+        _bindWorktreeWithRetry(msg, newTabKey, attempt + 1);
+      },
+      500 * (attempt + 1),
+    );
     return;
   }
 
@@ -3219,7 +3228,13 @@ function _bindWorktreeWithRetry(msg, tabKey, attempt) {
   _writeWorktreeDebug(
     `bindWorktree: no tab after ${attempt} retries, binding without tab`,
   );
-  _bindWorktree(msg.worktreePath, msg.branch, msg.baseBranch, msg.baseCommit, null);
+  _bindWorktree(
+    msg.worktreePath,
+    msg.branch,
+    msg.baseBranch,
+    msg.baseCommit,
+    null,
+  );
 }
 
 // Reconcile bindings on activation:
@@ -3264,7 +3279,9 @@ function reconcileWorktreeBindings() {
         if (binding.branch === currentBranch && fs.existsSync(wtPath)) {
           _gitCheckout(savedOrigBranch, mainRepo);
           _gitCheckout(currentBranch, wtPath);
-          _writeWorktreeDebug(`reconcile: re-attached ${wtPath} to ${currentBranch}`);
+          _writeWorktreeDebug(
+            `reconcile: re-attached ${wtPath} to ${currentBranch}`,
+          );
           break;
         }
       }
@@ -3650,7 +3667,11 @@ function _onActiveTabChanged() {
       }
     }
 
-    if (worktreePath && _worktreeBindings.has(worktreePath) && fs.existsSync(worktreePath)) {
+    if (
+      worktreePath &&
+      _worktreeBindings.has(worktreePath) &&
+      fs.existsSync(worktreePath)
+    ) {
       _focusWorktreeFolder(worktreePath);
       return;
     }
