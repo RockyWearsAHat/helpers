@@ -2061,10 +2061,19 @@ function _pushActivityUpdate() {
 function _maybeUpdateWorktreeFocus(sessionId, fileSizeGrew) {
   if (!fileSizeGrew) return;
   if (_worktreeBindings.size === 0 && !_activeWorktreeFolder) return;
+  const activeContext = getActiveChatTabContext();
+  const activeSessionId = activeContext?.sessionId || null;
   const bindingKeys = [..._worktreeBindings.keys()].join(",");
   _writeWorktreeDebug(
-    `focusCheck session=${sessionId} bindings=${_worktreeBindings.size} keys=[${bindingKeys}] activeFolder=${_activeWorktreeFolder || "null"} focusedSession=${_focusedSessionId || "null"}`,
+    `focusCheck session=${sessionId} activeSession=${activeSessionId || "null"} bindings=${_worktreeBindings.size} keys=[${bindingKeys}] activeFolder=${_activeWorktreeFolder || "null"} focusedSession=${_focusedSessionId || "null"}`,
   );
+
+  if (!activeSessionId || activeSessionId !== sessionId) {
+    _writeWorktreeDebug(
+      `focusIgnored session=${sessionId} activeSession=${activeSessionId || "null"}`,
+    );
+    return;
+  }
 
   const binding = _worktreeBindings.get(sessionId);
   _writeWorktreeDebug(
@@ -2079,13 +2088,6 @@ function _maybeUpdateWorktreeFocus(sessionId, fileSizeGrew) {
       _focusedSessionId = sessionId;
       _focusWorktreeFolder(binding.worktreePath);
     }
-  } else if (_activeWorktreeFolder && _focusedSessionId) {
-    // Activity in a session without a worktree binding — return to main workspace.
-    getDiagnosticsOutputChannel().appendLine(
-      `[worktree] JSONL activity in unbound session ${sessionId} → unfocus`,
-    );
-    _focusedSessionId = null;
-    _unfocusWorktreeFolder();
   }
 }
 
@@ -3340,7 +3342,7 @@ function ensureWorktreeFolder(_worktreePath) {
 }
 
 function removeWorktreeFolder(worktreePath) {
-  // If this worktree is currently focused, unfocus it.
+  // If this worktree is currently focused in the tree view, unfocus it.
   if (_activeWorktreeFolder === worktreePath) {
     _focusedSessionId = null;
     _unfocusWorktreeFolder();
@@ -3435,29 +3437,31 @@ function reconcileWorktreeBindings() {
   // Remove leftover worktree workspace folders from the old multi-root approach.
   _cleanupLegacyWorktreeFolders();
 
-  // After extension host restart (first folder switch), detect if the current
-  // workspace root IS a bound worktree and restore focus state.
+  // Transition safety net: if a previous version of the extension swapped the
+  // workspace root to a worktree folder, restore the original workspace now.
   const originalUri = _context?.globalState?.get(ORIGINAL_WORKSPACE_URI_KEY);
-  if (originalUri && !_activeWorktreeFolder) {
-    const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (currentFolder) {
-      for (const [sid, binding] of _worktreeBindings) {
-        if (binding.worktreePath === currentFolder) {
-          _activeWorktreeFolder = currentFolder;
-          _focusedSessionId = sid;
-          getDiagnosticsOutputChannel().appendLine(
-            `[worktree] Restored focus after ext host restart: ${currentFolder} (session ${sid})`,
-          );
-          break;
-        }
-      }
-    }
+  const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const worktreeBase = path.join(os.homedir(), ".cache", "gsh", "worktrees");
+  if (currentFolder && currentFolder.startsWith(worktreeBase) && originalUri) {
+    getDiagnosticsOutputChannel().appendLine(
+      `[worktree] Workspace stuck on worktree folder: ${currentFolder} — restoring to ${originalUri}`,
+    );
+    _writeWorktreeDebug(
+      `reconcile: stuck workspace ${currentFolder} → restoring to ${originalUri}`,
+    );
+    _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, undefined);
+    vscode.workspace.updateWorkspaceFolders(0, 1, {
+      uri: vscode.Uri.parse(originalUri),
+    });
+  } else if (originalUri) {
+    // Clean up stale key — workspace is already on the correct folder.
+    _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, undefined);
   }
 }
 
 // Remove any workspace folders under ~/.cache/gsh/worktrees/ that were added
-// by the previous multi-root approach.  The new approach swaps the single
-// workspace root instead of adding additional folders.
+// by previous approaches.  The current approach uses the sidebar tree view
+// and never modifies workspace folders.
 function _cleanupLegacyWorktreeFolders() {
   const folders = vscode.workspace.workspaceFolders || [];
   if (folders.length <= 1) return;
@@ -3484,9 +3488,9 @@ function _cleanupLegacyWorktreeFolders() {
 
 // ---------------------------------------------------------------------------
 // Tab ↔ Worktree Focus Switching
-// Focus tracking swaps the workspace root to the active worktree folder.
-// First switch (FOLDER→WORKSPACE) triggers a silent ext host restart (~2s).
-// Subsequent switches are instant dynamic updates (already in WORKSPACE state).
+// Focus tracking updates the sidebar tree view to show the active worktree.
+// The workspace root is never swapped — the user's folder stays constant.
+// The agent operates in the worktree via MCP server CWD.
 // ---------------------------------------------------------------------------
 
 let _worktreeFileProvider = null;
@@ -3495,31 +3499,6 @@ function _focusWorktreeFolder(worktreePath) {
   if (_activeWorktreeFolder === worktreePath) return;
   if (!fs.existsSync(worktreePath)) return;
   _activeWorktreeFolder = worktreePath;
-  _suppressTabDrivenUnfocusUntil = Date.now() + 3000;
-
-  // Swap the workspace root to the worktree folder.
-  // First switch (FOLDER→WORKSPACE) restarts extension hosts silently (~2s).
-  // Subsequent switches are instant dynamic updates.
-  const folders = vscode.workspace.workspaceFolders;
-  if (folders && folders.length > 0) {
-    const currentUri = folders[0].uri.toString();
-    const worktreeUri = vscode.Uri.file(worktreePath).toString();
-    if (currentUri !== worktreeUri) {
-      // Persist the original workspace URI for "return" on unfocus
-      const storedOriginal = _context?.globalState?.get(
-        ORIGINAL_WORKSPACE_URI_KEY,
-      );
-      if (!storedOriginal) {
-        _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, currentUri);
-      }
-      getDiagnosticsOutputChannel().appendLine(
-        `[worktree] Swapping workspace root → ${worktreePath}`,
-      );
-      vscode.workspace.updateWorkspaceFolders(0, 1, {
-        uri: vscode.Uri.file(worktreePath),
-      });
-    }
-  }
 
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(`FOCUSED worktree: ${worktreePath}`);
@@ -3532,22 +3511,6 @@ function _unfocusWorktreeFolder() {
   if (!_activeWorktreeFolder) return;
   const prev = _activeWorktreeFolder;
   _activeWorktreeFolder = null;
-  _suppressTabDrivenUnfocusUntil = Date.now() + 1500;
-
-  // Switch workspace root back to the original project folder.
-  const originalUri = _context?.globalState?.get(ORIGINAL_WORKSPACE_URI_KEY);
-  if (originalUri) {
-    _context?.globalState?.update(ORIGINAL_WORKSPACE_URI_KEY, undefined);
-    const currentUri = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
-    if (currentUri !== originalUri) {
-      getDiagnosticsOutputChannel().appendLine(
-        `[worktree] Restoring workspace root → ${originalUri}`,
-      );
-      vscode.workspace.updateWorkspaceFolders(0, 1, {
-        uri: vscode.Uri.parse(originalUri),
-      });
-    }
-  }
 
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(`UNFOCUSED worktree: ${prev}`);
