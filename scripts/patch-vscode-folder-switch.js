@@ -59,7 +59,9 @@ if (require.main === module) {
       console.log("UNPATCHED");
       process.exit(1);
     } else {
-      console.log("UNKNOWN — injection point not found. VS Code version may have changed.");
+      console.log(
+        "UNKNOWN — injection point not found. VS Code version may have changed.",
+      );
       process.exit(1);
     }
   }
@@ -72,7 +74,9 @@ if (require.main === module) {
 
   const idx = src.indexOf(OLD);
   if (idx === -1) {
-    console.error("Injection point not found — VS Code version may have changed.");
+    console.error(
+      "Injection point not found — VS Code version may have changed.",
+    );
     process.exit(1);
   }
 

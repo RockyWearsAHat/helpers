@@ -1,84 +1,80 @@
-# VS Code Workbench Patches
+# VS Code Patches & Proposed API Usage
 
-This project applies two minimal patches to VS Code's workbench bundle to enable branch-per-chat navigation. Both are candidates for upstreaming as VS Code PRs.
+Branch-per-chat navigation requires two non-standard VS Code integrations:
 
-## Patch Management
+1. **Proposed API** (`chatParticipantPrivate`) — for chat session focus events. Enabled via `~/.vscode/argv.json`. No bundle patch needed.
+2. **Workbench patch** (folder-switch) — to suppress the workspace folder switch confirmation dialog. Applied to the bundle.
+
+## Chat Session Focus: Proposed API
+
+VS Code already has `vscode.window.onDidChangeActiveChatPanelSessionResource` in the `chatParticipantPrivate` proposed API. This fires whenever the user switches between chat conversations — exactly what we need.
+
+**How it's enabled:**
+
+1. `~/.vscode/argv.json` includes `"enable-proposed-api": ["RockyWearsAHat.git-shell-helpers"]`
+2. `vscode-extension/package.json` includes `"enabledApiProposals": ["chatParticipantPrivate"]`
+3. The extension subscribes to the event in `activate()` and maps session URIs to worktree bindings.
+
+**Why not a bundle patch?** We originally patched the workbench to write session focus to a JSON file (`~/.cache/gsh/active-chat-session.json`), but the renderer is sandboxed — `import("fs")` silently fails. The proposed API routes through the extension host via `$acceptActiveChatSession` IPC, which is the correct architecture.
+
+**Survives VS Code updates**: `argv.json` is user config, not part of the application bundle. The `enable-proposed-api` flag persists across updates.
+
+**Upstream candidate**: Promote `onDidChangeActiveChatPanelSessionResource` to stable API so extensions don't need the proposed API flag.
+
+## Workbench Patch: Folder Switch
+
+### Patch Management
 
 ```bash
-# Check status of all patches
-node scripts/patch-vscode-apply-all.js --check
-
-# Apply all patches (creates pristine backup on first run)
-node scripts/patch-vscode-apply-all.js
-
-# Revert to pristine bundle
-node scripts/patch-vscode-apply-all.js --revert
+node scripts/patch-vscode-apply-all.js --check    # check status
+node scripts/patch-vscode-apply-all.js             # apply patch
+node scripts/patch-vscode-apply-all.js --revert    # revert to pristine
 ```
 
-**Important**: After applying or reverting patches, you must **quit and restart VS Code** (Cmd+Q → reopen). `Reload Window` is NOT sufficient — Electron caches the workbench bundle in the main process.
+**Important**: After applying or reverting the patch, **quit and restart VS Code** (Cmd+Q → reopen). `Reload Window` is NOT sufficient — Electron caches the workbench bundle.
 
-The extension automatically checks patch status on activation and offers to apply missing patches.
+The extension checks patch status on activation and offers to apply if missing.
 
-## Patches
-
-### 1. Chat Bridge (`patch-vscode-chat-bridge.js`)
-
-**Type**: Behavioral gap / missing API surface
-**Upstream candidate**: Expose `onDidChangeFocusedSession` to extensions
-
-**Problem**: VS Code's extension API has no event for "focused chat session changed." The `onDidChangeTabs` API fires when switching between panels (e.g. editor → Chat), but NOT when switching conversations within the Chat panel. Extensions that need session-level focus tracking have no API surface.
-
-**What it changes** (2 injection points):
-
-1. `setLastFocusedWidget()` — After firing `_onDidChangeFocusedSession`, writes the focused widget's `sessionResource` URI to `~/.cache/gsh/active-chat-session.json`.
-
-2. ViewModel change handler — After firing `_onDidChangeFocusedSession` on conversation switch, writes the new session's resource URI (or `null` when navigating to sessions list).
-
-**File written**: `~/.cache/gsh/active-chat-session.json`
-```json
-{"s": "vscode-chat-editor:///chat-session-id", "t": 1711700000000}
-```
-
-**Lines changed**: ~2 lines of logic added at each injection point (4 total), wrapped in async `import("fs")` with silent error handling.
-
-### 2. Folder Switch (`patch-vscode-folder-switch.js`)
+### What it changes (`patch-vscode-folder-switch.js`)
 
 **Type**: Requested behavior change
 **Upstream candidate**: Add `suppressDialogs` option to `updateWorkspaceFolders()`
 
-**Problem**: When an extension calls `updateWorkspaceFolders()` to switch the workspace root (e.g. to a worktree directory), VS Code shows a blocking confirmation dialog. This prevents automated workflows like branch-per-chat worktree switching.
-
-**What it changes** (1 injection point):
+**Problem**: `updateWorkspaceFolders()` triggers a blocking confirmation dialog in `enterWorkspace()`. This prevents automated worktree switching.
 
 In `enterWorkspace()`, replaces:
+
 ```
 if (!await this.extensionService.stopExtensionHosts(reason)) return;
 ```
+
 with:
+
 ```
 await this.extensionService._doStopExtensionHosts();
 ```
 
-This skips the veto/dialog event chain. Extension hosts still restart cleanly — only the dialog is removed.
+Skips the veto/dialog chain. Extension hosts still restart cleanly.
 
 **Lines changed**: 1 line modified.
 
 ## VS Code Update Behavior
 
-When VS Code auto-updates, it replaces the workbench bundle. The patches are lost and must be re-applied. The extension detects this on activation and prompts the user.
+When VS Code auto-updates, the workbench bundle is replaced and the folder-switch patch is lost. The extension detects this and prompts re-application. The proposed API (argv.json) is unaffected by updates.
 
 ## File Inventory
 
-| File | Purpose |
-|------|---------|
-| `scripts/patch-vscode-apply-all.js` | Coordinator: backup, apply all, check, revert |
-| `scripts/patch-vscode-chat-bridge.js` | Chat bridge patch definition |
-| `scripts/patch-vscode-folder-switch.js` | Folder switch patch definition |
-| `PATCHES.md` | This document |
+| File                                    | Purpose                                         |
+| --------------------------------------- | ------------------------------------------------ |
+| `scripts/patch-vscode-apply-all.js`     | Coordinator: backup, apply, check, revert        |
+| `scripts/patch-vscode-folder-switch.js` | Folder switch patch definition                   |
+| `PATCHES.md`                            | This document                                    |
+| `~/.vscode/argv.json`                   | Proposed API enablement (user-local, not in repo) |
 
 ## Backup
 
 A single pristine (pre-any-patch) backup is maintained at:
+
 ```
 /Applications/Visual Studio Code.app/.../workbench.desktop.main.js.pristine
 ```
