@@ -4,13 +4,19 @@
 // Patches VS Code's workbench bundle to expose the active chat session resource
 // via a JSON file at ~/.cache/gsh/active-chat-session.json.
 //
-// This bridges the gap between VS Code's internal IChatWidgetService (which has
-// onDidChangeFocusedSession) and extensions that need to know which chat session
-// the user is currently viewing.
+// Two code paths are patched:
+//   1. setLastFocusedWidget — fires when a different editor widget gets focus
+//      (e.g. switching from a file tab to the chat panel).  Writes the focused
+//      widget's sessionResource URI.
+//   2. onDidChangeViewModel — fires when the user switches conversations WITHIN
+//      the chat panel (e.g. clicking a different session in the sessions list).
+//      The widget stays the same but the viewModel changes.  Writes the new
+//      session's resource URI, or null when navigating to the sessions list.
 //
 // Usage:
 //   node patch-vscode-chat-bridge.js          # apply patch
 //   node patch-vscode-chat-bridge.js --revert # restore original
+//   node patch-vscode-chat-bridge.js --check  # check patch status
 
 const fs = require("fs");
 const path = require("path");
@@ -21,13 +27,49 @@ const BUNDLE = path.join(
 );
 const BACKUP = BUNDLE + ".bak";
 
-const OLD =
-  "setLastFocusedWidget(e){e!==this._lastFocusedWidget&&(this._lastFocusedWidget=e,this._onDidChangeFocusedWidget.fire(e),this._onDidChangeFocusedSession.fire())}";
+// File-write snippet (parameterised by the expression for the session URI):
+// import("fs").then(f => { try { write({s, t}) } catch {} }).catch(() => {})
+function makeWriteSnippet(uriExpr) {
+  return `import("fs").then(function(f){try{var d=(process.env.HOME||"/tmp")+"/.cache/gsh",a=d+"/active-chat-session.json";f.mkdirSync(d,{recursive:!0});f.writeFileSync(a,JSON.stringify({s:${uriExpr},t:Date.now()}))}catch(x){}}).catch(function(){})`;
+}
 
-// The patch adds an import("fs")-based side-effect after the event fires,
-// writing {s: sessionResourceUri, t: timestamp} to a known JSON file.
-const NEW =
-  'setLastFocusedWidget(e){e!==this._lastFocusedWidget&&(this._lastFocusedWidget=e,this._onDidChangeFocusedWidget.fire(e),this._onDidChangeFocusedSession.fire(),import("fs").then(function(f){try{var d=(process.env.HOME||"/tmp")+"/.cache/gsh",a=d+"/active-chat-session.json";f.mkdirSync(d,{recursive:!0});f.writeFileSync(a,JSON.stringify({s:e&&e.viewModel&&e.viewModel.sessionResource?e.viewModel.sessionResource.toString():null,t:Date.now()}))}catch(x){}}).catch(function(){}))}';
+// --- Patch 1: setLastFocusedWidget ---
+const OLD_1 =
+  "setLastFocusedWidget(e){e!==this._lastFocusedWidget&&(this._lastFocusedWidget=e,this._onDidChangeFocusedWidget.fire(e),this._onDidChangeFocusedSession.fire())}";
+const NEW_1 =
+  `setLastFocusedWidget(e){e!==this._lastFocusedWidget&&(this._lastFocusedWidget=e,this._onDidChangeFocusedWidget.fire(e),this._onDidChangeFocusedSession.fire(),${makeWriteSnippet("e&&e.viewModel&&e.viewModel.sessionResource?e.viewModel.sessionResource.toString():null")})}`;
+
+// --- Patch 2: onDidChangeViewModel ---
+// Inside the viewModel change handler, the destructured args are:
+//   {previousSessionResource:t, currentSessionResource:o}
+// We add the file write after _onDidChangeFocusedSession.fire() using a
+// comma expression so the short-circuit chain still works.
+const OLD_2 =
+  "this._lastFocusedWidget===e&&!Ye(t,o)&&this._onDidChangeFocusedSession.fire()";
+const NEW_2 =
+  `this._lastFocusedWidget===e&&!Ye(t,o)&&(this._onDidChangeFocusedSession.fire(),${makeWriteSnippet("o?o.toString():null")})`;
+
+if (process.argv.includes("--check")) {
+  if (!fs.existsSync(BUNDLE)) {
+    console.error("Bundle not found at", BUNDLE);
+    process.exit(1);
+  }
+  const src = fs.readFileSync(BUNDLE, "utf8");
+  const has1 = src.includes(NEW_1);
+  const has2 = src.includes(NEW_2);
+  if (has1 && has2) {
+    console.log("PATCHED — both code paths (widget focus + viewModel change).");
+  } else if (has1) {
+    console.log("PARTIAL — widget focus patched, viewModel change missing.");
+  } else if (src.includes("active-chat-session.json")) {
+    console.log("PARTIAL — old single-path patch detected. Re-run to upgrade.");
+  } else if (src.includes(OLD_1)) {
+    console.log("UNPATCHED — original bundle.");
+  } else {
+    console.log("UNKNOWN — injection points not found. VS Code version may have changed.");
+  }
+  process.exit(0);
+}
 
 if (process.argv.includes("--revert")) {
   if (!fs.existsSync(BACKUP)) {
@@ -40,27 +82,49 @@ if (process.argv.includes("--revert")) {
 }
 
 // Read the bundle
-const src = fs.readFileSync(BUNDLE, "utf8");
+let src = fs.readFileSync(BUNDLE, "utf8");
 
-// Check if already patched
-if (src.includes("active-chat-session.json")) {
-  console.log("Bundle already patched.");
+// If the old single-path patch is applied, revert to backup first
+if (src.includes("active-chat-session.json") && !src.includes(NEW_2)) {
+  if (fs.existsSync(BACKUP)) {
+    console.log("Reverting old single-path patch before applying dual patch...");
+    src = fs.readFileSync(BACKUP, "utf8");
+  }
+}
+
+// Check if already fully patched
+if (src.includes(NEW_1) && src.includes(NEW_2)) {
+  console.log("Bundle already patched (both paths).");
   process.exit(0);
 }
 
-// Verify the injection point exists
-const idx = src.indexOf(OLD);
-if (idx === -1) {
-  console.error("Could not find injection point in bundle.");
-  console.error(
-    "VS Code version may have changed — check setLastFocusedWidget signature.",
-  );
-  process.exit(1);
+// Create backup if none exists
+if (!fs.existsSync(BACKUP)) {
+  fs.copyFileSync(BUNDLE, BACKUP);
+  console.log("Backed up original bundle.");
 }
 
-// Apply the patch
-const patched = src.slice(0, idx) + NEW + src.slice(idx + OLD.length);
-fs.writeFileSync(BUNDLE, patched, "utf8");
+// Apply Patch 1
+let patched = src;
+const idx1 = patched.indexOf(OLD_1);
+if (idx1 === -1) {
+  console.error("Could not find injection point 1 (setLastFocusedWidget).");
+  console.error("VS Code version may have changed.");
+  process.exit(1);
+}
+patched = patched.slice(0, idx1) + NEW_1 + patched.slice(idx1 + OLD_1.length);
+console.log("Applied patch 1: setLastFocusedWidget (widget focus).");
 
+// Apply Patch 2
+const idx2 = patched.indexOf(OLD_2);
+if (idx2 === -1) {
+  console.error("Could not find injection point 2 (onDidChangeViewModel).");
+  console.error("VS Code version may have changed.");
+  process.exit(1);
+}
+patched = patched.slice(0, idx2) + NEW_2 + patched.slice(idx2 + OLD_2.length);
+console.log("Applied patch 2: onDidChangeViewModel (conversation switch).");
+
+fs.writeFileSync(BUNDLE, patched, "utf8");
 console.log("Patched workbench bundle successfully.");
 console.log("Reload VS Code window to activate (Cmd+Shift+P → Reload Window).");
