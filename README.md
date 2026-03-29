@@ -51,6 +51,30 @@ Small quality-of-life helpers wrapped as git subcommands:
 - `git-research-mcp` – MCP server providing web search (via local SearXNG) and per-project knowledge-cache tools for AI assistants.
 - `git-shell-helpers-mcp` – combined MCP server that exposes all git-shell-helpers tools (research + vision) under one server entry.
 
+## Branch Workflows
+
+When the Git Shell Helpers VS Code extension is installed, Copilot agents can create **isolated branches** for feature work without disrupting your current checkout.
+
+### How it works
+
+1. Agent calls `branch_session_start` with a branch name (e.g. `feature/add-auth`)
+2. The extension creates a git worktree behind the scenes and checks out the branch **in your main repo**
+3. You see the branch in `git branch`, in VS Code's source control panel, and in the Explorer — it looks like a normal branch checkout
+4. When you switch to a different chat, the extension switches the visible branch to match that chat's session (or restores your original branch if the chat has no session)
+5. When the agent calls `branch_session_end`, the extension restores your original branch and any stashed work
+
+This means multiple chats can work on different branches in parallel, and switching between chats automatically switches the visible branch. The worktree mechanics are invisible — you just see branches.
+
+### Enabling branch sessions
+
+Branch sessions are **off by default**. Enable them in VS Code settings:
+
+```
+Settings → Git Shell Helpers → Branch Sessions → Enabled
+```
+
+Then reload the window. Agents will automatically use branch sessions for multi-file feature work when the setting is enabled.
+
 ## Installation options
 
 ### 1. macOS .pkg installer (recommended)
