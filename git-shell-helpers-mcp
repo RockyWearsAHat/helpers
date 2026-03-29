@@ -659,6 +659,29 @@ async function handleBranchSessionStart(args, activityId) {
   // Notify extension that a worktree was created (for session binding)
   notifyWorktreeCreated(branch, wtPath, baseBranch, baseCommit, activityId);
 
+  // Wait for the extension to focus the branch in the main repo.
+  // The extension's binding + git checkout runs async after the IPC message;
+  // we poll until the main repo HEAD matches the target branch or we timeout.
+  try {
+    const maxWait = 12000;
+    const interval = 300;
+    const start = Date.now();
+    while (Date.now() - start < maxWait) {
+      await new Promise((r) => setTimeout(r, interval));
+      try {
+        const current = await execGit(
+          ["symbolic-ref", "--short", "HEAD"],
+          toplevel,
+        );
+        if (current === branch) break;
+      } catch {
+        // detached HEAD or other transient state — keep waiting
+      }
+    }
+  } catch {
+    // Non-fatal — the tool result is still valid even if focus didn't complete
+  }
+
   return [
     {
       type: "text",
@@ -745,6 +768,28 @@ async function handleBranchSessionEnd(args) {
 
   // Notify extension that the worktree was removed (unbind from session)
   notifyWorktreeRemoved(branch, wtPath);
+
+  // Wait for the extension to restore the original branch.
+  // The unfocus sequence (checkout original + pop stash) runs async after IPC.
+  try {
+    const maxWait = 8000;
+    const interval = 300;
+    const start = Date.now();
+    while (Date.now() - start < maxWait) {
+      await new Promise((r) => setTimeout(r, interval));
+      try {
+        const current = await execGit(
+          ["symbolic-ref", "--short", "HEAD"],
+          toplevel,
+        );
+        if (current !== branch) break;
+      } catch {
+        break; // detached HEAD = transition in progress, close enough
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
 
   return [
     {
