@@ -8,6 +8,9 @@
   "engines": {
     "vscode": "^1.110.0"
   },
+  "enabledApiProposals": [
+    "chatParticipantPrivate"
+  ],
   "categories": [
     "Other"
   ],

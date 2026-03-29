@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // patch-vscode-apply-all.js
 //
-// Coordinator script that applies all VS Code workbench patches.
+// Coordinator script that applies VS Code workbench patches.
 // Manages a single backup of the pristine bundle and applies patches in sequence.
 //
 // Patches:
-//   1. chat-bridge    — exposes active chat session via file bridge
-//   2. folder-switch  — removes workspace folder switch confirmation dialog
+//   folder-switch  — removes workspace folder switch confirmation dialog
+//
+// Note: Chat session tracking uses the proposed API (chatParticipantPrivate)
+// enabled via ~/.vscode/argv.json — no workbench patch needed.
 //
 // Usage:
 //   node patch-vscode-apply-all.js           # apply all patches
@@ -26,13 +28,7 @@ const BACKUP = BUNDLE + ".pristine";
 
 const PATCHES_DIR = __dirname;
 
-// Each patch module exports { OLD, NEW } or { OLD_1, NEW_1, OLD_2, NEW_2 }
 const PATCH_DEFS = [
-  {
-    name: "chat-bridge",
-    description: "Expose active chat session to extensions via file bridge",
-    script: path.join(PATCHES_DIR, "patch-vscode-chat-bridge.js"),
-  },
   {
     name: "folder-switch",
     description: "Remove workspace folder switch confirmation dialog",
@@ -120,8 +116,9 @@ if (!fs.existsSync(BUNDLE)) {
 // Strategy: if no pristine backup exists, check if bundle looks unpatched.
 if (!fs.existsSync(BACKUP)) {
   const src = fs.readFileSync(BUNDLE, "utf8");
-  const hasAnyPatch = src.includes("active-chat-session.json") ||
-    src.includes("_doStopExtensionHosts();let o=xg");
+  const hasAnyPatch =
+    src.includes("active-chat-session.json") ||  // legacy chat-bridge patch
+    src.includes("_doStopExtensionHosts();let o=xg");  // folder-switch patch
   if (hasAnyPatch) {
     // Bundle has patches but no pristine backup — check for legacy backups
     const legacyBak = BUNDLE + ".bak";
@@ -131,10 +128,14 @@ if (!fs.existsSync(BACKUP)) {
       console.log("Created pristine backup from legacy .bak file.");
     } else if (fs.existsSync(legacyFolderBak)) {
       fs.copyFileSync(legacyFolderBak, BACKUP);
-      console.log("Created pristine backup from legacy folder-switch.bak file.");
+      console.log(
+        "Created pristine backup from legacy folder-switch.bak file.",
+      );
     } else {
       console.error("Bundle already has patches but no pristine backup found.");
-      console.error("Cannot safely manage patches. Manual intervention needed.");
+      console.error(
+        "Cannot safely manage patches. Manual intervention needed.",
+      );
       process.exit(1);
     }
   } else {
@@ -179,4 +180,6 @@ for (const legacy of [BUNDLE + ".bak", BUNDLE + ".folder-switch.bak"]) {
 
 console.log("\nAll patches applied successfully.");
 console.log("Quit and restart VS Code to activate (Cmd+Q, then reopen).");
-console.log("Note: Reload Window is NOT sufficient — the bundle is cached by Electron.");
+console.log(
+  "Note: Reload Window is NOT sufficient — the bundle is cached by Electron.",
+);

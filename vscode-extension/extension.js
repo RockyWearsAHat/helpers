@@ -2818,17 +2818,20 @@ function activate(context) {
     vscode.window.tabGroups.onDidChangeTabs(() => _onActiveTabChanged()),
     vscode.window.tabGroups.onDidChangeTabGroups(() => _onActiveTabChanged()),
   );
-  // Watch chat-bridge file for intra-panel navigation (conversation switching,
-  // sessions list).  Requires the chat-bridge patch to be applied.
-  startChatBridgeWatcher();
-  context.subscriptions.push({
-    dispose: () => {
-      if (_chatBridgeWatcher) {
-        _chatBridgeWatcher.close();
-        _chatBridgeWatcher = null;
-      }
-    },
-  });
+  // Track active chat session via proposed API (chatParticipantPrivate).
+  // Fires on both widget focus changes AND intra-panel conversation switching.
+  if (vscode.window.onDidChangeActiveChatPanelSessionResource) {
+    context.subscriptions.push(
+      vscode.window.onDidChangeActiveChatPanelSessionResource(
+        _onChatSessionFocusChanged,
+      ),
+    );
+    _writeWorktreeDebug("session-focus: using proposed API");
+  } else {
+    _writeWorktreeDebug(
+      "session-focus: proposed API not available (chatParticipantPrivate not enabled)",
+    );
+  }
   // Watch Copilot Chat's JSONL session files for live activity.
   // The end-of-response marker is pendingRequests:null written to the JSONL.
   startChatSessionWatcher(context);
@@ -3040,11 +3043,11 @@ function stopStrictLintIpcServer() {
 //   2. Tab-driven focus: When the user switches editor tabs, _onActiveTabChanged
 //      looks up the tab URI in _tabToWorktree.  If a bound worktree exists →
 //      checkout that branch in the main repo.  Otherwise → restore original.
-//   3. Chat-bridge focus: The VS Code chat-bridge patch writes the focused
-//      session's resource URI to ~/.cache/gsh/active-chat-session.json.
-//      The extension watches this file to detect intra-panel navigation
-//      (switching conversations or going to the sessions list) which does NOT
-//      fire tab change events.  This is the primary unfocus trigger.
+//   3. Session-focus tracking: The proposed API (chatParticipantPrivate)
+//      fires vscode.window.onDidChangeActiveChatPanelSessionResource when
+//      the user switches conversations within the Chat panel.  This detects
+//      intra-panel navigation (switching sessions, going to the sessions list)
+//      which does NOT fire tab change events.  This is the primary unfocus trigger.
 //   4. Lazy binding: If no tab was captured at creation time (e.g. inline chat),
 //      the next chat tab activation binds to any recent unbound worktree.
 // ---------------------------------------------------------------------------
@@ -3718,16 +3721,23 @@ function _onActiveTabChanged() {
 // ---------------------------------------------------------------------------
 // VS Code workbench patch management
 //
-// Two patches are applied to VS Code's workbench bundle:
-//   1. chat-bridge    — exposes active chat session via ~/.cache/gsh/active-chat-session.json
-//   2. folder-switch  — removes workspace folder switch confirmation dialog
+// One patch is applied to VS Code's workbench bundle:
+//   folder-switch  — removes workspace folder switch confirmation dialog
+//
+// Chat session tracking uses the proposed API (chatParticipantPrivate) which
+// is enabled via ~/.vscode/argv.json "enable-proposed-api" — no patch needed.
 //
 // The extension checks patch status on activation and prompts the user if
 // patches are missing. A full quit+restart of VS Code is required after
 // patching (Reload Window is NOT sufficient — Electron caches the bundle).
 // ---------------------------------------------------------------------------
 
-const PATCH_APPLY_SCRIPT = path.join(__dirname, "..", "scripts", "patch-vscode-apply-all.js");
+const PATCH_APPLY_SCRIPT = path.join(
+  __dirname,
+  "..",
+  "scripts",
+  "patch-vscode-apply-all.js",
+);
 
 function _checkVscodePatches() {
   if (!fs.existsSync(PATCH_APPLY_SCRIPT)) return;
@@ -3754,11 +3764,10 @@ function _checkVscodePatches() {
             encoding: "utf8",
             timeout: 30000,
           });
-          vscode.window
-            .showInformationMessage(
-              "Patches applied. Quit and restart VS Code to activate (Cmd+Q → reopen). Reload Window is NOT sufficient.",
-              "OK",
-            );
+          vscode.window.showInformationMessage(
+            "Patches applied. Quit and restart VS Code to activate (Cmd+Q → reopen). Reload Window is NOT sufficient.",
+            "OK",
+          );
         } catch (err) {
           vscode.window.showErrorMessage(
             `Patch application failed: ${err.message}`,
@@ -3771,39 +3780,22 @@ function _checkVscodePatches() {
 }
 
 // ---------------------------------------------------------------------------
-// Chat-bridge file watcher
+// Chat session focus tracking (proposed API: chatParticipantPrivate)
 //
-// The VS Code chat-bridge patch (patch-vscode-chat-bridge.js) writes
-// ~/.cache/gsh/active-chat-session.json whenever the focused chat session
-// changes inside the Chat panel.  This is the ONLY way to detect intra-panel
-// navigation (switching conversations, going to the sessions list, etc.)
-// because VS Code's tab API doesn't fire events for within-panel navigation.
+// Uses vscode.window.onDidChangeActiveChatPanelSessionResource to detect
+// when the user switches between chat sessions in the Chat panel, including
+// intra-panel navigation (conversation switching, sessions list).
 //
-// File format: { "s": "<sessionResourceUri>|null", "t": <timestamp> }
-// The "s" value matches the tab URI from _tabToWorktree keys.
+// This replaces the previous approach of patching the workbench bundle to
+// write a bridge file. The proposed API is enabled via ~/.vscode/argv.json
+// "enable-proposed-api" and package.json "enabledApiProposals".
 // ---------------------------------------------------------------------------
 
-const CHAT_BRIDGE_PATH = path.join(
-  os.homedir(),
-  ".cache",
-  "gsh",
-  "active-chat-session.json",
-);
-let _chatBridgeWatcher = null;
-let _chatBridgeDebounce = null;
-
-function _onChatBridgeChange() {
+function _onChatSessionFocusChanged(sessionResource) {
   if (_worktreeBindings.size === 0 && !_activeWorktreeFolder) return;
   if (Date.now() < _suppressTabDrivenUnfocusUntil) return;
 
-  let sessionUri = null;
-  try {
-    const raw = fs.readFileSync(CHAT_BRIDGE_PATH, "utf8");
-    const data = JSON.parse(raw);
-    sessionUri = data?.s || null;
-  } catch {
-    return;
-  }
+  const sessionUri = sessionResource?.toString() || null;
 
   if (sessionUri) {
     // Active session — look up in tab→worktree map
@@ -3822,7 +3814,9 @@ function _onChatBridgeChange() {
     if (unbound) {
       _tabToWorktree.set(sessionUri, unbound);
       saveTabWorktreeMap();
-      _writeWorktreeDebug(`chat-bridge lazy-bound ${sessionUri} to ${unbound}`);
+      _writeWorktreeDebug(
+        `session-focus lazy-bound ${sessionUri} to ${unbound}`,
+      );
       _focusWorktreeFolder(unbound);
       return;
     }
@@ -3831,37 +3825,9 @@ function _onChatBridgeChange() {
   // Session is null (sessions list) or unbound — unfocus
   if (_activeWorktreeFolder) {
     _writeWorktreeDebug(
-      `chat-bridge unfocus: session=${sessionUri || "null"} active=${_activeWorktreeFolder}`,
+      `session-focus unfocus: session=${sessionUri || "null"} active=${_activeWorktreeFolder}`,
     );
     _unfocusWorktreeFolder();
-  }
-}
-
-function startChatBridgeWatcher() {
-  if (_chatBridgeWatcher) return;
-  const dir = path.dirname(CHAT_BRIDGE_PATH);
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-  } catch {}
-
-  try {
-    _chatBridgeWatcher = fs.watch(dir, (eventType, filename) => {
-      if (filename !== path.basename(CHAT_BRIDGE_PATH)) return;
-      // Debounce — the file may be written multiple times in quick succession
-      if (_chatBridgeDebounce) clearTimeout(_chatBridgeDebounce);
-      _chatBridgeDebounce = setTimeout(_onChatBridgeChange, 100);
-    });
-  } catch {
-    // Fallback: poll every 500ms if fs.watch fails
-    setInterval(() => {
-      try {
-        const stat = fs.statSync(CHAT_BRIDGE_PATH);
-        if (stat.mtimeMs > (startChatBridgeWatcher._lastMtime || 0)) {
-          startChatBridgeWatcher._lastMtime = stat.mtimeMs;
-          _onChatBridgeChange();
-        }
-      } catch {}
-    }, 500);
   }
 }
 
