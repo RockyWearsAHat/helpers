@@ -3750,7 +3750,11 @@ function _onChatBridgeChange() {
   if (sessionUri) {
     // Active session — look up in tab→worktree map
     const worktreePath = _tabToWorktree.get(sessionUri);
-    if (worktreePath && _worktreeBindings.has(worktreePath) && fs.existsSync(worktreePath)) {
+    if (
+      worktreePath &&
+      _worktreeBindings.has(worktreePath) &&
+      fs.existsSync(worktreePath)
+    ) {
       _focusWorktreeFolder(worktreePath);
       return;
     }
