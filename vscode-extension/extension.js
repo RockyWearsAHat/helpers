@@ -2815,6 +2815,17 @@ function activate(context) {
     vscode.window.tabGroups.onDidChangeTabs(() => _onActiveTabChanged()),
     vscode.window.tabGroups.onDidChangeTabGroups(() => _onActiveTabChanged()),
   );
+  // Watch chat-bridge file for intra-panel navigation (conversation switching,
+  // sessions list).  Requires the chat-bridge patch to be applied.
+  startChatBridgeWatcher();
+  context.subscriptions.push({
+    dispose: () => {
+      if (_chatBridgeWatcher) {
+        _chatBridgeWatcher.close();
+        _chatBridgeWatcher = null;
+      }
+    },
+  });
   // Watch Copilot Chat's JSONL session files for live activity.
   // The end-of-response marker is pendingRequests:null written to the JSONL.
   startChatSessionWatcher(context);
@@ -3016,17 +3027,22 @@ function stopStrictLintIpcServer() {
 }
 
 // ---------------------------------------------------------------------------
-// Worktree ↔ Chat Tab Binding
+// Worktree ↔ Chat Binding
 //
 // Architecture:
 //   1. Tool-driven binding: When an agent calls branch_session_start, the MCP
 //      server threads an activityId through the IPC message.  The extension
 //      captures the active chat tab URI at activityBegin time and maps it
 //      directly to the worktree path — no session IDs or JSONL parsing.
-//   2. Tab-driven focus: When the user switches chat tabs, _onActiveTabChanged
+//   2. Tab-driven focus: When the user switches editor tabs, _onActiveTabChanged
 //      looks up the tab URI in _tabToWorktree.  If a bound worktree exists →
 //      checkout that branch in the main repo.  Otherwise → restore original.
-//   3. Lazy binding: If no tab was captured at creation time (e.g. inline chat),
+//   3. Chat-bridge focus: The VS Code chat-bridge patch writes the focused
+//      session's resource URI to ~/.cache/gsh/active-chat-session.json.
+//      The extension watches this file to detect intra-panel navigation
+//      (switching conversations or going to the sessions list) which does NOT
+//      fire tab change events.  This is the primary unfocus trigger.
+//   4. Lazy binding: If no tab was captured at creation time (e.g. inline chat),
 //      the next chat tab activation binds to any recent unbound worktree.
 // ---------------------------------------------------------------------------
 
@@ -3693,6 +3709,97 @@ function _onActiveTabChanged() {
     if (!isPathWithinRoot(activePath, _activeWorktreeFolder)) {
       _unfocusWorktreeFolder();
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Chat-bridge file watcher
+//
+// The VS Code chat-bridge patch (patch-vscode-chat-bridge.js) writes
+// ~/.cache/gsh/active-chat-session.json whenever the focused chat session
+// changes inside the Chat panel.  This is the ONLY way to detect intra-panel
+// navigation (switching conversations, going to the sessions list, etc.)
+// because VS Code's tab API doesn't fire events for within-panel navigation.
+//
+// File format: { "s": "<sessionResourceUri>|null", "t": <timestamp> }
+// The "s" value matches the tab URI from _tabToWorktree keys.
+// ---------------------------------------------------------------------------
+
+const CHAT_BRIDGE_PATH = path.join(
+  os.homedir(),
+  ".cache",
+  "gsh",
+  "active-chat-session.json",
+);
+let _chatBridgeWatcher = null;
+let _chatBridgeDebounce = null;
+
+function _onChatBridgeChange() {
+  if (_worktreeBindings.size === 0 && !_activeWorktreeFolder) return;
+  if (Date.now() < _suppressTabDrivenUnfocusUntil) return;
+
+  let sessionUri = null;
+  try {
+    const raw = fs.readFileSync(CHAT_BRIDGE_PATH, "utf8");
+    const data = JSON.parse(raw);
+    sessionUri = data?.s || null;
+  } catch {
+    return;
+  }
+
+  if (sessionUri) {
+    // Active session — look up in tab→worktree map
+    const worktreePath = _tabToWorktree.get(sessionUri);
+    if (worktreePath && _worktreeBindings.has(worktreePath) && fs.existsSync(worktreePath)) {
+      _focusWorktreeFolder(worktreePath);
+      return;
+    }
+
+    // Try lazy binding — session might be for a recently created unbound worktree
+    const unbound = _findRecentUnboundWorktree();
+    if (unbound) {
+      _tabToWorktree.set(sessionUri, unbound);
+      saveTabWorktreeMap();
+      _writeWorktreeDebug(`chat-bridge lazy-bound ${sessionUri} to ${unbound}`);
+      _focusWorktreeFolder(unbound);
+      return;
+    }
+  }
+
+  // Session is null (sessions list) or unbound — unfocus
+  if (_activeWorktreeFolder) {
+    _writeWorktreeDebug(
+      `chat-bridge unfocus: session=${sessionUri || "null"} active=${_activeWorktreeFolder}`,
+    );
+    _unfocusWorktreeFolder();
+  }
+}
+
+function startChatBridgeWatcher() {
+  if (_chatBridgeWatcher) return;
+  const dir = path.dirname(CHAT_BRIDGE_PATH);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+
+  try {
+    _chatBridgeWatcher = fs.watch(dir, (eventType, filename) => {
+      if (filename !== path.basename(CHAT_BRIDGE_PATH)) return;
+      // Debounce — the file may be written multiple times in quick succession
+      if (_chatBridgeDebounce) clearTimeout(_chatBridgeDebounce);
+      _chatBridgeDebounce = setTimeout(_onChatBridgeChange, 100);
+    });
+  } catch {
+    // Fallback: poll every 500ms if fs.watch fails
+    setInterval(() => {
+      try {
+        const stat = fs.statSync(CHAT_BRIDGE_PATH);
+        if (stat.mtimeMs > (startChatBridgeWatcher._lastMtime || 0)) {
+          startChatBridgeWatcher._lastMtime = stat.mtimeMs;
+          _onChatBridgeChange();
+        }
+      } catch {}
+    }, 500);
   }
 }
 
