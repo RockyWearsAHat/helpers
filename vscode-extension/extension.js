@@ -2704,6 +2704,9 @@ function syncCheckpointSettings() {
 function activate(context) {
   _context = context;
 
+  // Check VS Code workbench patches (non-blocking, deferred)
+  setTimeout(_checkVscodePatches, 3000);
+
   // Restore persisted Ollama pinned models
   const savedPinned = context.globalState.get("gsh.ollama.pinned", []);
   _ollamaPinned = new Set(Array.isArray(savedPinned) ? savedPinned : []);
@@ -3709,6 +3712,61 @@ function _onActiveTabChanged() {
     if (!isPathWithinRoot(activePath, _activeWorktreeFolder)) {
       _unfocusWorktreeFolder();
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// VS Code workbench patch management
+//
+// Two patches are applied to VS Code's workbench bundle:
+//   1. chat-bridge    — exposes active chat session via ~/.cache/gsh/active-chat-session.json
+//   2. folder-switch  — removes workspace folder switch confirmation dialog
+//
+// The extension checks patch status on activation and prompts the user if
+// patches are missing. A full quit+restart of VS Code is required after
+// patching (Reload Window is NOT sufficient — Electron caches the bundle).
+// ---------------------------------------------------------------------------
+
+const PATCH_APPLY_SCRIPT = path.join(__dirname, "..", "scripts", "patch-vscode-apply-all.js");
+
+function _checkVscodePatches() {
+  if (!fs.existsSync(PATCH_APPLY_SCRIPT)) return;
+  try {
+    const { execSync } = require("child_process");
+    const raw = execSync(`node "${PATCH_APPLY_SCRIPT}" --json`, {
+      encoding: "utf8",
+      timeout: 10000,
+    });
+    const status = JSON.parse(raw);
+    if (status.allPatched) return;
+
+    const missing = status.patches
+      .filter((p) => p.status !== "patched")
+      .map((p) => p.name);
+    const msg = `VS Code patches missing: ${missing.join(", ")}. Branch session navigation requires these patches.`;
+
+    vscode.window
+      .showWarningMessage(msg, "Apply Patches", "Dismiss")
+      .then((choice) => {
+        if (choice !== "Apply Patches") return;
+        try {
+          execSync(`node "${PATCH_APPLY_SCRIPT}"`, {
+            encoding: "utf8",
+            timeout: 30000,
+          });
+          vscode.window
+            .showInformationMessage(
+              "Patches applied. Quit and restart VS Code to activate (Cmd+Q → reopen). Reload Window is NOT sufficient.",
+              "OK",
+            );
+        } catch (err) {
+          vscode.window.showErrorMessage(
+            `Patch application failed: ${err.message}`,
+          );
+        }
+      });
+  } catch {
+    // Silently ignore — patch check is best-effort
   }
 }
 
