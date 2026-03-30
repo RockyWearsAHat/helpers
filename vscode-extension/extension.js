@@ -54,11 +54,11 @@ let _tabToWorktree = new Map(); // tabUri.toString() → worktreePath
 let _pendingBranchSessionStarts = new Map(); // activityId → { tabKey, capturedAt }
 let _activeWorktreeFolder = null; // currently focused worktree path, or null
 let _suppressTabDrivenUnfocusUntil = 0;
-// Branch checkout tracking — when a chat with a branch session is focused,
-// the main repo checks out that branch so VS Code's status bar reflects it.
-let _originalBranch = null; // user's branch before any focus-driven checkout
-let _focusedBranch = null; // branch checked out in main repo due to focus
-let _focusStashCreated = false; // true if we stashed user changes on first focus
+// Branch display tracking — when a chat with a branch session is focused,
+// .git/gsh-head-override is written so the patched Git extension shows
+// the worktree branch name in the status bar (no checkout/stash needed).
+let _displayedBranch = null; // branch name written to gsh-head-override, or null
+let _repoNameStatusBarItem = null; // shows repo name when override is active
 
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
@@ -2832,6 +2832,9 @@ function activate(context) {
       "session-focus: proposed API not available (chatParticipantPrivate not enabled)",
     );
   }
+  // Restore worktree focus if VS Code reopened with an active branch session.
+  // Wait for both the chat panel AND Git extension to be ready before restoring.
+  _waitForGitExtensionThenRestore();
   // Watch Copilot Chat's JSONL session files for live activity.
   // The end-of-response marker is pendingRequests:null written to the JSONL.
   startChatSessionWatcher(context);
@@ -3054,7 +3057,6 @@ function stopStrictLintIpcServer() {
 
 const WORKTREE_BINDINGS_KEY = "worktreeBindings.v2";
 const TAB_WORKTREE_KEY = "tabToWorktree";
-const ORIGINAL_BRANCH_KEY = "gsh.originalBranch";
 
 function loadWorktreeBindings() {
   try {
@@ -3111,7 +3113,9 @@ function _findRecentUnboundWorktree() {
   const boundPaths = new Set(_tabToWorktree.values());
   for (const [wtPath, binding] of _worktreeBindings) {
     if (boundPaths.has(wtPath)) continue;
-    if (now - (binding.createdAt || 0) < 30000 && fs.existsSync(wtPath)) {
+    // 120s window — the proposed API's first event can arrive 30-60s+ after
+    // worktree creation depending on when the user interacts with the chat panel.
+    if (now - (binding.createdAt || 0) < 120000 && fs.existsSync(wtPath)) {
       return wtPath;
     }
   }
@@ -3148,6 +3152,21 @@ function _bindWorktree(worktreePath, branch, baseBranch, baseCommit, tabKey) {
     createdAt: Date.now(),
   });
   saveWorktreeBindings();
+
+  // If no tab key was captured, try the proposed API's current session URI.
+  // This is often available even when the tab API returns null (the chat panel
+  // hasn't fully initialized its tab input yet).
+  if (!tabKey) {
+    try {
+      const sessionRes = vscode.window.activeChatPanelSessionResource;
+      if (sessionRes) {
+        tabKey = sessionRes.toString();
+        _writeWorktreeDebug(
+          `bindWorktree: got session URI from proposed API: ${tabKey.slice(-12)}`,
+        );
+      }
+    } catch {}
+  }
 
   if (tabKey) {
     _tabToWorktree.set(tabKey, worktreePath);
@@ -3286,36 +3305,117 @@ function reconcileWorktreeBindings() {
 
   _cleanupLegacyWorktreeFolders();
 
-  // Restore original branch if the extension restarted while a worktree
-  // branch was checked out in the main repo (persisted under ORIGINAL_BRANCH_KEY).
-  const savedOrigBranch = _context?.globalState?.get(ORIGINAL_BRANCH_KEY);
-  if (savedOrigBranch) {
-    const mainRepo = _getMainRepoPath();
-    const currentBranch = mainRepo ? _gitCurrentBranch(mainRepo) : null;
-    if (mainRepo && currentBranch && currentBranch !== savedOrigBranch) {
-      _writeWorktreeDebug(
-        `reconcile: restoring branch ${savedOrigBranch} (was ${currentBranch})`,
-      );
-      // Re-attach the worktree that owns this branch before switching away
-      for (const [wtPath, binding] of _worktreeBindings) {
-        if (binding.branch === currentBranch && fs.existsSync(wtPath)) {
-          _gitCheckout(savedOrigBranch, mainRepo);
-          _gitCheckout(currentBranch, wtPath);
-          _writeWorktreeDebug(
-            `reconcile: re-attached ${wtPath} to ${currentBranch}`,
-          );
-          break;
-        }
+  // Clean up stale gsh-head-override if no active session is bound.
+  // Also clean legacy ORIGINAL_BRANCH_KEY from globalState.
+  _context?.globalState?.update("gsh.originalBranch", undefined);
+  // NOTE: head override cleanup is deferred to _restoreSessionStateOnStartup()
+  // which runs after activation and checks whether the current chat session
+  // is still bound to a worktree before removing the override.
+}
+
+// Wait for the Git extension to have at least one repository, then restore.
+// The Git extension initializes asynchronously — repositories may not be
+// available immediately on activation.  We poll briefly, then fall back to
+// a fixed delay if the extension takes too long.
+function _waitForGitExtensionThenRestore() {
+  try {
+    const gitExt = vscode.extensions.getExtension("vscode.git");
+    if (gitExt?.isActive) {
+      const api = gitExt.exports?.getAPI(1);
+      if (api?.repositories?.length > 0) {
+        // Git extension already has repos — restore after a short delay
+        // to let the chat panel also finish initializing
+        setTimeout(_restoreSessionStateOnStartup, 500);
+        return;
       }
-      // If no worktree matched, just checkout the original branch directly
-      if (_gitCurrentBranch(mainRepo) !== savedOrigBranch) {
-        _gitCheckout(savedOrigBranch, mainRepo);
+      // Git extension is active but no repos yet — listen for repo open
+      if (api?.onDidOpenRepository) {
+        const disposable = api.onDidOpenRepository(() => {
+          disposable.dispose();
+          setTimeout(_restoreSessionStateOnStartup, 300);
+        });
+        // Safety timeout in case no repo event fires
+        setTimeout(() => {
+          disposable.dispose();
+          _restoreSessionStateOnStartup();
+        }, 8000);
+        return;
       }
     }
-    _context?.globalState?.update(ORIGINAL_BRANCH_KEY, undefined);
-    _originalBranch = null;
-    _focusedBranch = null;
+  } catch {}
+  // Fallback: Git extension not ready or API unavailable
+  setTimeout(_restoreSessionStateOnStartup, 3000);
+}
+
+// Restore worktree focus on VS Code startup.  If the current chat panel
+// session is bound to a worktree, restore internal state and trigger a
+// single deferred Git refresh so the status bar fully renders (repo name,
+// branch, sync state).  The override file persists from the previous session
+// so no file write is needed — just the refresh.
+// If no session matches, clean up the stale override.
+function _restoreSessionStateOnStartup() {
+  const mainRepo = _getMainRepoPath();
+  if (!mainRepo) return;
+
+  if (_worktreeBindings.size === 0) {
+    _removeHeadOverride(mainRepo);
+    _writeWorktreeDebug("startup-restore: no bindings, cleaned override");
+    return;
   }
+
+  // Check the current chat session URI via the proposed API
+  let currentUri = null;
+  try {
+    const res = vscode.window.activeChatPanelSessionResource;
+    if (res) currentUri = res.toString();
+  } catch {}
+
+  if (currentUri) {
+    const worktree = _tabToWorktree.get(currentUri);
+    if (
+      worktree &&
+      _worktreeBindings.has(worktree) &&
+      fs.existsSync(worktree)
+    ) {
+      const binding = _worktreeBindings.get(worktree);
+      _activeWorktreeFolder = worktree;
+      _displayedBranch = binding?.branch || null;
+      _showRepoNameStatusBar();
+      _worktreeFileProvider?.refresh();
+      _triggerGitRefresh();
+      _writeWorktreeDebug(
+        `startup-restore: session ${currentUri.slice(-12)} bound to ${path.basename(worktree)} — state restored`,
+      );
+      return;
+    }
+  }
+
+  // Also check the active tab — the proposed API may not have a value yet
+  // if the chat panel hasn't fully initialized
+  const tabKey = _getActiveChatTabKey();
+  if (tabKey) {
+    const worktree = _tabToWorktree.get(tabKey);
+    if (
+      worktree &&
+      _worktreeBindings.has(worktree) &&
+      fs.existsSync(worktree)
+    ) {
+      const binding = _worktreeBindings.get(worktree);
+      _activeWorktreeFolder = worktree;
+      _displayedBranch = binding?.branch || null;
+      _showRepoNameStatusBar();
+      _worktreeFileProvider?.refresh();
+      _triggerGitRefresh();
+      _writeWorktreeDebug(
+        `startup-restore: tab ${tabKey.slice(-12)} bound to ${path.basename(worktree)} — state restored`,
+      );
+      return;
+    }
+  }
+
+  // No active session matches a binding — clean up stale override
+  _removeHeadOverride(mainRepo);
+  _writeWorktreeDebug("startup-restore: no matching session, cleaned override");
 }
 
 // Remove any workspace folders under ~/.cache/gsh/worktrees/ that were added
@@ -3348,14 +3448,12 @@ function _cleanupLegacyWorktreeFolders() {
 // ---------------------------------------------------------------------------
 // Tab ↔ Worktree Focus Switching
 // Focus tracking updates the sidebar tree view to show the active worktree.
-// When a branch session is focused, the main repo checks out the branch so
-// VS Code's status bar and SCM view reflect it.  The worktree is temporarily
-// detached to free the branch name for the main repo.
+// When a branch session is focused, .git/gsh-head-override is written so the
+// patched Git extension shows the worktree branch name in the status bar.
+// No git checkout, stash, or detach is performed — only a file write/delete.
 // ---------------------------------------------------------------------------
 
-// Git helpers for branch switching — all synchronous (local git ops <10ms).
-// These are used by _focusWorktreeFolder/_unfocusWorktreeFolder to swap
-// which branch the main repo has checked out.
+// Git helpers — kept lightweight.
 function _getMainRepoPath() {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || null;
 }
@@ -3374,96 +3472,80 @@ function _gitCurrentBranch(cwd) {
   }
 }
 
-function _gitCheckout(branch, cwd) {
+// Write the override file so the patched Git extension displays this branch.
+function _writeHeadOverride(repoRoot, branchName) {
   try {
-    execFileSync("git", ["checkout", branch], {
-      cwd,
-      timeout: 10000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const filePath = path.join(repoRoot, ".git", "gsh-head-override");
+    fs.writeFileSync(filePath, branchName + "\n", "utf8");
     return true;
   } catch (err) {
     _writeWorktreeDebug(
-      `git checkout ${branch} in ${cwd} failed: ${err.message?.split("\n")[0] || err}`,
+      `writeHeadOverride failed: ${err.message?.split("\n")[0] || err}`,
     );
     return false;
   }
 }
 
-function _gitDetachWorktree(worktreePath) {
+// Remove the override file so the Git extension displays the real HEAD.
+function _removeHeadOverride(repoRoot) {
   try {
-    execFileSync("git", ["checkout", "--detach"], {
-      cwd: worktreePath,
-      timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    return true;
-  } catch (err) {
-    _writeWorktreeDebug(
-      `git detach in ${worktreePath} failed: ${err.message?.split("\n")[0] || err}`,
-    );
-    return false;
-  }
-}
-
-function _gitIsDirty(cwd) {
-  try {
-    const out = execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
-    })
-      .toString()
-      .trim();
-    return out.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function _gitStashPush(cwd) {
-  try {
-    execFileSync(
-      "git",
-      ["stash", "push", "--include-untracked", "-m", "gsh-branch-focus"],
-      { cwd, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
-    );
-    return true;
-  } catch (err) {
-    _writeWorktreeDebug(
-      `git stash push failed: ${err.message?.split("\n")[0] || err}`,
-    );
-    return false;
-  }
-}
-
-function _gitStashPopIfMarked(cwd) {
-  try {
-    const list = execFileSync("git", ["stash", "list", "--format=%s"], {
-      cwd,
-      timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
-    })
-      .toString()
-      .trim();
-    // Only pop if the top stash is our marker
-    if (list.split("\n")[0]?.includes("gsh-branch-focus")) {
-      execFileSync("git", ["stash", "pop"], {
-        cwd,
-        timeout: 10000,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+    const filePath = path.join(repoRoot, ".git", "gsh-head-override");
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
       return true;
     }
   } catch (err) {
     _writeWorktreeDebug(
-      `git stash pop failed: ${err.message?.split("\n")[0] || err}`,
+      `removeHeadOverride failed: ${err.message?.split("\n")[0] || err}`,
     );
   }
   return false;
 }
 
+// Trigger a Git extension status refresh so headLabel re-evaluates.
+// Debounced to 500ms — collapses rapid unfocus→refocus cycles (message sends)
+// into a single refresh (or none, if the override file didn't actually change).
+let _gitRefreshTimer = null;
+function _triggerGitRefresh() {
+  if (_gitRefreshTimer) clearTimeout(_gitRefreshTimer);
+  _gitRefreshTimer = setTimeout(() => {
+    _gitRefreshTimer = null;
+    try {
+      const gitExt = vscode.extensions.getExtension("vscode.git");
+      if (!gitExt?.isActive) return;
+      const api = gitExt.exports?.getAPI(1);
+      const repo = api?.repositories?.[0];
+      if (repo) repo.status();
+    } catch {
+      // Best effort — the Git extension refreshes periodically anyway
+    }
+  }, 500);
+}
+
 let _worktreeFileProvider = null;
+
+// Status bar: show the repository name (e.g. "bin") to the left of the
+// branch entry when a worktree override is active.  VS Code only shows
+// the repo name natively when multiple SCM repositories exist; this
+// replicates that label for the single-repo override case.
+function _showRepoNameStatusBar() {
+  const mainRepo = _getMainRepoPath();
+  if (!mainRepo) return;
+  if (!_repoNameStatusBarItem) {
+    _repoNameStatusBarItem = vscode.window.createStatusBarItem(
+      "gsh.repoName",
+      vscode.StatusBarAlignment.Left,
+      10001,
+    );
+  }
+  _repoNameStatusBarItem.text = `$(source-control) ${path.basename(mainRepo)}`;
+  _repoNameStatusBarItem.tooltip = `${path.basename(mainRepo)} (Git)`;
+  _repoNameStatusBarItem.show();
+}
+
+function _hideRepoNameStatusBar() {
+  if (_repoNameStatusBarItem) _repoNameStatusBarItem.hide();
+}
 
 function _focusWorktreeFolder(worktreePath) {
   if (_activeWorktreeFolder === worktreePath) return;
@@ -3473,46 +3555,26 @@ function _focusWorktreeFolder(worktreePath) {
   const binding = _worktreeBindings.get(worktreePath);
   const targetBranch = binding?.branch;
 
-  if (mainRepo && targetBranch && _focusedBranch !== targetBranch) {
-    // First focus in this navigation sequence: save the user's branch and
-    // stash any uncommitted changes so we can restore them on unfocus.
-    if (!_originalBranch) {
-      _originalBranch = _gitCurrentBranch(mainRepo);
-      _context?.globalState?.update(ORIGINAL_BRANCH_KEY, _originalBranch);
-      _writeWorktreeDebug(`saved original branch: ${_originalBranch}`);
-      if (_gitIsDirty(mainRepo)) {
-        _focusStashCreated = _gitStashPush(mainRepo);
-        _writeWorktreeDebug(
-          `stashed dirty tree: ${_focusStashCreated ? "yes" : "no"}`,
-        );
-      }
-    }
+  if (mainRepo && targetBranch) {
+    // Check if the override file already has the correct content.
+    // Skip the write and Git refresh if it does — avoids the status bar
+    // spinner on refocus after a brief unfocus (e.g. message-send cycle).
+    const overridePath = path.join(mainRepo, ".git", "gsh-head-override");
+    let currentOverride = null;
+    try {
+      currentOverride = fs.readFileSync(overridePath, "utf8").trim();
+    } catch {}
 
-    // Switching between two focused branches: free the old branch first by
-    // returning to a neutral state, then re-attach the old worktree.
-    if (_focusedBranch && _activeWorktreeFolder) {
-      _gitCheckout(_originalBranch, mainRepo);
-      if (fs.existsSync(_activeWorktreeFolder)) {
-        _gitCheckout(_focusedBranch, _activeWorktreeFolder);
-        _writeWorktreeDebug(
-          `re-attached worktree ${_activeWorktreeFolder} to ${_focusedBranch}`,
-        );
-      }
+    if (currentOverride !== targetBranch) {
+      _writeHeadOverride(mainRepo, targetBranch);
+      _triggerGitRefresh();
+      _writeWorktreeDebug(`wrote gsh-head-override: ${targetBranch}`);
     }
-
-    // Detach target worktree HEAD (freeing the branch name), then checkout
-    // that branch in the main repo so VS Code's status bar reflects it.
-    if (_gitDetachWorktree(worktreePath)) {
-      if (_gitCheckout(targetBranch, mainRepo)) {
-        _focusedBranch = targetBranch;
-        _writeWorktreeDebug(
-          `checked out ${targetBranch} in main repo for focus`,
-        );
-      }
-    }
+    _displayedBranch = targetBranch;
   }
 
   _activeWorktreeFolder = worktreePath;
+  _showRepoNameStatusBar();
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(
     `FOCUSED worktree: ${worktreePath} branch: ${targetBranch || "unknown"}`,
@@ -3527,29 +3589,20 @@ function _unfocusWorktreeFolder() {
   const prev = _activeWorktreeFolder;
   const mainRepo = _getMainRepoPath();
 
-  // Reverse the focus sequence: checkout original branch → re-attach worktree → pop stash
-  if (mainRepo && _focusedBranch) {
-    const branchToReattach = _focusedBranch;
-    if (_originalBranch && _gitCheckout(_originalBranch, mainRepo)) {
-      _writeWorktreeDebug(`restored original branch: ${_originalBranch}`);
-      if (fs.existsSync(prev)) {
-        _gitCheckout(branchToReattach, prev);
-        _writeWorktreeDebug(
-          `re-attached worktree ${prev} to ${branchToReattach}`,
-        );
-      }
-      if (_focusStashCreated) {
-        _gitStashPopIfMarked(mainRepo);
-        _focusStashCreated = false;
-        _writeWorktreeDebug(`popped stash on original branch`);
-      }
+  if (mainRepo) {
+    // Only remove the override and refresh Git if the override file exists.
+    // The override is treated as session-level state — removing it tells the
+    // Git extension to show the real HEAD branch.
+    const removed = _removeHeadOverride(mainRepo);
+    if (removed) {
+      _triggerGitRefresh();
+      _writeWorktreeDebug(`removed gsh-head-override`);
     }
-    _focusedBranch = null;
-    _originalBranch = null;
-    _context?.globalState?.update(ORIGINAL_BRANCH_KEY, undefined);
+    _displayedBranch = null;
   }
 
   _activeWorktreeFolder = null;
+  _hideRepoNameStatusBar();
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(`UNFOCUSED worktree: ${prev}`);
   getDiagnosticsOutputChannel().appendLine(`[worktree] Unfocused: ${prev}`);
@@ -3671,23 +3724,50 @@ function _onActiveTabChanged() {
     return;
   }
 
-  // Chat tab → look up directly by tab URI (no session IDs)
-  if (
-    activeTab?.input?.viewType === "workbench.editor.chatSession" &&
-    activeTab.input.uri
-  ) {
+  const viewType = activeTab?.input?.viewType || null;
+  const tabUri = activeTab?.input?.uri?.toString() || null;
+
+  _writeWorktreeDebug(
+    `tab-change: viewType=${viewType || "null"} tabUri=${tabUri ? tabUri.slice(-12) : "null"} active=${_activeWorktreeFolder || "null"} bindings=${_worktreeBindings.size}`,
+  );
+
+  // Chat tab → look up directly by tab URI
+  if (viewType === "workbench.editor.chatSession" && activeTab.input.uri) {
     const tabKey = activeTab.input.uri.toString();
     let worktreePath = _tabToWorktree.get(tabKey);
 
-    // Lazy binding: if this tab has no worktree, check for recent unbound ones
+    // Also check current session URI from proposed API
+    if (!worktreePath) {
+      const currentSession =
+        vscode.window.activeChatPanelSessionResource?.toString();
+      if (currentSession) {
+        worktreePath = _tabToWorktree.get(currentSession);
+        if (worktreePath) {
+          // Cross-reference: store tab URI too
+          _tabToWorktree.set(tabKey, worktreePath);
+          saveTabWorktreeMap();
+          _writeWorktreeDebug(
+            `tab-change: cross-ref from session ${currentSession.slice(-12)} → ${tabKey.slice(-12)} for ${path.basename(worktreePath)}`,
+          );
+        }
+      }
+    }
+
+    // Lazy binding: if still no worktree, check for recent unbound ones
     if (!worktreePath) {
       worktreePath = _findRecentUnboundWorktree();
       if (worktreePath) {
         _tabToWorktree.set(tabKey, worktreePath);
         saveTabWorktreeMap();
-        _writeWorktreeDebug(`lazy-bound tab to worktree ${worktreePath}`);
+        _writeWorktreeDebug(
+          `tab-change: lazy-bound ${tabKey.slice(-12)} to ${path.basename(worktreePath)}`,
+        );
       }
     }
+
+    _writeWorktreeDebug(
+      `tab-change: resolved worktree=${worktreePath ? path.basename(worktreePath) : "null"} hasBind=${worktreePath ? _worktreeBindings.has(worktreePath) : "N/A"}`,
+    );
 
     if (
       worktreePath &&
@@ -3700,36 +3780,29 @@ function _onActiveTabChanged() {
 
     // Chat tab without a bound worktree — unfocus if needed
     if (_activeWorktreeFolder && Date.now() >= _suppressTabDrivenUnfocusUntil) {
+      _writeWorktreeDebug(`tab-change: unbound chat tab → unfocusing`);
       _unfocusWorktreeFolder();
     }
     return;
   }
 
-  // Non-chat tab — unfocus unless suppressed or file is within the active worktree
-  if (_activeWorktreeFolder && Date.now() < _suppressTabDrivenUnfocusUntil) {
-    return;
-  }
-
-  const activePath = activeTab?.input?.uri?.fsPath;
-  if (_activeWorktreeFolder && activePath) {
-    if (!isPathWithinRoot(activePath, _activeWorktreeFolder)) {
-      _unfocusWorktreeFolder();
-    }
-  }
+  // Non-chat tab — no action.  Unfocus is driven purely by the proposed API's
+  // session-focus event (back button / session switch), not by editor tab focus.
+  // This avoids false unfocuses during message sends, tool calls, and inline
+  // code renders where VS Code briefly flickers focus to editor tabs.
 }
 
 // ---------------------------------------------------------------------------
-// VS Code workbench patch management
+// VS Code patch management
 //
-// One patch is applied to VS Code's workbench bundle:
-//   folder-switch  — removes workspace folder switch confirmation dialog
+// Two patches are applied to VS Code bundles:
+//   folder-switch     — removes workspace folder switch confirmation dialog
+//                       (workbench bundle — requires full Cmd+Q restart)
+//   git-head-display  — supports branch name display override via
+//                       .git/gsh-head-override (git extension — Reload Window)
 //
 // Chat session tracking uses the proposed API (chatParticipantPrivate) which
 // is enabled via ~/.vscode/argv.json "enable-proposed-api" — no patch needed.
-//
-// The extension checks patch status on activation and prompts the user if
-// patches are missing. A full quit+restart of VS Code is required after
-// patching (Reload Window is NOT sufficient — Electron caches the bundle).
 // ---------------------------------------------------------------------------
 
 const PATCH_APPLY_SCRIPT = path.join(
@@ -3765,7 +3838,7 @@ function _checkVscodePatches() {
             timeout: 30000,
           });
           vscode.window.showInformationMessage(
-            "Patches applied. Quit and restart VS Code to activate (Cmd+Q → reopen). Reload Window is NOT sufficient.",
+            "Patches applied. Quit and restart VS Code to activate workbench patches (Cmd+Q → reopen). Git extension patches activate on Reload Window.",
             "OK",
           );
         } catch (err) {
@@ -3792,19 +3865,42 @@ function _checkVscodePatches() {
 // ---------------------------------------------------------------------------
 
 function _onChatSessionFocusChanged(sessionResource) {
-  if (_worktreeBindings.size === 0 && !_activeWorktreeFolder) return;
-  if (Date.now() < _suppressTabDrivenUnfocusUntil) return;
-
   const sessionUri = sessionResource?.toString() || null;
+  const tabKey = _getActiveChatTabKey();
+
+  // Log EVERY event before any guard clause
+  _writeWorktreeDebug(
+    `session-focus event: sessionUri=${sessionUri || "null"} tabUri=${tabKey || "null"} bindings=${_worktreeBindings.size} active=${_activeWorktreeFolder || "null"} tabMap=[${[..._tabToWorktree.entries()].map(([k, v]) => k.slice(-12) + "→" + path.basename(v)).join(",")}]`,
+  );
+
+  if (_worktreeBindings.size === 0 && !_activeWorktreeFolder) {
+    _writeWorktreeDebug("session-focus: skipped (no bindings, no active)");
+    return;
+  }
+  if (Date.now() < _suppressTabDrivenUnfocusUntil) {
+    _writeWorktreeDebug("session-focus: skipped (suppressed)");
+    return;
+  }
 
   if (sessionUri) {
-    // Active session — look up in tab→worktree map
-    const worktreePath = _tabToWorktree.get(sessionUri);
+    // Look up by session URI first, then by tab URI
+    let worktreePath = _tabToWorktree.get(sessionUri);
+    if (!worktreePath && tabKey) {
+      worktreePath = _tabToWorktree.get(tabKey);
+    }
+
+    _writeWorktreeDebug(
+      `session-focus lookup: sessionUri=${sessionUri.slice(-12)} tabUri=${tabKey ? tabKey.slice(-12) : "null"} found=${worktreePath || "null"} hasBind=${worktreePath ? _worktreeBindings.has(worktreePath) : "N/A"} exists=${worktreePath ? fs.existsSync(worktreePath) : "N/A"}`,
+    );
+
     if (
       worktreePath &&
       _worktreeBindings.has(worktreePath) &&
       fs.existsSync(worktreePath)
     ) {
+      // Cross-reference: store BOTH URIs so either handler can find it
+      _crossReferenceUris(sessionUri, tabKey, worktreePath);
+      _writeWorktreeDebug(`session-focus: focusing ${worktreePath}`);
       _focusWorktreeFolder(worktreePath);
       return;
     }
@@ -3813,21 +3909,76 @@ function _onChatSessionFocusChanged(sessionResource) {
     const unbound = _findRecentUnboundWorktree();
     if (unbound) {
       _tabToWorktree.set(sessionUri, unbound);
+      if (tabKey) _tabToWorktree.set(tabKey, unbound);
       saveTabWorktreeMap();
       _writeWorktreeDebug(
-        `session-focus lazy-bound ${sessionUri} to ${unbound}`,
+        `session-focus lazy-bound sessionUri=${sessionUri.slice(-12)} tabUri=${tabKey ? tabKey.slice(-12) : "null"} to ${unbound}`,
       );
       _focusWorktreeFolder(unbound);
       return;
     }
+
+    // "Currently focused" heuristic: if a worktree is focused but has no URI
+    // binding yet, this event is almost certainly for that worktree's chat session.
+    // Bind it now so future events (including return-to-chat) work correctly.
+    if (_activeWorktreeFolder && _worktreeBindings.has(_activeWorktreeFolder)) {
+      const boundPaths = new Set(_tabToWorktree.values());
+      if (!boundPaths.has(_activeWorktreeFolder)) {
+        _tabToWorktree.set(sessionUri, _activeWorktreeFolder);
+        if (tabKey) _tabToWorktree.set(tabKey, _activeWorktreeFolder);
+        saveTabWorktreeMap();
+        _writeWorktreeDebug(
+          `session-focus: bound to currently-focused worktree ${path.basename(_activeWorktreeFolder)} (no prior URI)`,
+        );
+        // Already focused — no state change needed, just stored the binding
+        return;
+      }
+    }
+
+    _writeWorktreeDebug(
+      `session-focus: no worktree match, no unbound candidate`,
+    );
+
+    // Unknown non-null session URI — user navigated away (back button, new
+    // chat, switched sessions).  Unfocus immediately.  During message sends
+    // this same event fires with a transient URI, but the bound URI returns
+    // within seconds and re-focuses automatically via the path above.
+    if (_activeWorktreeFolder) {
+      _writeWorktreeDebug(
+        `session-focus: unknown URI ${sessionUri.slice(-12)} — unfocusing immediately`,
+      );
+      _unfocusWorktreeFolder();
+    }
+    return;
   }
 
-  // Session is null (sessions list) or unbound — unfocus
+  // Session is null (sessions list / no chat active) — unfocus immediately
   if (_activeWorktreeFolder) {
     _writeWorktreeDebug(
-      `session-focus unfocus: session=${sessionUri || "null"} active=${_activeWorktreeFolder}`,
+      `session-focus unfocus: session=null active=${_activeWorktreeFolder}`,
     );
     _unfocusWorktreeFolder();
+  }
+}
+
+// Store both session URI and tab URI as keys pointing to the same worktree.
+// This ensures both the proposed API handler and the tab change handler can
+// find the worktree regardless of which URI they receive.
+function _crossReferenceUris(sessionUri, tabKey, worktreePath) {
+  let changed = false;
+  if (sessionUri && !_tabToWorktree.has(sessionUri)) {
+    _tabToWorktree.set(sessionUri, worktreePath);
+    changed = true;
+  }
+  if (tabKey && !_tabToWorktree.has(tabKey)) {
+    _tabToWorktree.set(tabKey, worktreePath);
+    changed = true;
+  }
+  if (changed) {
+    saveTabWorktreeMap();
+    _writeWorktreeDebug(
+      `cross-ref: stored both URIs for ${path.basename(worktreePath)}`,
+    );
   }
 }
 
