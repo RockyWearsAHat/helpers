@@ -58,7 +58,6 @@ let _suppressTabDrivenUnfocusUntil = 0;
 // .git/gsh-head-override is written so the patched Git extension shows
 // the worktree branch name in the status bar (no checkout/stash needed).
 let _displayedBranch = null; // branch name written to gsh-head-override, or null
-let _repoNameStatusBarItem = null; // shows repo name when override is active
 
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
 const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
@@ -3359,7 +3358,6 @@ function _restoreSessionStateOnStartup() {
 
   if (_worktreeBindings.size === 0) {
     _removeHeadOverride(mainRepo);
-    _hideRepoNameStatusBar();
     _writeWorktreeDebug("startup-restore: no bindings, cleaned override");
     return;
   }
@@ -3378,12 +3376,7 @@ function _restoreSessionStateOnStartup() {
       _worktreeBindings.has(worktree) &&
       fs.existsSync(worktree)
     ) {
-      const binding = _worktreeBindings.get(worktree);
-      _activeWorktreeFolder = worktree;
-      _displayedBranch = binding?.branch || null;
-      _showRepoNameStatusBar();
-      _worktreeFileProvider?.refresh();
-      _triggerGitRefresh();
+      _focusWorktreeFolder(worktree);
       _writeWorktreeDebug(
         `startup-restore: session ${currentUri.slice(-12)} bound to ${path.basename(worktree)} — state restored`,
       );
@@ -3401,12 +3394,7 @@ function _restoreSessionStateOnStartup() {
       _worktreeBindings.has(worktree) &&
       fs.existsSync(worktree)
     ) {
-      const binding = _worktreeBindings.get(worktree);
-      _activeWorktreeFolder = worktree;
-      _displayedBranch = binding?.branch || null;
-      _showRepoNameStatusBar();
-      _worktreeFileProvider?.refresh();
-      _triggerGitRefresh();
+      _focusWorktreeFolder(worktree);
       _writeWorktreeDebug(
         `startup-restore: tab ${tabKey.slice(-12)} bound to ${path.basename(worktree)} — state restored`,
       );
@@ -3416,7 +3404,6 @@ function _restoreSessionStateOnStartup() {
 
   // No active session matches a binding — clean up stale override
   _removeHeadOverride(mainRepo);
-  _hideRepoNameStatusBar();
   _writeWorktreeDebug("startup-restore: no matching session, cleaned override");
 }
 
@@ -3526,29 +3513,6 @@ function _triggerGitRefresh() {
 
 let _worktreeFileProvider = null;
 
-// Status bar: show the repository name (e.g. "bin") to the left of the
-// branch entry when a worktree override is active.  VS Code only shows
-// the repo name natively when multiple SCM repositories exist; this
-// replicates that label for the single-repo override case.
-function _showRepoNameStatusBar() {
-  const mainRepo = _getMainRepoPath();
-  if (!mainRepo) return;
-  if (!_repoNameStatusBarItem) {
-    _repoNameStatusBarItem = vscode.window.createStatusBarItem(
-      "gsh.repoName",
-      vscode.StatusBarAlignment.Left,
-      10001,
-    );
-  }
-  _repoNameStatusBarItem.text = `$(source-control) ${path.basename(mainRepo)}`;
-  _repoNameStatusBarItem.tooltip = `${path.basename(mainRepo)} (Git)`;
-  _repoNameStatusBarItem.show();
-}
-
-function _hideRepoNameStatusBar() {
-  if (_repoNameStatusBarItem) _repoNameStatusBarItem.hide();
-}
-
 function _focusWorktreeFolder(worktreePath) {
   if (_activeWorktreeFolder === worktreePath) return;
   if (!fs.existsSync(worktreePath)) return;
@@ -3576,7 +3540,6 @@ function _focusWorktreeFolder(worktreePath) {
   }
 
   _activeWorktreeFolder = worktreePath;
-  _showRepoNameStatusBar();
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(
     `FOCUSED worktree: ${worktreePath} branch: ${targetBranch || "unknown"}`,
@@ -3604,7 +3567,6 @@ function _unfocusWorktreeFolder() {
   }
 
   _activeWorktreeFolder = null;
-  _hideRepoNameStatusBar();
   _worktreeFileProvider?.refresh();
   _writeWorktreeDebug(`UNFOCUSED worktree: ${prev}`);
   getDiagnosticsOutputChannel().appendLine(`[worktree] Unfocused: ${prev}`);
