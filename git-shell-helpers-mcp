@@ -487,13 +487,18 @@ if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
   const BRANCH_SESSION_END_TOOL = {
     name: "branch_session_end",
     description:
-      "End an isolated branch session. Commits any uncommitted changes on the worktree branch (with an auto-generated message), then removes the worktree. The branch and its commits remain intact for later merge. Pass discard: true to remove the worktree without committing (discards uncommitted changes).",
+      "End an isolated branch session. Commits any uncommitted changes on the worktree branch (with an auto-generated message), then removes the worktree. By default the branch and its commits are preserved for later merge. Pass merge: true to automatically merge the feature branch into the current baseline with --no-ff and delete the feature branch. If merge conflicts occur, the merge is aborted and conflict details are reported. Pass discard: true to remove the worktree without committing (discards uncommitted changes).",
     inputSchema: {
       type: "object",
       properties: {
         branch: {
           type: "string",
           description: "The branch whose worktree session to end.",
+        },
+        merge: {
+          type: "boolean",
+          description:
+            "If true, merge the feature branch into the main repo's current branch (usually the baseline) with --no-ff after removing the worktree, then delete the feature branch. On conflict, the merge is aborted and conflict details are returned. Default: false.",
         },
         discard: {
           type: "boolean",
@@ -587,6 +592,10 @@ async function handleBranchSessionStart(args, activityId) {
         ["symbolic-ref", "--short", "HEAD"],
         wtPath,
       );
+      let existingCommit = "";
+      try {
+        existingCommit = await execGit(["rev-parse", "--short", "HEAD"], wtPath);
+      } catch {}
       const status = await execGit(["status", "--short"], wtPath);
       return [
         {
@@ -595,6 +604,7 @@ async function handleBranchSessionStart(args, activityId) {
             `Branch session already active.`,
             `Path: ${existing}`,
             `Branch: ${existingBranch}`,
+            existingCommit ? `Commit: ${existingCommit}` : "",
             `Status: ${status || "clean"}`,
             ``,
             `Use this path for all file operations and terminal commands.`,
@@ -682,6 +692,11 @@ async function handleBranchSessionStart(args, activityId) {
     // Non-fatal — the tool result is still valid even if focus didn't complete
   }
 
+  let headCommit = "";
+  try {
+    headCommit = await execGit(["rev-parse", "--short", "HEAD"], wtPath);
+  } catch {}
+
   return [
     {
       type: "text",
@@ -689,18 +704,20 @@ async function handleBranchSessionStart(args, activityId) {
         `Branch session started.`,
         `Path: ${wtPath}`,
         `Branch: ${branch}`,
+        headCommit ? `Commit: ${headCommit}` : "",
         `Created from: ${branchExists ? "(existing branch)" : base || "HEAD"}`,
         `Status:\n${status}`,
         ``,
         `Use this path for all file operations and terminal commands.`,
         `When done, call branch_session_end to commit and clean up.`,
-      ].join("\n"),
+        `Pass merge: true to auto-merge into the baseline when ending.`,
+      ].filter(Boolean).join("\n"),
     },
   ];
 }
 
 async function handleBranchSessionEnd(args) {
-  const { branch, discard } = args;
+  const { branch, discard, merge } = args;
   if (!branch) throw new Error("branch is required");
 
   const toplevel = await resolveRepoRoot();
@@ -791,20 +808,120 @@ async function handleBranchSessionEnd(args) {
     // Non-fatal
   }
 
+  // --- Merge-on-end ---
+  let mergeInfo = "";
+  let branchDeleted = false;
+  if (merge && !discard) {
+    try {
+      const currentBranch = await execGit(
+        ["symbolic-ref", "--short", "HEAD"],
+        toplevel,
+      );
+      try {
+        await execGit(
+          ["merge", "--no-ff", branch, "-m", `Merge '${branch}' into ${currentBranch}`],
+          toplevel,
+        );
+        mergeInfo = `Merged '${branch}' into ${currentBranch} (--no-ff).`;
+        // Delete the feature branch after successful merge
+        try {
+          await execGit(["branch", "-d", branch], toplevel);
+          branchDeleted = true;
+          mergeInfo += ` Branch '${branch}' deleted.`;
+        } catch (delErr) {
+          mergeInfo += ` Warning: could not delete branch: ${delErr.message}`;
+        }
+      } catch (mergeErr) {
+        // Merge had conflicts — try auto-resolving (accept feature branch version)
+        let conflictFiles = "";
+        try {
+          conflictFiles = await execGit(["diff", "--name-only", "--diff-filter=U"], toplevel);
+        } catch {
+          // ignore
+        }
+
+        if (conflictFiles) {
+          const files = conflictFiles.split("\n").filter(Boolean);
+          let resolved = 0;
+          for (const file of files) {
+            try {
+              await execGit(["checkout", "--theirs", "--", file], toplevel);
+              await execGit(["add", "--", file], toplevel);
+              resolved++;
+            } catch {
+              // Could not resolve this file
+            }
+          }
+
+          if (resolved === files.length) {
+            // All conflicts resolved — complete the merge
+            try {
+              await execGit(["commit", "--no-edit"], toplevel);
+              mergeInfo = [
+                `Merged '${branch}' into ${currentBranch} (--no-ff).`,
+                `Auto-resolved ${resolved} conflicting file(s) by accepting the feature branch version.`,
+                `Resolved: ${files.join(", ")}`,
+              ].join("\n");
+              try {
+                await execGit(["branch", "-d", branch], toplevel);
+                branchDeleted = true;
+                mergeInfo += `\nBranch '${branch}' deleted.`;
+              } catch (delErr) {
+                mergeInfo += `\nWarning: could not delete branch: ${delErr.message}`;
+              }
+            } catch {
+              try { await execGit(["merge", "--abort"], toplevel); } catch {}
+              mergeInfo = [
+                `Merge conflict: auto-resolve succeeded but commit failed.`,
+                `Conflicting files: ${files.join(", ")}`,
+                `The merge was aborted. Branch '${branch}' is preserved — resolve manually.`,
+              ].join("\n");
+            }
+          } else {
+            // Partial resolution — too risky, abort
+            try { await execGit(["merge", "--abort"], toplevel); } catch {}
+            mergeInfo = [
+              `Merge conflict: could not auto-resolve all files in '${branch}' → ${currentBranch}.`,
+              `Conflicting files: ${files.join(", ")}`,
+              `Resolved ${resolved}/${files.length}. The merge was aborted — branch '${branch}' is preserved.`,
+            ].join("\n");
+          }
+        } else {
+          // No conflict list available — abort
+          try { await execGit(["merge", "--abort"], toplevel); } catch {}
+          mergeInfo = [
+            `Merge conflict: could not merge '${branch}' into ${currentBranch}.`,
+            `The merge was aborted. Branch '${branch}' is preserved — resolve manually.`,
+          ].join("\n");
+        }
+      }
+    } catch {
+      mergeInfo = `Warning: could not determine current branch for merge. Branch '${branch}' is preserved.`;
+    }
+  }
+
+  const resultLines = [
+    `Branch session ended.`,
+    `Branch: ${branch}`,
+    commitInfo,
+    lastCommit ? `Last commit: ${lastCommit}` : "",
+  ];
+
+  if (mergeInfo) {
+    resultLines.push("", mergeInfo);
+  } else if (!branchDeleted) {
+    resultLines.push(
+      "",
+      `The branch and all its commits are preserved.`,
+      `To merge now: branch_session_end({ branch: "${branch}", merge: true })`,
+      `Or manually: git merge --no-ff ${branch}`,
+    );
+  }
+
   return [
     {
       type: "text",
-      text: [
-        `Branch session ended.`,
-        `Branch: ${branch}`,
-        commitInfo,
-        lastCommit ? `Last commit: ${lastCommit}` : "",
-        ``,
-        `The branch and all its commits are preserved.`,
-        `Merge into the baseline when ready.`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      text: resultLines.filter(Boolean).join("\n"),
     },
   ];
 }

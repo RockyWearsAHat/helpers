@@ -2819,16 +2819,22 @@ function activate(context) {
   );
   // Track active chat session via proposed API (chatParticipantPrivate).
   // Fires on both widget focus changes AND intra-panel conversation switching.
-  if (vscode.window.onDidChangeActiveChatPanelSessionResource) {
-    context.subscriptions.push(
-      vscode.window.onDidChangeActiveChatPanelSessionResource(
-        _onChatSessionFocusChanged,
-      ),
-    );
-    _writeWorktreeDebug("session-focus: using proposed API");
-  } else {
+  try {
+    if (vscode.window.onDidChangeActiveChatPanelSessionResource) {
+      context.subscriptions.push(
+        vscode.window.onDidChangeActiveChatPanelSessionResource(
+          _onChatSessionFocusChanged,
+        ),
+      );
+      _writeWorktreeDebug("session-focus: using proposed API");
+    } else {
+      _writeWorktreeDebug(
+        "session-focus: proposed API not available (chatParticipantPrivate not enabled)",
+      );
+    }
+  } catch (err) {
     _writeWorktreeDebug(
-      "session-focus: proposed API not available (chatParticipantPrivate not enabled)",
+      `session-focus: proposed API subscription failed: ${err.message?.split("\n")[0] || err}`,
     );
   }
   // Restore worktree focus if VS Code reopened with an active branch session.
@@ -3310,6 +3316,132 @@ function reconcileWorktreeBindings() {
   // NOTE: head override cleanup is deferred to _restoreSessionStateOnStartup()
   // which runs after activation and checks whether the current chat session
   // is still bound to a worktree before removing the override.
+
+  // Orphan safety-commit: scan worktree cache for dirs that exist on disk
+  // but have no binding (e.g. VS Code crashed mid-session).  Auto-commit
+  // any dirty changes so work is never lost, then remove the worktree.
+  _rescueOrphanedWorktrees();
+}
+
+// Scan the worktree cache dir for directories that have no active binding.
+// These are orphans left behind by crashes or interrupted sessions.  If the
+// setting is enabled, auto-commit any dirty changes so work is never lost,
+// then remove the worktree (the branch is preserved).
+function _rescueOrphanedWorktrees() {
+  const enabled = vscode.workspace
+    .getConfiguration("gitShellHelpers.branchSessions")
+    .get("orphanSafetyCommit", true);
+  if (!enabled) return;
+
+  const worktreeBase = path.join(os.homedir(), ".cache", "gsh", "worktrees");
+  if (!fs.existsSync(worktreeBase)) return;
+
+  let entries;
+  try {
+    entries = fs.readdirSync(worktreeBase);
+  } catch {
+    return;
+  }
+
+  const boundPaths = new Set(_worktreeBindings.keys());
+  const repoRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+  for (const entry of entries) {
+    const wtPath = path.join(worktreeBase, entry);
+    try {
+      if (!fs.statSync(wtPath).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+
+    // Skip worktrees that have an active binding — they're live sessions
+    if (boundPaths.has(wtPath)) continue;
+
+    const diag = getDiagnosticsOutputChannel();
+    diag.appendLine(`[worktree] Found orphaned worktree: ${wtPath}`);
+
+    // Determine branch name
+    let branch = "";
+    try {
+      branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
+        cwd: wtPath,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      }).toString().trim();
+    } catch {
+      branch = entry; // fallback to directory name
+    }
+
+    // Check for dirty state
+    let dirty = "";
+    try {
+      dirty = execFileSync("git", ["status", "--short"], {
+        cwd: wtPath,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      }).toString().trim();
+    } catch {
+      // ignore
+    }
+
+    // Auto-commit dirty changes to preserve work
+    if (dirty) {
+      try {
+        execFileSync("git", ["add", "-A"], {
+          cwd: wtPath,
+          timeout: 10000,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        execFileSync(
+          "git",
+          ["commit", "-m", `WIP: rescued uncommitted work from orphaned session on '${branch}'`],
+          { cwd: wtPath, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
+        );
+        diag.appendLine(`[worktree] Rescued dirty work on orphan branch '${branch}'`);
+      } catch (err) {
+        diag.appendLine(`[worktree] Could not auto-commit orphan '${branch}': ${err.message}`);
+      }
+    }
+
+    // Get last commit for logging
+    let lastCommit = "";
+    try {
+      lastCommit = execFileSync("git", ["log", "--oneline", "-1"], {
+        cwd: wtPath,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      }).toString().trim();
+    } catch {
+      // ignore
+    }
+
+    // Remove the worktree — branch stays
+    if (repoRoot) {
+      try {
+        execFileSync("git", ["worktree", "remove", "--force", wtPath], {
+          cwd: repoRoot,
+          timeout: 10000,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+      } catch {
+        // Fallback: filesystem removal + prune
+        try { fs.rmSync(wtPath, { recursive: true, force: true }); } catch {}
+        try {
+          execFileSync("git", ["worktree", "prune"], {
+            cwd: repoRoot,
+            timeout: 5000,
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+        } catch {}
+      }
+    } else {
+      try { fs.rmSync(wtPath, { recursive: true, force: true }); } catch {}
+    }
+
+    diag.appendLine(
+      `[worktree] Removed orphan worktree: ${wtPath} branch=${branch} last=${lastCommit}`,
+    );
+  }
 }
 
 // Wait for the Git extension to have at least one repository, then restore.

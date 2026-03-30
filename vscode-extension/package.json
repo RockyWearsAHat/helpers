@@ -165,6 +165,11 @@
           "type": "boolean",
           "default": false,
           "description": "Enable branch session tools in the MCP server. When on, agents can create isolated git worktrees for parallel branch work via branch_session_start/end. When off (default), branch tools are hidden and Copilot's built-in session management is used instead."
+        },
+        "gitShellHelpers.branchSessions.orphanSafetyCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "On startup, scan for orphaned branch session worktrees with uncommitted changes and auto-commit them to prevent work loss. The worktree is then removed but the branch and commits are preserved."
         }
       }
     }
