@@ -35,14 +35,14 @@ This means the user never needs to know about worktrees, cache directories, or b
 
 ## MCP Tools (available when enabled)
 
-| Tool                   | Purpose                                                                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `branch_session_start` | Create a git worktree and check out the branch in the workspace. The workspace root is your working directory. |
-| `branch_session_end`   | Commit outstanding changes and remove the worktree. Branch and commits persist for later merge. Unbinds from the chat session.       |
-| `branch_status`        | List all active worktrees, their branches, dirty/clean state, and recent commits.                                                    |
-| `branch_read_file`     | Read a file from any branch without checkout (useful for cross-branch comparison).                                                   |
-| `workspace_context`    | Get workspace roots, current branches, worktree status, remotes, AND active branch sessions.                                         |
-| `checkpoint`           | Commit changes. No special args needed — the workspace is already on the feature branch.                                              |
+| Tool                   | Purpose                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `branch_session_start` | Create a git worktree and check out the branch in the workspace. The workspace root is your working directory.                 |
+| `branch_session_end`   | Commit outstanding changes and remove the worktree. Branch and commits persist for later merge. Unbinds from the chat session. |
+| `branch_status`        | List all active worktrees, their branches, dirty/clean state, and recent commits.                                              |
+| `branch_read_file`     | Read a file from any branch without checkout (useful for cross-branch comparison).                                             |
+| `workspace_context`    | Get workspace roots, current branches, worktree status, remotes, AND active branch sessions.                                   |
+| `checkpoint`           | Commit changes. No special args needed — the workspace is already on the feature branch.                                       |
 
 ## Workflow: Isolated Branch Work
 
