@@ -178,6 +178,118 @@ module.exports = function createWorktreeManager(deps) {
     } catch {}
   }
 
+  let _originalBranch = null; // baseline branch before session focus
+  let _stashRef = null; // stash entry created on focus
+
+  // ------- Main Repo Checkout (symbolic-ref) -------
+  //
+  // git symbolic-ref bypasses the worktree checkout restriction — it updates
+  // HEAD directly without the safety check that prevents checking out a branch
+  // already used by a worktree. Combined with git reset --hard, this gives us
+  // a real checkout of the worktree's branch in the main repo, so the user
+  // sees the same files the agent is working on.
+  //
+  // The worktree continues to work independently on the same branch — commits
+  // in the worktree advance the shared branch ref. A subsequent reset --hard
+  // in the main repo pulls in those commits instantly.
+
+  function _checkoutBranchViaSymref(repoRoot, branch) {
+    try {
+      execFileSync("git", ["symbolic-ref", "HEAD", `refs/heads/${branch}`], {
+        cwd: repoRoot,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      execFileSync("git", ["reset", "--hard", "HEAD"], {
+        cwd: repoRoot,
+        timeout: 10000,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      return true;
+    } catch (err) {
+      _writeWorktreeDebug(
+        `symref checkout failed for ${branch}: ${err.message?.split("\n")[0] || err}`,
+      );
+      return false;
+    }
+  }
+
+  function _stashMainRepo(repoRoot) {
+    try {
+      const status = execFileSync("git", ["status", "--porcelain"], {
+        cwd: repoRoot,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+        .toString()
+        .trim();
+      if (!status) return null;
+      execFileSync(
+        "git",
+        ["stash", "push", "-m", "gsh-session-focus: auto-stash"],
+        { cwd: repoRoot, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
+      );
+      const ref = execFileSync("git", ["stash", "list", "-1", "--format=%H"], {
+        cwd: repoRoot,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+        .toString()
+        .trim();
+      _writeWorktreeDebug(`stashed main repo: ${ref}`);
+      return ref;
+    } catch (err) {
+      _writeWorktreeDebug(
+        `stash failed: ${err.message?.split("\n")[0] || err}`,
+      );
+      return null;
+    }
+  }
+
+  function _popStash(repoRoot, expectedRef) {
+    if (!expectedRef) return;
+    try {
+      const topRef = execFileSync(
+        "git",
+        ["stash", "list", "-1", "--format=%H"],
+        {
+          cwd: repoRoot,
+          timeout: 5000,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      )
+        .toString()
+        .trim();
+      if (topRef === expectedRef) {
+        execFileSync("git", ["stash", "pop"], {
+          cwd: repoRoot,
+          timeout: 10000,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        _writeWorktreeDebug(`popped stash: ${expectedRef}`);
+      } else {
+        _writeWorktreeDebug(
+          `stash mismatch: top=${topRef} expected=${expectedRef}, skipping pop`,
+        );
+      }
+    } catch (err) {
+      _writeWorktreeDebug(
+        `stash pop failed: ${err.message?.split("\n")[0] || err}`,
+      );
+    }
+  }
+
+  function _refreshMainRepo(repoRoot) {
+    try {
+      execFileSync("git", ["reset", "--hard", "HEAD"], {
+        cwd: repoRoot,
+        timeout: 10000,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch {}
+    _triggerGitRefresh();
+  }
+
   // ------- Focus -------
 
   function _focusWorktreeFolder(worktreePath) {
@@ -189,16 +301,19 @@ module.exports = function createWorktreeManager(deps) {
     const targetBranch = binding?.branch;
 
     if (mainRepo && targetBranch) {
-      const overridePath = path.join(mainRepo, ".git", "gsh-head-override");
-      let currentOverride = null;
-      try {
-        currentOverride = fs.readFileSync(overridePath, "utf8").trim();
-      } catch {}
+      // If this is the first focus (from baseline), save the original branch and stash
+      if (!_originalBranch) {
+        _originalBranch = _gitCurrentBranch(mainRepo);
+        _stashRef = _stashMainRepo(mainRepo);
+        _writeWorktreeDebug(
+          `saved baseline: branch=${_originalBranch} stash=${_stashRef || "none"}`,
+        );
+      }
 
-      if (currentOverride !== targetBranch) {
-        _writeHeadOverride(mainRepo, targetBranch);
+      const ok = _checkoutBranchViaSymref(mainRepo, targetBranch);
+      if (ok) {
         _triggerGitRefresh();
-        _writeWorktreeDebug(`wrote gsh-head-override: ${targetBranch}`);
+        _writeWorktreeDebug(`checked out ${targetBranch} via symbolic-ref`);
       }
       _displayedBranch = targetBranch;
     }
@@ -218,12 +333,15 @@ module.exports = function createWorktreeManager(deps) {
     const prev = _activeWorktreeFolder;
     const mainRepo = _getMainRepoPath();
 
-    if (mainRepo) {
-      const removed = _removeHeadOverride(mainRepo);
-      if (removed) {
+    if (mainRepo && _originalBranch) {
+      const ok = _checkoutBranchViaSymref(mainRepo, _originalBranch);
+      if (ok) {
+        _popStash(mainRepo, _stashRef);
         _triggerGitRefresh();
-        _writeWorktreeDebug(`removed gsh-head-override`);
+        _writeWorktreeDebug(`restored baseline: ${_originalBranch}`);
       }
+      _originalBranch = null;
+      _stashRef = null;
       _displayedBranch = null;
     }
 
@@ -343,6 +461,15 @@ module.exports = function createWorktreeManager(deps) {
         `[worktree] IPC received: worktreeRemoved path=${msg.worktreePath}`,
       );
       _unbindWorktree(msg.worktreePath);
+    } else if (msg.type === "branchCommit") {
+      // Agent committed on a branch — refresh main repo if that branch is focused
+      const mainRepo = _getMainRepoPath();
+      if (mainRepo && _displayedBranch && _displayedBranch === msg.branch) {
+        _writeWorktreeDebug(
+          `IPC branchCommit: refreshing main repo for ${msg.branch} (${msg.commitHash})`,
+        );
+        _refreshMainRepo(mainRepo);
+      }
     }
   }
 
@@ -527,9 +654,11 @@ module.exports = function createWorktreeManager(deps) {
     const mainRepo = _getMainRepoPath();
     if (!mainRepo) return;
 
+    // Clean up any leftover head-override from previous sessions
+    _removeHeadOverride(mainRepo);
+
     if (_worktreeBindings.size === 0) {
-      _removeHeadOverride(mainRepo);
-      _writeWorktreeDebug("startup-restore: no bindings, cleaned override");
+      _writeWorktreeDebug("startup-restore: no bindings");
       return;
     }
 
@@ -570,9 +699,8 @@ module.exports = function createWorktreeManager(deps) {
       }
     }
 
-    _removeHeadOverride(mainRepo);
     _writeWorktreeDebug(
-      "startup-restore: no matching session, cleaned override",
+      "startup-restore: no matching session, ensuring baseline",
     );
   }
 

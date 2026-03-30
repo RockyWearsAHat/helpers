@@ -257,6 +257,21 @@ function notifyWorktreeRemoved(branch, worktreePath) {
   }
 }
 
+function notifyBranchCommit(branch, commitHash, cwd) {
+  connectActivityIpc();
+  const line =
+    JSON.stringify({ type: "branchCommit", branch, commitHash, cwd }) + "\n";
+  if (_activitySocket) {
+    try {
+      _activitySocket.write(line);
+    } catch {
+      _activitySocket = null;
+    }
+  } else if (_activityConnecting) {
+    _activityQueue.push(line);
+  }
+}
+
 // Attempt initial connection on startup
 connectActivityIpc();
 
@@ -463,7 +478,7 @@ if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
   const BRANCH_SESSION_START_TOOL = {
     name: "branch_session_start",
     description:
-      "Start an isolated branch session. Creates a git worktree so the agent can read and write files on a specific branch without affecting the main workspace checkout. Returns the absolute path to the worktree — use that path for all file operations, terminal commands, and checkpoint calls during this session. If the branch does not exist yet, it is created from the specified base (defaults to HEAD). If a worktree for this branch already exists, returns its path without recreating it.",
+      "Start an isolated branch session. Creates a git worktree so the agent can read and write files on a specific branch without affecting other agents' work. The extension automatically checks out the branch in the main workspace so the user sees files in real time. Returns the absolute path to the worktree — use that path for all file operations, terminal commands, and checkpoint calls during this session. If the branch does not exist yet, it is created from the specified base (defaults to HEAD). If a worktree for this branch already exists, returns its path without recreating it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -487,7 +502,7 @@ if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
   const BRANCH_SESSION_END_TOOL = {
     name: "branch_session_end",
     description:
-      "End an isolated branch session. Commits any uncommitted changes on the worktree branch (with an auto-generated message), then removes the worktree. By default the branch and its commits are preserved for later merge. Pass merge: true to automatically merge the feature branch into the current baseline with --no-ff and delete the feature branch. If merge conflicts occur, the merge is left IN PROGRESS with conflict markers in the workspace files — resolve them with normal file editing tools, then git add + git commit --no-edit. Pass discard: true to remove the worktree without committing (discards uncommitted changes).",
+      "End an isolated branch session. Commits any uncommitted changes on the worktree branch (with an auto-generated message), then removes the worktree. The extension restores the original branch in the main workspace. By default the branch and its commits are preserved for later merge. Pass merge: true to automatically merge the feature branch into the current baseline with --no-ff and delete the feature branch. If merge conflicts occur, the merge is left IN PROGRESS with conflict markers in the workspace files — resolve them with normal file editing tools, then git add + git commit --no-edit. Pass discard: true to remove the worktree without committing (discards uncommitted changes).",
     inputSchema: {
       type: "object",
       properties: {
@@ -1386,6 +1401,12 @@ async function handleCheckpoint(args) {
   const branchInfo = currentBranch
     ? ` on branch '${currentBranch}'`
     : " (detached HEAD)";
+
+  // Notify extension so it can refresh main repo display if this branch is focused
+  if (currentBranch) {
+    notifyBranchCommit(currentBranch, commitHash, cwd);
+  }
+
   return [
     {
       type: "text",

@@ -6,11 +6,11 @@ We modify **3 things** in VS Code to enable branch-per-chat (each Copilot Chat g
 
 ## At a Glance
 
-| # | What We Change | Where in VS Code Source | Lines Changed | How Applied |
-|---|---------------|------------------------|---------------|-------------|
-| 1 | **Skip folder-switch dialog** | [`src/vs/workbench/browser/workbench.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/browser/workbench.ts) → `enterWorkspace()` | 1 line | Bundle patch |
-| 2 | **Show worktree branch in status bar** | [`extensions/git/src/repository.ts`](https://github.com/microsoft/vscode/blob/main/extensions/git/src/repository.ts) → `get headLabel()` | 1 getter prefix | Bundle patch |
-| 3 | **Detect chat conversation switches** | [`vscode.proposed.chatParticipantPrivate.d.ts`](https://github.com/microsoft/vscode/blob/main/src/vscode-dts/vscode.proposed.chatParticipantPrivate.d.ts) → `onDidChangeActiveChatPanelSessionResource` | 0 (uses existing API) | Proposed API flag |
+| #   | What We Change                         | Where in VS Code Source                                                                                                                                                                                 | Lines Changed         | How Applied       |
+| --- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ----------------- |
+| 1   | **Skip folder-switch dialog**          | [`src/vs/workbench/browser/workbench.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/browser/workbench.ts) → `enterWorkspace()`                                                     | 1 line                | Bundle patch      |
+| 2   | **Show worktree branch in status bar** | [`extensions/git/src/repository.ts`](https://github.com/microsoft/vscode/blob/main/extensions/git/src/repository.ts) → `get headLabel()`                                                                | 1 getter prefix       | Bundle patch      |
+| 3   | **Detect chat conversation switches**  | [`vscode.proposed.chatParticipantPrivate.d.ts`](https://github.com/microsoft/vscode/blob/main/src/vscode-dts/vscode.proposed.chatParticipantPrivate.d.ts) → `onDidChangeActiveChatPanelSessionResource` | 0 (uses existing API) | Proposed API flag |
 
 ---
 
@@ -35,13 +35,13 @@ We modify **3 things** in VS Code to enable branch-per-chat (each Copilot Chat g
 
 **Proposed upstream fix**: Add `{ suppressConfirmation: true }` option to `updateWorkspaceFolders()`. See [`proposals/001`](proposals/001-suppress-folder-switch-dialog.md).
 
-| Detail | Value |
-|--------|-------|
-| Bundle patched | `workbench.desktop.main.js` |
-| Source file | `src/vs/workbench/browser/workbench.ts` |
-| Patch script | `scripts/patch-vscode-folder-switch.js` |
-| Restart needed | Full quit + reopen (Cmd+Q) |
-| Survives VS Code updates | No — must reapply |
+| Detail                   | Value                                   |
+| ------------------------ | --------------------------------------- |
+| Bundle patched           | `workbench.desktop.main.js`             |
+| Source file              | `src/vs/workbench/browser/workbench.ts` |
+| Patch script             | `scripts/patch-vscode-folder-switch.js` |
+| Restart needed           | Full quit + reopen (Cmd+Q)              |
+| Survives VS Code updates | No — must reapply                       |
 
 ---
 
@@ -74,17 +74,17 @@ Also hides the misleading "Sync" button when override is active (it would say "S
 
 **Proposed upstream fix**: Add `headLabelOverride` property to the Git Extension API. See [`proposals/002`](proposals/002-git-head-label-override.md).
 
-| Detail | Value |
-|--------|-------|
-| Bundle patched | `extensions/git/dist/main.js` |
-| Source file | `extensions/git/src/repository.ts` |
-| Patch script | `scripts/patch-vscode-git-head-display.js` |
-| Restart needed | Reload Window (Cmd+Shift+P → Reload) |
-| Survives VS Code updates | No — must reapply |
+| Detail                   | Value                                      |
+| ------------------------ | ------------------------------------------ |
+| Bundle patched           | `extensions/git/dist/main.js`              |
+| Source file              | `extensions/git/src/repository.ts`         |
+| Patch script             | `scripts/patch-vscode-git-head-display.js` |
+| Restart needed           | Reload Window (Cmd+Shift+P → Reload)       |
+| Survives VS Code updates | No — must reapply                          |
 
 ---
 
-## Change 3: Detect Chat Conversation Switches  
+## Change 3: Detect Chat Conversation Switches
 
 **Problem**: Extensions need to know when the user switches between Copilot Chat conversations (to swap branch context). There's no stable API for this.
 
@@ -99,6 +99,7 @@ vscode.window.onDidChangeActiveChatPanelSessionResource((sessionUri) => {
 ```
 
 **How it's enabled** (user setup, not a patch):
+
 1. `~/.vscode/argv.json` → `"enable-proposed-api": ["RockyWearsAHat.git-shell-helpers"]`
 2. `package.json` → `"enabledApiProposals": ["chatParticipantPrivate"]`
 
@@ -108,12 +109,12 @@ vscode.window.onDidChangeActiveChatPanelSessionResource((sessionUri) => {
 
 **Proposed upstream fix**: Promote to stable `vscode.window.onDidChangeActiveChatSession`. See [`proposals/003`](proposals/003-chat-session-focus-stable.md).
 
-| Detail | Value |
-|--------|-------|
-| Bundle patched | None |
-| Source file | `src/vscode-dts/vscode.proposed.chatParticipantPrivate.d.ts` |
-| Restart needed | Reload Window |
-| Survives VS Code updates | Yes (argv.json is user config) |
+| Detail                   | Value                                                        |
+| ------------------------ | ------------------------------------------------------------ |
+| Bundle patched           | None                                                         |
+| Source file              | `src/vscode-dts/vscode.proposed.chatParticipantPrivate.d.ts` |
+| Restart needed           | Reload Window                                                |
+| Survives VS Code updates | Yes (argv.json is user config)                               |
 
 ---
 
@@ -180,10 +181,10 @@ proposals/
 
 Each change has a corresponding proposal to land the feature natively in VS Code so our patches become unnecessary:
 
-| Change | Proposal | Target | Upstream References |
-|--------|----------|--------|-------------------|
-| 1. Folder switch | [`proposals/001`](proposals/001-suppress-folder-switch-dialog.md) | `microsoft/vscode` | [PR #292783](https://github.com/microsoft/vscode/pull/292783) by @bpasero |
-| 2. Branch label | [`proposals/002`](proposals/002-git-head-label-override.md) | `microsoft/vscode` (git ext) | [Issue #260706](https://github.com/microsoft/vscode/issues/260706) by @sbatten |
-| 3. Chat focus | [`proposals/003`](proposals/003-chat-session-focus-stable.md) | `microsoft/vscode` | [Issue #305853](https://github.com/microsoft/vscode/issues/305853) by @wycats |
+| Change           | Proposal                                                          | Target                       | Upstream References                                                            |
+| ---------------- | ----------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------ |
+| 1. Folder switch | [`proposals/001`](proposals/001-suppress-folder-switch-dialog.md) | `microsoft/vscode`           | [PR #292783](https://github.com/microsoft/vscode/pull/292783) by @bpasero      |
+| 2. Branch label  | [`proposals/002`](proposals/002-git-head-label-override.md)       | `microsoft/vscode` (git ext) | [Issue #260706](https://github.com/microsoft/vscode/issues/260706) by @sbatten |
+| 3. Chat focus    | [`proposals/003`](proposals/003-chat-session-focus-stable.md)     | `microsoft/vscode`           | [Issue #305853](https://github.com/microsoft/vscode/issues/305853) by @wycats  |
 
 Our code is designed to detect native APIs and stop using patches automatically. See [`proposals/OBSOLESCENCE-STRATEGY.md`](proposals/OBSOLESCENCE-STRATEGY.md).
