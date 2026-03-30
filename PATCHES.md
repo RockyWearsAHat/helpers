@@ -1,141 +1,189 @@
-# VS Code Patches & Proposed API Usage
+# VS Code Contributions
 
-Branch-per-chat navigation requires three non-standard VS Code integrations:
+We modify **3 things** in VS Code to enable branch-per-chat (each Copilot Chat gets its own git worktree). Two are bundle patches, one uses a proposed API.
 
-1. **Proposed API** (`chatParticipantPrivate`) — for chat session focus events. Enabled via `~/.vscode/argv.json`. No bundle patch needed.
-2. **Workbench patch** (folder-switch) — to suppress the workspace folder switch confirmation dialog. Applied to the workbench bundle.
-3. **Git extension patch** (git-head-display) — to support branch name display override via `.git/gsh-head-override`. Applied to the git extension bundle.
+---
 
-## Chat Session Focus: Proposed API
+## At a Glance
 
-VS Code already has `vscode.window.onDidChangeActiveChatPanelSessionResource` in the `chatParticipantPrivate` proposed API. This fires whenever the user switches between chat conversations — exactly what we need.
+| # | What We Change | Where in VS Code Source | Lines Changed | How Applied |
+|---|---------------|------------------------|---------------|-------------|
+| 1 | **Skip folder-switch dialog** | [`src/vs/workbench/browser/workbench.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/browser/workbench.ts) → `enterWorkspace()` | 1 line | Bundle patch |
+| 2 | **Show worktree branch in status bar** | [`extensions/git/src/repository.ts`](https://github.com/microsoft/vscode/blob/main/extensions/git/src/repository.ts) → `get headLabel()` | 1 getter prefix | Bundle patch |
+| 3 | **Detect chat conversation switches** | [`vscode.proposed.chatParticipantPrivate.d.ts`](https://github.com/microsoft/vscode/blob/main/src/vscode-dts/vscode.proposed.chatParticipantPrivate.d.ts) → `onDidChangeActiveChatPanelSessionResource` | 0 (uses existing API) | Proposed API flag |
 
-**How it's enabled:**
+---
 
-1. `~/.vscode/argv.json` includes `"enable-proposed-api": ["RockyWearsAHat.git-shell-helpers"]`
-2. `vscode-extension/package.json` includes `"enabledApiProposals": ["chatParticipantPrivate"]`
-3. The extension subscribes to the event in `activate()` and maps session URIs to worktree bindings.
+## Change 1: Skip Folder-Switch Dialog
 
-**Why not a bundle patch?** We originally patched the workbench to write session focus to a JSON file (`~/.cache/gsh/active-chat-session.json`), but the renderer is sandboxed — `import("fs")` silently fails. The proposed API routes through the extension host via `$acceptActiveChatSession` IPC, which is the correct architecture.
+**Problem**: When an extension calls `updateWorkspaceFolders()` to swap the open folder, VS Code shows a confirmation dialog. This blocks automated worktree switching.
 
-**Survives VS Code updates**: `argv.json` is user config, not part of the application bundle. The `enable-proposed-api` flag persists across updates.
+**What we change**: In `enterWorkspace()`, replace the dialog-gated `stopExtensionHosts()` with a direct `_doStopExtensionHosts()`. Extension hosts still restart normally — only the dialog is removed.
 
-**Upstream candidate**: Promote `onDidChangeActiveChatPanelSessionResource` to stable API so extensions don't need the proposed API flag.
+```diff
+  // workbench.desktop.main.js (minified) → source: workbench.ts
+  async enterWorkspace(workspace) {
+-   if (!await this.extensionService.stopExtensionHosts(reason)) return;
++   await this.extensionService._doStopExtensionHosts();
+    // ...extension hosts restart, workspace folder switches cleanly
+  }
+```
+
+**Why it's needed**: Branch-per-chat switches folders every time you click a different chat. A dialog on every switch defeats the purpose.
+
+**Prior art**: [@bpasero already did this](https://github.com/microsoft/vscode/pull/292783) for agent session windows (merged Feb 2026). We're asking for the same behavior as a public API option.
+
+**Proposed upstream fix**: Add `{ suppressConfirmation: true }` option to `updateWorkspaceFolders()`. See [`proposals/001`](proposals/001-suppress-folder-switch-dialog.md).
+
+| Detail | Value |
+|--------|-------|
+| Bundle patched | `workbench.desktop.main.js` |
+| Source file | `src/vs/workbench/browser/workbench.ts` |
+| Patch script | `scripts/patch-vscode-folder-switch.js` |
+| Restart needed | Full quit + reopen (Cmd+Q) |
+| Survives VS Code updates | No — must reapply |
+
+---
+
+## Change 2: Show Worktree Branch in Status Bar
+
+**Problem**: When a branch session is active, the status bar shows `dev` (the real HEAD) instead of `feature/my-work` (the worktree's branch). The only way to change it is `git checkout`, which is slow (~150ms), risks stash conflicts, and mutates the working tree.
+
+**What we change**: Prefix the `headLabel` getter with a file check. If `.git/gsh-head-override` exists, return its contents as the branch label. Everything else (git operations, status, diff) uses the real HEAD.
+
+```diff
+  // extensions/git/dist/main.js (minified) → source: repository.ts
+  get headLabel() {
++   // Display override — cosmetic only, no git state modified
++   try {
++     const override = fs.readFileSync(
++       path.join(this.repository.root, '.git', 'gsh-head-override'), 'utf8'
++     ).trim();
++     if (override) return override;
++   } catch {}
+    const e = this.HEAD;
+    return e ? (e.name || ...) : ...;
+  }
+```
+
+Also hides the misleading "Sync" button when override is active (it would say "Sync to origin/dev" while showing `feature/my-work`).
+
+**Why it's needed**: Instant branch display (~0.1ms file write) vs git checkout (~150ms + stash + lock contention). No working tree mutation. No stash conflicts.
+
+**Prior art**: [@sbatten requested better worktree distinction](https://github.com/microsoft/vscode/issues/260706) (Aug 2025). [@lszomoru is scaffolding the Git extension API](https://github.com/microsoft/vscode/pull/305643) (Mar 2026).
+
+**Proposed upstream fix**: Add `headLabelOverride` property to the Git Extension API. See [`proposals/002`](proposals/002-git-head-label-override.md).
+
+| Detail | Value |
+|--------|-------|
+| Bundle patched | `extensions/git/dist/main.js` |
+| Source file | `extensions/git/src/repository.ts` |
+| Patch script | `scripts/patch-vscode-git-head-display.js` |
+| Restart needed | Reload Window (Cmd+Shift+P → Reload) |
+| Survives VS Code updates | No — must reapply |
+
+---
+
+## Change 3: Detect Chat Conversation Switches  
+
+**Problem**: Extensions need to know when the user switches between Copilot Chat conversations (to swap branch context). There's no stable API for this.
+
+**What we use**: The `chatParticipantPrivate` proposed API provides `onDidChangeActiveChatPanelSessionResource` — exactly what we need. No bundle patch required.
+
+```typescript
+// Our extension subscribes to chat session focus changes:
+vscode.window.onDidChangeActiveChatPanelSessionResource((sessionUri) => {
+  // sessionUri identifies which chat conversation is now active
+  // → look up the worktree bound to this session → switch branch display
+});
+```
+
+**How it's enabled** (user setup, not a patch):
+1. `~/.vscode/argv.json` → `"enable-proposed-api": ["RockyWearsAHat.git-shell-helpers"]`
+2. `package.json` → `"enabledApiProposals": ["chatParticipantPrivate"]`
+
+**Why it's needed**: Chat panels don't fire tab-change events when switching conversations. Without this, we can't detect which chat the user is looking at.
+
+**Prior art**: Active chat session infrastructure work — [PR #304532](https://github.com/microsoft/vscode/pull/304532), [PR #305297](https://github.com/microsoft/vscode/pull/305297), [PR #305730](https://github.com/microsoft/vscode/pull/305730). [@wycats requested session exposure](https://github.com/microsoft/vscode/issues/305853) (Mar 2026).
+
+**Proposed upstream fix**: Promote to stable `vscode.window.onDidChangeActiveChatSession`. See [`proposals/003`](proposals/003-chat-session-focus-stable.md).
+
+| Detail | Value |
+|--------|-------|
+| Bundle patched | None |
+| Source file | `src/vscode-dts/vscode.proposed.chatParticipantPrivate.d.ts` |
+| Restart needed | Reload Window |
+| Survives VS Code updates | Yes (argv.json is user config) |
+
+---
+
+## How It All Fits Together
+
+```
+User switches chat conversations
+         │
+         ▼
+  ┌─────────────────────────┐
+  │ Change 3: Chat Focus    │  ← detects which chat is active
+  │ (proposed API)          │
+  └──────────┬──────────────┘
+             │
+             ▼
+  ┌─────────────────────────┐
+  │ Change 1: Folder Switch │  ← swaps workspace to worktree folder
+  │ (workbench patch)       │     (no confirmation dialog)
+  └──────────┬──────────────┘
+             │
+             ▼
+  ┌─────────────────────────┐
+  │ Change 2: Branch Label  │  ← shows "feature/my-work" in status bar
+  │ (git extension patch)   │     (no git checkout needed)
+  └─────────────────────────┘
+```
+
+---
 
 ## Patch Management
 
 ```bash
-node scripts/patch-vscode-apply-all.js --check    # check status of all patches
-node scripts/patch-vscode-apply-all.js             # apply all patches
-node scripts/patch-vscode-apply-all.js --revert    # revert all bundles to pristine
+node scripts/patch-vscode-apply-all.js --check   # show patch status
+node scripts/patch-vscode-apply-all.js            # apply all patches
+node scripts/patch-vscode-apply-all.js --revert   # restore original bundles
+node scripts/patch-vscode-apply-all.js --json     # status as JSON (for extension)
 ```
 
-**Restart requirements**:
+The extension checks patches on startup and offers to apply if missing.
 
-- **Workbench patches** (folder-switch): Quit and restart VS Code (Cmd+Q → reopen). Reload Window is NOT sufficient — Electron caches the workbench bundle.
-- **Git extension patches** (git-head-display): Reload Window is sufficient.
+When VS Code auto-updates, bundle patches are lost. The extension detects this and prompts reapplication. The proposed API (Change 3) is unaffected.
 
-The extension checks patch status on activation and offers to apply if missing.
+---
 
-## Workbench Patch: Folder Switch
-
-### What it changes (`patch-vscode-folder-switch.js`)
-
-**Type**: Requested behavior change
-**Upstream candidate**: Add `suppressDialogs` option to `updateWorkspaceFolders()`
-
-**Problem**: `updateWorkspaceFolders()` triggers a blocking confirmation dialog in `enterWorkspace()`. This prevents automated worktree switching.
-
-In `enterWorkspace()`, replaces:
+## File Map
 
 ```
-if (!await this.extensionService.stopExtensionHosts(reason)) return;
+scripts/
+├── patch-vscode-apply-all.js          # Coordinator: backup, apply, check, revert
+├── patch-vscode-folder-switch.js      # Change 1: folder switch patch definition
+└── patch-vscode-git-head-display.js   # Change 2: git head display patch definition
+
+proposals/
+├── README.md                          # Index of upstream proposals
+├── 001-suppress-folder-switch-dialog.md   # → microsoft/vscode PR proposal
+├── 002-git-head-label-override.md         # → microsoft/vscode PR proposal
+├── 003-chat-session-focus-stable.md       # → microsoft/vscode PR proposal
+└── OBSOLESCENCE-STRATEGY.md           # How patches auto-retire when upstream lands
 ```
 
-with:
-
-```
-await this.extensionService._doStopExtensionHosts();
-```
-
-Skips the veto/dialog chain. Extension hosts still restart cleanly.
-
-**Lines changed**: 1 line modified.
-
-## Git Extension Patch: Head Display Override
-
-### What it changes (`patch-vscode-git-head-display.js`)
-
-**Type**: Display-only hook — no git state is modified
-**Target**: `/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/git/dist/main.js`
-**Upstream candidate**: Add `headLabelOverride` to the Git Extension API
-
-**Problem**: When a branch session is active, we want the status bar to show the worktree's branch name (e.g. `feature/my-work`) even though the main repo's HEAD stays on `dev`. Previously this required `git checkout` + stash/detach, which was slow (~100ms+), risked stash conflicts, and mutated working tree state.
-
-**Solution**: Patch the `headLabel` getter to check for a `.git/gsh-head-override` file before reading the real `HEAD.name`. When present, its contents (trimmed) are returned as the branch label. All internal git operations (status, diff, index) continue to use the real HEAD.
-
-In `get headLabel()`, prepends:
-
-```javascript
-try {
-  let g = require("fs")
-    .readFileSync(
-      require("path").join(this.repository.root, ".git", "gsh-head-override"),
-      "utf8",
-    )
-    .trim();
-  if (g) return g;
-} catch {}
-```
-
-**How the extension uses it**:
-
-- **Focus**: Writes `feature/my-work\n` to `.git/gsh-head-override`, then triggers `repo.status()` to refresh the Git extension.
-- **Unfocus**: Deletes `.git/gsh-head-override`, triggers refresh. Status bar reverts to real branch.
-- **Crash recovery**: On activation, deletes any stale `.git/gsh-head-override` files.
-
-**Advantages over checkout/stash approach**:
-
-- **Instant**: Single file write (~0.1ms) vs git checkout (~100ms) + stash (~50ms)
-- **No stash conflicts**: Working tree and index are never touched
-- **No branch lock contention**: Worktree stays on its branch, main repo stays on dev
-- **Survives main branch progression**: `dev` can advance (new commits, merges) without any interaction with focus state
-
-**Activation**: Reload Window is sufficient (git extension runs in extension host, not cached by Electron like the workbench bundle).
-
-**Lines changed**: 1 getter augmented with a ~100-char prefix.
-
-## VS Code Update Behavior
-
-When VS Code auto-updates, both bundle patches are lost. The extension detects this and prompts re-application. The proposed API (argv.json) is unaffected by updates.
-
-## File Inventory
-
-| File                                        | Purpose                                           |
-| ------------------------------------------- | ------------------------------------------------- |
-| `scripts/patch-vscode-apply-all.js`         | Coordinator: backup, apply, check, revert         |
-| `scripts/patch-vscode-folder-switch.js`     | Folder switch patch definition                    |
-| `scripts/patch-vscode-git-head-display.js`  | Git extension head display patch definition       |
-| `proposals/`                                | Upstream PR proposals and obsolescence strategy   |
-| `PATCHES.md`                                | This document                                     |
-| `~/.vscode/argv.json`                       | Proposed API enablement (user-local, not in repo) |
+---
 
 ## Upstream Proposals
 
-See `proposals/` for PR-ready proposals to land these features in VS Code natively:
+Each change has a corresponding proposal to land the feature natively in VS Code so our patches become unnecessary:
 
-- **001**: `suppressConfirmation` option for `updateWorkspaceFolders()` — generalizes [PR #292783](https://github.com/microsoft/vscode/pull/292783)
-- **002**: `headLabelOverride` Git Extension API — addresses [Issue #260706](https://github.com/microsoft/vscode/issues/260706)
-- **003**: Promote `chatParticipantPrivate` session events to stable API
+| Change | Proposal | Target | Upstream References |
+|--------|----------|--------|-------------------|
+| 1. Folder switch | [`proposals/001`](proposals/001-suppress-folder-switch-dialog.md) | `microsoft/vscode` | [PR #292783](https://github.com/microsoft/vscode/pull/292783) by @bpasero |
+| 2. Branch label | [`proposals/002`](proposals/002-git-head-label-override.md) | `microsoft/vscode` (git ext) | [Issue #260706](https://github.com/microsoft/vscode/issues/260706) by @sbatten |
+| 3. Chat focus | [`proposals/003`](proposals/003-chat-session-focus-stable.md) | `microsoft/vscode` | [Issue #305853](https://github.com/microsoft/vscode/issues/305853) by @wycats |
 
-See `proposals/OBSOLESCENCE-STRATEGY.md` for how our patches gracefully degrade as upstream features land.
-
-## Backup
-
-A single pristine (pre-any-patch) backup is maintained at:
-
-```
-/Applications/Visual Studio Code.app/.../workbench.desktop.main.js.pristine
-```
-
-Legacy per-patch backup files (`.bak`, `.folder-switch.bak`) are cleaned up automatically.
+Our code is designed to detect native APIs and stop using patches automatically. See [`proposals/OBSOLESCENCE-STRATEGY.md`](proposals/OBSOLESCENCE-STRATEGY.md).
