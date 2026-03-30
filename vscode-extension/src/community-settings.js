@@ -47,9 +47,8 @@ module.exports = function createCommunitySettings(deps) {
   function findLocalCommunityCloneFolder() {
     const folders = vscode.workspace.workspaceFolders || [];
     return (
-      folders.find((folder) =>
-        fs.existsSync(workspaceManifestPath(folder)),
-      ) || null
+      folders.find((folder) => fs.existsSync(workspaceManifestPath(folder))) ||
+      null
     );
   }
 

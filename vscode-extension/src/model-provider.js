@@ -296,12 +296,7 @@ module.exports = function createModelProvider(deps) {
       for (const { setting, gitKey } of keys) {
         const value = config.get(setting);
         if (value !== undefined) {
-          execFile(
-            "git",
-            ["config", gitKey, String(value)],
-            { cwd },
-            () => {},
-          );
+          execFile("git", ["config", gitKey, String(value)], { cwd }, () => {});
         }
       }
     }

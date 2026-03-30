@@ -313,8 +313,7 @@ module.exports = function createChatSessions(deps) {
     const fileStaleMs = Date.now() - fileMtimeMs;
     const forceCompleted = fileStaleMs > 300000;
 
-    const { active: rawActive, lastRequestIdx } =
-      _chatSessionParseState(tail);
+    const { active: rawActive, lastRequestIdx } = _chatSessionParseState(tail);
     const isActive = rawActive && !forceCompleted;
     const title = _chatSessionReadTitle(filePath, existing?.title);
 
