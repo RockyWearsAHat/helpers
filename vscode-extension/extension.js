@@ -3111,16 +3111,19 @@ function _getActiveChatTabKey() {
   return null;
 }
 
-// Find a recently created worktree with no tab binding.  Used as a lazy fallback
-// when a chat tab activates but the tab URI wasn't captured at creation time.
-function _findRecentUnboundWorktree() {
+// Find a worktree with no tab binding.  Used as a lazy fallback when a chat
+// tab activates but the tab URI wasn't captured at creation time.
+// maxAgeMs limits the window for tab-change contexts (where false positives
+// are likely).  Session-focus calls pass Infinity to match ANY unbound worktree
+// because the session URI is a reliable identifier — if it's unrecognized AND
+// an unbound worktree exists, the user almost certainly switched to that chat.
+function _findUnboundWorktree(maxAgeMs) {
+  if (maxAgeMs === undefined) maxAgeMs = 120000;
   const now = Date.now();
   const boundPaths = new Set(_tabToWorktree.values());
   for (const [wtPath, binding] of _worktreeBindings) {
     if (boundPaths.has(wtPath)) continue;
-    // 120s window — the proposed API's first event can arrive 30-60s+ after
-    // worktree creation depending on when the user interacts with the chat panel.
-    if (now - (binding.createdAt || 0) < 120000 && fs.existsSync(wtPath)) {
+    if (now - (binding.createdAt || 0) < maxAgeMs && fs.existsSync(wtPath)) {
       return wtPath;
     }
   }
@@ -3174,8 +3177,19 @@ function _bindWorktree(worktreePath, branch, baseBranch, baseCommit, tabKey) {
   }
 
   if (tabKey) {
-    _tabToWorktree.set(tabKey, worktreePath);
-    saveTabWorktreeMap();
+    // If this session URI already maps to a DIFFERENT worktree, don't overwrite.
+    // This happens when multiple branch sessions are started from the same chat.
+    // The first binding is correct (matches the creating chat); the second
+    // worktree will be lazily bound when the user switches to its own chat.
+    const existing = _tabToWorktree.get(tabKey);
+    if (existing && existing !== worktreePath && _worktreeBindings.has(existing)) {
+      _writeWorktreeDebug(
+        `bindWorktree: tabKey ${tabKey.slice(-12)} already bound to ${path.basename(existing)}, leaving ${path.basename(worktreePath)} unbound (lazy)`,
+      );
+    } else {
+      _tabToWorktree.set(tabKey, worktreePath);
+      saveTabWorktreeMap();
+    }
   }
 
   getDiagnosticsOutputChannel().appendLine(
@@ -3869,7 +3883,7 @@ function _onActiveTabChanged() {
 
     // Lazy binding: if still no worktree, check for recent unbound ones
     if (!worktreePath) {
-      worktreePath = _findRecentUnboundWorktree();
+      worktreePath = _findUnboundWorktree(120000);
       if (worktreePath) {
         _tabToWorktree.set(tabKey, worktreePath);
         saveTabWorktreeMap();
@@ -4019,8 +4033,11 @@ function _onChatSessionFocusChanged(sessionResource) {
       return;
     }
 
-    // Try lazy binding — session might be for a recently created unbound worktree
-    const unbound = _findRecentUnboundWorktree();
+    // Try lazy binding — session might be for an unbound worktree.
+    // No time limit here: session URI is a reliable identifier — if it's
+    // unrecognized and an unbound worktree exists, the user switched to
+    // the chat that created it (even if that was minutes/hours ago).
+    const unbound = _findUnboundWorktree(Infinity);
     if (unbound) {
       _tabToWorktree.set(sessionUri, unbound);
       if (tabKey) _tabToWorktree.set(tabKey, unbound);
