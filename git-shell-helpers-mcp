@@ -787,7 +787,7 @@ async function handleBranchSessionEnd(args) {
   }
 
   let commitInfo = "";
-  if (dirty && !discard) {
+  if (dirty && !discard && !nukeChanges) {
     // Auto-commit uncommitted changes
     try {
       await execGit(["add", "-A"], commitCwd);
@@ -803,7 +803,7 @@ async function handleBranchSessionEnd(args) {
     } catch (err) {
       commitInfo = `Warning: could not auto-commit: ${err.message}`;
     }
-  } else if (dirty && discard) {
+  } else if (dirty && (discard || nukeChanges)) {
     commitInfo = `Discarded uncommitted changes on '${branch}'.`;
   }
 
