@@ -64,9 +64,7 @@ module.exports = function createActivityTracker(deps) {
           id: `chat-${sess.sessionId}`,
           type: "session-active",
           label: sess.title,
-          elapsed: Math.floor(
-            (now - (sess.activeAt || sess.startedAt)) / 1000,
-          ),
+          elapsed: Math.floor((now - (sess.activeAt || sess.startedAt)) / 1000),
           startedAt: sess.activeAt || sess.startedAt,
           preview: sess.preview || "Working\u2026",
           sessionId: sess.sessionId,

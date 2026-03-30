@@ -230,20 +230,12 @@ module.exports = function createWorktreeManager(deps) {
     _activeWorktreeFolder = null;
     _worktreeFileProvider?.refresh();
     _writeWorktreeDebug(`UNFOCUSED worktree: ${prev}`);
-    getDiagnosticsOutputChannel().appendLine(
-      `[worktree] Unfocused: ${prev}`,
-    );
+    getDiagnosticsOutputChannel().appendLine(`[worktree] Unfocused: ${prev}`);
   }
 
   // ------- Binding -------
 
-  function _bindWorktree(
-    worktreePath,
-    branch,
-    baseBranch,
-    baseCommit,
-    tabKey,
-  ) {
+  function _bindWorktree(worktreePath, branch, baseBranch, baseCommit, tabKey) {
     if (!fs.existsSync(worktreePath)) return;
 
     _worktreeBindings.set(worktreePath, {
@@ -386,12 +378,7 @@ module.exports = function createWorktreeManager(deps) {
       .get("orphanSafetyCommit", true);
     if (!enabled) return;
 
-    const worktreeBase = path.join(
-      os.homedir(),
-      ".cache",
-      "gsh",
-      "worktrees",
-    );
+    const worktreeBase = path.join(os.homedir(), ".cache", "gsh", "worktrees");
     if (!fs.existsSync(worktreeBase)) return;
 
     let entries;
@@ -593,12 +580,7 @@ module.exports = function createWorktreeManager(deps) {
     const folders = vscode.workspace.workspaceFolders || [];
     if (folders.length <= 1) return;
 
-    const worktreeBase = path.join(
-      os.homedir(),
-      ".cache",
-      "gsh",
-      "worktrees",
-    );
+    const worktreeBase = path.join(os.homedir(), ".cache", "gsh", "worktrees");
     const keep = folders.filter(
       (f) => f.index === 0 || !f.uri.fsPath.startsWith(worktreeBase),
     );
@@ -700,8 +682,7 @@ module.exports = function createWorktreeManager(deps) {
     const updateTitle = () => {
       if (_activeWorktreeFolder) {
         const binding = _worktreeBindings.get(_activeWorktreeFolder);
-        const branch =
-          binding?.branch || path.basename(_activeWorktreeFolder);
+        const branch = binding?.branch || path.basename(_activeWorktreeFolder);
         treeView.title = `\u{1F33F} ${branch}`;
       } else {
         treeView.title = "Branch Files";

@@ -6,10 +6,7 @@ const net = require("net");
 const os = require("os");
 const path = require("path");
 
-const STRICT_LINT_SOCKET_PATH = path.join(
-  os.tmpdir(),
-  "gsh-strict-lint.sock",
-);
+const STRICT_LINT_SOCKET_PATH = path.join(os.tmpdir(), "gsh-strict-lint.sock");
 const STRICT_LINT_IPC_INFO_PATH = path.join(
   os.homedir(),
   ".cache",
@@ -99,9 +96,7 @@ module.exports = function createIpcServers(deps) {
               request.arguments || {},
             );
             try {
-              const result = await runStrictLinting(
-                request.arguments || {},
-              );
+              const result = await runStrictLinting(request.arguments || {});
               socket.write(JSON.stringify({ ok: true, result }) + "\n");
             } finally {
               endToolCall(callId);
