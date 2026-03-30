@@ -487,7 +487,7 @@ if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
   const BRANCH_SESSION_END_TOOL = {
     name: "branch_session_end",
     description:
-      "End an isolated branch session. Commits any uncommitted changes on the worktree branch (with an auto-generated message), then removes the worktree. By default the branch and its commits are preserved for later merge. Pass merge: true to automatically merge the feature branch into the current baseline with --no-ff and delete the feature branch. If merge conflicts occur, the merge is aborted and conflict details are reported. Pass discard: true to remove the worktree without committing (discards uncommitted changes).",
+      "End an isolated branch session. Commits any uncommitted changes on the worktree branch (with an auto-generated message), then removes the worktree. By default the branch and its commits are preserved for later merge. Pass merge: true to automatically merge the feature branch into the current baseline with --no-ff and delete the feature branch. If merge conflicts occur, the merge is left IN PROGRESS with conflict markers in the workspace files — resolve them with normal file editing tools, then git add + git commit --no-edit. Pass discard: true to remove the worktree without committing (discards uncommitted changes).",
     inputSchema: {
       type: "object",
       properties: {
@@ -498,7 +498,7 @@ if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
         merge: {
           type: "boolean",
           description:
-            "If true, merge the feature branch into the main repo's current branch (usually the baseline) with --no-ff after removing the worktree, then delete the feature branch. On conflict, the merge is aborted and conflict details are returned. Default: false.",
+            "If true, merge the feature branch into the main repo's current branch (usually the baseline) with --no-ff after removing the worktree, then delete the feature branch. On conflict, the merge is left in progress with conflict markers in the workspace files. Default: false.",
         },
         discard: {
           type: "boolean",
@@ -843,7 +843,10 @@ async function handleBranchSessionEnd(args) {
           mergeInfo += ` Warning: could not delete branch: ${delErr.message}`;
         }
       } catch (mergeErr) {
-        // Merge had conflicts — try auto-resolving (accept feature branch version)
+        // Merge had conflicts — leave the merge IN PROGRESS so conflict
+        // markers are visible in the workspace files.  The agent resolves
+        // them with its normal read_file / replace_string_in_file tools,
+        // then runs `git add` + `git commit` to complete the merge.
         let conflictFiles = "";
         try {
           conflictFiles = await execGit(
@@ -856,61 +859,30 @@ async function handleBranchSessionEnd(args) {
 
         if (conflictFiles) {
           const files = conflictFiles.split("\n").filter(Boolean);
-          let resolved = 0;
-          for (const file of files) {
-            try {
-              await execGit(["checkout", "--theirs", "--", file], toplevel);
-              await execGit(["add", "--", file], toplevel);
-              resolved++;
-            } catch {
-              // Could not resolve this file
-            }
-          }
+          const filePaths = files.map((f) => path.join(toplevel, f));
 
-          if (resolved === files.length) {
-            // All conflicts resolved — complete the merge
-            try {
-              await execGit(["commit", "--no-edit"], toplevel);
-              mergeInfo = [
-                `Merged '${branch}' into ${currentBranch} (--no-ff).`,
-                `Auto-resolved ${resolved} conflicting file(s) by accepting the feature branch version.`,
-                `Resolved: ${files.join(", ")}`,
-              ].join("\n");
-              try {
-                await execGit(["branch", "-d", branch], toplevel);
-                branchDeleted = true;
-                mergeInfo += `\nBranch '${branch}' deleted.`;
-              } catch (delErr) {
-                mergeInfo += `\nWarning: could not delete branch: ${delErr.message}`;
-              }
-            } catch {
-              try {
-                await execGit(["merge", "--abort"], toplevel);
-              } catch {}
-              mergeInfo = [
-                `Merge conflict: auto-resolve succeeded but commit failed.`,
-                `Conflicting files: ${files.join(", ")}`,
-                `The merge was aborted. Branch '${branch}' is preserved — resolve manually.`,
-              ].join("\n");
-            }
-          } else {
-            // Partial resolution — too risky, abort
-            try {
-              await execGit(["merge", "--abort"], toplevel);
-            } catch {}
-            mergeInfo = [
-              `Merge conflict: could not auto-resolve all files in '${branch}' → ${currentBranch}.`,
-              `Conflicting files: ${files.join(", ")}`,
-              `Resolved ${resolved}/${files.length}. The merge was aborted — branch '${branch}' is preserved.`,
-            ].join("\n");
-          }
+          mergeInfo = [
+            `Merge conflict: ${files.length} file(s) conflict when merging '${branch}' into ${currentBranch}.`,
+            `The merge is IN PROGRESS — conflict markers are in these files:`,
+            ``,
+            ...filePaths.map((p) => `  ${p}`),
+            ``,
+            `To resolve:`,
+            `1. Open each file above — look for <<<<<<< / ======= / >>>>>>> markers`,
+            `2. Edit the files to keep the correct content (remove the markers)`,
+            `3. Run: git add <file> for each resolved file`,
+            `4. Run: git commit --no-edit to complete the merge`,
+            `5. Then delete the branch: git branch -d ${branch}`,
+            ``,
+            `To abort instead: git merge --abort`,
+          ].join("\n");
         } else {
-          // No conflict list available — abort
+          // Can't determine conflicts — abort to be safe
           try {
             await execGit(["merge", "--abort"], toplevel);
           } catch {}
           mergeInfo = [
-            `Merge conflict: could not merge '${branch}' into ${currentBranch}.`,
+            `Merge failed when merging '${branch}' into ${currentBranch}.`,
             `The merge was aborted. Branch '${branch}' is preserved — resolve manually.`,
           ].join("\n");
         }
