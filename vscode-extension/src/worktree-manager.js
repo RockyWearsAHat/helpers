@@ -348,11 +348,17 @@ module.exports = function createWorktreeManager(deps) {
         if (dirty) {
           execFileSync(
             "git",
-            ["stash", "push", "-m", "gsh-session-unfocus: saving branch work"],
+            [
+              "stash",
+              "push",
+              "--include-untracked",
+              "-m",
+              "gsh-session-unfocus: saving branch work",
+            ],
             { cwd: mainRepo, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
           );
           _writeWorktreeDebug(
-            `stashed session branch work before unfocus (${dirty.split("\n").length} file(s))`,
+            `stashed session branch work before unfocus (${dirty.split("\n").length} file(s), incl untracked)`,
           );
         }
       } catch (err) {
