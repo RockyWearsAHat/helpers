@@ -594,7 +594,10 @@ async function handleBranchSessionStart(args, activityId) {
       );
       let existingCommit = "";
       try {
-        existingCommit = await execGit(["rev-parse", "--short", "HEAD"], wtPath);
+        existingCommit = await execGit(
+          ["rev-parse", "--short", "HEAD"],
+          wtPath,
+        );
       } catch {}
       const status = await execGit(["status", "--short"], wtPath);
       return [
@@ -711,7 +714,9 @@ async function handleBranchSessionStart(args, activityId) {
         `Use this path for all file operations and terminal commands.`,
         `When done, call branch_session_end to commit and clean up.`,
         `Pass merge: true to auto-merge into the baseline when ending.`,
-      ].filter(Boolean).join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
     },
   ];
 }
@@ -819,7 +824,13 @@ async function handleBranchSessionEnd(args) {
       );
       try {
         await execGit(
-          ["merge", "--no-ff", branch, "-m", `Merge '${branch}' into ${currentBranch}`],
+          [
+            "merge",
+            "--no-ff",
+            branch,
+            "-m",
+            `Merge '${branch}' into ${currentBranch}`,
+          ],
           toplevel,
         );
         mergeInfo = `Merged '${branch}' into ${currentBranch} (--no-ff).`;
@@ -835,7 +846,10 @@ async function handleBranchSessionEnd(args) {
         // Merge had conflicts — try auto-resolving (accept feature branch version)
         let conflictFiles = "";
         try {
-          conflictFiles = await execGit(["diff", "--name-only", "--diff-filter=U"], toplevel);
+          conflictFiles = await execGit(
+            ["diff", "--name-only", "--diff-filter=U"],
+            toplevel,
+          );
         } catch {
           // ignore
         }
@@ -870,7 +884,9 @@ async function handleBranchSessionEnd(args) {
                 mergeInfo += `\nWarning: could not delete branch: ${delErr.message}`;
               }
             } catch {
-              try { await execGit(["merge", "--abort"], toplevel); } catch {}
+              try {
+                await execGit(["merge", "--abort"], toplevel);
+              } catch {}
               mergeInfo = [
                 `Merge conflict: auto-resolve succeeded but commit failed.`,
                 `Conflicting files: ${files.join(", ")}`,
@@ -879,7 +895,9 @@ async function handleBranchSessionEnd(args) {
             }
           } else {
             // Partial resolution — too risky, abort
-            try { await execGit(["merge", "--abort"], toplevel); } catch {}
+            try {
+              await execGit(["merge", "--abort"], toplevel);
+            } catch {}
             mergeInfo = [
               `Merge conflict: could not auto-resolve all files in '${branch}' → ${currentBranch}.`,
               `Conflicting files: ${files.join(", ")}`,
@@ -888,7 +906,9 @@ async function handleBranchSessionEnd(args) {
           }
         } else {
           // No conflict list available — abort
-          try { await execGit(["merge", "--abort"], toplevel); } catch {}
+          try {
+            await execGit(["merge", "--abort"], toplevel);
+          } catch {}
           mergeInfo = [
             `Merge conflict: could not merge '${branch}' into ${currentBranch}.`,
             `The merge was aborted. Branch '${branch}' is preserved — resolve manually.`,

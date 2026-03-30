@@ -3367,7 +3367,9 @@ function _rescueOrphanedWorktrees() {
         cwd: wtPath,
         timeout: 5000,
         stdio: ["pipe", "pipe", "pipe"],
-      }).toString().trim();
+      })
+        .toString()
+        .trim();
     } catch {
       branch = entry; // fallback to directory name
     }
@@ -3379,7 +3381,9 @@ function _rescueOrphanedWorktrees() {
         cwd: wtPath,
         timeout: 5000,
         stdio: ["pipe", "pipe", "pipe"],
-      }).toString().trim();
+      })
+        .toString()
+        .trim();
     } catch {
       // ignore
     }
@@ -3394,12 +3398,20 @@ function _rescueOrphanedWorktrees() {
         });
         execFileSync(
           "git",
-          ["commit", "-m", `WIP: rescued uncommitted work from orphaned session on '${branch}'`],
+          [
+            "commit",
+            "-m",
+            `WIP: rescued uncommitted work from orphaned session on '${branch}'`,
+          ],
           { cwd: wtPath, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
         );
-        diag.appendLine(`[worktree] Rescued dirty work on orphan branch '${branch}'`);
+        diag.appendLine(
+          `[worktree] Rescued dirty work on orphan branch '${branch}'`,
+        );
       } catch (err) {
-        diag.appendLine(`[worktree] Could not auto-commit orphan '${branch}': ${err.message}`);
+        diag.appendLine(
+          `[worktree] Could not auto-commit orphan '${branch}': ${err.message}`,
+        );
       }
     }
 
@@ -3410,7 +3422,9 @@ function _rescueOrphanedWorktrees() {
         cwd: wtPath,
         timeout: 5000,
         stdio: ["pipe", "pipe", "pipe"],
-      }).toString().trim();
+      })
+        .toString()
+        .trim();
     } catch {
       // ignore
     }
@@ -3425,7 +3439,9 @@ function _rescueOrphanedWorktrees() {
         });
       } catch {
         // Fallback: filesystem removal + prune
-        try { fs.rmSync(wtPath, { recursive: true, force: true }); } catch {}
+        try {
+          fs.rmSync(wtPath, { recursive: true, force: true });
+        } catch {}
         try {
           execFileSync("git", ["worktree", "prune"], {
             cwd: repoRoot,
@@ -3435,7 +3451,9 @@ function _rescueOrphanedWorktrees() {
         } catch {}
       }
     } else {
-      try { fs.rmSync(wtPath, { recursive: true, force: true }); } catch {}
+      try {
+        fs.rmSync(wtPath, { recursive: true, force: true });
+      } catch {}
     }
 
     diag.appendLine(
