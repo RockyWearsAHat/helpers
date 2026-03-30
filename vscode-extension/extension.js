@@ -3359,6 +3359,7 @@ function _restoreSessionStateOnStartup() {
 
   if (_worktreeBindings.size === 0) {
     _removeHeadOverride(mainRepo);
+    _hideRepoNameStatusBar();
     _writeWorktreeDebug("startup-restore: no bindings, cleaned override");
     return;
   }
@@ -3415,6 +3416,7 @@ function _restoreSessionStateOnStartup() {
 
   // No active session matches a binding — clean up stale override
   _removeHeadOverride(mainRepo);
+  _hideRepoNameStatusBar();
   _writeWorktreeDebug("startup-restore: no matching session, cleaned override");
 }
 
