@@ -3929,6 +3929,10 @@ function _onActiveTabChanged() {
 //   git-head-display  — supports branch name display override via
 //                       .git/gsh-head-override (git extension — Reload Window)
 //
+// See PATCHES.md and proposals/ for upstream PR proposals and obsolescence
+// strategy.  These patches are designed to become unnecessary as upstream
+// features land — see proposals/OBSOLESCENCE-STRATEGY.md.
+//
 // Chat session tracking uses the proposed API (chatParticipantPrivate) which
 // is enabled via ~/.vscode/argv.json "enable-proposed-api" — no patch needed.
 // ---------------------------------------------------------------------------

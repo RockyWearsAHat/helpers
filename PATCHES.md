@@ -111,12 +111,24 @@ When VS Code auto-updates, both bundle patches are lost. The extension detects t
 
 ## File Inventory
 
-| File                                    | Purpose                                           |
-| --------------------------------------- | ------------------------------------------------- |
-| `scripts/patch-vscode-apply-all.js`     | Coordinator: backup, apply, check, revert         |
-| `scripts/patch-vscode-folder-switch.js` | Folder switch patch definition                    |
-| `PATCHES.md`                            | This document                                     |
-| `~/.vscode/argv.json`                   | Proposed API enablement (user-local, not in repo) |
+| File                                        | Purpose                                           |
+| ------------------------------------------- | ------------------------------------------------- |
+| `scripts/patch-vscode-apply-all.js`         | Coordinator: backup, apply, check, revert         |
+| `scripts/patch-vscode-folder-switch.js`     | Folder switch patch definition                    |
+| `scripts/patch-vscode-git-head-display.js`  | Git extension head display patch definition       |
+| `proposals/`                                | Upstream PR proposals and obsolescence strategy   |
+| `PATCHES.md`                                | This document                                     |
+| `~/.vscode/argv.json`                       | Proposed API enablement (user-local, not in repo) |
+
+## Upstream Proposals
+
+See `proposals/` for PR-ready proposals to land these features in VS Code natively:
+
+- **001**: `suppressConfirmation` option for `updateWorkspaceFolders()` — generalizes [PR #292783](https://github.com/microsoft/vscode/pull/292783)
+- **002**: `headLabelOverride` Git Extension API — addresses [Issue #260706](https://github.com/microsoft/vscode/issues/260706)
+- **003**: Promote `chatParticipantPrivate` session events to stable API
+
+See `proposals/OBSOLESCENCE-STRATEGY.md` for how our patches gracefully degrade as upstream features land.
 
 ## Backup
 
