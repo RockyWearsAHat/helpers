@@ -520,6 +520,11 @@ if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
           description:
             "If true, remove the worktree without committing uncommitted changes. Default: false.",
         },
+        nukeChanges: {
+          type: "boolean",
+          description:
+            "⚠️ DESTRUCTIVE — IRREVERSIBLE. Removes the worktree AND force-deletes the branch, permanently destroying ALL commits on that branch. Every commit, every file change, every piece of work on the branch is gone forever with NO recovery path. This is a full wipe — the branch ceases to exist entirely. ONLY use this when the user has EXPLICITLY asked to delete/destroy/trash/nuke the branch and all its history. If the user said anything else — 'close', 'end', 'stop', 'park', 'save for later' — do NOT use this. When in doubt, do NOT set this flag. Default: false.",
+        },
       },
       required: ["branch"],
     },
@@ -736,7 +741,7 @@ async function handleBranchSessionStart(args, activityId) {
 }
 
 async function handleBranchSessionEnd(args) {
-  const { branch, discard, merge } = args;
+  const { branch, discard, merge, nukeChanges } = args;
   if (!branch) throw new Error("branch is required");
 
   const toplevel = await resolveRepoRoot();
@@ -846,6 +851,32 @@ async function handleBranchSessionEnd(args) {
     }
   } catch {
     // Non-fatal
+  }
+
+  // --- Nuke: force-delete the branch entirely ---
+  if (nukeChanges) {
+    let nukeResult = "";
+    try {
+      await execGit(["branch", "-D", branch], toplevel);
+      nukeResult = `Branch '${branch}' has been permanently destroyed. All commits on that branch are gone.`;
+    } catch (err) {
+      nukeResult = `Warning: force-delete of '${branch}' failed: ${err.message}. The branch may still exist.`;
+    }
+
+    return [
+      {
+        type: "text",
+        text: [
+          `Branch session NUKED.`,
+          `Branch: ${branch}`,
+          commitInfo || "No uncommitted changes were saved.",
+          ``,
+          nukeResult,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      },
+    ];
   }
 
   // --- Merge-on-end ---
