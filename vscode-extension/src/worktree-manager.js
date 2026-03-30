@@ -161,6 +161,14 @@ module.exports = function createWorktreeManager(deps) {
         const repo = api?.repositories?.[0];
         if (repo) repo.status();
       } catch {}
+      // Force the File Explorer to re-scan so new/deleted files from
+      // git reset --hard are visible immediately, not just after the
+      // file system watcher eventually catches up.
+      try {
+        vscode.commands.executeCommand(
+          "workbench.files.action.refreshFilesExplorer",
+        );
+      } catch {}
     }, 500);
   }
 
@@ -249,9 +257,12 @@ module.exports = function createWorktreeManager(deps) {
   function _popStash(repoRoot, expectedRef) {
     if (!expectedRef) return;
     try {
-      const topRef = execFileSync(
+      // Find the stash entry by its commit hash anywhere in the stash list,
+      // not just the top.  An intervening session-safety stash may have pushed
+      // the baseline entry down from stash@{0} to stash@{1} or deeper.
+      const list = execFileSync(
         "git",
-        ["stash", "list", "-1", "--format=%H"],
+        ["stash", "list", "--format=%H"],
         {
           cwd: repoRoot,
           timeout: 5000,
@@ -260,18 +271,28 @@ module.exports = function createWorktreeManager(deps) {
       )
         .toString()
         .trim();
-      if (topRef === expectedRef) {
-        execFileSync("git", ["stash", "pop"], {
-          cwd: repoRoot,
-          timeout: 10000,
-          stdio: ["pipe", "pipe", "pipe"],
-        });
-        _writeWorktreeDebug(`popped stash: ${expectedRef}`);
-      } else {
+      if (!list) {
         _writeWorktreeDebug(
-          `stash mismatch: top=${topRef} expected=${expectedRef}, skipping pop`,
+          `stash pop: stash list empty, expected ${expectedRef}`,
         );
+        return;
       }
+      const entries = list.split("\n");
+      const idx = entries.indexOf(expectedRef);
+      if (idx === -1) {
+        _writeWorktreeDebug(
+          `stash pop: ref ${expectedRef} not found in stash list (${entries.length} entries)`,
+        );
+        return;
+      }
+      execFileSync("git", ["stash", "pop", `stash@{${idx}}`], {
+        cwd: repoRoot,
+        timeout: 10000,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      _writeWorktreeDebug(
+        `popped stash@{${idx}}: ${expectedRef}`,
+      );
     } catch (err) {
       _writeWorktreeDebug(
         `stash pop failed: ${err.message?.split("\n")[0] || err}`,
