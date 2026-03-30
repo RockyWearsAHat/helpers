@@ -760,29 +760,34 @@ async function handleBranchSessionEnd(args) {
   // Check for uncommitted work — check the main repo first (where the agent
   // edits files when the workspace is checked out to the session branch via
   // symbolic-ref), then fall back to the worktree itself.
+  // Skip entirely when nuking — no point assessing state we're about to destroy,
+  // and the worktree is often stale (files committed in the main repo show as
+  // deleted in the worktree), which produces misleading "discarded" messages.
   let dirty = "";
   let commitCwd = wtPath;
-  try {
-    const mainBranch = await execGit(
-      ["symbolic-ref", "--short", "HEAD"],
-      toplevel,
-    );
-    if (mainBranch === branch) {
-      const mainDirty = await execGit(["status", "--short"], toplevel);
-      if (mainDirty) {
-        dirty = mainDirty;
-        commitCwd = toplevel;
-      }
-    }
-  } catch {
-    // ignore — main repo may not be on this branch
-  }
-  if (!dirty) {
+  if (!nukeChanges) {
     try {
-      dirty = await execGit(["status", "--short"], wtPath);
-      commitCwd = wtPath;
+      const mainBranch = await execGit(
+        ["symbolic-ref", "--short", "HEAD"],
+        toplevel,
+      );
+      if (mainBranch === branch) {
+        const mainDirty = await execGit(["status", "--short"], toplevel);
+        if (mainDirty) {
+          dirty = mainDirty;
+          commitCwd = toplevel;
+        }
+      }
     } catch {
-      // ignore
+      // ignore — main repo may not be on this branch
+    }
+    if (!dirty) {
+      try {
+        dirty = await execGit(["status", "--short"], wtPath);
+        commitCwd = wtPath;
+      } catch {
+        // ignore
+      }
     }
   }
 
