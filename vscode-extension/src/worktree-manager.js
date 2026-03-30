@@ -334,6 +334,33 @@ module.exports = function createWorktreeManager(deps) {
     const mainRepo = _getMainRepoPath();
 
     if (mainRepo && _originalBranch) {
+      // Safety: stash any uncommitted changes on the session branch before
+      // switching back.  The MCP session-end handler should have committed
+      // already, but this protects against race conditions and manual unfocus.
+      try {
+        const dirty = execFileSync("git", ["status", "--porcelain"], {
+          cwd: mainRepo,
+          timeout: 5000,
+          stdio: ["pipe", "pipe", "pipe"],
+        })
+          .toString()
+          .trim();
+        if (dirty) {
+          execFileSync(
+            "git",
+            ["stash", "push", "-m", "gsh-session-unfocus: saving branch work"],
+            { cwd: mainRepo, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
+          );
+          _writeWorktreeDebug(
+            `stashed session branch work before unfocus (${dirty.split("\n").length} file(s))`,
+          );
+        }
+      } catch (err) {
+        _writeWorktreeDebug(
+          `warning: could not stash session work: ${err.message?.split("\n")[0] || err}`,
+        );
+      }
+
       const ok = _checkoutBranchViaSymref(mainRepo, _originalBranch);
       if (ok) {
         _popStash(mainRepo, _stashRef);

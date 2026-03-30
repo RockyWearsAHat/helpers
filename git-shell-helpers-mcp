@@ -478,7 +478,7 @@ if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
   const BRANCH_SESSION_START_TOOL = {
     name: "branch_session_start",
     description:
-      "Start an isolated branch session. Creates a git worktree so the agent can read and write files on a specific branch without affecting other agents' work. The extension automatically checks out the branch in the main workspace so the user sees files in real time. Returns the absolute path to the worktree — use that path for all file operations, terminal commands, and checkpoint calls during this session. If the branch does not exist yet, it is created from the specified base (defaults to HEAD). If a worktree for this branch already exists, returns its path without recreating it.",
+      "Start an isolated branch session. Creates a git worktree for the branch and checks out the branch in the main workspace via symbolic-ref so the user sees the branch files in the VS Code Explorer. IMPORTANT: After this call, continue using the normal workspace root for ALL file operations (create_file, replace_string_in_file, etc.) and terminal commands — do NOT use the worktree path. The workspace is already on the feature branch. This ensures the normal Copilot Keep/Undo UI works. The worktree exists for git bookkeeping; you don't need to interact with it directly. If the branch does not exist yet, it is created from the specified base (defaults to HEAD). If a worktree for this branch already exists, reuses it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -620,12 +620,12 @@ async function handleBranchSessionStart(args, activityId) {
           type: "text",
           text: [
             `Branch session already active.`,
-            `Path: ${existing}`,
             `Branch: ${existingBranch}`,
             existingCommit ? `Commit: ${existingCommit}` : "",
             `Status: ${status || "clean"}`,
+            `Worktree: ${existing}`,
             ``,
-            `Use this path for all file operations and terminal commands.`,
+            `The workspace is checked out to this branch. Use the normal workspace root for all file operations and terminal commands.`,
           ].join("\n"),
         },
       ];
@@ -720,13 +720,12 @@ async function handleBranchSessionStart(args, activityId) {
       type: "text",
       text: [
         `Branch session started.`,
-        `Path: ${wtPath}`,
         `Branch: ${branch}`,
         headCommit ? `Commit: ${headCommit}` : "",
         `Created from: ${branchExists ? "(existing branch)" : base || "HEAD"}`,
-        `Status:\n${status}`,
+        `Worktree: ${wtPath}`,
         ``,
-        `Use this path for all file operations and terminal commands.`,
+        `The workspace is now checked out to this branch. Use the normal workspace root for all file operations and terminal commands — do NOT use the worktree path directly.`,
         `When done, call branch_session_end to commit and clean up.`,
         `Pass merge: true to auto-merge into the baseline when ending.`,
       ]
@@ -753,26 +752,47 @@ async function handleBranchSessionEnd(args) {
     ];
   }
 
-  // Check for uncommitted work
+  // Check for uncommitted work — check the main repo first (where the agent
+  // edits files when the workspace is checked out to the session branch via
+  // symbolic-ref), then fall back to the worktree itself.
   let dirty = "";
+  let commitCwd = wtPath;
   try {
-    dirty = await execGit(["status", "--short"], wtPath);
+    const mainBranch = await execGit(
+      ["symbolic-ref", "--short", "HEAD"],
+      toplevel,
+    );
+    if (mainBranch === branch) {
+      const mainDirty = await execGit(["status", "--short"], toplevel);
+      if (mainDirty) {
+        dirty = mainDirty;
+        commitCwd = toplevel;
+      }
+    }
   } catch {
-    // ignore
+    // ignore — main repo may not be on this branch
+  }
+  if (!dirty) {
+    try {
+      dirty = await execGit(["status", "--short"], wtPath);
+      commitCwd = wtPath;
+    } catch {
+      // ignore
+    }
   }
 
   let commitInfo = "";
   if (dirty && !discard) {
     // Auto-commit uncommitted changes
     try {
-      await execGit(["add", "-A"], wtPath);
+      await execGit(["add", "-A"], commitCwd);
       await execGit(
         [
           "commit",
           "-m",
           `WIP: auto-commit from branch session end on '${branch}'`,
         ],
-        wtPath,
+        commitCwd,
       );
       commitInfo = `Auto-committed uncommitted changes on '${branch}'.`;
     } catch (err) {

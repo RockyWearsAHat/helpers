@@ -37,12 +37,12 @@ This means the user never needs to know about worktrees, cache directories, or b
 
 | Tool                   | Purpose                                                                                                                              |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `branch_session_start` | Create a git worktree for isolated branch work. Returns the absolute worktree path. Automatically binds to the current chat session. |
+| `branch_session_start` | Create a git worktree and check out the branch in the workspace. The workspace root is your working directory. |
 | `branch_session_end`   | Commit outstanding changes and remove the worktree. Branch and commits persist for later merge. Unbinds from the chat session.       |
 | `branch_status`        | List all active worktrees, their branches, dirty/clean state, and recent commits.                                                    |
 | `branch_read_file`     | Read a file from any branch without checkout (useful for cross-branch comparison).                                                   |
 | `workspace_context`    | Get workspace roots, current branches, worktree status, remotes, AND active branch sessions.                                         |
-| `checkpoint`           | Commit changes. Pass `cwd` (worktree path) and `branch` to scope to the session.                                                     |
+| `checkpoint`           | Commit changes. No special args needed — the workspace is already on the feature branch.                                              |
 
 ## Workflow: Isolated Branch Work
 
@@ -51,35 +51,33 @@ This means the user never needs to know about worktrees, cache directories, or b
    → see workspace roots and any active branch sessions
 
 2. branch_session_start({ branch: "fix/issue-42" })
-   → returns { path: "/Users/.../worktrees/fix-issue-42" }
-   → worktree folder appears in VS Code Explorer
+   → workspace is now on branch fix/issue-42
    → bound to this chat session
 
-3. All file operations use the returned worktree path:
-   - read_file("/Users/.../worktrees/fix-issue-42/src/foo.ts", ...)
-   - run_in_terminal("cd /Users/.../worktrees/fix-issue-42 && npm test")
-   - checkpoint({ cwd: "/Users/.../worktrees/fix-issue-42", branch: "fix/issue-42", all: true })
+3. All file operations use the normal workspace root:
+   - read_file("src/foo.ts", ...)
+   - run_in_terminal("npm test")
+   - checkpoint({ all: true })
 
 4. branch_session_end({ branch: "fix/issue-42" })
    → commits any remaining changes
-   → removes worktree and workspace folder
+   → removes worktree, restores baseline branch
 ```
 
 ## Follow-Up Messages
 
 When returning to a chat that has an active branch session:
 
-1. Call `workspace_context` — it lists active branch sessions with paths
-2. If a session exists for your branch, resume working in that worktree path
-3. The worktree folder is already in the workspace — no need to recreate it
+1. Call `workspace_context` — it lists active branch sessions
+2. If a session exists for your branch, the workspace is already on that branch — resume working normally
+3. No special paths needed — use the workspace root
 
 ## Collision Avoidance
 
 Before starting a new session, call `branch_status` to see what other agents are doing. Rules:
 
 - **Never start a session on a branch another agent already owns.** Pick a different branch name.
-- **Never modify files outside your worktree path.** Your worktree is your sandbox.
-- **Each chat session gets at most one worktree.** Starting a new branch replaces the binding.
+- **Each chat session gets at most one branch.** Starting a new branch replaces the binding.
 
 ## Key Concepts
 
