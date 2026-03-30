@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #1d1d1f;
+    padding: 16px 20px;
+    margin: 0;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 16px 0;
+    color: #1d1d1f;
+  }
+  .success {
+    background: #e8f5e9;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .success strong {
+    color: #2e7d32;
+  }
+  h2 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 18px 0 8px 0;
+  }
+  code {
+    font-family: "SF Mono", Menlo, Monaco, monospace;
+    font-size: 12px;
+    background: #f5f5f7;
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+  .cmd-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 16px 0;
+  }
+  .cmd-list li {
+    padding: 4px 0;
+  }
+  .cmd-list li code {
+    display: inline-block;
+    min-width: 200px;
+  }
+  .note {
+    font-size: 11px;
+    color: #86868b;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e5ea;
+  }
+</style>
+</head>
+<body>
+  <h1>Installation Complete</h1>
+
+  <div class="success">
+    <strong>Git Shell Helpers has been installed successfully.</strong>
+  </div>
+
+  <h2>Getting Started</h2>
+  <p>Open a new terminal window, then try:</p>
+  <ul class="cmd-list">
+    <li><code>git upload -ai</code> &mdash; stage, commit, and push with AI message</li>
+    <li><code>git checkpoint</code> &mdash; quick checkpoint commit</li>
+    <li><code>git copilot-devops-audit</code> &mdash; audit Copilot customization</li>
+    <li><code>git help upload</code> &mdash; view documentation</li>
+  </ul>
+
+  <h2>VS Code</h2>
+  <p>
+    If you selected VS Code Integration, <strong>quit VS Code completely</strong>
+    (<code>Cmd+Q</code>) and reopen it to activate the extension and patches.
+  </p>
+
+  <div class="note">
+    Uninstall: run <code>sudo pkgutil --forget com.rockywearsahat.github-shell-helpers</code>
+    and remove files from <code>/usr/local/bin/git-*</code> and
+    <code>/usr/local/share/github-shell-helpers/</code>.
+  </div>
+</body>
+</html>
