@@ -1,0 +1,45 @@
+#!/bin/zsh
+set -euo pipefail
+
+log() { echo "[gsh-mcp] $1"; }
+
+console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
+if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
+  exit 0
+fi
+
+user_home="$(/usr/bin/dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+if [ -z "$user_home" ]; then
+  user_home="/Users/$console_user"
+fi
+
+run_as() { /usr/bin/sudo -H -u "$console_user" -- "$@"; }
+
+remove_mcp_entry() {
+  local srv_name="$1"
+  local mcp_file="$user_home/Library/Application Support/Code/User/mcp.json"
+  [ -f "$mcp_file" ] || return 0
+
+  run_as /usr/bin/python3 -c "
+import json, sys
+p = sys.argv[1]
+n = sys.argv[2]
+try:
+    with open(p, 'r') as f:
+        d = json.load(f)
+except:
+    sys.exit(0)
+if 'servers' in d and isinstance(d['servers'], dict) and n in d['servers']:
+    del d['servers'][n]
+    with open(p, 'w') as f:
+        json.dump(d, f, indent=2)
+        f.write('\n')
+" "$mcp_file" "$srv_name" 2>/dev/null || true
+}
+
+remove_mcp_entry "gsh"
+remove_mcp_entry "git-shell-helpers"
+log "Cleaned legacy MCP entries from mcp.json (now extension-managed)."
+
+log "MCP tools installed."
+exit 0

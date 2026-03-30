@@ -1,0 +1,131 @@
+#!/bin/zsh
+set -euo pipefail
+
+log() { echo "[gsh-vscode] $1"; }
+
+DATA_DIR="/usr/local/share/github-shell-helpers"
+VSCODE_EXT_DIR="$DATA_DIR/vscode"
+PATCH_SCRIPT="$DATA_DIR/scripts/patch-vscode-apply-all.js"
+EXT_ID="RockyWearsAHat.git-shell-helpers"
+
+console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
+if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
+  exit 0
+fi
+
+user_home="$(/usr/bin/dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+if [ -z "$user_home" ]; then
+  user_home="/Users/$console_user"
+fi
+
+run_as() { /usr/bin/sudo -H -u "$console_user" -- "$@"; }
+
+find_vscode_cli() {
+  local candidate
+  for candidate in \
+    "$user_home/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+    "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+    "$user_home/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code" \
+    "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code"
+  do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+code_cli=""
+if code_cli="$(find_vscode_cli)"; then
+  if run_as "$code_cli" --install-extension GitHub.copilot --force >/dev/null 2>&1; then
+    log "Installed/updated: GitHub.copilot"
+  else
+    log "Failed to install GitHub.copilot — install manually."
+  fi
+
+  if run_as "$code_cli" --install-extension GitHub.copilot-chat --force >/dev/null 2>&1; then
+    log "Installed/updated: GitHub.copilot-chat"
+  else
+    log "Failed to install GitHub.copilot-chat — install manually."
+  fi
+
+  bundled_vsix="$(find "$VSCODE_EXT_DIR" -maxdepth 1 -name 'git-shell-helpers-*.vsix' -print -quit 2>/dev/null || true)"
+  if [ -n "$bundled_vsix" ]; then
+    if run_as "$code_cli" --install-extension "$bundled_vsix" --force >/dev/null 2>&1; then
+      log "Installed/updated: git-shell-helpers extension"
+    else
+      log "Failed to install git-shell-helpers extension."
+    fi
+  fi
+
+  vision_vsix="$(find "$DATA_DIR/vision-tool" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null || true)"
+  if [ -n "$vision_vsix" ]; then
+    if run_as "$code_cli" --install-extension "$vision_vsix" --force >/dev/null 2>&1; then
+      log "Installed/updated: gsh-vision-tool extension"
+    fi
+  fi
+else
+  log "No VS Code CLI found. Install extensions manually after installing VS Code."
+fi
+
+argv_file="$user_home/.vscode/argv.json"
+if [ -f "$argv_file" ]; then
+  if ! grep -q "$EXT_ID" "$argv_file" 2>/dev/null; then
+    if command -v node >/dev/null 2>&1; then
+      node -e "
+        const fs = require('fs');
+        const p = '$argv_file';
+        let raw = fs.readFileSync(p, 'utf8');
+        const stripped = raw.replace(/^\s*\/\/.*$/gm, '');
+        const obj = JSON.parse(stripped);
+        if (!Array.isArray(obj['enable-proposed-api'])) {
+          obj['enable-proposed-api'] = [];
+        }
+        if (!obj['enable-proposed-api'].includes('$EXT_ID')) {
+          obj['enable-proposed-api'].push('$EXT_ID');
+        }
+        if (raw.includes('\"enable-proposed-api\"')) {
+          const arrStr = JSON.stringify(obj['enable-proposed-api']);
+          raw = raw.replace(
+            /(\"enable-proposed-api\"\s*:\s*)\[[\s\S]*?\]/,
+            '\$1' + arrStr
+          );
+        } else {
+          const idx = raw.lastIndexOf('}');
+          if (idx !== -1) {
+            const before = raw.substring(0, idx).trimEnd();
+            const needsComma = before.match(/[}\]\"\d]$/);
+            const ins = (needsComma ? ',' : '') +
+              '\n\n\t// Enable proposed APIs for Git Shell Helpers extension.\n' +
+              '\t// Required for branch-per-chat session tracking.\n' +
+              '\t\"enable-proposed-api\": [\"$EXT_ID\"]\n';
+            raw = before + ins + '}\n';
+          }
+        }
+        fs.writeFileSync(p, raw);
+      " 2>/dev/null && log "Enabled proposed API for $EXT_ID in argv.json." || \
+        log "Could not auto-patch argv.json. Add \"$EXT_ID\" to enable-proposed-api manually."
+    fi
+  else
+    log "Proposed API already enabled for $EXT_ID."
+  fi
+fi
+
+if [ -f "$PATCH_SCRIPT" ] && command -v node >/dev/null 2>&1; then
+  all_patched="$(node "$PATCH_SCRIPT" --json 2>/dev/null | node -e "
+    process.stdout.write(String(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).allPatched))
+  " 2>/dev/null)" || all_patched="false"
+
+  if [ "$all_patched" != "true" ]; then
+    node "$PATCH_SCRIPT" 2>&1 | while IFS= read -r line; do
+      log "$line"
+    done
+    log "VS Code patches applied. Quit and reopen VS Code (Cmd+Q) to activate."
+  else
+    log "VS Code patches already applied."
+  fi
+fi
+
+log "VS Code integration installed."
+exit 0

@@ -1,0 +1,46 @@
+#!/bin/zsh
+set -euo pipefail
+
+log() { echo "[gsh-core] $1"; }
+
+console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
+if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
+  exit 0
+fi
+
+user_home="$(/usr/bin/dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+if [ -z "$user_home" ]; then
+  user_home="/Users/$console_user"
+fi
+
+zshrc="$user_home/.zshrc"
+
+add_line_if_missing() {
+  local file="$1" line="$2"
+  if [ ! -f "$file" ]; then
+    /usr/bin/sudo -H -u "$console_user" -- touch "$file"
+  fi
+  if ! grep -qxF "$line" "$file" 2>/dev/null; then
+    printf '%s\n' "$line" >>"$file"
+    log "Added to $file: $line"
+  fi
+}
+
+add_line_if_missing "$zshrc" 'export PATH="/usr/local/bin:$PATH"'
+add_line_if_missing "$zshrc" 'export MANPATH="/usr/local/share/man:$MANPATH"'
+
+research_config_dir="$user_home/.config/git-research-mcp"
+research_env_file="$research_config_dir/.env"
+if [ ! -f "$research_env_file" ]; then
+  /usr/bin/sudo -H -u "$console_user" -- mkdir -p "$research_config_dir"
+  printf '%s\n' \
+    '# SearXNG — local meta-search instance (Docker container on port 8888).' \
+    '# Start with: docker run -d --name searxng -p 8888:8080 searxng/searxng:latest' \
+    'SEARXNG_URL=http://localhost:8888' \
+    >"$research_env_file"
+  chown "$console_user" "$research_env_file"
+  log "Wrote default config: $research_env_file"
+fi
+
+log "Core git commands installed."
+exit 0

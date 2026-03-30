@@ -4,11 +4,11 @@ This directory contains PR-ready proposals for VS Code features that git-shell-h
 
 ## Proposals
 
-| #   | Target Repo        | Proposal                                                                                    | Status | Related Upstream                                                                                                                  |
-| --- | ------------------ | ------------------------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `microsoft/vscode` | [Suppress workspace folder switch dialog](001-suppress-folder-switch-dialog.md)             | Draft  | [PR #292783](https://github.com/microsoft/vscode/pull/292783) (partial, agent-sessions only)                                      |
-| 2   | `microsoft/vscode` | [Git extension headLabel override API](002-git-head-label-override.md)                      | Draft  | [Issue #260706](https://github.com/microsoft/vscode/issues/260706), [PR #305643](https://github.com/microsoft/vscode/pull/305643) |
-| 3   | `microsoft/vscode` | [Promote chatParticipantPrivate session events to stable](003-chat-session-focus-stable.md) | Draft  | [Issue #305853](https://github.com/microsoft/vscode/issues/305853), [PR #305730](https://github.com/microsoft/vscode/pull/305730) |
+| #   | Target Repo        | Proposal                                                                                    | Status   | Upstream Issue                                                                                                                                                                                      |
+| --- | ------------------ | ------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `microsoft/vscode` | [Suppress workspace folder switch dialog](001-suppress-folder-switch-dialog.md)             | Filed    | [#306495](https://github.com/microsoft/vscode/issues/306495) — also refs [PR #292783](https://github.com/microsoft/vscode/pull/292783)                                                             |
+| 2   | `microsoft/vscode` | [Git extension headLabel override API](002-git-head-label-override.md)                      | Filed    | [#306496](https://github.com/microsoft/vscode/issues/306496) — also refs [#260706](https://github.com/microsoft/vscode/issues/260706), [PR #305643](https://github.com/microsoft/vscode/pull/305643) |
+| 3   | `microsoft/vscode` | [Promote chatParticipantPrivate session events to stable](003-chat-session-focus-stable.md) | Filed    | [#306497](https://github.com/microsoft/vscode/issues/306497) — also refs [#305853](https://github.com/microsoft/vscode/issues/305853), [PR #305730](https://github.com/microsoft/vscode/pull/305730) |
 
 ## Obsolescence Strategy
 
