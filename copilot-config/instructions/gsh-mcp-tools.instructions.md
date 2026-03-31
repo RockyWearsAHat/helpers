@@ -40,6 +40,7 @@ Parameters:
 **`workspace_context`** — Return the current workspace context: root folders, branch, worktree status, and remote URL for each.
 
 Call this:
+
 - **At the start of a session** to orient yourself (which repo, which branch, what state).
 - **Before cross-branch operations** to confirm you're on the right branch.
 - **When working on a feature branch** to verify your branch before making changes.
@@ -58,6 +59,7 @@ Branch sessions give agents isolated working directories via git worktrees. Each
 - If a session already exists for the branch, returns the existing path.
 
 Parameters:
+
 - `branch` (string, required) — The branch to work on.
 - `base` (string, optional) — Create the branch from this ref. Only used for new branches. Defaults to HEAD.
 
@@ -68,6 +70,7 @@ Parameters:
 - Pass `discard: true` to throw away uncommitted changes instead of committing them.
 
 Parameters:
+
 - `branch` (string, required) — The branch whose session to end.
 - `discard` (boolean, optional) — Discard uncommitted changes instead of auto-committing. Default: false.
 
@@ -77,6 +80,7 @@ Parameters:
 - No checkout or worktree needed — fast and safe for cross-branch inspection.
 
 Parameters:
+
 - `branch` (string, required) — The branch to read from.
 - `filePath` (string, required) — Repository-relative path (e.g. `lib/upload-ai-message.sh`).
 

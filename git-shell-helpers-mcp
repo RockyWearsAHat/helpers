@@ -429,8 +429,7 @@ const STRICT_LINT_TOOL = {
       severityFilter: {
         type: "string",
         enum: ["all", "errors-only", "warnings-and-above"],
-        description:
-          "Which severity levels to include. Defaults to 'all'.",
+        description: "Which severity levels to include. Defaults to 'all'.",
       },
     },
     required: [],
