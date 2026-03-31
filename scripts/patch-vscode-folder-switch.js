@@ -29,10 +29,63 @@
 
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
 
+function detectVscodePath() {
+  const candidates =
+    process.platform === "darwin"
+      ? [
+          "/Applications/Visual Studio Code.app/Contents/Resources/app",
+          (process.env.HOME || "") +
+            "/Applications/Visual Studio Code.app/Contents/Resources/app",
+        ]
+      : process.platform === "win32"
+        ? [
+            (process.env.LOCALAPPDATA || "") +
+              "\\Programs\\Microsoft VS Code\\resources\\app",
+            "C:\\Program Files\\Microsoft VS Code\\resources\\app",
+            "C:\\Program Files (x86)\\Microsoft VS Code\\resources\\app",
+          ]
+        : [
+            "/usr/share/code/resources/app",
+            "/opt/visual-studio-code/resources/app",
+            "/snap/code/current/usr/share/code/resources/app",
+          ];
+  for (const c of candidates) {
+    if (c && fs.existsSync(c)) return c;
+  }
+  try {
+    const probe = process.platform === "win32" ? "where code" : "which code";
+    const codeExe = execSync(probe, {
+      timeout: 3000,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .toString()
+      .trim()
+      .split("\n")[0]
+      .trim();
+    if (codeExe) {
+      let dir = path.dirname(fs.realpathSync(codeExe));
+      for (let i = 0; i < 8; i++) {
+        const candidate = path.join(dir, "resources", "app");
+        if (fs.existsSync(candidate)) return candidate;
+        dir = path.dirname(dir);
+      }
+    }
+  } catch {}
+  return null;
+}
+
+const VSCODE_PATH = detectVscodePath();
+if (!VSCODE_PATH) {
+  console.error(
+    "[patch-vscode] Could not locate VS Code installation. Tried platform defaults and PATH.",
+  );
+  process.exit(1);
+}
 const BUNDLE = path.join(
-  "/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench",
-  "workbench.desktop.main.js",
+  VSCODE_PATH,
+  "out/vs/workbench/workbench.desktop.main.js",
 );
 
 const OLD =

@@ -463,7 +463,7 @@ const RESEARCH_TOOLS = [
   {
     name: "scrape_webpage",
     description:
-      "Fetch web pages, strip HTML chrome (nav, header, footer, sidebar), and return cleaned article text. Optionally write output to a file.",
+      "Fetch web pages, strip HTML chrome (nav, header, footer, sidebar), and return cleaned article text. For PDFs: extracts per-page text and renders page images for visual analysis. Use pdf_pages to request specific pages from a large PDF (e.g. after seeing the page map from an initial scrape).",
     inputSchema: {
       type: "object",
       properties: {
@@ -472,6 +472,12 @@ const RESEARCH_TOOLS = [
           items: { type: "string" },
           minItems: 1,
           description: "Absolute URLs to fetch.",
+        },
+        pdf_pages: {
+          type: "array",
+          items: { type: "integer" },
+          description:
+            "Specific page numbers to extract from PDF URLs. When set, returns full text and rendered images only for these pages. Use after initial scrape to get deep content from large PDFs.",
         },
         output_file: {
           type: "string",

@@ -1,0 +1,76 @@
+name: PR Quality
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths-ignore:
+      - "community-cache/**"
+      - "knowledge/**"
+      - "release-notes/**"
+
+concurrency:
+  group: pr-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shell-lint:
+    name: Shell lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: |
+          find . \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -not -path './vscode-extension/node_modules/*' \
+            \( -name '*.sh' -o -name 'git-*' \) \
+            -not -name '*.md' \
+            -not -name '*.json' \
+            | xargs -r file \
+            | grep 'shell script\|bash script' \
+            | cut -d: -f1 \
+            | xargs -r shellcheck --severity=warning --exclude=SC2034,SC2086
+
+  node-validate:
+    name: Node.js validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate MCP server syntax
+        run: node --check git-shell-helpers-mcp git-research-mcp
+
+      - name: Validate patch scripts syntax
+        run: |
+          for f in scripts/patch-vscode-*.js; do
+            node --check "$f"
+          done
+
+      - name: Validate extension entry point syntax
+        run: node --check vscode-extension/extension.js
+
+      - name: Validate extension source files syntax
+        run: |
+          for f in vscode-extension/src/*.js; do
+            node --check "$f"
+          done
+
+      - name: Validate lib scripts syntax
+        run: |
+          for f in lib/*.js; do
+            node --check "$f"
+          done
