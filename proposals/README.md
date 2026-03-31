@@ -9,6 +9,8 @@ This directory contains PR-ready proposals for VS Code features that git-shell-h
 | 1   | `microsoft/vscode` | [Suppress workspace folder switch dialog](001-suppress-folder-switch-dialog.md)             | Filed  | [#306495](https://github.com/microsoft/vscode/issues/306495) — also refs [PR #292783](https://github.com/microsoft/vscode/pull/292783)                                                               |
 | 2   | `microsoft/vscode` | [Git extension headLabel override API](002-git-head-label-override.md)                      | Filed  | [#306496](https://github.com/microsoft/vscode/issues/306496) — also refs [#260706](https://github.com/microsoft/vscode/issues/260706), [PR #305643](https://github.com/microsoft/vscode/pull/305643) |
 | 3   | `microsoft/vscode` | [Promote chatParticipantPrivate session events to stable](003-chat-session-focus-stable.md) | Filed  | [#306497](https://github.com/microsoft/vscode/issues/306497) — also refs [#305853](https://github.com/microsoft/vscode/issues/305853), [PR #305730](https://github.com/microsoft/vscode/pull/305730) |
+| 4   | `microsoft/vscode` | [Add `model` parameter to `runSubagent` tool](004-runsubagent-model-param.md)               | Draft  | Not yet filed — patched locally via `scripts/patch-vscode-runsubagent-model.js`                                                                                                                      |
+| 5   | `microsoft/vscode` | [Tiered agent variant support](005-tiered-agent-variants.md)                                | Draft  | Not yet filed — workaround documented in proposal; complements #4                                                                                                                                    |
 
 ## Obsolescence Strategy
 
