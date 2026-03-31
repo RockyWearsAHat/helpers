@@ -351,6 +351,7 @@ function activate(context) {
   // Worktree management
   worktree.loadWorktreeBindings();
   worktree.loadTabWorktreeMap();
+  worktree.loadSessionState();
   worktree.reconcileWorktreeBindings();
   worktree.registerWorktreeFileView(context);
 

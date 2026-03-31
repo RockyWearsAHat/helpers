@@ -8,12 +8,14 @@ const { execFileSync } = require("child_process");
 
 const WORKTREE_BINDINGS_KEY = "worktreeBindings.v2";
 const TAB_WORKTREE_KEY = "tabToWorktree";
+const SESSION_STATE_KEY = "gsh.sessionState.v1";
 
 module.exports = function createWorktreeManager(deps) {
   const { _context, getDiagnosticsOutputChannel } = deps;
 
   let _worktreeBindings = new Map();
   let _tabToWorktree = new Map();
+  let _sessionStateMap = new Map(); // worktreePath → { originalBranch, stashRef, focusedAt }
   let _pendingBranchSessionStarts = new Map();
   let _activeWorktreeFolder = null;
   let _suppressTabDrivenUnfocusUntil = 0;
@@ -55,6 +57,38 @@ module.exports = function createWorktreeManager(deps) {
       const entries = Array.from(_tabToWorktree.entries());
       _context?.globalState?.update(TAB_WORKTREE_KEY, entries.slice(-200));
     } catch {}
+  }
+
+  function loadSessionState() {
+    try {
+      const raw = _context?.globalState?.get(SESSION_STATE_KEY);
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        _sessionStateMap = new Map(Object.entries(raw));
+      }
+    } catch {}
+  }
+
+  function saveSessionState() {
+    try {
+      const obj = {};
+      for (const [k, v] of _sessionStateMap) obj[k] = v;
+      _context?.globalState?.update(SESSION_STATE_KEY, obj);
+    } catch {}
+  }
+
+  function _recordSessionState(wtPath) {
+    _sessionStateMap.set(wtPath, {
+      originalBranch: _originalBranch,
+      stashRef: _stashRef,
+      stashMessage: "gsh-session-focus: auto-stash",
+      focusedAt: Date.now(),
+    });
+    saveSessionState();
+  }
+
+  function _clearSessionState(wtPath) {
+    _sessionStateMap.delete(wtPath);
+    saveSessionState();
   }
 
   // ------- Utility -------
@@ -152,6 +186,18 @@ module.exports = function createWorktreeManager(deps) {
 
   function _triggerGitRefresh() {
     if (_gitRefreshTimer) clearTimeout(_gitRefreshTimer);
+    // Fire immediately to clear any stale cached state (e.g. intermediate
+    // "Added" status between symbolic-ref and reset --hard, or after a
+    // branchCommit brings the repo forward)
+    try {
+      const gitExt = vscode.extensions.getExtension("vscode.git");
+      if (gitExt?.isActive) {
+        const api = gitExt.exports?.getAPI(1);
+        const repo = api?.repositories?.[0];
+        if (repo) repo.status();
+      }
+    } catch {}
+    // Fire again after a short delay to catch async file-watcher updates
     _gitRefreshTimer = setTimeout(() => {
       _gitRefreshTimer = null;
       try {
@@ -246,6 +292,27 @@ module.exports = function createWorktreeManager(deps) {
     }
   }
 
+  function _findStashByMessage(repoRoot, msgFragment) {
+    try {
+      const list = execFileSync("git", ["stash", "list", "--format=%H %gs"], {
+        cwd: repoRoot,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+        .toString()
+        .trim();
+      if (!list) return null;
+      for (const line of list.split("\n")) {
+        const spaceIdx = line.indexOf(" ");
+        if (spaceIdx === -1) continue;
+        const hash = line.slice(0, spaceIdx);
+        const subject = line.slice(spaceIdx + 1);
+        if (subject.includes(msgFragment)) return hash;
+      }
+    } catch {}
+    return null;
+  }
+
   function _popStash(repoRoot, expectedRef) {
     if (!expectedRef) return;
     try {
@@ -268,9 +335,27 @@ module.exports = function createWorktreeManager(deps) {
         });
         _writeWorktreeDebug(`popped stash: ${expectedRef}`);
       } else {
+        // Hash mismatch — try to find stash by message as fallback (handles
+        // manual stash ops or a VS Code reload between focus and unfocus).
         _writeWorktreeDebug(
-          `stash mismatch: top=${topRef} expected=${expectedRef}, skipping pop`,
+          `stash mismatch: top=${topRef} expected=${expectedRef}, searching by message`,
         );
+        const fallbackRef = _findStashByMessage(
+          repoRoot,
+          "gsh-session-focus: auto-stash",
+        );
+        if (fallbackRef) {
+          execFileSync("git", ["stash", "pop", fallbackRef], {
+            cwd: repoRoot,
+            timeout: 10000,
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+          _writeWorktreeDebug(
+            `popped stash by message fallback: ${fallbackRef}`,
+          );
+        } else {
+          _writeWorktreeDebug(`no matching stash found, skipping pop`);
+        }
       }
     } catch (err) {
       _writeWorktreeDebug(
@@ -297,6 +382,18 @@ module.exports = function createWorktreeManager(deps) {
     if (!fs.existsSync(worktreePath)) return;
 
     const mainRepo = _getMainRepoPath();
+
+    // If resuming after a VS Code reload, recover session state from persistence
+    // so we don't accidentally overwrite the real baseline branch/stash.
+    if (!_originalBranch && _sessionStateMap.has(worktreePath)) {
+      const saved = _sessionStateMap.get(worktreePath);
+      _originalBranch = saved.originalBranch || null;
+      _stashRef = saved.stashRef || null;
+      _writeWorktreeDebug(
+        `startup: recovered session state: branch=${_originalBranch} stash=${_stashRef || "none"}`,
+      );
+    }
+
     const binding = _worktreeBindings.get(worktreePath);
     const targetBranch = binding?.branch;
 
@@ -308,6 +405,7 @@ module.exports = function createWorktreeManager(deps) {
         _writeWorktreeDebug(
           `saved baseline: branch=${_originalBranch} stash=${_stashRef || "none"}`,
         );
+        _recordSessionState(worktreePath);
       }
 
       const ok = _checkoutBranchViaSymref(mainRepo, targetBranch);
@@ -376,6 +474,7 @@ module.exports = function createWorktreeManager(deps) {
       _originalBranch = null;
       _stashRef = null;
       _displayedBranch = null;
+      _clearSessionState(prev);
     }
 
     _activeWorktreeFolder = null;
@@ -436,34 +535,47 @@ module.exports = function createWorktreeManager(deps) {
     }
   }
 
+  function _resolveCurrentChatKey() {
+    // Try proposed API session URI first (more stable across tab navigation),
+    // then fall back to the tab URI from the tab groups API.
+    try {
+      const sessionRes = vscode.window.activeChatPanelSessionResource;
+      if (sessionRes) return sessionRes.toString();
+    } catch {}
+    return _getActiveChatTabKey();
+  }
+
   function _bindWorktreeWithRetry(msg, tabKey, attempt) {
-    if (tabKey) {
+    // On each retry, also try the proposed session API in case the tab
+    // navigator returned a non-chat URI (user clicked an editor mid-session)
+    const resolvedKey = tabKey || _resolveCurrentChatKey();
+
+    if (resolvedKey) {
       _writeWorktreeDebug(
-        `bindWorktree: tab=${tabKey} branch=${msg.branch} attempt=${attempt}`,
+        `bindWorktree: key=${resolvedKey.slice(-16)} branch=${msg.branch} attempt=${attempt}`,
       );
       _bindWorktree(
         msg.worktreePath,
         msg.branch,
         msg.baseBranch,
         msg.baseCommit,
-        tabKey,
+        resolvedKey,
       );
       return;
     }
 
-    if (attempt < 5) {
+    if (attempt < 8) {
       setTimeout(
         () => {
-          const newTabKey = _getActiveChatTabKey();
-          _bindWorktreeWithRetry(msg, newTabKey, attempt + 1);
+          _bindWorktreeWithRetry(msg, null, attempt + 1);
         },
-        500 * (attempt + 1),
+        300 * (attempt + 1),
       );
       return;
     }
 
     _writeWorktreeDebug(
-      `bindWorktree: no tab after ${attempt} retries, binding without tab`,
+      `bindWorktree: no key after ${attempt} retries, binding without tab`,
     );
     _bindWorktree(
       msg.worktreePath,
@@ -487,7 +599,7 @@ module.exports = function createWorktreeManager(deps) {
       const captured = msg.activityId
         ? _pendingBranchSessionStarts.get(msg.activityId)
         : null;
-      const tabKey = captured?.tabKey || _getActiveChatTabKey();
+      const tabKey = captured?.tabKey || _resolveCurrentChatKey();
       _bindWorktreeWithRetry(msg, tabKey, 0);
     } else if (msg.type === "worktreeRemoved") {
       getDiagnosticsOutputChannel().appendLine(
@@ -551,109 +663,128 @@ module.exports = function createWorktreeManager(deps) {
     const boundPaths = new Set(_worktreeBindings.keys());
     const repoRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-    for (const entry of entries) {
-      const wtPath = path.join(worktreeBase, entry);
-      try {
-        if (!fs.statSync(wtPath).isDirectory()) continue;
-      } catch {
-        continue;
-      }
-
-      if (boundPaths.has(wtPath)) continue;
-
-      const diag = getDiagnosticsOutputChannel();
-      diag.appendLine(`[worktree] Found orphaned worktree: ${wtPath}`);
-
-      let branch = "";
-      try {
-        branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
-          cwd: wtPath,
-          timeout: 5000,
-          stdio: ["pipe", "pipe", "pipe"],
-        })
-          .toString()
-          .trim();
-      } catch {
-        branch = entry;
-      }
-
-      let dirty = "";
-      try {
-        dirty = execFileSync("git", ["status", "--short"], {
-          cwd: wtPath,
-          timeout: 5000,
-          stdio: ["pipe", "pipe", "pipe"],
-        })
-          .toString()
-          .trim();
-      } catch {}
-
-      if (dirty) {
+    // Process each entry asynchronously — yield to the event loop between
+    // iterations so N×5 synchronous git calls don't block the extension host.
+    function processEntry(index) {
+      if (index >= entries.length) return;
+      setImmediate(() => {
+        const entry = entries[index];
+        const wtPath = path.join(worktreeBase, entry);
         try {
-          execFileSync("git", ["add", "-A"], {
-            cwd: wtPath,
-            timeout: 10000,
-            stdio: ["pipe", "pipe", "pipe"],
-          });
-          execFileSync(
-            "git",
-            [
-              "commit",
-              "-m",
-              `WIP: rescued uncommitted work from orphaned session on '${branch}'`,
-            ],
-            { cwd: wtPath, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
-          );
-          diag.appendLine(
-            `[worktree] Rescued dirty work on orphan branch '${branch}'`,
-          );
-        } catch (err) {
-          diag.appendLine(
-            `[worktree] Could not auto-commit orphan '${branch}': ${err.message}`,
-          );
-        }
-      }
-
-      let lastCommit = "";
-      try {
-        lastCommit = execFileSync("git", ["log", "--oneline", "-1"], {
-          cwd: wtPath,
-          timeout: 5000,
-          stdio: ["pipe", "pipe", "pipe"],
-        })
-          .toString()
-          .trim();
-      } catch {}
-
-      if (repoRoot) {
-        try {
-          execFileSync("git", ["worktree", "remove", "--force", wtPath], {
-            cwd: repoRoot,
-            timeout: 10000,
-            stdio: ["pipe", "pipe", "pipe"],
-          });
+          if (!fs.statSync(wtPath).isDirectory()) {
+            processEntry(index + 1);
+            return;
+          }
         } catch {
-          try {
-            fs.rmSync(wtPath, { recursive: true, force: true });
-          } catch {}
-          try {
-            execFileSync("git", ["worktree", "prune"], {
-              cwd: repoRoot,
-              timeout: 5000,
-              stdio: ["pipe", "pipe", "pipe"],
-            });
-          } catch {}
+          processEntry(index + 1);
+          return;
         }
-      } else {
+
+        if (boundPaths.has(wtPath)) {
+          processEntry(index + 1);
+          return;
+        }
+
+        _rescueOneOrphan(wtPath, repoRoot);
+        processEntry(index + 1);
+      });
+    }
+    processEntry(0);
+  }
+
+  function _rescueOneOrphan(wtPath, repoRoot) {
+    const diag = getDiagnosticsOutputChannel();
+    diag.appendLine(`[worktree] Found orphaned worktree: ${wtPath}`);
+
+    let branch = "";
+    try {
+      branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
+        cwd: wtPath,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+        .toString()
+        .trim();
+    } catch {
+      branch = path.basename(wtPath);
+    }
+
+    let dirty = "";
+    try {
+      dirty = execFileSync("git", ["status", "--short"], {
+        cwd: wtPath,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+        .toString()
+        .trim();
+    } catch {}
+
+    if (dirty) {
+      try {
+        execFileSync("git", ["add", "-A"], {
+          cwd: wtPath,
+          timeout: 10000,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        execFileSync(
+          "git",
+          [
+            "commit",
+            "-m",
+            `WIP: rescued uncommitted work from orphaned session on '${branch}'`,
+          ],
+          { cwd: wtPath, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
+        );
+        diag.appendLine(
+          `[worktree] Rescued dirty work on orphan branch '${branch}'`,
+        );
+      } catch (err) {
+        diag.appendLine(
+          `[worktree] Could not auto-commit orphan '${branch}': ${err.message}`,
+        );
+      }
+    }
+
+    let lastCommit = "";
+    try {
+      lastCommit = execFileSync("git", ["log", "--oneline", "-1"], {
+        cwd: wtPath,
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+        .toString()
+        .trim();
+    } catch {}
+
+    if (repoRoot) {
+      try {
+        execFileSync("git", ["worktree", "remove", "--force", wtPath], {
+          cwd: repoRoot,
+          timeout: 10000,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+      } catch {
         try {
           fs.rmSync(wtPath, { recursive: true, force: true });
         } catch {}
+        try {
+          execFileSync("git", ["worktree", "prune"], {
+            cwd: repoRoot,
+            timeout: 5000,
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+        } catch {}
       }
-
-      diag.appendLine(
-        `[worktree] Removed orphan worktree: ${wtPath} branch=${branch} last=${lastCommit}`,
-      );
+    } else {
+      try {
+        fs.rmSync(wtPath, { recursive: true, force: true });
+      } catch {}
     }
+
+    diag.appendLine(
+      `[worktree] Removed orphan worktree: ${wtPath} branch=${branch} last=${lastCommit}`,
+    );
   }
 
   // ------- Startup Restore -------
@@ -1087,6 +1218,7 @@ module.exports = function createWorktreeManager(deps) {
   return {
     loadWorktreeBindings,
     loadTabWorktreeMap,
+    loadSessionState,
     reconcileWorktreeBindings,
     registerWorktreeFileView,
     onActiveTabChanged,

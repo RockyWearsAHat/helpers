@@ -182,7 +182,14 @@ module.exports = function createIpcServers(deps) {
             );
             _externalToInternal.set(msg.id, internalId);
             if (msg.tool === "branch_session_start") {
-              const tabKey = getActiveChatTabKey();
+              // Capture both the proposed session URI (more stable) and the
+              // tab key so binding survives tab navigation during the IPC round-trip
+              let tabKey = null;
+              try {
+                const sessionRes = vscode.window.activeChatPanelSessionResource;
+                if (sessionRes) tabKey = sessionRes.toString();
+              } catch {}
+              if (!tabKey) tabKey = getActiveChatTabKey();
               getPendingBranchSessionStarts().set(msg.id, {
                 tabKey,
                 capturedAt: Date.now(),
