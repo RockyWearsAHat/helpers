@@ -787,9 +787,11 @@ if [ "$no_install" = false ]; then
 
 		# Install additional product instructions globally
 		local extra_instructions=(
+			"branch-workspace-control.instructions.md"
 			"git-checkpoint.instructions.md"
 			"provider-subagents.instructions.md"
 			"shell-scripts.instructions.md"
+			"tiered-agents.instructions.md"
 			"vscode-tool-safety.instructions.md"
 		)
 		for inst_name in "${extra_instructions[@]}"; do

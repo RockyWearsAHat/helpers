@@ -280,9 +280,11 @@ install_all() {
   fetch "$REPO_RAW_BASE/copilot-config/agents/Explore.agent.md" "$CC/agents/Explore.agent.md"
 
   fetch "$REPO_RAW_BASE/copilot-config/instructions/devops-audit-router.instructions.md" "$CC/instructions/devops-audit-router.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/branch-workspace-control.instructions.md" "$CC/instructions/branch-workspace-control.instructions.md"
   fetch "$REPO_RAW_BASE/copilot-config/instructions/gsh-mcp-tools.instructions.md" "$CC/instructions/gsh-mcp-tools.instructions.md"
   fetch "$REPO_RAW_BASE/copilot-config/instructions/git-checkpoint.instructions.md" "$CC/instructions/git-checkpoint.instructions.md"
   fetch "$REPO_RAW_BASE/copilot-config/instructions/shell-scripts.instructions.md" "$CC/instructions/shell-scripts.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/tiered-agents.instructions.md" "$CC/instructions/tiered-agents.instructions.md"
   fetch "$REPO_RAW_BASE/copilot-config/instructions/vscode-tool-safety.instructions.md" "$CC/instructions/vscode-tool-safety.instructions.md"
 
   fetch "$REPO_RAW_BASE/copilot-config/prompts/copilot-devops-audit.prompt.md" "$CC/prompts/copilot-devops-audit.prompt.md"
