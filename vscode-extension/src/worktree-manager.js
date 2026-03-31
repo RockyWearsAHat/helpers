@@ -410,6 +410,7 @@ module.exports = function createWorktreeManager(deps) {
 
       const ok = _checkoutBranchViaSymref(mainRepo, targetBranch);
       if (ok) {
+        _writeHeadOverride(mainRepo, targetBranch);
         _triggerGitRefresh();
         _writeWorktreeDebug(`checked out ${targetBranch} via symbolic-ref`);
       }
@@ -467,6 +468,7 @@ module.exports = function createWorktreeManager(deps) {
 
       const ok = _checkoutBranchViaSymref(mainRepo, _originalBranch);
       if (ok) {
+        _removeHeadOverride(mainRepo);
         _popStash(mainRepo, _stashRef);
         _triggerGitRefresh();
         _writeWorktreeDebug(`restored baseline: ${_originalBranch}`);

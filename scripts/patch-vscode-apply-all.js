@@ -5,7 +5,8 @@
 // Manages pristine backups per bundle and applies patches in sequence.
 //
 // Workbench patches (require full Cmd+Q restart):
-//   folder-switch      — removes workspace folder switch confirmation dialog
+//   folder-switch         — removes workspace folder switch confirmation dialog
+//   runsubagent-model     — adds optional `model` param to runSubagent tool
 //
 // Git extension patches (pick up on Reload Window):
 //   git-head-display   — supports branch name display override via .git/gsh-head-override
@@ -100,6 +101,12 @@ const PATCH_DEFS = [
     description: "Support branch name display override for worktrees",
     script: path.join(PATCHES_DIR, "patch-vscode-git-head-display.js"),
     bundle: "git",
+  },
+  {
+    name: "runsubagent-model",
+    description: "Add optional model parameter to runSubagent tool",
+    script: path.join(PATCHES_DIR, "patch-vscode-runsubagent-model.js"),
+    bundle: "workbench",
   },
 ];
 

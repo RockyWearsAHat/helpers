@@ -120,6 +120,27 @@ function subscribeToSessionFocus(context, handler) {
 
 **Cleanup trigger**: When the minimum `engines.vscode` version includes the stable event, remove `chatParticipantPrivate` from `enabledApiProposals` and document that `argv.json` modification is no longer needed.
 
+### 4. runSubagent Model Parameter
+
+**Current**: Bundle patch (`patch-vscode-runsubagent-model.js`) adding `model` field to `RunSubagentTool`'s JSON schema and injecting an override into `invoke()` before the request object is built.
+**Upstream target**: `model` (and eventually `tier`) as first-class parameters in the `runSubagent` tool schema.
+
+**Transition code**:
+
+```javascript
+// No extension API change needed — runSubagent is a built-in tool.
+// When upstream adds `model` to the schema natively, the patch's NEW string
+// won't match (the schema text will be different), so patch-vscode-apply-all.js
+// will report UNKNOWN for this patch. That's the signal to remove it.
+//
+// The behavior (model override via runSubagent call) will work natively
+// without any extension code change — models will just pass `model: "..."`.
+```
+
+**When upstream lands**: `patch-vscode-runsubagent-model.js --check` returns UNKNOWN (injection point not found because the schema already contains `model`). The native implementation handles the feature. Remove the patch from `PATCH_DEFS` in `patch-vscode-apply-all.js`.
+
+**Cleanup trigger**: When VS Code's `runSubagent` schema in the workbench bundle already contains a `model` property, the patch is no longer needed.
+
 ## Patch Management During Transition
 
 ### The `patch-vscode-apply-all.js` coordinator
@@ -159,11 +180,12 @@ Our current override file is `.git/gsh-head-override` (prefixed with `gsh-` to i
 
 ## Timeline
 
-| Feature             | Upstream Status                        | Our Action                 | Est. Transition                          |
-| ------------------- | -------------------------------------- | -------------------------- | ---------------------------------------- |
-| Folder switch       | PR #292783 merged (agent-sessions)     | Propose general API option | When VS Code exposes option publicly     |
-| headLabel override  | Issue #260706 open, Git API scaffolded | Propose API addition       | When Git API v2 lands                    |
-| Chat session events | Active infrastructure work             | Propose stable promotion   | When `chatParticipantPrivate` stabilizes |
+| Feature                 | Upstream Status                        | Our Action                 | Est. Transition                             |
+| ----------------------- | -------------------------------------- | -------------------------- | ------------------------------------------- |
+| Folder switch           | PR #292783 merged (agent-sessions)     | Propose general API option | When VS Code exposes option publicly        |
+| headLabel override      | Issue #260706 open, Git API scaffolded | Propose API addition       | When Git API v2 lands                       |
+| Chat session events     | Active infrastructure work             | Propose stable promotion   | When `chatParticipantPrivate` stabilizes    |
+| runSubagent model param | Not filed — patched locally            | Propose schema + invoke    | When `runSubagent` schema gains `model` key |
 
 ## Principle: Never Self-Obsolete
 
