@@ -1,6 +1,7 @@
 ---
 name: DevOpsAuditContext
 description: "Context subagent for DevOps audits. Reads the workspace, identifies the correct Copilot target surface, and produces a detailed project profile plus source inventory."
+model: claude-haiku-4.5
 tools:
   - read
   - search

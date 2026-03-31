@@ -66,3 +66,13 @@ Review each handoff against the orchestration skill. Reject weak outputs.
 - Respect explicit exclusions exactly. If the user says not to run the audit, not to execute the workflow, or not to inspect a different surface, those exclusions override defaults.
 - When implementation does run, require a final VS Code diagnostics check for the touched target surface and do not accept the run until resulting errors and warnings are resolved or a concrete blocker is reported.
 - If a phase fails, report the error clearly. Offer `/copilot-devops-audit` as manual fallback.
+
+## Model Tier Guidance
+
+Each subagent has a default model baked into its frontmatter, but you can override at call-time via the `model` parameter to `runSubagent`. Use this to adjust cost and capability per step:
+
+- **Context** — read-only file listing, no reasoning needed. Default: Haiku. Upgrade to Sonnet only if the workspace is unusually complex.
+- **Research** — web search and evidence synthesis. Default: Sonnet. Upgrade to Opus for ambiguous or poorly-documented areas.
+- **Evaluate** — structured comparison against criteria. Default: Sonnet. Keep at Sonnet unless context is very long.
+- **Implement** — precise file edits. Default: Sonnet. Do not downgrade — editing reliability matters here.
+- **CommunitySubmit** — mechanical data formatting. Default: Haiku. Never needs upgrading.
