@@ -69,10 +69,20 @@ Review each handoff against the orchestration skill. Reject weak outputs.
 
 ## Model Tier Guidance
 
-Each subagent has a default model baked into its frontmatter, but you can override at call-time via the `model` parameter to `runSubagent`. Use this to adjust cost and capability per step:
+**A thorough call costs 9x what a quick call costs.** Route accordingly.
 
-- **Context** — read-only file listing, no reasoning needed. Default: Haiku. Upgrade to Sonnet only if the workspace is unusually complex.
-- **Research** — web search and evidence synthesis. Default: Sonnet. Upgrade to Opus for ambiguous or poorly-documented areas.
-- **Evaluate** — structured comparison against criteria. Default: Sonnet. Keep at Sonnet unless context is very long.
-- **Implement** — precise file edits. Default: Sonnet. Do not downgrade — editing reliability matters here.
-- **CommunitySubmit** — mechanical data formatting. Default: Haiku. Never needs upgrading.
+Each subagent has a default model in its frontmatter. Override at call-time via the `model` parameter to `runSubagent` when the task demands it.
+
+**Quick (Haiku) — the workhorses:**
+- **Context** — reads files, produces inventory. Never needs more than quick.
+- **CommunitySubmit** — formats and submits pre-prepared data. Never needs more than quick.
+
+**Capable (Sonnet) — the thinkers:**
+- **Research** — web search and evidence synthesis. Default to capable.
+- **Evaluate** — structured comparison against criteria. Default to capable.
+- **Implement** — precise file edits. Default to capable. Do not downgrade — editing reliability matters.
+
+**Thorough (Opus) — the closer:**
+Only upgrade a single step to thorough when you have identified genuine uncertainty that capable cannot resolve. Before doing so, ensure all context from quick and capable calls has been gathered and included in the prompt. A thorough call that has to ask for more information was a wasted thorough call.
+
+Typical well-routed audit pipeline: Context(quick) → Research(capable) → Evaluate(capable) → Implement(capable). Total cost ~$0.90. Running everything at thorough would cost ~$8 for no meaningful quality gain on 3 of 4 steps.
