@@ -791,6 +791,7 @@ if [ "$no_install" = false ]; then
 			"git-checkpoint.instructions.md"
 			"provider-subagents.instructions.md"
 			"shell-scripts.instructions.md"
+			"software-design.instructions.md"
 			"tiered-agents.instructions.md"
 			"vscode-tool-safety.instructions.md"
 		)
