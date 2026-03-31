@@ -277,6 +277,7 @@ install_all() {
   fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditEvaluate.agent.md" "$CC/agents/DevOpsAuditEvaluate.agent.md"
   fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditImplement.agent.md" "$CC/agents/DevOpsAuditImplement.agent.md"
   fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditResearch.agent.md" "$CC/agents/DevOpsAuditResearch.agent.md"
+  fetch "$REPO_RAW_BASE/copilot-config/agents/Explore.agent.md" "$CC/agents/Explore.agent.md"
 
   fetch "$REPO_RAW_BASE/copilot-config/instructions/devops-audit-router.instructions.md" "$CC/instructions/devops-audit-router.instructions.md"
   fetch "$REPO_RAW_BASE/copilot-config/instructions/gsh-mcp-tools.instructions.md" "$CC/instructions/gsh-mcp-tools.instructions.md"

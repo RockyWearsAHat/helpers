@@ -568,6 +568,10 @@ generate_community_submit_agent() {
 	cat "$SCRIPT_DIR/copilot-config/agents/DevOpsAuditCommunitySubmit.agent.md"
 }
 
+generate_explore_agent() {
+	cat "$SCRIPT_DIR/copilot-config/agents/Explore.agent.md"
+}
+
 generate_router_instruction() {
 	cat "$SCRIPT_DIR/copilot-config/instructions/devops-audit-router.instructions.md"
 }
@@ -734,6 +738,7 @@ if [ "$no_install" = false ]; then
 		[DevOpsAuditEvaluate.agent.md]=generate_evaluate_agent
 		[DevOpsAuditImplement.agent.md]=generate_implement_agent
 		[DevOpsAuditCommunitySubmit.agent.md]=generate_community_submit_agent
+		[Explore.agent.md]=generate_explore_agent
 	)
 	global_prompt="$prompts_dir/copilot-devops-audit.prompt.md"
 
