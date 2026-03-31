@@ -1,7 +1,7 @@
 ---
 name: DevOpsAuditEvaluate
 description: "Evaluation subagent for DevOps audits. Finds problems and gaps in workspace customization."
-model: claude-sonnet-4.6
+model: claude-sonnet-4.5
 tools:
   - read
   - search

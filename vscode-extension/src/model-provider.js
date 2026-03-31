@@ -2,7 +2,14 @@
 // src/model-provider.js — Model discovery, Ollama, API keys, agents, quick actions
 const vscode = require("vscode");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
+
+const AVAILABLE_MODELS_PATH = path.join(
+  os.homedir(),
+  ".copilot",
+  "available-models.json",
+);
 const { execFile } = require("child_process");
 
 const API_KEY_ANTHROPIC = "gsh.apiKey.anthropic";
@@ -49,6 +56,32 @@ module.exports = function createModelProvider(deps) {
         seen.add(m.id);
         return true;
       });
+      // Write available models so the gsh MCP server can expose list_language_models
+      try {
+        const dir = path.dirname(AVAILABLE_MODELS_PATH);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(
+          AVAILABLE_MODELS_PATH,
+          JSON.stringify(
+            {
+              updatedAt: new Date().toISOString(),
+              models: cachedModels.map((m) => ({
+                id: m.id,
+                name: m.name,
+                vendor: m.vendor,
+                qualifiedName: m.vendor ? `${m.name} (${m.vendor})` : m.name,
+                family: m.family,
+                maxInputTokens: m.maxInputTokens,
+              })),
+            },
+            null,
+            2,
+          ),
+          "utf8",
+        );
+      } catch {
+        // Non-fatal: MCP tool will fall back gracefully if file absent
+      }
     } catch {
       cachedModels = [];
     }

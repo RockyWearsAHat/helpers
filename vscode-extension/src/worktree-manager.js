@@ -240,24 +240,53 @@ module.exports = function createWorktreeManager(deps) {
   // in the main repo pulls in those commits instantly.
 
   function _checkoutBranchViaSymref(repoRoot, branch) {
+    // Step 1: Update HEAD ref (fast, unlikely to fail)
     try {
       execFileSync("git", ["symbolic-ref", "HEAD", `refs/heads/${branch}`], {
         cwd: repoRoot,
         timeout: 5000,
         stdio: ["pipe", "pipe", "pipe"],
       });
-      execFileSync("git", ["reset", "--hard", "HEAD"], {
-        cwd: repoRoot,
-        timeout: 10000,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      return true;
     } catch (err) {
       _writeWorktreeDebug(
-        `symref checkout failed for ${branch}: ${err.message?.split("\n")[0] || err}`,
+        `symref failed for ${branch}: ${err.stderr?.toString().trim() || err.message?.split("\n")[0] || err}`,
       );
       return false;
     }
+
+    // Step 2: Update working tree to match HEAD.
+    // May fail due to index.lock, permission issues, etc. — retry once.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        execFileSync("git", ["reset", "--hard", "HEAD"], {
+          cwd: repoRoot,
+          timeout: 10000,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        return true;
+      } catch (err) {
+        const stderr =
+          err.stderr?.toString().trim() ||
+          err.message?.split("\n")[0] ||
+          String(err);
+        if (attempt === 0 && stderr.includes("index.lock")) {
+          _writeWorktreeDebug(
+            `reset --hard attempt ${attempt} failed (index.lock), retrying: ${stderr}`,
+          );
+          try {
+            fs.unlinkSync(path.join(repoRoot, ".git", "index.lock"));
+          } catch {}
+          continue;
+        }
+        _writeWorktreeDebug(
+          `reset --hard failed for ${branch} (attempt ${attempt}): ${stderr}`,
+        );
+      }
+    }
+
+    // symref succeeded but reset failed — HEAD points to branch but working
+    // tree is stale.  Return 'partial' so the caller can decide what to do.
+    return "partial";
   }
 
   function _stashMainRepo(repoRoot) {
@@ -286,7 +315,7 @@ module.exports = function createWorktreeManager(deps) {
       return ref;
     } catch (err) {
       _writeWorktreeDebug(
-        `stash failed: ${err.message?.split("\n")[0] || err}`,
+        `stash failed: ${err.stderr?.toString().trim() || err.message?.split("\n")[0] || err}`,
       );
       return null;
     }
@@ -365,13 +394,28 @@ module.exports = function createWorktreeManager(deps) {
   }
 
   function _refreshMainRepo(repoRoot) {
-    try {
-      execFileSync("git", ["reset", "--hard", "HEAD"], {
-        cwd: repoRoot,
-        timeout: 10000,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-    } catch {}
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        execFileSync("git", ["reset", "--hard", "HEAD"], {
+          cwd: repoRoot,
+          timeout: 10000,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        break;
+      } catch (err) {
+        const stderr =
+          err.stderr?.toString().trim() ||
+          err.message?.split("\n")[0] ||
+          String(err);
+        if (attempt === 0 && stderr.includes("index.lock")) {
+          try {
+            fs.unlinkSync(path.join(repoRoot, ".git", "index.lock"));
+          } catch {}
+          continue;
+        }
+        _writeWorktreeDebug(`refreshMainRepo reset failed: ${stderr}`);
+      }
+    }
     _triggerGitRefresh();
   }
 
@@ -398,21 +442,66 @@ module.exports = function createWorktreeManager(deps) {
     const targetBranch = binding?.branch;
 
     if (mainRepo && targetBranch) {
-      // If this is the first focus (from baseline), save the original branch and stash
+      const currentBranch = _gitCurrentBranch(mainRepo);
+
+      // If this is the first focus (from baseline), save the original branch
+      // and stash.  Guard: if the repo is already on the target branch
+      // (leftover from a previous session or restart), don't save the feature
+      // branch as the baseline — use the binding's baseBranch instead.
       if (!_originalBranch) {
-        _originalBranch = _gitCurrentBranch(mainRepo);
-        _stashRef = _stashMainRepo(mainRepo);
-        _writeWorktreeDebug(
-          `saved baseline: branch=${_originalBranch} stash=${_stashRef || "none"}`,
-        );
+        if (currentBranch === targetBranch) {
+          // Already on the target branch — use the base branch from the
+          // binding as the real baseline (e.g. "dev"), not the feature branch.
+          _originalBranch = binding.baseBranch || currentBranch;
+          _stashRef = null;
+          _writeWorktreeDebug(
+            `saved baseline (already on target): branch=${_originalBranch} stash=none`,
+          );
+        } else {
+          _originalBranch = currentBranch;
+          _stashRef = _stashMainRepo(mainRepo);
+          _writeWorktreeDebug(
+            `saved baseline: branch=${_originalBranch} stash=${_stashRef || "none"}`,
+          );
+        }
         _recordSessionState(worktreePath);
       }
 
-      const ok = _checkoutBranchViaSymref(mainRepo, targetBranch);
-      if (ok) {
-        _writeHeadOverride(mainRepo, targetBranch);
-        _triggerGitRefresh();
-        _writeWorktreeDebug(`checked out ${targetBranch} via symbolic-ref`);
+      // Write head override before checkout so the Git status bar shows the
+      // target branch immediately, even if the reset step is slow.
+      _writeHeadOverride(mainRepo, targetBranch);
+
+      // If we're already on the target branch, just refresh the working tree
+      // instead of doing a full symref → reset cycle.
+      if (currentBranch === targetBranch) {
+        _refreshMainRepo(mainRepo);
+        _writeWorktreeDebug(
+          `already on ${targetBranch}, refreshed working tree`,
+        );
+      } else {
+        const ok = _checkoutBranchViaSymref(mainRepo, targetBranch);
+        if (ok === true) {
+          _triggerGitRefresh();
+          _writeWorktreeDebug(`checked out ${targetBranch} via symbolic-ref`);
+        } else if (ok === "partial") {
+          // symref updated HEAD but reset --hard failed — working tree is
+          // stale but HEAD points to the right branch.  Still mark as
+          // partially focused so branchCommit refreshes can fix it.
+          _triggerGitRefresh();
+          _writeWorktreeDebug(
+            `partial checkout for ${targetBranch}: HEAD updated but working tree stale`,
+          );
+        } else {
+          // Total failure — remove head override to avoid confusion
+          _removeHeadOverride(mainRepo);
+          _writeWorktreeDebug(
+            `FOCUS FAILED for ${worktreePath}: symref failed for ${targetBranch}`,
+          );
+          getDiagnosticsOutputChannel().appendLine(
+            `[worktree] Focus FAILED: could not checkout ${targetBranch}`,
+          );
+          return;
+        }
       }
       _displayedBranch = targetBranch;
     }
@@ -462,16 +551,21 @@ module.exports = function createWorktreeManager(deps) {
         }
       } catch (err) {
         _writeWorktreeDebug(
-          `warning: could not stash session work: ${err.message?.split("\n")[0] || err}`,
+          `warning: could not stash session work: ${err.stderr?.toString().trim() || err.message?.split("\n")[0] || err}`,
         );
       }
 
       const ok = _checkoutBranchViaSymref(mainRepo, _originalBranch);
-      if (ok) {
+      if (ok === true || ok === "partial") {
         _removeHeadOverride(mainRepo);
         _popStash(mainRepo, _stashRef);
         _triggerGitRefresh();
         _writeWorktreeDebug(`restored baseline: ${_originalBranch}`);
+      } else {
+        _writeWorktreeDebug(
+          `warning: could not restore baseline ${_originalBranch}, removing head override anyway`,
+        );
+        _removeHeadOverride(mainRepo);
       }
       _originalBranch = null;
       _stashRef = null;
@@ -518,7 +612,18 @@ module.exports = function createWorktreeManager(deps) {
     getDiagnosticsOutputChannel().appendLine(
       `[worktree] Bound branch=${branch} path=${worktreePath} tab=${tabKey || "pending"}`,
     );
-    _focusWorktreeFolder(worktreePath);
+
+    // Only auto-focus if the binding tab is the currently active session.
+    // Prevents a background agent's branch_session_start from hijacking the
+    // repo checkout when the user has switched to a different chat.
+    const currentKey = _resolveCurrentChatKey();
+    if (tabKey && currentKey && tabKey !== currentKey) {
+      _writeWorktreeDebug(
+        `bindWorktree: deferred focus for ${branch} (active=${currentKey.slice(-12)} bind=${tabKey.slice(-12)})`,
+      );
+    } else {
+      _focusWorktreeFolder(worktreePath);
+    }
   }
 
   function _unbindWorktree(worktreePath) {
@@ -865,9 +970,24 @@ module.exports = function createWorktreeManager(deps) {
       }
     }
 
-    _writeWorktreeDebug(
-      "startup-restore: no matching session, ensuring baseline",
-    );
+    // No active session matches a binding. If the repo is stuck on a
+    // feature branch from a previous session, restore the baseline.
+    const currentBranch = _gitCurrentBranch(mainRepo);
+    if (currentBranch) {
+      for (const [, binding] of _worktreeBindings) {
+        if (binding.branch === currentBranch && binding.baseBranch) {
+          _writeWorktreeDebug(
+            `startup-restore: repo on session branch ${currentBranch}, restoring to ${binding.baseBranch}`,
+          );
+          _checkoutBranchViaSymref(mainRepo, binding.baseBranch);
+          _removeHeadOverride(mainRepo);
+          _triggerGitRefresh();
+          return;
+        }
+      }
+    }
+
+    _writeWorktreeDebug("startup-restore: no matching session, baseline OK");
   }
 
   function _cleanupLegacyWorktreeFolders() {
@@ -1001,13 +1121,19 @@ module.exports = function createWorktreeManager(deps) {
     }
 
     const viewType = activeTab?.input?.viewType || null;
+
+    // Only chat-session tabs affect worktree focus. Editor/terminal tab
+    // switches are irrelevant — early-return to avoid log spam (VS Code
+    // fires dozens of tab-change events per click).
+    if (viewType !== "workbench.editor.chatSession") return;
+
     const tabUri = activeTab?.input?.uri?.toString() || null;
 
     _writeWorktreeDebug(
-      `tab-change: viewType=${viewType || "null"} tabUri=${tabUri ? tabUri.slice(-12) : "null"} active=${_activeWorktreeFolder || "null"} bindings=${_worktreeBindings.size}`,
+      `tab-change: tabUri=${tabUri ? tabUri.slice(-12) : "null"} active=${_activeWorktreeFolder || "null"} bindings=${_worktreeBindings.size}`,
     );
 
-    if (viewType === "workbench.editor.chatSession" && activeTab.input.uri) {
+    if (activeTab.input.uri) {
       const tabKey = activeTab.input.uri.toString();
       let worktreePath = _tabToWorktree.get(tabKey);
 

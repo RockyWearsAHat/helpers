@@ -1,7 +1,7 @@
 ---
 name: DevOpsAuditImplement
 description: "Implementation subagent for DevOps audits. Applies research-backed edits inside the approved Copilot target surface."
-model: claude-sonnet-4.6
+model: claude-sonnet-4.5
 tools:
   - edit/editFiles
   - read/readFile
@@ -35,7 +35,7 @@ Verify:
 - No blocked files were created
 - No references to `@DevOpsAudit`, `/copilot-devops-audit`, or the audit system were added
 - Changed files have valid YAML frontmatter where applicable
-- VS Code diagnostics for the touched target files are clean after the edits, or a concrete blocker is reported after attempted fixes
+- VS Code diagnostics for the touched target files are clean after the edits — call `strict_lint` (MCP tool) on each modified file with its absolute `filePath`; re-run until clean or a concrete blocker is reported after attempted fixes
 
 ## Output
 

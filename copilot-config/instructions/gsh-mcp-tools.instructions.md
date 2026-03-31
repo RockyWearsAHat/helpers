@@ -11,7 +11,7 @@ The `gsh` MCP server is installed globally and available in every workspace. It 
 Apply this guidance before processing each user request:
 
 - Prefer direct MCP tool calls when a matching gsh tool exists; avoid terminal emulation for tool behavior checks.
-- For diagnostics, use `strict_lint` first.
+- **After every file edit, call `strict_lint` on the modified file before declaring work complete.** Fix reported errors and warnings or name each one with a reason for leaving it. Do not return "implementation complete" while unresolved issues exist.
 - `strict_lint` defaults to `severityFilter: "all"` when omitted (includes error, warning, info, and hint diagnostics).
 - Only pass `severityFilter` when the user explicitly asks to narrow severity.
 - If there is a reported mismatch with VS Code squiggles, rerun `strict_lint` on the exact file path with default severity before deeper debugging.
@@ -83,6 +83,27 @@ Parameters:
 **`branch_status`** — Show all active branch sessions and local branches.
 
 - Reports: active worktree sessions with their status, the main workspace branch, and all local branches with latest commits.
+- No parameters.
+
+## Core — Diagnostics
+
+**`strict_lint`** — Run VS Code’s live diagnostics (errors and warnings) on a file, folder, or the entire workspace.
+
+- Returns the same output as the Problems panel.
+- **Call this after every file edit before declaring implementation complete.** If errors or warnings are reported, fix them or explicitly document why they are acceptable.
+- Re-run until clean. Do not return “implementation complete” while unresolved issues exist without naming each one and why it was left.
+
+Parameters:
+
+- `filePath` (string, optional) — Absolute path to a specific file to check. Omit to check the whole workspace.
+- `folderPath` (string, optional) — Absolute path to a folder to check.
+- `severityFilter` (string, optional) — `"all"` (default), `"errors-only"`, or `"warnings-and-above"`.
+
+**`list_language_models`** — List the language models available in VS Code’s language model service.
+
+- Returns each model’s `id`, display name, vendor, and `qualifiedName`.
+- Use this when you need to pass a valid model identifier to `runSubagent` or report available models to the user.
+- The list is written by the gsh VS Code extension on startup and whenever the model set changes.
 - No parameters.
 
 ## Research — Web Search & Knowledge Base
