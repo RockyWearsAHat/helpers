@@ -51,8 +51,8 @@ Verify all of the following:
 - No blocked files were created anywhere in the workspace
 - No new audit-system references were added outside the files and purposes explicitly approved in the plan
 - Every changed file has valid YAML frontmatter (if applicable)
-- VS Code diagnostics for the touched target-surface files or folders were checked after the edits
-- Any resulting errors or warnings caused by the implementation were fixed and the diagnostics check was repeated until clean, unless a concrete blocker prevented that
+- `strict_lint` was called on each modified file after the edit (use the `strict_lint` MCP tool with `filePath` set to the exact file path)
+- Any errors or warnings reported by `strict_lint` were fixed and `strict_lint` was re-run until clean, unless a concrete blocker prevented that — if a warning or error was left unresolved, name it explicitly in the output with the reason
 - The content of each changed file is accurate for this project
 - Any required out-of-scope fixes that remain outside the approved target surface are listed as concrete follow-up actions
 

@@ -71,18 +71,27 @@ Review each handoff against the orchestration skill. Reject weak outputs.
 
 **A thorough call costs 9x what a quick call costs.** Route accordingly.
 
-Each subagent has a default model in its frontmatter. Override at call-time via the `model` parameter to `runSubagent` when the task demands it.
+**Default model for every `runSubagent` call is `claude-haiku-4-5`.** Always pass the `model` parameter explicitly — never let subagents inherit the parent model.
 
-**Quick (Haiku) — the workhorses:**
-- **Context** — reads files, produces inventory. Never needs more than quick.
-- **CommunitySubmit** — formats and submits pre-prepared data. Never needs more than quick.
+Before sending each prompt, evaluate whether **that specific prompt** requires promotion:
 
-**Capable (Sonnet) — the thinkers:**
-- **Research** — web search and evidence synthesis. Default to capable.
-- **Evaluate** — structured comparison against criteria. Default to capable.
-- **Implement** — precise file edits. Default to capable. Do not downgrade — editing reliability matters.
+**Promote to `claude-sonnet-4-6` when the prompt:**
 
-**Thorough (Opus) — the closer:**
-Only upgrade a single step to thorough when you have identified genuine uncertainty that capable cannot resolve. Before doing so, ensure all context from quick and capable calls has been gathered and included in the prompt. A thorough call that has to ask for more information was a wasted thorough call.
+- Asks the agent to reconcile contradictory guidance from multiple sources
+- Requires weighing tradeoffs where evaluation criteria conflict with each other
+- Involves coordinating edits across 3+ files or restructuring existing code
+- Needs the agent to infer unstated intent or fill gaps in ambiguous instructions
 
-Typical well-routed audit pipeline: Context(quick) → Research(capable) → Evaluate(capable) → Implement(capable). Total cost ~$0.90. Running everything at thorough would cost ~$8 for no meaningful quality gain on 3 of 4 steps.
+**Keep on `claude-haiku-4-5` when the prompt:**
+
+- Asks to fetch URLs and extract specific sections
+- Checks a structured list against yes/no or present/absent criteria
+- Makes templated, single-file, or mechanical edits
+- Reads files and produces an inventory or summary
+- Formats and submits pre-prepared data
+
+**Context and CommunitySubmit — always haiku, no exceptions.**
+
+**Promote to `claude-opus-4-6` only** when you have identified genuine ambiguity that sonnet failed to resolve on a prior attempt. A thorough call that has to ask for more information was a wasted thorough call.
+
+Typical well-routed audit: all 4 phases on haiku, 1-2 promoted to sonnet where synthesis is needed. Cost: ~$0.30-$0.60. Pre-assigning sonnet to every phase would cost ~$0.90 with no quality gain on the mechanical steps.

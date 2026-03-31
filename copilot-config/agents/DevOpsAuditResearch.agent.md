@@ -1,7 +1,7 @@
 ---
 name: DevOpsAuditResearch
 description: "Research subagent for DevOps audits. Gathers current Copilot guidance relevant to the project."
-model: claude-sonnet-4.6
+model: claude-sonnet-4.5
 tools:
   - web
   - read
