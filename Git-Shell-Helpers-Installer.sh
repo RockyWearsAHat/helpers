@@ -286,6 +286,7 @@ install_all() {
   fetch "$REPO_RAW_BASE/copilot-config/instructions/shell-scripts.instructions.md" "$CC/instructions/shell-scripts.instructions.md"
   fetch "$REPO_RAW_BASE/copilot-config/instructions/tiered-agents.instructions.md" "$CC/instructions/tiered-agents.instructions.md"
   fetch "$REPO_RAW_BASE/copilot-config/instructions/vscode-tool-safety.instructions.md" "$CC/instructions/vscode-tool-safety.instructions.md"
+  fetch "$REPO_RAW_BASE/copilot-config/instructions/software-design.instructions.md" "$CC/instructions/software-design.instructions.md"
 
   fetch "$REPO_RAW_BASE/copilot-config/prompts/copilot-devops-audit.prompt.md" "$CC/prompts/copilot-devops-audit.prompt.md"
 
