@@ -4,13 +4,11 @@ const vscode = require("vscode");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const createChatHistoryArchive = require("./chat-history-archive");
 
 module.exports = function createChatSessions(deps) {
   const { getWebviewProvider, getActivityItems } = deps;
 
   const _chatSessions = new Map(); // sessionId → session data
-  const _chatHistoryArchive = createChatHistoryArchive();
   let _chatSessionWatcher = null;
   let _chatSessionPoller = null;
 
@@ -299,39 +297,9 @@ module.exports = function createChatSessions(deps) {
     return null;
   }
 
-  async function searchArchivedChatHistory() {
-    const query = await vscode.window.showInputBox({
-      prompt: "Search archived Copilot chat history",
-      placeHolder: "Enter words or a phrase to search for",
-      ignoreFocusOut: true,
-    });
-    if (!query) return;
-
-    const results = _chatHistoryArchive.searchArchive(query, { limit: 20 });
-    if (results.length === 0) {
-      const archiveRoot = _chatHistoryArchive.getArchiveRoot();
-      vscode.window.showInformationMessage(
-        archiveRoot
-          ? `No archived chat matches found for "${query}".`
-          : "Chat archive has not been initialized yet.",
-      );
-      return;
-    }
-
-    const doc = await vscode.workspace.openTextDocument({
-      language: "markdown",
-      content: _chatHistoryArchive.renderSearchResultsMarkdown(query, results),
-    });
-    await vscode.window.showTextDocument(doc, { preview: false });
-  }
-
   function _onChatSessionWrite(sessionId, filePath) {
     const existing = _chatSessions.get(sessionId);
     const now = Date.now();
-
-    _chatHistoryArchive.archiveSessionFile(sessionId, filePath, {
-      title: existing?.title,
-    });
 
     const { tail, size: fileSize } = _chatSessionReadTail(filePath);
     if (!tail) return;
@@ -348,10 +316,6 @@ module.exports = function createChatSessions(deps) {
     const { active: rawActive, lastRequestIdx } = _chatSessionParseState(tail);
     const isActive = rawActive && !forceCompleted;
     const title = _chatSessionReadTitle(filePath, existing?.title);
-    _chatHistoryArchive.updateSessionMetadata(sessionId, {
-      title,
-      sourceFilePath: filePath,
-    });
 
     const newPreview = _chatSessionExtractPreview(tail);
     let preview = newPreview || existing?.preview || null;
@@ -421,15 +385,11 @@ module.exports = function createChatSessions(deps) {
       _chatSessionPoller = null;
     }
 
-    _chatHistoryArchive.initialize(
-      ctx?.storageUri?.fsPath || ctx?.globalStorageUri?.fsPath,
-    );
-
     const chatSessionsDir = _chatSessionsDir(ctx);
     if (!chatSessionsDir) return;
 
     let _lastScanMs = 0;
-    let _didBootstrapArchive = false;
+    let _didBootstrapScan = false;
     const _scanRecentFiles = () => {
       const now = Date.now();
       if (now - _lastScanMs < 800) return;
@@ -448,13 +408,6 @@ module.exports = function createChatSessions(deps) {
           })
           .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
-        if (!_didBootstrapArchive) {
-          for (const file of files) {
-            _chatHistoryArchive.archiveSessionFile(file.sid, file.fp);
-          }
-          _didBootstrapArchive = true;
-        }
-
         const candidate = new Map();
         for (const [sid, sess] of _chatSessions) {
           if (sess?.active && sess.filePath) {
@@ -470,6 +423,7 @@ module.exports = function createChatSessions(deps) {
         for (const c of candidate.values()) {
           _onChatSessionWrite(c.sid, c.fp);
         }
+        _didBootstrapScan = true;
       } catch {}
       _pushActivityUpdate();
     };
@@ -505,7 +459,6 @@ module.exports = function createChatSessions(deps) {
 
   return {
     getChatSessions,
-    searchArchivedChatHistory,
     startChatSessionWatcher,
     dispose,
   };

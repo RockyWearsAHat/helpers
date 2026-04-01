@@ -408,10 +408,6 @@ function activate(context) {
       },
     ),
     vscode.commands.registerCommand(
-      "gitShellHelpers.searchArchivedChatHistory",
-      () => chatSessionsModule.searchArchivedChatHistory(),
-    ),
-    vscode.commands.registerCommand(
       "gitShellHelpers.loginGitHub",
       gpgAuth.loginGitHub,
     ),
