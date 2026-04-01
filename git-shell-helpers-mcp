@@ -72,6 +72,10 @@ const ALL_TOOLS = modules.flatMap((m) => m.tools || []);
 
 const { execFile, spawn } = require("child_process");
 const fs = require("fs");
+const {
+  LIST_LANGUAGE_MODELS_TOOL,
+  handleListLanguageModels,
+} = require("./lib/mcp-language-models");
 
 // ---------------------------------------------------------------------------
 // Activity IPC client — notify VS Code extension of active tool calls
@@ -340,63 +344,7 @@ const WORKSPACE_CONTEXT_TOOL = {
 
 ALL_TOOLS.push(WORKSPACE_CONTEXT_TOOL);
 
-// ---------------------------------------------------------------------------
-// list_language_models tool — expose available VS Code language models
-// ---------------------------------------------------------------------------
-
-const AVAILABLE_MODELS_PATH = path.join(
-  process.env.HOME || process.env.USERPROFILE || "",
-  ".copilot",
-  "available-models.json",
-);
-
-const LIST_LANGUAGE_MODELS_TOOL = {
-  name: "list_language_models",
-  description:
-    "List the language models available in VS Code's language model service. Returns each model's id, display name, vendor, and qualifiedName. Pass the id or qualifiedName as the `model` parameter when calling runSubagent to route that subagent to a specific model. The list is written by the gsh VS Code extension on startup and whenever the model set changes.",
-  inputSchema: {
-    type: "object",
-    properties: {},
-    required: [],
-  },
-};
-
 ALL_TOOLS.push(LIST_LANGUAGE_MODELS_TOOL);
-
-async function handleListLanguageModels() {
-  if (!fs.existsSync(AVAILABLE_MODELS_PATH)) {
-    return [
-      {
-        type: "text",
-        text: "No available-models.json found at ~/.copilot/available-models.json. Make sure the gsh VS Code extension is installed and VS Code has been restarted after the latest extension update.",
-      },
-    ];
-  }
-  try {
-    const data = JSON.parse(fs.readFileSync(AVAILABLE_MODELS_PATH, "utf8"));
-    const lines = [
-      `Available language models (updated ${data.updatedAt || "unknown"}):`,
-      "",
-      "| id | name | vendor | qualifiedName | maxInputTokens |",
-      "|----|------|--------|---------------|----------------|",
-      ...(data.models || []).map(
-        (m) =>
-          `| ${m.id} | ${m.name} | ${m.vendor} | ${m.qualifiedName} | ${m.maxInputTokens} |`,
-      ),
-      "",
-      "Pass `id` or `qualifiedName` as the `model` param in runSubagent.",
-      'Copilot models also accept the bare display name, e.g. "Claude Haiku 4.5".',
-    ];
-    return [{ type: "text", text: lines.join("\n") }];
-  } catch (err) {
-    return [
-      {
-        type: "text",
-        text: `Failed to read available-models.json: ${err.message}`,
-      },
-    ];
-  }
-}
 
 // ---------------------------------------------------------------------------
 // strict_lint tool — run VS Code diagnostics via gsh IPC bridge

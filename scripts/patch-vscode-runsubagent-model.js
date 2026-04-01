@@ -106,38 +106,63 @@ const OLD_SCHEMA =
   'properties:{prompt:{type:"string",description:"A detailed description of the task for the agent to perform"},description:{type:"string",description:"A short (3-5 word) description of the task"}},required:["prompt","description"]}';
 
 const NEW_SCHEMA =
-  'properties:{prompt:{type:"string",description:"A detailed description of the task for the agent to perform"},description:{type:"string",description:"A short (3-5 word) description of the task"},model:{type:"string",description:"Optional model identifier for this subagent invocation. Overrides the agent definition\'s default model. Examples: claude-sonnet-4-6, claude-haiku-4-5, gpt-4o, gpt-4o-mini."}},required:["prompt","description"]}';
+  'properties:{prompt:{type:"string",description:"A detailed description of the task for the agent to perform"},description:{type:"string",description:"A short (3-5 word) description of the task"},model:{type:"string",description:"Optional model identifier for this subagent invocation. Overrides the agent definition\'s default model. Examples: claude-sonnet-4.6, claude-haiku-4.5, gpt-4o, gpt-4o-mini, gpt-4.1-mini. Use the list_language_models MCP tool to see all available model ids. Accepts either a model id (e.g. claude-haiku-4.5) or a display name (e.g. \'Claude Haiku 4.5\'). When omitted, the agent\'s own model: frontmatter or the parent session model is used."}},required:["prompt","description"]}';
 
 // ---------------------------------------------------------------------------
 // Patch 2: Apply call-time model override just before request construction
 // ---------------------------------------------------------------------------
-// The variable `p` holds the resolved userSelectedModelId and `v` holds the
-// human-readable model name.  We override both if `r.model` is provided and
-// the model is found in the registry.  This runs after resolveSubagentModel()
-// so the agent definition's model is computed first and our override wins.
+// Sentinel-based design: a unique variable name `_GSH_RSMM_` bookends the
+// inject.  Revert strips everything from the sentinel up to (but not
+// including) INVOKE_ANCHOR — immune to future edits of the inject body.
 //
 // `r` = e.parameters (the tool call inputs from the model)
-// `p` = modeModelId / userSelectedModelId
+// `p` = modeModelId / userSelectedModelId  (set by resolveSubagentModel)
 // `v` = resolvedModelName (displayed in the UI)
 
-const OLD_INVOKE =
+const INVOKE_SENTINEL = "let _GSH_RSMM_=1;";
+const INVOKE_ANCHOR =
   "let ve={sessionResource:e.context.sessionResource,requestId:e.callId";
 
-const NEW_INVOKE =
-  "if(r.model){let _smo=this.languageModelsService.lookupLanguageModel(r.model);_smo&&(p=r.model,v=_smo.name)}" +
-  "let ve={sessionResource:e.context.sessionResource,requestId:e.callId";
+// Strategy:
+//   1. Try lookupLanguageModel(id) — works for internal opaque identifiers
+//   2. Try lookupLanguageModelByQualifiedName(name) — works for display names
+//      like "Claude Haiku 4.5" or "Claude Haiku 4.5 (copilot)"
+//   3. Fallback: set p=r.model directly (id passthrough like the UI picker
+//      does) and derive v from the id by capitalising words
+// This means both "claude-haiku-4.5" (id) and "Claude Haiku 4.5" (name)
+// are accepted and routed correctly.
+const INVOKE_BODY =
+  "if(r.model){" +
+  "let _lm=this.languageModelsService.lookupLanguageModel(r.model);" +
+  "if(_lm){p=r.model;v=_lm.name}" +
+  "else{let _qr=this.languageModelsService.lookupLanguageModelByQualifiedName(r.model);if(_qr?.metadata){_lm=_qr.metadata;p=_qr.identifier;v=_lm.name}" +
+  "else{p=r.model;v=r.model.replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}}" +
+  "this.logService.info(`[gsh] runSubagent model override → ${p} (${v})`)" +
+  "}";
+
+const NEW_INVOKE = INVOKE_SENTINEL + INVOKE_BODY + INVOKE_ANCHOR;
 
 // ---------------------------------------------------------------------------
-// Patch registry
+// Patch 1 schema constants
 // ---------------------------------------------------------------------------
 
 const PATCHES = [
-  { old: OLD_SCHEMA, new: NEW_SCHEMA, name: "schema" },
-  { old: OLD_INVOKE, new: NEW_INVOKE, name: "invoke" },
+  {
+    old: OLD_SCHEMA,
+    new: NEW_SCHEMA,
+    name: "schema",
+    mark: "Optional model identifier for this subagent",
+  },
 ];
 
 // Exported for use by the coordinator script
-module.exports = { PATCHES, BUNDLE };
+module.exports = {
+  PATCHES,
+  BUNDLE,
+  INVOKE_SENTINEL,
+  INVOKE_ANCHOR,
+  NEW_INVOKE,
+};
 
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -146,44 +171,84 @@ module.exports = { PATCHES, BUNDLE };
 function isPatchable() {
   if (!fs.existsSync(BUNDLE)) return "missing";
   const src = fs.readFileSync(BUNDLE, "utf8");
-  const allPatched = PATCHES.every((p) => src.includes(p.new.slice(0, 60)));
-  if (allPatched) return "patched";
-  const allOriginal = PATCHES.every((p) => src.includes(p.old));
-  if (allOriginal) return "unpatched";
+  const schemaApplied = src.includes(PATCHES[0].mark);
+  const invokeApplied = src.includes(INVOKE_SENTINEL);
+  if (schemaApplied && invokeApplied) return "patched";
+  if (!schemaApplied && !invokeApplied) return "unpatched";
   return "partial";
 }
 
 function apply(bundleSrc) {
   if (!bundleSrc) bundleSrc = fs.readFileSync(BUNDLE, "utf8");
   let changed = false;
-  for (const p of PATCHES) {
-    if (bundleSrc.includes(p.new.slice(0, 60))) continue;
-    const idx = bundleSrc.indexOf(p.old);
+
+  // Patch 1: schema
+  const schemaP = PATCHES[0];
+  if (!bundleSrc.includes(schemaP.mark)) {
+    const idx = bundleSrc.indexOf(schemaP.old);
     if (idx === -1) {
       return {
         src: bundleSrc,
         changed,
-        error: `injection point not found for '${p.name}' — VS Code version may have changed.`,
+        error:
+          "schema injection point not found — VS Code version may have changed.",
       };
     }
     bundleSrc =
-      bundleSrc.slice(0, idx) + p.new + bundleSrc.slice(idx + p.old.length);
+      bundleSrc.slice(0, idx) +
+      schemaP.new +
+      bundleSrc.slice(idx + schemaP.old.length);
     changed = true;
   }
+
+  // Patch 2: invoke — sentinel-based
+  if (!bundleSrc.includes(INVOKE_SENTINEL)) {
+    const anchorIdx = bundleSrc.indexOf(INVOKE_ANCHOR);
+    if (anchorIdx === -1) {
+      return {
+        src: bundleSrc,
+        changed,
+        error: "invoke anchor not found — VS Code version may have changed.",
+      };
+    }
+    bundleSrc =
+      bundleSrc.slice(0, anchorIdx) +
+      NEW_INVOKE +
+      bundleSrc.slice(anchorIdx + INVOKE_ANCHOR.length);
+    changed = true;
+  }
+
   return { src: bundleSrc, changed };
 }
 
 function revert(bundleSrc) {
   if (!bundleSrc) bundleSrc = fs.readFileSync(BUNDLE, "utf8");
   let changed = false;
-  for (const p of [...PATCHES].reverse()) {
-    if (!bundleSrc.includes(p.new.slice(0, 60))) continue;
-    const idx = bundleSrc.indexOf(p.new);
-    if (idx === -1) continue;
-    bundleSrc =
-      bundleSrc.slice(0, idx) + p.old + bundleSrc.slice(idx + p.new.length);
-    changed = true;
+
+  // Revert patch 2 (invoke) — sentinel-based: strip from sentinel to anchor
+  const sentinelIdx = bundleSrc.indexOf(INVOKE_SENTINEL);
+  if (sentinelIdx !== -1) {
+    const anchorIdx = bundleSrc.indexOf(INVOKE_ANCHOR, sentinelIdx);
+    if (anchorIdx !== -1) {
+      // Remove sentinel + inject body; leave INVOKE_ANCHOR in place
+      bundleSrc = bundleSrc.slice(0, sentinelIdx) + bundleSrc.slice(anchorIdx);
+      changed = true;
+    }
   }
+
+  // Revert patch 1 (schema)
+  const schemaP = PATCHES[0];
+  if (bundleSrc.includes(schemaP.mark)) {
+    const idx = bundleSrc.indexOf(schemaP.new);
+    if (idx !== -1) {
+      bundleSrc =
+        bundleSrc.slice(0, idx) +
+        schemaP.old +
+        bundleSrc.slice(idx + schemaP.new.length);
+      changed = true;
+    }
+  }
+
   return { src: bundleSrc, changed };
 }
 
@@ -201,6 +266,14 @@ if (require.main === module) {
       process.exit(0);
     } else if (status === "unpatched") {
       console.log("UNPATCHED");
+      process.exit(1);
+    } else if (status === "partial") {
+      const src = fs.readFileSync(BUNDLE, "utf8");
+      const detail = [
+        `schema:${src.includes(PATCHES[0].mark) ? "yes" : "no"}`,
+        `invoke:${src.includes(INVOKE_SENTINEL) ? "yes" : "no"}`,
+      ].join(" ");
+      console.log(`PARTIAL — ${detail}`);
       process.exit(1);
     } else {
       console.log(
@@ -233,7 +306,7 @@ if (require.main === module) {
   }
 
   const src = fs.readFileSync(BUNDLE, "utf8");
-  if (src.includes(NEW_SCHEMA.slice(0, 60))) {
+  if (isPatchable() === "patched") {
     console.log("Already patched. Nothing to apply.");
     process.exit(0);
   }

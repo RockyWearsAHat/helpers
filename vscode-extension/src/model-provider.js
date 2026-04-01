@@ -33,6 +33,20 @@ module.exports = function createModelProvider(deps) {
   let cachedOllamaModels = [];
   let cachedOllamaRunning = false;
   let _ollamaPinned = new Set();
+  let _lastAvailableModelsWriteWarningAt = 0;
+
+  function formatErrorMessage(err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+
+  function warnAvailableModelsWriteFailure(err) {
+    const now = Date.now();
+    if (now - _lastAvailableModelsWriteWarningAt < 60000) return;
+    _lastAvailableModelsWriteWarningAt = now;
+    console.warn(
+      `[gsh] Failed to write available models cache at ${AVAILABLE_MODELS_PATH}: ${formatErrorMessage(err)}`,
+    );
+  }
 
   function initPinnedModels(context) {
     const savedPinned = context.globalState.get("gsh.ollama.pinned", []);
@@ -79,8 +93,10 @@ module.exports = function createModelProvider(deps) {
           ),
           "utf8",
         );
-      } catch {
-        // Non-fatal: MCP tool will fall back gracefully if file absent
+      } catch (err) {
+        // Non-fatal: MCP tool will fall back gracefully if file absent.
+        // Log a throttled warning so failures remain debuggable.
+        warnAvailableModelsWriteFailure(err);
       }
     } catch {
       cachedModels = [];
