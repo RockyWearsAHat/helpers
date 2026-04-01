@@ -24,45 +24,45 @@
     "mcpServerDefinitionProviders": [
       {
         "id": "gitShellHelpers.mcpServers",
-        "label": "Git Shell Helpers"
+        "label": "GitHub Shell Helpers"
       }
     ],
     "commands": [
       {
         "command": "gitShellHelpers.showCommunityStatus",
-        "title": "Git Shell Helpers: Show Community Cache Status"
+        "title": "GitHub Shell Helpers: Show Community Cache Status"
       },
       {
         "command": "gitShellHelpers.inspectCopilotCustomizationWarnings",
-        "title": "Git Shell Helpers: Run Strict Linting"
+        "title": "GitHub Shell Helpers: Run Strict Linting"
       },
       {
         "command": "gitShellHelpers.loginGitHub",
-        "title": "Git Shell Helpers: Sign in to GitHub"
+        "title": "GitHub Shell Helpers: Sign in to GitHub"
       },
       {
         "command": "gitShellHelpers.logoutGitHub",
-        "title": "Git Shell Helpers: Sign out of GitHub"
+        "title": "GitHub Shell Helpers: Sign out of GitHub"
       },
       {
         "command": "gitShellHelpers.selectRepos",
-        "title": "Git Shell Helpers: Select Whitelisted Repositories"
+        "title": "GitHub Shell Helpers: Select Whitelisted Repositories"
       },
       {
         "command": "gitShellHelpers.restartMcpServer",
-        "title": "Git Shell Helpers: Restart MCP Server"
+        "title": "GitHub Shell Helpers: Restart MCP Server"
       },
       {
         "command": "gitShellHelpers.openMcpServerControls",
-        "title": "Git Shell Helpers: Open MCP Server Controls"
+        "title": "GitHub Shell Helpers: Open MCP Server Controls"
       },
       {
         "command": "gitShellHelpers.refreshModels",
-        "title": "Git Shell Helpers: Refresh Available Models"
+        "title": "GitHub Shell Helpers: Refresh Available Models"
       },
       {
         "command": "gitShellHelpers.openModelPicker",
-        "title": "Git Shell Helpers: Set Active Chat Model"
+        "title": "GitHub Shell Helpers: Set Active Chat Model"
       }
     ],
     "languageModelTools": [
@@ -139,7 +139,7 @@
       ]
     },
     "configuration": {
-      "title": "Git Shell Helpers",
+      "title": "GitHub Shell Helpers",
       "properties": {
         "gitShellHelpers.checkpoint.enabled": {
           "type": "boolean",

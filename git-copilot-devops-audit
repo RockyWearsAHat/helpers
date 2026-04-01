@@ -724,11 +724,13 @@ if [ "$no_install" = false ]; then
 
 	ui_step "Installing audit agents, router instruction, prompt, and skills to standard user locations..."
 	mkdir -p "$COPILOT_USER_DIR/agents" "$COPILOT_USER_DIR/instructions" "$COPILOT_USER_DIR/skills" "$COPILOT_USER_DIR/prompts"
+	# VS Code scans ~/Library/Application Support/Code/User/prompts/ for slash commands
+	mkdir -p "$VSCODE_USER_DIR/prompts"
 
 	agents_dir="$COPILOT_USER_DIR/agents"
 	router_instruction="$COPILOT_USER_DIR/instructions/devops-audit-router.instructions.md"
 	gsh_mcp_instruction="$COPILOT_USER_DIR/instructions/gsh-mcp-tools.instructions.md"
-	prompts_dir="$COPILOT_USER_DIR/prompts"
+	prompts_dir="$VSCODE_USER_DIR/prompts"
 
 	# Define all agent files to install
 	typeset -A agent_generators=(
@@ -853,7 +855,7 @@ printf '  %bAudit results are returned in chat;%b repo-local support files are l
 printf '  %bAudit agents:%b %s/agents (mirrored to VS Code profile for discovery)\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit router:%b %s/instructions\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit skills:%b %s/skills\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
-printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
+printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
 printf '  %bCommunity cache:%b %s/devops-audit-community-cache\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bCommunity settings:%b %s/devops-audit-community-settings.json\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 echo ""
