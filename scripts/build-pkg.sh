@@ -32,11 +32,15 @@ else
   VERSION="0.0.0"
 fi
 
+# shellcheck source=./package-manifest.sh
+source "${ROOT_DIR}/scripts/package-manifest.sh"
+
 PKG_PATH="${DIST_DIR}/github-shell-helpers-${VERSION}.pkg"
 
 echo "[build-pkg] Building Git Shell Helpers ${VERSION} installer..."
 
-rm -rf "$BUILD_DIR" "$COMPONENTS_DIR" "$DIST_DIR"
+rm -rf "$BUILD_DIR" "$COMPONENTS_DIR"
+rm -f "$PKG_PATH" "${PKG_PATH%.pkg}-unsigned.pkg"
 mkdir -p "$DIST_DIR" "$COMPONENTS_DIR"
 
 bash "${ROOT_DIR}/scripts/build-vsix.sh"
@@ -65,31 +69,26 @@ CORE_MAN="${CORE_ROOT}/usr/local/share/man/man1"
 
 ensure_dir "$CORE_BIN" "$CORE_LIB" "$CORE_MAN"
 
-for cmd in git-upload git-get git-initialize git-checkpoint \
-           git-fucked-the-push git-remerge git-resolve \
-           git-scan-for-leaked-envs git-help-i-pushed-an-env \
-           git-copilot-quickstart; do
+while IFS= read -r cmd; do
+  [ -n "$cmd" ] || continue
   if [ -f "${ROOT_DIR}/${cmd}" ]; then
     copy_exec "${ROOT_DIR}/${cmd}" "${CORE_BIN}/${cmd}"
   fi
-done
+done < <(gsh_core_commands)
 
-for lib in upload-ai-message.sh upload-diff-analysis.sh upload-spinner.sh \
-           upload-test-detection.sh upload-test-output.sh \
-           env-batch-ops.sh env-cache.sh env-git-ops.sh env-history-clean.sh \
-           env-patterns.sh env-scan.sh env-ui.sh \
-           quickstart-detect.sh quickstart-models.sh; do
+while IFS= read -r lib; do
+  [ -n "$lib" ] || continue
   if [ -f "${ROOT_DIR}/lib/${lib}" ]; then
     cp "${ROOT_DIR}/lib/${lib}" "${CORE_LIB}/${lib}"
   fi
-done
+done < <(gsh_shell_libs)
 
-for man in git-upload.1 git-get.1 git-initialize.1 git-fucked-the-push.1 \
-           git-checkpoint.1; do
+while IFS= read -r man; do
+  [ -n "$man" ] || continue
   if [ -f "${ROOT_DIR}/man/man1/${man}" ]; then
     cp "${ROOT_DIR}/man/man1/${man}" "${CORE_MAN}/${man}"
   fi
-done
+done < <(gsh_core_man_pages)
 
 chmod +x "${PKG_DIR}/core-scripts/postinstall"
 CORE_KB="$(pkg_size_kb "$CORE_ROOT")"
@@ -111,19 +110,26 @@ MCP_MAN="${MCP_ROOT}/usr/local/share/man/man1"
 
 ensure_dir "$MCP_BIN" "$MCP_LIB" "$MCP_MAN"
 
-copy_exec "${ROOT_DIR}/git-research-mcp" "${MCP_BIN}/git-research-mcp"
-copy_exec "${ROOT_DIR}/git-shell-helpers-mcp" "${MCP_BIN}/git-shell-helpers-mcp"
+while IFS= read -r entry; do
+  [ -n "$entry" ] || continue
+  if [ -f "${ROOT_DIR}/${entry}" ]; then
+    copy_exec "${ROOT_DIR}/${entry}" "${MCP_BIN}/${entry}"
+  fi
+done < <(gsh_mcp_commands)
 
-for lib in mcp-google-headless.js mcp-knowledge-index.js mcp-knowledge-rw.js \
-           mcp-utils.js mcp-web-search.js; do
+while IFS= read -r lib; do
+  [ -n "$lib" ] || continue
   if [ -f "${ROOT_DIR}/lib/${lib}" ]; then
     cp "${ROOT_DIR}/lib/${lib}" "${MCP_LIB}/${lib}"
   fi
-done
+done < <(gsh_mcp_libs)
 
-if [ -f "${ROOT_DIR}/man/man1/git-research-mcp.1" ]; then
-  cp "${ROOT_DIR}/man/man1/git-research-mcp.1" "${MCP_MAN}/git-research-mcp.1"
-fi
+while IFS= read -r man; do
+  [ -n "$man" ] || continue
+  if [ -f "${ROOT_DIR}/man/man1/${man}" ]; then
+    cp "${ROOT_DIR}/man/man1/${man}" "${MCP_MAN}/${man}"
+  fi
+done < <(gsh_mcp_man_pages)
 
 chmod +x "${PKG_DIR}/mcp-scripts/postinstall"
 MCP_KB="$(pkg_size_kb "$MCP_ROOT")"
@@ -146,32 +152,39 @@ AUDIT_SCRIPTS="${AUDIT_DATA}/scripts"
 
 ensure_dir "$AUDIT_BIN" "$AUDIT_MAN" "$AUDIT_DATA" "$AUDIT_SCRIPTS"
 
-copy_exec "${ROOT_DIR}/git-copilot-devops-audit" "${AUDIT_BIN}/git-copilot-devops-audit"
-copy_exec "${ROOT_DIR}/scripts/community-cache-submit.sh" "${AUDIT_BIN}/git-copilot-devops-audit-community-submit"
-copy_exec "${ROOT_DIR}/scripts/community-cache-pull.sh" "${AUDIT_BIN}/git-copilot-devops-audit-community-pull"
-copy_exec "${ROOT_DIR}/scripts/community-research-submit.sh" "${AUDIT_BIN}/git-copilot-devops-audit-community-research-submit"
+while IFS= read -r cmd; do
+  [ -n "$cmd" ] || continue
+  if [ -f "${ROOT_DIR}/${cmd}" ]; then
+    copy_exec "${ROOT_DIR}/${cmd}" "${AUDIT_BIN}/${cmd}"
+  fi
+done < <(gsh_audit_commands)
 
-if [ -d "${ROOT_DIR}/copilot-config" ]; then
-  cp -R "${ROOT_DIR}/copilot-config" "${AUDIT_DATA}/copilot-config"
-fi
-if [ -d "${ROOT_DIR}/community-cache" ]; then
-  cp -R "${ROOT_DIR}/community-cache" "${AUDIT_DATA}/community-cache"
-fi
-if [ -d "${ROOT_DIR}/templates" ]; then
-  cp -R "${ROOT_DIR}/templates" "${AUDIT_DATA}/templates"
-fi
-if [ -f "${ROOT_DIR}/scripts/build-knowledge-index.js" ]; then
-  cp "${ROOT_DIR}/scripts/build-knowledge-index.js" "${AUDIT_SCRIPTS}/build-knowledge-index.js"
-  chmod +x "${AUDIT_SCRIPTS}/build-knowledge-index.js"
-fi
+while IFS= read -r data_dir; do
+  [ -n "$data_dir" ] || continue
+  if [ -d "${ROOT_DIR}/${data_dir}" ]; then
+    cp -R "${ROOT_DIR}/${data_dir}" "${AUDIT_DATA}/${data_dir}"
+  fi
+done < <(gsh_data_dirs)
+
+while IFS= read -r support_script; do
+  [ -n "$support_script" ] || continue
+  if [ -f "${ROOT_DIR}/scripts/${support_script}" ]; then
+    cp "${ROOT_DIR}/scripts/${support_script}" "${AUDIT_SCRIPTS}/${support_script}"
+    chmod +x "${AUDIT_SCRIPTS}/${support_script}"
+  fi
+done < <(gsh_support_scripts)
 
 ln -sf "/usr/local/share/github-shell-helpers/copilot-config" "${AUDIT_BIN}/copilot-config"
 ln -sf "/usr/local/share/github-shell-helpers/community-cache" "${AUDIT_BIN}/community-cache"
+ln -sf "/usr/local/share/github-shell-helpers/scripts" "${AUDIT_BIN}/scripts"
 ln -sf "/usr/local/share/github-shell-helpers/templates" "${AUDIT_BIN}/templates"
 
-if [ -f "${ROOT_DIR}/man/man1/git-copilot-devops-audit.1" ]; then
-  cp "${ROOT_DIR}/man/man1/git-copilot-devops-audit.1" "${AUDIT_MAN}/git-copilot-devops-audit.1"
-fi
+while IFS= read -r man; do
+  [ -n "$man" ] || continue
+  if [ -f "${ROOT_DIR}/man/man1/${man}" ]; then
+    cp "${ROOT_DIR}/man/man1/${man}" "${AUDIT_MAN}/${man}"
+  fi
+done < <(gsh_audit_man_pages)
 
 chmod +x "${PKG_DIR}/audit-scripts/postinstall"
 AUDIT_KB="$(pkg_size_kb "$AUDIT_ROOT")"
@@ -250,9 +263,42 @@ productbuild \
   --package-path "$COMPONENTS_DIR" \
   "$PKG_PATH"
 
+# ── Sign & Notarize (optional) ───────────────────────────────────────────────
+#
+# Set these environment variables to enable signing and notarization:
+#   PKG_SIGN_IDENTITY   — "Developer ID Installer: Name (TEAMID)"
+#   NOTARIZE_APPLE_ID   — Apple ID email for notarytool
+#   NOTARIZE_PASSWORD    — App-specific password or keychain reference
+#   NOTARIZE_TEAM_ID    — 10-char Apple Developer Team ID
+
+if [ -n "${PKG_SIGN_IDENTITY:-}" ]; then
+  echo "[build-pkg] Signing with: ${PKG_SIGN_IDENTITY}"
+  UNSIGNED_PATH="${PKG_PATH%.pkg}-unsigned.pkg"
+  mv "$PKG_PATH" "$UNSIGNED_PATH"
+
+  productsign --sign "${PKG_SIGN_IDENTITY}" "$UNSIGNED_PATH" "$PKG_PATH"
+  rm -f "$UNSIGNED_PATH"
+
+  pkgutil --check-signature "$PKG_PATH"
+  echo "[build-pkg] ✓ Package signed"
+
+  if [ -n "${NOTARIZE_APPLE_ID:-}" ] && [ -n "${NOTARIZE_PASSWORD:-}" ] && [ -n "${NOTARIZE_TEAM_ID:-}" ]; then
+    echo "[build-pkg] Submitting for notarization..."
+    xcrun notarytool submit "$PKG_PATH" \
+      --apple-id "${NOTARIZE_APPLE_ID}" \
+      --password "${NOTARIZE_PASSWORD}" \
+      --team-id "${NOTARIZE_TEAM_ID}" \
+      --wait --timeout 15m
+
+    xcrun stapler staple "$PKG_PATH"
+    echo "[build-pkg] ✓ Package notarized and stapled"
+  else
+    echo "[build-pkg] ⚠ Signed but not notarized (set NOTARIZE_APPLE_ID, NOTARIZE_PASSWORD, NOTARIZE_TEAM_ID)"
+  fi
+else
+  echo "[build-pkg] ⚠ Package is unsigned (set PKG_SIGN_IDENTITY to sign)"
+fi
+
 echo ""
-echo "[build-pkg] ✓ Built GUI installer: $PKG_PATH"
+echo "[build-pkg] ✓ Built installer: $PKG_PATH"
 echo "[build-pkg]   Components: core (${CORE_KB}KB) + mcp (${MCP_KB}KB) + audit (${AUDIT_KB}KB) + vscode (${VSCODE_KB}KB)"
-echo ""
-echo "[build-pkg] To install: open $PKG_PATH"
-echo "[build-pkg] To sign:    productsign --sign 'Developer ID Installer: ...' $PKG_PATH signed.pkg"

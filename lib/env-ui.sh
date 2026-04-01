@@ -103,15 +103,24 @@ stop_spinner() {
 	fi
 }
 
+restore_exit_trap() {
+	local trap_spec="$1"
+	if [ -n "$trap_spec" ]; then
+		eval "$trap_spec"
+	else
+		trap - EXIT
+	fi
+}
+
 # Read a single keypress from /dev/tty and normalize arrows/enter
 read_key() {
 	local key=""
 	local rest=""
-	if ! IFS= read -sk 1 key </dev/tty; then
+	if ! IFS= read -rsn 1 key </dev/tty; then
 		return 1
 	fi
 	if [[ "$key" == $'\e' ]]; then
-		if IFS= read -sk 2 rest </dev/tty; then
+		if IFS= read -rsn 2 rest </dev/tty; then
 			case "$rest" in
 				"[A") echo "up"; return 0 ;;
 				"[B") echo "down"; return 0 ;;
@@ -141,9 +150,11 @@ menu_select() {
 	local selected=1
 	local key=""
 	local prompt_lines=0
+	local saved_exit_trap=""
 	[ -n "$prompt" ] && prompt_lines=1
 	local total_lines=$(( ${#options[@]} + prompt_lines ))
 
+	saved_exit_trap="$(trap -p EXIT || true)"
 	printf '\033[?25l'
 	trap 'printf "\033[?25h"' EXIT
 
@@ -161,7 +172,12 @@ menu_select() {
 			((i++)) || true
 		done
 
-		key=$(read_key) || return 1
+		key=$(read_key) || {
+			printf '\033[%dA' "$total_lines"
+			printf '\033[?25h'
+			restore_exit_trap "$saved_exit_trap"
+			return 1
+		}
 		case "$key" in
 			up)
 				((selected--)) || true
@@ -174,12 +190,14 @@ menu_select() {
 			enter)
 				printf '\033[%dA' "$total_lines"
 				printf '\033[?25h'
+				restore_exit_trap "$saved_exit_trap"
 				echo "$selected"
 				return 0
 				;;
 			q)
 				printf '\033[%dA' "$total_lines"
 				printf '\033[?25h'
+				restore_exit_trap "$saved_exit_trap"
 				echo "q"
 				return 0
 				;;

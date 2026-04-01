@@ -115,7 +115,7 @@ Fetch content from any URL. The agent specifies the URL; returns the HTML body o
 ## Agent Runtime Tools (#agent)
 
 ### #agent/runSubagent
-Delegate a sub-task to a specialized agent. The parent agent can invoke another agent (e.g., a @testing agent) and receive results. **Note:** VS Code disables this for subagents; nested subagent invocation is not possible. Only top-level agents can invoke subagents.
+Delegate a sub-task to a specialized agent. The parent agent can invoke another agent (e.g., a @testing agent) and receive results. **Note:** VS Code disables `runSubagent` for subagents (hardcoded in the Copilot extension core). Only top-level agents and the main chat session can invoke subagents. Agents that may run as subagents should detect the absence of `runSubagent` and fall back to skill-driven execution.
 
 ## VS Code Integration Tools (#vscode)
 

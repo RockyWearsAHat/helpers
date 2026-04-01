@@ -4,7 +4,7 @@ description: "Git Shell Helpers workspace baseline: architecture, build/test, co
 
 # Workspace Baseline
 
-Git Shell Helpers (`github-shell-helpers`) v0.3.4 — shell-based git helpers, MCP servers, Copilot customization automation, a VS Code extension, and a community-backed research cache.
+Git Shell Helpers (`github-shell-helpers`) — shell-based git helpers, MCP servers, Copilot customization automation, a VS Code extension, and a community-backed research cache.
 
 ## Non-Negotiable Boundary
 

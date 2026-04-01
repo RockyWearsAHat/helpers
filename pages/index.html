@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Copilot + CS Atlas</title>
+    <meta
+      name="description"
+      content="Search Copilot-specific guidance plus deep CS and coding notes from a single GitHub Pages interface."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/styles.css" />
+  </head>
+  <body>
+    <div class="grain"></div>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="eyebrow-row">
+          <a
+            class="repo-pill"
+            href="https://github.com/RockyWearsAHat/github-shell-helpers"
+            target="_blank"
+            rel="noreferrer"
+            >Git Shell Helpers</a
+          >
+          <p class="eyebrow-note">Public GitHub Pages search</p>
+        </div>
+
+        <div class="hero-copy">
+          <p class="kicker">Copilot + CS Atlas</p>
+          <h1>Search Copilot guidance and deep coding notes in one place.</h1>
+          <p class="hero-summary">
+            General GitHub Copilot advice, a broad CS-and-coding atlas, and the
+            underlying source archive, one search box, zero local setup.
+          </p>
+        </div>
+
+        <form id="search-form" class="search-form" autocomplete="off">
+          <label class="visually-hidden" for="query-input">Search notes</label>
+          <div class="search-frame">
+            <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10.5 4a6.5 6.5 0 1 0 4.083 11.558l4.929 4.929 1.414-1.414-4.929-4.929A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+              ></path>
+            </svg>
+            <input
+              id="query-input"
+              name="q"
+              type="search"
+              placeholder="Search copilot-instructions, agent skills, Stripe, OS memory, Mojo…"
+              spellcheck="false"
+            />
+          </div>
+          <div class="search-actions">
+            <button class="primary-button" type="submit">Search</button>
+            <button class="secondary-button" id="lucky-button" type="button">
+              Open top result
+            </button>
+          </div>
+        </form>
+
+        <div class="stats-band">
+          <div>
+            <span class="stat-value" id="doc-count">…</span>
+            <span class="stat-label">indexed resources</span>
+          </div>
+          <div>
+            <span class="stat-value" id="copilot-count">…</span>
+            <span class="stat-label">copilot guide</span>
+          </div>
+          <div>
+            <span class="stat-value" id="curated-count">…</span>
+            <span class="stat-label">knowledge atlas</span>
+          </div>
+          <div>
+            <span class="stat-value" id="archive-count">…</span>
+            <span class="stat-label">source archive</span>
+          </div>
+          <div>
+            <span class="stat-value" id="built-at">…</span>
+            <span class="stat-label">index refresh</span>
+          </div>
+        </div>
+
+        <div
+          class="scope-row"
+          id="scope-row"
+          role="group"
+          aria-label="Filter scope"
+        >
+          <button class="scope-chip active" data-scope="all" type="button">
+            All resources
+          </button>
+          <button class="scope-chip" data-scope="copilot" type="button">
+            Copilot guide
+          </button>
+          <button class="scope-chip" data-scope="knowledge" type="button">
+            Knowledge atlas
+          </button>
+          <button class="scope-chip" data-scope="archive" type="button">
+            Source archive
+          </button>
+        </div>
+      </header>
+
+      <main class="main-layout">
+        <section class="results-column">
+          <div class="results-toolbar">
+            <p id="results-summary">Loading search corpus…</p>
+            <p id="results-meta" class="results-meta"></p>
+          </div>
+
+          <div class="suggestion-strip" id="suggestion-strip"></div>
+
+          <div class="empty-state" id="empty-state">
+            <h2>Start with Copilot workflow advice or a CS topic.</h2>
+            <p>
+              Try <strong>applyTo globs</strong>, <strong>agent skills</strong>,
+              <strong>tool priority</strong>,
+              <strong>container queries</strong>, or
+              <strong>operating systems memory</strong>.
+            </p>
+          </div>
+
+          <ol class="results-list" id="results-list"></ol>
+        </section>
+
+        <aside class="preview-column" id="preview-column">
+          <div class="preview-card" id="preview-card">
+            <p class="preview-kicker">Result preview</p>
+            <h2>Pick a result to inspect the guide before leaving the page.</h2>
+            <p class="preview-body">
+              The index blends Copilot-specific guidance with broader CS notes,
+              then ranks titles, topics, headings, and intro text together.
+            </p>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="./assets/app.js" defer></script>
+  </body>
+</html>

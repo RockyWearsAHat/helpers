@@ -541,7 +541,24 @@ build_inventory() {
 }
 
 # ── Resolve script directory (canonical source for agent/prompt files) ────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+resolve_script_path() {
+	local source_path="${BASH_SOURCE[0]:-$0}"
+	local source_dir=""
+
+	while [ -L "$source_path" ]; do
+		source_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+		source_path="$(readlink "$source_path")"
+		case "$source_path" in
+			/*) ;;
+			*) source_path="${source_dir}/${source_path}" ;;
+		esac
+	done
+
+	printf '%s/%s\n' "$(cd -P "$(dirname "$source_path")" && pwd)" "$(basename "$source_path")"
+}
+
+SCRIPT_PATH="$(resolve_script_path)"
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
 
 # ── Generate agent files ──────────────────────────────────────────────────────
 generate_orchestrator_agent() {
