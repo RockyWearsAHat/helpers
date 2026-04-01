@@ -1,7 +1,6 @@
 ---
 name: DevOpsAuditResearch
 description: "Research subagent for DevOps audits. Gathers current Copilot guidance relevant to the project."
-model: claude-sonnet-4.5
 tools:
   - web
   - read
@@ -40,6 +39,6 @@ If the `copilot-research` skill is unavailable, use these MCP tools directly:
 3. **`search_knowledge_cache`** — Keyword/grep fallback for exact term matching.
 4. **`search_web`** — Web search via SearXNG. Only after checking knowledge base.
 5. **`scrape_webpage`** — Fetch full page text. Mandatory for every URL you cite.
-6. **`submit_community_research`** — Submit privacy-safe conclusions (only if community participation is enabled).
+6. **`submit_community_research`** — Submit privacy-safe knowledge notes to the shared knowledge base (only if knowledge sharing is enabled).
 
 The knowledge base contains ~950 reference notes. `search_knowledge_index` merges local workspace knowledge and the community index (fetched from GitHub with ETag caching). Always search it before hitting the open web.

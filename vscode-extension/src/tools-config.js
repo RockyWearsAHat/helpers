@@ -23,8 +23,9 @@ const TOOL_GROUPS = [
   },
   {
     key: "communityResearch",
-    label: "Share Knowledge Research",
-    description: "Submit knowledge notes to community repo via PR",
+    label: "Publish Shared Knowledge",
+    description:
+      "Allow publish=true knowledge notes to auto-submit to the shared knowledge base",
     tools: ["submit_community_research"],
   },
   {

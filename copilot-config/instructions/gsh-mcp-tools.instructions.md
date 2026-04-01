@@ -129,13 +129,13 @@ Results are tagged with `source: "local"` or `source: "community"`. Falls back t
 
 **`read_knowledge_note`** — Read the full content of a knowledge note. Pass just a filename (e.g. `networking-dns.md`) or a workspace-relative path. Resolution order: local workspace → repo knowledge root → GitHub community (fetched with ETag cache). Works for both local and community notes without needing the repo cloned.
 
-**`write_knowledge_note`** — Create a knowledge note. Pass just the filename (e.g. `networking-dns.md`) — the tool auto-detects the correct knowledge directory. Automatically rebuilds the local search index.
+**`write_knowledge_note`** — Create a knowledge note. Pass just the filename (e.g. `networking-dns.md`) — the tool auto-detects the correct knowledge directory. It rebuilds the local search index before returning. Pass `publish: true` when the note is privacy-safe, broadly reusable, and should be auto-submitted to the shared knowledge base if `shareKnowledge` is enabled.
 
-**`update_knowledge_note`** — Replace a specific section (by heading) in an existing knowledge note. Automatically rebuilds the local search index.
+**`update_knowledge_note`** — Replace a specific section (by heading) in an existing knowledge note. Rebuilds the local search index before returning. Pass `publish: true` when the updated note should also be submitted to the shared knowledge base.
 
-**`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Automatically rebuilds the local search index.
+**`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Rebuilds the local search index before returning. Pass `publish: true` when the updated note should also be submitted to the shared knowledge base.
 
-**`submit_community_research`** — Submit a privacy-safe research conclusion to the community cache. Only call when the workspace has community participation enabled in `.github/devops-audit-community-settings.json`.
+**`submit_community_research`** — Submit a privacy-safe knowledge note to the shared knowledge base. Only call when the workspace has `shareKnowledge: true` (or legacy `shareResearch: true`) in `.github/devops-audit-community-settings.json`. The submission rebuilds `knowledge/_index.json` in the PR so the hosted cache stays searchable.
 
 ## Vision — Screenshot & Image Analysis
 
