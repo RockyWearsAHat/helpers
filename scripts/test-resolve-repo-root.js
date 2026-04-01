@@ -7,6 +7,7 @@
 "use strict";
 
 const { execFile } = require("child_process");
+const os = require("os");
 const path = require("path");
 
 // ---------------------------------------------------------------------------
@@ -47,6 +48,19 @@ async function resolveRepoRoot() {
   throw new Error("Not inside a git repository.");
 }
 
+function normalizeRepoPath(value) {
+  let normalized = String(value || "").trim();
+  const msysMatch = normalized.match(/^\/([A-Za-z])\/(.*)$/);
+  if (msysMatch) {
+    normalized = `${msysMatch[1]}:/${msysMatch[2]}`;
+  }
+  normalized = normalized.replace(/\\/g, "/");
+  if (/^[A-Z]:/.test(normalized)) {
+    normalized = `${normalized[0].toLowerCase()}${normalized.slice(1)}`;
+  }
+  return normalized.replace(/\/+$/, "");
+}
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -69,32 +83,42 @@ function assert(condition, label) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const repoRoot = path.resolve(__dirname, "..");
+  const repoRoot = normalizeRepoPath(path.resolve(__dirname, ".."));
+  const badDir = os.tmpdir();
 
   // 1. With GSH_WORKSPACE_ROOTS pointing to the repo — should resolve.
   process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([repoRoot]);
   {
     const result = await resolveRepoRoot();
-    assert(result === repoRoot, "GSH_WORKSPACE_ROOTS set to repo root");
+    assert(
+      normalizeRepoPath(result) === repoRoot,
+      "GSH_WORKSPACE_ROOTS set to repo root",
+    );
   }
 
   // 2. With GSH_WORKSPACE_ROOTS pointing to a non-repo dir, but __dirname
   //    is inside the repo — should fall through and succeed via __dirname.
-  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify(["/tmp"]);
+  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([badDir]);
   {
     // __dirname is scripts/, which IS inside the repo
     const result = await resolveRepoRoot();
-    assert(result === repoRoot, "Bad GSH_WORKSPACE_ROOTS, falls through to __dirname");
+    assert(
+      normalizeRepoPath(result) === repoRoot,
+      "Bad GSH_WORKSPACE_ROOTS, falls through to __dirname",
+    );
   }
 
   // 3. With GSH_WORKSPACE_ROOTS unset and cwd outside any repo.
   //    __dirname (scripts/) should still resolve.
   delete process.env.GSH_WORKSPACE_ROOTS;
   const origCwd = process.cwd;
-  process.cwd = () => "/tmp";
+  process.cwd = () => badDir;
   {
     const result = await resolveRepoRoot();
-    assert(result === repoRoot, "No env, bad cwd, falls through to __dirname");
+    assert(
+      normalizeRepoPath(result) === repoRoot,
+      "No env, bad cwd, falls through to __dirname",
+    );
   }
   process.cwd = origCwd;
 
@@ -103,32 +127,38 @@ async function main() {
   process.env.GSH_WORKSPACE_ROOTS = "not-json";
   {
     const result = await resolveRepoRoot();
-    assert(result === repoRoot, "Malformed GSH_WORKSPACE_ROOTS, graceful fallback");
+    assert(
+      normalizeRepoPath(result) === repoRoot,
+      "Malformed GSH_WORKSPACE_ROOTS, graceful fallback",
+    );
   }
   delete process.env.GSH_WORKSPACE_ROOTS;
 
   // 5. Multiple roots, first is bad, second is good.
-  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify(["/tmp", repoRoot]);
+  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([badDir, repoRoot]);
   {
     const result = await resolveRepoRoot();
-    assert(result === repoRoot, "Multiple roots, first bad, second good");
+    assert(
+      normalizeRepoPath(result) === repoRoot,
+      "Multiple roots, first bad, second good",
+    );
   }
   delete process.env.GSH_WORKSPACE_ROOTS;
 
   // 6. All candidates invalid — should throw.
-  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify(["/tmp"]);
-  process.cwd = () => "/tmp";
-  // Temporarily override __dirname for this test
-  const origDirname = __dirname;
+  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([badDir]);
+  process.cwd = () => badDir;
   {
-    let threw = false;
     // We can't override __dirname easily, but we CAN set GSH_WORKSPACE_ROOTS
     // to only bad paths and a cwd that's also bad. __dirname is still in the
     // repo, so this test verifies the fallback chain ends at __dirname.
     // To truly test the throw, we'd need to run in a subprocess.
     // Instead, verify that with bad env + bad cwd, __dirname saves us.
     const result = await resolveRepoRoot();
-    assert(result === repoRoot, "Bad env + bad cwd, __dirname saves the day");
+    assert(
+      normalizeRepoPath(result) === repoRoot,
+      "Bad env + bad cwd, __dirname saves the day",
+    );
   }
   process.cwd = origCwd;
   delete process.env.GSH_WORKSPACE_ROOTS;
