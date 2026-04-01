@@ -27,6 +27,7 @@ checks=(
 	"bash ./scripts/test-git-upload-detect.sh"
 	"node ./scripts/test-resolve-repo-root.js"
 	"node ./scripts/test-search-auto-scrape.js"
+	"node ./scripts/test-session-memory.js"
 	"bash ./scripts/build-dist.sh"
 )
 

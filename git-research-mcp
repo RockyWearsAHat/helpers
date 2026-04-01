@@ -61,9 +61,19 @@ const GOOGLE_CONSENT_COOKIES = [
     secure: true,
   },
 ];
-// Prefer process.cwd() if it looks like a workspace (has .git or .github),
-// otherwise fall back to __dirname (script's location = workspace root).
+// Resolve the active workspace root. Priority:
+//   1. GSH_WORKSPACE_ROOTS env (set by the VS Code extension) — first entry
+//   2. process.cwd() if it looks like a workspace (has .git or .github)
+//   3. __dirname (script's location — fallback for standalone use)
 const WORKSPACE_ROOT = (() => {
+  if (process.env.GSH_WORKSPACE_ROOTS) {
+    try {
+      const roots = JSON.parse(process.env.GSH_WORKSPACE_ROOTS);
+      if (Array.isArray(roots) && roots.length > 0) return roots[0];
+    } catch {
+      /* malformed — fall through */
+    }
+  }
   const cwd = process.cwd();
   if (
     fsSync.existsSync(path.join(cwd, ".git")) ||
@@ -160,6 +170,7 @@ const createKnowledgeIndex = require("./lib/mcp-knowledge-index");
 const createKnowledgeRW = require("./lib/mcp-knowledge-rw");
 const createGoogleHeadless = require("./lib/mcp-google-headless");
 const createWebSearch = require("./lib/mcp-web-search");
+const createSessionMemory = require("./lib/mcp-session-memory");
 
 // Shared utilities
 const utils = createUtils({
@@ -282,6 +293,21 @@ const {
 } = knowledgeIndex;
 const { searchWeb, fetchPages, formatSearchResult, formatFetchPagesResult } =
   webSearch;
+
+// Session memory (Engram-inspired learning system)
+const sessionMemory = createSessionMemory({
+  WORKSPACE_ROOT,
+  ...utils,
+});
+const {
+  logSessionEvent,
+  searchSessionLog,
+  getSessionSummary,
+  buildSessionIndex,
+  formatLogResult: formatSessionLogResult,
+  formatSearchResults: formatSessionSearchResults,
+  formatSummaryResult: formatSessionSummaryResult,
+} = sessionMemory;
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -532,6 +558,101 @@ const RESEARCH_TOOLS = [
       required: ["query"],
     },
   },
+
+  // ─── Session Memory Tools (Engram-inspired learning system) ──────────────
+  {
+    name: "log_session_event",
+    description:
+      "Log an action and its outcome to the per-workspace session memory. The index is rebuilt automatically after every write. Use this after any non-trivial action to record what happened, especially when the outcome was unexpected (set surprise > 0.5). This builds a searchable history that prevents repeating mistakes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          description:
+            "What was attempted. Be specific: 'refactored git-upload test detection into lib/upload-test-detection.sh', not 'made changes'.",
+        },
+        outcome: {
+          type: "string",
+          description:
+            "What happened. 'success', 'failed — type error in line 42', 'partial — tests pass but lint warnings remain'.",
+        },
+        surprise: {
+          type: "number",
+          description:
+            "How unexpected was this outcome? 0.0 = completely expected, 1.0 = totally unexpected. High-surprise events get preferential retrieval weight (Engram dopamine-learning analog). Default: 0.",
+        },
+        model: {
+          type: "string",
+          description:
+            "The model that performed this action, e.g. 'claude-sonnet-4-6', 'gpt-4o'. Used for model-tier retrieval gating.",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Tags for categorization: ['refactor', 'bash', 'git-upload']. Aids search and summary.",
+        },
+        context: {
+          type: "string",
+          description:
+            "Optional extra context: the file(s) involved, the error message, the approach that worked or failed.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "search_session_log",
+    description:
+      "Search the session memory for past actions and outcomes similar to a query. Uses TF-IDF with surprise-weighted scoring (high-surprise events surface first) and model-tier gating (same-model matches get boosted). Call this BEFORE attempting non-trivial actions to learn from past experience.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "What you're about to do or what went wrong. The search finds similar past situations.",
+        },
+        max_results: {
+          type: "integer",
+          description: "Number of results to return (1-20). Default: 5.",
+        },
+        current_model: {
+          type: "string",
+          description:
+            "The model currently running, e.g. 'claude-sonnet-4-6'. Same-model matches get a 1.3x relevance boost.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_session_summary",
+    description:
+      "Get a summary of the session memory: total entries, average surprise, model usage breakdown, top tags, outcome distribution, and the most recent N events. Use this to understand the project's learning history.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          description:
+            "Number of recent entries to include (1-100). Default: 20.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "rebuild_session_index",
+    description:
+      "Manually rebuild the session memory TF-IDF index. Normally this happens automatically after every log_session_event call. Use this only if the index appears corrupted or out of sync.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 async function handleResearchToolCall(toolName, toolArguments) {
@@ -577,6 +698,28 @@ async function handleResearchToolCall(toolName, toolArguments) {
   if (toolName === "search_knowledge_index") {
     const result = await searchKnowledgeIndex(toolArguments);
     return [{ type: "text", text: formatKnowledgeIndexSearchResult(result) }];
+  }
+  // ─── Session memory handlers ──────────────────────────────────────────────
+  if (toolName === "log_session_event") {
+    const result = await logSessionEvent(toolArguments);
+    return [{ type: "text", text: formatSessionLogResult(result) }];
+  }
+  if (toolName === "search_session_log") {
+    const result = await searchSessionLog(toolArguments);
+    return [{ type: "text", text: formatSessionSearchResults(result) }];
+  }
+  if (toolName === "get_session_summary") {
+    const result = await getSessionSummary(toolArguments);
+    return [{ type: "text", text: formatSessionSummaryResult(result) }];
+  }
+  if (toolName === "rebuild_session_index") {
+    const result = await buildSessionIndex();
+    return [
+      {
+        type: "text",
+        text: `Session index rebuilt: ${result.entry_count} entries, ${result.term_count} terms.`,
+      },
+    ];
   }
   return null;
 }

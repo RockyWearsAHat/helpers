@@ -36,6 +36,15 @@ module.exports = function createMcpServer(deps) {
       env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION = "1";
     }
 
+    // Pass current workspace folder paths so the MCP server resolves the
+    // correct workspace instead of falling back to __dirname / cwd.
+    const roots = (vscode.workspace.workspaceFolders || []).map(
+      (f) => f.uri.fsPath,
+    );
+    if (roots.length > 0) {
+      env.GSH_WORKSPACE_ROOTS = JSON.stringify(roots);
+    }
+
     return env;
   }
 
@@ -49,6 +58,15 @@ module.exports = function createMcpServer(deps) {
 
     const changeEmitter = new vscode.EventEmitter();
     context.subscriptions.push(changeEmitter);
+
+    // Restart the MCP server when workspace folders change so the server
+    // picks up the updated GSH_WORKSPACE_ROOTS environment variable.
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        changeEmitter.fire();
+      }),
+    );
+
     context.subscriptions.push(
       vscode.lm.registerMcpServerDefinitionProvider(MCP_PROVIDER_ID, {
         onDidChangeMcpServerDefinitions: changeEmitter.event,

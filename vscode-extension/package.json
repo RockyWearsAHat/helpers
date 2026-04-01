@@ -170,6 +170,11 @@
           "type": "boolean",
           "default": true,
           "description": "On startup, scan for orphaned branch session worktrees with uncommitted changes and auto-commit them to prevent work loss. The worktree is then removed but the branch and commits are preserved."
+        },
+        "gitShellHelpers.sessionMemory.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Engram-style session memory. Agents log actions and outcomes to a per-workspace session log with TF-IDF indexing and surprise-weighted retrieval. Helps agents learn from past mistakes and adapt across sessions."
         }
       }
     }
