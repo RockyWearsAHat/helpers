@@ -14,7 +14,11 @@ const {
 
 async function main() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "gsh-models-"));
-  const defaultModelsPath = path.join(tempDir, ".copilot", "available-models.json");
+  const defaultModelsPath = path.join(
+    tempDir,
+    ".copilot",
+    "available-models.json",
+  );
   const missingPath = path.join(tempDir, "missing-models.json");
   const existingPath = path.join(tempDir, "available-models.json");
   const fallbackPath = path.join(tempDir, "fallback-models.json");
@@ -28,10 +32,15 @@ async function main() {
   };
   assert.strictEqual(getAvailableModelsPath(), "");
   assert.strictEqual(formatReadError(new Error("real error")), "real error");
-  assert.strictEqual(formatReadError("plain string failure"), "plain string failure");
+  assert.strictEqual(
+    formatReadError("plain string failure"),
+    "plain string failure",
+  );
 
   const noHomeDirResult = await handleListLanguageModels();
-  assert.ok(noHomeDirResult[0].text.includes("Could not resolve a home directory"));
+  assert.ok(
+    noHomeDirResult[0].text.includes("Could not resolve a home directory"),
+  );
 
   os.homedir = () => tempDir;
   const defaultMissingResult = await handleListLanguageModels();
@@ -70,15 +79,7 @@ async function main() {
   assert.ok(validResult[0].text.includes("claude-haiku-4.5"));
   assert.ok(validResult[0].text.includes("Claude Haiku 4.5 (Anthropic)"));
 
-  fs.writeFileSync(
-    fallbackPath,
-    JSON.stringify(
-      {},
-      null,
-      2,
-    ),
-    "utf8",
-  );
+  fs.writeFileSync(fallbackPath, JSON.stringify({}, null, 2), "utf8");
 
   const fallbackResult = await handleListLanguageModels({
     availableModelsPath: fallbackPath,
