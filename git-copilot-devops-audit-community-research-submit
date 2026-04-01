@@ -4,11 +4,34 @@ set -euo pipefail
 
 DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
 
+resolve_index_builder() {
+  local script_dir=""
+  local candidate=""
+
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  for candidate in \
+    "$script_dir/build-knowledge-index.js" \
+    "$script_dir/scripts/build-knowledge-index.js" \
+    "$script_dir/../share/github-shell-helpers/scripts/build-knowledge-index.js" \
+    "/usr/local/share/github-shell-helpers/scripts/build-knowledge-index.js"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 usage() {
   cat <<'EOF'
 Usage: community-research-submit.sh path/to/knowledge-note.md
 
-Submits a knowledge note to the community repository as a PR.
+Submits a knowledge note to the shared knowledge repository as a PR.
+
+The submission also rebuilds knowledge/_index.json in the target branch so the
+published cache remains searchable after merge.
 
 Required: The file must be a .md file located under the knowledge directory.
 
@@ -118,21 +141,35 @@ main() {
   require_cmd gh
   require_cmd git
   require_cmd jq
+  require_cmd node
 
   local repo_root
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
   local global_settings_file="$HOME/.copilot/devops-audit-community-settings.json"
   local repo_settings_file="$repo_root/.github/devops-audit-community-settings.json"
 
-  # Check shareResearch flag
+  local global_share_knowledge=""
+  global_share_knowledge="$(read_setting "$global_settings_file" shareKnowledge)"
+  local repo_share_knowledge=""
+  repo_share_knowledge="$(read_setting "$repo_settings_file" shareKnowledge)"
   local global_share_research=""
   global_share_research="$(read_setting "$global_settings_file" shareResearch)"
   local repo_share_research=""
   repo_share_research="$(read_setting "$repo_settings_file" shareResearch)"
-  local share_research="${repo_share_research:-${global_share_research:-}}"
+  local share_knowledge=""
 
-  if [[ "$share_research" != "true" ]]; then
-    echo "[community-research-submit] Research sharing is not enabled. Set shareResearch: true in community settings." >&2
+  if [[ -n "$repo_share_knowledge" ]]; then
+    share_knowledge="$repo_share_knowledge"
+  elif [[ -n "$repo_share_research" ]]; then
+    share_knowledge="$repo_share_research"
+  elif [[ -n "$global_share_knowledge" ]]; then
+    share_knowledge="$global_share_knowledge"
+  else
+    share_knowledge="$global_share_research"
+  fi
+
+  if [[ "$share_knowledge" != "true" ]]; then
+    echo "[community-research-submit] Knowledge sharing is not enabled. Set shareKnowledge: true (or legacy shareResearch: true) in community settings." >&2
     exit 1
   fi
 
@@ -216,9 +253,16 @@ main() {
   repo_branch="$(read_setting "$repo_settings_file" baseBranch)"
   local base_branch="${COMMUNITY_CACHE_BASE_BRANCH:-${repo_branch:-${global_branch:-main}}}"
   local branch_prefix="automation/community-research"
+  local index_builder=""
 
   if [[ -z "$community_repo" ]]; then
     echo "[community-research-submit] No community repo configured." >&2
+    exit 1
+  fi
+
+  index_builder="$(resolve_index_builder || true)"
+  if [[ -z "$index_builder" ]]; then
+    echo "[community-research-submit] Could not locate build-knowledge-index.js." >&2
     exit 1
   fi
 
@@ -255,10 +299,14 @@ main() {
 
   mkdir -p "$(dirname "$target_path")"
   cp "$note_file" "$target_path"
+  node "$index_builder" \
+    --workspace-root "$temp_dir/repo" \
+    --knowledge-root "$temp_dir/repo/knowledge" \
+    --index-path "$temp_dir/repo/knowledge/_index.json" >/dev/null
 
   git config user.name "community-research-bot"
   git config user.email "community-research-bot@users.noreply.github.com"
-  git add "$target_path"
+  git add "$target_path" "knowledge/_index.json"
   git commit -m "${action^} knowledge note: $basename"
   git push --set-upstream origin "$branch_name"
 
@@ -272,10 +320,11 @@ main() {
 - Submission ID: $submission_id
 - Action: $action
 - File: $target_path
+- Index: knowledge/_index.json rebuilt for this submission
 - Source: knowledge research contribution
 - Privacy: content validated (no private paths or repo-specific context)"
 
-  echo "[community-research-submit] Submitted $target_path ($action) to $community_repo" >&2
+  echo "[community-research-submit] Submitted $target_path ($action) with refreshed knowledge/_index.json to $community_repo" >&2
 }
 
 main "$@"

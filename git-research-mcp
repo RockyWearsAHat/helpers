@@ -219,27 +219,6 @@ const knowledgeIndex = createKnowledgeIndex({
   searchKnowledgeCache: (...args) => knowledgeRW.searchKnowledgeCache(...args),
 });
 
-// Debounced index rebuild — coalesces rapid-fire writes into a single rebuild.
-let _indexRebuildTimer = null;
-let _indexRebuildRunning = false;
-function scheduleIndexRebuild() {
-  if (_indexRebuildTimer) clearTimeout(_indexRebuildTimer);
-  _indexRebuildTimer = setTimeout(async () => {
-    _indexRebuildTimer = null;
-    if (_indexRebuildRunning) return;
-    _indexRebuildRunning = true;
-    try {
-      await knowledgeIndex.buildKnowledgeIndex({});
-    } catch (err) {
-      process.stderr.write(
-        `[git-research-mcp] Index rebuild failed: ${err.message}\n`,
-      );
-    } finally {
-      _indexRebuildRunning = false;
-    }
-  }, 2000);
-}
-
 // Knowledge R/W (now resolved)
 knowledgeRW = createKnowledgeRW({
   WORKSPACE_ROOT,
@@ -257,7 +236,6 @@ knowledgeRW = createKnowledgeRW({
   buildKnowledgeSnippet: knowledgeIndex.buildKnowledgeSnippet,
   scoreKnowledgeMatch: knowledgeIndex.scoreKnowledgeMatch,
   collectMarkdownFiles: knowledgeIndex.collectMarkdownFiles,
-  scheduleIndexRebuild,
 });
 
 // Web search
@@ -418,7 +396,7 @@ const RESEARCH_TOOLS = [
   {
     name: "write_knowledge_note",
     description:
-      "Create or overwrite a knowledge note. Writes to the workspace's knowledge directory (auto-detected: knowledge/ in source repo, .github/knowledge/ elsewhere). Use for persisting research findings, architecture facts, or debug lessons learned.",
+      "Create or overwrite a knowledge note. Writes to the workspace's knowledge directory (auto-detected: knowledge/ in source repo, .github/knowledge/ elsewhere), rebuilds the local index before returning, and can optionally publish to the shared knowledge base when publish=true and sharing is enabled.",
     inputSchema: {
       type: "object",
       properties: {
@@ -436,6 +414,11 @@ const RESEARCH_TOOLS = [
           description:
             "Set to true to replace an existing file. Default false (fails if file exists).",
         },
+        publish: {
+          type: "boolean",
+          description:
+            "When true, submit the note to the shared knowledge base after the local index rebuild succeeds. Requires shareKnowledge (or legacy shareResearch) to be enabled in community settings.",
+        },
       },
       required: ["path", "content"],
     },
@@ -443,7 +426,7 @@ const RESEARCH_TOOLS = [
   {
     name: "update_knowledge_note",
     description:
-      "Replace a specific section (identified by heading) in an existing knowledge note. Preserves all other sections.",
+      "Replace a specific section (identified by heading) in an existing knowledge note. Preserves all other sections, rebuilds the local index before returning, and can optionally publish the updated note.",
     inputSchema: {
       type: "object",
       properties: {
@@ -462,6 +445,11 @@ const RESEARCH_TOOLS = [
           description:
             "New content to place under the heading. The heading line is preserved; only the body below it is replaced.",
         },
+        publish: {
+          type: "boolean",
+          description:
+            "When true, submit the updated note to the shared knowledge base after the local index rebuild succeeds.",
+        },
       },
       required: ["path", "heading", "content"],
     },
@@ -469,7 +457,7 @@ const RESEARCH_TOOLS = [
   {
     name: "append_to_knowledge_note",
     description:
-      "Append content to the end of an existing knowledge note. Use when adding new findings to an existing topic.",
+      "Append content to the end of an existing knowledge note. Rebuilds the local index before returning and can optionally publish the updated note when the appended content is shareable.",
     inputSchema: {
       type: "object",
       properties: {
@@ -481,6 +469,11 @@ const RESEARCH_TOOLS = [
         content: {
           type: "string",
           description: "Markdown content to append at the end of the file.",
+        },
+        publish: {
+          type: "boolean",
+          description:
+            "When true, submit the updated note to the shared knowledge base after the local index rebuild succeeds.",
         },
       },
       required: ["path", "content"],
@@ -517,7 +510,7 @@ const RESEARCH_TOOLS = [
   {
     name: "submit_community_research",
     description:
-      "Submit a knowledge note to the community repository as a pull request. Requires community research sharing to be enabled in settings. The note content is validated for privacy before submission.",
+      "Submit a knowledge note to the shared knowledge base as a pull request. Requires knowledge sharing to be enabled in settings. The note content is validated for privacy and the submission rebuilds knowledge/_index.json so the published cache stays searchable.",
     inputSchema: {
       type: "object",
       properties: {
@@ -670,17 +663,14 @@ async function handleResearchToolCall(toolName, toolArguments) {
   }
   if (toolName === "write_knowledge_note") {
     const result = await writeKnowledgeNote(toolArguments);
-    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "update_knowledge_note") {
     const result = await updateKnowledgeNote(toolArguments);
-    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "append_to_knowledge_note") {
     const result = await appendToKnowledgeNote(toolArguments);
-    scheduleIndexRebuild();
     return [{ type: "text", text: formatKnowledgeWriteResult(result) }];
   }
   if (toolName === "scrape_webpage") {

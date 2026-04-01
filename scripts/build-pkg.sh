@@ -142,8 +142,9 @@ AUDIT_ROOT="${BUILD_DIR}/audit"
 AUDIT_BIN="${AUDIT_ROOT}/usr/local/bin"
 AUDIT_MAN="${AUDIT_ROOT}/usr/local/share/man/man1"
 AUDIT_DATA="${AUDIT_ROOT}/${DATA_ROOT}"
+AUDIT_SCRIPTS="${AUDIT_DATA}/scripts"
 
-ensure_dir "$AUDIT_BIN" "$AUDIT_MAN" "$AUDIT_DATA"
+ensure_dir "$AUDIT_BIN" "$AUDIT_MAN" "$AUDIT_DATA" "$AUDIT_SCRIPTS"
 
 copy_exec "${ROOT_DIR}/git-copilot-devops-audit" "${AUDIT_BIN}/git-copilot-devops-audit"
 copy_exec "${ROOT_DIR}/scripts/community-cache-submit.sh" "${AUDIT_BIN}/git-copilot-devops-audit-community-submit"
@@ -158,6 +159,10 @@ if [ -d "${ROOT_DIR}/community-cache" ]; then
 fi
 if [ -d "${ROOT_DIR}/templates" ]; then
   cp -R "${ROOT_DIR}/templates" "${AUDIT_DATA}/templates"
+fi
+if [ -f "${ROOT_DIR}/scripts/build-knowledge-index.js" ]; then
+  cp "${ROOT_DIR}/scripts/build-knowledge-index.js" "${AUDIT_SCRIPTS}/build-knowledge-index.js"
+  chmod +x "${AUDIT_SCRIPTS}/build-knowledge-index.js"
 fi
 
 ln -sf "/usr/local/share/github-shell-helpers/copilot-config" "${AUDIT_BIN}/copilot-config"

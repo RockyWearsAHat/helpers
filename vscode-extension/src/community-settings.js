@@ -89,6 +89,7 @@ module.exports = function createCommunitySettings(deps) {
       mode: getMode(),
       whitelistedRepos: getWhitelist(),
       shareResearch: isGroupEnabled("communityResearch"),
+      shareKnowledge: isGroupEnabled("communityResearch"),
       ...(globalData.localClone
         ? { localClone: globalData.localClone }
         : localCloneFolder
