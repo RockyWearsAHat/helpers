@@ -1631,7 +1631,7 @@ async function handleRequest(request) {
       result: {
         protocolVersion: MCP_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "gsh", version: SERVER_VERSION },
+        serverInfo: { name: "GitHub Shell Helpers", version: SERVER_VERSION },
       },
     });
     return;

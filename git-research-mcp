@@ -724,7 +724,7 @@ async function handleRequest(request) {
       result: {
         protocolVersion: MCP_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "git-research-mcp", version: "1.0.0" },
+        serverInfo: { name: "GitHub Shell Helpers", version: "1.0.0" },
       },
     });
     return;

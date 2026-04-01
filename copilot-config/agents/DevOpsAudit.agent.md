@@ -2,7 +2,7 @@
 name: DevOpsAudit
 description: "Audits the current workspace's Copilot customization, reviews the correct source surface for that request, and applies fixes when the user asks for changes."
 argument-hint: "Describe the audit focus, or leave blank for a full codebase audit."
-user-invocable: true
+user-invocable: false
 tools:
   - agent
   - read
