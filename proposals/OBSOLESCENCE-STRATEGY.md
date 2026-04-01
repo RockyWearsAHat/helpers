@@ -141,6 +141,34 @@ function subscribeToSessionFocus(context, handler) {
 
 **Cleanup trigger**: When VS Code's `runSubagent` schema in the workbench bundle already contains a `model` property, the patch is no longer needed.
 
+### 5. Chat Session History Events and Read API
+
+**Current**: Extension watches private `workspaceStorage/*/chatSessions/*.jsonl` files and archives them into a chunked local cache for safe search.
+**Upstream target**: Stable `vscode.chat.onDidAppendSessionTurns` + `vscode.chat.getSessionTurns()`
+
+**Transition code**:
+
+```javascript
+function wireChatHistoryFeed(context, archive) {
+  if (vscode.chat?.onDidAppendSessionTurns && vscode.chat?.getSessionTurns) {
+    context.subscriptions.push(
+      vscode.chat.onDidAppendSessionTurns((event) => {
+        archive.appendTurns(event.session, event.turns, event.startIndex);
+      }),
+    );
+    return "stable";
+  }
+
+  // Fallback: current file-based archive path
+  startChatSessionWatcher(context);
+  return "private-jsonl";
+}
+```
+
+**When upstream lands**: The stable branch executes and the file-watching archive becomes an implementation detail only needed for older VS Code versions.
+
+**Cleanup trigger**: When the minimum `engines.vscode` version includes the stable chat history feed and read API, remove private JSONL scraping from the extension.
+
 ## Patch Management During Transition
 
 ### The `patch-vscode-apply-all.js` coordinator
@@ -186,6 +214,7 @@ Our current override file is `.git/gsh-head-override` (prefixed with `gsh-` to i
 | headLabel override      | Issue #260706 open, Git API scaffolded | Propose API addition       | When Git API v2 lands                       |
 | Chat session events     | Active infrastructure work             | Propose stable promotion   | When `chatParticipantPrivate` stabilizes    |
 | runSubagent model param | Not filed — patched locally            | Propose schema + invoke    | When `runSubagent` schema gains `model` key |
+| Chat session history    | Not exposed — private JSONL persists   | Propose stable read API    | When chat service exposes committed turns   |
 
 ## Principle: Never Self-Obsolete
 
