@@ -2,7 +2,7 @@
   "name": "git-shell-helpers",
   "displayName": "GitHub Shell Helpers",
   "description": "Settings for git-shell-helpers community cache participation and DevOps audit configuration.",
-  "version": "0.3.7",
+  "version": "0.3.6",
   "publisher": "RockyWearsAHat",
   "license": "MIT",
   "engines": {
