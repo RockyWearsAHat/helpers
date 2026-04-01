@@ -141,6 +141,7 @@ jobs:
 
   build-macos-pkg:
     runs-on: macos-latest
+    if: github.event_name == 'pull_request'
     needs: [version-guard]
     timeout-minutes: 45
     permissions:
@@ -154,11 +155,58 @@ jobs:
         with:
           node-version: 20
 
+      - name: Make scripts executable
+        run: |
+          chmod +x scripts/build-dist.sh scripts/build-pkg.sh scripts/build-vsix.sh \
+            git-upload git-get git-initialize git-fucked-the-push \
+            git-copilot-devops-audit scripts/community-cache-submit.sh \
+            scripts/community-cache-pull.sh scripts/community-research-submit.sh
+
+      - name: Build macOS pkg
+        run: ./scripts/build-pkg.sh
+
+      - name: Build VSIX
+        run: ./scripts/build-vsix.sh
+
+      - name: Copy VSIX to dist
+        run: |
+          VERSION="$(tr -d '\n' < VERSION | xargs)"
+          mkdir -p dist
+          cp "vscode-extension/git-shell-helpers-${VERSION}.vsix" dist/
+
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-shell-helpers-macos-validation
+          path: |
+            dist/github-shell-helpers-*.pkg
+            dist/git-shell-helpers-*.vsix
+
+  build-macos-release:
+    runs-on: macos-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [version-guard]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    environment:
+      name: ${{ vars['RELEASE_ENVIRONMENT'] }}
+    env:
+      ENABLE_MACOS_SIGNING: ${{ vars['ENABLE_MACOS_SIGNING'] }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Import signing certificate
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: env.ENABLE_MACOS_SIGNING == 'true'
         env:
-          INSTALLER_CERT_BASE64: ${{ secrets.INSTALLER_CERT_BASE64 }}
-          INSTALLER_CERT_PASSWORD: ${{ secrets.INSTALLER_CERT_PASSWORD }}
+          INSTALLER_CERT_BASE64: ${{ secrets['INSTALLER_CERT_BASE64'] }}
+          INSTALLER_CERT_PASSWORD: ${{ secrets['INSTALLER_CERT_PASSWORD'] }}
           KEYCHAIN_PASSWORD: ${{ github.run_id }}
         run: |
           CERT_PATH="$RUNNER_TEMP/installer_cert.p12"
@@ -189,10 +237,10 @@ jobs:
 
       - name: Build macOS pkg
         env:
-          PKG_SIGN_IDENTITY: ${{ secrets.PKG_SIGN_IDENTITY }}
-          NOTARIZE_APPLE_ID: ${{ secrets.NOTARIZE_APPLE_ID }}
-          NOTARIZE_PASSWORD: ${{ secrets.NOTARIZE_PASSWORD }}
-          NOTARIZE_TEAM_ID: ${{ secrets.NOTARIZE_TEAM_ID }}
+          PKG_SIGN_IDENTITY: ${{ secrets['PKG_SIGN_IDENTITY'] }}
+          NOTARIZE_APPLE_ID: ${{ secrets['NOTARIZE_APPLE_ID'] }}
+          NOTARIZE_PASSWORD: ${{ secrets['NOTARIZE_PASSWORD'] }}
+          NOTARIZE_TEAM_ID: ${{ secrets['NOTARIZE_TEAM_ID'] }}
         run: ./scripts/build-pkg.sh
 
       - name: Build VSIX
@@ -222,17 +270,19 @@ jobs:
 
   publish-release:
     runs-on: ubuntu-latest
-    needs: [build-installer, build-macos-pkg]
+    needs: [build-installer, build-macos-release]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 20
     permissions:
       contents: write
+    environment:
+      name: ${{ vars['RELEASE_ENVIRONMENT'] }}
     env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-      HOMEBREW_TAP_REPOSITORY: ${{ vars.HOMEBREW_TAP_REPOSITORY }}
-      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-      AUR_PACKAGE_NAME: ${{ vars.AUR_PACKAGE_NAME }}
+      ENABLE_NPM_PUBLISH: ${{ vars['ENABLE_NPM_PUBLISH'] }}
+      ENABLE_HOMEBREW_PUBLISH: ${{ vars['ENABLE_HOMEBREW_PUBLISH'] }}
+      ENABLE_AUR_PUBLISH: ${{ vars['ENABLE_AUR_PUBLISH'] }}
+      HOMEBREW_TAP_REPOSITORY: ${{ vars['HOMEBREW_TAP_REPOSITORY'] }}
+      AUR_PACKAGE_NAME: ${{ vars['AUR_PACKAGE_NAME'] }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -281,14 +331,15 @@ jobs:
             release-assets/dist/git-shell-helpers-${{ steps.read_version.outputs.version }}.vsix
 
       - name: Publish npm package
-        if: env.NPM_TOKEN != ''
+        if: env.ENABLE_NPM_PUBLISH == 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets['NPM_TOKEN'] }}
         run: npm publish "release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}.tgz" --access public
 
       - name: Publish Homebrew tap formula
-        if: env.HOMEBREW_TAP_TOKEN != '' && env.HOMEBREW_TAP_REPOSITORY != ''
+        if: env.ENABLE_HOMEBREW_PUBLISH == 'true' && env.HOMEBREW_TAP_REPOSITORY != ''
         env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets['HOMEBREW_TAP_TOKEN'] }}
           RELEASE_VERSION: ${{ steps.read_version.outputs.version }}
         run: |
           TAP_DIR="$RUNNER_TEMP/homebrew-tap"
@@ -307,8 +358,9 @@ jobs:
           git push
 
       - name: Publish AUR package
-        if: env.AUR_SSH_PRIVATE_KEY != ''
+        if: env.ENABLE_AUR_PUBLISH == 'true'
         env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets['AUR_SSH_PRIVATE_KEY'] }}
           RELEASE_VERSION: ${{ steps.read_version.outputs.version }}
         run: |
           AUR_PACKAGE_NAME="${AUR_PACKAGE_NAME:-github-shell-helpers}"
