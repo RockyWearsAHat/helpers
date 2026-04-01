@@ -164,7 +164,9 @@ async function main() {
   delete process.env.GSH_WORKSPACE_ROOTS;
 
   // Summary
-  process.stderr.write(`\nresolveRepoRoot: ${passed} passed, ${failed} failed\n`);
+  process.stderr.write(
+    `\nresolveRepoRoot: ${passed} passed, ${failed} failed\n`,
+  );
   if (failed > 0) {
     process.stdout.write(`TEST_SUMMARY: fail ${failed}/${passed + failed}\n`);
     process.exit(1);
