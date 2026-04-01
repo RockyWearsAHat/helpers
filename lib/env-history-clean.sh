@@ -4,6 +4,20 @@
 #           add_file_to_gitignore, remove_files_from_history,
 #           clean_with_filter_repo, clean_with_filter_branch, clean_repository
 
+repo_git() {
+	local repo_root="$1"
+	shift
+	git -C "$repo_root" "$@"
+}
+
+tracked_files_matching_pattern() {
+	local repo_root="$1"
+	local pattern="$2"
+	local regex
+	regex=$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')
+	repo_git "$repo_root" ls-files 2>/dev/null | grep -E "(^|/)${regex}$" 2>/dev/null || true
+}
+
 backup_existing_files() {
 	local repo_root="$1"
 	local backup_dir="$repo_root/.git-env-backup-$$"
@@ -19,7 +33,7 @@ backup_existing_files() {
 				mkdir -p "$backup_dir/$dir"
 				cp "$repo_root/$file" "$backup_dir/$file"
 			fi
-		done < <(git ls-files "$repo_root" 2>/dev/null | grep -E "(^|/)$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')$" 2>/dev/null || true)
+		done < <(tracked_files_matching_pattern "$repo_root" "$pattern")
 	done <<< "$patterns"
 
 	echo "$backup_dir"
@@ -58,8 +72,8 @@ add_to_gitignore() {
 	done <<< "$patterns"
 
 	if [ $added -gt 0 ]; then
-		git add "$gitignore" 2>/dev/null || true
-		git commit -m "Add sensitive file patterns to .gitignore" 2>/dev/null || true
+		repo_git "$repo_root" add .gitignore 2>/dev/null || true
+		repo_git "$repo_root" commit -m "Add sensitive file patterns to .gitignore" 2>/dev/null || true
 	fi
 }
 
@@ -74,13 +88,13 @@ untrack_sensitive_files() {
 		while IFS= read -r file; do
 			if [ -n "$file" ]; then
 				log_verbose "Untracking: $file"
-				git rm --cached "$file" 2>/dev/null || true
+				repo_git "$repo_root" rm --cached "$file" 2>/dev/null || true
 			fi
-		done < <(git ls-files "$repo_root" 2>/dev/null | grep -E "(^|/)$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')$" 2>/dev/null || true)
+		done < <(tracked_files_matching_pattern "$repo_root" "$pattern")
 	done <<< "$patterns"
 
-	if ! git diff --cached --quiet 2>/dev/null; then
-		git commit -m "Remove sensitive files from tracking (files preserved locally)" 2>/dev/null || true
+	if ! repo_git "$repo_root" diff --cached --quiet 2>/dev/null; then
+		repo_git "$repo_root" commit -m "Remove sensitive files from tracking (files preserved locally)" 2>/dev/null || true
 		log_success "Sensitive files removed from git tracking"
 	fi
 }
@@ -125,7 +139,7 @@ remove_files_from_history() {
 
 	if [ "$create_backup" = true ]; then
 		local backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
-		git branch "$backup_branch"
+		repo_git "$repo_root" branch "$backup_branch"
 		log_success "Backup branch: $backup_branch"
 	fi
 
@@ -140,12 +154,12 @@ remove_files_from_history() {
 		for f in "${files[@]}"; do
 			rm_commands+="git rm --cached --ignore-unmatch '$f' 2>/dev/null || true; "
 		done
-		git filter-branch --force --index-filter "$rm_commands" \
+		repo_git "$repo_root" filter-branch --force --index-filter "$rm_commands" \
 			--prune-empty --tag-name-filter cat -- --all
 
-		rm -rf .git/refs/original/
-		git reflog expire --expire=now --all
-		git gc --prune=now --aggressive
+		rm -rf "$repo_root/.git/refs/original/"
+		repo_git "$repo_root" reflog expire --expire=now --all
+		repo_git "$repo_root" gc --prune=now --aggressive
 	fi
 
 	log_success "Files removed from history."
@@ -173,11 +187,14 @@ clean_with_filter_repo() {
 
 	if [ "$create_backup" = true ]; then
 		local backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
-		git branch "$backup_branch"
+		repo_git "$repo_root" branch "$backup_branch"
 		log_success "Backup branch: $backup_branch"
 	fi
 
-	git-filter-repo "${path_args[@]}" --force
+	(
+		cd "$repo_root"
+		git-filter-repo "${path_args[@]}" --force
+	)
 
 	restore_files "$backup_dir" "$repo_root"
 	add_to_gitignore "$repo_root"
@@ -206,16 +223,16 @@ clean_with_filter_branch() {
 
 	if [ "$create_backup" = true ]; then
 		local backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
-		git branch "$backup_branch"
+		repo_git "$repo_root" branch "$backup_branch"
 		log_success "Backup branch: $backup_branch"
 	fi
 
-	git filter-branch --force --index-filter "$rm_commands" \
+	repo_git "$repo_root" filter-branch --force --index-filter "$rm_commands" \
 		--prune-empty --tag-name-filter cat -- --all
 
-	rm -rf .git/refs/original/
-	git reflog expire --expire=now --all
-	git gc --prune=now --aggressive
+	rm -rf "$repo_root/.git/refs/original/"
+	repo_git "$repo_root" reflog expire --expire=now --all
+	repo_git "$repo_root" gc --prune=now --aggressive
 
 	restore_files "$backup_dir" "$repo_root"
 	add_to_gitignore "$repo_root"

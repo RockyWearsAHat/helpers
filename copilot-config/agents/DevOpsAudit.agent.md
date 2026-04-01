@@ -71,18 +71,18 @@ Review each handoff against the orchestration skill. Reject weak outputs.
 
 **A thorough call costs 9x what a quick call costs.** Route accordingly.
 
-**Default model for every `runSubagent` call is `claude-haiku-4-5`.** Always pass the `model` parameter explicitly — never let subagents inherit the parent model.
+**Default model for every `runSubagent` call is `claude-haiku-4.5`.** Always pass the `model` parameter explicitly — never let subagents inherit the parent model.
 
 Before sending each prompt, evaluate whether **that specific prompt** requires promotion:
 
-**Promote to `claude-sonnet-4-6` when the prompt:**
+**Promote to `claude-sonnet-4.6` when the prompt:**
 
 - Asks the agent to reconcile contradictory guidance from multiple sources
 - Requires weighing tradeoffs where evaluation criteria conflict with each other
 - Involves coordinating edits across 3+ files or restructuring existing code
 - Needs the agent to infer unstated intent or fill gaps in ambiguous instructions
 
-**Keep on `claude-haiku-4-5` when the prompt:**
+**Keep on `claude-haiku-4.5` when the prompt:**
 
 - Asks to fetch URLs and extract specific sections
 - Checks a structured list against yes/no or present/absent criteria
@@ -92,6 +92,6 @@ Before sending each prompt, evaluate whether **that specific prompt** requires p
 
 **Context and CommunitySubmit — always haiku, no exceptions.**
 
-**Promote to `claude-opus-4-6` only** when you have identified genuine ambiguity that sonnet failed to resolve on a prior attempt. A thorough call that has to ask for more information was a wasted thorough call.
+**Promote to `claude-opus-4.6` only** when you have identified genuine ambiguity that sonnet failed to resolve on a prior attempt. A thorough call that has to ask for more information was a wasted thorough call.
 
 Typical well-routed audit: all 4 phases on haiku, 1-2 promoted to sonnet where synthesis is needed. Cost: ~$0.30-$0.60. Pre-assigning sonnet to every phase would cost ~$0.90 with no quality gain on the mechanical steps.

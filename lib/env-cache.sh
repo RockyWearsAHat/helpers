@@ -39,6 +39,16 @@ init_ignore_file() {
 	fi
 }
 
+decode_base64() {
+	if /usr/bin/base64 --decode </dev/null >/dev/null 2>&1; then
+		/usr/bin/base64 --decode
+	elif /usr/bin/base64 -d </dev/null >/dev/null 2>&1; then
+		/usr/bin/base64 -d
+	else
+		/usr/bin/base64 -D
+	fi
+}
+
 check_ignore() {
 	local repo="$1"
 	local file="$2"
@@ -152,5 +162,5 @@ get_cached_issues() {
 		return 1
 	fi
 
-	printf '%s' "$encoded" | /usr/bin/base64 -D 2>/dev/null
+	printf '%s' "$encoded" | decode_base64 2>/dev/null
 }

@@ -269,22 +269,22 @@ jobs:
           prerelease: ${{ startsWith(steps.read_version.outputs.version, '0.') }}
           make_latest: true
           files: |
-            release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}.pkg
-            release-assets/Git-Shell-Helpers-Installer-${{ steps.read_version.outputs.version }}.sh
-            release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}.tar.gz
-            release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}-checksums.txt
-            release-assets/github-shell-helpers_${{ steps.read_version.outputs.version }}_all.deb
-            release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}.tgz
-            release-assets/homebrew/github-shell-helpers.rb
-            release-assets/aur/PKGBUILD
-            release-assets/aur/.SRCINFO
-            release-assets/git-shell-helpers-${{ steps.read_version.outputs.version }}.vsix
+            release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}.pkg
+            release-assets/dist/Git-Shell-Helpers-Installer-${{ steps.read_version.outputs.version }}.sh
+            release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}.tar.gz
+            release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}-checksums.txt
+            release-assets/dist/github-shell-helpers_${{ steps.read_version.outputs.version }}_all.deb
+            release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}.tgz
+            release-assets/dist/homebrew/github-shell-helpers.rb
+            release-assets/dist/aur/PKGBUILD
+            release-assets/dist/aur/.SRCINFO
+            release-assets/dist/git-shell-helpers-${{ steps.read_version.outputs.version }}.vsix
 
       - name: Publish npm package
         if: env.NPM_TOKEN != ''
         env:
           NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
-        run: npm publish "release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}.tgz" --access public
+        run: npm publish "release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}.tgz" --access public
 
       - name: Publish Homebrew tap formula
         if: env.HOMEBREW_TAP_TOKEN != '' && env.HOMEBREW_TAP_REPOSITORY != ''
@@ -294,7 +294,7 @@ jobs:
           TAP_DIR="$RUNNER_TEMP/homebrew-tap"
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPOSITORY}.git" "$TAP_DIR"
           mkdir -p "$TAP_DIR/Formula"
-          cp release-assets/homebrew/github-shell-helpers.rb "$TAP_DIR/Formula/github-shell-helpers.rb"
+          cp release-assets/dist/homebrew/github-shell-helpers.rb "$TAP_DIR/Formula/github-shell-helpers.rb"
           cd "$TAP_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -318,8 +318,8 @@ jobs:
           printf '%s\n' "Host aur.archlinux.org" "  IdentityFile $HOME/.ssh/aur" "  StrictHostKeyChecking accept-new" >> "$HOME/.ssh/config"
           AUR_DIR="$RUNNER_TEMP/aur-repo"
           git clone "ssh://aur@aur.archlinux.org/${AUR_PACKAGE_NAME}.git" "$AUR_DIR"
-          cp release-assets/aur/PKGBUILD "$AUR_DIR/PKGBUILD"
-          cp release-assets/aur/.SRCINFO "$AUR_DIR/.SRCINFO"
+          cp release-assets/dist/aur/PKGBUILD "$AUR_DIR/PKGBUILD"
+          cp release-assets/dist/aur/.SRCINFO "$AUR_DIR/.SRCINFO"
           cd "$AUR_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
