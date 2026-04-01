@@ -30,6 +30,7 @@ checks=(
 	"node ./scripts/test-resolve-repo-root.js"
 	"bash ./scripts/test-node-coverage.sh"
 	"node ./scripts/test-search-auto-scrape.js"
+	"node ./scripts/build-pages-search-site.js"
 	"node ./scripts/test-session-memory.js"
 	"bash ./scripts/build-dist.sh"
 )

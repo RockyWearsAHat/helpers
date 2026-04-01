@@ -5,6 +5,7 @@ Quality-of-life git subcommands, an MCP research server, a Copilot audit tool, a
 - [Branch Sessions (VS Code extension)](#branch-sessions-vs-code-extension)
 - [Git subcommands](#git-subcommands)
 - [MCP servers](#mcp-servers)
+- [Research Search (GitHub Pages)](#research-search-github-pages)
 - [Copilot DevOps Audit](#copilot-devops-audit)
 - [Installation](#installation)
 - [Development & Contributing](#development--contributing)
@@ -176,6 +177,29 @@ SEARXNG_URL=http://localhost:8888
 
 ---
 
+## Research Search (GitHub Pages)
+
+The public note-search site is published at [rockywearsahat.github.io/github-shell-helpers](https://rockywearsahat.github.io/github-shell-helpers/).
+
+It indexes three layers:
+
+- generalized Copilot guidance from the community-cache snapshot plus the Copilot research studybase
+- the broad CS/coding corpus under `knowledge/`
+- the archived raw source material under `research-sources/legacy-root-dumps/`
+
+The site serves a ranked client-side search UI with in-browser previews, source labels, evidence links, and direct links back to GitHub.
+
+### Local build
+
+```sh
+node ./scripts/build-pages-search-site.js
+python3 -m http.server -d build/pages-search 4173
+```
+
+The GitHub Pages workflow lives at `.github/workflows/pages-search.yml`. Pull requests validate the site build without deploying; pushes to `main` publish the contents of `build/pages-search/` to GitHub Pages.
+
+---
+
 ## Copilot DevOps Audit
 
 `git-copilot-devops-audit` audits GitHub Copilot customization in any workspace — keeping `.github/` setup current, project-specific, and aligned with what VS Code and Copilot actually support.
@@ -306,6 +330,37 @@ Optional publish channels are configured with these secrets and repository varia
 - npm publish: secret `NPM_TOKEN`
 - Homebrew tap publish: secret `HOMEBREW_TAP_TOKEN`, variable `HOMEBREW_TAP_REPOSITORY`
 - AUR publish: secret `AUR_SSH_PRIVATE_KEY`, variable `AUR_PACKAGE_NAME` (defaults to `github-shell-helpers`)
+
+The workflow also uses repository variables to explicitly enable or disable the optional channels:
+
+- `RELEASE_ENVIRONMENT`
+- `ENABLE_MACOS_SIGNING`
+- `ENABLE_NPM_PUBLISH`
+- `ENABLE_HOMEBREW_PUBLISH`
+- `ENABLE_AUR_PUBLISH`
+
+Seed the safe defaults into the repo now:
+
+```sh
+bash ./scripts/setup-github-release-config.sh --defaults-only
+```
+
+For tighter scoping, store the release-only values in a GitHub Environment named `release` so only jobs that declare `environment: release` can access them:
+
+```sh
+bash ./scripts/setup-github-release-config.sh --env release --defaults-only
+```
+
+To install the real credentials later, copy `.github/release-config.example.env` to a private local file, fill in the values you actually have, export it, then run:
+
+```sh
+set -a
+source /path/to/your/release-config.env
+set +a
+bash ./scripts/setup-github-release-config.sh --env release
+```
+
+This is the closest GitHub Actions gets to “owner/internal only” for workflow credentials: the values live on GitHub, are not committed to the repo, are only exposed to GitHub-hosted jobs, and can be restricted to the `release` environment instead of the whole repository.
 
 Without those optional publish credentials, the workflow still uploads the generated formula, AUR metadata, `.deb`, and npm tarball as GitHub release assets.
 
