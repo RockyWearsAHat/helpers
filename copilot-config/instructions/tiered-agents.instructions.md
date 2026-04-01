@@ -94,7 +94,7 @@ Use `list_language_models` (MCP tool) to see all valid model ids.
 
 ## Default Models by Pipeline Phase
 
-**Default model for every `runSubagent` call: `claude-haiku-4-5`.** Always pass `model` explicitly.
+**Default model for every `runSubagent` call: `claude-haiku-4.5`.** Always pass `model` explicitly.
 
 Do not pre-assign models to agent names or pipeline phases. Assess the specific prompt you are about to send.
 

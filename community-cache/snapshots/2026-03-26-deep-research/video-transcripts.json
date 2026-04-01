@@ -1,6 +1,6 @@
 {
-  "snapshotId": "2026-07-09-deep-research",
-  "generatedAt": "2026-07-09T12:00:00Z",
+  "snapshotId": "2026-03-26-deep-research",
+  "generatedAt": "2026-03-26T12:00:00Z",
   "description": "Cleaned plaintext transcripts from official Burke Holland / VS Code YouTube videos on Copilot customization. Raw VTT auto-captions were processed with community-cache-clean-transcript.sh to strip timing data, inline tags, and duplicate lines, then reflowed into natural paragraphs.",
   "transcripts": [
     {
