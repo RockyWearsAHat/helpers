@@ -209,6 +209,55 @@ Download the latest `.pkg` from the [releases page](https://github.com/RockyWear
 
 The postinstall script also attempts to install the VS Code extensions and run `git copilot-devops-audit --update-agent --force` for the logged-in user. If it can't (no VS Code CLI in PATH), run that command manually.
 
+### Homebrew
+
+If the optional tap-publish workflow is configured, install from the tap:
+
+```sh
+brew tap RockyWearsAHat/gsh
+brew install github-shell-helpers
+```
+
+If the tap is not configured yet, the release still publishes `github-shell-helpers.rb` so you can install from the formula file directly.
+
+### Debian / Ubuntu
+
+Each GitHub release publishes a `.deb` package:
+
+```sh
+sudo apt install ./github-shell-helpers_<version>_all.deb
+```
+
+The workflow currently publishes the `.deb` as a release asset. A dedicated apt repository is not automated yet.
+
+### Arch Linux (AUR)
+
+If the optional AUR publish step is configured, install with your preferred helper:
+
+```sh
+yay -S github-shell-helpers
+```
+
+If AUR publishing is not configured yet, the release still includes `PKGBUILD` and `.SRCINFO` assets.
+
+### npm
+
+If npm publishing is configured in GitHub Actions:
+
+```sh
+npm install -g github-shell-helpers
+```
+
+The release also includes the generated `.tgz` package for manual installation.
+
+### Portable tarball
+
+Each release includes a portable archive containing the same command/support-file tree used by the package-manager builds:
+
+```sh
+tar -xzf github-shell-helpers-<version>.tar.gz
+```
+
 ### Script installer (cross-platform)
 
 ```sh
@@ -228,14 +277,37 @@ Then `source ~/.zshrc` or open a new terminal.
 ```sh
 bash ./scripts/test.sh                  # full test suite
 bash ./scripts/test-git-upload-states.sh  # state recovery tests
-./scripts/build-dist.sh                 # script installer
+./scripts/build-dist.sh                 # script installer + portable tarball
+./scripts/build-deb.sh                  # Debian package
+./scripts/build-homebrew-formula.sh     # Homebrew formula
+./scripts/build-aur-package.sh          # AUR metadata
+./scripts/build-npm-package.sh          # npm package tarball
 ./scripts/build-pkg.sh                  # macOS pkg
 ./scripts/build-vsix.sh                 # VS Code extension .vsix
 ```
 
 ### Versioning
 
-Update `VERSION` (single-line semver) and add `release-notes/v<version>.md` before cutting a release. CI builds both installers and publishes them with the release notes file as the release body.
+Update `VERSION` (single-line semver) and add `release-notes/v<version>.md` before cutting a release. CI builds the shell installer, portable tarball, `.deb`, Homebrew formula, AUR metadata, npm package tarball, macOS `.pkg`, and VSIX, then publishes them with the release notes file as the release body.
+
+### Release configuration
+
+macOS signing and notarization are configured with GitHub Actions secrets:
+
+- `INSTALLER_CERT_BASE64`
+- `INSTALLER_CERT_PASSWORD`
+- `PKG_SIGN_IDENTITY`
+- `NOTARIZE_APPLE_ID`
+- `NOTARIZE_PASSWORD`
+- `NOTARIZE_TEAM_ID`
+
+Optional publish channels are configured with these secrets and repository variables:
+
+- npm publish: secret `NPM_TOKEN`
+- Homebrew tap publish: secret `HOMEBREW_TAP_TOKEN`, variable `HOMEBREW_TAP_REPOSITORY`
+- AUR publish: secret `AUR_SSH_PRIVATE_KEY`, variable `AUR_PACKAGE_NAME` (defaults to `github-shell-helpers`)
+
+Without those optional publish credentials, the workflow still uploads the generated formula, AUR metadata, `.deb`, and npm tarball as GitHub release assets.
 
 ### Pull requests
 

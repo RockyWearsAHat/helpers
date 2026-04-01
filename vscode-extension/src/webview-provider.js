@@ -976,6 +976,40 @@ module.exports = function createWebviewProviderClass(deps) {
   .activity-item--session:hover .activity-label {
     text-decoration: underline;
   }
+  /* Generic flex row for session items (non-<summary> container) */
+  .activity-row {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 9px; font-size: 12px;
+  }
+  /* In-progress session spinner */
+  .activity-spinner {
+    flex-shrink: 0; width: 9px; height: 9px; border-radius: 999px;
+    border: 1.5px solid var(--vscode-notificationsInfoIcon-foreground, #3794ff);
+    border-top-color: transparent;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Done session indicator dot */
+  .activity-dot-done {
+    flex-shrink: 0; width: 7px; height: 7px; border-radius: 999px;
+    background: var(--vscode-testing-iconPassed, #2ea043);
+  }
+  /* Session preview/subtitle */
+  .activity-sub {
+    padding: 0 9px 5px; font-size: 10.5px;
+    color: var(--vscode-descriptionForeground); opacity: 0.8;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Meta label e.g. "completed" */
+  .activity-meta {
+    flex-shrink: 0; font-size: 10.5px;
+    color: var(--vscode-descriptionForeground); opacity: 0.6;
+  }
+  /* Completed session item */
+  .activity-item--done {
+    opacity: 0.6;
+    border-radius: 3px; margin: 2px -4px; padding: 2px 4px;
+  }
 
   /* Provider key accordion */
   .provider-acc-panel {

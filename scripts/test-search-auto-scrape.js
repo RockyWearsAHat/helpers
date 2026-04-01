@@ -6,8 +6,16 @@
 
 "use strict";
 
+const fs = require("fs/promises");
+const path = require("path");
+
 let passed = 0;
 let failed = 0;
+
+const TEMP_WORKSPACE = path.join(
+  "/tmp",
+  "test-search-auto-scrape-" + Date.now(),
+);
 
 function assert(condition, label) {
   if (condition) {
@@ -19,12 +27,29 @@ function assert(condition, label) {
   }
 }
 
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // --- Mock deps ---
 
 function makeMockDeps(opts = {}) {
   const searchResults = opts.searchResults || [
-    { title: "Page One", url: "https://example.com/1", snippet: "First result" },
-    { title: "Page Two", url: "https://example.com/2", snippet: "Second result" },
+    {
+      title: "Page One",
+      url: "https://example.com/1",
+      snippet: "First result",
+    },
+    {
+      title: "Page Two",
+      url: "https://example.com/2",
+      snippet: "Second result",
+    },
     { title: "Page Three", url: "https://example.com/3", snippet: "Third" },
   ];
 
@@ -86,7 +111,7 @@ function makeMockDeps(opts = {}) {
     runInteractiveGoogleBrowser: async () => ({ results: [] }),
     googleRateLimit: async () => {},
     resolveGoogleChallengeViaLiveChrome: async () => ({ challenge: true }),
-    WORKSPACE_ROOT: "/tmp",
+    WORKSPACE_ROOT: opts.workspaceRoot || TEMP_WORKSPACE,
     DEFAULT_USER_AGENT: "test-agent",
     GOOGLE_RESULTS_PER_PAGE: 10,
     GOOGLE_DEFAULT_PAGE_COUNT: 2,
@@ -101,6 +126,8 @@ function makeMockDeps(opts = {}) {
 const createWebSearch = require("../lib/mcp-web-search");
 
 async function main() {
+  await fs.mkdir(TEMP_WORKSPACE, { recursive: true });
+
   // 1. auto_scrape=0 (default) — no page_content on results
   {
     const { searchWeb } = createWebSearch(makeMockDeps());
@@ -210,10 +237,54 @@ async function main() {
     );
   }
 
+  // 8. fetchPages writes only when output_file targets an explicit subdirectory
+  {
+    const { fetchPages } = createWebSearch(makeMockDeps());
+    const result = await fetchPages({
+      urls: ["https://example.com/1"],
+      output_file: "knowledge/scraped-page.md",
+    });
+    const writtenPath = path.join(
+      TEMP_WORKSPACE,
+      "knowledge",
+      "scraped-page.md",
+    );
+    const content = await fs.readFile(writtenPath, "utf8");
+    assert(
+      result.output_file === "knowledge/scraped-page.md",
+      "fetchPages returns normalized explicit subdirectory output path",
+    );
+    assert(
+      content.includes("Content of page one"),
+      "fetchPages writes scraped content to the requested subdirectory",
+    );
+  }
+
+  // 9. fetchPages rejects bare filenames so they cannot land at workspace root
+  {
+    const { fetchPages } = createWebSearch(makeMockDeps());
+    let error = null;
+    try {
+      await fetchPages({
+        urls: ["https://example.com/1"],
+        output_file: "research-root-spill.md",
+      });
+    } catch (err) {
+      error = err;
+    }
+    assert(
+      error && error.message.includes("must include an explicit subdirectory"),
+      "fetchPages rejects bare output_file names",
+    );
+    assert(
+      !(await fileExists(path.join(TEMP_WORKSPACE, "research-root-spill.md"))),
+      "fetchPages does not create a workspace-root file when output_file is bare",
+    );
+  }
+
   // Summary
-  process.stderr.write(
-    `\nauto_scrape: ${passed} passed, ${failed} failed\n`,
-  );
+  process.stderr.write(`\nauto_scrape: ${passed} passed, ${failed} failed\n`);
+  await fs.rm(TEMP_WORKSPACE, { recursive: true, force: true });
   if (failed > 0) {
     process.stdout.write(`TEST_SUMMARY: fail ${failed}/${passed + failed}\n`);
     process.exit(1);
@@ -221,7 +292,8 @@ async function main() {
   process.stdout.write(`TEST_SUMMARY: pass ${passed}/${passed + failed}\n`);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
+  await fs.rm(TEMP_WORKSPACE, { recursive: true, force: true });
   process.stderr.write(`Unexpected error: ${err.message}\n${err.stack}\n`);
   process.stdout.write("TEST_SUMMARY: fail 1/1\n");
   process.exit(1);

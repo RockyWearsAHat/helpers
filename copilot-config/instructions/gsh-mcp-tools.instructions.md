@@ -114,7 +114,7 @@ Parameters:
 
 **`search_web`** — Search the web via a local SearXNG instance. Returns ranked results with titles, URLs, and snippets.
 
-**`scrape_webpage`** — Fetch and return the text content of a URL. Use for reading documentation, blog posts, or reference pages.
+**`scrape_webpage`** — Fetch and return the text content of a URL. Use for reading documentation, blog posts, or reference pages. If you pass `output_file`, it must include an explicit subdirectory such as `knowledge/note.md` or `.github/knowledge/note.md`; bare filenames are rejected so research does not spill into the workspace root.
 
 **`search_knowledge_index`** — Search the knowledge base using TF-IDF indexes. Merges results from two sources:
 

@@ -114,7 +114,7 @@ module.exports = function createActivityTracker(deps) {
       <div class="activity-item activity-item--session" data-sessionid="${item.sessionId}">
         <div class="activity-row">
           <span class="activity-spinner"></span>
-          <span class="activity-title">${esc(item.label)}</span>
+          <span class="activity-label">${esc(item.label)}</span>
           <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
         </div>
         ${item.preview ? `<div class="activity-sub">${esc(item.preview)}</div>` : ""}
@@ -125,7 +125,7 @@ module.exports = function createActivityTracker(deps) {
       <div class="activity-item activity-item--done" data-sessionid="${item.sessionId}">
         <div class="activity-row">
           <span class="activity-dot-done"></span>
-          <span class="activity-title">${esc(item.label)}</span>
+          <span class="activity-label">${esc(item.label)}</span>
           <span class="activity-meta">completed</span>
         </div>
         ${item.preview ? `<div class="activity-sub">${esc(item.preview)}</div>` : ""}
@@ -133,9 +133,9 @@ module.exports = function createActivityTracker(deps) {
     }
     return `
     <details class="activity-item">
-      <summary class="activity-row">
+      <summary class="activity-summary">
         <span class="activity-pulse"></span>
-        <span class="activity-title">${esc(item.label)}</span>
+        <span class="activity-label">${esc(item.label)}</span>
         <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
         <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
       </summary>
