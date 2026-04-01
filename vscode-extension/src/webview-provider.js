@@ -101,6 +101,16 @@ module.exports = function createWebviewProviderClass(deps) {
               );
             this._update();
             break;
+          case "toggleSessionMemory":
+            await vscode.workspace
+              .getConfiguration("gitShellHelpers.sessionMemory")
+              .update(
+                "enabled",
+                msg.enabled,
+                vscode.ConfigurationTarget.Global,
+              );
+            this._update();
+            break;
           case "setCheckpoint": {
             const cpConfig = vscode.workspace.getConfiguration(
               "gitShellHelpers.checkpoint",
@@ -348,6 +358,9 @@ module.exports = function createWebviewProviderClass(deps) {
       const branchSessionsEnabled = vscode.workspace
         .getConfiguration("gitShellHelpers.branchSessions")
         .get("enabled", false);
+      const sessionMemoryEnabled = vscode.workspace
+        .getConfiguration("gitShellHelpers.sessionMemory")
+        .get("enabled", true);
 
       // --- Provider status ---
       const providerStatus = await getProviderStatus();
@@ -484,6 +497,15 @@ module.exports = function createWebviewProviderClass(deps) {
         <div class="tool-text">
           <span class="tl">Branch Sessions</span>
           <span class="td">Agents work in isolated git worktrees per chat session</span>
+        </div>
+      </div>`;
+
+      const sessionMemoryRow = `
+      <div class="tool-item${sessionMemoryEnabled ? " active" : ""}" data-session-memory="enabled">
+        <div class="cb${sessionMemoryEnabled ? " on" : ""}"><div class="cb-tick"></div></div>
+        <div class="tool-text">
+          <span class="tl">Session Memory</span>
+          <span class="td">Agents log actions and outcomes for Engram-style surprise-weighted learning</span>
         </div>
       </div>`;
 
@@ -1139,10 +1161,11 @@ module.exports = function createWebviewProviderClass(deps) {
     <details class="sect">
       <summary class="sect-head">
         <div class="sect-title">Chat Tools</div>
-        <div class="sect-count">${(strictLintingEnabled ? 1 : 0) + (branchSessionsEnabled ? 1 : 0)}/2</div>
+        <div class="sect-count">${(strictLintingEnabled ? 1 : 0) + (branchSessionsEnabled ? 1 : 0) + (sessionMemoryEnabled ? 1 : 0)}/3</div>
       </summary>
       ${strictLintingRow}
       ${branchSessionsRow}
+      ${sessionMemoryRow}
     </details>
     <details class="sect">
       <summary class="sect-head">
@@ -1166,7 +1189,7 @@ module.exports = function createWebviewProviderClass(deps) {
   <script>
     const vscode = acquireVsCodeApi();
     document.querySelectorAll('.tool-item').forEach(el => {
-      if (el.dataset.strictLinting || el.dataset.branchSessions || el.dataset.cpkey) return;
+      if (el.dataset.strictLinting || el.dataset.branchSessions || el.dataset.sessionMemory || el.dataset.cpkey) return;
       el.addEventListener('click', () => {
         const key = el.dataset.key;
         const active = el.classList.contains('active');
@@ -1183,6 +1206,12 @@ module.exports = function createWebviewProviderClass(deps) {
       el.addEventListener('click', () => {
         const active = el.classList.contains('active');
         vscode.postMessage({ type: 'toggleBranchSessions', enabled: !active });
+      });
+    });
+    document.querySelectorAll('[data-session-memory]').forEach(el => {
+      el.addEventListener('click', () => {
+        const active = el.classList.contains('active');
+        vscode.postMessage({ type: 'toggleSessionMemory', enabled: !active });
       });
     });
     document.querySelectorAll('[data-cpkey]').forEach(el => {
