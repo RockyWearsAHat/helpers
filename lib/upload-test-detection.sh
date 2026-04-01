@@ -204,14 +204,11 @@ detect_test_cmd() {
 		local root="$1"
 		find "$root" \
 			-type f \
-			\(
-				-path '*/src/test/*' \
-				-o -path '*/src/androidTest/*'
-			\) \
-			\(
+			\( -path '*/src/test/*' -o -path '*/src/androidTest/*' \) \
+			\( \
 				-name '*Test.java' -o -name '*Tests.java' -o -name '*IT.java' \
 				-o -name '*Test.kt' -o -name '*Tests.kt' -o -name '*IT.kt' \
-				-o -name '*Test.groovy' -o -name '*Tests.groovy' -o -name '*IT.groovy'
+				-o -name '*Test.groovy' -o -name '*Tests.groovy' -o -name '*IT.groovy' \
 			\) \
 			-not -path '*/build/*' \
 			-not -path '*/target/*' \

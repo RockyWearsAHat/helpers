@@ -22,5 +22,6 @@
   "cautionNotes": "Auto-retry behavior may change in future VS Code versions. Verify current autonomy mode behavior against release notes.",
   "nonGeneralizationNotes": "Specific to VS Code Copilot agent mode. Other agent runtimes may have different retry policies.",
   "submittedAt": "2026-03-27T21:11:00Z",
+  "statementHash": "b3f9bc2087f1d34939835c2ac14b4f514991b6de7589eb8535a80836551170e3",
   "submissionId": "2026-03-27-agent-autoretry-amplification"
 }

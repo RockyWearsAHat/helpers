@@ -6,9 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const {
-  handleListLanguageModels,
-} = require("../lib/mcp-language-models");
+const { handleListLanguageModels } = require("../lib/mcp-language-models");
 
 async function main() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "gsh-models-"));

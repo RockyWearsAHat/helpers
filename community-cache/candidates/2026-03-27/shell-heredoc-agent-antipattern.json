@@ -27,5 +27,6 @@
   "cautionNotes": "Heredocs in committed scripts (not agent terminal commands) are a different concern — they should be refactored to template files but are not an immediate agent-workflow failure risk.",
   "nonGeneralizationNotes": "This specifically addresses AI agent terminal tool invocations, not general shell scripting best practices.",
   "submittedAt": "2026-03-27T21:11:00Z",
+  "statementHash": "2e636de8b213e678355d0ddfb3496a02b04a2a919ea0b0248a7f850d853f1233",
   "submissionId": "2026-03-27-shell-heredoc-agent-antipattern"
 }
