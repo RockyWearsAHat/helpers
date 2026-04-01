@@ -27,7 +27,7 @@ checks=(
 	"bash ./scripts/test-git-upload-detect.sh"
 	"node --check ./scripts/patch-vscode-runsubagent-model.js"
 	"node ./scripts/test-resolve-repo-root.js"
-	"node ./scripts/test-list-language-models.js"
+	"bash ./scripts/test-node-coverage.sh"
 	"node ./scripts/test-search-auto-scrape.js"
 	"node ./scripts/test-session-memory.js"
 	"bash ./scripts/build-dist.sh"
