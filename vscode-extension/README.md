@@ -23,6 +23,7 @@ Community repo, base branch, and branch prefix are predefined and not user-confi
 ## Commands
 
 - **Git Shell Helpers: Log in to GitHub** — opens a terminal for `gh auth login` if not authenticated
+- **Git Shell Helpers: Search Archived Chat History** — searches the extension’s compact local archive instead of opening raw Copilot session JSONL files
 - **Git Shell Helpers: Refresh Repository List** — fetches your repos via `gh` and shows a multi-select picker for the whitelist
 - **Git Shell Helpers: Show Community Cache Status** — displays current settings and JSON file state
 
