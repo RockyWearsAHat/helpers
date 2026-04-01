@@ -1,6 +1,6 @@
 # Community Cache Changelog
 
-## 2026-07-09-deep-research
+## 2026-03-26-deep-research
 
 - Deep-research snapshot built from comprehensive cross-referencing of official VS Code Copilot documentation (12 pages), GitHub Copilot docs, awesome-copilot community collection (40+ patterns), and real-world open-source repo examples (PowerToys, desktop/desktop, dotnet/macios).
 - Expanded from 5 to 11 data packs: prompting-principles (25), application-practices (20), anti-patterns (18), workflow-patterns (10), official-sources (12), public-example-sources (13), frontmatter-reference, hooks-reference, community-resources, deprecations (5), and search-index.

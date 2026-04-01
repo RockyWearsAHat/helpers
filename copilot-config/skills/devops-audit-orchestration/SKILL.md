@@ -17,7 +17,9 @@ This skill can be loaded in two valid ways:
 
 In both cases, the main chat session is the orchestrator. Do not invoke `DevOpsAudit` as a nested subagent and then try to run the pipeline from inside that nested agent.
 
-The orchestrator must never perform phase work itself. If `runSubagent` is unavailable or phase delegation fails, stop and report the runtime failure.
+The orchestrator must never perform phase work itself. Delegate every phase to the appropriate subagent.
+
+If `runSubagent` is unavailable (e.g., the skill was loaded inside a subagent where `runSubagent` is disabled), fall back to skill-driven execution: load each phase's SKILL.md directly and perform the work inline, following the same phase order and constraints. Report that subagent delegation was unavailable and skill-driven fallback was used. If both `runSubagent` and the phase skill files are inaccessible, stop and report the runtime failure.
 
 ## Request Contract
 

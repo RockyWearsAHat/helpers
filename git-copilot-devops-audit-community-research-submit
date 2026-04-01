@@ -4,16 +4,32 @@ set -euo pipefail
 
 DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
 
+resolve_script_path() {
+  local source_path="${BASH_SOURCE[0]:-$0}"
+  local source_dir=""
+
+  while [ -L "$source_path" ]; do
+    source_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+    source_path="$(readlink "$source_path")"
+    case "$source_path" in
+      /*) ;;
+      *) source_path="${source_dir}/${source_path}" ;;
+    esac
+  done
+
+  printf '%s/%s\n' "$(cd -P "$(dirname "$source_path")" && pwd)" "$(basename "$source_path")"
+}
+
+SCRIPT_PATH="$(resolve_script_path)"
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+
 resolve_index_builder() {
-  local script_dir=""
   local candidate=""
 
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
   for candidate in \
-    "$script_dir/build-knowledge-index.js" \
-    "$script_dir/scripts/build-knowledge-index.js" \
-    "$script_dir/../share/github-shell-helpers/scripts/build-knowledge-index.js" \
+    "$SCRIPT_DIR/build-knowledge-index.js" \
+    "$SCRIPT_DIR/scripts/build-knowledge-index.js" \
+    "$SCRIPT_DIR/../share/github-shell-helpers/scripts/build-knowledge-index.js" \
     "/usr/local/share/github-shell-helpers/scripts/build-knowledge-index.js"; do
     if [[ -f "$candidate" ]]; then
       printf '%s\n' "$candidate"

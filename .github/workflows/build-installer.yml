@@ -86,9 +86,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Make scripts executable
         run: |
           chmod +x Git-Shell-Helpers-Installer.sh scripts/build-dist.sh \
+            scripts/build-deb.sh scripts/build-homebrew-formula.sh \
+            scripts/build-aur-package.sh scripts/build-npm-package.sh \
             git-upload scripts/test-git-upload-detect.sh scripts/test-git-upload-states.sh \
             scripts/community-cache-submit.sh scripts/community-cache-pull.sh \
             scripts/community-research-submit.sh
@@ -105,50 +112,154 @@ jobs:
       - name: Build dist
         run: ./scripts/build-dist.sh
 
-      - name: Upload script installer artifact
+      - name: Build Debian package
+        run: ./scripts/build-deb.sh
+
+      - name: Build Homebrew formula
+        run: ./scripts/build-homebrew-formula.sh
+
+      - name: Build AUR metadata
+        run: ./scripts/build-aur-package.sh
+
+      - name: Build npm package
+        run: ./scripts/build-npm-package.sh
+
+      - name: Upload cross-platform release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Git-Shell-Helpers-Installer
+          name: github-shell-helpers-cross-platform
           path: |
             dist/Git-Shell-Helpers-Installer.sh
             dist/Git-Shell-Helpers-Installer-*.sh
+            dist/github-shell-helpers-*.tar.gz
+            dist/github-shell-helpers-*-checksums.txt
+            dist/github-shell-helpers_*_all.deb
+            dist/homebrew/github-shell-helpers.rb
+            dist/aur/PKGBUILD
+            dist/aur/.SRCINFO
+            dist/github-shell-helpers-*.tgz
 
   build-macos-pkg:
     runs-on: macos-latest
     needs: [version-guard]
     timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Import signing certificate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          INSTALLER_CERT_BASE64: ${{ secrets.INSTALLER_CERT_BASE64 }}
+          INSTALLER_CERT_PASSWORD: ${{ secrets.INSTALLER_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/installer_cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+
+          echo "$INSTALLER_CERT_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$INSTALLER_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          rm -f "$CERT_PATH"
+
       - name: Make scripts executable
         run: |
-          chmod +x scripts/build-dist.sh scripts/build-pkg.sh \
+          chmod +x scripts/build-dist.sh scripts/build-pkg.sh scripts/build-vsix.sh \
             git-upload git-get git-initialize git-fucked-the-push \
             git-copilot-devops-audit scripts/community-cache-submit.sh \
             scripts/community-cache-pull.sh scripts/community-research-submit.sh
 
       - name: Build macOS pkg
+        env:
+          PKG_SIGN_IDENTITY: ${{ secrets.PKG_SIGN_IDENTITY }}
+          NOTARIZE_APPLE_ID: ${{ secrets.NOTARIZE_APPLE_ID }}
+          NOTARIZE_PASSWORD: ${{ secrets.NOTARIZE_PASSWORD }}
+          NOTARIZE_TEAM_ID: ${{ secrets.NOTARIZE_TEAM_ID }}
         run: ./scripts/build-pkg.sh
 
-      - name: Build script installer
-        run: ./scripts/build-dist.sh
+      - name: Build VSIX
+        run: ./scripts/build-vsix.sh
 
-      - name: Upload macOS pkg artifact
+      - name: Copy VSIX to dist
+        run: |
+          VERSION="$(tr -d '\n' < VERSION | xargs)"
+          mkdir -p dist
+          cp "vscode-extension/git-shell-helpers-${VERSION}.vsix" dist/
+
+      - name: Upload macOS release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: github-shell-helpers-pkg
-          path: dist/github-shell-helpers-*.pkg
+          name: github-shell-helpers-macos
+          path: |
+            dist/github-shell-helpers-*.pkg
+            dist/git-shell-helpers-*.vsix
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: [build-installer, build-macos-pkg]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      HOMEBREW_TAP_REPOSITORY: ${{ vars.HOMEBREW_TAP_REPOSITORY }}
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+      AUR_PACKAGE_NAME: ${{ vars.AUR_PACKAGE_NAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
 
       - name: Read VERSION
         id: read_version
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: echo "version=$(tr -d '\n' < VERSION | xargs)" >> "$GITHUB_OUTPUT"
 
+      - name: Download cross-platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: github-shell-helpers-cross-platform
+          path: release-assets
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: github-shell-helpers-macos
+          path: release-assets
+
       - name: Create or update GitHub Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.read_version.outputs.version }}
@@ -158,5 +269,64 @@ jobs:
           prerelease: ${{ startsWith(steps.read_version.outputs.version, '0.') }}
           make_latest: true
           files: |
-            dist/github-shell-helpers-${{ steps.read_version.outputs.version }}.pkg
-            dist/Git-Shell-Helpers-Installer-${{ steps.read_version.outputs.version }}.sh
+            release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}.pkg
+            release-assets/Git-Shell-Helpers-Installer-${{ steps.read_version.outputs.version }}.sh
+            release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}.tar.gz
+            release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}-checksums.txt
+            release-assets/github-shell-helpers_${{ steps.read_version.outputs.version }}_all.deb
+            release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}.tgz
+            release-assets/homebrew/github-shell-helpers.rb
+            release-assets/aur/PKGBUILD
+            release-assets/aur/.SRCINFO
+            release-assets/git-shell-helpers-${{ steps.read_version.outputs.version }}.vsix
+
+      - name: Publish npm package
+        if: env.NPM_TOKEN != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+        run: npm publish "release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}.tgz" --access public
+
+      - name: Publish Homebrew tap formula
+        if: env.HOMEBREW_TAP_TOKEN != '' && env.HOMEBREW_TAP_REPOSITORY != ''
+        env:
+          RELEASE_VERSION: ${{ steps.read_version.outputs.version }}
+        run: |
+          TAP_DIR="$RUNNER_TEMP/homebrew-tap"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPOSITORY}.git" "$TAP_DIR"
+          mkdir -p "$TAP_DIR/Formula"
+          cp release-assets/homebrew/github-shell-helpers.rb "$TAP_DIR/Formula/github-shell-helpers.rb"
+          cd "$TAP_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- Formula/github-shell-helpers.rb; then
+            echo "[publish-homebrew] Formula already up to date"
+            exit 0
+          fi
+          git add Formula/github-shell-helpers.rb
+          git commit -m "Update github-shell-helpers to v${RELEASE_VERSION}"
+          git push
+
+      - name: Publish AUR package
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        env:
+          RELEASE_VERSION: ${{ steps.read_version.outputs.version }}
+        run: |
+          AUR_PACKAGE_NAME="${AUR_PACKAGE_NAME:-github-shell-helpers}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$HOME/.ssh/aur"
+          chmod 600 "$HOME/.ssh/aur"
+          printf '%s\n' "Host aur.archlinux.org" "  IdentityFile $HOME/.ssh/aur" "  StrictHostKeyChecking accept-new" >> "$HOME/.ssh/config"
+          AUR_DIR="$RUNNER_TEMP/aur-repo"
+          git clone "ssh://aur@aur.archlinux.org/${AUR_PACKAGE_NAME}.git" "$AUR_DIR"
+          cp release-assets/aur/PKGBUILD "$AUR_DIR/PKGBUILD"
+          cp release-assets/aur/.SRCINFO "$AUR_DIR/.SRCINFO"
+          cd "$AUR_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- PKGBUILD .SRCINFO; then
+            echo "[publish-aur] Package metadata already up to date"
+            exit 0
+          fi
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to v${RELEASE_VERSION}"
+          git push

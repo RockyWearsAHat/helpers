@@ -24,7 +24,7 @@
   "contradictionCount": 0,
   "clientBehaviorVersion": 1,
   "publicSummary": "Delegate independent, well-scoped tasks to subagents. Keep interactive and context-heavy tasks in the parent.",
-  "cautionNotes": "Subagents cannot invoke nested subagents (VS Code limitation). Design agents to detect subagent mode and fall back.",
+  "cautionNotes": "VS Code disables runSubagent for subagents (hardcoded in Copilot extension core). Only top-level agents can delegate. Design agents to detect the absence of runSubagent and fall back to skill-driven execution.",
   "nonGeneralizationNotes": "",
   "submittedAt": "2026-03-26T12:00:00Z",
   "submissionId": "20260326T120048Z-84ym68vg",
