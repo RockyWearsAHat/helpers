@@ -11,6 +11,7 @@ This directory contains PR-ready proposals for VS Code features that git-shell-h
 | 3   | `microsoft/vscode` | [Promote chatParticipantPrivate session events to stable](003-chat-session-focus-stable.md) | Filed  | [#306497](https://github.com/microsoft/vscode/issues/306497) — also refs [#305853](https://github.com/microsoft/vscode/issues/305853), [PR #305730](https://github.com/microsoft/vscode/pull/305730) |
 | 4   | `microsoft/vscode` | [Add `model` parameter to `runSubagent` tool](004-runsubagent-model-param.md)               | Draft  | Not yet filed — patched locally via `scripts/patch-vscode-runsubagent-model.js`                                                                                                                      |
 | 5   | `microsoft/vscode` | [Tiered agent variant support](005-tiered-agent-variants.md)                                | Draft  | Not yet filed — workaround documented in proposal; complements #4                                                                                                                                    |
+| 6   | `microsoft/vscode` | [Add stable chat session history events and read API](006-chat-session-history-events.md)   | Draft  | Not yet filed — local workaround currently archives private JSONL session storage                                                                                                                     |
 
 ## Obsolescence Strategy
 
@@ -23,5 +24,6 @@ Our extension (`RockyWearsAHat.git-shell-helpers`) implements **branch-per-chat*
 1. **Programmatic folder switching** without a confirmation dialog
 2. **Branch display override** in the status bar without mutating HEAD
 3. **Chat session focus events** to know when the user switches conversations
+4. **Chat session history events** to observe committed turns without scraping private JSONL files
 
-All three are currently working via patches + proposed API. These proposals aim to land proper API support so patches become unnecessary.
+The first three are currently working via patches + proposed API. The fourth currently uses a local archive workaround built on private session storage. These proposals aim to land proper API support so all four work without internal storage scraping or bundle patches.

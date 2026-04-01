@@ -401,14 +401,37 @@ module.exports = function createCopilotInspector(deps) {
           ? vscode.DiagnosticSeverity.Warning
           : vscode.DiagnosticSeverity.Hint;
 
+    // Open URIs as text documents to trigger user-installed linting extensions.
+    // getDiagnostics() only returns results for files that have already been
+    // analysed; extensions like markdownlint, ESLint, etc. analyse on open.
+    async function openUrisAndSettle(uris) {
+      await Promise.all(
+        uris.map((uri) =>
+          vscode.workspace.openTextDocument(uri).catch(() => null),
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+
     let diagnosticPairs;
     if (filePath) {
       const uri = vscode.Uri.file(filePath);
+      await openUrisAndSettle([uri]);
       diagnosticPairs = [[uri, vscode.languages.getDiagnostics(uri)]];
     } else if (folderPath) {
       const normalizedFolder = folderPath.endsWith("/")
         ? folderPath
         : folderPath + "/";
+      const folderUri = vscode.Uri.file(folderPath);
+      const relPattern = new vscode.RelativePattern(folderUri, "**/*");
+      const fileUris = await vscode.workspace.findFiles(
+        relPattern,
+        "{**/node_modules/**,**/.git/**}",
+        200,
+      );
+      if (fileUris.length > 0) {
+        await openUrisAndSettle(fileUris);
+      }
       diagnosticPairs = vscode.languages
         .getDiagnostics()
         .filter(
