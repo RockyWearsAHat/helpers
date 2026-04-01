@@ -6,12 +6,36 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { handleListLanguageModels } = require("../lib/mcp-language-models");
+const {
+  formatReadError,
+  getAvailableModelsPath,
+  handleListLanguageModels,
+} = require("../lib/mcp-language-models");
 
 async function main() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "gsh-models-"));
+  const defaultModelsPath = path.join(tempDir, ".copilot", "available-models.json");
   const missingPath = path.join(tempDir, "missing-models.json");
   const existingPath = path.join(tempDir, "available-models.json");
+  const fallbackPath = path.join(tempDir, "fallback-models.json");
+  const originalHomedir = os.homedir;
+
+  os.homedir = () => tempDir;
+  assert.strictEqual(getAvailableModelsPath(), defaultModelsPath);
+
+  os.homedir = () => {
+    throw new Error("homedir unavailable");
+  };
+  assert.strictEqual(getAvailableModelsPath(), "");
+  assert.strictEqual(formatReadError(new Error("real error")), "real error");
+  assert.strictEqual(formatReadError("plain string failure"), "plain string failure");
+
+  const noHomeDirResult = await handleListLanguageModels();
+  assert.ok(noHomeDirResult[0].text.includes("Could not resolve a home directory"));
+
+  os.homedir = () => tempDir;
+  const defaultMissingResult = await handleListLanguageModels();
+  assert.ok(defaultMissingResult[0].text.includes(defaultModelsPath));
 
   const missingResult = await handleListLanguageModels({
     availableModelsPath: missingPath,
@@ -46,8 +70,36 @@ async function main() {
   assert.ok(validResult[0].text.includes("claude-haiku-4.5"));
   assert.ok(validResult[0].text.includes("Claude Haiku 4.5 (Anthropic)"));
 
+  fs.writeFileSync(
+    fallbackPath,
+    JSON.stringify(
+      {},
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
+  const fallbackResult = await handleListLanguageModels({
+    availableModelsPath: fallbackPath,
+  });
+  assert.ok(fallbackResult[0].text.includes("updated unknown"));
+
   const originalReadFileSync = fs.readFileSync;
   try {
+    fs.readFileSync = (filePath, encoding) => {
+      if (filePath === fallbackPath) {
+        throw new Error("real error");
+      }
+      return originalReadFileSync(filePath, encoding);
+    };
+
+    const errorObjectResult = await handleListLanguageModels({
+      availableModelsPath: fallbackPath,
+    });
+    assert.ok(errorObjectResult[0].text.includes(fallbackPath));
+    assert.ok(errorObjectResult[0].text.includes("real error"));
+
     fs.readFileSync = (filePath, encoding) => {
       if (filePath === existingPath) throw "plain string failure";
       return originalReadFileSync(filePath, encoding);
@@ -60,6 +112,7 @@ async function main() {
     assert.ok(errorResult[0].text.includes("plain string failure"));
   } finally {
     fs.readFileSync = originalReadFileSync;
+    os.homedir = originalHomedir;
   }
 
   fs.rmSync(tempDir, { recursive: true, force: true });
