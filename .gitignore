@@ -12,4 +12,3 @@ vision-tool/node_modules/
 !.github/session-memory/.gitkeep
 .env
 atlas-api/.env
-pages/assets/env.js
