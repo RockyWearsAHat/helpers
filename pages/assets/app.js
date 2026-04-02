@@ -268,7 +268,7 @@ function setSelected(documentId) {
 
 function renderResults(results, durationMs, terms) {
   resultsList.innerHTML = "";
-  emptyState.hidden = results.length > 0 || Boolean(state.query);
+  emptyState.hidden = results.length > 0;
 
   if (!state.query) {
     resultsSummary.textContent =
@@ -280,6 +280,10 @@ function renderResults(results, durationMs, terms) {
   resultsMeta.textContent = `${durationMs.toFixed(1)} ms`;
 
   if (!results.length) {
+    if (state.query) {
+      resultsSummary.textContent = "No matches yet";
+      resultsMeta.textContent = "Try broader terms or switch scope.";
+    }
     renderPreview(null);
     return;
   }
