@@ -1,5 +1,6 @@
 /* -- State ----------------------------------------------------------------- */
 const state = {
+  page: "search",
   corpus: null,
   query: "",
   scope: "all",
@@ -8,6 +9,8 @@ const state = {
   documentsById: new Map(),
   readerDoc: null,
   readerCache: new Map(),
+  routeDocId: "",
+  routePractice: false,
   pageSize: 20,
   currentPage: 0,
   isLoadingMore: false,
@@ -32,6 +35,7 @@ const readerBody = document.getElementById("reader-body");
 const themeToggle = document.getElementById("theme-toggle");
 const pageSearch = document.getElementById("page-search");
 const pageAbout = document.getElementById("page-about");
+const practiceToggle = document.getElementById("practice-toggle");
 
 const scopeButtons = Array.from(document.querySelectorAll("[data-scope]"));
 const navLinks = Array.from(document.querySelectorAll(".nav-link[data-page]"));
@@ -44,6 +48,7 @@ const scopeChipButtons = Array.from(
 
 /* -- Page navigation ------------------------------------------------------- */
 function showPage(name) {
+  state.page = name === "about" ? "about" : "search";
   pageSearch.style.display = name === "search" ? "" : "none";
   pageAbout.classList.toggle("page-hidden", name !== "about");
   navLinks.forEach(function (btn) {
@@ -51,9 +56,19 @@ function showPage(name) {
   });
 }
 
+function syncPracticeToggleState() {
+  if (!practiceToggle) return;
+  if (typeof window.AtlasPractice === "undefined") {
+    practiceToggle.classList.remove("active");
+    return;
+  }
+  practiceToggle.classList.toggle("active", window.AtlasPractice.isActive());
+}
+
 navLinks.forEach(function (btn) {
   btn.addEventListener("click", function () {
     showPage(btn.dataset.page);
+    updateUrl();
   });
 });
 
@@ -775,10 +790,21 @@ function renderResults(results, durationMs, terms) {
 /* -- URL sync -------------------------------------------------------------- */
 function updateUrl() {
   var params = new URLSearchParams(window.location.search);
+  if (state.page !== "search") params.set("page", state.page);
+  else params.delete("page");
   if (state.query) params.set("q", state.query);
   else params.delete("q");
   if (state.scope !== "all") params.set("scope", state.scope);
   else params.delete("scope");
+  if (state.readerDoc && state.readerDoc.id) params.set("doc", state.readerDoc.id);
+  else params.delete("doc");
+  if (
+    state.readerDoc &&
+    typeof window.AtlasPractice !== "undefined" &&
+    window.AtlasPractice.isActive()
+  )
+    params.set("practice", "1");
+  else params.delete("practice");
   var nextUrl =
     window.location.pathname + (params.toString() ? "?" + params : "");
   window.history.replaceState({}, "", nextUrl);
@@ -1023,11 +1049,13 @@ function highlightReaderCode() {
   }
 }
 
-function openReader(docId) {
+function openReader(docId, options) {
+  options = options || {};
   var doc = state.documentsById.get(docId);
-  if (!doc) return;
+  if (!doc) return false;
 
   state.readerDoc = doc;
+  if (options.showPage !== false) showPage("search");
   resultsColumn.classList.add("hidden");
   previewColumn.classList.add("hidden");
   readerColumn.classList.remove("hidden");
@@ -1035,6 +1063,14 @@ function openReader(docId) {
   readerBody.innerHTML = '<p class="reader-loading">Loading article\u2026</p>';
   var practicePanel = document.getElementById("practice-panel");
   if (practicePanel) practicePanel.classList.add("hidden");
+  if (
+    typeof window.AtlasPractice !== "undefined" &&
+    typeof window.AtlasPractice.close === "function"
+  ) {
+    window.AtlasPractice.close();
+  }
+  syncPracticeToggleState();
+  if (options.syncUrl !== false) updateUrl();
 
   window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -1044,19 +1080,19 @@ function openReader(docId) {
       state.readerCache.set(docId, rendered);
       readerBody.innerHTML = rendered;
       highlightReaderCode();
-      return;
+      return true;
     }
   }
 
   if (!doc.rawUrl) {
     readerBody.innerHTML = "<p>No article content available for this item.</p>";
-    return;
+    return true;
   }
 
   if (state.readerCache.has(docId)) {
     readerBody.innerHTML = state.readerCache.get(docId);
     highlightReaderCode();
-    return;
+    return true;
   }
 
   fetch(doc.rawUrl)
@@ -1077,13 +1113,24 @@ function openReader(docId) {
       readerBody.innerHTML =
         "<p>Failed to load article: " + escapeHtml(err.message) + "</p>";
     });
+
+  return true;
 }
 
-function closeReader() {
+function closeReader(options) {
+  options = options || {};
   state.readerDoc = null;
   readerColumn.classList.add("hidden");
   resultsColumn.classList.remove("hidden");
   previewColumn.classList.remove("hidden");
+  if (
+    typeof window.AtlasPractice !== "undefined" &&
+    typeof window.AtlasPractice.close === "function"
+  ) {
+    window.AtlasPractice.close();
+  }
+  syncPracticeToggleState();
+  if (options.syncUrl !== false) updateUrl();
 }
 
 readerBack.addEventListener("click", closeReader);
@@ -1115,6 +1162,34 @@ async function loadCorpus() {
   renderStats();
   renderSuggestions();
   runSearch();
+
+  if (state.routeDocId) {
+    var opened = openReader(state.routeDocId, {
+      showPage: state.page !== "about",
+      syncUrl: false,
+    });
+    if (!opened) {
+      state.routeDocId = "";
+      state.routePractice = false;
+    }
+  }
+
+  if (
+    state.routePractice &&
+    state.readerDoc &&
+    typeof window.AtlasPractice !== "undefined" &&
+    !window.AtlasPractice.isActive()
+  ) {
+    var rawContent = state.readerCache.get(state.readerDoc.id) || "";
+    window.AtlasPractice.toggle(
+      state.readerDoc.id,
+      state.readerDoc.title,
+      state.readerDoc.searchText || rawContent,
+    );
+  }
+
+  syncPracticeToggleState();
+  updateUrl();
 }
 
 /* -- Event wiring ---------------------------------------------------------- */
@@ -1178,7 +1253,6 @@ window.addEventListener("keydown", function (event) {
 });
 
 /* -- Practice panel toggle -------------------------------------------------- */
-var practiceToggle = document.getElementById("practice-toggle");
 if (practiceToggle) {
   practiceToggle.addEventListener("click", function () {
     if (!state.readerDoc || typeof window.AtlasPractice === "undefined") return;
@@ -1188,17 +1262,22 @@ if (practiceToggle) {
       state.readerDoc.title,
       state.readerDoc.searchText || rawContent,
     );
-    practiceToggle.classList.toggle("active", window.AtlasPractice.isActive());
+    syncPracticeToggleState();
+    updateUrl();
   });
 }
 
 /* -- Bootstrap ------------------------------------------------------------- */
 (function bootstrapFromUrl() {
   var params = new URLSearchParams(window.location.search);
+  state.page = params.get("page") === "about" ? "about" : "search";
   state.query = params.get("q") || "";
   state.scope = params.get("scope") || "all";
+  state.routeDocId = params.get("doc") || "";
+  state.routePractice = params.get("practice") === "1";
   queryInput.value = state.query;
   syncScopeButtons();
+  showPage(state.page);
 })();
 
 if (typeof window.AtlasPractice !== "undefined") {

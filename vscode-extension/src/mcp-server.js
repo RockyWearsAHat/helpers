@@ -91,6 +91,15 @@ module.exports = function createMcpServer(deps) {
         wsSlug,
         "chat-history-archive",
       );
+      // Always expose the global (no-folder) archive so the MCP server can
+      // also index sessions that were started without a workspace folder open.
+      // search_chat_history merges both archives transparently.
+      env.GSH_CHAT_ARCHIVE_GLOBAL = path.join(
+        storageRoot,
+        "ws-archives",
+        "ws-global",
+        "chat-history-archive",
+      );
       if (workspaceFolder) {
         env.GSH_CHAT_WORKSPACE_PATH = workspaceFolder;
       }
