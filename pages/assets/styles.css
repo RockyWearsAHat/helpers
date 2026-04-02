@@ -82,8 +82,8 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  max-width: 1380px;
-  width: calc(100vw - 56px);
+  max-width: 1600px;
+  width: calc(100vw - 40px);
   margin: 0 auto;
   padding-bottom: 48px;
   animation: pageIn 0.25s ease both;
@@ -412,7 +412,7 @@ button.bento-card {
 /* ─── Main Layout ────────────────────────────────────────────────────────────── */
 .main-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 400px;
   gap: 28px;
   align-items: start;
   padding-top: 32px;
@@ -1267,7 +1267,7 @@ mark {
 
 /* ─── Responsive ─────────────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
-  .main-layout { grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; }
+  .main-layout { grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; }
 }
 
 @media (max-width: 1060px) {
