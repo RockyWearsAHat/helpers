@@ -283,7 +283,6 @@ function activate(context) {
     getProviderStatus: models.getProviderStatus,
     scanLocalAgents: models.scanLocalAgents,
     getActivityItems: activity.getActivityItems,
-    _renderActivityItem: activity._renderActivityItem,
     _activityCountLabel: activity._activityCountLabel,
     API_KEY_ANTHROPIC: models.API_KEY_ANTHROPIC,
     API_KEY_OPENAI: models.API_KEY_OPENAI,

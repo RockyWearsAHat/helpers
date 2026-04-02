@@ -73,7 +73,7 @@ copy_packaged_tree() {
 
 install_release_archive() {
   local version="$1"
-  local archive_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/latest/download/github-shell-helpers-${version}.tar.gz"
+  local archive_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${version}/github-shell-helpers-${version}.tar.gz"
   local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-${version}.tar.gz"
   local extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/gsh-release.XXXXXX")"
   local source_root="${extract_dir}/github-shell-helpers-${version}"
@@ -285,7 +285,7 @@ maybe_install_gsh_extension() {
     return
   fi
 
-  local vsix_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/latest/download/git-shell-helpers-${version}.vsix"
+  local vsix_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${version}/git-shell-helpers-${version}.vsix"
   local vsix_tmp="${TMPDIR:-/tmp}/git-shell-helpers-${version}.vsix"
 
   if curl -fsSL -o "$vsix_tmp" "$vsix_url" 2>/dev/null; then
