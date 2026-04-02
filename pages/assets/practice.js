@@ -713,16 +713,35 @@
     return "https://ollama.com/download";
   }
 
+  function getLaunchHint() {
+    var os = detectOs();
+    if (os === "mac") {
+      return "After installing, open Ollama from Applications and leave it running in your menu bar.";
+    }
+    if (os === "windows") {
+      return "After installing, launch Ollama from the Start menu and keep the local server running.";
+    }
+    if (os === "linux") {
+      return "After installing, start the Ollama server and keep it running so Atlas can connect.";
+    }
+    return "After installing, launch Ollama so the local server is running before you return here.";
+  }
+
+  function runInstallerCheck() {
+    return checkConnection().then(function (info) {
+      if (info.connected) {
+        stopInstallerPolling();
+        onOllamaDetected(info);
+        return true;
+      }
+      return false;
+    });
+  }
+
   function startInstallerPolling() {
     stopInstallerPolling();
-    installer.pollTimer = setInterval(function () {
-      checkConnection().then(function (info) {
-        if (info.connected) {
-          stopInstallerPolling();
-          onOllamaDetected(info);
-        }
-      });
-    }, 2000);
+    runInstallerCheck();
+    installer.pollTimer = setInterval(runInstallerCheck, 2000);
   }
 
   function stopInstallerPolling() {
@@ -857,6 +876,7 @@
     var osLabels = { mac: "macOS", linux: "Linux", windows: "Windows", unknown: "your platform" };
     var osLabel = osLabels[os] || "your platform";
     var downloadUrl = getDownloadUrl();
+    var launchHint = getLaunchHint();
 
     el.innerHTML =
       '<div class="setup-card setup-gate">' +
@@ -865,16 +885,23 @@
       '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>' +
       '<polyline points="3.27 6.96 12 12.01 20.73 6.96"/>' +
       '<line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>' +
-      '<h3>Install Ollama to Practice</h3>' +
+      '<h3>Install and Launch Ollama</h3>' +
       '<p class="setup-gate-desc">Practice mode uses a local AI model that runs entirely on your machine. ' +
       'No data is sent anywhere \u2014 everything stays private.</p>' +
-      '<p class="setup-gate-desc">Install <strong>Ollama</strong> for ' + esc(osLabel) + ', then come back here. ' +
-      'We\u2019ll detect it automatically.</p>' +
+      '<p class="setup-gate-desc">Download alone is not enough. <strong>Ollama must be actively running</strong> so Atlas can reach the local server at ' + esc(config.ollamaBase) + '.</p>' +
+      '<div class="setup-steps">' +
+      '<div class="setup-step"><span class="setup-step-num">1</span><span>Install <strong>Ollama</strong> for ' + esc(osLabel) + '.</span></div>' +
+      '<div class="setup-step"><span class="setup-step-num">2</span><span>' + esc(launchHint) + '</span></div>' +
+      '<div class="setup-step"><span class="setup-step-num">3</span><span>Come back here and click <strong>Check Again</strong>. Atlas will also keep polling automatically.</span></div>' +
+      '</div>' +
+      '<div class="setup-gate-actions">' +
       '<a class="btn btn-primary btn-lg setup-download-btn" href="' + esc(downloadUrl) + '" target="_blank" rel="noreferrer">' +
       'Download Ollama for ' + esc(osLabel) + '</a>' +
+      '<button class="btn btn-secondary btn-lg setup-check-btn" id="check-ollama-btn">Check Again</button>' +
+      '</div>' +
       '<div class="setup-gate-polling">' +
       '<div class="typing-dots"><span></span><span></span><span></span></div>' +
-      '<span>Waiting for Ollama\u2026</span></div>' +
+      '<span>Waiting for a running Ollama server\u2026</span></div>' +
       '<details class="setup-advanced"><summary>Advanced settings</summary>' +
       '<div class="setup-config">' +
       '<label>Model: <input type="text" id="model-input" value="' + esc(config.model) + '" /></label>' +
@@ -925,6 +952,13 @@
 
   /* -- Shared event wiring for setup panels -------------------------- */
   function wireSetupEvents(el) {
+    var checkBtn = el.querySelector("#check-ollama-btn");
+    if (checkBtn) {
+      checkBtn.addEventListener("click", function () {
+        refreshAiStatus();
+      });
+    }
+
     var saveBtn = el.querySelector("#save-config-btn");
     if (saveBtn) {
       saveBtn.addEventListener("click", function () {
