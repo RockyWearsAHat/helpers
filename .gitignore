@@ -10,3 +10,6 @@ vision-tool/node_modules/
 .vscode/gsh-vision-ipc.json
 .github/session-memory/*
 !.github/session-memory/.gitkeep
+.env
+atlas-api/.env
+pages/assets/env.js
