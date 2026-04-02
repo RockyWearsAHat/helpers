@@ -331,7 +331,7 @@ function renderResults(results, durationMs, terms) {
       highlight(resultDoc.title, terms) +
       "</span></h2>" +
       "</div>" +
-      '<span class="result-pill">Score ' + Math.round(score) + "</span></div>" +
+      '<span class="result-scope-badge" data-scope="' + escapeHtml(resultDoc.scopeKey) + '">' + escapeHtml(resultDoc.scopeLabel) + "</span></div>" +
       '<p class="result-snippet">' + highlight(snippet, terms) + "</p>" +
       '<div class="result-pills">' + pillsHtml + "</div>" +
       readBtnHtml +
