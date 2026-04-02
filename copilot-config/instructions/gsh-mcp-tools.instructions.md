@@ -1,6 +1,5 @@
 ---
-description: "Reference for the gsh MCP server tools available in all workspaces. Use this when working with git history, committing, web research, knowledge notes, screenshots, or image analysis."
-applyTo: "**"
+description: "Reference for the gsh MCP server tools available in all workspaces. Use when working with git history, committing, web research, knowledge notes, screenshots, image analysis, or MCP tool calls."
 ---
 
 # gsh MCP Server Tools
@@ -12,7 +11,7 @@ The `gsh` MCP server is installed globally and available in every workspace. It 
 Apply this guidance before processing each user request:
 
 - Prefer direct MCP tool calls when a matching gsh tool exists; avoid terminal emulation for tool behavior checks.
-- For diagnostics, use `strict_lint` first.
+- **After every file edit, call `strict_lint` on the modified file before declaring work complete.** Fix reported errors and warnings or name each one with a reason for leaving it. Do not return "implementation complete" while unresolved issues exist.
 - `strict_lint` defaults to `severityFilter: "all"` when omitted (includes error, warning, info, and hint diagnostics).
 - Only pass `severityFilter` when the user explicitly asks to narrow severity.
 - If there is a reported mismatch with VS Code squiggles, rerun `strict_lint` on the exact file path with default severity before deeper debugging.
@@ -33,13 +32,113 @@ Parameters:
 - `all` (boolean) — Stage all changes including untracked files (`git add -A`) before committing. Default: `true`.
 - `push` (boolean) — Push to remote after committing. Default: `false`.
 - `force` (boolean) — Override a mid-session disable. Only use when the user explicitly asked for a checkpoint and the previous call returned `[no-op]`.
-- `cwd` (string, optional) — Absolute path to the git repository to commit in. The server auto-detects the workspace root via MCP roots when exactly one VS Code workspace folder is open. Pass `cwd` explicitly only when working in a multi-root workspace or when the auto-detected root is not the intended repo.
+- `cwd` (string, optional) — Absolute path to the git repository to commit in. Auto-detected from the workspace root when omitted. Pass explicitly when working in a multi-root workspace, a git worktree, or when the target repo differs from the auto-detected root.
+- `branch` (string, optional) — Assert that HEAD is on this branch before committing. If the current branch does not match, the commit is aborted with an error. Use this to prevent accidentally committing to the wrong branch.
+
+## Core — Workspace Context
+
+**`workspace_context`** — Return the current workspace context: root folders, branch, worktree status, and remote URL for each.
+
+Call this:
+
+- **At the start of a session** to orient yourself (which repo, which branch, what state).
+- **Before cross-branch operations** to confirm you're on the right branch.
+- **When working on a feature branch** to verify your branch before making changes.
+
+No parameters. Returns one block per workspace root with: root path, branch name, worktree flag, remote URL, and short git status.
+
+## Core — Branch Sessions
+
+Branch sessions create isolated git worktrees under `~/.cache/gsh/worktrees/`, but when the VS Code extension is active the normal workspace root follows the active chat's branch. Think of the worktree as parked state, not as the directory you should edit directly.
+
+Use branch sessions when:
+
+- Work is multi-step or multi-file.
+- You want reviewable feature-branch isolation.
+- You need safe parallel chat workflows.
+
+Avoid branch sessions when:
+
+- The change is a trivial one-file tweak.
+- The user explicitly wants a direct baseline fix.
+- Branching overhead would exceed the risk of the change.
+
+Dead-simple sequence:
+
+1. `workspace_context`
+2. `branch_status`
+3. `branch_session_start` (only for non-trivial feature work)
+4. `checkpoint` with `branch` guard
+5. `branch_session_end`
+
+If branch state appears wrong, repeat steps 1 and 2 before doing anything else.
+
+**`branch_session_start`** — Start an isolated branch session.
+
+- Creates a worktree for the given branch (or creates the branch if it doesn't exist).
+- Returns the absolute path to the worktree.
+- The normal workspace root becomes the branch you should edit.
+- **Do not use the worktree path directly for normal file operations or terminal commands.**
+- If a session already exists for the branch, returns the existing path.
+
+Parameters:
+
+- `branch` (string, required) — The branch to work on.
+- `base` (string, optional) — Create the branch from this ref. Only used for new branches. Defaults to HEAD.
+
+**`branch_session_end`** — End an isolated branch session.
+
+- Auto-commits any uncommitted work, then removes the worktree.
+- The branch and all its commits are preserved for later merge.
+- Pass `discard: true` to throw away uncommitted changes instead of committing them.
+
+Parameters:
+
+- `branch` (string, required) — The branch whose session to end.
+- `discard` (boolean, optional) — Discard uncommitted changes instead of auto-committing. Default: false.
+
+**`branch_read_file`** — Read a file from any branch without a worktree.
+
+- Uses `git show` to read directly from the commit tree.
+- No checkout or worktree needed — fast and safe for cross-branch inspection.
+
+Parameters:
+
+- `branch` (string, required) — The branch to read from.
+- `filePath` (string, required) — Repository-relative path (e.g. `lib/upload-ai-message.sh`).
+
+**`branch_status`** — Show all active branch sessions and local branches.
+
+- Reports: active worktree sessions with their status, the main workspace branch, and all local branches with latest commits.
+- If work seems to disappear from the workspace after a chat switch, call this first. The session is usually parked, not lost.
+- No parameters.
+
+## Core — Diagnostics
+
+**`strict_lint`** — Run VS Code’s live diagnostics (errors and warnings) on a file, folder, or the entire workspace.
+
+- Returns the same output as the Problems panel.
+- **Call this after every file edit before declaring implementation complete.** If errors or warnings are reported, fix them or explicitly document why they are acceptable.
+- Re-run until clean. Do not return “implementation complete” while unresolved issues exist without naming each one and why it was left.
+
+Parameters:
+
+- `filePath` (string, optional) — Absolute path to a specific file to check. Omit to check the whole workspace.
+- `folderPath` (string, optional) — Absolute path to a folder to check.
+- `severityFilter` (string, optional) — `"all"` (default), `"errors-only"`, or `"warnings-and-above"`.
+
+**`list_language_models`** — List the language models available in VS Code’s language model service.
+
+- Returns each model’s `id`, display name, vendor, and `qualifiedName`.
+- Use this when you need to pass a valid model identifier to `runSubagent` or report available models to the user.
+- The list is written by the gsh VS Code extension on startup and whenever the model set changes.
+- No parameters.
 
 ## Research — Web Search & Knowledge Base
 
 **`search_web`** — Search the web via a local SearXNG instance. Returns ranked results with titles, URLs, and snippets.
 
-**`scrape_webpage`** — Fetch and return the text content of a URL. Use for reading documentation, blog posts, or reference pages.
+**`scrape_webpage`** — Fetch and return the text content of a URL. Use for reading documentation, blog posts, or reference pages. If you pass `output_file`, it must include an explicit subdirectory such as `knowledge/note.md` or `.github/knowledge/note.md`; bare filenames are rejected so research does not spill into the workspace root.
 
 **`search_knowledge_index`** — Search the knowledge base using TF-IDF indexes. Merges results from two sources:
 
@@ -54,19 +153,19 @@ Results are tagged with `source: "local"` or `source: "community"`. Falls back t
 
 **`read_knowledge_note`** — Read the full content of a knowledge note. Pass just a filename (e.g. `networking-dns.md`) or a workspace-relative path. Resolution order: local workspace → repo knowledge root → GitHub community (fetched with ETag cache). Works for both local and community notes without needing the repo cloned.
 
-**`write_knowledge_note`** — Create a knowledge note. Pass just the filename (e.g. `networking-dns.md`) — the tool auto-detects the correct knowledge directory. Automatically rebuilds the local search index.
+**`write_knowledge_note`** — Create a knowledge note. Pass just the filename (e.g. `networking-dns.md`) — the tool auto-detects the correct knowledge directory. It rebuilds the local search index before returning. Pass `publish: true` when the note is privacy-safe, broadly reusable, and should be auto-submitted to the shared knowledge base if `shareKnowledge` is enabled.
 
-**`update_knowledge_note`** — Replace a specific section (by heading) in an existing knowledge note. Automatically rebuilds the local search index.
+**`update_knowledge_note`** — Replace a specific section (by heading) in an existing knowledge note. Rebuilds the local search index before returning. Pass `publish: true` when the updated note should also be submitted to the shared knowledge base.
 
-**`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Automatically rebuilds the local search index.
+**`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Rebuilds the local search index before returning. Pass `publish: true` when the updated note should also be submitted to the shared knowledge base.
 
-**`submit_community_research`** — Submit a privacy-safe research conclusion to the community cache. Only call when the workspace has community participation enabled in `.github/devops-audit-community-settings.json`.
+**`submit_community_research`** — Submit a privacy-safe knowledge note to the shared knowledge base. Only call when the workspace has `shareKnowledge: true` (or legacy `shareResearch: true`) in `.github/devops-audit-community-settings.json`. The submission rebuilds `knowledge/_index.json` in the PR so the hosted cache stays searchable.
 
 ## Vision — Screenshot & Image Analysis
 
-**`take_screenshot`** — Capture a screenshot of the current screen. Returns the image as base64. Requires the gsh-vision VS Code extension to be running.
+**`take_screenshot`** — Capture a screenshot on macOS. Returns the absolute path to the saved PNG. Requires the gsh-vision VS Code extension to be running. If the host exposes a built-in image-view tool such as `view_image`, prefer that for single-image inspection of the screenshot.
 
-**`analyze_images`** — Analyze one or more images using a vision model. Pass base64-encoded image data. Use after `take_screenshot` to interpret UI state, errors, or visual content.
+**`analyze_images`** — Analyze one or more image paths using a vision model. Use this when no built-in host image-view tool is available, or when you need capabilities the host tool may not provide reliably: multi-image comparison, an explicit evaluation goal, or screenshot-driven visual debugging. Use after `take_screenshot` to interpret UI state, errors, or visual content.
 
 ## Knowledge-First Protocol
 

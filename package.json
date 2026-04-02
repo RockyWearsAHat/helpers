@@ -1,0 +1,78 @@
+{
+  "name": "github-shell-helpers",
+  "version": "0.3.6",
+  "description": "Git helpers, MCP tools, and Copilot audit workflow.",
+  "license": "MIT",
+  "preferGlobal": true,
+  "homepage": "https://github.com/RockyWearsAHat/github-shell-helpers",
+  "bugs": {
+    "url": "https://github.com/RockyWearsAHat/github-shell-helpers/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RockyWearsAHat/github-shell-helpers.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "git",
+    "copilot",
+    "mcp",
+    "vscode",
+    "automation"
+  ],
+  "bin": {
+    "git-upload": "git-upload",
+    "git-get": "git-get",
+    "git-initialize": "git-initialize",
+    "git-checkpoint": "git-checkpoint",
+    "git-fucked-the-push": "git-fucked-the-push",
+    "git-remerge": "git-remerge",
+    "git-resolve": "git-resolve",
+    "git-scan-for-leaked-envs": "git-scan-for-leaked-envs",
+    "git-help-i-pushed-an-env": "git-help-i-pushed-an-env",
+    "git-copilot-quickstart": "git-copilot-quickstart",
+    "git-copilot-devops-audit": "git-copilot-devops-audit",
+    "git-copilot-devops-audit-community-pull": "git-copilot-devops-audit-community-pull",
+    "git-copilot-devops-audit-community-submit": "git-copilot-devops-audit-community-submit",
+    "git-copilot-devops-audit-community-research-submit": "git-copilot-devops-audit-community-research-submit",
+    "git-research-mcp": "git-research-mcp",
+    "git-shell-helpers-mcp": "git-shell-helpers-mcp"
+  },
+  "files": [
+    "git-upload",
+    "git-get",
+    "git-initialize",
+    "git-checkpoint",
+    "git-fucked-the-push",
+    "git-remerge",
+    "git-resolve",
+    "git-scan-for-leaked-envs",
+    "git-help-i-pushed-an-env",
+    "git-copilot-quickstart",
+    "git-copilot-devops-audit",
+    "git-copilot-devops-audit-community-pull",
+    "git-copilot-devops-audit-community-submit",
+    "git-copilot-devops-audit-community-research-submit",
+    "git-research-mcp",
+    "git-research-mcp.js",
+    "git-shell-helpers-mcp",
+    "git-shell-helpers-mcp.js",
+    "lib/**/*.sh",
+    "lib/mcp-*.js",
+    "copilot-config/**",
+    "community-cache/**",
+    "templates/**",
+    "scripts/build-knowledge-index.js",
+    "scripts/community-cache-pull.sh",
+    "scripts/community-cache-submit.sh",
+    "scripts/community-research-submit.sh",
+    "man/man1/*.1",
+    "README.md",
+    "VERSION"
+  ]
+}

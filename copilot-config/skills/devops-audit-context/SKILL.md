@@ -15,7 +15,7 @@ This is the foundation of the entire audit. Every other agent — research, eval
 You are reading the workspace to understand two things:
 
 1. **What is this project?** — What does it do, what is it built with, how is it built, how is it tested, what do developers actually do here day to day.
-2. **What Copilot files currently exist?** — Every file in `.github/` that Copilot uses, read completely, with an accurate summary of what each one contains and does.
+2. **What Copilot files currently exist in scope for this audit?** — Every file in the selected Copilot target surface, read completely, with an accurate summary of what each one contains and does.
 
 You are not judging anything. You are not deciding what is right or wrong. You are just reading and reporting accurately.
 
@@ -23,6 +23,7 @@ You are not judging anything. You are not deciding what is right or wrong. You a
 
 Read these files to understand the project:
 
+- `.github/copilot-instructions.md` if it exists — it may declare where the repo's Copilot source of truth lives
 - `README.md` — what the project is and does
 - Build files (`Makefile`, `CMakeLists.txt`, `package.json`, `Cargo.toml`, `pyproject.toml`, etc.) — what it is built with and how
 - Test configuration or test scripts — how tests are run
@@ -32,17 +33,30 @@ Read these files to understand the project:
 
 Do not read every source file. You just need to understand the shape of the project — its type, languages, frameworks, build process, test process, and developer workflow.
 
-## How to Read `.github/` Copilot Files
+## Determine The Audit Target Surface
+
+Before inventorying files, determine which Copilot surface this audit is actually about.
+
+- If the user explicitly names `.github/`, audit the workspace-runtime surface.
+- If the user explicitly names `copilot-config/`, shipped prompts, shipped agents, shipped instructions, or the audit workflow's own source files, audit the product-source surface.
+- If the repo's baseline instructions say Copilot product source lives outside `.github/`, treat that as the default source-of-truth surface unless the user explicitly asked for the runtime `.github/` copy instead.
+- If truthfulness of the workflow depends on runtime or installed copies in addition to product source, include those as supporting surfaces and say why.
+
+Return the chosen target surface in the project profile, including the path or paths in scope and the reason for the choice.
+
+## How to Read Copilot Files In Scope
 
 Read every single one of these completely:
 
-- `.github/copilot-instructions.md` — the main Copilot instructions file
-- `.github/instructions/*.instructions.md` — scoped instruction files
-- `.github/agents/*.agent.md` — custom agent definitions
-- `.github/prompts/*.prompt.md` — prompt files / slash commands
-- `.github/skills/*/SKILL.md` — skill definitions
+- If the selected surface is `.github/`:
+  - `.github/copilot-instructions.md` — the main Copilot instructions file
+  - `.github/instructions/*.instructions.md` — scoped instruction files
+  - `.github/agents/*.agent.md` — custom agent definitions
+  - `.github/prompts/*.prompt.md` — prompt files / slash commands
+  - `.github/skills/*/SKILL.md` — skill definitions
+- If the selected surface is `copilot-config/` or another repo-defined source directory, read the equivalent instructions, agents, prompts, and skills there.
 
-Do not expect the global DevOpsAudit audit tools to appear here. `DevOpsAudit`, `DevOpsAuditContext`, `DevOpsAuditResearch`, `DevOpsAuditEvaluate`, `DevOpsAuditImplement`, and `/copilot-devops-audit` may be installed in standard user-level locations on disk rather than inside the workspace. Their absence from `.github/` is normal and must not be reported as missing.
+Do not expect the global DevOpsAudit audit tools to appear here. `DevOpsAudit`, `DevOpsAuditContext`, `DevOpsAuditResearch`, `DevOpsAuditEvaluate`, `DevOpsAuditImplement`, and `/copilot-devops-audit` may be installed in standard user-level locations on disk rather than inside the workspace. Their absence from the selected workspace surface is normal and must not be reported as missing.
 
 For each file, note:
 
@@ -80,7 +94,7 @@ PROJECT PROFILE
 
 ### Copilot File Inventory
 
-For each Copilot-related file found in `.github/`:
+For each Copilot-related file found in the selected target surface:
 
 ```
 FILE: .github/instructions/example.instructions.md
@@ -91,7 +105,7 @@ CONTENT SUMMARY: Describes coding style for C++ files, covers naming conventions
 NOTES: (anything unusual — empty file, broken frontmatter, references to things that don't exist in the project, etc.)
 ```
 
-List every file. If no Copilot files exist in `.github/`, say so clearly — that is important information.
+List every file. If no Copilot files exist in the selected target surface, say so clearly — that is important information.
 
 End with a short coverage summary that states the total number of Copilot files inventoried.
 

@@ -1,0 +1,536 @@
+{
+  "snapshotId": "2026-03-26-deep-research",
+  "generatedAt": "2026-03-26T12:00:00Z",
+  "principles": [
+    {
+      "id": "P01",
+      "statement": "Use the right Copilot primitive for the job: instructions for ambient context, agents for role and tool boundaries, skills for step-by-step methodology, prompts for thin reusable entrypoints, and hooks for deterministic lifecycle automation.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "general",
+      "topics": ["instructions", "agents", "skills", "prompts", "hooks"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Customize AI responses (overview)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/overview",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Copilot extensibility overview",
+          "url": "https://code.visualstudio.com/docs/copilot/copilot-extensibility-overview",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P02",
+      "statement": "Keep always-on instructions (copilot-instructions.md) short, factual, and narrowly scoped. Every token of always-on content is injected into every prompt, so verbosity creates token drag and dilutes important rules.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom instructions",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P03",
+      "statement": "Include reasoning alongside rules in instructions. A rule that explains 'why' is more durable than one that just states 'what' — models follow instructions better when they understand the intent.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom instructions (tips)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P04",
+      "statement": "Focus instructions on non-obvious rules and project-specific conventions. Do not restate language fundamentals or common best practices the model already knows.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom instructions (tips)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P05",
+      "statement": "Use file-based .instructions.md with applyTo globs for language-specific or directory-specific rules instead of bloating the always-on copilot-instructions.md with conditionals.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom instructions",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P06",
+      "statement": "Instruction priority flows Personal > Repository > Organization. If you need to override org-wide rules for a specific repo or user, this is the built-in mechanism.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom instructions",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P07",
+      "statement": "Constrain agents with narrow roles, least-privilege tool access, and explicit stopping rules. A well-defined agent knows what it should NOT do as clearly as what it should do.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "agent-design",
+      "topics": ["agents"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom agents",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "desktop/desktop — deskocat.agent.md",
+          "url": "https://github.com/desktop/desktop/blob/development/.github/agents/deskocat.agent.md",
+          "sourceType": "public-example"
+        }
+      ]
+    },
+    {
+      "id": "P08",
+      "statement": "Use agent handoffs for sequential multi-phase workflows. Define handoff label, target agent, prompt, and the send field to pass conversation context or a summary between phases.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "agent-design",
+      "topics": ["agents", "handoffs"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom agents (handoffs)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "microsoft/PowerToys — PlanIssue.agent.md",
+          "url": "https://github.com/microsoft/PowerToys/blob/main/.github/agents/PlanIssue.agent.md",
+          "sourceType": "public-example"
+        }
+      ]
+    },
+    {
+      "id": "P09",
+      "statement": "The tools field in .agent.md defines a maximum set. List only what the agent should use — do not give agents blanket access to all tools when they only need a focused subset.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "agent-design",
+      "topics": ["agents", "tooling"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom agents",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Agent tools",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P10",
+      "statement": "Tool list priority: tools specified in a prompt file override the agent's tool list, which overrides the default. Design accordingly — a prompt can narrow an agent's capabilities for a specific entrypoint.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "agent-design",
+      "topics": ["prompts", "agents", "tooling"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Prompt files (tool list priority)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/prompt-files",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Agent tools",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P11",
+      "statement": "Move step-by-step methodology into skills (SKILL.md), not into agents or instructions. Skills use progressive loading (discovery→instructions→resources) so methodology is loaded only when needed.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P12",
+      "statement": "Skill names and descriptions are the discovery surface. The model chooses skills based on these fields matching the user's apparent intent. Write descriptions that clearly state when to use and when not to use the skill.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P13",
+      "statement": "Bundle skill resources (reference docs, templates, examples) as files alongside the SKILL.md. The skill's instructions file can reference paths relative to the skill folder for the agent to read at execution time.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "awesome-copilot — prompt-builder skill",
+          "url": "https://github.com/github/awesome-copilot/tree/main/.github/skills/prompt-builder",
+          "sourceType": "public-example"
+        }
+      ]
+    },
+    {
+      "id": "P14",
+      "statement": "Prompt files (.prompt.md) should be thin manual entrypoints, not full playbooks. If a prompt has complex multi-step logic, extract it into a skill and reference the skill from the agent.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "prompt-design",
+      "topics": ["prompts", "skills"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Prompt files",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/prompt-files",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P15",
+      "statement": "Use hooks for deterministic automation, not guidance. Unlike instructions that guide behavior, hooks execute shell commands with guaranteed outcomes. Use them for formatting, linting, security policies, logging, and approval gates.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "general",
+      "topics": ["hooks"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent hooks",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/hooks",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P16",
+      "statement": "Design agents with explicit phases and stopping rules. Production agents (e.g., desktop/desktop's deskocat) use numbered phases (Understand→Plan→Implement→Verify→Deliver) with clear exit conditions at each phase.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "agent-design",
+      "topics": ["agents", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "desktop/desktop — deskocat.agent.md",
+          "url": "https://github.com/desktop/desktop/blob/development/.github/agents/deskocat.agent.md",
+          "sourceType": "public-example"
+        },
+        {
+          "title": "microsoft/PowerToys — PlanIssue.agent.md",
+          "url": "https://github.com/microsoft/PowerToys/blob/main/.github/agents/PlanIssue.agent.md",
+          "sourceType": "public-example"
+        }
+      ]
+    },
+    {
+      "id": "P17",
+      "statement": "Judge customization quality by goals, boundaries, inputs, and verification conditions — not by tone, length, or apparent confidence. A concise instruction with clear scope beats a verbose one that sounds authoritative.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "general",
+      "topics": ["instructions", "agents", "skills", "prompts"]
+    },
+    {
+      "id": "P18",
+      "statement": "Always verify YAML frontmatter syntax before judging content quality. Missing the opening '---' fence, using wrong field names (e.g., 'mode' instead of 'agent' in .prompt.md), or misspelling fields silently disables metadata.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "general",
+      "topics": ["agents", "skills", "prompts", "instructions"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom agents",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P19",
+      "statement": "Share always-on instructions across agents by referencing them from the agents list in copilot-instructions.md or via the AGENTS.md / CLAUDE.md format. Avoid duplicating the same guidance across multiple agents.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions", "agents"]
+    },
+    {
+      "id": "P20",
+      "statement": "Use subagents for context isolation when delegating multi-step tasks. Each subagent runs with its own context window, preventing long-running workflows from exceeding the main agent's context budget.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "agent-design",
+      "topics": ["agents", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Subagents",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/subagents",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P21",
+      "statement": "Use the 'agent' field (not deprecated 'mode') in .prompt.md frontmatter to route a prompt to a specific agent. Using the deprecated field silently prevents the slash command from registering.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "prompt-design",
+      "topics": ["prompts"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Prompt files",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/prompt-files",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P22",
+      "statement": "Hooks receive structured JSON via stdin and return JSON via stdout. Exit code 0 means success (parse stdout), exit code 2 means blocking error (stop and show error), any other code means non-blocking warning (continue).",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "general",
+      "topics": ["hooks"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent hooks (exit codes)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/hooks",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P23",
+      "statement": "When multiple hooks decisions conflict, the most restrictive wins. A PreToolUse hook returning 'deny' overrides another returning 'allow'. Design hooks defensively knowing this priority rule.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "general",
+      "topics": ["hooks"],
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent hooks (PreToolUse)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/hooks",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P24",
+      "statement": "Use public examples to extract durable principles, not to copy prose verbatim. No single repository is the platform standard — patterns that recur across multiple real repos are more trustworthy than any one implementation.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "general",
+      "topics": ["workflow"]
+    },
+    {
+      "id": "P25",
+      "statement": "Validate customization files incrementally before judging the whole setup. Check file placement, then frontmatter syntax, then field values, then content quality. A well-written instruction in the wrong location does nothing.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "general",
+      "topics": ["instructions", "agents", "skills", "prompts"]
+    },
+    {
+      "id": "P26",
+      "statement": "Write skill and agent descriptions as discovery surfaces with the same rigor as API tool descriptions: state what the component does, when to invoke it, when NOT to invoke it, and the shape of its output. Vague descriptions cause mis-routing and missed invocations.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills", "agents", "tooling"],
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Advanced tool use (Tool Search Tool)",
+          "url": "https://www.anthropic.com/engineering/advanced-tool-use",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P27",
+      "statement": "Use progressive loading to keep context lean — skills should expose only name and description during routing, deferring full methodology until invocation. This mirrors the defer_loading pattern: load definitions only when actually needed to preserve context budget.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills", "tooling", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Advanced tool use (Tool Search Tool, defer_loading)",
+          "url": "https://www.anthropic.com/engineering/advanced-tool-use",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "VS Code — Agent skills (progressive loading)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P28",
+      "statement": "Delegate multi-step workflows to subagents for context isolation. Each subagent runs in its own context window, preventing intermediate results from polluting the main agent's context — the same principle as programmatic tool calling where only final output enters the model's context.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "agent-design",
+      "topics": ["agents", "tooling", "workflow"],
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Programmatic Tool Calling",
+          "url": "https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "VS Code — Subagents",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/subagents",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "P29",
+      "statement": "Include concrete invocation examples in skills and agent descriptions. Anthropic's testing showed tool use examples improved parameter accuracy from 72% to 90%. Skills that demonstrate realistic inputs and expected outputs are more reliably selected and correctly invoked.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "strong",
+      "applicability": "skill-design",
+      "topics": ["skills", "agents", "tooling"],
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Advanced tool use (Tool Use Examples)",
+          "url": "https://www.anthropic.com/engineering/advanced-tool-use",
+          "sourceType": "product-guidance"
+        }
+      ]
+    },
+    {
+      "id": "P30",
+      "statement": "Instruction files should guide AI toward preserving architectural reversibility: loose coupling, dependency injection, interface separation, and explicit module boundaries. Architecture is defined by the decisions that are hard to reverse. Rules that protect reversibility belong in instruction files; style preferences that do not affect structural changeability usually do not.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P31",
+      "statement": "Testability is a design signal, not a testing concern. When code is hard to test, the test is not the problem — tight coupling, hidden state, global mutation, and mixed concerns are structural issues that surface as test complexity. Instruction files for any technology domain should establish testability as an architectural goal, not a QA afterthought.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P32",
+      "statement": "Pure functions and referential transparency compound across AI-assisted development sessions. A codebase with a strong pure-function basis produces more predictable behavior, more localized changes, and less session-to-session drift. Instruction files that establish 'prefer pure over impure functions when both are viable' systematically improve AI-generated code quality over time.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P33",
+      "statement": "Design philosophy addresses the 'why' layers that linters cannot express. A linter can catch missing error handling, but it cannot tell the AI whether the design should fail fast, fail silently, propagate, or degrade. Instruction files that only describe syntax and style leave the AI without guidance on the design decisions that matter most for a codebase's long-term coherence.",
+      "recommendationStrength": "required",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P34",
+      "statement": "Module boundaries should express system concepts, not filesystem habits. Instruction files that articulate what constitutes a coherent module — what belongs together, what should stay separate, and what crossing a module boundary should signal — prevent AI from generating code that compiles but introduces long-term coupling debt.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P35",
+      "statement": "Prescriptive tradeoff guidance outperforms descriptive tradeoff guidance. Engineering tradeoffs have no universal right answer, but a given team's codebase DOES have a preferred position. An instruction file that says 'prefer immutable data unless performance requirements prevent it' is more useful than one that says 'consider mutability tradeoffs'. Prefer concrete prescriptions over balanced descriptions where the team has a genuine position.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    },
+    {
+      "id": "P36",
+      "statement": "The rate of change of a rule should guide which instruction file it belongs in. Stable architectural principles belong in always-on instruction files. Practices that evolve with the codebase belong in file-scoped instruction files. Workflow-specific guidance belongs in prompt files. Mixing stability classes in one file creates maintenance debt: every update risks touching stable rules alongside volatile ones.",
+      "recommendationStrength": "recommended",
+      "authoritativeSupport": "medium",
+      "applicability": "instruction-design",
+      "topics": ["instructions"],
+      "liveRevalidated": false
+    }
+  ]
+}

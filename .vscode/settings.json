@@ -1,5 +1,11 @@
 {
   "files.associations": {
-    "VERSION": "plaintext"
-  }
+    "VERSION": "plaintext",
+    "git-*": "shellscript",
+    "git-shell-helpers-mcp": "javascript",
+    "git-shell-helpers-mcp.js": "javascript",
+    "git-research-mcp": "javascript",
+    "git-research-mcp.js": "javascript"
+  },
+  "gitShellHelpers.branchSessions.enabled": false
 }

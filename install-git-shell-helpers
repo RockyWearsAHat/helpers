@@ -772,6 +772,97 @@ GPGEOF
   rm -f "$tmpfile"
 }
 
+setup_vscode_proposed_api() {
+  # Enable the chatParticipantPrivate proposed API for our extension.
+  # This sets the flag in ~/.vscode/argv.json so VS Code exposes
+  # onDidChangeActiveChatPanelSessionResource to our extension.
+  local argv_file="$HOME/.vscode/argv.json"
+  local ext_id="RockyWearsAHat.git-shell-helpers"
+  local patch_argv_script="${SCRIPT_DIR}/scripts/patch-vscode-argv.js"
+
+  if [ ! -f "$argv_file" ]; then
+    echo "[install-git-shell-helpers] No ~/.vscode/argv.json found — skipping proposed API setup."
+    return
+  fi
+
+  if grep -q "$ext_id" "$argv_file" 2>/dev/null; then
+    echo "[install-git-shell-helpers] Proposed API already enabled for $ext_id."
+    return
+  fi
+
+  if [ ! -f "$patch_argv_script" ]; then
+    echo "[install-git-shell-helpers] Proposed API patch helper not found — skipping argv.json update."
+    return
+  fi
+
+  if command -v node >/dev/null 2>&1 && node "$patch_argv_script" "$argv_file" "$ext_id" >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] Enabled proposed API for $ext_id in argv.json."
+    return
+  fi
+
+  echo "[install-git-shell-helpers] Could not auto-patch argv.json."
+  echo "  Add \"$ext_id\" to the enable-proposed-api array in $argv_file manually."
+}
+
+apply_vscode_patches() {
+  local patch_script="${SCRIPT_DIR}/scripts/patch-vscode-apply-all.js"
+
+  if [ ! -f "$patch_script" ]; then
+    echo "[install-git-shell-helpers] Patch script not found — skipping VS Code patches."
+    return
+  fi
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] Node.js not found — cannot apply VS Code patches."
+    return
+  fi
+
+  # Check current patch status
+  local status
+  status="$(node "$patch_script" --json 2>/dev/null)" || {
+    echo "[install-git-shell-helpers] Could not check patch status."
+    return
+  }
+
+  local all_patched
+  all_patched="$(printf '%s' "$status" | node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).allPatched))" 2>/dev/null)" || all_patched="false"
+
+  if [ "$all_patched" = "true" ]; then
+    echo "[install-git-shell-helpers] VS Code patches already applied."
+    return
+  fi
+
+  local missing
+  missing="$(printf '%s' "$status" | node -e "
+    const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    const m = d.patches.filter(p => p.status !== 'patched').map(p => p.name);
+    process.stdout.write(m.join(', '));
+  " 2>/dev/null)" || missing="unknown"
+
+  echo ""
+  echo "[install-git-shell-helpers] VS Code Branch Session Patches"
+  echo "  Missing patches: $missing"
+  echo ""
+  echo "  These patches enable seamless branch-per-chat in Copilot:"
+  echo "    - folder-switch: removes confirmation dialog on workspace folder swap"
+  echo "    - git-head-display: shows worktree branch name in status bar"
+  echo ""
+  echo "  Patches are non-destructive (originals are backed up) and can be"
+  echo "  reverted at any time with: node scripts/patch-vscode-apply-all.js --revert"
+  echo ""
+  printf '[install-git-shell-helpers] Apply VS Code patches? [Y/n]: '
+  read -r patch_reply || patch_reply=""
+
+  if [[ -z "$patch_reply" || "$patch_reply" == "y" || "$patch_reply" == "Y" ]]; then
+    node "$patch_script" 2>&1 | while IFS= read -r line; do
+      echo "  $line"
+    done
+    echo "[install-git-shell-helpers] Patches applied. Quit and restart VS Code (Cmd+Q → reopen) to activate."
+  else
+    echo "[install-git-shell-helpers] Skipped. Apply later with: node scripts/patch-vscode-apply-all.js"
+  fi
+}
+
 main() {
   echo "[install-git-shell-helpers] Installing git shell helpers..."
 
@@ -886,6 +977,10 @@ RENV
 
     # MCP tools — always offer when VS Code is available
     configure_mcp_tools "$code_cli"
+
+    # Branch-per-chat: proposed API flag + bundle patches
+    setup_vscode_proposed_api
+    apply_vscode_patches
   fi
 
   echo ""

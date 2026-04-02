@@ -1,7 +1,12 @@
 .DS_Store
 build/
+coverage/
 dist/
 vscode-extension/*.vsix
+vision-tool/*.vsix
 vscode-extension/node_modules/
+vision-tool/node_modules/
 .vscode/aioserver-vision-ipc.json
 .vscode/gsh-vision-ipc.json
+.github/session-memory/*
+!.github/session-memory/.gitkeep

@@ -83,7 +83,7 @@ const VISION_TOOLS = [
   {
     name: "take_screenshot",
     description:
-      "Capture a screenshot on macOS. Returns the absolute path to the saved PNG. Use this to get images for analyze_images.",
+      "Capture a screenshot on macOS. Returns the absolute path to the saved PNG. If a built-in host image tool such as view_image is available, prefer that to inspect the screenshot; otherwise use analyze_images for model-driven analysis.",
     inputSchema: {
       type: "object",
       properties: {
@@ -126,7 +126,7 @@ const VISION_TOOLS = [
   {
     name: "analyze_images",
     description:
-      "Analyze up to 10 images with a vision model. Supports single inspection, comparisons, batch evaluation, and any custom analysis goal.",
+      "Analyze up to 10 images with a vision model. Prefer a built-in host image tool such as view_image for simple single-image inspection when available. Use this tool for multi-image comparison, batch evaluation, explicit analysis goals, or when no built-in image tool is available.",
     inputSchema: {
       type: "object",
       properties: {
@@ -156,6 +156,87 @@ const VISION_TOOLS = [
       required: ["image_paths", "goal"],
     },
   },
+  {
+    name: "analyze_video",
+    description:
+      "Analyze a video by extracting frames, running them through a vision model with transcript context, and producing a synthesized visual+audio timeline and report. The vision model sees both the frames AND what is being said, so it can detect visual gags, comedic timing, editing choices, and how speech relates to what's shown. Requires ffmpeg. Accepts local paths or URLs (YouTube etc via yt-dlp).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        video_path: {
+          type: "string",
+          description:
+            "Absolute path to a local video file, or a URL (YouTube/Shorts) if yt-dlp is installed.",
+        },
+        goal: {
+          type: "string",
+          description:
+            "What to analyze or determine from the video. Be specific about what visual evidence to look for.",
+        },
+        start_sec: {
+          type: "number",
+          description:
+            "Optional start time in seconds. Limits analysis to a time window.",
+        },
+        end_sec: {
+          type: "number",
+          description: "Optional end time in seconds.",
+        },
+        sample_every_sec: {
+          type: "number",
+          description:
+            "Interval between frame samples in seconds. Auto-calculated if omitted.",
+        },
+        max_frames: {
+          type: "number",
+          description:
+            "Maximum number of frames to extract and analyze. Default: 30, max: 60.",
+        },
+        include_report: {
+          type: "boolean",
+          description:
+            "Include a human-readable report in the output. Default: true.",
+        },
+        include_timeline: {
+          type: "boolean",
+          description:
+            "Include the structured timeline segments in the output. Default: true.",
+        },
+        auto_transcribe: {
+          type: "boolean",
+          description:
+            "Automatically transcribe the video audio using local Whisper ASR. Default: true.",
+        },
+        whisper_model: {
+          type: "string",
+          description:
+            "Whisper model name for ASR. Default: onnx-community/whisper-tiny.en. Larger models are more accurate but slower.",
+        },
+      },
+      required: ["video_path", "goal"],
+    },
+  },
+  {
+    name: "transcribe_video",
+    description:
+      "Transcribe a video's audio to text using local Whisper ASR. No vision model needed — fast and lightweight. Returns timestamped segments and full text. Accepts local paths or URLs (YouTube etc via yt-dlp). Use this when you only need what was said, not what was shown.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        video_path: {
+          type: "string",
+          description:
+            "Absolute path to a local video file, or a URL (YouTube etc) if yt-dlp is installed.",
+        },
+        whisper_model: {
+          type: "string",
+          description:
+            "Whisper model name. Default: onnx-community/whisper-tiny.en. Use whisper-small.en or whisper-medium.en for better accuracy on complex audio.",
+        },
+      },
+      required: ["video_path"],
+    },
+  },
 ];
 
 async function handleVisionToolCall(toolName, toolArguments) {
@@ -181,6 +262,24 @@ async function handleVisionToolCall(toolName, toolArguments) {
     return [
       { type: "text", text: `Model: ${response.model}\n\n${response.result}` },
     ];
+  }
+
+  if (toolName === "analyze_video") {
+    const response = await connectAndSend({
+      method: toolName,
+      arguments: toolArguments,
+    });
+    if (!response.ok) {
+      throw new Error(response.error || "Extension IPC failed");
+    }
+    return [{ type: "text", text: response.result }];
+  }
+
+  if (toolName === "transcribe_video") {
+    // Transcription runs locally — no vision model needed, no IPC required
+    const { transcribeOnly } = require("./lib/video-analysis");
+    const result = await transcribeOnly(toolArguments);
+    return [{ type: "text", text: JSON.stringify(result, null, 2) }];
   }
 
   return null;

@@ -332,7 +332,7 @@ If the answer to any reachable requirement is "no", complete it before finishing
 
 ## Mandatory Knowledge Note Write
 
-At the end of the research phase, before returning the report, write all findings that are broadly reusable (not specific to the current workspace) to a dated knowledge note. Use `mcp_gsh_write_knowledge_note` to create a new note, or `mcp_gsh_update_knowledge_note` if a relevant note for the same topic already exists.
+At the end of the research phase, before returning the report, write all findings that are broadly reusable (not specific to the current workspace) to a dated knowledge note. Use `mcp_gsh_write_knowledge_note` to create a new note, or `mcp_gsh_update_knowledge_note` if a relevant note for the same topic already exists. When the note is privacy-safe and meant for the shared knowledge base, pass `publish: true` so the note is indexed locally and automatically submitted when knowledge sharing is enabled.
 
 Title format: `copilot-research-YYYY-MM-DD.md` (use today's date).
 

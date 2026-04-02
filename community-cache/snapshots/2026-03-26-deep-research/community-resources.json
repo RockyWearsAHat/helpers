@@ -1,0 +1,121 @@
+{
+  "snapshotId": "2026-03-26-deep-research",
+  "generatedAt": "2026-03-26T12:00:00Z",
+  "repositories": [
+    {
+      "name": "github/awesome-copilot",
+      "url": "https://github.com/github/awesome-copilot",
+      "type": "curated-collection",
+      "maintainer": "GitHub",
+      "description": "Official GitHub-maintained curated list of Copilot customization resources. Includes meta-instructions for writing agents, skills, instructions, and prompts. Contains shared skills (prompt-builder, github-copilot-starter, make-skill-template). Learning hub with articles.",
+      "whatToUse": [
+        "Meta-instructions (.github/instructions/) as templates for writing your own customization files",
+        "Shared skills (.github/skills/) importable into your workspace",
+        "Learning hub articles for onboarding new team members",
+        "Example patterns to extract durable principles (not to copy verbatim)"
+      ],
+      "whatToAvoid": [
+        "Treating any single example as the platform standard",
+        "Copying full file contents without understanding and adapting",
+        "Using outdated examples without checking against current VS Code docs"
+      ]
+    },
+    {
+      "name": "anthropics/skills",
+      "url": "https://github.com/anthropics/skills",
+      "type": "shared-skills",
+      "maintainer": "Anthropic",
+      "description": "Cross-vendor skill collection compatible with both VS Code Copilot and Claude. Demonstrates the Agent Skills open standard (agentskills.io) in practice.",
+      "whatToUse": [
+        "Skills directly importable into .github/skills/ or .claude/skills/",
+        "Folder structure patterns for packaging your own skills",
+        "Cross-tool compatibility techniques"
+      ],
+      "whatToAvoid": [
+        "Assuming all skills work identically in VS Code and Claude — tool names differ"
+      ]
+    },
+    {
+      "name": "agentskills.io",
+      "url": "https://agentskills.io",
+      "type": "open-standard",
+      "maintainer": "Community (VS Code + Claude)",
+      "description": "Open standard for agent skills defining SKILL.md format, folder structure, discovery patterns, and progressive loading contract. Supported by VS Code, Claude, and other tools.",
+      "whatToUse": [
+        "Standard format for creating portable skills",
+        "Progressive loading pattern (discovery → instructions → resources)"
+      ],
+      "whatToAvoid": [
+        "Implementing non-standard skill formats that only work in one tool"
+      ]
+    }
+  ],
+  "officialDocumentation": [
+    {
+      "title": "VS Code Copilot Customization",
+      "url": "https://code.visualstudio.com/docs/copilot/customization/overview",
+      "covers": "All six primitives: instructions, agents, skills, prompts, hooks, subagents",
+      "freshness": "Updated with each VS Code release"
+    },
+    {
+      "title": "GitHub Copilot Documentation",
+      "url": "https://docs.github.com/en/copilot",
+      "covers": "GitHub.com surfaces: repository instructions, coding agent, organization policies",
+      "freshness": "Updated continuously"
+    },
+    {
+      "title": "VS Code Release Notes",
+      "url": "https://code.visualstudio.com/updates",
+      "covers": "Feature additions, deprecations, behavior changes per release",
+      "freshness": "Monthly"
+    }
+  ],
+  "vsCodeCommands": [
+    {
+      "command": "Chat: Open Chat Customizations",
+      "description": "Opens the Chat Customizations editor showing all loaded instructions, agents, skills, prompts, and hooks in one place"
+    },
+    {
+      "command": "/create-agent",
+      "description": "AI-assisted agent creation with clarifying questions and correct frontmatter generation"
+    },
+    {
+      "command": "/create-skill",
+      "description": "AI-assisted skill creation with SKILL.md scaffolding"
+    },
+    {
+      "command": "/create-prompt",
+      "description": "AI-assisted prompt file creation"
+    },
+    {
+      "command": "/create-hook",
+      "description": "AI-assisted hook configuration generation"
+    },
+    {
+      "command": "/hooks",
+      "description": "Interactive hook configuration UI"
+    }
+  ],
+  "usageGuidelines": {
+    "importingCommunityResources": [
+      "1. Identify a shared skill or instruction from awesome-copilot or anthropics/skills",
+      "2. Read the source to understand what it does — never import blindly",
+      "3. Copy the skill folder into .github/skills/ (or .claude/skills/ for Claude compat)",
+      "4. Verify frontmatter fields match your tool version (VS Code, Claude, etc.)",
+      "5. Test with the Chat Customizations editor to confirm the skill loads correctly",
+      "6. Adapt the content to your project's conventions and terminology"
+    ],
+    "contributingBack": [
+      "1. Extract generalizable conclusions from your audit (strip all project-specific context)",
+      "2. Format as a conclusion packet matching the community cache schema",
+      "3. Submit via the community-cache-submit flow (opt-in only)",
+      "4. Consolidation pipeline validates, scores, and promotes high-quality contributions"
+    ],
+    "stayingCurrent": [
+      "1. Check VS Code release notes monthly for Copilot customization changes",
+      "2. Watch awesome-copilot for new shared skills and instructions",
+      "3. Run audits periodically — the research phase will detect deprecated patterns",
+      "4. Monitor the deprecations pack in the community cache for known field/feature changes"
+    ]
+  }
+}

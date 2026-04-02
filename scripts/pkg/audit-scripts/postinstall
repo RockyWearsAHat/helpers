@@ -1,0 +1,56 @@
+#!/bin/zsh
+set -euo pipefail
+
+log() { echo "[gsh-audit] $1"; }
+
+DATA_DIR="/usr/local/share/github-shell-helpers"
+AUDIT_CMD="/usr/local/bin/git-copilot-devops-audit"
+DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
+DEFAULT_COMMUNITY_BRANCH="main"
+
+console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
+if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
+  exit 0
+fi
+
+user_home="$(/usr/bin/dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+if [ -z "$user_home" ]; then
+  user_home="/Users/$console_user"
+fi
+
+run_as() { /usr/bin/sudo -H -u "$console_user" -- "$@"; }
+
+settings_dir="$user_home/.copilot"
+settings_file="$settings_dir/devops-audit-community-settings.json"
+
+if [ ! -f "$settings_file" ]; then
+  run_as mkdir -p "$settings_dir"
+  printf '%s\n' \
+    '{' \
+    '  "schemaVersion": 1,' \
+    '  "mode": "pull-only",' \
+    "  \"communityRepo\": \"${DEFAULT_COMMUNITY_REPO}\"," \
+    "  \"baseBranch\": \"${DEFAULT_COMMUNITY_BRANCH}\"," \
+    '  "branchPrefix": "automation/community-cache-submission"' \
+    '}' \
+    >"$settings_file"
+  chown "$console_user" "$settings_file"
+  log "Wrote community cache settings: $settings_file"
+fi
+
+if [ -x "$AUDIT_CMD" ]; then
+  if run_as "$AUDIT_CMD" --update-agent --force >/dev/null 2>&1; then
+    log "Installed DevOpsAudit agents, router, prompt, and skills globally."
+  else
+    log "Auto-install of audit agents failed. Run 'git copilot-devops-audit --update-agent --force' manually."
+  fi
+fi
+
+if [ -x "/usr/local/bin/git-copilot-devops-audit-community-pull" ]; then
+  if run_as /usr/local/bin/git-copilot-devops-audit-community-pull >/dev/null 2>&1; then
+    log "Pulled latest community cache."
+  fi
+fi
+
+log "DevOps Audit agents installed."
+exit 0

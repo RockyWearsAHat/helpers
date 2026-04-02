@@ -1,0 +1,54 @@
+name: Knowledge Change Guard
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "knowledge/**"
+
+concurrency:
+  group: knowledge-change-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deletion-intent:
+    name: Guard knowledge wipes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Block unapproved mass deletion
+        run: |
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          deleted_files="$(git diff --name-status "$base_sha" HEAD -- knowledge | awk '$1 == "D" { print $2 }')"
+          deleted_count=$(printf '%s\n' "$deleted_files" | grep -c . || true)
+
+          if [[ "$deleted_count" -eq 0 ]]; then
+            echo "No deleted knowledge files detected."
+            exit 0
+          fi
+
+          if [[ "$deleted_count" -lt 100 ]]; then
+            echo "Knowledge deletions detected ($deleted_count files), but this is below the mass-wipe guard threshold."
+            exit 0
+          fi
+
+          pr_title="$(jq -r '.pull_request.title // ""' "$GITHUB_EVENT_PATH")"
+          pr_body="$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")"
+          pr_labels="$(jq -r '.pull_request.labels[]?.name // empty' "$GITHUB_EVENT_PATH")"
+
+          if printf '%s\n%s\n%s\n' "$pr_title" "$pr_body" "$pr_labels" | grep -qiE '(\[knowledge-wipe-ok\]|knowledge-wipe-approved)'; then
+            echo "Mass knowledge deletion explicitly approved by PR metadata."
+            exit 0
+          fi
+
+          echo "ERROR: knowledge/ mass deletion detected ($deleted_count files) without explicit approval." >&2
+          echo "To approve an intentional wipe, add the label 'knowledge-wipe-approved' or include '[knowledge-wipe-ok]' in the PR title/body." >&2
+          printf '%s\n' "$deleted_files" >&2
+          exit 1

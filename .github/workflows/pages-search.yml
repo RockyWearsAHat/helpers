@@ -1,0 +1,75 @@
+name: Deploy research search
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "community-cache/manifest.json"
+      - "community-cache/snapshots/**"
+      - "copilot-config/devops-audit-community-cache.md"
+      - "copilot-config/skills/copilot-research/studybase.md"
+      - "knowledge/**"
+      - "research-sources/legacy-root-dumps/**"
+      - "pages/**"
+      - "scripts/build-pages-search-site.js"
+      - ".github/workflows/pages-search.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "community-cache/manifest.json"
+      - "community-cache/snapshots/**"
+      - "copilot-config/devops-audit-community-cache.md"
+      - "copilot-config/skills/copilot-research/studybase.md"
+      - "knowledge/**"
+      - "research-sources/legacy-root-dumps/**"
+      - "pages/**"
+      - "scripts/build-pages-search-site.js"
+      - ".github/workflows/pages-search.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: pages-search-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+
+      - name: Build search site
+        env:
+          GSH_PAGES_BRANCH: main
+        run: node ./scripts/build-pages-search-site.js
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages-search
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

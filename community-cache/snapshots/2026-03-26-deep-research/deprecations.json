@@ -1,0 +1,86 @@
+{
+  "snapshotId": "2026-03-26-deep-research",
+  "generatedAt": "2026-03-26T12:00:00Z",
+  "deprecations": [
+    {
+      "id": "D01",
+      "what": "mode field in .prompt.md frontmatter",
+      "replacedBy": "agent field",
+      "severity": "breaking",
+      "impact": "Using 'mode:' silently prevents the slash command from registering. The prompt file appears to exist but is never invocable.",
+      "detectedIn": "VS Code 1.100+",
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Prompt files",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/prompt-files",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "D02",
+      "what": "Settings-based instructions (github.copilot.chat.codeGeneration.instructions in settings.json)",
+      "replacedBy": "File-based .instructions.md with applyTo globs",
+      "severity": "deprecated",
+      "impact": "Still works but officially deprecated since VS Code 1.102. Will likely be removed in a future release.",
+      "detectedIn": "VS Code 1.102",
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom instructions",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "D03",
+      "what": "Prompt files for complex workflows",
+      "replacedBy": "Skills (SKILL.md) with progressive loading",
+      "severity": "soft-deprecation",
+      "impact": "Prompt files still work but VS Code docs now recommend skills for complex multi-step workflows. Prompts remain valid for simple entrypoints.",
+      "detectedIn": "VS Code 1.100+",
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Prompt files",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/prompt-files",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "D04",
+      "what": "Claude Code snake_case tool input properties in VS Code hooks",
+      "replacedBy": "VS Code camelCase tool input properties",
+      "severity": "compatibility-issue",
+      "impact": "Hook scripts written for Claude Code (file_path, content) will not work in VS Code (filePath). VS Code also ignores Claude matcher syntax entirely.",
+      "detectedIn": "VS Code 1.100+",
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent hooks (FAQ)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/hooks",
+          "sourceType": "official-doc"
+        }
+      ]
+    },
+    {
+      "id": "D05",
+      "what": "Hard-coded model names in agent/prompt frontmatter",
+      "replacedBy": "Omitting model field (uses workspace default) or using model picker",
+      "severity": "fragile",
+      "impact": "Model availability changes over time. Hard-coded model names may silently fail or use fallback when the specified model is removed or renamed.",
+      "detectedIn": "Ongoing",
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom agents",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        }
+      ]
+    }
+  ]
+}

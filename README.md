@@ -1,197 +1,130 @@
-# NEW COPILOT FEATURE, AUDIT ADDED
-
-`git-copilot-devops-audit` is a global helper for auditing GitHub Copilot customization in the current workspace. The goal is narrow and practical: keep `.github/` Copilot setup current, project-specific, and honest about what is actually installed and supported.
-
-After the global audit surfaces are installed in VS Code:
-
-- `/copilot-devops-audit` is the deterministic manual entrypoint.
-- Natural-language audit routing is available through a user-level router instruction and should be treated as best-effort, not guaranteed.
-- The audit can run as a full edit pass or as a report-only pass.
-- A normal repository run seeds `.github/devops-audit-context.md` and `.github/devops-audit-research.md`; findings themselves are returned in chat.
-
-Install or refresh the global audit surfaces from a cloned copy of this repo with:
-
-```sh
-./git-copilot-devops-audit --update-agent --force
-```
-
-If the helpers are already installed (i.e. `git-copilot-devops-audit` is in your PATH), `git copilot-devops-audit --update-agent --force` also works.
-
-That command installs or refreshes:
-
-- private audit agents under `~/.copilot/agents/`
-- the natural-language router under `~/.copilot/instructions/`
-- audit skills under `~/.copilot/skills/`
-- the `/copilot-devops-audit` prompt in `~/Library/Application Support/Code/User/prompts/`
-
-For VS Code use, you also need the GitHub Copilot and GitHub Copilot Chat extensions enabled. The script installer can optionally install or update those extensions when a usable VS Code CLI is available. Natural-language routing depends on current Copilot routing behavior, so keep `/copilot-devops-audit` as the fallback when you want deterministic invocation.
-
-Each full audit uses a four-phase flow:
-
-1. Context
-2. Research
-3. Evaluation
-4. Implementation
-
 # Git Shell Helpers
 
-Small quality-of-life helpers wrapped as git subcommands:
+Quality-of-life git subcommands, an MCP research server, a Copilot audit tool, and a VS Code extension that makes AI agents work transparently on feature branches — without switching tabs or changing directories.
 
-- `git upload` – stage, commit, and push, with optional AI-generated commit messages using GitHub Copilot CLI.
-- `git get` – initialize a local repo from a remote (like a lightweight `git clone` flow).
-- `git initialize` – initialize the current directory as a repo, create an initial commit, set `origin`, and push.
-- `git fucked-the-push` – destructive recovery helper to undo the last pushed commit while keeping changes staged.
-- `git resolve` – safe helper for resolving merge/rebase conflicts with automatic backup branches.
-- `git remerge` – merge a branch (typically a detached-work branch from `git upload`) back into a target branch; aborts cleanly on conflicts.
-- `git copilot-quickstart` – scaffold a `.github/` Copilot self-iteration workflow for any repository, with Plan and Implement agents.
-- `git scan-for-leaked-envs` – scan the current repository for leaked secrets, API keys, and environment variables using GitHub Copilot.
-- `git help-i-pushed-an-env` – emergency tool to scrub secrets and sensitive files from git history, including batch operations across all GitHub repos.
-- `git copilot-devops-audit` – install and run the Copilot customization audit workflow described above.
-- `git-research-mcp` – MCP server providing web search (via local SearXNG) and per-project knowledge-cache tools for AI assistants.
-- `git-shell-helpers-mcp` – combined MCP server that exposes all git-shell-helpers tools (research + vision) under one server entry.
+- [Branch Sessions (VS Code extension)](#branch-sessions-vs-code-extension)
+- [Git subcommands](#git-subcommands)
+- [MCP servers](#mcp-servers)
+- [Research Search (GitHub Pages)](#research-search-github-pages)
+- [Copilot DevOps Audit](#copilot-devops-audit)
+- [Installation](#installation)
+- [Development & Contributing](#development--contributing)
 
-## Installation options
+---
 
-### 1. macOS .pkg installer (recommended)
+## Branch Sessions (VS Code extension)
 
-On macOS, the preferred way to install is via the native `.pkg` installer:
+The VS Code extension enables **per-chat branch isolation**: each Copilot chat can work on a different feature branch, and switching between chats changes which branch is visible in the workspace.
 
-- Installs binaries into `/usr/local/bin` and man pages into `/usr/local/share/man/man1`.
-- Does **not** modify your shell config files.
+### How it works
 
-Grab the latest packaged macOS installer from the latest release:
+1. An agent calls `branch_session_start({ branch: "feature/my-work" })`
+2. The extension creates a git worktree in `~/.cache/gsh/worktrees/` and checks out the branch **in your main repo view** via `git symbolic-ref`
+3. You see the feature branch in VS Code's status bar, SCM panel, and Explorer — it looks like a normal checkout
+4. When you switch to a different Copilot chat, the extension switches the visible branch to match that chat's session
+5. When no bound chat is active, the main repo returns to its baseline branch and the feature session stays parked in its worktree
+6. When the agent calls `branch_session_end`, the extension restores your original branch and pops any stashed work
 
-- [github-shell-helpers latest release](https://github.com/RockyWearsAHat/github-shell-helpers/releases/latest)
+Multiple chats can keep different branches parked in parallel. If a branch seems to disappear from the workspace, it is usually parked in another chat rather than lost; switch back to that chat or run `branch_status`.
 
-After downloading `github-shell-helpers-<version>.pkg`:
+### Enabling branch sessions
 
-1. Double-click the `.pkg`.
-2. Follow the standard macOS Installer flow.
+Branch sessions are off by default. Enable them in VS Code settings:
 
-Once complete, the commands and man pages should be available immediately in any new shell:
+```
+Settings → Git Shell Helpers → Branch Sessions → Enabled
+```
 
-- `git upload`
-- `git get`
-- `git initialize`
-- `git fucked-the-push`
-- `git resolve`
-- `git remerge`
-- `git copilot-quickstart`
-- `git scan-for-leaked-envs`
-- `git help-i-pushed-an-env`
-- `git copilot-devops-audit`
-- `git help upload|get|initialize|fucked-the-push|copilot-devops-audit`
+Then reload the window. The `gsh` MCP server exposes `branch_session_start`, `branch_session_end`, `branch_read_file`, and `branch_status` once the setting is on.
 
-The `.pkg` installer now also attempts to complete the VS Code global audit setup for the logged-in macOS user by:
+### VS Code extension installation
 
-- installing or updating the GitHub Copilot and GitHub Copilot Chat extensions when a usable VS Code CLI is available
-- running `git copilot-devops-audit --update-agent --force` as the logged-in user to install the router, agents, skills, and prompt
-
-If that automatic postinstall step cannot complete on your machine, run this manually:
+The extension is bundled as a `.vsix`. Build it locally:
 
 ```sh
-git copilot-devops-audit --update-agent --force
+./scripts/build-vsix.sh
 ```
 
-### 2. One-line script installer (portable alternative)
-
-If you prefer a script-based install into your home directory, use the installer script. This works well on macOS and other Unixy environments where you control your shell config.
-
-Direct download of the installer script:
-
-- [Git-Shell-Helpers-Installer.sh](https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main/Git-Shell-Helpers-Installer.sh)
+Then install via **Extensions → Install from VSIX…** in VS Code, or:
 
 ```sh
-curl -fsSL \
-  https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main/Git-Shell-Helpers-Installer.sh \
-  | zsh
+code --install-extension vscode-extension/git-shell-helpers-*.vsix
 ```
 
-After installation, either open a new terminal or run:
+### VS Code patches (optional)
+
+Optional patches improve the branch session experience by modifying VS Code's compiled bundles:
+
+| Patch              | Effect                                                                        | Requires      |
+| ------------------ | ----------------------------------------------------------------------------- | ------------- |
+| `folder-switch`    | Removes the "do you want to switch folders?" dialog when worktrees change     | Full restart  |
+| `git-head-display` | Shows the worktree branch name in the status bar via `.git/gsh-head-override` | Window reload |
+
+Apply both patches:
 
 ```sh
-source ~/.zshrc
+node scripts/patch-vscode-apply-all.js
 ```
 
-Then you can use the same commands and help pages as with the `.pkg` installer.
-The script installer can also optionally:
-
-- install or update GitHub Copilot CLI support for `git upload -ai`
-- install or update the GitHub Copilot and GitHub Copilot Chat VS Code extensions when a usable VS Code CLI is available
-- install the global audit router, agents, skills, and prompt for VS Code
-
-## Why two installer methods?
-
-- **Script installer (`Git-Shell-Helpers-Installer.sh`)**
-  - Cross-shell friendly, very easy to share as a copy-pastable command.
-  - Installs into your home directory and updates your shell config.
-  - Offers optional Copilot CLI, VS Code extension, and global audit-surface setup.
-- **macOS `.pkg` installer**
-  - Integrates with the native macOS Installer UI.
-  - Installs into system-level locations (`/usr/local/...`) without touching your `~/.zshrc`.
-  - Attempts the same VS Code global audit setup automatically for the logged-in macOS user during postinstall.
-
-Both install the same command-line tools and man pages; they just target different installation styles.
-
-## git-research-mcp (MCP server)
-
-`git-research-mcp` is a zero-dependency Node.js MCP server that provides web search and repo-local knowledge-cache tools over stdio. It requires Node.js >= 18 (uses built-in `fetch`).
-
-### Prerequisites
-
-A running SearXNG Docker container on port 8888:
+Check status, revert, or apply individually:
 
 ```sh
-docker run -d --name searxng -p 8888:8080 searxng/searxng:latest
+node scripts/patch-vscode-apply-all.js --check
+node scripts/patch-vscode-apply-all.js --revert
+node scripts/patch-vscode-folder-switch.js
+node scripts/patch-vscode-git-head-display.js
 ```
 
-No API keys or external credentials are required. SearXNG queries Google, Bing, DuckDuckGo, and other engines simultaneously.
+The patch scripts detect VS Code's install location automatically on macOS, Linux (including Snap), and Windows.
 
-### Configuration
+#### Upstream PR status
 
-The installer writes a default config to `~/.config/git-research-mcp/.env`:
+These patches address real VS Code gaps. Corresponding PRs are open against `microsoft/vscode`:
 
-```
-SEARXNG_URL=http://localhost:8888
-```
+| Proposal                                               | PR                                                         | Status                                                   |
+| ------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
+| Suppress folder switch dialog (`suppressConfirmation`) | [#306519](https://github.com/microsoft/vscode/pull/306519) | Open — awaiting review; needs community upvotes          |
+| Branch name display override (`headLabelOverride`)     | [#306517](https://github.com/microsoft/vscode/pull/306517) | Open — assigned [@lszomoru](https://github.com/lszomoru) |
+| Chat session focus stability                           | [#306518](https://github.com/microsoft/vscode/pull/306518) | Open — assigned [@jrieken](https://github.com/jrieken)   |
 
-Edit this file to change the SearXNG URL. The `.env` is never written into the install directory.
+If any of these PRs land in VS Code, the corresponding local patch becomes unnecessary. The extension will detect the native API and skip the patched code path automatically when the real API becomes available.
 
-### MCP registration
+### Known limitations
 
-Add to your project's `.vscode/mcp.json` (or user-level mcp.json):
+- The `which code` / `where code` dynamic path detection requires `code` to be in your PATH. If it isn't, add it via **Shell Command: Install 'code' command in PATH** in the VS Code command palette.
+- Patches are applied to VS Code's compiled bundles. They may need to be re-applied after VS Code auto-updates. Run `node scripts/patch-vscode-apply-all.js --check` to verify status after an update.
+- Stash recovery after a VS Code reload is best-effort. If you manually run `git stash` between a `branch_session_start` and `branch_session_end`, the extension uses the stash message `"gsh-session-focus: auto-stash"` to find and restore the correct stash entry.
+- Branch sessions are chat-bound. If the current chat does not own a session, the workspace can return to baseline even though other sessions still exist. Use `branch_status` or the Branch Files view to find parked sessions.
 
-```json
-{
-  "servers": {
-    "git-research-mcp": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["git-research-mcp"]
-    }
-  }
-}
-```
+---
 
-### Exposed MCP tools
+## Git subcommands
 
-| Tool                       | Description                                                |
-| -------------------------- | ---------------------------------------------------------- |
-| `search_web`               | Web search via local SearXNG (Google, Bing, DDG, etc.)     |
-| `scrape_webpage`           | Fetch up to 5 URLs, strip HTML chrome, return cleaned text |
-| `search_knowledge_cache`   | Search `knowledge/` Markdown files by keyword              |
-| `read_knowledge_note`      | Read a specific knowledge note                             |
-| `write_knowledge_note`     | Create or overwrite a knowledge note                       |
-| `update_knowledge_note`    | Replace a section by heading in a note                     |
-| `append_to_knowledge_note` | Append content to an existing note                         |
+| Command                    | What it does                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| `git upload`               | Stage, commit, and push with optional AI-generated commit messages              |
+| `git get`                  | Initialize a local repo from a remote (lightweight clone flow)                  |
+| `git initialize`           | Initialize the directory as a repo, create initial commit, set `origin`, push   |
+| `git checkpoint`           | Commit current state with an AI-generated message (used by `gsh` MCP tools)     |
+| `git fucked-the-push`      | Destructive recovery: undo the last pushed commit while keeping changes staged  |
+| `git resolve`              | Safe merge/rebase conflict resolution with automatic backup branches            |
+| `git remerge`              | Merge a detached-work branch back into a target; aborts cleanly on conflicts    |
+| `git copilot-quickstart`   | Scaffold a `.github/` Copilot self-iteration workflow for any repository        |
+| `git scan-for-leaked-envs` | Scan for leaked secrets, API keys, and environment variables using Copilot      |
+| `git help-i-pushed-an-env` | Emergency: scrub secrets from git history, including batch ops across all repos |
+| `git copilot-devops-audit` | Run the Copilot customization audit workflow (see below)                        |
 
-## git-shell-helpers-mcp (combined MCP server)
+Man pages are installed for all commands. Use `git help <subcommand>` or `man git-<subcommand>` after installation.
 
-`git-shell-helpers-mcp` is a combined Node.js MCP server that exposes all git-shell-helpers tools under a single server entry. It delegates to the individual modules (`git-research-mcp` for web search and knowledge-cache tools, `vision-tool` for image analysis) which remain separate files for maintainability.
+---
 
-When the Git Shell Helpers VS Code extension is installed, it publishes this MCP server globally across workspaces so tools such as `checkpoint` are discoverable without editing a user-profile `mcp.json`.
+## MCP servers
 
-### MCP registration
+### git-shell-helpers-mcp (combined server — recommended)
+
+`git-shell-helpers-mcp` exposes all tooling under one MCP server entry. When the VS Code extension is installed, it publishes this server globally so `checkpoint`, `branch_session_start`, and other tools are available in every workspace without editing `mcp.json` manually.
+
+Manual registration if needed:
 
 ```json
 {
@@ -205,20 +138,257 @@ When the Git Shell Helpers VS Code extension is installed, it publishes this MCP
 }
 ```
 
-Environment variables for selective disabling:
+#### Exposed tools
 
-- `GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH=1` – skip research tools
-- `GIT_SHELL_HELPERS_MCP_DISABLE_VISION=1` – skip vision tools
+| Tool                       | Description                                                    |
+| -------------------------- | -------------------------------------------------------------- |
+| `checkpoint`               | Stage and commit with an AI-generated message; optionally push |
+| `branch_session_start`     | Start an isolated branch session for the current chat          |
+| `branch_session_end`       | End the session; restore original branch and stash             |
+| `branch_read_file`         | Read a file from a branch session worktree                     |
+| `branch_status`            | Get current session branch and status                          |
+| `search_web`               | Web search via local SearXNG                                   |
+| `scrape_webpage`           | Fetch and clean up to 5 URLs                                   |
+| `search_knowledge_cache`   | Search `knowledge/` Markdown notes by keyword                  |
+| `read_knowledge_note`      | Read a specific knowledge note                                 |
+| `write_knowledge_note`     | Create or overwrite a knowledge note                           |
+| `update_knowledge_note`    | Replace a section by heading                                   |
+| `append_to_knowledge_note` | Append content to an existing note                             |
+| `analyze_images`           | Describe or compare images via vision model                    |
 
-## Development
+Environment variables to selectively disable groups:
 
-- Update the version number in `VERSION` before cutting a new release.
-- Add or update `release-notes/v<version>.md`; GitHub Releases now use that file as the release body.
-- Build artifacts locally:
-  - Script installer dist: `./scripts/build-dist.sh` → `dist/Git-Shell-Helpers-Installer.sh` and `dist/Git-Shell-Helpers-Installer-<version>.sh`
-  - macOS pkg: `./scripts/build-pkg.sh` → `dist/github-shell-helpers-<version>.pkg`
-- VS Code tasks:
-  - **Build installer** – runs `./scripts/build-dist.sh`.
-  - **Build macOS pkg** – runs `./scripts/build-pkg.sh`.
+```
+GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH=1
+GIT_SHELL_HELPERS_MCP_DISABLE_VISION=1
+```
 
-CI (see `.github/workflows/build-installer.yml`) ensures both installers build cleanly on each push to `main`, and publishes the versioned script installer plus the macOS package using the matching release-notes file.
+### git-research-mcp (standalone research server)
+
+`git-research-mcp` is a standalone MCP server for web search and knowledge-cache tools. It requires a running SearXNG Docker container:
+
+```sh
+docker run -d --name searxng -p 8888:8080 searxng/searxng:latest
+```
+
+Configuration is in `~/.config/git-research-mcp/.env`:
+
+```
+SEARXNG_URL=http://localhost:8888
+```
+
+---
+
+## Research Search (GitHub Pages)
+
+The public note-search site is published at [rockywearsahat.github.io/github-shell-helpers](https://rockywearsahat.github.io/github-shell-helpers/).
+
+It indexes three layers:
+
+- generalized Copilot guidance from the community-cache snapshot plus the Copilot research studybase
+- the broad CS/coding corpus under `knowledge/`
+- the archived raw source material under `research-sources/legacy-root-dumps/`
+
+The site serves a ranked client-side search UI with in-browser previews, source labels, evidence links, and direct links back to GitHub.
+
+### Local build
+
+```sh
+node ./scripts/build-pages-search-site.js
+python3 -m http.server -d build/pages-search 4173
+```
+
+The GitHub Pages workflow lives at `.github/workflows/pages-search.yml`. Pull requests validate the site build without deploying; pushes to `main` publish the contents of `build/pages-search/` to GitHub Pages.
+
+---
+
+## Copilot DevOps Audit
+
+`git-copilot-devops-audit` audits GitHub Copilot customization in any workspace — keeping `.github/` setup current, project-specific, and aligned with what VS Code and Copilot actually support.
+
+### Install the audit surfaces
+
+```sh
+git copilot-devops-audit --update-agent --force
+```
+
+This installs:
+
+- Audit agents under `~/.copilot/agents/`
+- Natural-language router under `~/.copilot/instructions/`
+- Audit skills under `~/.copilot/skills/`
+- The `/copilot-devops-audit` slash command prompt in VS Code's user prompts folder
+
+### Running an audit
+
+Use the `/copilot-devops-audit` slash command in VS Code Copilot Chat for the deterministic entry point. Natural-language routing ("audit my Copilot setup") works through the installed router instruction but is best-effort.
+
+Each full audit runs four phases: Context → Research → Evaluation → Implementation.
+
+---
+
+## Installation
+
+### macOS .pkg (recommended)
+
+Download the latest `.pkg` from the [releases page](https://github.com/RockyWearsAHat/github-shell-helpers/releases/latest) and run the installer. It places binaries in `/usr/local/bin` and man pages in `/usr/local/share/man/man1` without touching shell config files.
+
+The postinstall script also attempts to install the VS Code extensions and run `git copilot-devops-audit --update-agent --force` for the logged-in user. If it can't (no VS Code CLI in PATH), run that command manually.
+
+### Homebrew
+
+If the optional tap-publish workflow is configured, install from the tap:
+
+```sh
+brew tap RockyWearsAHat/gsh
+brew install github-shell-helpers
+```
+
+If the tap is not configured yet, the release still publishes `github-shell-helpers.rb` so you can install from the formula file directly.
+
+### Debian / Ubuntu
+
+Each GitHub release publishes a `.deb` package:
+
+```sh
+sudo apt install ./github-shell-helpers_<version>_all.deb
+```
+
+The workflow currently publishes the `.deb` as a release asset. A dedicated apt repository is not automated yet.
+
+### Arch Linux (AUR)
+
+If the optional AUR publish step is configured, install with your preferred helper:
+
+```sh
+yay -S github-shell-helpers
+```
+
+If AUR publishing is not configured yet, the release still includes `PKGBUILD` and `.SRCINFO` assets.
+
+### npm
+
+If npm publishing is configured in GitHub Actions:
+
+```sh
+npm install -g github-shell-helpers
+```
+
+The release also includes the generated `.tgz` package for manual installation.
+
+### Portable tarball
+
+Each release includes a portable archive containing the same command/support-file tree used by the package-manager builds:
+
+```sh
+tar -xzf github-shell-helpers-<version>.tar.gz
+```
+
+### Script installer (cross-platform)
+
+```sh
+curl -fsSL \
+  https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main/Git-Shell-Helpers-Installer.sh \
+  | zsh
+```
+
+Then `source ~/.zshrc` or open a new terminal.
+
+---
+
+## Development & Contributing
+
+### Build & test
+
+```sh
+bash ./scripts/test.sh                  # full test suite
+bash ./scripts/test-git-upload-states.sh  # state recovery tests
+./scripts/build-dist.sh                 # script installer + portable tarball
+./scripts/build-deb.sh                  # Debian package
+./scripts/build-homebrew-formula.sh     # Homebrew formula
+./scripts/build-aur-package.sh          # AUR metadata
+./scripts/build-npm-package.sh          # npm package tarball
+./scripts/build-pkg.sh                  # macOS pkg
+./scripts/build-vsix.sh                 # VS Code extension .vsix
+```
+
+### Versioning
+
+Update `VERSION` (single-line semver) and add `release-notes/v<version>.md` before cutting a release. CI builds the shell installer, portable tarball, `.deb`, Homebrew formula, AUR metadata, npm package tarball, macOS `.pkg`, and VSIX, then publishes them with the release notes file as the release body.
+
+### Release configuration
+
+macOS signing and notarization are configured with GitHub Actions secrets:
+
+- `INSTALLER_CERT_BASE64`
+- `INSTALLER_CERT_PASSWORD`
+- `PKG_SIGN_IDENTITY`
+- `NOTARIZE_APPLE_ID`
+- `NOTARIZE_PASSWORD`
+- `NOTARIZE_TEAM_ID`
+
+Optional publish channels are configured with these secrets and repository variables:
+
+- npm publish: secret `NPM_TOKEN`
+- Homebrew tap publish: secret `HOMEBREW_TAP_TOKEN`, variable `HOMEBREW_TAP_REPOSITORY`
+- AUR publish: secret `AUR_SSH_PRIVATE_KEY`, variable `AUR_PACKAGE_NAME` (defaults to `github-shell-helpers`)
+
+The workflow also uses repository variables to explicitly enable or disable the optional channels:
+
+- `RELEASE_ENVIRONMENT`
+- `ENABLE_MACOS_SIGNING`
+- `ENABLE_NPM_PUBLISH`
+- `ENABLE_HOMEBREW_PUBLISH`
+- `ENABLE_AUR_PUBLISH`
+
+Seed the safe defaults into the repo now:
+
+```sh
+bash ./scripts/setup-github-release-config.sh --defaults-only
+```
+
+For tighter scoping, store the release-only values in a GitHub Environment named `release` so only jobs that declare `environment: release` can access them:
+
+```sh
+bash ./scripts/setup-github-release-config.sh --env release --defaults-only
+```
+
+To install the real credentials later, copy `.github/release-config.example.env` to a private local file, fill in the values you actually have, export it, then run:
+
+```sh
+set -a
+source /path/to/your/release-config.env
+set +a
+bash ./scripts/setup-github-release-config.sh --env release
+```
+
+This is the closest GitHub Actions gets to “owner/internal only” for workflow credentials: the values live on GitHub, are not committed to the repo, are only exposed to GitHub-hosted jobs, and can be restricted to the `release` environment instead of the whole repository.
+
+Without those optional publish credentials, the workflow still uploads the generated formula, AUR metadata, `.deb`, and npm tarball as GitHub release assets.
+
+### Pull requests
+
+Before opening a PR:
+
+- Run the full test suite and confirm it passes
+- Run `node scripts/patch-vscode-apply-all.js --check` if you touched patch scripts
+- Describe what changed, what was tested, and any breaking changes
+- Reference related issues or upstream PRs where relevant
+
+CI runs the test suite automatically on every PR. Copilot will offer an automated review pass on each push — treat its findings as a first-pass linting signal, not a final verdict.
+
+### Architecture notes
+
+The codebase has several large files. Before editing any file over 500 lines, read the function index (`grep -n 'function ' <file>`) and understand the call chain you're modifying. See `.github/instructions/modular-architecture.instructions.md` for decomposition guidance.
+
+Key files:
+
+| File                                       | Domain                                                     |
+| ------------------------------------------ | ---------------------------------------------------------- |
+| `vscode-extension/extension.js`            | Extension entry point, command registration                |
+| `vscode-extension/src/worktree-manager.js` | Branch session focus/unfocus, binding, stash, git ops      |
+| `vscode-extension/src/ipc-servers.js`      | Unix socket IPC between MCP server and extension           |
+| `git-shell-helpers-mcp`                    | MCP server — branch sessions, checkpoint, research, vision |
+| `git-upload`                               | Stage/commit/push with AI messages and test detection      |
+| `git-help-i-pushed-an-env`                 | Secret scrubbing from git history                          |
+| `scripts/patch-vscode-apply-all.js`        | Coordinator for VS Code bundle patches                     |

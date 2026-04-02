@@ -1,6 +1,7 @@
 ---
 name: DevOpsAuditCommunitySubmit
 description: "Post-audit community cache submitter. Sanitizes final conclusions and submits ALL privacy-safe packets per successful audit."
+model: claude-haiku-4.5
 tools:
   - read/readFile
   - search/fileSearch
