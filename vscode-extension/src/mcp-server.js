@@ -56,6 +56,25 @@ module.exports = function createMcpServer(deps) {
       /* proposed API unavailable */
     }
 
+    // Pass session memory enabled setting so the MCP server can gate tools.
+    const sessionMemoryEnabled = vscode.workspace
+      .getConfiguration("gitShellHelpers.sessionMemory")
+      .get("enabled", true);
+    if (!sessionMemoryEnabled) {
+      env.GSH_SESSION_MEMORY_DISABLED = "1";
+    }
+
+    // Pass the chat history archive root so MCP tools can search archived
+    // chat sessions directly (the archive lives in VS Code extension storage).
+    const storageRoot =
+      deps.getExtensionStorageRoot && deps.getExtensionStorageRoot();
+    if (storageRoot) {
+      env.GSH_CHAT_ARCHIVE_ROOT = path.join(
+        storageRoot,
+        "chat-history-archive",
+      );
+    }
+
     return env;
   }
 

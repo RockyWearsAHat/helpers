@@ -7,5 +7,7 @@
     "git-research-mcp": "javascript",
     "git-research-mcp.js": "javascript"
   },
-  "gitShellHelpers.branchSessions.enabled": false
+  "gitShellHelpers.branchSessions.enabled": false,
+  "editor.formatOnSave": false,
+  "editor.codeActionsOnSave": {}
 }

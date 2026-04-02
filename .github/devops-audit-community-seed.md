@@ -1,6 +1,6 @@
 # DevOps Audit Community Cache Seed
 
-Pulled snapshot: 2026-07-09-deep-research
+Pulled snapshot: 2026-03-26-deep-research
 
 Summary: Deep-research snapshot built from comprehensive cross-referencing of official VS Code Copilot documentation, GitHub Copilot docs, awesome-copilot community collection, real-world open-source repo examples (PowerToys, desktop/desktop, dotnet/macios), and VS Code release notes. All evidence references include verified URLs. Covers all six customization primitives: instructions, agents, skills, prompts, hooks, and subagents.
 

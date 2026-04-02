@@ -193,20 +193,36 @@ module.exports = function createModelProvider(deps) {
     try {
       if (value) await _context?.secrets.store(key, value);
       else await _context?.secrets.delete(key);
+      invalidateProviderStatusCache();
     } catch {}
   }
 
+  let _cachedProviderStatus = null;
+  let _providerStatusAt = 0;
+  const PROVIDER_CACHE_TTL = 5000;
+
   async function getProviderStatus() {
+    const now = Date.now();
+    if (_cachedProviderStatus && now - _providerStatusAt < PROVIDER_CACHE_TTL) {
+      return _cachedProviderStatus;
+    }
     const [anthropicKey, openaiKey] = await Promise.all([
       getApiKey(API_KEY_ANTHROPIC),
       getApiKey(API_KEY_OPENAI),
     ]);
-    return {
+    _cachedProviderStatus = {
       anthropicKey: anthropicKey ? "set" : "",
       openaiKey: openaiKey ? "set" : "",
       ollamaRunning: cachedOllamaRunning,
       ollamaModels: cachedOllamaModels,
     };
+    _providerStatusAt = now;
+    return _cachedProviderStatus;
+  }
+
+  function invalidateProviderStatusCache() {
+    _cachedProviderStatus = null;
+    _providerStatusAt = 0;
   }
 
   function parseAgentFrontmatter(content, fileName) {
@@ -229,7 +245,15 @@ module.exports = function createModelProvider(deps) {
     return { name, description, userInvocable, fileName };
   }
 
+  let _cachedAgents = null;
+  let _agentsCacheAt = 0;
+  const AGENTS_CACHE_TTL = 5000;
+
   function scanLocalAgents() {
+    const now = Date.now();
+    if (_cachedAgents && now - _agentsCacheAt < AGENTS_CACHE_TTL) {
+      return _cachedAgents;
+    }
     const agents = [];
     const folders = vscode.workspace.workspaceFolders || [];
     for (const folder of folders) {
@@ -251,7 +275,9 @@ module.exports = function createModelProvider(deps) {
         } catch {}
       }
     }
-    return agents.sort((a, b) => a.name.localeCompare(b.name));
+    _cachedAgents = agents.sort((a, b) => a.name.localeCompare(b.name));
+    _agentsCacheAt = now;
+    return _cachedAgents;
   }
 
   async function openAgentInChat(agentName) {

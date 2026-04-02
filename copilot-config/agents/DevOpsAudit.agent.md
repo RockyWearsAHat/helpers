@@ -73,6 +73,30 @@ Review each handoff against the orchestration skill. Reject weak outputs.
 
 **Default model for every `runSubagent` call is `claude-haiku-4.5`.** Always pass the `model` parameter explicitly — never let subagents inherit the parent model.
 
+All agent `.agent.md` files have `model: claude-haiku-4.5` as their fallback. Forgetting to pass `model` in `runSubagent` costs nothing. Promoting costs money. Always evaluate before promoting.
+
+**Concrete call structure — pass `model` every time:**
+
+```
+runSubagent(
+  agentName: "DevOpsAuditContext",
+  model: "claude-haiku-4.5",        ← always present; haiku unless promoted
+  prompt: "<your full context prompt>",
+  description: "Gather workspace context"
+)
+```
+
+To promote a single call to sonnet when it meets the criteria:
+
+```
+runSubagent(
+  agentName: "DevOpsAuditResearch",
+  model: "claude-sonnet-4.6",       ← explicit promotion for this prompt only
+  prompt: "<reconcile conflicting A vs B guidance>",
+  description: "Research: reconcile conflicting guidance"
+)
+```
+
 Before sending each prompt, evaluate whether **that specific prompt** requires promotion:
 
 **Promote to `claude-sonnet-4.6` when the prompt:**

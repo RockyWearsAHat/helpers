@@ -1,45 +1,64 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Test",
-      "type": "shell",
-      "command": "bash ./scripts/test.sh",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [],
-      "group": "test"
-    },
-    {
-      "label": "Test state recovery",
-      "type": "shell",
-      "command": "bash ./scripts/test-git-upload-states.sh",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [],
-      "group": "test"
-    },
-    {
-      "label": "Build installer",
-      "type": "shell",
-      "command": "./scripts/build-dist.sh",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [],
-      "group": "build"
-    },
-    {
-      "label": "Build macOS pkg",
-      "type": "shell",
-      "command": "./scripts/build-pkg.sh",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [],
-      "group": "build"
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Test",
+			"type": "shell",
+			"command": "bash ./scripts/test.sh",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Test state recovery",
+			"type": "shell",
+			"command": "bash ./scripts/test-git-upload-states.sh",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Build installer",
+			"type": "shell",
+			"command": "./scripts/build-dist.sh",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build macOS pkg",
+			"type": "shell",
+			"command": "./scripts/build-pkg.sh",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Show project direction",
+			"type": "shell",
+			"command": "node scripts/show-project-direction.js",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Test project direction",
+			"type": "shell",
+			"command": "node scripts/test-chat-archive-mcp.js 2>&1 | grep -A3 'direction\\|Direction\\|Result'",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Audit: Session History",
+			"type": "shell",
+			"command": "node scripts/audit-session-history.js 2>&1"
+		}
+	]
 }

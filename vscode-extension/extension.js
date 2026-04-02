@@ -26,6 +26,7 @@ const createModelProvider = require("./src/model-provider");
 const createWorktreeManager = require("./src/worktree-manager");
 const createIpcServers = require("./src/ipc-servers");
 const toolsConfig = require("./src/tools-config");
+const createFormatControl = require("./src/format-control");
 
 // Constants (used by mcp-server and gpg-auth modules)
 const SCHEMA_VERSION = 1;
@@ -46,6 +47,7 @@ let cachedRepos = [];
 let cachedGpgNeedsUpload = false;
 let cachedGpgUploadFailed = false;
 let _ipc = null;
+let _formatControl = null;
 
 function escapeHtml(text) {
   return text
@@ -127,6 +129,8 @@ function activate(context) {
     GLOBAL_MCP_SERVER_PATH,
     MCP_PROVIDER_ID,
     uniquePaths: (paths) => [...new Set(paths.filter(Boolean))],
+    getExtensionStorageRoot: () =>
+      context.storageUri?.fsPath || context.globalStorageUri?.fsPath || null,
   });
 
   // 2. Activity tracker (needs getWebviewProvider, getChatSessions — late-bound)
@@ -384,6 +388,10 @@ function activate(context) {
     dispose: () => chatSessionsModule.dispose(),
   });
 
+  // Format control — suppress formatters during agent saves
+  _formatControl = createFormatControl();
+  _formatControl.activate(context);
+
   // Write default tools config if none exists
   if (!fs.existsSync(toolsConfig.MCP_TOOLS_CONFIG_PATH)) {
     toolsConfig.writeToolsConfig({ disabledTools: [] });
@@ -468,7 +476,10 @@ function activate(context) {
   );
 }
 
-function deactivate() {
+async function deactivate() {
+  if (_formatControl) {
+    await _formatControl.deactivate();
+  }
   if (_ipc) {
     _ipc.stopStrictLintIpcServer();
     _ipc.stopActivityIpcServer();

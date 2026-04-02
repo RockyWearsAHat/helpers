@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{CSP_SOURCE}}; script-src {{CSP_SOURCE}}; img-src {{CSP_SOURCE}} data:;"
+    />
+    <link rel="stylesheet" href="{{STYLES_URI}}" />
+    <title>GitHub Shell Helpers</title>
+  </head>
+  <body class="gsh-page gsh-page--panel">
+    <div class="acct-panel" id="acctPanel">
+      <div class="acct-header">
+        <div class="acct-avatar">
+          <svg viewBox="0 0 16 16">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
+        </div>
+        <div class="acct-info">
+          <div class="acct-name">{{CACHED_USER}}</div>
+          <div class="acct-host">github.com</div>
+        </div>
+      </div>
+      <div class="acct-actions">
+        <button class="acct-btn" id="signOutBtn" type="button">
+          <svg viewBox="0 0 16 16">
+            <path
+              d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"
+            />
+            <path
+              fill-rule="evenodd"
+              d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"
+            />
+          </svg>
+          Sign out
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+      <details class="sect" open>
+        <summary class="sect-head">
+          <div class="sect-title">Quick Actions</div>
+        </summary>
+        <div class="qa-list">{{QUICK_ACTIONS_HTML}}</div>
+      </details>
+
+      <details class="sect sect--activity{{ACTIVITY_SECTION_CLASS}}" open>
+        <summary class="sect-head">
+          <div class="sect-title">Activity</div>
+          <div class="sect-count" id="activityCount">
+            {{ACTIVITY_COUNT_LABEL}}
+          </div>
+        </summary>
+        <div
+          id="activityList"
+          class="activity-list{{ACTIVITY_LIST_CLASS}}"
+        ></div>
+      </details>
+
+      <details class="sect" open>
+        <summary class="sect-head">
+          <div class="sect-title">Local Agents</div>
+          <div class="sect-count">{{AGENT_COUNT}} available</div>
+        </summary>
+        <div id="agentsList">{{AGENT_ROWS}}</div>
+      </details>
+
+      <details class="sect">
+        <summary class="sect-head">
+          <div class="sect-title">Providers</div>
+          <div class="sect-count">{{PROVIDER_CONFIGURED}}/3</div>
+        </summary>
+        {{OLLAMA_STATUS_ROW}} {{OLLAMA_ROWS}} {{OLLAMA_ADD_BTN}}
+        {{OLLAMA_ADD_PANEL}} {{ANTHROPIC_ROW}} {{OPENAI_ROW}}
+      </details>
+
+      <details class="sect">
+        <summary class="sect-head">
+          <div class="sect-head-left">
+            <div class="sect-title">MCP Tools</div>
+            {{MCP_STATUS_HTML}}
+          </div>
+          <div class="sect-count">{{ENABLED_COUNT}}/{{TOOL_GROUP_TOTAL}}</div>
+        </summary>
+        {{TOOL_ROWS}}
+        <div class="hint">Read &amp; Search Knowledge are always on.</div>
+      </details>
+
+      <details class="sect">
+        <summary class="sect-head">
+          <div class="sect-title">Git Checkpoint</div>
+        </summary>
+        {{CP_ROWS}} {{GPG_HINT}}
+      </details>
+
+      <details class="sect">
+        <summary class="sect-head">
+          <div class="sect-title">Chat Tools</div>
+          <div class="sect-count">{{CHAT_TOOL_COUNT}}/{{CHAT_TOOL_TOTAL}}</div>
+        </summary>
+        {{STRICT_LINTING_ROW}} {{BRANCH_SESSIONS_ROW}} {{SESSION_MEMORY_ROW}}
+        {{FORMAT_BYPASS_ROW}}
+      </details>
+
+      <details class="sect">
+        <summary class="sect-head">
+          <div class="sect-title">Community Submissions</div>
+        </summary>
+        <select id="modeSelect">
+          {{MODE_OPTIONS}}
+        </select>
+        <div class="mode-desc">{{MODE_DESC}}</div>
+        {{SCOPE_SECTION}}
+      </details>
+    </div>
+
+    <div class="footer">
+      <div class="footer-user">
+        <svg viewBox="0 0 16 16">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+          />
+        </svg>
+        <span>{{CACHED_USER}}</span>
+      </div>
+
+      <div class="footer-gear" id="gearBtn" title="Account">
+        <svg viewBox="0 0 16 16">
+          <path
+            d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.2.7-2.4.5v1.2l2.4.5.3.7-1.3 2 .8.8 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.8-.8-1.3-2 .3-.7 2.4-.5V6.8l-2.4-.5-.3-.7 1.3-2-.8-.8-2 1.3-.7-.2zM9.4 8c0 .8-.6 1.4-1.4 1.4S6.6 8.8 6.6 8 7.2 6.6 8 6.6s1.4.6 1.4 1.4z"
+          />
+        </svg>
+      </div>
+    </div>
+
+    <div id="qaContextMenu" class="qa-ctx-menu">
+      <div class="qa-ctx-item" id="ctxOpenWithoutSend">
+        <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
+          <path
+            d="M2 2.5A.5.5 0 0 1 2.5 2h11a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H2.5a.5.5 0 0 1-.5-.5v-1zM2 6.5A.5.5 0 0 1 2.5 6h7a.5.5 0 0 1 0 1h-7A.5.5 0 0 1 2 6.5zM2.5 10a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-5z"
+          />
+        </svg>
+        Open in new chat without sending
+      </div>
+    </div>
+
+    <script id="gsh-bootstrap" type="application/json">
+      {{BOOTSTRAP_JSON}}
+    </script>
+    <script src="{{SCRIPT_URI}}"></script>
+  </body>
+</html>

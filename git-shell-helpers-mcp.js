@@ -88,15 +88,55 @@ function loadVisionModule() {
   }
 }
 
+function loadChatArchiveModule() {
+  const archiveRoot = process.env.GSH_CHAT_ARCHIVE_ROOT;
+  if (!archiveRoot) return null;
+  try {
+    const {
+      CHAT_ARCHIVE_TOOLS,
+      createHandler: createArchiveHandler,
+    } = require("./lib/mcp-chat-archive");
+    return {
+      tools: CHAT_ARCHIVE_TOOLS,
+      handler: createArchiveHandler({
+        archiveRoot,
+        workspaceRoots: process.env.GSH_WORKSPACE_ROOTS
+          ? process.env.GSH_WORKSPACE_ROOTS.split(",").filter(Boolean)
+          : [],
+      }),
+    };
+  } catch (err) {
+    process.stderr.write(
+      `[git-shell-helpers-mcp] WARNING: could not load chat-archive: ${err.message}\n`,
+    );
+    return null;
+  }
+}
+
 const researchModule = loadResearchModule();
 const visionModule = loadVisionModule();
+const chatArchiveModule = loadChatArchiveModule();
 const delegatedHandlers = [
   researchModule?.handler,
   visionModule?.handler,
+  chatArchiveModule?.handler,
 ].filter(Boolean);
+
+const SESSION_MEMORY_TOOLS = new Set([
+  "log_session_event",
+  "search_session_log",
+  "get_session_summary",
+  "rebuild_session_index",
+]);
+
 const ALL_TOOLS = [
-  ...(researchModule?.tools || []),
+  ...(researchModule?.tools || []).filter(
+    (t) =>
+      !process.env.GSH_SESSION_MEMORY_DISABLED ||
+      !SESSION_MEMORY_TOOLS.has(t.name),
+  ),
   ...(visionModule?.tools || []),
+  ...(chatArchiveModule?.tools || []),
   CHECKPOINT_TOOL,
   WORKSPACE_CONTEXT_TOOL,
   LIST_LANGUAGE_MODELS_TOOL,
