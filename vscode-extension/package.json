@@ -175,6 +175,11 @@
           "default": true,
           "description": "On startup, scan for orphaned branch session worktrees with uncommitted changes and auto-commit them to prevent work loss. The worktree is then removed but the branch and commits are preserved."
         },
+        "gitShellHelpers.branchSessions.autoCleanMerged": {
+          "type": "boolean",
+          "default": true,
+          "description": "On startup, automatically delete local feature/ and fix/ branches that are fully merged into the current baseline branch (dev, main). Prevents accumulation of stale branches from completed sessions."
+        },
         "gitShellHelpers.sessionMemory.enabled": {
           "type": "boolean",
           "default": true,

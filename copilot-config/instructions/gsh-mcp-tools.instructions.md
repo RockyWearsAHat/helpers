@@ -51,6 +51,28 @@ No parameters. Returns one block per workspace root with: root path, branch name
 
 Branch sessions create isolated git worktrees under `~/.cache/gsh/worktrees/`, but when the VS Code extension is active the normal workspace root follows the active chat's branch. Think of the worktree as parked state, not as the directory you should edit directly.
 
+Use branch sessions when:
+
+- Work is multi-step or multi-file.
+- You want reviewable feature-branch isolation.
+- You need safe parallel chat workflows.
+
+Avoid branch sessions when:
+
+- The change is a trivial one-file tweak.
+- The user explicitly wants a direct baseline fix.
+- Branching overhead would exceed the risk of the change.
+
+Dead-simple sequence:
+
+1. `workspace_context`
+2. `branch_status`
+3. `branch_session_start` (only for non-trivial feature work)
+4. `checkpoint` with `branch` guard
+5. `branch_session_end`
+
+If branch state appears wrong, repeat steps 1 and 2 before doing anything else.
+
 **`branch_session_start`** — Start an isolated branch session.
 
 - Creates a worktree for the given branch (or creates the branch if it doesn't exist).

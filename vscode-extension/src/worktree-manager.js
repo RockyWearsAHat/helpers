@@ -165,7 +165,9 @@ module.exports = function createWorktreeManager(deps) {
     clearTimeout(_pendingUnknownSessionUnfocus);
     _pendingUnknownSessionUnfocus = null;
     if (reason) {
-      _writeWorktreeDebug(`unknown-session: cancelled delayed unfocus (${reason})`);
+      _writeWorktreeDebug(
+        `unknown-session: cancelled delayed unfocus (${reason})`,
+      );
     }
   }
 
@@ -197,7 +199,9 @@ module.exports = function createWorktreeManager(deps) {
       }
 
       const currentKey = _resolveCurrentChatKey();
-      const reboundWorktree = currentKey ? _tabToWorktree.get(currentKey) : null;
+      const reboundWorktree = currentKey
+        ? _tabToWorktree.get(currentKey)
+        : null;
       if (
         reboundWorktree &&
         _worktreeBindings.has(reboundWorktree) &&
@@ -821,6 +825,99 @@ module.exports = function createWorktreeManager(deps) {
     _cleanupLegacyWorktreeFolders();
     _context?.globalState?.update("gsh.originalBranch", undefined);
     _rescueOrphanedWorktrees();
+    _pruneMergedFeatureBranches();
+  }
+
+  /**
+   * Prune feature branches that are fully merged into the baseline branch.
+   * Runs on startup to prevent accumulation of stale branches from
+   * sessions that were started and never properly ended or merged.
+   */
+  function _pruneMergedFeatureBranches() {
+    const enabled = vscode.workspace
+      .getConfiguration("gitShellHelpers.branchSessions")
+      .get("enabled", false);
+    if (!enabled) return;
+
+    const autoClean = vscode.workspace
+      .getConfiguration("gitShellHelpers.branchSessions")
+      .get("autoCleanMerged", true);
+    if (!autoClean) return;
+
+    const repoRoot = _getMainRepoPath();
+    if (!repoRoot) return;
+
+    // Run async to not block startup
+    setImmediate(() => {
+      try {
+        const currentBranch = _gitCurrentBranch(repoRoot);
+        if (!currentBranch) return;
+
+        // Get branches merged into current (usually dev or main)
+        const mergedRaw = execFileSync(
+          "git",
+          ["branch", "--merged", currentBranch],
+          { cwd: repoRoot, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] },
+        )
+          .toString()
+          .trim();
+        if (!mergedRaw) return;
+
+        const protectedBranches = new Set([
+          "main",
+          "master",
+          "dev",
+          "develop",
+          currentBranch,
+        ]);
+
+        // Only prune feature/ and fix/ prefixed branches
+        const candidates = mergedRaw
+          .split("\n")
+          .map((b) => b.replace(/^\*?\s+/, "").trim())
+          .filter(
+            (b) =>
+              b &&
+              !protectedBranches.has(b) &&
+              (b.startsWith("feature/") || b.startsWith("fix/")),
+          );
+
+        if (candidates.length === 0) return;
+
+        // Don't prune branches that have active worktrees
+        const activeWtBranches = new Set();
+        for (const [, binding] of _worktreeBindings) {
+          if (binding.branch) activeWtBranches.add(binding.branch);
+        }
+
+        let pruned = 0;
+        for (const branch of candidates) {
+          if (activeWtBranches.has(branch)) continue;
+          try {
+            execFileSync("git", ["branch", "-d", branch], {
+              cwd: repoRoot,
+              timeout: 5000,
+              stdio: ["pipe", "pipe", "pipe"],
+            });
+            pruned++;
+            _writeWorktreeDebug(
+              `startup-prune: deleted merged branch ${branch}`,
+            );
+          } catch {
+            // Branch might not be fully merged despite --merged reporting it
+            // (e.g. if it has merge commits). Non-fatal — skip.
+          }
+        }
+
+        if (pruned > 0) {
+          getDiagnosticsOutputChannel().appendLine(
+            `[worktree] Startup cleanup: pruned ${pruned} merged feature branch(es)`,
+          );
+        }
+      } catch {
+        // Non-fatal — startup cleanup is best-effort
+      }
+    });
   }
 
   function _rescueOrphanedWorktrees() {
@@ -1129,8 +1226,7 @@ module.exports = function createWorktreeManager(deps) {
               binding.branch || path.basename(wtPath),
             );
             item.description = "parked";
-            item.tooltip =
-              `Session parked at ${wtPath}. Switch back to the owning chat to bring it into the workspace.`;
+            item.tooltip = `Session parked at ${wtPath}. Switch back to the owning chat to bring it into the workspace.`;
             item.contextValue = "worktreeSessionHint";
             return item;
           });
@@ -1405,7 +1501,9 @@ module.exports = function createWorktreeManager(deps) {
           _tabToWorktree.set(sessionUri, _activeWorktreeFolder);
           if (tabKey) _tabToWorktree.set(tabKey, _activeWorktreeFolder);
           saveTabWorktreeMap();
-          _clearPendingUnknownSessionUnfocus("bound current worktree to session URI");
+          _clearPendingUnknownSessionUnfocus(
+            "bound current worktree to session URI",
+          );
           _writeWorktreeDebug(
             `session-focus: bound to currently-focused worktree ${path.basename(_activeWorktreeFolder)} (no prior URI)`,
           );
