@@ -14,17 +14,18 @@ Quality-of-life git subcommands, an MCP research server, a Copilot audit tool, a
 
 ## Branch Sessions (VS Code extension)
 
-The VS Code extension enables **per-chat branch isolation**: each Copilot chat can work on a different feature branch, and switching between chats automatically switches the visible branch in VS Code's Explorer, Source Control panel, and git status — all without leaving VS Code or running `git checkout`.
+The VS Code extension enables **per-chat branch isolation**: each Copilot chat can work on a different feature branch, and switching between chats changes which branch is visible in the workspace.
 
 ### How it works
 
 1. An agent calls `branch_session_start({ branch: "feature/my-work" })`
 2. The extension creates a git worktree in `~/.cache/gsh/worktrees/` and checks out the branch **in your main repo view** via `git symbolic-ref`
 3. You see the feature branch in VS Code's status bar, SCM panel, and Explorer — it looks like a normal checkout
-4. When you switch to a different Copilot chat, the extension transparently switches the visible branch to match that chat's session
-5. When the agent calls `branch_session_end`, the extension restores your original branch and pops any stashed work
+4. When you switch to a different Copilot chat, the extension switches the visible branch to match that chat's session
+5. When no bound chat is active, the main repo returns to its baseline branch and the feature session stays parked in its worktree
+6. When the agent calls `branch_session_end`, the extension restores your original branch and pops any stashed work
 
-Multiple chats work on different branches in parallel. The worktree mechanics are invisible to the user.
+Multiple chats can keep different branches parked in parallel. If a branch seems to disappear from the workspace, it is usually parked in another chat rather than lost; switch back to that chat or run `branch_status`.
 
 ### Enabling branch sessions
 
@@ -52,7 +53,7 @@ code --install-extension vscode-extension/git-shell-helpers-*.vsix
 
 ### VS Code patches (optional)
 
-Two optional patches improve the branch session experience by modifying VS Code's compiled bundles:
+Optional patches improve the branch session experience by modifying VS Code's compiled bundles:
 
 | Patch              | Effect                                                                        | Requires      |
 | ------------------ | ----------------------------------------------------------------------------- | ------------- |
@@ -93,6 +94,7 @@ If any of these PRs land in VS Code, the corresponding local patch becomes unnec
 - The `which code` / `where code` dynamic path detection requires `code` to be in your PATH. If it isn't, add it via **Shell Command: Install 'code' command in PATH** in the VS Code command palette.
 - Patches are applied to VS Code's compiled bundles. They may need to be re-applied after VS Code auto-updates. Run `node scripts/patch-vscode-apply-all.js --check` to verify status after an update.
 - Stash recovery after a VS Code reload is best-effort. If you manually run `git stash` between a `branch_session_start` and `branch_session_end`, the extension uses the stash message `"gsh-session-focus: auto-stash"` to find and restore the correct stash entry.
+- Branch sessions are chat-bound. If the current chat does not own a session, the workspace can return to baseline even though other sessions still exist. Use `branch_status` or the Branch Files view to find parked sessions.
 
 ---
 

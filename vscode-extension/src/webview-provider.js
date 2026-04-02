@@ -29,7 +29,6 @@ module.exports = function createWebviewProviderClass(deps) {
     getProviderStatus,
     scanLocalAgents,
     getActivityItems,
-    _renderActivityItem,
     _activityCountLabel,
     // Constants
     API_KEY_ANTHROPIC,
@@ -468,13 +467,15 @@ module.exports = function createWebviewProviderClass(deps) {
 
       // --- Activity section ---
       const activityItems = getActivityItems();
-      const activityRows =
-        activityItems.length > 0
-          ? activityItems
-              .map((item) => _renderActivityItem(item, escapeHtml))
-              .join("")
-          : `<div class="activity-idle"><span class="activity-idle-dot"></span>idle</div>`;
       const activityCountLabel = _activityCountLabel(activityItems);
+      const activityItemsJson = JSON.stringify(activityItems).replace(
+        /</g,
+        "\\u003c",
+      );
+      const activityCountJson = JSON.stringify(activityCountLabel).replace(
+        /</g,
+        "\\u003c",
+      );
 
       const mcpStatusHtml = `
       <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" data-tone="${mcpStatus.tone}" title="${escapeHtml(mcpStatus.detail)}">
@@ -496,7 +497,7 @@ module.exports = function createWebviewProviderClass(deps) {
         <div class="cb${branchSessionsEnabled ? " on" : ""}"><div class="cb-tick"></div></div>
         <div class="tool-text">
           <span class="tl">Branch Sessions</span>
-          <span class="td">Agents work in isolated git worktrees per chat session</span>
+          <span class="td">The workspace follows the active chat's branch; parked sessions stay available via branch_status</span>
         </div>
       </div>`;
 
@@ -870,45 +871,221 @@ module.exports = function createWebviewProviderClass(deps) {
   .ollama-model-row.on .ollama-model-check { opacity: 1; }
 
   /* Activity */
-  .activity-item {
-    border-radius: 4px; margin: 3px -5px;
-    background: var(--vscode-editorWidget-background, rgba(128,128,128,0.04));
-    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.1));
+  .activity-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
-  .activity-summary {
-    display: flex; align-items: center; gap: 7px;
-    padding: 6px 9px; cursor: pointer; list-style: none;
-    font-size: 12px; user-select: none;
+  .activity-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
-  .activity-summary::-webkit-details-marker { display: none; }
-  .activity-pulse {
-    flex-shrink: 0; width: 7px; height: 7px; border-radius: 999px;
-    background: var(--vscode-notificationsInfoIcon-foreground, #3794ff);
-    animation: pulse 1.4s ease-in-out infinite;
+  .activity-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 1px 2px 0;
+  }
+  .activity-group-title {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.55px;
+    text-transform: uppercase;
+    color: var(--vscode-descriptionForeground);
+    opacity: 0.85;
+  }
+  .activity-group-count {
+    flex-shrink: 0;
+    min-width: 22px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+    background: var(--vscode-badge-background, rgba(128,128,128,0.16));
+  }
+  .activity-card,
+  .activity-tool {
+    width: 100%;
+    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12));
+    border-radius: 8px;
+    overflow: hidden;
+    background: color-mix(
+      in srgb,
+      var(--vscode-editorWidget-background, rgba(128,128,128,0.05)) 94%,
+      transparent
+    );
+  }
+  .activity-card {
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, transform 0.12s;
+  }
+  .activity-card:hover {
+    background: color-mix(
+      in srgb,
+      var(--vscode-list-hoverBackground, rgba(128,128,128,0.1)) 82%,
+      transparent
+    );
+    border-color: var(--vscode-focusBorder, rgba(128,128,128,0.3));
+    transform: translateY(-1px);
+  }
+  .activity-card--live,
+  .activity-tool {
+    box-shadow: inset 3px 0 0 var(--vscode-textLink-foreground, #3794ff);
+  }
+  .activity-card--recent {
+    box-shadow: inset 3px 0 0 var(--vscode-testing-iconPassed, #2ea043);
+    opacity: 0.9;
+  }
+  .activity-tool {
+    box-shadow: inset 3px 0 0 var(--vscode-charts-yellow, #cca700);
+  }
+  .activity-card-main,
+  .activity-tool-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 9px 10px 8px;
+  }
+  .activity-tool-summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+  }
+  .activity-tool-summary::-webkit-details-marker { display: none; }
+  .activity-headline {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .activity-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+  .activity-state-dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+  }
+  .activity-state-dot--live {
+    background: var(--vscode-textLink-foreground, #3794ff);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 18%, transparent);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .activity-state-dot--recent {
+    background: var(--vscode-testing-iconPassed, #2ea043);
+  }
+  .activity-state-dot--tool {
+    background: var(--vscode-charts-yellow, #cca700);
   }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+    50% { opacity: 0.42; }
   }
-  .activity-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .activity-elapsed {
-    flex-shrink: 0; font-size: 10.5px;
-    color: var(--vscode-descriptionForeground); opacity: 0.7;
+  .activity-card-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.3;
   }
-  .activity-chevron {
-    flex-shrink: 0; width: 10px; height: 10px;
-    transition: transform 0.15s; opacity: 0.5;
+  .activity-pill-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: wrap;
   }
-  details[open] .activity-chevron { transform: rotate(90deg); }
-  .activity-detail {
-    padding: 0 9px 7px;
-    font-size: 10.5px; color: var(--vscode-descriptionForeground);
+  .activity-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    color: var(--vscode-descriptionForeground);
+    background: color-mix(
+      in srgb,
+      var(--vscode-badge-background, rgba(128,128,128,0.18)) 86%,
+      transparent
+    );
   }
-  .activity-detail pre {
-    margin: 0; white-space: pre-wrap; word-break: break-all;
+  .activity-pill--time {
+    color: var(--vscode-foreground);
+    background: color-mix(
+      in srgb,
+      var(--vscode-button-secondaryBackground, rgba(128,128,128,0.16)) 88%,
+      transparent
+    );
+  }
+  .activity-preview {
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--vscode-descriptionForeground);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .activity-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+  }
+  .activity-meta-row span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .activity-link-hint {
+    color: var(--vscode-textLink-foreground);
+  }
+  .activity-tool-chevron {
+    flex-shrink: 0;
+    width: 10px;
+    height: 10px;
+    opacity: 0.5;
+    transition: transform 0.15s;
+  }
+  details[open] .activity-tool-chevron { transform: rotate(90deg); }
+  .activity-tool-detail {
+    padding: 0 10px 10px;
+  }
+  .activity-tool-detail pre {
+    margin: 0;
+    padding: 8px 9px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 10px;
-    max-height: 120px; overflow-y: auto;
+    color: var(--vscode-descriptionForeground);
+    background: color-mix(
+      in srgb,
+      var(--vscode-editor-background, rgba(128,128,128,0.06)) 92%,
+      transparent
+    );
+    max-height: 132px;
+    overflow-y: auto;
   }
   .footer-user {
     display: flex; align-items: center; gap: 5px; overflow: hidden;
@@ -928,7 +1105,7 @@ module.exports = function createWebviewProviderClass(deps) {
   .activity-idle {
     display: flex; align-items: center; gap: 6px;
     font-size: 12px; color: var(--vscode-descriptionForeground);
-    padding: 4px 2px; opacity: 0.7;
+    padding: 6px 2px 3px; opacity: 0.72;
   }
   .activity-idle-dot {
     width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0;
@@ -955,62 +1132,6 @@ module.exports = function createWebviewProviderClass(deps) {
     content: '\u25BE';
   }
   details.sect:not([open]) { padding-bottom: 6px; }
-  /* Linger (between-tool-call) indicator */
-  .activity-item--linger {
-    border-radius: 3px; margin: 2px -4px;
-    background: var(--vscode-editorWidget-background, rgba(128,128,128,0.04));
-    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.1));
-    opacity: 0.75;
-  }
-  .activity-pulse--linger {
-    background: var(--vscode-charts-yellow, #cca700) !important;
-    animation: pulse 2s ease-in-out infinite !important;
-  }
-  .activity-item--session {
-    cursor: pointer;
-    border-radius: 3px; margin: 2px -4px; padding: 2px 4px;
-  }
-  .activity-item--session:hover {
-    background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.1));
-  }
-  .activity-item--session:hover .activity-label {
-    text-decoration: underline;
-  }
-  /* Generic flex row for session items (non-<summary> container) */
-  .activity-row {
-    display: flex; align-items: center; gap: 7px;
-    padding: 5px 9px; font-size: 12px;
-  }
-  /* In-progress session spinner */
-  .activity-spinner {
-    flex-shrink: 0; width: 9px; height: 9px; border-radius: 999px;
-    border: 1.5px solid var(--vscode-notificationsInfoIcon-foreground, #3794ff);
-    border-top-color: transparent;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  /* Done session indicator dot */
-  .activity-dot-done {
-    flex-shrink: 0; width: 7px; height: 7px; border-radius: 999px;
-    background: var(--vscode-testing-iconPassed, #2ea043);
-  }
-  /* Session preview/subtitle */
-  .activity-sub {
-    padding: 0 9px 5px; font-size: 10.5px;
-    color: var(--vscode-descriptionForeground); opacity: 0.8;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* Meta label e.g. "completed" */
-  .activity-meta {
-    flex-shrink: 0; font-size: 10.5px;
-    color: var(--vscode-descriptionForeground); opacity: 0.6;
-  }
-  /* Completed session item */
-  .activity-item--done {
-    opacity: 0.6;
-    border-radius: 3px; margin: 2px -4px; padding: 2px 4px;
-  }
-
   /* Provider key accordion */
   .provider-acc-panel {
     max-height: 0; overflow: hidden;
@@ -1153,7 +1274,7 @@ module.exports = function createWebviewProviderClass(deps) {
         <div class="sect-title">Activity</div>
         <div class="sect-count" id="activityCount">${activityCountLabel}</div>
       </summary>
-      <div id="activityList"${activityItems.length === 0 ? ' class="activity-list-hidden"' : ""}>${activityItems.length === 0 ? "" : activityRows}</div>
+      <div id="activityList" class="activity-list${activityItems.length === 0 ? " activity-list-hidden" : ""}"></div>
     </details>
     <details class="sect" open>
       <summary class="sect-head">
@@ -1222,6 +1343,176 @@ module.exports = function createWebviewProviderClass(deps) {
   </div>
   <script>
     const vscode = acquireVsCodeApi();
+    const initialActivityItems = ${activityItemsJson};
+    const initialActivityCount = ${activityCountJson};
+
+    function activityEscape(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function humanizeToolName(name) {
+      return String(name || "tool")
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    }
+
+    function formatActivityDuration(seconds) {
+      const totalSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+      if (totalSeconds < 60) return totalSeconds + "s";
+      const minutes = Math.floor(totalSeconds / 60);
+      const remainder = totalSeconds % 60;
+      if (minutes < 60) {
+        return remainder > 0 ? minutes + "m " + remainder + "s" : minutes + "m";
+      }
+      const hours = Math.floor(minutes / 60);
+      const minuteRemainder = minutes % 60;
+      return minuteRemainder > 0 ? hours + "h " + minuteRemainder + "m" : hours + "h";
+    }
+
+    function formatActivityAgo(timestamp) {
+      if (!timestamp) return "recent";
+      const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+      if (elapsedSeconds < 60) return "just now";
+      if (elapsedSeconds < 3600) return Math.floor(elapsedSeconds / 60) + "m ago";
+      return Math.floor(elapsedSeconds / 3600) + "h ago";
+    }
+
+    function pluralizeActivity(count, singular) {
+      return count + " " + singular + (count === 1 ? "" : "s");
+    }
+
+    function groupActivityItems(items) {
+      const liveSessions = items
+        .filter((item) => item.type === "session-active")
+        .sort((left, right) => (right.lastChangedAt || right.startedAt || 0) - (left.lastChangedAt || left.startedAt || 0));
+      const tools = items
+        .filter((item) => item.type === "tool")
+        .sort((left, right) => (right.startedAt || 0) - (left.startedAt || 0));
+      const recentSessions = items
+        .filter((item) => item.type === "session-done")
+        .sort((left, right) => (right.completedAt || right.startedAt || 0) - (left.completedAt || left.startedAt || 0));
+      return { liveSessions, tools, recentSessions };
+    }
+
+    function renderActivityGroup(title, items, renderer) {
+      if (!items.length) return "";
+      return `
+        <section class="activity-group">
+          <div class="activity-group-head">
+            <div class="activity-group-title">${activityEscape(title)}</div>
+            <div class="activity-group-count">${items.length}</div>
+          </div>
+          ${items.map(renderer).join("")}
+        </section>`;
+    }
+
+    function renderSessionCard(item, state) {
+      const isLive = state === "live";
+      const requestLabel = item.requestCount > 0
+        ? pluralizeActivity(item.requestCount, "request")
+        : isLive
+          ? "active now"
+          : "chat saved";
+      const timingMarkup = isLive
+        ? `<span class="activity-pill activity-pill--time activity-elapsed" data-started="${item.startedAt}">${formatActivityDuration(item.elapsed || 0)}</span>`
+        : `<span class="activity-pill">${activityEscape(formatActivityAgo(item.completedAt))}</span>`;
+      const stateClass = isLive ? "activity-card--live" : "activity-card--recent";
+      const dotClass = isLive ? "activity-state-dot--live" : "activity-state-dot--recent";
+      const preview = item.preview
+        ? `<div class="activity-preview">${activityEscape(item.preview)}</div>`
+        : "";
+      return `
+        <button class="activity-card ${stateClass}" data-sessionid="${activityEscape(item.sessionId)}" type="button">
+          <div class="activity-card-main">
+            <div class="activity-headline">
+              <div class="activity-title-row">
+                <span class="activity-state-dot ${dotClass}"></span>
+                <span class="activity-card-title">${activityEscape(item.label)}</span>
+              </div>
+              <div class="activity-pill-row">
+                <span class="activity-pill">${activityEscape(requestLabel)}</span>
+                ${timingMarkup}
+              </div>
+            </div>
+            ${preview}
+            <div class="activity-meta-row">
+              <span>${isLive ? "Open the chat panel to follow the current run." : "Reopen the chat panel to pick this session back up."}</span>
+              <span class="activity-link-hint">open chat</span>
+            </div>
+          </div>
+        </button>`;
+    }
+
+    function renderToolCard(item) {
+      const argsText = String(item.args || "").trim();
+      const hasArgs = argsText && argsText !== "{}" && argsText !== "[]";
+      const header = `
+        <div class="activity-headline">
+          <div class="activity-title-row">
+            <span class="activity-state-dot activity-state-dot--tool"></span>
+            <span class="activity-card-title">${activityEscape(item.label)}</span>
+          </div>
+          <div class="activity-pill-row">
+            <span class="activity-pill">${activityEscape(humanizeToolName(item.tool))}</span>
+            <span class="activity-pill activity-pill--time activity-elapsed" data-started="${item.startedAt}">${formatActivityDuration(item.elapsed || 0)}</span>
+            ${hasArgs ? '<svg class="activity-tool-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>' : ""}
+          </div>
+        </div>
+        <div class="activity-meta-row">
+          <span>Tool call running in the current chat.</span>
+          <span>${activityEscape(item.tool || "tool")}</span>
+        </div>`;
+      if (!hasArgs) {
+        return `
+          <div class="activity-tool">
+            <div class="activity-card-main">
+              ${header}
+            </div>
+          </div>`;
+      }
+      return `
+        <details class="activity-tool">
+          <summary class="activity-tool-summary">
+            ${header}
+          </summary>
+          <div class="activity-tool-detail"><pre>${activityEscape(argsText)}</pre></div>
+        </details>`;
+    }
+
+    function renderActivityList(items, countLabel) {
+      const list = document.getElementById("activityList");
+      const count = document.getElementById("activityCount");
+      const sect = list?.closest(".sect--activity");
+      if (!list) return;
+      if (count) count.textContent = countLabel || "idle";
+      if (!items.length) {
+        if (sect) sect.classList.add("sect--idle");
+        list.classList.add("activity-list-hidden");
+        list.innerHTML = "";
+        return;
+      }
+
+      const groups = groupActivityItems(items);
+      const markup = [
+        renderActivityGroup("Live Chats", groups.liveSessions, (item) => renderSessionCard(item, "live")),
+        renderActivityGroup("Running Tools", groups.tools, renderToolCard),
+        renderActivityGroup("Recent Sessions", groups.recentSessions, (item) => renderSessionCard(item, "recent")),
+      ].filter(Boolean).join("");
+
+      if (sect) sect.classList.remove("sect--idle");
+      list.classList.remove("activity-list-hidden");
+      list.innerHTML = markup;
+      list.querySelectorAll(".activity-card[data-sessionid]").forEach((card) => {
+        card.addEventListener("click", () => {
+          vscode.postMessage({ type: "openChatSession", sessionId: card.dataset.sessionid });
+        });
+      });
+    }
+
+    renderActivityList(initialActivityItems, initialActivityCount);
     document.querySelectorAll('.tool-item').forEach(el => {
       if (el.dataset.strictLinting || el.dataset.branchSessions || el.dataset.sessionMemory || el.dataset.cpkey) return;
       el.addEventListener('click', () => {
@@ -1318,59 +1609,16 @@ module.exports = function createWebviewProviderClass(deps) {
     window.addEventListener("message", (event) => {
       const msg = event.data;
       if (msg?.type === "activityUpdate") {
-        const list = document.getElementById("activityList");
-        const count = document.getElementById("activityCount");
-        if (!list) return;
-        const items = msg.items || [];
-        const allLinger = items.length > 0 && items.every(i => i.linger);
-        if (count) count.textContent = items.length === 0 ? "idle" : allLinger ? "running" : items.length + " running";
-        const sect = list.closest(".sect--activity");
-        if (items.length === 0) {
-          if (sect) sect.classList.add("sect--idle");
-          list.classList.add("activity-list-hidden");
-          list.innerHTML = "";
-          return;
-        }
-        if (sect) sect.classList.remove("sect--idle");
-        list.classList.remove("activity-list-hidden");
-        list.innerHTML = items.map(item => item.linger
-          ? \`<div class="activity-item activity-item--linger">
-            <div class="activity-summary">
-              <span class="activity-pulse activity-pulse--linger"></span>
-              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
-              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
-            </div>
-          </div>\`
-          : item.sessionId
-          ? \`<div class="activity-item activity-item--session" data-sessionid="\${item.sessionId}">
-            <div class="activity-summary">
-              <span class="activity-pulse"></span>
-              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
-              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
-            </div>
-          </div>\`
-          : \`
-          <details class="activity-item">
-            <summary class="activity-summary">
-              <span class="activity-pulse"></span>
-              <span class="activity-label">\${item.label.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span>
-              <span class="activity-elapsed" data-started="\${item.startedAt}">\${item.elapsed}s</span>
-              <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
-            </summary>
-            <div class="activity-detail"><pre>\${item.args.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</pre></div>
-          </details>\`).join("");
-        list.querySelectorAll('.activity-item--session').forEach(el => {
-          el.addEventListener('click', () => {
-            vscode.postMessage({ type: 'openChatSession', sessionId: el.dataset.sessionid });
-          });
-        });
+        renderActivityList(msg.items || [], msg.countLabel || "idle");
       }
     });
     // Live elapsed-time ticker
     setInterval(() => {
       document.querySelectorAll('.activity-elapsed[data-started]').forEach(el => {
         const started = parseInt(el.dataset.started, 10);
-        if (!isNaN(started)) el.textContent = Math.floor((Date.now() - started) / 1000) + 's';
+        if (!isNaN(started)) {
+          el.textContent = formatActivityDuration(Math.floor((Date.now() - started) / 1000));
+        }
       });
     }, 1000);
     // Provider clickable: antropic/openai key buttons, ollama "Add model" button

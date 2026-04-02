@@ -1,5 +1,5 @@
 ---
-applyTo: "**,*,git-*,**/*.sh,scripts/**"
+applyTo: "git-*,**/*.sh,scripts/**,install-git-shell-helpers"
 description: "Shell safety rules for git-shell-helpers. Prohibits heredocs, enforces safe patterns, and requires modular thinking for large scripts."
 ---
 
@@ -19,12 +19,9 @@ Instead:
 - Use template files in a `templates/` directory for large content blocks (especially for `git-copilot-quickstart` scaffold content).
 - Use `create_file` / editor tools when generating files in agent workflows — never `cat > file <<EOF`.
 
-**Existing heredoc instances to refactor** (13 total):
+**Legacy heredoc hotspots still exist.** Refresh the current list with:
 
-- `git-upload`: 2 instances (lines ~1564, ~2220)
-- `git-help-i-pushed-an-env`: 1 instance (line ~206)
-- `git-copilot-quickstart`: 11 instances (lines ~550–1127) — these should become template files
-- `git-copilot-devops-audit`: 1 instance (line ~613)
+- `rg -n "<<[-'[:alnum:]]|cat <<" git-* scripts/ Git-Shell-Helpers-Installer.sh install-git-shell-helpers`
 
 ## Unsafe Pattern Prevention
 

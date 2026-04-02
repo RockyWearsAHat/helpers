@@ -168,7 +168,7 @@
         "gitShellHelpers.branchSessions.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable branch session tools in the MCP server. When on, agents can create isolated git worktrees for parallel branch work via branch_session_start/end. When off (default), branch tools are hidden and Copilot's built-in session management is used instead."
+          "description": "Enable branch session tools in the MCP server. When on, agents can create chat-bound git worktrees via branch_session_start/end and the workspace follows the active chat's branch. When off (default), branch tools are hidden and Copilot's built-in session management is used instead."
         },
         "gitShellHelpers.branchSessions.orphanSafetyCommit": {
           "type": "boolean",

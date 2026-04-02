@@ -362,6 +362,9 @@ module.exports = function createChatSessions(deps) {
     }
 
     if (isActive) {
+      const activeAt = existing?.active
+        ? existing.activeAt || existing.startedAt || startedAt
+        : now;
       if (existing && existing.lastSize === fileSize && existing.active) {
         const staleMs = now - (existing._lastChangedAt || existing.startedAt);
         if (staleMs > 120000) {
@@ -384,6 +387,7 @@ module.exports = function createChatSessions(deps) {
         title,
         active: true,
         startedAt,
+        activeAt,
         completedAt: null,
         filePath,
         sessionId,
