@@ -1,10 +1,29 @@
 "use strict";
 // src/chat-sessions.js — Copilot chat session JSONL watcher and parser
 const vscode = require("vscode");
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const createChatHistoryArchive = require("./chat-history-archive");
+
+// Derive a stable 12-char hex slug from a workspace folder path so each
+// project gets its own isolated archive subtree within global storage.
+function _workspaceArchiveId(workspaceFolderPath) {
+  return crypto.createHash("sha1").update(workspaceFolderPath).digest("hex").slice(0, 12);
+}
+
+// Build the per-workspace archive root: storageBase/ws-archives/ws-{hash}
+// This ensures per-project isolation even when storageUri falls back to
+// globalStorageUri (which is shared across all workspaces).
+function _resolveArchiveRoot(storageBase) {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+  if (!storageBase) return null;
+  if (workspaceFolder) {
+    return path.join(storageBase, "ws-archives", `ws-${_workspaceArchiveId(workspaceFolder)}`);
+  }
+  return path.join(storageBase, "ws-archives", "ws-global");
+}
 
 module.exports = function createChatSessions(deps) {
   const { getWebviewProvider, getActivityItems } = deps;
@@ -430,9 +449,8 @@ module.exports = function createChatSessions(deps) {
       _chatSessionPoller = null;
     }
 
-    _chatHistoryArchive.initialize(
-      ctx?.storageUri?.fsPath || ctx?.globalStorageUri?.fsPath,
-    );
+    const storageBase = ctx?.storageUri?.fsPath || ctx?.globalStorageUri?.fsPath;
+    _chatHistoryArchive.initialize(_resolveArchiveRoot(storageBase));
 
     const chatSessionsDir = _chatSessionsDir(ctx);
     if (!chatSessionsDir) return;
