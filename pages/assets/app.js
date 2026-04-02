@@ -830,8 +830,9 @@ function markdownToHtml(md) {
 
   html = html.replace(
     /```(\w*)\n([\s\S]*?)```/g,
-    function (_match, _lang, code) {
-      return "<pre><code>" + escapeHtml(code.trimEnd()) + "</code></pre>";
+    function (_match, lang, code) {
+      var cls = lang ? ' class="language-' + escapeHtml(lang) + '"' : '';
+      return "<pre><code" + cls + ">" + escapeHtml(code.trimEnd()) + "</code></pre>";
     },
   );
 
@@ -1014,6 +1015,14 @@ function renderCommunityContent(doc) {
   return parts.join('\n');
 }
 
+function highlightReaderCode() {
+  if (typeof hljs !== "undefined") {
+    readerBody.querySelectorAll("pre code").forEach(function (block) {
+      hljs.highlightElement(block);
+    });
+  }
+}
+
 function openReader(docId) {
   var doc = state.documentsById.get(docId);
   if (!doc) return;
@@ -1022,7 +1031,10 @@ function openReader(docId) {
   resultsColumn.classList.add("hidden");
   previewColumn.classList.add("hidden");
   readerColumn.classList.remove("hidden");
+  readerColumn.classList.remove("practice-open");
   readerBody.innerHTML = '<p class="reader-loading">Loading article\u2026</p>';
+  var practicePanel = document.getElementById("practice-panel");
+  if (practicePanel) practicePanel.classList.add("hidden");
 
   window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -1031,6 +1043,7 @@ function openReader(docId) {
     if (rendered) {
       state.readerCache.set(docId, rendered);
       readerBody.innerHTML = rendered;
+      highlightReaderCode();
       return;
     }
   }
@@ -1042,6 +1055,7 @@ function openReader(docId) {
 
   if (state.readerCache.has(docId)) {
     readerBody.innerHTML = state.readerCache.get(docId);
+    highlightReaderCode();
     return;
   }
 
@@ -1056,6 +1070,7 @@ function openReader(docId) {
       state.readerCache.set(docId, rendered);
       if (state.readerDoc && state.readerDoc.id === docId) {
         readerBody.innerHTML = rendered;
+        highlightReaderCode();
       }
     })
     .catch(function (err) {
@@ -1162,6 +1177,21 @@ window.addEventListener("keydown", function (event) {
   }
 });
 
+/* -- Practice panel toggle -------------------------------------------------- */
+var practiceToggle = document.getElementById("practice-toggle");
+if (practiceToggle) {
+  practiceToggle.addEventListener("click", function () {
+    if (!state.readerDoc || typeof window.AtlasPractice === "undefined") return;
+    var rawContent = state.readerCache.get(state.readerDoc.id) || "";
+    window.AtlasPractice.toggle(
+      state.readerDoc.id,
+      state.readerDoc.title,
+      state.readerDoc.searchText || rawContent,
+    );
+    practiceToggle.classList.toggle("active", window.AtlasPractice.isActive());
+  });
+}
+
 /* -- Bootstrap ------------------------------------------------------------- */
 (function bootstrapFromUrl() {
   var params = new URLSearchParams(window.location.search);
@@ -1170,6 +1200,10 @@ window.addEventListener("keydown", function (event) {
   queryInput.value = state.query;
   syncScopeButtons();
 })();
+
+if (typeof window.AtlasPractice !== "undefined") {
+  window.AtlasPractice.init();
+}
 
 loadCorpus().catch(function (error) {
   resultsSummary.textContent = "Search corpus failed to load.";
