@@ -299,6 +299,8 @@ function renderStats() {
     undefined,
     { month: "short", day: "numeric", year: "numeric" },
   );
+  var bentoGrid = document.querySelector(".bento-grid");
+  if (bentoGrid) bentoGrid.classList.remove("bento-loading");
 }
 
 /* -- Render: preview card -------------------------------------------------- */
@@ -1283,6 +1285,21 @@ if (practiceToggle) {
 if (typeof window.AtlasPractice !== "undefined") {
   window.AtlasPractice.init();
 }
+
+/* -- Bento shimmer loading ------------------------------------------------- */
+(function () {
+  var bentoGrid = document.querySelector(".bento-grid");
+  if (bentoGrid) bentoGrid.classList.add("bento-loading");
+})();
+
+/* -- Footer navigation ----------------------------------------------------- */
+document.querySelectorAll(".footer-link[data-page]").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    showPage(btn.dataset.page);
+    updateUrl();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+});
 
 loadCorpus().catch(function (error) {
   resultsSummary.textContent = "Search corpus failed to load.";
