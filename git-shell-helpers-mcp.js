@@ -100,6 +100,7 @@ function loadChatArchiveModule() {
       tools: CHAT_ARCHIVE_TOOLS,
       handler: createArchiveHandler({
         archiveRoot,
+        globalArchiveRoot: process.env.GSH_CHAT_ARCHIVE_GLOBAL || null,
         workspaceRoots: process.env.GSH_WORKSPACE_ROOTS
           ? process.env.GSH_WORKSPACE_ROOTS.split(",").filter(Boolean)
           : [],

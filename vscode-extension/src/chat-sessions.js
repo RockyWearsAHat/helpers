@@ -1,27 +1,64 @@
 "use strict";
 // src/chat-sessions.js — Copilot chat session JSONL watcher and parser
 const vscode = require("vscode");
-const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const createChatHistoryArchive = require("./chat-history-archive");
 
-// Derive a stable 12-char hex slug from a workspace folder path so each
-// project gets its own isolated archive subtree within global storage.
-function _workspaceArchiveId(workspaceFolderPath) {
-  return crypto.createHash("sha1").update(workspaceFolderPath).digest("hex").slice(0, 12);
-}
-
-// Build the per-workspace archive root: storageBase/ws-archives/ws-{hash}
-// This ensures per-project isolation even when storageUri falls back to
-// globalStorageUri (which is shared across all workspaces).
-function _resolveArchiveRoot(storageBase) {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+// Resolve the per-workspace archive root using VS Code's own stable workspace
+// storage ID rather than hashing the folder path (which changes on rename).
+//
+// VS Code hands us context.storageUri whose *directory name* is already an
+// opaque stable ID tied to the workspace, not the folder name.  We use that
+// as the archive subdirectory key:
+//   globalStorageBase/ws-archives/ws-{vscode-workspace-id}
+//
+// If storageUri is unavailable we fall back to reading workspaceStorage on
+// disk to find the matching directory (the same logic _chatSessionsDir uses).
+function _resolveArchiveRoot(ctx) {
+  const storageBase = ctx?.globalStorageUri?.fsPath;
   if (!storageBase) return null;
-  if (workspaceFolder) {
-    return path.join(storageBase, "ws-archives", `ws-${_workspaceArchiveId(workspaceFolder)}`);
+
+  // context.storageUri is workspace-scoped and stable even on folder rename.
+  if (ctx?.storageUri?.fsPath) {
+    const wsId = path.basename(ctx.storageUri.fsPath);
+    return path.join(storageBase, "ws-archives", `ws-${wsId}`);
   }
+
+  // Fallback: scan workspaceStorage to find the directory whose workspace.json
+  // matches the current open folder.  The directory name is VS Code's stable ID.
+  const wsStorage = path.join(
+    os.homedir(),
+    "Library",
+    "Application Support",
+    "Code",
+    "User",
+    "workspaceStorage",
+  );
+  const openFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+  if (openFolder && fs.existsSync(wsStorage)) {
+    try {
+      for (const d of fs.readdirSync(wsStorage)) {
+        const wsjson = path.join(wsStorage, d, "workspace.json");
+        try {
+          const raw = fs.readFileSync(wsjson, "utf8");
+          const data = JSON.parse(raw);
+          const folder =
+            data?.folder ||
+            (Array.isArray(data?.folders) && data.folders[0]?.path) ||
+            "";
+          const folderPath = folder.startsWith("file://")
+            ? decodeURIComponent(folder.replace(/^\/\//, "").replace(/^file:\/\//, ""))
+            : folder;
+          if (folderPath === openFolder) {
+            return path.join(storageBase, "ws-archives", `ws-${d}`);
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+
   return path.join(storageBase, "ws-archives", "ws-global");
 }
 
@@ -450,7 +487,7 @@ module.exports = function createChatSessions(deps) {
     }
 
     const storageBase = ctx?.storageUri?.fsPath || ctx?.globalStorageUri?.fsPath;
-    _chatHistoryArchive.initialize(_resolveArchiveRoot(storageBase));
+    _chatHistoryArchive.initialize(_resolveArchiveRoot(ctx));
 
     const chatSessionsDir = _chatSessionsDir(ctx);
     if (!chatSessionsDir) return;
