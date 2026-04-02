@@ -1,7 +1,7 @@
 ---
 name: DevOpsAuditImplement
 description: "Implementation subagent for DevOps audits. Applies research-backed edits inside the approved Copilot target surface."
-model: claude-sonnet-4.5
+model: claude-haiku-4.5
 tools:
   - edit
   - read
