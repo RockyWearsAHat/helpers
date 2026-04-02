@@ -6,47 +6,9 @@
 
 "use strict";
 
-const { execFile } = require("child_process");
 const os = require("os");
 const path = require("path");
-
-// ---------------------------------------------------------------------------
-// Mirror the production resolveRepoRoot and supporting code
-// ---------------------------------------------------------------------------
-
-function execGit(args, cwd) {
-  return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, timeout: 10000 }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error((stderr || err.message || "").trim()));
-      } else {
-        resolve((stdout || "").trim());
-      }
-    });
-  });
-}
-
-// This must match the production implementation in git-shell-helpers-mcp.
-async function resolveRepoRoot() {
-  const candidates = [];
-  if (process.env.GSH_WORKSPACE_ROOTS) {
-    try {
-      const roots = JSON.parse(process.env.GSH_WORKSPACE_ROOTS);
-      if (Array.isArray(roots)) candidates.push(...roots);
-    } catch {
-      // ignore
-    }
-  }
-  candidates.push(process.cwd(), __dirname);
-  for (const dir of candidates.filter(Boolean)) {
-    try {
-      return await execGit(["rev-parse", "--show-toplevel"], dir);
-    } catch {
-      // not a git repo — try next
-    }
-  }
-  throw new Error("Not inside a git repository.");
-}
+const { findRepoRoot, resolveRepoRoot } = require("../lib/mcp-git");
 
 function normalizeRepoPath(value) {
   let normalized = String(value || "").trim();
@@ -85,6 +47,13 @@ function assert(condition, label) {
 async function main() {
   const repoRoot = normalizeRepoPath(path.resolve(__dirname, ".."));
   const badDir = os.tmpdir();
+  const nestedDir = path.join(repoRoot, "scripts");
+
+  assert(
+    normalizeRepoPath(findRepoRoot(nestedDir)) === repoRoot,
+    "findRepoRoot walks up from a nested directory",
+  );
+  assert(findRepoRoot(badDir) === "", "findRepoRoot returns empty outside a repo");
 
   // 1. With GSH_WORKSPACE_ROOTS pointing to the repo — should resolve.
   process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([repoRoot]);
