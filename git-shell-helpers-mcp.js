@@ -15,6 +15,7 @@ const {
   handleBranchSessionEnd,
   handleBranchReadFile,
   handleBranchStatus,
+  handleBranchCleanup,
 } = require("./lib/mcp-branch-sessions");
 const {
   LIST_LANGUAGE_MODELS_TOOL,
@@ -154,6 +155,9 @@ async function runBuiltInTool(toolName, toolArguments, activityId) {
     }
     if (toolName === "branch_status") {
       return handleBranchStatus();
+    }
+    if (toolName === "branch_cleanup") {
+      return handleBranchCleanup(toolArguments);
     }
   }
   return null;
