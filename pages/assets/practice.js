@@ -15,6 +15,8 @@
     model: localStorage.getItem("practice-model") || "qwen3.5:30b",
     autoSetup: localStorage.getItem("practice-auto-setup") === "true",
     apiBase: localStorage.getItem("practice-api-base") || HOSTED_API_BASE,
+    difficulty: localStorage.getItem("practice-difficulty") || "medium",
+    hostedModel: localStorage.getItem("practice-hosted-model") || "gpt-4o-mini",
   };
 
   /* -- Module state ---------------------------------------------------- */
@@ -136,6 +138,7 @@
   };
 
   function hostedRequest(endpoint, body) {
+    body.model = config.hostedModel;
     return fetch(config.apiBase + "/.netlify/functions/" + endpoint, {
       method: "POST",
       headers: {
@@ -301,6 +304,103 @@
   /* ==================================================================
    * Problem Generation
    * ================================================================== */
+
+  /* ------------------------------------------------------------------ *
+   * Difficulty scoping — controls solution complexity, NOT concept.     *
+   * The concept comes from the article. Difficulty controls how many    *
+   * steps and edge cases the student must handle.                       *
+   * ------------------------------------------------------------------ */
+  var DIFFICULTY_GUIDANCE = {
+    easy:
+      "Difficulty: EASY. " +
+      "One core concept from the article, one function, 5-15 lines of solution logic. " +
+      "The problem statement practically walks the student through it — " +
+      "they need to translate clear English into code. " +
+      "Include 2-3 simple test cases with expected outputs. " +
+      "Starter code has the full function signature, docstring, and type hints.",
+    medium:
+      "Difficulty: MEDIUM. " +
+      "Combine 2+ concepts from the article, or add realistic edge cases. " +
+      "15-40 lines of solution logic. " +
+      "The problem statement is clear but doesn't hand-hold the approach — " +
+      "the student must figure out the strategy. " +
+      "Include 3-4 test cases with at least one edge case. " +
+      "Starter code has function signature(s) and brief docstrings.",
+    hard:
+      "Difficulty: HARD. " +
+      "Apply the article's concepts to a non-obvious scenario, or require optimization. " +
+      "30-80 lines of solution logic. " +
+      "The problem gives context and constraints but the student designs the approach. " +
+      "Include 4-5 test cases including edge cases and performance bounds. " +
+      "Starter code is minimal — just the function name and parameter types.",
+  };
+
+  /* ------------------------------------------------------------------ *
+   * CORE PEDAGOGICAL PROMPT                                            *
+   *                                                                    *
+   * This is the most important string in the practice module.          *
+   * The article is the textbook. The AI is the professor who already   *
+   * read and understood the textbook. It designs the assessment as a   *
+   * single coherent unit: problem + solution + test cases + rubric.    *
+   * Nothing is generated without its answer key. Nothing is graded     *
+   * without pre-established criteria.                                  *
+   * ------------------------------------------------------------------ */
+  var GENERATION_SYSTEM_PROMPT =
+    "You are an expert CS instructor who has ALREADY studied the article below. " +
+    "The article teaches the concept. You understood it. Now design ONE coding assessment.\n\n" +
+    "YOUR PROCESS (follow this order — it is how good teachers design exams):\n" +
+    "1. IDENTIFY the core concept the article teaches.\n" +
+    "2. DESIGN a concrete coding task that can ONLY be solved correctly by someone who " +
+    "understood that concept. The task must have exactly one unambiguous correct behavior " +
+    "for each input.\n" +
+    "3. WRITE the reference solution — clean, idiomatic, well-commented code that " +
+    "demonstrates best practices. This is the answer key.\n" +
+    "4. DERIVE test cases FROM the solution. Run the solution mentally against each input " +
+    "and record the exact expected output. Every test case must be verified against your " +
+    "solution — never invent an expected output without tracing through the code.\n" +
+    "5. WRITE the grading rubric: what makes a submission correct (must produce identical " +
+    "outputs for all test cases), and what distinguishes good from great (style, efficiency, " +
+    "edge case handling).\n" +
+    "6. WRITE 3 progressive hints that guide WITHOUT giving away the solution.\n" +
+    "7. WRITE the problem description LAST — now that you know exactly what the student " +
+    "must produce, describe the task clearly. Include the test cases as examples so " +
+    "the student can self-check.\n" +
+    "8. WRITE starter code that gives the student the function signature, parameter types, " +
+    "and return type so they know the exact contract to fulfill.\n\n" +
+    "CRITICAL RULES:\n" +
+    "- The problem MUST be solvable. You proved it is solvable by writing the solution.\n" +
+    "- The test cases MUST be derived from YOUR solution, not invented independently.\n" +
+    "- The grading rubric MUST exist BEFORE the student sees the problem.\n" +
+    "- Every test case has an exact expected output — no ambiguity.\n" +
+    "- The problem guides the student toward the right answer. It should make them think, " +
+    "but it should always have a clear path from A to B.\n\n" +
+    "LANGUAGE SELECTION: Analyze the article topic. Systems/OS → C or Rust. " +
+    "Web/DOM/API → JavaScript/TypeScript. Algorithms/data → Python. " +
+    "Database → SQL. Choose what fits naturally.\n\n" +
+    "Return ONLY valid JSON (no markdown fencing, no explanation) in this EXACT format:\n" +
+    "{\n" +
+    '  "title": "Concise descriptive title",\n' +
+    '  "difficulty": "easy|medium|hard",\n' +
+    '  "language": "python",\n' +
+    '  "allowedLanguages": ["python", "javascript"],\n' +
+    '  "concept": "The specific concept from the article being tested",\n' +
+    '  "description": "# Title\\n\\nClear problem statement...\\n\\n## Examples\\n\\n' +
+    "**Input:** `example_input`\\n**Output:** `expected_output`\\n\\n" +
+    '## Constraints\\n\\n- constraint 1\\n- constraint 2",\n' +
+    '  "starterCode": "def solve(...): ...\\n    pass",\n' +
+    '  "solution": "def solve(...):\\n    # complete working solution with comments",\n' +
+    '  "testCases": [\n' +
+    '    {"input": "describe the input", "expected": "exact expected output", "explanation": "why this tests the concept"},\n' +
+    '    {"input": "edge case input", "expected": "exact expected output", "explanation": "what edge case this covers"}\n' +
+    "  ],\n" +
+    '  "gradingRubric": {\n' +
+    '    "pass": "Produces correct output for all test cases",\n' +
+    '    "good": "Correct + clean code structure and naming",\n' +
+    '    "excellent": "Correct + clean + optimal time/space complexity or demonstrates deeper understanding"\n' +
+    "  },\n" +
+    '  "hints": ["Conceptual nudge", "Approach suggestion", "Near-solution technique hint"]\n' +
+    "}";
+
   function generateProblem() {
     if (ps.generating || !ps.articleId) return Promise.resolve();
     ps.generating = true;
@@ -312,7 +412,7 @@
     display.innerHTML =
       '<div class="practice-loading">' +
       '<div class="typing-dots"><span></span><span></span><span></span></div>' +
-      "<p>Generating a practice problem\u2026</p></div>";
+      "<p>Designing " + config.difficulty + " assessment\u2026</p></div>";
 
     return dbGetByIndex("examples", "articleId", ps.articleId)
       .then(function (examples) {
@@ -323,6 +423,7 @@
           return hostedRequest("generate", {
             articleTitle: ps.articleTitle,
             articleContent: ps.articleContent.slice(0, 6000),
+            difficulty: config.difficulty,
             previousExamples: recent.map(function (ex) {
               return { title: ex.title, type: ex.type, description: (ex.description || "").slice(0, 200) };
             }),
@@ -333,7 +434,7 @@
         var exCtx = "";
         if (recent.length > 0) {
           exCtx =
-            "\n\nPrevious practice activity for this article (avoid repeating):\n" +
+            "\n\nPrevious practice problems for this article (do NOT repeat these):\n" +
             recent
               .map(function (ex) {
                 return "- " + (ex.title || ex.type) + ": " + (ex.description || "").slice(0, 200);
@@ -341,42 +442,31 @@
               .join("\n");
         }
 
-        var sysPrompt =
-          "You are a CS instructor creating coding practice problems. " +
-          "Based on the knowledge article provided, generate ONE coding problem " +
-          "that tests understanding of the core concepts. Choose an appropriate " +
-          "difficulty level. Analyze the article content and choose the most " +
-          "appropriate programming language(s) for the topic — for example, " +
-          "systems topics suit C/Rust, web topics suit JavaScript/TypeScript, " +
-          "data/algorithm topics suit Python, etc. Include an allowedLanguages " +
-          "array listing ALL languages that are appropriate for this problem. " +
-          "Return your response as ONLY valid JSON in this exact format:\n" +
-          '{"title":"Short problem title",' +
-          '"difficulty":"easy|medium|hard",' +
-          '"language":"python",' +
-          '"allowedLanguages":["python","javascript"],' +
-          '"description":"Full problem description in markdown with examples",' +
-          '"starterCode":"// starter code template with function signature",' +
-          '"solution":"// complete working solution",' +
-          '"testDescription":"How to verify the solution is correct",' +
-          '"hints":["Progressive hint 1","More specific hint 2","Nearly gives it away hint 3"]}' +
-          "\n\nReturn ONLY the JSON object. No markdown fencing, no explanation.";
+        var diffGuide = DIFFICULTY_GUIDANCE[config.difficulty] || DIFFICULTY_GUIDANCE.medium;
 
         var userPrompt =
+          diffGuide + "\n\n" +
           "Article title: " + ps.articleTitle + "\n\n" +
+          "Article content (this is the textbook — the concept is already explained here):\n" +
           ps.articleContent.slice(0, 6000) + exCtx;
 
         return chatComplete([
-          { role: "system", content: sysPrompt },
+          { role: "system", content: GENERATION_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ]).then(function (response) {
           var problem = parseJsonResponse(response);
           if (!problem) throw new Error("AI did not return valid JSON");
+          /* Validate the assessment is complete — reject if missing answer key */
+          if (!problem.solution || problem.solution.length < 20) {
+            throw new Error("Generated assessment has no reference solution — cannot grade without an answer key");
+          }
+          if (!problem.testCases || !problem.testCases.length) {
+            throw new Error("Generated assessment has no test cases — cannot verify correctness");
+          }
           return problem;
         });
       })
       .then(function (problem) {
-
         problem.articleId = ps.articleId;
         problem.createdAt = Date.now();
         ps.currentProblem = problem;
@@ -386,11 +476,13 @@
         return dbPut("problems", problem).then(function () {
           renderProblem(problem);
           updateActionButtons();
+          updateStatusBar(problem);
           setEditorLanguage(problem.language || "python");
+          vfsInitForProblem(problem);
           if (problem.starterCode && ps.editor) {
             ps.editor.setValue(problem.starterCode);
           }
-          /* auto-cache problem as example */
+          /* Cache as example to avoid regenerating similar problems */
           return dbPut("examples", {
             articleId: ps.articleId,
             type: "problem",
@@ -515,6 +607,11 @@
 
   /* ==================================================================
    * Solution Submission & Evaluation
+   *
+   * Grading uses the RUBRIC and TEST CASES that were generated WITH
+   * the problem — not invented after the fact. The AI evaluator
+   * receives the answer key, the test cases, the rubric, AND the
+   * student's code. It grades against pre-established criteria.
    * ================================================================== */
   function submitSolution() {
     if (!ps.currentProblem || !ps.editor) return;
@@ -528,37 +625,68 @@
     feedbackEl.innerHTML =
       '<div class="feedback-card feedback-loading">' +
       '<div class="typing-dots"><span></span><span></span><span></span></div>' +
-      "<p>Evaluating your solution\u2026</p></div>";
+      "<p>Grading against rubric\u2026</p></div>";
+
+    /* Build the grading context from the pre-established assessment */
+    var prob = ps.currentProblem;
+    var testCasesStr = "";
+    if (prob.testCases && prob.testCases.length) {
+      testCasesStr = "\n\nTEST CASES (from the answer key):\n" +
+        prob.testCases.map(function (tc, i) {
+          return (i + 1) + ". Input: " + tc.input +
+            "\n   Expected output: " + tc.expected +
+            (tc.explanation ? "\n   Purpose: " + tc.explanation : "");
+        }).join("\n");
+    }
+
+    var rubricStr = "";
+    if (prob.gradingRubric) {
+      rubricStr = "\n\nGRADING RUBRIC (established when the problem was created):\n" +
+        "- PASS: " + (prob.gradingRubric.pass || "Correct output for all test cases") + "\n" +
+        "- GOOD: " + (prob.gradingRubric.good || "Correct + clean code") + "\n" +
+        "- EXCELLENT: " + (prob.gradingRubric.excellent || "Correct + clean + optimal");
+    }
+
+    var evalSysPrompt =
+      "You are a CS instructor grading a student submission against a PRE-ESTABLISHED answer key and rubric. " +
+      "You are NOT inventing criteria — the criteria were written BEFORE the student saw the problem.\n\n" +
+      "YOUR GRADING PROCESS:\n" +
+      "1. Trace through the student's code with EACH test case input. Determine the actual output.\n" +
+      "2. Compare each actual output to the expected output from the answer key.\n" +
+      "3. Apply the rubric: PASS if all test cases produce correct output, GOOD or EXCELLENT based on code quality.\n" +
+      "4. If any test case fails, the submission is INCORRECT — explain which test case(s) failed and why.\n\n" +
+      "RESPONSE FORMAT (use exactly this structure):\n" +
+      "**Grade:** PASS / GOOD / EXCELLENT / INCORRECT\n" +
+      "**Test Results:**\n" +
+      "- Test 1: PASS/FAIL (brief explanation)\n" +
+      "- Test 2: PASS/FAIL (brief explanation)\n" +
+      "**Feedback:** What the student did well and what to improve (2-3 sentences)\n" +
+      "**Key Insight:** One takeaway about the underlying concept";
+
+    var evalUserPrompt =
+      "PROBLEM:\n" + prob.description +
+      "\n\nCONCEPT BEING TESTED: " + (prob.concept || prob.title) +
+      "\n\nREFERENCE SOLUTION (the answer key):\n```\n" + prob.solution + "\n```" +
+      testCasesStr +
+      rubricStr +
+      "\n\nSTUDENT SUBMISSION:\n```\n" + userCode + "\n```";
 
     var feedbackPromise;
 
     if (activeProvider === "hosted") {
       feedbackPromise = hostedRequest("evaluate", {
-        problemDescription: ps.currentProblem.description,
-        referenceSolution: ps.currentProblem.solution,
+        problemDescription: prob.description,
+        referenceSolution: prob.solution,
+        testCases: prob.testCases || [],
+        gradingRubric: prob.gradingRubric || {},
+        concept: prob.concept || "",
         userCode: userCode,
       }).then(function (data) { return data.feedback; });
     } else {
       feedbackPromise = chatComplete(
         [
-          {
-            role: "system",
-            content:
-              "You are a CS instructor evaluating a student's code solution. " +
-              "Compare it against the reference solution. Be encouraging but honest. " +
-              "Structure your response as:\n" +
-              "**Correctness:** (correct/partially correct/incorrect)\n" +
-              "**Feedback:** (what they did well, what could improve)\n" +
-              "**Key Insight:** (one takeaway about the underlying concept)\n" +
-              "Keep it concise — 4-6 sentences total.",
-          },
-          {
-            role: "user",
-            content:
-              "Problem: " + ps.currentProblem.description +
-              "\n\nReference solution:\n```\n" + ps.currentProblem.solution +
-              "\n```\n\nStudent solution:\n```\n" + userCode + "\n```",
-          },
+          { role: "system", content: evalSysPrompt },
+          { role: "user", content: evalUserPrompt },
         ],
         {
           onChunk: function (_chunk, full) {
@@ -573,27 +701,30 @@
       .then(function (fullResponse) {
         feedbackEl.innerHTML =
           '<div class="feedback-card">' + renderMiniMarkdown(fullResponse) + "</div>";
-        var isCorrect =
-          /correct/i.test(fullResponse) && !/incorrect/i.test(fullResponse);
+
+        /* Determine grade from structured response */
+        var gradeMatch = fullResponse.match(/\*\*Grade:\*\*\s*(PASS|GOOD|EXCELLENT|INCORRECT)/i);
+        var grade = gradeMatch ? gradeMatch[1].toUpperCase() : "UNKNOWN";
+        var isCorrect = grade === "PASS" || grade === "GOOD" || grade === "EXCELLENT";
 
         return dbPut("solutions", {
           articleId: ps.articleId,
-          problemId: ps.currentProblem.id,
+          problemId: prob.id,
           code: userCode,
           correct: isCorrect,
+          grade: grade,
           feedback: fullResponse,
           createdAt: Date.now(),
         }).then(function () {
-          /* only save passing solutions to the examples library */
           if (isCorrect) {
             dbPut("examples", {
               articleId: ps.articleId,
               type: "solved",
-              title: (ps.currentProblem ? ps.currentProblem.title : "Submission") + " (solved)",
+              title: (prob.title || "Submission") + " (" + grade.toLowerCase() + ")",
               description: (fullResponse || "").slice(0, 500),
               code: userCode,
-              language: ps.currentProblem ? (ps.currentProblem.language || "python") : "python",
-              tags: ["correct", "user-submitted"],
+              language: prob.language || "python",
+              tags: [grade.toLowerCase(), "user-submitted"],
               source: "user-submitted",
               createdAt: Date.now(),
             }).catch(function () { /* best-effort */ });
@@ -797,6 +928,7 @@
     var hintBtn = document.getElementById("hint-btn");
     var submitBtn = document.getElementById("submit-btn");
     var showSolBtn = document.getElementById("show-solution-btn");
+    var runBtn = document.getElementById("run-code-btn");
     if (genBtn) {
       genBtn.disabled = busy;
       genBtn.textContent = busy ? "Generating\u2026" : hasProblem ? "New Problem" : "Generate Problem";
@@ -804,6 +936,7 @@
     if (hintBtn) hintBtn.disabled = !hasProblem || busy;
     if (submitBtn) submitBtn.disabled = !hasProblem || busy;
     if (showSolBtn) showSolBtn.disabled = !hasProblem || busy;
+    if (runBtn) runBtn.disabled = !hasProblem || busy;
   }
 
   function updateAiStatus(info) {
@@ -825,6 +958,533 @@
       label.textContent = "AI Offline";
       ps.aiConnected = false;
     }
+  }
+
+  /* ==================================================================
+   * Virtual Filesystem
+   *
+   * In-memory file store per problem. Each problem gets its own set of
+   * files. The "active file" is the one displayed in the editor.
+   * ================================================================== */
+  var vfs = {
+    files: {},       /* { filename: { content: string, language: string, readonly: boolean } } */
+    activeFile: null,
+    mainFile: null,  /* the primary solution file */
+  };
+
+  function vfsReset() {
+    vfs.files = {};
+    vfs.activeFile = null;
+    vfs.mainFile = null;
+  }
+
+  function vfsCreateFile(name, content, language, readonly) {
+    vfs.files[name] = {
+      content: content || "",
+      language: language || guessLanguageFromFilename(name),
+      readonly: !!readonly,
+    };
+  }
+
+  function vfsDeleteFile(name) {
+    if (name === vfs.mainFile) return; /* Never delete the main solution file */
+    delete vfs.files[name];
+    if (vfs.activeFile === name) {
+      vfs.activeFile = vfs.mainFile;
+      vfsSwitchTo(vfs.mainFile);
+    }
+    renderExplorerTree();
+    renderEditorTabs();
+  }
+
+  function vfsGetContent(name) {
+    return vfs.files[name] ? vfs.files[name].content : "";
+  }
+
+  function vfsSaveCurrentEditor() {
+    if (vfs.activeFile && vfs.files[vfs.activeFile] && ps.editor) {
+      vfs.files[vfs.activeFile].content = ps.editor.getValue();
+    }
+  }
+
+  function vfsSwitchTo(name) {
+    if (!vfs.files[name]) return;
+    vfsSaveCurrentEditor();
+    vfs.activeFile = name;
+    if (ps.editor) {
+      ps.editor.setValue(vfs.files[name].content);
+      setEditorLanguage(vfs.files[name].language);
+      ps.editor.setOption("readOnly", vfs.files[name].readonly);
+      ps.editor.refresh();
+    }
+    renderEditorTabs();
+    renderExplorerTree();
+    updateEditorFilename(name);
+  }
+
+  /** Build the initial file set for a problem */
+  function vfsInitForProblem(problem) {
+    vfsReset();
+    var lang = (problem.language || "python").toLowerCase();
+    var ext = langToExt(lang);
+    var mainName = "solution" + ext;
+
+    vfsCreateFile(mainName, problem.starterCode || "", lang, false);
+    vfs.mainFile = mainName;
+    vfs.activeFile = mainName;
+
+    /* Add test cases file if test cases exist */
+    if (problem.testCases && problem.testCases.length) {
+      var testContent = buildTestFile(problem, lang, ext);
+      if (testContent) {
+        vfsCreateFile("tests" + ext, testContent, lang, true);
+      }
+    }
+
+    /* Add scaffold files based on language */
+    addScaffoldFiles(lang, problem);
+
+    renderExplorerTree();
+    renderEditorTabs();
+  }
+
+  function langToExt(lang) {
+    var map = {
+      python: ".py", javascript: ".js", js: ".js",
+      typescript: ".ts", ts: ".ts",
+      java: ".java", c: ".c", cpp: ".cpp", "c++": ".cpp",
+      csharp: ".cs", "c#": ".cs", go: ".go", rust: ".rs",
+      sql: ".sql", bash: ".sh", shell: ".sh", sh: ".sh",
+    };
+    return map[lang] || ".txt";
+  }
+
+  function guessLanguageFromFilename(name) {
+    var ext = name.slice(name.lastIndexOf(".")).toLowerCase();
+    var map = {
+      ".py": "python", ".js": "javascript", ".ts": "typescript",
+      ".java": "java", ".c": "c", ".cpp": "cpp", ".cs": "csharp",
+      ".go": "go", ".rs": "rust", ".sql": "sql", ".sh": "bash",
+      ".json": "javascript", ".md": "text", ".txt": "text",
+    };
+    return map[ext] || "text";
+  }
+
+  function buildTestFile(problem, lang, ext) {
+    var lines = [];
+    if (lang === "python") {
+      lines.push("# Auto-generated test cases (read-only)");
+      lines.push("# These verify your solution against the expected outputs.\n");
+      problem.testCases.forEach(function (tc, i) {
+        lines.push("# Test " + (i + 1) + ": " + (tc.explanation || ""));
+        lines.push("# Input:    " + tc.input);
+        lines.push("# Expected: " + tc.expected);
+        lines.push("");
+      });
+    } else if (lang === "javascript" || lang === "js" || lang === "typescript" || lang === "ts") {
+      lines.push("// Auto-generated test cases (read-only)");
+      lines.push("// These verify your solution against the expected outputs.\n");
+      problem.testCases.forEach(function (tc, i) {
+        lines.push("// Test " + (i + 1) + ": " + (tc.explanation || ""));
+        lines.push("// Input:    " + tc.input);
+        lines.push("// Expected: " + tc.expected);
+        lines.push("");
+      });
+    } else {
+      lines.push("Test Cases (read-only)\n");
+      problem.testCases.forEach(function (tc, i) {
+        lines.push("Test " + (i + 1) + ": " + (tc.explanation || ""));
+        lines.push("  Input:    " + tc.input);
+        lines.push("  Expected: " + tc.expected);
+        lines.push("");
+      });
+    }
+    return lines.join("\n");
+  }
+
+  function addScaffoldFiles(lang, problem) {
+    if (lang === "python") {
+      vfsCreateFile("README.md",
+        "# " + (problem.title || "Practice Problem") + "\n\n" +
+        (problem.description || "").slice(0, 500) + "\n",
+        "text", true);
+    } else if (lang === "javascript" || lang === "js" || lang === "typescript" || lang === "ts") {
+      vfsCreateFile("package.json",
+        JSON.stringify({ name: "practice-problem", version: "1.0.0", main: "solution" + langToExt(lang) }, null, 2),
+        "javascript", true);
+    } else if (lang === "csharp" || lang === "c#") {
+      vfsCreateFile("Program.cs",
+        "// Entry point — calls your solution\nusing System;\n\nclass Program {\n    static void Main() {\n        // TODO: test your solution here\n    }\n}\n",
+        "csharp", true);
+    }
+  }
+
+  /* ==================================================================
+   * File Explorer Rendering
+   * ================================================================== */
+  function renderExplorerTree() {
+    var tree = document.getElementById("explorer-tree");
+    if (!tree) return;
+    var names = Object.keys(vfs.files).sort(function (a, b) {
+      /* Main file first, then alphabetical */
+      if (a === vfs.mainFile) return -1;
+      if (b === vfs.mainFile) return 1;
+      return a.localeCompare(b);
+    });
+
+    tree.innerHTML = names.map(function (name) {
+      var f = vfs.files[name];
+      var isActive = name === vfs.activeFile;
+      var cls = "explorer-item" + (isActive ? " active" : "") + (f.readonly ? " readonly" : "");
+      var icon = getFileIcon(name);
+      var deleteBtn = (!f.readonly && name !== vfs.mainFile)
+        ? '<span class="explorer-item-actions">' +
+          '<button class="explorer-item-btn" data-delete="' + esc(name) + '" title="Delete file">&times;</button>' +
+          '</span>'
+        : '';
+      return '<div class="' + cls + '" data-file="' + esc(name) + '">' +
+        icon + '<span>' + esc(name) + '</span>' + deleteBtn + '</div>';
+    }).join("");
+  }
+
+  function getFileIcon(name) {
+    var ext = name.slice(name.lastIndexOf(".")).toLowerCase();
+    /* Simple colored circle icons by file type */
+    var colors = {
+      ".py": "#3572A5", ".js": "#f1e05a", ".ts": "#3178c6",
+      ".java": "#b07219", ".c": "#555555", ".cpp": "#f34b7d",
+      ".cs": "#178600", ".go": "#00ADD8", ".rs": "#dea584",
+      ".json": "#292929", ".md": "#083fa1", ".sql": "#e38c00",
+      ".sh": "#89e051",
+    };
+    var color = colors[ext] || "var(--ink-muted)";
+    return '<svg viewBox="0 0 16 16" width="12" height="12"><circle cx="8" cy="8" r="4" fill="' + color + '" opacity="0.7"/></svg>';
+  }
+
+  function renderEditorTabs() {
+    var container = document.getElementById("editor-tabs-container");
+    if (!container) return;
+    var names = Object.keys(vfs.files);
+    /* Show tabs only if more than one file */
+    container.innerHTML = names.map(function (name) {
+      var isActive = name === vfs.activeFile;
+      var cls = "editor-file-tab" + (isActive ? " active" : "");
+      return '<span class="' + cls + '" data-file="' + esc(name) + '">' +
+        getFileIcon(name) +
+        '<span>' + esc(name) + '</span>' +
+        '</span>';
+    }).join("");
+  }
+
+  /* ==================================================================
+   * Code Execution Engine
+   *
+   * Python:     Pyodide (WASM, in-browser)
+   * JavaScript: sandboxed eval in a Web Worker
+   * Other:      Piston public API (https://emkc.org/api/v2/piston/execute)
+   * ================================================================== */
+  var execution = {
+    pyodide: null,
+    pyodideLoading: false,
+    worker: null,
+  };
+
+  function runCode() {
+    vfsSaveCurrentEditor();
+    var mainContent = vfsGetContent(vfs.mainFile);
+    if (!mainContent.trim()) return;
+
+    var lang = vfs.files[vfs.mainFile] ? vfs.files[vfs.mainFile].language : "python";
+    var consoleEl = document.getElementById("console-display");
+    switchOutputTab("console");
+
+    consoleEl.innerHTML =
+      '<div class="console-running">' +
+      '<div class="typing-dots"><span></span><span></span><span></span></div>' +
+      'Running\u2026</div>';
+
+    var runBtn = document.getElementById("run-code-btn");
+    if (runBtn) runBtn.disabled = true;
+
+    var execPromise;
+    if (lang === "python") {
+      execPromise = runPython(mainContent);
+    } else if (lang === "javascript" || lang === "js") {
+      execPromise = runJavaScript(mainContent);
+    } else {
+      execPromise = runPiston(mainContent, lang);
+    }
+
+    execPromise
+      .then(function (result) {
+        renderConsoleOutput(consoleEl, result);
+      })
+      .catch(function (err) {
+        consoleEl.innerHTML =
+          '<pre class="console-output"><span class="console-line stderr">' +
+          esc(err.message || String(err)) + '</span></pre>';
+      })
+      .finally(function () {
+        if (runBtn) runBtn.disabled = false;
+      });
+  }
+
+  function renderConsoleOutput(el, result) {
+    var lines = [];
+    if (result.stdout) {
+      result.stdout.split("\n").forEach(function (line) {
+        if (line) lines.push('<span class="console-line stdout">' + esc(line) + '</span>');
+      });
+    }
+    if (result.stderr) {
+      result.stderr.split("\n").forEach(function (line) {
+        if (line) lines.push('<span class="console-line stderr">' + esc(line) + '</span>');
+      });
+    }
+    if (result.error) {
+      lines.push('<span class="console-line stderr">' + esc(result.error) + '</span>');
+    }
+    if (lines.length === 0) {
+      lines.push('<span class="console-line info">(no output)</span>');
+    }
+    if (result.exitCode !== undefined && result.exitCode !== 0) {
+      lines.push('<span class="console-line info">Exit code: ' + result.exitCode + '</span>');
+    }
+    el.innerHTML = '<pre class="console-output">' + lines.join("\n") + '</pre>';
+  }
+
+  /** Run Python via Pyodide (in-browser WASM) */
+  function runPython(code) {
+    if (execution.pyodide) {
+      return executePyodide(code);
+    }
+    if (execution.pyodideLoading) {
+      return Promise.reject(new Error("Python runtime is still loading\u2026 please wait."));
+    }
+    if (typeof loadPyodide === "undefined") {
+      return Promise.reject(new Error("Pyodide not available. Reload the page."));
+    }
+    execution.pyodideLoading = true;
+    var consoleEl = document.getElementById("console-display");
+    if (consoleEl) {
+      consoleEl.innerHTML =
+        '<div class="console-running">' +
+        '<div class="typing-dots"><span></span><span></span><span></span></div>' +
+        'Loading Python runtime (first run only)\u2026</div>';
+    }
+    return loadPyodide()
+      .then(function (py) {
+        execution.pyodide = py;
+        execution.pyodideLoading = false;
+        return executePyodide(code);
+      })
+      .catch(function (err) {
+        execution.pyodideLoading = false;
+        throw err;
+      });
+  }
+
+  function executePyodide(code) {
+    var py = execution.pyodide;
+    return new Promise(function (resolve) {
+      var stdout = [];
+      var stderr = [];
+      py.setStdout({ batched: function (line) { stdout.push(line); } });
+      py.setStderr({ batched: function (line) { stderr.push(line); } });
+      try {
+        py.runPython(code);
+        resolve({ stdout: stdout.join("\n"), stderr: stderr.join("\n"), exitCode: 0 });
+      } catch (err) {
+        resolve({ stdout: stdout.join("\n"), stderr: stderr.join("\n"), error: err.message, exitCode: 1 });
+      }
+    });
+  }
+
+  /** Run JavaScript in a sandboxed iframe */
+  function runJavaScript(code) {
+    return new Promise(function (resolve) {
+      var stdout = [];
+      var stderr = [];
+      var iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.sandbox = "allow-scripts";
+      document.body.appendChild(iframe);
+
+      var timeout = setTimeout(function () {
+        document.body.removeChild(iframe);
+        resolve({ stdout: stdout.join("\n"), stderr: stderr.join("\n"), error: "Execution timed out (5s)", exitCode: 1 });
+      }, 5000);
+
+      /* Listen for messages from the sandboxed iframe */
+      function onMessage(e) {
+        if (e.source !== iframe.contentWindow) return;
+        var d = e.data;
+        if (d && d.type === "console-log") stdout.push(String(d.value));
+        if (d && d.type === "console-error") stderr.push(String(d.value));
+        if (d && d.type === "done") {
+          clearTimeout(timeout);
+          window.removeEventListener("message", onMessage);
+          document.body.removeChild(iframe);
+          resolve({ stdout: stdout.join("\n"), stderr: stderr.join("\n"), exitCode: d.error ? 1 : 0, error: d.error || "" });
+        }
+      }
+      window.addEventListener("message", onMessage);
+
+      /* Build a self-contained script for the iframe */
+      var wrappedCode =
+        '<script>' +
+        'var _log = [];' +
+        'var _err = [];' +
+        'console.log = function() { var a = Array.prototype.slice.call(arguments).map(String).join(" "); parent.postMessage({type:"console-log",value:a},"*"); };' +
+        'console.error = function() { var a = Array.prototype.slice.call(arguments).map(String).join(" "); parent.postMessage({type:"console-error",value:a},"*"); };' +
+        'console.warn = console.error;' +
+        'try {' + code.replace(/<\/script>/gi, "<\\/script>") + '} catch(e) { parent.postMessage({type:"done",error:e.message},"*"); }' +
+        'parent.postMessage({type:"done"},"*");' +
+        '<\/script>';
+      iframe.srcdoc = wrappedCode;
+    });
+  }
+
+  /** Run other languages via Piston API */
+  function runPiston(code, lang) {
+    var pistonLangMap = {
+      python: { language: "python", version: "3.10.0" },
+      javascript: { language: "javascript", version: "18.15.0" },
+      js: { language: "javascript", version: "18.15.0" },
+      typescript: { language: "typescript", version: "5.0.3" },
+      ts: { language: "typescript", version: "5.0.3" },
+      java: { language: "java", version: "15.0.2" },
+      c: { language: "c", version: "10.2.0" },
+      cpp: { language: "c++", version: "10.2.0" },
+      "c++": { language: "c++", version: "10.2.0" },
+      csharp: { language: "csharp", version: "6.12.0" },
+      "c#": { language: "csharp", version: "6.12.0" },
+      go: { language: "go", version: "1.16.2" },
+      rust: { language: "rust", version: "1.68.2" },
+      bash: { language: "bash", version: "5.2.0" },
+      shell: { language: "bash", version: "5.2.0" },
+      sh: { language: "bash", version: "5.2.0" },
+      sql: { language: "sqlite3", version: "3.36.0" },
+    };
+    var mapped = pistonLangMap[lang] || { language: lang, version: "*" };
+
+    return fetch("https://emkc.org/api/v2/piston/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        language: mapped.language,
+        version: mapped.version,
+        files: [{ name: "solution" + langToExt(lang), content: code }],
+      }),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("Piston API error (" + res.status + ")");
+        return res.json();
+      })
+      .then(function (data) {
+        var run = data.run || {};
+        return {
+          stdout: run.stdout || "",
+          stderr: run.stderr || "",
+          exitCode: run.code || 0,
+          error: run.signal ? "Killed by signal: " + run.signal : "",
+        };
+      });
+  }
+
+  /* ==================================================================
+   * Output Tab Switching
+   * ================================================================== */
+  function switchOutputTab(tabName) {
+    var tabs = document.querySelectorAll(".output-tab");
+    tabs.forEach(function (tab) {
+      tab.classList.toggle("active", tab.dataset.output === tabName);
+    });
+    var feedbackEl = document.getElementById("feedback-display");
+    var consoleEl = document.getElementById("console-display");
+    if (feedbackEl) feedbackEl.classList.toggle("hidden", tabName !== "feedback");
+    if (consoleEl) consoleEl.classList.toggle("hidden", tabName !== "console");
+  }
+
+  /* ==================================================================
+   * Fullscreen Management
+   * ================================================================== */
+  var isFullscreen = false;
+
+  function toggleFullscreen() {
+    var panel = document.getElementById("practice-panel");
+    if (!panel) return;
+    isFullscreen = !isFullscreen;
+    panel.classList.toggle("ide-fullscreen", isFullscreen);
+
+    /* Refresh editor to fit new size */
+    if (ps.editor) {
+      setTimeout(function () {
+        ps.editor.setSize("100%", null);
+        ps.editor.refresh();
+      }, 100);
+    }
+  }
+
+  /* ==================================================================
+   * IDE Mode Toggle (Simplified ↔ Full)
+   * ================================================================== */
+  var ideMode = localStorage.getItem("practice-ide-mode") || "simplified";
+
+  function setIdeMode(mode) {
+    ideMode = mode;
+    localStorage.setItem("practice-ide-mode", mode);
+    var panel = document.getElementById("practice-panel");
+    if (!panel) return;
+    panel.classList.toggle("ide-mode-full", mode === "full");
+
+    var explorerBtn = document.getElementById("ide-toggle-explorer");
+    if (explorerBtn) explorerBtn.classList.toggle("active", mode === "full");
+
+    var modeBtn = document.getElementById("ide-toggle-mode");
+    if (modeBtn) modeBtn.classList.toggle("active", mode === "full");
+
+    if (ps.editor) {
+      setTimeout(function () { ps.editor.refresh(); }, 50);
+    }
+  }
+
+  function toggleIdeMode() {
+    setIdeMode(ideMode === "full" ? "simplified" : "full");
+  }
+
+  /* ==================================================================
+   * Status Bar Updates
+   * ================================================================== */
+  function updateStatusBar(problem) {
+    var diffEl = document.getElementById("status-difficulty");
+    var langEl = document.getElementById("status-language");
+    if (diffEl && problem) {
+      diffEl.textContent = (problem.difficulty || "medium").charAt(0).toUpperCase() +
+        (problem.difficulty || "medium").slice(1);
+    }
+    if (langEl && problem) {
+      langEl.textContent = (problem.language || "python").charAt(0).toUpperCase() +
+        (problem.language || "python").slice(1);
+    }
+  }
+
+  function updateEditorFilename(nameOrLang) {
+    var el = document.getElementById("editor-filename");
+    if (!el) return;
+    /* If it looks like a filename (has a dot), use it directly */
+    if (nameOrLang && nameOrLang.indexOf(".") !== -1) {
+      el.textContent = nameOrLang;
+    } else {
+      el.textContent = "solution" + langToExt(nameOrLang || "python");
+    }
+  }
+
+  function updateCursorPosition() {
+    if (!ps.editor) return;
+    var cursor = ps.editor.getCursor();
+    var el = document.getElementById("status-line-info");
+    if (el) el.textContent = "Ln " + (cursor.line + 1) + ", Col " + (cursor.ch + 1);
   }
 
   /* -- Model selector population ------------------------------------- */
@@ -864,10 +1524,14 @@
     var practiceActions = document.querySelector(".practice-actions");
     var editorContainer = document.querySelector(".editor-container");
     var modelSel = document.getElementById("model-selector");
+    var hostedModelGroup = document.getElementById("hosted-model-group");
+    var statusProviderLabel = document.getElementById("status-provider-label");
 
     if (provider === "hosted") {
       if (setupEl) setupEl.classList.add("hidden");
       if (modelSel) modelSel.disabled = true;
+      if (hostedModelGroup) hostedModelGroup.style.display = "";
+      if (statusProviderLabel) statusProviderLabel.textContent = "Hosted";
       stopInstallerPolling();
 
       if (!config.apiBase) {
@@ -902,6 +1566,8 @@
       if (hostedGate) hostedGate.classList.add("hidden");
       hideHostedStatusBar();
       if (modelSel) modelSel.disabled = false;
+      if (hostedModelGroup) hostedModelGroup.style.display = "none";
+      if (statusProviderLabel) statusProviderLabel.textContent = "Local";
       refreshAiStatus();
     }
   }
@@ -1499,6 +2165,7 @@
         renderProblem(latest);
         updateActionButtons();
         setEditorLanguage(latest.language || "python");
+        vfsInitForProblem(latest);
         if (latest.starterCode && ps.editor && !ps.editor.getValue().trim()) {
           ps.editor.setValue(latest.starterCode);
         }
@@ -1531,6 +2198,11 @@
         generateProblem();
         return;
       }
+      var genEmptyBtn = event.target.closest("#generate-problem-btn-empty");
+      if (genEmptyBtn) {
+        generateProblem();
+        return;
+      }
       var hintBtn = event.target.closest("#hint-btn");
       if (hintBtn && !hintBtn.disabled) {
         getHint();
@@ -1546,6 +2218,11 @@
         showSolution();
         return;
       }
+      var runBtn = event.target.closest("#run-code-btn");
+      if (runBtn && !runBtn.disabled) {
+        runCode();
+        return;
+      }
       var tab = event.target.closest(".practice-tab");
       if (tab && tab.dataset.tab) {
         switchTab(tab.dataset.tab);
@@ -1556,7 +2233,88 @@
         switchProvider(provTab.dataset.provider);
         return;
       }
+      /* Output tab switching */
+      var outTab = event.target.closest(".output-tab");
+      if (outTab && outTab.dataset.output) {
+        switchOutputTab(outTab.dataset.output);
+        return;
+      }
+      /* File explorer item click */
+      var explorerItem = event.target.closest(".explorer-item");
+      if (explorerItem && explorerItem.dataset.file) {
+        vfsSwitchTo(explorerItem.dataset.file);
+        return;
+      }
+      /* File explorer delete button */
+      var deleteBtn = event.target.closest("[data-delete]");
+      if (deleteBtn) {
+        vfsDeleteFile(deleteBtn.dataset.delete);
+        return;
+      }
+      /* Editor file tab click */
+      var fileTab = event.target.closest(".editor-file-tab");
+      if (fileTab && fileTab.dataset.file) {
+        vfsSwitchTo(fileTab.dataset.file);
+        return;
+      }
+      /* Fullscreen button */
+      var fsBtn = event.target.closest("#ide-fullscreen-btn");
+      if (fsBtn) {
+        toggleFullscreen();
+        return;
+      }
+      /* Mode toggle button */
+      var modeBtn = event.target.closest("#ide-toggle-mode");
+      if (modeBtn) {
+        toggleIdeMode();
+        return;
+      }
+      /* Explorer toggle button */
+      var explorerToggle = event.target.closest("#ide-toggle-explorer");
+      if (explorerToggle) {
+        toggleIdeMode();
+        return;
+      }
+      /* Show full mode link in explorer notice */
+      var fullModeLink = event.target.closest("#show-full-mode-btn");
+      if (fullModeLink) {
+        setIdeMode("full");
+        return;
+      }
+      /* Reset code button */
+      var resetBtn = event.target.closest("#reset-code-btn");
+      if (resetBtn && ps.currentProblem && ps.editor) {
+        ps.editor.setValue(ps.currentProblem.starterCode || "");
+        if (vfs.mainFile && vfs.files[vfs.mainFile]) {
+          vfs.files[vfs.mainFile].content = ps.currentProblem.starterCode || "";
+        }
+        return;
+      }
     });
+
+    /* Difficulty selector */
+    document.addEventListener("click", function (e) {
+      var diffBtn = e.target.closest(".diff-btn");
+      if (!diffBtn) return;
+      var diff = diffBtn.dataset.difficulty;
+      if (!diff) return;
+      config.difficulty = diff;
+      localStorage.setItem("practice-difficulty", diff);
+      document.querySelectorAll(".diff-btn").forEach(function (b) {
+        b.classList.toggle("active", b.dataset.difficulty === diff);
+      });
+      var statusDiff = document.getElementById("status-difficulty");
+      if (statusDiff) statusDiff.textContent = diff.charAt(0).toUpperCase() + diff.slice(1);
+    });
+
+    /* Hosted model selector */
+    var hostedModelSel = document.getElementById("hosted-model-selector");
+    if (hostedModelSel) {
+      hostedModelSel.addEventListener("change", function () {
+        config.hostedModel = hostedModelSel.value;
+        localStorage.setItem("practice-hosted-model", config.hostedModel);
+      });
+    }
 
     /* Model selector */
     var modelSel = document.getElementById("model-selector");
@@ -1580,6 +2338,53 @@
       }
     });
 
+    /* New file button in explorer */
+    var newFileBtn = document.getElementById("new-file-btn");
+    if (newFileBtn) {
+      newFileBtn.addEventListener("click", function () {
+        var lang = ps.currentProblem ? (ps.currentProblem.language || "python") : "python";
+        var ext = langToExt(lang);
+        var name = prompt("File name:", "helper" + ext);
+        if (!name || !name.trim()) return;
+        name = name.trim();
+        if (vfs.files[name]) { alert("File already exists."); return; }
+        vfsCreateFile(name, "", guessLanguageFromFilename(name), false);
+        renderExplorerTree();
+        renderEditorTabs();
+        vfsSwitchTo(name);
+      });
+    }
+
+    /* Keyboard shortcuts */
+    document.addEventListener("keydown", function (e) {
+      if (!ps.active) return;
+      /* Ctrl/Cmd + Enter: Run code */
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        var runBtn = document.getElementById("run-code-btn");
+        if (runBtn && !runBtn.disabled) runCode();
+        return;
+      }
+      /* Ctrl/Cmd + B: Toggle explorer */
+      if ((e.ctrlKey || e.metaKey) && e.key === "b") {
+        e.preventDefault();
+        toggleIdeMode();
+        return;
+      }
+      /* F11: Fullscreen */
+      if (e.key === "F11") {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
+      /* Escape: Exit fullscreen */
+      if (e.key === "Escape" && isFullscreen) {
+        toggleFullscreen();
+        return;
+      }
+    });
+
+    /* Theme sync */
     var observer = new MutationObserver(function (mutations) {
       mutations.forEach(function (m) {
         if (m.attributeName === "data-theme") syncEditorTheme();
@@ -1593,6 +2398,33 @@
    * ================================================================== */
   function init() {
     wireEvents();
+
+    /* Apply saved IDE mode */
+    setIdeMode(ideMode);
+
+    /* Difficulty initial highlight */
+    var activeDiffBtn = document.querySelector('.diff-btn[data-difficulty="' + config.difficulty + '"]');
+    if (activeDiffBtn) {
+      document.querySelectorAll(".diff-btn").forEach(function (b) { b.classList.remove("active"); });
+      activeDiffBtn.classList.add("active");
+    }
+
+    /* Hosted model initial value */
+    var hostedModelSel = document.getElementById("hosted-model-selector");
+    if (hostedModelSel) hostedModelSel.value = config.hostedModel;
+
+    /* Cursor position tracking */
+    var cursorInterval = setInterval(function () {
+      if (ps.editor) {
+        clearInterval(cursorInterval);
+        ps.editor.on("cursorActivity", updateCursorPosition);
+      }
+    }, 500);
+
+    /* Enable Run button when a problem exists */
+    var runBtn = document.getElementById("run-code-btn");
+    if (runBtn) runBtn.disabled = !ps.currentProblem;
+
     openDb().catch(function (err) {
       console.warn("Practice DB init failed:", err);
     });
