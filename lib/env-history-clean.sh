@@ -15,6 +15,10 @@ tracked_files_matching_pattern() {
 	local pattern="$2"
 	local regex
 	regex=$(echo "$pattern" | sed 's/\./\\./g; s/\*/.*/g')
+	if [[ "$pattern" == */ ]]; then
+		repo_git "$repo_root" ls-files 2>/dev/null | grep -E "(^|/)${regex}.*$" 2>/dev/null || true
+		return 0
+	fi
 	repo_git "$repo_root" ls-files 2>/dev/null | grep -E "(^|/)${regex}$" 2>/dev/null || true
 }
 

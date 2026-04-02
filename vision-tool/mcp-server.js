@@ -83,7 +83,7 @@ const VISION_TOOLS = [
   {
     name: "take_screenshot",
     description:
-      "Capture a screenshot on macOS. Returns the absolute path to the saved PNG. Use this to get images for analyze_images.",
+      "Capture a screenshot on macOS. Returns the absolute path to the saved PNG. If a built-in host image tool such as view_image is available, prefer that to inspect the screenshot; otherwise use analyze_images for model-driven analysis.",
     inputSchema: {
       type: "object",
       properties: {
@@ -126,7 +126,7 @@ const VISION_TOOLS = [
   {
     name: "analyze_images",
     description:
-      "Analyze up to 10 images with a vision model. Supports single inspection, comparisons, batch evaluation, and any custom analysis goal.",
+      "Analyze up to 10 images with a vision model. Prefer a built-in host image tool such as view_image for simple single-image inspection when available. Use this tool for multi-image comparison, batch evaluation, explicit analysis goals, or when no built-in image tool is available.",
     inputSchema: {
       type: "object",
       properties: {

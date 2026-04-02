@@ -69,7 +69,8 @@ module.exports = function createActivityTracker(deps) {
           preview: sess.preview || "",
           sessionId: sess.sessionId,
           requestCount: sess.requestCount || 0,
-          completedAt: sess.completedAt || sess._lastChangedAt || sess.startedAt,
+          completedAt:
+            sess.completedAt || sess._lastChangedAt || sess.startedAt,
         });
       }
     }
@@ -83,11 +84,7 @@ module.exports = function createActivityTracker(deps) {
         (right.completedAt || right.startedAt) -
         (left.completedAt || left.startedAt),
     );
-    return [
-      ...activeSessions,
-      ...toolItems,
-      ...recentSessions.slice(0, 3),
-    ];
+    return [...activeSessions, ...toolItems, ...recentSessions.slice(0, 3)];
   }
 
   function _buildActivityUpdate() {

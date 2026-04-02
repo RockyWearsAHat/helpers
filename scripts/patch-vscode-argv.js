@@ -4,9 +4,7 @@
 const fs = require("fs");
 
 function usage() {
-  console.error(
-    "Usage: patch-vscode-argv.js <argv.json path> <extension id>",
-  );
+  console.error("Usage: patch-vscode-argv.js <argv.json path> <extension id>");
 }
 
 function patchArgvFile(argvFile, extensionId) {
