@@ -34,6 +34,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
 
+    <!-- Pyodide for in-browser Python execution (loaded lazily by practice.js) -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js" defer></script>
+
     <script>
       (function () {
         var saved = localStorage.getItem("theme");
@@ -178,32 +181,69 @@
 
               <!-- Practice panel (hidden until toggled) -->
               <div class="practice-panel hidden" id="practice-panel">
-                <div class="practice-header">
-                  <div class="practice-tabs">
-                    <button class="practice-tab active" data-tab="problem" type="button">Problems</button>
-                    <button class="practice-tab" data-tab="examples" type="button">Examples</button>
+
+                <!-- IDE Toolbar -->
+                <div class="ide-toolbar">
+                  <div class="ide-toolbar-left">
+                    <div class="practice-tabs">
+                      <button class="practice-tab active" data-tab="problem" type="button">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        Problem
+                      </button>
+                      <button class="practice-tab" data-tab="examples" type="button">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                        Examples
+                      </button>
+                    </div>
+                    <div class="provider-tabs" id="provider-tabs">
+                      <button class="provider-tab active" data-provider="local" type="button">Local</button>
+                      <button class="provider-tab" data-provider="hosted" type="button">Hosted</button>
+                    </div>
                   </div>
-                  <div class="practice-header-right">
-                    <select class="model-selector" id="model-selector" title="Select AI model">
-                      <option value="">No models</option>
-                    </select>
+                  <div class="ide-toolbar-right">
                     <div class="ai-status">
                       <span class="ai-dot ai-disconnected" id="ai-dot"></span>
-                      <span class="ai-label" id="ai-label">Checking AI&hellip;</span>
+                      <span class="ai-label" id="ai-label">Checking&hellip;</span>
+                    </div>
+                    <div class="ide-view-controls">
+                      <button class="editor-action-btn" id="ide-toggle-explorer" type="button" title="Toggle file explorer (Ctrl+B)">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                      </button>
+                      <button class="editor-action-btn" id="ide-toggle-mode" type="button" title="Toggle simplified/full mode">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                      </button>
+                      <button class="editor-action-btn" id="ide-fullscreen-btn" type="button" title="Fullscreen (F11)">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                <!-- Provider tabs: Local (Ollama) vs Hosted -->
-                <div class="provider-tabs" id="provider-tabs">
-                  <button class="provider-tab active" data-provider="local" type="button">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-                    Local
-                  </button>
-                  <button class="provider-tab" data-provider="hosted" type="button">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                    Hosted
-                  </button>
+                <!-- Control Bar: difficulty, language, model -->
+                <div class="ide-control-bar" id="ide-control-bar">
+                  <div class="control-group">
+                    <label class="control-label">Difficulty</label>
+                    <div class="difficulty-selector" id="difficulty-selector">
+                      <button class="diff-btn" data-difficulty="easy" type="button">Easy</button>
+                      <button class="diff-btn active" data-difficulty="medium" type="button">Medium</button>
+                      <button class="diff-btn" data-difficulty="hard" type="button">Hard</button>
+                    </div>
+                  </div>
+                  <div class="control-group">
+                    <label class="control-label" for="model-selector">Model</label>
+                    <select class="model-selector" id="model-selector" title="Select AI model">
+                      <option value="">No models</option>
+                    </select>
+                  </div>
+                  <div class="control-group" id="hosted-model-group" style="display:none">
+                    <label class="control-label" for="hosted-model-selector">Hosted Model</label>
+                    <select class="model-selector" id="hosted-model-selector" title="Select hosted AI model">
+                      <option value="gpt-4o-mini">GPT-4o Mini (fast)</option>
+                      <option value="gpt-4o">GPT-4o (balanced)</option>
+                      <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+                      <option value="gpt-4.1">GPT-4.1</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div id="practice-setup" class="hidden"></div>
@@ -216,46 +256,118 @@
                 </div>
 
                 <!-- Hosted login gate (hidden until Hosted tab selected) -->
-                <div id="hosted-login-gate" class="hidden">
-                  <div class="setup-card hosted-gate">
-                    <div class="hosted-gate-icon">
-                      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <div id="hosted-login-gate" class="hidden"></div>
+
+                <!-- Main IDE workspace -->
+                <div id="practice-problem-view" class="ide-workspace">
+                  <!-- Problem pane -->
+                  <div class="ide-problem-pane" id="ide-problem-pane">
+                    <div id="problem-display">
+                      <div class="practice-empty-state">
+                        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        <h3>Ready to practice</h3>
+                        <p>Generate a problem based on this article to start coding.</p>
+                        <button class="btn btn-primary" id="generate-problem-btn-empty" type="button">Generate Problem</button>
+                      </div>
                     </div>
-                    <h3>Sign in to Practice</h3>
-                    <p class="hosted-gate-desc">Hosted mode lets you practice without installing anything locally. Usage is quota-based with your subscription.</p>
-                    <form class="hosted-login-form" id="hosted-login-form" autocomplete="off">
-                      <label class="hosted-field">
-                        <span>Email</span>
-                        <input type="email" id="hosted-email" placeholder="you@example.com" required />
-                      </label>
-                      <label class="hosted-field">
-                        <span>Password</span>
-                        <input type="password" id="hosted-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" required />
-                      </label>
-                      <button class="btn btn-primary btn-lg hosted-login-btn" type="submit">Sign In</button>
-                    </form>
-                    <p class="hosted-gate-footer">Don&rsquo;t have an account? <a href="#" id="hosted-signup-link">Create one</a></p>
+                    <div id="hint-display" class="hidden"></div>
+                  </div>
+
+                  <!-- Editor area (explorer + tabs + editor) -->
+                  <div class="ide-editor-area">
+                    <!-- File explorer sidebar (hidden in simplified mode) -->
+                    <div class="ide-file-explorer hidden" id="ide-file-explorer">
+                      <div class="explorer-header">
+                        <span class="explorer-title">EXPLORER</span>
+                        <button class="explorer-action-btn" id="new-file-btn" type="button" title="New File">
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                        </button>
+                      </div>
+                      <div class="explorer-tree" id="explorer-tree"></div>
+                      <!-- Constraint notice -->
+                      <div class="explorer-notice" id="explorer-notice">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        <span>Simplified view &mdash; <button class="btn-link" id="show-full-mode-btn" type="button">switch to full mode</button></span>
+                      </div>
+                    </div>
+
+                    <!-- Editor column -->
+                    <div class="ide-editor-column">
+                      <!-- Multi-file tab bar -->
+                      <div class="editor-tab-bar">
+                        <div class="editor-tabs-left" id="editor-tabs-container">
+                          <span class="editor-file-tab active" data-file="solution" id="editor-file-tab">
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            <span id="editor-filename">solution.py</span>
+                          </span>
+                        </div>
+                        <div class="editor-tabs-right">
+                          <button class="editor-action-btn" id="reset-code-btn" type="button" title="Reset to starter code">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="editor-container">
+                        <textarea id="code-editor"></textarea>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Action bar -->
+                  <div class="ide-action-bar">
+                    <div class="practice-actions">
+                      <button class="btn btn-success btn-sm ide-run-btn" id="run-code-btn" type="button" disabled title="Run code (Ctrl+Enter)">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        Run
+                      </button>
+                      <button class="btn btn-accent btn-sm" id="submit-btn" type="button" disabled>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        Submit
+                      </button>
+                      <button class="btn btn-ghost btn-sm" id="hint-btn" type="button" disabled>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        Hint
+                      </button>
+                      <button class="btn btn-ghost btn-sm" id="show-solution-btn" type="button" disabled>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        Solution
+                      </button>
+                      <div class="actions-spacer"></div>
+                      <button class="btn btn-ghost btn-sm" id="generate-problem-btn" type="button">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                        New Problem
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Output pane with tabs: Output + Console -->
+                  <div class="ide-output-pane" id="ide-output-pane">
+                    <div class="output-tab-bar">
+                      <button class="output-tab active" data-output="feedback" type="button">Output</button>
+                      <button class="output-tab" data-output="console" type="button">Console</button>
+                    </div>
+                    <div class="output-content" id="feedback-display">
+                      <p class="output-placeholder">Submit your solution to see feedback here.</p>
+                    </div>
+                    <div class="output-content hidden" id="console-display">
+                      <p class="output-placeholder">Run your code to see output here.</p>
+                    </div>
                   </div>
                 </div>
 
-                <div id="practice-problem-view">
-                  <div id="problem-display">
-                    <p class="practice-intro">Generate a practice problem based on this article.</p>
+                <!-- IDE Status Bar -->
+                <div class="ide-status-bar" id="ide-status-bar">
+                  <div class="status-left">
+                    <span class="status-item status-branch">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                      <span id="status-provider-label">Local</span>
+                    </span>
+                    <span class="status-item" id="status-difficulty">Medium</span>
                   </div>
-
-                  <div class="editor-container">
-                    <textarea id="code-editor"></textarea>
+                  <div class="status-right">
+                    <span class="status-item" id="status-language">Python</span>
+                    <span class="status-item" id="status-line-info">Ln 1, Col 1</span>
                   </div>
-
-                  <div class="practice-actions">
-                    <button class="btn btn-primary btn-sm" id="generate-problem-btn" type="button">Generate Problem</button>
-                    <button class="btn btn-ghost btn-sm" id="hint-btn" type="button" disabled>Hint</button>
-                    <button class="btn btn-primary btn-sm" id="submit-btn" type="button" disabled>Submit</button>
-                    <button class="btn btn-ghost btn-sm" id="show-solution-btn" type="button" disabled>Solution</button>
-                  </div>
-
-                  <div id="hint-display" class="hidden"></div>
-                  <div id="feedback-display" class="hidden"></div>
                 </div>
 
                 <div id="practice-examples-view" class="hidden">
