@@ -53,7 +53,10 @@ async function main() {
     normalizeRepoPath(findRepoRoot(nestedDir)) === repoRoot,
     "findRepoRoot walks up from a nested directory",
   );
-  assert(findRepoRoot(badDir) === "", "findRepoRoot returns empty outside a repo");
+  assert(
+    findRepoRoot(badDir) === "",
+    "findRepoRoot returns empty outside a repo",
+  );
 
   // 1. With GSH_WORKSPACE_ROOTS pointing to the repo — should resolve.
   process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([repoRoot]);
