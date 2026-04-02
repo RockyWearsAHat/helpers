@@ -129,6 +129,7 @@
   function checkConnection() {
     return fetch(config.ollamaBase + "/api/tags", {
       signal: AbortSignal.timeout(3000),
+      cache: "no-store",
     })
       .then(function (res) {
         if (!res.ok) return { connected: false, models: [] };
@@ -139,8 +140,22 @@
           return { connected: true, models: models };
         });
       })
-      .catch(function () {
-        return { connected: false, models: [] };
+      .catch(function (err) {
+        var errorType = "unreachable";
+        if (err && err.name === "AbortError") {
+          errorType = "timeout";
+        } else if (
+          window.location.protocol === "https:" &&
+          /^http:\/\//i.test(config.ollamaBase)
+        ) {
+          errorType = "origin";
+        }
+        return {
+          connected: false,
+          models: [],
+          errorType: errorType,
+          errorMessage: err && err.message ? err.message : "",
+        };
       });
   }
 
@@ -727,6 +742,36 @@
     return "After installing, launch Ollama so the local server is running before you return here.";
   }
 
+  function getOriginSetupHelp() {
+    var origin = window.location.origin;
+    var os = detectOs();
+    if (os === "mac") {
+      return {
+        command: 'launchctl setenv OLLAMA_ORIGINS "' + origin + '"',
+        restart: "Then fully quit Ollama and reopen it from Applications.",
+      };
+    }
+    if (os === "windows") {
+      return {
+        command:
+          '[Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", "' +
+          origin +
+          '", "User")',
+        restart: "Then fully quit Ollama from the taskbar and start it again from the Start menu.",
+      };
+    }
+    if (os === "linux") {
+      return {
+        command: 'OLLAMA_ORIGINS="' + origin + '" ollama serve',
+        restart: "If you run Ollama as a service, add OLLAMA_ORIGINS to the service environment and restart it.",
+      };
+    }
+    return {
+      command: 'OLLAMA_ORIGINS="' + origin + '" ollama serve',
+      restart: "Restart Ollama after allowing this site origin.",
+    };
+  }
+
   function runInstallerCheck() {
     return checkConnection().then(function (info) {
       if (info.connected) {
@@ -866,7 +911,7 @@
   }
 
   /* -- Big install gate ---------------------------------------------- */
-  function renderInstallGate() {
+  function renderInstallGate(info) {
     var el = document.getElementById("practice-setup");
     if (!el) return;
     el.classList.remove("hidden");
@@ -877,6 +922,29 @@
     var osLabel = osLabels[os] || "your platform";
     var downloadUrl = getDownloadUrl();
     var launchHint = getLaunchHint();
+    var originHelp = getOriginSetupHelp();
+    var diagnosticHtml = "";
+
+    if (info && info.errorType === "origin") {
+      diagnosticHtml =
+        '<div class="setup-alert">' +
+        '<strong>Ollama may already be running.</strong> Atlas is loaded from <code>' +
+        esc(window.location.origin) +
+        '</code>, and Ollama blocks that browser origin until <code>OLLAMA_ORIGINS</code> includes it.</div>' +
+        '<div class="setup-troubleshoot">' +
+        '<p class="setup-troubleshoot-title">Allow this site origin in Ollama:</p>' +
+        '<pre class="setup-command">' +
+        esc(originHelp.command) +
+        '</pre>' +
+        '<p class="setup-troubleshoot-note">' +
+        esc(originHelp.restart) +
+        '</p></div>';
+    } else if (info && info.errorType === "timeout") {
+      diagnosticHtml =
+        '<div class="setup-alert">Atlas reached <code>' +
+        esc(config.ollamaBase) +
+        '</code> too slowly. If Ollama is starting up, wait a moment and click <strong>Check Again</strong>.</div>';
+    }
 
     el.innerHTML =
       '<div class="setup-card setup-gate">' +
@@ -889,6 +957,7 @@
       '<p class="setup-gate-desc">Practice mode uses a local AI model that runs entirely on your machine. ' +
       'No data is sent anywhere \u2014 everything stays private.</p>' +
       '<p class="setup-gate-desc">Download alone is not enough. <strong>Ollama must be actively running</strong> so Atlas can reach the local server at ' + esc(config.ollamaBase) + '.</p>' +
+      diagnosticHtml +
       '<div class="setup-steps">' +
       '<div class="setup-step"><span class="setup-step-num">1</span><span>Install <strong>Ollama</strong> for ' + esc(osLabel) + '.</span></div>' +
       '<div class="setup-step"><span class="setup-step-num">2</span><span>' + esc(launchHint) + '</span></div>' +
@@ -987,7 +1056,7 @@
       if (info.connected) {
         onOllamaDetected(info);
       } else {
-        renderInstallGate();
+        renderInstallGate(info);
       }
     });
   }
