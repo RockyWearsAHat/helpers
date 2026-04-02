@@ -1566,7 +1566,45 @@ mark {
 .setup-gate h3 { font-size: 1.3rem; margin: 0 0 12px; font-weight: 700; }
 .setup-gate-desc { font-size: 0.9rem; color: var(--ink-2); line-height: 1.6; max-width: 440px; margin: 0 auto 10px; }
 .setup-gate-size { font-size: 0.82rem; color: var(--ink-muted); }
-.setup-download-btn { display: inline-block; margin: 20px 0 24px; font-size: 1rem; padding: 14px 32px; }
+.setup-steps {
+  display: grid;
+  gap: 10px;
+  max-width: 500px;
+  margin: 18px auto 0;
+  text-align: left;
+}
+.setup-step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+}
+.setup-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.setup-gate-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 22px 0 20px;
+}
+.setup-download-btn,
+.setup-check-btn { font-size: 1rem; padding: 14px 32px; }
 .setup-gate-polling {
   display: flex; align-items: center; justify-content: center;
   gap: 10px; font-size: 0.82rem; color: var(--ink-muted);
@@ -1586,6 +1624,24 @@ mark {
   gap: 6px !important;
 }
 .setup-checkbox input[type="checkbox"] { width: auto; }
+
+@media (max-width: 640px) {
+  .setup-step {
+    grid-template-columns: 24px 1fr;
+    padding: 9px 10px;
+  }
+
+  .setup-step-num {
+    width: 24px;
+    height: 24px;
+  }
+
+  .setup-download-btn,
+  .setup-check-btn {
+    width: 100%;
+    padding: 12px 16px;
+  }
+}
 
 /* Model pull progress */
 .setup-pulling { text-align: center; padding: 40px 28px; }
