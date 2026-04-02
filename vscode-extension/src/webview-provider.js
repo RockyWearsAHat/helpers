@@ -67,9 +67,38 @@ module.exports = function createWebviewProviderClass(deps) {
           case "logout":
             await logoutGitHub();
             break;
-          case "openChatSession":
-            vscode.commands.executeCommand("workbench.action.chat.open");
+          case "openChatSession": {
+            let opened = false;
+            const sessionId = msg.sessionId;
+            if (sessionId) {
+              // Try to open the specific session via its URI
+              try {
+                const sessionUri = vscode.Uri.parse(
+                  `vscode-chat-session://local/${sessionId}`,
+                );
+                await vscode.window.showTextDocument(sessionUri, {
+                  preview: false,
+                  preserveFocus: false,
+                });
+                opened = true;
+              } catch {
+                // Fallback: try the chat.open command with sessionId
+                try {
+                  await vscode.commands.executeCommand(
+                    "workbench.action.chat.open",
+                    { sessionId },
+                  );
+                  opened = true;
+                } catch {
+                  // ignore
+                }
+              }
+            }
+            if (!opened) {
+              vscode.commands.executeCommand("workbench.action.chat.open");
+            }
             break;
+          }
           case "selectRepos":
             await selectRepos();
             break;
