@@ -329,9 +329,14 @@ module.exports = function createChatSessions(deps) {
     const existing = _chatSessions.get(sessionId);
     const now = Date.now();
 
-    _chatHistoryArchive.archiveSessionFile(sessionId, filePath, {
-      title: existing?.title,
-    });
+    const archiveEnabled = vscode.workspace
+      .getConfiguration("gitShellHelpers.chatArchive")
+      .get("enabled", true);
+    if (archiveEnabled) {
+      _chatHistoryArchive.archiveSessionFile(sessionId, filePath, {
+        title: existing?.title,
+      });
+    }
 
     const { tail, size: fileSize } = _chatSessionReadTail(filePath);
     if (!tail) return;

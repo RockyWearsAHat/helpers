@@ -67,6 +67,10 @@
       {
         "command": "gitShellHelpers.openModelPicker",
         "title": "GitHub Shell Helpers: Set Active Chat Model"
+      },
+      {
+        "command": "gitShellHelpers.formatOpenFiles",
+        "title": "GitHub Shell Helpers: Format All Open Files"
       }
     ],
     "languageModelTools": [
@@ -184,6 +188,21 @@
           "type": "boolean",
           "default": true,
           "description": "Enable Engram-style session memory. Agents log actions and outcomes to a per-workspace session log with TF-IDF indexing and surprise-weighted retrieval. Helps agents learn from past mistakes and adapt across sessions."
+        },
+        "gitShellHelpers.chatArchive.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable lossless chat history archiving. Captures everything said in Copilot chat sessions — user messages, assistant responses, tool calls — into Brotli-compressed chunks with Bloom filter indexes. Agents can search past conversations via MCP tools."
+        },
+        "gitShellHelpers.chatArchive.autoCompact": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run L2 compaction when a session accumulates enough chunks. Merges small compressed chunks into larger super-chunks at higher compression, reducing file count and storage. Always lossless and reversible."
+        },
+        "gitShellHelpers.formatControl.bypassOnAgentSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Suppress editor.formatOnSave and editor.codeActionsOnSave while enabled. Prevents Prettier, ESLint auto-fix, and other formatters from running on every agent file save. Use the 'Format All Open Files' command to apply formatting once at the end of a request."
         }
       }
     }

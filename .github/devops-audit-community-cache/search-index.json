@@ -1,6 +1,6 @@
 {
-  "snapshotId": "2026-07-09-deep-research",
-  "generatedAt": "2026-07-09T12:00:00Z",
+  "snapshotId": "2026-03-26-deep-research",
+  "generatedAt": "2026-03-26T12:00:00Z",
   "description": "Search index for the community cache. Use this file to find relevant entries across all packs by topic, applicability, kind, or keyword. Every entry references its source pack and item ID.",
   "topicIndex": {
     "instructions": {

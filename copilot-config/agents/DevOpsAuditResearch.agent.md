@@ -6,6 +6,7 @@ tools:
   - read
   - search
   - execute
+model: claude-haiku-4.5
 user-invocable: false
 ---
 
