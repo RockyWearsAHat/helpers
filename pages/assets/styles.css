@@ -82,10 +82,10 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  max-width: 1600px;
-  width: calc(100vw - 40px);
+  width: 100%;
+  max-width: 100%;
+  padding: 0 clamp(12px, 2.5vw, 48px) 48px;
   margin: 0 auto;
-  padding-bottom: 48px;
   animation: pageIn 0.25s ease both;
 }
 
@@ -189,10 +189,10 @@ body {
 .hero::before {
   content: "";
   position: absolute;
-  top: -80px;
-  right: -120px;
-  width: 640px;
-  height: 440px;
+  top: -120px;
+  right: -5vw;
+  width: min(60vw, 900px);
+  height: 520px;
   background: radial-gradient(
     ellipse at center,
     var(--accent-soft),
@@ -217,7 +217,7 @@ h1 {
 }
 
 .hero-sub {
-  max-width: 54ch;
+  max-width: 72ch;
   margin: 14px 0 0;
   font-size: 1.05rem;
   line-height: 1.7;
@@ -838,14 +838,13 @@ button.bento-card {
   display: flex;
   gap: 12px;
   align-items: center;
-  width: min(100%, 88ch);
-  margin: 0 auto 20px;
+  width: 100%;
+  margin: 0 0 20px;
 }
 
 .reader-body {
-  width: min(100%, 88ch);
-  max-width: 88ch;
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
   padding: 44px 48px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
@@ -1094,7 +1093,7 @@ button.bento-card {
 /* ─── About Page ─────────────────────────────────────────────────────────────── */
 .page-hidden { display: none; }
 
-.about-page { max-width: 66ch; padding: 52px 0; }
+.about-page { max-width: 100%; padding: 52px 0; }
 
 .about-page h1 { margin: 0 0 24px; }
 
@@ -1267,7 +1266,8 @@ mark {
 
 /* ─── Responsive ─────────────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
-  .main-layout { grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; }
+  .main-layout { grid-template-columns: minmax(0, 1fr) 340px; gap: 22px; }
+  .reader-body { padding: 36px 36px; }
 }
 
 @media (max-width: 1060px) {
@@ -1278,7 +1278,7 @@ mark {
 }
 
 @media (max-width: 740px) {
-  .page-shell { width: calc(100vw - 24px); }
+  .page-shell { padding: 0 12px 48px; }
   h1 { font-size: clamp(2rem, 8.5vw, 2.8rem); }
   .bento-grid { grid-template-columns: repeat(2, 1fr); max-width: 100%; }
   .filter-bar { max-width: 100%; }
