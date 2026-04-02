@@ -272,10 +272,8 @@ function renderResults(results, durationMs, terms) {
 
   if (!state.query) {
     resultsSummary.textContent =
-      "Search titles, topics, headings, and guide intros across the public corpus.";
-    resultsMeta.textContent = "";
-    renderPreview(null);
-    return;
+      "Start here: top guides across Copilot customization, the knowledge atlas, and archive notes.";
+    resultsMeta.textContent = `${results.length.toLocaleString()} curated picks`;
   }
 
   resultsSummary.textContent = `About ${results.length.toLocaleString()} result${results.length === 1 ? "" : "s"}`;
@@ -321,6 +319,11 @@ function renderResults(results, durationMs, terms) {
     card.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
       activate();
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      window.open(document.githubUrl, "_blank", "noopener,noreferrer");
     });
     resultsList.appendChild(listItem);
   }
@@ -400,7 +403,9 @@ queryInput.addEventListener("input", () => {
 });
 
 luckyButton.addEventListener("click", () => {
-  const topResult = state.lastResults[0];
+  const topResult =
+    state.lastResults.find((entry) => entry.document.id === state.selectedId) ||
+    state.lastResults[0];
   if (!topResult) return;
   window.open(topResult.document.githubUrl, "_blank", "noopener,noreferrer");
 });
