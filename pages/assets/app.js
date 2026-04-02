@@ -435,6 +435,32 @@ function disconnectLoadMoreObserver() {
   loadMoreObserver = null;
 }
 
+function renderSkeletonCards(count) {
+  var container = resultsList.querySelector(".skeleton-group");
+  if (container) container.remove();
+
+  var group = document.createElement("li");
+  group.className = "skeleton-group";
+  group.setAttribute("aria-hidden", "true");
+
+  for (var i = 0; i < count; i++) {
+    group.innerHTML +=
+      '<div class="skeleton-card" style="animation-delay:' + (i * 60) + 'ms">' +
+        '<div class="skeleton-line skeleton-line-short"></div>' +
+        '<div class="skeleton-line skeleton-line-title"></div>' +
+        '<div class="skeleton-line skeleton-line-body"></div>' +
+        '<div class="skeleton-line skeleton-line-body skeleton-line-body-short"></div>' +
+        '<div class="skeleton-pills">' +
+          '<div class="skeleton-pill"></div>' +
+          '<div class="skeleton-pill"></div>' +
+          '<div class="skeleton-pill"></div>' +
+        '</div>' +
+      '</div>';
+  }
+  resultsList.appendChild(group);
+  return group;
+}
+
 function loadNextResultsPage() {
   if (state.isLoadingMore) return;
   var nextStart = (state.currentPage + 1) * state.pageSize;
@@ -444,11 +470,17 @@ function loadNextResultsPage() {
   }
 
   state.isLoadingMore = true;
-  window.requestAnimationFrame(function () {
+  var remaining = state.lastResults.length - nextStart;
+  var skeletonCount = Math.min(remaining, state.pageSize, 5);
+  renderSkeletonCards(skeletonCount);
+
+  setTimeout(function () {
+    var skeletons = resultsList.querySelector(".skeleton-group");
+    if (skeletons) skeletons.remove();
     state.currentPage += 1;
     state.isLoadingMore = false;
     renderResults(state.lastResults, 0, state.lastTerms);
-  });
+  }, 280);
 }
 
 function attachLoadMoreObserver() {
@@ -597,24 +629,32 @@ function renderResults(results, durationMs, terms) {
   }
 
   if (end < results.length) {
-    var loadMoreBtn = document.createElement("li");
-    loadMoreBtn.className = "load-more-item";
+    var remainingCount = results.length - end;
+    var loadMoreLi = document.createElement("li");
+    loadMoreLi.className = "load-more-item";
+    loadMoreLi.innerHTML =
+      '<div class="load-more-indicator" aria-hidden="true">' +
+        '<span class="load-more-count">' + remainingCount + ' more</span>' +
+      '</div>';
+    resultsList.appendChild(loadMoreLi);
     if ("IntersectionObserver" in window) {
-      loadMoreBtn.innerHTML =
-        '<div class="load-more-indicator" aria-hidden="true">Scroll to load more</div>';
       attachLoadMoreObserver();
     } else {
-      loadMoreBtn.innerHTML =
-        '<button class="load-more-btn" type="button">Load more results&hellip;</button>';
-      var loadBtn = loadMoreBtn.querySelector(".load-more-btn");
-      loadBtn.addEventListener("click", function () {
+      loadMoreLi.innerHTML =
+        '<button class="load-more-btn" type="button">Load ' +
+        Math.min(remainingCount, state.pageSize) + ' more results&hellip;</button>';
+      loadMoreLi.querySelector(".load-more-btn").addEventListener("click", function () {
         loadNextResultsPage();
       });
     }
-    resultsList.appendChild(loadMoreBtn);
-    if ("IntersectionObserver" in window) attachLoadMoreObserver();
   } else {
     disconnectLoadMoreObserver();
+    if (results.length > state.pageSize) {
+      var endMarker = document.createElement("li");
+      endMarker.className = "load-more-item";
+      endMarker.innerHTML = '<div class="load-end-indicator" aria-hidden="true">All results loaded</div>';
+      resultsList.appendChild(endMarker);
+    }
   }
 }
 
@@ -657,7 +697,7 @@ function runSearch() {
       .filter(function (e) {
         return e.score > 0;
       }),
-  ).slice(0, 60);
+  );
 
   state.lastResults = results;
   renderResults(results, performance.now() - startedAt, terms);
