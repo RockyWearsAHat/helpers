@@ -37,6 +37,10 @@
         "title": "GitHub Shell Helpers: Run Strict Linting"
       },
       {
+        "command": "gitShellHelpers.searchArchivedChatHistory",
+        "title": "GitHub Shell Helpers: Search Archived Chat History"
+      },
+      {
         "command": "gitShellHelpers.loginGitHub",
         "title": "GitHub Shell Helpers: Sign in to GitHub"
       },
