@@ -3,16 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Copilot + CS Atlas</title>
+    <title>Git Shell Helpers &mdash; Atlas</title>
     <meta
       name="description"
-      content="Search Copilot-specific guidance plus deep CS and coding notes from a single GitHub Pages interface."
+      content="Search Copilot customization guidance, CS knowledge notes, and coding references from a single interface."
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Saira:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./assets/styles.css" />
@@ -29,225 +29,179 @@
     </script>
   </head>
   <body>
-    <div class="noise-layer"></div>
-
     <div class="page-shell">
       <nav class="top-bar">
-        <a
-          class="logo-link"
-          href="https://github.com/RockyWearsAHat/github-shell-helpers"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <svg class="logo-mark" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6.02 0c2.28-1.55 3.29-1.23 3.29-1.23.66 1.66.25 2.88.12 3.18a4.65 4.65 0 0 1 1.24 3.22c0 4.61-2.81 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.21.69.82.57A12 12 0 0 0 12 .3"
-            />
-          </svg>
-          <span>Git Shell Helpers</span>
-        </a>
+        <div class="logo-mark">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6-6-6-6m8 14h8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>atlas</span>
+        </div>
 
         <div class="top-bar-actions">
+          <nav class="top-nav" id="top-nav">
+            <button class="nav-link active" data-page="search" type="button">Search</button>
+            <button class="nav-link" data-page="about" type="button">About</button>
+          </nav>
           <button
             class="theme-toggle"
             id="theme-toggle"
             type="button"
             aria-label="Toggle dark mode"
-            title="Toggle dark mode"
+            title="Toggle theme"
           >
-            <svg class="icon-sun" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="5" />
-              <path
-                d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
-              />
-            </svg>
-            <svg class="icon-moon" viewBox="0 0 24 24">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-            </svg>
+            <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+            <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
           </button>
-          <a
-            class="top-bar-pill"
-            href="https://github.com/RockyWearsAHat/github-shell-helpers"
-            target="_blank"
-            rel="noreferrer"
-            >Star on GitHub</a
-          >
         </div>
       </nav>
 
-      <header class="hero" id="hero-section">
-        <p class="kicker">Copilot + CS Atlas</p>
-        <h1>Search Copilot guidance<br />and deep coding notes.</h1>
-        <p class="hero-summary">
-          General GitHub Copilot advice, a broad CS-and-coding atlas, and the
-          underlying source archive &mdash; one search box, zero local setup.
-        </p>
-
-        <form id="search-form" class="search-form" autocomplete="off">
-          <label class="visually-hidden" for="query-input">Search notes</label>
-          <div class="search-frame">
-            <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M10.5 4a6.5 6.5 0 1 0 4.083 11.558l4.929 4.929 1.414-1.414-4.929-4.929A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
-              ></path>
-            </svg>
-            <input
-              id="query-input"
-              name="q"
-              type="search"
-              placeholder="Search copilot-instructions, agent skills, algorithms, architecture…"
-              spellcheck="false"
-            />
-            <kbd class="search-kbd">&#8984;K</kbd>
-          </div>
-          <div class="search-actions">
-            <button class="btn btn-primary" type="submit">Search</button>
-            <button class="btn btn-ghost" id="lucky-button" type="button">
-              I'm feeling lucky
-            </button>
-          </div>
-        </form>
-
-        <div class="stats-band">
-          <div class="stat-card">
-            <span class="stat-value" id="doc-count">&hellip;</span>
-            <span class="stat-label">indexed</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value" id="copilot-count">&hellip;</span>
-            <span class="stat-label">copilot</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value" id="curated-count">&hellip;</span>
-            <span class="stat-label">knowledge</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value" id="archive-count">&hellip;</span>
-            <span class="stat-label">archive</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value" id="built-at">&hellip;</span>
-            <span class="stat-label">refreshed</span>
-          </div>
-        </div>
-
-        <div
-          class="scope-row"
-          id="scope-row"
-          role="group"
-          aria-label="Filter scope"
-        >
-          <button class="scope-chip active" data-scope="all" type="button">
-            All
-          </button>
-          <button class="scope-chip" data-scope="copilot" type="button">
-            Copilot
-          </button>
-          <button class="scope-chip" data-scope="knowledge" type="button">
-            Knowledge
-          </button>
-          <button class="scope-chip" data-scope="archive" type="button">
-            Archive
-          </button>
-        </div>
-      </header>
-
-      <main class="main-layout" id="main-layout">
-        <section class="results-column" id="results-column">
-          <div class="results-toolbar">
-            <p id="results-summary">Loading search corpus&hellip;</p>
-            <p id="results-meta" class="results-meta"></p>
+      <!-- ── SEARCH PAGE ───────────────────────────── -->
+      <div id="page-search">
+        <header class="hero" id="hero-section">
+          <div class="hero-text">
+            <h1>Git Shell Helpers</h1>
+            <p class="hero-sub">Copilot customization guidance, CS knowledge atlas, and coding references.</p>
           </div>
 
-          <div class="suggestion-strip" id="suggestion-strip"></div>
-
-          <div class="empty-state" id="empty-state">
-            <h2>Start with a Copilot workflow or a CS topic.</h2>
-            <p>
-              Try <strong>applyTo globs</strong>, <strong>agent skills</strong>,
-              <strong>container queries</strong>, or
-              <strong>operating systems memory</strong>.
-            </p>
-          </div>
-
-          <ol class="results-list" id="results-list"></ol>
-        </section>
-
-        <aside class="preview-column" id="preview-column">
-          <div class="preview-card" id="preview-card">
-            <p class="preview-kicker">Result preview</p>
-            <h2>Pick a result to preview it here.</h2>
-            <p class="preview-body">
-              The index blends Copilot-specific guidance with broader CS notes,
-              then ranks titles, topics, headings, and intro text together.
-            </p>
-          </div>
-        </aside>
-
-        <section class="reader-column hidden" id="reader-column">
-          <div class="reader-toolbar">
-            <button class="btn btn-ghost btn-sm" id="reader-back" type="button">
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                aria-hidden="true"
-              >
-                <path
-                  d="M19 12H5m7-7-7 7 7 7"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
+          <form id="search-form" class="search-form" autocomplete="off">
+            <label class="visually-hidden" for="query-input">Search notes</label>
+            <div class="search-frame">
+              <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10.5 4a6.5 6.5 0 1 0 4.083 11.558l4.929 4.929 1.414-1.414-4.929-4.929A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"></path>
               </svg>
-              Back to results
-            </button>
-            <a
-              class="btn btn-ghost btn-sm"
-              id="reader-github-link"
-              href="#"
-              target="_blank"
-              rel="noreferrer"
-            >
-              View on GitHub
-            </a>
+              <input
+                id="query-input"
+                name="q"
+                type="search"
+                placeholder="Search instructions, agents, algorithms, architecture&hellip;"
+                spellcheck="false"
+              />
+              <kbd class="search-kbd">&#8984;K</kbd>
+            </div>
+          </form>
+
+          <div class="bento-grid">
+            <div class="bento-card bento-stat">
+              <span class="bento-value" id="doc-count">&hellip;</span>
+              <span class="bento-label">Total indexed</span>
+            </div>
+            <div class="bento-card bento-stat">
+              <span class="bento-value" id="copilot-count">&hellip;</span>
+              <span class="bento-label">Copilot guides</span>
+            </div>
+            <div class="bento-card bento-stat">
+              <span class="bento-value" id="curated-count">&hellip;</span>
+              <span class="bento-label">Knowledge notes</span>
+            </div>
+            <div class="bento-card bento-stat">
+              <span class="bento-value" id="archive-count">&hellip;</span>
+              <span class="bento-label">Archive entries</span>
+            </div>
+            <div class="bento-card bento-stat bento-date">
+              <span class="bento-value" id="built-at">&hellip;</span>
+              <span class="bento-label">Last refreshed</span>
+            </div>
           </div>
-          <article class="reader-body" id="reader-body">
-            <p class="reader-loading">Loading article&hellip;</p>
-          </article>
+
+          <div class="filter-bar">
+            <div class="scope-row" id="scope-row" role="group" aria-label="Filter scope">
+              <button class="scope-chip active" data-scope="all" type="button">All</button>
+              <button class="scope-chip" data-scope="copilot" type="button">Copilot</button>
+              <button class="scope-chip" data-scope="knowledge" type="button">Knowledge</button>
+              <button class="scope-chip" data-scope="archive" type="button">Archive</button>
+            </div>
+            <div class="suggestion-strip" id="suggestion-strip"></div>
+          </div>
+        </header>
+
+        <main class="main-layout" id="main-layout">
+          <section class="results-column" id="results-column">
+            <div class="results-toolbar">
+              <p id="results-summary">Loading search corpus&hellip;</p>
+              <p id="results-meta" class="results-meta"></p>
+            </div>
+
+            <div class="empty-state" id="empty-state" hidden>
+              <h2>No results found</h2>
+              <p>Try broader terms or switch the scope filter.</p>
+            </div>
+
+            <ol class="results-list" id="results-list"></ol>
+          </section>
+
+          <aside class="preview-column" id="preview-column">
+            <div class="preview-card" id="preview-card">
+              <p class="preview-kicker">Preview</p>
+              <h2>Select a result to preview.</h2>
+              <p class="preview-body">
+                Hover or click any result card to see a detailed breakdown here.
+              </p>
+            </div>
+          </aside>
+
+          <section class="reader-column hidden" id="reader-column">
+            <div class="reader-toolbar">
+              <button class="btn btn-ghost btn-sm" id="reader-back" type="button">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Back to results
+              </button>
+            </div>
+            <article class="reader-body" id="reader-body">
+              <p class="reader-loading">Loading article&hellip;</p>
+            </article>
+          </section>
+        </main>
+      </div>
+
+      <!-- ── ABOUT PAGE ────────────────────────────── -->
+      <div id="page-about" class="page-hidden">
+        <section class="about-page">
+          <h1>About this project</h1>
+          <div class="about-body">
+            <p>
+              <strong>Git Shell Helpers</strong> is an open-source collection of shell-based
+              git productivity commands, MCP servers for AI-assisted development, and a
+              VS Code extension &mdash; all designed to streamline developer workflows.
+            </p>
+            <p>
+              This Atlas is the searchable knowledge surface for the project. It indexes
+              Copilot customization guidance (instructions, agents, skills, prompts),
+              a curated computer science knowledge base, and community-contributed
+              research notes into a single fast client-side search.
+            </p>
+            <h2>What&rsquo;s in the index</h2>
+            <ul>
+              <li><strong>Copilot</strong> &mdash; .instructions.md, .agent.md, skills, prompts, and configuration patterns</li>
+              <li><strong>Knowledge</strong> &mdash; ~950 encyclopedia-quality CS and engineering notes</li>
+              <li><strong>Archive</strong> &mdash; Community cache snapshots and research source documents</li>
+            </ul>
+            <h2>How search works</h2>
+            <p>
+              The search runs entirely client-side. A build script extracts titles,
+              headings, keywords, topics, and full text from every document, then
+              serializes the corpus into a single JSON file. At runtime, queries are
+              tokenized and scored against weighted fields (title &gt; headings &gt;
+              keywords &gt; body text) with multi-term boosting.
+            </p>
+            <h2>Reading articles</h2>
+            <p>
+              Click <em>Read article</em> on any result to fetch the raw Markdown
+              source and render it inline. Articles are cached in memory for the
+              session so subsequent reads are instant.
+            </p>
+          </div>
         </section>
-      </main>
+      </div>
 
       <footer class="site-footer">
         <div class="footer-inner">
-          <div class="footer-branding">
-            <p class="footer-title">Git Shell Helpers</p>
-            <p class="footer-sub">
-              Open-source shell-based git productivity tools, MCP servers, and a
-              VS Code extension.
-            </p>
-          </div>
-          <div class="footer-donate">
-            <p class="footer-donate-label">Support this project</p>
-            <div class="footer-donate-links">
-              <a
-                class="btn btn-accent btn-sm"
-                href="https://github.com/sponsors/RockyWearsAHat"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="16"
-                  height="16"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                    fill="currentColor"
-                  />
+          <p class="footer-copy">&copy; 2024&ndash;2026 Alex Waldmann</p>
+        </div>
+      </footer>
+    </div>
+
+    <script src="./assets/app.js" defer></script>
+  </body>
+</html>
                 </svg>
                 Sponsor
               </a>
