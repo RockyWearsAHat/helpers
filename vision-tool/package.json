@@ -15,6 +15,10 @@
   "files": [
     "extension.js",
     "mcp-server.js",
+    "lib/video-frames.js",
+    "lib/video-analysis.js",
+    "lib/video-report.js",
+    "lib/video-asr.js",
     "package.json",
     "README.md",
     "LICENSE.txt"
@@ -25,6 +29,8 @@
     "onLanguageModelTool:gsh_analyze_images",
     "onLanguageModelTool:gsh-take-screenshot",
     "onLanguageModelTool:gsh_take_screenshot",
+    "onLanguageModelTool:gsh-analyze-video",
+    "onLanguageModelTool:gsh_analyze_video",
     "onChatParticipant:local.gsh-vision"
   ],
   "main": "./extension.js",
@@ -50,6 +56,10 @@
           {
             "name": "analyze",
             "description": "Analyze images. Usage: /analyze /path/to/img1.png :: /path/to/img2.png :: What to evaluate?"
+          },
+          {
+            "name": "analyze-video",
+            "description": "Analyze a video. Usage: /analyze-video /path/to/video.mp4 :: What to analyze?"
           }
         ]
       }
@@ -59,7 +69,7 @@
         "name": "gsh-take-screenshot",
         "displayName": "Take Screenshot",
         "userDescription": "Capture a screenshot on macOS. Returns the path to the saved PNG.",
-        "modelDescription": "Use this tool to capture a screenshot of the screen, a specific application window, or a screen region on macOS. Returns the absolute path to the saved PNG file. Chain with analyze_images to inspect, compare, or evaluate the captured screenshot. Modes: 'fullscreen' (entire screen, default), 'window' (specific app window by name), 'region' (rectangle by x/y/width/height).",
+        "modelDescription": "Use this tool to capture a screenshot of the screen, a specific application window, or a screen region on macOS. Returns the absolute path to the saved PNG file. If a built-in host image tool such as view_image is available, prefer that for single-image inspection of the screenshot. Otherwise chain with analyze_images when you need model-driven inspection, comparison, or evaluation. Modes: 'fullscreen' (entire screen, default), 'window' (specific app window by name), 'region' (rectangle by x/y/width/height).",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -103,7 +113,7 @@
         "name": "gsh-analyze-images",
         "displayName": "Analyze Images",
         "userDescription": "Analyze up to 10 screenshots or frame captures in a single call.",
-        "modelDescription": "Use this tool to analyze screenshots during visual development and testing. Accepts 1–10 image paths and a freeform goal. Use it for single-image inspection, before/after comparison, batch design evaluation, or any visual analysis. The images are sent as real image data to a vision model (Claude Sonnet 4.6 by default). Prefer this over reading screenshot files as text.",
+        "modelDescription": "Use this tool to analyze screenshots during visual development and testing. Accepts 1–10 image paths and a freeform goal. If a built-in host image tool such as view_image is available, prefer that for simple single-image inspection. Use this tool when the built-in tool is unavailable or when you need multi-image comparison, explicit evaluation goals, batch design review, or screenshot-driven debugging. The images are sent as real image data to a vision model (Claude Sonnet 4.6 by default). Prefer this over reading screenshot files as text.",
         "inputSchema": {
           "type": "object",
           "required": [
@@ -139,7 +149,7 @@
         "name": "gsh_analyze_images",
         "displayName": "Analyze Images",
         "userDescription": "Analyze up to 10 screenshots or frame captures in a single call.",
-        "modelDescription": "Use this tool to analyze screenshots during visual development and testing. Accepts 1–10 image paths and a freeform goal. Use it for single-image inspection, before/after comparison, batch design evaluation, or any visual analysis. The images are sent as real image data to a vision model (Claude Sonnet 4.6 by default). Prefer this over reading screenshot files as text.",
+        "modelDescription": "Use this tool to analyze screenshots during visual development and testing. Accepts 1–10 image paths and a freeform goal. If a built-in host image tool such as view_image is available, prefer that for simple single-image inspection. Use this tool when the built-in tool is unavailable or when you need multi-image comparison, explicit evaluation goals, batch design review, or screenshot-driven debugging. The images are sent as real image data to a vision model (Claude Sonnet 4.6 by default). Prefer this over reading screenshot files as text.",
         "inputSchema": {
           "type": "object",
           "required": [
@@ -175,7 +185,7 @@
         "name": "gsh_take_screenshot",
         "displayName": "Take Screenshot",
         "userDescription": "Capture a screenshot on macOS. Returns the path to the saved PNG.",
-        "modelDescription": "Use this tool to capture a screenshot of the screen, a specific application window, or a screen region on macOS. Returns the absolute path to the saved PNG file. Chain with analyze_images to inspect, compare, or evaluate the captured screenshot. Modes: 'fullscreen' (entire screen, default), 'window' (specific app window by name), 'region' (rectangle by x/y/width/height).",
+        "modelDescription": "Use this tool to capture a screenshot of the screen, a specific application window, or a screen region on macOS. Returns the absolute path to the saved PNG file. If a built-in host image tool such as view_image is available, prefer that for single-image inspection of the screenshot. Otherwise chain with analyze_images when you need model-driven inspection, comparison, or evaluation. Modes: 'fullscreen' (entire screen, default), 'window' (specific app window by name), 'region' (rectangle by x/y/width/height).",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -214,6 +224,116 @@
             }
           }
         }
+      },
+      {
+        "name": "gsh-analyze-video",
+        "displayName": "Analyze Video",
+        "userDescription": "Analyze a video by extracting frames and running them through a vision model.",
+        "modelDescription": "Use this tool to analyze video content. Extracts frames at regular intervals using ffmpeg, analyzes each batch with a vision model, and merges with auto-generated transcript (via local ASR or yt-dlp subtitles for URLs). Returns a structured JSON timeline with per-frame visual descriptions, OCR-like text extraction, and a human-readable report. Requires ffmpeg/ffprobe to be installed. Accepts local video paths or URLs (via yt-dlp). Supports time window restriction and custom sampling intervals.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "videoPath",
+            "goal"
+          ],
+          "properties": {
+            "videoPath": {
+              "type": "string",
+              "description": "Absolute path to a local video file, or a URL (YouTube/Shorts) if yt-dlp is installed."
+            },
+            "goal": {
+              "type": "string",
+              "description": "What to analyze or determine from the video. Be specific about what visual evidence to look for."
+            },
+            "startSec": {
+              "type": "number",
+              "description": "Optional start time in seconds. Limits analysis to a time window."
+            },
+            "endSec": {
+              "type": "number",
+              "description": "Optional end time in seconds."
+            },
+            "sampleEverySec": {
+              "type": "number",
+              "description": "Interval between frame samples in seconds. Auto-calculated if omitted."
+            },
+            "maxFrames": {
+              "type": "number",
+              "description": "Maximum number of frames to extract and analyze. Default: 30, max: 60."
+            },
+            "includeReport": {
+              "type": "boolean",
+              "description": "Include a human-readable report in the output. Default: true."
+            },
+            "includeTimeline": {
+              "type": "boolean",
+              "description": "Include the structured timeline segments in the output. Default: true."
+            },
+            "autoTranscribe": {
+              "type": "boolean",
+              "description": "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp). Default: true."
+            },
+            "whisperModel": {
+              "type": "string",
+              "description": "Whisper model name for ASR. Default: 'base'. Larger models (small, medium, large) are more accurate but slower."
+            }
+          }
+        }
+      },
+      {
+        "name": "gsh_analyze_video",
+        "displayName": "Analyze Video",
+        "userDescription": "Analyze a video by extracting frames and running them through a vision model.",
+        "modelDescription": "Use this tool to analyze video content. Extracts frames at regular intervals using ffmpeg, analyzes each batch with a vision model, and merges with auto-generated transcript (via local ASR or yt-dlp subtitles for URLs). Returns a structured JSON timeline with per-frame visual descriptions, OCR-like text extraction, and a human-readable report. Requires ffmpeg/ffprobe to be installed. Accepts local video paths or URLs (via yt-dlp). Supports time window restriction and custom sampling intervals.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "videoPath",
+            "goal"
+          ],
+          "properties": {
+            "videoPath": {
+              "type": "string",
+              "description": "Absolute path to a local video file, or a URL (YouTube/Shorts) if yt-dlp is installed."
+            },
+            "goal": {
+              "type": "string",
+              "description": "What to analyze or determine from the video. Be specific about what visual evidence to look for."
+            },
+            "startSec": {
+              "type": "number",
+              "description": "Optional start time in seconds. Limits analysis to a time window."
+            },
+            "endSec": {
+              "type": "number",
+              "description": "Optional end time in seconds."
+            },
+            "sampleEverySec": {
+              "type": "number",
+              "description": "Interval between frame samples in seconds. Auto-calculated if omitted."
+            },
+            "maxFrames": {
+              "type": "number",
+              "description": "Maximum number of frames to extract and analyze. Default: 30, max: 60."
+            },
+            "includeReport": {
+              "type": "boolean",
+              "description": "Include a human-readable report in the output. Default: true."
+            },
+            "includeTimeline": {
+              "type": "boolean",
+              "description": "Include the structured timeline segments in the output. Default: true."
+            },
+            "autoTranscribe": {
+              "type": "boolean",
+              "description": "Automatically transcribe the video audio using a local ASR backend (whisper, mlx_whisper, or whisper-cpp). Default: true."
+            },
+            "whisperModel": {
+              "type": "string",
+              "description": "Whisper model name for ASR. Default: 'base'. Larger models (small, medium, large) are more accurate but slower."
+            }
+          }
+        }
       }
     ]
   },
@@ -221,5 +341,10 @@
     "installedTimestamp": 1773514928762,
     "targetPlatform": "undefined",
     "size": 35607
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0"
   }
 }

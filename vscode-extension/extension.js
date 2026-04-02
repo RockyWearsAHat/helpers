@@ -1,5 +1,7 @@
 // Git Shell Helpers — VS Code extension
 //
+// Thin entry point: initializes extracted modules and wires dependencies.
+//
 // Provides a "Community Cache" webview panel in the Explorer sidebar with
 // styled buttons for GitHub sign-in/out, mode selection, and repo whitelist.
 //
@@ -9,821 +11,55 @@
 
 const vscode = require("vscode");
 const fs = require("fs");
-const net = require("net");
-const os = require("os");
 const path = require("path");
 const { execFile } = require("child_process");
 
+// Module imports
+const createWebviewProviderClass = require("./src/webview-provider");
+const createCopilotInspector = require("./src/copilot-inspector");
+const createGpgAuth = require("./src/gpg-auth");
+const createMcpServer = require("./src/mcp-server");
+const createCommunitySettings = require("./src/community-settings");
+const createActivityTracker = require("./src/activity-tracker");
+const createChatSessions = require("./src/chat-sessions");
+const createModelProvider = require("./src/model-provider");
+const createWorktreeManager = require("./src/worktree-manager");
+const createIpcServers = require("./src/ipc-servers");
+const toolsConfig = require("./src/tools-config");
+
+// Constants (used by mcp-server and gpg-auth modules)
 const SCHEMA_VERSION = 1;
 const PREDEFINED = {
   baseBranch: "main",
   branchPrefix: "automation/community-cache-submission",
 };
+const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
+const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
 
-let cachedRepos = [];
-let cachedUser = "";
-let cachedGpgNeedsUpload = false;
-let cachedGpgUploadFailed = false;
+// Shared mutable state — owned by entry point, accessed by modules via closures
 let _context = null;
 let _webviewProvider = null;
 let _diagnosticsOutputChannel = null;
 let _customizationInspectorToolDisposable = null;
-let _strictLintIpcServer = null;
-const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
-const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
+let cachedUser = "";
+let cachedRepos = [];
+let cachedGpgNeedsUpload = false;
+let cachedGpgUploadFailed = false;
+let _ipc = null;
 
-function uniquePaths(paths) {
-  return [...new Set(paths.filter(Boolean))];
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
-function getDiagnosticsOutputChannel() {
-  if (!_diagnosticsOutputChannel) {
-    _diagnosticsOutputChannel = vscode.window.createOutputChannel(
-      "Git Shell Helpers Diagnostics",
-    );
-  }
-  return _diagnosticsOutputChannel;
-}
-
-function getFrontmatterRange(text) {
-  if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) {
-    return null;
-  }
-
-  const lines = text.split(/\r?\n/);
-  if (!lines.length || lines[0].trim() !== "---") {
-    return null;
-  }
-
-  for (let index = 1; index < lines.length; index += 1) {
-    if (lines[index].trim() === "---") {
-      return { startLine: 0, endLine: index };
-    }
-  }
-
-  return null;
-}
-
-function getFrontmatterListEntries(document, key) {
-  const frontmatter = getFrontmatterRange(document.getText());
-  if (!frontmatter) {
-    return [];
-  }
-
-  const entries = [];
-  let insideTargetList = false;
-  let baseIndent = 0;
-
-  for (
-    let lineIndex = frontmatter.startLine + 1;
-    lineIndex < frontmatter.endLine;
-    lineIndex += 1
-  ) {
-    const line = document.lineAt(lineIndex).text;
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const indent = line.length - line.trimStart().length;
-
-    if (!insideTargetList && trimmed === `${key}:`) {
-      insideTargetList = true;
-      baseIndent = indent;
-      continue;
-    }
-
-    if (!insideTargetList) {
-      continue;
-    }
-
-    if (indent <= baseIndent && !trimmed.startsWith("- ")) {
-      break;
-    }
-
-    const match = line.match(/^(\s*)-\s+(.+?)\s*$/);
-    if (!match) {
-      if (indent <= baseIndent) {
-        break;
-      }
-      continue;
-    }
-
-    const value = match[2].trim().replace(/^['"]|['"]$/g, "");
-    const valueColumn = line.indexOf(value);
-    if (valueColumn >= 0) {
-      entries.push({
-        key,
-        value,
-        line: lineIndex,
-        column: valueColumn,
-      });
-    }
-  }
-
-  return entries;
-}
-
-function formatHoverContents(hovers) {
-  const rendered = [];
-  for (const hover of hovers || []) {
-    for (const item of hover.contents || []) {
-      if (typeof item === "string") {
-        rendered.push(item);
-      } else if (item?.value) {
-        rendered.push(item.value);
-      }
-    }
-  }
-  return rendered.join("\n---\n").trim();
-}
-
-function makeToolResult(value) {
-  return new vscode.LanguageModelToolResult([
-    new vscode.LanguageModelTextPart(value),
-  ]);
-}
-
-function formatDiagnosticSeverity(severity) {
-  switch (severity) {
-    case vscode.DiagnosticSeverity.Error:
-      return "error";
-    case vscode.DiagnosticSeverity.Warning:
-      return "warning";
-    case vscode.DiagnosticSeverity.Information:
-      return "info";
-    case vscode.DiagnosticSeverity.Hint:
-      return "hint";
-    default:
-      return "diagnostic";
-  }
-}
-
-function isCustomizationInspectorEnabled() {
-  return vscode.workspace
-    .getConfiguration("gitShellHelpers.customizationInspector")
-    .get("enabled", true);
-}
-
-function formatCustomizationInspectionReport(result) {
-  if (!result?.ok) {
-    if (result?.reason === "no-active-editor") {
-      return [
-        "Strict Linting",
-        "",
-        "No active editor. Open a Copilot customization file first.",
-      ].join("\n");
-    }
-    if (result?.reason === "no-tools-list") {
-      return [
-        "Strict Linting",
-        "",
-        `No frontmatter tools list found in ${result.file || "the active file"}.`,
-      ].join("\n");
-    }
-    return "Strict Linting\n\nInspection did not return any result.";
-  }
-
-  const entries = result.results || [];
-  const errorCount = entries.reduce(
-    (count, entry) =>
-      count +
-      (entry.diagnostics || []).filter(
-        (diagnostic) => diagnostic.severity === vscode.DiagnosticSeverity.Error,
-      ).length,
-    0,
-  );
-  const warningCount = entries.reduce(
-    (count, entry) =>
-      count +
-      (entry.diagnostics || []).filter(
-        (diagnostic) =>
-          diagnostic.severity === vscode.DiagnosticSeverity.Warning,
-      ).length,
-    0,
-  );
-  const infoCount = entries.reduce(
-    (count, entry) =>
-      count +
-      (entry.diagnostics || []).filter(
-        (diagnostic) =>
-          diagnostic.severity !== vscode.DiagnosticSeverity.Error &&
-          diagnostic.severity !== vscode.DiagnosticSeverity.Warning,
-      ).length,
-    0,
-  );
-  const codeActionCount = entries.reduce(
-    (count, entry) => count + (entry.codeActions?.length || 0),
-    0,
-  );
-  const hoverCount = entries.reduce(
-    (count, entry) => count + (entry.hoverText ? 1 : 0),
-    0,
-  );
-
-  const lines = [
-    "Strict Linting",
-    "",
-    `File: ${result.file}`,
-    `Summary: ${errorCount} error(s), ${warningCount} warning(s), ${infoCount} other diagnostic(s), ${codeActionCount} quick fix(es), ${hoverCount} hover note(s).`,
-    "",
-  ];
-
-  for (const entry of entries) {
-    lines.push(`tools -> ${entry.value} (${entry.line}:${entry.column})`);
-
-    if (entry.diagnostics?.length) {
-      lines.push("Diagnostics:");
-      for (const diagnostic of entry.diagnostics) {
-        lines.push(
-          `- [${formatDiagnosticSeverity(diagnostic.severity)}${diagnostic.source ? ` | ${diagnostic.source}` : ""}] ${diagnostic.message}`,
-        );
-      }
-    }
-
-    if (entry.hoverText) {
-      lines.push("Hover:");
-      lines.push(entry.hoverText);
-    }
-
-    if (entry.codeActions?.length) {
-      lines.push("Code Actions:");
-      for (const action of entry.codeActions) {
-        lines.push(`- ${action}`);
-      }
-    }
-
-    if (!entry.hasSignal) {
-      lines.push("No diagnostics, hover text, or code actions returned.");
-    }
-
-    lines.push("");
-  }
-
-  return lines.join("\n").trim();
-}
-
-async function resolveCustomizationDocument(filePath) {
-  const explicitPath = String(filePath || "").trim();
-  if (explicitPath) {
-    return vscode.workspace.openTextDocument(explicitPath);
-  }
-
-  const editor = vscode.window.activeTextEditor;
-  if (editor) {
-    return editor.document;
-  }
-
-  return null;
-}
-
-async function inspectCopilotCustomizationWarnings(options = {}) {
-  const normalizedOptions =
-    typeof options === "string" ? { filePath: options } : options;
-  const filePath = normalizedOptions.filePath || "";
-  const revealOutput = normalizedOptions.revealOutput === true;
-  const notify = normalizedOptions.notify !== false;
-
-  const document = await resolveCustomizationDocument(filePath);
-  if (!document) {
-    if (notify) {
-      vscode.window.showWarningMessage("Open a customization file first.");
-    }
-    return { ok: false, reason: "no-active-editor" };
-  }
-
-  const entries = getFrontmatterListEntries(document, "tools");
-  if (entries.length === 0) {
-    if (notify) {
-      vscode.window.showInformationMessage(
-        "No frontmatter tools list found in the active file.",
-      );
-    }
-    return { ok: false, reason: "no-tools-list", file: document.uri.fsPath };
-  }
-
-  const allDiagnostics = vscode.languages.getDiagnostics(document.uri);
-  const output = getDiagnosticsOutputChannel();
-  output.clear();
-  output.appendLine(`File: ${document.uri.fsPath}`);
-  output.appendLine("");
-
-  let foundSignal = false;
-  const results = [];
-  for (const entry of entries) {
-    const position = new vscode.Position(entry.line, entry.column);
-    const range = new vscode.Range(position, position);
-    const diagnostics = allDiagnostics.filter((diagnostic) =>
-      diagnostic.range.contains(position),
-    );
-    const hovers = await vscode.commands.executeCommand(
-      "vscode.executeHoverProvider",
-      document.uri,
-      position,
-    );
-    const actions = await vscode.commands.executeCommand(
-      "vscode.executeCodeActionProvider",
-      document.uri,
-      range,
-    );
-
-    const hoverText = formatHoverContents(hovers);
-    const relevantActions = (actions || []).map((action) => action.title);
-    const hasEntrySignal =
-      diagnostics.length > 0 || hoverText || relevantActions.length > 0;
-    foundSignal ||= hasEntrySignal;
-    results.push({
-      value: entry.value,
-      line: entry.line + 1,
-      column: entry.column + 1,
-      diagnostics: diagnostics.map((diagnostic) => ({
-        source: diagnostic.source || "unknown",
-        message: diagnostic.message,
-        severity: diagnostic.severity,
-      })),
-      hoverText,
-      codeActions: relevantActions,
-      hasSignal: hasEntrySignal,
-    });
-
-    output.appendLine(
-      `tools -> ${entry.value} (${entry.line + 1}:${entry.column + 1})`,
-    );
-
-    if (diagnostics.length > 0) {
-      output.appendLine("  Diagnostics:");
-      for (const diagnostic of diagnostics) {
-        output.appendLine(
-          `    - [${diagnostic.source || "unknown"}] ${diagnostic.message}`,
-        );
-      }
-    }
-
-    if (hoverText) {
-      output.appendLine("  Hover:");
-      for (const line of hoverText.split("\n")) {
-        output.appendLine(`    ${line}`);
-      }
-    }
-
-    if (relevantActions.length > 0) {
-      output.appendLine("  Code Actions:");
-      for (const title of relevantActions) {
-        output.appendLine(`    - ${title}`);
-      }
-    }
-
-    if (!hasEntrySignal) {
-      output.appendLine(
-        "  No diagnostics, hover text, or code actions returned.",
-      );
-    }
-
-    output.appendLine("");
-  }
-
-  if (revealOutput) {
-    output.show(true);
-  }
-
-  if (notify && foundSignal) {
-    vscode.window.showInformationMessage(
-      "Strict Linting finished. See Git Shell Helpers Diagnostics output.",
-    );
-  } else if (notify) {
-    vscode.window.showInformationMessage(
-      "Strict Linting found no editor errors, warnings, or quick fixes for the tools list.",
-    );
-  }
-
-  return {
-    ok: true,
-    file: document.uri.fsPath,
-    foundSignal,
-    results,
-  };
-}
-
-async function runStrictLinting(options = {}) {
-  const filePath = String(options.filePath || "").trim();
-  const folderPath = String(options.folderPath || "").trim();
-  const severityFilter = options.severityFilter || "all";
-
-  const severityThreshold =
-    severityFilter === "errors-only"
-      ? vscode.DiagnosticSeverity.Error
-      : severityFilter === "warnings-and-above"
-        ? vscode.DiagnosticSeverity.Warning
-        : vscode.DiagnosticSeverity.Hint;
-
-  let diagnosticPairs;
-  if (filePath) {
-    const uri = vscode.Uri.file(filePath);
-    diagnosticPairs = [[uri, vscode.languages.getDiagnostics(uri)]];
-  } else if (folderPath) {
-    const normalizedFolder = folderPath.endsWith("/")
-      ? folderPath
-      : folderPath + "/";
-    diagnosticPairs = vscode.languages
-      .getDiagnostics()
-      .filter(
-        ([uri]) =>
-          uri.fsPath.startsWith(normalizedFolder) || uri.fsPath === folderPath,
-      );
-  } else {
-    const workspaceRoots = (vscode.workspace.workspaceFolders || []).map(
-      (f) => f.uri.fsPath,
-    );
-    const all = vscode.languages.getDiagnostics();
-    diagnosticPairs =
-      workspaceRoots.length > 0
-        ? all.filter(([uri]) =>
-            workspaceRoots.some((root) => uri.fsPath.startsWith(root)),
-          )
-        : all;
-  }
-
-  const filtered = diagnosticPairs
-    .map(([uri, diags]) => [
-      uri,
-      diags.filter((d) => d.severity <= severityThreshold),
-    ])
-    .filter(([, diags]) => diags.length > 0);
-
-  const totalErrors = filtered.reduce(
-    (n, [, diags]) =>
-      n +
-      diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Error)
-        .length,
-    0,
-  );
-  const totalWarnings = filtered.reduce(
-    (n, [, diags]) =>
-      n +
-      diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Warning)
-        .length,
-    0,
-  );
-  const totalOther = filtered.reduce(
-    (n, [, diags]) =>
-      n +
-      diags.filter((d) => d.severity > vscode.DiagnosticSeverity.Warning)
-        .length,
-    0,
-  );
-
-  const scope = filePath
-    ? path.basename(filePath)
-    : folderPath
-      ? folderPath
-      : "workspace";
-
-  const lines = [
-    `Strict Linting — ${scope}`,
-    "",
-    `Summary: ${totalErrors} error(s), ${totalWarnings} warning(s), ${totalOther} other(s) across ${filtered.length} file(s).`,
-    "",
-  ];
-
-  if (filtered.length === 0) {
-    lines.push("No diagnostics found.");
-  } else {
-    for (const [uri, diags] of filtered) {
-      lines.push(`File: ${uri.fsPath}`);
-      for (const diag of diags) {
-        const sev = formatDiagnosticSeverity(diag.severity);
-        const src = diag.source ? ` [${diag.source}]` : "";
-        const loc = `${diag.range.start.line + 1}:${diag.range.start.character + 1}`;
-        lines.push(`  ${sev}${src} (${loc}): ${diag.message}`);
-      }
-      lines.push("");
-    }
-  }
-
-  return lines.join("\n").trim();
-}
-
-let _strictLintToolDisposable = null;
-
-function registerCustomizationInspectorTool(context) {
-  _customizationInspectorToolDisposable?.dispose();
-  _customizationInspectorToolDisposable = null;
-  _strictLintToolDisposable?.dispose();
-  _strictLintToolDisposable = null;
-
-  if (!isCustomizationInspectorEnabled()) {
-    return;
-  }
-
-  _customizationInspectorToolDisposable = vscode.lm.registerTool(
-    "gsh-inspect-copilot-customization-warnings",
-    {
-      async invoke(options, token) {
-        const filePath = options?.input?.filePath || "";
-        const result = await inspectCopilotCustomizationWarnings({
-          filePath,
-          notify: false,
-          revealOutput: false,
-        });
-        return makeToolResult(formatCustomizationInspectionReport(result));
-      },
-      async prepareInvocation(options) {
-        const explicitPath = String(options?.input?.filePath || "").trim();
-        const targetName = explicitPath
-          ? path.basename(explicitPath)
-          : path.basename(
-              vscode.window.activeTextEditor?.document?.uri?.fsPath ||
-                "customization file",
-            );
-        return {
-          invocationMessage: `Strict Linting is reading live VS Code errors and warnings for ${targetName}`,
-        };
-      },
-    },
-  );
-  context.subscriptions.push(_customizationInspectorToolDisposable);
-
-  _strictLintToolDisposable = vscode.lm.registerTool("gsh-strict-lint", {
-    async invoke(options, token) {
-      const report = await runStrictLinting({
-        filePath: options?.input?.filePath || "",
-        folderPath: options?.input?.folderPath || "",
-        severityFilter: options?.input?.severityFilter || "all",
-      });
-      return makeToolResult(report);
-    },
-    async prepareInvocation(options) {
-      const filePath = String(options?.input?.filePath || "").trim();
-      const folderPath = String(options?.input?.folderPath || "").trim();
-      const scope = filePath
-        ? path.basename(filePath)
-        : folderPath
-          ? folderPath
-          : "workspace";
-      return {
-        invocationMessage: `Strict Linting — scanning ${scope} for errors and warnings`,
-      };
-    },
-  });
-  context.subscriptions.push(_strictLintToolDisposable);
-}
-
-function findGitShellHelpersMcpPath(context) {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  const workspaceCandidates = (vscode.workspace.workspaceFolders || []).map(
-    (folder) => path.join(folder.uri.fsPath, "git-shell-helpers-mcp"),
-  );
-  const candidates = uniquePaths([
-    ...workspaceCandidates,
-    path.join(homeDir, "bin", "git-shell-helpers-mcp"),
-    GLOBAL_MCP_SERVER_PATH,
-    context.asAbsolutePath("git-shell-helpers-mcp"),
-  ]);
-
-  return candidates.find((candidate) => fs.existsSync(candidate)) || "";
-}
-
-function buildGitShellHelpersMcpEnv(serverPath) {
-  const serverDir = path.dirname(serverPath);
-  const env = {};
-
-  if (!fs.existsSync(path.join(serverDir, "git-research-mcp"))) {
-    env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH = "1";
-  }
-
-  if (!fs.existsSync(path.join(serverDir, "vision-tool", "mcp-server.js"))) {
-    env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION = "1";
-  }
-
-  return env;
-}
-
-function registerMcpServerProvider(context) {
-  if (
-    !vscode.lm?.registerMcpServerDefinitionProvider ||
-    typeof vscode.McpStdioServerDefinition !== "function"
-  ) {
-    return;
-  }
-
-  const changeEmitter = new vscode.EventEmitter();
-  context.subscriptions.push(changeEmitter);
-  context.subscriptions.push(
-    vscode.lm.registerMcpServerDefinitionProvider(MCP_PROVIDER_ID, {
-      onDidChangeMcpServerDefinitions: changeEmitter.event,
-      provideMcpServerDefinitions: async () => {
-        const serverPath = findGitShellHelpersMcpPath(context);
-        if (!serverPath) {
-          return [];
-        }
-
-        return [
-          new vscode.McpStdioServerDefinition(
-            "gsh",
-            "node",
-            [serverPath],
-            buildGitShellHelpersMcpEnv(serverPath),
-            "0.3.4",
-          ),
-        ];
-      },
-      resolveMcpServerDefinition: async (server) => server,
-    }),
-  );
+function getWebviewProvider() {
+  return _webviewProvider;
 }
 
 // ---------------------------------------------------------------------------
-// File helpers
-// ---------------------------------------------------------------------------
-
-function globalSettingsPath() {
-  return path.join(
-    process.env.HOME || process.env.USERPROFILE || "",
-    ".copilot",
-    "devops-audit-community-settings.json",
-  );
-}
-
-function workspaceSettingsPath(workspaceFolder) {
-  return path.join(
-    workspaceFolder.uri.fsPath,
-    ".github",
-    "devops-audit-community-settings.json",
-  );
-}
-
-function workspaceManifestPath(workspaceFolder) {
-  return path.join(
-    workspaceFolder.uri.fsPath,
-    "community-cache",
-    "manifest.json",
-  );
-}
-
-function readJsonFile(filePath) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function writeJsonFile(filePath, data) {
-  const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf8");
-}
-
-function userMcpConfigPath() {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  if (process.platform === "darwin") {
-    return path.join(
-      homeDir,
-      "Library",
-      "Application Support",
-      "Code",
-      "User",
-      "mcp.json",
-    );
-  }
-  if (process.platform === "win32") {
-    return path.join(
-      process.env.APPDATA || path.join(homeDir, "AppData", "Roaming"),
-      "Code",
-      "User",
-      "mcp.json",
-    );
-  }
-  return path.join(homeDir, ".config", "Code", "User", "mcp.json");
-}
-
-function workspaceMcpConfigPaths() {
-  return (vscode.workspace.workspaceFolders || []).map((folder) =>
-    path.join(folder.uri.fsPath, ".vscode", "mcp.json"),
-  );
-}
-
-function removeStaticGitShellHelpersServers(configPath) {
-  const legacyServerNames = ["gsh", "git-shell-helpers"];
-  const config = readJsonFile(configPath);
-  if (!config?.servers || typeof config.servers !== "object") {
-    return false;
-  }
-
-  let changed = false;
-  for (const serverName of legacyServerNames) {
-    if (config.servers[serverName]) {
-      delete config.servers[serverName];
-      changed = true;
-    }
-  }
-
-  if (!changed) {
-    return false;
-  }
-
-  if (Object.keys(config.servers).length === 0) {
-    delete config.servers;
-  }
-
-  writeJsonFile(configPath, config);
-  return true;
-}
-
-function migrateLegacyMcpRegistrations() {
-  const configPaths = [userMcpConfigPath(), ...workspaceMcpConfigPaths()];
-  for (const configPath of configPaths) {
-    removeStaticGitShellHelpersServers(configPath);
-  }
-}
-
-function getConfiguredGitShellHelpersMcpServer() {
-  const configPath = userMcpConfigPath();
-  const config = readJsonFile(configPath);
-  const server = config?.servers?.["gsh"];
-  const serverPath =
-    server?.command === "node" && Array.isArray(server?.args)
-      ? server.args[0] || ""
-      : "";
-  return { configPath, server, serverPath };
-}
-
-function getMcpStatusViewModel(context) {
-  const resolvedPath = findGitShellHelpersMcpPath(context);
-  const binaryExists = resolvedPath ? fs.existsSync(resolvedPath) : false;
-  const providerSupported =
-    !!vscode.lm?.registerMcpServerDefinitionProvider &&
-    typeof vscode.McpStdioServerDefinition === "function";
-
-  if (!binaryExists) {
-    return {
-      tone: "bad",
-      label: "Not found",
-      detail: resolvedPath
-        ? `Server binary is missing: ${resolvedPath}`
-        : "Could not locate git-shell-helpers-mcp. Reinstall may be needed.",
-    };
-  }
-
-  if (!providerSupported) {
-    return {
-      tone: "warn",
-      label: "Needs trust",
-      detail:
-        "VS Code MCP provider API unavailable. Start or trust the server from the MCP panel.",
-    };
-  }
-
-  return {
-    tone: "good",
-    label: "Ready",
-    detail: `Auto-starts when tools are used.\n${resolvedPath}`,
-  };
-}
-
-async function openMcpServerControls() {
-  const commands = await vscode.commands.getCommands(true);
-  const exactCandidates = [
-    "mcp.listServers",
-    "workbench.action.mcp.listServers",
-    "chat.mcp.listServers",
-  ];
-  const commandId =
-    exactCandidates.find((candidate) => commands.includes(candidate)) ||
-    commands.find(
-      (candidate) =>
-        candidate.toLowerCase().includes("mcp") &&
-        candidate.toLowerCase().includes("list") &&
-        candidate.toLowerCase().includes("server"),
-    );
-
-  if (commandId) {
-    await vscode.commands.executeCommand(commandId);
-    return;
-  }
-
-  await vscode.commands.executeCommand(
-    "workbench.action.quickOpen",
-    ">MCP: List Servers",
-  );
-}
-
-function defaultCommunityRepoFromWorkspace(workspaceFolder) {
-  const manifest = readJsonFile(workspaceManifestPath(workspaceFolder));
-  return manifest?.defaultCommunityRepo || "";
-}
-
-function findLocalCommunityCloneFolder() {
-  const folders = vscode.workspace.workspaceFolders || [];
-  return (
-    folders.find((folder) => fs.existsSync(workspaceManifestPath(folder))) ||
-    null
-  );
-}
-
-// ---------------------------------------------------------------------------
-// gh CLI helpers
+// Minimal gh CLI helpers (shared by community-settings and gpg-auth)
 // ---------------------------------------------------------------------------
 
 function runGh(args, timeout = 30000) {
@@ -878,1424 +114,197 @@ async function fetchRepos() {
 }
 
 // ---------------------------------------------------------------------------
-// Whitelist + settings sync
+// activate
 // ---------------------------------------------------------------------------
-
-function getWhitelist() {
-  return _context?.globalState.get("whitelistedRepos", []) ?? [];
-}
-
-function getMode() {
-  return _context?.globalState.get("mode", "disabled") ?? "disabled";
-}
-
-async function setMode(mode) {
-  await _context?.globalState.update("mode", mode);
-  syncAllSettings();
-  _webviewProvider?.refresh();
-}
-
-async function setWhitelist(repos) {
-  await _context?.globalState.update("whitelistedRepos", repos);
-  syncAllSettings();
-  _webviewProvider?.refresh();
-}
-
-function buildSettingsJson() {
-  const globalData = readJsonFile(globalSettingsPath()) || {};
-  const localCloneFolder = findLocalCommunityCloneFolder();
-  const derivedCommunityRepo =
-    globalData.communityRepo ||
-    (localCloneFolder
-      ? defaultCommunityRepoFromWorkspace(localCloneFolder)
-      : "") ||
-    "RockyWearsAHat/github-shell-helpers";
-
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    communityRepo: derivedCommunityRepo,
-    ...PREDEFINED,
-    mode: getMode(),
-    whitelistedRepos: getWhitelist(),
-    shareResearch: isGroupEnabled("communityResearch"),
-    ...(globalData.localClone
-      ? { localClone: globalData.localClone }
-      : localCloneFolder
-        ? { localClone: localCloneFolder.uri.fsPath }
-        : {}),
-  };
-}
-
-function buildWorkspaceSettingsJson(workspaceFolder) {
-  const globalSettings = buildSettingsJson();
-  const workspaceCommunityRepo =
-    defaultCommunityRepoFromWorkspace(workspaceFolder);
-
-  return {
-    ...globalSettings,
-    ...(workspaceCommunityRepo
-      ? { communityRepo: workspaceCommunityRepo }
-      : {}),
-    ...(fs.existsSync(workspaceManifestPath(workspaceFolder))
-      ? { localClone: "." }
-      : {}),
-  };
-}
-
-function syncAllSettings() {
-  writeJsonFile(globalSettingsPath(), buildSettingsJson());
-  const folders = vscode.workspace.workspaceFolders;
-  if (folders) {
-    for (const folder of folders) {
-      writeJsonFile(
-        workspaceSettingsPath(folder),
-        buildWorkspaceSettingsJson(folder),
-      );
-    }
-  }
-}
-
-function importFromJson() {
-  const currentMode = _context?.globalState.get("mode");
-  // Migrate legacy "pull-only" → "disabled"
-  if (currentMode === "pull-only") {
-    _context?.globalState.update("mode", "disabled");
-    return;
-  }
-  if (!currentMode) {
-    const globalData = readJsonFile(globalSettingsPath());
-    if (globalData?.mode) {
-      _context?.globalState.update("mode", globalData.mode);
-      if (Array.isArray(globalData.whitelistedRepos)) {
-        _context?.globalState.update(
-          "whitelistedRepos",
-          globalData.whitelistedRepos,
-        );
-      }
-      return;
-    }
-    const folders = vscode.workspace.workspaceFolders;
-    if (folders) {
-      for (const folder of folders) {
-        const wsData = readJsonFile(workspaceSettingsPath(folder));
-        if (wsData?.mode) {
-          _context?.globalState.update("mode", wsData.mode);
-          if (Array.isArray(wsData.whitelistedRepos)) {
-            _context?.globalState.update(
-              "whitelistedRepos",
-              wsData.whitelistedRepos,
-            );
-          }
-          return;
-        }
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Webview panel
-// ---------------------------------------------------------------------------
-
-const MODES = [
-  { value: "disabled", label: "Submissions disabled" },
-  { value: "pull-and-auto-submit", label: "Submit from all repos" },
-  { value: "auto-submit-only-public", label: "Submit from public repos only" },
-  {
-    value: "auto-submit-whitelist",
-    label: "Submit from whitelisted repos only",
-  },
-];
-
-class CommunityCacheViewProvider {
-  static viewType = "gitShellHelpers.communityCache";
-
-  constructor(extensionUri) {
-    this._extensionUri = extensionUri;
-    this._view = null;
-  }
-
-  resolveWebviewView(webviewView) {
-    this._view = webviewView;
-    webviewView.webview.options = { enableScripts: true };
-    this._update();
-
-    webviewView.webview.onDidReceiveMessage(async (msg) => {
-      switch (msg.type) {
-        case "login":
-          await loginGitHub();
-          break;
-        case "logout":
-          await logoutGitHub();
-          break;
-        case "selectRepos":
-          await selectRepos();
-          break;
-        case "setMode":
-          await setMode(msg.value);
-          break;
-        case "toggleGroup":
-          setGroupEnabled(msg.key, msg.enabled);
-          this._update();
-          break;
-        case "toggleStrictLinting":
-          await vscode.workspace
-            .getConfiguration("gitShellHelpers.customizationInspector")
-            .update("enabled", msg.enabled, vscode.ConfigurationTarget.Global);
-          this._update();
-          break;
-        case "setCheckpoint": {
-          const cpConfig = vscode.workspace.getConfiguration(
-            "gitShellHelpers.checkpoint",
-          );
-          const current = cpConfig.get(msg.key);
-          if (msg.key === "sign" && !current) {
-            const ok = await ensureGpgKey();
-            if (!ok) break;
-          }
-          await cpConfig.update(
-            msg.key,
-            !current,
-            vscode.ConfigurationTarget.Global,
-          );
-          this._update();
-          break;
-        }
-        case "openMcpControls":
-          await openMcpServerControls();
-          break;
-        case "mcpChipAction": {
-          if (msg.tone === "bad") {
-            const action = await vscode.window.showErrorMessage(
-              "git-shell-helpers-mcp binary not found. Reinstall the extension or run the installer script.",
-              "Run Installer",
-              "Open Terminal",
-            );
-            if (action === "Run Installer") {
-              const terminal = vscode.window.createTerminal("gsh installer");
-              terminal.show();
-              terminal.sendText("install-git-shell-helpers");
-            } else if (action === "Open Terminal") {
-              await vscode.commands.executeCommand(
-                "workbench.action.terminal.new",
-              );
-            }
-          } else if (msg.tone === "warn") {
-            const action = await vscode.window.showWarningMessage(
-              "MCP provider API unavailable. Open the MCP panel and start or trust the gsh server.",
-              "Open MCP Panel",
-            );
-            if (action === "Open MCP Panel") await openMcpServerControls();
-          } else {
-            await openMcpServerControls();
-          }
-          break;
-        }
-        case "uploadGpgKey":
-          await uploadGpgKeyNow();
-          break;
-        case "reloginGpg":
-          cachedGpgUploadFailed = false;
-          cachedUser = "";
-          cachedRepos = [];
-          _webviewProvider?.refresh();
-          await loginGitHub();
-          break;
-      }
-    });
-
-    webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible) this._update();
-    });
-  }
-
-  refresh() {
-    this._update();
-  }
-
-  _update() {
-    if (!this._view) return;
-    const mode = getMode();
-    const whitelist = getWhitelist();
-    this._view.webview.html = this._getHtml(mode, whitelist);
-  }
-
-  _getHtml(mode, whitelist) {
-    // Gate: require GitHub sign-in
-    if (!cachedUser) {
-      return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: var(--vscode-font-family); color: var(--vscode-foreground);
-    display: flex; align-items: center; justify-content: center;
-    min-height: 100vh; padding: 32px 20px;
-  }
-  .gate { text-align: center; max-width: 220px; }
-  .gate-icon { width: 40px; height: 40px; margin: 0 auto 16px; opacity: 0.4; }
-  .gate-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-  .gate-desc {
-    font-size: 12px; color: var(--vscode-descriptionForeground);
-    line-height: 1.5; margin-bottom: 20px;
-  }
-  .gate-btn {
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    width: 100%; padding: 9px 20px;
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer;
-  }
-  .gate-btn:hover { background: var(--vscode-button-hoverBackground); }
-  .gate-btn svg { width: 16px; height: 16px; fill: currentColor; }
-</style></head><body>
-  <div class="gate">
-    <svg class="gate-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-    <div class="gate-title">Git Shell Helpers</div>
-    <div class="gate-desc">Sign in to GitHub to configure MCP tools and community cache.</div>
-    <button class="gate-btn" id="loginBtn">
-      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      Sign in with GitHub
-    </button>
-  </div>
-  <script>
-    const vscode = acquireVsCodeApi();
-    document.getElementById("loginBtn").addEventListener("click", () => vscode.postMessage({type:"login"}));
-  </script>
-</body></html>`;
-    }
-
-    const gpgHint = cachedGpgNeedsUpload
-      ? cachedGpgUploadFailed
-        ? `<div style="font-size:10.5px;color:var(--vscode-descriptionForeground);margin-top:6px">Upload failed. <span role="button" id="reloginGpgBtn" style="color:var(--vscode-textLink-foreground);text-decoration:underline;cursor:pointer">Re-login</span></div>`
-        : `<div style="font-size:10.5px;color:var(--vscode-descriptionForeground);margin-top:6px">Key not on GitHub — commits show Unverified. <span role="button" id="uploadGpgBtn" style="color:var(--vscode-textLink-foreground);text-decoration:underline;cursor:pointer">Upload now</span></div>`
-      : "";
-
-    const cpConfig = vscode.workspace.getConfiguration(
-      "gitShellHelpers.checkpoint",
-    );
-    const cpEnabled = cpConfig.get("enabled", true);
-    const cpAutoPush = cpConfig.get("autoPush", false);
-    const cpSign = cpConfig.get("sign", false);
-    const mcpStatus = getMcpStatusViewModel(_context);
-
-    const checkpointItems = [
-      {
-        key: "enabled",
-        label: "Enabled",
-        desc: "Enable git-checkpoint in this workspace",
-        value: cpEnabled,
-      },
-      {
-        key: "autoPush",
-        label: "Auto-Push",
-        desc: "Push to remote after every checkpoint commit",
-        value: cpAutoPush,
-      },
-      {
-        key: "sign",
-        label: "Verified Commits",
-        desc: "Sign commits with GPG so GitHub shows a \u2705 Verified badge",
-        value: cpSign,
-      },
-    ];
-    const cpRows = checkpointItems
-      .map(
-        (item) => `
-        <div class="tool-item${item.value ? " active" : ""}" data-cpkey="${item.key}">
-          <div class="cb${item.value ? " on" : ""}"><div class="cb-tick"></div></div>
-          <div class="tool-text">
-            <span class="tl">${escapeHtml(item.label)}</span>
-            <span class="td">${escapeHtml(item.desc)}</span>
-          </div>
-        </div>`,
-      )
-      .join("");
-
-    const toolRows = TOOL_GROUPS.map((group) => {
-      const enabled = isGroupEnabled(group.key);
-      return `
-        <div class="tool-item${enabled ? " active" : ""}" data-key="${group.key}">
-          <div class="cb${enabled ? " on" : ""}"><div class="cb-tick"></div></div>
-          <div class="tool-text">
-            <span class="tl">${escapeHtml(group.label)}</span>
-            <span class="td">${escapeHtml(group.description)}</span>
-          </div>
-        </div>`;
-    }).join("");
-
-    const enabledCount = TOOL_GROUPS.filter((g) =>
-      isGroupEnabled(g.key),
-    ).length;
-    const strictLintingEnabled = isStrictLintingEnabled();
-
-    const mcpStatusHtml = `
-      <div class="mcp-chip ${mcpStatus.tone}" id="manageMcpBtn" data-tone="${mcpStatus.tone}" title="${escapeHtml(mcpStatus.detail)}">
-        <span class="mcp-dot"></span>
-        <span class="mcp-chip-status">${escapeHtml(mcpStatus.label)}</span>
-      </div>`;
-
-    const strictLintingRow = `
-      <div class="tool-item${strictLintingEnabled ? " active" : ""}" data-strict-linting="enabled">
-        <div class="cb${strictLintingEnabled ? " on" : ""}"><div class="cb-tick"></div></div>
-        <div class="tool-text">
-          <span class="tl">Strict Linting</span>
-          <span class="td">Reads live VS Code errors, warnings, hover details, and quick fixes in chat</span>
-        </div>
-      </div>`;
-
-    // --- Community Cache ---
-    const modeOptions = MODES.map(
-      (m) =>
-        `<option value="${m.value}"${m.value === mode ? " selected" : ""}>${m.label}</option>`,
-    ).join("");
-
-    const modeDescriptions = {
-      disabled:
-        "Audits pull shared data from the community cache. No conclusions are submitted back.",
-      "pull-and-auto-submit":
-        "Audits pull shared data. Conclusions are submitted back from every repository.",
-      "auto-submit-only-public":
-        "Audits pull shared data. Conclusions are submitted back only from your public repositories.",
-      "auto-submit-whitelist":
-        "Audits pull shared data. Conclusions are submitted back only from the repositories you select below.",
-    };
-    const modeDesc = modeDescriptions[mode] || "";
-
-    let scopeSection = "";
-    if (mode === "auto-submit-whitelist") {
-      const repoList =
-        whitelist.length > 0
-          ? whitelist
-              .map((r) => `<div class="repo-item">${escapeHtml(r)}</div>`)
-              .join("")
-          : '<div class="muted">No repositories selected</div>';
-      scopeSection = `
-        <div class="sub-label">Whitelisted Repositories</div>
-        ${repoList}
-        <button class="btn-secondary" id="selectReposBtn">Select repositories\u2026</button>`;
-    } else if (mode === "auto-submit-only-public") {
-      const publicCount = cachedRepos.filter(
-        (r) => r.visibility === "PUBLIC",
-      ).length;
-      scopeSection = `
-        <div class="sub-label">Scope</div>
-        <div class="scope-text">Submitting from <strong>${publicCount}</strong> public repo${publicCount !== 1 ? "s" : ""}.</div>`;
-    } else if (mode === "pull-and-auto-submit") {
-      scopeSection = `
-        <div class="sub-label">Scope</div>
-        <div class="scope-text">Submitting from <strong>all</strong> repositories.</div>`;
-    } else if (mode === "disabled") {
-      scopeSection = `
-        <div class="sub-label">Scope</div>
-        <div class="scope-text">No submissions. Cache data is still pulled during audits.</div>`;
-    }
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: var(--vscode-font-family);
-    font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground);
-    display: flex; flex-direction: column; min-height: 100vh;
-  }
-
-  /* Sections */
-  .sect { padding: 12px 14px; }
-  .sect + .sect { border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12)); }
-  .sect-head {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 8px;
-  }
-  .sect-title {
-    font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.5px;
-    color: var(--vscode-descriptionForeground);
-  }
-  .sect-count {
-    font-size: 10px; color: var(--vscode-descriptionForeground); opacity: 0.7;
-  }
-
-  /* Tool items — checkbox style */
-  .tool-item {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 5px 6px; margin: 0 -6px;
-    border-radius: 3px; cursor: pointer; user-select: none;
-  }
-  .tool-item:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
-  .cb {
-    flex-shrink: 0; width: 14px; height: 14px; margin-top: 1px;
-    border: 1.5px solid var(--vscode-checkbox-border, var(--vscode-input-border, rgba(128,128,128,0.5)));
-    border-radius: 3px; position: relative;
-    background: var(--vscode-checkbox-background, transparent);
-    transition: all 0.15s;
-  }
-  .cb.on {
-    background: var(--vscode-checkbox-selectBackground, var(--vscode-button-background));
-    border-color: var(--vscode-checkbox-selectBorder, var(--vscode-button-background));
-  }
-  .cb-tick {
-    position: absolute; left: 2.5px; top: 0.5px;
-    width: 5px; height: 9px;
-    border: solid var(--vscode-checkbox-foreground, var(--vscode-button-foreground, #fff));
-    border-width: 0 1.5px 1.5px 0;
-    transform: rotate(45deg);
-    opacity: 0; transition: opacity 0.15s;
-  }
-  .cb.on .cb-tick { opacity: 1; }
-  .tool-text { flex: 1; min-width: 0; }
-  .tl { display: block; font-size: 12px; font-weight: 500; line-height: 1.3; }
-  .td { display: block; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.2; margin-top: 1px; }
-
-  .hint {
-    font-size: 10.5px; color: var(--vscode-descriptionForeground);
-    margin-top: 6px; opacity: 0.65;
-  }
-
-  .sect-head-left {
-    display: flex; align-items: center; gap: 8px;
-  }
-  .mcp-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 2px 8px 2px 6px;
-    border-radius: 999px;
-    margin: 0;
-    cursor: pointer;
-    font-size: 11px;
-    line-height: 1;
-    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.16));
-    background: var(--vscode-editorWidget-background, rgba(128,128,128,0.04));
-    user-select: none;
-  }
-  .mcp-chip:hover { opacity: 0.85; }
-  .mcp-chip.good {
-    border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #2ea043) 35%, var(--vscode-panel-border, rgba(128,128,128,0.16)));
-  }
-  .mcp-chip.warn {
-    border-color: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 40%, var(--vscode-panel-border, rgba(128,128,128,0.16)));
-  }
-  .mcp-chip.bad {
-    border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 45%, var(--vscode-panel-border, rgba(128,128,128,0.16)));
-  }
-  .mcp-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    flex-shrink: 0;
-    background: var(--vscode-descriptionForeground);
-  }
-  .mcp-chip.good .mcp-dot { background: var(--vscode-testing-iconPassed, #2ea043); }
-  .mcp-chip.warn .mcp-dot { background: var(--vscode-inputValidation-warningBorder, #cca700); }
-  .mcp-chip.bad .mcp-dot { background: var(--vscode-inputValidation-errorBorder, #be1100); }
-  .mcp-chip-status {
-    color: var(--vscode-descriptionForeground);
-  }
-
-  /* Community cache */
-  select {
-    width: 100%; padding: 4px 8px;
-    border: 1px solid var(--vscode-dropdown-border); border-radius: 3px;
-    background: var(--vscode-dropdown-background);
-    color: var(--vscode-dropdown-foreground);
-    font-size: var(--vscode-font-size); outline: none;
-  }
-  select:focus { border-color: var(--vscode-focusBorder); }
-  .mode-desc {
-    font-size: 11px; color: var(--vscode-descriptionForeground);
-    line-height: 1.4; margin-top: 5px;
-  }
-  .sub-label {
-    font-size: 11px; font-weight: 600; color: var(--vscode-descriptionForeground);
-    margin: 10px 0 4px;
-  }
-  .repo-item {
-    font-size: 11.5px; padding: 2px 0; line-height: 1.3;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .scope-text { font-size: 11.5px; line-height: 1.4; }
-  .muted { color: var(--vscode-descriptionForeground); font-style: italic; font-size: 11.5px; }
-  .btn-secondary {
-    display: block; width: 100%; padding: 5px 12px; margin-top: 6px;
-    border: none; border-radius: 3px; font-size: 12px; cursor: pointer;
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-  }
-  .btn-secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-
-  /* Footer */
-  .footer {
-    position: sticky; bottom: 0; left: 0; right: 0;
-    padding: 8px 14px;
-    border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12));
-    background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-    display: flex; align-items: center; justify-content: space-between;
-    font-size: 11px; color: var(--vscode-descriptionForeground);
-  }
-  .content { flex: 1; overflow-y: auto; padding-bottom: 36px; }
-  .footer-user {
-    display: flex; align-items: center; gap: 4px; overflow: hidden;
-  }
-  .footer-user svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.6; fill: currentColor; }
-  .footer-user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .footer-gear {
-    flex-shrink: 0; cursor: pointer; opacity: 0.5;
-    padding: 2px; transition: opacity 0.15s; display: flex; align-items: center;
-  }
-  .footer-gear:hover { opacity: 1; }
-  .footer-gear svg { width: 14px; height: 14px; fill: currentColor; }
-  .footer-gear.active { opacity: 1; }
-
-  /* GPG warning banner */
-  /* Account panel overlay */
-  body { position: relative; }
-  .acct-panel {
-    display: none;
-    position: absolute;
-    bottom: 40px;
-    left: 8px; right: 8px;
-    background: var(--vscode-editorWidget-background, var(--vscode-input-background, var(--vscode-editor-background)));
-    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(128,128,128,0.3)));
-    border-radius: 6px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.28);
-    z-index: 200;
-    overflow: hidden;
-  }
-  .acct-panel.open { display: block; }
-  .acct-header {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 14px 10px;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.12));
-  }
-  .acct-avatar {
-    width: 32px; height: 32px; flex-shrink: 0;
-    border-radius: 999px;
-    background: var(--vscode-button-background);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .acct-avatar svg { width: 18px; height: 18px; fill: var(--vscode-button-foreground, #fff); }
-  .acct-info { flex: 1; min-width: 0; }
-  .acct-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .acct-host { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 1px; }
-  .acct-actions { padding: 6px; }
-  .acct-btn {
-    display: flex; align-items: center; gap: 8px;
-    width: 100%; padding: 6px 8px;
-    border: none; background: none; border-radius: 4px;
-    font-size: 12px; color: var(--vscode-foreground);
-    cursor: pointer; text-align: left; font-family: inherit;
-  }
-  .acct-btn:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
-  .acct-btn svg { width: 13px; height: 13px; fill: currentColor; flex-shrink: 0; opacity: 0.7; }
-</style>
-</head>
-<body>
-  <div class="acct-panel" id="acctPanel">
-    <div class="acct-header">
-      <div class="acct-avatar">
-        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      </div>
-      <div class="acct-info">
-        <div class="acct-name">${escapeHtml(cachedUser)}</div>
-        <div class="acct-host">github.com</div>
-      </div>
-    </div>
-    <div class="acct-actions">
-      <button class="acct-btn" id="signOutBtn">
-        <svg viewBox="0 0 16 16"><path d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/><path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/></svg>
-        Sign out
-      </button>
-    </div>
-  </div>
-  <div class="content">
-    <div class="sect">
-      <div class="sect-head">
-        <div class="sect-head-left">
-          <div class="sect-title">MCP Tools</div>
-          ${mcpStatusHtml}
-        </div>
-        <div class="sect-count">${enabledCount}/${TOOL_GROUPS.length}</div>
-      </div>
-      ${toolRows}
-      <div class="hint">Read &amp; Search Knowledge are always on.</div>
-    </div>
-    <div class="sect">
-      <div class="sect-head">
-        <div class="sect-title">Git Checkpoint</div>
-      </div>
-      ${cpRows}
-      ${gpgHint}
-    </div>
-    <div class="sect">
-      <div class="sect-head">
-        <div class="sect-title">Chat Tools</div>
-        <div class="sect-count">${strictLintingEnabled ? "1/1" : "0/1"}</div>
-      </div>
-      ${strictLintingRow}
-    </div>
-    <div class="sect">
-      <div class="sect-head">
-        <div class="sect-title">Community Submissions</div>
-      </div>
-      <select id="modeSelect">${modeOptions}</select>
-      <div class="mode-desc">${modeDesc}</div>
-      ${scopeSection}
-    </div>
-  </div>
-  <div class="footer">
-    <div class="footer-user">
-      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      <span>${escapeHtml(cachedUser)}</span>
-    </div>
-    <div class="footer-gear" id="gearBtn" title="Account">
-      <svg viewBox="0 0 16 16"><path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.2.7-2.4.5v1.2l2.4.5.3.7-1.3 2 .8.8 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.8-.8-1.3-2 .3-.7 2.4-.5V6.8l-2.4-.5-.3-.7 1.3-2-.8-.8-2 1.3-.7-.2zM9.4 8c0 .8-.6 1.4-1.4 1.4S6.6 8.8 6.6 8 7.2 6.6 8 6.6s1.4.6 1.4 1.4z"/></svg>
-    </div>
-  </div>
-  <script>
-    const vscode = acquireVsCodeApi();
-    document.querySelectorAll('.tool-item').forEach(el => {
-      if (el.dataset.strictLinting) return;
-      el.addEventListener('click', () => {
-        const key = el.dataset.key;
-        const active = el.classList.contains('active');
-        vscode.postMessage({ type: 'toggleGroup', key, enabled: !active });
-      });
-    });
-    document.querySelectorAll('[data-strict-linting]').forEach(el => {
-      el.addEventListener('click', () => {
-        const active = el.classList.contains('active');
-        vscode.postMessage({ type: 'toggleStrictLinting', enabled: !active });
-      });
-    });
-    document.querySelectorAll('[data-cpkey]').forEach(el => {
-      el.addEventListener('click', () => {
-        vscode.postMessage({ type: 'setCheckpoint', key: el.dataset.cpkey });
-      });
-    });
-    document.getElementById("uploadGpgBtn")?.addEventListener("click", (e) => { e.preventDefault(); vscode.postMessage({type:"uploadGpgKey"}); });
-    document.getElementById("reloginGpgBtn")?.addEventListener("click", (e) => { e.preventDefault(); vscode.postMessage({type:"reloginGpg"}); });
-    document.getElementById("manageMcpBtn")?.addEventListener("click", () => {
-      const tone = document.getElementById("manageMcpBtn").dataset.tone;
-      if (tone === "bad") vscode.postMessage({type:"mcpChipAction",tone:"bad"});
-      else if (tone === "warn") vscode.postMessage({type:"mcpChipAction",tone:"warn"});
-      else vscode.postMessage({type:"mcpChipAction",tone:"good"});
-    });
-    const gearBtn = document.getElementById("gearBtn");
-    const acctPanel = document.getElementById("acctPanel");
-    gearBtn?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const open = acctPanel.classList.toggle("open");
-      gearBtn.classList.toggle("active", open);
-    });
-    document.addEventListener("click", () => {
-      acctPanel?.classList.remove("open");
-      gearBtn?.classList.remove("active");
-    });
-    acctPanel?.addEventListener("click", (e) => e.stopPropagation());
-    document.getElementById("signOutBtn")?.addEventListener("click", () => vscode.postMessage({type:"logout"}));
-    document.getElementById("selectReposBtn")?.addEventListener("click", () => vscode.postMessage({type:"selectRepos"}));
-    document.getElementById("modeSelect")?.addEventListener("change", (e) => vscode.postMessage({type:"setMode", value: e.target.value}));
-  </script>
-</body>
-</html>`;
-  }
-}
-
-function escapeHtml(text) {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// ---------------------------------------------------------------------------
-// MCP Tools config
-// ---------------------------------------------------------------------------
-
-const MCP_TOOLS_CONFIG_DIR = path.join(
-  process.env.HOME || process.env.USERPROFILE || "",
-  ".config",
-  "git-shell-helpers-mcp",
-);
-const MCP_TOOLS_CONFIG_PATH = path.join(MCP_TOOLS_CONFIG_DIR, "tools.json");
-
-// Tool groups: key → { label, description, tools[], alwaysOn? }
-const TOOL_GROUPS = [
-  {
-    key: "knowledgeWrite",
-    label: "Write Reusable Knowledge Locally",
-    description: "Write, update & append knowledge notes",
-    tools: [
-      "write_knowledge_note",
-      "update_knowledge_note",
-      "append_to_knowledge_note",
-    ],
-  },
-  {
-    key: "communityResearch",
-    label: "Share Knowledge Research",
-    description: "Submit knowledge notes to community repo via PR",
-    tools: ["submit_community_research"],
-  },
-  {
-    key: "webSearch",
-    label: "Web Search",
-    description: "Search the web via SearXNG",
-    tools: ["search_web"],
-  },
-  {
-    key: "scrapeWebpage",
-    label: "Scrape Webpage",
-    description: "Fetch pages, strip HTML chrome, return clean text",
-    tools: ["scrape_webpage"],
-  },
-  {
-    key: "vision",
-    label: "Vision",
-    description:
-      "Process images in-chat, allowing live analysis of visual output",
-    tools: ["analyze_images"],
-  },
-  {
-    key: "screenshot",
-    label: "Screenshot",
-    description:
-      "Capture screenshots of the screen, an app window, or a region",
-    tools: ["take_screenshot"],
-  },
-  {
-    key: "checkpoint",
-    label: "Git Checkpoint",
-    description: "Commit working state via MCP tool — no terminal, no stalling",
-    tools: ["checkpoint"],
-  },
-];
-
-function readToolsConfig() {
-  try {
-    return JSON.parse(fs.readFileSync(MCP_TOOLS_CONFIG_PATH, "utf8"));
-  } catch {
-    return { disabledTools: [] };
-  }
-}
-
-function writeToolsConfig(config) {
-  fs.mkdirSync(MCP_TOOLS_CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(
-    MCP_TOOLS_CONFIG_PATH,
-    JSON.stringify(config, null, 2) + "\n",
-    "utf8",
-  );
-}
-
-function isGroupEnabled(groupKey) {
-  const group = TOOL_GROUPS.find((g) => g.key === groupKey);
-  if (!group || group.alwaysOn) return true;
-  const config = readToolsConfig();
-  const disabled = config.disabledTools || [];
-  return !group.tools.some((t) => disabled.includes(t));
-}
-
-function setGroupEnabled(groupKey, enabled) {
-  const group = TOOL_GROUPS.find((g) => g.key === groupKey);
-  if (!group || group.alwaysOn) return;
-  const config = readToolsConfig();
-  const disabled = new Set(config.disabledTools || []);
-  for (const tool of group.tools) {
-    if (enabled) disabled.delete(tool);
-    else disabled.add(tool);
-  }
-  config.disabledTools = [...disabled];
-  writeToolsConfig(config);
-}
-
-function isStrictLintingEnabled() {
-  return isCustomizationInspectorEnabled();
-}
-
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
-async function loginGitHub() {
-  if (cachedUser) {
-    vscode.window.showInformationMessage(`Already signed in as ${cachedUser}.`);
-    return;
-  }
-  try {
-    const GITHUB_SCOPES = [
-      "repo",
-      "gist",
-      "read:org",
-      "workflow",
-      "write:gpg_key",
-    ];
-    const session = await vscode.authentication.getSession(
-      "github",
-      GITHUB_SCOPES,
-      {
-        createIfNone: true,
-      },
-    );
-    if (!session) return;
-
-    cachedUser = session.account.label;
-
-    // Forward token to gh CLI for shell script compatibility
-    try {
-      await new Promise((resolve, reject) => {
-        const proc = execFile(
-          "gh",
-          ["auth", "login", "--with-token"],
-          { timeout: 10000 },
-          (err) => (err ? reject(err) : resolve()),
-        );
-        proc.stdin.write(session.accessToken);
-        proc.stdin.end();
-      });
-    } catch {
-      /* gh CLI not installed — OK */
-    }
-
-    cachedRepos = await fetchRepos();
-    await checkGpgUploadStatus();
-    _webviewProvider?.refresh();
-    syncAllSettings();
-  } catch {
-    /* User cancelled or auth failed */
-  }
-}
-
-async function checkGpgUploadStatus() {
-  cachedGpgNeedsUpload = false;
-  cachedGpgUploadFailed = false;
-  if (!cachedUser) return;
-  try {
-    const keyId = (
-      await execAsync("git", ["config", "--global", "user.signingkey"])
-    ).trim();
-    if (!keyId) return;
-    const list = await runGh(["gpg-key", "list"]);
-    // gh gpg-key list output contains key IDs — check if our key is already there
-    if (!list.toLowerCase().includes(keyId.toLowerCase().slice(-16))) {
-      cachedGpgNeedsUpload = true;
-    }
-  } catch {
-    // gh not available, no signingkey, or scope missing — skip silently
-  }
-}
-
-async function uploadGpgKeyNow() {
-  try {
-    const gpgCommand = await resolveGpgCommand();
-    if (!gpgCommand) return;
-    const keyId = (
-      await execAsync("git", ["config", "--global", "user.signingkey"])
-    ).trim();
-    if (!keyId) return;
-    const uploaded = await uploadGpgKeyToGitHub(keyId, gpgCommand);
-    if (uploaded) {
-      cachedGpgNeedsUpload = false;
-      cachedGpgUploadFailed = false;
-      _webviewProvider?.refresh();
-      vscode.window.showInformationMessage(
-        "GPG key uploaded — future commits will show as Verified.",
-      );
-    } else {
-      cachedGpgUploadFailed = true;
-      _webviewProvider?.refresh();
-    }
-  } catch {
-    cachedGpgUploadFailed = true;
-    _webviewProvider?.refresh();
-  }
-}
-
-async function logoutGitHub() {
-  if (!cachedUser) return;
-  const action = await vscode.window.showWarningMessage(
-    `Sign out of GitHub (${cachedUser})?`,
-    "Sign out",
-    "Cancel",
-  );
-  if (action !== "Sign out") return;
-
-  try {
-    await runGh(["auth", "logout", "--hostname", "github.com", "--yes"]);
-  } catch {
-    try {
-      await new Promise((resolve) => {
-        const proc = execFile(
-          "gh",
-          ["auth", "logout", "--hostname", "github.com"],
-          { timeout: 5000 },
-          () => resolve(),
-        );
-        proc.stdin?.write("Y\n");
-        proc.stdin?.end();
-      });
-    } catch {
-      /* ignore */
-    }
-  }
-
-  cachedUser = "";
-  cachedRepos = [];
-  _webviewProvider?.refresh();
-}
-
-async function selectRepos() {
-  if (!cachedUser) {
-    vscode.window.showWarningMessage("Sign in to GitHub first.");
-    return;
-  }
-
-  if (cachedRepos.length === 0) {
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: "Fetching GitHub repositories…",
-      },
-      async () => {
-        cachedRepos = await fetchRepos();
-      },
-    );
-  }
-
-  if (cachedRepos.length === 0) {
-    vscode.window.showWarningMessage("No repositories found.");
-    return;
-  }
-
-  const currentWhitelist = getWhitelist();
-  const items = cachedRepos.map((r) => ({
-    label: r.nameWithOwner,
-    description: r.visibility === "PUBLIC" ? "public" : "private",
-    picked: currentWhitelist.includes(r.nameWithOwner),
-  }));
-
-  const selected = await vscode.window.showQuickPick(items, {
-    canPickMany: true,
-    title: "Select repositories allowed to submit to community cache",
-    placeHolder: `${cachedRepos.length} repos — check the ones to whitelist`,
-  });
-
-  if (selected) {
-    await setWhitelist(selected.map((s) => s.label));
-    vscode.window.showInformationMessage(
-      `Whitelist updated: ${selected.length} repo(s) selected.`,
-    );
-  }
-}
-
-function showCommunityStatus() {
-  const mode = getMode();
-  const whitelist = getWhitelist();
-
-  const globalFile = globalSettingsPath();
-  const globalExists = fs.existsSync(globalFile);
-  const globalData = globalExists ? readJsonFile(globalFile) : null;
-
-  const lines = [
-    "Community Cache Status",
-    "",
-    `GitHub user: ${cachedUser || "(not signed in)"}`,
-    `Mode: ${mode}`,
-    "",
-    `Global JSON: ${globalExists ? globalFile : "not found"}`,
-    globalData ? `  mode: ${globalData.mode}` : "",
-    "",
-    `Loaded repos: ${cachedRepos.length}`,
-    `Whitelisted: ${whitelist.length > 0 ? whitelist.join(", ") : "(none)"}`,
-  ];
-
-  const folders = vscode.workspace.workspaceFolders;
-  if (folders) {
-    for (const folder of folders) {
-      const wsFile = workspaceSettingsPath(folder);
-      const wsExists = fs.existsSync(wsFile);
-      const wsData = wsExists ? readJsonFile(wsFile) : null;
-      lines.push(
-        `Workspace JSON (${folder.name}): ${wsExists ? wsFile : "not found"}`,
-      );
-      if (wsData) lines.push(`  mode: ${wsData.mode}`);
-    }
-  }
-
-  vscode.window.showInformationMessage(lines.filter(Boolean).join("\n"), {
-    modal: true,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Activation
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// GPG key provisioning for Verified Commits
-// ---------------------------------------------------------------------------
-
-function execAsync(cmd, args, opts = {}) {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 30000, ...opts }, (err, stdout, stderr) => {
-      if (err) reject(new Error(stderr || err.message));
-      else resolve(stdout);
-    });
-  });
-}
-
-function execAsyncStdin(cmd, args, input) {
-  return new Promise((resolve, reject) => {
-    const proc = execFile(
-      cmd,
-      args,
-      { timeout: 60000 },
-      (err, stdout, stderr) => {
-        if (err) reject(new Error(stderr || err.message));
-        else resolve(stdout);
-      },
-    );
-    proc.stdin.write(input);
-    proc.stdin.end();
-  });
-}
-
-const GPG_CANDIDATES = [
-  "gpg",
-  "gpg2",
-  "/opt/homebrew/bin/gpg",
-  "/opt/homebrew/bin/gpg2",
-  "/usr/local/bin/gpg",
-  "/usr/local/bin/gpg2",
-  "/usr/local/MacGPG2/bin/gpg",
-  "/usr/local/MacGPG2/bin/gpg2",
-];
-
-const BREW_CANDIDATES = [
-  "brew",
-  "/opt/homebrew/bin/brew",
-  "/usr/local/bin/brew",
-];
-
-let cachedGpgCommand;
-let cachedBrewCommand;
-
-async function resolveGpgCommand() {
-  if (cachedGpgCommand) return cachedGpgCommand;
-
-  for (const candidate of GPG_CANDIDATES) {
-    if (candidate.includes(path.sep) && !fs.existsSync(candidate)) {
-      continue;
-    }
-
-    try {
-      await execAsync(candidate, ["--version"]);
-      cachedGpgCommand = candidate;
-      return candidate;
-    } catch {
-      /* try next candidate */
-    }
-  }
-
-  return "";
-}
-
-async function resolveBrewCommand() {
-  if (cachedBrewCommand) return cachedBrewCommand;
-
-  for (const candidate of BREW_CANDIDATES) {
-    if (candidate.includes(path.sep) && !fs.existsSync(candidate)) {
-      continue;
-    }
-
-    try {
-      await execAsync(candidate, ["--version"]);
-      cachedBrewCommand = candidate;
-      return candidate;
-    } catch {
-      /* try next candidate */
-    }
-  }
-
-  return "";
-}
-
-async function installGpgWithBrew() {
-  if (process.platform !== "darwin") return false;
-
-  const brewCommand = await resolveBrewCommand();
-  if (!brewCommand) {
-    vscode.window.showErrorMessage(
-      "Verified Commits requires GPG, and Homebrew is not installed. Install Homebrew first, then try again.",
-    );
-    return false;
-  }
-
-  const choice = await vscode.window.showWarningMessage(
-    "Verified Commits requires GPG. Install GnuPG with Homebrew now?",
-    { modal: true },
-    "Install",
-    "Cancel",
-  );
-  if (choice !== "Install") return false;
-
-  const installed = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "Installing GnuPG with Homebrew…",
-      cancellable: false,
-    },
-    async () => {
-      try {
-        await execAsync(brewCommand, ["install", "gnupg"], {
-          timeout: 10 * 60 * 1000,
-          maxBuffer: 10 * 1024 * 1024,
-        });
-        return true;
-      } catch (err) {
-        vscode.window.showErrorMessage(
-          `Failed to install GnuPG with Homebrew: ${err.message}`,
-        );
-        return false;
-      }
-    },
-  );
-
-  if (!installed) return false;
-
-  cachedGpgCommand = undefined;
-  const gpgCommand = await resolveGpgCommand();
-  if (!gpgCommand) {
-    vscode.window.showErrorMessage(
-      "GnuPG installed, but VS Code still could not find 'gpg'. Reload the window and try again.",
-    );
-    return false;
-  }
-
-  vscode.window.showInformationMessage(
-    "GnuPG installed. Continuing Verified Commits setup.",
-  );
-  return true;
-}
-
-async function ensureGpgAvailable() {
-  let gpgCommand = await resolveGpgCommand();
-  if (gpgCommand) return gpgCommand;
-
-  if (process.platform === "darwin") {
-    const installed = await installGpgWithBrew();
-    if (!installed) return "";
-    gpgCommand = await resolveGpgCommand();
-    if (gpgCommand) return gpgCommand;
-  }
-
-  vscode.window.showErrorMessage(
-    "Verified Commits requires GPG, but no gpg executable was found.",
-  );
-  return "";
-}
-
-async function ensureGpgKey() {
-  const gpgCommand = await ensureGpgAvailable();
-  if (!gpgCommand) {
-    return false;
-  }
-
-  // 1. Check if a signing key is already configured
-  try {
-    const existing = (
-      await execAsync("git", ["config", "--global", "user.signingkey"])
-    ).trim();
-    if (existing) return true; // already set up
-  } catch {
-    /* not configured yet */
-  }
-
-  // 2. Check for existing secret keys we can reuse
-  let email = "";
-  try {
-    email = (
-      await execAsync("git", ["config", "--global", "user.email"])
-    ).trim();
-  } catch {
-    /* no email configured */
-  }
-
-  if (email) {
-    try {
-      const keys = await execAsync(gpgCommand, [
-        "--list-secret-keys",
-        "--keyid-format",
-        "long",
-        email,
-      ]);
-      const match = keys.match(/sec\s+\w+\/([A-F0-9]+)/i);
-      if (match) {
-        await execAsync("git", [
-          "config",
-          "--global",
-          "user.signingkey",
-          match[1],
-        ]);
-        vscode.window.showInformationMessage(
-          `Using existing GPG key ${match[1].slice(-8)} for signing.`,
-        );
-        await uploadGpgKeyToGitHub(match[1], gpgCommand);
-        return true;
-      }
-    } catch {
-      /* no matching key */
-    }
-  }
-
-  // 3. Need git user.name and user.email to generate a key
-  let name = "";
-  try {
-    name = (await execAsync("git", ["config", "--global", "user.name"])).trim();
-  } catch {
-    /* no name configured */
-  }
-
-  if (!name || !email) {
-    vscode.window.showErrorMessage(
-      "Set git user.name and user.email before enabling Verified Commits.\n" +
-        "Run: git config --global user.name 'Your Name' && git config --global user.email 'you@example.com'",
-    );
-    return false;
-  }
-
-  // 4. Generate a new GPG key
-  const progress = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "Generating GPG key…",
-    },
-    async () => {
-      try {
-        const batch = [
-          "Key-Type: RSA",
-          "Key-Length: 4096",
-          `Name-Real: ${name}`,
-          `Name-Email: ${email}`,
-          "Expire-Date: 0",
-          "%no-protection",
-          "%commit",
-          "",
-        ].join("\n");
-        await execAsyncStdin(gpgCommand, ["--batch", "--gen-key"], batch);
-        return true;
-      } catch (err) {
-        vscode.window.showErrorMessage(
-          `Failed to generate GPG key: ${err.message}`,
-        );
-        return false;
-      }
-    },
-  );
-
-  if (!progress) return false;
-
-  // 5. Read back the new key ID
-  let keyId = "";
-  try {
-    const keys = await execAsync(gpgCommand, [
-      "--list-secret-keys",
-      "--keyid-format",
-      "long",
-      email,
-    ]);
-    const match = keys.match(/sec\s+\w+\/([A-F0-9]+)/i);
-    if (match) keyId = match[1];
-  } catch {
-    /* failed to read key */
-  }
-
-  if (!keyId) {
-    vscode.window.showErrorMessage(
-      "GPG key was generated but could not read the key ID.",
-    );
-    return false;
-  }
-
-  // 6. Configure git to use this key
-  await execAsync("git", ["config", "--global", "user.signingkey", keyId]);
-
-  // 7. Upload to GitHub
-  const uploaded = await uploadGpgKeyToGitHub(keyId, gpgCommand);
-  const suffix = uploaded
-    ? " and uploaded to GitHub ✅"
-    : " (upload to GitHub manually for the Verified badge)";
-  vscode.window.showInformationMessage(
-    `GPG key ${keyId.slice(-8)} generated${suffix}`,
-  );
-
-  return true;
-}
-
-async function uploadGpgKeyToGitHub(keyId, gpgCommand) {
-  if (!cachedUser) return false;
-  try {
-    const pubKey = await execAsync(gpgCommand, ["--armor", "--export", keyId]);
-    if (!pubKey.trim()) return false;
-    await runGh([
-      "api",
-      "/user/gpg_keys",
-      "-f",
-      `armored_public_key=${pubKey.trim()}`,
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Checkpoint settings → git config sync
-// ---------------------------------------------------------------------------
-
-function syncCheckpointSettings() {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) return;
-
-  const config = vscode.workspace.getConfiguration(
-    "gitShellHelpers.checkpoint",
-  );
-  const keys = [
-    { setting: "enabled", gitKey: "checkpoint.enabled" },
-    { setting: "autoPush", gitKey: "checkpoint.push" },
-    { setting: "sign", gitKey: "checkpoint.sign" },
-  ];
-
-  for (const folder of folders) {
-    const cwd = folder.uri.fsPath;
-    for (const { setting, gitKey } of keys) {
-      const value = config.get(setting);
-      if (value !== undefined) {
-        execFile("git", ["config", gitKey, String(value)], { cwd }, (err) => {
-          if (err) {
-            // Not a git repo or git not available — ignore silently
-          }
-        });
-      }
-    }
-  }
-}
 
 function activate(context) {
   _context = context;
 
-  importFromJson();
-  migrateLegacyMcpRegistrations();
-  registerMcpServerProvider(context);
-  registerCustomizationInspectorTool(context);
+  // --- Initialize modules in dependency order ---
 
-  // Git Helpers webview (MCP Tools + Community Cache)
+  // 1. MCP server (no deps on other modules)
+  const mcpServer = createMcpServer({
+    GLOBAL_MCP_SERVER_PATH,
+    MCP_PROVIDER_ID,
+    uniquePaths: (paths) => [...new Set(paths.filter(Boolean))],
+  });
+
+  // 2. Activity tracker (needs getWebviewProvider, getChatSessions — late-bound)
+  const activity = createActivityTracker({
+    getWebviewProvider,
+    getChatSessions: () => chatSessionsModule.getChatSessions(),
+  });
+
+  // 3. Chat sessions (needs getWebviewProvider, getActivityItems)
+  const chatSessionsModule = createChatSessions({
+    getWebviewProvider,
+    getActivityItems: () => activity.getActivityItems(),
+  });
+
+  // 4. Copilot inspector (needs channel/disposable getters + activity)
+  const inspector = createCopilotInspector({
+    getDiagnosticsChannel: () => _diagnosticsOutputChannel,
+    setDiagnosticsChannel: (ch) => {
+      _diagnosticsOutputChannel = ch;
+    },
+    getInspectorDisposable: () => _customizationInspectorToolDisposable,
+    setInspectorDisposable: (d) => {
+      _customizationInspectorToolDisposable = d;
+    },
+    beginToolCall: activity.beginToolCall,
+    endToolCall: activity.endToolCall,
+  });
+
+  // 5. Community settings (needs mcpServer funcs, gh helpers)
+  //    checkGpgUploadStatus is destructured but unused — pass no-op for safety
+  const community = createCommunitySettings({
+    _context,
+    getCachedUser: () => cachedUser,
+    getCachedRepos: () => cachedRepos,
+    setCachedRepos: (v) => {
+      cachedRepos = v;
+    },
+    runGh,
+    isGhAuthed,
+    getGhUser,
+    fetchRepos,
+    checkGpgUploadStatus: (...a) => gpgAuth.checkGpgUploadStatus(...a),
+    readJsonFile: mcpServer.readJsonFile,
+    writeJsonFile: mcpServer.writeJsonFile,
+    globalSettingsPath: mcpServer.globalSettingsPath,
+    workspaceSettingsPath: mcpServer.workspaceSettingsPath,
+    workspaceManifestPath: mcpServer.workspaceManifestPath,
+    isGroupEnabled: toolsConfig.isGroupEnabled,
+    getWebviewProvider,
+  });
+
+  // 6. GPG auth (needs community, mcpServer, gh helpers, state)
+  //    buildSettingsJson is destructured but unused — pass no-op for safety
+  const gpgAuth = createGpgAuth({
+    getCachedRepos: () => cachedRepos,
+    setCachedRepos: (v) => {
+      cachedRepos = v;
+    },
+    getCachedUser: () => cachedUser,
+    setCachedUser: (v) => {
+      cachedUser = v;
+    },
+    getCachedGpgNeedsUpload: () => cachedGpgNeedsUpload,
+    setCachedGpgNeedsUpload: (v) => {
+      cachedGpgNeedsUpload = v;
+    },
+    getCachedGpgUploadFailed: () => cachedGpgUploadFailed,
+    setCachedGpgUploadFailed: (v) => {
+      cachedGpgUploadFailed = v;
+    },
+    getWebviewProvider,
+    runGh,
+    isGhAuthed,
+    getGhUser,
+    fetchRepos,
+    getWhitelist: community.getWhitelist,
+    setWhitelist: community.setWhitelist,
+    getMode: community.getMode,
+    buildSettingsJson: () => ({}),
+    syncAllSettings: community.syncAllSettings,
+    readJsonFile: mcpServer.readJsonFile,
+    writeJsonFile: mcpServer.writeJsonFile,
+    globalSettingsPath: mcpServer.globalSettingsPath,
+    workspaceSettingsPath: mcpServer.workspaceSettingsPath,
+    SCHEMA_VERSION,
+    PREDEFINED,
+  });
+
+  // 7. Model provider
+  const models = createModelProvider({
+    _context,
+    getWebviewProvider,
+  });
+
+  // 8. Worktree manager
+  const worktree = createWorktreeManager({
+    _context,
+    getDiagnosticsOutputChannel: inspector.getDiagnosticsOutputChannel,
+  });
+
+  // 9. IPC servers
+  const ipc = createIpcServers({
+    beginToolCall: activity.beginToolCall,
+    endToolCall: activity.endToolCall,
+    runStrictLinting: inspector.runStrictLinting,
+    getActivityItems: activity.getActivityItems,
+    getWebviewProvider,
+    handleWorktreeIpcMessage: worktree.handleWorktreeIpcMessage,
+    getActiveChatTabKey: worktree.getActiveChatTabKey,
+    getPendingBranchSessionStarts: worktree.getPendingBranchSessionStarts,
+    setSuppressTabDrivenUnfocusUntil: worktree.setSuppressTabDrivenUnfocusUntil,
+    ensureSessionStarted: activity.ensureSessionStarted,
+    writeWorktreeDebug: worktree.writeWorktreeDebug,
+  });
+  _ipc = ipc;
+
+  // --- Startup sequence ---
+
+  // Check VS Code workbench patches (non-blocking, deferred)
+  setTimeout(() => worktree.checkVscodePatches(), 3000);
+
+  // Restore persisted Ollama pinned models
+  models.initPinnedModels(context);
+
+  // Import settings, migrate MCP, register providers
+  community.importFromJson();
+  mcpServer.migrateLegacyMcpRegistrations();
+  mcpServer.registerMcpServerProvider(context);
+  inspector.registerCustomizationInspectorTool(context);
+
+  // --- Webview provider ---
+  const CommunityCacheViewProvider = createWebviewProviderClass({
+    loginGitHub: gpgAuth.loginGitHub,
+    logoutGitHub: gpgAuth.logoutGitHub,
+    selectRepos: gpgAuth.selectRepos,
+    setMode: community.setMode,
+    setGroupEnabled: toolsConfig.setGroupEnabled,
+    ensureGpgKey: gpgAuth.ensureGpgKey,
+    openMcpServerControls: mcpServer.openMcpServerControls,
+    openModelPicker: models.openModelPicker,
+    refreshModels: models.refreshModels,
+    openAgentInChat: models.openAgentInChat,
+    runQuickAction: models.runQuickAction,
+    openQuickActionWithoutSend: models.openQuickActionWithoutSend,
+    setApiKey: models.setApiKey,
+    detectOllama: models.detectOllama,
+    uploadGpgKeyNow: gpgAuth.uploadGpgKeyNow,
+    getMode: community.getMode,
+    getWhitelist: community.getWhitelist,
+    getMcpStatusViewModel: mcpServer.getMcpStatusViewModel,
+    escapeHtml,
+    isGroupEnabled: toolsConfig.isGroupEnabled,
+    isStrictLintingEnabled: inspector.isCustomizationInspectorEnabled,
+    getProviderStatus: models.getProviderStatus,
+    scanLocalAgents: models.scanLocalAgents,
+    getActivityItems: activity.getActivityItems,
+    _activityCountLabel: activity._activityCountLabel,
+    API_KEY_ANTHROPIC: models.API_KEY_ANTHROPIC,
+    API_KEY_OPENAI: models.API_KEY_OPENAI,
+    TOOL_GROUPS: toolsConfig.TOOL_GROUPS,
+    MODES: community.MODES,
+    QUICK_ACTIONS: models.QUICK_ACTIONS,
+    getCachedUser: () => cachedUser,
+    setCachedUser: (v) => {
+      cachedUser = v;
+    },
+    getCachedRepos: () => cachedRepos,
+    setCachedRepos: (v) => {
+      cachedRepos = v;
+    },
+    getCachedGpgNeedsUpload: () => cachedGpgNeedsUpload,
+    getCachedGpgUploadFailed: () => cachedGpgUploadFailed,
+    setCachedGpgUploadFailed: (v) => {
+      cachedGpgUploadFailed = v;
+    },
+    _ollamaPinned: models.getOllamaPinned(),
+    _context,
+  });
   _webviewProvider = new CommunityCacheViewProvider(context.extensionUri);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -2318,41 +327,101 @@ function activate(context) {
     if (authed) {
       cachedUser = await getGhUser();
       cachedRepos = await fetchRepos();
-      await checkGpgUploadStatus();
+      await gpgAuth.checkGpgUploadStatus();
       _webviewProvider.refresh();
     }
   });
 
-  // Start strict lint IPC server so the gsh MCP tool can query VS Code diagnostics
-  startStrictLintIpcServer();
+  // Detect Ollama on startup
+  models.detectOllama();
 
-  // Write default tools config if none exists
-  if (!fs.existsSync(MCP_TOOLS_CONFIG_PATH)) {
-    writeToolsConfig({ disabledTools: [] });
+  // Load available Copilot models on startup and whenever the model list changes
+  models.refreshModels();
+  if (vscode.lm?.onDidChangeChatModels) {
+    context.subscriptions.push(
+      vscode.lm.onDidChangeChatModels(() => models.refreshModels()),
+    );
   }
 
+  // Start IPC servers
+  ipc.startStrictLintIpcServer();
+  ipc.startActivityIpcServer();
+
+  // Worktree management
+  worktree.loadWorktreeBindings();
+  worktree.loadTabWorktreeMap();
+  worktree.loadSessionState();
+  worktree.reconcileWorktreeBindings();
+  worktree.registerWorktreeFileView(context);
+
+  // Track chat editor tabs — switch explorer focus to the active worktree
+  context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs(() =>
+      worktree.onActiveTabChanged(),
+    ),
+    vscode.window.tabGroups.onDidChangeTabGroups(() =>
+      worktree.onActiveTabChanged(),
+    ),
+  );
+
+  // Track active chat session via proposed API (chatParticipantPrivate)
+  try {
+    if (vscode.window.onDidChangeActiveChatPanelSessionResource) {
+      context.subscriptions.push(
+        vscode.window.onDidChangeActiveChatPanelSessionResource(
+          worktree.onChatSessionFocusChanged,
+        ),
+      );
+    }
+  } catch {}
+
+  // Restore worktree focus if VS Code reopened with an active branch session
+  worktree.waitForGitExtensionThenRestore();
+
+  // Watch Copilot Chat's JSONL session files for live activity
+  chatSessionsModule.startChatSessionWatcher(context);
+  context.subscriptions.push({
+    dispose: () => chatSessionsModule.dispose(),
+  });
+
+  // Write default tools config if none exists
+  if (!fs.existsSync(toolsConfig.MCP_TOOLS_CONFIG_PATH)) {
+    toolsConfig.writeToolsConfig({ disabledTools: [] });
+  }
+
+  // --- Command registrations ---
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "gitShellHelpers.showCommunityStatus",
-      showCommunityStatus,
+      community.showCommunityStatus,
     ),
     vscode.commands.registerCommand(
       "gitShellHelpers.inspectCopilotCustomizationWarnings",
       async (filePath) => {
-        const result = await inspectCopilotCustomizationWarnings({
+        const result = await inspector.inspectCopilotCustomizationWarnings({
           filePath,
           notify: true,
           revealOutput: true,
         });
-        return formatCustomizationInspectionReport(result);
+        return inspector.formatCustomizationInspectionReport(result);
       },
     ),
-    vscode.commands.registerCommand("gitShellHelpers.loginGitHub", loginGitHub),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.searchArchivedChatHistory",
+      () => chatSessionsModule.searchArchivedChatHistory(),
+    ),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.loginGitHub",
+      gpgAuth.loginGitHub,
+    ),
     vscode.commands.registerCommand(
       "gitShellHelpers.logoutGitHub",
-      logoutGitHub,
+      gpgAuth.logoutGitHub,
     ),
-    vscode.commands.registerCommand("gitShellHelpers.selectRepos", selectRepos),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.selectRepos",
+      gpgAuth.selectRepos,
+    ),
     vscode.commands.registerCommand(
       "gitShellHelpers.restartMcpServer",
       async () => {
@@ -2368,130 +437,42 @@ function activate(context) {
     ),
     vscode.commands.registerCommand(
       "gitShellHelpers.openMcpServerControls",
-      openMcpServerControls,
+      mcpServer.openMcpServerControls,
+    ),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.refreshModels",
+      async () => {
+        await models.refreshModels();
+        vscode.window.showInformationMessage(
+          `Git Shell Helpers: ${models.getCachedModels().length} Copilot model(s) found.`,
+        );
+      },
+    ),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.openModelPicker",
+      models.openModelPicker,
     ),
   );
 
   // Sync checkpoint settings to git config when changed
-  syncCheckpointSettings();
+  models.syncCheckpointSettings();
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("gitShellHelpers.checkpoint")) {
-        syncCheckpointSettings();
+        models.syncCheckpointSettings();
       }
       if (e.affectsConfiguration("gitShellHelpers.customizationInspector")) {
-        registerCustomizationInspectorTool(context);
+        inspector.registerCustomizationInspectorTool(context);
       }
     }),
   );
 }
 
-// ---------------------------------------------------------------------------
-// Strict Lint IPC server — allows the gsh MCP server to request diagnostics
-// from VS Code's live language servers via a Unix socket.
-// ---------------------------------------------------------------------------
-
-const STRICT_LINT_SOCKET_PATH = path.join(os.tmpdir(), "gsh-strict-lint.sock");
-const STRICT_LINT_IPC_INFO_PATH = path.join(
-  os.homedir(),
-  ".cache",
-  "gsh",
-  "strict-lint-ipc.json",
-);
-
-function startStrictLintIpcServer() {
-  if (_strictLintIpcServer) return;
-
-  try {
-    if (fs.existsSync(STRICT_LINT_SOCKET_PATH)) {
-      fs.unlinkSync(STRICT_LINT_SOCKET_PATH);
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    fs.mkdirSync(path.dirname(STRICT_LINT_IPC_INFO_PATH), { recursive: true });
-    fs.writeFileSync(
-      STRICT_LINT_IPC_INFO_PATH,
-      JSON.stringify(
-        {
-          socketPath: STRICT_LINT_SOCKET_PATH,
-          updatedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-  } catch {
-    // ignore — non-fatal
-  }
-
-  _strictLintIpcServer = net.createServer((socket) => {
-    let buffer = "";
-    socket.setEncoding("utf8");
-
-    socket.on("data", async (chunk) => {
-      buffer += chunk;
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-
-        let request;
-        try {
-          request = JSON.parse(line);
-        } catch {
-          socket.write(
-            JSON.stringify({ ok: false, error: "Invalid JSON" }) + "\n",
-          );
-          continue;
-        }
-
-        try {
-          const result = await runStrictLinting(request.arguments || {});
-          socket.write(JSON.stringify({ ok: true, result }) + "\n");
-        } catch (err) {
-          socket.write(
-            JSON.stringify({
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            }) + "\n",
-          );
-        }
-      }
-    });
-
-    socket.on("error", () => {});
-  });
-
-  _strictLintIpcServer.listen(STRICT_LINT_SOCKET_PATH);
-  _strictLintIpcServer.on("error", () => {
-    _strictLintIpcServer = null;
-  });
-}
-
-function stopStrictLintIpcServer() {
-  if (_strictLintIpcServer) {
-    _strictLintIpcServer.close();
-    _strictLintIpcServer = null;
-  }
-  try {
-    fs.unlinkSync(STRICT_LINT_SOCKET_PATH);
-  } catch {
-    // ignore
-  }
-  try {
-    fs.unlinkSync(STRICT_LINT_IPC_INFO_PATH);
-  } catch {
-    // ignore
-  }
-}
-
 function deactivate() {
-  stopStrictLintIpcServer();
+  if (_ipc) {
+    _ipc.stopStrictLintIpcServer();
+    _ipc.stopActivityIpcServer();
+  }
 }
 
 module.exports = { activate, deactivate };

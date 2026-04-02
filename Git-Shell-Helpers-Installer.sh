@@ -53,6 +53,127 @@ fetch() {
   curl -fsSL "$src" -o "$dest"
 }
 
+copy_packaged_tree() {
+  local source_root="$1"
+
+  if [ ! -d "$source_root/bin" ]; then
+    return 1
+  fi
+
+  ensure_dir "$BIN_DIR"
+  ensure_dir "$MAN_DIR"
+  cp -R "$source_root/bin/." "$BIN_DIR/"
+  if [ -d "$source_root/man/man1" ]; then
+    cp -R "$source_root/man/man1/." "$MAN_DIR/"
+  fi
+
+  find "$BIN_DIR" -maxdepth 1 -type f -name 'git-*' -exec chmod +x {} + 2>/dev/null || true
+  return 0
+}
+
+install_release_archive() {
+  local version="$1"
+  local archive_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${version}/github-shell-helpers-${version}.tar.gz"
+  local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-${version}.tar.gz"
+  local extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/gsh-release.XXXXXX")"
+  local source_root="${extract_dir}/github-shell-helpers-${version}"
+
+  if ! curl -fsSL -o "$archive_tmp" "$archive_url" 2>/dev/null; then
+    rm -rf "$extract_dir" "$archive_tmp"
+    return 1
+  fi
+
+  if ! tar -xzf "$archive_tmp" -C "$extract_dir"; then
+    rm -rf "$extract_dir" "$archive_tmp"
+    return 1
+  fi
+
+  if ! copy_packaged_tree "$source_root"; then
+    rm -rf "$extract_dir" "$archive_tmp"
+    return 1
+  fi
+
+  rm -rf "$extract_dir" "$archive_tmp"
+  echo "[Git-Shell-Helpers-Installer] Installed packaged release tree for v${version}"
+  return 0
+}
+
+install_source_archive() {
+  local archive_url="https://codeload.github.com/RockyWearsAHat/github-shell-helpers/tar.gz/refs/heads/main"
+  local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-main.tar.gz"
+  local extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/gsh-source.XXXXXX")"
+  local source_root=""
+
+  if ! curl -fsSL -o "$archive_tmp" "$archive_url" 2>/dev/null; then
+    rm -rf "$extract_dir" "$archive_tmp"
+    return 1
+  fi
+
+  if ! tar -xzf "$archive_tmp" -C "$extract_dir"; then
+    rm -rf "$extract_dir" "$archive_tmp"
+    return 1
+  fi
+
+  source_root="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -name 'github-shell-helpers-*' | head -n 1)"
+  if [ -z "$source_root" ]; then
+    rm -rf "$extract_dir" "$archive_tmp"
+    return 1
+  fi
+
+  if ! copy_packaged_tree "$source_root/build/release-root/$(basename "$source_root" | sed 's/-main$//')"; then
+    if ! bash "$source_root/scripts/build-dist.sh" >/dev/null 2>&1; then
+      rm -rf "$extract_dir" "$archive_tmp"
+      return 1
+    fi
+    local built_root
+    built_root="$(find "$source_root/build/release-root" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    if [ -z "$built_root" ] || ! copy_packaged_tree "$built_root"; then
+      rm -rf "$extract_dir" "$archive_tmp"
+      return 1
+    fi
+  fi
+
+  rm -rf "$extract_dir" "$archive_tmp"
+  echo "[Git-Shell-Helpers-Installer] Installed packaged tree from source archive fallback"
+  return 0
+}
+
+fetch_mcp_runtime() {
+  local dest_bin_dir="$1"
+  local dest_lib_dir="${dest_bin_dir}/lib"
+  local mcp_lib=""
+
+  ensure_dir "$dest_lib_dir"
+
+  fetch "$REPO_RAW_BASE/git-shell-helpers-mcp" "$dest_bin_dir/git-shell-helpers-mcp"
+  fetch "$REPO_RAW_BASE/git-shell-helpers-mcp.js" "$dest_bin_dir/git-shell-helpers-mcp.js"
+  fetch "$REPO_RAW_BASE/git-research-mcp" "$dest_bin_dir/git-research-mcp"
+  fetch "$REPO_RAW_BASE/git-research-mcp.js" "$dest_bin_dir/git-research-mcp.js"
+
+  for mcp_lib in \
+    mcp-activity-ipc.js \
+    mcp-branch-sessions.js \
+    mcp-checkpoint.js \
+    mcp-git.js \
+    mcp-google-headless.js \
+    mcp-knowledge-index.js \
+    mcp-knowledge-rw.js \
+    mcp-language-models.js \
+    mcp-pdf-extract.js \
+    mcp-research-tools.js \
+    mcp-research.js \
+    mcp-session-memory.js \
+    mcp-strict-lint.js \
+    mcp-utils.js \
+    mcp-web-search.js \
+    mcp-workspace-context.js
+  do
+    fetch "$REPO_RAW_BASE/lib/${mcp_lib}" "$dest_lib_dir/${mcp_lib}"
+  done
+
+  chmod +x "$dest_bin_dir/git-shell-helpers-mcp" "$dest_bin_dir/git-research-mcp"
+}
+
 write_community_settings() {
   local mode="$1"
   local local_clone=""
@@ -141,6 +262,50 @@ maybe_install_vscode_extensions() {
   fi
 }
 
+maybe_install_gsh_extension() {
+  local code_cli="$1"
+  local version="$2"
+  local reply=""
+
+  echo ""
+  echo "[Git-Shell-Helpers-Installer] Git Shell Helpers VS Code Extension (RECOMMENDED)"
+  echo "  Provides:"
+  echo "    - MCP server auto-registration (no manual mcp.json editing)"
+  echo "    - Branch sessions: per-chat isolated git worktrees for parallel work"
+  echo "    - AI checkpoint commits with auto-generated messages"
+  echo "    - Strict lint bridge: run VS Code diagnostics from Copilot agents"
+  echo "    - Community cache sidebar: GitHub sign-in, audit settings, repo whitelist"
+  echo "    - Session memory: per-workspace learning across agent conversations"
+  echo "    - Model selector: switch Copilot models from the status bar"
+  printf '[Git-Shell-Helpers-Installer] Install the Git Shell Helpers extension? [Y/n]: '
+  read -r reply || reply=""
+
+  if [[ -n "$reply" && "$reply" != "y" && "$reply" != "Y" ]]; then
+    echo "[Git-Shell-Helpers-Installer] Skipped. Install later from a GitHub release .vsix or the extension marketplace."
+    return
+  fi
+
+  local vsix_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${version}/git-shell-helpers-${version}.vsix"
+  local vsix_tmp="${TMPDIR:-/tmp}/git-shell-helpers-${version}.vsix"
+
+  if curl -fsSL -o "$vsix_tmp" "$vsix_url" 2>/dev/null; then
+    if "$code_cli" --install-extension "$vsix_tmp" --force >/dev/null 2>&1; then
+      echo "[Git-Shell-Helpers-Installer] Installed Git Shell Helpers extension v${version}"
+    else
+      echo "[Git-Shell-Helpers-Installer] Failed to install VSIX. Install manually from: $vsix_url" >&2
+    fi
+    rm -f "$vsix_tmp"
+  else
+    echo "[Git-Shell-Helpers-Installer] Could not download VSIX from release. Trying marketplace ID..."
+    if "$code_cli" --install-extension RockyWearsAHat.git-shell-helpers --force >/dev/null 2>&1; then
+      echo "[Git-Shell-Helpers-Installer] Installed Git Shell Helpers from marketplace."
+    else
+      echo "[Git-Shell-Helpers-Installer] Extension not yet on marketplace. Download the .vsix from:" >&2
+      echo "  https://github.com/RockyWearsAHat/github-shell-helpers/releases/latest" >&2
+    fi
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # MCP tools installation
 # ---------------------------------------------------------------------------
@@ -209,9 +374,6 @@ configure_mcp_tools() {
     fi
   fi
 
-  # Fetch the combined server entry point
-  fetch "$REPO_RAW_BASE/git-shell-helpers-mcp" "$BIN_DIR/git-shell-helpers-mcp"
-
   # Fetch vision tool files if selected
   if [ "$install_vision" = true ]; then
     local vision_dir="${BIN_DIR}/vision-tool"
@@ -244,62 +406,19 @@ install_all() {
   ensure_dir "$BIN_DIR"
   ensure_dir "$MAN_DIR"
 
-  # Scripts
-  fetch "$REPO_RAW_BASE/git-upload"     "$BIN_DIR/git-upload"
-  fetch "$REPO_RAW_BASE/git-get"        "$BIN_DIR/git-get"
-  fetch "$REPO_RAW_BASE/git-initialize" "$BIN_DIR/git-initialize"
-  fetch "$REPO_RAW_BASE/git-fucked-the-push" "$BIN_DIR/git-fucked-the-push"
-  fetch "$REPO_RAW_BASE/git-copilot-devops-audit" "$BIN_DIR/git-copilot-devops-audit"
-  fetch "$REPO_RAW_BASE/git-research-mcp" "$BIN_DIR/git-research-mcp"
-  fetch "$REPO_RAW_BASE/scripts/community-cache-submit.sh" "$BIN_DIR/git-copilot-devops-audit-community-submit"
-  fetch "$REPO_RAW_BASE/scripts/community-cache-pull.sh" "$BIN_DIR/git-copilot-devops-audit-community-pull"
-  fetch "$REPO_RAW_BASE/scripts/community-research-submit.sh" "$BIN_DIR/git-copilot-devops-audit-community-research-submit"
-  chmod +x "$BIN_DIR/git-upload" "$BIN_DIR/git-get" "$BIN_DIR/git-initialize" "$BIN_DIR/git-fucked-the-push" "$BIN_DIR/git-copilot-devops-audit" "$BIN_DIR/git-research-mcp" "$BIN_DIR/git-copilot-devops-audit-community-submit" "$BIN_DIR/git-copilot-devops-audit-community-pull" "$BIN_DIR/git-copilot-devops-audit-community-research-submit"
+  local gsh_version=""
+  gsh_version="$(curl -fsSL "$REPO_RAW_BASE/VERSION" 2>/dev/null | tr -d '\n' || echo "")"
+
+  if [ -n "$gsh_version" ] && install_release_archive "$gsh_version"; then
+    :
+  elif install_source_archive; then
+    :
+  else
+    echo "[Git-Shell-Helpers-Installer] ERROR: failed to install packaged release files from both release and source archives." >&2
+    exit 1
+  fi
 
   configure_community_cache
-
-  # Copilot config (product source: agents, instructions, skills, prompts)
-  # Needed by git-copilot-devops-audit --update-agent to install globally
-  local CC="$BIN_DIR/copilot-config"
-  ensure_dir "$CC/agents"
-  ensure_dir "$CC/instructions"
-  ensure_dir "$CC/prompts"
-  ensure_dir "$CC/skills/copilot-research"
-  ensure_dir "$CC/skills/devops-audit-community-submit"
-  ensure_dir "$CC/skills/devops-audit-context"
-  ensure_dir "$CC/skills/devops-audit-evaluation"
-  ensure_dir "$CC/skills/devops-audit-fix"
-  ensure_dir "$CC/skills/devops-audit-orchestration"
-
-  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAudit.agent.md" "$CC/agents/DevOpsAudit.agent.md"
-  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditCommunitySubmit.agent.md" "$CC/agents/DevOpsAuditCommunitySubmit.agent.md"
-  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditContext.agent.md" "$CC/agents/DevOpsAuditContext.agent.md"
-  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditEvaluate.agent.md" "$CC/agents/DevOpsAuditEvaluate.agent.md"
-  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditImplement.agent.md" "$CC/agents/DevOpsAuditImplement.agent.md"
-  fetch "$REPO_RAW_BASE/copilot-config/agents/DevOpsAuditResearch.agent.md" "$CC/agents/DevOpsAuditResearch.agent.md"
-
-  fetch "$REPO_RAW_BASE/copilot-config/instructions/devops-audit-router.instructions.md" "$CC/instructions/devops-audit-router.instructions.md"
-  fetch "$REPO_RAW_BASE/copilot-config/instructions/gsh-mcp-tools.instructions.md" "$CC/instructions/gsh-mcp-tools.instructions.md"
-  fetch "$REPO_RAW_BASE/copilot-config/instructions/git-checkpoint.instructions.md" "$CC/instructions/git-checkpoint.instructions.md"
-  fetch "$REPO_RAW_BASE/copilot-config/instructions/shell-scripts.instructions.md" "$CC/instructions/shell-scripts.instructions.md"
-  fetch "$REPO_RAW_BASE/copilot-config/instructions/vscode-tool-safety.instructions.md" "$CC/instructions/vscode-tool-safety.instructions.md"
-
-  fetch "$REPO_RAW_BASE/copilot-config/prompts/copilot-devops-audit.prompt.md" "$CC/prompts/copilot-devops-audit.prompt.md"
-
-  fetch "$REPO_RAW_BASE/copilot-config/skills/copilot-research/SKILL.md" "$CC/skills/copilot-research/SKILL.md"
-  fetch "$REPO_RAW_BASE/copilot-config/skills/copilot-research/studybase.md" "$CC/skills/copilot-research/studybase.md"
-  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-community-submit/SKILL.md" "$CC/skills/devops-audit-community-submit/SKILL.md"
-  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-context/SKILL.md" "$CC/skills/devops-audit-context/SKILL.md"
-  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-evaluation/SKILL.md" "$CC/skills/devops-audit-evaluation/SKILL.md"
-  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-fix/SKILL.md" "$CC/skills/devops-audit-fix/SKILL.md"
-  fetch "$REPO_RAW_BASE/copilot-config/skills/devops-audit-orchestration/SKILL.md" "$CC/skills/devops-audit-orchestration/SKILL.md"
-
-  # Man pages (from repo's man/man1)
-  fetch "$REPO_RAW_BASE/man/man1/git-upload.1"     "$MAN_DIR/git-upload.1"
-  fetch "$REPO_RAW_BASE/man/man1/git-get.1"        "$MAN_DIR/git-get.1"
-  fetch "$REPO_RAW_BASE/man/man1/git-initialize.1" "$MAN_DIR/git-initialize.1"
-  fetch "$REPO_RAW_BASE/man/man1/git-fucked-the-push.1" "$MAN_DIR/git-fucked-the-push.1"
-  fetch "$REPO_RAW_BASE/man/man1/git-copilot-devops-audit.1" "$MAN_DIR/git-copilot-devops-audit.1"
 
   # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
   ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
@@ -351,6 +470,10 @@ install_all() {
 
     echo ""
     maybe_install_vscode_extensions "$code_cli"
+
+    if [ -n "$gsh_version" ]; then
+      maybe_install_gsh_extension "$code_cli" "$gsh_version"
+    fi
   elif [ -d "$VSCODE_USER_DIR" ]; then
     should_offer_vscode_setup=true
     echo ""

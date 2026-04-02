@@ -6,5 +6,6 @@
   "mode": "pull-and-auto-submit",
   "whitelistedRepos": [],
   "shareResearch": true,
+  "shareKnowledge": true,
   "localClone": "."
 }

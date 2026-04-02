@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Git Shell Helpers</title>
+    <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <license file="license.html" mime-type="text/html"/>
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+
+    <choices-outline>
+        <line choice="core"/>
+        <line choice="mcp-tools"/>
+        <line choice="devops-audit"/>
+        <line choice="vscode-integration"/>
+    </choices-outline>
+
+    <!-- Core Git Commands — always installed, cannot be deselected -->
+    <choice id="core"
+            title="Core Git Commands"
+            description="Essential git helpers: upload, get, initialize, checkpoint, fucked-the-push, remerge, resolve, scan-for-leaked-envs, help-i-pushed-an-env, and copilot-quickstart. Includes shell library files and man pages. Installs to /usr/local/bin."
+            enabled="false"
+            selected="true"
+            visible="true">
+        <pkg-ref id="com.rockywearsahat.gsh.core"/>
+    </choice>
+
+    <!-- MCP Research and Shell Helpers servers -->
+    <choice id="mcp-tools"
+            title="MCP Research Tools"
+            description="MCP servers for Copilot agents: web search, knowledge cache, webpage scraping, and the git-shell-helpers tool server. Requires Node.js."
+            selected="true"
+            visible="true">
+        <pkg-ref id="com.rockywearsahat.gsh.mcp"/>
+    </choice>
+
+    <!-- DevOps Audit agents and community cache -->
+    <choice id="devops-audit"
+            title="DevOps Audit Agents"
+            description="Copilot customization audit system with agents, skills, prompts, a natural-language router, and a community knowledge cache. Installs the @DevOpsAudit agent globally in VS Code."
+            selected="true"
+            visible="true">
+        <pkg-ref id="com.rockywearsahat.gsh.audit"/>
+    </choice>
+
+    <!-- VS Code extension, patches, and proposed API setup -->
+    <choice id="vscode-integration"
+            title="VS Code Integration"
+            description="Installs the Git Shell Helpers VS Code extension, GitHub Copilot extensions, branch-per-chat bundle patches, and the proposed API flag for chat session tracking. Requires VS Code."
+            selected="true"
+            visible="true">
+        <pkg-ref id="com.rockywearsahat.gsh.vscode"/>
+    </choice>
+
+    <pkg-ref id="com.rockywearsahat.gsh.core"
+             version="__VERSION__"
+             installKBytes="__CORE_KB__"
+             auth="root">core.pkg</pkg-ref>
+
+    <pkg-ref id="com.rockywearsahat.gsh.mcp"
+             version="__VERSION__"
+             installKBytes="__MCP_KB__"
+             auth="root">mcp.pkg</pkg-ref>
+
+    <pkg-ref id="com.rockywearsahat.gsh.audit"
+             version="__VERSION__"
+             installKBytes="__AUDIT_KB__"
+             auth="root">audit.pkg</pkg-ref>
+
+    <pkg-ref id="com.rockywearsahat.gsh.vscode"
+             version="__VERSION__"
+             installKBytes="__VSCODE_KB__"
+             auth="root">vscode.pkg</pkg-ref>
+</installer-gui-script>

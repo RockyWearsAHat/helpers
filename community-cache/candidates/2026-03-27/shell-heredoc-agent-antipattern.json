@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "anti-pattern",
+  "topic": "tooling",
+  "statement": "Never use heredocs, long inline interpreter scripts (node -e, python -c, bash -c with multi-line bodies), or shell redirection file writes (>, >>, | tee) in agent terminal commands. These patterns cause parsing failures in VS Code's terminal integration, trigger automatic retry loops under higher autonomy modes (5-10 wasted retries per failure), and bypass file-write detection guardrails. Use editor file-creation tools (create_file / editFiles) for multi-line content, and run created files with short terminal commands.",
+  "recommendationStrength": "required",
+  "applicability": "tool-use",
+  "evidenceRefs": [
+    {
+      "title": "VS Code Agent Mode documentation — terminal tool limitations and auto-approval",
+      "url": "https://code.visualstudio.com/docs/copilot/chat/chat-agent-mode",
+      "sourceType": "official-doc"
+    },
+    {
+      "title": "VS Code custom instructions documentation",
+      "url": "https://code.visualstudio.com/docs/copilot/copilot-customization",
+      "sourceType": "official-doc"
+    }
+  ],
+  "auditCompletedAt": "2026-03-27T21:11:00Z",
+  "freshnessCheckedAt": "2026-03-27T21:11:00Z",
+  "authoritativeSupport": "strong",
+  "liveRevalidated": true,
+  "contradictionCount": 0,
+  "clientBehaviorVersion": 1,
+  "publicSummary": "Heredocs and inline scripts in agent terminal commands cause parsing failures amplified by auto-retry loops. Use editor file tools for multi-line content instead.",
+  "cautionNotes": "Heredocs in committed scripts (not agent terminal commands) are a different concern — they should be refactored to template files but are not an immediate agent-workflow failure risk.",
+  "nonGeneralizationNotes": "This specifically addresses AI agent terminal tool invocations, not general shell scripting best practices.",
+  "submittedAt": "2026-03-27T21:11:00Z",
+  "statementHash": "2e636de8b213e678355d0ddfb3496a02b04a2a919ea0b0248a7f850d853f1233",
+  "submissionId": "2026-03-27-shell-heredoc-agent-antipattern"
+}

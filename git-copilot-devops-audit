@@ -541,7 +541,24 @@ build_inventory() {
 }
 
 # ── Resolve script directory (canonical source for agent/prompt files) ────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+resolve_script_path() {
+	local source_path="${BASH_SOURCE[0]:-$0}"
+	local source_dir=""
+
+	while [ -L "$source_path" ]; do
+		source_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+		source_path="$(readlink "$source_path")"
+		case "$source_path" in
+			/*) ;;
+			*) source_path="${source_dir}/${source_path}" ;;
+		esac
+	done
+
+	printf '%s/%s\n' "$(cd -P "$(dirname "$source_path")" && pwd)" "$(basename "$source_path")"
+}
+
+SCRIPT_PATH="$(resolve_script_path)"
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
 
 # ── Generate agent files ──────────────────────────────────────────────────────
 generate_orchestrator_agent() {
@@ -566,6 +583,10 @@ generate_implement_agent() {
 
 generate_community_submit_agent() {
 	cat "$SCRIPT_DIR/copilot-config/agents/DevOpsAuditCommunitySubmit.agent.md"
+}
+
+generate_explore_agent() {
+	cat "$SCRIPT_DIR/copilot-config/agents/Explore.agent.md"
 }
 
 generate_router_instruction() {
@@ -610,80 +631,10 @@ install_global_skills() {
 
 generate_research_cache_file() {
 	local project="$1"
-	cat <<EOF
-# DevOps Audit Research Cache — ${project}
-
-_Seeded by \
-	\`git-copilot-devops-audit\` on $(date '+%Y-%m-%d %H:%M:%S')_
-
-## Purpose
-
-This file is a persistent research cache for the audit. It exists to carry forward useful evidence across audit runs without treating old research as permanently true.
-
-Rules:
-- Reuse prior research only when it is still fresh or has been revalidated.
-- Prefer refreshing the most important stale evidence first.
-- Replace or downgrade stale conclusions instead of endlessly appending more notes.
-- Keep principles only when they still match current docs, recent repos, and recent videos.
-
-## Freshness Policy
-
-| Evidence Type | Importance | Refresh Target | Stale After | Notes |
-|---|---|---:|---:|---|
-| Official docs and model lists | Critical | 14 days | 30 days | Highest priority; docs win when they conflict with weaker sources |
-| VS Code release notes / product updates | High | 14 days | 30 days | Refresh sooner when major Copilot changes land |
-| Video transcripts from product-adjacent sources | High | 30 days | 60 days | Use transcripts, not summaries |
-| Repository samples | Medium | 30 days | 60 days | Prefer active repos; common patterns are not automatically correct |
-| Synthesized principles | High | 30 days | 60 days | Keep only if revalidated against fresh evidence |
-| Anti-pattern examples | Medium | 45 days | 90 days | Useful for contrast, but downgrade if ecosystem changes |
-
-## Current Review State
-
-- Last full refresh:
-- Next refresh due:
-- Highest-priority stale areas:
-- Confidence in current baseline:
-
-## Official Sources
-
-| Source | Last Reviewed | Status | Importance | Notes |
-|---|---|---|---|---|
-| VS Code Copilot customization docs | | pending | critical | |
-| GitHub Copilot customization docs | | pending | critical | |
-| Latest VS Code update notes | | pending | high | |
-| Copilot model list / availability | | pending | high | |
-
-## Repository Samples
-
-| Repo / Source | Last Reviewed | Status | Surface | Principle or Anti-pattern | Notes |
-|---|---|---|---|---|---|
-
-## Video / Transcript Samples
-
-| Source | Video / Topic | Last Reviewed | Status | Principle or Tension | Notes |
-|---|---|---|---|---|---|
-
-## Current Principles
-
-| Principle | Confidence | Last Revalidated | Supporting Evidence | Notes |
-|---|---|---|---|---|
-
-## Conflicts and Open Questions
-
-| Topic | Conflict | Preferred Interpretation | Why | Recheck By |
-|---|---|---|---|---|
-
-## Superseded or Stale Evidence
-
-| Evidence | Became Stale On | Action | Notes |
-|---|---|---|---|
-
-## Next Refresh Priorities
-
-1. Refresh critical official sources first.
-2. Refresh any principle used in the latest audit if its supporting evidence is stale.
-3. Refresh medium-importance repo and video samples only after critical sources are current.
-EOF
+	local template_file="$SCRIPT_DIR/templates/devops-audit/research-cache.md"
+	sed -e "s|{{PROJECT_NAME}}|${project}|g" \
+	    -e "s|{{TIMESTAMP}}|$(date '+%Y-%m-%d %H:%M:%S')|g" \
+	    "$template_file"
 }
 
 # ── Generate audit context file ───────────────────────────────────────────────
@@ -790,11 +741,13 @@ if [ "$no_install" = false ]; then
 
 	ui_step "Installing audit agents, router instruction, prompt, and skills to standard user locations..."
 	mkdir -p "$COPILOT_USER_DIR/agents" "$COPILOT_USER_DIR/instructions" "$COPILOT_USER_DIR/skills" "$COPILOT_USER_DIR/prompts"
+	# VS Code scans ~/Library/Application Support/Code/User/prompts/ for slash commands
+	mkdir -p "$VSCODE_USER_DIR/prompts"
 
 	agents_dir="$COPILOT_USER_DIR/agents"
 	router_instruction="$COPILOT_USER_DIR/instructions/devops-audit-router.instructions.md"
 	gsh_mcp_instruction="$COPILOT_USER_DIR/instructions/gsh-mcp-tools.instructions.md"
-	prompts_dir="$COPILOT_USER_DIR/prompts"
+	prompts_dir="$VSCODE_USER_DIR/prompts"
 
 	# Define all agent files to install
 	typeset -A agent_generators=(
@@ -804,6 +757,7 @@ if [ "$no_install" = false ]; then
 		[DevOpsAuditEvaluate.agent.md]=generate_evaluate_agent
 		[DevOpsAuditImplement.agent.md]=generate_implement_agent
 		[DevOpsAuditCommunitySubmit.agent.md]=generate_community_submit_agent
+		[Explore.agent.md]=generate_explore_agent
 	)
 	global_prompt="$prompts_dir/copilot-devops-audit.prompt.md"
 
@@ -852,8 +806,12 @@ if [ "$no_install" = false ]; then
 
 		# Install additional product instructions globally
 		local extra_instructions=(
+			"branch-workspace-control.instructions.md"
 			"git-checkpoint.instructions.md"
+			"provider-subagents.instructions.md"
 			"shell-scripts.instructions.md"
+			"software-design.instructions.md"
+			"tiered-agents.instructions.md"
 			"vscode-tool-safety.instructions.md"
 		)
 		for inst_name in "${extra_instructions[@]}"; do
@@ -914,7 +872,7 @@ printf '  %bAudit results are returned in chat;%b repo-local support files are l
 printf '  %bAudit agents:%b %s/agents (mirrored to VS Code profile for discovery)\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit router:%b %s/instructions\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bAudit skills:%b %s/skills\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
-printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
+printf '  %bAudit prompt:%b %s/prompts\n' "$DIM" "$NC" "$VSCODE_USER_DIR"
 printf '  %bCommunity cache:%b %s/devops-audit-community-cache\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 printf '  %bCommunity settings:%b %s/devops-audit-community-settings.json\n' "$DIM" "$NC" "$COPILOT_USER_DIR"
 echo ""

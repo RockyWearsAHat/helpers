@@ -6,20 +6,20 @@ user-invocable: false
 
 # DevOps Audit Evaluation
 
-Inspect every file in `.github/` that Copilot uses. Decide whether each one is correct, useful, and properly written for this project, and whether it is the cleanest practical implementation of the intended workflow.
+Inspect every file in the selected Copilot target surface. Decide whether each one is correct, useful, and properly written for this project, and whether it is the cleanest practical implementation of the intended workflow.
 
 ## The Two Assumptions
 
 1. The project source code is correct. Do not question it. The developers wrote what they wanted.
-2. The `.github/` Copilot files are not trustworthy until you have verified them yourself. Assume every file might be wrong, outdated, duplicated, or poorly written. Prove it is correct before moving on.
+2. The Copilot files in the selected target surface are not trustworthy until you have verified them yourself. Assume every file might be wrong, outdated, duplicated, or poorly written. Prove it is correct before moving on.
 
 This is the core of the evaluation: the project is right, the Copilot setup might not be.
 
 ## What You Are Evaluating
 
-You are evaluating whether the `.github/` Copilot configuration actually helps someone develop in this project. Not whether it looks nice, not whether it follows some template, but whether it makes Copilot more useful for real work in this specific codebase.
+You are evaluating whether the selected Copilot target surface actually helps someone develop in this project. Not whether it looks nice, not whether it follows some template, but whether it makes Copilot more useful for real work in this specific codebase.
 
-For globally shipped helpers or workflows that claim to work across many repositories, evaluation still stays centered on `.github/`, but it must validate the external surfaces that make those claims true. If installability, accessibility, or behavioral claims depend on README text, man pages, installer scripts, user-level install locations, or observable runtime entrypoints, those surfaces are mandatory validation inputs because they determine whether the `.github/` setup is truthful.
+For globally shipped helpers or workflows that claim to work across many repositories, evaluation stays centered on the selected target surface, but it must validate the external surfaces that make those claims true. If installability, accessibility, or behavioral claims depend on README text, man pages, installer scripts, user-level install locations, or observable runtime entrypoints, those surfaces are mandatory validation inputs because they determine whether the target surface is truthful.
 
 Do not stop at "not broken." If the research shows a cleaner, clearer, more maintainable, or more efficient way to implement the intended workflow, that is a valid finding even when the current file technically works.
 
@@ -50,7 +50,7 @@ Evaluate in this order:
 
 ### File Type Purpose Violations
 
-Each file type in `.github/` has a specific purpose. Content in the wrong file type causes real problems — agents that do the work themselves instead of delegating, skills that shape identity instead of methodology, instructions that define behaviors no one asked for.
+Each file type in the selected Copilot target surface has a specific purpose. Content in the wrong file type causes real problems — agents that do the work themselves instead of delegating, skills that shape identity instead of methodology, instructions that define behaviors no one asked for.
 
 Research the current intended purpose of each file type before evaluating. These purposes could change over time, so verify them — do not assume. As of the last verified check:
 
@@ -101,7 +101,7 @@ When you find one of these, evaluate it as a real quality problem, not a style n
 
 - Source code quality (not your job)
 - Build output or logs (not your job)
-- Product-source critique outside `.github/` unless a Copilot file directly references it
+- Product-source critique outside the selected target surface unless a Copilot file directly references it
 - External install, docs, packaging, or runtime surfaces only when they are unrelated to Copilot setup availability, accessibility, or truthfulness. If README, man pages, installer scripts, user-level install locations, or runtime behavior define whether the Copilot workflow is actually available or whether its claims are true, they are in scope and must be validated.
 - Style preferences that do not change behavior or correctness
 - The absence of global audit tools from the workspace. `DevOpsAudit` and its specialist agents may be installed in standard user-level locations on disk. They are not required to exist in the audited repository.

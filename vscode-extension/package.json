@@ -2,12 +2,15 @@
   "name": "git-shell-helpers",
   "displayName": "GitHub Shell Helpers",
   "description": "Settings for git-shell-helpers community cache participation and DevOps audit configuration.",
-  "version": "0.3.4",
+  "version": "0.3.7",
   "publisher": "RockyWearsAHat",
   "license": "MIT",
   "engines": {
     "vscode": "^1.110.0"
   },
+  "enabledApiProposals": [
+    "chatParticipantPrivate"
+  ],
   "categories": [
     "Other"
   ],
@@ -21,37 +24,49 @@
     "mcpServerDefinitionProviders": [
       {
         "id": "gitShellHelpers.mcpServers",
-        "label": "Git Shell Helpers"
+        "label": "GitHub Shell Helpers"
       }
     ],
     "commands": [
       {
         "command": "gitShellHelpers.showCommunityStatus",
-        "title": "Git Shell Helpers: Show Community Cache Status"
+        "title": "GitHub Shell Helpers: Show Community Cache Status"
       },
       {
         "command": "gitShellHelpers.inspectCopilotCustomizationWarnings",
-        "title": "Git Shell Helpers: Run Strict Linting"
+        "title": "GitHub Shell Helpers: Run Strict Linting"
+      },
+      {
+        "command": "gitShellHelpers.searchArchivedChatHistory",
+        "title": "GitHub Shell Helpers: Search Archived Chat History"
       },
       {
         "command": "gitShellHelpers.loginGitHub",
-        "title": "Git Shell Helpers: Sign in to GitHub"
+        "title": "GitHub Shell Helpers: Sign in to GitHub"
       },
       {
         "command": "gitShellHelpers.logoutGitHub",
-        "title": "Git Shell Helpers: Sign out of GitHub"
+        "title": "GitHub Shell Helpers: Sign out of GitHub"
       },
       {
         "command": "gitShellHelpers.selectRepos",
-        "title": "Git Shell Helpers: Select Whitelisted Repositories"
+        "title": "GitHub Shell Helpers: Select Whitelisted Repositories"
       },
       {
         "command": "gitShellHelpers.restartMcpServer",
-        "title": "Git Shell Helpers: Restart MCP Server"
+        "title": "GitHub Shell Helpers: Restart MCP Server"
       },
       {
         "command": "gitShellHelpers.openMcpServerControls",
-        "title": "Git Shell Helpers: Open MCP Server Controls"
+        "title": "GitHub Shell Helpers: Open MCP Server Controls"
+      },
+      {
+        "command": "gitShellHelpers.refreshModels",
+        "title": "GitHub Shell Helpers: Refresh Available Models"
+      },
+      {
+        "command": "gitShellHelpers.openModelPicker",
+        "title": "GitHub Shell Helpers: Set Active Chat Model"
       }
     ],
     "languageModelTools": [
@@ -117,11 +132,18 @@
           "name": "GitHub Shell Helpers",
           "icon": "media/git-helpers.svg",
           "visibility": "visible"
+        },
+        {
+          "id": "gitShellHelpers.worktreeFiles",
+          "name": "Branch Files",
+          "icon": "media/git-helpers.svg",
+          "visibility": "visible",
+          "when": "config.gitShellHelpers.branchSessions.enabled"
         }
       ]
     },
     "configuration": {
-      "title": "Git Shell Helpers",
+      "title": "GitHub Shell Helpers",
       "properties": {
         "gitShellHelpers.checkpoint.enabled": {
           "type": "boolean",
@@ -142,6 +164,26 @@
           "type": "boolean",
           "default": true,
           "description": "Enable Strict Linting, a chat tool that reads live VS Code errors, warnings, and quick fixes for Copilot customization files."
+        },
+        "gitShellHelpers.branchSessions.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable branch session tools in the MCP server. When on, agents can create chat-bound git worktrees via branch_session_start/end and the workspace follows the active chat's branch. When off (default), branch tools are hidden and Copilot's built-in session management is used instead."
+        },
+        "gitShellHelpers.branchSessions.orphanSafetyCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "On startup, scan for orphaned branch session worktrees with uncommitted changes and auto-commit them to prevent work loss. The worktree is then removed but the branch and commits are preserved."
+        },
+        "gitShellHelpers.branchSessions.autoCleanMerged": {
+          "type": "boolean",
+          "default": true,
+          "description": "On startup, automatically delete local feature/ and fix/ branches that are fully merged into the current baseline branch (dev, main). Prevents accumulation of stale branches from completed sessions."
+        },
+        "gitShellHelpers.sessionMemory.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Engram-style session memory. Agents log actions and outcomes to a per-workspace session log with TF-IDF indexing and surprise-weighted retrieval. Helps agents learn from past mistakes and adapt across sessions."
         }
       }
     }

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Research Atlas favicon">
+  <rect width="64" height="64" rx="16" fill="#f4efe2" />
+  <path d="M20 19h16.5c5.8 0 10.5 4.7 10.5 10.5S42.3 40 36.5 40H20z" fill="#18120c" opacity="0.1" />
+  <path d="M27 18c7.18 0 13 5.82 13 13 0 2.76-.86 5.33-2.33 7.44l8.95 8.95-3.18 3.18-8.95-8.95A12.94 12.94 0 0 1 27 44C19.82 44 14 38.18 14 31S19.82 18 27 18Zm0 4c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9Z" fill="#b44b1d" />
+  <path d="M23 27h8v2h-8zm0 5h6v2h-6z" fill="#18120c" opacity="0.75" />
+</svg>
