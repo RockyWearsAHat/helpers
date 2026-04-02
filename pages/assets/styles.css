@@ -1548,6 +1548,68 @@ mark {
 .setup-card li { margin: 4px 0; }
 .setup-card code { font-size: 0.82em; padding: 2px 6px; background: var(--code-bg); border-radius: var(--r-xs); border: 1px solid var(--code-border); }
 
+/* Wizard layout — retained for advanced settings */
+.setup-intro { margin: 8px 0 16px; line-height: 1.55; }
+.setup-intro a { color: var(--accent); text-decoration: underline; }
+
+.setup-done-text { color: var(--accent); font-weight: 600; }
+.setup-alt { font-size: 0.82rem; color: var(--ink-muted); }
+
+/* Ready state */
+.setup-ready { text-align: center; padding: 24px 20px; }
+.setup-ready-icon { font-size: 2rem; color: var(--accent); margin-bottom: 8px; }
+.setup-ready h4 { font-size: 1.1rem; }
+
+/* Install gate */
+.setup-gate { text-align: center; padding: 40px 28px 32px; }
+.setup-gate-icon { color: var(--accent); margin-bottom: 16px; }
+.setup-gate h3 { font-size: 1.3rem; margin: 0 0 12px; font-weight: 700; }
+.setup-gate-desc { font-size: 0.9rem; color: var(--ink-2); line-height: 1.6; max-width: 440px; margin: 0 auto 10px; }
+.setup-gate-size { font-size: 0.82rem; color: var(--ink-muted); }
+.setup-download-btn { display: inline-block; margin: 20px 0 24px; font-size: 1rem; padding: 14px 32px; }
+.setup-gate-polling {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; font-size: 0.82rem; color: var(--ink-muted);
+}
+.setup-gate-polling .typing-dots { display: inline-flex; gap: 3px; }
+.setup-gate-polling .typing-dots span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--ink-muted); animation: gatePulse 1.4s ease-in-out infinite;
+}
+.setup-gate-polling .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.setup-gate-polling .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes gatePulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+.setup-checkbox {
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+.setup-checkbox input[type="checkbox"] { width: auto; }
+
+/* Model pull progress */
+.setup-pulling { text-align: center; padding: 40px 28px; }
+.setup-pulling h3 { font-size: 1.2rem; margin: 0 0 6px; }
+.setup-pull-sub { font-size: 0.84rem; color: var(--ink-muted); margin: 0 0 24px; }
+.pull-progress-wrap { max-width: 400px; margin: 0 auto; }
+.pull-progress-bar {
+  width: 100%; height: 10px; border-radius: 5px;
+  background: var(--bg-inset); border: 1px solid var(--border);
+  overflow: hidden;
+}
+.pull-progress-fill {
+  height: 100%; width: 0; border-radius: 5px;
+  background: var(--accent); transition: width 0.3s ease;
+}
+.pull-status { font-size: 0.78rem; color: var(--ink-muted); margin-top: 10px; }
+.pull-error { color: #dc2626; }
+[data-theme="dark"] .pull-error { color: #f87171; }
+
+/* Advanced settings */
+.setup-advanced { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+.setup-advanced summary { font-size: 0.82rem; color: var(--ink-muted); cursor: pointer; }
+.setup-advanced summary:hover { color: var(--ink); }
+
 .setup-config {
   display: flex;
   flex-wrap: wrap;
