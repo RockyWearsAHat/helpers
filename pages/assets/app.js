@@ -289,23 +289,23 @@ function renderResults(results, durationMs, terms) {
   }
 
   for (const entry of results) {
-    const { document, score } = entry;
+    const { document: resultDoc, score } = entry;
     const listItem = document.createElement("li");
-    const snippet = buildSnippet(document, terms);
+    const snippet = buildSnippet(resultDoc, terms);
     listItem.innerHTML = `
-      <article class="result-card" data-id="${escapeHtml(document.id)}" tabindex="0">
+      <article class="result-card" data-id="${escapeHtml(resultDoc.id)}" tabindex="0">
         <div class="result-topline">
           <div>
-            <p class="result-path">${escapeHtml(document.path)}</p>
+            <p class="result-path">${escapeHtml(resultDoc.path)}</p>
             <h2 class="result-title">
-              <a class="result-link" href="${document.githubUrl}" target="_blank" rel="noreferrer">${highlight(document.title, terms)}</a>
+              <a class="result-link" href="${resultDoc.githubUrl}" target="_blank" rel="noreferrer">${highlight(resultDoc.title, terms)}</a>
             </h2>
           </div>
           <span class="result-pill">Score ${Math.round(score)}</span>
         </div>
         <p class="result-snippet">${highlight(snippet, terms)}</p>
         <div class="result-pills">
-          ${(document.resultPills || [document.scopeLabel, document.category])
+          ${(resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category])
             .slice(0, 4)
             .map(
               (keyword) =>
@@ -317,7 +317,7 @@ function renderResults(results, durationMs, terms) {
     `;
 
     const card = listItem.firstElementChild;
-    const activate = () => setSelected(document.id);
+    const activate = () => setSelected(resultDoc.id);
     card.addEventListener("mouseenter", activate);
     card.addEventListener("focus", activate);
     card.addEventListener("click", (event) => {
@@ -327,7 +327,7 @@ function renderResults(results, durationMs, terms) {
     card.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
-      window.open(document.githubUrl, "_blank", "noopener,noreferrer");
+      window.open(resultDoc.githubUrl, "_blank", "noopener,noreferrer");
     });
     resultsList.appendChild(listItem);
   }
