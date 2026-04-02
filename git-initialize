@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # Use first argument as remote URL, second as optional branch, third as optional commit message
 REMOTE_URL=${1}

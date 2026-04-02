@@ -8,6 +8,9 @@ const state = {
   documentsById: new Map(),
   readerDoc: null,
   readerCache: new Map(),
+  pageSize: 20,
+  currentPage: 0,
+  isLoadingMore: false,
 };
 
 /* -- DOM refs -------------------------------------------------------------- */
@@ -29,6 +32,12 @@ const pageAbout = document.getElementById("page-about");
 
 const scopeButtons = Array.from(document.querySelectorAll("[data-scope]"));
 const navLinks = Array.from(document.querySelectorAll(".nav-link[data-page]"));
+const bentoStatButtons = Array.from(
+  document.querySelectorAll(".bento-card[data-scope]"),
+);
+const scopeChipButtons = Array.from(
+  document.querySelectorAll(".scope-chip[data-scope]"),
+);
 
 /* -- Page navigation ------------------------------------------------------- */
 function showPage(name) {
@@ -226,6 +235,7 @@ function activateChip(button) {
 
   state.scope = nextScope;
   state.query = shouldClear ? "" : nextQuery;
+  state.currentPage = 0;
   queryInput.value = state.query;
 
   syncScopeButtons();
@@ -246,6 +256,7 @@ function renderSuggestions() {
     btn.addEventListener("click", function () {
       queryInput.value = cat.label;
       state.query = cat.label;
+      state.currentPage = 0;
       updateUrl();
       runSearch();
       queryInput.focus();
@@ -417,32 +428,38 @@ function setSelected(documentId) {
 
 /* -- Render: result list --------------------------------------------------- */
 function renderResults(results, durationMs, terms) {
-  resultsList.innerHTML = "";
-  emptyState.hidden = results.length > 0;
+  if (state.currentPage === 0) {
+    resultsList.innerHTML = "";
+    emptyState.hidden = results.length > 0;
 
-  if (!state.query) {
-    resultsSummary.textContent = summaryForScope(state.scope);
-    resultsMeta.textContent =
-      results.length.toLocaleString() + " curated picks";
-  } else {
-    resultsSummary.textContent =
-      "About " +
-      results.length.toLocaleString() +
-      " result" +
-      (results.length === 1 ? "" : "s");
-    resultsMeta.textContent = durationMs.toFixed(1) + " ms";
-  }
-
-  if (!results.length) {
-    if (state.query) {
-      resultsSummary.textContent = "No results found";
-      resultsMeta.textContent = "Try broader terms or switch scope.";
+    if (!state.query) {
+      resultsSummary.textContent = summaryForScope(state.scope);
+      resultsMeta.textContent =
+        results.length.toLocaleString() + " curated picks";
+    } else {
+      resultsSummary.textContent =
+        "About " +
+        results.length.toLocaleString() +
+        " result" +
+        (results.length === 1 ? "" : "s");
+      resultsMeta.textContent = durationMs.toFixed(1) + " ms";
     }
-    renderPreview(null);
-    return;
+
+    if (!results.length) {
+      if (state.query) {
+        resultsSummary.textContent = "No results found";
+        resultsMeta.textContent = "Try broader terms or switch scope.";
+      }
+      renderPreview(null);
+      return;
+    }
   }
 
-  results.forEach(function (entry) {
+  var start = state.currentPage * state.pageSize;
+  var end = start + state.pageSize;
+  var pageResults = results.slice(start, end);
+
+  pageResults.forEach(function (entry) {
     var resultDoc = entry.document;
     var listItem = document.createElement("li");
     var snippet = buildSnippet(resultDoc, terms);
@@ -523,7 +540,22 @@ function renderResults(results, durationMs, terms) {
     resultsList.appendChild(listItem);
   });
 
-  setSelected(results[0].document.id);
+  if (state.currentPage === 0 && results.length > 0) {
+    setSelected(results[0].document.id);
+  }
+
+  if (end < results.length) {
+    var loadMoreBtn = document.createElement("li");
+    loadMoreBtn.className = "load-more-item";
+    loadMoreBtn.innerHTML =
+      '<button class="load-more-btn" type="button">Load more results&hellip;</button>';
+    var loadBtn = loadMoreBtn.querySelector(".load-more-btn");
+    loadBtn.addEventListener("click", function () {
+      state.currentPage += 1;
+      renderResults(results, 0, terms);
+    });
+    resultsList.appendChild(loadMoreBtn);
+  }
 }
 
 /* -- URL sync -------------------------------------------------------------- */
@@ -860,6 +892,7 @@ document
     event.preventDefault();
     if (!readerColumn.classList.contains("hidden")) closeReader();
     state.query = queryInput.value;
+    state.currentPage = 0;
     updateUrl();
     runSearch();
   });
@@ -869,6 +902,7 @@ queryInput.addEventListener("input", function () {
   clearTimeout(debounceTimer);
   debounceTimer = window.setTimeout(function () {
     state.query = queryInput.value;
+    state.currentPage = 0;
     updateUrl();
     runSearch();
   }, 90);
@@ -892,6 +926,7 @@ scopeButtons.forEach(function (btn) {
     if (!readerColumn.classList.contains("hidden")) closeReader();
     state.scope = btn.dataset.scope;
     state.query = "";
+    state.currentPage = 0;
     queryInput.value = "";
     syncScopeButtons();
     updateUrl();

@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 log() { echo "[gsh-vscode] $1"; }
@@ -6,7 +6,9 @@ log() { echo "[gsh-vscode] $1"; }
 DATA_DIR="/usr/local/share/github-shell-helpers"
 VSCODE_EXT_DIR="$DATA_DIR/vscode"
 PATCH_SCRIPT="$DATA_DIR/scripts/patch-vscode-apply-all.js"
+ARGV_PATCH_SCRIPT="$DATA_DIR/scripts/patch-vscode-argv.js"
 EXT_ID="RockyWearsAHat.git-shell-helpers"
+NODE_BIN="$(command -v node 2>/dev/null || true)"
 
 console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
 if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
@@ -71,57 +73,36 @@ fi
 
 argv_file="$user_home/.vscode/argv.json"
 if [ -f "$argv_file" ]; then
-  if ! grep -q "$EXT_ID" "$argv_file" 2>/dev/null; then
-    if command -v node >/dev/null 2>&1; then
-      node -e "
-        const fs = require('fs');
-        const p = '$argv_file';
-        let raw = fs.readFileSync(p, 'utf8');
-        const stripped = raw.replace(/^\s*\/\/.*$/gm, '');
-        const obj = JSON.parse(stripped);
-        if (!Array.isArray(obj['enable-proposed-api'])) {
-          obj['enable-proposed-api'] = [];
-        }
-        if (!obj['enable-proposed-api'].includes('$EXT_ID')) {
-          obj['enable-proposed-api'].push('$EXT_ID');
-        }
-        if (raw.includes('\"enable-proposed-api\"')) {
-          const arrStr = JSON.stringify(obj['enable-proposed-api']);
-          raw = raw.replace(
-            /(\"enable-proposed-api\"\s*:\s*)\[[\s\S]*?\]/,
-            '\$1' + arrStr
-          );
-        } else {
-          const idx = raw.lastIndexOf('}');
-          if (idx !== -1) {
-            const before = raw.substring(0, idx).trimEnd();
-            const needsComma = before.match(/[}\]\"\d]$/);
-            const ins = (needsComma ? ',' : '') +
-              '\n\n\t// Enable proposed APIs for Git Shell Helpers extension.\n' +
-              '\t// Required for branch-per-chat session tracking.\n' +
-              '\t\"enable-proposed-api\": [\"$EXT_ID\"]\n';
-            raw = before + ins + '}\n';
-          }
-        }
-        fs.writeFileSync(p, raw);
-      " 2>/dev/null && log "Enabled proposed API for $EXT_ID in argv.json." || \
-        log "Could not auto-patch argv.json. Add \"$EXT_ID\" to enable-proposed-api manually."
+  if grep -q "$EXT_ID" "$argv_file" 2>/dev/null; then
+    log "Proposed API already enabled for $EXT_ID."
+  elif [ -n "$NODE_BIN" ] && [ -f "$ARGV_PATCH_SCRIPT" ]; then
+    if run_as "$NODE_BIN" "$ARGV_PATCH_SCRIPT" "$argv_file" "$EXT_ID" >/dev/null 2>&1; then
+      log "Enabled proposed API for $EXT_ID in argv.json."
+    else
+      log "Could not auto-patch argv.json. Add \"$EXT_ID\" to enable-proposed-api manually."
     fi
   else
-    log "Proposed API already enabled for $EXT_ID."
+    log "Could not auto-patch argv.json. Add \"$EXT_ID\" to enable-proposed-api manually."
   fi
 fi
 
-if [ -f "$PATCH_SCRIPT" ] && command -v node >/dev/null 2>&1; then
-  all_patched="$(node "$PATCH_SCRIPT" --json 2>/dev/null | node -e "
-    process.stdout.write(String(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).allPatched))
-  " 2>/dev/null)" || all_patched="false"
+if [ -f "$PATCH_SCRIPT" ] && [ -n "$NODE_BIN" ]; then
+  all_patched="$("$NODE_BIN" "$PATCH_SCRIPT" --all-patched 2>/dev/null)" || all_patched="false"
 
   if [ "$all_patched" != "true" ]; then
-    node "$PATCH_SCRIPT" 2>&1 | while IFS= read -r line; do
+    missing="$("$NODE_BIN" "$PATCH_SCRIPT" --missing 2>/dev/null)" || missing="unknown"
+    log "Reapplying VS Code patches: ${missing:-unknown}"
+    if "$NODE_BIN" "$PATCH_SCRIPT" 2>&1 | while IFS= read -r line; do
       log "$line"
-    done
-    log "VS Code patches applied. Quit and reopen VS Code (Cmd+Q) to activate."
+    done; then
+      if "$NODE_BIN" "$PATCH_SCRIPT" --check >/dev/null 2>&1; then
+        log "VS Code patches applied and verified. Quit and reopen VS Code (Cmd+Q) to activate."
+      else
+        log "VS Code patch verification failed. Run '$NODE_BIN $PATCH_SCRIPT --check' manually."
+      fi
+    else
+      log "VS Code patch application failed. Run '$NODE_BIN $PATCH_SCRIPT' manually."
+    fi
   else
     log "VS Code patches already applied."
   fi

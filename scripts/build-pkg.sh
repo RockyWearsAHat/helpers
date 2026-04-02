@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # Build a macOS GUI .pkg installer for github-shell-helpers.
 #

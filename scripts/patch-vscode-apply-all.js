@@ -12,14 +12,18 @@
 //   git-head-display   — supports branch name display override via .git/gsh-head-override
 //
 // Usage:
-//   node patch-vscode-apply-all.js           # apply all patches
-//   node patch-vscode-apply-all.js --check   # check status of all patches
-//   node patch-vscode-apply-all.js --revert  # restore pristine bundles
-//   node patch-vscode-apply-all.js --json    # output status as JSON (for extension)
+//   node patch-vscode-apply-all.js              # apply all patches
+//   node patch-vscode-apply-all.js --check      # check status of all patches
+//   node patch-vscode-apply-all.js --revert     # restore pristine bundles
+//   node patch-vscode-apply-all.js --json       # output status as JSON
+//   node patch-vscode-apply-all.js --all-patched # output true/false only
+//   node patch-vscode-apply-all.js --missing    # output missing patch names
 
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
+
+const NODE_EXECUTABLE = process.execPath || "node";
 
 function detectVscodePath() {
   const candidates =
@@ -120,9 +124,17 @@ function backupPath(bundlePath) {
   return bundlePath + ".pristine";
 }
 
+function runNodeScript(scriptPath, args = [], options = {}) {
+  return execFileSync(NODE_EXECUTABLE, [scriptPath, ...args], {
+    stdio: "pipe",
+    encoding: "utf8",
+    ...options,
+  });
+}
+
 function checkPatch(patchScript) {
   try {
-    execSync(`node "${patchScript}" --check`, { stdio: "pipe" });
+    runNodeScript(patchScript, ["--check"]);
     return "patched";
   } catch {
     return "unpatched";
@@ -156,6 +168,20 @@ function getStatus() {
 // --json mode
 if (process.argv.includes("--json")) {
   console.log(JSON.stringify(getStatus()));
+  process.exit(0);
+}
+
+if (process.argv.includes("--all-patched")) {
+  process.stdout.write(getStatus().allPatched ? "true" : "false");
+  process.exit(0);
+}
+
+if (process.argv.includes("--missing")) {
+  const missing = getStatus()
+    .patches.filter((patch) => patch.status !== "patched")
+    .map((patch) => patch.name)
+    .join(", ");
+  process.stdout.write(missing);
   process.exit(0);
 }
 
@@ -272,14 +298,21 @@ for (const [bundleKey, patches] of Object.entries(patchesByBundle)) {
   // Apply each patch for this bundle
   for (const def of patches) {
     try {
-      const output = execSync(`node "${def.script}"`, {
-        stdio: "pipe",
-        encoding: "utf8",
-      });
-      console.log(`[${def.name}] ${output.trim()}`);
+      const output = runNodeScript(def.script);
+      console.log(`[${def.name}] ${output.trim() || "applied"}`);
+      if (checkPatch(def.script) !== "patched") {
+        throw new Error("verification failed after apply");
+      }
+      console.log(`[${def.name}] verified.`);
       if (info.requiresRestart) needsRestart = true;
     } catch (err) {
-      console.error(`[${def.name}] FAILED: ${err.stderr || err.message}`);
+      const stderr =
+        err && typeof err === "object" && "stderr" in err && err.stderr
+          ? String(err.stderr).trim()
+          : "";
+      const message =
+        stderr || (err instanceof Error ? err.message : String(err));
+      console.error(`[${def.name}] FAILED: ${message}`);
       failed = true;
       break;
     }
@@ -306,6 +339,16 @@ for (const legacy of [
 }
 
 if (failed) {
+  process.exit(1);
+}
+
+const finalStatus = getStatus();
+if (!finalStatus.allPatched) {
+  const missing = finalStatus.patches
+    .filter((patch) => patch.status !== "patched")
+    .map((patch) => patch.name)
+    .join(", ");
+  console.error(`\nPatch verification failed. Missing: ${missing || "unknown"}`);
   process.exit(1);
 }
 
