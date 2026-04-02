@@ -126,6 +126,29 @@
   /* ==================================================================
    * AI Client — Ollama
    * ================================================================== */
+
+  /**
+   * Strip thinking-model tags and extract a JSON object from an AI response.
+   * Handles <think>...</think> blocks, markdown code fences, and extra text
+   * around the JSON payload.
+   */
+  function parseJsonResponse(text) {
+    var cleaned = text
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .replace(/^```(?:json)?\s*/, "")
+      .replace(/```\s*$/, "")
+      .trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch (_e) {
+      var match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        try { return JSON.parse(match[0]); } catch (_e2) { /* fall through */ }
+      }
+      return null;
+    }
+  }
+
   function checkConnection() {
     return fetch(config.ollamaBase + "/api/tags", {
       signal: AbortSignal.timeout(3000),
@@ -168,6 +191,7 @@
         model: config.model,
         messages: messages,
         stream: streaming,
+        think: false,
         options: { temperature: 0.7 },
       }),
     }).then(function (res) {
@@ -267,18 +291,8 @@
         ]);
       })
       .then(function (response) {
-        var jsonStr = response
-          .replace(/^```(?:json)?\s*/, "")
-          .replace(/```\s*$/, "")
-          .trim();
-        var problem;
-        try {
-          problem = JSON.parse(jsonStr);
-        } catch (_e) {
-          var match = jsonStr.match(/\{[\s\S]*\}/);
-          if (match) problem = JSON.parse(match[0]);
-          else throw new Error("AI did not return valid JSON");
-        }
+        var problem = parseJsonResponse(response);
+        if (!problem) throw new Error("AI did not return valid JSON");
 
         problem.articleId = ps.articleId;
         problem.createdAt = Date.now();
@@ -452,20 +466,21 @@
           feedback: fullResponse,
           createdAt: Date.now(),
         }).then(function () {
-          /* always save submission as example for local cache */
-          dbPut("examples", {
-            articleId: ps.articleId,
-            type: isCorrect ? "solved" : "attempt",
-            title: (ps.currentProblem ? ps.currentProblem.title : "Submission") +
-              (isCorrect ? " (solved)" : " (attempt)"),
-            description: (fullResponse || "").slice(0, 500),
-            code: userCode,
-            language: ps.currentProblem ? (ps.currentProblem.language || "python") : "python",
-            tags: [isCorrect ? "correct" : "attempt", "user-submitted"],
-            source: "user-submitted",
-            createdAt: Date.now(),
-          }).catch(function () { /* best-effort */ });
-          if (isCorrect) return generateInsight(userCode, fullResponse);
+          /* only save passing solutions to the examples library */
+          if (isCorrect) {
+            dbPut("examples", {
+              articleId: ps.articleId,
+              type: "solved",
+              title: (ps.currentProblem ? ps.currentProblem.title : "Submission") + " (solved)",
+              description: (fullResponse || "").slice(0, 500),
+              code: userCode,
+              language: ps.currentProblem ? (ps.currentProblem.language || "python") : "python",
+              tags: ["correct", "user-submitted"],
+              source: "user-submitted",
+              createdAt: Date.now(),
+            }).catch(function () { /* best-effort */ });
+            return generateInsight(userCode, fullResponse);
+          }
         });
       })
       .catch(function (err) {
@@ -504,18 +519,8 @@
           "\n```\nFeedback: " + feedback,
       },
     ]).then(function (response) {
-      var jsonStr = response
-        .replace(/^```(?:json)?\s*/, "")
-        .replace(/```\s*$/, "")
-        .trim();
-      var insight;
-      try {
-        insight = JSON.parse(jsonStr);
-      } catch (_e) {
-        var match = jsonStr.match(/\{[\s\S]*\}/);
-        if (match) insight = JSON.parse(match[0]);
-        else return;
-      }
+      var insight = parseJsonResponse(response);
+      if (!insight) return;
       return dbPut("examples", {
         articleId: ps.articleId,
         type: "insight",
@@ -693,13 +698,67 @@
       });
       dot.className = "ai-dot " + (hasModel ? "ai-connected" : "ai-warning");
       label.textContent = hasModel
-        ? "AI Ready (" + config.model + ")"
-        : "Ollama connected \u2014 model not found";
+        ? "AI Ready"
+        : "Model not found";
       ps.aiConnected = true;
+      populateModelSelector(info.models);
     } else {
       dot.className = "ai-dot ai-disconnected";
       label.textContent = "AI Offline";
       ps.aiConnected = false;
+    }
+  }
+
+  /* -- Model selector population ------------------------------------- */
+  function populateModelSelector(models) {
+    var sel = document.getElementById("model-selector");
+    if (!sel) return;
+    var prev = sel.value;
+    sel.innerHTML = "";
+    models.forEach(function (m) {
+      var opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      sel.appendChild(opt);
+    });
+    if (models.indexOf(config.model) !== -1) {
+      sel.value = config.model;
+    } else if (models.length > 0) {
+      sel.value = models[0];
+      config.model = models[0];
+      localStorage.setItem("practice-model", models[0]);
+    }
+  }
+
+  /* -- Provider tab switching (local / hosted) ----------------------- */
+  var activeProvider = localStorage.getItem("practice-provider") || "local";
+
+  function switchProvider(provider) {
+    activeProvider = provider;
+    localStorage.setItem("practice-provider", provider);
+    var tabs = document.querySelectorAll(".provider-tab");
+    tabs.forEach(function (tab) {
+      tab.classList.toggle("active", tab.dataset.provider === provider);
+    });
+    var setupEl = document.getElementById("practice-setup");
+    var hostedGate = document.getElementById("hosted-login-gate");
+    var problemView = document.getElementById("practice-problem-view");
+    var practiceActions = document.querySelector(".practice-actions");
+    var editorContainer = document.querySelector(".editor-container");
+    var modelSel = document.getElementById("model-selector");
+
+    if (provider === "hosted") {
+      if (setupEl) setupEl.classList.add("hidden");
+      if (problemView) problemView.classList.add("hidden");
+      if (practiceActions) practiceActions.classList.add("hidden");
+      if (editorContainer) editorContainer.classList.add("hidden");
+      if (hostedGate) hostedGate.classList.remove("hidden");
+      if (modelSel) modelSel.disabled = true;
+      stopInstallerPolling();
+    } else {
+      if (hostedGate) hostedGate.classList.add("hidden");
+      if (modelSel) modelSel.disabled = false;
+      refreshAiStatus();
     }
   }
 
@@ -1177,7 +1236,7 @@
     /* Gate: hide practice content until Ollama is confirmed */
     hidePracticeContent();
     switchTab("problem");
-    refreshAiStatus();
+    switchProvider(activeProvider);
 
     dbGetByIndex("problems", "articleId", articleId).then(function (problems) {
       if (problems.length > 0) {
@@ -1239,7 +1298,50 @@
         switchTab(tab.dataset.tab);
         return;
       }
+      var provTab = event.target.closest(".provider-tab");
+      if (provTab && provTab.dataset.provider) {
+        switchProvider(provTab.dataset.provider);
+        return;
+      }
     });
+
+    /* Model selector */
+    var modelSel = document.getElementById("model-selector");
+    if (modelSel) {
+      modelSel.addEventListener("change", function () {
+        config.model = modelSel.value;
+        localStorage.setItem("practice-model", config.model);
+        var dot = document.getElementById("ai-dot");
+        var label = document.getElementById("ai-label");
+        if (dot) dot.className = "ai-dot ai-connected";
+        if (label) label.textContent = "AI Ready";
+      });
+    }
+
+    /* Hosted login form */
+    var loginForm = document.getElementById("hosted-login-form");
+    if (loginForm) {
+      loginForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var email = document.getElementById("hosted-email").value.trim();
+        if (!email) return;
+        /* placeholder — hosted backend does not exist yet */
+        var gate = document.getElementById("hosted-login-gate");
+        if (gate) {
+          gate.innerHTML =
+            '<div class="setup-card hosted-gate">' +
+            '<div class="hosted-gate-icon">' +
+            '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
+            '</div>' +
+            '<h3>Coming Soon</h3>' +
+            '<p class="hosted-gate-desc">Hosted practice mode is under development. Use the <strong>Local</strong> tab with Ollama for free, private practice right now.</p>' +
+            '<button class="btn btn-primary btn-lg" id="switch-to-local-btn">Switch to Local</button>' +
+            '</div>';
+          var switchBtn = document.getElementById("switch-to-local-btn");
+          if (switchBtn) switchBtn.addEventListener("click", function () { switchProvider("local"); });
+        }
+      });
+    }
 
     var observer = new MutationObserver(function (mutations) {
       mutations.forEach(function (m) {
