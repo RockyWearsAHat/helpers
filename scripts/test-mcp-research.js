@@ -39,7 +39,9 @@ async function main() {
       "Research factory can search workspace knowledge from a nested cwd",
     );
     assert.ok(
-      result.results.some((entry) => entry.path === "knowledge/workspace-root-test.md"),
+      result.results.some(
+        (entry) => entry.path === "knowledge/workspace-root-test.md",
+      ),
       "Workspace root detection resolves the nested cwd to the surrounding repo root",
     );
   } finally {

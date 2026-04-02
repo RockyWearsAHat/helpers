@@ -165,7 +165,9 @@ module.exports = function createWorktreeManager(deps) {
     clearTimeout(_pendingUnknownSessionUnfocus);
     _pendingUnknownSessionUnfocus = null;
     if (reason) {
-      _writeWorktreeDebug(`unknown-session: cancelled delayed unfocus (${reason})`);
+      _writeWorktreeDebug(
+        `unknown-session: cancelled delayed unfocus (${reason})`,
+      );
     }
   }
 
@@ -197,7 +199,9 @@ module.exports = function createWorktreeManager(deps) {
       }
 
       const currentKey = _resolveCurrentChatKey();
-      const reboundWorktree = currentKey ? _tabToWorktree.get(currentKey) : null;
+      const reboundWorktree = currentKey
+        ? _tabToWorktree.get(currentKey)
+        : null;
       if (
         reboundWorktree &&
         _worktreeBindings.has(reboundWorktree) &&
@@ -896,7 +900,9 @@ module.exports = function createWorktreeManager(deps) {
               stdio: ["pipe", "pipe", "pipe"],
             });
             pruned++;
-            _writeWorktreeDebug(`startup-prune: deleted merged branch ${branch}`);
+            _writeWorktreeDebug(
+              `startup-prune: deleted merged branch ${branch}`,
+            );
           } catch {
             // Branch might not be fully merged despite --merged reporting it
             // (e.g. if it has merge commits). Non-fatal — skip.
@@ -1220,8 +1226,7 @@ module.exports = function createWorktreeManager(deps) {
               binding.branch || path.basename(wtPath),
             );
             item.description = "parked";
-            item.tooltip =
-              `Session parked at ${wtPath}. Switch back to the owning chat to bring it into the workspace.`;
+            item.tooltip = `Session parked at ${wtPath}. Switch back to the owning chat to bring it into the workspace.`;
             item.contextValue = "worktreeSessionHint";
             return item;
           });
@@ -1496,7 +1501,9 @@ module.exports = function createWorktreeManager(deps) {
           _tabToWorktree.set(sessionUri, _activeWorktreeFolder);
           if (tabKey) _tabToWorktree.set(tabKey, _activeWorktreeFolder);
           saveTabWorktreeMap();
-          _clearPendingUnknownSessionUnfocus("bound current worktree to session URI");
+          _clearPendingUnknownSessionUnfocus(
+            "bound current worktree to session URI",
+          );
           _writeWorktreeDebug(
             `session-focus: bound to currently-focused worktree ${path.basename(_activeWorktreeFolder)} (no prior URI)`,
           );
