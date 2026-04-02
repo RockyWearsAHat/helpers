@@ -289,10 +289,10 @@ tar -xzf github-shell-helpers-<version>.tar.gz
 ```sh
 curl -fsSL \
   https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main/Git-Shell-Helpers-Installer.sh \
-  | zsh
+  | bash
 ```
 
-Then `source ~/.zshrc` or open a new terminal.
+Then open a new terminal so your shell profile reloads the installed PATH and MANPATH snippet.
 
 ---
 

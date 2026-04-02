@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # Git-Shell-Helpers-Installer.sh
 #
@@ -6,12 +6,12 @@
 # helper commands and man pages from GitHub and installs them into:
 #   - ~/bin
 #   - ~/man/man1
-# then wires PATH and MANPATH in ~/.zshrc.
+# then wires PATH and MANPATH into the user's active shell profiles.
 #
 # Usage (one line):
 #   curl -fsSL \
 #     https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main/Git-Shell-Helpers-Installer.sh \
-#     | zsh
+#     | bash
 
 set -euo pipefail
 
@@ -19,11 +19,13 @@ REPO_RAW_BASE="https://raw.githubusercontent.com/RockyWearsAHat/github-shell-hel
 
 BIN_DIR="${HOME}/bin"
 MAN_DIR="${HOME}/man/man1"
-ZSHRC="${HOME}/.zshrc"
 COMMUNITY_SETTINGS_DIR="${HOME}/.copilot"
 COMMUNITY_SETTINGS_FILE="${COMMUNITY_SETTINGS_DIR}/devops-audit-community-settings.json"
 DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
 DEFAULT_COMMUNITY_BRANCH="main"
+SHELL_ENV_DIR="${HOME}/.config/git-shell-helpers"
+LOCAL_PATH_SNIPPET="${SHELL_ENV_DIR}/paths-local.sh"
+LOCAL_PATH_SOURCE='[ -f "$HOME/.config/git-shell-helpers/paths-local.sh" ] && . "$HOME/.config/git-shell-helpers/paths-local.sh"'
 
 ensure_dir() {
   local dir="$1"
@@ -43,6 +45,69 @@ ensure_line_in_file() {
   if ! grep -qxF "$line" "$file" 2>/dev/null; then
     printf '%s\n' "$line" >>"$file"
   fi
+}
+
+write_local_path_snippet() {
+  ensure_dir "$SHELL_ENV_DIR"
+  printf '%s\n' \
+    '# Added by Git-Shell-Helpers-Installer.sh.' \
+    'case ":${PATH:-}:" in' \
+    '  *":$HOME/bin:"*) ;;' \
+    '  *) export PATH="$HOME/bin${PATH:+:$PATH}" ;;' \
+    'esac' \
+    'case ":${MANPATH:-}:" in' \
+    '  *":$HOME/man:"*) ;;' \
+    '  *) export MANPATH="$HOME/man${MANPATH:+:$MANPATH}" ;;' \
+    'esac' \
+    >"$LOCAL_PATH_SNIPPET"
+}
+
+default_profile_path() {
+  case "${SHELL:-/bin/bash}" in
+    */zsh|zsh)
+      printf '%s\n' "${HOME}/.zshrc"
+      ;;
+    */bash|bash)
+      if [ "$(uname -s)" = "Darwin" ]; then
+        printf '%s\n' "${HOME}/.bash_profile"
+      else
+        printf '%s\n' "${HOME}/.bashrc"
+      fi
+      ;;
+    *)
+      printf '%s\n' "${HOME}/.profile"
+      ;;
+  esac
+}
+
+list_shell_profiles() {
+  local found=false
+  local candidate
+  for candidate in \
+    "${HOME}/.zshrc" \
+    "${HOME}/.zprofile" \
+    "${HOME}/.bash_profile" \
+    "${HOME}/.bashrc" \
+    "${HOME}/.profile"
+  do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      found=true
+    fi
+  done
+
+  if [ "$found" = false ]; then
+    default_profile_path
+  fi
+}
+
+install_shell_path_setup() {
+  local profile
+  write_local_path_snippet
+  while IFS= read -r profile; do
+    [ -n "$profile" ] || continue
+    ensure_line_in_file "$profile" "$LOCAL_PATH_SOURCE"
+  done < <(list_shell_profiles)
 }
 
 fetch() {
@@ -306,6 +371,93 @@ maybe_install_gsh_extension() {
   fi
 }
 
+setup_vscode_proposed_api() {
+  local argv_file="$HOME/.vscode/argv.json"
+  local ext_id="RockyWearsAHat.git-shell-helpers"
+  local patch_argv_script="${BIN_DIR}/scripts/patch-vscode-argv.js"
+
+  if [ ! -f "$argv_file" ]; then
+    echo "[Git-Shell-Helpers-Installer] No ~/.vscode/argv.json found - skipping proposed API setup."
+    return
+  fi
+
+  if grep -q "$ext_id" "$argv_file" 2>/dev/null; then
+    echo "[Git-Shell-Helpers-Installer] Proposed API already enabled for $ext_id."
+    return
+  fi
+
+  if [ ! -f "$patch_argv_script" ]; then
+    echo "[Git-Shell-Helpers-Installer] Proposed API patch helper not installed - skipping argv.json update."
+    return
+  fi
+
+  if command -v node >/dev/null 2>&1 && node "$patch_argv_script" "$argv_file" "$ext_id" >/dev/null 2>&1; then
+    echo "[Git-Shell-Helpers-Installer] Enabled proposed API for $ext_id in argv.json."
+    return
+  fi
+
+  echo "[Git-Shell-Helpers-Installer] Could not auto-patch argv.json."
+  echo "  Add \"$ext_id\" to the enable-proposed-api array in $argv_file manually."
+}
+
+apply_vscode_patches() {
+  local patch_script="${BIN_DIR}/scripts/patch-vscode-apply-all.js"
+
+  if [ ! -f "$patch_script" ]; then
+    echo "[Git-Shell-Helpers-Installer] VS Code patch helpers were not installed - skipping repatch step."
+    return
+  fi
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[Git-Shell-Helpers-Installer] Node.js not found - cannot apply VS Code patches."
+    return
+  fi
+
+  local all_patched
+  all_patched="$(node "$patch_script" --all-patched 2>/dev/null)" || {
+    echo "[Git-Shell-Helpers-Installer] Could not check patch status."
+    return
+  }
+
+  if [ "$all_patched" = "true" ]; then
+    echo "[Git-Shell-Helpers-Installer] VS Code patches already applied."
+    return
+  fi
+
+  local missing
+  missing="$(node "$patch_script" --missing 2>/dev/null)" || missing="unknown"
+
+  echo ""
+  echo "[Git-Shell-Helpers-Installer] VS Code Branch Session Patches"
+  echo "  Missing patches: $missing"
+  echo ""
+  echo "  These patches improve branch-per-chat in Copilot:"
+  echo "    - folder-switch: removes confirmation dialog on workspace folder swap"
+  echo "    - git-head-display: shows worktree branch name in the status bar"
+  echo ""
+  echo "  Originals are backed up and can be restored with:"
+  echo "    node ~/bin/scripts/patch-vscode-apply-all.js --revert"
+  echo ""
+  printf '[Git-Shell-Helpers-Installer] Apply VS Code patches now? [Y/n]: '
+  read -r patch_reply || patch_reply=""
+
+  if [[ -z "$patch_reply" || "$patch_reply" == "y" || "$patch_reply" == "Y" ]]; then
+    if node "$patch_script" 2>&1 | while IFS= read -r line; do
+      echo "  $line"
+    done; then
+      if node "$patch_script" --check >/dev/null 2>&1; then
+        echo "[Git-Shell-Helpers-Installer] Patches applied and verified. Quit and restart VS Code (Cmd+Q -> reopen) to activate."
+      else
+        echo "[Git-Shell-Helpers-Installer] Patch verification failed. Re-run 'node ~/bin/scripts/patch-vscode-apply-all.js --check'."
+      fi
+    else
+      echo "[Git-Shell-Helpers-Installer] Patch application failed. Re-run 'node ~/bin/scripts/patch-vscode-apply-all.js'."
+    fi
+  else
+    echo "[Git-Shell-Helpers-Installer] Skipped. Apply later with: node ~/bin/scripts/patch-vscode-apply-all.js"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # MCP tools installation
 # ---------------------------------------------------------------------------
@@ -420,9 +572,7 @@ install_all() {
 
   configure_community_cache
 
-  # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
-  ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
-  ensure_line_in_file "$ZSHRC" 'export MANPATH="$HOME/man:$MANPATH"'
+  install_shell_path_setup
 
   # -----------------------------------------------------------------------------
   # HIGHLY RECOMMENDED: Install/Update GitHub Copilot CLI
@@ -495,10 +645,13 @@ install_all() {
 
     # MCP tools — always offer when VS Code is available
     configure_mcp_tools
+
+    # Branch-per-chat: proposed API flag + bundle patches
+    setup_vscode_proposed_api
+    apply_vscode_patches
   fi
 
-  echo "[Git-Shell-Helpers-Installer] Done. Open a new terminal or run:"
-  echo "  source $ZSHRC"
+  echo "[Git-Shell-Helpers-Installer] Done. Open a new terminal to reload PATH and MANPATH changes."
   echo "Then you can use: git upload, git get, git initialize, git fucked-the-push,"
   echo "  git copilot-devops-audit, and view docs via git help <command>."
 }
