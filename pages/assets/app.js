@@ -11,7 +11,10 @@ const state = {
   pageSize: 20,
   currentPage: 0,
   isLoadingMore: false,
+  lastTerms: [],
 };
+
+var loadMoreObserver = null;
 
 /* -- DOM refs -------------------------------------------------------------- */
 const queryInput = document.getElementById("query-input");
@@ -426,8 +429,54 @@ function setSelected(documentId) {
   });
 }
 
+function disconnectLoadMoreObserver() {
+  if (!loadMoreObserver) return;
+  loadMoreObserver.disconnect();
+  loadMoreObserver = null;
+}
+
+function loadNextResultsPage() {
+  if (state.isLoadingMore) return;
+  var nextStart = (state.currentPage + 1) * state.pageSize;
+  if (nextStart >= state.lastResults.length) {
+    disconnectLoadMoreObserver();
+    return;
+  }
+
+  state.isLoadingMore = true;
+  window.requestAnimationFrame(function () {
+    state.currentPage += 1;
+    state.isLoadingMore = false;
+    renderResults(state.lastResults, 0, state.lastTerms);
+  });
+}
+
+function attachLoadMoreObserver() {
+  disconnectLoadMoreObserver();
+
+  var sentinel = resultsList.querySelector(".load-more-item");
+  if (!sentinel || !("IntersectionObserver" in window)) return;
+
+  loadMoreObserver = new IntersectionObserver(
+    function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) loadNextResultsPage();
+      });
+    },
+    {
+      root: null,
+      rootMargin: "260px 0px 160px",
+      threshold: 0.01,
+    },
+  );
+
+  loadMoreObserver.observe(sentinel);
+}
+
 /* -- Render: result list --------------------------------------------------- */
 function renderResults(results, durationMs, terms) {
+  disconnectLoadMoreObserver();
+
   if (state.currentPage === 0) {
     resultsList.innerHTML = "";
     emptyState.hidden = results.length > 0;
@@ -453,6 +502,9 @@ function renderResults(results, durationMs, terms) {
       renderPreview(null);
       return;
     }
+  } else {
+    var existingLoadMore = resultsList.querySelector(".load-more-item");
+    if (existingLoadMore) existingLoadMore.remove();
   }
 
   var start = state.currentPage * state.pageSize;
@@ -547,14 +599,22 @@ function renderResults(results, durationMs, terms) {
   if (end < results.length) {
     var loadMoreBtn = document.createElement("li");
     loadMoreBtn.className = "load-more-item";
-    loadMoreBtn.innerHTML =
-      '<button class="load-more-btn" type="button">Load more results&hellip;</button>';
-    var loadBtn = loadMoreBtn.querySelector(".load-more-btn");
-    loadBtn.addEventListener("click", function () {
-      state.currentPage += 1;
-      renderResults(results, 0, terms);
-    });
+    if ("IntersectionObserver" in window) {
+      loadMoreBtn.innerHTML =
+        '<div class="load-more-indicator" aria-hidden="true">Scroll to load more</div>';
+      attachLoadMoreObserver();
+    } else {
+      loadMoreBtn.innerHTML =
+        '<button class="load-more-btn" type="button">Load more results&hellip;</button>';
+      var loadBtn = loadMoreBtn.querySelector(".load-more-btn");
+      loadBtn.addEventListener("click", function () {
+        loadNextResultsPage();
+      });
+    }
     resultsList.appendChild(loadMoreBtn);
+    if ("IntersectionObserver" in window) attachLoadMoreObserver();
+  } else {
+    disconnectLoadMoreObserver();
   }
 }
 
@@ -582,6 +642,9 @@ function runSearch() {
   var normalizedQuery = normalizeWhitespace(state.query).toLowerCase();
   var terms = tokenize(normalizedQuery);
   var startedAt = performance.now();
+
+  state.isLoadingMore = false;
+  state.lastTerms = terms;
 
   var results = sortResults(
     state.corpus.documents
