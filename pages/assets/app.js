@@ -188,6 +188,52 @@ function sortResults(results) {
   });
 }
 
+function summaryForScope(scopeKey) {
+  if (scopeKey === "copilot") return "Top Copilot guides.";
+  if (scopeKey === "knowledge") return "Top knowledge notes.";
+  if (scopeKey === "archive") return "Top archive entries.";
+  return "Top guides across Copilot customization, knowledge atlas, and archive.";
+}
+
+function buildChipButton(label, className, options) {
+  var attrs = [
+    'type="button"',
+    'class="' + escapeHtml(className + " chip-button") + '"',
+  ];
+
+  if (options && options.query) {
+    attrs.push('data-chip-query="' + escapeHtml(options.query) + '"');
+  }
+  if (options && options.scope) {
+    attrs.push('data-chip-scope="' + escapeHtml(options.scope) + '"');
+  }
+  if (options && options.clearQuery) {
+    attrs.push('data-chip-clear="true"');
+  }
+
+  return "<button " + attrs.join(" ") + ">" + escapeHtml(label) + "</button>";
+}
+
+function activateChip(button) {
+  if (!button) return;
+
+  var nextScope = button.dataset.chipScope || state.scope;
+  var nextQuery = normalizeWhitespace(button.dataset.chipQuery || "");
+  var shouldClear = button.dataset.chipClear === "true";
+
+  showPage("search");
+  if (!readerColumn.classList.contains("hidden")) closeReader();
+
+  state.scope = nextScope;
+  state.query = shouldClear ? "" : nextQuery;
+  queryInput.value = state.query;
+
+  syncScopeButtons();
+  updateUrl();
+  runSearch();
+  queryInput.focus();
+}
+
 /* -- Render: suggestions --------------------------------------------------- */
 function renderSuggestions() {
   suggestionStrip.innerHTML = "";
@@ -239,7 +285,7 @@ function renderPreview(doc) {
   var topicPills = (doc.topics && doc.topics.length ? doc.topics : doc.keywords)
     .slice(0, 10)
     .map(function (item) {
-      return '<span class="keyword-pill">' + escapeHtml(item) + "</span>";
+      return buildChipButton(item, "keyword-pill", { query: item });
     })
     .join("");
 
@@ -248,7 +294,7 @@ function renderPreview(doc) {
   )
     .slice(0, 6)
     .map(function (item) {
-      return '<span class="meta-pill">' + escapeHtml(item) + "</span>";
+      return buildChipButton(item, "meta-pill", { query: item });
     })
     .join("");
 
@@ -281,8 +327,14 @@ function renderPreview(doc) {
     .join("");
 
   var metaPills = (doc.metaPills || [doc.scopeLabel, doc.category])
-    .map(function (pill) {
-      return '<span class="meta-pill">' + escapeHtml(pill) + "</span>";
+    .map(function (pill, index) {
+      if (index === 0) {
+        return buildChipButton(pill, "meta-pill", {
+          scope: doc.scopeKey,
+          clearQuery: true,
+        });
+      }
+      return buildChipButton(pill, "meta-pill", { query: pill });
     })
     .join("");
 
@@ -295,9 +347,10 @@ function renderPreview(doc) {
     "</h2>" +
     '<div class="preview-meta">' +
     metaPills +
-    '<span class="meta-pill">' +
-    escapeHtml(doc.path) +
-    "</span></div>" +
+    buildChipButton(doc.path, "meta-pill meta-pill-path", {
+      query: doc.path,
+    }) +
+    "</div>" +
     '<p class="preview-body">' +
     escapeHtml(doc.previewText || doc.snippet) +
     "</p>" +
@@ -368,8 +421,7 @@ function renderResults(results, durationMs, terms) {
   emptyState.hidden = results.length > 0;
 
   if (!state.query) {
-    resultsSummary.textContent =
-      "Top guides across Copilot customization, knowledge atlas, and archive.";
+    resultsSummary.textContent = summaryForScope(state.scope);
     resultsMeta.textContent =
       results.length.toLocaleString() + " curated picks";
   } else {
@@ -392,7 +444,6 @@ function renderResults(results, durationMs, terms) {
 
   results.forEach(function (entry) {
     var resultDoc = entry.document;
-    var score = entry.score;
     var listItem = document.createElement("li");
     var snippet = buildSnippet(resultDoc, terms);
 
@@ -401,7 +452,7 @@ function renderResults(results, durationMs, terms) {
     )
       .slice(0, 4)
       .map(function (k) {
-        return '<span class="result-pill">' + escapeHtml(k) + "</span>";
+        return buildChipButton(k, "result-pill", { query: k });
       })
       .join("");
 
@@ -423,11 +474,13 @@ function renderResults(results, durationMs, terms) {
       highlight(resultDoc.title, terms) +
       "</span></h2>" +
       "</div>" +
-      '<span class="result-scope-badge" data-scope="' +
+      '<button class="result-scope-badge chip-button" type="button" data-chip-scope="' +
+      escapeHtml(resultDoc.scopeKey) +
+      '" data-chip-clear="true" data-scope="' +
       escapeHtml(resultDoc.scopeKey) +
       '">' +
       escapeHtml(resultDoc.scopeLabel) +
-      "</span></div>" +
+      "</button></div>" +
       '<p class="result-snippet">' +
       highlight(snippet, terms) +
       "</p>" +
@@ -444,7 +497,11 @@ function renderResults(results, durationMs, terms) {
     card.addEventListener("mouseenter", activate);
     card.addEventListener("focus", activate);
     card.addEventListener("click", function (event) {
-      if (event.target.closest(".read-article-btn")) return;
+      if (
+        event.target.closest(".read-article-btn") ||
+        event.target.closest("[data-chip-query], [data-chip-scope]")
+      )
+        return;
       activate();
       if (resultDoc.rawUrl) openReader(resultDoc.id);
     });
@@ -616,7 +673,7 @@ function renderCommunityContent(doc) {
   if (metaBadges.length) {
     parts.push('<div class="community-badges">' +
       metaBadges.map(function (b) {
-        return '<span class="community-badge">' + escapeHtml(b) + '</span>';
+        return buildChipButton(b, 'community-badge', { query: b });
       }).join('') +
     '</div>');
   }
@@ -675,7 +732,7 @@ function renderCommunityContent(doc) {
   if (topics.length) {
     parts.push('<h2>Topics</h2><div class="community-topics">' +
       topics.map(function (t) {
-        return '<span class="community-topic">' + escapeHtml(t) + '</span>';
+        return buildChipButton(t, 'community-topic', { query: t });
       }).join('') +
     '</div>');
   }
@@ -817,9 +874,25 @@ queryInput.addEventListener("input", function () {
   }, 90);
 });
 
+function handleChipClick(event) {
+  var chip = event.target.closest("[data-chip-query], [data-chip-scope]");
+  if (!chip) return;
+  event.preventDefault();
+  event.stopPropagation();
+  activateChip(chip);
+}
+
+resultsList.addEventListener("click", handleChipClick);
+previewCard.addEventListener("click", handleChipClick);
+readerBody.addEventListener("click", handleChipClick);
+
 scopeButtons.forEach(function (btn) {
   btn.addEventListener("click", function () {
+    showPage("search");
+    if (!readerColumn.classList.contains("hidden")) closeReader();
     state.scope = btn.dataset.scope;
+    state.query = "";
+    queryInput.value = "";
     syncScopeButtons();
     updateUrl();
     runSearch();
