@@ -7,6 +7,7 @@ const os = require("os");
 const path = require("path");
 
 const {
+  escapeMarkdownTableCell,
   formatReadError,
   getAvailableModelsPath,
   handleListLanguageModels,
@@ -36,6 +37,11 @@ async function main() {
     formatReadError("plain string failure"),
     "plain string failure",
   );
+  assert.strictEqual(
+    escapeMarkdownTableCell("Claude | Sonnet\nAnthropic"),
+    "Claude \\| Sonnet<br>Anthropic",
+  );
+  assert.strictEqual(escapeMarkdownTableCell(undefined), "");
 
   const noHomeDirResult = await handleListLanguageModels();
   assert.ok(
@@ -64,6 +70,13 @@ async function main() {
             qualifiedName: "Claude Haiku 4.5 (Anthropic)",
             maxInputTokens: 200000,
           },
+          {
+            id: "provider|edge",
+            name: "Provider | Edge",
+            vendor: "OpenAI\nLabs",
+            qualifiedName: "Provider | Edge\n(OpenAI Labs)",
+            maxInputTokens: 12345,
+          },
         ],
       },
       null,
@@ -78,6 +91,9 @@ async function main() {
   assert.ok(validResult[0].text.includes("Available language models"));
   assert.ok(validResult[0].text.includes("claude-haiku-4.5"));
   assert.ok(validResult[0].text.includes("Claude Haiku 4.5 (Anthropic)"));
+  assert.ok(validResult[0].text.includes("provider\\|edge"));
+  assert.ok(validResult[0].text.includes("Provider \\| Edge"));
+  assert.ok(validResult[0].text.includes("OpenAI<br>Labs"));
 
   fs.writeFileSync(fallbackPath, JSON.stringify({}, null, 2), "utf8");
 

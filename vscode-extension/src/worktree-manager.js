@@ -9,6 +9,11 @@ const { execFileSync } = require("child_process");
 const WORKTREE_BINDINGS_KEY = "worktreeBindings.v2";
 const TAB_WORKTREE_KEY = "tabToWorktree";
 const SESSION_STATE_KEY = "gsh.sessionState.v1";
+const UNKNOWN_SESSION_GRACE_MS =
+  Number.parseInt(
+    process.env.GSH_WORKTREE_UNKNOWN_SESSION_GRACE_MS || "1200",
+    10,
+  ) || 1200;
 
 module.exports = function createWorktreeManager(deps) {
   const { _context, getDiagnosticsOutputChannel } = deps;
@@ -18,6 +23,7 @@ module.exports = function createWorktreeManager(deps) {
   let _sessionStateMap = new Map(); // worktreePath → { originalBranch, stashRef, focusedAt }
   let _pendingBranchSessionStarts = new Map();
   let _activeWorktreeFolder = null;
+  let _pendingUnknownSessionUnfocus = null;
   let _suppressTabDrivenUnfocusUntil = 0;
   let _displayedBranch = null;
   let _worktreeFileProvider = null;
@@ -152,6 +158,63 @@ module.exports = function createWorktreeManager(deps) {
     } catch {
       return null;
     }
+  }
+
+  function _clearPendingUnknownSessionUnfocus(reason) {
+    if (!_pendingUnknownSessionUnfocus) return;
+    clearTimeout(_pendingUnknownSessionUnfocus);
+    _pendingUnknownSessionUnfocus = null;
+    if (reason) {
+      _writeWorktreeDebug(`unknown-session: cancelled delayed unfocus (${reason})`);
+    }
+  }
+
+  function _scheduleUnknownSessionUnfocus(reason) {
+    if (!_activeWorktreeFolder) return;
+    if (_pendingUnknownSessionUnfocus) {
+      _writeWorktreeDebug(
+        `unknown-session: delayed unfocus already pending (${reason})`,
+      );
+      return;
+    }
+
+    const scheduledWorktree = _activeWorktreeFolder;
+    _writeWorktreeDebug(
+      `unknown-session: delaying unfocus for ${UNKNOWN_SESSION_GRACE_MS}ms (${reason})`,
+    );
+
+    _pendingUnknownSessionUnfocus = setTimeout(() => {
+      _pendingUnknownSessionUnfocus = null;
+
+      if (
+        !_activeWorktreeFolder ||
+        _activeWorktreeFolder !== scheduledWorktree
+      ) {
+        _writeWorktreeDebug(
+          "unknown-session: delayed unfocus skipped because active worktree changed",
+        );
+        return;
+      }
+
+      const currentKey = _resolveCurrentChatKey();
+      const reboundWorktree = currentKey ? _tabToWorktree.get(currentKey) : null;
+      if (
+        reboundWorktree &&
+        _worktreeBindings.has(reboundWorktree) &&
+        fs.existsSync(reboundWorktree)
+      ) {
+        _writeWorktreeDebug(
+          `unknown-session: delayed unfocus resolved to ${path.basename(reboundWorktree)}`,
+        );
+        _focusWorktreeFolder(reboundWorktree);
+        return;
+      }
+
+      _writeWorktreeDebug(
+        `unknown-session: grace expired, unfocusing ${path.basename(scheduledWorktree)}`,
+      );
+      _unfocusWorktreeFolder();
+    }, UNKNOWN_SESSION_GRACE_MS);
   }
 
   // ------- Head Override -------
@@ -422,8 +485,13 @@ module.exports = function createWorktreeManager(deps) {
   // ------- Focus -------
 
   function _focusWorktreeFolder(worktreePath) {
-    if (_activeWorktreeFolder === worktreePath) return;
+    if (_activeWorktreeFolder === worktreePath) {
+      _clearPendingUnknownSessionUnfocus("focus confirmed");
+      return;
+    }
     if (!fs.existsSync(worktreePath)) return;
+
+    _clearPendingUnknownSessionUnfocus("switching focus");
 
     const mainRepo = _getMainRepoPath();
 
@@ -517,6 +585,7 @@ module.exports = function createWorktreeManager(deps) {
   }
 
   function _unfocusWorktreeFolder() {
+    _clearPendingUnknownSessionUnfocus("unfocus start");
     if (!_activeWorktreeFolder) return;
     const prev = _activeWorktreeFolder;
     const mainRepo = _getMainRepoPath();
@@ -609,6 +678,8 @@ module.exports = function createWorktreeManager(deps) {
       saveTabWorktreeMap();
     }
 
+    _worktreeFileProvider?.refresh();
+
     getDiagnosticsOutputChannel().appendLine(
       `[worktree] Bound branch=${branch} path=${worktreePath} tab=${tabKey || "pending"}`,
     );
@@ -636,6 +707,7 @@ module.exports = function createWorktreeManager(deps) {
       }
     }
     saveTabWorktreeMap();
+    _worktreeFileProvider?.refresh();
 
     if (_activeWorktreeFolder === worktreePath) {
       _unfocusWorktreeFolder();
@@ -1032,9 +1104,38 @@ module.exports = function createWorktreeManager(deps) {
 
     getChildren(element) {
       if (!_activeWorktreeFolder) {
-        const item = new vscode.TreeItem("No active branch session");
-        item.description = "Start a branch session to browse files";
-        return [item];
+        if (_worktreeBindings.size === 0) {
+          const item = new vscode.TreeItem("No active branch session");
+          item.description = "Start a branch session to browse files";
+          item.tooltip =
+            "Branch session files appear here when the current chat owns a session.";
+          return [item];
+        }
+
+        const summary = new vscode.TreeItem(
+          "No branch session focused in this chat",
+        );
+        summary.description = `${_worktreeBindings.size} parked`;
+        summary.tooltip =
+          "Branch sessions are parked, not lost. Switch back to the chat that owns one or run branch_status to find them.";
+        summary.contextValue = "worktreeSessionHint";
+
+        const parkedItems = Array.from(_worktreeBindings.entries())
+          .sort(([, left], [, right]) =>
+            (left.branch || "").localeCompare(right.branch || ""),
+          )
+          .map(([wtPath, binding]) => {
+            const item = new vscode.TreeItem(
+              binding.branch || path.basename(wtPath),
+            );
+            item.description = "parked";
+            item.tooltip =
+              `Session parked at ${wtPath}. Switch back to the owning chat to bring it into the workspace.`;
+            item.contextValue = "worktreeSessionHint";
+            return item;
+          });
+
+        return [summary, ...parkedItems];
       }
 
       const dirPath = element
@@ -1098,6 +1199,8 @@ module.exports = function createWorktreeManager(deps) {
         const binding = _worktreeBindings.get(_activeWorktreeFolder);
         const branch = binding?.branch || path.basename(_activeWorktreeFolder);
         treeView.title = `\u{1F33F} ${branch}`;
+      } else if (_worktreeBindings.size > 0) {
+        treeView.title = `Branch Files (${_worktreeBindings.size} parked)`;
       } else {
         treeView.title = "Branch Files";
       }
@@ -1180,8 +1283,10 @@ module.exports = function createWorktreeManager(deps) {
         _activeWorktreeFolder &&
         Date.now() >= _suppressTabDrivenUnfocusUntil
       ) {
-        _writeWorktreeDebug(`tab-change: unbound chat tab \u2192 unfocusing`);
-        _unfocusWorktreeFolder();
+        _writeWorktreeDebug(
+          `tab-change: unbound chat tab \u2192 scheduling delayed unfocus`,
+        );
+        _scheduleUnknownSessionUnfocus("tab-change: unbound chat tab");
       }
       return;
     }
@@ -1190,6 +1295,11 @@ module.exports = function createWorktreeManager(deps) {
   // ------- VS Code Patch Management -------
 
   function checkVscodePatches() {
+    const branchSessionsEnabled = vscode.workspace
+      .getConfiguration("gitShellHelpers.branchSessions")
+      .get("enabled", false);
+    if (!branchSessionsEnabled) return;
+
     const PATCH_APPLY_SCRIPT = path.join(
       __dirname,
       "..",
@@ -1210,10 +1320,10 @@ module.exports = function createWorktreeManager(deps) {
       const missing = status.patches
         .filter((p) => p.status !== "patched")
         .map((p) => p.name);
-      const msg = `VS Code patches missing: ${missing.join(", ")}. Branch session navigation requires these patches.`;
+      const msg = `Optional VS Code branch-session patches are not installed: ${missing.join(", ")}. Branch sessions still work without them, but the UI is smoother when they are applied.`;
 
       vscode.window
-        .showWarningMessage(msg, "Apply Patches", "Dismiss")
+        .showInformationMessage(msg, "Apply Patches", "Dismiss")
         .then((choice) => {
           if (choice !== "Apply Patches") return;
           try {
@@ -1295,6 +1405,7 @@ module.exports = function createWorktreeManager(deps) {
           _tabToWorktree.set(sessionUri, _activeWorktreeFolder);
           if (tabKey) _tabToWorktree.set(tabKey, _activeWorktreeFolder);
           saveTabWorktreeMap();
+          _clearPendingUnknownSessionUnfocus("bound current worktree to session URI");
           _writeWorktreeDebug(
             `session-focus: bound to currently-focused worktree ${path.basename(_activeWorktreeFolder)} (no prior URI)`,
           );
@@ -1308,18 +1419,20 @@ module.exports = function createWorktreeManager(deps) {
 
       if (_activeWorktreeFolder) {
         _writeWorktreeDebug(
-          `session-focus: unknown URI ${sessionUri.slice(-12)} \u2014 unfocusing immediately`,
+          `session-focus: unknown URI ${sessionUri.slice(-12)} \u2014 scheduling delayed unfocus`,
         );
-        _unfocusWorktreeFolder();
+        _scheduleUnknownSessionUnfocus(
+          `session-focus: unknown URI ${sessionUri.slice(-12)}`,
+        );
       }
       return;
     }
 
     if (_activeWorktreeFolder) {
       _writeWorktreeDebug(
-        `session-focus unfocus: session=null active=${_activeWorktreeFolder}`,
+        `session-focus: session=null active=${_activeWorktreeFolder} \u2014 scheduling delayed unfocus`,
       );
-      _unfocusWorktreeFolder();
+      _scheduleUnknownSessionUnfocus("session-focus: session=null");
     }
   }
 

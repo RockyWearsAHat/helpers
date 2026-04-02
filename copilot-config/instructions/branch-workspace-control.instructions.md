@@ -17,7 +17,7 @@ When **enabled**: agents get MCP tools to create isolated git worktrees for para
 
 ## How It Looks to the User
 
-Branch sessions are designed to be **invisible infrastructure**. The user sees normal branches:
+Branch sessions are meant to feel like normal branches, but they are not magic. The workspace follows whichever chat currently owns focus:
 
 - `git branch` in the repo root shows the feature branch as current
 - VS Code's source control panel shows the feature branch
@@ -31,7 +31,7 @@ Under the hood, the extension:
 3. Stashes any uncommitted work before switching, restores it after
 4. Switches the main repo back to the baseline branch when the chat loses focus or the session ends
 
-This means the user never needs to know about worktrees, cache directories, or binding mechanics. They just see branches that follow their chats.
+This means a branch session can become parked when you leave its chat. The work is still on that branch and still in its worktree; it is not deleted or lost.
 
 ## MCP Tools (available when enabled)
 
@@ -64,6 +64,8 @@ This means the user never needs to know about worktrees, cache directories, or b
    → removes worktree, restores baseline branch
 ```
 
+If the workspace switches back to baseline after you leave a chat, that is expected. The session is parked. Switch back to the owning chat or call `branch_status` to find it.
+
 ## Follow-Up Messages
 
 When returning to a chat that has an active branch session:
@@ -83,5 +85,6 @@ Before starting a new session, call `branch_status` to see what other agents are
 
 - **Worktree**: An isolated checkout in `~/.cache/gsh/worktrees/`. Each branch session gets its own directory. The user never interacts with this directory directly — the extension focuses the main repo checkout onto the worktree's branch.
 - **Focus**: When a chat with an active branch session is focused, the extension checks out that branch in the main repo and stashes/restores any prior work. This means `git branch`, `git status`, and the VS Code Explorer all reflect the session's branch.
+- **Parked session**: A branch session whose chat is not currently focused. The workspace may be back on baseline, but the branch session still exists and is recoverable by returning to that chat or using `branch_status`.
 - **Session binding**: The VS Code extension tracks which chat owns which worktree. Bindings persist across extension reloads. Stale bindings (where the worktree was removed externally) are cleaned up automatically.
 - **Toggle**: The `gitShellHelpers.branchSessions.enabled` setting controls whether branch tools appear. Restart the MCP server after changing it (reload window).

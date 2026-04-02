@@ -49,13 +49,14 @@ No parameters. Returns one block per workspace root with: root path, branch name
 
 ## Core — Branch Sessions
 
-Branch sessions give agents isolated working directories via git worktrees. Each session gets its own filesystem checkout under `~/.cache/gsh/worktrees/`, leaving the main workspace untouched. Agents can work on different branches independently — like developers on a team each having their own clone.
+Branch sessions create isolated git worktrees under `~/.cache/gsh/worktrees/`, but when the VS Code extension is active the normal workspace root follows the active chat's branch. Think of the worktree as parked state, not as the directory you should edit directly.
 
 **`branch_session_start`** — Start an isolated branch session.
 
 - Creates a worktree for the given branch (or creates the branch if it doesn't exist).
 - Returns the absolute path to the worktree.
-- **Use this path for all subsequent file operations and terminal commands.**
+- The normal workspace root becomes the branch you should edit.
+- **Do not use the worktree path directly for normal file operations or terminal commands.**
 - If a session already exists for the branch, returns the existing path.
 
 Parameters:
@@ -87,6 +88,7 @@ Parameters:
 **`branch_status`** — Show all active branch sessions and local branches.
 
 - Reports: active worktree sessions with their status, the main workspace branch, and all local branches with latest commits.
+- If work seems to disappear from the workspace after a chat switch, call this first. The session is usually parked, not lost.
 - No parameters.
 
 ## Core — Diagnostics
@@ -139,9 +141,9 @@ Results are tagged with `source: "local"` or `source: "community"`. Falls back t
 
 ## Vision — Screenshot & Image Analysis
 
-**`take_screenshot`** — Capture a screenshot of the current screen. Returns the image as base64. Requires the gsh-vision VS Code extension to be running.
+**`take_screenshot`** — Capture a screenshot on macOS. Returns the absolute path to the saved PNG. Requires the gsh-vision VS Code extension to be running. If the host exposes a built-in image-view tool such as `view_image`, prefer that for single-image inspection of the screenshot.
 
-**`analyze_images`** — Analyze one or more images using a vision model. Pass base64-encoded image data. Use after `take_screenshot` to interpret UI state, errors, or visual content.
+**`analyze_images`** — Analyze one or more image paths using a vision model. Use this when no built-in host image-view tool is available, or when you need capabilities the host tool may not provide reliably: multi-image comparison, an explicit evaluation goal, or screenshot-driven visual debugging. Use after `take_screenshot` to interpret UI state, errors, or visual content.
 
 ## Knowledge-First Protocol
 
