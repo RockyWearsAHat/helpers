@@ -68,8 +68,8 @@
       {
         "name": "gsh-take-screenshot",
         "displayName": "Take Screenshot",
-        "userDescription": "Capture a screenshot on macOS. Returns the path to the saved PNG.",
-        "modelDescription": "Use this tool to capture a screenshot of the screen, a specific application window, or a screen region on macOS. Returns the absolute path to the saved PNG file. If a built-in host image tool such as view_image is available, prefer that for single-image inspection of the screenshot. Otherwise chain with analyze_images when you need model-driven inspection, comparison, or evaluation. Modes: 'fullscreen' (entire screen, default), 'window' (specific app window by name), 'region' (rectangle by x/y/width/height).",
+        "userDescription": "Capture a screenshot using the native backend for the current OS. Returns the path to the saved PNG.",
+        "modelDescription": "Use this tool to capture a screenshot of the screen, a visible application window, or a screen region using the native backend for the current OS. Returns the absolute path to the saved PNG file. If a built-in host image tool such as view_image is available, prefer that for single-image inspection of the screenshot. Otherwise chain with analyze_images when you need model-driven inspection, comparison, or evaluation. Modes: 'fullscreen' (entire screen, default), 'window' (visible app window by name when supported), 'region' (rectangle by x/y/width/height).",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -84,11 +84,11 @@
                 "window",
                 "region"
               ],
-              "description": "Capture mode. 'fullscreen' (default): entire screen. 'window': a specific window by app name. 'region': a rectangle defined by x, y, width, height."
+              "description": "Capture mode. 'fullscreen' (default): entire screen. 'window': a visible app window by app name when the platform backend supports it. 'region': a rectangle defined by x, y, width, height."
             },
             "appName": {
               "type": "string",
-              "description": "Application name whose frontmost window to capture (used with mode 'window'). Example: 'AIO Server'."
+              "description": "Application name whose visible window to capture (used with mode 'window'). Example: 'Google Chrome'."
             },
             "x": {
               "type": "number",
@@ -184,8 +184,8 @@
       {
         "name": "gsh_take_screenshot",
         "displayName": "Take Screenshot",
-        "userDescription": "Capture a screenshot on macOS. Returns the path to the saved PNG.",
-        "modelDescription": "Use this tool to capture a screenshot of the screen, a specific application window, or a screen region on macOS. Returns the absolute path to the saved PNG file. If a built-in host image tool such as view_image is available, prefer that for single-image inspection of the screenshot. Otherwise chain with analyze_images when you need model-driven inspection, comparison, or evaluation. Modes: 'fullscreen' (entire screen, default), 'window' (specific app window by name), 'region' (rectangle by x/y/width/height).",
+        "userDescription": "Capture a screenshot using the native backend for the current OS. Returns the path to the saved PNG.",
+        "modelDescription": "Use this tool to capture a screenshot of the screen, a visible application window, or a screen region using the native backend for the current OS. Returns the absolute path to the saved PNG file. If a built-in host image tool such as view_image is available, prefer that for single-image inspection of the screenshot. Otherwise chain with analyze_images when you need model-driven inspection, comparison, or evaluation. Modes: 'fullscreen' (entire screen, default), 'window' (visible app window by name when supported), 'region' (rectangle by x/y/width/height).",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -200,11 +200,11 @@
                 "window",
                 "region"
               ],
-              "description": "Capture mode. 'fullscreen' (default): entire screen. 'window': a specific window by app name. 'region': a rectangle defined by x, y, width, height."
+              "description": "Capture mode. 'fullscreen' (default): entire screen. 'window': a visible app window by app name when the platform backend supports it. 'region': a rectangle defined by x, y, width, height."
             },
             "appName": {
               "type": "string",
-              "description": "Application name whose frontmost window to capture (used with mode 'window'). Example: 'AIO Server'."
+              "description": "Application name whose visible window to capture (used with mode 'window'). Example: 'Google Chrome'."
             },
             "x": {
               "type": "number",
