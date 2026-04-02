@@ -74,14 +74,18 @@ function escapeRegex(text) {
 }
 
 function normalizeWhitespace(text) {
-  return String(text || "").replace(/\s+/g, " ").trim();
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function tokenize(query) {
   return normalizeWhitespace(query)
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter(function (term) { return term.length >= 2; });
+    .filter(function (term) {
+      return term.length >= 2;
+    });
 }
 
 function countOccurrences(text, term) {
@@ -102,7 +106,10 @@ function buildSnippet(doc, terms) {
   var start = 0;
   for (var i = 0; i < terms.length; i++) {
     var index = lowerHaystack.indexOf(terms[i]);
-    if (index !== -1) { start = Math.max(0, index - 90); break; }
+    if (index !== -1) {
+      start = Math.max(0, index - 90);
+      break;
+    }
   }
   var end = Math.min(haystack.length, start + 260);
   var prefix = start > 0 ? "\u2026" : "";
@@ -122,25 +129,45 @@ function scoreDocument(doc, normalizedQuery, terms) {
 
   var title = doc.title.toLowerCase();
   var path = doc.path.toLowerCase();
-  var headings = doc.headings.map(function (h) { return h.toLowerCase(); });
-  var keywords = doc.keywords.map(function (k) { return k.toLowerCase(); });
-  var topics = (doc.topics || []).map(function (t) { return t.toLowerCase(); });
+  var headings = doc.headings.map(function (h) {
+    return h.toLowerCase();
+  });
+  var keywords = doc.keywords.map(function (k) {
+    return k.toLowerCase();
+  });
+  var topics = (doc.topics || []).map(function (t) {
+    return t.toLowerCase();
+  });
   var metaPills = (doc.metaPills || []).join(" ").toLowerCase();
   var searchText = doc.searchText.toLowerCase();
 
-  var score = doc.scopeKey === "knowledge" ? 8 : doc.scopeKey === "copilot" ? 12 : 0;
+  var score =
+    doc.scopeKey === "knowledge" ? 8 : doc.scopeKey === "copilot" ? 12 : 0;
   var matchedTerms = 0;
 
-  if (normalizedQuery && title.includes(normalizedQuery)) { score += 180; }
-  else if (normalizedQuery && searchText.includes(normalizedQuery)) { score += 80; }
+  if (normalizedQuery && title.includes(normalizedQuery)) {
+    score += 180;
+  } else if (normalizedQuery && searchText.includes(normalizedQuery)) {
+    score += 80;
+  }
 
   for (var i = 0; i < terms.length; i++) {
     var term = terms[i];
     var termScore = 0;
     if (title.includes(term)) termScore += 110;
-    if (headings.some(function (h) { return h.includes(term); })) termScore += 50;
+    if (
+      headings.some(function (h) {
+        return h.includes(term);
+      })
+    )
+      termScore += 50;
     if (keywords.includes(term)) termScore += 36;
-    if (topics.some(function (t) { return t.includes(term); })) termScore += 32;
+    if (
+      topics.some(function (t) {
+        return t.includes(term);
+      })
+    )
+      termScore += 32;
     if (metaPills.includes(term)) termScore += 18;
     if (path.includes(term)) termScore += 22;
     termScore += Math.min(countOccurrences(searchText, term), 6) * 11;
@@ -149,7 +176,8 @@ function scoreDocument(doc, normalizedQuery, terms) {
   }
 
   if (!matchedTerms) return 0;
-  score *= matchedTerms === terms.length ? 1.22 : 0.58 + matchedTerms / terms.length;
+  score *=
+    matchedTerms === terms.length ? 1.22 : 0.58 + matchedTerms / terms.length;
   return score;
 }
 
@@ -185,13 +213,16 @@ function renderStats() {
   if (!state.corpus) return;
   var m = state.corpus.metadata;
   document.getElementById("doc-count").textContent = m.totalDocuments;
-  document.getElementById("copilot-count").textContent = m.scopeCounts.copilot || 0;
-  document.getElementById("curated-count").textContent = m.scopeCounts.knowledge || 0;
-  document.getElementById("archive-count").textContent = m.scopeCounts.archive || 0;
+  document.getElementById("copilot-count").textContent =
+    m.scopeCounts.copilot || 0;
+  document.getElementById("curated-count").textContent =
+    m.scopeCounts.knowledge || 0;
+  document.getElementById("archive-count").textContent =
+    m.scopeCounts.archive || 0;
   var builtAt = new Date(m.builtAt);
   document.getElementById("built-at").textContent = builtAt.toLocaleDateString(
     undefined,
-    { month: "short", day: "numeric", year: "numeric" }
+    { month: "short", day: "numeric", year: "numeric" },
   );
 }
 
@@ -207,75 +238,122 @@ function renderPreview(doc) {
 
   var topicPills = (doc.topics && doc.topics.length ? doc.topics : doc.keywords)
     .slice(0, 10)
-    .map(function (item) { return '<span class="keyword-pill">' + escapeHtml(item) + "</span>"; })
+    .map(function (item) {
+      return '<span class="keyword-pill">' + escapeHtml(item) + "</span>";
+    })
     .join("");
 
-  var highlightPills = (doc.highlights && doc.highlights.length ? doc.highlights : doc.headings)
+  var highlightPills = (
+    doc.highlights && doc.highlights.length ? doc.highlights : doc.headings
+  )
     .slice(0, 6)
-    .map(function (item) { return '<span class="meta-pill">' + escapeHtml(item) + "</span>"; })
+    .map(function (item) {
+      return '<span class="meta-pill">' + escapeHtml(item) + "</span>";
+    })
     .join("");
 
   var resourceLinks = (doc.resourceLinks || [])
     .map(function (link) {
-      return '<a class="preview-link" href="' + escapeHtml(link.url) + '" target="_blank" rel="noreferrer">' +
-        escapeHtml(link.label) + "</a>";
+      return (
+        '<a class="preview-link" href="' +
+        escapeHtml(link.url) +
+        '" target="_blank" rel="noreferrer">' +
+        escapeHtml(link.label) +
+        "</a>"
+      );
     })
     .join("");
 
   var relatedButtons = (doc.relatedIds || [])
-    .map(function (id) { return state.documentsById.get(id); })
+    .map(function (id) {
+      return state.documentsById.get(id);
+    })
     .filter(Boolean)
     .map(function (rel) {
-      return '<button class="related-trigger" type="button" data-related-id="' +
-        escapeHtml(rel.id) + '">' + escapeHtml(rel.title) + "</button>";
+      return (
+        '<button class="related-trigger" type="button" data-related-id="' +
+        escapeHtml(rel.id) +
+        '">' +
+        escapeHtml(rel.title) +
+        "</button>"
+      );
     })
     .join("");
 
   var metaPills = (doc.metaPills || [doc.scopeLabel, doc.category])
-    .map(function (pill) { return '<span class="meta-pill">' + escapeHtml(pill) + "</span>"; })
+    .map(function (pill) {
+      return '<span class="meta-pill">' + escapeHtml(pill) + "</span>";
+    })
     .join("");
 
   previewCard.innerHTML =
-    '<p class="preview-kicker">' + escapeHtml(doc.scopeLabel) + "</p>" +
-    "<h2>" + escapeHtml(doc.title) + "</h2>" +
-    '<div class="preview-meta">' + metaPills +
-    '<span class="meta-pill">' + escapeHtml(doc.path) + "</span></div>" +
-    '<p class="preview-body">' + escapeHtml(doc.previewText || doc.snippet) + "</p>" +
+    '<p class="preview-kicker">' +
+    escapeHtml(doc.scopeLabel) +
+    "</p>" +
+    "<h2>" +
+    escapeHtml(doc.title) +
+    "</h2>" +
+    '<div class="preview-meta">' +
+    metaPills +
+    '<span class="meta-pill">' +
+    escapeHtml(doc.path) +
+    "</span></div>" +
+    '<p class="preview-body">' +
+    escapeHtml(doc.previewText || doc.snippet) +
+    "</p>" +
     (doc.rawUrl
       ? '<button class="read-article-btn" type="button" data-doc-id="' +
-        escapeHtml(doc.id) + '">Read full article &rarr;</button>'
+        escapeHtml(doc.id) +
+        '">Read full article &rarr;</button>'
       : "") +
     (resourceLinks
       ? '<p class="preview-section-title">Open this resource</p><div class="preview-links">' +
-        resourceLinks + "</div>"
+        resourceLinks +
+        "</div>"
       : "") +
     '<p class="preview-section-title">Topics</p>' +
     '<div class="preview-keywords">' +
-    (topicPills || '<span class="meta-pill">No extracted topics</span>') + "</div>" +
+    (topicPills || '<span class="meta-pill">No extracted topics</span>') +
+    "</div>" +
     '<p class="preview-section-title">' +
-    (doc.documentType === "community" ? "Key guidance" : "Section headings") + "</p>" +
+    (doc.documentType === "community" ? "Key guidance" : "Section headings") +
+    "</p>" +
     '<div class="preview-headings">' +
-    (highlightPills || '<span class="meta-pill">No extracted highlights</span>') + "</div>" +
+    (highlightPills ||
+      '<span class="meta-pill">No extracted highlights</span>') +
+    "</div>" +
     (relatedButtons
       ? '<p class="preview-section-title">Related next steps</p><div class="preview-related">' +
-        relatedButtons + "</div>"
+        relatedButtons +
+        "</div>"
       : "");
 
   previewCard.querySelectorAll("[data-related-id]").forEach(function (btn) {
-    btn.addEventListener("click", function () { setSelected(btn.dataset.relatedId); });
+    btn.addEventListener("click", function () {
+      setSelected(btn.dataset.relatedId);
+    });
   });
 
   var readBtn = previewCard.querySelector(".read-article-btn");
   if (readBtn) {
-    readBtn.addEventListener("click", function () { openReader(readBtn.dataset.docId); });
+    readBtn.addEventListener("click", function () {
+      openReader(readBtn.dataset.docId);
+    });
   }
+
+  previewColumn.scrollTop = 0;
+  requestAnimationFrame(updatePreviewScrollState);
 }
 
 /* -- Set selected ---------------------------------------------------------- */
 function setSelected(documentId) {
   state.selectedId = documentId;
   var selected =
-    (state.lastResults.find(function (e) { return e.document.id === documentId; }) || {}).document ||
+    (
+      state.lastResults.find(function (e) {
+        return e.document.id === documentId;
+      }) || {}
+    ).document ||
     state.documentsById.get(documentId) ||
     null;
   renderPreview(selected);
@@ -290,11 +368,16 @@ function renderResults(results, durationMs, terms) {
   emptyState.hidden = results.length > 0;
 
   if (!state.query) {
-    resultsSummary.textContent = "Top guides across Copilot customization, knowledge atlas, and archive.";
-    resultsMeta.textContent = results.length.toLocaleString() + " curated picks";
+    resultsSummary.textContent =
+      "Top guides across Copilot customization, knowledge atlas, and archive.";
+    resultsMeta.textContent =
+      results.length.toLocaleString() + " curated picks";
   } else {
     resultsSummary.textContent =
-      "About " + results.length.toLocaleString() + " result" + (results.length === 1 ? "" : "s");
+      "About " +
+      results.length.toLocaleString() +
+      " result" +
+      (results.length === 1 ? "" : "s");
     resultsMeta.textContent = durationMs.toFixed(1) + " ms";
   }
 
@@ -313,32 +396,51 @@ function renderResults(results, durationMs, terms) {
     var listItem = document.createElement("li");
     var snippet = buildSnippet(resultDoc, terms);
 
-    var pillsHtml = (resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category])
+    var pillsHtml = (
+      resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category]
+    )
       .slice(0, 4)
-      .map(function (k) { return '<span class="result-pill">' + escapeHtml(k) + "</span>"; })
+      .map(function (k) {
+        return '<span class="result-pill">' + escapeHtml(k) + "</span>";
+      })
       .join("");
 
     var readBtnHtml = resultDoc.rawUrl
       ? '<button class="read-article-btn" type="button" data-doc-id="' +
-        escapeHtml(resultDoc.id) + '">Read article &rarr;</button>'
+        escapeHtml(resultDoc.id) +
+        '">Read article &rarr;</button>'
       : "";
 
     listItem.innerHTML =
-      '<article class="result-card" data-id="' + escapeHtml(resultDoc.id) + '" tabindex="0">' +
+      '<article class="result-card" data-id="' +
+      escapeHtml(resultDoc.id) +
+      '" tabindex="0">' +
       '<div class="result-topline"><div>' +
-      '<p class="result-path">' + escapeHtml(resultDoc.path) + "</p>" +
+      '<p class="result-path">' +
+      escapeHtml(resultDoc.path) +
+      "</p>" +
       '<h2 class="result-title"><span class="result-link">' +
       highlight(resultDoc.title, terms) +
       "</span></h2>" +
       "</div>" +
-      '<span class="result-scope-badge" data-scope="' + escapeHtml(resultDoc.scopeKey) + '">' + escapeHtml(resultDoc.scopeLabel) + "</span></div>" +
-      '<p class="result-snippet">' + highlight(snippet, terms) + "</p>" +
-      '<div class="result-pills">' + pillsHtml + "</div>" +
+      '<span class="result-scope-badge" data-scope="' +
+      escapeHtml(resultDoc.scopeKey) +
+      '">' +
+      escapeHtml(resultDoc.scopeLabel) +
+      "</span></div>" +
+      '<p class="result-snippet">' +
+      highlight(snippet, terms) +
+      "</p>" +
+      '<div class="result-pills">' +
+      pillsHtml +
+      "</div>" +
       readBtnHtml +
       "</article>";
 
     var card = listItem.firstElementChild;
-    var activate = function () { setSelected(resultDoc.id); };
+    var activate = function () {
+      setSelected(resultDoc.id);
+    };
     card.addEventListener("mouseenter", activate);
     card.addEventListener("focus", activate);
     card.addEventListener("click", function (event) {
@@ -374,7 +476,8 @@ function updateUrl() {
   else params.delete("q");
   if (state.scope !== "all") params.set("scope", state.scope);
   else params.delete("scope");
-  var nextUrl = window.location.pathname + (params.toString() ? "?" + params : "");
+  var nextUrl =
+    window.location.pathname + (params.toString() ? "?" + params : "");
   window.history.replaceState({}, "", nextUrl);
 }
 
@@ -394,9 +497,14 @@ function runSearch() {
   var results = sortResults(
     state.corpus.documents
       .map(function (doc) {
-        return { document: doc, score: scoreDocument(doc, normalizedQuery, terms) };
+        return {
+          document: doc,
+          score: scoreDocument(doc, normalizedQuery, terms),
+        };
       })
-      .filter(function (e) { return e.score > 0; })
+      .filter(function (e) {
+        return e.score > 0;
+      }),
   ).slice(0, 60);
 
   state.lastResults = results;
@@ -414,9 +522,12 @@ function markdownToHtml(md) {
   html = html.replace(/^---$/gm, "<hr>");
   html = html.replace(/^> (.+)$/gm, "<blockquote><p>$1</p></blockquote>");
 
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function (_match, _lang, code) {
-    return "<pre><code>" + escapeHtml(code.trimEnd()) + "</code></pre>";
-  });
+  html = html.replace(
+    /```(\w*)\n([\s\S]*?)```/g,
+    function (_match, _lang, code) {
+      return "<pre><code>" + escapeHtml(code.trimEnd()) + "</code></pre>";
+    },
+  );
 
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
@@ -426,13 +537,29 @@ function markdownToHtml(md) {
 
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_m, text, href) {
     var safeHref = escapeHtml(href);
-    return '<a href="' + safeHref + '" target="_blank" rel="noreferrer">' + escapeHtml(text) + "</a>";
+    return (
+      '<a href="' +
+      safeHref +
+      '" target="_blank" rel="noreferrer">' +
+      escapeHtml(text) +
+      "</a>"
+    );
   });
 
   html = html.replace(/^\| (.+) \|$/gm, function (_m, row) {
     if (/^[\s|:-]+$/.test(row)) return "";
-    var cells = row.split("|").map(function (c) { return c.trim(); });
-    return "<tr>" + cells.map(function (c) { return "<td>" + c + "</td>"; }).join("") + "</tr>";
+    var cells = row.split("|").map(function (c) {
+      return c.trim();
+    });
+    return (
+      "<tr>" +
+      cells
+        .map(function (c) {
+          return "<td>" + c + "</td>";
+        })
+        .join("") +
+      "</tr>"
+    );
   });
   html = html.replace(/((?:<tr>.*<\/tr>\s*)+)/g, "<table>$1</table>");
   html = html.replace(/^[-*] (.+)$/gm, "<li>$1</li>");
@@ -444,15 +571,25 @@ function markdownToHtml(md) {
   var inParagraph = false;
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
-    var isBlock = /^<(h[1-6]|pre|ul|ol|li|table|tr|td|th|blockquote|hr|div)/.test(line);
+    var isBlock =
+      /^<(h[1-6]|pre|ul|ol|li|table|tr|td|th|blockquote|hr|div)/.test(line);
     var isEmpty = line.trim() === "";
     if (isEmpty) {
-      if (inParagraph) { out.push("</p>"); inParagraph = false; }
+      if (inParagraph) {
+        out.push("</p>");
+        inParagraph = false;
+      }
     } else if (isBlock) {
-      if (inParagraph) { out.push("</p>"); inParagraph = false; }
+      if (inParagraph) {
+        out.push("</p>");
+        inParagraph = false;
+      }
       out.push(line);
     } else {
-      if (!inParagraph) { out.push("<p>"); inParagraph = true; }
+      if (!inParagraph) {
+        out.push("<p>");
+        inParagraph = true;
+      }
       out.push(line);
     }
   }
@@ -461,9 +598,119 @@ function markdownToHtml(md) {
 }
 
 /* -- Article reader -------------------------------------------------------- */
+function renderCommunityContent(doc) {
+  var cc = doc.communityContent;
+  if (!cc || !cc.item) return null;
+  var item = cc.item;
+  var parts = [];
+
+  parts.push('<h1>' + escapeHtml(doc.title) + '</h1>');
+
+  var metaBadges = [cc.category, cc.kind].filter(Boolean);
+  if (item.applicability) metaBadges.push(item.applicability);
+  if (item.recommendationStrength) metaBadges.push(item.recommendationStrength);
+  if (item.authoritativeSupport) metaBadges.push(item.authoritativeSupport + ' support');
+  if (item.severity) metaBadges.push('Severity: ' + item.severity);
+  if (item.confidence) metaBadges.push(item.confidence);
+
+  if (metaBadges.length) {
+    parts.push('<div class="community-badges">' +
+      metaBadges.map(function (b) {
+        return '<span class="community-badge">' + escapeHtml(b) + '</span>';
+      }).join('') +
+    '</div>');
+  }
+
+  var description = item.statement || item.description || item.what || item.covers || item.whyItMatters || '';
+  if (description) {
+    parts.push('<div class="community-description"><p>' + escapeHtml(description) + '</p></div>');
+  }
+
+  if (item.replacedBy) {
+    parts.push('<div class="community-callout community-callout-warning">' +
+      '<strong>Replacement:</strong> ' + escapeHtml(item.replacedBy) +
+    '</div>');
+  }
+  if (item.impact) {
+    parts.push('<div class="community-callout community-callout-info">' +
+      '<strong>Impact:</strong> ' + escapeHtml(item.impact) +
+    '</div>');
+  }
+  if (item.detectedIn) {
+    parts.push('<p class="community-detail"><strong>Detected in:</strong> ' + escapeHtml(item.detectedIn) + '</p>');
+  }
+  if (item.freshness) {
+    parts.push('<p class="community-detail"><strong>Freshness:</strong> ' + escapeHtml(item.freshness) + '</p>');
+  }
+
+  if (item.exemplars && item.exemplars.length) {
+    parts.push('<h2>Examples</h2><ul>' +
+      item.exemplars.map(function (e) { return '<li>' + escapeHtml(e) + '</li>'; }).join('') +
+    '</ul>');
+  }
+
+  if (item.steps && item.steps.length) {
+    parts.push('<h2>Steps</h2><ol>' +
+      item.steps.map(function (s) { return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+    '</ol>');
+  }
+
+  if (item.whatToUse && item.whatToUse.length) {
+    parts.push('<h2>What to use</h2><ul>' +
+      item.whatToUse.map(function (w) { return '<li>' + escapeHtml(w) + '</li>'; }).join('') +
+    '</ul>');
+  }
+
+  if (item.whatToAvoid && item.whatToAvoid.length) {
+    parts.push('<h2>What to avoid</h2><ul>' +
+      item.whatToAvoid.map(function (w) { return '<li class="community-avoid">' + escapeHtml(w) + '</li>'; }).join('') +
+    '</ul>');
+  }
+
+  if (item.maintainer) {
+    parts.push('<p class="community-detail"><strong>Maintainer:</strong> ' + escapeHtml(item.maintainer) + '</p>');
+  }
+
+  var topics = (item.topics || doc.topics || []).filter(Boolean);
+  if (topics.length) {
+    parts.push('<h2>Topics</h2><div class="community-topics">' +
+      topics.map(function (t) {
+        return '<span class="community-topic">' + escapeHtml(t) + '</span>';
+      }).join('') +
+    '</div>');
+  }
+
+  var refs = item.evidenceRefs || [];
+  if (refs.length) {
+    parts.push('<h2>Evidence &amp; Sources</h2><div class="community-evidence">');
+    refs.forEach(function (ref) {
+      var sourceLabel = ref.sourceType ? ' <span class="community-source-type">' + escapeHtml(ref.sourceType) + '</span>' : '';
+      if (ref.url) {
+        parts.push('<a class="community-evidence-link" href="' + escapeHtml(ref.url) +
+          '" target="_blank" rel="noreferrer">' + escapeHtml(ref.title || ref.url) + sourceLabel + '</a>');
+      } else if (ref.title) {
+        parts.push('<span class="community-evidence-item">' + escapeHtml(ref.title) + sourceLabel + '</span>');
+      }
+    });
+    parts.push('</div>');
+  }
+
+  var links = (doc.resourceLinks || []).filter(function (l) { return l && l.url; });
+  if (links.length) {
+    parts.push('<h2>Resources</h2><div class="community-resources">' +
+      links.map(function (link) {
+        return '<a class="community-resource-link" href="' + escapeHtml(link.url) +
+          '" target="_blank" rel="noreferrer">' + escapeHtml(link.label || link.url) + '</a>';
+      }).join('') +
+    '</div>');
+  }
+
+  return parts.join('\n');
+}
+
 function openReader(docId) {
   var doc = state.documentsById.get(docId);
-  if (!doc || !doc.rawUrl) return;
+  if (!doc) return;
 
   state.readerDoc = doc;
   resultsColumn.classList.add("hidden");
@@ -472,6 +719,20 @@ function openReader(docId) {
   readerBody.innerHTML = '<p class="reader-loading">Loading article\u2026</p>';
 
   window.scrollTo({ top: 0, behavior: "smooth" });
+
+  if (doc.communityContent) {
+    var rendered = renderCommunityContent(doc);
+    if (rendered) {
+      state.readerCache.set(docId, rendered);
+      readerBody.innerHTML = rendered;
+      return;
+    }
+  }
+
+  if (!doc.rawUrl) {
+    readerBody.innerHTML = "<p>No article content available for this item.</p>";
+    return;
+  }
 
   if (state.readerCache.has(docId)) {
     readerBody.innerHTML = state.readerCache.get(docId);
@@ -492,7 +753,8 @@ function openReader(docId) {
       }
     })
     .catch(function (err) {
-      readerBody.innerHTML = "<p>Failed to load article: " + escapeHtml(err.message) + "</p>";
+      readerBody.innerHTML =
+        "<p>Failed to load article: " + escapeHtml(err.message) + "</p>";
     });
 }
 
@@ -505,14 +767,29 @@ function closeReader() {
 
 readerBack.addEventListener("click", closeReader);
 
+/* -- Preview scroll indicator ---------------------------------------------- */
+function updatePreviewScrollState() {
+  var el = previewColumn;
+  var isScrollable = el.scrollHeight > el.clientHeight + 8;
+  var isAtEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+  el.classList.toggle("is-scrollable", isScrollable);
+  el.classList.toggle("is-scrolled-end", isAtEnd);
+}
+
+previewColumn.addEventListener("scroll", updatePreviewScrollState, { passive: true });
+
 /* -- Corpus load ----------------------------------------------------------- */
 async function loadCorpus() {
   var response = await fetch("./data/notes-search.json", { cache: "no-store" });
   if (!response.ok)
-    throw new Error("Failed to load notes-search.json (" + response.status + ")");
+    throw new Error(
+      "Failed to load notes-search.json (" + response.status + ")",
+    );
   state.corpus = await response.json();
   state.documentsById = new Map(
-    state.corpus.documents.map(function (doc) { return [doc.id, doc]; })
+    state.corpus.documents.map(function (doc) {
+      return [doc.id, doc];
+    }),
   );
   renderStats();
   renderSuggestions();
@@ -520,13 +797,15 @@ async function loadCorpus() {
 }
 
 /* -- Event wiring ---------------------------------------------------------- */
-document.getElementById("search-form").addEventListener("submit", function (event) {
-  event.preventDefault();
-  if (!readerColumn.classList.contains("hidden")) closeReader();
-  state.query = queryInput.value;
-  updateUrl();
-  runSearch();
-});
+document
+  .getElementById("search-form")
+  .addEventListener("submit", function (event) {
+    event.preventDefault();
+    if (!readerColumn.classList.contains("hidden")) closeReader();
+    state.query = queryInput.value;
+    updateUrl();
+    runSearch();
+  });
 
 var debounceTimer = null;
 queryInput.addEventListener("input", function () {
