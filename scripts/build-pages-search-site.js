@@ -573,6 +573,7 @@ function makeCommunityDocument({
   highlights = [],
   metaPills = [],
   resourceLinks = [],
+  communityContent = null,
 }) {
   const { githubUrl, rawUrl } = buildGitHubUrls(relativePath);
   const cleanHighlights = highlights.filter(Boolean).slice(0, 8);
@@ -621,6 +622,7 @@ function makeCommunityDocument({
       { label: "Open raw JSON", url: rawUrl },
     ]),
     relatedIds: [],
+    communityContent,
   };
 }
 
@@ -645,6 +647,11 @@ function normalizeCommunityPack(pack, relativePath, definition) {
           : "",
       ],
       resourceLinks: definition.resourceLinks(item),
+      communityContent: {
+        kind: definition.kindLabel,
+        category: definition.category,
+        item,
+      },
     }),
   );
 }
@@ -672,6 +679,11 @@ function normalizeCommunityResources(pack, relativePath) {
             ? { label: repository.name, url: repository.url }
             : null,
         ]),
+        communityContent: {
+          kind: titleCase(repository.type || "repository"),
+          category: "Copilot Resource",
+          item: repository,
+        },
       }),
     );
   }
@@ -690,6 +702,11 @@ function normalizeCommunityResources(pack, relativePath) {
         resourceLinks: dedupeLinks([
           doc.url ? { label: doc.title, url: doc.url } : null,
         ]),
+        communityContent: {
+          kind: "Official docs",
+          category: "Copilot Resource",
+          item: doc,
+        },
       }),
     );
   }
@@ -704,6 +721,11 @@ function normalizeCommunityResources(pack, relativePath) {
         category: "Copilot Resource",
         kindLabel: "VS Code command",
         topics: ["copilot", "vscode", "commands"],
+        communityContent: {
+          kind: "VS Code command",
+          category: "Copilot Resource",
+          item: command,
+        },
       }),
     );
   }
@@ -719,6 +741,11 @@ function normalizeCommunityResources(pack, relativePath) {
         kindLabel: "Guide",
         topics: ["copilot", "workflow", "guide"],
         highlights: steps || [],
+        communityContent: {
+          kind: "Guide",
+          category: "Copilot Resource Guide",
+          item: { title: `Copilot resource guide — ${titleCase(key)}`, steps },
+        },
       }),
     );
   }
