@@ -10,8 +10,51 @@ const REQUIRED = [
   "description",
   "starterCode",
   "solution",
+  "testCases",
+  "gradingRubric",
   "hints",
 ];
+
+const DIFFICULTY_GUIDANCE = {
+  easy:
+    "Difficulty: EASY. One core concept, one function, 5-15 lines of solution logic. " +
+    "The problem practically walks the student through it. 2-3 simple test cases. " +
+    "Starter code has full signature, docstring, and type hints.",
+  medium:
+    "Difficulty: MEDIUM. Combine 2+ concepts or add edge cases. 15-40 lines of solution. " +
+    "Clear problem but student figures out the strategy. 3-4 test cases with edge cases. " +
+    "Starter code has function signatures and brief docstrings.",
+  hard:
+    "Difficulty: HARD. Non-obvious application or optimization. 30-80 lines of solution. " +
+    "Student designs the approach. 4-5 test cases with edge cases and performance bounds. " +
+    "Minimal starter code — just function name and parameter types.",
+};
+
+const GENERATION_SYSTEM_PROMPT =
+  "You are an expert CS instructor who has ALREADY studied the article below. " +
+  "The article teaches the concept. You understood it. Now design ONE coding assessment.\n\n" +
+  "YOUR PROCESS (follow this order):\n" +
+  "1. IDENTIFY the core concept the article teaches.\n" +
+  "2. DESIGN a concrete coding task solvable only by understanding that concept. " +
+  "The task must have exactly one unambiguous correct behavior for each input.\n" +
+  "3. WRITE the reference solution — clean, idiomatic, well-commented.\n" +
+  "4. DERIVE test cases FROM the solution. Trace each input through the code.\n" +
+  "5. WRITE the grading rubric: pass (correct outputs), good (+ clean code), " +
+  "excellent (+ optimal complexity).\n" +
+  "6. WRITE 3 progressive hints.\n" +
+  "7. WRITE the problem description LAST — include test cases as examples.\n" +
+  "8. WRITE starter code with function signature, parameter types, and return type.\n\n" +
+  "CRITICAL: The problem MUST be solvable (you proved it). Test cases MUST be " +
+  "derived from your solution. The rubric MUST exist before grading.\n\n" +
+  "Language: Systems → C/Rust. Web → JS/TS. Algorithms → Python. DB → SQL.\n\n" +
+  "Return ONLY valid JSON:\n" +
+  '{"title":"...","difficulty":"...","language":"...","allowedLanguages":[...],' +
+  '"concept":"specific concept tested",' +
+  '"description":"# Title\\n\\n...\\n\\n## Examples\\n\\n...\\n\\n## Constraints\\n\\n...",' +
+  '"starterCode":"...","solution":"...",' +
+  '"testCases":[{"input":"...","expected":"...","explanation":"..."}],' +
+  '"gradingRubric":{"pass":"...","good":"...","excellent":"..."},' +
+  '"hints":["...","...","..."]}';
 
 export default async (req) => {
   if (req.method === "OPTIONS") return options();
@@ -30,14 +73,17 @@ export default async (req) => {
   const body = await req.json().catch(() => null);
   if (!body) return fail("Invalid JSON");
 
-  const { articleTitle, articleContent, previousExamples } = body;
+  const { articleTitle, articleContent, difficulty, previousExamples } = body;
   if (!articleTitle || !articleContent)
     return fail("articleTitle and articleContent required");
+
+  const diff = difficulty || "medium";
+  const diffGuide = DIFFICULTY_GUIDANCE[diff] || DIFFICULTY_GUIDANCE.medium;
 
   let exCtx = "";
   if (previousExamples?.length) {
     exCtx =
-      "\n\nPrevious practice (avoid repeating):\n" +
+      "\n\nPrevious practice (do NOT repeat):\n" +
       previousExamples
         .slice(-3)
         .map(
@@ -47,33 +93,31 @@ export default async (req) => {
         .join("\n");
   }
 
-  const sys =
-    "You are a CS instructor creating coding practice problems. " +
-    "Based on the knowledge article, generate ONE coding problem testing core concepts. " +
-    "Choose appropriate difficulty and the most suitable language(s). " +
-    'Return JSON: {"title":"...","difficulty":"easy|medium|hard",' +
-    '"language":"python","allowedLanguages":["python"],' +
-    '"description":"Full problem description with examples",' +
-    '"starterCode":"// starter code template",' +
-    '"solution":"// complete working solution",' +
-    '"testDescription":"How to verify correctness",' +
-    '"hints":["Hint 1","Hint 2","Hint 3"]}';
-
   try {
     const raw = await complete(
       [
-        { role: "system", content: sys },
+        { role: "system", content: GENERATION_SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Article: ${articleTitle}\n\n${articleContent.slice(0, 6000)}${exCtx}`,
+          content:
+            `${diffGuide}\n\nArticle: ${articleTitle}\n\n` +
+            `Article content (the textbook):\n${articleContent.slice(0, 6000)}${exCtx}`,
         },
       ],
-      { json: true },
+      { json: true, model: body.model },
     );
 
     const problem = JSON.parse(raw);
     for (const k of REQUIRED) {
       if (!problem[k]) return fail(`AI response missing "${k}"`, 502);
+    }
+
+    /* Validate the assessment is pedagogically complete */
+    if (!problem.solution || problem.solution.length < 20) {
+      return fail("Generated assessment has no reference solution", 502);
+    }
+    if (!Array.isArray(problem.testCases) || problem.testCases.length === 0) {
+      return fail("Generated assessment has no test cases", 502);
     }
 
     const updated = await useQuota(user.email);
