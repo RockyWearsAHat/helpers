@@ -2116,14 +2116,19 @@
   /* ==================================================================
    * Practice Panel Lifecycle
    * ================================================================== */
+  function close() {
+    var panel = document.getElementById("practice-panel");
+    ps.active = false;
+    if (panel) panel.classList.add("hidden");
+    document.getElementById("reader-column").classList.remove("practice-open");
+  }
+
   function toggle(articleId, articleTitle, articleContent) {
     var panel = document.getElementById("practice-panel");
     if (!panel) return;
 
     if (ps.active && ps.articleId === articleId) {
-      ps.active = false;
-      panel.classList.add("hidden");
-      document.getElementById("reader-column").classList.remove("practice-open");
+      close();
       return;
     }
 
@@ -2431,6 +2436,7 @@
   }
 
   window.AtlasPractice = {
+    close: close,
     init: init,
     toggle: toggle,
     isActive: function () {
