@@ -470,6 +470,11 @@ function loadNextResultsPage() {
   }
 
   state.isLoadingMore = true;
+  disconnectLoadMoreObserver();
+
+  var existingSentinel = resultsList.querySelector(".load-more-item");
+  if (existingSentinel) existingSentinel.remove();
+
   var remaining = state.lastResults.length - nextStart;
   var skeletonCount = Math.min(remaining, state.pageSize, 5);
   renderSkeletonCards(skeletonCount);
@@ -477,10 +482,117 @@ function loadNextResultsPage() {
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
       var skeletons = resultsList.querySelector(".skeleton-group");
-      if (skeletons) skeletons.remove();
       state.currentPage += 1;
+      var start = state.currentPage * state.pageSize;
+      var end = start + state.pageSize;
+      var pageResults = state.lastResults.slice(start, end);
+      var terms = state.lastTerms;
+      var frag = document.createDocumentFragment();
+
+      pageResults.forEach(function (entry) {
+        var resultDoc = entry.document;
+        var listItem = document.createElement("li");
+        var snippet = buildSnippet(resultDoc, terms);
+
+        var pillsHtml = (
+          resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category]
+        )
+          .slice(0, 4)
+          .map(function (k) {
+            return buildChipButton(k, "result-pill", { query: k });
+          })
+          .join("");
+
+        var readBtnHtml = resultDoc.rawUrl
+          ? '<button class="read-article-btn" type="button" data-doc-id="' +
+            escapeHtml(resultDoc.id) +
+            '">Read article &rarr;</button>'
+          : "";
+
+        listItem.innerHTML =
+          '<article class="result-card" data-id="' +
+          escapeHtml(resultDoc.id) +
+          '" tabindex="0">' +
+          '<div class="result-topline"><div>' +
+          '<p class="result-path">' +
+          escapeHtml(resultDoc.path) +
+          "</p>" +
+          '<h2 class="result-title"><span class="result-link">' +
+          highlight(resultDoc.title, terms) +
+          "</span></h2>" +
+          "</div>" +
+          '<button class="result-scope-badge chip-button" type="button" data-chip-scope="' +
+          escapeHtml(resultDoc.scopeKey) +
+          '" data-chip-clear="true" data-scope="' +
+          escapeHtml(resultDoc.scopeKey) +
+          '">' +
+          escapeHtml(resultDoc.scopeLabel) +
+          "</button></div>" +
+          '<p class="result-snippet">' +
+          highlight(snippet, terms) +
+          "</p>" +
+          '<div class="result-pills">' +
+          pillsHtml +
+          "</div>" +
+          readBtnHtml +
+          "</article>";
+
+        var card = listItem.firstElementChild;
+        var activate = function () {
+          setSelected(resultDoc.id);
+        };
+        card.addEventListener("mouseenter", activate);
+        card.addEventListener("focus", activate);
+        card.addEventListener("click", function (event) {
+          if (
+            event.target.closest(".read-article-btn") ||
+            event.target.closest("[data-chip-query], [data-chip-scope]")
+          )
+            return;
+          activate();
+          if (resultDoc.rawUrl) openReader(resultDoc.id);
+        });
+        card.addEventListener("keydown", function (event) {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          activate();
+          if (resultDoc.rawUrl) openReader(resultDoc.id);
+        });
+
+        var readBtn = card.querySelector(".read-article-btn");
+        if (readBtn) {
+          readBtn.addEventListener("click", function (event) {
+            event.stopPropagation();
+            openReader(resultDoc.id);
+          });
+        }
+
+        frag.appendChild(listItem);
+      });
+
+      if (skeletons) skeletons.replaceWith(frag);
+      else resultsList.appendChild(frag);
+
+      if (end < state.lastResults.length) {
+        var remainingCount = state.lastResults.length - end;
+        var loadMoreLi = document.createElement("li");
+        loadMoreLi.className = "load-more-item";
+        loadMoreLi.innerHTML =
+          '<div class="load-more-indicator" aria-hidden="true">' +
+            '<span class="load-more-count">' + remainingCount + ' more</span>' +
+          '</div>';
+        resultsList.appendChild(loadMoreLi);
+        attachLoadMoreObserver();
+      } else {
+        if (state.lastResults.length > state.pageSize) {
+          var endMarker = document.createElement("li");
+          endMarker.className = "load-more-item";
+          endMarker.innerHTML = '<div class="load-end-indicator" aria-hidden="true">All results loaded</div>';
+          resultsList.appendChild(endMarker);
+        }
+      }
+
       state.isLoadingMore = false;
-      renderResults(state.lastResults, 0, state.lastTerms);
     });
   });
 }
