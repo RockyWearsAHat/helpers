@@ -24,6 +24,7 @@ const createActivityTracker = require("./src/activity-tracker");
 const createChatSessions = require("./src/chat-sessions");
 const createModelProvider = require("./src/model-provider");
 const createWorktreeManager = require("./src/worktree-manager");
+const createInstallHealth = require("./src/install-health");
 const createIpcServers = require("./src/ipc-servers");
 const toolsConfig = require("./src/tools-config");
 const createFormatControl = require("./src/format-control");
@@ -231,6 +232,11 @@ function activate(context) {
     getDiagnosticsOutputChannel: inspector.getDiagnosticsOutputChannel,
   });
 
+  const installHealth = createInstallHealth({
+    _context,
+    findGitShellHelpersMcpPath: mcpServer.findGitShellHelpersMcpPath,
+  });
+
   // 9. IPC servers
   const ipc = createIpcServers({
     beginToolCall: activity.beginToolCall,
@@ -249,8 +255,8 @@ function activate(context) {
 
   // --- Startup sequence ---
 
-  // Check VS Code workbench patches (non-blocking, deferred)
-  setTimeout(() => worktree.checkVscodePatches(), 3000);
+  // Check the local install health (non-blocking, deferred)
+  setTimeout(() => installHealth.maybeShowStartupPopup(), 3000);
 
   // Restore persisted Ollama pinned models
   models.initPinnedModels(context);

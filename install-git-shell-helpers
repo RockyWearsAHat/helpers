@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # install-git-shell-helpers
 #
@@ -13,7 +13,8 @@
 #   - Ensure ~/bin and ~/man/man1 exist
 #   - Install/update the git-* scripts into ~/bin (chmod +x)
 #   - Install/update their man pages into ~/man/man1
-#   - Ensure PATH and MANPATH in ~/.zshrc include those locations (no dups)
+#   - Ensure PATH and MANPATH are available from bash/zsh shell profiles
+#     so git discovers the installed git-* commands
 #
 # After running, you should be able to use:
 #   - git upload
@@ -29,13 +30,15 @@ set -euo pipefail
 
 BIN_DIR="${HOME}/bin"
 MAN_DIR="${HOME}/man/man1"
-ZSHRC="${HOME}/.zshrc"
 COMMUNITY_SETTINGS_DIR="${HOME}/.copilot"
 COMMUNITY_SETTINGS_FILE="${COMMUNITY_SETTINGS_DIR}/devops-audit-community-settings.json"
 DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
 DEFAULT_COMMUNITY_BRANCH="main"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SHELL_ENV_DIR="${HOME}/.config/git-shell-helpers"
+LOCAL_PATH_SNIPPET="${SHELL_ENV_DIR}/paths-local.sh"
+LOCAL_PATH_SOURCE='[ -f "$HOME/.config/git-shell-helpers/paths-local.sh" ] && . "$HOME/.config/git-shell-helpers/paths-local.sh"'
 
 ensure_dir() {
   local dir="$1"
@@ -56,6 +59,69 @@ ensure_line_in_file() {
   if ! grep -qxF "$line" "$file" 2>/dev/null; then
     printf '%s\n' "$line" >>"$file"
   fi
+}
+
+write_local_path_snippet() {
+  ensure_dir "$SHELL_ENV_DIR"
+  printf '%s\n' \
+    '# Added by install-git-shell-helpers.' \
+    'case ":${PATH:-}:" in' \
+    '  *":$HOME/bin:"*) ;;' \
+    '  *) export PATH="$HOME/bin${PATH:+:$PATH}" ;;' \
+    'esac' \
+    'case ":${MANPATH:-}:" in' \
+    '  *":$HOME/man:"*) ;;' \
+    '  *) export MANPATH="$HOME/man${MANPATH:+:$MANPATH}" ;;' \
+    'esac' \
+    >"$LOCAL_PATH_SNIPPET"
+}
+
+default_profile_path() {
+  case "${SHELL:-/bin/bash}" in
+    */zsh|zsh)
+      printf '%s\n' "${HOME}/.zshrc"
+      ;;
+    */bash|bash)
+      if [ "$(uname -s)" = "Darwin" ]; then
+        printf '%s\n' "${HOME}/.bash_profile"
+      else
+        printf '%s\n' "${HOME}/.bashrc"
+      fi
+      ;;
+    *)
+      printf '%s\n' "${HOME}/.profile"
+      ;;
+  esac
+}
+
+list_shell_profiles() {
+  local found=false
+  local candidate
+  for candidate in \
+    "${HOME}/.zshrc" \
+    "${HOME}/.zprofile" \
+    "${HOME}/.bash_profile" \
+    "${HOME}/.bashrc" \
+    "${HOME}/.profile"
+  do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      found=true
+    fi
+  done
+
+  if [ "$found" = false ]; then
+    default_profile_path
+  fi
+}
+
+install_shell_path_setup() {
+  local profile
+  write_local_path_snippet
+  while IFS= read -r profile; do
+    [ -n "$profile" ] || continue
+    ensure_line_in_file "$profile" "$LOCAL_PATH_SOURCE"
+  done < <(list_shell_profiles)
 }
 
 install_script() {
@@ -86,6 +152,25 @@ install_support_script() {
     return
   fi
 
+  if [ "$src" != "$dest" ]; then
+    cp "$src" "$dest"
+  fi
+  chmod +x "$dest"
+  echo "[install-git-shell-helpers] Installed support script: $dest"
+}
+
+install_support_script_into_subdir() {
+  local src_rel="$1"
+  local dest_rel="$2"
+  local src="${SCRIPT_DIR}/${src_rel}"
+  local dest="${BIN_DIR}/${dest_rel}"
+
+  if [ ! -f "$src" ]; then
+    echo "[install-git-shell-helpers] WARNING: support script not found: $src" >&2
+    return
+  fi
+
+  ensure_dir "$(dirname "$dest")"
   if [ "$src" != "$dest" ]; then
     cp "$src" "$dest"
   fi
@@ -817,15 +902,11 @@ apply_vscode_patches() {
     return
   fi
 
-  # Check current patch status
-  local status
-  status="$(node "$patch_script" --json 2>/dev/null)" || {
+  local all_patched
+  all_patched="$(node "$patch_script" --all-patched 2>/dev/null)" || {
     echo "[install-git-shell-helpers] Could not check patch status."
     return
   }
-
-  local all_patched
-  all_patched="$(printf '%s' "$status" | node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).allPatched))" 2>/dev/null)" || all_patched="false"
 
   if [ "$all_patched" = "true" ]; then
     echo "[install-git-shell-helpers] VS Code patches already applied."
@@ -833,11 +914,7 @@ apply_vscode_patches() {
   fi
 
   local missing
-  missing="$(printf '%s' "$status" | node -e "
-    const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-    const m = d.patches.filter(p => p.status !== 'patched').map(p => p.name);
-    process.stdout.write(m.join(', '));
-  " 2>/dev/null)" || missing="unknown"
+  missing="$(node "$patch_script" --missing 2>/dev/null)" || missing="unknown"
 
   echo ""
   echo "[install-git-shell-helpers] VS Code Branch Session Patches"
@@ -854,10 +931,17 @@ apply_vscode_patches() {
   read -r patch_reply || patch_reply=""
 
   if [[ -z "$patch_reply" || "$patch_reply" == "y" || "$patch_reply" == "Y" ]]; then
-    node "$patch_script" 2>&1 | while IFS= read -r line; do
+    if node "$patch_script" 2>&1 | while IFS= read -r line; do
       echo "  $line"
-    done
-    echo "[install-git-shell-helpers] Patches applied. Quit and restart VS Code (Cmd+Q → reopen) to activate."
+    done; then
+      if node "$patch_script" --check >/dev/null 2>&1; then
+        echo "[install-git-shell-helpers] Patches applied and verified. Quit and restart VS Code (Cmd+Q → reopen) to activate."
+      else
+        echo "[install-git-shell-helpers] Patch verification failed. Re-run 'node $patch_script --check' before relying on branch sessions."
+      fi
+    else
+      echo "[install-git-shell-helpers] Patch application failed. Re-run 'node $patch_script' after resolving the error output above."
+    fi
   else
     echo "[install-git-shell-helpers] Skipped. Apply later with: node scripts/patch-vscode-apply-all.js"
   fi
@@ -879,6 +963,11 @@ main() {
   install_support_script "scripts/community-cache-submit.sh" "git-copilot-devops-audit-community-submit"
   install_support_script "scripts/community-cache-pull.sh" "git-copilot-devops-audit-community-pull"
   install_support_script "scripts/community-research-submit.sh" "git-copilot-devops-audit-community-research-submit"
+  install_support_script_into_subdir "scripts/patch-vscode-apply-all.js" "scripts/patch-vscode-apply-all.js"
+  install_support_script_into_subdir "scripts/patch-vscode-argv.js" "scripts/patch-vscode-argv.js"
+  install_support_script_into_subdir "scripts/patch-vscode-folder-switch.js" "scripts/patch-vscode-folder-switch.js"
+  install_support_script_into_subdir "scripts/patch-vscode-git-head-display.js" "scripts/patch-vscode-git-head-display.js"
+  install_support_script_into_subdir "scripts/patch-vscode-runsubagent-model.js" "scripts/patch-vscode-runsubagent-model.js"
 
   # Write default git-research-mcp config if it doesn't exist
   local research_config_dir="${HOME}/.config/git-research-mcp"
@@ -902,9 +991,7 @@ RENV
   install_man_git_copilot_devops_audit
   install_man_git_research_mcp
 
-  # Ensure PATH and MANPATH are wired in ~/.zshrc (idempotent)
-  ensure_line_in_file "$ZSHRC" 'export PATH="$HOME/bin:$PATH"'
-  ensure_line_in_file "$ZSHRC" 'export MANPATH="$HOME/man:$MANPATH"'
+  install_shell_path_setup
 
   echo ""
   setup_gpg_signing
@@ -984,8 +1071,7 @@ RENV
   fi
 
   echo ""
-  echo "[install-git-shell-helpers] Done. Open a new terminal or run:"
-  echo "  source $ZSHRC"
+  echo "[install-git-shell-helpers] Done. Open a new terminal to reload PATH and MANPATH changes."
   echo "Then you can use: git upload, git get, git initialize, git fucked-the-push,"
   echo "  git copilot-devops-audit, and view docs via git help <command>."
 }

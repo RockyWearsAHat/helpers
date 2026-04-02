@@ -10,20 +10,30 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 
-# Determine which shell to use for syntax checks. On systems without zsh
-# (e.g. most Linux CI images), skip zsh-specific checks gracefully.
-has_zsh=false
-if command -v zsh >/dev/null 2>&1; then
-	has_zsh=true
-fi
-
 declare -a checks
 checks=(
 	"bash -n git-upload"
+	"bash -n git-get"
+	"bash -n git-initialize"
 	"bash -n git-checkpoint"
+	"bash -n git-fucked-the-push"
+	"bash -n git-remerge"
+	"bash -n git-resolve"
+	"bash -n git-copilot-quickstart"
+	"bash -n git-copilot-devops-audit"
+	"bash -n git-help-i-pushed-an-env"
+	"bash -n git-scan-for-leaked-envs"
+	"bash -n Git-Shell-Helpers-Installer.sh"
+	"bash -n install-git-shell-helpers"
 	"bash -n scripts/community-cache-submit.sh"
 	"bash -n scripts/community-cache-pull.sh"
 	"bash -n scripts/community-research-submit.sh"
+	"bash -n scripts/build-pkg.sh"
+	"bash -n scripts/pkg/postinstall"
+	"bash -n scripts/pkg/core-scripts/postinstall"
+	"bash -n scripts/pkg/mcp-scripts/postinstall"
+	"bash -n scripts/pkg/audit-scripts/postinstall"
+	"bash -n scripts/pkg/vscode-scripts/postinstall"
 	"bash ./scripts/test-git-upload-detect.sh"
 	"node ./scripts/test-knowledge-rw.js"
 	"node ./scripts/test-list-language-models.js"
@@ -37,30 +47,15 @@ checks=(
 	"node ./scripts/test-search-auto-scrape.js"
 	"node ./scripts/test-chat-history-archive.js"
 	"node ./scripts/test-chat-archive-mcp.js"
+	"node ./scripts/test-install-health.js"
 	"node ./scripts/test-worktree-manager.js"
 	"node ./scripts/build-pages-search-site.js"
 	"node ./scripts/test-session-memory.js"
 	"bash ./scripts/build-dist.sh"
 )
 
-# Scripts that still require zsh — only check when zsh is available
-if [ "$has_zsh" = true ]; then
-	checks+=(
-		"zsh -n git-get"
-		"zsh -n git-initialize"
-		"zsh -n git-resolve"
-		"zsh -n git-fucked-the-push"
-		"zsh -n git-copilot-quickstart"
-		"zsh -n git-copilot-devops-audit"
-		"zsh -n git-help-i-pushed-an-env"
-		"zsh -n git-scan-for-leaked-envs"
-		"zsh -n Git-Shell-Helpers-Installer.sh"
-		"zsh -n install-git-shell-helpers"
-	)
-fi
-
-if command -v pkgbuild >/dev/null 2>&1 && [ "$has_zsh" = true ]; then
-	checks+=("zsh ./scripts/build-pkg.sh")
+if command -v pkgbuild >/dev/null 2>&1; then
+	checks+=("bash ./scripts/build-pkg.sh")
 fi
 
 total=${#checks[@]}

@@ -90,6 +90,11 @@ gsh_mcp_libs() {
 gsh_support_scripts() {
 	printf '%s\n' \
 		build-knowledge-index.js \
+		patch-vscode-apply-all.js \
+		patch-vscode-argv.js \
+		patch-vscode-folder-switch.js \
+		patch-vscode-git-head-display.js \
+		patch-vscode-runsubagent-model.js \
 		community-cache-pull.sh \
 		community-cache-submit.sh \
 		community-research-submit.sh
