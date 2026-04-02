@@ -6,6 +6,8 @@ const path = require("path");
 const fs = require("fs/promises");
 
 const WORKSPACE = "/tmp/test-session-memory-" + Date.now();
+const TEST_SESSION_URI =
+  "vscode-chat-session://github.copilot-chat/test-session-abc123";
 
 async function main() {
   const createSessionMemory = require(
@@ -13,6 +15,7 @@ async function main() {
   );
   const sm = createSessionMemory({
     WORKSPACE_ROOT: WORKSPACE,
+    CHAT_SESSION_URI: TEST_SESSION_URI,
     escapeRegExp: (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
     tokenizeQuery: (q) =>
       q
@@ -130,7 +133,50 @@ async function main() {
     throw new Error("formatSummaryResult wrong count");
   console.log("[pass] Format summary output OK");
 
-  // 8. Rebuild index manually
+  // 8. Verify session_uri is stamped on log entries
+  if (r1.entry.session_uri !== TEST_SESSION_URI)
+    throw new Error(
+      "Expected session_uri on log entry, got: " + r1.entry.session_uri,
+    );
+  console.log("[pass] Log entries stamped with session_uri");
+
+  // 9. Verify session_uri appears in search results
+  if (s1.results[0].session_uri !== TEST_SESSION_URI)
+    throw new Error(
+      "Expected session_uri in search results, got: " +
+        s1.results[0].session_uri,
+    );
+  console.log("[pass] Search results include session_uri");
+
+  // 10. Verify session_uri=null when not provided
+  const smNoSession = createSessionMemory({
+    WORKSPACE_ROOT: WORKSPACE,
+    CHAT_SESSION_URI: null,
+    escapeRegExp: (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    tokenizeQuery: (q) =>
+      q
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length >= 2),
+    summarizeInline: (t, n) => t.slice(0, n),
+    toPositiveInt: (v, d, min, max) =>
+      Math.max(min, Math.min(max, parseInt(v) || d)),
+  });
+  const r4 = await smNoSession.logSessionEvent({
+    action: "event without session identity",
+    outcome: "success",
+    surprise: 0.0,
+    model: "claude-haiku-4-5",
+    tags: ["test"],
+  });
+  if (r4.entry.session_uri !== null)
+    throw new Error(
+      "Expected null session_uri when not provided, got: " +
+        r4.entry.session_uri,
+    );
+  console.log("[pass] Null session_uri when CHAT_SESSION_URI not provided");
+
+  // 11. Rebuild index manually
   const rebuildResult = await sm.buildSessionIndex();
   console.log(
     "[pass] Manual rebuild:",

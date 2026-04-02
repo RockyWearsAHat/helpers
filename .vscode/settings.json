@@ -7,5 +7,5 @@
     "git-research-mcp": "javascript",
     "git-research-mcp.js": "javascript"
   },
-  "gitShellHelpers.branchSessions.enabled": true
+  "gitShellHelpers.branchSessions.enabled": false
 }

@@ -11,7 +11,7 @@ These rules apply to ALL shell scripts in this repository, including the extensi
 
 **Never use heredocs** (`<<EOF`, `<<-EOF`, `<<'EOF'`, `cat <<`, etc.) in this codebase. This is a hard rule.
 
-Why: Heredocs cause parsing failures in agent terminal flows, are fragile across shells, resist static analysis, and make scripts harder to review. Under higher autonomy modes (e.g. Autopilot), failed heredocs trigger **automatic retry loops** — the agent keeps trying heredoc variants without stopping for user input, compounding wasted time and context. A single heredoc failure can burn 5-10 retries before the agent gives up. See `.github/no-heredocs-research.md` for full rationale.
+Why: Heredocs cause parsing failures in agent terminal flows, are fragile across shells, resist static analysis, and make scripts harder to review. Under higher autonomy modes (e.g. Autopilot), failed heredocs trigger **automatic retry loops** — the agent keeps trying heredoc variants without stopping for user input, compounding wasted time and context. A single heredoc failure can burn 5-10 retries before the agent gives up. See `.github/knowledge/shell-heredoc-antipattern.md` for the distilled rationale note.
 
 Instead:
 

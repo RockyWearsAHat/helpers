@@ -45,6 +45,17 @@ module.exports = function createMcpServer(deps) {
       env.GSH_WORKSPACE_ROOTS = JSON.stringify(roots);
     }
 
+    // Pass current active chat session URI so session-memory entries are
+    // correctly scoped to the originating chat conversation.
+    try {
+      const sessionUri = vscode.window.activeChatPanelSessionResource;
+      if (sessionUri) {
+        env.GSH_CHAT_SESSION_URI = sessionUri.toString();
+      }
+    } catch {
+      /* proposed API unavailable */
+    }
+
     return env;
   }
 
@@ -66,6 +77,21 @@ module.exports = function createMcpServer(deps) {
         changeEmitter.fire();
       }),
     );
+
+    // Restart the MCP server when the active chat session changes so the
+    // server picks up the updated GSH_CHAT_SESSION_URI environment variable.
+    // This ensures session-memory entries are scoped to the correct chat.
+    try {
+      if (vscode.window.onDidChangeActiveChatPanelSessionResource) {
+        context.subscriptions.push(
+          vscode.window.onDidChangeActiveChatPanelSessionResource(() => {
+            changeEmitter.fire();
+          }),
+        );
+      }
+    } catch {
+      /* proposed API unavailable */
+    }
 
     context.subscriptions.push(
       vscode.lm.registerMcpServerDefinitionProvider(MCP_PROVIDER_ID, {

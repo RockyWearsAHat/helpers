@@ -15,6 +15,42 @@ When **disabled** (default): agents use direct branching (`git checkout -b`) per
 
 When **enabled**: agents get MCP tools to create isolated git worktrees for parallel branch work. Worktrees are **automatically bound to the active chat** — each chat gets its own isolated branch.
 
+## Dead-Simple Decision Rule
+
+Use this rule before starting any branch workflow work:
+
+- Use branch sessions when work spans multiple files, needs parallel chats, or has meaningful regression risk.
+- Avoid branch sessions for one-file trivial fixes, typo-only changes, or quick config edits that can safely land on baseline.
+
+If you are unsure, do this in order:
+
+1. Call `workspace_context`.
+2. If `gitShellHelpers.branchSessions.enabled` is true and the task is non-trivial, use `branch_session_start`.
+3. Otherwise use direct branching (`git checkout -b`) per lifecycle rules.
+
+## Strengths and Limits
+
+Branch sessions are strongest when:
+
+- You need isolation across multiple chats.
+- You need safe context switching without losing in-progress work.
+- You want the workspace to feel like normal branch usage while preserving worktree isolation.
+
+Branch sessions should be avoided when:
+
+- The user asked for a direct quick fix on baseline.
+- The change is small enough that branching overhead adds no value.
+- You cannot verify baseline branch intent and the user has not clarified it.
+
+## Incorrect-Behavior Prevention Checklist
+
+Run this checklist every time:
+
+1. `workspace_context` before branch start, branch end, or checkpoint.
+2. `branch_status` before creating a new session to avoid collisions.
+3. Use `checkpoint` with `branch` guard when committing feature-branch work.
+4. End sessions with `branch_session_end` so workspace focus is restored to baseline.
+
 ## How It Looks to the User
 
 Branch sessions are meant to feel like normal branches, but they are not magic. The workspace follows whichever chat currently owns focus:
@@ -65,6 +101,17 @@ This means a branch session can become parked when you leave its chat. The work 
 ```
 
 If the workspace switches back to baseline after you leave a chat, that is expected. The session is parked. Switch back to the owning chat or call `branch_status` to find it.
+
+## Recovery Playbook
+
+If branch behavior looks wrong, do this exact sequence:
+
+1. Call `workspace_context` to see the currently focused branch.
+2. Call `branch_status` to locate active and parked sessions.
+3. If your branch is parked, return to the owning chat or start a new session on a new branch.
+4. If no session exists and you expected one, create it again with `branch_session_start`.
+
+This should be the default recovery path. Do not guess, and do not edit files in cached worktree paths directly.
 
 ## Follow-Up Messages
 
