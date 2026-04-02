@@ -10,6 +10,7 @@
   var config = {
     ollamaBase: localStorage.getItem("practice-ollama-url") || "http://localhost:11434",
     model: localStorage.getItem("practice-model") || "qwen3.5:30b",
+    autoSetup: localStorage.getItem("practice-auto-setup") === "true",
   };
 
   /* -- Module state ---------------------------------------------------- */
@@ -224,11 +225,16 @@
           "You are a CS instructor creating coding practice problems. " +
           "Based on the knowledge article provided, generate ONE coding problem " +
           "that tests understanding of the core concepts. Choose an appropriate " +
-          "difficulty level and programming language. " +
+          "difficulty level. Analyze the article content and choose the most " +
+          "appropriate programming language(s) for the topic — for example, " +
+          "systems topics suit C/Rust, web topics suit JavaScript/TypeScript, " +
+          "data/algorithm topics suit Python, etc. Include an allowedLanguages " +
+          "array listing ALL languages that are appropriate for this problem. " +
           "Return your response as ONLY valid JSON in this exact format:\n" +
           '{"title":"Short problem title",' +
           '"difficulty":"easy|medium|hard",' +
           '"language":"python",' +
+          '"allowedLanguages":["python","javascript"],' +
           '"description":"Full problem description in markdown with examples",' +
           '"starterCode":"// starter code template with function signature",' +
           '"solution":"// complete working solution",' +
@@ -272,6 +278,7 @@
           if (problem.starterCode && ps.editor) {
             ps.editor.setValue(problem.starterCode);
           }
+          /* auto-cache problem as example */
           return dbPut("examples", {
             articleId: ps.articleId,
             type: "problem",
@@ -279,6 +286,7 @@
             description: problem.description,
             code: problem.solution,
             language: problem.language || "python",
+            allowedLanguages: problem.allowedLanguages || [problem.language || "python"],
             tags: ["ai-generated", problem.difficulty || "medium"],
             source: "ai-generated",
             createdAt: Date.now(),
@@ -429,6 +437,19 @@
           feedback: fullResponse,
           createdAt: Date.now(),
         }).then(function () {
+          /* always save submission as example for local cache */
+          dbPut("examples", {
+            articleId: ps.articleId,
+            type: isCorrect ? "solved" : "attempt",
+            title: (ps.currentProblem ? ps.currentProblem.title : "Submission") +
+              (isCorrect ? " (solved)" : " (attempt)"),
+            description: (fullResponse || "").slice(0, 500),
+            code: userCode,
+            language: ps.currentProblem ? (ps.currentProblem.language || "python") : "python",
+            tags: [isCorrect ? "correct" : "attempt", "user-submitted"],
+            source: "user-submitted",
+            createdAt: Date.now(),
+          }).catch(function () { /* best-effort */ });
           if (isCorrect) return generateInsight(userCode, fullResponse);
         });
       })
@@ -667,53 +688,289 @@
     }
   }
 
-  function renderSetupInstructions() {
+  /* ==================================================================
+   * Ollama Setup Gate & In-Browser Model Pull
+   * ================================================================== */
+  var installer = {
+    pollTimer: null,
+    pulling: false,
+  };
+
+  function detectOs() {
+    var ua = navigator.userAgent || "";
+    var platform = navigator.platform || "";
+    if (/Win/i.test(platform)) return "windows";
+    if (/Mac/i.test(platform) || /Mac/i.test(ua)) return "mac";
+    if (/Linux/i.test(platform) || /Linux/i.test(ua)) return "linux";
+    return "unknown";
+  }
+
+  function getDownloadUrl() {
+    var os = detectOs();
+    if (os === "mac") return "https://ollama.com/download/mac";
+    if (os === "windows") return "https://ollama.com/download/windows";
+    if (os === "linux") return "https://ollama.com/download/linux";
+    return "https://ollama.com/download";
+  }
+
+  function startInstallerPolling() {
+    stopInstallerPolling();
+    installer.pollTimer = setInterval(function () {
+      checkConnection().then(function (info) {
+        if (info.connected) {
+          stopInstallerPolling();
+          onOllamaDetected(info);
+        }
+      });
+    }, 2000);
+  }
+
+  function stopInstallerPolling() {
+    if (installer.pollTimer) {
+      clearInterval(installer.pollTimer);
+      installer.pollTimer = null;
+    }
+  }
+
+  /* -- Pull model via Ollama HTTP API with streaming progress -------- */
+  function pullModel() {
+    if (installer.pulling) return;
+    installer.pulling = true;
+    var el = document.getElementById("practice-setup");
+    if (!el) return;
+
+    el.innerHTML =
+      '<div class="setup-card setup-pulling">' +
+      '<h3>Downloading ' + esc(config.model) + '</h3>' +
+      '<p class="setup-pull-sub">This happens once. The model stays on your machine.</p>' +
+      '<div class="pull-progress-wrap">' +
+      '<div class="pull-progress-bar"><div class="pull-progress-fill" id="pull-fill"></div></div>' +
+      '<p class="pull-status" id="pull-status">Starting download\u2026</p>' +
+      '</div></div>';
+
+    var fillEl = document.getElementById("pull-fill");
+    var statusEl = document.getElementById("pull-status");
+
+    fetch(config.ollamaBase + "/api/pull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: config.model, stream: true }),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("Pull failed (" + res.status + ")");
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+
+        function pump() {
+          return reader.read().then(function (result) {
+            if (result.done) return;
+            var text = decoder.decode(result.value, { stream: true });
+            text.split("\n").filter(Boolean).forEach(function (line) {
+              try {
+                var data = JSON.parse(line);
+                if (data.total && data.completed) {
+                  var pct = Math.round((data.completed / data.total) * 100);
+                  if (fillEl) fillEl.style.width = pct + "%";
+                  var mbDone = (data.completed / 1048576).toFixed(0);
+                  var mbTotal = (data.total / 1048576).toFixed(0);
+                  if (statusEl) statusEl.textContent = data.status + " \u2014 " + mbDone + " / " + mbTotal + " MB (" + pct + "%)";
+                } else if (data.status) {
+                  if (statusEl) statusEl.textContent = data.status;
+                }
+              } catch (_e) { /* skip */ }
+            });
+            return pump();
+          });
+        }
+        return pump();
+      })
+      .then(function () {
+        installer.pulling = false;
+        localStorage.setItem("practice-setup-done", "true");
+        checkConnection().then(function (info) {
+          updateAiStatus(info);
+          showPracticeContent();
+        });
+      })
+      .catch(function (err) {
+        installer.pulling = false;
+        if (statusEl) {
+          statusEl.innerHTML =
+            '<span class="pull-error">Download failed: ' + esc(err.message) + "</span>" +
+            '<br><button class="btn btn-primary btn-sm" id="retry-pull-btn">Retry</button>';
+          var retryBtn = document.getElementById("retry-pull-btn");
+          if (retryBtn) retryBtn.addEventListener("click", pullModel);
+        }
+      });
+  }
+
+  /* -- Called when Ollama is first detected (may or may not have model) -- */
+  function onOllamaDetected(info) {
+    var hasModel = info.models.some(function (m) {
+      return m.indexOf(config.model.split(":")[0]) !== -1;
+    });
+    updateAiStatus(info);
+    if (hasModel) {
+      localStorage.setItem("practice-setup-done", "true");
+      showPracticeContent();
+    } else {
+      renderModelPullPrompt();
+    }
+  }
+
+  /* -- Show the main practice UI, hide the gate ---------------------- */
+  function showPracticeContent() {
+    var setupEl = document.getElementById("practice-setup");
+    var problemView = document.getElementById("practice-problem-view");
+    var practiceActions = document.querySelector(".practice-actions");
+    var editorContainer = document.querySelector(".editor-container");
+    if (setupEl) setupEl.classList.add("hidden");
+    if (problemView) problemView.classList.remove("hidden");
+    if (practiceActions) practiceActions.classList.remove("hidden");
+    if (editorContainer) editorContainer.classList.remove("hidden");
+    stopInstallerPolling();
+
+    /* auto-generate if autoSetup is on and no problem loaded */
+    if (config.autoSetup && !ps.currentProblem && ps.articleId && !ps.generating) {
+      generateProblem();
+    }
+  }
+
+  /* -- Hide practice content behind the gate ------------------------- */
+  function hidePracticeContent() {
+    var problemView = document.getElementById("practice-problem-view");
+    var practiceActions = document.querySelector(".practice-actions");
+    var editorContainer = document.querySelector(".editor-container");
+    if (problemView) problemView.classList.add("hidden");
+    if (practiceActions) practiceActions.classList.add("hidden");
+    if (editorContainer) editorContainer.classList.add("hidden");
+  }
+
+  /* -- Big install gate ---------------------------------------------- */
+  function renderInstallGate() {
     var el = document.getElementById("practice-setup");
     if (!el) return;
     el.classList.remove("hidden");
-    el.innerHTML =
-      '<div class="setup-card">' +
-      "<h4>Local AI Setup</h4>" +
-      "<p>Practice mode uses a local AI model via Ollama. No data leaves your machine.</p>" +
-      "<ol>" +
-      '<li>Install Ollama: <a href="https://ollama.ai" target="_blank" rel="noreferrer">ollama.ai</a></li>' +
-      "<li>Pull the model: <code>ollama pull " + esc(config.model) + "</code></li>" +
-      "<li>Start Ollama (it runs on port 11434)</li>" +
-      "<li>Allow this site in CORS:<br><code>OLLAMA_ORIGINS=" +
-      esc(window.location.origin) +
-      " ollama serve</code></li>" +
-      "</ol>" +
-      "<p>Or set the environment variable permanently on macOS:</p>" +
-      "<code>launchctl setenv OLLAMA_ORIGINS " + esc(window.location.origin) + "</code>" +
-      '<div class="setup-config">' +
-      '<label>Model: <input type="text" id="model-input" value="' +
-      esc(config.model) + '" /></label>' +
-      '<label>Ollama URL: <input type="text" id="ollama-url-input" value="' +
-      esc(config.ollamaBase) + '" /></label>' +
-      '<button class="btn btn-sm btn-primary" id="save-config-btn">Save & Reconnect</button>' +
-      "</div></div>";
+    hidePracticeContent();
 
-    document.getElementById("save-config-btn").addEventListener("click", function () {
-      var modelVal = document.getElementById("model-input").value.trim();
-      var urlVal = document.getElementById("ollama-url-input").value.trim();
-      if (modelVal) {
-        config.model = modelVal;
-        localStorage.setItem("practice-model", modelVal);
+    var os = detectOs();
+    var osLabels = { mac: "macOS", linux: "Linux", windows: "Windows", unknown: "your platform" };
+    var osLabel = osLabels[os] || "your platform";
+    var downloadUrl = getDownloadUrl();
+
+    el.innerHTML =
+      '<div class="setup-card setup-gate">' +
+      '<div class="setup-gate-icon">' +
+      '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>' +
+      '<polyline points="3.27 6.96 12 12.01 20.73 6.96"/>' +
+      '<line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>' +
+      '<h3>Install Ollama to Practice</h3>' +
+      '<p class="setup-gate-desc">Practice mode uses a local AI model that runs entirely on your machine. ' +
+      'No data is sent anywhere \u2014 everything stays private.</p>' +
+      '<p class="setup-gate-desc">Install <strong>Ollama</strong> for ' + esc(osLabel) + ', then come back here. ' +
+      'We\u2019ll detect it automatically.</p>' +
+      '<a class="btn btn-primary btn-lg setup-download-btn" href="' + esc(downloadUrl) + '" target="_blank" rel="noreferrer">' +
+      'Download Ollama for ' + esc(osLabel) + '</a>' +
+      '<div class="setup-gate-polling">' +
+      '<div class="typing-dots"><span></span><span></span><span></span></div>' +
+      '<span>Waiting for Ollama\u2026</span></div>' +
+      '<details class="setup-advanced"><summary>Advanced settings</summary>' +
+      '<div class="setup-config">' +
+      '<label>Model: <input type="text" id="model-input" value="' + esc(config.model) + '" /></label>' +
+      '<label>Ollama URL: <input type="text" id="ollama-url-input" value="' + esc(config.ollamaBase) + '" /></label>' +
+      '<label class="setup-checkbox"><input type="checkbox" id="auto-setup-check"' +
+      (config.autoSetup ? " checked" : "") + ' /> Auto-generate problem when opening Practice</label>' +
+      '<button class="btn btn-sm btn-primary" id="save-config-btn">Save</button>' +
+      '</div></details>' +
+      '</div>';
+
+    wireSetupEvents(el);
+    startInstallerPolling();
+  }
+
+  /* -- Model pull prompt (Ollama running, model missing) ------------- */
+  function renderModelPullPrompt() {
+    var el = document.getElementById("practice-setup");
+    if (!el) return;
+    el.classList.remove("hidden");
+    hidePracticeContent();
+
+    el.innerHTML =
+      '<div class="setup-card setup-gate">' +
+      '<div class="setup-gate-icon">' +
+      '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+      '<polyline points="8 17 12 21 16 17"/>' +
+      '<line x1="12" y1="12" x2="12" y2="21"/>' +
+      '<path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg></div>' +
+      '<h3>Download AI Model</h3>' +
+      '<p class="setup-gate-desc">Ollama is running! Now we need to download the AI model ' +
+      '<strong>' + esc(config.model) + '</strong>. This is a one-time download.</p>' +
+      '<p class="setup-gate-desc setup-gate-size">The model is large (~18 GB). Make sure you have enough disk space and a stable connection.</p>' +
+      '<button class="btn btn-primary btn-lg" id="start-pull-btn">Download ' + esc(config.model) + '</button>' +
+      '<details class="setup-advanced"><summary>Advanced settings</summary>' +
+      '<div class="setup-config">' +
+      '<label>Model: <input type="text" id="model-input" value="' + esc(config.model) + '" /></label>' +
+      '<label>Ollama URL: <input type="text" id="ollama-url-input" value="' + esc(config.ollamaBase) + '" /></label>' +
+      '<label class="setup-checkbox"><input type="checkbox" id="auto-setup-check"' +
+      (config.autoSetup ? " checked" : "") + ' /> Auto-generate problem when opening Practice</label>' +
+      '<button class="btn btn-sm btn-primary" id="save-config-btn">Save</button>' +
+      '</div></details>' +
+      '</div>';
+
+    wireSetupEvents(el);
+    var pullBtn = document.getElementById("start-pull-btn");
+    if (pullBtn) pullBtn.addEventListener("click", pullModel);
+  }
+
+  /* -- Shared event wiring for setup panels -------------------------- */
+  function wireSetupEvents(el) {
+    var saveBtn = el.querySelector("#save-config-btn");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", function () {
+        var modelVal = document.getElementById("model-input").value.trim();
+        var urlVal = document.getElementById("ollama-url-input").value.trim();
+        var autoCheck = document.getElementById("auto-setup-check");
+        if (modelVal) {
+          config.model = modelVal;
+          localStorage.setItem("practice-model", modelVal);
+        }
+        if (urlVal) {
+          config.ollamaBase = urlVal;
+          localStorage.setItem("practice-ollama-url", urlVal);
+        }
+        if (autoCheck) {
+          config.autoSetup = autoCheck.checked;
+          localStorage.setItem("practice-auto-setup", autoCheck.checked ? "true" : "false");
+        }
+        refreshAiStatus();
+      });
+    }
+  }
+
+  function renderSetupInstructions() {
+    checkConnection().then(function (info) {
+      if (info.connected) {
+        onOllamaDetected(info);
+      } else {
+        renderInstallGate();
       }
-      if (urlVal) {
-        config.ollamaBase = urlVal;
-        localStorage.setItem("practice-ollama-url", urlVal);
-      }
-      refreshAiStatus();
     });
   }
 
   function refreshAiStatus() {
     checkConnection().then(function (info) {
       updateAiStatus(info);
-      var setupEl = document.getElementById("practice-setup");
-      if (info.connected && setupEl) setupEl.classList.add("hidden");
-      else if (!info.connected) renderSetupInstructions();
+      if (info.connected) {
+        var hasModel = info.models.some(function (m) {
+          return m.indexOf(config.model.split(":")[0]) !== -1;
+        });
+        if (hasModel) {
+          showPracticeContent();
+          return;
+        }
+      }
+      renderSetupInstructions();
     });
   }
 
@@ -814,6 +1071,8 @@
       ps.editor.refresh();
     }
 
+    /* Gate: hide practice content until Ollama is confirmed */
+    hidePracticeContent();
     switchTab("problem");
     refreshAiStatus();
 
