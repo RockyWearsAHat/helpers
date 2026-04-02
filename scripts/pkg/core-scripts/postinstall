@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 log() { echo "[gsh-core] $1"; }
@@ -13,7 +13,14 @@ if [ -z "$user_home" ]; then
   user_home="/Users/$console_user"
 fi
 
-zshrc="$user_home/.zshrc"
+user_shell="$(/usr/bin/dscl . -read "/Users/$console_user" UserShell 2>/dev/null | /usr/bin/awk '{print $2}')"
+if [ -z "$user_shell" ]; then
+  user_shell="${SHELL:-/bin/bash}"
+fi
+
+shell_env_dir="$user_home/.config/git-shell-helpers"
+shell_env_snippet="$shell_env_dir/paths-system.sh"
+shell_env_source='[ -f "$HOME/.config/git-shell-helpers/paths-system.sh" ] && . "$HOME/.config/git-shell-helpers/paths-system.sh"'
 
 add_line_if_missing() {
   local file="$1" line="$2"
@@ -22,12 +29,76 @@ add_line_if_missing() {
   fi
   if ! grep -qxF "$line" "$file" 2>/dev/null; then
     printf '%s\n' "$line" >>"$file"
+    chown "$console_user" "$file" 2>/dev/null || true
     log "Added to $file: $line"
   fi
 }
 
-add_line_if_missing "$zshrc" 'export PATH="/usr/local/bin:$PATH"'
-add_line_if_missing "$zshrc" 'export MANPATH="/usr/local/share/man:$MANPATH"'
+write_shell_env_snippet() {
+  mkdir -p "$shell_env_dir"
+  printf '%s\n' \
+    '# Added by the github-shell-helpers pkg installer.' \
+    'case ":${PATH:-}:" in' \
+    '  *":/usr/local/bin:"*) ;;' \
+    '  *) export PATH="/usr/local/bin${PATH:+:$PATH}" ;;' \
+    'esac' \
+    'case ":${MANPATH:-}:" in' \
+    '  *":/usr/local/share/man:"*) ;;' \
+    '  *) export MANPATH="/usr/local/share/man${MANPATH:+:$MANPATH}" ;;' \
+    'esac' \
+    >"$shell_env_snippet"
+  chown "$console_user" "$shell_env_snippet"
+}
+
+default_profile_path() {
+  case "${user_shell##*/}" in
+    zsh)
+      printf '%s\n' "$user_home/.zshrc"
+      ;;
+    bash)
+      if [ "$(uname -s)" = "Darwin" ]; then
+        printf '%s\n' "$user_home/.bash_profile"
+      else
+        printf '%s\n' "$user_home/.bashrc"
+      fi
+      ;;
+    *)
+      printf '%s\n' "$user_home/.profile"
+      ;;
+  esac
+}
+
+list_profile_targets() {
+  local found=false
+  local candidate
+  for candidate in \
+    "$user_home/.zshrc" \
+    "$user_home/.zprofile" \
+    "$user_home/.bash_profile" \
+    "$user_home/.bashrc" \
+    "$user_home/.profile"
+  do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      found=true
+    fi
+  done
+
+  if [ "$found" = false ]; then
+    default_profile_path
+  fi
+}
+
+configure_shell_profiles() {
+  local profile
+  write_shell_env_snippet
+  while IFS= read -r profile; do
+    [ -n "$profile" ] || continue
+    add_line_if_missing "$profile" "$shell_env_source"
+  done < <(list_profile_targets)
+}
+
+configure_shell_profiles
 
 research_config_dir="$user_home/.config/git-research-mcp"
 research_env_file="$research_config_dir/.env"

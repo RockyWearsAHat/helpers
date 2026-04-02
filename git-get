@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # Use first argument as commit message, or default to "default commit message"
 REPO=${1}
