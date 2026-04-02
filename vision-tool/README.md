@@ -14,7 +14,7 @@ It also contributes one chat participant:
 
 - `@gsh-vision` (commands: `/analyze`, `/analyze-video`)
 
-The tool accepts 1–10 image paths and a freeform goal. It reads the image bytes from disk, attaches them all as real image data to a vision-capable Copilot model (Claude Sonnet 4.6 by default), and returns the model's analysis. Use it for single-image inspection, before/after comparisons, batch design evaluation, or any visual analysis.
+The tool accepts 1–10 image paths and a freeform goal. It reads the image bytes from disk, attaches them all as real image data to a vision-capable Copilot model (Claude Sonnet 4.6 by default), and returns the model's analysis. If the host already exposes a built-in image tool such as `view_image`, prefer that for simple single-image inspection. Keep this tool for multi-image comparisons, goal-driven evaluation, and environments without a built-in image tool.
 
 It also provides a manual command:
 
@@ -37,7 +37,7 @@ This extension is the bridge between:
 
 ## Expected usage
 
-Once the extension is installed in the normal VS Code profile, Copilot Chat can use `@gsh-vision` for direct image analysis, and the extension exposes the same image-aware analysis through the language model tools above.
+Once the extension is installed in the normal VS Code profile, Copilot Chat can use `@gsh-vision` for direct image analysis, and the extension exposes the same image-aware analysis through the language model tools above. In environments where the host runtime already exposes a built-in image-view tool, use that first for straightforward single-image viewing and keep `analyze_images` as the richer fallback.
 
 ## Activation
 

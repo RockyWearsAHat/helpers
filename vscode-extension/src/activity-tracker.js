@@ -20,47 +20,37 @@ module.exports = function createActivityTracker(deps) {
       startedAt: Date.now(),
       args: args || {},
     });
-    getWebviewProvider()?.pushUpdate({
-      type: "activityUpdate",
-      items: getActivityItems(),
-    });
+    getWebviewProvider()?.pushUpdate(_buildActivityUpdate());
     return id;
   }
 
   function endToolCall(id) {
     activeToolCalls.delete(id);
-    getWebviewProvider()?.pushUpdate({
-      type: "activityUpdate",
-      items: getActivityItems(),
-    });
+    getWebviewProvider()?.pushUpdate(_buildActivityUpdate());
   }
 
   function getActivityItems() {
     const now = Date.now();
-    const items = [];
+    const toolItems = [];
     for (const c of activeToolCalls.values()) {
-      items.push({
+      toolItems.push({
         id: c.id,
         type: "tool",
+        tool: c.tool,
         label: c.label,
         elapsed: Math.floor((now - c.startedAt) / 1000),
         startedAt: c.startedAt,
         args: JSON.stringify(c.args, null, 2),
       });
     }
-    const allSessions = [];
+    toolItems.sort((left, right) => right.startedAt - left.startedAt);
+
+    const activeSessions = [];
+    const recentSessions = [];
     const chatSessions = getChatSessions();
     for (const [sessionId, sess] of chatSessions) {
-      const recency = sess.active
-        ? sess.startedAt
-        : sess.completedAt || sess.startedAt;
-      allSessions.push({ sessionId, recency, ...sess });
-    }
-    allSessions.sort((a, b) => b.recency - a.recency);
-    const top3 = allSessions.slice(0, 3);
-    for (const sess of top3) {
       if (sess.active) {
-        items.push({
+        activeSessions.push({
           id: `chat-${sess.sessionId}`,
           type: "session-active",
           label: sess.title,
@@ -68,18 +58,42 @@ module.exports = function createActivityTracker(deps) {
           startedAt: sess.activeAt || sess.startedAt,
           preview: sess.preview || "Working\u2026",
           sessionId: sess.sessionId,
+          requestCount: sess.requestCount || 0,
+          lastChangedAt: sess._lastChangedAt || sess.activeAt || sess.startedAt,
         });
       } else {
-        items.push({
+        recentSessions.push({
           id: `chat-${sess.sessionId}`,
           type: "session-done",
           label: sess.title,
           preview: sess.preview || "",
           sessionId: sess.sessionId,
+          requestCount: sess.requestCount || 0,
+          completedAt:
+            sess.completedAt || sess._lastChangedAt || sess.startedAt,
         });
       }
     }
-    return items;
+    activeSessions.sort(
+      (left, right) =>
+        (right.lastChangedAt || right.startedAt) -
+        (left.lastChangedAt || left.startedAt),
+    );
+    recentSessions.sort(
+      (left, right) =>
+        (right.completedAt || right.startedAt) -
+        (left.completedAt || left.startedAt),
+    );
+    return [...activeSessions, ...toolItems, ...recentSessions.slice(0, 3)];
+  }
+
+  function _buildActivityUpdate() {
+    const items = getActivityItems();
+    return {
+      type: "activityUpdate",
+      items,
+      countLabel: _activityCountLabel(items),
+    };
   }
 
   function _formatDuration(ms) {
@@ -104,50 +118,14 @@ module.exports = function createActivityTracker(deps) {
       (i) => i.type === "session-active" || i.type === "tool",
     );
     if (items.length === 0) return "idle";
-    if (active.length === 0) return `${items.length} recent`;
-    return `${active.length} running`;
-  }
-
-  function _renderActivityItem(item, esc) {
-    if (item.type === "session-active") {
-      return `
-      <div class="activity-item activity-item--session" data-sessionid="${item.sessionId}">
-        <div class="activity-row">
-          <span class="activity-spinner"></span>
-          <span class="activity-label">${esc(item.label)}</span>
-          <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
-        </div>
-        ${item.preview ? `<div class="activity-sub">${esc(item.preview)}</div>` : ""}
-      </div>`;
+    if (active.length > 0) {
+      return `${active.length} live`;
     }
-    if (item.type === "session-done") {
-      return `
-      <div class="activity-item activity-item--done" data-sessionid="${item.sessionId}">
-        <div class="activity-row">
-          <span class="activity-dot-done"></span>
-          <span class="activity-label">${esc(item.label)}</span>
-          <span class="activity-meta">completed</span>
-        </div>
-        ${item.preview ? `<div class="activity-sub">${esc(item.preview)}</div>` : ""}
-      </div>`;
-    }
-    return `
-    <details class="activity-item">
-      <summary class="activity-summary">
-        <span class="activity-pulse"></span>
-        <span class="activity-label">${esc(item.label)}</span>
-        <span class="activity-elapsed" data-started="${item.startedAt}">${item.elapsed}s</span>
-        <svg class="activity-chevron" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
-      </summary>
-      <div class="activity-detail"><pre>${esc(item.args)}</pre></div>
-    </details>`;
+    return `${items.length} recent`;
   }
 
   function pushActivityUpdate() {
-    getWebviewProvider()?.pushUpdate({
-      type: "activityUpdate",
-      items: getActivityItems(),
-    });
+    getWebviewProvider()?.pushUpdate(_buildActivityUpdate());
   }
 
   function getSessionStartedAt() {
@@ -166,7 +144,6 @@ module.exports = function createActivityTracker(deps) {
     _formatDuration,
     _formatAgo,
     _activityCountLabel,
-    _renderActivityItem,
     pushActivityUpdate,
     getSessionStartedAt,
     ensureSessionStarted,

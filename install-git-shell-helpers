@@ -778,6 +778,7 @@ setup_vscode_proposed_api() {
   # onDidChangeActiveChatPanelSessionResource to our extension.
   local argv_file="$HOME/.vscode/argv.json"
   local ext_id="RockyWearsAHat.git-shell-helpers"
+  local patch_argv_script="${SCRIPT_DIR}/scripts/patch-vscode-argv.js"
 
   if [ ! -f "$argv_file" ]; then
     echo "[install-git-shell-helpers] No ~/.vscode/argv.json found — skipping proposed API setup."
@@ -789,63 +790,18 @@ setup_vscode_proposed_api() {
     return
   fi
 
-  # Check if enable-proposed-api key exists already
-  if grep -q '"enable-proposed-api"' "$argv_file" 2>/dev/null; then
-    # Add our extension ID to the existing array
-    if command -v node >/dev/null 2>&1; then
-      node -e "
-        const fs = require('fs');
-        const p = '$argv_file';
-        let raw = fs.readFileSync(p, 'utf8');
-        // Strip JS-style comments for JSON.parse
-        const stripped = raw.replace(/^\s*\/\/.*$/gm, '');
-        const obj = JSON.parse(stripped);
-        if (!Array.isArray(obj['enable-proposed-api'])) {
-          obj['enable-proposed-api'] = [];
-        }
-        if (!obj['enable-proposed-api'].includes('$ext_id')) {
-          obj['enable-proposed-api'].push('$ext_id');
-        }
-        // Re-insert with comments preserved: find the array and patch it
-        const arrStr = JSON.stringify(obj['enable-proposed-api']);
-        raw = raw.replace(
-          /(\"enable-proposed-api\"\s*:\s*)\[[\s\S]*?\]/,
-          '\$1' + arrStr
-        );
-        fs.writeFileSync(p, raw);
-      " 2>/dev/null && {
-        echo "[install-git-shell-helpers] Added $ext_id to enable-proposed-api in argv.json."
-        return
-      }
-    fi
-    echo "[install-git-shell-helpers] Could not auto-patch argv.json."
-    echo "  Add \"$ext_id\" to the enable-proposed-api array in $argv_file manually."
-  else
-    # No enable-proposed-api key — add it before the closing brace
-    if command -v node >/dev/null 2>&1; then
-      node -e "
-        const fs = require('fs');
-        const p = '$argv_file';
-        let raw = fs.readFileSync(p, 'utf8');
-        // Insert before the last }
-        const idx = raw.lastIndexOf('}');
-        if (idx === -1) process.exit(1);
-        const before = raw.substring(0, idx).trimEnd();
-        const needsComma = before.match(/[}\]\"\d]$/);
-        const insertion = (needsComma ? ',' : '') +
-          '\n\n\t// Enable proposed APIs for Git Shell Helpers extension.\n' +
-          '\t// Required for branch-per-chat session tracking.\n' +
-          '\t\"enable-proposed-api\": [\"$ext_id\"]\n';
-        fs.writeFileSync(p, before + insertion + '}' + '\n');
-      " 2>/dev/null && {
-        echo "[install-git-shell-helpers] Added enable-proposed-api to argv.json for $ext_id."
-        return
-      }
-    fi
-    echo "[install-git-shell-helpers] Could not auto-patch argv.json."
-    echo "  Add this to $argv_file:"
-    echo "    \"enable-proposed-api\": [\"$ext_id\"]"
+  if [ ! -f "$patch_argv_script" ]; then
+    echo "[install-git-shell-helpers] Proposed API patch helper not found — skipping argv.json update."
+    return
   fi
+
+  if command -v node >/dev/null 2>&1 && node "$patch_argv_script" "$argv_file" "$ext_id" >/dev/null 2>&1; then
+    echo "[install-git-shell-helpers] Enabled proposed API for $ext_id in argv.json."
+    return
+  fi
+
+  echo "[install-git-shell-helpers] Could not auto-patch argv.json."
+  echo "  Add \"$ext_id\" to the enable-proposed-api array in $argv_file manually."
 }
 
 apply_vscode_patches() {

@@ -225,8 +225,9 @@ interactive_review_menu() {
 	printf '\n%bEntering interactive review mode...%b\n' "$CYAN" "$NC"
 	printf 'Use %b↑/↓%b or %bj/k%b and %bEnter%b. Press %bq%b to quit.\n' "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC" "$BOLD" "$NC"
 
-	local i=1
-	while [ $i -le $total_items ]; do
+	local i=0
+	while [ $i -lt $total_items ]; do
+		local display_index=$((i + 1))
 		local item="${REVIEW_LIST[$i]}"
 		local repo="${item%%|*}"
 		local rest="${item#*|}"
@@ -237,7 +238,7 @@ interactive_review_menu() {
 
 		ui_clear
 		ui_title "Secret Review"
-		ui_kv "Item" "$i/$total_items"
+		ui_kv "Item" "$display_index/$total_items"
 		ui_kv "Repo" "$repo"
 		ui_kv "File" "$path"
 		ui_kv "Type" "$loc"
@@ -263,14 +264,14 @@ interactive_review_menu() {
 				;;
 			1)
 				((i++)) || true
-				if [ $i -gt $total_items ]; then
-					i=$total_items
+				if [ $i -ge $total_items ]; then
+					i=$((total_items - 1))
 				fi
 				;;
 			2)
 				((i--)) || true
-				if [ $i -lt 1 ]; then
-					i=1
+				if [ $i -lt 0 ]; then
+					i=0
 				fi
 				;;
 			3)
