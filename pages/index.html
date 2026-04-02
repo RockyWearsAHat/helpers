@@ -16,6 +16,24 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./assets/styles.css" />
+
+    <!-- highlight.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/default.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+
+    <!-- CodeMirror 5 for the code editor -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/shell/shell.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/sql/sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/go/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/rust/rust.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
+
     <script>
       (function () {
         var saved = localStorage.getItem("theme");
@@ -147,10 +165,57 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 Back to results
               </button>
+              <button class="btn btn-primary btn-sm practice-toggle-btn" id="practice-toggle" type="button">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Practice
+              </button>
             </div>
-            <article class="reader-body" id="reader-body">
-              <p class="reader-loading">Loading article&hellip;</p>
-            </article>
+
+            <div class="reader-split">
+              <article class="reader-body" id="reader-body">
+                <p class="reader-loading">Loading article&hellip;</p>
+              </article>
+
+              <!-- Practice panel (hidden until toggled) -->
+              <div class="practice-panel hidden" id="practice-panel">
+                <div class="practice-header">
+                  <div class="practice-tabs">
+                    <button class="practice-tab active" data-tab="problem" type="button">Problems</button>
+                    <button class="practice-tab" data-tab="examples" type="button">Examples</button>
+                  </div>
+                  <div class="ai-status">
+                    <span class="ai-dot ai-disconnected" id="ai-dot"></span>
+                    <span class="ai-label" id="ai-label">Checking AI&hellip;</span>
+                  </div>
+                </div>
+
+                <div id="practice-setup" class="hidden"></div>
+
+                <div id="practice-problem-view">
+                  <div id="problem-display">
+                    <p class="practice-intro">Generate a practice problem based on this article.</p>
+                  </div>
+
+                  <div class="editor-container">
+                    <textarea id="code-editor"></textarea>
+                  </div>
+
+                  <div class="practice-actions">
+                    <button class="btn btn-primary btn-sm" id="generate-problem-btn" type="button">Generate Problem</button>
+                    <button class="btn btn-ghost btn-sm" id="hint-btn" type="button" disabled>Hint</button>
+                    <button class="btn btn-primary btn-sm" id="submit-btn" type="button" disabled>Submit</button>
+                    <button class="btn btn-ghost btn-sm" id="show-solution-btn" type="button" disabled>Solution</button>
+                  </div>
+
+                  <div id="hint-display" class="hidden"></div>
+                  <div id="feedback-display" class="hidden"></div>
+                </div>
+
+                <div id="practice-examples-view" class="hidden">
+                  <div id="examples-list"></div>
+                </div>
+              </div>
+            </div>
           </section>
         </main>
       </div>
@@ -202,46 +267,7 @@
       </footer>
     </div>
 
-    <script src="./assets/app.js" defer></script>
-  </body>
-</html>
-                </svg>
-                Sponsor
-              </a>
-              <a
-                class="btn btn-ghost btn-sm"
-                href="https://buymeacoffee.com/rockywearsahat"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Buy me a coffee
-              </a>
-            </div>
-          </div>
-          <div class="footer-links">
-            <a
-              href="https://github.com/RockyWearsAHat/github-shell-helpers"
-              target="_blank"
-              rel="noreferrer"
-              >GitHub</a
-            >
-            <a
-              href="https://github.com/RockyWearsAHat/github-shell-helpers/issues"
-              target="_blank"
-              rel="noreferrer"
-              >Issues</a
-            >
-            <a
-              href="https://github.com/RockyWearsAHat/github-shell-helpers/releases"
-              target="_blank"
-              rel="noreferrer"
-              >Releases</a
-            >
-          </div>
-        </div>
-      </footer>
-    </div>
-
+    <script src="./assets/practice.js" defer></script>
     <script src="./assets/app.js" defer></script>
   </body>
 </html>
