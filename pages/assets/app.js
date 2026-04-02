@@ -474,13 +474,15 @@ function loadNextResultsPage() {
   var skeletonCount = Math.min(remaining, state.pageSize, 5);
   renderSkeletonCards(skeletonCount);
 
-  setTimeout(function () {
-    var skeletons = resultsList.querySelector(".skeleton-group");
-    if (skeletons) skeletons.remove();
-    state.currentPage += 1;
-    state.isLoadingMore = false;
-    renderResults(state.lastResults, 0, state.lastTerms);
-  }, 280);
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      var skeletons = resultsList.querySelector(".skeleton-group");
+      if (skeletons) skeletons.remove();
+      state.currentPage += 1;
+      state.isLoadingMore = false;
+      renderResults(state.lastResults, 0, state.lastTerms);
+    });
+  });
 }
 
 function attachLoadMoreObserver() {
