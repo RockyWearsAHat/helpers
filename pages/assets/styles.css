@@ -1589,6 +1589,45 @@ mark {
 }
 .hosted-gate-footer a { color: var(--accent); text-decoration: underline; }
 
+/* Hosted status bar */
+.hosted-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--bg-inset);
+  border-radius: var(--r-sm);
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  margin-bottom: 12px;
+}
+.hosted-user {
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+.quota-display {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+.quota-display.quota-low { color: var(--red, #e53e3e); font-weight: 600; }
+.hosted-logout-btn { font-size: 0.72rem; padding: 2px 8px; }
+
+/* Hosted auth error */
+.hosted-auth-error {
+  color: var(--red, #e53e3e);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 8px 12px;
+  background: rgba(229, 62, 62, 0.08);
+  border-radius: var(--r-sm);
+  margin-bottom: 6px;
+}
+
 .practice-tabs {
   display: flex;
   gap: 2px;

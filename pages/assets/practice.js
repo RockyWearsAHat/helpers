@@ -7,10 +7,14 @@
   "use strict";
 
   /* -- Configuration --------------------------------------------------- */
+  /* HOSTED_API_BASE comes from env.js (gitignored) via window.ATLAS_API_BASE */
+  var HOSTED_API_BASE = window.ATLAS_API_BASE || "";
+
   var config = {
     ollamaBase: localStorage.getItem("practice-ollama-url") || "http://localhost:11434",
     model: localStorage.getItem("practice-model") || "qwen3.5:30b",
     autoSetup: localStorage.getItem("practice-auto-setup") === "true",
+    apiBase: localStorage.getItem("practice-api-base") || HOSTED_API_BASE,
   };
 
   /* -- Module state ---------------------------------------------------- */
@@ -121,6 +125,70 @@
         };
       });
     });
+  }
+
+  /* ==================================================================
+   * Hosted API Client
+   * ================================================================== */
+  var hosted = {
+    token: localStorage.getItem("practice-hosted-token") || "",
+    email: localStorage.getItem("practice-hosted-email") || "",
+  };
+
+  function hostedRequest(endpoint, body) {
+    return fetch(config.apiBase + "/.netlify/functions/" + endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + hosted.token,
+      },
+      body: JSON.stringify(body),
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) {
+          if (res.status === 401) { hostedLogout(); }
+          throw new Error(data.error || "Request failed");
+        }
+        if (data.quota) updateQuotaDisplay(data.quota);
+        return data;
+      });
+    });
+  }
+
+  function hostedAuth(endpoint, email, password) {
+    return fetch(config.apiBase + "/.netlify/functions/" + endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email, password: password }),
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || "Auth failed");
+        hosted.token = data.token;
+        hosted.email = data.email;
+        localStorage.setItem("practice-hosted-token", data.token);
+        localStorage.setItem("practice-hosted-email", data.email);
+        return data;
+      });
+    });
+  }
+
+  function hostedLogout() {
+    hosted.token = "";
+    hosted.email = "";
+    localStorage.removeItem("practice-hosted-token");
+    localStorage.removeItem("practice-hosted-email");
+  }
+
+  function isHostedAuthenticated() {
+    return !!(hosted.token && hosted.email && config.apiBase);
+  }
+
+  function updateQuotaDisplay(quota) {
+    var el = document.getElementById("quota-display");
+    if (!el) return;
+    el.textContent = quota.remaining + "/" + quota.limit + " left";
+    el.classList.toggle("quota-low", quota.remaining < 50);
+    el.classList.remove("hidden");
   }
 
   /* ==================================================================
@@ -248,9 +316,22 @@
 
     return dbGetByIndex("examples", "articleId", ps.articleId)
       .then(function (examples) {
+        var recent = examples.slice(-3);
+
+        /* ---- Hosted mode: server does the AI call ---- */
+        if (activeProvider === "hosted") {
+          return hostedRequest("generate", {
+            articleTitle: ps.articleTitle,
+            articleContent: ps.articleContent.slice(0, 6000),
+            previousExamples: recent.map(function (ex) {
+              return { title: ex.title, type: ex.type, description: (ex.description || "").slice(0, 200) };
+            }),
+          }).then(function (data) { return data.problem; });
+        }
+
+        /* ---- Local mode: Ollama direct ---- */
         var exCtx = "";
-        if (examples.length > 0) {
-          var recent = examples.slice(-3);
+        if (recent.length > 0) {
           exCtx =
             "\n\nPrevious practice activity for this article (avoid repeating):\n" +
             recent
@@ -288,11 +369,13 @@
         return chatComplete([
           { role: "system", content: sysPrompt },
           { role: "user", content: userPrompt },
-        ]);
+        ]).then(function (response) {
+          var problem = parseJsonResponse(response);
+          if (!problem) throw new Error("AI did not return valid JSON");
+          return problem;
+        });
       })
-      .then(function (response) {
-        var problem = parseJsonResponse(response);
-        if (!problem) throw new Error("AI did not return valid JSON");
+      .then(function (problem) {
 
         problem.articleId = ps.articleId;
         problem.createdAt = Date.now();
@@ -366,35 +449,56 @@
       '<div class="typing-dots"><span></span><span></span><span></span></div></div>';
 
     var userCode = ps.editor ? ps.editor.getValue() : "";
-    chatComplete(
-      [
+    var hintPromise;
+
+    if (activeProvider === "hosted") {
+      hintPromise = hostedRequest("hint", {
+        problemDescription: ps.currentProblem.description,
+        userCode: userCode,
+        hintCount: ps.hintIndex,
+      }).then(function (data) { return data.hint; });
+    } else {
+      hintPromise = chatComplete(
+        [
+          {
+            role: "system",
+            content:
+              "You are a helpful CS tutor. Give a concise, progressive hint " +
+              "for the problem below. Do NOT reveal the full solution. " +
+              "Just nudge the student in the right direction.",
+          },
+          {
+            role: "user",
+            content:
+              "Problem: " + ps.currentProblem.description +
+              "\n\nMy current code:\n```\n" + userCode + "\n```\n\n" +
+              "I already got " + ps.hintIndex + " hints. Give me the next one.",
+          },
+        ],
         {
-          role: "system",
-          content:
-            "You are a helpful CS tutor. Give a concise, progressive hint " +
-            "for the problem below. Do NOT reveal the full solution. " +
-            "Just nudge the student in the right direction.",
+          onChunk: function (_chunk, full) {
+            var cards = hintDisplay.querySelectorAll(".hint-card");
+            var last = cards[cards.length - 1];
+            if (last) {
+              last.classList.remove("hint-loading");
+              last.innerHTML =
+                '<span class="hint-badge">AI Hint</span><p>' + esc(full) + "</p>";
+            }
+          },
         },
-        {
-          role: "user",
-          content:
-            "Problem: " + ps.currentProblem.description +
-            "\n\nMy current code:\n```\n" + userCode + "\n```\n\n" +
-            "I already got " + ps.hintIndex + " hints. Give me the next one.",
-        },
-      ],
-      {
-        onChunk: function (_chunk, full) {
-          var cards = hintDisplay.querySelectorAll(".hint-card");
-          var last = cards[cards.length - 1];
-          if (last) {
-            last.classList.remove("hint-loading");
-            last.innerHTML =
-              '<span class="hint-badge">AI Hint</span><p>' + esc(full) + "</p>";
-          }
-        },
-      },
-    )
+      );
+    }
+
+    hintPromise
+      .then(function (full) {
+        var cards = hintDisplay.querySelectorAll(".hint-card");
+        var last = cards[cards.length - 1];
+        if (last) {
+          last.classList.remove("hint-loading");
+          last.innerHTML =
+            '<span class="hint-badge">AI Hint</span><p>' + esc(full) + "</p>";
+        }
+      })
       .catch(function (err) {
         var cards = hintDisplay.querySelectorAll(".hint-card");
         var last = cards[cards.length - 1];
@@ -426,35 +530,49 @@
       '<div class="typing-dots"><span></span><span></span><span></span></div>' +
       "<p>Evaluating your solution\u2026</p></div>";
 
-    chatComplete(
-      [
+    var feedbackPromise;
+
+    if (activeProvider === "hosted") {
+      feedbackPromise = hostedRequest("evaluate", {
+        problemDescription: ps.currentProblem.description,
+        referenceSolution: ps.currentProblem.solution,
+        userCode: userCode,
+      }).then(function (data) { return data.feedback; });
+    } else {
+      feedbackPromise = chatComplete(
+        [
+          {
+            role: "system",
+            content:
+              "You are a CS instructor evaluating a student's code solution. " +
+              "Compare it against the reference solution. Be encouraging but honest. " +
+              "Structure your response as:\n" +
+              "**Correctness:** (correct/partially correct/incorrect)\n" +
+              "**Feedback:** (what they did well, what could improve)\n" +
+              "**Key Insight:** (one takeaway about the underlying concept)\n" +
+              "Keep it concise — 4-6 sentences total.",
+          },
+          {
+            role: "user",
+            content:
+              "Problem: " + ps.currentProblem.description +
+              "\n\nReference solution:\n```\n" + ps.currentProblem.solution +
+              "\n```\n\nStudent solution:\n```\n" + userCode + "\n```",
+          },
+        ],
         {
-          role: "system",
-          content:
-            "You are a CS instructor evaluating a student's code solution. " +
-            "Compare it against the reference solution. Be encouraging but honest. " +
-            "Structure your response as:\n" +
-            "**Correctness:** (correct/partially correct/incorrect)\n" +
-            "**Feedback:** (what they did well, what could improve)\n" +
-            "**Key Insight:** (one takeaway about the underlying concept)\n" +
-            "Keep it concise — 4-6 sentences total.",
+          onChunk: function (_chunk, full) {
+            feedbackEl.innerHTML =
+              '<div class="feedback-card">' + renderMiniMarkdown(full) + "</div>";
+          },
         },
-        {
-          role: "user",
-          content:
-            "Problem: " + ps.currentProblem.description +
-            "\n\nReference solution:\n```\n" + ps.currentProblem.solution +
-            "\n```\n\nStudent solution:\n```\n" + userCode + "\n```",
-        },
-      ],
-      {
-        onChunk: function (_chunk, full) {
-          feedbackEl.innerHTML =
-            '<div class="feedback-card">' + renderMiniMarkdown(full) + "</div>";
-        },
-      },
-    )
+      );
+    }
+
+    feedbackPromise
       .then(function (fullResponse) {
+        feedbackEl.innerHTML =
+          '<div class="feedback-card">' + renderMiniMarkdown(fullResponse) + "</div>";
         var isCorrect =
           /correct/i.test(fullResponse) && !/incorrect/i.test(fullResponse);
 
@@ -749,17 +867,152 @@
 
     if (provider === "hosted") {
       if (setupEl) setupEl.classList.add("hidden");
-      if (problemView) problemView.classList.add("hidden");
-      if (practiceActions) practiceActions.classList.add("hidden");
-      if (editorContainer) editorContainer.classList.add("hidden");
-      if (hostedGate) hostedGate.classList.remove("hidden");
       if (modelSel) modelSel.disabled = true;
       stopInstallerPolling();
+
+      if (!config.apiBase) {
+        /* API not configured — show message */
+        hidePracticeContent();
+        if (hostedGate) {
+          hostedGate.classList.remove("hidden");
+          hostedGate.innerHTML =
+            '<div class="setup-card hosted-gate">' +
+            '<div class="hosted-gate-icon">' +
+            '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+            '</div>' +
+            '<h3>Hosted Mode Not Configured</h3>' +
+            '<p class="hosted-gate-desc">The hosted API endpoint has not been set up yet. Use the <strong>Local</strong> tab with Ollama for free practice.</p>' +
+            '<button class="btn btn-primary btn-lg" id="switch-to-local-fallback">Switch to Local</button>' +
+            '</div>';
+          var fb = document.getElementById("switch-to-local-fallback");
+          if (fb) fb.addEventListener("click", function () { switchProvider("local"); });
+        }
+      } else if (isHostedAuthenticated()) {
+        /* Already logged in — show practice content + status bar */
+        if (hostedGate) hostedGate.classList.add("hidden");
+        showPracticeContent();
+        showHostedStatusBar();
+        fetchHostedQuota();
+      } else {
+        /* Need login */
+        hidePracticeContent();
+        renderHostedLoginGate();
+      }
     } else {
       if (hostedGate) hostedGate.classList.add("hidden");
+      hideHostedStatusBar();
       if (modelSel) modelSel.disabled = false;
       refreshAiStatus();
     }
+  }
+
+  /* -- Hosted status bar -------------------------------------------- */
+  function showHostedStatusBar() {
+    var bar = document.getElementById("hosted-status-bar");
+    if (!bar) return;
+    bar.classList.remove("hidden");
+    var userEl = bar.querySelector(".hosted-user");
+    if (userEl) userEl.textContent = hosted.email;
+  }
+
+  function hideHostedStatusBar() {
+    var bar = document.getElementById("hosted-status-bar");
+    if (bar) bar.classList.add("hidden");
+  }
+
+  function fetchHostedQuota() {
+    if (!isHostedAuthenticated()) return;
+    fetch(config.apiBase + "/.netlify/functions/check-quota", {
+      headers: { "Authorization": "Bearer " + hosted.token },
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.remaining !== undefined) updateQuotaDisplay(data);
+      })
+      .catch(function () { /* silent — quota display just stays empty */ });
+  }
+
+  function renderHostedLoginGate() {
+    var gate = document.getElementById("hosted-login-gate");
+    if (!gate) return;
+    gate.classList.remove("hidden");
+    gate.innerHTML =
+      '<div class="setup-card hosted-gate">' +
+      '<div class="hosted-gate-icon">' +
+      '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
+      '</div>' +
+      '<h3 id="hosted-gate-heading">Sign in to Practice</h3>' +
+      '<p class="hosted-gate-desc">Hosted mode lets you practice without installing anything locally. Usage is quota-based (500 / month).</p>' +
+      '<div id="hosted-auth-error" class="hosted-auth-error hidden"></div>' +
+      '<form class="hosted-login-form" id="hosted-login-form" autocomplete="off">' +
+      '<label class="hosted-field"><span>Email</span>' +
+      '<input type="email" id="hosted-email" placeholder="you@example.com" required /></label>' +
+      '<label class="hosted-field"><span>Password</span>' +
+      '<input type="password" id="hosted-password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" required minlength="8" /></label>' +
+      '<button class="btn btn-primary btn-lg hosted-login-btn" type="submit" id="hosted-auth-btn">Sign In</button>' +
+      '</form>' +
+      '<p class="hosted-gate-footer" id="hosted-gate-footer">' +
+      'Don\u2019t have an account? <a href="#" id="hosted-signup-link">Create one</a></p>' +
+      '</div>';
+
+    /* Wire the dynamic form */
+    var hostedAuthMode = "login";
+    var form = document.getElementById("hosted-login-form");
+    var heading = document.getElementById("hosted-gate-heading");
+    var authBtn = document.getElementById("hosted-auth-btn");
+    var footer = document.getElementById("hosted-gate-footer");
+    var errEl = document.getElementById("hosted-auth-error");
+
+    if (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var email = document.getElementById("hosted-email").value.trim();
+        var password = document.getElementById("hosted-password").value;
+        if (!email || !password) return;
+        if (errEl) { errEl.classList.add("hidden"); errEl.textContent = ""; }
+        authBtn.disabled = true;
+        authBtn.textContent = hostedAuthMode === "login" ? "Signing in\u2026" : "Creating account\u2026";
+
+        var endpoint = hostedAuthMode === "login" ? "auth-login" : "auth-signup";
+        hostedAuth(endpoint, email, password)
+          .then(function () {
+            var hostedGate = document.getElementById("hosted-login-gate");
+            if (hostedGate) hostedGate.classList.add("hidden");
+            showPracticeContent();
+            showHostedStatusBar();
+            fetchHostedQuota();
+          })
+          .catch(function (err) {
+            if (errEl) {
+              errEl.textContent = err.message;
+              errEl.classList.remove("hidden");
+            }
+          })
+          .finally(function () {
+            authBtn.disabled = false;
+            authBtn.textContent = hostedAuthMode === "login" ? "Sign In" : "Create Account";
+          });
+      });
+    }
+
+    /* Toggle signup / login */
+    gate.addEventListener("click", function (e) {
+      var link = e.target.closest("#hosted-signup-link");
+      if (!link) return;
+      e.preventDefault();
+      if (hostedAuthMode === "login") {
+        hostedAuthMode = "signup";
+        if (heading) heading.textContent = "Create an Account";
+        if (authBtn) authBtn.textContent = "Create Account";
+        if (footer) footer.innerHTML = 'Already have an account? <a href="#" id="hosted-signup-link">Sign in</a>';
+      } else {
+        hostedAuthMode = "login";
+        if (heading) heading.textContent = "Sign in to Practice";
+        if (authBtn) authBtn.textContent = "Sign In";
+        if (footer) footer.innerHTML = 'Don\u2019t have an account? <a href="#" id="hosted-signup-link">Create one</a>';
+      }
+      if (errEl) { errEl.classList.add("hidden"); errEl.textContent = ""; }
+    });
   }
 
   /* ==================================================================
@@ -1318,30 +1571,14 @@
       });
     }
 
-    /* Hosted login form */
-    var loginForm = document.getElementById("hosted-login-form");
-    if (loginForm) {
-      loginForm.addEventListener("submit", function (e) {
-        e.preventDefault();
-        var email = document.getElementById("hosted-email").value.trim();
-        if (!email) return;
-        /* placeholder — hosted backend does not exist yet */
-        var gate = document.getElementById("hosted-login-gate");
-        if (gate) {
-          gate.innerHTML =
-            '<div class="setup-card hosted-gate">' +
-            '<div class="hosted-gate-icon">' +
-            '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
-            '</div>' +
-            '<h3>Coming Soon</h3>' +
-            '<p class="hosted-gate-desc">Hosted practice mode is under development. Use the <strong>Local</strong> tab with Ollama for free, private practice right now.</p>' +
-            '<button class="btn btn-primary btn-lg" id="switch-to-local-btn">Switch to Local</button>' +
-            '</div>';
-          var switchBtn = document.getElementById("switch-to-local-btn");
-          if (switchBtn) switchBtn.addEventListener("click", function () { switchProvider("local"); });
-        }
-      });
-    }
+    /* Hosted logout button (in status bar) */
+    document.addEventListener("click", function (e) {
+      if (e.target.closest(".hosted-logout-btn")) {
+        hostedLogout();
+        hideHostedStatusBar();
+        switchProvider("hosted");
+      }
+    });
 
     var observer = new MutationObserver(function (mutations) {
       mutations.forEach(function (m) {
