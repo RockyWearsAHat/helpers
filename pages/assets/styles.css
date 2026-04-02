@@ -416,6 +416,7 @@ button.bento-card {
   gap: 28px;
   align-items: start;
   padding-top: 32px;
+  padding-bottom: 18px;
   flex: 1;
 }
 
@@ -499,7 +500,30 @@ button.bento-card {
 .load-more-item {
   display: flex;
   justify-content: center;
-  padding: 24px 0;
+  padding: 18px 0 10px;
+}
+
+.load-more-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.load-more-indicator::before,
+.load-more-indicator::after {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: var(--border);
+}
+
+.load-more-indicator.loading {
+  color: var(--accent);
 }
 
 .load-more-btn {
@@ -656,14 +680,26 @@ button.bento-card {
 .read-article-btn:hover { background: var(--accent-glow); border-color: var(--accent); }
 
 /* ─── Preview Column ─────────────────────────────────────────────────────────── */
-.preview-column {
+.preview-column-shell {
   position: sticky;
   top: 72px;
+  align-self: start;
+  padding-bottom: 10px;
+}
+
+.preview-column {
   max-height: calc(100vh - 96px);
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background-clip: padding-box;
+  box-shadow: var(--shadow-sm);
+  padding-bottom: 14px;
 }
 
 .preview-column::-webkit-scrollbar { width: 6px; }
@@ -674,10 +710,6 @@ button.bento-card {
 }
 .preview-column::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
 
-.preview-column-wrap {
-  position: relative;
-}
-
 .preview-scroll-fade {
   position: sticky;
   bottom: 0;
@@ -685,7 +717,7 @@ button.bento-card {
   right: 0;
   height: 40px;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--bg));
+  background: linear-gradient(to bottom, transparent, var(--surface-raised));
   border-radius: 0 0 var(--r-lg) var(--r-lg);
   opacity: 0;
   transition: opacity 200ms;
@@ -696,10 +728,8 @@ button.bento-card {
 
 .preview-card {
   padding: 22px 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-sm);
+  border-radius: inherit;
+  background: transparent;
   border-top: 3px solid var(--accent);
 }
 
@@ -1128,7 +1158,8 @@ mark {
 @media (max-width: 1060px) {
   .bento-grid { grid-template-columns: repeat(3, 1fr); }
   .main-layout { grid-template-columns: 1fr; }
-  .preview-column { position: static; max-height: none; overflow-y: visible; }
+  .preview-column-shell { position: static; padding-bottom: 0; }
+  .preview-column { max-height: none; overflow-y: visible; }
 }
 
 @media (max-width: 740px) {
