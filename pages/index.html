@@ -208,6 +208,13 @@
 
                 <div id="practice-setup" class="hidden"></div>
 
+                <!-- Hosted status bar (visible when logged in to hosted mode) -->
+                <div id="hosted-status-bar" class="hosted-status-bar hidden">
+                  <span class="hosted-user"></span>
+                  <span id="quota-display" class="quota-display"></span>
+                  <button class="btn btn-ghost btn-xs hosted-logout-btn" type="button">Log out</button>
+                </div>
+
                 <!-- Hosted login gate (hidden until Hosted tab selected) -->
                 <div id="hosted-login-gate" class="hidden">
                   <div class="setup-card hosted-gate">
@@ -307,6 +314,7 @@
       </footer>
     </div>
 
+    <script src="./assets/env.js"></script>
     <script src="./assets/practice.js" defer></script>
     <script src="./assets/app.js" defer></script>
   </body>
