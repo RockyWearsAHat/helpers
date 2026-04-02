@@ -32,7 +32,7 @@
 [data-theme="dark"] {
   --bg:             #09090b;
   --bg-elevated:    #18181b;
-  --bg-inset:       rgba(255, 255, 255, 0.04);
+  --bg-inset:       rgba(255, 255, 255, 0.05);
   --surface:        rgba(24, 24, 27, 0.88);
   --surface-raised: #1c1c1f;
   --ink:            #f4f4f5;
@@ -40,17 +40,17 @@
   --ink-muted:      #a1a1aa;
   --ink-faint:      #71717a;
   --accent:         #38bdf8;
-  --accent-soft:    rgba(56, 189, 248, 0.12);
-  --accent-glow:    rgba(56, 189, 248, 0.06);
-  --border:         rgba(255, 255, 255, 0.07);
-  --border-strong:  rgba(255, 255, 255, 0.12);
-  --shadow-sm:      0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-md:      0 3px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-lg:      0 8px 32px rgba(0, 0, 0, 0.65);
+  --accent-soft:    rgba(56, 189, 248, 0.14);
+  --accent-glow:    rgba(56, 189, 248, 0.08);
+  --border:         rgba(255, 255, 255, 0.10);
+  --border-strong:  rgba(255, 255, 255, 0.16);
+  --shadow-sm:      0 1px 3px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-md:      0 3px 12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-lg:      0 8px 32px rgba(0, 0, 0, 0.7);
   --shadow-focus:   0 0 0 3px rgba(56, 189, 248, 0.25);
   --code-bg:        #09090b;
   --code-border:    rgba(255, 255, 255, 0.08);
-  --reader-bg:      #09090b;
+  --reader-bg:      #111113;
   --kbd-bg:         rgba(255, 255, 255, 0.07);
   --kbd-border:     rgba(255, 255, 255, 0.12);
   --nav-bg:         rgba(9, 9, 11, 0.92);
@@ -189,17 +189,27 @@ body {
 .hero::before {
   content: "";
   position: absolute;
-  top: -120px;
-  right: -5vw;
-  width: min(60vw, 900px);
-  height: 520px;
+  top: -100px;
+  right: -8vw;
+  width: min(70vw, 1000px);
+  height: 560px;
   background: radial-gradient(
     ellipse at center,
-    var(--accent-soft),
-    transparent 68%
+    rgba(56, 189, 248, 0.18) 0%,
+    rgba(56, 189, 248, 0.06) 40%,
+    transparent 70%
   );
   pointer-events: none;
   z-index: 0;
+}
+
+[data-theme="light"] .hero::before {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(2, 132, 199, 0.14) 0%,
+    rgba(2, 132, 199, 0.04) 45%,
+    transparent 70%
+  );
 }
 
 .hero > * { position: relative; z-index: 1; }
@@ -835,21 +845,26 @@ button.bento-card {
 .reader-column.hidden { display: none; }
 
 .reader-toolbar {
+  position: sticky;
+  top: 56px;
+  z-index: 100;
   display: flex;
   gap: 12px;
   align-items: center;
   width: 100%;
   margin: 0 0 20px;
+  padding: 10px 0;
+  background: var(--bg);
 }
 
 .reader-body {
   width: 100%;
   margin: 0;
-  padding: 44px 48px;
-  border: 1px solid var(--border);
+  padding: 48px 56px;
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-lg);
   background: var(--reader-bg);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
   font-size: 1rem;
   line-height: 1.8;
   color: var(--ink-2);
@@ -860,21 +875,23 @@ button.bento-card {
 .reader-body h1 {
   font-family: "Saira", system-ui, sans-serif;
   font-weight: 700;
-  font-size: 2rem;
+  font-size: 2.2rem;
   line-height: 1.15;
   letter-spacing: -0.025em;
   margin: 0 0 24px;
   padding-bottom: 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--accent);
   color: var(--ink);
 }
 
 .reader-body h2 {
   font-family: "Saira", system-ui, sans-serif;
   font-weight: 600;
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   line-height: 1.25;
-  margin: 36px 0 12px;
+  margin: 40px 0 14px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
   color: var(--ink);
 }
 
@@ -1267,7 +1284,7 @@ mark {
 /* ─── Responsive ─────────────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
   .main-layout { grid-template-columns: minmax(0, 1fr) 340px; gap: 22px; }
-  .reader-body { padding: 36px 36px; }
+  .reader-body { padding: 40px 40px; }
 }
 
 @media (max-width: 1060px) {
@@ -1275,6 +1292,7 @@ mark {
   .main-layout { grid-template-columns: 1fr; }
   .preview-column-shell { position: static; padding-bottom: 0; }
   .preview-column { max-height: none; overflow-y: visible; }
+  .reader-body { padding: 36px 32px; }
 }
 
 @media (max-width: 740px) {
