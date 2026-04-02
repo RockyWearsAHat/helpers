@@ -127,6 +127,16 @@ module.exports = function createChatHistoryArchive() {
     session.partialLineBase64 = carry.length ? carry.toString("base64") : "";
     session.lastSourceSize = stat.size;
     session.updatedAt = Date.now();
+
+    // Auto-compact: once a session accumulates 8+ L1 chunks, merge them into
+    // a single L2 super-chunk so the archive stays lean without manual calls.
+    const l1Count = session.chunks.filter(
+      (c) => !c.id.startsWith("L2-"),
+    ).length;
+    if (l1Count >= 8) {
+      _compactSessionL2(session);
+    }
+
     _writeManifest();
     return {
       appendedBytes,
@@ -134,6 +144,86 @@ module.exports = function createChatHistoryArchive() {
       partialBytes: carry.length,
       sourceSize: stat.size,
     };
+  }
+
+  // Compact a session's L1 chunks into an L2 super-chunk.
+  // Higher brotli quality (9) gives ~15-25% better compression than L1 (5).
+  // Original .br files are kept on disk for lossless recovery.
+  function _compactSessionL2(session) {
+    const l1Chunks = session.chunks.filter((c) => !c.id.startsWith("L2-"));
+    if (l1Chunks.length < 4) return;
+
+    const rawBuffers = [];
+    const textBuffers = [];
+    let totalRaw = 0;
+    let totalLines = 0;
+
+    for (const chunk of l1Chunks) {
+      try {
+        const rawFull = path.join(_archiveRoot, chunk.rawPath);
+        const textFull = path.join(_archiveRoot, chunk.textPath);
+        const rawDecomp = zlib.brotliDecompressSync(fs.readFileSync(rawFull));
+        const textDecomp = zlib.brotliDecompressSync(fs.readFileSync(textFull));
+        rawBuffers.push(rawDecomp, NEWLINE_BUFFER);
+        textBuffers.push(textDecomp, NEWLINE_BUFFER);
+        totalRaw += rawDecomp.length;
+        totalLines += chunk.lineCount || 0;
+      } catch {
+        // If any chunk file is missing, abort compaction for this session
+        return;
+      }
+    }
+
+    if (totalRaw === 0) return;
+
+    const l2Quality = { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } };
+    const l2Id = `L2-${String(++session.chunkSeq).padStart(6, "0")}`;
+    const sessionDir = path.join(
+      _archiveRoot,
+      "sessions",
+      session.sessionId,
+      "chunks",
+    );
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    const mergedRaw = Buffer.concat(rawBuffers);
+    const mergedText = Buffer.concat(textBuffers);
+
+    fs.writeFileSync(
+      path.join(sessionDir, `${l2Id}.jsonl.br`),
+      zlib.brotliCompressSync(mergedRaw, l2Quality),
+    );
+    fs.writeFileSync(
+      path.join(sessionDir, `${l2Id}.txt.br`),
+      zlib.brotliCompressSync(mergedText, l2Quality),
+    );
+
+    const bloom = _buildBloomFilter(mergedText.toString("utf8"));
+    const preview = _buildPreview(mergedText.toString("utf8"));
+
+    session.chunks = session.chunks.filter((c) => c.id.startsWith("L2-"));
+    session.chunks.push({
+      id: l2Id,
+      revision: session.revision,
+      createdAt: l1Chunks[0].createdAt,
+      updatedAt: Date.now(),
+      rawBytes: totalRaw,
+      textBytes: mergedText.length,
+      lineCount: totalLines,
+      rawPath: path.relative(
+        _archiveRoot,
+        path.join(sessionDir, `${l2Id}.jsonl.br`),
+      ),
+      textPath: path.relative(
+        _archiveRoot,
+        path.join(sessionDir, `${l2Id}.txt.br`),
+      ),
+      rawHash: crypto.createHash("sha256").update(mergedRaw).digest("hex"),
+      bloom,
+      preview,
+      compactionLevel: 2,
+      sourceChunkCount: l1Chunks.length,
+    });
   }
 
   function updateSessionMetadata(sessionId, metadata = {}) {
@@ -357,22 +447,36 @@ module.exports = function createChatHistoryArchive() {
     try {
       record = JSON.parse(trimmed);
     } catch {
-      return [trimmed];
+      // Not JSON — keep as plain text only if it's reasonably sized
+      return trimmed.length < 2000 ? [trimmed] : [];
     }
 
     const lines = [];
     const keyPath = Array.isArray(record.k) ? record.k.join(".") : "record";
 
     if (record.kind === 0 && record.v) {
-      _appendProjectionLine(lines, "session", record.v.customTitle);
-      if (Array.isArray(record.v.requests)) {
-        for (const request of record.v.requests) {
+      // Initial full-state snapshot — extract only safe metadata fields.
+      // Do NOT recurse into record.v directly: it may contain binary attachment
+      // data encoded as integer-keyed objects (e.g. image PNG bytes).
+      const v = record.v;
+      if (v.customTitle) _appendProjectionLine(lines, "session", v.customTitle);
+      if (typeof v.creationDate === "number") {
+        lines.push(`created: ${new Date(v.creationDate).toISOString()}`);
+      }
+      if (typeof v.initialLocation === "string") {
+        lines.push(`location: ${v.initialLocation}`);
+      }
+      if (typeof v.responderUsername === "string") {
+        lines.push(`agent: ${v.responderUsername}`);
+      }
+      // Extract from requests only if they exist (kind:0 usually has none)
+      if (Array.isArray(v.requests) && v.requests.length > 0) {
+        for (const request of v.requests) {
           _collectInterestingText(request, lines, "request");
         }
       }
-      _collectInterestingText(record.v, lines, "session");
-      const dedupedRoot = _dedupeLines(lines);
-      return dedupedRoot.length > 0 ? dedupedRoot : [trimmed];
+      // Never fall back to raw JSON — return whatever metadata we found
+      return _dedupeLines(lines);
     }
 
     if (
@@ -401,17 +505,51 @@ module.exports = function createChatHistoryArchive() {
       for (const request of record.v) {
         _collectInterestingText(request, lines, "request");
       }
+    } else if (record.kind === 2 && Array.isArray(record.k) && record.k.length >= 2) {
+      // Delta update to a specific path — extract if the path is content-bearing
+      const k = record.k;
+      if (
+        k[0] === "requests" &&
+        (k.includes("content") || k.includes("text") || k.includes("message") ||
+         k.includes("response") || k.includes("message"))
+      ) {
+        _collectInterestingText(record.v, lines, k[k.length - 1]);
+      }
+    } else if (record.kind === 1 && Array.isArray(record.k)) {
+      // Individual property update — only extract known content-bearing paths
+      const k = record.k;
+      const contentKeys = new Set(["text", "content", "message", "response", "label"]);
+      if (k[k.length - 1] && contentKeys.has(k[k.length - 1]) && typeof record.v === "string") {
+        _appendProjectionLine(lines, k[k.length - 1], record.v);
+      }
     }
 
-    _collectInterestingText(record.v, lines, keyPath);
-    const deduped = _dedupeLines(lines);
-    return deduped.length > 0 ? deduped : [trimmed];
+    // Never fall back to raw JSON — return extracted lines only
+    return _dedupeLines(lines);
+  }
+
+  // Keys that always contain binary/positional data — never worth extracting text from
+  const _SKIP_KEYS = new Set([
+    "attachments", "selections", "decorations", "cellExecutions",
+    "diagnostics", "codeCoverageData", "implicitContext",
+  ]);
+
+  function _isBinaryObject(value) {
+    // Detect integer-keyed objects used to encode binary buffers
+    // e.g. {"0":137,"1":80,...} is a PNG/Buffer stored as a plain object
+    if (typeof value !== "object" || Array.isArray(value) || value === null) return false;
+    const keys = Object.keys(value);
+    if (keys.length < 8) return false;
+    return keys.slice(0, 8).every((k) => /^\d+$/.test(k));
   }
 
   function _collectInterestingText(value, output, label, depth = 0) {
-    if (value == null || depth > 7) return;
+    if (value == null || depth > 6) return;
     if (typeof value === "string") {
-      _appendProjectionLine(output, label, value);
+      // Truncate very long strings — keep enough for full-text searchability
+      // while preventing megabyte model responses from bloating the projection.
+      const text = value.length > 6000 ? `${value.slice(0, 6000)} [...]` : value;
+      _appendProjectionLine(output, label, text);
       return;
     }
     if (Array.isArray(value)) {
@@ -421,6 +559,8 @@ module.exports = function createChatHistoryArchive() {
       return;
     }
     if (typeof value !== "object") return;
+    // Skip binary buffer objects
+    if (_isBinaryObject(value)) return;
 
     if (value.kind === "progressMessage" && typeof value.content === "string") {
       _appendProjectionLine(output, "progress", value.content);
@@ -431,6 +571,8 @@ module.exports = function createChatHistoryArchive() {
     }
 
     for (const [key, child] of Object.entries(value)) {
+      // Skip known binary/positional fields entirely
+      if (_SKIP_KEYS.has(key)) continue;
       if (key === "requests" || key === "response") {
         _collectInterestingText(child, output, key, depth + 1);
         continue;
@@ -446,11 +588,18 @@ module.exports = function createChatHistoryArchive() {
           key === "query"
         ) {
           _appendProjectionLine(output, key, child);
+        } else if (key === "value") {
+          // "value" may be large model-generated content — route through the
+          // truncating path instead of emitting directly to avoid huge lines.
+          _collectInterestingText(child, output, label, depth + 1);
         }
         continue;
       }
       if (key === "value") {
-        _collectInterestingText(child, output, label, depth + 1);
+        // Non-string "value" — recurse unless it's a binary buffer
+        if (!_isBinaryObject(child)) {
+          _collectInterestingText(child, output, label, depth + 1);
+        }
         continue;
       }
       if (

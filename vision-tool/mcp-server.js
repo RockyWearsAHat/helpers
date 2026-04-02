@@ -83,7 +83,7 @@ const VISION_TOOLS = [
   {
     name: "take_screenshot",
     description:
-      "Capture a screenshot on macOS. Returns the absolute path to the saved PNG. If a built-in host image tool such as view_image is available, prefer that to inspect the screenshot; otherwise use analyze_images for model-driven analysis.",
+      "Capture a screenshot using the native backend for the current OS. Returns the absolute path to the saved PNG. If a built-in host image tool such as view_image is available, prefer that to inspect the screenshot; otherwise use analyze_images for model-driven analysis.",
     inputSchema: {
       type: "object",
       properties: {
@@ -96,12 +96,12 @@ const VISION_TOOLS = [
           type: "string",
           enum: ["fullscreen", "window", "region"],
           description:
-            "Capture mode. 'fullscreen' (default): entire screen. 'window': a specific window by owner name. 'region': a rectangle defined by x, y, width, height.",
+            "Capture mode. 'fullscreen' (default): entire screen. 'window': a visible window by owner name when the platform backend supports it. 'region': a rectangle defined by x, y, width, height.",
         },
         app_name: {
           type: "string",
           description:
-            "Application name whose frontmost window to capture (used with mode 'window'). Example: 'AIO Server'.",
+            "Application name whose visible window to capture (used with mode 'window'). Example: 'Google Chrome'.",
         },
         x: {
           type: "number",
