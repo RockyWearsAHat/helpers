@@ -152,7 +152,14 @@ function buildSnippet(doc, terms) {
   var normTitle = titleLower.replace(/\s*[\u2014\u2013]\s*/g, " - ");
   var normHay = haystack.toLowerCase().replace(/\s*[\u2014\u2013]\s*/g, " - ");
   if (normTitle && normHay.startsWith(normTitle)) {
-    haystack = haystack.slice(normTitle.length).replace(/^[\s,.:;\-]+/, "");
+    // Find where the actual title ends in the original haystack by matching normalized lengths
+    var indexInOriginal = 0;
+    var normalizedSoFar = "";
+    while (normalizedSoFar.length < normTitle.length && indexInOriginal < haystack.length) {
+      indexInOriginal++;
+      normalizedSoFar = haystack.slice(0, indexInOriginal).toLowerCase().replace(/\s*[\u2014\u2013]\s*/g, " - ");
+    }
+    haystack = haystack.slice(indexInOriginal).replace(/^[\s,.:;\-]+/, "");
   }
   var lowerHaystack = haystack.toLowerCase();
   var start = 0;
@@ -174,7 +181,8 @@ function buildSnippet(doc, terms) {
   var cleanSnippet = snippet.replace(/^\u2026/, "").replace(/\u2026$/, "").trim();
   var snippetWords = cleanSnippet.split(/\s+/).length;
   var snippetPunct = (cleanSnippet.match(/[.!?]/g) || []).length;
-  if (snippetWords >= 10 && snippetPunct < snippetWords / 4) {
+  var hasTableMarkers = (cleanSnippet.match(/\|/g) || []).length > 2;
+  if (snippetWords >= 10 && snippetPunct < snippetWords / 4 && !hasTableMarkers) {
     var fallback = doc.previewText || "";
     if (fallback && fallback !== haystack) {
       var fb = fallback.slice(0, 260).trim().replace(/-{3,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -429,7 +437,24 @@ function renderPreview(doc) {
     metaPills +
     "</div>" +
     '<p class="preview-body">' +
-    escapeHtml(doc.previewText || doc.snippet) +
+    escapeHtml((function() {
+      var preview = doc.previewText || doc.snippet || "";
+      var titleLower = (doc.title || "").toLowerCase();
+      if (titleLower && preview.toLowerCase().startsWith(titleLower)) {
+        var normTitle = titleLower.replace(/\s*[\u2014\u2013]\s*/g, " - ");
+        var normPreview = preview.toLowerCase().replace(/\s*[\u2014\u2013]\s*/g, " - ");
+        if (normPreview.startsWith(normTitle)) {
+          var idx = 0;
+          var normSoFar = "";
+          while (normSoFar.length < normTitle.length && idx < preview.length) {
+            idx++;
+            normSoFar = preview.slice(0, idx).toLowerCase().replace(/\s*[\u2014\u2013]\s*/g, " - ");
+          }
+          return preview.slice(idx).replace(/^[\s,.:\;\-]+/, "").trim();
+        }
+      }
+      return preview;
+    })()) +
     "</p>" +
     (doc.rawUrl
       ? '<button class="read-article-btn" type="button" data-doc-id="' +

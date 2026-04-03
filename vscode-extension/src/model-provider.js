@@ -364,6 +364,7 @@ module.exports = function createModelProvider(deps) {
       { setting: "enabled", gitKey: "checkpoint.enabled" },
       { setting: "autoPush", gitKey: "checkpoint.push" },
       { setting: "sign", gitKey: "checkpoint.sign" },
+      { setting: "useAI", gitKey: "checkpoint.useAI" },
     ];
 
     for (const folder of folders) {
@@ -373,6 +374,13 @@ module.exports = function createModelProvider(deps) {
         if (value !== undefined) {
           execFile("git", ["config", gitKey, String(value)], { cwd }, () => {});
         }
+      }
+      // model is a string — only write when non-empty; unset when blank
+      const model = String(config.get("model") || "").trim();
+      if (model) {
+        execFile("git", ["config", "checkpoint.model", model], { cwd }, () => {});
+      } else {
+        execFile("git", ["config", "--unset", "checkpoint.model"], { cwd }, () => {});
       }
     }
   }
