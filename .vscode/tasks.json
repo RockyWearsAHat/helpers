@@ -59,6 +59,16 @@
 			"label": "Audit: Session History",
 			"type": "shell",
 			"command": "node scripts/audit-session-history.js 2>&1"
+		},
+		{
+			"label": "Capture live-site browser flows",
+			"type": "shell",
+			"command": "node scripts/capture-live-site-browser-flows.js",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }

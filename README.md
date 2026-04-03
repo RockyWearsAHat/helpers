@@ -200,6 +200,24 @@ python3 -m http.server -d build/pages-search 4173
 
 The GitHub Pages workflow lives at `.github/workflows/pages-search.yml`. Pull requests validate the site build without deploying; pushes to `main` publish the contents of `build/pages-search/` to GitHub Pages.
 
+### Live-site browser flow capture
+
+To capture the published GitHub Pages experience for visual QA, run:
+
+```sh
+node ./scripts/capture-live-site-browser-flows.js
+```
+
+The script targets `https://rockywearsahat.github.io/github-shell-helpers/` by default, captures the `browse`, `search`, `about`, and `reader` flows as compressed JPEG scroll shots, and writes the results to `build/visual-captures/` with a per-run `manifest.json`. The output directory is gitignored through `build/`.
+
+Useful overrides:
+
+```sh
+node ./scripts/capture-live-site-browser-flows.js --flows browse,search
+node ./scripts/capture-live-site-browser-flows.js --base-url http://127.0.0.1:4173/
+node ./scripts/capture-live-site-browser-flows.js --output-dir /tmp/atlas-live-site-check
+```
+
 ---
 
 ## Copilot DevOps Audit
