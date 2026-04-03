@@ -145,7 +145,27 @@ function buildSnippet(doc, terms) {
   var end = Math.min(haystack.length, start + 260);
   var prefix = start > 0 ? "\u2026" : "";
   var suffix = end < haystack.length ? "\u2026" : "";
-  return prefix + haystack.slice(start, end).trim() + suffix;
+  var snippet = prefix + haystack.slice(start, end).trim() + suffix;
+
+  // Quality filter: word-cloud detection. If the snippet has very little
+  // punctuation relative to word count it's probably raw token noise — fall
+  // back to previewText or the first real sentence in the haystack.
+  var cleanSnippet = snippet.replace(/^\u2026/, "").replace(/\u2026$/, "").trim();
+  var snippetWords = cleanSnippet.split(/\s+/).length;
+  var snippetPunct = (cleanSnippet.match(/[.,;:!?()]/g) || []).length;
+  if (snippetWords >= 10 && snippetPunct < snippetWords / 8) {
+    var fallback = doc.previewText || "";
+    if (fallback && fallback !== haystack) {
+      var fb = fallback.slice(0, 260).trim();
+      return fb.length < fallback.length ? fb + "\u2026" : fb;
+    }
+    var firstSentenceMatch = haystack.match(/[A-Z][^.!?]{15,}[.!?]/);
+    if (firstSentenceMatch) {
+      return firstSentenceMatch[0].trim();
+    }
+  }
+
+  return snippet;
 }
 
 /* -- Scoring --------------------------------------------------------------- */
@@ -364,6 +384,7 @@ function renderPreview(doc) {
     .join("");
 
   var metaPills = (doc.metaPills || [doc.scopeLabel, doc.category])
+    .filter(function (pill) { return typeof pill === "string" && pill !== "" && pill.indexOf("/") === -1; })
     .map(function (pill, index) {
       if (index === 0) {
         return buildChipButton(pill, "meta-pill", {
@@ -538,7 +559,7 @@ function loadNextResultsPage() {
           '" tabindex="0">' +
           '<div class="result-topline"><div>' +
           '<p class="result-path">' +
-          escapeHtml(resultDoc.path.split("/").pop() || resultDoc.path) +
+          escapeHtml((resultDoc.path.split("/").pop() || resultDoc.path).replace(/\s+[\u00B7\u2014\u2013]\s+.*$/, "").trim()) +
           "</p>" +
           '<h2 class="result-title"><span class="result-link">' +
           highlight(resultDoc.title, terms) +
@@ -707,7 +728,7 @@ function renderResults(results, durationMs, terms) {
       '" tabindex="0">' +
       '<div class="result-topline"><div>' +
       '<p class="result-path">' +
-      escapeHtml(resultDoc.path.split("/").pop() || resultDoc.path) +
+      escapeHtml((resultDoc.path.split("/").pop() || resultDoc.path).replace(/\s+[\u00B7\u2014\u2013]\s+.*$/, "").trim()) +
       "</p>" +
       '<h2 class="result-title"><span class="result-link">' +
       highlight(resultDoc.title, terms) +
@@ -1110,6 +1131,7 @@ function openReader(docId, options) {
   if (doc.communityContent) {
     var rendered = renderCommunityContent(doc);
     if (rendered) {
+      rendered = resolveSlugLinks(rendered);
       state.readerCache.set(docId, rendered);
       readerBody.innerHTML = rendered;
       highlightReaderCode();
@@ -1179,6 +1201,32 @@ function updatePreviewScrollState() {
 }
 
 previewColumn.addEventListener("scroll", updatePreviewScrollState, { passive: true });
+
+/* -- Scroll-based card preview sync ---------------------------------------- */
+var scrollSelectionTimer = null;
+resultsColumn.addEventListener("scroll", function () {
+  clearTimeout(scrollSelectionTimer);
+  scrollSelectionTimer = window.setTimeout(function () {
+    var cards = resultsList.querySelectorAll(".result-card");
+    if (!cards.length) return;
+    var colRect = resultsColumn.getBoundingClientRect();
+    var centerY = colRect.top + colRect.height / 2;
+    var bestCard = null;
+    var bestDist = Infinity;
+    cards.forEach(function (card) {
+      var r = card.getBoundingClientRect();
+      var cardCenter = r.top + r.height / 2;
+      var dist = Math.abs(cardCenter - centerY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestCard = card;
+      }
+    });
+    if (bestCard && bestCard.dataset.id !== state.selectedId) {
+      setSelected(bestCard.dataset.id);
+    }
+  }, 120);
+}, { passive: true });
 
 /* -- Corpus load ----------------------------------------------------------- */
 async function loadCorpus() {
@@ -1288,6 +1336,7 @@ window.addEventListener("keydown", function (event) {
 
 /* -- Practice panel toggle -------------------------------------------------- */
 if (practiceToggle) {
+  practiceToggle.setAttribute("title", "Open practice mode");
   practiceToggle.addEventListener("click", function () {
     if (!state.readerDoc || typeof window.AtlasPractice === "undefined") return;
     var rawContent = state.readerCache.get(state.readerDoc.id) || "";
