@@ -147,9 +147,12 @@ function buildSnippet(doc, terms) {
   haystack = haystack.replace(/(?:^|\n)\s*[-=]{3,}\s*(?=\n|$)/g, " ");
   haystack = haystack.replace(/(?:^|\n)\s*[|\-: ]+\s*(?=\n|$)/g, " ");
   haystack = haystack.replace(/-{3,}/g, ' ').replace(/\s{2,}/g, " ").trim();
+  haystack = haystack.replace(/^#+\s*/, "");
   var titleLower = (doc.title || "").toLowerCase();
-  if (titleLower && haystack.toLowerCase().startsWith(titleLower)) {
-    haystack = haystack.slice(titleLower.length).replace(/^[\s,.:;-]+/, "");
+  var normTitle = titleLower.replace(/\s*[\u2014\u2013]\s*/g, " - ");
+  var normHay = haystack.toLowerCase().replace(/\s*[\u2014\u2013]\s*/g, " - ");
+  if (normTitle && normHay.startsWith(normTitle)) {
+    haystack = haystack.slice(normTitle.length).replace(/^[\s,.:;\-]+/, "");
   }
   var lowerHaystack = haystack.toLowerCase();
   var start = 0;
@@ -1134,8 +1137,7 @@ function processSeeAlsoLinks() {
     var text = p.textContent.trim();
     if (!text.startsWith("See also:")) return;
     
-    var content = p.innerHTML;
-    var seeAlsoMatch = content.match(/^([^:]+:\s*)(.*)$/);
+    var seeAlsoMatch = text.match(/^([^:]+:\s*)(.*)$/);
     if (!seeAlsoMatch) return;
     
     var label = seeAlsoMatch[1];
