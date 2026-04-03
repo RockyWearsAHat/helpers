@@ -252,16 +252,17 @@ body::before {
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--ink-muted);
-  background: none;
+  background: var(--bg);
   border: none;
   border-radius: var(--r-sm);
   cursor: pointer;
-  transition: color 110ms, background 110ms;
+  box-shadow: var(--shadow-raise-xs);
+  transition: color 110ms, box-shadow 110ms;
   letter-spacing: -0.01em;
 }
 
-.nav-link:hover { color: var(--ink); background: var(--bg); box-shadow: var(--shadow-raise-xs); }
-.nav-link.active { color: var(--accent); background: var(--bg); box-shadow: var(--shadow-inset-sm); border-radius: var(--r-xs); }
+.nav-link:hover { color: var(--ink); box-shadow: var(--shadow-raise-sm); }
+.nav-link.active { color: var(--accent); box-shadow: var(--shadow-inset-sm); border-radius: var(--r-xs); }
 
 /* ─── Theme Toggle ───────────────────────────────────────────────────────────── */
 .theme-toggle {
@@ -281,7 +282,7 @@ body::before {
   flex-shrink: 0;
 }
 
-.theme-toggle:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.theme-toggle:hover { color: var(--accent); box-shadow: var(--shadow-raise-sm); }
 
 .theme-toggle svg {
   width: 17px; height: 17px;
@@ -635,8 +636,6 @@ button.bento-card {
 .result-card.active {
   box-shadow: var(--shadow-inset-sm);
   background: var(--bg);
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 
 .load-more-item {
@@ -1367,7 +1366,7 @@ button.bento-card {
   font-size: 1.2rem;
   margin: 40px 0 12px;
   padding: 0 0 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
   color: var(--ink);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1375,8 +1374,7 @@ button.bento-card {
 
 .about-page h2:first-of-type,
 .about-body h2:first-of-type {
-  border-bottom-color: var(--accent);
-  border-bottom-width: 2px;
+  border-bottom: none;
 }
 
 .about-body { font-size: 1rem; line-height: 1.75; color: var(--ink-muted); }
