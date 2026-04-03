@@ -1541,6 +1541,8 @@ button.bento-card {
   border-radius: var(--r-sm);
   cursor: pointer;
   transition: background 120ms, color 120ms, border-color 120ms, box-shadow 120ms;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .footer-link:hover {
