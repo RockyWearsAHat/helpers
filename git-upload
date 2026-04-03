@@ -26,6 +26,16 @@
 #     - It then calls GitHub Copilot CLI non-interactively (write/shell tools denied):
 #         copilot -s --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"
 #
+#   Model selection (priority order):
+#     1. GIT_UPLOAD_AI_CMD env var — overrides the entire command
+#     2. checkpoint.model git config key — set via VS Code sidebar or
+#        `git config checkpoint.model <model-id>`; injects --model into the command
+#     3. Default — no --model flag; Copilot CLI auto-selects the best available model
+#
+#   GPG signing:
+#     - checkpoint.sign git config key (set via VS Code sidebar "Verified Commits"
+#       toggle) controls whether commits are signed with -S.
+#
 #   Advanced: you may optionally override the full AI command via
 #   GIT_UPLOAD_AI_CMD for a single shell/session, but this is not required.
 
@@ -35,7 +45,7 @@ use_ai=false
 user_msg=""
 ai_extra_context=""
 
-DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"'
+DEFAULT_AI_CMD='copilot -s --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"'
 
 # ── Library loading ────────────────────────────────────────────────────
 resolve_script_path() {
@@ -425,7 +435,14 @@ main() {
 
 	echo "[git-upload] Using commit message: $commit_msg" >&2
 
-	git commit -m "$commit_msg"
+	# Respect checkpoint.sign git config (set by VS Code sidebar "Verified Commits" toggle).
+	local cfg_sign
+	cfg_sign="$(git config --get checkpoint.sign 2>/dev/null || true)"
+	if [ "$cfg_sign" = "true" ]; then
+		git commit -S -m "$commit_msg"
+	else
+		git commit -m "$commit_msg"
+	fi
 
 	# Push to the current branch's upstream if configured; otherwise
 	# create/set upstream on origin for the current branch.

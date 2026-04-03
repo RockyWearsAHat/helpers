@@ -39,8 +39,9 @@
 "use strict";
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
 
 function detectVscodePath() {
   const candidates =
@@ -128,8 +129,10 @@ const INVOKE_ANCHOR =
   "let ve={sessionResource:e.context.sessionResource,requestId:e.callId";
 
 const PREPARE_SENTINEL = "let _GSH_RSMM_PREP_=1;";
+const PREPARE_RESOLVE = "r=this.resolveSubagentModel(n,e.modelId);";
 const PREPARE_ANCHOR =
-  'r=this.resolveSubagentModel(n,e.modelId);return this._resolvedModels.set(e.toolCallId,r),{invocationMessage:o.description,toolSpecificData:{kind:"subagent",description:o.description,agentName:n?.name,prompt:o.prompt,modelName:r.resolvedModelName}}';
+  'return this._resolvedModels.set(e.toolCallId,r),{invocationMessage:o.description,toolSpecificData:{kind:"subagent",description:o.description,agentName:n?.name,prompt:o.prompt,modelName:r.resolvedModelName}}';
+const PREPARE_OLD = PREPARE_RESOLVE + PREPARE_ANCHOR;
 
 // Strategy:
 //   1. Try lookupLanguageModelByQualifiedName(input) — works for display names
@@ -222,7 +225,8 @@ const PREPARE_BODY =
   "r={modeModelId:_modeModelId,resolvedModelName:_resolvedModelName}" +
   "}";
 
-const NEW_PREPARE = PREPARE_SENTINEL + PREPARE_BODY + PREPARE_ANCHOR;
+const NEW_PREPARE =
+  PREPARE_RESOLVE + PREPARE_SENTINEL + PREPARE_BODY + PREPARE_ANCHOR;
 
 // ---------------------------------------------------------------------------
 // Patch 1 schema constants
@@ -244,7 +248,9 @@ module.exports = {
   INVOKE_SENTINEL,
   INVOKE_ANCHOR,
   PREPARE_SENTINEL,
+  PREPARE_RESOLVE,
   PREPARE_ANCHOR,
+  PREPARE_OLD,
   NEW_PREPARE,
   NEW_INVOKE,
 };
@@ -306,7 +312,7 @@ function apply(bundleSrc) {
 
   // Patch 3: prepareToolInvocation — sentinel-based
   if (!bundleSrc.includes(PREPARE_SENTINEL)) {
-    const anchorIdx = bundleSrc.indexOf(PREPARE_ANCHOR);
+    const anchorIdx = bundleSrc.indexOf(PREPARE_OLD);
     if (anchorIdx === -1) {
       return {
         src: bundleSrc,
@@ -318,11 +324,38 @@ function apply(bundleSrc) {
     bundleSrc =
       bundleSrc.slice(0, anchorIdx) +
       NEW_PREPARE +
-      bundleSrc.slice(anchorIdx + PREPARE_ANCHOR.length);
+      bundleSrc.slice(anchorIdx + PREPARE_OLD.length);
     changed = true;
   }
 
   return { src: bundleSrc, changed };
+}
+
+function validateJavaScriptSource(source, label) {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "gsh-runsubagent-model-"),
+  );
+  const tempFile = path.join(
+    tempDir,
+    `${path.basename(label || "workbench.desktop.main", ".js")}.js`,
+  );
+
+  try {
+    fs.writeFileSync(tempFile, source, "utf8");
+    execFileSync(process.execPath, ["--check", tempFile], {
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    return null;
+  } catch (error) {
+    const stderr =
+      error && typeof error === "object" && "stderr" in error && error.stderr
+        ? String(error.stderr).trim()
+        : "";
+    return stderr || (error instanceof Error ? error.message : String(error));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 function revert(bundleSrc) {
@@ -432,6 +465,13 @@ if (require.main === module) {
   const result = apply(src);
   if (result.error) {
     console.error("Patch failed:", result.error);
+    process.exit(1);
+  }
+
+  const validationError = validateJavaScriptSource(result.src, BUNDLE);
+  if (validationError) {
+    console.error("Patch failed: patched bundle did not pass syntax check.");
+    console.error(validationError);
     process.exit(1);
   }
 

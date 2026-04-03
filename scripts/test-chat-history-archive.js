@@ -112,6 +112,60 @@ try {
   assert.strictEqual(thirdRun.appendedBytes, 0, "unchanged archive pass should not reread data");
   assert.strictEqual(thirdRun.chunksWritten, 0, "unchanged archive pass should not add chunks");
 
+  const partialArchive = createChatHistoryArchive();
+  const partialStorageRoot = path.join(tmpRoot, "partial-storage");
+  const partialSessionId = "session-partial";
+  fs.mkdirSync(partialStorageRoot, { recursive: true });
+  partialArchive.initialize(partialStorageRoot);
+
+  let partialRun = partialArchive.archiveSessionFile(partialSessionId, sourceFile, {
+    title: "Partial Archive Session",
+    maxBytes: 4096,
+  });
+  assert.ok(partialRun, "partial archive pass should produce a result");
+  assert.ok(
+    partialRun.appendedBytes > 0,
+    "partial archive pass should read an initial byte budget",
+  );
+  assert.ok(
+    partialRun.remainingBytes > 0,
+    "partial archive pass should leave remaining bytes for follow-up work",
+  );
+  assert.strictEqual(
+    partialRun.complete,
+    false,
+    "partial archive pass should report incomplete state",
+  );
+
+  let safetyCounter = 0;
+  while (partialRun.remainingBytes > 0) {
+    partialRun = partialArchive.archiveSessionFile(partialSessionId, sourceFile, {
+      title: "Partial Archive Session",
+      maxBytes: 4096,
+    });
+    safetyCounter += 1;
+    assert.ok(
+      safetyCounter < 2000,
+      "partial archive should complete in a bounded number of passes",
+    );
+  }
+
+  const partialArchiveRoot = partialArchive.getArchiveRoot();
+  const partialManifest = JSON.parse(
+    fs.readFileSync(path.join(partialArchiveRoot, "index.json"), "utf8"),
+  );
+  const partialRawChunkFiles = partialManifest.sessions[partialSessionId].chunks.map(
+    (chunk) => path.join(partialArchiveRoot, chunk.rawPath),
+  );
+  const reconstructedPartialRaw = partialRawChunkFiles
+    .map((filePath) => zlib.brotliDecompressSync(fs.readFileSync(filePath)).toString("utf8"))
+    .join("");
+  assert.strictEqual(
+    reconstructedPartialRaw,
+    fs.readFileSync(sourceFile, "utf8"),
+    "partial archive passes should still reconstruct the original JSONL exactly",
+  );
+
   console.log("ok");
 } finally {
   fs.rmSync(tmpRoot, { recursive: true, force: true });

@@ -39,6 +39,10 @@ module.exports = function createChatHistoryArchive() {
     if (!_manifestPath || !sessionId || !filePath) return null;
     const stat = _safeStat(filePath);
     if (!stat?.isFile()) return null;
+    const maxBytes =
+      Number.isFinite(metadata.maxBytes) && metadata.maxBytes > 0
+        ? Math.max(READ_BLOCK_BYTES, Math.floor(metadata.maxBytes))
+        : 0;
 
     const session = _ensureSessionState(sessionId);
     _mergeSessionMetadata(session, {
@@ -62,12 +66,17 @@ module.exports = function createChatHistoryArchive() {
         partialBytes: session.partialLineBase64
           ? Buffer.from(session.partialLineBase64, "base64").length
           : 0,
+        remainingBytes: 0,
+        complete: true,
         sourceSize: stat.size,
       };
     }
 
     const fd = fs.openSync(filePath, "r");
     let position = session.archivedOffset;
+    const targetPosition = maxBytes
+      ? Math.min(stat.size, session.archivedOffset + maxBytes)
+      : stat.size;
     let carry = session.partialLineBase64
       ? Buffer.from(session.partialLineBase64, "base64")
       : Buffer.alloc(0);
@@ -95,8 +104,8 @@ module.exports = function createChatHistoryArchive() {
     };
 
     try {
-      while (position < stat.size) {
-        const toRead = Math.min(READ_BLOCK_BYTES, stat.size - position);
+      while (position < targetPosition) {
+        const toRead = Math.min(READ_BLOCK_BYTES, targetPosition - position);
         const readBuffer = Buffer.allocUnsafe(toRead);
         const bytesRead = fs.readSync(fd, readBuffer, 0, toRead, position);
         if (bytesRead <= 0) break;
@@ -138,10 +147,13 @@ module.exports = function createChatHistoryArchive() {
     }
 
     _writeManifest();
+    const remainingBytes = Math.max(0, stat.size - position);
     return {
       appendedBytes,
       chunksWritten,
       partialBytes: carry.length,
+      remainingBytes,
+      complete: remainingBytes === 0,
       sourceSize: stat.size,
     };
   }

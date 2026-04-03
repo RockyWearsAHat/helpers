@@ -132,14 +132,15 @@
   function renderSessionCard(item, state) {
     const isLive = state === "live";
     const requestLabel =
-      item.requestCount > 0
-        ? pluralizeActivity(item.requestCount, "request")
-        : isLive
-          ? "active now"
-          : "chat saved";
+      item.requestCount > 0 ? pluralizeActivity(item.requestCount, "request") : "";
+    const metaLabel = requestLabel
+      ? `${isLive ? "Live" : "Recent"} · ${requestLabel}`
+      : isLive
+        ? "Live"
+        : "Recent";
     const timingMarkup = isLive
-      ? `<span class="activity-pill activity-pill--time activity-elapsed" data-started="${item.startedAt}">${formatActivityDuration(item.elapsed || 0)}</span>`
-      : `<span class="activity-pill">${activityEscape(formatActivityAgo(item.completedAt))}</span>`;
+      ? `<span class="activity-card-timestamp activity-elapsed" data-started="${item.startedAt}">${formatActivityDuration(item.elapsed || 0)}</span>`
+      : `<span class="activity-card-timestamp">${activityEscape(formatActivityAgo(item.completedAt))}</span>`;
     const stateClass = isLive ? "activity-card--live" : "activity-card--recent";
     const dotClass = isLive
       ? "activity-state-dot--live"
@@ -150,21 +151,21 @@
     return `
       <button class="activity-card ${stateClass}" data-sessionid="${activityEscape(item.sessionId)}" type="button">
         <div class="activity-card-main">
-          <div class="activity-headline">
-            <div class="activity-title-row">
-              <span class="activity-state-dot ${dotClass}"></span>
+          <div class="activity-card-leading">
+            <span class="activity-state-dot ${dotClass}"></span>
+          </div>
+          <div class="activity-card-body">
+            <div class="activity-card-header">
               <span class="activity-card-title">${activityEscape(item.label)}</span>
-            </div>
-            <div class="activity-pill-row">
-              <span class="activity-pill">${activityEscape(requestLabel)}</span>
               ${timingMarkup}
             </div>
+            ${preview}
+            <div class="activity-card-footer">
+              <span class="activity-card-meta">${activityEscape(metaLabel)}</span>
+              <span class="activity-link-hint">${isLive ? "Continue" : "Open"}</span>
+            </div>
           </div>
-          ${preview}
-          <div class="activity-meta-row">
-            <span>${isLive ? "Open the chat panel to follow the current run." : "Reopen the chat panel to pick this session back up."}</span>
-            <span class="activity-link-hint">open chat</span>
-          </div>
+          <svg class="activity-card-chevron" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
         </div>
       </button>`;
   }
@@ -220,11 +221,11 @@
 
     const groups = groupActivityItems(items);
     const markup = [
-      renderActivityGroup("Live Chats", groups.liveSessions, (item) =>
+      renderActivityGroup("Live", groups.liveSessions, (item) =>
         renderSessionCard(item, "live"),
       ),
-      renderActivityGroup("Running Tools", groups.tools, renderToolCard),
-      renderActivityGroup("Recent Sessions", groups.recentSessions, (item) =>
+      renderActivityGroup("Tools", groups.tools, renderToolCard),
+      renderActivityGroup("Recent", groups.recentSessions, (item) =>
         renderSessionCard(item, "recent"),
       ),
     ]
@@ -327,6 +328,20 @@
     el.addEventListener("click", () => {
       toggleCheckbox(el);
       vscode.postMessage({ type: "setCheckpoint", key: el.dataset.cpkey });
+    });
+  });
+
+  document.querySelectorAll("[data-cpmodel]").forEach((el) => {
+    const openPicker = () => {
+      if (el.getAttribute("aria-disabled") === "true") return;
+      vscode.postMessage({ type: "openCheckpointModelPicker" });
+    };
+    el.addEventListener("click", openPicker);
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openPicker();
+      }
     });
   });
 
