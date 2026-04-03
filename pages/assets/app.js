@@ -600,6 +600,8 @@ function loadNextResultsPage() {
         listItem.innerHTML =
           '<article class="result-card" data-id="' +
           escapeHtml(resultDoc.id) +
+          '" data-scope="' +
+          escapeHtml(resultDoc.scopeKey) +
           '" tabindex="0">' +
           '<div class="result-topline"><div>' +
           '<p class="result-path">' +
@@ -769,6 +771,8 @@ function renderResults(results, durationMs, terms) {
     listItem.innerHTML =
       '<article class="result-card" data-id="' +
       escapeHtml(resultDoc.id) +
+      '" data-scope="' +
+      escapeHtml(resultDoc.scopeKey) +
       '" tabindex="0">' +
       '<div class="result-topline"><div>' +
       '<p class="result-path">' +
