@@ -132,6 +132,22 @@ function runNodeScript(scriptPath, args = [], options = {}) {
   });
 }
 
+function validateBundleSyntax(bundlePath) {
+  try {
+    execFileSync(NODE_EXECUTABLE, ["--check", bundlePath], {
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    return null;
+  } catch (err) {
+    const stderr =
+      err && typeof err === "object" && "stderr" in err && err.stderr
+        ? String(err.stderr).trim()
+        : "";
+    return stderr || (err instanceof Error ? err.message : String(err));
+  }
+}
+
 function checkPatch(patchScript) {
   try {
     runNodeScript(patchScript, ["--check"]);
@@ -295,11 +311,26 @@ for (const [bundleKey, patches] of Object.entries(patchesByBundle)) {
   fs.copyFileSync(backup, info.path);
   console.log(`[${info.label}] Restored pristine for clean patch application.`);
 
+  const pristineSyntaxError = validateBundleSyntax(info.path);
+  if (pristineSyntaxError) {
+    console.error(
+      `[${info.label}] Pristine bundle syntax check failed:\n${pristineSyntaxError}`,
+    );
+    failed = true;
+    break;
+  }
+
   // Apply each patch for this bundle
   for (const def of patches) {
     try {
       const output = runNodeScript(def.script);
       console.log(`[${def.name}] ${output.trim() || "applied"}`);
+      const syntaxError = validateBundleSyntax(info.path);
+      if (syntaxError) {
+        throw new Error(
+          `syntax check failed for ${path.basename(info.path)}:\n${syntaxError}`,
+        );
+      }
       if (checkPatch(def.script) !== "patched") {
         throw new Error("verification failed after apply");
       }
