@@ -106,6 +106,16 @@ function normalizeWhitespace(text) {
     .trim();
 }
 
+function isValidTag(tag) {
+  return (
+    typeof tag === "string" &&
+    tag !== "" &&
+    tag.indexOf("/") === -1 &&
+    !/^\d{4}-\d{2}-\d{2}/.test(tag) &&
+    tag.length <= 40
+  );
+}
+
 function tokenize(query) {
   return normalizeWhitespace(query)
     .toLowerCase()
@@ -129,6 +139,10 @@ function highlight(text, terms) {
 
 function buildSnippet(doc, terms) {
   var haystack = doc.searchText || doc.snippet || "";
+  // Strip Markdown horizontal rules, setext separators, and table separator rows
+  haystack = haystack.replace(/(?:^|\n)\s*[-=]{3,}\s*(?=\n|$)/g, " ");
+  haystack = haystack.replace(/(?:^|\n)\s*[|\-: ]+\s*(?=\n|$)/g, " ");
+  haystack = haystack.replace(/\s{2,}/g, " ").trim();
   var titleLower = (doc.title || "").toLowerCase();
   if (titleLower && haystack.toLowerCase().startsWith(titleLower)) {
     haystack = haystack.slice(titleLower.length).replace(/^[\s,.:;-]+/, "");
@@ -338,7 +352,7 @@ function renderPreview(doc) {
   }
 
   var topicPills = (doc.topics && doc.topics.length ? doc.topics : doc.keywords)
-    .filter(function (item) { return typeof item === "string" && item.indexOf("/") === -1; })
+    .filter(isValidTag)
     .slice(0, 10)
     .map(function (item) {
       return buildChipButton(item, "keyword-pill", { query: item });
@@ -348,7 +362,7 @@ function renderPreview(doc) {
   var highlightPills = (
     doc.highlights && doc.highlights.length ? doc.highlights : doc.headings
   )
-    .filter(function (item) { return typeof item === "string" && item.indexOf("/") === -1; })
+    .filter(isValidTag)
     .slice(0, 6)
     .map(function (item) {
       return buildChipButton(item, "meta-pill", { query: item });
@@ -384,7 +398,7 @@ function renderPreview(doc) {
     .join("");
 
   var metaPills = (doc.metaPills || [doc.scopeLabel, doc.category])
-    .filter(function (pill) { return typeof pill === "string" && pill !== "" && pill.indexOf("/") === -1; })
+    .filter(isValidTag)
     .map(function (pill, index) {
       if (index === 0) {
         return buildChipButton(pill, "meta-pill", {
@@ -418,9 +432,9 @@ function renderPreview(doc) {
         '">Read full article &rarr;</button>'
       : "") +
     (resourceLinks
-      ? '<p class="preview-section-title">Open this resource</p><div class="preview-links">' +
+      ? '<details class="dev-links-details"><summary>Developer links</summary><div class="preview-links">' +
         resourceLinks +
-        "</div>"
+        "</div></details>"
       : "") +
     '<p class="preview-section-title">Topics</p>' +
     '<div class="preview-keywords">' +
@@ -540,7 +554,7 @@ function loadNextResultsPage() {
         var pillsHtml = (
           resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category]
         )
-          .filter(function (k) { return typeof k === "string" && k.indexOf("/") === -1; })
+          .filter(isValidTag)
           .slice(0, 4)
           .map(function (k) {
             return buildChipButton(k, "result-pill", { query: k });
@@ -709,7 +723,7 @@ function renderResults(results, durationMs, terms) {
     var pillsHtml = (
       resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category]
     )
-      .filter(function (k) { return typeof k === "string" && k.indexOf("/") === -1; })
+      .filter(isValidTag)
       .slice(0, 4)
       .map(function (k) {
         return buildChipButton(k, "result-pill", { query: k });
@@ -967,21 +981,29 @@ function markdownToHtml(md) {
 
 /* -- Slug link resolver ---------------------------------------------------- */
 function resolveSlugLinks(html) {
-  return html.replace(
+  // Convert <a href="slug">...</a> patterns to internal see-also links
+  html = html.replace(
     /<a href="([^"]+)" target="_blank" rel="noreferrer">([^<]+)<\/a>/g,
     function (match, href, text) {
-      if (text !== href) return match;
       if (!(/^[a-z][a-z0-9-]*$/.test(href))) return match;
       var docEntry = state.documentsById.get(href);
-      if (docEntry) {
-        return '<a href="' + href + '" target="_blank" rel="noreferrer">' + escapeHtml(docEntry.title) + '<\/a>';
-      }
-      var humanized = href
-        .replace(/-/g, " ")
-        .replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
-      return '<a href="' + href + '" target="_blank" rel="noreferrer">' + escapeHtml(humanized) + '<\/a>';
+      var label = docEntry
+        ? escapeHtml(docEntry.title)
+        : (text !== href
+          ? escapeHtml(text)
+          : escapeHtml(href.replace(/-/g, " ").replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); })));
+      return '<a href="javascript:void(0)" class="see-also-link" data-slug="' + escapeHtml(href) + '">' + label + '<\/a>';
     }
   );
+  // Convert bare hyphenated slug text in list items to internal links
+  html = html.replace(/<li>([a-z][a-z0-9-]*(?:-[a-z0-9]+)+)<\/li>/g, function (match, slug) {
+    var docEntry = state.documentsById.get(slug);
+    var label = docEntry
+      ? escapeHtml(docEntry.title)
+      : escapeHtml(slug.replace(/-/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); }));
+    return '<li><a href="javascript:void(0)" class="see-also-link" data-slug="' + escapeHtml(slug) + '">' + label + '<\/a><\/li>';
+  });
+  return html;
 }
 
 /* -- Article reader -------------------------------------------------------- */
@@ -1002,7 +1024,7 @@ function renderCommunityContent(doc) {
 
   if (metaBadges.length) {
     parts.push('<div class="community-badges">' +
-      metaBadges.map(function (b) {
+      metaBadges.filter(isValidTag).map(function (b) {
         return buildChipButton(b, 'community-badge', { query: b });
       }).join('') +
     '</div>');
@@ -1058,7 +1080,7 @@ function renderCommunityContent(doc) {
     parts.push('<p class="community-detail"><strong>Maintainer:</strong> ' + escapeHtml(item.maintainer) + '</p>');
   }
 
-  var topics = (item.topics || doc.topics || []).filter(Boolean);
+  var topics = (item.topics || doc.topics || []).filter(isValidTag);
   if (topics.length) {
     parts.push('<h2>Topics</h2><div class="community-topics">' +
       topics.map(function (t) {
@@ -1210,20 +1232,16 @@ resultsColumn.addEventListener("scroll", function () {
     var cards = resultsList.querySelectorAll(".result-card");
     if (!cards.length) return;
     var colRect = resultsColumn.getBoundingClientRect();
-    var centerY = colRect.top + colRect.height / 2;
-    var bestCard = null;
-    var bestDist = Infinity;
-    cards.forEach(function (card) {
-      var r = card.getBoundingClientRect();
-      var cardCenter = r.top + r.height / 2;
-      var dist = Math.abs(cardCenter - centerY);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestCard = card;
+    var topCard = null;
+    for (var i = 0; i < cards.length; i++) {
+      var r = cards[i].getBoundingClientRect();
+      if (r.bottom > colRect.top && r.top < colRect.bottom) {
+        topCard = cards[i];
+        break;
       }
-    });
-    if (bestCard && bestCard.dataset.id !== state.selectedId) {
-      setSelected(bestCard.dataset.id);
+    }
+    if (topCard && topCard.dataset.id !== state.selectedId) {
+      setSelected(topCard.dataset.id);
     }
   }, 120);
 }, { passive: true });
@@ -1308,6 +1326,17 @@ function handleChipClick(event) {
 resultsList.addEventListener("click", handleChipClick);
 previewCard.addEventListener("click", handleChipClick);
 readerBody.addEventListener("click", handleChipClick);
+
+readerBody.addEventListener("click", function (event) {
+  var link = event.target.closest(".see-also-link");
+  if (!link) return;
+  event.preventDefault();
+  var slug = link.dataset.slug;
+  if (slug) {
+    var doc = state.documentsById.get(slug);
+    if (doc) openReader(doc.id);
+  }
+});
 
 scopeButtons.forEach(function (btn) {
   btn.addEventListener("click", function () {
