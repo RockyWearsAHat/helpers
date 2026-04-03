@@ -295,9 +295,9 @@ body::before {
   width: 100vw;
   height: 700px;
   background: radial-gradient(
-    ellipse at 70% 30%,
-    rgba(56, 189, 248, 0.38) 0%,
-    rgba(56, 189, 248, 0.16) 35%,
+    ellipse at 50% 20%,
+    rgba(56, 189, 248, 0.46) 0%,
+    rgba(56, 189, 248, 0.18) 35%,
     transparent 65%
   );
   pointer-events: none;
@@ -314,7 +314,8 @@ body::before {
   height: 400px;
   background: radial-gradient(
     ellipse at 30% 70%,
-    rgba(99, 102, 241, 0.12) 0%,
+    rgba(99, 102, 241, 0.22) 0%,
+    rgba(99, 102, 241, 0.08) 40%,
     transparent 65%
   );
   pointer-events: none;
@@ -478,6 +479,14 @@ button.bento-card {
   background: linear-gradient(135deg, var(--surface-raised) 0%, color-mix(in srgb, var(--accent-soft) 15%, var(--surface-raised)) 100%);
 }
 
+[data-theme="dark"] .bento-card.active {
+  border-color: var(--accent) !important;
+  box-shadow:
+    0 0 0 3px rgba(56, 189, 248, 0.15),
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
 .bento-stat {
   display: flex;
   flex-direction: column;
@@ -603,10 +612,10 @@ button.bento-card {
 
 .suggestion-button {
   padding: 5px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
   background: transparent;
-  color: var(--ink-faint);
+  color: var(--ink-muted);
   font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
@@ -702,13 +711,16 @@ button.bento-card {
 
 .result-card.active {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-md);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.28), var(--shadow-md);
 }
 
-.result-card[data-scope="copilot"] { border-left: 3px solid rgba(56, 189, 248, 0.5); }
-.result-card[data-scope="knowledge"] { border-left: 3px solid rgba(124, 58, 237, 0.5); }
-.result-card[data-scope="copilot"]:hover { border-left-color: rgba(56, 189, 248, 0.85); }
-.result-card[data-scope="knowledge"]:hover { border-left-color: rgba(124, 58, 237, 0.85); }
+.result-card[data-scope="copilot"] { border-left: 3px solid rgba(56, 189, 248, 1.0); }
+.result-card[data-scope="knowledge"] { border-left: 3px solid rgba(124, 58, 237, 1.0); }
+.result-card[data-scope="archive"] { border-left: 3px solid rgba(144, 153, 163, 1.0); }
+.result-card[data-scope="copilot"]:hover { border-left-color: rgba(56, 189, 248, 1.0); }
+.result-card[data-scope="knowledge"]:hover { border-left-color: rgba(124, 58, 237, 1.0); }
+.result-card[data-scope="copilot"].active { border-left-color: rgba(56, 189, 248, 1.0); }
+.result-card[data-scope="knowledge"].active { border-left-color: rgba(124, 58, 237, 1.0); }
 
 .load-more-item {
   display: flex;
@@ -825,6 +837,12 @@ button.bento-card {
 
 .bento-date:hover {
   transform: none;
+  background: linear-gradient(145deg, #1c1c1f 0%, #18181b 100%);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .result-snippet {
@@ -852,7 +870,7 @@ button.bento-card {
   background: var(--bg-inset);
   color: var(--ink-2);
   font-weight: 500;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-strong);
 }
 
 .chip-button {
@@ -893,11 +911,11 @@ button.bento-card {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-top: auto;
+  margin-top: 12px;
   padding: 6px 13px;
   font: inherit;
   font-size: 0.82rem;
-  font-weight: 400;
+  font-weight: 500;
   color: var(--accent);
   background: var(--accent-soft);
   border: 1px solid rgba(56, 189, 248, 0.25);
@@ -1001,10 +1019,10 @@ button.bento-card {
 
 .preview-section-title {
   margin: 16px 0 7px;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--ink-muted);
   font-weight: 700;
 }
 
@@ -1147,6 +1165,10 @@ button.bento-card {
   padding-bottom: 20px;
   border-bottom: 3px solid var(--accent);
   color: var(--ink);
+  background: linear-gradient(135deg, var(--ink) 0%, var(--ink-muted) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 [data-theme="dark"] .reader-body h1 {
@@ -1168,7 +1190,7 @@ button.bento-card {
   color: var(--ink);
 }
 
-.reader-body h3 { font-size: 1.1rem; font-weight: 600; font-style: normal; margin: 32px 0 12px; color: var(--ink-2); }
+.reader-body h3 { font-size: 1.1rem; font-weight: 600; font-style: normal; margin: 32px 0 12px; color: var(--ink-muted); border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); padding-left: 10px; }
 .reader-body h4 { font-size: 0.875rem; font-weight: 700; font-style: normal; margin: 20px 0 8px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
 .reader-body h1 code, .reader-body h2 code, .reader-body h3 code, .reader-body h4 code, .reader-body h5 code, .reader-body h6 code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
 .reader-body em { font-style: italic; color: var(--ink-2); }
@@ -1187,7 +1209,7 @@ button.bento-card {
   padding: 6px 12px; 
   background: var(--accent-soft); 
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); 
-  border-radius: var(--r-sm); 
+  border-radius: 999px; 
   font-weight: 500; 
   font-size: 0.9rem; 
   transition: background 120ms, color 120ms, border-color 120ms; 
@@ -1210,7 +1232,8 @@ button.bento-card {
   background: var(--code-bg);
   border: 1px solid var(--border-strong);
   color: var(--ink);
-  white-space: nowrap;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .reader-body pre {
@@ -1421,6 +1444,24 @@ button.bento-card {
   margin-inline: auto;
   padding: 48px 0 48px;
   animation: pageIn 0.3s ease both;
+  position: relative;
+}
+
+.about-page::before {
+  content: "";
+  position: absolute;
+  top: -80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 500px;
+  background: radial-gradient(
+    ellipse at 50% 15%,
+    rgba(56, 189, 248, 0.10) 0%,
+    transparent 65%
+  );
+  pointer-events: none;
+  z-index: 0;
 }
 
 .breadcrumb {
@@ -1491,7 +1532,7 @@ button.bento-card {
   margin-bottom: 0;
   font-size: 0.9rem;
   line-height: 1.6;
-  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 70%, transparent);
   transition: background 120ms ease, border-color 120ms ease;
 }
 
@@ -3168,7 +3209,7 @@ mark {
   .results-toolbar { flex-direction: column; align-items: flex-start; gap: 2px; }
   .reader-body { padding: 24px 20px; }
   .reader-body h1 { font-size: 1.6rem; }
-  .top-nav { display: none; }
+  .top-nav { flex-wrap: wrap; gap: 2px; }
   .hero { padding: 36px 0 24px; }
   .hero::before { display: none; }
   .main-layout { padding-top: 24px; }

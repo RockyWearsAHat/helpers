@@ -149,15 +149,15 @@ function buildSnippet(doc, terms) {
   haystack = haystack.replace(/-{3,}/g, ' ').replace(/\s{2,}/g, " ").trim();
   haystack = haystack.replace(/^#+\s*/, "");
   var titleLower = (doc.title || "").toLowerCase();
-  var normTitle = titleLower.replace(/\s*[\u2014\u2013]\s*/g, " - ");
-  var normHay = haystack.toLowerCase().replace(/\s*[\u2014\u2013]\s*/g, " - ");
+  var normTitle = titleLower.replace(/&amp;/g, "&").replace(/\s*[\u2014\u2013,;:!?]\s*/g, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+  var normHay = haystack.toLowerCase().replace(/&amp;/g, "&").replace(/\s*[\u2014\u2013,;:!?]\s*/g, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ");
   if (normTitle && normHay.startsWith(normTitle)) {
-    // Find where the actual title ends in the original haystack by matching normalized lengths
+    // Find where the actual title ends in the original haystack
     var indexInOriginal = 0;
     var normalizedSoFar = "";
     while (normalizedSoFar.length < normTitle.length && indexInOriginal < haystack.length) {
       indexInOriginal++;
-      normalizedSoFar = haystack.slice(0, indexInOriginal).toLowerCase().replace(/\s*[\u2014\u2013]\s*/g, " - ");
+      normalizedSoFar = haystack.slice(0, indexInOriginal).toLowerCase().replace(/&amp;/g, "&").replace(/\s*[\u2014\u2013,;:!?]\s*/g, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ");
     }
     haystack = haystack.slice(indexInOriginal).replace(/^[\s,.:;\-]+/, "");
   }
@@ -192,6 +192,19 @@ function buildSnippet(doc, terms) {
     if (firstSentenceMatch) {
       return firstSentenceMatch[0].trim();
     }
+  }
+
+  // Big-O complexity table detection — return empty string rather than table noise
+  var hasBigOTokens = (cleanSnippet.match(/O\([^)]{1,20}\)/g) || []).length >= 2;
+  if (hasBigOTokens) {
+    var bigOFallback = doc.previewText || "";
+    if (bigOFallback && bigOFallback !== haystack) {
+      var bofb = bigOFallback.slice(0, 260).trim().replace(/-{3,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
+      return bofb.length < bigOFallback.length ? bofb + "\u2026" : bofb;
+    }
+    var bigOSentence = haystack.match(/[A-Z][^.!?]{15,}[.!?]/);
+    if (bigOSentence) return bigOSentence[0].trim();
+    return "";
   }
 
   return snippet;
@@ -426,16 +439,12 @@ function renderPreview(doc) {
     .join("");
 
   previewCard.innerHTML =
-    buildChipButton(doc.scopeLabel, "meta-pill", {
-      scope: doc.scopeKey,
-      clearQuery: true,
-    }) +
-    "<h2>" +
-    escapeHtml(doc.title) +
-    "</h2>" +
     '<div class="preview-meta">' +
     metaPills +
     "</div>" +
+    "<h2>" +
+    escapeHtml(doc.title) +
+    "</h2>" +
     '<p class="preview-body">' +
     escapeHtml((function() {
       var preview = doc.previewText || doc.snippet || "";
@@ -973,7 +982,19 @@ function markdownToHtml(md) {
       "</tr>"
     );
   });
-  html = html.replace(/((?:<tr>.*<\/tr>\s*)+)/g, "<table>$1</table>");
+  html = html.replace(/((?:<tr>.*<\/tr>\s*)+)/g, function (match) {
+    var firstTrEnd = match.indexOf("</tr>") + 5;
+    var firstRow = match.slice(0, firstTrEnd);
+    var bodyRows = match.slice(firstTrEnd);
+    var theadRow = firstRow.replace(/<td>/g, "<th>").replace(/<\/td>/g, "</th>");
+    return (
+      "<table><thead>" +
+      theadRow.trim() +
+      "</thead><tbody>" +
+      bodyRows.trim() +
+      "</tbody></table>"
+    );
+  });
   html = html.replace(/^[-*] (.+)$/gm, "<li>$1</li>");
   html = html.replace(/((?:<li>.*<\/li>\s*)+)/g, "<ul>$1</ul>");
   html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
