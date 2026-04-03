@@ -939,7 +939,7 @@ function markdownToHtml(md) {
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
-  html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "<em>$1</em>");
+  html = html.replace(/(?<!\w)\*([^*\n]+)\*(?!\w)/g, "<em>$1</em>");
   html = html.replace(/(?<!_)_([^_\n]+)_(?!_)/g, "<em>$1</em>");
 
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_m, text, href) {
@@ -953,7 +953,7 @@ function markdownToHtml(md) {
     );
   });
 
-  html = html.replace(/^\|[-:| ]+\|$/gm, "");
+  html = html.replace(/^\|[\s|:-]+\|$/gm, "");
   html = html.replace(/^\| (.+) \|$/gm, function (_m, row) {
     if (/^[\s|:-]+$/.test(row)) return "";
     var cells = row.split("|").map(function (c) {
