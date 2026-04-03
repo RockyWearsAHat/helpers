@@ -1,0 +1,51 @@
+{
+  "meta": { "generated": "2026-04-03T00:00:00Z", "version": "3" },
+  "stats": { "total": 42, "copilot": 12, "knowledge": 24, "archive": 6 },
+  "documents": [
+    {
+      "id": "doc-001",
+      "title": "Kubernetes Pod Scheduling Deep Dive",
+      "scope": "knowledge",
+      "tags": ["kubernetes", "scheduling", "pods", "orchestration"],
+      "summary": "A comprehensive look at how Kubernetes schedules pods across nodes, including affinity rules, taints, tolerations, and resource requests.",
+      "rawUrl": "https://raw.githubusercontent.com/example/knowledge/main/kubernetes-pods.md",
+      "tokens": ["kubernetes", "pod", "scheduling", "node", "affinity", "taint", "toleration", "resource", "request", "limit"]
+    },
+    {
+      "id": "doc-002",
+      "title": "GitHub Copilot Instructions Deep Dive",
+      "scope": "copilot",
+      "tags": ["copilot", "instructions", "customization", "agents"],
+      "summary": "How to write effective .github/copilot-instructions.md files, custom agents, and skill definitions for GitHub Copilot.",
+      "rawUrl": "https://raw.githubusercontent.com/example/knowledge/main/copilot-instructions.md",
+      "tokens": ["copilot", "instructions", "agent", "skill", "customization", "prompt", "workflow"]
+    },
+    {
+      "id": "doc-003",
+      "title": "Distributed Systems: CAP Theorem",
+      "scope": "knowledge",
+      "tags": ["distributed-systems", "cap-theorem", "consistency", "availability"],
+      "summary": "The CAP theorem states that a distributed system can only guarantee two of three properties: Consistency, Availability, and Partition tolerance.",
+      "rawUrl": "https://raw.githubusercontent.com/example/knowledge/main/cap-theorem.md",
+      "tokens": ["cap", "theorem", "consistency", "availability", "partition", "distributed", "system"]
+    },
+    {
+      "id": "doc-004",
+      "title": "Git Rebase vs Merge Strategy",
+      "scope": "archive",
+      "tags": ["git", "rebase", "merge", "workflow"],
+      "summary": "When to use git rebase versus git merge, and how each strategy affects your commit history and team workflow.",
+      "rawUrl": "https://raw.githubusercontent.com/example/knowledge/main/git-rebase-merge.md",
+      "tokens": ["git", "rebase", "merge", "commit", "history", "branch", "workflow"]
+    },
+    {
+      "id": "doc-005",
+      "title": "TypeScript Generic Constraints",
+      "scope": "knowledge",
+      "tags": ["typescript", "generics", "types", "constraints"],
+      "summary": "Advanced TypeScript generic patterns including conditional types, mapped types, and template literal types for building flexible type-safe APIs.",
+      "rawUrl": "https://raw.githubusercontent.com/example/knowledge/main/typescript-generics.md",
+      "tokens": ["typescript", "generic", "type", "constraint", "conditional", "mapped", "template", "infer"]
+    }
+  ]
+}
