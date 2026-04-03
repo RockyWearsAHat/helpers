@@ -150,17 +150,19 @@ function buildSnippet(doc, terms) {
   haystack = haystack.replace(/^#+\s*/, "");
   var titleLower = (doc.title || "").toLowerCase();
   var normTitle = titleLower.replace(/&amp;/g, "&").replace(/\s*[\u2014\u2013,;:!?]\s*/g, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
-  var normHay = haystack.toLowerCase().replace(/&amp;/g, "&").replace(/\s*[\u2014\u2013,;:!?]\s*/g, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ");
-  if (normTitle && normHay.startsWith(normTitle)) {
-    // Find where the actual title ends in the original haystack
-    var indexInOriginal = 0;
-    var normalizedSoFar = "";
-    while (normalizedSoFar.length < normTitle.length && indexInOriginal < haystack.length) {
-      indexInOriginal++;
-      normalizedSoFar = haystack.slice(0, indexInOriginal).toLowerCase().replace(/&amp;/g, "&").replace(/\s*[\u2014\u2013,;:!?]\s*/g, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ");
+  var stripFromTitle = function(text) {
+    if (!normTitle || !text) return text;
+    var normT = text.toLowerCase().replace(/&amp;/g, "&").replace(/\s*[\u2014\u2013,;:!?]\s*/g, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ");
+    if (!normT.startsWith(normTitle)) return text;
+    var i = 0;
+    var ns = "";
+    while (ns.length < normTitle.length && i < text.length) {
+      i++;
+      ns = text.slice(0, i).toLowerCase().replace(/&amp;/g, "&").replace(/\s*[\u2014\u2013,;:!?]\s*/g, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ");
     }
-    haystack = haystack.slice(indexInOriginal).replace(/^[\s,.:;\-]+/, "");
-  }
+    return text.slice(i).replace(/^[\s,.:;\-]+/, "");
+  };
+  haystack = stripFromTitle(haystack);
   var lowerHaystack = haystack.toLowerCase();
   var start = 0;
   for (var i = 0; i < terms.length; i++) {
@@ -183,7 +185,7 @@ function buildSnippet(doc, terms) {
   var snippetPunct = (cleanSnippet.match(/[.!?]/g) || []).length;
   var hasTableMarkers = (cleanSnippet.match(/\|/g) || []).length > 2;
   if (snippetWords >= 10 && snippetPunct < snippetWords / 4 && !hasTableMarkers) {
-    var fallback = doc.previewText || "";
+    var fallback = stripFromTitle(doc.previewText || "");
     if (fallback && fallback !== haystack) {
       var fb = fallback.slice(0, 260).trim().replace(/-{3,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
       return fb.length < fallback.length ? fb + "\u2026" : fb;
@@ -197,7 +199,7 @@ function buildSnippet(doc, terms) {
   // Big-O complexity table detection — return empty string rather than table noise
   var hasBigOTokens = (cleanSnippet.match(/O\([^)]{1,20}\)/g) || []).length >= 2;
   if (hasBigOTokens) {
-    var bigOFallback = doc.previewText || "";
+    var bigOFallback = stripFromTitle(doc.previewText || "");
     if (bigOFallback && bigOFallback !== haystack) {
       var bofb = bigOFallback.slice(0, 260).trim().replace(/-{3,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
       return bofb.length < bigOFallback.length ? bofb + "\u2026" : bofb;
