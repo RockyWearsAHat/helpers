@@ -313,6 +313,7 @@ function activate(context) {
       cachedGpgUploadFailed = v;
     },
     _ollamaPinned: models.getOllamaPinned(),
+    getCachedModels: models.getCachedModels,
     _context,
   });
   _webviewProvider = new CommunityCacheViewProvider(context.extensionUri);

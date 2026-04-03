@@ -65,10 +65,15 @@ function _resolveArchiveRoot(ctx) {
 module.exports = function createChatSessions(deps) {
   const { getWebviewProvider, getActivityItems } = deps;
 
+  const ARCHIVE_CHUNK_BYTES = 1024 * 1024;
+  const ARCHIVE_QUEUE_DELAY_MS = 10;
   const _chatSessions = new Map(); // sessionId → session data
   const _chatHistoryArchive = createChatHistoryArchive();
   let _chatSessionWatcher = null;
   let _chatSessionPoller = null;
+  let _archiveQueueTimer = null;
+  let _archiveQueue = [];
+  const _queuedArchiveSessions = new Set();
 
   function getChatSessions() {
     return _chatSessions;
@@ -134,6 +139,51 @@ module.exports = function createChatSessions(deps) {
       type: "activityUpdate",
       items: getActivityItems(),
     });
+  }
+
+  function _clearArchiveQueue() {
+    if (_archiveQueueTimer) {
+      clearTimeout(_archiveQueueTimer);
+      _archiveQueueTimer = null;
+    }
+    _archiveQueue = [];
+    _queuedArchiveSessions.clear();
+  }
+
+  function _scheduleArchiveQueueDrain() {
+    if (_archiveQueueTimer || _archiveQueue.length === 0) return;
+    _archiveQueueTimer = setTimeout(() => {
+      _archiveQueueTimer = null;
+      _drainArchiveQueue();
+    }, ARCHIVE_QUEUE_DELAY_MS);
+  }
+
+  function _enqueueArchiveWork(sessionId, filePath, metadata = {}) {
+    if (!sessionId || !filePath || _queuedArchiveSessions.has(sessionId)) return;
+    _queuedArchiveSessions.add(sessionId);
+    _archiveQueue.push({ sessionId, filePath, metadata });
+    _scheduleArchiveQueueDrain();
+  }
+
+  function _drainArchiveQueue() {
+    const next = _archiveQueue.shift();
+    if (!next) return;
+
+    let result = null;
+    try {
+      result = _chatHistoryArchive.archiveSessionFile(next.sessionId, next.filePath, {
+        ...next.metadata,
+        maxBytes: ARCHIVE_CHUNK_BYTES,
+      });
+    } catch {}
+
+    if (result?.remainingBytes > 0) {
+      _archiveQueue.push(next);
+    } else {
+      _queuedArchiveSessions.delete(next.sessionId);
+    }
+
+    _scheduleArchiveQueueDrain();
   }
 
   function _chatSessionReadTail(filePath, bytes) {
@@ -389,9 +439,13 @@ module.exports = function createChatSessions(deps) {
       .getConfiguration("gitShellHelpers.chatArchive")
       .get("enabled", true);
     if (archiveEnabled) {
-      _chatHistoryArchive.archiveSessionFile(sessionId, filePath, {
+      const archiveResult = _chatHistoryArchive.archiveSessionFile(sessionId, filePath, {
         title: existing?.title,
+        maxBytes: ARCHIVE_CHUNK_BYTES,
       });
+      if (archiveResult?.remainingBytes > 0) {
+        _enqueueArchiveWork(sessionId, filePath, { title: existing?.title });
+      }
     }
 
     const { tail, size: fileSize } = _chatSessionReadTail(filePath);
@@ -481,6 +535,7 @@ module.exports = function createChatSessions(deps) {
   function startChatSessionWatcher(ctx) {
     _chatSessionWatcher?.close();
     _chatSessionWatcher = null;
+    _clearArchiveQueue();
     if (_chatSessionPoller) {
       clearInterval(_chatSessionPoller);
       _chatSessionPoller = null;
@@ -514,7 +569,7 @@ module.exports = function createChatSessions(deps) {
 
         if (!_didBootstrapArchive) {
           for (const file of files) {
-            _chatHistoryArchive.archiveSessionFile(file.sid, file.fp);
+            _enqueueArchiveWork(file.sid, file.fp);
           }
           _didBootstrapArchive = true;
         }
@@ -561,6 +616,7 @@ module.exports = function createChatSessions(deps) {
   function dispose() {
     _chatSessionWatcher?.close();
     _chatSessionWatcher = null;
+    _clearArchiveQueue();
     if (_chatSessionPoller) {
       clearInterval(_chatSessionPoller);
       _chatSessionPoller = null;

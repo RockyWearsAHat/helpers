@@ -15,6 +15,11 @@
 #   -m <message>     Use this message instead of generating one with AI
 #   -a, --all        Stage all tracked changes before committing (git add -u)
 #   --push           Also push after committing (delegates to git-upload)
+#   --model <name>   Model to use for AI message generation. Accepts a model
+#                    id (e.g. gpt-5.4-mini), display name (e.g. "Claude Haiku 4.5"),
+#                    or shorthand (haiku, sonnet, mini, flash, ...). When omitted,
+#                    the cheapest available model is selected automatically.
+#                    Also readable from git config: checkpoint.model
 #   --dry-run        Show what would be committed without actually committing
 #   --status         Show whether checkpoint is enabled for this repo
 #   --enable         Enable checkpoint for this repo (git config)
@@ -26,6 +31,7 @@
 #   checkpoint.enabled    true/false — gate for external callers (default: true)
 #   checkpoint.push       true/false — always push after commit (default: false)
 #   checkpoint.sign       true/false — GPG-sign commits (default: false)
+#   checkpoint.model      model id or alias — AI model for message generation
 #
 # Examples:
 #   git checkpoint                    # stage + AI message + commit
@@ -33,6 +39,8 @@
 #   git checkpoint -m "Fix login"     # stage + manual message + commit
 #   git checkpoint --push             # commit and push
 #   git checkpoint "auth rework"      # extra context for the AI prompt
+#   git checkpoint --model haiku      # use Claude Haiku for this commit
+#   git checkpoint --model gpt-5.4-mini  # specify model by id
 #   git checkpoint --enable           # enable per-repo
 #   git checkpoint --disable          # disable per-repo
 #   git checkpoint --dry-run          # preview without committing
@@ -47,17 +55,22 @@ do_push=false
 dry_run=false
 no_verify=false
 extra_context=""
-
-DEFAULT_AI_CMD='copilot -s --model gpt-5.1-codex --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"'
+model_override=""
 
 # ── Argument parsing ──────────────────────────────────────────────────
 expect_msg_next=false
+expect_model_next=false
 
 for arg in "$@"; do
 	if [ "$expect_msg_next" = true ]; then
 		manual_msg="$arg"
 		use_manual_msg=true
 		expect_msg_next=false
+		continue
+	fi
+	if [ "$expect_model_next" = true ]; then
+		model_override="$arg"
+		expect_model_next=false
 		continue
 	fi
 	case "$arg" in
@@ -70,6 +83,12 @@ for arg in "$@"; do
 		--push)
 			do_push=true
 			;;
+		--model)
+			expect_model_next=true
+			;;
+		--model=*)
+			model_override="${arg#--model=}"
+			;;
 		--dry-run)
 			dry_run=true
 			;;
@@ -80,7 +99,11 @@ for arg in "$@"; do
 			enabled=$(git config --get checkpoint.enabled 2>/dev/null || echo "true")
 			push_default=$(git config --get checkpoint.push 2>/dev/null || echo "false")
 			sign=$(git config --get checkpoint.sign 2>/dev/null || echo "false")
+			use_ai=$(git config --get checkpoint.useAI 2>/dev/null || echo "true")
+			model_cfg=$(git config --get checkpoint.model 2>/dev/null || echo "(auto)")
 			echo "[git-checkpoint] enabled: $enabled"
+			echo "[git-checkpoint] use AI: $use_ai"
+			echo "[git-checkpoint] model: $model_cfg"
 			echo "[git-checkpoint] push after commit: $push_default"
 			echo "[git-checkpoint] sign commits: $sign"
 			exit 0
@@ -96,7 +119,7 @@ for arg in "$@"; do
 			exit 0
 			;;
 		-h|--help)
-			sed -n '3,/^[^#]/s/^# \{0,1\}//p' "$0" | head -40
+			sed -n '3,/^[^#]/s/^# \{0,1\}//p' "$0" | head -50
 			exit 0
 			;;
 		--*)
@@ -116,6 +139,11 @@ if [ "$expect_msg_next" = true ]; then
 	exit 1
 fi
 
+if [ "$expect_model_next" = true ]; then
+	echo "[git-checkpoint] --model requires a model name argument." >&2
+	exit 1
+fi
+
 # ── Gate: check if enabled ────────────────────────────────────────────
 enabled=$(git config --get checkpoint.enabled 2>/dev/null || echo "true")
 if [ "$enabled" = "false" ]; then
@@ -130,6 +158,48 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 repo_root=$(git rev-parse --show-toplevel)
+
+# ── Read AI settings from git config ────────────────────────────────
+use_ai=$(git config --get checkpoint.useAI 2>/dev/null || echo "true")
+cfg_model=$(git config --get checkpoint.model 2>/dev/null || echo "")
+
+# CLI flag takes precedence over git config
+if [ -z "$model_override" ] && [ -n "$cfg_model" ]; then
+	model_override="$cfg_model"
+fi
+
+# ── Resolve model id (normalize shorthand to a copilot model id) ──────
+resolve_model() {
+	local input="$1"
+	local norm
+	norm=$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]' | tr -d ' .-_')
+	case "$norm" in
+		haiku*|claudehaiku*)         echo "claude-haiku-4.5" ;;
+		sonnet*|claudesonnet*)       echo "claude-sonnet-4.6" ;;
+		opus*|claudeopus*)           echo "claude-opus-4.6" ;;
+		mini*|gpt*mini*|54mini*)     echo "gpt-5.4-mini" ;;
+		flash*|gemini*flash*)        echo "gemini-3-flash-preview" ;;
+		qwen*06b*|qwen*tiny*)        echo "qwen3:0.6b" ;;
+		qwen*4b*|qwen*)              echo "qwen3:4b" ;;
+		*)                           echo "$input" ;;
+	esac
+}
+
+# ── Auto-detect cheapest available model when none specified ──────────
+detect_cheap_model() {
+	local models_file="$HOME/.copilot/available-models.json"
+	if [ ! -f "$models_file" ]; then
+		echo "gpt-5.4-mini"
+		return
+	fi
+	for candidate in gpt-5.4-mini gpt-5-mini claude-haiku-4.5 gpt-4o-mini; do
+		if grep -q "\"id\": *\"$candidate\"" "$models_file" 2>/dev/null; then
+			echo "$candidate"
+			return
+		fi
+	done
+	echo "gpt-5.4-mini"
+}
 
 # ── Stage changes ────────────────────────────────────────────────────
 if [ "$stage_all" = true ]; then
@@ -155,8 +225,13 @@ if [ "$dry_run" = true ]; then
 		echo ""
 		echo "Message: $manual_msg"
 	else
-		echo ""
-		echo "(AI message would be generated at commit time)"
+		if [ "$use_ai" = "false" ]; then
+			echo ""
+			echo "(AI message generation is disabled — use -m to provide a message)"
+		else
+			echo ""
+			echo "(AI message would be generated at commit time)"
+		fi
 	fi
 	exit 0
 fi
@@ -166,14 +241,16 @@ commit_msg=""
 
 if [ "$use_manual_msg" = true ]; then
 	commit_msg="$manual_msg"
+elif [ "$use_ai" = "false" ]; then
+	echo "[git-checkpoint] AI message generation is disabled (checkpoint.useAI=false)." >&2
+	echo "[git-checkpoint] Use -m to provide a message, or re-enable AI: git config checkpoint.useAI true" >&2
+	exit 1
 else
-	# Generate AI message
-	ai_cmd="${GIT_UPLOAD_AI_CMD:-$DEFAULT_AI_CMD}"
-	ai_binary=${ai_cmd%% *}
-	if ! command -v "$ai_binary" >/dev/null 2>&1; then
-		echo "[git-checkpoint] AI command '$ai_binary' not found." >&2
-		echo "[git-checkpoint] Use -m to provide a manual message, or install copilot CLI." >&2
-		exit 1
+	# Resolve the model to use
+	if [ -n "$model_override" ]; then
+		ai_model=$(resolve_model "$model_override")
+	else
+		ai_model=$(detect_cheap_model)
 	fi
 
 	echo "" >&2
@@ -318,7 +395,19 @@ $actual_diff
 Additional context from developer: $extra_context"
 	fi
 
-	echo "[git-checkpoint] Generating commit message..." >&2
+	echo "[git-checkpoint] Generating commit message (model: $ai_model)..." >&2
+
+	ai_cmd="copilot -s --model $ai_model --deny-tool write --deny-tool shell -p \"\$GIT_UPLOAD_AI_PROMPT\""
+	if [ -n "${GIT_UPLOAD_AI_CMD:-}" ]; then
+		ai_cmd="$GIT_UPLOAD_AI_CMD"
+	fi
+
+	ai_binary=${ai_cmd%% *}
+	if ! command -v "$ai_binary" >/dev/null 2>&1; then
+		echo "[git-checkpoint] AI command '$ai_binary' not found." >&2
+		echo "[git-checkpoint] Use -m to provide a manual message, or install copilot CLI." >&2
+		exit 1
+	fi
 
 	ai_output_file=$(mktemp -t git-checkpoint-ai.XXXXXX)
 	ai_exit=0

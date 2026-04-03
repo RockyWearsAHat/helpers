@@ -47,6 +47,7 @@ checks=(
 	"node ./scripts/test-search-auto-scrape.js"
 	"node ./scripts/test-chat-history-archive.js"
 	"node ./scripts/test-chat-archive-mcp.js"
+	"node ./scripts/test-chat-sessions.js"
 	"node ./scripts/test-install-health.js"
 	"node ./scripts/test-worktree-manager.js"
 	"node ./scripts/build-pages-search-site.js"

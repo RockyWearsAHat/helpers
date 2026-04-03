@@ -27,6 +27,7 @@ module.exports = function createWebviewProviderClass(deps) {
     setCachedUser,
     setCachedRepos,
     setCachedGpgUploadFailed,
+    getCachedModels,
   } = deps;
 
   const renderWebviewHtml = createRenderWebviewHtml(deps);
@@ -37,6 +38,7 @@ module.exports = function createWebviewProviderClass(deps) {
     constructor(extensionUri) {
       this._extensionUri = extensionUri;
       this._view = null;
+      this._updateVersion = 0;
     }
 
     resolveWebviewView(webviewView) {
@@ -45,7 +47,8 @@ module.exports = function createWebviewProviderClass(deps) {
         enableScripts: true,
         localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, "media")],
       };
-      this._update();
+      webviewView.webview.html = this._renderLoadingHtml();
+      this._scheduleUpdate();
 
       webviewView.webview.onDidReceiveMessage(async (msg) => {
         switch (msg.type) {
@@ -146,6 +149,39 @@ module.exports = function createWebviewProviderClass(deps) {
             );
             break;
           }
+          case "openCheckpointModelPicker": {
+            const cpConfig = vscode.workspace.getConfiguration(
+              "gitShellHelpers.checkpoint",
+            );
+            const currentModel = String(cpConfig.get("model") || "").trim();
+            const allModels = getCachedModels();
+            const AUTO_LABEL = "$(sparkle) Auto (cheapest available)";
+            const items = [
+              {
+                label: AUTO_LABEL,
+                description: "Let checkpoint pick the fastest free model",
+                modelId: "",
+              },
+              ...allModels.map((m) => ({
+                label: m.name || m.id,
+                description: m.vendor || "",
+                detail: currentModel === m.id ? "$(check) current" : undefined,
+                modelId: m.id,
+              })),
+            ];
+            const picked = await vscode.window.showQuickPick(items, {
+              title: "Checkpoint AI Model",
+              placeHolder: "Select the model used to generate commit messages",
+              matchOnDescription: true,
+            });
+            if (!picked) break;
+            await cpConfig.update(
+              "model",
+              picked.modelId,
+              vscode.ConfigurationTarget.Global,
+            );
+            break;
+          }
           case "openMcpControls":
             await openMcpServerControls();
             break;
@@ -174,12 +210,12 @@ module.exports = function createWebviewProviderClass(deps) {
                 ? `${msg.provider === "anthropic" ? "Anthropic" : "OpenAI"} API key saved.`
                 : `${msg.provider === "anthropic" ? "Anthropic" : "OpenAI"} API key cleared.`,
             );
-            this._update();
+            this._scheduleUpdate();
             break;
           }
           case "refreshOllama":
             await detectOllama();
-            this._update();
+            this._scheduleUpdate();
             break;
           case "ollamaToggle": {
             const model = String(msg.model || "").trim();
@@ -192,7 +228,7 @@ module.exports = function createWebviewProviderClass(deps) {
             deps._context.globalState.update("gsh.ollama.pinned", [
               ...deps._ollamaPinned,
             ]);
-            this._update();
+            this._scheduleUpdate();
             break;
           }
           case "ollamaRun": {
@@ -249,13 +285,13 @@ module.exports = function createWebviewProviderClass(deps) {
 
       webviewView.onDidChangeVisibility(() => {
         if (webviewView.visible) {
-          this._update();
+          this._scheduleUpdate();
         }
       });
     }
 
     refresh() {
-      this._update();
+      this._scheduleUpdate();
     }
 
     pushUpdate(data) {
@@ -263,11 +299,42 @@ module.exports = function createWebviewProviderClass(deps) {
       this._view.webview.postMessage(data);
     }
 
+    _scheduleUpdate() {
+      void this._update();
+    }
+
+    _renderLoadingHtml() {
+      return `<!DOCTYPE html>
+<html lang="en">
+  <body style="font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-sideBar-background); padding: 12px;">
+    Loading GitHub Shell Helpers...
+  </body>
+</html>`;
+    }
+
+    _renderErrorHtml() {
+      return `<!DOCTYPE html>
+<html lang="en">
+  <body style="font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-sideBar-background); padding: 12px;">
+    GitHub Shell Helpers failed to load this view. Check the extension host logs and reload the window after fixing the error.
+  </body>
+</html>`;
+    }
+
     async _update() {
       if (!this._view) return;
+      const updateVersion = ++this._updateVersion;
       const mode = getMode();
       const whitelist = getWhitelist();
-      this._view.webview.html = await this._getHtml(mode, whitelist);
+      try {
+        const html = await this._getHtml(mode, whitelist);
+        if (!this._view || updateVersion !== this._updateVersion) return;
+        this._view.webview.html = html;
+      } catch (error) {
+        console.error("[gsh] Failed to render community cache webview:", error);
+        if (!this._view || updateVersion !== this._updateVersion) return;
+        this._view.webview.html = this._renderErrorHtml();
+      }
     }
 
     async _getHtml(mode, whitelist) {

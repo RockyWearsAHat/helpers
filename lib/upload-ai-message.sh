@@ -246,8 +246,20 @@ $block"
 }
 
 resolve_ai_cmd() {
+	# Full command override takes top priority (manual env var).
 	if [ -n "${GIT_UPLOAD_AI_CMD-}" ]; then
 		printf '%s' "$GIT_UPLOAD_AI_CMD"
+		return
+	fi
+
+	# Read model preference written by the VS Code sidebar (via syncCheckpointSettings).
+	# Falls back to DEFAULT_AI_CMD (no --model flag) when unset, letting the CLI auto-select.
+	local model
+	model="$(git config --get checkpoint.model 2>/dev/null || true)"
+	model="${model//[[:space:]]/}"  # strip whitespace
+
+	if [ -n "$model" ]; then
+		printf 'copilot -s --model %s --deny-tool write --deny-tool shell -p "$GIT_UPLOAD_AI_PROMPT"' "$model"
 	else
 		printf '%s' "$DEFAULT_AI_CMD"
 	fi

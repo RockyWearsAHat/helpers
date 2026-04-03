@@ -18,6 +18,7 @@ module.exports = function createRenderWebviewHtml(deps) {
     MODES,
     QUICK_ACTIONS,
     getCachedUser,
+    getCachedModels,
     getCachedRepos,
     getCachedGpgNeedsUpload,
     getCachedGpgUploadFailed,
@@ -100,6 +101,19 @@ module.exports = function createRenderWebviewHtml(deps) {
     const cpEnabled = cpConfig.get("enabled", true);
     const cpAutoPush = cpConfig.get("autoPush", false);
     const cpSign = cpConfig.get("sign", false);
+    const cpUseAI = cpConfig.get("useAI", true);
+    const cpModel = String(cpConfig.get("model") || "").trim();
+    const cpModelInfo = cpModel
+      ? getCachedModels().find((model) => model.id === cpModel) || null
+      : null;
+    const cpModelLabel = cpModel
+      ? cpModelInfo?.name || cpModel
+      : "Automatic";
+    const cpModelDesc = cpModel
+      ? cpModelInfo?.vendor
+        ? `AI commit messages use ${cpModelInfo.vendor}`
+        : "AI commit messages use the selected chat model"
+      : "AI commit messages use VS Code's automatic model choice";
     const mcpStatus = getMcpStatusViewModel(deps._context);
 
     const checkpointItems = [
@@ -121,6 +135,12 @@ module.exports = function createRenderWebviewHtml(deps) {
         desc: "Sign commits with GPG so GitHub shows a Verified badge",
         value: cpSign,
       },
+      {
+        key: "useAI",
+        label: "AI Messages",
+        desc: "Generate commit messages with AI (disable to require -m)",
+        value: cpUseAI,
+      },
     ];
     const cpRows = checkpointItems
       .map(
@@ -131,9 +151,20 @@ module.exports = function createRenderWebviewHtml(deps) {
             <span class="tl">${escapeHtml(item.label)}</span>
             <span class="td">${escapeHtml(item.desc)}</span>
           </div>
-        </div>`,
+       </div>`,
       )
-      .join("");
+      .join("") + `
+        <div class="tool-item tool-item--interactive cp-model-row${cpUseAI ? "" : " cp-model-row--dim"}" data-cpmodel="picker" role="button" tabindex="${cpUseAI ? "0" : "-1"}" aria-disabled="${cpUseAI ? "false" : "true"}" title="Change checkpoint AI model">
+          <div class="cp-model-spacer" aria-hidden="true"></div>
+          <div class="tool-text">
+            <span class="tl">Checkpoint model</span>
+            <span class="td">${escapeHtml(cpModelDesc)}</span>
+          </div>
+          <div class="cp-model-meta">
+            <span class="cp-model-chip${cpModel ? " active" : ""}">${escapeHtml(cpModelLabel)}</span>
+            <svg class="cp-model-chevron" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06z"/></svg>
+          </div>
+        </div>`;
 
     const toolRows = TOOL_GROUPS.map((group) => {
       const enabled = isGroupEnabled(group.key);

@@ -164,6 +164,16 @@
           "default": false,
           "description": "GPG-sign checkpoint commits (requires a GPG key configured in git)."
         },
+        "gitShellHelpers.checkpoint.useAI": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate commit messages using AI. When off, -m is required."
+        },
+        "gitShellHelpers.checkpoint.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model to use for AI commit message generation. Leave blank to auto-select the cheapest available model."
+        },
         "gitShellHelpers.customizationInspector.enabled": {
           "type": "boolean",
           "default": true,
