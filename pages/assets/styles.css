@@ -75,7 +75,7 @@
   --shadow-md:      0 3px 12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
   --shadow-lg:      0 8px 32px rgba(0, 0, 0, 0.7);
   --shadow-focus:   0 0 0 3px rgba(56, 189, 248, 0.25);
-  --code-bg:        #050507;
+  --code-bg:        #1b1b1e;
   --code-border:    rgba(255, 255, 255, 0.08);
   --reader-bg:      #111113;
   --kbd-bg:         rgba(255, 255, 255, 0.11);
@@ -810,9 +810,17 @@ button.bento-card {
 .result-scope-badge[data-scope="archive"]   { background: var(--bg-inset); color: var(--ink-muted); border-color: var(--border); }
 
 [data-theme="dark"] .result-scope-badge[data-scope="knowledge"] { color: #a78bfa; }
-[data-theme="dark"] .result-scope-badge[data-scope="copilot"] { background: rgba(56, 189, 248, 0.1); color: rgba(56, 189, 248, 0.75); border-color: rgba(56, 189, 248, 0.18); }
+[data-theme="dark"] .result-scope-badge[data-scope="copilot"] { background: rgba(56, 189, 248, 0.1); color: var(--accent); border-color: rgba(56, 189, 248, 0.18); }
 
 .result-scope-badge.chip-button:hover { border-color: var(--accent); }
+
+.bento-date {
+  cursor: default;
+}
+
+.bento-date:hover {
+  transform: none;
+}
 
 .result-snippet {
   margin: 8px 0 10px;
@@ -1130,8 +1138,15 @@ button.bento-card {
   letter-spacing: -0.025em;
   margin: 0 0 24px;
   padding-bottom: 20px;
-  border-bottom: 2px solid var(--accent);
+  border-bottom: 3px solid var(--accent);
   color: var(--ink);
+}
+
+[data-theme="dark"] .reader-body h1 {
+  background: linear-gradient(135deg, #f4f4f5 0%, #a1a1aa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .reader-body h2 {
@@ -1213,6 +1228,7 @@ button.bento-card {
 .reader-body th, .reader-body td { padding: 8px 12px; border: 1px solid var(--border-strong); text-align: left; }
 .reader-body th { background: rgba(2, 132, 199, 0.18); font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); border-bottom: 2px solid var(--accent); border-top: 1px solid var(--accent); }
 .reader-body table tbody tr:nth-child(odd) { background: var(--bg-inset); }
+[data-theme="dark"] .reader-body table tbody tr:nth-child(odd) { background: rgba(255, 255, 255, 0.08); }
 .reader-body table thead tr { border-bottom: 2px solid var(--accent); }
 .reader-body hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; opacity: 0.4; }
 .reader-body img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
@@ -1566,6 +1582,10 @@ mark {
   color: var(--accent);
   padding: 0 0.1em;
   border-radius: 2px;
+}
+
+[data-theme="dark"] mark {
+  background: rgba(56, 189, 248, 0.22);
 }
 
 /* ─── Animations ─────────────────────────────────────────────────────────────── */
