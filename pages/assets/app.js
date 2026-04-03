@@ -163,7 +163,7 @@ function buildSnippet(doc, terms) {
   var end = Math.min(haystack.length, start + 260);
   var prefix = start > 0 ? "\u2026" : "";
   var suffix = end < haystack.length ? "\u2026" : "";
-  var snippet = prefix + haystack.slice(start, end).trim() + suffix;
+  var snippet = prefix + haystack.slice(start, end).trim().replace(/\s\S*$/, "") + suffix;
 
   // Quality filter: word-cloud detection. If the snippet has very little
   // punctuation relative to word count it's probably raw token noise — fall
