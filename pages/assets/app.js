@@ -54,6 +54,10 @@ function showPage(name) {
   navLinks.forEach(function (btn) {
     btn.classList.toggle("active", btn.dataset.page === name);
   });
+  var footerLinks = Array.from(document.querySelectorAll(".footer-link[data-page]"));
+  footerLinks.forEach(function (btn) {
+    btn.classList.toggle("active", btn.dataset.page === name);
+  });
 }
 
 function syncPracticeToggleState() {
@@ -411,9 +415,10 @@ function renderPreview(doc) {
     .join("");
 
   previewCard.innerHTML =
-    '<p class="preview-kicker">' +
-    escapeHtml(doc.scopeLabel) +
-    "</p>" +
+    buildChipButton(doc.scopeLabel, "meta-pill", {
+      scope: doc.scopeKey,
+      clearQuery: true,
+    }) +
     "<h2>" +
     escapeHtml(doc.title) +
     "</h2>" +
@@ -976,6 +981,8 @@ function markdownToHtml(md) {
   result = result.replace(/<(h[1-6])>\s*<em>([\s\S]*?)<\/em>\s*<\/(h[1-6])>/g, function (_m, tag, inner) {
     return "<" + tag + ">" + inner + "</" + tag + ">";
   });
+  // Strip standalone <hr> elements that appear immediately before h2 or h3 headings
+  result = result.replace(/<hr>\s*(?=<h[23]>)/g, "");
   return result;
 }
 
@@ -1313,6 +1320,11 @@ queryInput.addEventListener("input", function () {
     updateUrl();
     runSearch();
   }, 90);
+  // ISSUE 23: Hide search-kbd badge when input has value
+  var searchKbd = queryInput.parentElement.querySelector(".search-kbd");
+  if (searchKbd) {
+    searchKbd.style.display = queryInput.value.length > 0 ? "none" : "";
+  }
 });
 
 function handleChipClick(event) {
