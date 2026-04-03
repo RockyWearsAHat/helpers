@@ -204,6 +204,11 @@ body::before {
   backdrop-filter: blur(20px) saturate(1.5);
   -webkit-backdrop-filter: blur(20px) saturate(1.5);
   border-bottom: 1px solid var(--border);
+  /* Break out of .page-shell's horizontal padding so nav spans full viewport */
+  margin-left: calc(-1 * clamp(12px, 2.5vw, 48px));
+  margin-right: calc(-1 * clamp(12px, 2.5vw, 48px));
+  padding-left: clamp(12px, 2.5vw, 48px);
+  padding-right: clamp(12px, 2.5vw, 48px);
 }
 
 .logo-mark {
@@ -912,20 +917,20 @@ button.bento-card {
   align-items: center;
   gap: 5px;
   margin-top: 12px;
-  padding: 6px 13px;
+  padding: 7px 16px;
   font: inherit;
   font-size: 0.82rem;
-  font-weight: 500;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
   border-radius: var(--r-sm);
   cursor: pointer;
-  transition: color 130ms, background 130ms, border-color 130ms;
+  transition: color 130ms, background 130ms, border-color 130ms, opacity 130ms;
   letter-spacing: -0.01em;
 }
 
-.read-article-btn:hover { color: #fff; background: var(--accent); border-color: var(--accent); }
+.read-article-btn:hover { opacity: 0.88; }
 
 /* ─── Preview Column ─────────────────────────────────────────────────────────── */
 .preview-column-shell {
