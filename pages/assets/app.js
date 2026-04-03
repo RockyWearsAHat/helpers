@@ -146,7 +146,7 @@ function buildSnippet(doc, terms) {
   // Strip Markdown horizontal rules, setext separators, and table separator rows
   haystack = haystack.replace(/(?:^|\n)\s*[-=]{3,}\s*(?=\n|$)/g, " ");
   haystack = haystack.replace(/(?:^|\n)\s*[|\-: ]+\s*(?=\n|$)/g, " ");
-  haystack = haystack.replace(/\s{2,}/g, " ").trim();
+  haystack = haystack.replace(/-{4,}/g, ' ').replace(/\s{2,}/g, " ").trim();
   var titleLower = (doc.title || "").toLowerCase();
   if (titleLower && haystack.toLowerCase().startsWith(titleLower)) {
     haystack = haystack.slice(titleLower.length).replace(/^[\s,.:;-]+/, "");
@@ -424,9 +424,6 @@ function renderPreview(doc) {
     "</h2>" +
     '<div class="preview-meta">' +
     metaPills +
-    buildChipButton(doc.path, "meta-pill meta-pill-path", {
-      query: doc.path,
-    }) +
     "</div>" +
     '<p class="preview-body">' +
     escapeHtml(doc.previewText || doc.snippet) +
@@ -1132,6 +1129,46 @@ function highlightReaderCode() {
   }
 }
 
+function processSeeAlsoLinks() {
+  readerBody.querySelectorAll("p").forEach(function (p) {
+    var text = p.textContent.trim();
+    if (!text.startsWith("See also:")) return;
+    
+    var content = p.innerHTML;
+    var seeAlsoMatch = content.match(/^([^:]+:\s*)(.*)$/);
+    if (!seeAlsoMatch) return;
+    
+    var label = seeAlsoMatch[1];
+    var slugsText = seeAlsoMatch[2];
+    
+    var slugs = slugsText
+      .split(/[,\s]+/)
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return /^[a-z][a-z0-9-]*$/.test(s); });
+    
+    if (!slugs.length) return;
+    
+    var buttons = slugs.map(function (slug) {
+      return '<button class="see-also-link chip-button" data-slug="' + escapeHtml(slug) + '">' + escapeHtml(slug.replace(/-/g, " ")) + '</button>';
+    }).join(' ');
+    
+    p.innerHTML = '<span class="see-also-label">' + escapeHtml(label) + '</span> ' + buttons;
+    
+    p.querySelectorAll("[data-slug]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var slug = btn.dataset.slug;
+        var docEntry = state.documentsById.get(slug);
+        if (docEntry) {
+          setSelected(docEntry.id);
+          if (docEntry.rawUrl) openReader(docEntry.id);
+        }
+      });
+    });
+  });
+}
+
+
+
 function openReader(docId, options) {
   options = options || {};
   var doc = state.documentsById.get(docId);
@@ -1163,6 +1200,7 @@ function openReader(docId, options) {
       rendered = resolveSlugLinks(rendered);
       state.readerCache.set(docId, rendered);
       readerBody.innerHTML = rendered;
+      processSeeAlsoLinks();
       highlightReaderCode();
       return true;
     }
@@ -1191,6 +1229,7 @@ function openReader(docId, options) {
       state.readerCache.set(docId, rendered);
       if (state.readerDoc && state.readerDoc.id === docId) {
         readerBody.innerHTML = rendered;
+        processSeeAlsoLinks();
         highlightReaderCode();
       }
     })
