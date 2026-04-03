@@ -14,14 +14,18 @@
 // proportional routing where lightweight steps use cheaper models and complex
 // steps use more capable ones.
 //
-// Two injection points in the workbench bundle (RunSubagentTool class):
+// Three injection points in the workbench bundle (RunSubagentTool class):
 //
 //   1. getToolData() — adds `model` to the JSON schema so the model sees it
 //      as a valid parameter and the LLM prompt includes it in tool description
 //
-//   2. invoke() — applies the override after resolveSubagentModel() runs,
-//      right before the subagent request object is constructed so both
-//      `userSelectedModelId` and `modelConfiguration` pick up the value
+//   2. prepareToolInvocation() — resolves the call-time override early so the
+//      UI badge / cached tool metadata show the actual subagent model rather
+//      than the parent session model
+//
+//   3. invoke() — applies the override again right before the subagent request
+//      object is constructed so both `userSelectedModelId` and
+//      `modelConfiguration` pick up the value
 //
 // Upstream proposal: proposals/004-runsubagent-model-param.md
 //
@@ -123,24 +127,102 @@ const INVOKE_SENTINEL = "let _GSH_RSMM_=1;";
 const INVOKE_ANCHOR =
   "let ve={sessionResource:e.context.sessionResource,requestId:e.callId";
 
+const PREPARE_SENTINEL = "let _GSH_RSMM_PREP_=1;";
+const PREPARE_ANCHOR =
+  'r=this.resolveSubagentModel(n,e.modelId);return this._resolvedModels.set(e.toolCallId,r),{invocationMessage:o.description,toolSpecificData:{kind:"subagent",description:o.description,agentName:n?.name,prompt:o.prompt,modelName:r.resolvedModelName}}';
+
 // Strategy:
-//   1. Try lookupLanguageModel(id) — works for internal opaque identifiers
-//   2. Try lookupLanguageModelByQualifiedName(name) — works for display names
-//      like "Claude Haiku 4.5" or "Claude Haiku 4.5 (copilot)"
-//   3. Fallback: set p=r.model directly (id passthrough like the UI picker
-//      does) and derive v from the id by capitalising words
-// This means both "claude-haiku-4.5" (id) and "Claude Haiku 4.5" (name)
-// are accepted and routed correctly.
+//   1. Try lookupLanguageModelByQualifiedName(input) — works for display names
+//      like "Claude Haiku 4.5 (copilot)" AND copilot-vendor models by bare name
+//   2. Try lookupLanguageModel(input) — works for internal opaque identifiers
+//      like "claude-haiku-4.5", then re-resolve to get the canonical identifier
+//   3. Normalize shorthand ("Haiku 4.5" → "Claude Haiku 4.5", "claude-haiku-4.5"
+//      → "Claude Haiku 4.5") and retry lookupLanguageModelByQualifiedName
+//   4. Name-scan fallback — iterate ALL registered models and match by display
+//      name case-insensitively.  This handles models from any vendor (Anthropic,
+//      OpenAI, etc.) whose vendor field is not "copilot", which causes
+//      lookupLanguageModelByQualifiedName to miss bare-name lookups.
+//   5. Last resort: set p=input directly (id passthrough) and derive v from
+//      the id by capitalising words
+//
+// This means "claude-haiku-4.5" (id), "Claude Haiku 4.5" (name), and
+// "Claude Haiku 4.5 (Anthropic)" (qualified name) are all accepted.
 const INVOKE_BODY =
   "if(r.model){" +
-  "let _lm=this.languageModelsService.lookupLanguageModel(r.model);" +
-  "if(_lm){p=r.model;v=_lm.name}" +
-  "else{let _qr=this.languageModelsService.lookupLanguageModelByQualifiedName(r.model);if(_qr?.metadata){_lm=_qr.metadata;p=_qr.identifier;v=_lm.name}" +
-  "else{p=r.model;v=r.model.replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}}" +
+  "let _input=String(r.model).trim();let _lm;" +
+  // Step 1: qualified name lookup (handles "Name (vendor)" and copilot bare names)
+  "let _qr=this.languageModelsService.lookupLanguageModelByQualifiedName(_input);" +
+  "if(_qr?.metadata){_lm=_qr.metadata;p=_qr.identifier;v=_lm.name}" +
+  "else{" +
+  // Step 2: direct ID lookup
+  "let _idMeta=this.languageModelsService.lookupLanguageModel(_input);" +
+  "if(_idMeta){" +
+  "let _idResult=this.languageModelsService.lookupLanguageModelByQualifiedName(_idMeta.name);" +
+  "if(_idResult?.metadata){_lm=_idResult.metadata;p=_idResult.identifier;v=_lm.name}" +
+  "else{_lm=_idMeta;p=_input;v=_lm.name}" +
+  "}else{" +
+  // Step 3: normalize shorthand
+  "let _normalized=_input;" +
+  "if(/^(haiku|sonnet|opus)\\b/i.test(_normalized)){_normalized='Claude '+_normalized}" +
+  "else if(/^claude-(haiku|sonnet|opus)-/i.test(_normalized)){" +
+  "_normalized='Claude '+_normalized.replace(/^claude-/i,'').replace(/-fast$/i,' (fast mode)').replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}" +
+  "let _normalizedResult=_normalized!==_input?this.languageModelsService.lookupLanguageModelByQualifiedName(_normalized):void 0;" +
+  "if(_normalizedResult?.metadata){_lm=_normalizedResult.metadata;p=_normalizedResult.identifier;v=_lm.name}" +
+  "else{" +
+  // Step 4: name-scan fallback — iterate all models, match by name (case-insensitive)
+  "let _lower=_input.toLowerCase();" +
+  "let _found=null;" +
+  "for(let[_id,_meta]of this.languageModelsService._modelCache||new Map()){" +
+  "if(_meta.name&&_meta.name.toLowerCase()===_lower){_found={id:_id,meta:_meta};break}" +
+  "}" +
+  "if(!_found){for(let[_id,_meta]of this.languageModelsService._modelCache||new Map()){" +
+  "if(_meta.id&&_meta.id.toLowerCase()===_lower){_found={id:_id,meta:_meta};break}" +
+  "}}" +
+  "if(_found){_lm=_found.meta;p=_found.id;v=_lm.name}" +
+  // Step 5: raw passthrough
+  "else{p=_input;v=_normalized.replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}" +
+  "}" +
+  "}}" +
   "this.logService.info(`[gsh] runSubagent model override → ${p} (${v})`)" +
   "}";
 
 const NEW_INVOKE = INVOKE_SENTINEL + INVOKE_BODY + INVOKE_ANCHOR;
+
+const PREPARE_BODY =
+  "if(o.model){" +
+  "let _input=String(o.model).trim();let _modeModelId=r.modeModelId;let _resolvedModelName=r.resolvedModelName;let _lm;" +
+  "let _qr=this.languageModelsService.lookupLanguageModelByQualifiedName(_input);" +
+  "if(_qr?.metadata){_lm=_qr.metadata;_modeModelId=_qr.identifier;_resolvedModelName=_lm.name}" +
+  "else{" +
+  "let _idMeta=this.languageModelsService.lookupLanguageModel(_input);" +
+  "if(_idMeta){" +
+  "let _idResult=this.languageModelsService.lookupLanguageModelByQualifiedName(_idMeta.name);" +
+  "if(_idResult?.metadata){_lm=_idResult.metadata;_modeModelId=_idResult.identifier;_resolvedModelName=_lm.name}" +
+  "else{_lm=_idMeta;_modeModelId=_input;_resolvedModelName=_lm.name}" +
+  "}else{" +
+  "let _normalized=_input;" +
+  "if(/^(haiku|sonnet|opus)\\b/i.test(_normalized)){_normalized='Claude '+_normalized}" +
+  "else if(/^claude-(haiku|sonnet|opus)-/i.test(_normalized)){" +
+  "_normalized='Claude '+_normalized.replace(/^claude-/i,'').replace(/-fast$/i,' (fast mode)').replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}" +
+  "let _normalizedResult=_normalized!==_input?this.languageModelsService.lookupLanguageModelByQualifiedName(_normalized):void 0;" +
+  "if(_normalizedResult?.metadata){_lm=_normalizedResult.metadata;_modeModelId=_normalizedResult.identifier;_resolvedModelName=_lm.name}" +
+  "else{" +
+  "let _lower=_input.toLowerCase();" +
+  "let _found=null;" +
+  "for(let[_id,_meta]of this.languageModelsService._modelCache||new Map()){" +
+  "if(_meta.name&&_meta.name.toLowerCase()===_lower){_found={id:_id,meta:_meta};break}" +
+  "}" +
+  "if(!_found){for(let[_id,_meta]of this.languageModelsService._modelCache||new Map()){" +
+  "if(_meta.id&&_meta.id.toLowerCase()===_lower){_found={id:_id,meta:_meta};break}" +
+  "}}" +
+  "if(_found){_lm=_found.meta;_modeModelId=_found.id;_resolvedModelName=_lm.name}" +
+  "else{_modeModelId=_input;_resolvedModelName=_normalized.replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}" +
+  "}" +
+  "}}" +
+  "r={modeModelId:_modeModelId,resolvedModelName:_resolvedModelName}" +
+  "}";
+
+const NEW_PREPARE = PREPARE_SENTINEL + PREPARE_BODY + PREPARE_ANCHOR;
 
 // ---------------------------------------------------------------------------
 // Patch 1 schema constants
@@ -161,6 +243,9 @@ module.exports = {
   BUNDLE,
   INVOKE_SENTINEL,
   INVOKE_ANCHOR,
+  PREPARE_SENTINEL,
+  PREPARE_ANCHOR,
+  NEW_PREPARE,
   NEW_INVOKE,
 };
 
@@ -172,9 +257,10 @@ function isPatchable() {
   if (!fs.existsSync(BUNDLE)) return "missing";
   const src = fs.readFileSync(BUNDLE, "utf8");
   const schemaApplied = src.includes(PATCHES[0].mark);
+  const prepareApplied = src.includes(PREPARE_SENTINEL);
   const invokeApplied = src.includes(INVOKE_SENTINEL);
-  if (schemaApplied && invokeApplied) return "patched";
-  if (!schemaApplied && !invokeApplied) return "unpatched";
+  if (schemaApplied && prepareApplied && invokeApplied) return "patched";
+  if (!schemaApplied && !prepareApplied && !invokeApplied) return "unpatched";
   return "partial";
 }
 
@@ -218,12 +304,43 @@ function apply(bundleSrc) {
     changed = true;
   }
 
+  // Patch 3: prepareToolInvocation — sentinel-based
+  if (!bundleSrc.includes(PREPARE_SENTINEL)) {
+    const anchorIdx = bundleSrc.indexOf(PREPARE_ANCHOR);
+    if (anchorIdx === -1) {
+      return {
+        src: bundleSrc,
+        changed,
+        error:
+          "prepareToolInvocation anchor not found — VS Code version may have changed.",
+      };
+    }
+    bundleSrc =
+      bundleSrc.slice(0, anchorIdx) +
+      NEW_PREPARE +
+      bundleSrc.slice(anchorIdx + PREPARE_ANCHOR.length);
+    changed = true;
+  }
+
   return { src: bundleSrc, changed };
 }
 
 function revert(bundleSrc) {
   if (!bundleSrc) bundleSrc = fs.readFileSync(BUNDLE, "utf8");
   let changed = false;
+
+  // Revert patch 3 (prepareToolInvocation) — sentinel-based: strip from
+  // sentinel to anchor and leave PREPARE_ANCHOR in place.
+  const prepareSentinelIdx = bundleSrc.indexOf(PREPARE_SENTINEL);
+  if (prepareSentinelIdx !== -1) {
+    const prepareAnchorIdx = bundleSrc.indexOf(PREPARE_ANCHOR, prepareSentinelIdx);
+    if (prepareAnchorIdx !== -1) {
+      bundleSrc =
+        bundleSrc.slice(0, prepareSentinelIdx) +
+        bundleSrc.slice(prepareAnchorIdx);
+      changed = true;
+    }
+  }
 
   // Revert patch 2 (invoke) — sentinel-based: strip from sentinel to anchor
   const sentinelIdx = bundleSrc.indexOf(INVOKE_SENTINEL);
@@ -271,6 +388,7 @@ if (require.main === module) {
       const src = fs.readFileSync(BUNDLE, "utf8");
       const detail = [
         `schema:${src.includes(PATCHES[0].mark) ? "yes" : "no"}`,
+        `prepare:${src.includes(PREPARE_SENTINEL) ? "yes" : "no"}`,
         `invoke:${src.includes(INVOKE_SENTINEL) ? "yes" : "no"}`,
       ].join(" ");
       console.log(`PARTIAL — ${detail}`);
