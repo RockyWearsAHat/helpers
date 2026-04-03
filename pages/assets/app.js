@@ -120,6 +120,13 @@ function isValidTag(tag) {
   );
 }
 
+function formatPillTag(tag) {
+  var ACRONYMS = {cs:1, rdf:1, sha:1, api:1, cli:1, ui:1, ux:1, os:1, ai:1, ml:1, sql:1, http:1, css:1, js:1, ts:1, dfs:1, bfs:1, mst:1, dag:1, cfg:1, scc:1, neo4j:1, vpc:1, dns:1, tls:1, ssh:1, jwt:1, rbac:1, cicd:1, cdn:1, yaml:1, json:1, xml:1, html:1, wasm:1, grpc:1};
+  var lower = tag.toLowerCase();
+  if (ACRONYMS[lower]) return lower.toUpperCase();
+  return lower.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
 function tokenize(query) {
   return normalizeWhitespace(query)
     .toLowerCase()
@@ -385,7 +392,7 @@ function renderPreview(doc) {
     .filter(isValidTag)
     .slice(0, 10)
     .map(function (item) {
-      return buildChipButton(item, "keyword-pill", { query: item });
+      return buildChipButton(formatPillTag(item), "keyword-pill", { query: item });
     })
     .join("");
 
@@ -395,7 +402,7 @@ function renderPreview(doc) {
     .filter(isValidTag)
     .slice(0, 6)
     .map(function (item) {
-      return buildChipButton(item, "meta-pill", { query: item });
+      return buildChipButton(formatPillTag(item), "meta-pill", { query: item });
     })
     .join("");
 
@@ -431,12 +438,12 @@ function renderPreview(doc) {
     .filter(isValidTag)
     .map(function (pill, index) {
       if (index === 0) {
-        return buildChipButton(pill, "meta-pill", {
+        return buildChipButton(formatPillTag(pill), "meta-pill", {
           scope: doc.scopeKey,
           clearQuery: true,
         });
       }
-      return buildChipButton(pill, "meta-pill", { query: pill });
+      return buildChipButton(formatPillTag(pill), "meta-pill", { query: pill });
     })
     .join("");
 
@@ -598,7 +605,7 @@ function loadNextResultsPage() {
           .filter(isValidTag)
           .slice(0, 4)
           .map(function (k) {
-            return buildChipButton(k, "result-pill", { query: k });
+            return buildChipButton(formatPillTag(k), "result-pill", { query: k });
           })
           .join("");
 
@@ -738,7 +745,8 @@ function renderResults(results, durationMs, terms) {
         results.length.toLocaleString() +
         " result" +
         (results.length === 1 ? "" : "s");
-      resultsMeta.textContent = durationMs.toFixed(1) + " ms";
+      var msDisplay = durationMs % 1 === 0 ? durationMs : durationMs.toFixed(1);
+      resultsMeta.textContent = msDisplay + " ms";
     }
 
     if (!results.length) {
@@ -769,7 +777,7 @@ function renderResults(results, durationMs, terms) {
       .filter(isValidTag)
       .slice(0, 4)
       .map(function (k) {
-        return buildChipButton(k, "result-pill", { query: k });
+        return buildChipButton(formatPillTag(k), "result-pill", { query: k });
       })
       .join("");
 

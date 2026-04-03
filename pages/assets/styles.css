@@ -972,7 +972,7 @@ button.bento-card {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 24px;
+  height: 40px;
   pointer-events: none;
   background: linear-gradient(to bottom, transparent, var(--surface-raised));
   border-radius: 0 0 var(--r-lg) var(--r-lg);
@@ -988,7 +988,7 @@ button.bento-card {
   padding: 22px 24px;
   border-radius: inherit;
   background: transparent;
-  border-top: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-top: 2px solid color-mix(in srgb, var(--accent) 90%, transparent);
 }
 
 .preview-kicker {
@@ -1005,7 +1005,7 @@ button.bento-card {
   font-family: "Saira", system-ui, sans-serif;
   font-weight: 700;
   font-size: 1.3rem;
-  line-height: 1.2;
+  line-height: 1.35;
   color: var(--ink);
 }
 
@@ -1042,7 +1042,9 @@ button.bento-card {
 
 .preview-link:hover { border-color: var(--accent); color: var(--accent); }
 
-.preview-keywords, .preview-headings { display: flex; flex-wrap: wrap; gap: 5px; }
+.preview-keywords { display: flex; flex-wrap: wrap; gap: 5px; }
+.preview-headings { display: flex; flex-direction: column; gap: 4px; }
+.preview-headings .meta-pill { white-space: normal; text-align: left; }
 
 .preview-related { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 
@@ -1263,7 +1265,7 @@ button.bento-card {
 .reader-body th, .reader-body td { padding: 8px 12px; border: 1px solid var(--border-strong); text-align: left; }
 .reader-body th { background: rgba(2, 132, 199, 0.18); font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); border-bottom: 2px solid var(--accent); border-top: 1px solid var(--accent); }
 .reader-body table tbody tr:nth-child(odd) { background: var(--bg-inset); }
-[data-theme="dark"] .reader-body table tbody tr:nth-child(odd) { background: rgba(255, 255, 255, 0.08); }
+[data-theme="dark"] .reader-body table tbody tr:nth-child(odd) { background: rgba(255, 255, 255, 0.12); }
 .reader-body table thead tr { border-bottom: 2px solid var(--accent); }
 .reader-body hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; opacity: 0.4; }
 .reader-body img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
@@ -3242,7 +3244,8 @@ mark {
 .dev-links-details > summary::-webkit-details-marker { display: none; }
 .dev-links-details > summary::before {
   content: "\25B6";
-  font-size: 0.55rem;
+  font-size: 0.7rem;
+  color: var(--accent);
   transition: transform 0.15s;
   display: inline-block;
 }
