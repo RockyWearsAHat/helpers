@@ -88,9 +88,9 @@
   --border-strong:  rgba(69, 85, 89, 0.28);
   --shadow-raise:   10px 10px 24px rgba(0,0,0,0.65), -6px -6px 18px rgba(255,255,255,0.07);
   --shadow-raise-sm: 6px 6px 14px rgba(0,0,0,0.6), -4px -4px 10px rgba(255,255,255,0.06);
-  --shadow-raise-xs: 3px 3px 8px rgba(0,0,0,0.55), -2px -2px 5px rgba(255,255,255,0.05);
-  --shadow-inset:   inset 6px 6px 14px rgba(0,0,0,0.65), inset -4px -4px 10px rgba(255,255,255,0.07);
-  --shadow-inset-sm: inset 4px 4px 10px rgba(0,0,0,0.6), inset -3px -3px 6px rgba(255,255,255,0.06);
+  --shadow-raise-xs: 3px 3px 8px rgba(0,0,0,0.55), -2px -2px 6px rgba(255,255,255,0.09);
+  --shadow-inset:   inset 6px 6px 16px rgba(0,0,0,0.7), inset -4px -4px 12px rgba(255,255,255,0.08);
+  --shadow-inset-sm: inset 4px 4px 10px rgba(0,0,0,0.65), inset -3px -3px 7px rgba(255,255,255,0.07);
   --shadow-focus:   0 0 0 3px rgba(125, 168, 196, 0.32);
   --shadow-sm:      var(--shadow-raise-sm);
   --shadow-md:      var(--shadow-raise);
@@ -1245,23 +1245,22 @@ button.bento-card {
   font-size: 0.78rem;
   font-weight: 500;
   border-radius: var(--r-xs);
-  background: var(--bg-inset);
+  background: var(--bg);
   color: var(--ink-muted);
-  border: 1px solid var(--border);
+  border: none;
+  box-shadow: var(--shadow-raise-xs);
 }
 
-[data-theme="dark"] .community-topic { color: var(--ink-muted); background: var(--bg-inset); }
+[data-theme="dark"] .community-topic { color: var(--ink-muted); background: var(--bg); box-shadow: var(--shadow-raise-xs); }
 
 .community-topic.chip-button:hover {
-  border-color: var(--accent);
   color: var(--accent);
-  background: var(--accent-soft);
+  box-shadow: var(--shadow-raise-sm);
 }
 
 [data-theme="dark"] .community-topic.chip-button:hover {
-  border-color: var(--accent);
   color: var(--accent);
-  background: var(--accent-soft);
+  box-shadow: var(--shadow-raise-sm);
 }
 
 .community-evidence {
@@ -1412,7 +1411,6 @@ button.bento-card {
   margin-bottom: 0;
   font-size: 0.9rem;
   line-height: 1.6;
-  border-left: 3px solid var(--accent-soft);
   transition: box-shadow 120ms ease;
 }
 
