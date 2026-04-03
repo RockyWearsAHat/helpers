@@ -518,8 +518,12 @@ function makeMarkdownDocument(source, relativePath, raw) {
     highlights: headings,
     keywords,
     topics: [],
-    metaPills: [source.scopeLabel, category],
-    resultPills: [source.scopeLabel, category, ...keywords.slice(0, 2)],
+    metaPills: source.scopeLabel.toLowerCase() === category.toLowerCase()
+      ? [category]
+      : [source.scopeLabel, category],
+    resultPills: source.scopeLabel.toLowerCase() === category.toLowerCase()
+      ? [category, ...keywords.slice(0, 2)]
+      : [source.scopeLabel, category, ...keywords.slice(0, 2)],
     searchText,
     githubUrl,
     rawUrl,
