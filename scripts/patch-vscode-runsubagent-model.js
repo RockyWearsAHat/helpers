@@ -126,7 +126,7 @@ const NEW_SCHEMA =
 
 const INVOKE_SENTINEL = "let _GSH_RSMM_=1;";
 const INVOKE_ANCHOR =
-  "let ve={sessionResource:e.context.sessionResource,requestId:e.callId";
+  "let he={sessionResource:e.context.sessionResource,requestId:e.callId";
 
 const PREPARE_SENTINEL = "let _GSH_RSMM_PREP_=1;";
 const PREPARE_RESOLVE = "r=this.resolveSubagentModel(n,e.modelId);";
