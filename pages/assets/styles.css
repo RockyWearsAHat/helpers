@@ -815,6 +815,7 @@ button.bento-card {
 .result-scope-badge[data-scope="archive"]   { background: var(--bg-inset); color: var(--ink-muted); border-color: var(--border); }
 
 [data-theme="dark"] .result-scope-badge[data-scope="knowledge"] { color: #a78bfa; }
+[data-theme="dark"] .result-scope-badge[data-scope="copilot"] { background: rgba(56, 189, 248, 0.1); color: rgba(56, 189, 248, 0.75); border-color: rgba(56, 189, 248, 0.18); }
 
 .result-scope-badge.chip-button:hover { border-color: var(--accent); }
 
@@ -1064,12 +1065,12 @@ button.bento-card {
 .btn-primary:hover { background: color-mix(in srgb, var(--accent) 85%, #000); border-color: color-mix(in srgb, var(--accent) 85%, #000); }
 
 #reader-back {
-  background: var(--accent);
-  color: #fff;
+  background: transparent;
+  color: var(--accent);
   border: 1px solid var(--accent);
 }
 
-#reader-back:hover { background: color-mix(in srgb, var(--accent) 85%, #000); border-color: color-mix(in srgb, var(--accent) 85%, #000); }
+#reader-back:hover { background: var(--accent-soft); border-color: var(--accent); }
 
 .btn-sm { padding: 6px 13px; font-size: 0.82rem; border-radius: var(--r-sm); }
 
