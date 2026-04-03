@@ -561,7 +561,7 @@ button.bento-card {
   grid-template-columns: minmax(0, 1fr) 400px;
   gap: 28px;
   align-items: start;
-  padding-top: 32px;
+  padding-top: 20px;
   padding-bottom: 18px;
   flex: 1;
 }
@@ -959,7 +959,7 @@ button.bento-card {
   font: inherit;
   font-size: 0.8rem;
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-xs);
   background: var(--surface);
   color: var(--ink-muted);
   cursor: pointer;
@@ -1106,7 +1106,7 @@ button.bento-card {
   padding: 6px 12px; 
   background: var(--accent-soft); 
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); 
-  border-radius: var(--r-sm); 
+  border-radius: var(--r-xs); 
   font-weight: 500; 
   font-size: 0.9rem; 
   transition: background 120ms, color 120ms, border-color 120ms; 
@@ -1305,7 +1305,7 @@ button.bento-card {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  border-radius: 999px;
+  border-radius: var(--r-xs);
   background: var(--bg-inset);
   color: var(--ink-faint);
   flex-shrink: 0;
