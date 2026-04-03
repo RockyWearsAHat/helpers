@@ -35,7 +35,44 @@ const LIVE_SITE_FLOWS = [
     maxScrolls: 10,
     settleMs: 12000,
   },
+  {
+    name: "practice",
+    path: "?doc=knowledge/algorithms-graph.md&practice=1",
+    maxScrolls: 8,
+    settleMs: 14000,
+    preScrollJs: `
+      // Ensure practice panel is visible
+      var panel = document.getElementById('practice-panel');
+      if (panel) panel.classList.remove('hidden');
+      var btn = document.getElementById('practice-toggle');
+      if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed','true'); }
+    `,
+  },
+  {
+    name: "practice-solving",
+    path: "?doc=knowledge/algorithms-graph.md&practice=1",
+    maxScrolls: 6,
+    settleMs: 16000,
+    preScrollJs: `
+      // Open panel
+      var panel = document.getElementById('practice-panel');
+      if (panel) panel.classList.remove('hidden');
+      var btn = document.getElementById('practice-toggle');
+      if (btn) btn.classList.add('active');
+      // Switch to problem tab
+      var tabs = document.querySelectorAll('.practice-tab');
+      if (tabs[0]) tabs[0].click();
+      // Set some code in the editor to show the IDE in action
+      setTimeout(function() {
+        var cm = document.querySelector('.CodeMirror');
+        if (cm && cm.CodeMirror) {
+          cm.CodeMirror.setValue('def bfs(graph, start):\\n    visited = set()\\n    queue = [start]\\n    result = []\\n    while queue:\\n        node = queue.pop(0)\\n        if node not in visited:\\n            visited.add(node)\\n            result.append(node)\\n            queue.extend(graph.get(node, []))\\n    return result\\n');
+        }
+      }, 1000);
+    `,
+  },
 ];
+
 
 function printUsage() {
   const lines = [
@@ -46,7 +83,7 @@ function printUsage() {
     "",
     "Options:",
     `  --base-url <url>       Base site URL (default: ${DEFAULT_BASE_URL})`,
-    "  --flows <names>        Comma-separated flow names (browse,search,about,reader)",
+    "  --flows <names>        Comma-separated flow names (browse,search,about,reader,practice,practice-solving)",
     "  --output-dir <path>    Output directory (default: build/visual-captures/live-site-<timestamp>)",
     "  --viewport <WxH>       Capture viewport (default: 1440x900)",
     `  --quality <1-100>      JPEG quality (default: ${DEFAULT_JPEG_QUALITY})`,
@@ -544,6 +581,11 @@ async function captureFlow(cdp, config, flow, outputDir) {
   await cdp.send("Page.navigate", { url: flowUrl });
   await waitForDocumentReady(cdp, config.pageReadyTimeoutMs);
   await sleep(flow.settleMs);
+
+  if (flow.preScrollJs) {
+    await cdp.send("Runtime.evaluate", { expression: flow.preScrollJs });
+    await sleep(2000);
+  }
 
   const pageHeightResponse = await cdp.send("Runtime.evaluate", {
     expression: `Math.max(
