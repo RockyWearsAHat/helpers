@@ -1140,10 +1140,11 @@ button.bento-card {
 .reader-body blockquote {
   margin: 0 0 16px;
   padding: 12px 20px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-glow);
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  border: none;
+  background: var(--bg);
+  border-radius: var(--r-sm);
   color: var(--ink-muted);
+  box-shadow: var(--shadow-inset-sm);
 }
 
 .reader-body blockquote p { margin: 0; }
@@ -1385,10 +1386,11 @@ button.bento-card {
   line-height: 1.8;
   color: var(--ink-2);
   padding: 20px 24px;
-  border-left: 3px solid var(--accent);
-  background: var(--bg-elevated);
-  border-radius: 0 var(--r-md) var(--r-md) 0;
+  border: none;
+  background: var(--bg);
+  border-radius: var(--r-md);
   margin-bottom: 32px;
+  box-shadow: var(--shadow-inset);
 }
 
 .about-body p { margin: 0 0 16px; }
