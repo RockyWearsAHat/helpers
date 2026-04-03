@@ -10,7 +10,7 @@
   /* Base #edf1f0 │ Dark-shadow #c1c8c6 │ Light-shadow #ffffff */
   --bg:             #edf1f0;
   --bg-elevated:    #edf1f0;
-  --bg-inset:       #d6dfdd;
+  --bg-inset:       #edf1f0;
   --surface:        rgba(237, 241, 240, 0.97);
   --surface-raised: #edf1f0;
   --ink:            #182625;
@@ -22,11 +22,11 @@
   --accent-glow:    rgba(61, 90, 115, 0.06);
   --border:         rgba(69, 85, 89, 0.08);
   --border-strong:  rgba(69, 85, 89, 0.14);
-  --shadow-raise:   7px 7px 15px #c1c8c6, -5px -5px 11px #ffffff;
-  --shadow-raise-sm: 4px 4px 9px #c1c8c6, -3px -3px 6px #ffffff;
-  --shadow-raise-xs: 2px 2px 5px #c8cecc, -1px -1px 3px #ffffff;
-  --shadow-inset:   inset 5px 5px 11px #c1c8c6, inset -3px -3px 8px #ffffff;
-  --shadow-inset-sm: inset 3px 3px 7px #c8cecc, inset -2px -2px 4px #ffffff;
+  --shadow-raise:   8px 8px 18px #b4bcba, -6px -6px 14px #ffffff;
+  --shadow-raise-sm: 5px 5px 11px #b8c0be, -4px -4px 8px #ffffff;
+  --shadow-raise-xs: 3px 3px 7px #bdc5c3, -2px -2px 5px #ffffff;
+  --shadow-inset:   inset 6px 6px 14px #b4bcba, inset -4px -4px 10px #ffffff;
+  --shadow-inset-sm: inset 4px 4px 9px #b8c0be, inset -3px -3px 6px #ffffff;
   --shadow-focus:   0 0 0 3px rgba(61, 90, 115, 0.22);
   --shadow-sm:      var(--shadow-raise-sm);
   --shadow-md:      var(--shadow-raise);
@@ -74,7 +74,7 @@
   /* Base #182625 │ Dark-shadow #0c1614 │ Light-shadow #243937 */
   --bg:             #182625;
   --bg-elevated:    #182625;
-  --bg-inset:       #111e1c;
+  --bg-inset:       #182625;
   --surface:        rgba(24, 38, 37, 0.97);
   --surface-raised: #182625;
   --ink:            #c5d2d0;
@@ -86,11 +86,11 @@
   --accent-glow:    rgba(125, 168, 196, 0.07);
   --border:         rgba(69, 85, 89, 0.15);
   --border-strong:  rgba(69, 85, 89, 0.28);
-  --shadow-raise:   8px 8px 18px #0c1614, -5px -5px 12px #243937;
-  --shadow-raise-sm: 4px 4px 10px #0c1614, -3px -3px 7px #243937;
-  --shadow-raise-xs: 2px 2px 5px #0c1614, -1px -1px 3px #243937;
-  --shadow-inset:   inset 5px 5px 12px #0c1614, inset -3px -3px 8px #243937;
-  --shadow-inset-sm: inset 3px 3px 7px #0c1614, inset -2px -2px 4px #243937;
+  --shadow-raise:   10px 10px 22px #091110, -7px -7px 16px #324e4c;
+  --shadow-raise-sm: 6px 6px 14px #0a1211, -4px -4px 10px #2d4846;
+  --shadow-raise-xs: 3px 3px 8px #0c1412, -2px -2px 5px #253d3b;
+  --shadow-inset:   inset 6px 6px 14px #091110, inset -4px -4px 10px #324e4c;
+  --shadow-inset-sm: inset 4px 4px 10px #0a1211, inset -3px -3px 6px #2d4846;
   --shadow-focus:   0 0 0 3px rgba(125, 168, 196, 0.32);
   --shadow-sm:      var(--shadow-raise-sm);
   --shadow-md:      var(--shadow-raise);
@@ -488,7 +488,8 @@ button.bento-card {
   width: 100%;
   padding-bottom: 12px;
   margin-bottom: 8px;
-  border-bottom: 1px solid var(--border-strong);
+  border-bottom: none;
+  box-shadow: 0 1px 0 rgba(125,168,196,0.12);
 }
 
 .scope-chip {
@@ -733,16 +734,17 @@ button.bento-card {
   white-space: nowrap;
   flex-shrink: 0;
   margin-top: 1px;
-  background: var(--bg-inset);
+  background: var(--bg);
   color: var(--ink-faint);
-  border: 1px solid var(--border);
+  border: none;
+  box-shadow: var(--shadow-raise-xs);
 }
 
-.result-scope-badge[data-scope="copilot"]   { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
-.result-scope-badge[data-scope="knowledge"] { background: var(--accent-soft); color: var(--accent); border-color: transparent; opacity: 0.8; }
-.result-scope-badge[data-scope="archive"]   { background: var(--bg-inset); color: var(--ink-faint); border-color: var(--border); }
+.result-scope-badge[data-scope="copilot"]   { background: var(--bg); color: var(--accent); box-shadow: var(--shadow-raise-xs); }
+.result-scope-badge[data-scope="knowledge"] { background: var(--bg); color: var(--accent); box-shadow: var(--shadow-raise-xs); opacity: 0.9; }
+.result-scope-badge[data-scope="archive"]   { background: var(--bg); color: var(--ink-faint); box-shadow: var(--shadow-raise-xs); }
 
-.result-scope-badge.chip-button:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.result-scope-badge.chip-button:hover { box-shadow: var(--shadow-raise-sm); color: var(--accent); background: var(--bg); }
 
 .bento-date {
   cursor: default;
@@ -788,12 +790,11 @@ button.bento-card {
   transition: background 120ms, color 120ms, border-color 120ms, box-shadow 120ms;
 }
 
-.chip-button:hover { border-color: var(--border-strong); }
+.chip-button:hover { box-shadow: var(--shadow-raise-sm); }
 
 .chip-button:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: var(--shadow-focus);
+  box-shadow: var(--shadow-focus), var(--shadow-raise-xs);
 }
 
 .chip-button:active { opacity: 0.8; }
@@ -801,9 +802,9 @@ button.bento-card {
 .result-pill.chip-button:hover,
 .keyword-pill.chip-button:hover,
 .meta-pill.chip-button:hover {
-  background: var(--bg-elevated);
+  background: var(--bg);
   color: var(--ink-muted);
-  border-color: var(--border-strong);
+  box-shadow: var(--shadow-raise-sm);
 }
 
 .meta-pill-path {
@@ -1148,11 +1149,11 @@ button.bento-card {
 .reader-body blockquote p { margin: 0; }
 
 .reader-body table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-size: 0.9rem; }
-.reader-body th, .reader-body td { padding: 8px 12px; border: 1px solid var(--border-strong); text-align: left; }
-.reader-body th { background: var(--bg-inset); font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); border-bottom: 2px solid var(--border-strong); }
-.reader-body table tbody tr:nth-child(odd) { background: var(--bg-inset); }
-[data-theme="dark"] .reader-body table tbody tr:nth-child(odd) { background: rgba(255, 255, 255, 0.03); }
-.reader-body table thead tr { border-bottom: 2px solid var(--border-strong); }
+.reader-body th, .reader-body td { padding: 8px 12px; border: none; text-align: left; }
+.reader-body th { background: var(--bg); font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); border-bottom: 2px solid rgba(125,168,196,0.25); }
+.reader-body table tbody tr:nth-child(odd) { background: rgba(125,168,196,0.04); }
+[data-theme="dark"] .reader-body table tbody tr:nth-child(odd) { background: rgba(255, 255, 255, 0.04); }
+.reader-body table thead tr { border-bottom: none; }
 .reader-body hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
 .reader-body img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
 
@@ -1299,10 +1300,11 @@ button.bento-card {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   border-radius: var(--r-xs);
-  background: var(--bg-inset);
+  background: var(--bg);
   color: var(--ink-faint);
   flex-shrink: 0;
   border: none;
+  box-shadow: var(--shadow-raise-xs);
 }
 
 .community-resources {
@@ -1902,8 +1904,8 @@ mark {
 .provider-tab:hover { color: var(--ink); }
 .provider-tab.active {
   color: var(--accent);
-  background: var(--surface-raised);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  background: var(--bg);
+  box-shadow: var(--shadow-raise-xs);
 }
 
 /* AI status */
