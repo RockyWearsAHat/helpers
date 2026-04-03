@@ -64,8 +64,8 @@
   --surface-raised: #1c1c1f;
   --ink:            #f4f4f5;
   --ink-2:          #d4d4d8;
-  --ink-muted:      #a1a1aa;
-  --ink-faint:      #71717a;
+  --ink-muted:      #b8b8c2;
+  --ink-faint:      #909099;
   --accent:         #38bdf8;
   --accent-soft:    rgba(56, 189, 248, 0.14);
   --accent-glow:    rgba(56, 189, 248, 0.08);
@@ -494,17 +494,7 @@ button.bento-card {
 
 .bento-primary .bento-value { color: var(--accent); }
 
-.bento-primary {
-  border-color: var(--accent-soft);
-  background: linear-gradient(135deg, var(--surface-raised) 0%, color-mix(in srgb, var(--accent-soft) 10%, var(--surface-raised)) 100%);
-  box-shadow: 0 0 0 1px var(--accent-soft), var(--shadow-sm);
-}
-
-.bento-primary:hover {
-  border-color: var(--accent);
-  background: linear-gradient(135deg, var(--surface-raised) 0%, color-mix(in srgb, var(--accent-soft) 15%, var(--surface-raised)) 100%);
-  box-shadow: var(--shadow-focus), var(--shadow-md);
-}
+/* .bento-primary normalized — inherits .bento-card styles; value color is the sole distinction */
 
 /* Dark mode depth — bento cards */
 [data-theme="dark"] .bento-card {
@@ -525,26 +515,7 @@ button.bento-card {
     0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-[data-theme="dark"] .bento-primary {
-  background: linear-gradient(145deg,
-    color-mix(in srgb, #38bdf8 8%, #1c1c1f) 0%,
-    #18181b 100%
-  );
-  border-color: rgba(56, 189, 248, 0.22);
-  box-shadow:
-    0 1px 0 rgba(56, 189, 248, 0.12) inset,
-    0 2px 12px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(56, 189, 248, 0.10);
-}
-
-[data-theme="dark"] .bento-primary:hover {
-  border-color: rgba(56, 189, 248, 0.38);
-  box-shadow:
-    0 1px 0 rgba(56, 189, 248, 0.18) inset,
-    0 4px 20px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(56, 189, 248, 0.18),
-    0 0 24px rgba(56, 189, 248, 0.06);
-}
+/* [data-theme="dark"] .bento-primary normalized — inherits .bento-card dark styles */
 
 .bento-label {
   font-size: 0.7rem;
@@ -568,7 +539,7 @@ button.bento-card {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin-top: 22px;
+  margin-top: 32px;
   padding-top: 18px;
   border-top: 1px solid var(--border);
 }
@@ -674,6 +645,8 @@ button.bento-card {
 
 /* ─── Result Card ────────────────────────────────────────────────────────────── */
 .result-card {
+  display: flex;
+  flex-direction: column;
   padding: 15px 18px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -782,23 +755,23 @@ button.bento-card {
 .result-scope-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 9px;
+  padding: 4px 11px;
   border-radius: 999px;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
   flex-shrink: 0;
   margin-top: 1px;
   background: var(--bg-inset);
-  color: var(--ink-faint);
-  border: 1px solid transparent;
+  color: var(--ink-muted);
+  border: 1px solid var(--border);
 }
 
-.result-scope-badge[data-scope="copilot"]   { background: var(--accent-soft); color: var(--accent); }
-.result-scope-badge[data-scope="knowledge"] { background: rgba(124, 58, 237, 0.1); color: #7c3aed; }
-.result-scope-badge[data-scope="archive"]   { background: var(--bg-inset); color: var(--ink-faint); }
+.result-scope-badge[data-scope="copilot"]   { background: color-mix(in srgb, var(--accent-soft) 70%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
+.result-scope-badge[data-scope="knowledge"] { background: rgba(124, 58, 237, 0.08); color: #7c3aed; border-color: rgba(124, 58, 237, 0.2); }
+.result-scope-badge[data-scope="archive"]   { background: var(--bg-inset); color: var(--ink-muted); border-color: var(--border); }
 
 [data-theme="dark"] .result-scope-badge[data-scope="knowledge"] { color: #a78bfa; }
 
@@ -863,7 +836,7 @@ button.bento-card {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-top: 10px;
+  margin-top: auto;
   padding: 6px 13px;
   font: inherit;
   font-size: 0.82rem;
@@ -939,7 +912,7 @@ button.bento-card {
   padding: 22px 24px;
   border-radius: inherit;
   background: transparent;
-  border-top: 3px solid var(--accent);
+  border-top: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .preview-kicker {
@@ -1059,7 +1032,8 @@ button.bento-card {
 
 .reader-body {
   width: 100%;
-  margin: 0;
+  max-width: 70ch;
+  margin: 0 auto;
   padding: 48px 56px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-lg);
@@ -1089,14 +1063,15 @@ button.bento-card {
   font-weight: 600;
   font-size: 1.5rem;
   line-height: 1.25;
+  font-style: normal;
   margin: 40px 0 14px;
   padding-top: 20px;
   border-top: 1px solid var(--border);
   color: var(--ink);
 }
 
-.reader-body h3 { font-size: 1.1rem; font-weight: 600; margin: 28px 0 10px; color: var(--ink); }
-.reader-body h4 { font-size: 0.875rem; font-weight: 700; margin: 20px 0 8px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+.reader-body h3 { font-size: 1.1rem; font-weight: 600; font-style: normal; margin: 28px 0 10px; color: var(--ink); }
+.reader-body h4 { font-size: 0.875rem; font-weight: 700; font-style: normal; margin: 20px 0 8px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
 .reader-body p { margin: 0 0 16px; }
 .reader-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .reader-body a:hover { text-decoration-thickness: 2px; }
@@ -1173,7 +1148,7 @@ button.bento-card {
   padding: 20px 24px;
   margin: 0 0 24px;
   background: var(--bg-inset);
-  border-left: 3px solid var(--accent);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   border-radius: 0 var(--r-md) var(--r-md) 0;
   font-size: 1.05rem;
   line-height: 1.75;
@@ -1311,13 +1286,14 @@ button.bento-card {
 .page-hidden { display: none; }
 
 .about-page {
-  max-width: 760px;
+  max-width: 860px;
+  margin-inline: auto;
   padding: 64px 0 80px;
   animation: pageIn 0.3s ease both;
 }
 
 .about-page::before {
-  content: "// about";
+  content: "› About";
   display: block;
   font-family: "JetBrains Mono", monospace;
   font-size: 0.78rem;
@@ -1418,9 +1394,9 @@ button.bento-card {
 .footer-copy {
   margin: 0;
   font-size: 0.78rem;
-  color: var(--ink-faint);
-  font-family: "JetBrains Mono", monospace;
-  letter-spacing: 0.02em;
+  color: var(--ink-muted);
+  font-family: "DM Sans", system-ui, sans-serif;
+  letter-spacing: 0;
 }
 
 .footer-links {
@@ -1430,6 +1406,9 @@ button.bento-card {
 }
 
 .footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 4px 10px;
   font-size: 0.76rem;
   color: var(--ink-faint);
@@ -1441,6 +1420,18 @@ button.bento-card {
 .footer-link:hover {
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+.footer-link svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
 }
 
 /* ─── Utilities ──────────────────────────────────────────────────────────────── */
