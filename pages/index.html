@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -17,8 +17,8 @@
     />
     <link rel="stylesheet" href="./assets/styles.css" />
 
-    <!-- highlight.js for syntax highlighting -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/default.min.css" />
+    <!-- highlight.js for syntax highlighting — atom-one-dark matches the new design system -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/atom-one-dark.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
 
     <!-- CodeMirror 5 for the code editor -->
@@ -50,6 +50,8 @@
     </script>
   </head>
   <body>
+    <!-- Neural canvas — fixed ambient layer, visible through hero cut and surface gaps -->
+    <canvas id="neural-canvas" aria-hidden="true"></canvas>
     <div class="page-shell">
       <nav class="top-bar">
         <div class="logo-mark">
@@ -432,6 +434,7 @@
     </div>
 
     <script src="./assets/env.js"></script>
+    <script src="./assets/neural.js"></script>
     <script src="./assets/practice.js" defer></script>
     <script src="./assets/app.js" defer></script>
   </body>
