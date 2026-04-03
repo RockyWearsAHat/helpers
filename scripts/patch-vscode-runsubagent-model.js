@@ -106,7 +106,7 @@ const OLD_SCHEMA =
   'properties:{prompt:{type:"string",description:"A detailed description of the task for the agent to perform"},description:{type:"string",description:"A short (3-5 word) description of the task"}},required:["prompt","description"]}';
 
 const NEW_SCHEMA =
-  'properties:{prompt:{type:"string",description:"A detailed description of the task for the agent to perform"},description:{type:"string",description:"A short (3-5 word) description of the task"},model:{type:"string",description:"Optional model identifier for this subagent invocation. Overrides the agent definition\'s default model. Examples: claude-sonnet-4.6, claude-haiku-4.5, gpt-4o, gpt-4o-mini, gpt-4.1-mini. Use the list_language_models MCP tool to see all available model ids. Accepts either a model id (e.g. claude-haiku-4.5) or a display name (e.g. \'Claude Haiku 4.5\'). When omitted, the agent\'s own model: frontmatter or the parent session model is used."}},required:["prompt","description"]}';
+  'properties:{prompt:{type:"string",description:"A detailed description of the task for the agent to perform"},description:{type:"string",description:"A short (3-5 word) description of the task"},model:{type:"string",description:"Optional model identifier for this subagent invocation. Overrides the agent definition\'s default model. Prefer the display name shown in VS Code, for example \'Claude Haiku 4.5\' or \'Claude Sonnet 4.6\'. Common shorthand like \'Haiku 4.5\' and known ids like \'claude-haiku-4.5\' are normalized when possible. When omitted, the agent\'s own model: frontmatter or the parent session model is used."}},required:["prompt","description"]}';
 
 // ---------------------------------------------------------------------------
 // Patch 2: Apply call-time model override just before request construction
@@ -151,7 +151,7 @@ const PATCHES = [
     old: OLD_SCHEMA,
     new: NEW_SCHEMA,
     name: "schema",
-    mark: "Optional model identifier for this subagent",
+    mark: "Prefer the display name shown in VS Code",
   },
 ];
 
