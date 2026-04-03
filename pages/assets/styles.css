@@ -527,10 +527,11 @@ button.bento-card {
 }
 
 .bento-date .bento-value {
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 500;
   letter-spacing: 0;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.3;
 }
 
 /* ─── Filter Bar ─────────────────────────────────────────────────────────────── */
@@ -545,6 +546,12 @@ button.bento-card {
 }
 
 .scope-row { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.filter-bar .scope-row {
+  width: 100%;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
 
 .scope-chip {
   padding: 6px 15px;
@@ -1016,25 +1023,37 @@ button.bento-card {
 .reader-column { grid-column: 1 / -1; }
 .reader-column.hidden { display: none; }
 
+/* ─── Reader mode — collapse browse chrome ───────────────────────────────────── */
+.page-shell:has(#reader-column:not(.hidden)) .hero,
+.page-shell:has(#reader-column:not(.hidden)) .search-form,
+.page-shell:has(#reader-column:not(.hidden)) .bento-grid,
+.page-shell:has(#reader-column:not(.hidden)) .filter-bar {
+  display: none;
+}
+
+.page-shell:has(#reader-column:not(.hidden)) .main-layout {
+  padding-top: 4px;
+}
+
 .reader-toolbar {
   position: sticky;
   top: 56px;
   z-index: 100;
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   width: 100%;
-  margin: 0 0 20px;
-  padding: 10px 0;
+  margin: 0 0 12px;
+  padding: 10px 16px;
   background: var(--bg);
 }
 
 .reader-body {
   width: 100%;
-  max-width: 70ch;
+  max-width: 900px;
   margin: 0 auto;
-  padding: 48px 56px;
+  padding: 32px 56px 48px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-lg);
   background: var(--reader-bg);
@@ -1113,7 +1132,8 @@ button.bento-card {
 
 .reader-body table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-size: 0.9rem; }
 .reader-body th, .reader-body td { padding: 10px 14px; border: 1px solid var(--border); text-align: left; }
-.reader-body th { background: var(--bg-inset); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink); }
+.reader-body th { background: var(--bg-inset); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink); border-bottom: 2px solid var(--border-strong); }
+.reader-body table thead tr { border-bottom: 2px solid var(--border-strong); }
 .reader-body hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
 .reader-body img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
 
@@ -1296,11 +1316,23 @@ button.bento-card {
   content: "› About";
   display: block;
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--accent);
-  letter-spacing: 0.08em;
-  margin-bottom: 16px;
-  opacity: 0.85;
+  letter-spacing: 0.06em;
+  margin-bottom: 20px;
+  opacity: 1;
+}
+
+.breadcrumb {
+  display: block;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  margin-bottom: 20px;
+  opacity: 0.9;
 }
 
 .about-page h1 {
@@ -1403,17 +1435,19 @@ button.bento-card {
   display: flex;
   align-items: center;
   gap: 4px;
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
 }
 
 .footer-link {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 10px;
+  padding: 4px 8px;
   font-size: 0.76rem;
   color: var(--ink-faint);
   text-decoration: none;
-  border-radius: var(--r-sm);
+  border-radius: 4px;
   transition: color 120ms, background 120ms;
 }
 
