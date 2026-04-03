@@ -11,6 +11,7 @@ The `gsh` MCP server is installed globally and available in every workspace. It 
 Apply this guidance before processing each user request:
 
 - Prefer direct MCP tool calls when a matching gsh tool exists; avoid terminal emulation for tool behavior checks.
+- When a user refers to something discussed in a previous session, or context seems missing, call `search_chat_history` before asking the user to repeat themselves.
 - **After every file edit, call `strict_lint` on the modified file before declaring work complete.** Fix reported errors and warnings or name each one with a reason for leaving it. Do not return "implementation complete" while unresolved issues exist.
 - `strict_lint` defaults to `severityFilter: "all"` when omitted (includes error, warning, info, and hint diagnostics).
 - Only pass `severityFilter` when the user explicitly asks to narrow severity.
@@ -160,6 +161,52 @@ Results are tagged with `source: "local"` or `source: "community"`. Falls back t
 **`append_to_knowledge_note`** — Append content to an existing knowledge note without replacing it. Rebuilds the local search index before returning. Pass `publish: true` when the updated note should also be submitted to the shared knowledge base.
 
 **`submit_community_research`** — Submit a privacy-safe knowledge note to the shared knowledge base. Only call when the workspace has `shareKnowledge: true` (or legacy `shareResearch: true`) in `.github/devops-audit-community-settings.json`. The submission rebuilds `knowledge/_index.json` in the PR so the hosted cache stays searchable.
+
+## Chat Archive — Search Past Conversations
+
+The `gsh` server archives all Copilot chat sessions to disk. These tools let agents search prior conversations, understand project history, and inspect archive health.
+
+> When confused about context that might have been discussed in a prior session, call `search_chat_history` BEFORE asking the user to repeat themselves. It searches both project-scoped and global sessions.
+
+**`search_chat_history`** — Search all archived Copilot chat sessions for matching content.
+
+- Searches every user message, assistant response, and tool call across all sessions.
+- Returns matching snippets with session context, tagged `scope: "project"` or `scope: "global"`.
+- Global sessions are those started without a workspace folder open (common for general questions).
+
+Parameters:
+
+- `query` (string, required) — Words or phrases to find in past chat sessions.
+- `session_id` (string, optional) — Restrict search to a specific session ID.
+- `date_from` (string, optional) — ISO 8601 date (e.g. `"2026-03-01"`) — earliest results.
+- `date_to` (string, optional) — ISO 8601 date — latest results.
+- `recent_only` (boolean, optional) — Shorthand for the last 7 days. Overrides date filters when true.
+- `max_results` (integer, optional) — Results to return (1–50). Default: 10.
+
+**`get_project_direction`** — Retrieve the project's original intent from its earliest archived session.
+
+- Returns the first meaningful user request ever made in this workspace — the "this is what I want to build" message.
+- Also returns any explicitly tagged direction entries from session memory.
+- Use when onboarding to a repo or when the current task seems disconnected from original intent.
+
+Parameters:
+
+- `include_recent` (boolean, optional) — Also include the most recent session's first request for comparison. Default: false.
+
+**`get_chat_archive_stats`** — Get statistics about the chat history archive.
+
+- Returns total sessions, chunks, raw vs. compressed sizes, compaction ratios, and storage usage.
+- No parameters.
+
+**`compact_chat_archive`** — Run lossless multi-level compaction on the chat archive.
+
+- Merges small L1 chunks into larger L2 super-chunks with combined Bloom filters and merged text indexes.
+- Reduces file count and improves search speed. Compaction is lossless — safe to run at any time.
+
+Parameters:
+
+- `session_id` (string, optional) — Compact only a specific session. Default: all eligible sessions.
+- `min_chunks` (integer, optional) — Minimum L1 chunks before merging into L2. Default: 4.
 
 ## Vision — Screenshot & Image Analysis
 
