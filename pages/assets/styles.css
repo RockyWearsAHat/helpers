@@ -86,9 +86,9 @@
   --accent-glow:    rgba(125, 168, 196, 0.07);
   --border:         rgba(69, 85, 89, 0.15);
   --border-strong:  rgba(69, 85, 89, 0.28);
-  --shadow-raise:   10px 10px 24px rgba(0,0,0,0.65), -6px -6px 18px rgba(255,255,255,0.07);
-  --shadow-raise-sm: 6px 6px 14px rgba(0,0,0,0.6), -4px -4px 10px rgba(255,255,255,0.06);
-  --shadow-raise-xs: 3px 3px 8px rgba(0,0,0,0.55), -2px -2px 6px rgba(255,255,255,0.09);
+  --shadow-raise:   10px 10px 24px rgba(0,0,0,0.65), -6px -6px 18px rgba(255,255,255,0.07), inset 0 1px 0 rgba(255,255,255,0.07);
+  --shadow-raise-sm: 6px 6px 14px rgba(0,0,0,0.6), -4px -4px 10px rgba(255,255,255,0.07), inset 0 1px 0 rgba(255,255,255,0.06);
+  --shadow-raise-xs: 3px 3px 9px rgba(0,0,0,0.6), -2px -2px 7px rgba(255,255,255,0.10), inset 0 1px 0 rgba(255,255,255,0.07);
   --shadow-inset:   inset 6px 6px 16px rgba(0,0,0,0.7), inset -4px -4px 12px rgba(255,255,255,0.08);
   --shadow-inset-sm: inset 4px 4px 10px rgba(0,0,0,0.65), inset -3px -3px 7px rgba(255,255,255,0.07);
   --shadow-focus:   0 0 0 3px rgba(125, 168, 196, 0.32);
