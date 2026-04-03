@@ -3157,18 +3157,6 @@ mark {
   .ide-view-controls { display: none; }
 }
 
-/* -- See-also internal links ------------------------------------------------ */
-.see-also-link {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.see-also-link:hover {
-  text-decoration-thickness: 2px;
-  opacity: 0.85;
-}
 
 /* -- Developer links collapsible ------------------------------------------- */
 .dev-links-details {

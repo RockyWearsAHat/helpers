@@ -146,7 +146,7 @@ function buildSnippet(doc, terms) {
   // Strip Markdown horizontal rules, setext separators, and table separator rows
   haystack = haystack.replace(/(?:^|\n)\s*[-=]{3,}\s*(?=\n|$)/g, " ");
   haystack = haystack.replace(/(?:^|\n)\s*[|\-: ]+\s*(?=\n|$)/g, " ");
-  haystack = haystack.replace(/-{4,}/g, ' ').replace(/\s{2,}/g, " ").trim();
+  haystack = haystack.replace(/-{3,}/g, ' ').replace(/\s{2,}/g, " ").trim();
   var titleLower = (doc.title || "").toLowerCase();
   if (titleLower && haystack.toLowerCase().startsWith(titleLower)) {
     haystack = haystack.slice(titleLower.length).replace(/^[\s,.:;-]+/, "");
@@ -170,11 +170,11 @@ function buildSnippet(doc, terms) {
   // back to previewText or the first real sentence in the haystack.
   var cleanSnippet = snippet.replace(/^\u2026/, "").replace(/\u2026$/, "").trim();
   var snippetWords = cleanSnippet.split(/\s+/).length;
-  var snippetPunct = (cleanSnippet.match(/[.,;:!?()]/g) || []).length;
-  if (snippetWords >= 10 && snippetPunct < snippetWords / 8) {
+  var snippetPunct = (cleanSnippet.match(/[.!?]/g) || []).length;
+  if (snippetWords >= 10 && snippetPunct < snippetWords / 4) {
     var fallback = doc.previewText || "";
     if (fallback && fallback !== haystack) {
-      var fb = fallback.slice(0, 260).trim();
+      var fb = fallback.slice(0, 260).trim().replace(/-{3,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
       return fb.length < fallback.length ? fb + "\u2026" : fb;
     }
     var firstSentenceMatch = haystack.match(/[A-Z][^.!?]{15,}[.!?]/);
@@ -1213,6 +1213,7 @@ function openReader(docId, options) {
 
   if (state.readerCache.has(docId)) {
     readerBody.innerHTML = state.readerCache.get(docId);
+    processSeeAlsoLinks();
     highlightReaderCode();
     return true;
   }
