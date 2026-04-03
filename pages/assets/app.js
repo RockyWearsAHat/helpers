@@ -123,12 +123,16 @@ function countOccurrences(text, term) {
 
 function highlight(text, terms) {
   if (!terms.length) return escapeHtml(text);
-  var pattern = new RegExp("(" + terms.map(escapeRegex).join("|") + ")", "gi");
+  var pattern = new RegExp("\\b(" + terms.map(escapeRegex).join("|") + ")\\b", "gi");
   return escapeHtml(text).replace(pattern, "<mark>$1</mark>");
 }
 
 function buildSnippet(doc, terms) {
   var haystack = doc.searchText || doc.snippet || "";
+  var titleLower = (doc.title || "").toLowerCase();
+  if (titleLower && haystack.toLowerCase().startsWith(titleLower)) {
+    haystack = haystack.slice(titleLower.length).replace(/^[\s,.:;-]+/, "");
+  }
   var lowerHaystack = haystack.toLowerCase();
   var start = 0;
   for (var i = 0; i < terms.length; i++) {
@@ -314,6 +318,7 @@ function renderPreview(doc) {
   }
 
   var topicPills = (doc.topics && doc.topics.length ? doc.topics : doc.keywords)
+    .filter(function (item) { return typeof item === "string" && item.indexOf("/") === -1; })
     .slice(0, 10)
     .map(function (item) {
       return buildChipButton(item, "keyword-pill", { query: item });
@@ -323,6 +328,7 @@ function renderPreview(doc) {
   var highlightPills = (
     doc.highlights && doc.highlights.length ? doc.highlights : doc.headings
   )
+    .filter(function (item) { return typeof item === "string" && item.indexOf("/") === -1; })
     .slice(0, 6)
     .map(function (item) {
       return buildChipButton(item, "meta-pill", { query: item });
@@ -399,13 +405,12 @@ function renderPreview(doc) {
     '<div class="preview-keywords">' +
     (topicPills || '<span class="meta-pill">No extracted topics</span>') +
     "</div>" +
-    '<p class="preview-section-title">' +
-    (doc.documentType === "community" ? "Key guidance" : "Section headings") +
-    "</p>" +
-    '<div class="preview-headings">' +
-    (highlightPills ||
-      '<span class="meta-pill">No extracted highlights</span>') +
-    "</div>" +
+    (highlightPills
+      ? '<p class="preview-section-title">' +
+        (doc.documentType === "community" ? "Key guidance" : "Section headings") +
+        "</p>" +
+        '<div class="preview-headings">' + highlightPills + "</div>"
+      : "") +
     (relatedButtons
       ? '<p class="preview-section-title">Related next steps</p><div class="preview-related">' +
         relatedButtons +
@@ -514,6 +519,7 @@ function loadNextResultsPage() {
         var pillsHtml = (
           resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category]
         )
+          .filter(function (k) { return typeof k === "string" && k.indexOf("/") === -1; })
           .slice(0, 4)
           .map(function (k) {
             return buildChipButton(k, "result-pill", { query: k });
@@ -532,7 +538,7 @@ function loadNextResultsPage() {
           '" tabindex="0">' +
           '<div class="result-topline"><div>' +
           '<p class="result-path">' +
-          escapeHtml(resultDoc.path) +
+          escapeHtml(resultDoc.path.split("/").pop() || resultDoc.path) +
           "</p>" +
           '<h2 class="result-title"><span class="result-link">' +
           highlight(resultDoc.title, terms) +
@@ -682,6 +688,7 @@ function renderResults(results, durationMs, terms) {
     var pillsHtml = (
       resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category]
     )
+      .filter(function (k) { return typeof k === "string" && k.indexOf("/") === -1; })
       .slice(0, 4)
       .map(function (k) {
         return buildChipButton(k, "result-pill", { query: k });
@@ -700,7 +707,7 @@ function renderResults(results, durationMs, terms) {
       '" tabindex="0">' +
       '<div class="result-topline"><div>' +
       '<p class="result-path">' +
-      escapeHtml(resultDoc.path) +
+      escapeHtml(resultDoc.path.split("/").pop() || resultDoc.path) +
       "</p>" +
       '<h2 class="result-title"><span class="result-link">' +
       highlight(resultDoc.title, terms) +
@@ -865,10 +872,10 @@ function markdownToHtml(md) {
   );
 
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/__([^_]+)__/g, "<strong>$1</strong>");
-  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>");
-  html = html.replace(/(?<!_)_([^_]+)_(?!_)/g, "<em>$1</em>");
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
+  html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "<em>$1</em>");
+  html = html.replace(/(?<!_)_([^_\n]+)_(?!_)/g, "<em>$1</em>");
 
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_m, text, href) {
     var safeHref = escapeHtml(href);
@@ -881,6 +888,7 @@ function markdownToHtml(md) {
     );
   });
 
+  html = html.replace(/^\|[-:| ]+\|$/gm, "");
   html = html.replace(/^\| (.+) \|$/gm, function (_m, row) {
     if (/^[\s|:-]+$/.test(row)) return "";
     var cells = row.split("|").map(function (c) {
@@ -929,7 +937,30 @@ function markdownToHtml(md) {
     }
   }
   if (inParagraph) out.push("</p>");
-  return out.join("\n");
+  var result = out.join("\n");
+  result = result.replace(/<(h[1-6])>\s*<em>([\s\S]*?)<\/em>\s*<\/(h[1-6])>/g, function (_m, tag, inner) {
+    return "<" + tag + ">" + inner + "</" + tag + ">";
+  });
+  return result;
+}
+
+/* -- Slug link resolver ---------------------------------------------------- */
+function resolveSlugLinks(html) {
+  return html.replace(
+    /<a href="([^"]+)" target="_blank" rel="noreferrer">([^<]+)<\/a>/g,
+    function (match, href, text) {
+      if (text !== href) return match;
+      if (!(/^[a-z][a-z0-9-]*$/.test(href))) return match;
+      var docEntry = state.documentsById.get(href);
+      if (docEntry) {
+        return '<a href="' + href + '" target="_blank" rel="noreferrer">' + escapeHtml(docEntry.title) + '<\/a>';
+      }
+      var humanized = href
+        .replace(/-/g, " ")
+        .replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
+      return '<a href="' + href + '" target="_blank" rel="noreferrer">' + escapeHtml(humanized) + '<\/a>';
+    }
+  );
 }
 
 /* -- Article reader -------------------------------------------------------- */
@@ -1105,6 +1136,7 @@ function openReader(docId, options) {
     .then(function (md) {
       var stripped = md.replace(/^---[\s\S]*?---\s*/, "");
       var rendered = markdownToHtml(stripped);
+      rendered = resolveSlugLinks(rendered);
       state.readerCache.set(docId, rendered);
       if (state.readerDoc && state.readerDoc.id === docId) {
         readerBody.innerHTML = rendered;
