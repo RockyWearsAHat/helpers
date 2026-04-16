@@ -89,10 +89,10 @@ const BUNDLE = path.join(
 );
 
 const OLD =
-  "async enterWorkspace(e){if(!await this.extensionService.stopExtensionHosts(d(18385,null)))return;let o=Dg(this.contextService.getWorkspace())";
+  "async enterWorkspace(e){if(!await this.extensionService.stopExtensionHosts(d(18556,null)))return;let o=Bg(this.contextService.getWorkspace())";
 
 const NEW =
-  "async enterWorkspace(e){await this.extensionService._doStopExtensionHosts();let o=Dg(this.contextService.getWorkspace())";
+  "async enterWorkspace(e){await this.extensionService._doStopExtensionHosts();let o=Bg(this.contextService.getWorkspace())";
 
 // Exported for use by the coordinator script
 module.exports = { OLD, NEW, BUNDLE };

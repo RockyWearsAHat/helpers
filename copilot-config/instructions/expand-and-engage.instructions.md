@@ -95,6 +95,12 @@ After every file edit — regardless of whether the gsh tool reference is loaded
 
 This rule fires regardless of which other instructions are loaded.
 
+## Parallelization Safety
+
+Read-only operations (file reads, searches, web scrapes) can run in parallel when independent. Write operations (file edits, git commits, knowledge note writes) must run sequentially — never parallelize writes. Terminal commands share one shell and must not be called in parallel.
+
+When fan-out is appropriate (e.g., researching multiple topics), prefer launching independent subagent calls or batching independent tool reads in one block. Gather and synthesize results before proceeding to writes.
+
 ## Anti-Patterns
 
 - Answering without any tool call (probably wrong or incomplete)

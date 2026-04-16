@@ -9,5 +9,12 @@
   },
   "gitShellHelpers.branchSessions.enabled": false,
   "editor.formatOnSave": false,
-  "editor.codeActionsOnSave": {}
+  "editor.codeActionsOnSave": {},
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/bower_components": true,
+    "**/*.code-search": true,
+    "**/local-qwen-ollama-outbound*": true,
+    "**/.local-qwen/**": true
+  }
 }

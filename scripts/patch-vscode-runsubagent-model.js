@@ -54,9 +54,9 @@ function detectVscodePath() {
       : process.platform === "win32"
         ? [
             (process.env.LOCALAPPDATA || "") +
-              "\\Programs\\Microsoft VS Code\\resources\\app",
-            "C:\\Program Files\\Microsoft VS Code\\resources\\app",
-            "C:\\Program Files (x86)\\Microsoft VS Code\\resources\\app",
+              "\.rograms\.icrosoft VS Code\.esources\.pp",
+            "C:\.rogram Files\.icrosoft VS Code\.esources\.pp",
+            "C:\.rogram Files (x86)\.icrosoft VS Code\.esources\.pp",
           ]
         : [
             "/usr/share/code/resources/app",
@@ -108,10 +108,10 @@ const BUNDLE = path.join(
 // After:  schema also exposes optional `model` for call-time model selection
 
 const OLD_SCHEMA =
-  'properties:{prompt:{type:"string",description:"A detailed description of the task for the agent to perform"},description:{type:"string",description:"A short (3-5 word) description of the task"}},required:["prompt","description"]}';
+  'let r=["prompt","description"];t&&r.push("agentName");let s={type:"object",properties:n,required:r};';
 
 const NEW_SCHEMA =
-  'properties:{prompt:{type:"string",description:"A detailed description of the task for the agent to perform"},description:{type:"string",description:"A short (3-5 word) description of the task"},model:{type:"string",description:"Optional model identifier for this subagent invocation. Overrides the agent definition\'s default model. Prefer the display name shown in VS Code, for example \'Claude Haiku 4.5\' or \'Claude Sonnet 4.6\'. Common shorthand like \'Haiku 4.5\' and known ids like \'claude-haiku-4.5\' are normalized when possible. When omitted, the agent\'s own model: frontmatter or the parent session model is used."}},required:["prompt","description"]}';
+  'let r=["prompt","description"];n.model={type:"string",description:"Optional model identifier for this subagent invocation. Overrides the agent definition\'s default model. Prefer the display name shown in VS Code, for example \'Claude Haiku 4.5\' or \'Claude Sonnet 4.6\'. Common shorthand like \'Haiku 4.5\' and known ids like \'claude-haiku-4.5\' are normalized when possible. When omitted, the agent\'s own model: frontmatter or the parent session model is used."};t&&r.push("agentName");let s={type:"object",properties:n,required:r};';
 
 // ---------------------------------------------------------------------------
 // Patch 2: Apply call-time model override just before request construction
@@ -125,13 +125,12 @@ const NEW_SCHEMA =
 // `v` = resolvedModelName (displayed in the UI)
 
 const INVOKE_SENTINEL = "let _GSH_RSMM_=1;";
-const INVOKE_ANCHOR =
-  "let he={sessionResource:e.context.sessionResource,requestId:e.callId";
+const INVOKE_ANCHOR_RX = /let[\s]+[a-zA-Z_$0-9]+=\{sessionResource:e\.context\.sessionResource,requestId:e\.callId/;
 
 const PREPARE_SENTINEL = "let _GSH_RSMM_PREP_=1;";
-const PREPARE_RESOLVE = "r=this.resolveSubagentModel(n,e.modelId);";
+const PREPARE_RESOLVE = "c=this.resolveSubagentModel(l,e.modelId);";
 const PREPARE_ANCHOR =
-  'return this._resolvedModels.set(e.toolCallId,r),{invocationMessage:o.description,toolSpecificData:{kind:"subagent",description:o.description,agentName:n?.name,prompt:o.prompt,modelName:r.resolvedModelName}}';
+  'return this._resolvedModels.set(e.toolCallId,c),{invocationMessage:o.description,toolSpecificData:{kind:"subagent",description:o.description,agentName:s?eJ:l?.name??o.agentName,prompt:o.prompt,modelName:c.resolvedModelName}}';
 const PREPARE_OLD = PREPARE_RESOLVE + PREPARE_ANCHOR;
 
 // Strategy:
@@ -166,9 +165,9 @@ const INVOKE_BODY =
   "}else{" +
   // Step 3: normalize shorthand
   "let _normalized=_input;" +
-  "if(/^(haiku|sonnet|opus)\\b/i.test(_normalized)){_normalized='Claude '+_normalized}" +
+  "if(/^(haiku|sonnet|opus)\./i.test(_normalized)){_normalized='Claude '+_normalized}" +
   "else if(/^claude-(haiku|sonnet|opus)-/i.test(_normalized)){" +
-  "_normalized='Claude '+_normalized.replace(/^claude-/i,'').replace(/-fast$/i,' (fast mode)').replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}" +
+  "_normalized='Claude '+_normalized.replace(/^claude-/i,'').replace(/-fast$/i,' (fast mode)').replace(/-/g,' ').replace(/\.\./g,c=>c.toUpperCase())}" +
   "let _normalizedResult=_normalized!==_input?this.languageModelsService.lookupLanguageModelByQualifiedName(_normalized):void 0;" +
   "if(_normalizedResult?.metadata){_lm=_normalizedResult.metadata;p=_normalizedResult.identifier;v=_lm.name}" +
   "else{" +
@@ -183,17 +182,15 @@ const INVOKE_BODY =
   "}}" +
   "if(_found){_lm=_found.meta;p=_found.id;v=_lm.name}" +
   // Step 5: raw passthrough
-  "else{p=_input;v=_normalized.replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}" +
+  "else{p=_input;v=_normalized.replace(/-/g,' ').replace(/\.\./g,c=>c.toUpperCase())}" +
   "}" +
   "}}" +
   "this.logService.info(`[gsh] runSubagent model override → ${p} (${v})`)" +
   "}";
 
-const NEW_INVOKE = INVOKE_SENTINEL + INVOKE_BODY + INVOKE_ANCHOR;
-
 const PREPARE_BODY =
   "if(o.model){" +
-  "let _input=String(o.model).trim();let _modeModelId=r.modeModelId;let _resolvedModelName=r.resolvedModelName;let _lm;" +
+  "let _input=String(o.model).trim();let _modeModelId=c.modeModelId;let _resolvedModelName=c.resolvedModelName;let _lm;" +
   "let _qr=this.languageModelsService.lookupLanguageModelByQualifiedName(_input);" +
   "if(_qr?.metadata){_lm=_qr.metadata;_modeModelId=_qr.identifier;_resolvedModelName=_lm.name}" +
   "else{" +
@@ -204,9 +201,9 @@ const PREPARE_BODY =
   "else{_lm=_idMeta;_modeModelId=_input;_resolvedModelName=_lm.name}" +
   "}else{" +
   "let _normalized=_input;" +
-  "if(/^(haiku|sonnet|opus)\\b/i.test(_normalized)){_normalized='Claude '+_normalized}" +
+  "if(/^(haiku|sonnet|opus)\./i.test(_normalized)){_normalized='Claude '+_normalized}" +
   "else if(/^claude-(haiku|sonnet|opus)-/i.test(_normalized)){" +
-  "_normalized='Claude '+_normalized.replace(/^claude-/i,'').replace(/-fast$/i,' (fast mode)').replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}" +
+  "_normalized='Claude '+_normalized.replace(/^claude-/i,'').replace(/-fast$/i,' (fast mode)').replace(/-/g,' ').replace(/\.\./g,c=>c.toUpperCase())}" +
   "let _normalizedResult=_normalized!==_input?this.languageModelsService.lookupLanguageModelByQualifiedName(_normalized):void 0;" +
   "if(_normalizedResult?.metadata){_lm=_normalizedResult.metadata;_modeModelId=_normalizedResult.identifier;_resolvedModelName=_lm.name}" +
   "else{" +
@@ -219,10 +216,10 @@ const PREPARE_BODY =
   "if(_meta.id&&_meta.id.toLowerCase()===_lower){_found={id:_id,meta:_meta};break}" +
   "}}" +
   "if(_found){_lm=_found.meta;_modeModelId=_found.id;_resolvedModelName=_lm.name}" +
-  "else{_modeModelId=_input;_resolvedModelName=_normalized.replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())}" +
+  "else{_modeModelId=_input;_resolvedModelName=_normalized.replace(/-/g,' ').replace(/\.\./g,c=>c.toUpperCase())}" +
   "}" +
   "}}" +
-  "r={modeModelId:_modeModelId,resolvedModelName:_resolvedModelName}" +
+  "c={modeModelId:_modeModelId,resolvedModelName:_resolvedModelName}" +
   "}";
 
 const NEW_PREPARE =
@@ -246,13 +243,12 @@ module.exports = {
   PATCHES,
   BUNDLE,
   INVOKE_SENTINEL,
-  INVOKE_ANCHOR,
+  INVOKE_ANCHOR_RX,
   PREPARE_SENTINEL,
   PREPARE_RESOLVE,
   PREPARE_ANCHOR,
   PREPARE_OLD,
   NEW_PREPARE,
-  NEW_INVOKE,
 };
 
 // ---------------------------------------------------------------------------
@@ -295,18 +291,19 @@ function apply(bundleSrc) {
 
   // Patch 2: invoke — sentinel-based
   if (!bundleSrc.includes(INVOKE_SENTINEL)) {
-    const anchorIdx = bundleSrc.indexOf(INVOKE_ANCHOR);
-    if (anchorIdx === -1) {
+    const m = bundleSrc.match(INVOKE_ANCHOR_RX);
+    if (!m) {
       return {
         src: bundleSrc,
         changed,
         error: "invoke anchor not found — VS Code version may have changed.",
       };
     }
+    const anchorIdx = bundleSrc.indexOf(m[0]);
     bundleSrc =
       bundleSrc.slice(0, anchorIdx) +
-      NEW_INVOKE +
-      bundleSrc.slice(anchorIdx + INVOKE_ANCHOR.length);
+      INVOKE_SENTINEL + INVOKE_BODY + m[0] +
+      bundleSrc.slice(anchorIdx + m[0].length);
     changed = true;
   }
 

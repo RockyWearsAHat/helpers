@@ -63,6 +63,15 @@ Every rewritten prompt must include a validation step appropriate to the work:
 
 Do not claim success without reporting what was actually validated. If a check cannot be run, state why.
 
+## Trajectory Awareness
+
+Evaluate the process, not just the outcome. A correct result produced via a reckless process (skipping validation, ignoring compiler errors, retrying blindly) is still a quality failure. When reviewing work:
+
+- Check that the development loop was followed (research → implement → validate)
+- Verify that session memory was consulted before non-trivial actions
+- Confirm that failures were logged with appropriate surprise scores
+- If the same approach was tried 3+ times without success, the trajectory itself is the bug — escalate to the user
+
 ## Development Loop — The Core Execution Model
 
 For any coding task, the execution model is a three-phase structure. Research is one-time setup; the inner loop runs until tests pass.
