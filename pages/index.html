@@ -30,6 +30,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/shell/shell.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/sql/sql.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/go/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/mode/simple.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/rust/rust.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
@@ -80,48 +81,55 @@
       <!-- ── SEARCH PAGE ───────────────────────────── -->
       <div id="page-search">
         <header class="hero" id="hero-section">
-          <div class="hero-text">
-            <h1>Git Shell Helpers</h1>
-            <p class="hero-sub">Copilot customization guidance, CS knowledge atlas, and coding references.</p>
-          </div>
+          <div class="hero-grid">
+            <div class="hero-lead">
+              <div class="hero-text">
+                <p class="hero-kicker">Workspace Atlas</p>
+                <h1>Git Shell Helpers</h1>
+                <p class="hero-sub">Copilot customization guidance, CS knowledge atlas, and coding references in one calm, searchable interface.</p>
+              </div>
 
-          <form id="search-form" class="search-form" autocomplete="off">
-            <label class="visually-hidden" for="query-input">Search notes</label>
-            <div class="search-frame">
-              <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M10.5 4a6.5 6.5 0 1 0 4.083 11.558l4.929 4.929 1.414-1.414-4.929-4.929A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"></path>
-              </svg>
-              <input
-                id="query-input"
-                name="q"
-                type="search"
-                placeholder="Search instructions, agents, algorithms, architecture&hellip;"
-                spellcheck="false"
-              />
-              <kbd class="search-kbd">&#8984;K</kbd>
+              <form id="search-form" class="search-form" autocomplete="off">
+                <label class="visually-hidden" for="query-input">Search notes</label>
+                <div class="search-frame">
+                  <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M10.5 4a6.5 6.5 0 1 0 4.083 11.558l4.929 4.929 1.414-1.414-4.929-4.929A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"></path>
+                  </svg>
+                  <input
+                    id="query-input"
+                    name="q"
+                    type="search"
+                    placeholder="Search instructions, agents, algorithms, architecture&hellip;"
+                    spellcheck="false"
+                  />
+                  <kbd class="search-kbd">&#8984;K</kbd>
+                </div>
+              </form>
             </div>
-          </form>
 
-          <div class="bento-grid">
-            <button class="bento-card bento-stat bento-primary" data-scope="all" type="button">
-              <span class="bento-value" id="doc-count">&hellip;</span>
-              <span class="bento-label">Total indexed</span>
-            </button>
-            <button class="bento-card bento-stat" data-scope="copilot" type="button">
-              <span class="bento-value" id="copilot-count">&hellip;</span>
-              <span class="bento-label">Copilot guides</span>
-            </button>
-            <button class="bento-card bento-stat" data-scope="knowledge" type="button">
-              <span class="bento-value" id="curated-count">&hellip;</span>
-              <span class="bento-label">Knowledge notes</span>
-            </button>
-            <button class="bento-card bento-stat" data-scope="archive" type="button">
-              <span class="bento-value" id="archive-count">&hellip;</span>
-              <span class="bento-label">Archive entries</span>
-            </button>
-            <div class="bento-card bento-stat bento-date">
-              <span class="bento-value" id="built-at">&hellip;</span>
-              <span class="bento-label">Last refreshed</span>
+            <div class="hero-metrics">
+              <div class="bento-grid">
+                <button class="bento-card bento-stat bento-primary" data-scope="all" type="button">
+                  <span class="bento-value" id="doc-count">&hellip;</span>
+                  <span class="bento-label">Total indexed</span>
+                </button>
+                <button class="bento-card bento-stat" data-scope="copilot" type="button">
+                  <span class="bento-value" id="copilot-count">&hellip;</span>
+                  <span class="bento-label">Copilot guides</span>
+                </button>
+                <button class="bento-card bento-stat" data-scope="knowledge" type="button">
+                  <span class="bento-value" id="curated-count">&hellip;</span>
+                  <span class="bento-label">Knowledge notes</span>
+                </button>
+                <button class="bento-card bento-stat" data-scope="archive" type="button">
+                  <span class="bento-value" id="archive-count">&hellip;</span>
+                  <span class="bento-label">Archive entries</span>
+                </button>
+                <div class="bento-card bento-stat bento-date">
+                  <span class="bento-value" id="built-at">&hellip;</span>
+                  <span class="bento-label">Last refreshed</span>
+                </div>
+              </div>
             </div>
           </div>
 
