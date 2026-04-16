@@ -27,13 +27,15 @@ Do not invent improvements just because a workflow is impressive or sophisticate
 
 Evaluate in this order:
 
-1. `Platform validity` — is the file supported and technically correct right now?
+0. `Diagnostic correctness` — does the file pass `strict_lint` with zero errors and zero warnings right now? Run `strict_lint` on every file BEFORE any other evaluation. Surface every error and warning verbatim. Files that fail lint are broken regardless of whether their content is good — the platform cannot parse or route a file the toolchain rejects. This is the compiler-level ground truth check and it comes first because platforms evolve: a file that was valid six months ago may now trigger warnings due to new field requirements, deprecated syntax, or changed validation rules.
+1. `Platform validity` — is the file supported and technically correct right now? (YAML frontmatter, field names, file naming, deprecated syntax)
 2. `Primitive fit` — is this the right Copilot surface for this kind of content?
 3. `Project value` — does it help this repository's real workflows?
 4. `Recommendation strength` — is any change required, recommended, optional, or merely illustrative?
 
 ## For Every File, Answer These Questions
 
+0. Does this file pass `strict_lint` with zero errors and zero warnings? Run the `strict_lint` MCP tool on the file path. Report every diagnostic verbatim — errors, warnings, info, and hints. If any exist, they are findings regardless of content quality. A file the toolchain rejects is broken at the platform level and everything else is secondary until the diagnostics are clean. Do not skip this step. Do not assume a file is clean because it "looks right."
 1. Is this file technically correct? (Valid YAML frontmatter, correct field names, proper file naming, no deprecated syntax)
 2. Is the content accurate for this project? (Does it describe things that are actually true about this codebase?)
 3. Even if the formatting is wrong, is there useful content worth preserving or rewriting? (Separate technical invalidity from informational value.)

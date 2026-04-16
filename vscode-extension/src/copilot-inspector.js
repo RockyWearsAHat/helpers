@@ -2,6 +2,7 @@
 // src/copilot-inspector.js — Copilot customization inspection and strict linting
 const vscode = require("vscode");
 const path = require("path");
+const fs = require("fs");
 
 module.exports = function createCopilotInspector(deps) {
   const {
@@ -14,6 +15,8 @@ module.exports = function createCopilotInspector(deps) {
   } = deps;
 
   let _strictLintToolDisposable = null;
+  let _diagnosticsTrackerDisposable = null;
+  const _diagnosticUriVersions = new Map();
 
   function uniquePaths(paths) {
     return [...new Set(paths.filter(Boolean))];
@@ -26,6 +29,74 @@ module.exports = function createCopilotInspector(deps) {
       );
     }
     return getDiagnosticsChannel();
+  }
+
+  function uriKey(uri) {
+    return uri.toString();
+  }
+
+  function bumpDiagnosticVersion(uri) {
+    const key = uriKey(uri);
+    const nextVersion = (_diagnosticUriVersions.get(key) || 0) + 1;
+    _diagnosticUriVersions.set(key, nextVersion);
+  }
+
+  function diagnosticVersion(uri) {
+    return _diagnosticUriVersions.get(uriKey(uri)) || 0;
+  }
+
+  function ensureDiagnosticsTracker(context) {
+    if (_diagnosticsTrackerDisposable) {
+      return;
+    }
+    _diagnosticsTrackerDisposable = vscode.languages.onDidChangeDiagnostics(
+      (event) => {
+        for (const uri of event.uris || []) {
+          bumpDiagnosticVersion(uri);
+        }
+      },
+    );
+    context.subscriptions.push(_diagnosticsTrackerDisposable);
+  }
+
+  async function waitForDiagnosticsUpdate(uri, minVersion, timeoutMs) {
+    if (diagnosticVersion(uri) > minVersion) {
+      return true;
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let disposable;
+      const done = (updated) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (disposable) {
+          disposable.dispose();
+        }
+        clearTimeout(timer);
+        resolve(updated);
+      };
+
+      const timer = setTimeout(() => done(false), timeoutMs);
+
+      disposable = vscode.languages.onDidChangeDiagnostics((event) => {
+        if (
+          (event.uris || []).some((changedUri) => uriKey(changedUri) === uriKey(uri))
+        ) {
+          done(true);
+        }
+      });
+    });
+  }
+
+  async function primeDocumentDiagnostics(uri) {
+    const beforeVersion = diagnosticVersion(uri);
+    const document = await vscode.workspace.openTextDocument(uri);
+
+    const didUpdate = await waitForDiagnosticsUpdate(uri, beforeVersion, 2500);
+    return { document, didUpdate };
   }
 
   function getFrontmatterRange(text) {
@@ -403,8 +474,26 @@ module.exports = function createCopilotInspector(deps) {
 
     let diagnosticPairs;
     if (filePath) {
-      const uri = vscode.Uri.file(filePath);
+      const resolvedPath = path.resolve(filePath);
+      if (!fs.existsSync(resolvedPath)) {
+        throw new Error(`File does not exist: ${resolvedPath}`);
+      }
+
+      const uri = vscode.Uri.file(resolvedPath);
+      const { document, didUpdate } = await primeDocumentDiagnostics(uri);
       diagnosticPairs = [[uri, vscode.languages.getDiagnostics(uri)]];
+
+      const diagnosticsForFile = diagnosticPairs[0][1] || [];
+      if (diagnosticsForFile.length === 0 && !didUpdate) {
+        throw new Error(
+          [
+            `No diagnostics provider activity was observed for ${resolvedPath}.`,
+            `Language: ${document.languageId || "unknown"}.`,
+            "strict_lint requires an active workspace diagnostics provider (linter/language server) for the target file.",
+            "Open this file in VS Code and ensure your language diagnostics/linter extension is installed and configured for this workspace.",
+          ].join(" "),
+        );
+      }
     } else if (folderPath) {
       const normalizedFolder = folderPath.endsWith("/")
         ? folderPath
@@ -498,6 +587,8 @@ module.exports = function createCopilotInspector(deps) {
     if (!isCustomizationInspectorEnabled()) {
       return;
     }
+
+    ensureDiagnosticsTracker(context);
 
     setInspectorDisposable(
       vscode.lm.registerTool("gsh-inspect-copilot-customization-warnings", {
