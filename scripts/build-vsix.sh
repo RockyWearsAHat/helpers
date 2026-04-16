@@ -30,6 +30,8 @@ echo "[build-vsix] Synced version ${VERSION} into package.json"
 
 cd "$EXT_DIR"
 rm -f *.vsix
-npx @vscode/vsce package --no-dependencies --allow-missing-repository
+# Use npm exec --yes to avoid interactive install prompts that can hang CI or
+# backgrounded test runs when stdout/stderr are redirected.
+npm exec --yes @vscode/vsce -- package --no-dependencies --allow-missing-repository
 
 echo "[build-vsix] Built ${EXT_DIR}/git-shell-helpers-${VERSION}.vsix"
