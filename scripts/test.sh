@@ -44,6 +44,7 @@ checks=(
 	"node --check ./scripts/patch-vscode-runsubagent-model.js"
 	"node ./scripts/test-resolve-repo-root.js"
 	"bash ./scripts/test-node-coverage.sh"
+	"node ./scripts/test-google-challenge-sharing.js"
 	"node ./scripts/test-search-auto-scrape.js"
 	"node ./scripts/test-chat-history-archive.js"
 	"node ./scripts/test-chat-archive-mcp.js"

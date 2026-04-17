@@ -21,6 +21,8 @@
   var particles = [];
   var animId = null;
   var isVisible = true;
+  var parallaxRafPending = false;
+  var PARALLAX_FACTOR = 0.32;
 
   function isDark() {
     return document.documentElement.getAttribute('data-theme') !== 'light';
@@ -50,6 +52,18 @@
     for (var i = 0; i < PARTICLE_COUNT; i++) {
       particles.push(makeParticle());
     }
+  }
+
+  function applyParallax() {
+    parallaxRafPending = false;
+    var y = window.scrollY || window.pageYOffset || 0;
+    canvas.style.transform = 'translate3d(0,' + (-y * PARALLAX_FACTOR) + 'px,0)';
+  }
+
+  function requestParallaxUpdate() {
+    if (parallaxRafPending) return;
+    parallaxRafPending = true;
+    requestAnimationFrame(applyParallax);
   }
 
   var lastTime = 0;
@@ -135,9 +149,13 @@
         particles[i].y = Math.random() * H;
       }
     }
+    requestParallaxUpdate();
   });
+
+  window.addEventListener('scroll', requestParallaxUpdate, { passive: true });
 
   /* Boot */
   init();
+  applyParallax();
   requestAnimationFrame(tick);
 })();

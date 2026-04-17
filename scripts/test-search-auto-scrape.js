@@ -62,6 +62,21 @@ function makeMockDeps(opts = {}) {
       "<html><head><title>Full Page Three</title></head><body><p>Content of page three.</p></body></html>",
   };
 
+  const searchGoogleHeadless =
+    opts.searchGoogleHeadless ||
+    (async () => ({
+      challenge: false,
+      noResults: false,
+      results: searchResults,
+      pageUrl: "",
+      pageTitle: "",
+      bodyText: "",
+    }));
+  const sleep = opts.sleep || (async () => {});
+  const resolveGoogleChallengeViaLiveChrome =
+    opts.resolveGoogleChallengeViaLiveChrome ||
+    (async () => ({ challenge: true, noResults: false, results: [] }));
+
   return {
     fetchText: async (url) => {
       if (opts.fetchTextFail && opts.fetchTextFail.includes(url)) {
@@ -82,18 +97,12 @@ function makeMockDeps(opts = {}) {
         .trim();
     },
     decodeHtmlEntities: (s) => s,
-    sleep: async () => {},
+    sleep,
     toPositiveInt: (v, d) => Math.max(1, Math.round(Number(v) || d)),
     summarizeInline: (t) => t,
-    canUseLiveChromeFallback: () => false,
+    canUseLiveChromeFallback: opts.canUseLiveChromeFallback || (() => false),
     collectGoogleResultsViaLiveChrome: async () => ({ results: [] }),
-    searchGoogleHeadless: async () => ({
-      challenge: false,
-      results: searchResults,
-      pageUrl: "",
-      pageTitle: "",
-      bodyText: "",
-    }),
+    searchGoogleHeadless,
     parseGoogleResults: () => [],
     postProcessGoogleResults: (r) => r,
     mergeGoogleResults: (existing, incoming, max) => {
@@ -110,14 +119,14 @@ function makeMockDeps(opts = {}) {
     resetHeadlessBrowser: async () => {},
     runInteractiveGoogleBrowser: async () => ({ results: [] }),
     googleRateLimit: async () => {},
-    resolveGoogleChallengeViaLiveChrome: async () => ({ challenge: true }),
+    resolveGoogleChallengeViaLiveChrome,
     WORKSPACE_ROOT: opts.workspaceRoot || TEMP_WORKSPACE,
     DEFAULT_USER_AGENT: "test-agent",
     GOOGLE_RESULTS_PER_PAGE: 10,
     GOOGLE_DEFAULT_PAGE_COUNT: 2,
     GOOGLE_DEFAULT_ACCEPT_LANGUAGE: "en",
-    GOOGLE_EMPTY_RETRY_MAX: 1,
-    GOOGLE_EMPTY_RETRY_DELAY_MS: 10,
+    GOOGLE_EMPTY_RETRY_MAX: opts.googleEmptyRetryMax || 1,
+    GOOGLE_EMPTY_RETRY_DELAY_MS: opts.googleEmptyRetryDelayMs || 10,
   };
 }
 
@@ -279,6 +288,117 @@ async function main() {
     assert(
       !(await fileExists(path.join(TEMP_WORKSPACE, "research-root-spill.md"))),
       "fetchPages does not create a workspace-root file when output_file is bare",
+    );
+  }
+
+  // 10. confirmed no-results pages stop immediately without retries or interactive fallback
+  {
+    let searchCalls = 0;
+    let sleepCalls = 0;
+    let fallbackCalls = 0;
+    const { searchWeb, formatSearchResult } = createWebSearch(
+      makeMockDeps({
+        googleEmptyRetryMax: 4,
+        canUseLiveChromeFallback: () => true,
+        sleep: async () => {
+          sleepCalls++;
+        },
+        searchGoogleHeadless: async () => {
+          searchCalls++;
+          return {
+            challenge: false,
+            noResults: true,
+            results: [],
+            pageUrl: "https://www.google.com/search?q=definitely-no-match",
+            pageTitle: "No results",
+            bodyText:
+              "Your search - definitely no match - did not match any documents. Suggestions: try different keywords.",
+          };
+        },
+        resolveGoogleChallengeViaLiveChrome: async () => {
+          fallbackCalls++;
+          return { challenge: false, noResults: false, results: [] };
+        },
+      }),
+    );
+    const result = await searchWeb({ query: "definitely no match" });
+    const formatted = formatSearchResult(result);
+    assert(result.results.length === 0, "Confirmed no-results returns empty list");
+    assert(searchCalls === 1, "Confirmed no-results skips retries");
+    assert(sleepCalls === 0, "Confirmed no-results skips retry backoff sleeps");
+    assert(fallbackCalls === 0, "Confirmed no-results skips interactive fallback");
+    assert(
+      formatted.includes("Google reported no matching results"),
+      "formatSearchResult explains confirmed no-results pages",
+    );
+  }
+
+  // 11. challenge resolution retries the caller query instead of merging interactive results
+  {
+    let searchCalls = 0;
+    let fallbackCalls = 0;
+    const retriedHeadlessResults = [
+      {
+        title: "Page One",
+        url: "https://example.com/1",
+        snippet: "First result",
+      },
+      {
+        title: "Page Two",
+        url: "https://example.com/2",
+        snippet: "Second result",
+      },
+    ];
+    const { searchWeb } = createWebSearch(
+      makeMockDeps({
+        googleEmptyRetryMax: 2,
+        canUseLiveChromeFallback: () => true,
+        searchGoogleHeadless: async () => {
+          searchCalls++;
+          if (searchCalls === 1) {
+            return {
+              challenge: true,
+              noResults: false,
+              results: [],
+              pageUrl: "https://www.google.com/sorry/index",
+              pageTitle: "About this page",
+              bodyText: "detected unusual traffic",
+            };
+          }
+          return {
+            challenge: false,
+            noResults: false,
+            results: retriedHeadlessResults,
+            pageUrl: "https://www.google.com/search?q=test",
+            pageTitle: "Google Search",
+            bodyText: "",
+          };
+        },
+        resolveGoogleChallengeViaLiveChrome: async () => {
+          fallbackCalls++;
+          return {
+            challenge: false,
+            noResults: false,
+            results: [
+              {
+                title: "Interactive Result",
+                url: "https://example.com/interactive",
+                snippet: "Should not be merged into the caller results",
+              },
+            ],
+          };
+        },
+      }),
+    );
+    const result = await searchWeb({ query: "test" });
+    assert(fallbackCalls === 1, "Challenge path invokes interactive resolution once");
+    assert(
+      searchCalls >= 2,
+      "Challenge path retries headless search after resolution",
+    );
+    assert(
+      result.results.every((item) => item.url !== "https://example.com/interactive"),
+      "Interactive results are not merged into the caller response",
     );
   }
 
