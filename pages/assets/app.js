@@ -219,6 +219,14 @@ function buildSnippet(doc, terms) {
   return snippet;
 }
 
+function formatResultPath(doc) {
+  var rawPath = String(doc.path || "").trim();
+  var base = rawPath ? rawPath.split("/").pop() || rawPath : doc.title || "Note";
+  var cleaned = base.replace(/\s+[\u00B7\u2014\u2013]\s+.*$/, "").trim();
+  var scope = doc.scopeLabel || "Knowledge";
+  return scope + " · " + cleaned;
+}
+
 /* -- Scoring --------------------------------------------------------------- */
 function scoreDocument(doc, normalizedQuery, terms) {
   if (state.scope !== "all" && doc.scopeKey !== state.scope) return 0;
@@ -291,10 +299,10 @@ function sortResults(results) {
 }
 
 function summaryForScope(scopeKey) {
-  if (scopeKey === "copilot") return "Top Copilot guides.";
-  if (scopeKey === "knowledge") return "Top knowledge notes.";
-  if (scopeKey === "archive") return "Top archive entries.";
-  return "Top guides across Copilot customization, knowledge atlas, and archive.";
+  if (scopeKey === "copilot") return "Copilot customization guidance.";
+  if (scopeKey === "knowledge") return "Knowledge atlas notes and references.";
+  if (scopeKey === "archive") return "Archive entries and historical context.";
+  return "Unified Atlas: Copilot, knowledge, and archive in one index.";
 }
 
 function buildChipButton(label, className, options) {
@@ -340,8 +348,8 @@ function activateChip(button) {
 /* -- Render: suggestions --------------------------------------------------- */
 function renderSuggestions() {
   suggestionStrip.innerHTML = "";
-  if (!state.corpus) return;
-  state.corpus.metadata.featuredCategories.forEach(function (cat) {
+  if (!state.corpus || !state.corpus.metadata) return;
+  (state.corpus.metadata.featuredCategories || []).slice(0, 6).forEach(function (cat) {
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "suggestion-button";
@@ -517,6 +525,97 @@ function renderPreview(doc) {
   requestAnimationFrame(updatePreviewScrollState);
 }
 
+function normalizeCorpus(rawCorpus) {
+  if (!rawCorpus || typeof rawCorpus !== "object") {
+    throw new Error("notes-search.json is empty or invalid");
+  }
+
+  var srcDocuments = Array.isArray(rawCorpus.documents) ? rawCorpus.documents : [];
+
+  // Already in Atlas format.
+  if (
+    rawCorpus.metadata &&
+    typeof rawCorpus.metadata.totalDocuments === "number" &&
+    srcDocuments.length > 0 &&
+    Object.prototype.hasOwnProperty.call(srcDocuments[0], "scopeKey")
+  ) {
+    return rawCorpus;
+  }
+
+  var scopeLabelMap = {
+    copilot: "Copilot guide",
+    knowledge: "Knowledge note",
+    archive: "Archive entry",
+  };
+
+  var documents = srcDocuments.map(function (doc, index) {
+    var scopeKey = String(doc.scopeKey || doc.scope || "knowledge").toLowerCase();
+    if (!["copilot", "knowledge", "archive"].includes(scopeKey)) {
+      scopeKey = "knowledge";
+    }
+    var title = String(doc.title || "Untitled note").trim();
+    var id = String(doc.id || "doc-" + String(index + 1).padStart(4, "0"));
+    var tags = Array.isArray(doc.tags) ? doc.tags : [];
+    var tokens = Array.isArray(doc.tokens) ? doc.tokens : [];
+    var mergedKeywords = tags.concat(tokens).filter(Boolean);
+    var snippet = String(doc.summary || doc.snippet || "").trim();
+
+    return {
+      id: id,
+      title: title,
+      path: String(doc.path || title),
+      scopeKey: scopeKey,
+      scopeLabel: scopeLabelMap[scopeKey],
+      category: scopeLabelMap[scopeKey],
+      snippet: snippet,
+      previewText: snippet,
+      searchText: (title + " " + snippet + " " + mergedKeywords.join(" ")).trim(),
+      keywords: mergedKeywords,
+      topics: mergedKeywords,
+      headings: Array.isArray(doc.headings) ? doc.headings : [],
+      highlights: Array.isArray(doc.highlights) ? doc.highlights : [],
+      metaPills: [scopeLabelMap[scopeKey]].concat(mergedKeywords.slice(0, 3)),
+      resultPills: [scopeLabelMap[scopeKey]].concat(mergedKeywords.slice(0, 3)),
+      resourceLinks: Array.isArray(doc.resourceLinks) ? doc.resourceLinks : [],
+      relatedIds: Array.isArray(doc.relatedIds) ? doc.relatedIds : [],
+      rawUrl: doc.rawUrl || "",
+      documentType: doc.documentType || scopeKey,
+    };
+  });
+
+  var scopeCounts = {
+    copilot: 0,
+    knowledge: 0,
+    archive: 0,
+  };
+  documents.forEach(function (doc) {
+    scopeCounts[doc.scopeKey] += 1;
+  });
+
+  var featuredCategories = [];
+  ["copilot", "knowledge", "archive"].forEach(function (scope) {
+    if (scopeCounts[scope] > 0) {
+      featuredCategories.push({
+        label: scopeLabelMap[scope].replace(/\s+guide|\s+note|\s+entry/, ""),
+        count: scopeCounts[scope],
+      });
+    }
+  });
+
+  return {
+    metadata: {
+      totalDocuments: documents.length,
+      scopeCounts: scopeCounts,
+      builtAt:
+        rawCorpus.metadata?.builtAt ||
+        rawCorpus.meta?.generated ||
+        new Date().toISOString(),
+      featuredCategories: featuredCategories,
+    },
+    documents: documents,
+  };
+}
+
 /* -- Set selected ---------------------------------------------------------- */
 function setSelected(documentId) {
   state.selectedId = documentId;
@@ -603,7 +702,7 @@ function loadNextResultsPage() {
           resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category]
         )
           .filter(isValidTag)
-          .slice(0, 4)
+          .slice(0, 3)
           .map(function (k) {
             return buildChipButton(formatPillTag(k), "result-pill", { query: k });
           })
@@ -623,7 +722,7 @@ function loadNextResultsPage() {
           '" tabindex="0">' +
           '<div class="result-topline"><div>' +
           '<p class="result-path">' +
-          escapeHtml((resultDoc.path.split("/").pop() || resultDoc.path).replace(/\s+[\u00B7\u2014\u2013]\s+.*$/, "").trim()) +
+          escapeHtml(formatResultPath(resultDoc)) +
           "</p>" +
           '<h2 class="result-title"><span class="result-link">' +
           highlight(resultDoc.title, terms) +
@@ -737,8 +836,16 @@ function renderResults(results, durationMs, terms) {
 
     if (!state.query) {
       resultsSummary.textContent = summaryForScope(state.scope);
+      var scopeSummary =
+        state.scope === "all"
+          ? "All sources"
+          : state.scope === "copilot"
+            ? "Copilot only"
+            : state.scope === "knowledge"
+              ? "Knowledge only"
+              : "Archive only";
       resultsMeta.textContent =
-        results.length.toLocaleString() + " curated picks";
+        results.length.toLocaleString() + " curated picks · " + scopeSummary;
     } else {
       resultsSummary.textContent =
         "About " +
@@ -746,7 +853,10 @@ function renderResults(results, durationMs, terms) {
         " result" +
         (results.length === 1 ? "" : "s");
       var msDisplay = durationMs % 1 === 0 ? durationMs : durationMs.toFixed(1);
-      resultsMeta.textContent = msDisplay + " ms";
+      resultsMeta.textContent =
+        msDisplay +
+        " ms · " +
+        (state.scope === "all" ? "all sources" : state.scope);
     }
 
     if (!results.length) {
@@ -775,7 +885,7 @@ function renderResults(results, durationMs, terms) {
       resultDoc.resultPills || [resultDoc.scopeLabel, resultDoc.category]
     )
       .filter(isValidTag)
-      .slice(0, 4)
+      .slice(0, 3)
       .map(function (k) {
         return buildChipButton(formatPillTag(k), "result-pill", { query: k });
       })
@@ -795,7 +905,7 @@ function renderResults(results, durationMs, terms) {
       '" tabindex="0">' +
       '<div class="result-topline"><div>' +
       '<p class="result-path">' +
-      escapeHtml((resultDoc.path.split("/").pop() || resultDoc.path).replace(/\s+[\u00B7\u2014\u2013]\s+.*$/, "").trim()) +
+      escapeHtml(formatResultPath(resultDoc)) +
       "</p>" +
       '<h2 class="result-title"><span class="result-link">' +
       highlight(resultDoc.title, terms) +
@@ -1362,7 +1472,7 @@ async function loadCorpus() {
     throw new Error(
       "Failed to load notes-search.json (" + response.status + ")",
     );
-  state.corpus = await response.json();
+  state.corpus = normalizeCorpus(await response.json());
   state.documentsById = new Map(
     state.corpus.documents.map(function (doc) {
       return [doc.id, doc];

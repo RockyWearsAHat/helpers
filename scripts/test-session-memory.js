@@ -44,6 +44,12 @@ async function main() {
   );
   if (r1.entry.tier !== "capable")
     throw new Error("Expected tier 'capable', got: " + r1.entry.tier);
+  if (r1.entry.surprise_source !== "manual") {
+    throw new Error(
+      "Expected manual surprise source for explicit score, got: " +
+        r1.entry.surprise_source,
+    );
+  }
 
   // 2. Log a high-surprise failure
   const r2 = await sm.logSessionEvent({
@@ -72,7 +78,61 @@ async function main() {
   if (r3.entry.tier !== "quick")
     throw new Error("Expected tier 'quick', got: " + r3.entry.tier);
 
-  // 4. Search — heredoc query should find the high-surprise entry
+  // 4. Log without surprise — should infer a non-trivial baseline for new feature work
+  const r4 = await sm.logSessionEvent({
+    action: "added Ollama-compatible endpoints to hybrid server",
+    outcome:
+      "success - /api/tags and /api/generate verified on port 8788",
+    model: "gpt-5.4",
+    tags: ["ollama", "compatibility", "api", "hybrid-server"],
+    context:
+      "hybrid_server.py now serves /api/generate, /api/chat, and /api/tags",
+  });
+  if (r4.entry.surprise_source !== "inferred") {
+    throw new Error(
+      "Expected inferred surprise source when surprise omitted, got: " +
+        r4.entry.surprise_source,
+    );
+  }
+  if (r4.entry.surprise < 0.35) {
+    throw new Error(
+      "Expected inferred surprise >= 0.35 for new capability delivery, got: " +
+        r4.entry.surprise,
+    );
+  }
+  console.log(
+    "[pass] Inferred surprise for new capability:",
+    r4.entry.surprise,
+    r4.entry.surprise_reason,
+  );
+
+  // 5. Extreme manual mismatch should blend toward inferred baseline
+  const r5 = await sm.logSessionEvent({
+    action: "fixed typo in help text",
+    outcome: "success",
+    surprise: 0.95,
+    model: "gpt-5.4",
+    tags: ["docs", "maintenance"],
+  });
+  if (r5.entry.surprise_source !== "blended") {
+    throw new Error(
+      "Expected blended surprise source for extreme manual mismatch, got: " +
+        r5.entry.surprise_source,
+    );
+  }
+  if (r5.entry.surprise >= 0.7) {
+    throw new Error(
+      "Expected blended surprise to reduce extreme manual score, got: " +
+        r5.entry.surprise,
+    );
+  }
+  console.log(
+    "[pass] Blended surprise normalized outlier:",
+    r5.entry.surprise,
+    `(manual=${r5.entry.surprise_manual}, inferred=${r5.entry.surprise_inferred})`,
+  );
+
+  // 6. Search — heredoc query should find the high-surprise entry
   const s1 = await sm.searchSessionLog({
     query: "heredoc terminal shell",
     current_model: "gpt-5.2",
@@ -92,7 +152,7 @@ async function main() {
     s1.results[0].surprise,
   );
 
-  // 5. Same search with a different model — should still find it but with lower boost
+  // 7. Same search with a different model — should still find it but with lower boost
   const s2 = await sm.searchSessionLog({
     query: "heredoc terminal",
     current_model: "claude-sonnet-4-6",
@@ -106,7 +166,7 @@ async function main() {
     );
   }
 
-  // 6. Summary
+  // 8. Summary
   const sum = await sm.getSessionSummary({ limit: 5 });
   console.log(
     "[pass] Summary — total:",
@@ -114,10 +174,10 @@ async function main() {
     "avg_surprise:",
     sum.avg_surprise,
   );
-  if (sum.total_entries !== 3)
-    throw new Error("Expected 3 entries, got: " + sum.total_entries);
+  if (sum.total_entries !== 5)
+    throw new Error("Expected 5 entries, got: " + sum.total_entries);
 
-  // 7. Format helpers
+  // 9. Format helpers
   const fmtLog = sm.formatLogResult(r1);
   if (!fmtLog.includes("refactored"))
     throw new Error("formatLogResult missing action text");
@@ -129,18 +189,18 @@ async function main() {
   console.log("[pass] Format search output OK");
 
   const fmtSum = sm.formatSummaryResult(sum);
-  if (!fmtSum.includes("Total entries: 3"))
+  if (!fmtSum.includes("Total entries: 5"))
     throw new Error("formatSummaryResult wrong count");
   console.log("[pass] Format summary output OK");
 
-  // 8. Verify session_uri is stamped on log entries
+  // 10. Verify session_uri is stamped on log entries
   if (r1.entry.session_uri !== TEST_SESSION_URI)
     throw new Error(
       "Expected session_uri on log entry, got: " + r1.entry.session_uri,
     );
   console.log("[pass] Log entries stamped with session_uri");
 
-  // 9. Verify session_uri appears in search results
+  // 11. Verify session_uri appears in search results
   if (s1.results[0].session_uri !== TEST_SESSION_URI)
     throw new Error(
       "Expected session_uri in search results, got: " +
@@ -148,7 +208,7 @@ async function main() {
     );
   console.log("[pass] Search results include session_uri");
 
-  // 10. Verify session_uri=null when not provided
+  // 12. Verify session_uri=null when not provided
   const smNoSession = createSessionMemory({
     WORKSPACE_ROOT: WORKSPACE,
     CHAT_SESSION_URI: null,
@@ -162,21 +222,21 @@ async function main() {
     toPositiveInt: (v, d, min, max) =>
       Math.max(min, Math.min(max, parseInt(v) || d)),
   });
-  const r4 = await smNoSession.logSessionEvent({
+  const r6 = await smNoSession.logSessionEvent({
     action: "event without session identity",
     outcome: "success",
     surprise: 0.0,
     model: "claude-haiku-4-5",
     tags: ["test"],
   });
-  if (r4.entry.session_uri !== null)
+  if (r6.entry.session_uri !== null)
     throw new Error(
       "Expected null session_uri when not provided, got: " +
-        r4.entry.session_uri,
+        r6.entry.session_uri,
     );
   console.log("[pass] Null session_uri when CHAT_SESSION_URI not provided");
 
-  // 11. Rebuild index manually
+  // 13. Rebuild index manually
   const rebuildResult = await sm.buildSessionIndex();
   console.log(
     "[pass] Manual rebuild:",
