@@ -7,9 +7,6 @@ const { execFileSync } = require("child_process");
 
 const PATCH_HELPER_FILES = [
   "patch-vscode-apply-all.js",
-  "patch-vscode-folder-switch.js",
-  "patch-vscode-git-head-display.js",
-  "patch-vscode-runsubagent-model.js",
 ];
 
 const SETUP_GUIDE_URL =

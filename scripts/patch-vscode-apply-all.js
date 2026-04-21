@@ -114,6 +114,9 @@ const PATCH_DEFS = [
   },
 ];
 
+const LEGACY_PATCHES_ENABLED = process.env.GSH_ENABLE_LEGACY_VSCODE_PATCHES === "1";
+const ACTIVE_PATCH_DEFS = LEGACY_PATCHES_ENABLED ? PATCH_DEFS : [];
+
 // Legacy detection patterns for workbench bundle
 const LEGACY_WORKBENCH_PATTERNS = [
   "active-chat-session.json", // legacy chat-bridge patch
@@ -159,7 +162,7 @@ function checkPatch(patchScript) {
 
 function getStatus() {
   const results = [];
-  for (const def of PATCH_DEFS) {
+  for (const def of ACTIVE_PATCH_DEFS) {
     results.push({
       name: def.name,
       description: def.description,
@@ -177,6 +180,7 @@ function getStatus() {
   return {
     bundles: bundleStatus,
     patches: results,
+    legacyPatchesEnabled: LEGACY_PATCHES_ENABLED,
     allPatched: results.every((r) => r.status === "patched"),
   };
 }
@@ -204,6 +208,13 @@ if (process.argv.includes("--missing")) {
 // --check mode
 if (process.argv.includes("--check")) {
   const status = getStatus();
+  if (!LEGACY_PATCHES_ENABLED) {
+    console.log("VS Code Patches");
+    console.log("=".repeat(40));
+    console.log("Legacy VS Code bundle patches are retired by default.");
+    console.log("Set GSH_ENABLE_LEGACY_VSCODE_PATCHES=1 to re-enable patch checks/apply.");
+    process.exit(0);
+  }
   console.log("VS Code Patches");
   console.log("=".repeat(40));
   for (const p of status.patches) {
@@ -246,9 +257,18 @@ if (process.argv.includes("--revert")) {
 }
 
 // Apply mode: backup each bundle, then apply patches per bundle
+if (!LEGACY_PATCHES_ENABLED) {
+  console.log(
+    "Legacy VS Code bundle patches are retired by default. Nothing to apply.",
+  );
+  console.log("Set GSH_ENABLE_LEGACY_VSCODE_PATCHES=1 to re-enable apply mode.");
+  process.exit(0);
+}
+
+// Apply mode: backup each bundle, then apply patches per bundle
 // Group patches by bundle
 const patchesByBundle = {};
-for (const def of PATCH_DEFS) {
+for (const def of ACTIVE_PATCH_DEFS) {
   if (!patchesByBundle[def.bundle]) patchesByBundle[def.bundle] = [];
   patchesByBundle[def.bundle].push(def);
 }
