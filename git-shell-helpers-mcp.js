@@ -130,6 +130,79 @@ const SESSION_MEMORY_TOOLS = new Set([
   "rebuild_session_index",
 ]);
 
+function summarizeToolArguments(toolArguments) {
+  const obj =
+    toolArguments && typeof toolArguments === "object" ? toolArguments : {};
+  const keys = Object.keys(obj);
+  if (!keys.length) return "(none)";
+  const summary = {};
+  for (const key of keys.slice(0, 8)) {
+    const value = obj[key];
+    if (value === null || value === undefined) {
+      summary[key] = value;
+      continue;
+    }
+    if (typeof value === "string") {
+      summary[key] = value.length > 160 ? value.slice(0, 157) + "..." : value;
+      continue;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      summary[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      summary[key] = `[array:${value.length}]`;
+      continue;
+    }
+    summary[key] = "[object]";
+  }
+  return JSON.stringify(summary);
+}
+
+function summarizeToolResult(content) {
+  if (!Array.isArray(content) || content.length === 0) return "no content";
+  const textChunk = content.find(
+    (item) => item && item.type === "text" && typeof item.text === "string",
+  );
+  if (!textChunk || !textChunk.text) return "non-text content";
+  const oneLine = textChunk.text.replace(/\s+/g, " ").trim();
+  if (!oneLine) return "empty text content";
+  return oneLine.length > 180 ? oneLine.slice(0, 177) + "..." : oneLine;
+}
+
+function normalizeToolTag(name) {
+  return String(name || "tool")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+async function autoLogToolEvent(toolName, toolArguments, status, detail) {
+  if (process.env.GSH_SESSION_MEMORY_DISABLED) return;
+  if (process.env.GSH_AUTO_SESSION_LOG_DISABLED === "1") return;
+  if (!researchModule?.handler) return;
+  if (SESSION_MEMORY_TOOLS.has(toolName)) return;
+
+  const safeArgs = summarizeToolArguments(toolArguments);
+  const toolTag = normalizeToolTag(toolName);
+  const outcome =
+    status === "success"
+      ? `success - ${detail || "completed"}`
+      : `failed - ${detail || "tool call failed"}`;
+
+  try {
+    await researchModule.handler("log_session_event", {
+      action: `auto tool call: ${toolName}`,
+      outcome,
+      tags: ["auto", "mcp-tool", toolTag, status],
+      context: `args=${safeArgs}`,
+    });
+  } catch {
+    // Never let telemetry-style auto logging affect user-visible tool behavior.
+  }
+}
+
 const ALL_TOOLS = [
   ...(researchModule?.tools || []).filter(
     (t) =>
@@ -263,6 +336,12 @@ async function handleRequest(request) {
       activityId,
     );
     if (builtInContent) {
+      await autoLogToolEvent(
+        toolName,
+        toolArguments,
+        "success",
+        summarizeToolResult(builtInContent),
+      );
       send({ jsonrpc: "2.0", id, result: { content: builtInContent } });
       return;
     }
@@ -270,6 +349,12 @@ async function handleRequest(request) {
     for (const handler of delegatedHandlers) {
       const content = await handler(toolName, toolArguments);
       if (content) {
+        await autoLogToolEvent(
+          toolName,
+          toolArguments,
+          "success",
+          summarizeToolResult(content),
+        );
         send({ jsonrpc: "2.0", id, result: { content } });
         return;
       }
@@ -278,6 +363,7 @@ async function handleRequest(request) {
     sendError(id, -32601, `Unknown tool: ${toolName}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    await autoLogToolEvent(toolName, toolArguments, "failed", message);
     sendError(id, -32603, message);
   } finally {
     notifyActivityEnd(activityId);

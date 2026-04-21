@@ -81,6 +81,44 @@
       <div id="page-search">
         <header class="hero" id="hero-section">
           <div class="hero-grid">
+            <svg class="hero-shape hero-shape-paper" viewBox="0 0 760 300" preserveAspectRatio="none" aria-hidden="true">
+              <path class="paper-cut paper-cut-back" d="M0 34 C72 6 160 16 230 42 C286 62 328 100 350 138 C302 132 252 152 214 184 C170 220 106 242 0 238 Z" />
+              <path class="paper-cut paper-cut-mid" d="M0 56 C66 30 144 36 202 62 C244 80 278 110 296 138 C260 138 224 154 194 178 C152 212 96 228 0 222 Z" />
+              <path class="paper-cut paper-cut-front" d="M0 78 C54 58 116 64 164 84 C198 98 228 122 244 144 C216 146 188 158 164 178 C128 206 82 218 0 212 Z" />
+              <path class="paper-ridge" d="M0 34 L548 16" />
+              <path class="hero-seam" d="M548 16 C556 70 544 130 552 182 C560 232 546 264 552 300" />
+            </svg>
+
+            <svg class="hero-shape hero-shape-neural" viewBox="0 0 560 280" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="heroWaveA" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#6fd6ff" />
+                  <stop offset="45%" stop-color="#6d9bff" />
+                  <stop offset="100%" stop-color="#4de0be" />
+                </linearGradient>
+                <linearGradient id="heroWaveB" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#61c8ff" />
+                  <stop offset="55%" stop-color="#b47bff" />
+                  <stop offset="100%" stop-color="#70ebc9" />
+                </linearGradient>
+              </defs>
+              <path class="wave wave-a" d="M10 204 C72 142 138 242 202 176 C262 114 328 212 392 158 C448 112 506 198 550 136" />
+              <path class="wave wave-b" d="M0 170 C58 108 122 202 186 144 C250 90 310 180 378 128 C446 80 504 150 560 104" />
+              <path class="wave wave-c" d="M18 234 C82 190 146 260 212 208 C272 160 336 236 402 186 C454 146 504 214 548 172" />
+              <path class="mesh-line" d="M52 212 L140 116 L246 170 L356 102 L512 148" />
+              <path class="mesh-line" d="M140 116 L214 74 L312 122 L424 64" />
+              <path class="mesh-face" d="M140 116 L246 170 L214 74 Z" />
+              <path class="mesh-face" d="M246 170 L356 102 L312 122 Z" />
+              <path class="mesh-face" d="M312 122 L356 102 L424 64 Z" />
+              <circle class="mesh-node" cx="140" cy="116" r="2.7" />
+              <circle class="mesh-node" cx="246" cy="170" r="2.6" />
+              <circle class="mesh-node" cx="214" cy="74" r="2.6" />
+              <circle class="mesh-node" cx="312" cy="122" r="2.6" />
+              <circle class="mesh-node" cx="356" cy="102" r="2.7" />
+              <circle class="mesh-node" cx="424" cy="64" r="2.9" />
+              <circle class="mesh-node" cx="512" cy="148" r="2.6" />
+            </svg>
+
             <div class="hero-lead">
               <div class="hero-text">
                 <p class="hero-kicker">Workspace Atlas</p>
@@ -133,17 +171,30 @@
           </div>
         </header>
 
-        <div class="filter-bar" aria-hidden="true">
-          <div class="scope-row" id="scope-row" role="group" aria-label="Filter scope">
-            <button class="scope-chip active" data-scope="all" type="button" tabindex="-1">All</button>
-            <button class="scope-chip" data-scope="copilot" type="button" tabindex="-1">Copilot</button>
-            <button class="scope-chip" data-scope="knowledge" type="button" tabindex="-1">Knowledge</button>
-            <button class="scope-chip" data-scope="archive" type="button" tabindex="-1">Archive</button>
+        <section class="atlas-content-plane">
+          <div class="atlas-layer-stack" aria-hidden="true">
+            <svg class="atlas-layer atlas-layer-back" viewBox="0 0 1600 260" preserveAspectRatio="none">
+              <path d="M0 88 C140 66 280 114 420 92 C560 72 700 116 840 94 C980 72 1120 118 1260 98 C1380 82 1490 102 1600 90 L1600 260 L0 260 Z" />
+            </svg>
+            <svg class="atlas-layer atlas-layer-mid" viewBox="0 0 1600 260" preserveAspectRatio="none">
+              <path d="M0 122 C130 104 270 136 410 116 C550 96 690 142 830 120 C970 98 1110 144 1250 126 C1370 110 1490 134 1600 118 L1600 260 L0 260 Z" />
+            </svg>
+            <svg class="atlas-layer atlas-layer-seam" viewBox="0 0 1600 260" preserveAspectRatio="none">
+              <path d="M0 120 C130 102 270 138 410 118 C550 96 690 144 830 121 C970 98 1110 145 1250 126 C1370 108 1490 132 1600 116" />
+            </svg>
           </div>
-          <div class="suggestion-strip" id="suggestion-strip"></div>
-        </div>
 
-        <main class="main-layout" id="main-layout">
+          <div class="filter-bar">
+            <div class="scope-row" id="scope-row" role="group" aria-label="Filter scope">
+              <button class="scope-chip active" data-scope="all" type="button">All</button>
+              <button class="scope-chip" data-scope="copilot" type="button">Copilot</button>
+              <button class="scope-chip" data-scope="knowledge" type="button">Knowledge</button>
+              <button class="scope-chip" data-scope="archive" type="button">Archive</button>
+            </div>
+            <div class="suggestion-strip" id="suggestion-strip"></div>
+          </div>
+
+          <main class="main-layout" id="main-layout">
           <section class="results-column" id="results-column">
             <div class="results-toolbar">
               <p id="results-summary">Loading search corpus&hellip;</p>
@@ -385,7 +436,8 @@
               </div>
             </div>
           </section>
-        </main>
+          </main>
+        </section>
       </div>
 
       <!-- ── ABOUT PAGE ────────────────────────────── -->
