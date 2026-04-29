@@ -192,6 +192,34 @@ module.exports = function createRenderWebviewHtml(deps) {
       .getConfiguration("gitShellHelpers.formatControl")
       .get("bypassOnAgentSave", false);
 
+    const localSubagentsConfig = vscode.workspace.getConfiguration(
+      "gitShellHelpers.localSubagents",
+    );
+    const ollamaDefaultModel = String(
+      localSubagentsConfig.get("ollama.defaultModel", "") || "",
+    ).trim();
+    const ollamaMaxIter = localSubagentsConfig.get("ollama.maxIterations", 12);
+    const ollamaAllowWrite = localSubagentsConfig.get(
+      "ollama.allowWrite",
+      false,
+    );
+    const ollamaAllowShell = localSubagentsConfig.get(
+      "ollama.allowShell",
+      false,
+    );
+    const openclawBin = String(
+      localSubagentsConfig.get("openclaw.binary", "openclaw") || "",
+    ).trim();
+    const openclawGateway = String(
+      localSubagentsConfig.get(
+        "openclaw.gatewayUrl",
+        "http://127.0.0.1:18789",
+      ) || "",
+    ).trim();
+    const openclawDefaultThinking = String(
+      localSubagentsConfig.get("openclaw.defaultThinking", "medium") || "medium",
+    );
+
     const providerStatus = await getProviderStatus();
     const providerConfigured = [
       providerStatus.ollamaRunning,
@@ -396,6 +424,89 @@ module.exports = function createRenderWebviewHtml(deps) {
       </div>`,
     ).join("");
 
+    // ─── Local sub-agents UI ───────────────────────────────────────────
+    const ollamaModelOptions = (() => {
+      const allModels = providerStatus.ollamaModels || [];
+      if (!allModels.length) {
+        return `<option value="" selected>(no models installed)</option>`;
+      }
+      const opts = [
+        `<option value=""${ollamaDefaultModel ? "" : " selected"}>(require explicit model)</option>`,
+      ];
+      for (const model of allModels) {
+        const sel = model === ollamaDefaultModel ? " selected" : "";
+        opts.push(`<option value="${escapeHtml(model)}"${sel}>${escapeHtml(model)}</option>`);
+      }
+      return opts.join("");
+    })();
+
+    const ollamaSubagentBlock = `
+      <div class="provider-row${providerStatus.ollamaRunning ? " provider-row-set" : ""}">
+        <span class="provider-row-dot${providerStatus.ollamaRunning ? " set" : ""}"></span>
+        <span class="provider-row-label">Ollama sub-agent</span>
+        <span class="provider-row-action">${providerStatus.ollamaRunning ? `${providerStatus.ollamaModels.length} model${providerStatus.ollamaModels.length === 1 ? "" : "s"}` : "not running"}</span>
+      </div>
+      <div class="local-sub-panel">
+        <label class="local-sub-label">Default model
+          <select class="local-sub-input" id="ollamaSubagentModel" data-localsub="ollama.defaultModel">${ollamaModelOptions}</select>
+        </label>
+        <label class="local-sub-label">Max iterations
+          <input class="local-sub-input" type="number" min="1" max="50" id="ollamaSubagentMaxIter" data-localsub="ollama.maxIterations" value="${escapeHtml(String(ollamaMaxIter))}" />
+        </label>
+        <div class="tool-item${ollamaAllowWrite ? " active" : ""}" data-localsubtoggle="ollama.allowWrite">
+          <div class="cb${ollamaAllowWrite ? " on" : ""}"><div class="cb-tick"></div></div>
+          <div class="tool-text">
+            <span class="tl">Allow file writes</span>
+            <span class="td">Let the local sub-agent write files inside this workspace</span>
+          </div>
+        </div>
+        <div class="tool-item${ollamaAllowShell ? " active" : ""}" data-localsubtoggle="ollama.allowShell">
+          <div class="cb${ollamaAllowShell ? " on" : ""}"><div class="cb-tick"></div></div>
+          <div class="tool-text">
+            <span class="tl">Allow shell commands</span>
+            <span class="td">Let the local sub-agent run shell commands (60s timeout, workspace cwd)</span>
+          </div>
+        </div>
+      </div>`;
+
+    const openclawDetectedKnown = providerStatus.openclawCli || null;
+    const openclawCliRunning = !!openclawDetectedKnown?.installed;
+    const openclawGatewayUp = !!openclawDetectedKnown?.gateway;
+    const openclawCliLabel = openclawCliRunning
+      ? `installed${openclawDetectedKnown?.version ? ` · ${openclawDetectedKnown.version}` : ""}`
+      : openclawDetectedKnown
+      ? "not installed"
+      : "click to detect";
+
+    const openclawThinkingOptions = ["off", "low", "medium", "high"]
+      .map(
+        (level) =>
+          `<option value="${level}"${level === openclawDefaultThinking ? " selected" : ""}>${level}</option>`,
+      )
+      .join("");
+
+    const openclawSubagentBlock = `
+      <div class="provider-row${openclawCliRunning ? " provider-row-set" : ""} provider-row-clickable" id="openclawDetectChip" title="Click to recheck OpenClaw">
+        <span class="provider-row-dot${openclawCliRunning ? " set" : ""}"></span>
+        <span class="provider-row-label">OpenClaw</span>
+        <span class="provider-row-action">${escapeHtml(openclawCliLabel)}${openclawCliRunning ? (openclawGatewayUp ? " · gateway up" : " · gateway down") : ""}</span>
+      </div>
+      <div class="local-sub-panel">
+        <label class="local-sub-label">Binary
+          <input class="local-sub-input" type="text" id="openclawBinary" data-localsub="openclaw.binary" value="${escapeHtml(openclawBin)}" placeholder="openclaw" />
+        </label>
+        <label class="local-sub-label">Gateway URL
+          <input class="local-sub-input" type="text" id="openclawGateway" data-localsub="openclaw.gatewayUrl" value="${escapeHtml(openclawGateway)}" placeholder="http://127.0.0.1:18789" />
+        </label>
+        <label class="local-sub-label">Default thinking
+          <select class="local-sub-input" id="openclawThinking" data-localsub="openclaw.defaultThinking">${openclawThinkingOptions}</select>
+        </label>
+        ${openclawCliRunning ? "" : `<div class="hint">Install: <code>npm install -g openclaw@latest</code> then <code>openclaw onboard --install-daemon</code></div>`}
+      </div>`;
+
+    const localSubagentCount =
+      (providerStatus.ollamaRunning ? 1 : 0) + (openclawCliRunning ? 1 : 0);
+
     const replacements = {
       ...common,
       QUICK_ACTIONS_HTML: quickActionsHtml,
@@ -431,6 +542,9 @@ module.exports = function createRenderWebviewHtml(deps) {
       BRANCH_SESSIONS_ROW: branchSessionsRow,
       SESSION_MEMORY_ROW: sessionMemoryRow,
       FORMAT_BYPASS_ROW: formatBypassRow,
+      LOCAL_SUBAGENT_COUNT: String(localSubagentCount),
+      LOCAL_SUBAGENT_OLLAMA_BLOCK: ollamaSubagentBlock,
+      LOCAL_SUBAGENT_OPENCLAW_BLOCK: openclawSubagentBlock,
       MODE_OPTIONS: modeOptions,
       MODE_DESC: escapeHtml(modeDesc),
       SCOPE_SECTION: scopeSection,

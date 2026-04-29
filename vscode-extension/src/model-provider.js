@@ -32,6 +32,7 @@ module.exports = function createModelProvider(deps) {
   let cachedModels = [];
   let cachedOllamaModels = [];
   let cachedOllamaRunning = false;
+  let cachedOpenclawCli = null;
   let _ollamaPinned = new Set();
   let _lastAvailableModelsWriteWarningAt = 0;
 
@@ -181,6 +182,62 @@ module.exports = function createModelProvider(deps) {
     });
   }
 
+  async function detectOpenclaw() {
+    const cfg = vscode.workspace.getConfiguration(
+      "gitShellHelpers.localSubagents",
+    );
+    const binary = String(cfg.get("openclaw.binary", "openclaw") || "openclaw").trim();
+    const gatewayUrl = String(
+      cfg.get("openclaw.gatewayUrl", "http://127.0.0.1:18789") || "",
+    ).trim();
+    let installed = false;
+    let version = "";
+    try {
+      version = await new Promise((resolve) => {
+        execFile(binary, ["--version"], { timeout: 4000 }, (err, stdout) => {
+          if (err) return resolve("");
+          resolve(String(stdout || "").trim());
+        });
+      });
+      installed = !!version;
+    } catch {
+      installed = false;
+    }
+    let gateway = false;
+    if (gatewayUrl) {
+      gateway = await new Promise((resolve) => {
+        try {
+          const u = new URL(gatewayUrl);
+          const lib = u.protocol === "https:" ? require("https") : require("http");
+          const req = lib.request(
+            {
+              hostname: u.hostname,
+              port: u.port || (u.protocol === "https:" ? 443 : 80),
+              path: "/health",
+              method: "GET",
+              timeout: 1500,
+            },
+            (res) => {
+              res.resume();
+              resolve(res.statusCode >= 200 && res.statusCode < 500);
+            },
+          );
+          req.on("error", () => resolve(false));
+          req.on("timeout", () => {
+            req.destroy();
+            resolve(false);
+          });
+          req.end();
+        } catch {
+          resolve(false);
+        }
+      });
+    }
+    cachedOpenclawCli = { installed, version, gateway, binary, gatewayUrl };
+    invalidateProviderStatusCache();
+    return cachedOpenclawCli;
+  }
+
   async function getApiKey(key) {
     try {
       return (await _context?.secrets.get(key)) || "";
@@ -215,6 +272,7 @@ module.exports = function createModelProvider(deps) {
       openaiKey: openaiKey ? "set" : "",
       ollamaRunning: cachedOllamaRunning,
       ollamaModels: cachedOllamaModels,
+      openclawCli: cachedOpenclawCli,
     };
     _providerStatusAt = now;
     return _cachedProviderStatus;
@@ -401,6 +459,7 @@ module.exports = function createModelProvider(deps) {
     refreshModels,
     openModelPicker,
     detectOllama,
+    detectOpenclaw,
     getApiKey,
     setApiKey,
     getProviderStatus,

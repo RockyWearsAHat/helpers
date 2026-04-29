@@ -22,6 +22,10 @@ const {
   handleListLanguageModels,
 } = require("./lib/mcp-language-models");
 const {
+  LOCAL_SUBAGENT_TOOLS,
+  createLocalSubagentHandler,
+} = require("./lib/mcp-local-subagents");
+const {
   notifyActivityBegin,
   notifyActivityEnd,
   notifySessionPulse,
@@ -117,10 +121,16 @@ function loadChatArchiveModule() {
 const researchModule = loadResearchModule();
 const visionModule = loadVisionModule();
 const chatArchiveModule = loadChatArchiveModule();
+const localSubagentHandler = process.env.GSH_DISABLE_LOCAL_SUBAGENTS
+  ? null
+  : createLocalSubagentHandler({
+      researchHandler: researchModule?.handler || null,
+    });
 const delegatedHandlers = [
   researchModule?.handler,
   visionModule?.handler,
   chatArchiveModule?.handler,
+  localSubagentHandler,
 ].filter(Boolean);
 
 const SESSION_MEMORY_TOOLS = new Set([
@@ -216,6 +226,7 @@ const ALL_TOOLS = [
   LIST_LANGUAGE_MODELS_TOOL,
   STRICT_LINT_TOOL,
   ...(process.env.GSH_DISABLE_BRANCH_SESSIONS ? [] : BRANCH_SESSION_TOOLS),
+  ...(process.env.GSH_DISABLE_LOCAL_SUBAGENTS ? [] : LOCAL_SUBAGENT_TOOLS),
 ];
 
 function getEnabledTools() {

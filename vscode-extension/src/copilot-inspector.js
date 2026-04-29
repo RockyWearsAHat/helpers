@@ -518,10 +518,20 @@ module.exports = function createCopilotInspector(deps) {
           : all;
     }
 
+    // Exclude diagnostics emitted by test runners (vitest, jest, etc.).
+    // These are stale test-result caches that persist in VS Code's diagnostic
+    // store after a prior failing run. Code correctness is validated by the
+    // dedicated test-run step in the completion gate; surfacing cached test
+    // assertion failures here produces false-positive lint errors.
+    const TEST_RUNNER_SOURCES = new Set(["vitest", "jest", "mocha", "jasmine"]);
     const filtered = diagnosticPairs
       .map(([uri, diags]) => [
         uri,
-        diags.filter((d) => d.severity <= severityThreshold),
+        diags.filter(
+          (d) =>
+            d.severity <= severityThreshold &&
+            !TEST_RUNNER_SOURCES.has((d.source || "").toLowerCase()),
+        ),
       ])
       .filter(([, diags]) => diags.length > 0);
 
