@@ -125,6 +125,12 @@ module.exports = function createMcpServer(deps) {
     if (browserChannel) {
       env.GSH_LOCAL_SUBAGENT_BROWSER_CHANNEL = browserChannel;
     }
+    const browserUserDataDir = String(
+      localSubagents.get("systemExecute.browserUserDataDir", "") || "",
+    ).trim();
+    if (browserUserDataDir) {
+      env.GSH_LOCAL_SUBAGENT_BROWSER_USER_DATA_DIR = browserUserDataDir;
+    }
 
     // Pass the chat history archive root so MCP tools can search archived
     // chat sessions directly. Uses the same workspace-scoped path as
