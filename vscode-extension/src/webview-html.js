@@ -207,17 +207,24 @@ module.exports = function createRenderWebviewHtml(deps) {
       "ollama.allowShell",
       false,
     );
-    const openclawBin = String(
-      localSubagentsConfig.get("openclaw.binary", "openclaw") || "",
+    const fullSystemAccess = !!localSubagentsConfig.get(
+      "fullSystemAccess",
+      false,
+    );
+    const systemExecuteModel = String(
+      localSubagentsConfig.get("systemExecute.defaultModel", "") || "",
     ).trim();
-    const openclawGateway = String(
-      localSubagentsConfig.get(
-        "openclaw.gatewayUrl",
-        "http://127.0.0.1:18789",
-      ) || "",
-    ).trim();
-    const openclawDefaultThinking = String(
-      localSubagentsConfig.get("openclaw.defaultThinking", "medium") || "medium",
+    const systemExecuteMaxIter = localSubagentsConfig.get(
+      "systemExecute.maxIterations",
+      25,
+    );
+    const systemExecuteHeadless = !!localSubagentsConfig.get(
+      "systemExecute.browserHeadless",
+      true,
+    );
+    const systemExecuteChannel = String(
+      localSubagentsConfig.get("systemExecute.browserChannel", "chrome") ||
+        "chrome",
     );
 
     const providerStatus = await getProviderStatus();
@@ -469,43 +476,54 @@ module.exports = function createRenderWebviewHtml(deps) {
         </div>
       </div>`;
 
-    const openclawDetectedKnown = providerStatus.openclawCli || null;
-    const openclawCliRunning = !!openclawDetectedKnown?.installed;
-    const openclawGatewayUp = !!openclawDetectedKnown?.gateway;
-    const openclawCliLabel = openclawCliRunning
-      ? `installed${openclawDetectedKnown?.version ? ` · ${openclawDetectedKnown.version}` : ""}`
-      : openclawDetectedKnown
-      ? "not installed"
-      : "click to detect";
-
-    const openclawThinkingOptions = ["off", "low", "medium", "high"]
+    const channelOptions = ["chrome", "msedge", "chromium"]
       .map(
-        (level) =>
-          `<option value="${level}"${level === openclawDefaultThinking ? " selected" : ""}>${level}</option>`,
+        (c) =>
+          `<option value="${c}"${c === systemExecuteChannel ? " selected" : ""}>${c}</option>`,
       )
       .join("");
 
-    const openclawSubagentBlock = `
-      <div class="provider-row${openclawCliRunning ? " provider-row-set" : ""} provider-row-clickable" id="openclawDetectChip" title="Click to recheck OpenClaw">
-        <span class="provider-row-dot${openclawCliRunning ? " set" : ""}"></span>
-        <span class="provider-row-label">OpenClaw</span>
-        <span class="provider-row-action">${escapeHtml(openclawCliLabel)}${openclawCliRunning ? (openclawGatewayUp ? " · gateway up" : " · gateway down") : ""}</span>
+    const visionModelHint = systemExecuteModel
+      ? ""
+      : `<div class="hint">Pick a vision-capable model so the agent can see browser screenshots: qwen2.5vl:7b, llava:13b, llama3.2-vision:11b. Pull one with <code>ollama pull qwen2.5vl:7b</code>.</div>`;
+    const playwrightHint = `<div class="hint">Browser tools require Playwright. One-time install: <code>npm install -g playwright && npx playwright install chromium</code></div>`;
+
+    const systemExecuteBlock = `
+      <div class="provider-row${fullSystemAccess ? " provider-row-set" : ""}">
+        <span class="provider-row-dot${fullSystemAccess ? " set" : ""}"></span>
+        <span class="provider-row-label">system_execute</span>
+        <span class="provider-row-action">${fullSystemAccess ? "armed · full system access" : "disarmed"}</span>
+      </div>
+      <div class="tool-item${fullSystemAccess ? " active" : ""}" data-localsubtoggle="fullSystemAccess">
+        <div class="cb${fullSystemAccess ? " on" : ""}"><div class="cb-tick"></div></div>
+        <div class="tool-text">
+          <span class="tl">Full system access (master switch)</span>
+          <span class="td">Lets Copilot dispatch a free local Ollama agent that can run any shell command, read/write any file, and drive a real browser autonomously. Use for: log into a site to fetch a credential, drive a UI, run a long pipeline.</span>
+        </div>
       </div>
       <div class="local-sub-panel">
-        <label class="local-sub-label">Binary
-          <input class="local-sub-input" type="text" id="openclawBinary" data-localsub="openclaw.binary" value="${escapeHtml(openclawBin)}" placeholder="openclaw" />
+        <label class="local-sub-label">Default model
+          <input class="local-sub-input" type="text" data-localsub="systemExecute.defaultModel" value="${escapeHtml(systemExecuteModel)}" placeholder="qwen2.5vl:7b" />
         </label>
-        <label class="local-sub-label">Gateway URL
-          <input class="local-sub-input" type="text" id="openclawGateway" data-localsub="openclaw.gatewayUrl" value="${escapeHtml(openclawGateway)}" placeholder="http://127.0.0.1:18789" />
+        <label class="local-sub-label">Max iterations
+          <input class="local-sub-input" type="number" min="1" max="100" data-localsub="systemExecute.maxIterations" value="${escapeHtml(String(systemExecuteMaxIter))}" />
         </label>
-        <label class="local-sub-label">Default thinking
-          <select class="local-sub-input" id="openclawThinking" data-localsub="openclaw.defaultThinking">${openclawThinkingOptions}</select>
+        <label class="local-sub-label">Browser channel
+          <select class="local-sub-input" data-localsub="systemExecute.browserChannel">${channelOptions}</select>
         </label>
-        ${openclawCliRunning ? "" : `<div class="hint">Install: <code>npm install -g openclaw@latest</code> then <code>openclaw onboard --install-daemon</code></div>`}
+        <div class="tool-item${systemExecuteHeadless ? " active" : ""}" data-localsubtoggle="systemExecute.browserHeadless">
+          <div class="cb${systemExecuteHeadless ? " on" : ""}"><div class="cb-tick"></div></div>
+          <div class="tool-text">
+            <span class="tl">Headless browser</span>
+            <span class="td">Turn off to watch the agent click through pages in a visible window</span>
+          </div>
+        </div>
+        ${visionModelHint}
+        ${playwrightHint}
       </div>`;
 
     const localSubagentCount =
-      (providerStatus.ollamaRunning ? 1 : 0) + (openclawCliRunning ? 1 : 0);
+      (providerStatus.ollamaRunning ? 1 : 0) + (fullSystemAccess ? 1 : 0);
 
     const replacements = {
       ...common,
@@ -544,7 +562,7 @@ module.exports = function createRenderWebviewHtml(deps) {
       FORMAT_BYPASS_ROW: formatBypassRow,
       LOCAL_SUBAGENT_COUNT: String(localSubagentCount),
       LOCAL_SUBAGENT_OLLAMA_BLOCK: ollamaSubagentBlock,
-      LOCAL_SUBAGENT_OPENCLAW_BLOCK: openclawSubagentBlock,
+      LOCAL_SUBAGENT_SYSTEM_EXECUTE_BLOCK: systemExecuteBlock,
       MODE_OPTIONS: modeOptions,
       MODE_DESC: escapeHtml(modeDesc),
       SCOPE_SECTION: scopeSection,

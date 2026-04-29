@@ -248,28 +248,39 @@
           "default": false,
           "description": "Allow the local Ollama sub-agent to execute shell commands in the workspace root. Off by default — destructive."
         },
-        "gitShellHelpers.localSubagents.openclaw.binary": {
-          "type": "string",
-          "default": "openclaw",
-          "description": "Path or command name for the OpenClaw CLI used by the openclaw_task and openclaw_status MCP tools."
+        "gitShellHelpers.localSubagents.fullSystemAccess": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for the system_execute MCP tool. When ON, Copilot can dispatch a local Ollama agent that has FULL system access: unrestricted shell, full filesystem, and a persistent Playwright browser. Use this to let a free local model autonomously perform concrete tasks (log into a site to fetch creds, drive a UI, run a long pipeline). Requires Playwright (`npm install -g playwright && npx playwright install chromium`)."
         },
-        "gitShellHelpers.localSubagents.openclaw.gatewayUrl": {
+        "gitShellHelpers.localSubagents.systemExecute.defaultModel": {
           "type": "string",
-          "default": "http://127.0.0.1:18789",
-          "description": "URL of the local OpenClaw gateway daemon. Used to verify the gateway is up before dispatching tasks."
+          "default": "",
+          "description": "Default Ollama model for system_execute. Use a vision-capable model (e.g. qwen2.5vl:7b, llava:13b, llama3.2-vision:11b) so the agent can see browser screenshots."
         },
-        "gitShellHelpers.localSubagents.openclaw.defaultThinking": {
-          "type": "string",
-          "enum": ["off", "low", "medium", "high"],
-          "default": "medium",
-          "description": "Default --thinking level forwarded to openclaw agent when openclaw_task does not specify one."
-        },
-        "gitShellHelpers.localSubagents.openclaw.timeoutSeconds": {
+        "gitShellHelpers.localSubagents.systemExecute.maxIterations": {
           "type": "integer",
-          "default": 600,
-          "minimum": 10,
+          "default": 25,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Hard cap on agent loop iterations for one system_execute call."
+        },
+        "gitShellHelpers.localSubagents.systemExecute.timeoutSeconds": {
+          "type": "integer",
+          "default": 900,
+          "minimum": 30,
           "maximum": 7200,
-          "description": "Wall-clock timeout for one openclaw_task invocation."
+          "description": "Wall-clock timeout for one system_execute call."
+        },
+        "gitShellHelpers.localSubagents.systemExecute.browserHeadless": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the system_execute Playwright browser headless. Turn off if you want to watch the agent work."
+        },
+        "gitShellHelpers.localSubagents.systemExecute.browserChannel": {
+          "type": "string",
+          "default": "chrome",
+          "description": "Playwright channel for system_execute (chrome, msedge, or chromium for the bundled browser)."
         }
       }
     }

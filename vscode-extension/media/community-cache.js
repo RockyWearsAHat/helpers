@@ -356,12 +356,6 @@
     }
   });
 
-  document
-    .getElementById("openclawDetectChip")
-    ?.addEventListener("click", () => {
-      vscode.postMessage({ type: "detectOpenclaw" });
-    });
-
   // --- Checkpoint toggles ---
   document.querySelectorAll("[data-cpkey]").forEach((el) => {
     el.addEventListener("click", () => {
