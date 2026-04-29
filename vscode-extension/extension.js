@@ -283,6 +283,7 @@ function activate(context) {
     openQuickActionWithoutSend: models.openQuickActionWithoutSend,
     setApiKey: models.setApiKey,
     detectOllama: models.detectOllama,
+    detectOpenclaw: models.detectOpenclaw,
     uploadGpgKeyNow: gpgAuth.uploadGpgKeyNow,
     getMode: community.getMode,
     getWhitelist: community.getWhitelist,
@@ -345,6 +346,8 @@ function activate(context) {
 
   // Detect Ollama on startup
   models.detectOllama();
+  // Detect OpenClaw CLI/gateway on startup (cheap, ~4s timeout)
+  models.detectOpenclaw().catch(() => {});
 
   // Load available Copilot models on startup and whenever the model list changes
   models.refreshModels();

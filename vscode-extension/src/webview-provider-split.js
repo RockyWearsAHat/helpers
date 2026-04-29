@@ -19,6 +19,7 @@ module.exports = function createWebviewProviderClass(deps) {
     openQuickActionWithoutSend,
     setApiKey,
     detectOllama,
+    detectOpenclaw,
     uploadGpgKeyNow,
     getMode,
     getWhitelist,
@@ -133,6 +134,27 @@ module.exports = function createWebviewProviderClass(deps) {
                 vscode.ConfigurationTarget.Global,
               );
             break;
+          case "setLocalSubagent": {
+            if (!msg.key) break;
+            await vscode.workspace
+              .getConfiguration("gitShellHelpers.localSubagents")
+              .update(
+                msg.key,
+                msg.value,
+                vscode.ConfigurationTarget.Global,
+              );
+            this._scheduleUpdate();
+            break;
+          }
+          case "detectOpenclaw": {
+            try {
+              await deps.detectOpenclaw?.();
+            } catch (err) {
+              console.warn("[gsh] detectOpenclaw failed", err);
+            }
+            this._scheduleUpdate();
+            break;
+          }
           case "setCheckpoint": {
             const cpConfig = vscode.workspace.getConfiguration(
               "gitShellHelpers.checkpoint",
