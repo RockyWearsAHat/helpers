@@ -70,9 +70,10 @@ module.exports = function createMcpServer(deps) {
       env.GSH_SESSION_MEMORY_DISABLED = "1";
     }
 
-    // Pass local sub-agent settings (Ollama + OpenClaw) so the MCP server
-    // can configure both the ollama_subagent loop and the openclaw_task
-    // dispatcher without re-reading VS Code config from the spawned process.
+    // Pass local sub-agent settings (Ollama + system_execute) so the MCP
+    // server can configure both the ollama_subagent loop and the
+    // system_execute autonomous agent without re-reading VS Code config
+    // from the spawned process.
     const localSubagents = vscode.workspace.getConfiguration(
       "gitShellHelpers.localSubagents",
     );
@@ -98,19 +99,31 @@ module.exports = function createMcpServer(deps) {
     if (localSubagents.get("ollama.allowShell", false)) {
       env.GSH_LOCAL_SUBAGENT_ALLOW_SHELL = "1";
     }
-    const openclawBin = String(
-      localSubagents.get("openclaw.binary", "openclaw") || "",
-    ).trim();
-    if (openclawBin) env.GSH_LOCAL_SUBAGENT_OPENCLAW_BIN = openclawBin;
-    const openclawGateway = String(
-      localSubagents.get("openclaw.gatewayUrl", "http://127.0.0.1:18789") || "",
-    ).trim();
-    if (openclawGateway) {
-      env.GSH_LOCAL_SUBAGENT_OPENCLAW_GATEWAY = openclawGateway;
+    if (localSubagents.get("fullSystemAccess", false)) {
+      env.GSH_LOCAL_SUBAGENT_FULL_SYSTEM = "1";
     }
-    const openclawTimeout = localSubagents.get("openclaw.timeoutSeconds", 600);
-    if (Number.isFinite(openclawTimeout)) {
-      env.GSH_LOCAL_SUBAGENT_OPENCLAW_TIMEOUT = String(openclawTimeout);
+    const systemModel = String(
+      localSubagents.get("systemExecute.defaultModel", "") || "",
+    ).trim();
+    if (systemModel) env.GSH_LOCAL_SUBAGENT_SYSTEM_MODEL = systemModel;
+    const systemMaxIter = localSubagents.get("systemExecute.maxIterations", 25);
+    if (Number.isFinite(systemMaxIter)) {
+      env.GSH_LOCAL_SUBAGENT_SYSTEM_MAX_ITER = String(systemMaxIter);
+    }
+    const systemTimeout = localSubagents.get("systemExecute.timeoutSeconds", 900);
+    if (Number.isFinite(systemTimeout)) {
+      env.GSH_LOCAL_SUBAGENT_SYSTEM_TIMEOUT = String(systemTimeout);
+    }
+    const browserHeadless = localSubagents.get(
+      "systemExecute.browserHeadless",
+      true,
+    );
+    env.GSH_LOCAL_SUBAGENT_BROWSER_HEADLESS = browserHeadless ? "1" : "0";
+    const browserChannel = String(
+      localSubagents.get("systemExecute.browserChannel", "chrome") || "",
+    ).trim();
+    if (browserChannel) {
+      env.GSH_LOCAL_SUBAGENT_BROWSER_CHANNEL = browserChannel;
     }
 
     // Pass the chat history archive root so MCP tools can search archived
@@ -171,7 +184,7 @@ module.exports = function createMcpServer(deps) {
     );
 
     // Restart the MCP server when local sub-agent settings change so the
-    // server re-reads the Ollama / OpenClaw configuration from env.
+    // server re-reads the Ollama / system_execute configuration from env.
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("gitShellHelpers.localSubagents")) {

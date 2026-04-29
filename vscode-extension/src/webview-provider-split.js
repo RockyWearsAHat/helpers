@@ -19,7 +19,6 @@ module.exports = function createWebviewProviderClass(deps) {
     openQuickActionWithoutSend,
     setApiKey,
     detectOllama,
-    detectOpenclaw,
     uploadGpgKeyNow,
     getMode,
     getWhitelist,
@@ -143,15 +142,6 @@ module.exports = function createWebviewProviderClass(deps) {
                 msg.value,
                 vscode.ConfigurationTarget.Global,
               );
-            this._scheduleUpdate();
-            break;
-          }
-          case "detectOpenclaw": {
-            try {
-              await deps.detectOpenclaw?.();
-            } catch (err) {
-              console.warn("[gsh] detectOpenclaw failed", err);
-            }
             this._scheduleUpdate();
             break;
           }
