@@ -323,6 +323,45 @@
     });
   });
 
+  // --- Local Sub-agent controls ---
+  document.querySelectorAll("[data-localsubtoggle]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const nowActive = toggleCheckbox(el);
+      vscode.postMessage({
+        type: "setLocalSubagent",
+        key: el.dataset.localsubtoggle,
+        value: nowActive,
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-localsub]").forEach((el) => {
+    const send = () => {
+      let value = el.value;
+      if (el.type === "number") {
+        const n = Number(value);
+        value = Number.isFinite(n) ? n : value;
+      }
+      vscode.postMessage({
+        type: "setLocalSubagent",
+        key: el.dataset.localsub,
+        value,
+      });
+    };
+    if (el.tagName === "SELECT") {
+      el.addEventListener("change", send);
+    } else {
+      el.addEventListener("change", send);
+      el.addEventListener("blur", send);
+    }
+  });
+
+  document
+    .getElementById("openclawDetectChip")
+    ?.addEventListener("click", () => {
+      vscode.postMessage({ type: "detectOpenclaw" });
+    });
+
   // --- Checkpoint toggles ---
   document.querySelectorAll("[data-cpkey]").forEach((el) => {
     el.addEventListener("click", () => {

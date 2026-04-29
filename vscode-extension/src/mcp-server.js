@@ -70,6 +70,49 @@ module.exports = function createMcpServer(deps) {
       env.GSH_SESSION_MEMORY_DISABLED = "1";
     }
 
+    // Pass local sub-agent settings (Ollama + OpenClaw) so the MCP server
+    // can configure both the ollama_subagent loop and the openclaw_task
+    // dispatcher without re-reading VS Code config from the spawned process.
+    const localSubagents = vscode.workspace.getConfiguration(
+      "gitShellHelpers.localSubagents",
+    );
+    const ollamaHost = String(
+      localSubagents.get("ollama.host", "http://127.0.0.1:11434") || "",
+    ).trim();
+    if (ollamaHost) env.GSH_LOCAL_SUBAGENT_OLLAMA_HOST = ollamaHost;
+    const ollamaModel = String(
+      localSubagents.get("ollama.defaultModel", "") || "",
+    ).trim();
+    if (ollamaModel) env.GSH_LOCAL_SUBAGENT_OLLAMA_MODEL = ollamaModel;
+    const ollamaMaxIter = localSubagents.get("ollama.maxIterations", 12);
+    if (Number.isFinite(ollamaMaxIter)) {
+      env.GSH_LOCAL_SUBAGENT_OLLAMA_MAX_ITER = String(ollamaMaxIter);
+    }
+    const ollamaTimeout = localSubagents.get("ollama.timeoutSeconds", 300);
+    if (Number.isFinite(ollamaTimeout)) {
+      env.GSH_LOCAL_SUBAGENT_OLLAMA_TIMEOUT = String(ollamaTimeout);
+    }
+    if (localSubagents.get("ollama.allowWrite", false)) {
+      env.GSH_LOCAL_SUBAGENT_ALLOW_WRITE = "1";
+    }
+    if (localSubagents.get("ollama.allowShell", false)) {
+      env.GSH_LOCAL_SUBAGENT_ALLOW_SHELL = "1";
+    }
+    const openclawBin = String(
+      localSubagents.get("openclaw.binary", "openclaw") || "",
+    ).trim();
+    if (openclawBin) env.GSH_LOCAL_SUBAGENT_OPENCLAW_BIN = openclawBin;
+    const openclawGateway = String(
+      localSubagents.get("openclaw.gatewayUrl", "http://127.0.0.1:18789") || "",
+    ).trim();
+    if (openclawGateway) {
+      env.GSH_LOCAL_SUBAGENT_OPENCLAW_GATEWAY = openclawGateway;
+    }
+    const openclawTimeout = localSubagents.get("openclaw.timeoutSeconds", 600);
+    if (Number.isFinite(openclawTimeout)) {
+      env.GSH_LOCAL_SUBAGENT_OPENCLAW_TIMEOUT = String(openclawTimeout);
+    }
+
     // Pass the chat history archive root so MCP tools can search archived
     // chat sessions directly. Uses the same workspace-scoped path as
     // chat-sessions.js so both the extension watcher and the MCP server
@@ -124,6 +167,16 @@ module.exports = function createMcpServer(deps) {
     context.subscriptions.push(
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
         changeEmitter.fire();
+      }),
+    );
+
+    // Restart the MCP server when local sub-agent settings change so the
+    // server re-reads the Ollama / OpenClaw configuration from env.
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("gitShellHelpers.localSubagents")) {
+          changeEmitter.fire();
+        }
       }),
     );
 

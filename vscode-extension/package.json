@@ -213,6 +213,63 @@
           "type": "boolean",
           "default": false,
           "description": "Suppress editor.formatOnSave and editor.codeActionsOnSave while enabled. Prevents Prettier, ESLint auto-fix, and other formatters from running on every agent file save. Use the 'Format All Open Files' command to apply formatting once at the end of a request."
+        },
+        "gitShellHelpers.localSubagents.ollama.host": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Ollama server URL used by the ollama_subagent and ollama_list_models MCP tools."
+        },
+        "gitShellHelpers.localSubagents.ollama.defaultModel": {
+          "type": "string",
+          "default": "",
+          "description": "Default Ollama model tag (e.g. 'llama3.1', 'qwen2.5-coder:14b') used when ollama_subagent is called without an explicit model. Leave blank to require the caller to specify one."
+        },
+        "gitShellHelpers.localSubagents.ollama.maxIterations": {
+          "type": "integer",
+          "default": 12,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Maximum tool-use rounds the local Ollama sub-agent may run before being forced to summarize and finish."
+        },
+        "gitShellHelpers.localSubagents.ollama.timeoutSeconds": {
+          "type": "integer",
+          "default": 300,
+          "minimum": 10,
+          "maximum": 3600,
+          "description": "Total wall-clock timeout for one ollama_subagent invocation."
+        },
+        "gitShellHelpers.localSubagents.ollama.allowWrite": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the local Ollama sub-agent to write files inside the workspace. Off by default — enable only when you trust the chosen model."
+        },
+        "gitShellHelpers.localSubagents.ollama.allowShell": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the local Ollama sub-agent to execute shell commands in the workspace root. Off by default — destructive."
+        },
+        "gitShellHelpers.localSubagents.openclaw.binary": {
+          "type": "string",
+          "default": "openclaw",
+          "description": "Path or command name for the OpenClaw CLI used by the openclaw_task and openclaw_status MCP tools."
+        },
+        "gitShellHelpers.localSubagents.openclaw.gatewayUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:18789",
+          "description": "URL of the local OpenClaw gateway daemon. Used to verify the gateway is up before dispatching tasks."
+        },
+        "gitShellHelpers.localSubagents.openclaw.defaultThinking": {
+          "type": "string",
+          "enum": ["off", "low", "medium", "high"],
+          "default": "medium",
+          "description": "Default --thinking level forwarded to openclaw agent when openclaw_task does not specify one."
+        },
+        "gitShellHelpers.localSubagents.openclaw.timeoutSeconds": {
+          "type": "integer",
+          "default": 600,
+          "minimum": 10,
+          "maximum": 7200,
+          "description": "Wall-clock timeout for one openclaw_task invocation."
         }
       }
     }

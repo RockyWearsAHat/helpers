@@ -102,6 +102,18 @@
 
       <details class="sect">
         <summary class="sect-head">
+          <div class="sect-title">Local Sub-Agents</div>
+          <div class="sect-count">{{LOCAL_SUBAGENT_COUNT}}/2</div>
+        </summary>
+        <div class="hint">
+          Free local workers a paid model can offload work to. Exposed as MCP tools (<code>ollama_subagent</code>, <code>openclaw_task</code>) so any agent can dispatch a task and wait for it to finish on your machine.
+        </div>
+        {{LOCAL_SUBAGENT_OLLAMA_BLOCK}}
+        {{LOCAL_SUBAGENT_OPENCLAW_BLOCK}}
+      </details>
+
+      <details class="sect">
+        <summary class="sect-head">
           <div class="sect-head-left">
             <div class="sect-title">MCP Tools</div>
             {{MCP_STATUS_HTML}}
