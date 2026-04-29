@@ -41,6 +41,10 @@
         "title": "GitHub Shell Helpers: Search Archived Chat History"
       },
       {
+        "command": "gitShellHelpers.systemExecute.interrupt",
+        "title": "GitHub Shell Helpers: Interrupt Local System Agent"
+      },
+      {
         "command": "gitShellHelpers.loginGitHub",
         "title": "GitHub Shell Helpers: Sign in to GitHub"
       },
@@ -281,8 +285,21 @@
           "type": "string",
           "default": "chrome",
           "description": "Playwright channel for system_execute (chrome, msedge, or chromium for the bundled browser)."
+        },
+        "gitShellHelpers.localSubagents.systemExecute.browserUserDataDir": {
+          "type": "string",
+          "default": "",
+          "description": "Persistent profile directory for the system_execute browser. Empty = use ~/.cache/gsh/playwright-profile (recommended). Point at your real Chrome profile (~/Library/Application Support/Google/Chrome/Default on macOS) ONLY when Chrome is closed."
         }
       }
     }
-  }
+  },
+  "keybindings": [
+    {
+      "command": "gitShellHelpers.systemExecute.interrupt",
+      "key": "ctrl+shift+escape",
+      "mac": "cmd+shift+escape",
+      "when": "true"
+    }
+  ]
 }

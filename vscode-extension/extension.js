@@ -117,6 +117,74 @@ async function fetchRepos() {
 }
 
 // ---------------------------------------------------------------------------
+// system_execute interrupt (Cmd+Shift+Esc)
+// ---------------------------------------------------------------------------
+
+const os = require("os");
+
+function listActiveSystemExecuteSessions() {
+  const dir = path.join(os.homedir(), ".cache", "gsh", "system-execute-active");
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => {
+        try {
+          return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function interruptSystemExecute() {
+  const sessions = listActiveSystemExecuteSessions();
+  if (!sessions.length) {
+    vscode.window.showInformationMessage(
+      "No local system_execute agent is running.",
+    );
+    return;
+  }
+  const summary =
+    sessions.length === 1
+      ? `Active task: ${String(sessions[0].task || "").slice(0, 80)}`
+      : `${sessions.length} active tasks`;
+  const input = await vscode.window.showInputBox({
+    title: "Interrupt local system agent",
+    prompt: `${summary}. Type a course-correction to redirect, or leave empty to CANCEL.`,
+    placeHolder: "e.g. 'You're on the wrong page — go to /settings/api first'",
+    ignoreFocusOut: true,
+  });
+  if (input === undefined) return; // user dismissed → no-op
+  const dir = path.join(os.homedir(), ".cache", "gsh");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+  const payload = {
+    ts: Date.now(),
+    redirect: input,
+    cancel: !String(input).trim(),
+  };
+  fs.writeFileSync(
+    path.join(dir, "system-execute-control.json"),
+    JSON.stringify(payload),
+  );
+  if (payload.cancel) {
+    vscode.window.showWarningMessage(
+      "Sent cancel signal — agent will stop at its next iteration boundary.",
+    );
+  } else {
+    vscode.window.showInformationMessage(
+      "Redirect sent — agent will incorporate it on the next iteration.",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // activate
 // ---------------------------------------------------------------------------
 
@@ -424,6 +492,10 @@ function activate(context) {
     vscode.commands.registerCommand(
       "gitShellHelpers.searchArchivedChatHistory",
       () => chatSessionsModule.searchArchivedChatHistory(),
+    ),
+    vscode.commands.registerCommand(
+      "gitShellHelpers.systemExecute.interrupt",
+      () => interruptSystemExecute(),
     ),
     vscode.commands.registerCommand(
       "gitShellHelpers.loginGitHub",
