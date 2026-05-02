@@ -505,7 +505,8 @@ select:focus {
   flex: 1;
   font-weight: 500;
 }
-.provider-row-action {
+.provider-row-action,
+.provider-row-status {
   flex-shrink: 0;
   padding: 2px 8px;
   font-size: 11px;
@@ -514,9 +515,14 @@ select:focus {
   background: none;
   color: var(--vscode-foreground);
   font-family: inherit;
-  cursor: pointer;
   opacity: 0.7;
+}
+.provider-row-action {
+  cursor: pointer;
   transition: opacity 0.12s;
+}
+.provider-row-status {
+  cursor: default;
 }
 .provider-row-action:hover {
   opacity: 1;
@@ -1541,6 +1547,7 @@ details.sect > summary .sect-title::before {
 }
 
 .provider-row-action,
+.provider-row-status,
 .btn-secondary,
 .key-save-btn,
 .key-clear-btn {

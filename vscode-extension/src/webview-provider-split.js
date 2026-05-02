@@ -136,9 +136,9 @@ module.exports = function createWebviewProviderClass(deps) {
           case "setLocalSubagent": {
             if (!msg.key) break;
             await vscode.workspace
-              .getConfiguration("gitShellHelpers.localSubagents")
+              .getConfiguration("gitShellHelpers")
               .update(
-                msg.key,
+                `localSubagents.${msg.key}`,
                 msg.value,
                 vscode.ConfigurationTarget.Global,
               );

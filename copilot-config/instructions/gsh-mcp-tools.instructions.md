@@ -11,6 +11,8 @@ The `gsh` MCP server is installed globally and available in every workspace. It 
 Apply this guidance before processing each user request:
 
 - Prefer direct MCP tool calls when a matching gsh tool exists; avoid terminal emulation for tool behavior checks.
+- If the user asks to build, save, or create a tool that should perform work inside the current workspace, prefer the `build_workspace_tool` MCP tool over creating a `.prompt.md`, agent, or other customization file.
+- Only create a `.prompt.md`, agent, skill, or instruction file when the user explicitly asks for a slash command, prompt file, reusable customization artifact, or VS Code agent customization.
 - When a user refers to something discussed in a previous session, or context seems missing, call `search_chat_history` before asking the user to repeat themselves.
 - **After every file edit, call `strict_lint` on the modified file before declaring work complete.** Fix reported errors and warnings or name each one with a reason for leaving it. Do not return "implementation complete" while unresolved issues exist.
 - `strict_lint` defaults to `severityFilter: "all"` when omitted (includes error, warning, info, and hint diagnostics).
@@ -135,6 +137,26 @@ Parameters:
 - The list is written by the gsh VS Code extension on startup and whenever the model set changes.
 - No parameters.
 
+**`build_workspace_tool`** — Build or refine a reusable tool inside the current workspace, verify it in a build-test-fix loop, and optionally use it for a follow-up task.
+
+- Use this when the user says things like "build a tool", "save it as a tool", "make a script for this", or "build the tool, then do X".
+- This is the correct execution path for runnable workspace tooling. Do **not** create a `.prompt.md` or other customization file unless the user explicitly asked for a prompt, slash command, or customization artifact.
+- Best for short outcome-focused requests where the tool should exist in the workspace and be executable immediately.
+
+Parameters:
+
+- `tool_request` (string, required) — What tool to build or refine.
+- `success_criteria` (string, optional) — Explicit success definition.
+- `verification_command` (string, optional) — Exact command to validate on each iteration.
+- `follow_up_task` (string, optional) — Work to do only after the tool is verified.
+- `tool_path_hint` (string, optional) — Preferred file path or entry point.
+- `context_files` (array, optional) — Workspace-relative files to preload.
+- `model` (string, optional) — Ollama model override for the underlying local agent.
+- `return_format` (string, optional) — `text` or `json`.
+- `max_iterations` (integer, optional) — Iteration cap for the verify/refine loop.
+- `timeout_seconds` (integer, optional) — Total wall-clock timeout.
+- `headless` (boolean, optional) — Browser visibility when the follow-up task uses browser automation.
+
 ## Research — Web Search & Knowledge Base
 
 **`search_web`** — Search the web via a local SearXNG instance. Returns ranked results with titles, URLs, and snippets.
@@ -210,9 +232,9 @@ Parameters:
 
 ## Vision — Screenshot & Image Analysis
 
-**`take_screenshot`** — Capture a screenshot on macOS. Returns the absolute path to the saved PNG. Requires the gsh-vision VS Code extension to be running. If the host exposes a built-in image-view tool such as `view_image`, prefer that for single-image inspection of the screenshot.
+**`take_screenshot`** — Capture a screenshot on the local machine using native OS tooling. Returns the absolute path to the saved PNG. This runs locally in the vision MCP server and does **not** depend on the vision IPC backend. If the host exposes a built-in image-view tool such as `view_image`, prefer that for single-image inspection of the screenshot.
 
-**`analyze_images`** — Analyze one or more image paths using a vision model. Use this when no built-in host image-view tool is available, or when you need capabilities the host tool may not provide reliably: multi-image comparison, an explicit evaluation goal, or screenshot-driven visual debugging. Use after `take_screenshot` to interpret UI state, errors, or visual content.
+**`analyze_images`** — Analyze one or more image paths using a vision model. Use this when no built-in host image-view tool is available, or when you need capabilities the host tool may not provide reliably: multi-image comparison, an explicit evaluation goal, or screenshot-driven visual debugging. This still depends on the vision IPC backend because the running VS Code extension owns the image-capable model API. Use after `take_screenshot` to interpret UI state, errors, or visual content.
 
 ## Knowledge-First Protocol
 
@@ -233,5 +255,5 @@ Treat knowledge notes as informed starting context — they are accurate but not
 
 - The `gsh` server is registered by the GitHub Shell Helpers VS Code extension. It can also be configured manually via `~/Library/Application Support/Code/User/mcp.json`.
 - If research tools are unavailable (`search_web`, `scrape_webpage`), a local SearXNG instance may not be running. Start it with: `docker run -d --name searxng -p 8888:8080 searxng/searxng:latest`
-- If vision tools are unavailable, the gsh-vision VS Code extension may not be active. Install it via the git-shell-helpers installer.
+- If `analyze_images` or `analyze_video` are unavailable, the gsh-vision VS Code extension/backend may not be active. `take_screenshot` should still work locally as long as the OS screenshot command is available.
 - The `checkpoint` tool auto-detects the active VS Code workspace root via MCP roots (when exactly one workspace folder is open). Pass `cwd` explicitly when using a multi-root workspace or when you need to commit in a different repo than the detected root.

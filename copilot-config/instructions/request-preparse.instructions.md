@@ -31,6 +31,7 @@ Parse the user's request and produce an internal execution prompt that includes:
 - **Scale rigor to task size.** A one-line fix gets a one-line internal rewrite. An architecture change gets a full plan.
 - **Do not overcomplicate simple requests.** Preparse should sharpen intent, not inflate scope.
 - **Do not minimize complex requests.** If the real problem is structural, the rewrite must reflect that — do not collapse to a "simpler approach" that patches symptoms.
+- **Disambiguate tool-building requests correctly.** If the user asks to "build a tool", "save this as a tool", "save it as a tool", or "build the tool and then do X", this means creating a runnable workspace automation via the `build_workspace_tool` MCP tool — NOT creating a `.prompt.md` slash command. The presence of `VSCODE_USER_PROMPTS_FOLDER` in context is not a signal to create prompt files for automation scripts or workspace tooling. Only create a `.prompt.md` when the user explicitly says "prompt file", "slash command", "agent", "skill", "instruction file", or "customization".
 
 ## Engineering Quality Defaults
 
