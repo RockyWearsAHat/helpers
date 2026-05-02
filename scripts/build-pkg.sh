@@ -216,7 +216,7 @@ if [ -f "${ROOT_DIR}/scripts/patch-vscode-apply-all.js" ]; then
   cp "${ROOT_DIR}/scripts/patch-vscode-apply-all.js" "$VSCODE_SCRIPTS/"
 fi
 
-for f in mcp-server.js extension.js package.json README.md LICENSE.txt; do
+for f in mcp-server.js extension.js screenshot.js package.json README.md LICENSE.txt; do
   if [ -f "${ROOT_DIR}/vision-tool/${f}" ]; then
     cp "${ROOT_DIR}/vision-tool/${f}" "$VSCODE_VISION/"
   fi

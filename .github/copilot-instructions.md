@@ -2,6 +2,10 @@
 description: "Git Shell Helpers workspace baseline: architecture, build/test, coding standards, and boundaries."
 ---
 
+TALK LIKE A CAVEMAN.
+
+If ever asked to implement something and afterwards it needs to be installed or built, please actually install it or build it afterwards so I can immediatley see the live results from this change, it does no good to me to sit in just this workspace. Always ensure installers and scripts for others to install GSH onto their machines, plus the packages and everything always stay up to date.
+
 # Workspace Baseline
 
 Git Shell Helpers (`github-shell-helpers`) — shell-based git helpers, MCP servers, Copilot customization automation, a VS Code extension, and a community-backed research cache.
@@ -74,4 +78,6 @@ These files are large and tightly coupled. **Check actual size with `wc -l` befo
 - Build/test/release workflows: `.github/workflows/`
 - Knowledge corpus and philosophy: `knowledge/`, `knowledge/knowledge-philosophy.md`
 - Community cache automation scripts: `scripts/community-cache-*.sh`, `scripts/community-research-submit.sh`
+- Local sub-agent MCP surface: `lib/mcp-local-subagents.js` (`ollama_subagent`, `ollama_list_models`, `system_execute`, `build_workspace_tool`)
+- Vision tool split: `vision-tool/mcp-server.js` handles `take_screenshot` locally; `analyze_images` / `analyze_video` still depend on the vision extension IPC backend.
 - Repo-only local reference cache: `.github/devops-audit-community-cache/`

@@ -26,6 +26,17 @@ const {
   createLocalSubagentHandler,
 } = require("./lib/mcp-local-subagents");
 const {
+  REGISTER_WORKSPACE_TOOL,
+  RELOAD_WINDOW_READY_TOOL,
+  UNREGISTER_WORKSPACE_TOOL,
+  getUserToolSchemas,
+  isUserTool,
+  executeUserTool,
+  handleRegisterWorkspaceTool,
+  handleReloadWindowReady,
+  handleUnregisterWorkspaceTool,
+} = require("./lib/mcp-user-tools");
+const {
   notifyActivityBegin,
   notifyActivityEnd,
   notifySessionPulse,
@@ -225,22 +236,36 @@ const ALL_TOOLS = [
   WORKSPACE_CONTEXT_TOOL,
   LIST_LANGUAGE_MODELS_TOOL,
   STRICT_LINT_TOOL,
+  REGISTER_WORKSPACE_TOOL,
+  RELOAD_WINDOW_READY_TOOL,
+  UNREGISTER_WORKSPACE_TOOL,
   ...(process.env.GSH_DISABLE_BRANCH_SESSIONS ? [] : BRANCH_SESSION_TOOLS),
   ...(process.env.GSH_DISABLE_LOCAL_SUBAGENTS ? [] : LOCAL_SUBAGENT_TOOLS),
 ];
 
+function getWorkspaceRoot() {
+  const raw = process.env.GSH_WORKSPACE_ROOTS || "";
+  if (raw.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed[0];
+    } catch {}
+  }
+  return raw.split(",").filter(Boolean)[0] || process.cwd();
+}
+
 function getEnabledTools() {
+  const userTools = getUserToolSchemas(getWorkspaceRoot());
+  const allWithUser = [...ALL_TOOLS, ...userTools];
   try {
     const config = JSON.parse(
       require("fs").readFileSync(TOOLS_CONFIG_PATH, "utf8"),
     );
     const disabled = new Set(config.disabledTools || []);
-    if (disabled.size === 0) {
-      return ALL_TOOLS;
-    }
-    return ALL_TOOLS.filter((tool) => !disabled.has(tool.name));
+    if (disabled.size === 0) return allWithUser;
+    return allWithUser.filter((tool) => !disabled.has(tool.name));
   } catch {
-    return ALL_TOOLS;
+    return allWithUser;
   }
 }
 
@@ -284,6 +309,19 @@ async function runBuiltInTool(toolName, toolArguments, activityId) {
     if (toolName === "branch_cleanup") {
       return handleBranchCleanup(toolArguments);
     }
+  }
+  if (toolName === "register_workspace_tool") {
+    return handleRegisterWorkspaceTool(toolArguments, getWorkspaceRoot());
+  }
+  if (toolName === "reload_window_ready") {
+    return handleReloadWindowReady(toolArguments, getWorkspaceRoot());
+  }
+  if (toolName === "unregister_workspace_tool") {
+    return handleUnregisterWorkspaceTool(toolArguments, getWorkspaceRoot());
+  }
+  const root = getWorkspaceRoot();
+  if (isUserTool(toolName, root)) {
+    return executeUserTool(toolName, toolArguments, root);
   }
   return null;
 }

@@ -15,6 +15,7 @@
   "files": [
     "extension.js",
     "mcp-server.js",
+    "screenshot.js",
     "lib/video-frames.js",
     "lib/video-analysis.js",
     "lib/video-report.js",

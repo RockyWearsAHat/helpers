@@ -531,6 +531,7 @@ configure_mcp_tools() {
     local vision_dir="${BIN_DIR}/vision-tool"
     ensure_dir "$vision_dir"
     fetch "$REPO_RAW_BASE/vision-tool/mcp-server.js" "$vision_dir/mcp-server.js"
+    fetch "$REPO_RAW_BASE/vision-tool/screenshot.js" "$vision_dir/screenshot.js"
   fi
 
   # Remove legacy static mcp.json entries — the VS Code extension now

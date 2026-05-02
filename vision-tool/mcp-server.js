@@ -4,6 +4,7 @@ const fs = require("fs");
 const net = require("net");
 const path = require("path");
 const readline = require("readline");
+const screenshot = require("./screenshot");
 
 const MCP_VERSION = "2024-11-05";
 const IPC_INFO_PATH =
@@ -241,14 +242,13 @@ const VISION_TOOLS = [
 
 async function handleVisionToolCall(toolName, toolArguments) {
   if (toolName === "take_screenshot") {
-    const response = await connectAndSend({
-      method: toolName,
-      arguments: toolArguments,
-    });
-    if (!response.ok) {
-      throw new Error(response.error || "Extension IPC failed");
-    }
-    return [{ type: "text", text: response.result }];
+    const result = await screenshot.takeScreenshot(toolArguments || {});
+    return [
+      {
+        type: "text",
+        text: `Screenshot saved to ${result.path} (${result.size} bytes, mode: ${result.mode})`,
+      },
+    ];
   }
 
   if (toolName === "analyze_images") {

@@ -53,7 +53,7 @@ Use `make reinstall-vision-tool` after editing the extension code so the current
 
 ## Architecture: two layers, one pipeline
 
-There are **two distinct config files** in `.vscode/` that are easy to confuse. They are not redundant — they serve different layers of the same pipeline.
+There are **two distinct config files** in `.vscode/` that are easy to confuse. They are not redundant — they serve different layers of the vision-analysis pipeline.
 
 ```
 Copilot / Agent
@@ -63,18 +63,22 @@ Copilot / Agent
 .vscode/mcp.json
   → launches: node ./vision-tool/mcp-server.js
                 │
-                │  reads at runtime (every call)
-                ▼
-        .vscode/gsh-vision-ipc.json
-          { "socketPath": "/tmp/gsh-vision-*.sock" }
+                ├─ `take_screenshot`
+                │    → runs locally via native OS screenshot commands
                 │
-                │  Unix domain socket request
-                ▼
-        VS Code extension (extension.js, running inside the editor)
-          → selects a vision-capable Copilot model (claude-sonnet-4.6 by default)
-          → reads all image bytes from disk (up to 10)
-          → attaches images to the model via LanguageModelDataPart.image(...)
-          → returns the model's response back up the chain
+                └─ `analyze_images` / `analyze_video`
+                     │  reads at runtime (every call)
+                     ▼
+             .vscode/gsh-vision-ipc.json
+               { "socketPath": "/tmp/gsh-vision-*.sock" }
+                     │
+                     │  Unix domain socket request
+                     ▼
+             VS Code extension (extension.js, running inside the editor)
+               → selects a vision-capable Copilot model (claude-sonnet-4.6 by default)
+               → reads all image bytes from disk (up to 10)
+               → attaches images to the model via LanguageModelDataPart.image(...)
+               → returns the model's response back up the chain
 ```
 
 ### What each file does
@@ -82,8 +86,8 @@ Copilot / Agent
 | File                          | Role                                                                                | Written by                       |
 | ----------------------------- | ----------------------------------------------------------------------------------- | -------------------------------- |
 | `.vscode/mcp.json`            | Registers the MCP server so Copilot/agents can call the vision tool                 | You (static config)              |
-| `.vscode/gsh-vision-ipc.json` | Runtime service-discovery: holds the Unix socket path to the live extension backend | The VS Code extension at startup |
-| `vision-tool/mcp-server.js`   | MCP protocol layer — receives tool calls, forwards them over the socket             | This repo                        |
+| `.vscode/gsh-vision-ipc.json` | Runtime service-discovery for analysis tools: holds the Unix socket path to the live extension backend | The VS Code extension at startup |
+| `vision-tool/mcp-server.js`   | MCP protocol layer — handles screenshots locally and forwards image/video analysis over the socket      | This repo                        |
 | `vision-tool/extension.js`    | Vision backend — runs inside the editor, owns the Copilot model API access          | This repo                        |
 
 ### Why the split?
@@ -92,11 +96,13 @@ Copilot agents running in the chat panel cannot directly call VS Code's `Languag
 
 ### Prerequisites for tool calls to succeed
 
-All three of the following must be true at call time:
+For `analyze_images` and `analyze_video`, all three of the following must be true at call time:
 
 1. **Extension is installed and active** — build and install the extension, then reload the window. The extension writes `gsh-vision-ipc.json` when it activates.
 2. **`gsh-vision-ipc.json` exists and has a live socket path** — if this file is missing or stale (e.g. after a window reload without re-activation), the MCP server will fail with `IPC metadata missing socketPath` or a connection error. The fix is to reload the VS Code window so the extension re-activates and rewrites the file.
 3. **A vision-capable Copilot model is available** — `claude-sonnet-4.6` by default. Configure via `GSH_VISION_MODEL_IDS` if needed.
+
+`take_screenshot` no longer depends on the IPC socket. It only needs the local OS screenshot backend (`screencapture` on macOS, `grim`/`gnome-screenshot`/`import` on Linux, PowerShell on Windows).
 
 ### How agents should call the tool
 
@@ -115,8 +121,8 @@ The `mcp_` prefix and the `gsh-vis` server name come from how VS Code exposes MC
 
 | Symptom                                       | Cause                                                | Fix                                                       |
 | --------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------- |
-| `IPC metadata missing socketPath`             | `gsh-vision-ipc.json` is missing                     | Reload VS Code window                                     |
-| `Extension IPC timeout` or `ENOENT` on socket | Extension not active, socket stale                   | Reload VS Code window                                     |
+| `IPC metadata missing socketPath`             | `gsh-vision-ipc.json` is missing for analysis tools  | Reload VS Code window                                     |
+| `Extension IPC timeout` or `ENOENT` on socket | Extension not active, socket stale for analysis tools | Reload VS Code window                                    |
 | `No chat model with image input capability`   | No vision model available in current Copilot session | Check `GSH_VISION_MODEL_IDS`; ensure Copilot is signed in |
 | Tool not visible to agent                     | `mcp.json` not picked up                             | Restart VS Code; confirm `.vscode/mcp.json` exists        |
 

@@ -243,8 +243,8 @@ module.exports = function createRenderWebviewHtml(deps) {
         <div class="provider-model-row">
           <span class="provider-model-dot"></span>
           <span class="provider-model-name">${escapeHtml(model)}</span>
-          <button class="provider-model-run" data-ollamarun="${escapeHtml(model)}" title="ollama run ${escapeHtml(model)}">run</button>
-          <button class="provider-model-remove" data-ollamatoggle="${escapeHtml(model)}" title="Remove">x</button>
+          <button class="provider-model-run" data-ollamarun="${escapeHtml(model)}" title="ollama run ${escapeHtml(model)}" type="button">run</button>
+          <button class="provider-model-remove" data-ollamatoggle="${escapeHtml(model)}" title="Remove" type="button">x</button>
         </div>`,
             )
             .join("")
@@ -252,7 +252,7 @@ module.exports = function createRenderWebviewHtml(deps) {
 
     const ollamaAddBtn =
       providerStatus.ollamaRunning && providerStatus.ollamaModels.length > 0
-        ? '<button class="provider-add-btn" id="ollamaAddModelsBtn">+ Add model</button>'
+        ? '<button class="provider-add-btn" id="ollamaAddModelsBtn" type="button">+ Add model</button>'
         : "";
 
     const ollamaAddPanel =
@@ -262,7 +262,7 @@ module.exports = function createRenderWebviewHtml(deps) {
               const pinned = deps._ollamaPinned.has(model);
               return `<div class="ollama-model-row${pinned ? " on" : ""}">
             <span class="ollama-model-check">&#10003;</span>
-            <button class="ollama-tag${pinned ? " on" : ""}" data-ollamatoggle="${escapeHtml(model)}">${escapeHtml(model)}</button>
+            <button class="ollama-tag${pinned ? " on" : ""}" data-ollamatoggle="${escapeHtml(model)}" type="button">${escapeHtml(model)}</button>
           </div>`;
             })
             .join("")}</div></div>`
@@ -276,15 +276,15 @@ module.exports = function createRenderWebviewHtml(deps) {
       <div class="provider-row${providerStatus.anthropicKey ? " provider-row-set" : ""}">
         <span class="provider-row-dot${providerStatus.anthropicKey ? " set" : ""}"></span>
         <span class="provider-row-label">Anthropic</span>
-        <button class="provider-row-action provider-chip-clickable" id="anthropicChipBtn" data-acc="anthropic">${providerStatus.anthropicKey ? "change key" : "add key"}</button>
+        <button class="provider-row-action provider-chip-clickable" id="anthropicChipBtn" data-acc="anthropic" type="button">${providerStatus.anthropicKey ? "change key" : "add key"}</button>
       </div>
       <div class="provider-acc-panel" id="anthropicAccPanel">
         <div class="key-input-row">
           <input class="key-input" id="anthropicKeyInput" type="password"
             placeholder="${providerStatus.anthropicKey ? "&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679; (saved)" : "sk-ant-..."}"
             autocomplete="off" data-provider="anthropic" />
-          <button class="key-save-btn" data-savekey="anthropic">Save</button>
-          ${providerStatus.anthropicKey ? '<button class="key-clear-btn" data-clearkey="anthropic">Clear</button>' : ""}
+          <button class="key-save-btn" data-savekey="anthropic" type="button">Save</button>
+          ${providerStatus.anthropicKey ? '<button class="key-clear-btn" data-clearkey="anthropic" type="button">Clear</button>' : ""}
         </div>
       </div>`;
 
@@ -292,15 +292,15 @@ module.exports = function createRenderWebviewHtml(deps) {
       <div class="provider-row${providerStatus.openaiKey ? " provider-row-set" : ""}">
         <span class="provider-row-dot${providerStatus.openaiKey ? " set" : ""}"></span>
         <span class="provider-row-label">OpenAI</span>
-        <button class="provider-row-action provider-chip-clickable" id="openaiChipBtn" data-acc="openai">${providerStatus.openaiKey ? "change key" : "add key"}</button>
+        <button class="provider-row-action provider-chip-clickable" id="openaiChipBtn" data-acc="openai" type="button">${providerStatus.openaiKey ? "change key" : "add key"}</button>
       </div>
       <div class="provider-acc-panel" id="openaiAccPanel">
         <div class="key-input-row">
           <input class="key-input" id="openaiKeyInput" type="password"
             placeholder="${providerStatus.openaiKey ? "&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679; (saved)" : "sk-..."}"
             autocomplete="off" data-provider="openai" />
-          <button class="key-save-btn" data-savekey="openai">Save</button>
-          ${providerStatus.openaiKey ? '<button class="key-clear-btn" data-clearkey="openai">Clear</button>' : ""}
+          <button class="key-save-btn" data-savekey="openai" type="button">Save</button>
+          ${providerStatus.openaiKey ? '<button class="key-clear-btn" data-clearkey="openai" type="button">Clear</button>' : ""}
         </div>
       </div>`;
 
@@ -316,14 +316,14 @@ module.exports = function createRenderWebviewHtml(deps) {
             <span class="agent-name"><span class="agent-at">@</span>${escapeHtml(agent.name)}</span>
             ${agent.description ? `<span class="agent-desc">${escapeHtml(agent.description)}</span>` : ""}
           </div>
-          <button class="agent-start-btn" data-agentname="${escapeHtml(agent.name)}" title="Open @${escapeHtml(agent.name)} in Copilot chat">
+          <button class="agent-start-btn" data-agentname="${escapeHtml(agent.name)}" title="Open @${escapeHtml(agent.name)} in Copilot chat" type="button">
             <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.5 2A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5V8.75a.75.75 0 0 0-1.5 0v3.75h-9v-9H8a.75.75 0 0 0 0-1.5H3.5zm7.25.25a.75.75 0 0 0 0 1.5H12.2L7.47 8.47a.75.75 0 0 0 1.06 1.06L13 5.05v1.45a.75.75 0 0 0 1.5 0V2.75a.5.5 0 0 0-.5-.5h-3.25z"/></svg>
           </button>
         </div>`,
             )
             .join("") +
           (allAgents.length > 3
-            ? `<button class="view-more-btn" id="viewMoreAgentsBtn">+ ${allAgents.length - 3} more</button>`
+            ? `<button class="view-more-btn" id="viewMoreAgentsBtn" type="button">+ ${allAgents.length - 3} more</button>`
             : "")
         : '<div class="muted">No agents found in .github/agents/</div>';
 
@@ -425,7 +425,7 @@ module.exports = function createRenderWebviewHtml(deps) {
           <span class="qa-label">${escapeHtml(action.label)}</span>
           <span class="qa-desc">${escapeHtml(action.desc)}</span>
         </div>
-        <button class="qa-run-btn" data-qa="${escapeHtml(action.id)}" title="Run in chat">
+        <button class="qa-run-btn" data-qa="${escapeHtml(action.id)}" title="Run in chat" type="button">
           <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 2.5A.5.5 0 0 1 3.5 2l10 5.5a.5.5 0 0 1 0 .87l-10 5.5A.5.5 0 0 1 3 13.5v-11z"/></svg>
         </button>
       </div>`,
@@ -451,7 +451,7 @@ module.exports = function createRenderWebviewHtml(deps) {
       <div class="provider-row${providerStatus.ollamaRunning ? " provider-row-set" : ""}">
         <span class="provider-row-dot${providerStatus.ollamaRunning ? " set" : ""}"></span>
         <span class="provider-row-label">Ollama sub-agent</span>
-        <span class="provider-row-action">${providerStatus.ollamaRunning ? `${providerStatus.ollamaModels.length} model${providerStatus.ollamaModels.length === 1 ? "" : "s"}` : "not running"}</span>
+        <span class="provider-row-status">${providerStatus.ollamaRunning ? `${providerStatus.ollamaModels.length} model${providerStatus.ollamaModels.length === 1 ? "" : "s"}` : "not running"}</span>
       </div>
       <div class="local-sub-panel">
         <label class="local-sub-label">Default model
@@ -492,7 +492,7 @@ module.exports = function createRenderWebviewHtml(deps) {
       <div class="provider-row${fullSystemAccess ? " provider-row-set" : ""}">
         <span class="provider-row-dot${fullSystemAccess ? " set" : ""}"></span>
         <span class="provider-row-label">system_execute</span>
-        <span class="provider-row-action">${fullSystemAccess ? "armed · full system access" : "disarmed"}</span>
+        <span class="provider-row-status">${fullSystemAccess ? "armed · full system access" : "disarmed"}</span>
       </div>
       <div class="tool-item${fullSystemAccess ? " active" : ""}" data-localsubtoggle="fullSystemAccess">
         <div class="cb${fullSystemAccess ? " on" : ""}"><div class="cb-tick"></div></div>
