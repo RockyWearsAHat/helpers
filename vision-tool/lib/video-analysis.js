@@ -187,11 +187,45 @@ function isStreamingSite(url) {
   return STREAMING_PATTERNS.some((p) => p.test(url));
 }
 
-async function downloadVideo(url) {
+function getYtdlpCandidates() {
+  const candidates = [];
+
+  if (process.env.YTDLP_PATH) {
+    candidates.push(process.env.YTDLP_PATH);
+  }
+
+  if (process.env.HOMEBREW_PREFIX) {
+    candidates.push(path.join(process.env.HOMEBREW_PREFIX, "bin", "yt-dlp"));
+  }
+
+  candidates.push("/opt/homebrew/bin/yt-dlp");
+  candidates.push("/usr/local/bin/yt-dlp");
+  candidates.push("/Library/Frameworks/Python.framework/Versions/3.12/bin/yt-dlp");
+
+  return [...new Set(candidates)];
+}
+
+async function resolveYtdlp() {
+  const fromPath = await checkDependency("yt-dlp");
+  if (fromPath) return fromPath;
+
+  for (const candidate of getYtdlpCandidates()) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_error) {
+      /* try next candidate */
+    }
+  }
+
+  return null;
+}
+
+async function downloadVideo(url, { audioOnly = false } = {}) {
   // Prefer yt-dlp when available (handles streaming sites + subtitle download)
-  const ytdlp = await checkDependency("yt-dlp");
+  const ytdlp = await resolveYtdlp();
   if (ytdlp) {
-    return downloadWithYtdlp(url);
+    return downloadWithYtdlp(url, ytdlp, { audioOnly });
   }
 
   // No yt-dlp — streaming sites require it, direct URLs can use HTTP fetch
@@ -232,25 +266,31 @@ async function directHttpDownload(url) {
   };
 }
 
-async function downloadWithYtdlp(url) {
+const AUDIO_EXTENSIONS = [".m4a", ".mp3", ".ogg", ".opus", ".webm", ".wav", ".aac", ".flac"];
+
+async function downloadWithYtdlp(url, ytdlpCommand = "yt-dlp", { audioOnly = false } = {}) {
   const tempDir = path.join(os.tmpdir(), `gsh-video-dl-${Date.now()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   const outputTemplate = path.join(tempDir, "video.%(ext)s");
 
-  const { execFile: execFileCb } = require("child_process");
-  await new Promise((resolve, reject) => {
-    execFileCb(
-      "yt-dlp",
-      [
+  const ytdlpArgs = audioOnly
+    ? ["-f", "bestaudio/best", "-o", outputTemplate, "--no-playlist", url]
+    : [
         "-f",
-        "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "bestvideo*+bestaudio*/best",
         "--merge-output-format",
         "mp4",
         "-o",
         outputTemplate,
         "--no-playlist",
         url,
-      ],
+      ];
+
+  const { execFile: execFileCb } = require("child_process");
+  await new Promise((resolve, reject) => {
+    execFileCb(
+      ytdlpCommand,
+      ytdlpArgs,
       { timeout: 300000, cwd: tempDir },
       (err, stdout, stderr) => {
         if (err) {
@@ -262,9 +302,12 @@ async function downloadWithYtdlp(url) {
     );
   });
 
+  const acceptedExts = audioOnly
+    ? [...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS]
+    : VIDEO_EXTENSIONS;
   const files = fs.readdirSync(tempDir).filter((f) => !f.startsWith("."));
   const videoFile = files.find((f) =>
-    VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()),
+    acceptedExts.includes(path.extname(f).toLowerCase()),
   );
   if (!videoFile) throw new Error("yt-dlp did not produce an output file.");
 
@@ -456,7 +499,7 @@ async function transcribeOnly(input) {
   const rawPath = input.videoPath || input.video_path || "";
 
   if (rawPath.startsWith("http://") || rawPath.startsWith("https://")) {
-    const download = await downloadVideo(rawPath);
+    const download = await downloadVideo(rawPath, { audioOnly: true });
     videoPath = download.videoPath;
     tempDownloadDir = download.tempDownloadDir;
   } else {

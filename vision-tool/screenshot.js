@@ -51,6 +51,39 @@ async function findFirstAvailableCommand(commands) {
   return null;
 }
 
+function getPythonCandidates() {
+  const candidates = [];
+
+  if (process.env.PYTHON) {
+    candidates.push(process.env.PYTHON);
+  }
+
+  if (process.env.VIRTUAL_ENV) {
+    candidates.push(path.join(process.env.VIRTUAL_ENV, "bin", "python"));
+    candidates.push(path.join(process.env.VIRTUAL_ENV, "bin", "python3"));
+  }
+
+  candidates.push("/opt/homebrew/bin/python3");
+  candidates.push("/usr/local/bin/python3");
+  candidates.push("python3");
+  candidates.push("python");
+
+  return [...new Set(candidates)];
+}
+
+async function resolvePythonCommand() {
+  for (const candidate of getPythonCandidates()) {
+    try {
+      await execPromise(candidate, ["-c", "import sys"], { timeout: 10000 });
+      return candidate;
+    } catch (_error) {
+      /* try next candidate */
+    }
+  }
+
+  return null;
+}
+
 async function captureWindowMacOSWithQuartz(appName, outputPath) {
   const script = [
     "import json",
@@ -140,8 +173,13 @@ async function captureWindowMacOSWithQuartz(appName, outputPath) {
     "print(json.dumps({'windowId': best['window_id'], 'title': best['title']}))",
   ].join("\n");
 
+  const pythonCommand = await resolvePythonCommand();
+  if (!pythonCommand) {
+    throw new Error("No usable Python interpreter found for Quartz window capture.");
+  }
+
   const result = await execPromise(
-    "python3",
+    pythonCommand,
     ["-c", script, appName, outputPath],
     { timeout: 30000 },
   );
@@ -227,7 +265,7 @@ async function takeScreenshotMacOS(input, outputPath, mode) {
       throw new Error("Window capture requires app_name or appName.");
     }
     let quartzError = null;
-    if (await commandExists("python3")) {
+    if (await resolvePythonCommand()) {
       try {
         await captureWindowMacOSWithQuartz(appName, outputPath);
         return;
