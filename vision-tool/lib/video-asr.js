@@ -47,29 +47,114 @@ function checkCommand(name) {
   });
 }
 
-function checkPythonModule(moduleName) {
+function getPythonCandidates() {
+  const candidates = [];
+
+  if (process.env.PYTHON) {
+    candidates.push(process.env.PYTHON);
+  }
+
+  if (process.env.VIRTUAL_ENV) {
+    candidates.push(path.join(process.env.VIRTUAL_ENV, "bin", "python"));
+    candidates.push(path.join(process.env.VIRTUAL_ENV, "bin", "python3"));
+  }
+
+  candidates.push("/opt/homebrew/bin/python3");
+  candidates.push("python3");
+  candidates.push("python");
+
+  return [...new Set(candidates)];
+}
+
+function isPythonCommand(command) {
+  if (!command) return false;
+  const baseName = path.basename(command);
+  return baseName === "python" || baseName.startsWith("python");
+}
+
+async function resolvePythonCommand() {
+  for (const candidate of getPythonCandidates()) {
+    try {
+      await execPromise(candidate, ["-c", "import sys"], { timeout: 10000 });
+      return candidate;
+    } catch (_error) {
+      /* try next candidate */
+    }
+  }
+
+  return null;
+}
+
+async function checkPythonModule(pythonCommand, moduleName) {
+  if (!pythonCommand) {
+    return false;
+  }
+
   return new Promise((resolve) => {
     execFile(
-      "python3",
-      ["-c", `import ${moduleName}; print("ok")`],
+      pythonCommand,
+      ["-c", `import ${moduleName}; print(\"ok\")`],
       { timeout: 10000 },
       (err) => resolve(!err),
     );
   });
 }
 
+async function ensurePythonModule(pythonCommand, moduleName, pipPackage) {
+  if (!pythonCommand) {
+    return null;
+  }
+
+  if (await checkPythonModule(pythonCommand, moduleName)) {
+    return pythonCommand;
+  }
+
+  if (!pipPackage) {
+    return null;
+  }
+
+  try {
+    await execPromise(
+      pythonCommand,
+      ["-m", "pip", "install", pipPackage],
+      { timeout: 600000 },
+    );
+  } catch (_error) {
+    return null;
+  }
+
+  return (await checkPythonModule(pythonCommand, moduleName))
+    ? pythonCommand
+    : null;
+}
+
 const CLI_BACKENDS = [
   {
     name: "whisper",
-    check: () => checkCommand("whisper"),
+    check: async () => {
+      const cmd = await checkCommand("whisper");
+      if (cmd) return cmd;
+
+      const pythonCommand = await resolvePythonCommand();
+      return ensurePythonModule(
+        pythonCommand,
+        "whisper",
+        "openai-whisper",
+      );
+    },
   },
   {
     name: "mlx_whisper",
     check: async () => {
       const cmd = await checkCommand("mlx_whisper");
       if (cmd) return cmd;
-      const hasMod = await checkPythonModule("mlx_whisper");
-      return hasMod ? "python3 -m mlx_whisper" : null;
+
+      const pythonCommand = await resolvePythonCommand();
+      return ensurePythonModule(
+        pythonCommand,
+        "mlx_whisper",
+        "mlx-whisper",
+      );
     },
   },
   {
@@ -307,23 +392,27 @@ function parseWhisperVtt(vttPath) {
   return segments;
 }
 
-async function runWhisper(audioPath, tempDir, model) {
+async function runWhisper(audioPath, tempDir, model, cmdPath = "whisper") {
   const outputDir = tempDir;
   const whisperModel = model || "base";
 
-  await execPromise(
-    "whisper",
-    [
-      audioPath,
-      "--model",
-      whisperModel,
-      "--output_format",
-      "json",
-      "--output_dir",
-      outputDir,
-    ],
-    { timeout: 600000 },
-  );
+  const args = [
+    audioPath,
+    "--model",
+    whisperModel,
+    "--output_format",
+    "json",
+    "--output_dir",
+    outputDir,
+  ];
+
+  if (isPythonCommand(cmdPath)) {
+    await execPromise(cmdPath, ["-m", "whisper", ...args], {
+      timeout: 600000,
+    });
+  } else {
+    await execPromise(cmdPath, args, { timeout: 600000 });
+  }
 
   const jsonPath = path.join(outputDir, "audio.json");
   if (fs.existsSync(jsonPath)) {
@@ -344,8 +433,8 @@ async function runMlxWhisper(audioPath, tempDir, cmdPath, model) {
 
   const args = [audioPath, "--model", whisperModel, "--output-dir", outputDir];
 
-  if (cmdPath.startsWith("python3")) {
-    await execPromise("python3", ["-m", "mlx_whisper", ...args], {
+  if (isPythonCommand(cmdPath)) {
+    await execPromise(cmdPath, ["-m", "mlx_whisper", ...args], {
       timeout: 600000,
     });
   } else {
@@ -438,7 +527,12 @@ async function transcribeVideo(videoPath, options = {}) {
         segments = await runJsNativeWhisper(audioPath, options.whisperModel);
         break;
       case "whisper":
-        segments = await runWhisper(audioPath, tempDir, options.whisperModel);
+        segments = await runWhisper(
+          audioPath,
+          tempDir,
+          options.whisperModel,
+          backend.path,
+        );
         break;
       case "mlx_whisper":
         segments = await runMlxWhisper(

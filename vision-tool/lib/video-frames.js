@@ -52,6 +52,36 @@ function checkDependency(name) {
   });
 }
 
+function getCommonBinaryPaths(name) {
+  const paths = [];
+
+  if (process.env.HOMEBREW_PREFIX) {
+    paths.push(path.join(process.env.HOMEBREW_PREFIX, "bin", name));
+  }
+
+  paths.push(path.join("/opt/homebrew/bin", name));
+  paths.push(path.join("/usr/local/bin", name));
+  paths.push(path.join("/Library/Frameworks/Python.framework/Versions/3.12/bin", name));
+
+  return paths;
+}
+
+async function resolveDependency(name) {
+  const found = await checkDependency(name);
+  if (found) return found;
+
+  for (const candidate of getCommonBinaryPaths(name)) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_error) {
+      /* try next candidate */
+    }
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Binary resolution — bundled npm packages first, system PATH second
 // ---------------------------------------------------------------------------
@@ -76,8 +106,8 @@ async function ensureDependencies() {
   if (fpStatic && fpStatic.path) ffprobe = fpStatic.path;
 
   // 2. Fall back to system PATH
-  if (!ffmpeg) ffmpeg = await checkDependency("ffmpeg");
-  if (!ffprobe) ffprobe = await checkDependency("ffprobe");
+  if (!ffmpeg) ffmpeg = await resolveDependency("ffmpeg");
+  if (!ffprobe) ffprobe = await resolveDependency("ffprobe");
 
   const missing = [];
   if (!ffmpeg) missing.push("ffmpeg");

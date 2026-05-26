@@ -15,6 +15,81 @@ function _workspaceArchiveId(workspaceFolderPath) {
 module.exports = function createMcpServer(deps) {
   const { GLOBAL_MCP_SERVER_PATH, MCP_PROVIDER_ID, uniquePaths } = deps;
 
+  function _runFile(command, args, options = {}) {
+    return new Promise((resolve) => {
+      execFile(command, args, options, (error, stdout) => {
+        if (error) {
+          resolve("");
+          return;
+        }
+        resolve(String(stdout || "").trim());
+      });
+    });
+  }
+
+  function _pickNewestVersionDir(entries) {
+    const versions = entries.filter((entry) => /^v\d+\.\d+\.\d+$/.test(entry));
+    versions.sort((a, b) => {
+      const aParts = a.slice(1).split(".").map(Number);
+      const bParts = b.slice(1).split(".").map(Number);
+      for (let i = 0; i < 3; i += 1) {
+        const delta = (bParts[i] || 0) - (aParts[i] || 0);
+        if (delta !== 0) return delta;
+      }
+      return 0;
+    });
+    return versions[0] || "";
+  }
+
+  async function resolveNodeCommand() {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+    const nvmRoot = path.join(homeDir, ".nvm", "versions", "node");
+    let newestNvmNode = "";
+    try {
+      const newest = _pickNewestVersionDir(fs.readdirSync(nvmRoot));
+      if (newest) {
+        newestNvmNode = path.join(nvmRoot, newest, "bin", "node");
+      }
+    } catch {
+      // nvm not present or unreadable
+    }
+
+    const absoluteCandidates = uniquePaths([
+      process.env.GSH_NODE_PATH,
+      process.env.VSCODE_GSH_NODE_PATH,
+      newestNvmNode,
+      "/opt/homebrew/bin/node",
+      "/usr/local/bin/node",
+    ]).filter(Boolean);
+
+    for (const candidate of absoluteCandidates) {
+      if (!fs.existsSync(candidate)) {
+        continue;
+      }
+      const version = await _runFile(candidate, ["-v"], { timeout: 1500 });
+      if (version.startsWith("v")) {
+        return candidate;
+      }
+    }
+
+    const shell = process.env.SHELL || "/bin/zsh";
+    const resolvedFromShell = await _runFile(
+      shell,
+      ["-lc", "command -v node"],
+      { timeout: 2000 },
+    );
+    if (resolvedFromShell && fs.existsSync(resolvedFromShell)) {
+      const version = await _runFile(resolvedFromShell, ["-v"], { timeout: 1500 });
+      if (version.startsWith("v")) {
+        return resolvedFromShell;
+      }
+    }
+
+    // Last-resort fallback: use env so command lookup follows PATH.
+    // This only runs when all absolute probes fail.
+    return "/usr/bin/env";
+  }
+
   function findGitShellHelpersMcpPath(context) {
     const homeDir = process.env.HOME || process.env.USERPROFILE || "";
     const workspaceCandidates = (vscode.workspace.workspaceFolders || []).map(
@@ -32,7 +107,9 @@ module.exports = function createMcpServer(deps) {
 
   function buildGitShellHelpersMcpEnv(serverPath) {
     const serverDir = path.dirname(serverPath);
-    const env = {};
+    // Preserve parent environment (especially PATH) so MCP process launches
+    // consistently across app-launch contexts (Dock, Spotlight, shell).
+    const env = { ...process.env };
 
     if (!fs.existsSync(path.join(serverDir, "git-research-mcp"))) {
       env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH = "1";
@@ -222,12 +299,16 @@ module.exports = function createMcpServer(deps) {
           if (!serverPath) {
             return [];
           }
+          const nodeCommand = await resolveNodeCommand();
+
+          const serverArgs =
+            nodeCommand === "/usr/bin/env" ? ["node", serverPath] : [serverPath];
 
           return [
             new vscode.McpStdioServerDefinition(
               "gsh",
-              "node",
-              [serverPath],
+              nodeCommand,
+              serverArgs,
               buildGitShellHelpersMcpEnv(serverPath),
               "0.3.4",
             ),
