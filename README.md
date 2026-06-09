@@ -140,21 +140,64 @@ Manual registration if needed:
 
 #### Exposed tools
 
-| Tool                       | Description                                                    |
-| -------------------------- | -------------------------------------------------------------- |
-| `checkpoint`               | Stage and commit with an AI-generated message; optionally push |
-| `branch_session_start`     | Start an isolated branch session for the current chat          |
-| `branch_session_end`       | End the session; restore original branch and stash             |
-| `branch_read_file`         | Read a file from a branch session worktree                     |
-| `branch_status`            | Get current session branch and status                          |
-| `search_web`               | Web search via local SearXNG                                   |
-| `scrape_webpage`           | Fetch and clean up to 5 URLs                                   |
-| `search_knowledge_cache`   | Search `knowledge/` Markdown notes by keyword                  |
-| `read_knowledge_note`      | Read a specific knowledge note                                 |
-| `write_knowledge_note`     | Create or overwrite a knowledge note                           |
-| `update_knowledge_note`    | Replace a section by heading                                   |
-| `append_to_knowledge_note` | Append content to an existing note                             |
-| `analyze_images`           | Describe or compare images via vision model                    |
+Core workflow and quality:
+
+- `workspace_context` - summarize active workspace roots and branch state.
+- `strict_lint` - run Problems diagnostics for one file, folder, or workspace.
+- `checkpoint` - stage/commit with AI-generated message; optionally push.
+- `list_language_models` - list available local language models.
+
+Branch-session management:
+
+- `branch_session_start`
+- `branch_session_end`
+- `branch_read_file`
+- `branch_status`
+- `branch_cleanup`
+
+Research and knowledge tools:
+
+- `search_web`
+- `scrape_webpage`
+- `search_knowledge_cache`
+- `search_knowledge_index`
+- `build_knowledge_index`
+- `read_knowledge_note`
+- `write_knowledge_note`
+- `update_knowledge_note`
+- `append_to_knowledge_note`
+- `submit_community_research`
+- `log_session_event`
+- `search_session_log`
+- `get_session_summary`
+- `rebuild_session_index`
+
+Vision tools:
+
+- `take_screenshot`
+- `analyze_images`
+- `analyze_video`
+- `transcribe_video`
+
+Workspace tool management:
+
+- `register_workspace_tool`
+- `unregister_workspace_tool`
+- `reload_window_ready`
+
+Local sub-agents:
+
+- `ollama_subagent`
+- `ollama_list_models`
+- `system_execute`
+- `build_workspace_tool`
+
+Context-efficient usage order (minimal context, maximal output):
+
+1. `workspace_context` once per task.
+2. Call one specialized tool for the user goal (for example `search_web` or `strict_lint`).
+3. Use `scrape_webpage` only for top hits that need deeper evidence.
+4. End with `checkpoint` only after validation passes.
 
 Environment variables to selectively disable groups:
 

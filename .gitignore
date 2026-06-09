@@ -11,4 +11,4 @@ vision-tool/node_modules/
 .github/session-memory/*
 !.github/session-memory/.gitkeep
 .env
-atlas-api/.env
+atlas-api/.env*-chat-history.jsonl

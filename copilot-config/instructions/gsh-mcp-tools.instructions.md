@@ -30,4 +30,5 @@ Load deeper tool details only when the current task requires them.
 - Run `strict_lint` with `filePath` for each edited file before reporting progress complete.
 - Run `strict_lint` with `folderPath` or workspace scope only when a change can affect shared wiring across files.
 - Success gate: zero errors and zero warnings on edited files, unless warnings are explicitly accepted and documented in report.
+- If strict_lint reports diagnostics provider inactivity for a scope, treat that as an informational tooling-state note (not a lint failure); verify with alternate checks (`get_errors`, tests, build).
 - If strict_lint reports diagnostics from your edits, fix first, then rerun until clean.

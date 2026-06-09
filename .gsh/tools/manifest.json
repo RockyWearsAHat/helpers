@@ -1,34 +1,3 @@
 {
-  "tools": [
-    {
-      "name": "hello_world",
-      "description": "Prints Hello world",
-      "language": "javascript",
-      "entry": "hello_world.js"
-    },
-    {
-      "name": "helloworld",
-      "description": "Prints Hello world",
-      "language": "javascript",
-      "entry": "helloworld.js"
-    },
-    {
-      "name": "helloworld2",
-      "description": "Prints Hello world 2",
-      "language": "javascript",
-      "entry": "helloworld2.js"
-    },
-    {
-      "name": "e2e_reload_tool_one",
-      "description": "E2E test tool one",
-      "language": "javascript",
-      "entry": "e2e_reload_tool_one.js"
-    },
-    {
-      "name": "e2e_reload_tool_two",
-      "description": "E2E test tool two",
-      "language": "javascript",
-      "entry": "e2e_reload_tool_two.js"
-    }
-  ]
+  "tools": []
 }

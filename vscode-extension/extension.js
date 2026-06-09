@@ -198,8 +198,6 @@ function activate(context) {
     GLOBAL_MCP_SERVER_PATH,
     MCP_PROVIDER_ID,
     uniquePaths: (paths) => [...new Set(paths.filter(Boolean))],
-    getExtensionStorageRoot: () =>
-      context.storageUri?.fsPath || context.globalStorageUri?.fsPath || null,
   });
 
   // 2. Activity tracker (needs getWebviewProvider, getChatSessions — late-bound)
@@ -488,10 +486,6 @@ function activate(context) {
         });
         return inspector.formatCustomizationInspectionReport(result);
       },
-    ),
-    vscode.commands.registerCommand(
-      "gitShellHelpers.searchArchivedChatHistory",
-      () => chatSessionsModule.searchArchivedChatHistory(),
     ),
     vscode.commands.registerCommand(
       "gitShellHelpers.systemExecute.interrupt",
