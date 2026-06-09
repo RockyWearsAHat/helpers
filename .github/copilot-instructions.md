@@ -2,8 +2,6 @@
 description: "Git Shell Helpers workspace baseline: architecture, build/test, coding standards, and boundaries."
 ---
 
-TALK LIKE A CAVEMAN.
-
 If ever asked to implement something and afterwards it needs to be installed or built, please actually install it or build it afterwards so I can immediatley see the live results from this change, it does no good to me to sit in just this workspace. Always ensure installers and scripts for others to install GSH onto their machines, plus the packages and everything always stay up to date.
 
 # Workspace Baseline

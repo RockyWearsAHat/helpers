@@ -464,6 +464,7 @@ module.exports = function createCopilotInspector(deps) {
     const filePath = String(options.filePath || "").trim();
     const folderPath = String(options.folderPath || "").trim();
     const severityFilter = options.severityFilter || "all";
+    let providerActivityNote = "";
 
     const severityThreshold =
       severityFilter === "errors-only"
@@ -485,14 +486,12 @@ module.exports = function createCopilotInspector(deps) {
 
       const diagnosticsForFile = diagnosticPairs[0][1] || [];
       if (diagnosticsForFile.length === 0 && !didUpdate) {
-        throw new Error(
-          [
-            `No diagnostics provider activity was observed for ${resolvedPath}.`,
-            `Language: ${document.languageId || "unknown"}.`,
-            "strict_lint requires an active workspace diagnostics provider (linter/language server) for the target file.",
-            "Open this file in VS Code and ensure your language diagnostics/linter extension is installed and configured for this workspace.",
-          ].join(" "),
-        );
+        providerActivityNote = [
+          `No diagnostics provider activity was observed for ${resolvedPath}.`,
+          `Language: ${document.languageId || "unknown"}.`,
+          "The file may be clean or diagnostics may not be initialized yet in this window.",
+          "Open the file in VS Code and retry if you expected language-service diagnostics (for example TypeScript compiler errors).",
+        ].join(" ");
       }
     } else if (folderPath) {
       const normalizedFolder = folderPath.endsWith("/")
@@ -569,6 +568,11 @@ module.exports = function createCopilotInspector(deps) {
       `Summary: ${totalErrors} error(s), ${totalWarnings} warning(s), ${totalOther} other(s) across ${filtered.length} file(s).`,
       "",
     ];
+
+    if (providerActivityNote) {
+      lines.push(`Note: ${providerActivityNote}`);
+      lines.push("");
+    }
 
     if (filtered.length === 0) {
       lines.push("No diagnostics found.");

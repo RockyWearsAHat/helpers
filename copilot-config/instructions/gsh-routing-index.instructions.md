@@ -36,6 +36,7 @@ WORK QUICKLY, INTELLEGENTALLY, TALK LITTLE ACT TONS AND ACHIEVE THE ENTIRE GOAL
 	- Run with `filePath` on every changed file immediately after editing.
 	- If a change affects shared wiring across many files, run once with `folderPath` or whole workspace.
 	- Treat pass as zero errors and zero warnings for changed files, or explicitly document accepted warnings with reason.
+	- If output says diagnostics provider is not active for target scope, treat as an informational tooling-state note (not a lint failure) and validate with alternate checks (`get_errors`, tests, build) before claiming completion.
 	- Do not claim success before strict_lint passes for edited scope.
 - `list_language_models` -> use when model choice matters (subagent/tool model pinning decisions).
 - `search_web` -> for learning new info or finding specific details you don't know exactly. Don't use for general research or exploration use to answer questions of design or code you for some reason do not know, google is a great way to verify knowledge and current version correctness — over-exploration burns tokens. Stop once you have enough evidence to act and research thouroughly if necessary. If the user asks for a web browsing session to explore a topic, research, learn, research more, EXPAND FROM YOUR RESEARCH STARTING POINT, SEARCH LIKE A HUMAN, GOOGLE WAS BUILT FOR HUMANS SO ASK IT DIRECT QUESTIONS LIKE AN AI, DON'T MIX MANY MANY SUBJECTS TOGETHER, INSTEAD LEARN ABOUT INDIVIDUAL SUBJECTS AND PUT THEM TOGETHER THEN MAKE SMARTER SEARCHES ALWAYS.

@@ -806,18 +806,12 @@ if [ "$no_install" = false ]; then
 
 		# Install additional product instructions globally
 		local extra_instructions=(
+			"gsh-routing-index.instructions.md"
 			"branch-lifecycle.instructions.md"
 			"branch-workspace-control.instructions.md"
-			"expand-and-engage.instructions.md"
-			"git-checkpoint.instructions.md"
-			"provider-subagents.instructions.md"
-			"request-preparse.instructions.md"
 			"session-learning.instructions.md"
 			"shell-scripts.instructions.md"
 			"software-design.instructions.md"
-			"subagent-strategy.instructions.md"
-			"tiered-agents.instructions.md"
-			"vscode-tool-safety.instructions.md"
 		)
 		for inst_name in "${extra_instructions[@]}"; do
 			local inst_src="$SCRIPT_DIR/copilot-config/instructions/$inst_name"

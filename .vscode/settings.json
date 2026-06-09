@@ -16,5 +16,7 @@
     "**/*.code-search": true,
     "**/local-qwen-ollama-outbound*": true,
     "**/.local-qwen/**": true
-  }
+  },
+  "gsh.previousWindowTitleTemplate": "${activeEditorShort}${separator}${rootName}${separator}${profileName}",
+  "window.title": "fix cache invalidation bug ${separator} ${rootName}"
 }

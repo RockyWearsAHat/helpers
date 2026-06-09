@@ -1,16 +1,10 @@
 "use strict";
 // src/mcp-server.js — MCP server discovery, registration, and configuration
 const vscode = require("vscode");
-const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFile } = require("child_process");
-
-// Must match the same logic in chat-sessions.js _resolveArchiveRoot
-function _workspaceArchiveId(workspaceFolderPath) {
-  return crypto.createHash("sha1").update(workspaceFolderPath).digest("hex").slice(0, 12);
-}
 
 module.exports = function createMcpServer(deps) {
   const { GLOBAL_MCP_SERVER_PATH, MCP_PROVIDER_ID, uniquePaths } = deps;
@@ -207,41 +201,6 @@ module.exports = function createMcpServer(deps) {
     ).trim();
     if (browserUserDataDir) {
       env.GSH_LOCAL_SUBAGENT_BROWSER_USER_DATA_DIR = browserUserDataDir;
-    }
-
-    // Pass the chat history archive root so MCP tools can search archived
-    // chat sessions directly. Uses the same workspace-scoped path as
-    // chat-sessions.js so both the extension watcher and the MCP server
-    // read/write the same archive tree, even when storageUri falls back
-    // to globalStorageUri (which would otherwise mix all projects together).
-    const storageRoot =
-      deps.getExtensionStorageRoot && deps.getExtensionStorageRoot();
-    if (storageRoot) {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
-      const wsSlug = workspaceFolder
-        ? `ws-${_workspaceArchiveId(workspaceFolder)}`
-        : "ws-global";
-      // storageRoot + ws-archives/ws-{hash} = per-project root;
-      // chat-history-archive.js appends "/chat-history-archive" when initialize() is called,
-      // so we pass the parent to match exactly.
-      env.GSH_CHAT_ARCHIVE_ROOT = path.join(
-        storageRoot,
-        "ws-archives",
-        wsSlug,
-        "chat-history-archive",
-      );
-      // Always expose the global (no-folder) archive so the MCP server can
-      // also index sessions that were started without a workspace folder open.
-      // search_chat_history merges both archives transparently.
-      env.GSH_CHAT_ARCHIVE_GLOBAL = path.join(
-        storageRoot,
-        "ws-archives",
-        "ws-global",
-        "chat-history-archive",
-      );
-      if (workspaceFolder) {
-        env.GSH_CHAT_WORKSPACE_PATH = workspaceFolder;
-      }
     }
 
     return env;
