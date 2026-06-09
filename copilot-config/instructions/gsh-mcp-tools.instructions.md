@@ -9,11 +9,12 @@ When a gsh MCP tool exists for the requested action, prefer it over terminal emu
 Core tools to prioritize:
 
 1. `workspace_context` for workspace orientation at session start.
-2. `strict_lint` after file edits.
-3. `checkpoint` at validated milestones — see rules below.
-4. Native `session_store_sql` (chronicle skill) for prior-session recall.
-5. `list_language_models` when model choice impacts cost/quality.
-6. `build_workspace_tool` when user asks to create a runnable tool.
+2. `session_store_sql` and `search_session_log` for prior-session recall before new reasoning.
+3. `search_knowledge_index` and `search_knowledge_cache` before external web search.
+4. `strict_lint` after file edits.
+5. `checkpoint` at validated milestones — see rules below.
+6. `list_language_models` when model choice impacts cost/quality.
+7. `build_workspace_tool` when user asks to create a runnable tool.
 
 Load deeper tool details only when the current task requires them.
 
@@ -32,3 +33,9 @@ Load deeper tool details only when the current task requires them.
 - Success gate: zero errors and zero warnings on edited files, unless warnings are explicitly accepted and documented in report.
 - If strict_lint reports diagnostics provider inactivity for a scope, treat that as a failure and fix provider setup/state before continuing.
 - If strict_lint reports diagnostics from your edits, fix first, then rerun until clean.
+
+## Research Order
+
+- Local memory first: `session_store_sql` / `search_session_log`.
+- Project knowledge next: `search_knowledge_index`, then `search_knowledge_cache` if exact terms matter.
+- External web only when local memory and knowledge do not answer the question.
