@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::json;
 
 /// A single MCP content block. Only text blocks are produced by native tools.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub struct Content {
     #[serde(rename = "type")]
     pub kind: String,
