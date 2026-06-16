@@ -77,14 +77,13 @@ gsh_mcp_libs() {
 		mcp-knowledge-index.js \
 		mcp-knowledge-rw.js \
 		mcp-language-models.js \
+		mcp-native.js \
 		mcp-pdf-extract.js \
 		mcp-research-tools.js \
 		mcp-research.js \
-		mcp-session-memory.js \
 		mcp-strict-lint.js \
 		mcp-utils.js \
-		mcp-web-search.js \
-		mcp-workspace-context.js
+		mcp-web-search.js
 }
 
 gsh_support_scripts() {

@@ -53,7 +53,7 @@ checks=(
 	"node ./scripts/test-worktree-manager.js"
 	"node ./scripts/test-mcp-tool-docs.js"
 	"node ./scripts/build-pages-search-site.js"
-	"node ./scripts/test-session-memory.js"
+	"node ./scripts/test-project-index.js"
 	"bash ./scripts/build-dist.sh"
 )
 

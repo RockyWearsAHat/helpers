@@ -1,7 +1,15 @@
 # Git Shell Helpers
 
-Quality-of-life git subcommands, an MCP research server, a Copilot audit tool, and a VS Code extension that makes AI agents work transparently on feature branches — without switching tabs or changing directories.
+Quality-of-life git subcommands, an MCP tool server, an AI-agent control CLI (`gsh`),
+a Copilot audit tool, and a VS Code extension that makes AI agents work transparently on
+feature branches — without switching tabs or changing directories.
 
+GSH is **agent-agnostic**: its tools ship as a standard stdio MCP server, so Claude Code,
+GitHub Copilot, and any MCP-capable agent can use them. See [`AGENTS.md`](AGENTS.md) for
+the agent-facing quickstart.
+
+- [Use with any AI agent (gsh CLI)](#use-with-any-ai-agent-gsh-cli)
+- [CS2420 / CS3500 A+ grading](#cs2420--cs3500-a-grading)
 - [Branch Sessions (VS Code extension)](#branch-sessions-vs-code-extension)
 - [Git subcommands](#git-subcommands)
 - [MCP servers](#mcp-servers)
@@ -9,6 +17,91 @@ Quality-of-life git subcommands, an MCP research server, a Copilot audit tool, a
 - [Copilot DevOps Audit](#copilot-devops-audit)
 - [Installation](#installation)
 - [Development & Contributing](#development--contributing)
+
+---
+
+## Use with any AI agent (gsh CLI)
+
+`gsh` is the single control surface for GSH. It installs GSH into your AI agent(s),
+toggles the whole tool surface or individual tools live, and reports health.
+
+```sh
+gsh install              # auto-detect agents (Claude Code, Copilot) and wire GSH in
+gsh install --agent claude   # Claude Code only ( --agent copilot | all )
+gsh status               # what's installed, master switch, tool counts, agents
+gsh doctor               # health checks
+```
+
+### Toggling (live — no agent restart)
+
+```sh
+gsh disable | enable     # master kill-switch for the entire GSH tool surface
+gsh bypass               # toggle the master switch
+gsh tool list            # every tool + on/off state
+gsh tool disable <name>  # turn one tool off
+gsh tool enable all      # turn everything back on
+```
+
+Tool state lives in `~/.config/git-shell-helpers-mcp/tools.json` and is re-read by the
+running MCP server on every request, so toggles take effect immediately. A disabled tool
+can be overridden for a single call with `{ "force": true }`.
+
+### Fast startup (C launcher + auto-managed background server)
+
+`gsh install` registers a small **C launcher** (`gsh-mcp`, compiled on install) instead of
+launching Node directly. It starts in ~1ms and connects to a background server
+(`git-shell-helpers-mcpd.js`) that loads the tool modules once and stays resident, so
+sessions start fast (~tens of ms) instead of paying cold Node startup every time.
+
+It just works — nothing to manage:
+
+- the background server **starts automatically** on first use and **exits after ~15 min
+  idle**;
+- it's per-workspace (keyed by cwd + GSH env) so scope is preserved;
+- it re-reads tool state per request, so `gsh` toggles stay live;
+- if it isn't instantly ready (or there's no C compiler), the launcher **falls back to
+  running Node directly within ~2s** — so startup is always reliable, never worse than
+  plain Node.
+
+```sh
+gsh build            # (re)compile the launcher (optional; auto-run by install)
+gsh daemon status    # is the background server running?
+gsh daemon restart   # restart it (use after changing GSH code)
+```
+
+### What `gsh install --agent claude` does
+
+- Registers the `gsh` MCP server with Claude Code (`claude mcp add -s user`).
+- Writes the GSH core behavior into `~/.claude/CLAUDE.md` as a managed block (no clobber).
+- Installs the `gsh` and `cs-grade` **skills**, the `/gsh` **slash command**, and the
+  `cs-grade-improver` **subagent** into `~/.claude/`.
+
+Run `/mcp` (or restart Claude Code) afterward so the server connects. The same artifacts
+live under [`claude-config/`](claude-config) and the Copilot equivalents under
+[`copilot-config/`](copilot-config).
+
+---
+
+## CS2420 / CS3500 A+ grading
+
+`git-cs-grade` (also `gsh grade`) scores a Java course project against an objective
+structural rubric and writes `GRADE.md`: a numeric+letter grade, a per-category scorecard
+with the evidence behind each score, and a prioritized **Path to A+** checklist.
+
+```sh
+gsh grade .                      # auto-detect course
+gsh grade ./hw3 --course cs3500  # object-oriented design rubric
+gsh grade ./lab --course cs2420  # data-structures/algorithms rubric
+git-cs-grade . --json            # machine-readable, for an automated loop
+```
+
+The intended loop: grade → fix the highest-impact checklist items → re-grade, until A+.
+Claude Code users can hand the whole job to the **`cs-grade-improver`** subagent or the
+**`cs-grade`** skill, which implement that loop (MVC separation, programming to interfaces,
+design patterns, JUnit coverage, Javadoc, and cleanliness).
+
+> The rubric grades what you can restructure (design, tests, docs, style); it does **not**
+> run the course autograder's correctness suite, so pair it with the official tests.
 
 ---
 
@@ -147,6 +240,12 @@ Core workflow and quality:
 - `checkpoint` - stage/commit with AI-generated message; optionally push.
 - `list_language_models` - list available local language models.
 
+Project index (cheap repo map — orient without grepping; native Rust):
+
+- `index_project` - build/refresh a static map of files, symbols, and the reference graph (ranked), written to `.gsh/index/`.
+- `project_map` - return a compact, token-cheap overview of the top modules plus a Mermaid graph; orient in one call.
+- `lookup` - find where a symbol is defined and what references it, from the index graph instead of a grep sweep.
+
 Branch-session management:
 
 - `branch_session_start`
@@ -167,10 +266,6 @@ Research and knowledge tools:
 - `update_knowledge_note`
 - `append_to_knowledge_note`
 - `submit_community_research`
-- `log_session_event`
-- `search_session_log`
-- `get_session_summary`
-- `rebuild_session_index`
 
 Vision tools:
 
@@ -194,10 +289,11 @@ Local sub-agents:
 
 Context-efficient usage order (minimal context, maximal output):
 
-1. `workspace_context` once per task.
-2. Call one specialized tool for the user goal (for example `search_web` or `strict_lint`).
-3. Use `scrape_webpage` only for top hits that need deeper evidence.
-4. End with `checkpoint` only after validation passes.
+1. `workspace_context` once per task, then `project_map` (and `index_project` to refresh) to orient cheaply instead of reading/grepping many files.
+2. `lookup <symbol|file>` to jump straight to definitions and references.
+3. Call one specialized tool for the user goal (for example `search_web` or `strict_lint`).
+4. Use `scrape_webpage` only for top hits that need deeper evidence.
+5. End with `checkpoint` only after validation passes.
 
 Environment variables to selectively disable groups:
 

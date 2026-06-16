@@ -1,13 +1,23 @@
 #!/usr/bin/env node
 "use strict";
 
+// Persist V8 bytecode across runs so module compilation isn't repeated on every
+// cold start. No-op on Node < 22.8. Keeps the cache keyed by Node version, so a
+// runtime upgrade transparently rebuilds it. This is the cheapest boot win.
+try {
+  require("module").enableCompileCache?.();
+} catch {
+  /* older Node — ignore */
+}
+
 const path = require("path");
 const readline = require("readline");
 const { CHECKPOINT_TOOL, handleCheckpoint } = require("./lib/mcp-checkpoint");
 const {
-  WORKSPACE_CONTEXT_TOOL,
-  handleWorkspaceContext,
-} = require("./lib/mcp-workspace-context");
+  isNativeTool,
+  loadNativeSchemas,
+  runNativeTool,
+} = require("./lib/mcp-native");
 const { STRICT_LINT_TOOL, handleStrictLint } = require("./lib/mcp-strict-lint");
 const {
   BRANCH_SESSION_TOOLS,
@@ -51,8 +61,17 @@ const TOOLS_CONFIG_PATH = path.join(
   "tools.json",
 );
 
+// Per-connection output target. In stdio mode there is none and we write to
+// stdout; in daemon mode each connection runs inside outputStore.run({write})
+// so responses go to the right socket even across awaits.
+const { AsyncLocalStorage } = require("async_hooks");
+const outputStore = new AsyncLocalStorage();
+
 function send(message) {
-  process.stdout.write(`${JSON.stringify(message)}\n`);
+  const line = `${JSON.stringify(message)}\n`;
+  const store = outputStore.getStore();
+  if (store && store.write) store.write(line);
+  else process.stdout.write(line);
 }
 
 function sendError(id, code, message) {
@@ -116,95 +135,15 @@ const delegatedHandlers = [
   localSubagentHandler,
 ].filter(Boolean);
 
-const SESSION_MEMORY_TOOLS = new Set([
-  "log_session_event",
-  "search_session_log",
-  "get_session_summary",
-  "rebuild_session_index",
-]);
-
-function summarizeToolArguments(toolArguments) {
-  const obj =
-    toolArguments && typeof toolArguments === "object" ? toolArguments : {};
-  const keys = Object.keys(obj);
-  if (!keys.length) return "(none)";
-  const summary = {};
-  for (const key of keys.slice(0, 8)) {
-    const value = obj[key];
-    if (value === null || value === undefined) {
-      summary[key] = value;
-      continue;
-    }
-    if (typeof value === "string") {
-      summary[key] = value.length > 160 ? value.slice(0, 157) + "..." : value;
-      continue;
-    }
-    if (typeof value === "number" || typeof value === "boolean") {
-      summary[key] = value;
-      continue;
-    }
-    if (Array.isArray(value)) {
-      summary[key] = `[array:${value.length}]`;
-      continue;
-    }
-    summary[key] = "[object]";
-  }
-  return JSON.stringify(summary);
-}
-
-function summarizeToolResult(content) {
-  if (!Array.isArray(content) || content.length === 0) return "no content";
-  const textChunk = content.find(
-    (item) => item && item.type === "text" && typeof item.text === "string",
-  );
-  if (!textChunk || !textChunk.text) return "non-text content";
-  const oneLine = textChunk.text.replace(/\s+/g, " ").trim();
-  if (!oneLine) return "empty text content";
-  return oneLine.length > 180 ? oneLine.slice(0, 177) + "..." : oneLine;
-}
-
-function normalizeToolTag(name) {
-  return String(name || "tool")
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-}
-
-async function autoLogToolEvent(toolName, toolArguments, status, detail) {
-  if (process.env.GSH_SESSION_MEMORY_DISABLED) return;
-  if (process.env.GSH_AUTO_SESSION_LOG_DISABLED === "1") return;
-  if (!researchModule?.handler) return;
-  if (SESSION_MEMORY_TOOLS.has(toolName)) return;
-
-  const safeArgs = summarizeToolArguments(toolArguments);
-  const toolTag = normalizeToolTag(toolName);
-  const outcome =
-    status === "success"
-      ? `success - ${detail || "completed"}`
-      : `failed - ${detail || "tool call failed"}`;
-
-  try {
-    await researchModule.handler("log_session_event", {
-      action: `auto tool call: ${toolName}`,
-      outcome,
-      tags: ["auto", "mcp-tool", toolTag, status],
-      context: `args=${safeArgs}`,
-    });
-  } catch {
-    // Never let telemetry-style auto logging affect user-visible tool behavior.
-  }
-}
+// Schemas for the tools implemented in the native Rust binary. Loaded once at
+// startup; throws (fail-loud) if the required binary is missing or broken.
+const NATIVE_SCHEMAS = loadNativeSchemas();
 
 const ALL_TOOLS = [
-  ...(researchModule?.tools || []).filter(
-    (t) =>
-      !process.env.GSH_SESSION_MEMORY_DISABLED ||
-      !SESSION_MEMORY_TOOLS.has(t.name),
-  ),
+  ...(researchModule?.tools || []),
   ...(visionModule?.tools || []),
+  ...NATIVE_SCHEMAS,
   CHECKPOINT_TOOL,
-  WORKSPACE_CONTEXT_TOOL,
   LIST_LANGUAGE_MODELS_TOOL,
   STRICT_LINT_TOOL,
   REGISTER_WORKSPACE_TOOL,
@@ -225,38 +164,47 @@ function getWorkspaceRoot() {
   return raw.split(",").filter(Boolean)[0] || process.cwd();
 }
 
+function readToolsConfig() {
+  try {
+    return JSON.parse(require("fs").readFileSync(TOOLS_CONFIG_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+// Master kill-switch. When `disabled` is true in tools.json, GSH is bypassed:
+// the server advertises no tools and refuses every call (except `force`).
+// This lets `gsh disable` / `gsh bypass` toggle the entire surface live —
+// the config is re-read on every request, so no restart is needed.
+function isGshDisabled() {
+  // `gsh tool list` sets GSH_FORCE_ENABLE=1 to enumerate the full universe of
+  // tools even while GSH is bypassed.
+  if (process.env.GSH_FORCE_ENABLE === "1") return false;
+  return readToolsConfig().disabled === true;
+}
+
 function getEnabledTools() {
   const userTools = getUserToolSchemas(getWorkspaceRoot());
   const allWithUser = [...ALL_TOOLS, ...userTools];
-  try {
-    const config = JSON.parse(
-      require("fs").readFileSync(TOOLS_CONFIG_PATH, "utf8"),
-    );
-    const disabled = new Set(config.disabledTools || []);
-    if (disabled.size === 0) return allWithUser;
-    return allWithUser.filter((tool) => !disabled.has(tool.name));
-  } catch {
-    return allWithUser;
-  }
+  if (process.env.GSH_FORCE_ENABLE === "1") return allWithUser;
+  if (isGshDisabled()) return [];
+  const disabled = new Set(readToolsConfig().disabledTools || []);
+  if (disabled.size === 0) return allWithUser;
+  return allWithUser.filter((tool) => !disabled.has(tool.name));
 }
 
 function isToolDisabled(toolName) {
-  try {
-    const config = JSON.parse(
-      require("fs").readFileSync(TOOLS_CONFIG_PATH, "utf8"),
-    );
-    return (config.disabledTools || []).includes(toolName);
-  } catch {
-    return false;
-  }
+  if (isGshDisabled()) return true;
+  return (readToolsConfig().disabledTools || []).includes(toolName);
 }
 
 async function runBuiltInTool(toolName, toolArguments, activityId) {
+  // Native Rust tools take precedence — the daemon shells out to the binary.
+  if (isNativeTool(toolName)) {
+    return runNativeTool(toolName, toolArguments);
+  }
   if (toolName === "checkpoint") {
     return handleCheckpoint(toolArguments);
-  }
-  if (toolName === "workspace_context") {
-    return handleWorkspaceContext();
   }
   if (toolName === "list_language_models") {
     return handleListLanguageModels();
@@ -330,7 +278,9 @@ async function handleRequest(request) {
 
   const toolName = request.params?.name;
   const toolArguments = request.params?.arguments || {};
-  const isForced = toolName === "checkpoint" && toolArguments.force === true;
+  // `{ force: true }` is the documented escape hatch (see the no-op message
+  // below): it overrides both a per-tool disable and the master kill-switch.
+  const isForced = toolArguments.force === true;
 
   if (isToolDisabled(toolName) && !isForced) {
     send({
@@ -356,12 +306,6 @@ async function handleRequest(request) {
       activityId,
     );
     if (builtInContent) {
-      await autoLogToolEvent(
-        toolName,
-        toolArguments,
-        "success",
-        summarizeToolResult(builtInContent),
-      );
       send({ jsonrpc: "2.0", id, result: { content: builtInContent } });
       return;
     }
@@ -369,12 +313,6 @@ async function handleRequest(request) {
     for (const handler of delegatedHandlers) {
       const content = await handler(toolName, toolArguments);
       if (content) {
-        await autoLogToolEvent(
-          toolName,
-          toolArguments,
-          "success",
-          summarizeToolResult(content),
-        );
         send({ jsonrpc: "2.0", id, result: { content } });
         return;
       }
@@ -383,7 +321,6 @@ async function handleRequest(request) {
     sendError(id, -32601, `Unknown tool: ${toolName}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await autoLogToolEvent(toolName, toolArguments, "failed", message);
     sendError(id, -32603, message);
   } finally {
     notifyActivityEnd(activityId);
@@ -408,7 +345,34 @@ function startServer() {
   });
 }
 
-module.exports = { handleRequest, startServer };
+// Serve one MCP session over a duplex stream (a unix socket from the daemon).
+// Each line is processed inside an AsyncLocalStorage scope whose write() points
+// back at this stream, so concurrent connections never cross responses.
+function serveConnection(stream) {
+  const write = (s) => {
+    try {
+      stream.write(s);
+    } catch {
+      /* peer gone */
+    }
+  };
+  const lineReader = readline.createInterface({
+    input: stream,
+    crlfDelay: Infinity,
+  });
+  lineReader.on("line", (line) => {
+    if (!line.trim()) return;
+    outputStore.run({ write }, async () => {
+      try {
+        await handleRequest(JSON.parse(line));
+      } catch {
+        sendError(null, -32700, "Parse error");
+      }
+    });
+  });
+}
+
+module.exports = { handleRequest, startServer, serveConnection };
 
 if (require.main === module) {
   startServer();

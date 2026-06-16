@@ -20,18 +20,19 @@ WORK QUICKLY, INTELLEGENTALLY, TALK LITTLE ACT TONS AND ACHIEVE THE ENTIRE GOAL
 
 ## Workflow
 
-1. Consult memory first: `session_store_sql` for prior-session context, then `search_knowledge_index` / `search_knowledge_cache` for repo and community knowledge before assuming a new solution. Use `search_session_log` if a similar mistake or failure is likely to have happened already.
+1. Map the project first: `index_project` + `project_map` for a cheap ranked repo map, and `lookup <symbol|file>` to jump to definitions/references instead of grepping. Then `search_knowledge_index` / `search_knowledge_cache` for repo and community knowledge before assuming a new solution.
 2. Prefer GSH MCP tools over terminal emulation when a tool exists. Create reusable tools for a project with GSH when useful. Don't over-tool. Avoid one-off tools that won't be reused. Document available tools in an instructions doc for discoverability. Don't create tools for trivial tasks that are easily done with a quick command or search.
 3. Loop: inspect -> edit -> validate -> report. No success claim without validation.
 4. Run `strict_lint` with clear scope: file after each edit, then folder/workspace only when cross-file impact exists.
 5. Stop researching once evidence sufficient. Don't over-explore — over-exploration burns tokens.
 6. `checkpoint` at verified milestones: prefer `message` to write your own message over `context` especially because you already have all context, incrementally checkpoint and track your changes for simple maintainability and constant & consistent progress tracking, use `all: false` and list by name only source files you authored/changed. Multiple agents may have been working so keep track of your own changes and incrementally checkpoint to avoid untracked and potentially loseable progress. ALWAYS ENSURE GENERATED FILES THAT ARE MASSIVE ARE NOT TRACKED, IF THEY ARE PLEASE PROPERLY REMOVE THEM FROM THE GIT CACHE AND IGNORE THEM SO THEY DON'T POLLUTE THE REPO AND WASTE YOUR TOKEN BUDGET IN FUTURE CHECKPOINTS. Consider adding these files to the copilotignore as well to prevent copilot from even looking at them in the future and wasting tokens on processing them.
+7. USE MORE C++ GEMS DESIGN PRINCIPLES, AND CS2420 + CS3500 A+ PATTERNS ALWAYS WHEN WRITING CODE. KEEP REPOSITORY MINIMAL AND CODEBASE CLEAN **ALWAYS**, ENSURE GENERATED FILES NEVER CONTAMINATE WORKSPACE AND ENSURE THAT MINIMAL TOKENS FOR MX RESULTS ARE ALWAYS USED PER REQUEST. KEEP YOUR WORKSPACE CLEAN, IF IT IS NOT CLEAN FIX IT AND ENSURE IT STAYS FIXED.
 
 ## Tools
 
 - "Save/build as a tool" -> write impl, then `register_workspace_tool` immediately. No discovery step. Never a `.prompt.md`.
 - `workspace_context` -> run at task start for roots/branch state before deep actions.
-- Past-session recall -> native `session_store_sql` first; `search_session_log` when you need action/outcome history.
+- Project structure recall -> `project_map` / `lookup` from the native index (refresh with `index_project`) before reading or grepping widely.
 - Subagents -> cheapest model that works, "Auto" is a good default; escalate only on real complexity; set `model` explicitly, consider agentName and task of dedicated agent carefully (often described by the name).
 - `strict_lint` -> non-ambiguous protocol:
 	- Run with `filePath` on every changed file immediately after editing.
