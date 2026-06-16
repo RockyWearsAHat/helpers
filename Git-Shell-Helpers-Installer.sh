@@ -215,6 +215,9 @@ fetch_mcp_runtime() {
   fetch "$REPO_RAW_BASE/git-research-mcp" "$dest_bin_dir/git-research-mcp"
   fetch "$REPO_RAW_BASE/git-research-mcp.js" "$dest_bin_dir/git-research-mcp.js"
 
+  # Keep this list in sync with the require() closure of git-shell-helpers-mcp.js.
+  # A missing lib makes the server crash on load (a require of an absent file),
+  # so every module the server transitively requires must be fetched here.
   for mcp_lib in \
     mcp-activity-ipc.js \
     mcp-branch-sessions.js \
@@ -224,19 +227,67 @@ fetch_mcp_runtime() {
     mcp-knowledge-index.js \
     mcp-knowledge-rw.js \
     mcp-language-models.js \
+    mcp-local-subagents.js \
+    mcp-model-utils.js \
     mcp-pdf-extract.js \
     mcp-research-tools.js \
     mcp-research.js \
     mcp-session-memory.js \
     mcp-strict-lint.js \
+    mcp-strict-lint-standalone.js \
+    mcp-user-tools.js \
     mcp-utils.js \
     mcp-web-search.js \
-    mcp-workspace-context.js
+    mcp-workspace-context.js \
+    video-analysis.js \
+    video-asr.js \
+    video-frames.js \
+    video-report.js
   do
     fetch "$REPO_RAW_BASE/lib/${mcp_lib}" "$dest_lib_dir/${mcp_lib}"
   done
 
   chmod +x "$dest_bin_dir/git-shell-helpers-mcp" "$dest_bin_dir/git-research-mcp"
+
+  # Fast C launcher: fetch the warm-daemon runtime + shim source and compile a
+  # native binary for THIS OS so the agent pays Node's cold-start cost once
+  # instead of on every session. Falls back to direct node when no C compiler is
+  # present — identical behaviour to `gsh build`, just inlined for curl installs.
+  fetch "$REPO_RAW_BASE/git-shell-helpers-mcpd.js" "$dest_bin_dir/git-shell-helpers-mcpd.js"
+  fetch "$REPO_RAW_BASE/gsh-mcp.c" "$dest_bin_dir/gsh-mcp.c"
+  fetch "$REPO_RAW_BASE/gsh" "$dest_bin_dir/gsh"
+  chmod +x "$dest_bin_dir/gsh"
+  build_fast_launcher "$dest_bin_dir"
+}
+
+# Compile the fast C launcher (gsh-mcp) for the host OS. POSIX-only (Unix domain
+# sockets + fork); on platforms without a C compiler we simply skip and the
+# launcher list falls back to direct node, which still works.
+build_fast_launcher() {
+  local dest_bin_dir="$1"
+  local cc=""
+  local candidate
+  for candidate in "${CC:-}" cc clang gcc; do
+    [ -n "$candidate" ] || continue
+    if command -v "$candidate" >/dev/null 2>&1; then cc="$candidate"; break; fi
+  done
+  if [ -z "$cc" ]; then
+    echo "[Git-Shell-Helpers-Installer] No C compiler found — using direct node (fast launcher skipped)."
+    return 0
+  fi
+  local node_bin
+  node_bin="$(command -v node || true)"
+  [ -n "$node_bin" ] || node_bin="node"
+  if "$cc" -O2 -Wall \
+      -DNODE_BIN="\"${node_bin}\"" \
+      -DDAEMON_JS="\"${dest_bin_dir}/git-shell-helpers-mcpd.js\"" \
+      -DSTDIO_JS="\"${dest_bin_dir}/git-shell-helpers-mcp\"" \
+      -o "$dest_bin_dir/gsh-mcp" "$dest_bin_dir/gsh-mcp.c" 2>/dev/null; then
+    chmod +x "$dest_bin_dir/gsh-mcp"
+    echo "[Git-Shell-Helpers-Installer] Compiled fast C launcher: $dest_bin_dir/gsh-mcp"
+  else
+    echo "[Git-Shell-Helpers-Installer] Fast launcher compile failed — using direct node (still works)."
+  fi
 }
 
 write_community_settings() {

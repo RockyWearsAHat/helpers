@@ -99,6 +99,23 @@ module.exports = function createMcpServer(deps) {
     return candidates.find((candidate) => fs.existsSync(candidate)) || "";
   }
 
+  // Prefer the compiled fast C launcher (gsh-mcp) that sits next to the node
+  // server. It proxies to a warm daemon so VS Code pays Node's cold start once
+  // instead of on every session start. Returns "" when it hasn't been compiled
+  // (no C compiler at install time), in which case we fall back to direct node.
+  function findFastLauncher(serverPath) {
+    if (!serverPath) return "";
+    const shim = path.join(path.dirname(serverPath), "gsh-mcp");
+    try {
+      if (fs.existsSync(shim) && (fs.statSync(shim).mode & 0o111) !== 0) {
+        return shim;
+      }
+    } catch {
+      /* not executable / not present */
+    }
+    return "";
+  }
+
   function buildGitShellHelpersMcpEnv(serverPath) {
     const serverDir = path.dirname(serverPath);
     // Preserve parent environment (especially PATH) so MCP process launches
@@ -258,15 +275,29 @@ module.exports = function createMcpServer(deps) {
           if (!serverPath) {
             return [];
           }
-          const nodeCommand = await resolveNodeCommand();
 
-          const serverArgs =
-            nodeCommand === "/usr/bin/env" ? ["node", serverPath] : [serverPath];
+          // Fast path: launch the C shim directly (no node, ~1ms start; it
+          // connects to / spawns the warm daemon). Fall back to direct node
+          // when the shim isn't compiled on this machine.
+          const fastLauncher = findFastLauncher(serverPath);
+          let command;
+          let serverArgs;
+          if (fastLauncher) {
+            command = fastLauncher;
+            serverArgs = [];
+          } else {
+            const nodeCommand = await resolveNodeCommand();
+            command = nodeCommand;
+            serverArgs =
+              nodeCommand === "/usr/bin/env"
+                ? ["node", serverPath]
+                : [serverPath];
+          }
 
           return [
             new vscode.McpStdioServerDefinition(
               "gsh",
-              nodeCommand,
+              command,
               serverArgs,
               buildGitShellHelpersMcpEnv(serverPath),
               "0.3.4",
