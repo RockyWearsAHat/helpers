@@ -1,36 +1,30 @@
-//! `checkpoint` — port of `lib/mcp-checkpoint.js`. Stage changes, generate (or
-//! accept) a commit message, commit, and optionally push. AI message generation
-//! shells out to the Copilot CLI exactly as the JS version did.
+//! `checkpoint` — stage changes, commit (with a provided or deterministic
+//! message), and optionally push. Fully deterministic: no AI, no model calls.
 //!
-//! The VS Code branch-commit notification is intentionally NOT done here — the
-//! Node daemon re-emits it after a successful native checkpoint (see
-//! git-shell-helpers-mcp.js), keeping the extension integration without coupling
-//! this binary to the editor IPC socket.
+//! When no message is given it builds one from the staged diff stat (changed
+//! files + insertion/deletion counts), so an agent can checkpoint repeatedly
+//! without writing a message or burning tokens on generation.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::{json, Value};
 
 use crate::git::{exec_git, home, resolve_repo_root};
-use crate::model_utils::{detect_cheap_model, load_available_models, resolve_model_id};
 use crate::proto::{text, ToolResult};
 
 pub fn schema() -> Value {
     json!({
         "name": "checkpoint",
-        "description": "Create a local git commit with an AI-generated message. Stages changes, generates a commit message from the diff, commits, and optionally pushes. Pass context for extra AI hints. Optionally override with a manual message.",
+        "description": "Create a local git commit, optionally pushing. Stages changes (git add -A by default), then commits with your message — or, if you omit one, a deterministic message derived from the staged diff (changed files + line counts). No AI is involved. Use this to checkpoint progress frequently and cheaply.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "context": { "type": "string", "description": "Optional extra context to include in the AI prompt (e.g. 'fixes the login bug introduced in last PR'). Ignored when message is provided." },
-                "message": { "type": "string", "description": "Optional manual override for the commit message. If omitted, the message is AI-generated from the staged diff." },
+                "message": { "type": "string", "description": "Commit message. If omitted, a deterministic message is built from the staged diff stat." },
                 "all": { "type": "boolean", "description": "Stage all changes including untracked files (git add -A) before committing. Default: true." },
                 "push": { "type": "boolean", "description": "Push to remote after committing. Default: false." },
                 "force": { "type": "boolean", "description": "Override a mid-session disable. Only use this when the user explicitly asked for a checkpoint and the previous call returned [no-op]. Never set force on automatic checkpoints." },
-                "cwd": { "type": "string", "description": "Absolute path to the git repository to commit in. Auto-detected from the workspace root when omitted. Pass explicitly when working in a multi-root workspace, a git worktree, or when the target repo differs from the server's working directory." },
-                "branch": { "type": "string", "description": "Assert that HEAD is on this branch before committing. If the current branch does not match, the commit is aborted with an error." },
-                "model": { "type": "string", "description": "Model to use for AI commit message generation. Accepts a model id, display name, or shorthand (e.g. 'haiku'). When omitted, the cheapest available model is selected automatically." }
+                "cwd": { "type": "string", "description": "Absolute path to the git repository to commit in. Auto-detected from the workspace root when omitted. Pass explicitly for a multi-root workspace, a git worktree, or a target repo that differs from the server's working directory." },
+                "branch": { "type": "string", "description": "Assert that HEAD is on this branch before committing. If the current branch does not match, the commit is aborted with an error." }
             },
             "required": []
         }
@@ -57,12 +51,6 @@ fn worktree_path(branch: &str) -> PathBuf {
         .join("gsh")
         .join("worktrees")
         .join(safe)
-}
-
-/// Run git, returning trimmed stdout or empty string on any failure (the JS
-/// `gitOut` helper used for read-only queries feeding the AI prompt).
-fn git_out(args: &[&str], cwd: &Path) -> String {
-    exec_git(args, cwd).unwrap_or_default()
 }
 
 pub fn run(args: &Value) -> ToolResult {
@@ -131,13 +119,13 @@ pub fn run(args: &Value) -> ToolResult {
         return Ok(vec![text("Nothing to commit — working tree clean.")]);
     }
 
-    // ── Commit message ───────────────────────────────────────────────────────
+    // ── Commit message (provided, or deterministic from the staged diff) ─────
     let message = {
         let m = str_arg(args, "message");
         if !m.is_empty() {
             m.to_string()
         } else {
-            generate_ai_commit_message(&cwd, str_arg(args, "context"), str_arg(args, "model"))?
+            deterministic_message(&cwd)
         }
     };
 
@@ -173,127 +161,35 @@ pub fn run(args: &Value) -> ToolResult {
     ))])
 }
 
-// ─── AI commit message generation ───────────────────────────────────────────
+// ─── Deterministic commit message ───────────────────────────────────────────
 
-fn generate_ai_commit_message(
-    cwd: &Path,
-    extra_context: &str,
-    preferred_model: &str,
-) -> Result<String, String> {
-    let changed_files = git_out(&["diff", "--cached", "--name-only"], cwd);
-    let stat_summary = git_out(&["diff", "--cached", "--stat"], cwd);
-    let mut actual_diff = git_out(&["diff", "--cached", "--unified=3"], cwd);
-    let diff_lines = actual_diff.lines().count();
-    if diff_lines > 2000 {
-        let head: Vec<&str> = actual_diff.lines().take(2000).collect();
-        actual_diff = format!(
-            "{}\n(truncated — showing first 2000 of {diff_lines} lines)",
-            head.join("\n")
-        );
-    }
-    let recent_history = git_out(&["log", "--oneline", "-10", "--no-decorate"], cwd);
-    let detailed_recent = git_out(
-        &["log", "-3", "--pretty=format:--- %h (%ar) ---%n%s%n%n%b"],
-        cwd,
-    );
-
-    let mut repo_guidance = String::new();
-    for file in [
-        ".github/COMMIT_GUIDELINES.md",
-        ".github/commit_guidelines.md",
-        ".github/COMMIT_MESSAGE.md",
-        ".github/commit_message.md",
-        ".github/copilot-instructions.md",
-        "AGENTS.md",
-        "CLAUDE.md",
-        "CONTRIBUTING.md",
-    ] {
-        if let Ok(raw) = std::fs::read_to_string(cwd.join(file)) {
-            let snippet: Vec<&str> = raw.lines().take(120).collect();
-            let snippet = snippet.join("\n");
-            let snippet = snippet.trim();
-            if !snippet.is_empty() {
-                repo_guidance.push_str(&format!("\n--- {file} ---\n{snippet}\n"));
-            }
-        }
-    }
-
-    let prompt = "You are a commit message generator. Your ONLY job is to describe\nthe staged diff below. You have no knowledge of any other project, conversation,\nor task. Every word in your message must come from what you see in the diff and\nthe commit history of THIS repository. Do not infer, hallucinate, or borrow\ncontext from outside this prompt.\n\nThis is a CHECKPOINT commit — the developer is marking a meaningful moment:\nsomething works now that did not before, a logical unit of work is complete,\nor they are about to switch context. Frame the message accordingly.\n\nCONTEXT MATTERS MOST:\nRead the recent commit history below. Each commit is part of an ongoing thread.\nFrame yours as the next step in that story. If the diff and the history look\nunrelated to each other, trust the diff — it is the ground truth.\n\nSUBJECT LINE:\nOne line, <= 72 chars. Say what the commit DOES or FIXES, not what\nfiles it touches.\n\nBODY:\nDescribe the situation, what you did, and why. Someone reading git blame\nshould understand the reasoning without opening the diff.\n\nDo NOT use section headers like 'What changed:', 'Why this matters:', etc.\nFor a tiny fix: one sentence or no body. For a real change: a short paragraph.\n\nNever anthropomorphize code. Never restate the subject in different words.\n\nOUTPUT FORMAT — output ONLY the commit between these markers:\nCOMMIT_BEGIN\n<commit message>\nCOMMIT_END\n";
-
-    let mut full_prompt = format!(
-        "{prompt}\nRECENT COMMIT HISTORY:\n{recent_history}\n\nDETAILED RECENT COMMITS (last 3):\n{detailed_recent}"
-    );
-    if !repo_guidance.is_empty() {
-        full_prompt.push_str(&format!("\n\nREPOSITORY GUIDANCE:{repo_guidance}"));
-    }
-    let files_block = changed_files
+/// Build a commit message from the staged diff: a subject naming the changed
+/// files and a body with the per-file stat. Fully deterministic, no AI.
+fn deterministic_message(cwd: &Path) -> String {
+    let files: Vec<String> = exec_git(&["diff", "--cached", "--name-only"], cwd)
+        .unwrap_or_default()
         .lines()
-        .map(|f| format!("  - {f}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let stat_last = stat_summary.lines().last().unwrap_or("");
-    full_prompt.push_str(&format!(
-        "\n\n---\n\nChanged files:\n{files_block}\n\nGit stat: {stat_last}\n\nDIFF ({diff_lines} lines):\n```diff\n{actual_diff}\n```"
-    ));
-    if !extra_context.is_empty() {
-        full_prompt.push_str(&format!(
-            "\n\nAdditional context from developer: {extra_context}"
-        ));
-    }
+        .map(str::to_string)
+        .collect();
+    let stat = exec_git(&["diff", "--cached", "--stat"], cwd).unwrap_or_default();
 
-    // Resolve the AI command (explicit override, or a Copilot invocation).
-    let ai_cmd = match std::env::var("GIT_UPLOAD_AI_CMD") {
-        Ok(c) if !c.is_empty() => c,
-        _ => {
-            let models = load_available_models();
-            let model_id = if !preferred_model.is_empty() {
-                resolve_model_id(preferred_model, &models)
-                    .unwrap_or_else(|| preferred_model.to_string())
-            } else {
-                detect_cheap_model(&models)
-            };
-            format!("copilot -s --model {model_id} --deny-tool write --deny-tool shell -p \"$GIT_UPLOAD_AI_PROMPT\"")
+    let subject = match files.len() {
+        0 => "checkpoint".to_string(),
+        1 => format!("checkpoint: update {}", files[0]),
+        n => {
+            let names: Vec<&str> = files
+                .iter()
+                .take(3)
+                .map(|f| f.rsplit('/').next().unwrap_or(f))
+                .collect();
+            let more = if n > 3 { format!(", +{} more", n - 3) } else { String::new() };
+            format!("checkpoint: update {n} files ({}{more})", names.join(", "))
         }
     };
 
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(&ai_cmd)
-        .env("GIT_UPLOAD_AI_PROMPT", &full_prompt)
-        .current_dir(cwd)
-        .output()
-        .map_err(|e| format!("AI message generation failed to start: {e}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() || stdout.trim().is_empty() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "AI message generation failed (exit {}): {}",
-            output.status.code().unwrap_or(-1),
-            err.trim()
-        ));
+    if stat.trim().is_empty() {
+        subject
+    } else {
+        format!("{subject}\n\n{}", stat.trim())
     }
-
-    let mut capturing = false;
-    let mut lines = Vec::new();
-    for line in stdout.lines() {
-        if line.trim() == "COMMIT_BEGIN" {
-            capturing = true;
-            continue;
-        }
-        if line.trim() == "COMMIT_END" {
-            break;
-        }
-        if capturing {
-            lines.push(line);
-        }
-    }
-    let message = lines.join("\n");
-    let message = message.trim();
-    if message.is_empty() {
-        return Err(
-            "Could not parse AI output. Use the message parameter to provide a manual message."
-                .to_string(),
-        );
-    }
-    Ok(message.to_string())
 }
