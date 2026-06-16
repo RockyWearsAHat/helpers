@@ -16,8 +16,9 @@ A persistent toolset that helps you write **longer, more accurate, better code**
 - **Research** — web search + page scraping gated behind the index and knowledge
   (`search_web`, `scrape_webpage`).
 - **Quality gates** — `strict_lint` after edits, `checkpoint` for disciplined commits.
-- **Local subagents & tool building** — delegate to local models, build reusable
-  per-project tools (`ollama_subagent`, `build_workspace_tool`).
+- **Project flows** — register a recurring multi-step task once as a named tool any
+  agent can call (`register_workspace_tool`, `list_workspace_tools`), scoped to the
+  project — turning context repetition into one tool call.
 - **CS A+ grading** — objectively grade a CS2420/CS3500 project and drive it to an A+
   (`gsh grade`).
 
@@ -78,8 +79,8 @@ plain Node. Controls: `gsh daemon status`, `gsh daemon restart`, `gsh build`.
 ## Notes for agents
 
 - Prefer a GSH tool over shell emulation when one fits; don't build one-off tools for
-  trivial tasks.
-- Tools needing the VS Code extension (branch sessions, VS Code-backed `strict_lint`,
-  vision, `list_language_models`) degrade gracefully elsewhere; memory, research,
-  checkpoint, subagent, and grading tools work standalone.
+  trivial tasks — but capture *recurring* multi-step tasks as project flows.
+- Every tool is deterministic and standalone (no AI), and works in any agent. The tools
+  are native Rust for speed and type safety; only `search_web` / `scrape_webpage` run in
+  Node (headless browser).
 - See `README.md` for full per-tool docs and packaging.
