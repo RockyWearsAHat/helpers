@@ -1,0 +1,30 @@
+[package]
+name = "git-cs-grade"
+version = "0.3.8"
+edition = "2021"
+rust-version = "1.74"
+description = "Objective structural rubric for CS2420 / CS3500 projects."
+license = "MIT"
+repository = "https://github.com/RockyWearsAHat/github-shell-helpers"
+
+[[bin]]
+name = "git-cs-grade"
+path = "src/main.rs"
+
+# The grading logic lives in a library so it can be unit- and integration-tested
+# without shelling out to the binary.
+[lib]
+name = "cs_grade"
+path = "src/lib.rs"
+
+[dependencies]
+regex = "1"
+# preserve_order keeps JSON object keys in insertion order, matching the field
+# order produced by the original JavaScript implementation's JSON.stringify.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

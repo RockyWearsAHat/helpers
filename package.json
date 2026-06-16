@@ -26,6 +26,8 @@
     "automation"
   ],
   "bin": {
+    "gsh": "gsh",
+    "git-cs-grade": "git-cs-grade.js",
     "git-upload": "git-upload",
     "git-get": "git-get",
     "git-initialize": "git-initialize",
@@ -44,6 +46,11 @@
     "git-shell-helpers-mcp": "git-shell-helpers-mcp"
   },
   "files": [
+    "gsh",
+    "git-cs-grade.js",
+    "cs-grade/Cargo.toml",
+    "cs-grade/Cargo.lock",
+    "cs-grade/src/**",
     "git-upload",
     "git-get",
     "git-initialize",
@@ -62,9 +69,13 @@
     "git-research-mcp.js",
     "git-shell-helpers-mcp",
     "git-shell-helpers-mcp.js",
+    "git-shell-helpers-mcpd.js",
+    "gsh-mcp.c",
     "lib/**/*.sh",
     "lib/mcp-*.js",
     "copilot-config/**",
+    "claude-config/**",
+    "AGENTS.md",
     "community-cache/**",
     "templates/**",
     "scripts/build-knowledge-index.js",
