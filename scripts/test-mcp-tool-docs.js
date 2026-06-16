@@ -4,7 +4,6 @@
 const fs = require("fs");
 const path = require("path");
 
-const { STRICT_LINT_TOOL } = require("../lib/mcp-strict-lint");
 const { BRANCH_SESSION_TOOLS } = require("../lib/mcp-branch-sessions");
 const { LIST_LANGUAGE_MODELS_TOOL } = require("../lib/mcp-language-models");
 const { RESEARCH_TOOLS } = require("../lib/mcp-research-tools");
@@ -21,7 +20,6 @@ const { tools: VISION_TOOLS } = require("../vision-tool/mcp-server");
 
 function collectToolNames() {
   const schemas = [
-    STRICT_LINT_TOOL,
     LIST_LANGUAGE_MODELS_TOOL,
     REGISTER_WORKSPACE_TOOL,
     RELOAD_WINDOW_READY_TOOL,
