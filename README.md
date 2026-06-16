@@ -233,31 +233,30 @@ Manual registration if needed:
 
 #### Exposed tools
 
+Every GSH tool below is implemented in native Rust (the `gsh-native` binary),
+except web search/scrape which stay in Node (they drive a headless browser).
+All tools are deterministic — no tool calls an AI model.
+
 Core workflow and quality:
 
 - `workspace_context` - summarize active workspace roots and branch state.
-- `strict_lint` - run Problems diagnostics for one file, folder, or workspace.
-- `checkpoint` - stage/commit with AI-generated message; optionally push.
-- `list_language_models` - list available local language models.
+- `strict_lint` - run each language's own linters on a file/folder/workspace.
+- `checkpoint` - stage/commit (deterministic message from the diff, or your own); optionally push.
 
-Project index (cheap repo map — orient without grepping; native Rust):
+Project index (cheap repo map — orient without grepping):
 
 - `index_project` - build/refresh a static map of files, symbols, and the reference graph (ranked), written to `.gsh/index/`.
 - `project_map` - return a compact, token-cheap overview of the top modules plus a Mermaid graph; orient in one call.
 - `lookup` - find where a symbol is defined and what references it, from the index graph instead of a grep sweep.
 
-Branch-session management:
+Project flows (agent-agnostic reusable tools, scoped to the project):
 
-- `branch_session_start`
-- `branch_session_end`
-- `branch_read_file`
-- `branch_status`
-- `branch_cleanup`
+- `register_workspace_tool` - register a named shell command/flow as a callable MCP tool (stored in `.gsh/tools/manifest.json`); turns a repetitive multi-step task into one tool call. Live immediately — no restart.
+- `unregister_workspace_tool` - remove a registered flow.
+- `list_workspace_tools` - list the flows registered for this project.
 
-Research and knowledge tools:
+Knowledge:
 
-- `search_web`
-- `scrape_webpage`
 - `search_knowledge_cache`
 - `search_knowledge_index`
 - `build_knowledge_index`
@@ -267,33 +266,19 @@ Research and knowledge tools:
 - `append_to_knowledge_note`
 - `submit_community_research`
 
-Vision tools:
+Web research (Node — headless browser):
 
-- `take_screenshot`
-- `analyze_images`
-- `analyze_video`
-- `transcribe_video`
-
-Workspace tool management:
-
-- `register_workspace_tool`
-- `unregister_workspace_tool`
-- `reload_window_ready`
-
-Local sub-agents:
-
-- `ollama_subagent`
-- `ollama_list_models`
-- `system_execute`
-- `build_workspace_tool`
+- `search_web`
+- `scrape_webpage`
 
 Context-efficient usage order (minimal context, maximal output):
 
 1. `workspace_context` once per task, then `project_map` (and `index_project` to refresh) to orient cheaply instead of reading/grepping many files.
 2. `lookup <symbol|file>` to jump straight to definitions and references.
-3. Call one specialized tool for the user goal (for example `search_web` or `strict_lint`).
-4. Use `scrape_webpage` only for top hits that need deeper evidence.
-5. End with `checkpoint` only after validation passes.
+3. `list_workspace_tools` to reuse an existing project flow before re-implementing a task.
+4. Call one specialized tool for the user goal (for example `search_web` or `strict_lint`).
+5. Use `scrape_webpage` only for top hits that need deeper evidence.
+6. End with `checkpoint` only after validation passes.
 
 Environment variables to selectively disable groups:
 

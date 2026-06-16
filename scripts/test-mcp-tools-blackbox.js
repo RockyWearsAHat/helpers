@@ -168,6 +168,23 @@ async function main() {
     }
   }
 
+  // Black-box: register a project flow, then call it (must be live immediately).
+  const reg = await client.req("tools/call", {
+    name: "register_workspace_tool",
+    arguments: { name: "bb-flow", description: "echo a marker", command: "echo flow-works-42" },
+  });
+  if (reg.error) fail("register_workspace_tool: " + reg.error.message);
+  else ok("register_workspace_tool");
+  const listed2 = await client.req("tools/list", {});
+  if (!(listed2.result.tools || []).some((t) => t.name === "bb-flow"))
+    fail("registered flow not live in tools/list");
+  else ok("registered flow appears live in tools/list");
+  const flow = await client.req("tools/call", { name: "bb-flow", arguments: {} });
+  if (flow.error) fail("flow call: " + flow.error.message);
+  else if (!/flow-works-42/.test((flow.result.content || []).map((c) => c.text).join("")))
+    fail("flow output did not match");
+  else ok("registered flow callable end-to-end");
+
   // Black-box: unknown tool and disabled-tool semantics.
   const unknown = await client.req("tools/call", { name: "definitely_not_a_tool", arguments: {} });
   if (!unknown.error) fail("unknown tool should return a JSON-RPC error");

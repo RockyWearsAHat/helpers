@@ -70,10 +70,8 @@ gsh_shell_libs() {
 gsh_mcp_libs() {
 	printf '%s\n' \
 		mcp-activity-ipc.js \
-		mcp-branch-sessions.js \
 		mcp-git.js \
 		mcp-google-headless.js \
-		mcp-language-models.js \
 		mcp-native.js \
 		mcp-pdf-extract.js \
 		mcp-research-tools.js \
