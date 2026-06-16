@@ -33,6 +33,13 @@ const CS_GRADE_CRATE = path.join(REPO_DIR, "cs-grade");
 const CS_GRADE_ARTIFACT = path.join(CS_GRADE_CRATE, "target", "release", "git-cs-grade");
 const CS_GRADE_CMD = path.join(REPO_DIR, "git-cs-grade");
 const CS_GRADE_JS = path.join(REPO_DIR, "git-cs-grade.js");
+// Native Rust MCP tools (gsh-native): the crate dir, its release artifact, and
+// the installed binary the MCP daemon shells out to. Unlike git-cs-grade there
+// is NO Node fallback — these tools are Rust-only, so a missing/broken build is
+// a hard error the user must fix (install Rust, then `gsh build`).
+const GSH_NATIVE_CRATE = path.join(REPO_DIR, "native");
+const GSH_NATIVE_ARTIFACT = path.join(GSH_NATIVE_CRATE, "target", "release", "gsh-native");
+const GSH_NATIVE_CMD = path.join(REPO_DIR, "gsh-native");
 const TOOLS_CONFIG_DIR = path.join(HOME, ".config", "git-shell-helpers-mcp");
 const TOOLS_CONFIG_PATH = path.join(TOOLS_CONFIG_DIR, "tools.json");
 const CLAUDE_DIR = path.join(HOME, ".claude");
@@ -286,6 +293,52 @@ function buildCsGrade({ quiet } = {}) {
   return CS_GRADE_CMD;
 }
 
+// Compile the native MCP tool binary (gsh-native) and install it at the repo
+// root. These tools are Rust-only — there is no Node fallback — so any failure
+// is reported as a hard error and sets a non-zero exit code, making `gsh build`
+// and `gsh install` fail loudly so the user can fix the toolchain.
+function buildNative({ quiet } = {}) {
+  const fail = (msg, hint) => {
+    console.log(`  ${no} ${msg}`);
+    if (hint) console.log(dim(`      ${hint}`));
+    process.exitCode = 1;
+    return false;
+  };
+  if (!fs.existsSync(GSH_NATIVE_CRATE)) {
+    return fail(`native tool crate missing at ${GSH_NATIVE_CRATE}`, "Reinstall the GSH source — the `native/` crate is required.");
+  }
+  const cargo = findCargo();
+  if (!cargo) {
+    return fail(
+      "no Rust toolchain (cargo) found — the native MCP tools cannot be built.",
+      "Install Rust: https://rustup.rs  (or: brew install rust), then run `gsh build`. These tools are required; there is no Node fallback.",
+    );
+  }
+  const r = spawnSync(cargo, ["build", "--release"], { cwd: GSH_NATIVE_CRATE, encoding: "utf8" });
+  if (r.status !== 0 || !fs.existsSync(GSH_NATIVE_ARTIFACT)) {
+    return fail(
+      `gsh-native build failed: ${(r.stderr || "").trim().split("\n").pop() || "unknown error"}`,
+      "Fix the Rust build error above, then run `gsh build`.",
+    );
+  }
+  try {
+    fs.copyFileSync(GSH_NATIVE_ARTIFACT, GSH_NATIVE_CMD);
+    fs.chmodSync(GSH_NATIVE_CMD, 0o755);
+  } catch (e) {
+    return fail(`could not install gsh-native: ${e.message}`, `Check write permissions on ${REPO_DIR}.`);
+  }
+  // Sanity-check that the binary answers `schemas` with valid JSON, so a broken
+  // binary is caught at build time rather than when the agent first calls a tool.
+  const probe = spawnSync(GSH_NATIVE_CMD, ["schemas"], { encoding: "utf8" });
+  let toolCount = 0;
+  try { toolCount = JSON.parse(probe.stdout).length; } catch {}
+  if (probe.status !== 0 || toolCount === 0) {
+    return fail("gsh-native built but did not report any tools.", "Run `" + GSH_NATIVE_CMD + " schemas` to see the error.");
+  }
+  if (!quiet) console.log(`  ${ok} compiled native MCP tools (gsh-native, Rust) — ${toolCount} tool(s), ~1ms startup`);
+  return true;
+}
+
 function listDaemons() {
   const dir = path.join(HOME, ".cache", "gsh");
   try {
@@ -328,6 +381,7 @@ function installClaude(force) {
   //    falls back to Node when its toolchain is unavailable.
   buildShim();
   buildCsGrade();
+  buildNative();
   const { cmd, args } = mcpLaunch();
 
   // 1. Register the MCP server (user scope) — idempotent.
@@ -549,6 +603,19 @@ function cmdDoctor() {
     try { native = !fs.readFileSync(CS_GRADE_CMD).slice(0, 2).equals(Buffer.from("#!")); } catch {}
     check("git-cs-grade native (Rust) build", native, "run `gsh build` (needs cargo: https://rustup.rs); optional — falls back to node");
   }
+  {
+    // gsh-native is REQUIRED — the MCP tools it hosts have no Node fallback.
+    let nativeTools = 0;
+    if (fs.existsSync(GSH_NATIVE_CMD)) {
+      const r = spawnSync(GSH_NATIVE_CMD, ["schemas"], { encoding: "utf8" });
+      try { nativeTools = JSON.parse(r.stdout).length; } catch {}
+    }
+    check(
+      `gsh-native MCP tools built (${nativeTools})`,
+      nativeTools > 0,
+      "REQUIRED (no Node fallback) — install Rust (https://rustup.rs), then run `gsh build`.",
+    );
+  }
   if (fs.existsSync(SHIM_BIN)) {
     const r = spawnSync("pgrep", ["-f", "git-shell-helpers-mcpd"], { encoding: "utf8" });
     const up = (r.stdout || "").trim().length > 0;
@@ -571,6 +638,78 @@ function cmdGrade(args) {
 }
 
 // ---------------------------------------------------------------------------
+// index: cheap project map (delegates to the native gsh-native binary)
+// ---------------------------------------------------------------------------
+function projectRoot() {
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    encoding: "utf8",
+  });
+  return top.status === 0 ? top.stdout.trim() : process.cwd();
+}
+
+function cmdIndex(args) {
+  if (!fs.existsSync(GSH_NATIVE_CMD)) {
+    die("gsh-native is not built — run `gsh build` (needs Rust: https://rustup.rs).");
+  }
+  const root = projectRoot();
+  const sub = args[0] || "build";
+
+  // Run a native MCP tool and return its text content.
+  const callTool = (tool, payload) => {
+    const r = spawnSync(GSH_NATIVE_CMD, ["call", tool], {
+      input: JSON.stringify({ root, ...payload }),
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    let parsed;
+    try {
+      parsed = JSON.parse(r.stdout);
+    } catch {
+      die(`gsh-native ${tool} failed: ${(r.stderr || r.stdout || "").trim()}`);
+    }
+    if (parsed.error) die(parsed.error.message);
+    return parsed.content.map((c) => c.text).join("\n");
+  };
+  // Run a native CLI subcommand, streaming its output.
+  const runNative = (nativeArgs) => {
+    const r = spawnSync(GSH_NATIVE_CMD, nativeArgs, { stdio: "inherit" });
+    process.exit(r.status || 0);
+  };
+
+  switch (sub) {
+    case "build":
+      console.log(callTool("index_project", {}));
+      return;
+    case "map":
+      console.log(callTool("project_map", {}));
+      return;
+    case "lookup":
+    case "where": {
+      const query = args.slice(1).join(" ").trim();
+      if (!query) die("usage: gsh index lookup <symbol-or-file>");
+      console.log(callTool("lookup", { query }));
+      return;
+    }
+    case "export": {
+      const out = args[1] || path.join(root, `${path.basename(root)}.dxbundle`);
+      runNative(["bundle", root, out]);
+      return;
+    }
+    case "install": {
+      if (!args[1]) die("usage: gsh index install <bundle.dxbundle>");
+      runNative(["install", root, args[1]]);
+      return;
+    }
+    case "refs":
+    case "list":
+      runNative(["refs", root]);
+      return;
+    default:
+      die(`unknown 'gsh index' subcommand: ${sub} (build|map|lookup|export|install|refs)`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // help
 // ---------------------------------------------------------------------------
 function help() {
@@ -586,8 +725,10 @@ ${bold("SETUP")}
                          Unregister MCP server + remove managed CLAUDE.md block.
   status                 Show install state, master switch, tool counts, agents.
   doctor                 Run health checks.
-  build                  (Re)compile the fast C launcher (gsh-mcp) and the
-                         native Rust git-cs-grade. Both fall back to Node.
+  build                  (Re)compile the fast C launcher (gsh-mcp), the native
+                         Rust git-cs-grade, and the native MCP tools
+                         (gsh-native). gsh-native is required (no Node fallback);
+                         a failed build is reported as an error.
 
 ${bold("BACKGROUND SERVER (auto-managed; for fast startup)")}
   daemon status          Show whether the background server is running.
@@ -607,6 +748,14 @@ ${bold("TOGGLE INDIVIDUAL TOOLS")}
 ${bold("GRADING")}
   grade [path] [--course cs2420|cs3500] [--apply]
                          Grade a CS project and write GRADE.md toward an A+.
+
+${bold("PROJECT INDEX (cheap repo map — orient without grepping)")}
+  index [build]          Build/refresh the project index (.gsh/index/).
+  index map              Print the ranked module map + Mermaid graph.
+  index lookup <q>       Find where a symbol is defined / what references it.
+  index export [file]    Export the index as a portable .dxbundle.
+  index install <file>   Install another project's .dxbundle for reference.
+  index refs             List installed reference indexes.
 
 ${bold("NOTES")}
   • Tool state lives in ${dim("~/.config/git-shell-helpers-mcp/tools.json")}
@@ -635,8 +784,9 @@ function main() {
     case "tools": return cmdTool(rest);
     case "doctor": return cmdDoctor();
     case "daemon": return cmdDaemon(rest);
-    case "build": buildShim(); buildCsGrade(); return;
+    case "build": buildShim(); buildCsGrade(); buildNative(); return;
     case "grade": return cmdGrade(rest);
+    case "index": return cmdIndex(rest);
     default:
       die(`unknown command '${cmd}'. Run \`gsh help\`.`);
   }

@@ -5,6 +5,13 @@ gsh-mcp
 # The committed sources are cs-grade/ (Rust) and git-cs-grade.js (Node fallback).
 /git-cs-grade
 cs-grade/target/
+# Native MCP tools — platform-specific, built on install from native/ (Rust).
+# Rust-only: no Node fallback. The committed source is the native/ crate.
+/gsh-native
+native/target/
+# Generated project index (cheap repo map) — rebuilt on demand by `gsh index`.
+.gsh/index/
+*.dxbundle
 build/
 coverage/
 dist/

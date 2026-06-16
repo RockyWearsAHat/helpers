@@ -5,11 +5,11 @@ const fs = require("fs");
 const path = require("path");
 
 const { CHECKPOINT_TOOL } = require("../lib/mcp-checkpoint");
-const { WORKSPACE_CONTEXT_TOOL } = require("../lib/mcp-workspace-context");
 const { STRICT_LINT_TOOL } = require("../lib/mcp-strict-lint");
 const { BRANCH_SESSION_TOOLS } = require("../lib/mcp-branch-sessions");
 const { LIST_LANGUAGE_MODELS_TOOL } = require("../lib/mcp-language-models");
 const { RESEARCH_TOOLS } = require("../lib/mcp-research-tools");
+const { NATIVE_TOOL_NAMES } = require("../lib/mcp-native");
 const {
   LOCAL_SUBAGENT_TOOLS,
 } = require("../lib/mcp-local-subagents");
@@ -23,7 +23,6 @@ const { tools: VISION_TOOLS } = require("../vision-tool/mcp-server");
 function collectToolNames() {
   const schemas = [
     CHECKPOINT_TOOL,
-    WORKSPACE_CONTEXT_TOOL,
     STRICT_LINT_TOOL,
     LIST_LANGUAGE_MODELS_TOOL,
     REGISTER_WORKSPACE_TOOL,
@@ -33,6 +32,9 @@ function collectToolNames() {
     ...RESEARCH_TOOLS,
     ...LOCAL_SUBAGENT_TOOLS,
     ...VISION_TOOLS,
+    // Native (Rust) tools — workspace_context + session memory. Names come from
+    // the bridge allowlist so the README doc check stays authoritative.
+    ...[...NATIVE_TOOL_NAMES].map((name) => ({ name })),
   ];
 
   return [...new Set(schemas.map((tool) => tool && tool.name).filter(Boolean))]

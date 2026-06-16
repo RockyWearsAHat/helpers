@@ -9,7 +9,7 @@ When a gsh MCP tool exists for the requested action, prefer it over terminal emu
 Core tools to prioritize:
 
 1. `workspace_context` for workspace orientation at session start.
-2. `session_store_sql` and `search_session_log` for prior-session recall before new reasoning.
+2. `index_project` + `project_map` (and `lookup`) to map the repo cheaply before grepping or reading widely.
 3. `search_knowledge_index` and `search_knowledge_cache` before external web search.
 4. `strict_lint` after file edits.
 5. `checkpoint` at validated milestones — see rules below.
@@ -36,6 +36,6 @@ Load deeper tool details only when the current task requires them.
 
 ## Research Order
 
-- Local memory first: `session_store_sql` / `search_session_log`.
+- Project structure first: `project_map` / `lookup` (refresh with `index_project`).
 - Project knowledge next: `search_knowledge_index`, then `search_knowledge_cache` if exact terms matter.
-- External web only when local memory and knowledge do not answer the question.
+- External web only when the index and knowledge do not answer the question.
