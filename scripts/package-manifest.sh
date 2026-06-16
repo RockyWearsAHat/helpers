@@ -73,8 +73,6 @@ gsh_mcp_libs() {
 		mcp-branch-sessions.js \
 		mcp-git.js \
 		mcp-google-headless.js \
-		mcp-knowledge-index.js \
-		mcp-knowledge-rw.js \
 		mcp-language-models.js \
 		mcp-native.js \
 		mcp-pdf-extract.js \

@@ -36,6 +36,11 @@ fs.mkdirSync(path.join(repo, "src"));
 fs.writeFileSync(path.join(repo, "src", "core.rs"), "pub fn widget() {}\n");
 fs.writeFileSync(path.join(repo, "src", "user.rs"), "fn run() { widget(); }\n");
 fs.writeFileSync(path.join(repo, "tool.sh"), "#!/bin/bash\necho hi\n");
+fs.mkdirSync(path.join(repo, "knowledge"));
+fs.writeFileSync(
+  path.join(repo, "knowledge", "note-alpha.md"),
+  "# Widget Notes\nThe widget subsystem renders gadgets and caches sprockets.\n",
+);
 
 // ── Minimal JSON-RPC stdio client ───────────────────────────────────────────
 class Client {
@@ -97,6 +102,11 @@ const SAFE = {
   lookup: { args: { root: repo, query: "widget" }, expect: /widget/ },
   checkpoint: { args: { cwd: repo }, expect: /Committed|Nothing to commit|no-op/ },
   strict_lint: { args: { folderPath: repo }, expect: /strict_lint \(standalone\)|providers run|✓ Clean/ },
+  // Knowledge tools — local-only paths (no network) exercised end-to-end.
+  build_knowledge_index: { args: {}, expect: /Files indexed/ },
+  search_knowledge_cache: { args: { query: "widget gadget" }, expect: /Query:|Total results/ },
+  write_knowledge_note: { args: { path: "bb-note.md", content: "# BB\nwidget content here" }, expect: /Action: created/ },
+  read_knowledge_note: { args: { path: "note-alpha.md" }, expect: /Title: Widget Notes/ },
 };
 
 let failures = 0;
