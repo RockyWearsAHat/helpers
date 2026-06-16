@@ -3,5 +3,6 @@
 pub mod checkpoint;
 pub mod knowledge;
 pub mod project_index;
+pub mod project_tools;
 pub mod strict_lint;
 pub mod workspace_context;

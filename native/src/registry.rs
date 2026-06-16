@@ -92,18 +92,38 @@ pub fn all_tools() -> Vec<Tool> {
             schema: kn::schema_submit,
             handler: kn::run_submit,
         },
+        // Project-local tool registry (agent-agnostic reusable flows).
+        Tool {
+            name: "register_workspace_tool",
+            schema: tools::project_tools::schema_register,
+            handler: tools::project_tools::run_register,
+        },
+        Tool {
+            name: "unregister_workspace_tool",
+            schema: tools::project_tools::schema_unregister,
+            handler: tools::project_tools::run_unregister,
+        },
+        Tool {
+            name: "list_workspace_tools",
+            schema: tools::project_tools::schema_list,
+            handler: tools::project_tools::run_list,
+        },
     ]
 }
 
-/// The `schemas` subcommand payload: every tool's schema as a JSON array.
+/// The `schemas` subcommand payload: the built-in tools plus any project-local
+/// flows registered in this workspace's `.gsh/tools/manifest.json`.
 pub fn schemas() -> Vec<Value> {
-    all_tools().iter().map(|t| (t.schema)()).collect()
+    let mut out: Vec<Value> = all_tools().iter().map(|t| (t.schema)()).collect();
+    out.extend(tools::project_tools::schemas());
+    out
 }
 
-/// Run a tool by name. `None` means the name isn't a native tool.
+/// Run a tool by name. Built-in tools take precedence; an unknown name falls
+/// through to the registered project flows. `None` means no such native tool.
 pub fn dispatch(name: &str, args: &Value) -> Option<ToolResult> {
-    all_tools()
-        .into_iter()
-        .find(|t| t.name == name)
-        .map(|t| (t.handler)(args))
+    if let Some(t) = all_tools().into_iter().find(|t| t.name == name) {
+        return Some((t.handler)(args));
+    }
+    tools::project_tools::dispatch(name, args)
 }

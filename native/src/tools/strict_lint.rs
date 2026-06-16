@@ -7,11 +7,9 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use wait_timeout::ChildExt;
 
 use crate::git::home;
 use crate::proto::{text, ToolResult};
@@ -102,52 +100,10 @@ fn on_path(cmd: &str) -> bool {
     run_capture("sh", &["-c", &format!("command -v {cmd}")], None, 5).0
 }
 
-/// Run a command, draining stdout/stderr via threads and killing it on timeout.
-/// Returns `(success, stdout, stderr)`; a spawn failure is `(false, "", "")`.
-fn run_capture(
-    cmd: &str,
-    args: &[&str],
-    cwd: Option<&Path>,
-    timeout_s: u64,
-) -> (bool, String, String) {
-    let mut command = Command::new(cmd);
-    command
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(dir) = cwd {
-        command.current_dir(dir);
-    }
-    let mut child = match command.spawn() {
-        Ok(c) => c,
-        Err(_) => return (false, String::new(), String::new()),
-    };
-    let mut out = child.stdout.take().unwrap();
-    let mut err = child.stderr.take().unwrap();
-    let oh = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = out.read_to_string(&mut s);
-        s
-    });
-    let eh = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = err.read_to_string(&mut s);
-        s
-    });
-    let success = match child.wait_timeout(Duration::from_secs(timeout_s)) {
-        Ok(Some(status)) => status.success(),
-        Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            false
-        }
-        Err(_) => false,
-    };
-    (
-        success,
-        oh.join().unwrap_or_default(),
-        eh.join().unwrap_or_default(),
-    )
+/// Run a linter subprocess with a bounded timeout (delegates to the shared
+/// process helper). Returns `(success, stdout, stderr)`.
+fn run_capture(cmd: &str, args: &[&str], cwd: Option<&Path>, timeout_s: u64) -> (bool, String, String) {
+    crate::proc::run_capture(cmd, args, cwd, &[], timeout_s)
 }
 
 const IGNORE_DIRS: &[&str] = &[
