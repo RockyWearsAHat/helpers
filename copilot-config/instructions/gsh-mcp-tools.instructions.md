@@ -13,8 +13,7 @@ Core tools to prioritize:
 3. `search_knowledge_index` and `search_knowledge_cache` before external web search.
 4. `strict_lint` after file edits.
 5. `checkpoint` at validated milestones — see rules below.
-6. `list_language_models` when model choice impacts cost/quality.
-7. `build_workspace_tool` when user asks to create a runnable tool.
+6. `register_workspace_tool` to capture a recurring multi-step task as a one-call project flow; `list_workspace_tools` to reuse an existing one.
 
 Load deeper tool details only when the current task requires them.
 

@@ -16,7 +16,9 @@ notes are always on; they shape how to work, not what to conclude.
    over-exploration burns tokens.
 2. **Prefer a GSH tool over shell emulation** when one fits, but don't over-tool: no
    one-off tools for trivial tasks. Built-in Claude tools (Read/Edit/Grep/Bash) remain
-   first choice for ordinary file and shell work.
+   first choice for ordinary file and shell work. When a multi-step task will recur,
+   register it once as a project flow (`register_workspace_tool` → callable by name);
+   check `list_workspace_tools` before re-implementing a task.
 3. **Loop: inspect → edit → validate → report.** No success claim without validation.
    Run `strict_lint` (or the project's linter/build/tests) on changed files after edits.
 4. **Checkpoint at verified milestones** with `checkpoint`: write your own `message`,
@@ -44,6 +46,7 @@ objective rubric and a gap-to-A+ checklist.
 - `gsh tool list|enable|disable <name>` — turn individual tools on/off.
 - Any disabled tool can be overridden for a single call with `{ force: true }`.
 
-The project index, knowledge, checkpoint, strict_lint, subagent, and grading tools work
-standalone. Tools that need the VS Code extension (branch sessions, VS Code-backed
-`strict_lint`, vision/screenshot, `list_language_models`) degrade gracefully outside it.
+Every GSH tool is deterministic and standalone — no tool calls an AI model, and they
+all work in any agent. The tools (project index, knowledge, checkpoint, strict_lint,
+project flows, grading) are native Rust for speed and type safety; only `search_web` /
+`scrape_webpage` stay in Node (they drive a headless browser).
