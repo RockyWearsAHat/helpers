@@ -71,7 +71,6 @@ gsh_mcp_libs() {
 	printf '%s\n' \
 		mcp-activity-ipc.js \
 		mcp-branch-sessions.js \
-		mcp-checkpoint.js \
 		mcp-git.js \
 		mcp-google-headless.js \
 		mcp-knowledge-index.js \
