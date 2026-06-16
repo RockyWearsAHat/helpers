@@ -80,7 +80,6 @@ gsh_mcp_libs() {
 		mcp-pdf-extract.js \
 		mcp-research-tools.js \
 		mcp-research.js \
-		mcp-strict-lint.js \
 		mcp-utils.js \
 		mcp-web-search.js
 }

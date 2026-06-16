@@ -35,6 +35,7 @@ spawnSync("git", ["config", "user.name", "t"], { cwd: repo });
 fs.mkdirSync(path.join(repo, "src"));
 fs.writeFileSync(path.join(repo, "src", "core.rs"), "pub fn widget() {}\n");
 fs.writeFileSync(path.join(repo, "src", "user.rs"), "fn run() { widget(); }\n");
+fs.writeFileSync(path.join(repo, "tool.sh"), "#!/bin/bash\necho hi\n");
 
 // ── Minimal JSON-RPC stdio client ───────────────────────────────────────────
 class Client {
@@ -95,6 +96,7 @@ const SAFE = {
   project_map: { args: { root: repo }, expect: /Project Map/ },
   lookup: { args: { root: repo, query: "widget" }, expect: /widget/ },
   checkpoint: { args: { cwd: repo }, expect: /Committed|Nothing to commit|no-op/ },
+  strict_lint: { args: { folderPath: repo }, expect: /strict_lint \(standalone\)|providers run|✓ Clean/ },
 };
 
 let failures = 0;

@@ -26,6 +26,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
 # Timestamps that match JavaScript's Date.toISOString() exactly (UTC, millis, Z).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Bounded waits so strict_lint never hangs on a slow linter subprocess.
+wait-timeout = "0.2"
 
 # Project indexer: gitignore-aware walk + tree-sitter symbol/reference tags.
 ignore = "0.4"

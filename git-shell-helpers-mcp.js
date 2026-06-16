@@ -17,7 +17,6 @@ const {
   loadNativeSchemas,
   runNativeTool,
 } = require("./lib/mcp-native");
-const { STRICT_LINT_TOOL, handleStrictLint } = require("./lib/mcp-strict-lint");
 const {
   BRANCH_SESSION_TOOLS,
   handleBranchSessionStart,
@@ -144,7 +143,6 @@ const ALL_TOOLS = [
   ...(visionModule?.tools || []),
   ...NATIVE_SCHEMAS,
   LIST_LANGUAGE_MODELS_TOOL,
-  STRICT_LINT_TOOL,
   REGISTER_WORKSPACE_TOOL,
   RELOAD_WINDOW_READY_TOOL,
   UNREGISTER_WORKSPACE_TOOL,
@@ -220,9 +218,6 @@ async function runBuiltInTool(toolName, toolArguments, activityId) {
   }
   if (toolName === "list_language_models") {
     return handleListLanguageModels();
-  }
-  if (toolName === "strict_lint") {
-    return handleStrictLint(toolArguments);
   }
   if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
     if (toolName === "branch_session_start") {
