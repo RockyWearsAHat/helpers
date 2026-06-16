@@ -5,6 +5,7 @@
 
 pub mod git;
 pub mod index;
+pub mod knowledge;
 pub mod model_utils;
 pub mod proto;
 pub mod registry;
