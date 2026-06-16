@@ -1,4 +1,10 @@
 .DS_Store
+# Compiled C shim — platform-specific, built on install from gsh-mcp.c
+gsh-mcp
+# Native git-cs-grade — platform-specific, built on install from cs-grade/.
+# The committed sources are cs-grade/ (Rust) and git-cs-grade.js (Node fallback).
+/git-cs-grade
+cs-grade/target/
 build/
 coverage/
 dist/

@@ -960,6 +960,39 @@ main() {
   install_script "git-copilot-devops-audit"
   install_script "git-research-mcp"
   install_script "git-shell-helpers-mcp"
+  install_script "git-shell-helpers-mcp.js"
+  install_script "git-shell-helpers-mcpd.js"
+  install_script "git-cs-grade.js"
+  install_script "gsh"
+
+  # Fast C shim source — compiled by `gsh install` (gsh build) into ~/bin/gsh-mcp.
+  if [ -f "${SCRIPT_DIR}/gsh-mcp.c" ] && [ "${SCRIPT_DIR}/gsh-mcp.c" != "${BIN_DIR}/gsh-mcp.c" ]; then
+    cp "${SCRIPT_DIR}/gsh-mcp.c" "${BIN_DIR}/gsh-mcp.c"
+  fi
+
+  # Native git-cs-grade source (Rust crate) — compiled by `gsh build` into the
+  # fast ~/bin/git-cs-grade binary, falling back to git-cs-grade.js when there
+  # is no Rust toolchain. Copy sources only; never the build target/ artifacts.
+  if [ -d "${SCRIPT_DIR}/cs-grade" ] && [ "${SCRIPT_DIR}/cs-grade" != "${BIN_DIR}/cs-grade" ]; then
+    mkdir -p "${BIN_DIR}/cs-grade"
+    cp "${SCRIPT_DIR}/cs-grade/Cargo.toml" "${BIN_DIR}/cs-grade/" 2>/dev/null || true
+    [ -f "${SCRIPT_DIR}/cs-grade/Cargo.lock" ] && cp "${SCRIPT_DIR}/cs-grade/Cargo.lock" "${BIN_DIR}/cs-grade/"
+    rm -rf "${BIN_DIR}/cs-grade/src" && cp -R "${SCRIPT_DIR}/cs-grade/src" "${BIN_DIR}/cs-grade/src"
+  fi
+
+  # Compile the native helpers now (gsh-mcp + git-cs-grade). Each degrades to a
+  # working Node implementation with guidance if its toolchain is missing.
+  if [ -x "${BIN_DIR}/gsh" ]; then
+    "${BIN_DIR}/gsh" build || echo "[install-git-shell-helpers] 'gsh build' reported an issue; Node fallbacks remain in place."
+  fi
+
+  # Agent config bundle (consumed by `gsh install`). Keep it next to the bins so
+  # gsh can resolve it relative to its own location.
+  if [ -d "${SCRIPT_DIR}/claude-config" ] && [ "${SCRIPT_DIR}/claude-config" != "${BIN_DIR}/claude-config" ]; then
+    rm -rf "${BIN_DIR}/claude-config"
+    cp -R "${SCRIPT_DIR}/claude-config" "${BIN_DIR}/claude-config"
+    echo "[install-git-shell-helpers] Installed agent config bundle to ${BIN_DIR}/claude-config"
+  fi
   install_support_script "scripts/community-cache-submit.sh" "git-copilot-devops-audit-community-submit"
   install_support_script "scripts/community-cache-pull.sh" "git-copilot-devops-audit-community-pull"
   install_support_script "scripts/community-research-submit.sh" "git-copilot-devops-audit-community-research-submit"
@@ -995,6 +1028,19 @@ RENV
 
   echo ""
   setup_gpg_signing
+
+  # Optional: wire GSH into Claude Code (MCP server + skills + commands + core).
+  if command -v claude >/dev/null 2>&1 || [ -d "${HOME}/.claude" ]; then
+    echo ""
+    printf '[install-git-shell-helpers] Install GSH into Claude Code (MCP server, skills, /gsh command, CLAUDE.md core)? [Y/n]: '
+    read -r claude_reply || claude_reply=""
+    if [[ -z "$claude_reply" || "$claude_reply" == "y" || "$claude_reply" == "Y" ]]; then
+      "${BIN_DIR}/gsh" install --agent claude --force || \
+        echo "[install-git-shell-helpers] Claude install hit an error — run 'gsh install --agent claude' manually."
+    else
+      echo "[install-git-shell-helpers] Skipped. Run 'gsh install --agent claude' anytime."
+    fi
+  fi
 
   # Optional: install private audit agents and /copilot-devops-audit prompt globally
   # -----------------------------------------------------------------------------

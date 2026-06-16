@@ -27,6 +27,12 @@ const SERVER_PATH = path.join(REPO_DIR, "git-shell-helpers-mcp");
 const DAEMON_PATH = path.join(REPO_DIR, "git-shell-helpers-mcpd.js");
 const SHIM_SRC = path.join(REPO_DIR, "gsh-mcp.c");
 const SHIM_BIN = path.join(REPO_DIR, "gsh-mcp");
+// Native Rust git-cs-grade: crate dir, its release artifact, the installed
+// command, and the Node implementation used as a graceful fallback.
+const CS_GRADE_CRATE = path.join(REPO_DIR, "cs-grade");
+const CS_GRADE_ARTIFACT = path.join(CS_GRADE_CRATE, "target", "release", "git-cs-grade");
+const CS_GRADE_CMD = path.join(REPO_DIR, "git-cs-grade");
+const CS_GRADE_JS = path.join(REPO_DIR, "git-cs-grade.js");
 const TOOLS_CONFIG_DIR = path.join(HOME, ".config", "git-shell-helpers-mcp");
 const TOOLS_CONFIG_PATH = path.join(TOOLS_CONFIG_DIR, "tools.json");
 const CLAUDE_DIR = path.join(HOME, ".claude");
@@ -223,6 +229,63 @@ function mcpLaunch() {
   return { cmd: process.execPath, args: [SERVER_PATH] };
 }
 
+// ---------------------------------------------------------------------------
+// native git-cs-grade: compile the Rust crate so grading starts in ~1ms and
+// runs several times faster, falling back to the Node implementation when no
+// Rust toolchain (cargo) is available.
+// ---------------------------------------------------------------------------
+function findCargo() {
+  for (const c of [process.env.CARGO, "cargo"].filter(Boolean)) {
+    if (has(c)) return c;
+  }
+  return null;
+}
+
+// Install the Node implementation as the `git-cs-grade` command (the fallback).
+function installCsGradeFallback() {
+  if (!fs.existsSync(CS_GRADE_JS)) return false;
+  try {
+    fs.copyFileSync(CS_GRADE_JS, CS_GRADE_CMD);
+    fs.chmodSync(CS_GRADE_CMD, 0o755);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Compile cs-grade to a native binary and install it as `git-cs-grade`.
+// Returns the command path on success (native or Node fallback), else null.
+function buildCsGrade({ quiet } = {}) {
+  if (!fs.existsSync(CS_GRADE_CRATE)) return null;
+  const cargo = findCargo();
+  if (!cargo) {
+    const used = installCsGradeFallback();
+    if (!quiet) {
+      console.log(`  ${yellow("!")} no Rust toolchain (cargo) found — using the Node git-cs-grade${used ? "" : " (missing!)"}.`);
+      console.log(dim("      Install Rust for the fast native build: https://rustup.rs  (or: brew install rust), then run `gsh build`."));
+    }
+    return used ? CS_GRADE_CMD : null;
+  }
+  const r = spawnSync(cargo, ["build", "--release"], { cwd: CS_GRADE_CRATE, encoding: "utf8" });
+  if (r.status !== 0 || !fs.existsSync(CS_GRADE_ARTIFACT)) {
+    const used = installCsGradeFallback();
+    if (!quiet) {
+      console.log(`  ${no} git-cs-grade build failed: ${(r.stderr || "").trim().split("\n").pop() || "unknown error"}`);
+      console.log(dim(`      Falling back to the Node implementation${used ? "" : " (also missing!)"}. Fix the build, then run \`gsh build\`.`));
+    }
+    return used ? CS_GRADE_CMD : null;
+  }
+  try {
+    fs.copyFileSync(CS_GRADE_ARTIFACT, CS_GRADE_CMD);
+    fs.chmodSync(CS_GRADE_CMD, 0o755);
+  } catch (e) {
+    if (!quiet) console.log(`  ${no} could not install git-cs-grade: ${e.message}`);
+    return null;
+  }
+  if (!quiet) console.log(`  ${ok} compiled native git-cs-grade (Rust) — ~1ms startup, faster scans`);
+  return CS_GRADE_CMD;
+}
+
 function listDaemons() {
   const dir = path.join(HOME, ".cache", "gsh");
   try {
@@ -261,8 +324,10 @@ function cmdDaemon(args) {
 function installClaude(force) {
   console.log(bold("\n→ Installing GSH for Claude Code"));
 
-  // 0. Build the fast C shim (warm daemon) — falls back to node if no compiler.
+  // 0. Build the fast C shim (warm daemon) and native git-cs-grade — each
+  //    falls back to Node when its toolchain is unavailable.
   buildShim();
+  buildCsGrade();
   const { cmd, args } = mcpLaunch();
 
   // 1. Register the MCP server (user scope) — idempotent.
@@ -477,6 +542,13 @@ function cmdDoctor() {
   check(`MCP server starts and lists tools (${all.length})`, all.length > 0, "check `node " + SERVER_PATH + "` for load errors");
   check("tools.json present", fs.existsSync(TOOLS_CONFIG_PATH), "run `gsh enable` to create it");
   check("fast C launcher compiled", fs.existsSync(SHIM_BIN), "run `gsh build` (needs a C compiler); optional — falls back to node");
+  {
+    // git-cs-grade is "native" when the installed command is the compiled
+    // binary (Mach-O/ELF) rather than the Node script (starts with a shebang).
+    let native = false;
+    try { native = !fs.readFileSync(CS_GRADE_CMD).slice(0, 2).equals(Buffer.from("#!")); } catch {}
+    check("git-cs-grade native (Rust) build", native, "run `gsh build` (needs cargo: https://rustup.rs); optional — falls back to node");
+  }
   if (fs.existsSync(SHIM_BIN)) {
     const r = spawnSync("pgrep", ["-f", "git-shell-helpers-mcpd"], { encoding: "utf8" });
     const up = (r.stdout || "").trim().length > 0;
@@ -514,7 +586,8 @@ ${bold("SETUP")}
                          Unregister MCP server + remove managed CLAUDE.md block.
   status                 Show install state, master switch, tool counts, agents.
   doctor                 Run health checks.
-  build                  (Re)compile the fast C launcher (gsh-mcp).
+  build                  (Re)compile the fast C launcher (gsh-mcp) and the
+                         native Rust git-cs-grade. Both fall back to Node.
 
 ${bold("BACKGROUND SERVER (auto-managed; for fast startup)")}
   daemon status          Show whether the background server is running.
@@ -562,7 +635,7 @@ function main() {
     case "tools": return cmdTool(rest);
     case "doctor": return cmdDoctor();
     case "daemon": return cmdDaemon(rest);
-    case "build": return void buildShim();
+    case "build": buildShim(); buildCsGrade(); return;
     case "grade": return cmdGrade(rest);
     default:
       die(`unknown command '${cmd}'. Run \`gsh help\`.`);
