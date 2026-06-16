@@ -31,29 +31,26 @@ once with `{ "force": true }` to override the kill-switch.
 
 ## Tools (prefer these over shell emulation when they fit)
 
+All tools are deterministic native Rust (no AI), except web search/scrape (Node).
+
 **Workflow & quality**
 - `workspace_context` — orient at task start (roots, branch state).
-- `strict_lint` — diagnostics for a file/folder/workspace after edits.
-- `checkpoint` — stage/commit with your own `message`; set `all:false`, name changed files.
-- `list_language_models` — available local models (VS Code).
+- `strict_lint` — run each language's own linters for a file/folder/workspace after edits.
+- `checkpoint` — stage/commit with your own `message` (or a deterministic one); set `all:false`, name changed files.
 
-**Research & knowledge memory** (work standalone)
-- `search_web`, `scrape_webpage` — external facts after local memory misses.
-- `search_knowledge_index` / `search_knowledge_cache` / `read_knowledge_note` — repo + community knowledge.
-- `write_knowledge_note` / `update_knowledge_note` / `append_to_knowledge_note` — persist findings.
-
-**Project index** (native Rust, cheap repo map — orient without grepping)
+**Project index** (cheap repo map — orient without grepping)
 - `index_project` — build/refresh the static map of files, symbols, and the reference graph.
 - `project_map` — ranked module overview + Mermaid graph in one cheap call.
 - `lookup` — where a symbol is defined / what references it, from the graph.
 
-**Local subagents & tool building**
-- `ollama_subagent`, `ollama_list_models`, `system_execute` — local model delegation.
-- `build_workspace_tool` / `register_workspace_tool` / `unregister_workspace_tool` — create reusable per-project tools.
+**Project flows** (reusable, scoped to the project, callable by any agent)
+- `register_workspace_tool` — register a named shell command/flow as a one-call MCP tool.
+- `unregister_workspace_tool` / `list_workspace_tools` — manage and discover flows.
 
-**Branch sessions & vision** (need the VS Code extension)
-- `branch_session_start/end`, `branch_status`, `branch_read_file`, `branch_cleanup`.
-- `take_screenshot`, `analyze_images`, `analyze_video`, `transcribe_video`.
+**Knowledge & web**
+- `search_knowledge_index` / `search_knowledge_cache` / `read_knowledge_note` — repo + community knowledge.
+- `write_knowledge_note` / `update_knowledge_note` / `append_to_knowledge_note` — persist findings.
+- `search_web`, `scrape_webpage` — external facts after the index + knowledge miss.
 
 ## Efficient order
 1. `workspace_context` once per task, then `project_map` / `lookup` (refresh with `index_project`) to orient cheaply instead of grepping.

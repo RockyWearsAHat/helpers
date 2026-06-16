@@ -530,7 +530,7 @@ Key files:
 | `vscode-extension/extension.js`            | Extension entry point, command registration                |
 | `vscode-extension/src/worktree-manager.js` | Branch session focus/unfocus, binding, stash, git ops      |
 | `vscode-extension/src/ipc-servers.js`      | Unix socket IPC between MCP server and extension           |
-| `git-shell-helpers-mcp`                    | MCP server — branch sessions, checkpoint, research, vision |
+| `git-shell-helpers-mcp`                    | MCP server — project index, checkpoint, strict_lint, knowledge, project flows, web research |
 | `git-upload`                               | Stage/commit/push with AI messages and test detection      |
 | `git-help-i-pushed-an-env`                 | Secret scrubbing from git history                          |
 | `scripts/patch-vscode-apply-all.js`        | Coordinator for VS Code bundle patches                     |
