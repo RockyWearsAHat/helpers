@@ -106,3 +106,22 @@ pub fn resolve_repo_root() -> Result<PathBuf, String> {
     }
     Err("Not inside a git repository.".into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_repo_root_walks_up_to_marker() {
+        let base = std::env::temp_dir().join(format!("gsh-root-{}", std::process::id()));
+        let nested = base.join("a").join("b").join("c");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(base.join(".git")).unwrap();
+
+        let found = find_repo_root(&nested).expect("should find root from nested dir");
+        assert_eq!(found, base);
+        assert!(find_repo_root(std::path::Path::new("/")).is_none());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}

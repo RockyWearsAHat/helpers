@@ -18,7 +18,8 @@ pub struct Tool {
 /// allowlist) is all that's needed to route it to Rust.
 pub fn all_tools() -> Vec<Tool> {
     use tools::{
-        checkpoint as cp, project_index as pi, strict_lint as sl, workspace_context as wc,
+        checkpoint as cp, knowledge as kn, project_index as pi, strict_lint as sl,
+        workspace_context as wc,
     };
     vec![
         Tool {
@@ -50,6 +51,46 @@ pub fn all_tools() -> Vec<Tool> {
             name: "lookup",
             schema: pi::schema_lookup,
             handler: pi::run_lookup,
+        },
+        Tool {
+            name: "build_knowledge_index",
+            schema: kn::schema_build_index,
+            handler: kn::run_build_index,
+        },
+        Tool {
+            name: "search_knowledge_index",
+            schema: kn::schema_search_index,
+            handler: kn::run_search_index,
+        },
+        Tool {
+            name: "search_knowledge_cache",
+            schema: kn::schema_search_cache,
+            handler: kn::run_search_cache,
+        },
+        Tool {
+            name: "read_knowledge_note",
+            schema: kn::schema_read_note,
+            handler: kn::run_read_note,
+        },
+        Tool {
+            name: "write_knowledge_note",
+            schema: kn::schema_write_note,
+            handler: kn::run_write_note,
+        },
+        Tool {
+            name: "update_knowledge_note",
+            schema: kn::schema_update_note,
+            handler: kn::run_update_note,
+        },
+        Tool {
+            name: "append_to_knowledge_note",
+            schema: kn::schema_append_note,
+            handler: kn::run_append_note,
+        },
+        Tool {
+            name: "submit_community_research",
+            schema: kn::schema_submit,
+            handler: kn::run_submit,
         },
     ]
 }

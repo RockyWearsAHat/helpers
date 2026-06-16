@@ -3,6 +3,51 @@
 use chrono::{SecondsFormat, Utc};
 use serde_json::Value;
 
+/// Port of `tokenizeQuery`: lowercase, split on chars outside `[a-z0-9_.-]`,
+/// keep tokens of length >= 2.
+pub fn tokenize_query(query: &str) -> Vec<String> {
+    query
+        .to_lowercase()
+        .split(|c: char| {
+            !(c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-'))
+        })
+        .map(|t| t.trim())
+        .filter(|t| t.len() >= 2)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Port of `getMarkdownTitle`: the first `# heading` text, or `fallback`.
+pub fn get_markdown_title(text: &str, fallback: &str) -> String {
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("# ") {
+            let t = rest.trim();
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
+    }
+    fallback.to_string()
+}
+
+/// Port of `summarizeText`: truncate to `max_chars`, preferring a clean break
+/// (paragraph or sentence) past 60% of the limit, then append an ellipsis.
+pub fn summarize_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let clipped: String = text.chars().take(max_chars).collect();
+    let para = clipped.rfind("\n\n").map(|i| i as i64).unwrap_or(-1);
+    let sentence = clipped.rfind(". ").map(|i| i as i64).unwrap_or(-1);
+    let last_break = para.max(sentence);
+    if last_break > (max_chars as f64 * 0.6) as i64 {
+        let cut = &clipped[..last_break as usize];
+        format!("{}...", cut.trim())
+    } else {
+        format!("{}...", clipped.trim())
+    }
+}
+
 /// Current UTC time formatted exactly like JavaScript's `Date.toISOString()`
 /// ("YYYY-MM-DDTHH:MM:SS.sssZ").
 pub fn now_iso() -> String {
