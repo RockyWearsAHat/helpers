@@ -12,7 +12,6 @@ try {
 
 const path = require("path");
 const readline = require("readline");
-const { CHECKPOINT_TOOL, handleCheckpoint } = require("./lib/mcp-checkpoint");
 const {
   isNativeTool,
   loadNativeSchemas,
@@ -50,6 +49,7 @@ const {
   notifyActivityBegin,
   notifyActivityEnd,
   notifySessionPulse,
+  notifyBranchCommit,
 } = require("./lib/mcp-activity-ipc");
 
 const MCP_VERSION = "2024-11-05";
@@ -143,7 +143,6 @@ const ALL_TOOLS = [
   ...(researchModule?.tools || []),
   ...(visionModule?.tools || []),
   ...NATIVE_SCHEMAS,
-  CHECKPOINT_TOOL,
   LIST_LANGUAGE_MODELS_TOOL,
   STRICT_LINT_TOOL,
   REGISTER_WORKSPACE_TOOL,
@@ -198,13 +197,26 @@ function isToolDisabled(toolName) {
   return (readToolsConfig().disabledTools || []).includes(toolName);
 }
 
+// After a native checkpoint commits, re-emit the VS Code branch-commit IPC the
+// JS checkpoint used to send (the native binary stays decoupled from the editor
+// socket). Parses the committed hash + branch from the tool's text output.
+function maybeNotifyBranchCommit(content, args) {
+  try {
+    const text = (content && content[0] && content[0].text) || "";
+    const m = text.match(/^Committed (\S+) on branch '([^']+)'/);
+    if (!m) return;
+    notifyBranchCommit(m[2], m[1], args.cwd || getWorkspaceRoot());
+  } catch {
+    /* notification is best-effort */
+  }
+}
+
 async function runBuiltInTool(toolName, toolArguments, activityId) {
   // Native Rust tools take precedence — the daemon shells out to the binary.
   if (isNativeTool(toolName)) {
-    return runNativeTool(toolName, toolArguments);
-  }
-  if (toolName === "checkpoint") {
-    return handleCheckpoint(toolArguments);
+    const content = await runNativeTool(toolName, toolArguments);
+    if (toolName === "checkpoint") maybeNotifyBranchCommit(content, toolArguments);
+    return content;
   }
   if (toolName === "list_language_models") {
     return handleListLanguageModels();

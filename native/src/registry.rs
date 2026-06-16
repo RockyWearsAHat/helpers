@@ -17,12 +17,17 @@ pub struct Tool {
 /// Every tool the native binary owns. Adding a tool here (and to the JS
 /// allowlist) is all that's needed to route it to Rust.
 pub fn all_tools() -> Vec<Tool> {
-    use tools::{project_index as pi, workspace_context as wc};
+    use tools::{checkpoint as cp, project_index as pi, workspace_context as wc};
     vec![
         Tool {
             name: "workspace_context",
             schema: wc::schema,
             handler: wc::run,
+        },
+        Tool {
+            name: "checkpoint",
+            schema: cp::schema,
+            handler: cp::run,
         },
         Tool {
             name: "index_project",
