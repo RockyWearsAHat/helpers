@@ -243,9 +243,9 @@ All tools are deterministic — no tool calls an AI model.
 
 Core workflow and quality:
 
-- `workspace_context` - summarize active workspace roots and branch state.
 - `strict_lint` - run each language's own linters on a file/folder/workspace.
-- `checkpoint` - stage/commit (deterministic message from the diff, or your own); optionally push.
+- `cs_lint` - scan for CS2420/CS3500 software-principle violations (single responsibility, documentation gaps, error handling, maintainability) and return one prioritized list with `file:line` + fix. Complements `gsh grade`; re-run to track the count to zero.
+- `checkpoint` - stage and commit (deterministic message from the diff, or your own); optionally push. Stage a precise subset with `paths` (specific files) or `lines` (specific line ranges) for a focused checkpoint.
 
 Project index (cheap repo map — orient without grepping):
 
@@ -278,7 +278,7 @@ Web research (Node — headless browser):
 
 Context-efficient usage order (minimal context, maximal output):
 
-1. `workspace_context` once per task, then `project_map` (and `index_project` to refresh) to orient cheaply instead of reading/grepping many files.
+1. `project_map` (and `index_project` to refresh) to orient cheaply instead of reading/grepping many files.
 2. `lookup <symbol|file>` to jump straight to definitions and references.
 3. `list_workspace_tools` to reuse an existing project flow before re-implementing a task.
 4. Call one specialized tool for the user goal (for example `search_web` or `strict_lint`).
