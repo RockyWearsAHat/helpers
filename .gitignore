@@ -19,6 +19,7 @@ native/target/
 /git-scan-for-leaked-envs
 /git-upload
 /git-checkpoint
+/git-help-i-pushed-an-env
 # Generated project index (cheap repo map) — rebuilt on demand by `gsh index`.
 .gsh/index/
 *.dxbundle
