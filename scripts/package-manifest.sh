@@ -21,11 +21,10 @@ set -euo pipefail
 
 # Shell commands still shipped as scripts. The git-* CLIs ported to Rust
 # (git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
-# git-resolve, git-scan-for-leaked-envs) are built by `gsh build` as symlinks to
-# the gsh-native binary, so they are not copied here.
+# git-resolve, git-scan-for-leaked-envs, git-checkpoint) are built by `gsh build`
+# as symlinks to the gsh-native binary, so they are not copied here.
 gsh_core_commands() {
 	printf '%s\n' \
-		git-checkpoint \
 		git-help-i-pushed-an-env \
 		git-copilot-quickstart
 }

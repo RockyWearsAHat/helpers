@@ -71,4 +71,16 @@ echo "$out" | grep -q "Using commit message: smoke message" \
 git log -1 --pretty=%s | grep -q "smoke message" \
 	|| fail "git-upload did not create the commit"
 
+# 7) git-checkpoint commits locally with a deterministic message (no AI, no push).
+echo "checkpoint change" >c.txt
+git add c.txt
+"$NB" gitcli git-checkpoint >/dev/null 2>&1 || fail "git-checkpoint failed to commit"
+git log -1 --pretty=%s | grep -q "checkpoint: update" \
+	|| fail "git-checkpoint did not write a deterministic message"
+
+# 8) git-checkpoint --status reports config without committing.
+status_out="$("$NB" gitcli git-checkpoint --status 2>&1 || true)"
+echo "$status_out" | grep -q "enabled:" \
+	|| fail "git-checkpoint --status did not report config"
+
 echo "GITCLI: pass"

@@ -13,9 +13,8 @@ cd "$(cd "$(dirname "$0")/.." && pwd)"
 declare -a checks
 checks=(
 	# git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
-	# git-resolve, git-scan-for-leaked-envs are native Rust (native/src/gitcli/),
-	# exercised by `cargo test` and the gitcli smoke test below.
-	"bash -n git-checkpoint"
+	# git-resolve, git-scan-for-leaked-envs, git-checkpoint are native Rust
+	# (native/src/gitcli/), exercised by `cargo test` and the gitcli smoke test.
 	"bash -n git-copilot-quickstart"
 	"bash -n git-copilot-devops-audit"
 	"bash -n git-help-i-pushed-an-env"

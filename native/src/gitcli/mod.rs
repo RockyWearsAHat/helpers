@@ -11,6 +11,7 @@
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 
+pub mod checkpoint;
 pub mod fucked_push;
 pub mod get;
 pub mod initialize;
@@ -28,6 +29,7 @@ pub const CLI_NAMES: &[&str] = &[
     "git-get",
     "git-scan-for-leaked-envs",
     "git-upload",
+    "git-checkpoint",
 ];
 
 /// Returns `true` when `basename` names one of the ported CLIs.
@@ -46,6 +48,7 @@ pub fn dispatch(name: &str, args: &[String]) -> ExitCode {
         "git-get" => get::run(args),
         "git-scan-for-leaked-envs" => scan_envs::run(args),
         "git-upload" => upload::run(args),
+        "git-checkpoint" => checkpoint::run(args),
         other => {
             eprintln!("gsh-native gitcli: unknown CLI: {other}");
             ExitCode::from(2)
@@ -127,4 +130,116 @@ pub fn note(tag: &str, msg: &str) {
 /// Whether `path` exists (file or dir) under the git dir.
 pub fn git_dir_has(rel: &str) -> bool {
     Path::new(&git_dir()).join(rel).exists()
+}
+
+// ── Shared commit-message helpers (used by git-upload and git-checkpoint) ──
+
+/// Deterministic "update N files (a, b, c)" summary of the staged change, plus
+/// a short stat. No AI — mirrors the `checkpoint` MCP tool.
+pub fn staged_summary_message(verb: &str) -> String {
+    let names = git_out(&["diff", "--cached", "--name-only"]).unwrap_or_default();
+    let files: Vec<&str> = names.lines().filter(|l| !l.is_empty()).collect();
+    if files.is_empty() {
+        return verb.to_string();
+    }
+    let shown: Vec<&str> = files.iter().take(3).copied().collect();
+    let mut list = shown.join(", ");
+    if files.len() > shown.len() {
+        list.push_str(&format!(", +{} more", files.len() - shown.len()));
+    }
+    let stat = git_out(&["diff", "--cached", "--shortstat"]).unwrap_or_default();
+    let plural = if files.len() == 1 { "" } else { "s" };
+    let mut msg = format!("{verb} {} file{plural} ({list})", files.len());
+    if !stat.is_empty() {
+        msg.push_str(&format!("\n\n{}", stat.trim()));
+    }
+    msg
+}
+
+/// Generate a commit message via Claude or Copilot from the staged diff.
+/// Returns the first non-empty lines of output, or `None` when the provider is
+/// missing or fails. `tag` is the CLI name for log lines.
+pub fn ai_commit_message(provider: Option<&str>, extra_context: &str, tag: &str) -> Option<String> {
+    let stat = git_out(&["diff", "--cached", "--stat"]).unwrap_or_default();
+    let names = git_out(&["diff", "--cached", "--name-only"]).unwrap_or_default();
+    let mut prompt = String::from(
+        "Write a clean, concise one-to-three line git commit message for this staged diff. \
+         Output only the message, no quotes or preamble.\n\n",
+    );
+    if !extra_context.is_empty() {
+        prompt.push_str(&format!("Extra context: {extra_context}\n\n"));
+    }
+    prompt.push_str(&format!("Changed files:\n{names}\n\nDiff stat:\n{stat}\n"));
+
+    let provider = provider.map(str::to_string).unwrap_or_else(detect_provider);
+    let (bin, args): (&str, Vec<&str>) = match provider.as_str() {
+        "claude" => ("claude", vec!["-p", &prompt]),
+        "copilot" => (
+            "copilot",
+            vec![
+                "-s",
+                "--deny-tool",
+                "write",
+                "--deny-tool",
+                "shell",
+                "-p",
+                &prompt,
+            ],
+        ),
+        other => {
+            note(
+                tag,
+                &format!("Unknown AI provider '{other}'. Use claude or copilot."),
+            );
+            return None;
+        }
+    };
+    if which(bin).is_none() {
+        note(tag, &format!("AI provider '{bin}' not found on PATH."));
+        return None;
+    }
+
+    note(tag, &format!("Generating commit message via {bin}\u{2026}"));
+    let out = Command::new(bin)
+        .args(&args)
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.into_iter().take(3).collect::<Vec<_>>().join("\n"))
+    }
+}
+
+/// Prefer `claude`, then `copilot`, defaulting to claude when neither is found.
+pub fn detect_provider() -> String {
+    if which("claude").is_some() {
+        "claude".into()
+    } else if which("copilot").is_some() {
+        "copilot".into()
+    } else {
+        "claude".into()
+    }
+}
+
+/// Minimal `which`: the first PATH entry containing an executable `name`.
+pub fn which(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
