@@ -102,7 +102,12 @@ fn on_path(cmd: &str) -> bool {
 
 /// Run a linter subprocess with a bounded timeout (delegates to the shared
 /// process helper). Returns `(success, stdout, stderr)`.
-fn run_capture(cmd: &str, args: &[&str], cwd: Option<&Path>, timeout_s: u64) -> (bool, String, String) {
+fn run_capture(
+    cmd: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+    timeout_s: u64,
+) -> (bool, String, String) {
     crate::proc::run_capture(cmd, args, cwd, &[], timeout_s)
 }
 

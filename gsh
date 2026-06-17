@@ -40,6 +40,17 @@ const CS_GRADE_JS = path.join(REPO_DIR, "git-cs-grade.js");
 const GSH_NATIVE_CRATE = path.join(REPO_DIR, "native");
 const GSH_NATIVE_ARTIFACT = path.join(GSH_NATIVE_CRATE, "target", "release", "gsh-native");
 const GSH_NATIVE_CMD = path.join(REPO_DIR, "gsh-native");
+// Standalone git-* CLIs ported to Rust: symlinked to the one gsh-native binary,
+// which dispatches busybox-style on argv[0]. Keep in sync with gitcli::CLI_NAMES.
+const GITCLI_NAMES = [
+  "git-resolve",
+  "git-remerge",
+  "git-fucked-the-push",
+  "git-initialize",
+  "git-get",
+  "git-scan-for-leaked-envs",
+  "git-upload",
+];
 const TOOLS_CONFIG_DIR = path.join(HOME, ".config", "git-shell-helpers-mcp");
 const TOOLS_CONFIG_PATH = path.join(TOOLS_CONFIG_DIR, "tools.json");
 const CLAUDE_DIR = path.join(HOME, ".claude");
@@ -326,6 +337,18 @@ function buildNative({ quiet } = {}) {
     fs.chmodSync(GSH_NATIVE_CMD, 0o755);
   } catch (e) {
     return fail(`could not install gsh-native: ${e.message}`, `Check write permissions on ${REPO_DIR}.`);
+  }
+  // Symlink each ported git-* CLI to the gsh-native binary (busybox dispatch).
+  for (const name of GITCLI_NAMES) {
+    const link = path.join(REPO_DIR, name);
+    try {
+      if (fs.existsSync(link) || fs.lstatSync(link, { throwIfNoEntry: false })) fs.rmSync(link, { force: true });
+    } catch {}
+    try {
+      fs.symlinkSync("gsh-native", link);
+    } catch (e) {
+      return fail(`could not symlink ${name} -> gsh-native: ${e.message}`, `Check write permissions on ${REPO_DIR}.`);
+    }
   }
   // Sanity-check that the binary answers `schemas` with valid JSON, so a broken
   // binary is caught at build time rather than when the agent first calls a tool.

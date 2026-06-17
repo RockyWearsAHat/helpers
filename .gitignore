@@ -9,6 +9,15 @@ cs-grade/target/
 # Rust-only: no Node fallback. The committed source is the native/ crate.
 /gsh-native
 native/target/
+# Ported git-* CLIs — symlinks to gsh-native, recreated by `gsh build`.
+# The committed source is native/src/gitcli/. Keep in sync with GITCLI_NAMES.
+/git-resolve
+/git-remerge
+/git-fucked-the-push
+/git-initialize
+/git-get
+/git-scan-for-leaked-envs
+/git-upload
 # Generated project index (cheap repo map) — rebuilt on demand by `gsh index`.
 .gsh/index/
 *.dxbundle

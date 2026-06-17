@@ -953,10 +953,10 @@ main() {
   ensure_dir "$BIN_DIR"
   ensure_dir "$MAN_DIR"
 
-  install_script "git-upload"
-  install_script "git-get"
-  install_script "git-initialize"
-  install_script "git-fucked-the-push"
+  # git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
+  # git-resolve, and git-scan-for-leaked-envs are now native Rust (the gitcli
+  # module of the gsh-native crate). `gsh build` (run below) compiles the binary
+  # and symlinks each CLI name to it — no script copy needed here.
   install_script "git-copilot-devops-audit"
   install_script "git-research-mcp"
   install_script "git-shell-helpers-mcp"
