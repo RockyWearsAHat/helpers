@@ -8,11 +8,11 @@ When a gsh MCP tool exists for the requested action, prefer it over terminal emu
 
 Core tools to prioritize:
 
-1. `workspace_context` for workspace orientation at session start.
-2. `index_project` + `project_map` (and `lookup`) to map the repo cheaply before grepping or reading widely.
-3. `search_knowledge_index` and `search_knowledge_cache` before external web search.
-4. `strict_lint` after file edits.
-5. `checkpoint` at validated milestones — see rules below.
+1. `index_project` + `project_map` (and `lookup`) to map the repo cheaply before grepping or reading widely.
+2. `search_knowledge_index` and `search_knowledge_cache` before external web search.
+3. `strict_lint` after file edits.
+4. `cs_lint` after touching code — fix the CS2420/CS3500 violations it lists (mandatory, not optional).
+5. `checkpoint` at validated milestones — stage `paths` or `lines` for a focused commit.
 6. `register_workspace_tool` to capture a recurring multi-step task as a one-call project flow; `list_workspace_tools` to reuse an existing one.
 
 Load deeper tool details only when the current task requires them.

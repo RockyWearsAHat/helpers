@@ -12,6 +12,8 @@ use super::*;
 
 const TAG: &str = "git-resolve";
 
+/// Run git-resolve: back up current state, then guide the user through
+/// resolving the in-progress merge/rebase (or report a dirty tree).
 pub fn run(_args: &[String]) -> ExitCode {
     if !in_repo() {
         note(TAG, "Not inside a git repository.");

@@ -8,6 +8,7 @@ use super::*;
 
 const TAG: &str = "git-get";
 
+/// Run git-get: initialize a repo from a remote URL and pull the given branch.
 pub fn run(args: &[String]) -> ExitCode {
     let repo = args.first().map(String::as_str).unwrap_or("");
     let branch = args.get(1).map(String::as_str).unwrap_or("main");

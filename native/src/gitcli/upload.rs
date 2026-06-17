@@ -25,6 +25,9 @@ struct Opts {
     user_msg: String,
 }
 
+/// Run git-upload: recover any in-progress git operation, resolve detached
+/// HEAD, sync with upstream, then stage, commit, and push. The commit message
+/// is deterministic unless `-ai` is passed.
 pub fn run(args: &[String]) -> ExitCode {
     let mut o = Opts {
         use_ai: false,
@@ -262,6 +265,7 @@ fn resolve_branch(o: &Opts) -> Result<String, ExitCode> {
         .collect();
 
     match branches.len() {
+        // Exactly one branch contains HEAD — safe to switch to it.
         1 => {
             let b = branches[0].to_string();
             note(
@@ -275,6 +279,7 @@ fn resolve_branch(o: &Opts) -> Result<String, ExitCode> {
                 Err(ExitCode::from(1))
             }
         }
+        // No branch contains HEAD — preserve the work on a new branch.
         0 => {
             let short =
                 git_out(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".into());
@@ -292,6 +297,7 @@ fn resolve_branch(o: &Opts) -> Result<String, ExitCode> {
                 Err(ExitCode::from(1))
             }
         }
+        // HEAD is on several branches — pick one (only with --auto-resolve).
         _ => {
             if o.auto_resolve {
                 let best = branches

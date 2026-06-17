@@ -8,6 +8,8 @@ use super::*;
 
 const TAG: &str = "git-remerge";
 
+/// Run git-remerge: merge a (detached-work) source branch into a target,
+/// completing and deleting it on a clean merge or aborting cleanly on conflict.
 pub fn run(args: &[String]) -> ExitCode {
     let mut source_branch = String::new();
     let mut target_branch = String::new();

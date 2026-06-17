@@ -25,15 +25,15 @@ WORK QUICKLY, INTELLEGENTALLY, TALK LITTLE ACT TONS AND ACHIEVE THE ENTIRE GOAL
 3. Loop: inspect -> edit -> validate -> report. No success claim without validation.
 4. Run `strict_lint` with clear scope: file after each edit, then folder/workspace only when cross-file impact exists.
 5. Stop researching once evidence sufficient. Don't over-explore — over-exploration burns tokens.
-6. `checkpoint` at verified milestones: prefer `message` to write your own message over `context` especially because you already have all context, incrementally checkpoint and track your changes for simple maintainability and constant & consistent progress tracking, use `all: false` and list by name only source files you authored/changed. Multiple agents may have been working so keep track of your own changes and incrementally checkpoint to avoid untracked and potentially loseable progress. ALWAYS ENSURE GENERATED FILES THAT ARE MASSIVE ARE NOT TRACKED, IF THEY ARE PLEASE PROPERLY REMOVE THEM FROM THE GIT CACHE AND IGNORE THEM SO THEY DON'T POLLUTE THE REPO AND WASTE YOUR TOKEN BUDGET IN FUTURE CHECKPOINTS. Consider adding these files to the copilotignore as well to prevent copilot from even looking at them in the future and wasting tokens on processing them.
-7. USE MORE C++ GEMS DESIGN PRINCIPLES, AND CS2420 + CS3500 A+ PATTERNS ALWAYS WHEN WRITING CODE. KEEP REPOSITORY MINIMAL AND CODEBASE CLEAN **ALWAYS**, ENSURE GENERATED FILES NEVER CONTAMINATE WORKSPACE AND ENSURE THAT MINIMAL TOKENS FOR MX RESULTS ARE ALWAYS USED PER REQUEST. KEEP YOUR WORKSPACE CLEAN, IF IT IS NOT CLEAN FIX IT AND ENSURE IT STAYS FIXED.
+6. `checkpoint` at verified milestones: write your own `message`, and stage a precise subset — pass `paths` for specific files or `lines` for specific line ranges so a focused checkpoint never sweeps in unrelated edits. Incrementally checkpoint to avoid losing progress (multiple agents may be working). ALWAYS ENSURE MASSIVE GENERATED FILES ARE NOT TRACKED — remove them from the git cache and gitignore them so they don't pollute the repo or waste token budget.
+7. **Documentation and CS2420/CS3500 principles are mandatory behavior, not a choice.** Every time you touch code: document every public function/type/module as you write it; keep units small and single-responsibility; no dead code; handle errors (never swallow them). Run **`cs_lint`** after edits — it returns one clean prioritized list of violations with `file:line` and a fix. Treat its output like compiler errors and **fix violations immediately**; re-run until zero (or each remainder is explicitly justified). Never introduce new violations. `gsh grade` gives the rubric; `cs_lint` gives the exact lines. KEEP THE REPO MINIMAL AND CLEAN ALWAYS; if it is not clean, fix it.
 
 ## Tools
 
 - "Save/build as a tool" -> write impl, then `register_workspace_tool` immediately. No discovery step. Never a `.prompt.md`.
-- `workspace_context` -> run at task start for roots/branch state before deep actions.
 - Project structure recall -> `project_map` / `lookup` from the native index (refresh with `index_project`) before reading or grepping widely.
-- Subagents -> cheapest model that works, "Auto" is a good default; escalate only on real complexity; set `model` explicitly, consider agentName and task of dedicated agent carefully (often described by the name).
+- `cs_lint` -> after touching code, get the prioritized CS2420/CS3500 violation list (file:line + fix) and clear it; pair with `gsh grade` for the rubric.
+- `project_setup` -> at the start of a project, get the deterministic build-out plan (purpose, stack+commands, gaps, questions to ask the user).
 - `strict_lint` -> non-ambiguous protocol:
 	- Run with `filePath` on every changed file immediately after editing.
 	- If a change affects shared wiring across many files, run once with `folderPath` or whole workspace.
