@@ -50,6 +50,7 @@ const GITCLI_NAMES = [
   "git-get",
   "git-scan-for-leaked-envs",
   "git-upload",
+  "git-checkpoint",
 ];
 const TOOLS_CONFIG_DIR = path.join(HOME, ".config", "git-shell-helpers-mcp");
 const TOOLS_CONFIG_PATH = path.join(TOOLS_CONFIG_DIR, "tools.json");

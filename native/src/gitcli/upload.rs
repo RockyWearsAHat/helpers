@@ -11,7 +11,7 @@
 //!   git-upload --provider claude|copilot -ai
 //!   git-upload --auto-resolve            (take "theirs" on conflicts)
 
-use std::process::{Command, ExitCode, Stdio};
+use std::process::ExitCode;
 
 use super::*;
 
@@ -458,7 +458,7 @@ fn warn_sensitive() {
 /// message, else a deterministic summary of the staged change.
 fn resolve_message(o: &Opts) -> String {
     if o.use_ai {
-        if let Some(msg) = generate_ai_message(o) {
+        if let Some(msg) = ai_commit_message(o.provider.as_deref(), &o.ai_context, TAG) {
             if !msg.trim().is_empty() {
                 return msg;
             }
@@ -470,116 +470,5 @@ fn resolve_message(o: &Opts) -> String {
     } else if !o.user_msg.is_empty() {
         return o.user_msg.clone();
     }
-    deterministic_message()
-}
-
-/// "update N files (a, b, c)" plus a short stat — no AI, mirrors `checkpoint`.
-fn deterministic_message() -> String {
-    let names = git_out(&["diff", "--cached", "--name-only"]).unwrap_or_default();
-    let files: Vec<&str> = names.lines().filter(|l| !l.is_empty()).collect();
-    if files.is_empty() {
-        return "update".to_string();
-    }
-    let shown: Vec<&str> = files.iter().take(3).copied().collect();
-    let mut list = shown.join(", ");
-    if files.len() > shown.len() {
-        list.push_str(&format!(", +{} more", files.len() - shown.len()));
-    }
-    let stat = git_out(&["diff", "--cached", "--shortstat"]).unwrap_or_default();
-    let mut msg = format!(
-        "update {} file{} ({list})",
-        files.len(),
-        if files.len() == 1 { "" } else { "s" }
-    );
-    if !stat.is_empty() {
-        msg.push_str(&format!("\n\n{}", stat.trim()));
-    }
-    msg
-}
-
-/// Generate a commit message via Claude or Copilot. Returns the first non-empty
-/// lines of output, or `None` when the provider is missing/fails.
-fn generate_ai_message(o: &Opts) -> Option<String> {
-    let stat = git_out(&["diff", "--cached", "--stat"]).unwrap_or_default();
-    let names = git_out(&["diff", "--cached", "--name-only"]).unwrap_or_default();
-    let mut prompt = String::from(
-        "Write a clean, concise one-to-three line git commit message for this staged diff. \
-         Output only the message, no quotes or preamble.\n\n",
-    );
-    if !o.ai_context.is_empty() {
-        prompt.push_str(&format!("Extra context: {}\n\n", o.ai_context));
-    }
-    prompt.push_str(&format!("Changed files:\n{names}\n\nDiff stat:\n{stat}\n"));
-
-    let provider = o.provider.clone().unwrap_or_else(detect_provider);
-    let (bin, args): (&str, Vec<&str>) = match provider.as_str() {
-        "claude" => ("claude", vec!["-p", &prompt]),
-        "copilot" => (
-            "copilot",
-            vec![
-                "-s",
-                "--deny-tool",
-                "write",
-                "--deny-tool",
-                "shell",
-                "-p",
-                &prompt,
-            ],
-        ),
-        other => {
-            note(
-                TAG,
-                &format!("Unknown AI provider '{other}'. Use claude or copilot."),
-            );
-            return None;
-        }
-    };
-    if which(bin).is_none() {
-        note(TAG, &format!("AI provider '{bin}' not found on PATH."));
-        return None;
-    }
-
-    note(TAG, &format!("Generating commit message via {bin}\u{2026}"));
-    let out = Command::new(bin)
-        .args(&args)
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
-    if lines.is_empty() {
-        None
-    } else {
-        Some(lines.into_iter().take(3).collect::<Vec<_>>().join("\n"))
-    }
-}
-
-/// Prefer `claude`, then `copilot`, defaulting to claude when neither is found.
-fn detect_provider() -> String {
-    if which("claude").is_some() {
-        "claude".into()
-    } else if which("copilot").is_some() {
-        "copilot".into()
-    } else {
-        "claude".into()
-    }
-}
-
-/// Minimal `which`: first PATH entry containing an executable `name`.
-fn which(name: &str) -> Option<std::path::PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
+    staged_summary_message("update")
 }
