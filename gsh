@@ -58,6 +58,7 @@ const TOOLS_CONFIG_PATH = path.join(TOOLS_CONFIG_DIR, "tools.json");
 const CLAUDE_DIR = path.join(HOME, ".claude");
 const COPILOT_DIR = path.join(HOME, ".copilot");
 const CLAUDE_CONFIG_SRC = path.join(REPO_DIR, "claude-config");
+const COPILOT_CONFIG_SRC = path.join(REPO_DIR, "copilot-config");
 
 // ---------------------------------------------------------------------------
 // tiny ANSI helpers (auto-disabled when not a TTY or NO_COLOR is set)
@@ -450,20 +451,28 @@ function installClaude(force) {
 }
 
 // ---------------------------------------------------------------------------
-// install: GitHub Copilot (delegates to existing audit installer)
+// install: GitHub Copilot — copy the copilot-config bundle to ~/.copilot
 // ---------------------------------------------------------------------------
 function installCopilot(force) {
   console.log(bold("\n→ Installing GSH for GitHub Copilot"));
-  const bin = path.join(REPO_DIR, "git-copilot-devops-audit");
-  if (!fs.existsSync(bin)) {
-    console.log(`  ${no} git-copilot-devops-audit not found in ${REPO_DIR}`);
+  if (!fs.existsSync(COPILOT_CONFIG_SRC)) {
+    console.log(`  ${no} copilot-config bundle not found in ${REPO_DIR}`);
     return;
   }
-  const args = ["--update-agent"];
-  if (force) args.push("--force");
-  const r = spawnSync(bin, args, { stdio: "inherit" });
-  if (r.status === 0) console.log(`  ${ok} Copilot agents/instructions/skills installed`);
-  else console.log(`  ${no} Copilot install exited with code ${r.status}`);
+  // GSH MCP tools surface in Copilot via the gsh MCP server (VS Code mcp.json /
+  // the bundled extension). Here we install the agent-guidance bundle only.
+  for (const kind of ["instructions", "agents", "skills"]) {
+    const src = path.join(COPILOT_CONFIG_SRC, kind);
+    if (!fs.existsSync(src)) continue;
+    const dest = path.join(COPILOT_DIR, kind);
+    for (const entry of fs.readdirSync(src)) {
+      const target = path.join(dest, entry);
+      if (fs.existsSync(target) && !force) continue;
+      copyTree(path.join(src, entry), target);
+    }
+    console.log(`  ${ok} ${kind} installed to ~/.copilot/${kind}/`);
+  }
+  console.log(dim("  Reload VS Code (or restart Copilot) to pick up the gsh server and guidance."));
 }
 
 function cmdInstall(args) {
