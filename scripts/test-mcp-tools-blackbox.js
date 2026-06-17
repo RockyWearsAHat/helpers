@@ -96,10 +96,10 @@ class Client {
 // ── Expected functional behavior for the safe-to-invoke tools ────────────────
 // value: regex the result text must match. The repo path is passed as `root`.
 const SAFE = {
-  workspace_context: { args: {}, expect: /Root:|No git repositories/ },
   index_project: { args: { root: repo }, expect: /files,/ },
   project_map: { args: { root: repo }, expect: /Project Map/ },
   lookup: { args: { root: repo, query: "widget" }, expect: /widget/ },
+  cs_lint: { args: { root: repo }, expect: /principle review|No CS2420/ },
   checkpoint: { args: { cwd: repo }, expect: /Committed|Nothing to commit|no-op/ },
   strict_lint: { args: { folderPath: repo }, expect: /strict_lint \(standalone\)|providers run|✓ Clean/ },
   // Knowledge tools — local-only paths (no network) exercised end-to-end.
