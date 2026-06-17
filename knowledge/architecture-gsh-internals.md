@@ -102,8 +102,7 @@ Each MCP tool is backed by a dedicated module. Both MCP servers (`git-shell-help
 ### Modules (`vscode-extension/src/`)
 
 - **mcp-server.js** — MCP server lifecycle management + tool registration
-- **chat-sessions.js** — Per-chat state: branch session bindings, stash management on focus switch
-- **worktree-manager.js** — UI integration for branch isolation worktrees
+- **chat-sessions.js** — Watches Copilot Chat's JSONL session files to surface live agent activity
 - **format-control.js** — Gate `formatOnSave` during agent edits to prevent formatter interference
 - **activity-tracker.js** — User activity tracking for session pulse
 - **install-health.js** — Verify gsh installation and PATH availability
@@ -149,23 +148,6 @@ flowchart LR
     D --> E[AI generates message]
     E --> F[git commit]
     F --> G["Return {sha, message, branch}"]
-```
-
-### Branch session lifecycle
-
-```mermaid
-flowchart TD
-    A[branch_session_start] --> B[Create worktree in ~/.cache/gsh/worktrees/]
-    B --> C[Checkout branch in main repo]
-    C --> D[Bind worktree to chat session]
-    D --> E[User works normally]
-    E --> F[branch_session_end]
-    F --> G[Commit dirty changes]
-    G --> H[Remove worktree]
-    H --> I[Restore baseline branch]
-    I --> J{merge=true?}
-    J -->|yes| K[--no-ff merge + delete branch]
-    J -->|no| L[Branch preserved]
 ```
 
 ### Knowledge write + publish
@@ -237,5 +219,4 @@ Version is stored in `VERSION` (single-line semver).
 | Knowledge notes (local) | `<workspace>/.github/knowledge/` | Per-project, TF-IDF indexed |
 | Community cache | `<gsh-root>/community-cache/` | Shared via GitHub PRs |
 | Session memory | `<workspace>/.github/session-memory/session-log.jsonl` | Per-workspace, append-only |
-| Branch worktrees | `~/.cache/gsh/worktrees/<branch>` | Temporary, per-chat |
 | Community settings | `~/.copilot/devops-audit-community-settings.json` | User-level |
