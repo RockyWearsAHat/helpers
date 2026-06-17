@@ -4,6 +4,14 @@
 //! language server). Fallback: run the project's own tooling (eslint, tsc, ruff,
 //! mypy, cargo clippy, go vet/staticcheck, shellcheck) and unify the output, so
 //! non-VS-Code agents still get each provider's best-practice diagnostics.
+//!
+//! The pure output parsers live in [`parsers`]; the CLI runners that locate and
+//! invoke each tool live in [`runners`]. This module owns the shared diagnostic
+//! model, the standalone orchestration, the report formatter, and the VS Code
+//! IPC path.
+
+mod parsers;
+mod runners;
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -13,6 +21,10 @@ use serde_json::{json, Value};
 
 use crate::git::home;
 use crate::proto::{text, ToolResult};
+
+use runners::{
+    lint_clippy, lint_eslint, lint_go, lint_mypy, lint_ruff, lint_shellcheck, lint_tsc,
+};
 
 /// MCP tool schema for `strict_lint`.
 pub fn schema() -> Value {
@@ -33,6 +45,7 @@ pub fn schema() -> Value {
 
 // ─── Diagnostic model ───────────────────────────────────────────────────────
 
+/// One unified diagnostic from any provider (file:line:col + severity/rule).
 #[derive(Clone)]
 pub struct Diag {
     pub file: String,
@@ -44,6 +57,7 @@ pub struct Diag {
     pub tool: &'static str,
 }
 
+/// Diagnostic severity, ordered Error → Warning → Hint for sorting/grouping.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sev {
     Error,
@@ -52,6 +66,7 @@ pub enum Sev {
 }
 
 impl Sev {
+    /// Sort key (0 = Error, highest priority).
     fn order(self) -> u8 {
         match self {
             Sev::Error => 0,
@@ -59,6 +74,7 @@ impl Sev {
             Sev::Hint => 2,
         }
     }
+    /// Section heading used in the rendered report.
     fn label(self) -> &'static str {
         match self {
             Sev::Error => "ERRORS",
@@ -68,635 +84,17 @@ impl Sev {
     }
 }
 
-fn diag(
-    file: String,
-    line: u32,
-    col: u32,
-    severity: Sev,
-    rule: &str,
-    message: &str,
-    tool: &'static str,
-) -> Diag {
-    Diag {
-        file,
-        line,
-        col,
-        severity,
-        rule: rule.to_string(),
-        message: message.trim().to_string(),
-        tool,
-    }
-}
-
+/// The outcome of running one provider: which tool(s) ran, an optional skip
+/// note, and the diagnostics produced.
 struct LinterResult {
     tools: Vec<&'static str>,
     skipped: Option<String>,
     diagnostics: Vec<Diag>,
 }
 
-// ─── tool/process helpers ───────────────────────────────────────────────────
-
-/// Whether `cmd` is on PATH.
-fn on_path(cmd: &str) -> bool {
-    run_capture("sh", &["-c", &format!("command -v {cmd}")], None, 5).0
-}
-
-/// Run a linter subprocess with a bounded timeout (delegates to the shared
-/// process helper). Returns `(success, stdout, stderr)`.
-fn run_capture(
-    cmd: &str,
-    args: &[&str],
-    cwd: Option<&Path>,
-    timeout_s: u64,
-) -> (bool, String, String) {
-    crate::proc::run_capture(cmd, args, cwd, &[], timeout_s)
-}
-
-const IGNORE_DIRS: &[&str] = &[
-    ".git",
-    "node_modules",
-    "target",
-    "build",
-    "out",
-    "bin",
-    "dist",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".gradle",
-    ".idea",
-    ".cache",
-];
-
-/// Files under `target` whose lowercased name ends with one of `exts`.
-fn list_files(target: &Path, exts: &[&str]) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let matches = |p: &Path| {
-        let name = p.to_string_lossy().to_lowercase();
-        exts.iter().any(|e| name.ends_with(e))
-    };
-    let meta = match std::fs::metadata(target) {
-        Ok(m) => m,
-        Err(_) => return out,
-    };
-    if meta.is_file() {
-        if matches(target) {
-            out.push(target.to_path_buf());
-        }
-        return out;
-    }
-    let mut stack = vec![target.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let p = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            if p.is_dir() {
-                if IGNORE_DIRS.contains(&name.as_str()) || name.starts_with('.') {
-                    continue;
-                }
-                stack.push(p);
-            } else if matches(&p) {
-                out.push(p);
-            }
-        }
-    }
-    out
-}
-
-/// Nearest ancestor of `start` (inclusive) containing any of `names`.
-fn find_up(start: &Path, names: &[&str]) -> Option<PathBuf> {
-    let mut dir = start.to_path_buf();
-    for _ in 0..40 {
-        if names.iter().any(|n| dir.join(n).exists()) {
-            return Some(dir);
-        }
-        match dir.parent() {
-            Some(p) if p != dir => dir = p.to_path_buf(),
-            _ => break,
-        }
-    }
-    None
-}
-
-/// Nearest `node_modules/.bin/<bin>` walking up from `root`.
-fn local_bin(root: &Path, bin: &str) -> Option<PathBuf> {
-    let mut dir = root.to_path_buf();
-    for _ in 0..40 {
-        let p = dir.join("node_modules").join(".bin").join(bin);
-        if p.exists() {
-            return Some(p);
-        }
-        match dir.parent() {
-            Some(parent) if parent != dir => dir = parent.to_path_buf(),
-            _ => break,
-        }
-    }
-    None
-}
-
-fn resolve(base: &Path, rel: &str) -> String {
-    let p = Path::new(rel);
-    if p.is_absolute() {
-        rel.to_string()
-    } else {
-        base.join(rel).to_string_lossy().to_string()
-    }
-}
-
-// ─── pure output parsers (unit-tested without the linters installed) ─────────
-
-/// Parse ESLint `--format json` output into unified diagnostics.
-pub fn parse_eslint(stdout: &str) -> Vec<Diag> {
-    let mut diags = Vec::new();
-    let files: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
-    if let Some(arr) = files.as_array() {
-        for f in arr {
-            let path = f.get("filePath").and_then(Value::as_str).unwrap_or("");
-            for m in f
-                .get("messages")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                let sev = if m.get("severity").and_then(Value::as_i64) == Some(2) {
-                    Sev::Error
-                } else {
-                    Sev::Warning
-                };
-                diags.push(diag(
-                    path.to_string(),
-                    m.get("line").and_then(Value::as_u64).unwrap_or(0) as u32,
-                    m.get("column").and_then(Value::as_u64).unwrap_or(0) as u32,
-                    sev,
-                    m.get("ruleId").and_then(Value::as_str).unwrap_or(""),
-                    m.get("message").and_then(Value::as_str).unwrap_or(""),
-                    "eslint",
-                ));
-            }
-        }
-    }
-    diags
-}
-
-/// Parse `cargo clippy --message-format=json` lines (one JSON value per line)
-/// into unified diagnostics, resolving span paths relative to `base`.
-pub fn parse_clippy(stdout: &str, base: &Path) -> Vec<Diag> {
-    let mut diags = Vec::new();
-    for line in stdout.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let m: Value = match serde_json::from_str(line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        if m.get("reason").and_then(Value::as_str) != Some("compiler-message") {
-            continue;
-        }
-        let msg = match m.get("message") {
-            Some(v) => v,
-            None => continue,
-        };
-        let level = msg.get("level").and_then(Value::as_str).unwrap_or("");
-        let sev = match level {
-            "error" => Sev::Error,
-            "warning" => Sev::Warning,
-            _ => continue,
-        };
-        let spans = msg
-            .get("spans")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let span = spans
-            .iter()
-            .find(|s| s.get("is_primary").and_then(Value::as_bool) == Some(true))
-            .or_else(|| spans.first());
-        let span = match span {
-            Some(s) => s,
-            None => continue,
-        };
-        let code = msg
-            .get("code")
-            .and_then(|c| c.get("code"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        diags.push(diag(
-            resolve(
-                base,
-                span.get("file_name").and_then(Value::as_str).unwrap_or(""),
-            ),
-            span.get("line_start").and_then(Value::as_u64).unwrap_or(0) as u32,
-            span.get("column_start")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            sev,
-            code,
-            msg.get("message").and_then(Value::as_str).unwrap_or(""),
-            "clippy",
-        ));
-    }
-    diags
-}
-
-/// Parse ShellCheck `-f json` output into unified diagnostics.
-pub fn parse_shellcheck(stdout: &str) -> Vec<Diag> {
-    let mut diags = Vec::new();
-    let arr: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
-    for v in arr.as_array().into_iter().flatten() {
-        let sev = match v.get("level").and_then(Value::as_str).unwrap_or("") {
-            "error" => Sev::Error,
-            "warning" => Sev::Warning,
-            _ => Sev::Hint,
-        };
-        let code = format!("SC{}", v.get("code").and_then(Value::as_u64).unwrap_or(0));
-        diags.push(diag(
-            v.get("file")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            v.get("line").and_then(Value::as_u64).unwrap_or(0) as u32,
-            v.get("column").and_then(Value::as_u64).unwrap_or(0) as u32,
-            sev,
-            &code,
-            v.get("message").and_then(Value::as_str).unwrap_or(""),
-            "shellcheck",
-        ));
-    }
-    diags
-}
-
-/// Parse Ruff `--output-format json` output into unified diagnostics.
-pub fn parse_ruff(stdout: &str) -> Vec<Diag> {
-    let mut diags = Vec::new();
-    let arr: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
-    for v in arr.as_array().into_iter().flatten() {
-        diags.push(diag(
-            v.get("filename")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            v.get("location")
-                .and_then(|l| l.get("row"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            v.get("location")
-                .and_then(|l| l.get("column"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            Sev::Warning,
-            v.get("code").and_then(Value::as_str).unwrap_or(""),
-            v.get("message").and_then(Value::as_str).unwrap_or(""),
-            "ruff",
-        ));
-    }
-    diags
-}
-
-/// Parse `tsc --noEmit --pretty false` text output into unified diagnostics,
-/// resolving file paths relative to `base`.
-pub fn parse_tsc(stdout: &str, base: &Path) -> Vec<Diag> {
-    let re =
-        regex::Regex::new(r"^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s+(.*)$").unwrap();
-    let mut diags = Vec::new();
-    for line in stdout.lines() {
-        if let Some(c) = re.captures(line) {
-            let sev = if &c[4] == "error" {
-                Sev::Error
-            } else {
-                Sev::Warning
-            };
-            diags.push(diag(
-                resolve(base, &c[1]),
-                c[2].parse().unwrap_or(0),
-                c[3].parse().unwrap_or(0),
-                sev,
-                &c[5],
-                &c[6],
-                "tsc",
-            ));
-        }
-    }
-    diags
-}
-
-/// Parse mypy `--show-error-codes` text output into unified diagnostics,
-/// resolving file paths relative to `base`.
-pub fn parse_mypy(stdout: &str, base: &Path) -> Vec<Diag> {
-    let re = regex::Regex::new(
-        r"^(.+?):(\d+):(?:(\d+):)?\s+(error|note|warning):\s+(.*?)(?:\s+\[([\w-]+)\])?$",
-    )
-    .unwrap();
-    let mut diags = Vec::new();
-    for line in stdout.lines() {
-        if let Some(c) = re.captures(line) {
-            let sev = match &c[4] {
-                "error" => Sev::Error,
-                "warning" => Sev::Warning,
-                _ => Sev::Hint,
-            };
-            diags.push(diag(
-                resolve(base, &c[1]),
-                c[2].parse().unwrap_or(0),
-                c.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                sev,
-                c.get(6).map(|m| m.as_str()).unwrap_or(""),
-                c.get(5).map(|m| m.as_str()).unwrap_or(""),
-                "mypy",
-            ));
-        }
-    }
-    diags
-}
-
-/// Parse `go vet` stderr text into unified diagnostics, resolving file paths
-/// relative to `base`.
-pub fn parse_go_vet(stderr: &str, base: &Path) -> Vec<Diag> {
-    let re = regex::Regex::new(r"^(.+?\.go):(\d+):(?:(\d+):)?\s+(.*)$").unwrap();
-    let mut diags = Vec::new();
-    for line in stderr.lines() {
-        if let Some(c) = re.captures(line.trim()) {
-            diags.push(diag(
-                resolve(base, &c[1]),
-                c[2].parse().unwrap_or(0),
-                c.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                Sev::Warning,
-                "vet",
-                &c[4],
-                "go vet",
-            ));
-        }
-    }
-    diags
-}
-
-/// Parse `staticcheck -f json` output (one JSON value per line) into diagnostics.
-pub fn parse_staticcheck(stdout: &str) -> Vec<Diag> {
-    let mut diags = Vec::new();
-    for line in stdout.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let m: Value = match serde_json::from_str(line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let loc = match m.get("location") {
-            Some(l) => l,
-            None => continue,
-        };
-        let sev = if m.get("severity").and_then(Value::as_str) == Some("error") {
-            Sev::Error
-        } else {
-            Sev::Warning
-        };
-        diags.push(diag(
-            loc.get("file")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            loc.get("line").and_then(Value::as_u64).unwrap_or(0) as u32,
-            loc.get("column").and_then(Value::as_u64).unwrap_or(0) as u32,
-            sev,
-            m.get("code").and_then(Value::as_str).unwrap_or(""),
-            m.get("message").and_then(Value::as_str).unwrap_or(""),
-            "staticcheck",
-        ));
-    }
-    diags
-}
-
-// ─── linter runners ─────────────────────────────────────────────────────────
-
-/// Lint JS/TS under `target` with the nearest ESLint (local `node_modules` bin
-/// preferred). `None` when no JS/TS files are present; a skip note when ESLint or
-/// its config is missing.
-fn lint_eslint(target: &Path, root: &Path) -> Option<LinterResult> {
-    let exts = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"];
-    if list_files(target, &exts).is_empty() {
-        return None;
-    }
-    let config_dir = find_up(
-        root,
-        &[
-            "eslint.config.js",
-            "eslint.config.mjs",
-            "eslint.config.cjs",
-            "eslint.config.ts",
-            ".eslintrc.js",
-            ".eslintrc.cjs",
-            ".eslintrc.json",
-            ".eslintrc.yml",
-            ".eslintrc.yaml",
-            ".eslintrc",
-        ],
-    );
-    let bin = local_bin(root, "eslint")
-        .map(|p| p.to_string_lossy().to_string())
-        .or_else(|| on_path("eslint").then(|| "eslint".to_string()));
-    let bin = match bin {
-        Some(b) => b,
-        None => return Some(skipped("eslint (not installed)")),
-    };
-    let config_dir = match config_dir {
-        Some(d) => d,
-        None => return Some(skipped("eslint (no config found)")),
-    };
-    let rel_target = target
-        .strip_prefix(&config_dir)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| ".".to_string());
-    let rel_target = if rel_target.is_empty() {
-        ".".to_string()
-    } else {
-        rel_target
-    };
-    let (_, stdout, stderr) = run_capture(
-        &bin,
-        &[
-            "--format",
-            "json",
-            "--no-error-on-unmatched-pattern",
-            &rel_target,
-        ],
-        Some(&config_dir),
-        60,
-    );
-    if serde_json::from_str::<Value>(stdout.trim()).is_err() && !stderr.trim().is_empty() {
-        return Some(skipped(&format!(
-            "eslint (error: {})",
-            stderr.trim().lines().next().unwrap_or("")
-        )));
-    }
-    Some(ran("eslint", parse_eslint(&stdout)))
-}
-
-/// Lint Rust under `target` with `cargo clippy` from the nearest crate root.
-fn lint_clippy(target: &Path, root: &Path) -> Option<LinterResult> {
-    let cargo_dir = find_up(root, &["Cargo.toml"])?;
-    if list_files(target, &[".rs"]).is_empty() {
-        return None;
-    }
-    if !on_path("cargo") {
-        return Some(skipped("clippy (cargo not installed)"));
-    }
-    let (_, stdout, _) = run_capture(
-        "cargo",
-        &["clippy", "--message-format=json", "-q"],
-        Some(&cargo_dir),
-        180,
-    );
-    Some(ran("clippy", parse_clippy(&stdout, &cargo_dir)))
-}
-
-/// Lint Python under `target` with `ruff check`.
-fn lint_ruff(target: &Path, root: &Path) -> Option<LinterResult> {
-    if list_files(target, &[".py", ".pyi"]).is_empty() {
-        return None;
-    }
-    if !on_path("ruff") {
-        return Some(skipped("ruff (not installed — `pip install ruff`)"));
-    }
-    let (_, stdout, _) = run_capture(
-        "ruff",
-        &[
-            "check",
-            "--output-format",
-            "json",
-            "--force-exclude",
-            &target.to_string_lossy(),
-        ],
-        Some(root),
-        60,
-    );
-    Some(ran("ruff", parse_ruff(&stdout)))
-}
-
-/// Lint shell scripts under `target` with ShellCheck (capped at 500 files).
-fn lint_shellcheck(target: &Path) -> Option<LinterResult> {
-    let files = list_files(target, &[".sh", ".bash"]);
-    if files.is_empty() {
-        return None;
-    }
-    if !on_path("shellcheck") {
-        return Some(skipped("shellcheck (not installed)"));
-    }
-    let mut args = vec!["-f".to_string(), "json".to_string()];
-    for f in files.iter().take(500) {
-        args.push(f.to_string_lossy().to_string());
-    }
-    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let (_, stdout, _) = run_capture("shellcheck", &arg_refs, None, 60);
-    Some(ran("shellcheck", parse_shellcheck(&stdout)))
-}
-
-/// Type-check TS under `target` with `tsc --noEmit`; skipped for file-scoped
-/// runs (tsc needs the whole project).
-fn lint_tsc(target: &Path, root: &Path, scope_is_file: bool) -> Option<LinterResult> {
-    if scope_is_file {
-        return None;
-    }
-    let ts_root = find_up(root, &["tsconfig.json"])?;
-    if list_files(target, &[".ts", ".tsx"]).is_empty() {
-        return None;
-    }
-    let bin = local_bin(root, "tsc")
-        .map(|p| p.to_string_lossy().to_string())
-        .or_else(|| on_path("tsc").then(|| "tsc".to_string()));
-    let bin = match bin {
-        Some(b) => b,
-        None => return Some(skipped("tsc (not installed)")),
-    };
-    let (_, stdout, _) = run_capture(
-        &bin,
-        &["--noEmit", "--pretty", "false"],
-        Some(&ts_root),
-        120,
-    );
-    Some(ran("tsc", parse_tsc(&stdout, &ts_root)))
-}
-
-/// Type-check Python under `target` with mypy, only when mypy is configured.
-fn lint_mypy(target: &Path, root: &Path) -> Option<LinterResult> {
-    if list_files(target, &[".py"]).is_empty() {
-        return None;
-    }
-    // Only run when explicitly configured (avoids noise).
-    let cfg_dir = find_up(root, &["mypy.ini", ".mypy.ini"]).or_else(|| {
-        find_up(root, &["pyproject.toml"]).filter(|d| {
-            std::fs::read_to_string(d.join("pyproject.toml"))
-                .map(|s| s.contains("[tool.mypy]"))
-                .unwrap_or(false)
-        })
-    })?;
-    if !on_path("mypy") {
-        return Some(skipped("mypy (not installed)"));
-    }
-    let (_, stdout, _) = run_capture(
-        "mypy",
-        &[
-            "--no-error-summary",
-            "--show-error-codes",
-            "--no-color-output",
-            &target.to_string_lossy(),
-        ],
-        Some(&cfg_dir),
-        120,
-    );
-    Some(ran("mypy", parse_mypy(&stdout, &cfg_dir)))
-}
-
-/// Lint Go under `target` with `go vet` and (when present) `staticcheck`.
-fn lint_go(target: &Path, root: &Path) -> Option<LinterResult> {
-    let go_root = find_up(root, &["go.mod"])?;
-    if list_files(target, &[".go"]).is_empty() {
-        return None;
-    }
-    let mut tools: Vec<&'static str> = Vec::new();
-    let mut skipped_msg = None;
-    let mut diagnostics = Vec::new();
-    if on_path("go") {
-        let (_, _, stderr) = run_capture("go", &["vet", "./..."], Some(&go_root), 120);
-        tools.push("go vet");
-        diagnostics.extend(parse_go_vet(&stderr, &go_root));
-    } else {
-        skipped_msg = Some("go vet (go not installed)".to_string());
-    }
-    if on_path("staticcheck") {
-        let (_, stdout, _) =
-            run_capture("staticcheck", &["-f", "json", "./..."], Some(&go_root), 120);
-        tools.push("staticcheck");
-        diagnostics.extend(parse_staticcheck(&stdout));
-    }
-    Some(LinterResult {
-        tools,
-        skipped: skipped_msg,
-        diagnostics,
-    })
-}
-
-fn skipped(msg: &str) -> LinterResult {
-    LinterResult {
-        tools: Vec::new(),
-        skipped: Some(msg.to_string()),
-        diagnostics: Vec::new(),
-    }
-}
-
-fn ran(tool: &'static str, diagnostics: Vec<Diag>) -> LinterResult {
-    LinterResult {
-        tools: vec![tool],
-        skipped: None,
-        diagnostics,
-    }
-}
-
 // ─── standalone orchestration ───────────────────────────────────────────────
 
+/// Run every applicable CLI linter for `args`' target and render the report.
 fn run_standalone(args: &Value) -> String {
     let file_path = args
         .get("filePath")
@@ -770,6 +168,7 @@ fn run_standalone(args: &Value) -> String {
     format_report(&target, &tools_ran, &skipped_list, &mut diagnostics, filter)
 }
 
+/// Render diagnostics grouped by severity, with provider/skip summary lines.
 fn format_report(
     target: &Path,
     ran: &[&str],
@@ -870,6 +269,7 @@ fn format_report(
     lines.join("\n")
 }
 
+/// Shorten a path to be workspace-relative for display when possible.
 fn shorten(file: &str) -> String {
     if let Ok(cwd) = std::env::current_dir() {
         if let Ok(rel) = Path::new(file).strip_prefix(&cwd) {
@@ -881,6 +281,7 @@ fn shorten(file: &str) -> String {
 
 // ─── VS Code IPC primary path ───────────────────────────────────────────────
 
+/// Path to the JSON file advertising VS Code's strict-lint IPC socket.
 fn ipc_info_path() -> PathBuf {
     home()
         .join(".cache")
@@ -888,6 +289,8 @@ fn ipc_info_path() -> PathBuf {
         .join("strict-lint-ipc.json")
 }
 
+/// VS Code IPC outcome: a rendered result, or an error (with whether the error
+/// indicates no diagnostics provider was active).
 enum Ipc {
     Ok(String),
     Err {
@@ -967,40 +370,6 @@ pub fn run(args: &Value) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_eslint_json() {
-        let json = r#"[{"filePath":"/p/a.js","messages":[{"severity":2,"line":3,"column":5,"ruleId":"no-unused-vars","message":"x is unused"},{"severity":1,"line":7,"column":1,"ruleId":"eqeqeq","message":"use ==="}]}]"#;
-        let d = parse_eslint(json);
-        assert_eq!(d.len(), 2);
-        assert_eq!(d[0].severity, Sev::Error);
-        assert_eq!(d[0].rule, "no-unused-vars");
-        assert_eq!(d[1].severity, Sev::Warning);
-    }
-
-    #[test]
-    fn parses_clippy_json() {
-        let line = r#"{"reason":"compiler-message","message":{"level":"warning","message":"unused variable","code":{"code":"unused_variables"},"spans":[{"is_primary":true,"file_name":"src/x.rs","line_start":4,"column_start":9}]}}"#;
-        let d = parse_clippy(line, Path::new("/proj"));
-        assert_eq!(d.len(), 1);
-        assert_eq!(d[0].severity, Sev::Warning);
-        assert_eq!(d[0].rule, "unused_variables");
-        assert_eq!(d[0].file, "/proj/src/x.rs");
-        assert_eq!(d[0].line, 4);
-    }
-
-    #[test]
-    fn parses_shellcheck_and_tsc() {
-        let sc = r#"[{"file":"a.sh","line":2,"column":1,"level":"warning","code":2086,"message":"Double quote"}]"#;
-        let d = parse_shellcheck(sc);
-        assert_eq!(d[0].rule, "SC2086");
-        let tsc = "src/x.ts(10,5): error TS2304: Cannot find name 'foo'.";
-        let d2 = parse_tsc(tsc, Path::new("/proj"));
-        assert_eq!(d2.len(), 1);
-        assert_eq!(d2[0].severity, Sev::Error);
-        assert_eq!(d2[0].rule, "TS2304");
-        assert_eq!(d2[0].file, "/proj/src/x.ts");
-    }
 
     #[test]
     fn formats_clean_report() {
