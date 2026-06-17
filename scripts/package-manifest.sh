@@ -28,9 +28,11 @@ gsh_core_commands() {
 		git-copilot-quickstart
 }
 
+# Community-cache knowledge-sharing commands (the AI audit orchestrator was
+# removed; these submit/pull community research and remain part of the knowledge
+# subsystem).
 gsh_audit_commands() {
 	printf '%s\n' \
-		git-copilot-devops-audit \
 		git-copilot-devops-audit-community-pull \
 		git-copilot-devops-audit-community-submit \
 		git-copilot-devops-audit-community-research-submit
@@ -96,9 +98,9 @@ gsh_core_man_pages() {
 		git-upload.1
 }
 
+# The AI audit orchestrator (and its man page) were removed; no audit man pages.
 gsh_audit_man_pages() {
-	printf '%s\n' \
-		git-copilot-devops-audit.1
+	:
 }
 
 gsh_mcp_man_pages() {

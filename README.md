@@ -14,7 +14,7 @@ the agent-facing quickstart.
 - [Git subcommands](#git-subcommands)
 - [MCP servers](#mcp-servers)
 - [Research Search (GitHub Pages)](#research-search-github-pages)
-- [Copilot DevOps Audit](#copilot-devops-audit)
+- [gsh setup (project build-out)](#gsh-setup-project-build-out)
 - [Installation](#installation)
 - [Development & Contributing](#development--contributing)
 
