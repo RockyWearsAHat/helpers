@@ -31,6 +31,8 @@ fn rel(root: &Path, p: &Path) -> String {
 
 // ─── index_project ──────────────────────────────────────────────────────────
 
+/// Build and persist the project index (graph + optional `.dx` docs) for `root`,
+/// returning a summary of files/symbols/edges indexed and the top-ranked modules.
 pub fn run_index(args: &Value) -> ToolResult {
     let root = root_arg(args);
     if !root.exists() {
@@ -78,6 +80,8 @@ pub fn run_index(args: &Value) -> ToolResult {
 
 // ─── project_map ────────────────────────────────────────────────────────────
 
+/// Return the token-cheap ranked project overview, building the index on demand
+/// if none is cached.
 pub fn run_map(args: &Value) -> ToolResult {
     let root = root_arg(args);
     let index = load_or_build(&root)?;
@@ -91,6 +95,8 @@ pub fn run_map(args: &Value) -> ToolResult {
 
 // ─── lookup ─────────────────────────────────────────────────────────────────
 
+/// Resolve a symbol or file query from the index graph: returns matching symbol
+/// definitions (with their referencing files) and file-path matches, ranked.
 pub fn run_lookup(args: &Value) -> ToolResult {
     let query = args
         .get("query")
@@ -200,6 +206,7 @@ fn load_or_build(root: &Path) -> Result<ProjectIndex, String> {
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
+/// MCP tool schema for `index_project`.
 pub fn schema_index() -> Value {
     json!({
         "name": "index_project",
@@ -215,6 +222,7 @@ pub fn schema_index() -> Value {
     })
 }
 
+/// MCP tool schema for `project_map`.
 pub fn schema_map() -> Value {
     json!({
         "name": "project_map",
@@ -229,6 +237,7 @@ pub fn schema_map() -> Value {
     })
 }
 
+/// MCP tool schema for `lookup`.
 pub fn schema_lookup() -> Value {
     json!({
         "name": "lookup",

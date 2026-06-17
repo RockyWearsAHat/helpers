@@ -76,6 +76,9 @@ pub struct CacheSearch {
     pub results: Vec<CacheHit>,
 }
 
+/// Keyword-rank markdown notes across the workspace and repo knowledge roots,
+/// returning the top `max_results` scored hits with snippets. Errors if `query`
+/// has no searchable terms.
 pub fn search_knowledge_cache(
     cfg: &KnowledgeConfig,
     query: &str,
@@ -151,6 +154,9 @@ pub struct NoteResult {
     pub text: String,
 }
 
+/// Read one knowledge note by filename or workspace-relative path, resolving
+/// workspace → repo bundle → GitHub community. Rejects paths outside the
+/// knowledge directories; truncates to `max_chars` when `max_chars > 0`.
 pub fn read_knowledge_note(
     cfg: &KnowledgeConfig,
     note_path: &str,
@@ -211,6 +217,8 @@ pub fn read_knowledge_note(
 
 // ─── note writers ───────────────────────────────────────────────────────────
 
+/// Resolve a writable note path under the knowledge root, rejecting paths that
+/// escape it or are not `.md` files.
 pub fn resolve_knowledge_path(cfg: &KnowledgeConfig, note_path: &str) -> Result<PathBuf, String> {
     let resolved = if !note_path.contains('/') {
         cfg.knowledge_root.join(note_path)
@@ -252,6 +260,8 @@ pub struct PublishStatus {
     pub output: Option<String>,
 }
 
+/// Create (or, with `overwrite=true`, replace) a knowledge note from the call
+/// args, then rebuild the index and optionally publish.
 pub fn write_knowledge_note(cfg: &KnowledgeConfig, args: &Value) -> Result<WriteResult, String> {
     let note_path = str_arg(args, "path");
     if note_path.is_empty() {
@@ -282,6 +292,8 @@ pub fn write_knowledge_note(cfg: &KnowledgeConfig, args: &Value) -> Result<Write
     ))
 }
 
+/// Replace the body under a given heading in an existing note (other sections
+/// preserved), then rebuild the index and optionally publish.
 pub fn update_knowledge_note(cfg: &KnowledgeConfig, args: &Value) -> Result<WriteResult, String> {
     let note_path = str_arg(args, "path");
     let heading = str_arg(args, "heading");
@@ -330,6 +342,8 @@ pub fn update_knowledge_note(cfg: &KnowledgeConfig, args: &Value) -> Result<Writ
     Ok(finalize(cfg, "updated", &resolved, Some(heading), args))
 }
 
+/// Append content to the end of an existing note, then rebuild the index and
+/// optionally publish.
 pub fn append_to_knowledge_note(
     cfg: &KnowledgeConfig,
     args: &Value,
@@ -354,6 +368,8 @@ pub fn append_to_knowledge_note(
     Ok(finalize(cfg, "appended", &resolved, None, args))
 }
 
+/// Submit an existing knowledge note to the shared community base, returning the
+/// note's relative path and the submission output.
 pub fn submit_research(cfg: &KnowledgeConfig, args: &Value) -> Result<(String, String), String> {
     let note_path = str_arg(args, "path");
     if note_path.is_empty() {

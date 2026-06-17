@@ -29,6 +29,9 @@ pub struct KnowledgeConfig {
 }
 
 impl KnowledgeConfig {
+    /// Resolve all knowledge paths from the current workspace and install dir:
+    /// the active knowledge root (workspace `knowledge/` if it holds markdown,
+    /// else `.github/knowledge/`), the repo-bundled root, and the GitHub cache.
     pub fn resolve() -> Self {
         let workspace_root = workspace_root();
         // The GSH install dir is this binary's parent (REPO_ROOT in the JS).

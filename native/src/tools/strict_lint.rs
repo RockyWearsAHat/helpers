@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use crate::git::home;
 use crate::proto::{text, ToolResult};
 
+/// MCP tool schema for `strict_lint`.
 pub fn schema() -> Value {
     json!({
         "name": "strict_lint",
@@ -208,6 +209,7 @@ fn resolve(base: &Path, rel: &str) -> String {
 
 // ─── pure output parsers (unit-tested without the linters installed) ─────────
 
+/// Parse ESLint `--format json` output into unified diagnostics.
 pub fn parse_eslint(stdout: &str) -> Vec<Diag> {
     let mut diags = Vec::new();
     let files: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
@@ -240,6 +242,8 @@ pub fn parse_eslint(stdout: &str) -> Vec<Diag> {
     diags
 }
 
+/// Parse `cargo clippy --message-format=json` lines (one JSON value per line)
+/// into unified diagnostics, resolving span paths relative to `base`.
 pub fn parse_clippy(stdout: &str, base: &Path) -> Vec<Diag> {
     let mut diags = Vec::new();
     for line in stdout.lines() {
@@ -299,6 +303,7 @@ pub fn parse_clippy(stdout: &str, base: &Path) -> Vec<Diag> {
     diags
 }
 
+/// Parse ShellCheck `-f json` output into unified diagnostics.
 pub fn parse_shellcheck(stdout: &str) -> Vec<Diag> {
     let mut diags = Vec::new();
     let arr: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
@@ -325,6 +330,7 @@ pub fn parse_shellcheck(stdout: &str) -> Vec<Diag> {
     diags
 }
 
+/// Parse Ruff `--output-format json` output into unified diagnostics.
 pub fn parse_ruff(stdout: &str) -> Vec<Diag> {
     let mut diags = Vec::new();
     let arr: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
@@ -351,6 +357,8 @@ pub fn parse_ruff(stdout: &str) -> Vec<Diag> {
     diags
 }
 
+/// Parse `tsc --noEmit --pretty false` text output into unified diagnostics,
+/// resolving file paths relative to `base`.
 pub fn parse_tsc(stdout: &str, base: &Path) -> Vec<Diag> {
     let re =
         regex::Regex::new(r"^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s+(.*)$").unwrap();
@@ -376,6 +384,8 @@ pub fn parse_tsc(stdout: &str, base: &Path) -> Vec<Diag> {
     diags
 }
 
+/// Parse mypy `--show-error-codes` text output into unified diagnostics,
+/// resolving file paths relative to `base`.
 pub fn parse_mypy(stdout: &str, base: &Path) -> Vec<Diag> {
     let re = regex::Regex::new(
         r"^(.+?):(\d+):(?:(\d+):)?\s+(error|note|warning):\s+(.*?)(?:\s+\[([\w-]+)\])?$",
@@ -403,6 +413,8 @@ pub fn parse_mypy(stdout: &str, base: &Path) -> Vec<Diag> {
     diags
 }
 
+/// Parse `go vet` stderr text into unified diagnostics, resolving file paths
+/// relative to `base`.
 pub fn parse_go_vet(stderr: &str, base: &Path) -> Vec<Diag> {
     let re = regex::Regex::new(r"^(.+?\.go):(\d+):(?:(\d+):)?\s+(.*)$").unwrap();
     let mut diags = Vec::new();
@@ -422,6 +434,7 @@ pub fn parse_go_vet(stderr: &str, base: &Path) -> Vec<Diag> {
     diags
 }
 
+/// Parse `staticcheck -f json` output (one JSON value per line) into diagnostics.
 pub fn parse_staticcheck(stdout: &str) -> Vec<Diag> {
     let mut diags = Vec::new();
     for line in stdout.lines() {
@@ -459,6 +472,9 @@ pub fn parse_staticcheck(stdout: &str) -> Vec<Diag> {
 
 // ─── linter runners ─────────────────────────────────────────────────────────
 
+/// Lint JS/TS under `target` with the nearest ESLint (local `node_modules` bin
+/// preferred). `None` when no JS/TS files are present; a skip note when ESLint or
+/// its config is missing.
 fn lint_eslint(target: &Path, root: &Path) -> Option<LinterResult> {
     let exts = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"];
     if list_files(target, &exts).is_empty() {
@@ -519,6 +535,7 @@ fn lint_eslint(target: &Path, root: &Path) -> Option<LinterResult> {
     Some(ran("eslint", parse_eslint(&stdout)))
 }
 
+/// Lint Rust under `target` with `cargo clippy` from the nearest crate root.
 fn lint_clippy(target: &Path, root: &Path) -> Option<LinterResult> {
     let cargo_dir = find_up(root, &["Cargo.toml"])?;
     if list_files(target, &[".rs"]).is_empty() {
@@ -536,6 +553,7 @@ fn lint_clippy(target: &Path, root: &Path) -> Option<LinterResult> {
     Some(ran("clippy", parse_clippy(&stdout, &cargo_dir)))
 }
 
+/// Lint Python under `target` with `ruff check`.
 fn lint_ruff(target: &Path, root: &Path) -> Option<LinterResult> {
     if list_files(target, &[".py", ".pyi"]).is_empty() {
         return None;
@@ -558,6 +576,7 @@ fn lint_ruff(target: &Path, root: &Path) -> Option<LinterResult> {
     Some(ran("ruff", parse_ruff(&stdout)))
 }
 
+/// Lint shell scripts under `target` with ShellCheck (capped at 500 files).
 fn lint_shellcheck(target: &Path) -> Option<LinterResult> {
     let files = list_files(target, &[".sh", ".bash"]);
     if files.is_empty() {
@@ -575,6 +594,8 @@ fn lint_shellcheck(target: &Path) -> Option<LinterResult> {
     Some(ran("shellcheck", parse_shellcheck(&stdout)))
 }
 
+/// Type-check TS under `target` with `tsc --noEmit`; skipped for file-scoped
+/// runs (tsc needs the whole project).
 fn lint_tsc(target: &Path, root: &Path, scope_is_file: bool) -> Option<LinterResult> {
     if scope_is_file {
         return None;
@@ -599,6 +620,7 @@ fn lint_tsc(target: &Path, root: &Path, scope_is_file: bool) -> Option<LinterRes
     Some(ran("tsc", parse_tsc(&stdout, &ts_root)))
 }
 
+/// Type-check Python under `target` with mypy, only when mypy is configured.
 fn lint_mypy(target: &Path, root: &Path) -> Option<LinterResult> {
     if list_files(target, &[".py"]).is_empty() {
         return None;
@@ -628,6 +650,7 @@ fn lint_mypy(target: &Path, root: &Path) -> Option<LinterResult> {
     Some(ran("mypy", parse_mypy(&stdout, &cfg_dir)))
 }
 
+/// Lint Go under `target` with `go vet` and (when present) `staticcheck`.
 fn lint_go(target: &Path, root: &Path) -> Option<LinterResult> {
     let go_root = find_up(root, &["go.mod"])?;
     if list_files(target, &[".go"]).is_empty() {
@@ -919,6 +942,8 @@ fn try_ipc(args: &Value) -> Option<Ipc> {
     None
 }
 
+/// Run `strict_lint`: prefer VS Code's live diagnostics over IPC, falling back to
+/// the standalone CLI linters (and noting when VS Code had no active provider).
 pub fn run(args: &Value) -> ToolResult {
     let ipc = try_ipc(args);
     if let Some(Ipc::Ok(t)) = &ipc {
