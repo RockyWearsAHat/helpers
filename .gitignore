@@ -21,7 +21,10 @@ native/target/
 /git-checkpoint
 /git-help-i-pushed-an-env
 # Generated project index (cheap repo map) — rebuilt on demand by `gsh index`.
-.gsh/index/
+# Match at any depth: sub-crates (e.g. native/.gsh/) get their own index cache.
+**/.gsh/index/
+# Generated build-out plan from `gsh setup` (regenerable; not source).
+**/.gsh/SETUP.md
 *.dxbundle
 build/
 coverage/
