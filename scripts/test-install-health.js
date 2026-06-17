@@ -11,10 +11,8 @@ async function main() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "gsh-install-health-"));
   const originalLoad = Module._load;
 
-  let branchSessionsEnabled = false;
   let nextWarningChoice;
   const warningCalls = [];
-  const infoMessages = [];
   const terminalCommands = [];
   const openedUrls = [];
 
@@ -22,10 +20,7 @@ async function main() {
     workspace: {
       workspaceFolders: [],
       getConfiguration: () => ({
-        get: (key, defaultValue) => {
-          if (key === "enabled") return branchSessionsEnabled;
-          return defaultValue;
-        },
+        get: (key, defaultValue) => defaultValue,
       }),
     },
     window: {
@@ -33,9 +28,7 @@ async function main() {
         warningCalls.push({ message, options, actions });
         return nextWarningChoice;
       },
-      showInformationMessage: async (message) => {
-        infoMessages.push(message);
-      },
+      showInformationMessage: async () => {},
       showErrorMessage: async (message) => {
         throw new Error(message);
       },
@@ -68,86 +61,54 @@ async function main() {
   try {
     const createInstallHealth = require("../vscode-extension/src/install-health");
 
+    // Install one: missing git-research-mcp and no installer present → the popup
+    // should flag the incomplete feature bundle and offer the setup guide.
     const installRootOne = path.join(tmpRoot, "install-one");
-    const scriptsOne = path.join(installRootOne, "scripts");
-    fs.mkdirSync(scriptsOne, { recursive: true });
+    fs.mkdirSync(installRootOne, { recursive: true });
     fs.writeFileSync(path.join(installRootOne, "git-shell-helpers-mcp"), "", "utf8");
-    for (const helper of [
-      "patch-vscode-apply-all.js",
-      "patch-vscode-folder-switch.js",
-      "patch-vscode-git-head-display.js",
-      "patch-vscode-runsubagent-model.js",
-    ]) {
-      fs.writeFileSync(path.join(scriptsOne, helper), "", "utf8");
-    }
 
     const healthOne = createInstallHealth({
       _context: {},
       findGitShellHelpersMcpPath: () =>
         path.join(installRootOne, "git-shell-helpers-mcp"),
-      execFileSync: () => JSON.stringify({ patches: [], allPatched: true }),
     });
 
     const statusOne = healthOne.collectHealthStatus();
     assert.strictEqual(statusOne.hasLocalInstall, true);
     assert.strictEqual(statusOne.shouldShowPopup, true);
     assert.match(statusOne.detail, /git-research-mcp/);
-    assert.strictEqual(statusOne.canApplyPatches, false);
+    assert.strictEqual(statusOne.canRunInstaller, false);
 
+    nextWarningChoice = "Open Setup Guide";
+    await healthOne.maybeShowStartupPopup();
+    assert.strictEqual(warningCalls.length, 1);
+    assert.strictEqual(warningCalls[0].options.modal, true);
+    assert.ok(warningCalls[0].actions.includes("Open Setup Guide"));
+    assert.strictEqual(openedUrls.length, 1);
+
+    // Install two: complete feature bundle + installer present → no popup.
     const installRootTwo = path.join(tmpRoot, "install-two");
-    const scriptsTwo = path.join(installRootTwo, "scripts");
-    fs.mkdirSync(scriptsTwo, { recursive: true });
+    fs.mkdirSync(installRootTwo, { recursive: true });
     fs.writeFileSync(path.join(installRootTwo, "git-shell-helpers-mcp"), "", "utf8");
     fs.writeFileSync(path.join(installRootTwo, "git-research-mcp"), "", "utf8");
-    fs.writeFileSync(path.join(installRootTwo, "install-git-shell-helpers"), "", "utf8");
-    for (const helper of [
-      "patch-vscode-apply-all.js",
-      "patch-vscode-folder-switch.js",
-      "patch-vscode-git-head-display.js",
-      "patch-vscode-runsubagent-model.js",
-    ]) {
-      fs.writeFileSync(path.join(scriptsTwo, helper), "", "utf8");
-    }
+    fs.writeFileSync(
+      path.join(installRootTwo, "install-git-shell-helpers"),
+      "",
+      "utf8",
+    );
 
-    const execCalls = [];
     const healthTwo = createInstallHealth({
       _context: {},
       findGitShellHelpersMcpPath: () =>
         path.join(installRootTwo, "git-shell-helpers-mcp"),
-      execFileSync: (command, args) => {
-        execCalls.push([command, args]);
-        if (args[1] === "--json") {
-          return JSON.stringify({
-            allPatched: false,
-            patches: [
-              { name: "folder-switch", status: "unpatched" },
-              { name: "git-head-display", status: "patched" },
-            ],
-          });
-        }
-        return "ok";
-      },
     });
 
-    branchSessionsEnabled = true;
-    nextWarningChoice = "Apply Patches";
-    await healthTwo.maybeShowStartupPopup();
-
-    assert.strictEqual(warningCalls.length, 1);
-    assert.strictEqual(warningCalls[0].options.modal, true);
-    assert.ok(warningCalls[0].actions.includes("Apply Patches"));
-    assert.ok(
-      execCalls.some(([, args]) => args[0].endsWith("patch-vscode-apply-all.js") && args[1] === "--json"),
-    );
-    assert.ok(
-      execCalls.some(([, args]) => args[0].endsWith("patch-vscode-apply-all.js") && args.length === 1),
-    );
-    assert.ok(
-      execCalls.some(([, args]) => args[0].endsWith("patch-vscode-apply-all.js") && args[1] === "--check"),
-    );
-    assert.strictEqual(infoMessages.length, 1);
+    const statusTwo = healthTwo.collectHealthStatus();
+    assert.strictEqual(statusTwo.shouldShowPopup, false);
+    assert.strictEqual(statusTwo.canRunInstaller, true);
+    const shown = await healthTwo.maybeShowStartupPopup();
+    assert.strictEqual(shown, false);
     assert.strictEqual(terminalCommands.length, 0);
-    assert.strictEqual(openedUrls.length, 0);
   } finally {
     Module._load = originalLoad;
   }

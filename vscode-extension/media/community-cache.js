@@ -292,14 +292,6 @@
     });
   });
 
-  document.querySelectorAll("[data-branch-sessions]").forEach((el) => {
-    el.addEventListener("click", () => {
-      const nowActive = toggleCheckbox(el);
-      updateSectionCount(el, ".tool-item");
-      vscode.postMessage({ type: "toggleBranchSessions", enabled: nowActive });
-    });
-  });
-
   document.querySelectorAll("[data-session-memory]").forEach((el) => {
     el.addEventListener("click", () => {
       const nowActive = toggleCheckbox(el);
