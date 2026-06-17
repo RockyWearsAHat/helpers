@@ -40,6 +40,7 @@ checks=(
 	"node ./scripts/build-pages-search-site.js"
 	"node ./scripts/test-project-index.js"
 	"node ./scripts/test-mcp-tools-blackbox.js"
+	"node ./scripts/test-mcp-roots-workspace.js"
 	"bash ./scripts/build-dist.sh"
 )
 
