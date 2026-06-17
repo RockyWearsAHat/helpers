@@ -133,6 +133,8 @@ fn str_arg(args: &Value, key: &str) -> String {
         .to_string()
 }
 
+/// Register (or update) a named project flow from `name`/`description`/`command`
+/// args, persisting it to the workspace manifest so it becomes callable by name.
 pub fn run_register(args: &Value) -> ToolResult {
     let name = str_arg(args, "name");
     let description = str_arg(args, "description");
@@ -181,6 +183,7 @@ pub fn run_register(args: &Value) -> ToolResult {
     ))])
 }
 
+/// Remove the named project flow from the workspace manifest; errors if absent.
 pub fn run_unregister(args: &Value) -> ToolResult {
     let name = str_arg(args, "name");
     if name.is_empty() {
@@ -201,6 +204,7 @@ pub fn run_unregister(args: &Value) -> ToolResult {
     }
 }
 
+/// List every registered project flow (name, description, first command line).
 pub fn run_list(_args: &Value) -> ToolResult {
     let tools = load_tools();
     if tools.is_empty() {
@@ -228,6 +232,7 @@ pub fn run_list(_args: &Value) -> ToolResult {
 
 // ─── schemas for the meta-tools ─────────────────────────────────────────────
 
+/// MCP tool schema for `register_workspace_tool`.
 pub fn schema_register() -> Value {
     json!({
         "name": "register_workspace_tool",
@@ -245,6 +250,7 @@ pub fn schema_register() -> Value {
     })
 }
 
+/// MCP tool schema for `unregister_workspace_tool`.
 pub fn schema_unregister() -> Value {
     json!({
         "name": "unregister_workspace_tool",
@@ -257,6 +263,7 @@ pub fn schema_unregister() -> Value {
     })
 }
 
+/// MCP tool schema for `list_workspace_tools`.
 pub fn schema_list() -> Value {
     json!({
         "name": "list_workspace_tools",

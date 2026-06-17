@@ -78,6 +78,9 @@ pub fn run(args: &Value) -> ToolResult {
         let Some(lang) = Lang::from_ext(&f.ext) else {
             continue;
         };
+        if is_declaration_file(&f.rel) {
+            continue;
+        }
         let Ok(content) = std::fs::read_to_string(&f.abs) else {
             continue;
         };
@@ -445,6 +448,13 @@ fn error_handling(rel: &str, lang: Lang, lines: &[&str], out: &mut Vec<Issue>) {
     }
 }
 
+/// TypeScript ambient declaration files (`.d.ts`) declare external API surface,
+/// not project implementation, so the principle checks (docs, single
+/// responsibility, error handling) do not apply to them.
+fn is_declaration_file(rel: &str) -> bool {
+    rel.ends_with(".d.ts")
+}
+
 fn is_test_path(p: &str) -> bool {
     let pl = p.to_lowercase();
     pl.contains("/test")
@@ -547,6 +557,14 @@ mod tests {
             .iter()
             .any(|i| i.category == "cs-principle" && i.message.contains("Empty catch")));
         assert!(out.iter().any(|i| i.category == "documentation-gap"));
+    }
+
+    #[test]
+    fn declaration_files_are_skipped() {
+        assert!(is_declaration_file("vscode.proposed.foo.d.ts"));
+        assert!(is_declaration_file("types/index.d.ts"));
+        assert!(!is_declaration_file("src/index.ts"));
+        assert!(!is_declaration_file("src/app.js"));
     }
 
     #[test]

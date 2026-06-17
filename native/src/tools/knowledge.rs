@@ -26,12 +26,15 @@ fn max_results(args: &Value, default: i64) -> usize {
 
 // ─── handlers ───────────────────────────────────────────────────────────────
 
+/// Handle `build_knowledge_index`: rebuild the local workspace TF-IDF index.
 pub fn run_build_index(_args: &Value) -> ToolResult {
     let cfg = KnowledgeConfig::resolve();
     let r = build_knowledge_index(&cfg)?;
     Ok(vec![text(format_build(&r))])
 }
 
+/// Handle `search_knowledge_index`: TF-IDF search, falling back to keyword cache
+/// search when no index is available.
 pub fn run_search_index(args: &Value) -> ToolResult {
     let query = str_arg(args, "query");
     if query.is_empty() {
@@ -50,6 +53,7 @@ pub fn run_search_index(args: &Value) -> ToolResult {
     }
 }
 
+/// Handle `search_knowledge_cache`: keyword search over the note cache.
 pub fn run_search_cache(args: &Value) -> ToolResult {
     let query = str_arg(args, "query");
     if query.is_empty() {
@@ -60,6 +64,7 @@ pub fn run_search_cache(args: &Value) -> ToolResult {
     Ok(vec![text(format_cache_search(&cache))])
 }
 
+/// Handle `read_knowledge_note`: return one note's content (optionally truncated).
 pub fn run_read_note(args: &Value) -> ToolResult {
     let path = str_arg(args, "path");
     if path.is_empty() {
@@ -74,21 +79,25 @@ pub fn run_read_note(args: &Value) -> ToolResult {
     Ok(vec![text(format_note(&note))])
 }
 
+/// Handle `write_knowledge_note`: create or overwrite a note.
 pub fn run_write_note(args: &Value) -> ToolResult {
     let r = write_knowledge_note(&KnowledgeConfig::resolve(), args)?;
     Ok(vec![text(format_write(&r))])
 }
 
+/// Handle `update_knowledge_note`: replace a section identified by heading.
 pub fn run_update_note(args: &Value) -> ToolResult {
     let r = update_knowledge_note(&KnowledgeConfig::resolve(), args)?;
     Ok(vec![text(format_write(&r))])
 }
 
+/// Handle `append_to_knowledge_note`: append content to an existing note.
 pub fn run_append_note(args: &Value) -> ToolResult {
     let r = append_to_knowledge_note(&KnowledgeConfig::resolve(), args)?;
     Ok(vec![text(format_write(&r))])
 }
 
+/// Handle `submit_community_research`: publish a note to the shared base.
 pub fn run_submit(args: &Value) -> ToolResult {
     let (path, output) = submit_research(&KnowledgeConfig::resolve(), args)?;
     let mut lines = vec!["Action: submitted".to_string(), format!("Path: {path}")];
@@ -238,6 +247,7 @@ fn fmt_num(n: f64) -> String {
 
 // ─── schemas ────────────────────────────────────────────────────────────────
 
+/// MCP tool schema for `search_knowledge_cache`.
 pub fn schema_search_cache() -> Value {
     json!({
         "name": "search_knowledge_cache",
@@ -249,6 +259,7 @@ pub fn schema_search_cache() -> Value {
     })
 }
 
+/// MCP tool schema for `read_knowledge_note`.
 pub fn schema_read_note() -> Value {
     json!({
         "name": "read_knowledge_note",
@@ -260,6 +271,7 @@ pub fn schema_read_note() -> Value {
     })
 }
 
+/// MCP tool schema for `write_knowledge_note`.
 pub fn schema_write_note() -> Value {
     json!({
         "name": "write_knowledge_note",
@@ -273,6 +285,7 @@ pub fn schema_write_note() -> Value {
     })
 }
 
+/// MCP tool schema for `update_knowledge_note`.
 pub fn schema_update_note() -> Value {
     json!({
         "name": "update_knowledge_note",
@@ -286,6 +299,7 @@ pub fn schema_update_note() -> Value {
     })
 }
 
+/// MCP tool schema for `append_to_knowledge_note`.
 pub fn schema_append_note() -> Value {
     json!({
         "name": "append_to_knowledge_note",
@@ -298,6 +312,7 @@ pub fn schema_append_note() -> Value {
     })
 }
 
+/// MCP tool schema for `submit_community_research`.
 pub fn schema_submit() -> Value {
     json!({
         "name": "submit_community_research",
@@ -308,6 +323,7 @@ pub fn schema_submit() -> Value {
     })
 }
 
+/// MCP tool schema for `build_knowledge_index`.
 pub fn schema_build_index() -> Value {
     json!({
         "name": "build_knowledge_index",
@@ -316,6 +332,7 @@ pub fn schema_build_index() -> Value {
     })
 }
 
+/// MCP tool schema for `search_knowledge_index`.
 pub fn schema_search_index() -> Value {
     json!({
         "name": "search_knowledge_index",

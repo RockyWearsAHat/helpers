@@ -66,6 +66,7 @@ pub struct TagExtractor {
 }
 
 impl TagExtractor {
+    /// Create an extractor with an empty per-language configuration cache.
     pub fn new() -> Self {
         Self {
             ctx: TagsContext::new(),
