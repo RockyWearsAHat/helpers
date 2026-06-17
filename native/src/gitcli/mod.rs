@@ -15,6 +15,7 @@ pub mod checkpoint;
 pub mod fucked_push;
 pub mod get;
 pub mod initialize;
+pub mod pushed_env;
 pub mod remerge;
 pub mod resolve;
 pub mod scan_envs;
@@ -30,6 +31,7 @@ pub const CLI_NAMES: &[&str] = &[
     "git-scan-for-leaked-envs",
     "git-upload",
     "git-checkpoint",
+    "git-help-i-pushed-an-env",
 ];
 
 /// Returns `true` when `basename` names one of the ported CLIs.
@@ -49,6 +51,7 @@ pub fn dispatch(name: &str, args: &[String]) -> ExitCode {
         "git-scan-for-leaked-envs" => scan_envs::run(args),
         "git-upload" => upload::run(args),
         "git-checkpoint" => checkpoint::run(args),
+        "git-help-i-pushed-an-env" => pushed_env::run(args),
         other => {
             eprintln!("gsh-native gitcli: unknown CLI: {other}");
             ExitCode::from(2)

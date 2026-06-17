@@ -83,4 +83,22 @@ status_out="$("$NB" gitcli git-checkpoint --status 2>&1 || true)"
 echo "$status_out" | grep -q "enabled:" \
 	|| fail "git-checkpoint --status did not report config"
 
+# 9) git-help-i-pushed-an-env --scan finds a planted .env and exits 1 (no rewrite).
+printf 'API_KEY=AKIAIOSFODNN7EXAMPLE\n' >.env
+git add .env && git commit -qm "oops env"
+scan="$("$NB" gitcli git-help-i-pushed-an-env --scan 2>&1 || true)"
+echo "$scan" | grep -q "(current) .env" \
+	|| fail "pushed-an-env --scan did not find the planted .env"
+
+# 10) --dry-run reports without changing history; .env still tracked afterward.
+"$NB" gitcli git-help-i-pushed-an-env --dry-run -f >/dev/null 2>&1 \
+	|| fail "pushed-an-env --dry-run returned nonzero"
+git ls-files | grep -q "^.env$" \
+	|| fail "pushed-an-env --dry-run must not modify the repo"
+
+# 11) Removed multi-repo/interactive flags are rejected (exit 2), not silently ignored.
+if "$NB" gitcli git-help-i-pushed-an-env --all-repos >/dev/null 2>&1; then
+	fail "pushed-an-env should reject the removed --all-repos flag"
+fi
+
 echo "GITCLI: pass"
