@@ -182,7 +182,11 @@ fn deterministic_message(cwd: &Path) -> String {
                 .take(3)
                 .map(|f| f.rsplit('/').next().unwrap_or(f))
                 .collect();
-            let more = if n > 3 { format!(", +{} more", n - 3) } else { String::new() };
+            let more = if n > 3 {
+                format!(", +{} more", n - 3)
+            } else {
+                String::new()
+            };
             format!("checkpoint: update {n} files ({}{more})", names.join(", "))
         }
     };

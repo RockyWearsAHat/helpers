@@ -14,13 +14,39 @@ use std::io::Read;
 use std::path::Path;
 use std::process::ExitCode;
 
+use gsh_native::gitcli;
 use gsh_native::index::bundle;
 use gsh_native::proto::{emit_content, emit_error};
 use gsh_native::registry;
 
 fn main() -> ExitCode {
+    // Busybox-style dispatch: when invoked through a `git-*` symlink, argv[0]'s
+    // basename selects the ported CLI.
+    if let Some(basename) = std::env::args().next().and_then(|a| {
+        Path::new(&a)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(str::to_string)
+    }) {
+        if gitcli::is_cli(&basename) {
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            return gitcli::dispatch(&basename, &args);
+        }
+    }
+
     let argv: Vec<String> = std::env::args().skip(1).collect();
     match argv.first().map(String::as_str) {
+        // Explicit form: `gsh-native gitcli <name> [args…]`.
+        Some("gitcli") => {
+            let name = match argv.get(1) {
+                Some(n) => n.clone(),
+                None => {
+                    eprintln!("usage: gsh-native gitcli <name> [args…]");
+                    return ExitCode::from(2);
+                }
+            };
+            gitcli::dispatch(&name, &argv[2..])
+        }
         Some("schemas") => {
             let arr = registry::schemas();
             println!(

@@ -12,17 +12,13 @@ cd "$(cd "$(dirname "$0")/.." && pwd)"
 
 declare -a checks
 checks=(
-	"bash -n git-upload"
-	"bash -n git-get"
-	"bash -n git-initialize"
+	# git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
+	# git-resolve, git-scan-for-leaked-envs are native Rust (native/src/gitcli/),
+	# exercised by `cargo test` and the gitcli smoke test below.
 	"bash -n git-checkpoint"
-	"bash -n git-fucked-the-push"
-	"bash -n git-remerge"
-	"bash -n git-resolve"
 	"bash -n git-copilot-quickstart"
 	"bash -n git-copilot-devops-audit"
 	"bash -n git-help-i-pushed-an-env"
-	"bash -n git-scan-for-leaked-envs"
 	"bash -n Git-Shell-Helpers-Installer.sh"
 	"bash -n install-git-shell-helpers"
 	"bash -n scripts/community-cache-submit.sh"
@@ -34,7 +30,7 @@ checks=(
 	"bash -n scripts/pkg/mcp-scripts/postinstall"
 	"bash -n scripts/pkg/audit-scripts/postinstall"
 	"bash -n scripts/pkg/vscode-scripts/postinstall"
-	"bash ./scripts/test-git-upload-detect.sh"
+	"bash ./scripts/test-gitcli.sh"
 	"node ./scripts/test-pdf-extract.js"
 	"node ./scripts/test-patch-vscode-argv.js"
 	"node --check ./scripts/patch-vscode-argv.js"

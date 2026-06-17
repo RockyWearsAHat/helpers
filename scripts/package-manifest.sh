@@ -19,16 +19,13 @@
 
 set -euo pipefail
 
+# Shell commands still shipped as scripts. The git-* CLIs ported to Rust
+# (git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
+# git-resolve, git-scan-for-leaked-envs) are built by `gsh build` as symlinks to
+# the gsh-native binary, so they are not copied here.
 gsh_core_commands() {
 	printf '%s\n' \
-		git-upload \
-		git-get \
-		git-initialize \
 		git-checkpoint \
-		git-fucked-the-push \
-		git-remerge \
-		git-resolve \
-		git-scan-for-leaked-envs \
 		git-help-i-pushed-an-env \
 		git-copilot-quickstart
 }
@@ -59,12 +56,7 @@ gsh_shell_libs() {
 		env-scan.sh \
 		env-ui.sh \
 		quickstart-detect.sh \
-		quickstart-models.sh \
-		upload-ai-message.sh \
-		upload-diff-analysis.sh \
-		upload-spinner.sh \
-		upload-test-detection.sh \
-		upload-test-output.sh
+		quickstart-models.sh
 }
 
 gsh_mcp_libs() {

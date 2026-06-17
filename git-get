@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-
-# Use first argument as commit message, or default to "default commit message"
-REPO=${1}
-BRANCH=${2:-main}
-
-git init
-git remote add origin ${REPO}
-git pull origin ${BRANCH}

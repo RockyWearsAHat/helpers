@@ -4,6 +4,7 @@
 //! without spawning a process.
 
 pub mod git;
+pub mod gitcli;
 pub mod index;
 pub mod knowledge;
 pub mod proc;

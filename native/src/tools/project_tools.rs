@@ -27,7 +27,11 @@ struct ProjectTool {
     #[serde(default)]
     command: String,
     /// Optional MCP input schema; defaults to a free-form object.
-    #[serde(rename = "inputSchema", default, skip_serializing_if = "Value::is_null")]
+    #[serde(
+        rename = "inputSchema",
+        default,
+        skip_serializing_if = "Value::is_null"
+    )]
     input_schema: Value,
 }
 
@@ -38,7 +42,10 @@ struct Manifest {
 }
 
 fn manifest_path() -> std::path::PathBuf {
-    workspace_root().join(".gsh").join("tools").join("manifest.json")
+    workspace_root()
+        .join(".gsh")
+        .join("tools")
+        .join("manifest.json")
 }
 
 fn load_tools() -> Vec<ProjectTool> {
@@ -54,8 +61,10 @@ fn save_tools(tools: &[ProjectTool]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let json = serde_json::to_string_pretty(&Manifest { tools: tools.to_vec() })
-        .map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&Manifest {
+        tools: tools.to_vec(),
+    })
+    .map_err(|e| e.to_string())?;
     std::fs::write(path, json + "\n").map_err(|e| e.to_string())
 }
 
@@ -117,7 +126,11 @@ pub fn dispatch(name: &str, args: &Value) -> Option<ToolResult> {
 // ─── meta-tools: register / unregister / list ───────────────────────────────
 
 fn str_arg(args: &Value, key: &str) -> String {
-    args.get(key).and_then(Value::as_str).unwrap_or("").trim().to_string()
+    args.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string()
 }
 
 pub fn run_register(args: &Value) -> ToolResult {
@@ -136,7 +149,10 @@ pub fn run_register(args: &Value) -> ToolResult {
         ));
     }
     if command.is_empty() {
-        return Err("register_workspace_tool: 'command' is required (the shell command/flow to run).".into());
+        return Err(
+            "register_workspace_tool: 'command' is required (the shell command/flow to run)."
+                .into(),
+        );
     }
 
     let mut tools = load_tools();
@@ -179,7 +195,9 @@ pub fn run_unregister(args: &Value) -> ToolResult {
                 "Project tool \"{name}\" removed. It no longer appears in tools/list."
             ))])
         }
-        None => Err(format!("unregister_workspace_tool: tool \"{name}\" not found.")),
+        None => Err(format!(
+            "unregister_workspace_tool: tool \"{name}\" not found."
+        )),
     }
 }
 
@@ -192,7 +210,15 @@ pub fn run_list(_args: &Value) -> ToolResult {
     }
     let mut lines = vec![format!("{} project tool(s):", tools.len()), String::new()];
     for t in &tools {
-        lines.push(format!("- {} — {}", t.name, if t.description.is_empty() { "(no description)" } else { &t.description }));
+        lines.push(format!(
+            "- {} — {}",
+            t.name,
+            if t.description.is_empty() {
+                "(no description)"
+            } else {
+                &t.description
+            }
+        ));
         if !t.command.trim().is_empty() {
             lines.push(format!("    $ {}", t.command.lines().next().unwrap_or("")));
         }
@@ -248,7 +274,10 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("gsh-pt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
-        std::env::set_var("GSH_WORKSPACE_ROOTS", format!("[{:?}]", tmp.to_string_lossy()));
+        std::env::set_var(
+            "GSH_WORKSPACE_ROOTS",
+            format!("[{:?}]", tmp.to_string_lossy()),
+        );
 
         let reg = run_register(&json!({
             "name": "say-hi",
@@ -264,7 +293,11 @@ mod tests {
 
         // dispatch runs the command
         let out = dispatch("say-hi", &json!({})).unwrap().unwrap();
-        assert!(out[0].text.contains("hello-from-flow"), "got: {}", out[0].text);
+        assert!(
+            out[0].text.contains("hello-from-flow"),
+            "got: {}",
+            out[0].text
+        );
 
         // unregister removes it
         run_unregister(&json!({ "name": "say-hi" })).unwrap();
