@@ -18,7 +18,7 @@ pub struct Tool {
 /// allowlist) is all that's needed to route it to Rust.
 pub fn all_tools() -> Vec<Tool> {
     use tools::{
-        checkpoint as cp, knowledge as kn, project_index as pi, strict_lint as sl,
+        checkpoint as cp, knowledge as kn, project_index as pi, setup as su, strict_lint as sl,
         workspace_context as wc,
     };
     vec![
@@ -51,6 +51,11 @@ pub fn all_tools() -> Vec<Tool> {
             name: "lookup",
             schema: pi::schema_lookup,
             handler: pi::run_lookup,
+        },
+        Tool {
+            name: "project_setup",
+            schema: su::schema,
+            handler: su::run,
         },
         Tool {
             name: "build_knowledge_index",

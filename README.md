@@ -193,19 +193,23 @@ If any of these PRs land in VS Code, the corresponding local patch becomes unnec
 
 ## Git subcommands
 
+The standalone `git-*` CLIs are native Rust (the `gitcli` module of the
+`gsh-native` crate), built and symlinked by `gsh build`. They are deterministic;
+`git upload` is the only one that touches AI, and only as an opt-in.
+
 | Command                    | What it does                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------- |
-| `git upload`               | Stage, commit, and push with optional AI-generated commit messages              |
+| `git upload`               | Stage, commit, and push with safe recovery; deterministic message by default, optional `-ai` via Claude/Copilot |
 | `git get`                  | Initialize a local repo from a remote (lightweight clone flow)                  |
 | `git initialize`           | Initialize the directory as a repo, create initial commit, set `origin`, push   |
-| `git checkpoint`           | Commit current state with an AI-generated message (used by `gsh` MCP tools)     |
+| `git checkpoint`           | Commit current state with a deterministic message (used by `gsh` MCP tools)     |
 | `git fucked-the-push`      | Destructive recovery: undo the last pushed commit while keeping changes staged  |
 | `git resolve`              | Safe merge/rebase conflict resolution with automatic backup branches            |
 | `git remerge`              | Merge a detached-work branch back into a target; aborts cleanly on conflicts    |
-| `git copilot-quickstart`   | Scaffold a `.github/` Copilot self-iteration workflow for any repository        |
-| `git scan-for-leaked-envs` | Scan for leaked secrets, API keys, and environment variables using Copilot      |
+| `git scan-for-leaked-envs` | Scan for leaked secrets, API keys, and env vars with deterministic patterns     |
 | `git help-i-pushed-an-env` | Emergency: scrub secrets from git history, including batch ops across all repos |
-| `git copilot-devops-audit` | Run the Copilot customization audit workflow (see below)                        |
+
+Plus `gsh setup` — a deterministic project build-out plan (see **gsh setup** below).
 
 Man pages are installed for all commands. Use `git help <subcommand>` or `man git-<subcommand>` after installation.
 
@@ -248,6 +252,7 @@ Project index (cheap repo map — orient without grepping):
 - `index_project` - build/refresh a static map of files, symbols, and the reference graph (ranked), written to `.gsh/index/`.
 - `project_map` - return a compact, token-cheap overview of the top modules plus a Mermaid graph; orient in one call.
 - `lookup` - find where a symbol is defined and what references it, from the index graph instead of a grep sweep.
+- `project_setup` - analyze the repo deterministically and return a concise build-out plan (purpose, stack + build/test/lint commands, gap checklist, and questions to ask the user). Drives a project to a complete, well-structured state fast; writes `.gsh/SETUP.md`. Also available as `gsh setup`.
 
 Project flows (agent-agnostic reusable tools, scoped to the project):
 
@@ -344,28 +349,28 @@ node ./scripts/capture-live-site-browser-flows.js --output-dir /tmp/atlas-live-s
 
 ---
 
-## Copilot DevOps Audit
+## gsh setup (project build-out)
 
-`git-copilot-devops-audit` audits GitHub Copilot customization in any workspace — keeping `.github/` setup current, project-specific, and aligned with what VS Code and Copilot actually support.
+`gsh setup` replaces the old Copilot DevOps audit with a **deterministic** project
+build-out engine — no AI, no agent install. It analyzes the repository and prints
+(and writes to `.gsh/SETUP.md`) a concise, structured plan that drives any project
+to a complete, well-structured state quickly, while enforcing three rules:
 
-### Install the audit surfaces
+1. **Minimal context** — the plan is a tight, ranked summary, never a file dump.
+2. **Understand goals first** — purpose/goals are surfaced (or flagged as unknown)
+   before any build-out steps are proposed.
+3. **Clarify with the user** — ambiguities become explicit questions to ask first.
 
 ```sh
-git copilot-devops-audit --update-agent --force
+gsh setup            # analyze, print the plan, write .gsh/SETUP.md
+gsh setup --no-write # print only
 ```
 
-This installs:
-
-- Audit agents under `~/.copilot/agents/`
-- Natural-language router under `~/.copilot/instructions/`
-- Audit skills under `~/.copilot/skills/`
-- The `/copilot-devops-audit` slash command prompt in VS Code's user prompts folder
-
-### Running an audit
-
-Use the `/copilot-devops-audit` slash command in VS Code Copilot Chat for the deterministic entry point. Natural-language routing ("audit my Copilot setup") works through the installed router instruction but is best-effort.
-
-Each full audit runs four phases: Context → Research → Evaluation → Implementation.
+The plan contains: detected purpose, the technology stack with its build/test/lint
+commands, the project shape (languages, top-level dirs, entry points), a prioritized
+gap checklist (missing tests, CI, license, lint config, …), and clarifying questions.
+The same engine is exposed to agents as the `project_setup` MCP tool, so an agent can
+orient and build out in one call.
 
 ---
 
@@ -375,7 +380,7 @@ Each full audit runs four phases: Context → Research → Evaluation → Implem
 
 Download the latest `.pkg` from the [releases page](https://github.com/RockyWearsAHat/github-shell-helpers/releases/latest) and run the installer. It places binaries in `/usr/local/bin` and man pages in `/usr/local/share/man/man1` without touching shell config files.
 
-The postinstall script also attempts to install the VS Code extensions and run `git copilot-devops-audit --update-agent --force` for the logged-in user. If it can't (no VS Code CLI in PATH), run that command manually.
+The postinstall script also attempts to install the VS Code extensions for the logged-in user.
 
 ### Homebrew
 

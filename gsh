@@ -788,6 +788,31 @@ ${bold("NOTES")}
 }
 
 // ---------------------------------------------------------------------------
+// setup: deterministic project build-out plan (delegates to gsh-native)
+// ---------------------------------------------------------------------------
+function cmdSetup(args) {
+  if (!fs.existsSync(GSH_NATIVE_CMD)) {
+    die("gsh-native is not built — run `gsh build` (needs Rust: https://rustup.rs).");
+  }
+  const root = projectRoot();
+  const write = !args.includes("--no-write");
+  const r = spawnSync(GSH_NATIVE_CMD, ["call", "project_setup"], {
+    input: JSON.stringify({ root, write }),
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  let parsed;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    die(`gsh setup failed: ${(r.stderr || r.stdout || "").trim()}`);
+  }
+  if (parsed.error) die(parsed.error.message);
+  console.log(parsed.content.map((c) => c.text).join("\n"));
+  if (write) console.log(dim(`\nWrote ${path.join(".gsh", "SETUP.md")}.`));
+}
+
+// ---------------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------------
 function main() {
@@ -810,6 +835,7 @@ function main() {
     case "build": buildShim(); buildCsGrade(); buildNative(); return;
     case "grade": return cmdGrade(rest);
     case "index": return cmdIndex(rest);
+    case "setup": return cmdSetup(rest);
     default:
       die(`unknown command '${cmd}'. Run \`gsh help\`.`);
   }
