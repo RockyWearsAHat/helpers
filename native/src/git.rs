@@ -36,6 +36,40 @@ pub fn exec_git(args: &[&str], cwd: &Path) -> Result<String, String> {
     }
 }
 
+/// Run `git <args>` in `cwd`, feeding `stdin` to the process. Returns trimmed
+/// stdout on success, or trimmed stderr (with a fallback) on failure. Used to
+/// pipe a filtered patch into `git apply --cached`.
+pub fn exec_git_stdin(args: &[&str], cwd: &Path, stdin: &str) -> Result<String, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "failed to open git stdin".to_string())?
+        .write_all(stdin.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            format!("git {} failed", args.join(" "))
+        } else {
+            stderr
+        })
+    }
+}
+
 /// Workspace roots from `$GSH_WORKSPACE_ROOTS` (a JSON array), or an empty vec
 /// so the caller can apply its own fallback (cwd, etc.).
 pub fn workspace_roots() -> Vec<PathBuf> {
