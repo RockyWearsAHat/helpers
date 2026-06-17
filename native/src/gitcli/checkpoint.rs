@@ -47,6 +47,9 @@ struct Opts {
     ai_context: String,
 }
 
+/// Run git-checkpoint: stage (all, or per config) and commit locally with a
+/// deterministic or `-ai` message; optionally push. Honors the per-repo
+/// checkpoint.enabled/sign/push config keys.
 pub fn run(args: &[String]) -> ExitCode {
     let mut o = Opts {
         manual_msg: None,

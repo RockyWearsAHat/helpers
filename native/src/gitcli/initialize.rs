@@ -9,6 +9,8 @@ use super::*;
 
 const TAG: &str = "git-initialize";
 
+/// Run git-initialize: init, commit everything, set `origin`, and push the
+/// first branch to the given remote URL.
 pub fn run(args: &[String]) -> ExitCode {
     let remote_url = args.first().map(String::as_str).unwrap_or("");
     let branch = args.get(1).map(String::as_str).unwrap_or("main");

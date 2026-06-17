@@ -93,6 +93,8 @@ struct Opts {
     patterns: Vec<String>,
 }
 
+/// Run git-help-i-pushed-an-env: find sensitive files (current + history),
+/// scrub them from the entire history, gitignore the patterns, and untrack them.
 pub fn run(args: &[String]) -> ExitCode {
     let mut o = Opts {
         dry_run: false,

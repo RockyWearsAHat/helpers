@@ -101,6 +101,8 @@ struct Opts {
     output: Option<String>,
 }
 
+/// Run git-scan-for-leaked-envs: scan tracked files (and optionally history)
+/// for secrets and sensitive files, reporting them in human or JSON form.
 pub fn run(args: &[String]) -> ExitCode {
     let mut o = Opts {
         verbose: false,

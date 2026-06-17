@@ -29,6 +29,8 @@ Examples:
   git fucked-the-push --yes
 "#;
 
+/// Run git-fucked-the-push: soft-reset the last commit and, if it was pushed,
+/// drop it from the remote branch with `--force-with-lease`.
 pub fn run(args: &[String]) -> ExitCode {
     let mut assume_yes = false;
     for arg in args {

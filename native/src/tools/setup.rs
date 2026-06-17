@@ -65,6 +65,7 @@ fn root_arg(args: &Value) -> PathBuf {
     }
 }
 
+/// Analyze the project and return (and persist) the deterministic build-out plan.
 pub fn run(args: &Value) -> ToolResult {
     let root = root_arg(args);
     if !root.exists() {
@@ -185,6 +186,7 @@ fn lang_for_ext(ext: &str) -> Option<&'static str> {
 fn detect_stacks(root: &Path, has: &dyn Fn(&str) -> bool) -> Vec<Stack> {
     let mut stacks: Vec<Stack> = Vec::new();
 
+    // Each manifest implies a stack and its conventional build/test/lint commands.
     if has("package.json") {
         let (build, test, lint) = node_scripts(root);
         stacks.push(Stack {
@@ -511,6 +513,7 @@ fn render(r: &SetupReport) -> String {
 
 // ─── schema ──────────────────────────────────────────────────────────────────
 
+/// MCP schema for the `project_setup` tool.
 pub fn schema() -> Value {
     json!({
         "name": "project_setup",

@@ -21,19 +21,32 @@ notes are always on; they shape how to work, not what to conclude.
    check `list_workspace_tools` before re-implementing a task.
 3. **Loop: inspect → edit → validate → report.** No success claim without validation.
    Run `strict_lint` (or the project's linter/build/tests) on changed files after edits.
-4. **Checkpoint at verified milestones** with `checkpoint`: write your own `message`,
-   set `all: false`, and name only files you actually changed. Never stage generated or
-   massive build artifacts — if they're already tracked, remove from the index and
-   gitignore them.
+4. **Checkpoint at verified milestones** with `checkpoint`: write your own `message` and
+   stage a precise subset — pass `paths` for specific files, or `lines` for specific line
+   ranges (a focused checkpoint, never `git add -A` of unrelated edits). Never stage
+   generated or massive build artifacts — if tracked, remove from the index and gitignore
+   them.
 5. **Keep the workspace clean.** Generated files must never contaminate the repo. Use
    minimal tokens for maximal results.
 
-## Code quality bar
+## Code quality bar — non-negotiable behavior
 
-Write code to CS2420/CS3500 A+ standards regardless of language: clear naming, small
-single-responsibility units, documented public surface, no dead code, tested behavior,
-appropriate data structures and complexity. Run `gsh grade` on a CS project to get an
-objective rubric and a gap-to-A+ checklist.
+Documentation and CS2420/CS3500 software principles are **not optional and not a
+style preference** — they are a behavior you always follow. Whenever you touch code:
+
+- **Document as you write.** Every public/exported function, type, and module gets a
+  concise contract comment. Writing undocumented public surface is a defect, not a
+  later task.
+- **Hold the principles every edit:** clear naming, small single-responsibility units,
+  no dead code, proper error handling (never swallow errors), appropriate data
+  structures and complexity, tested behavior.
+- **Fix violations immediately.** Run **`cs_lint`** after edits — it returns one clean,
+  prioritized list of CS2420/CS3500 violations with `file:line` and a fix. Treat its
+  output like compiler errors: resolve them before claiming done; re-run until the count
+  is zero (or each remaining item is explicitly justified). Do not introduce new
+  violations, and leave code at least as clean as you found it.
+- `gsh grade` gives the rubric grade and gap-to-A+ checklist; `cs_lint` gives the exact
+  lines to fix. Use both: grade to know where you stand, `cs_lint` to drive it to clean.
 
 ## Control surface
 

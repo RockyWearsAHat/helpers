@@ -34,9 +34,9 @@ once with `{ "force": true }` to override the kill-switch.
 All tools are deterministic native Rust (no AI), except web search/scrape (Node).
 
 **Workflow & quality**
-- `workspace_context` — orient at task start (roots, branch state).
+- `cs_lint` — prioritized CS2420/CS3500 violation list (file:line + fix); fix violations as you go.
 - `strict_lint` — run each language's own linters for a file/folder/workspace after edits.
-- `checkpoint` — stage/commit with your own `message` (or a deterministic one); set `all:false`, name changed files.
+- `checkpoint` — stage/commit with your own `message` (or a deterministic one); stage a precise subset with `paths` (files) or `lines` (line ranges).
 
 **Project index** (cheap repo map — orient without grepping)
 - `index_project` — build/refresh the static map of files, symbols, and the reference graph.
@@ -53,7 +53,7 @@ All tools are deterministic native Rust (no AI), except web search/scrape (Node)
 - `search_web`, `scrape_webpage` — external facts after the index + knowledge miss.
 
 ## Efficient order
-1. `workspace_context` once per task, then `project_map` / `lookup` (refresh with `index_project`) to orient cheaply instead of grepping.
+1. `project_map` / `lookup` (refresh with `index_project`) to orient cheaply instead of grepping.
 2. Consult knowledge before web search.
 3. One specialized tool for the goal; `scrape_webpage` only for top hits needing depth.
 4. `strict_lint` after edits; `checkpoint` only after validation passes.
