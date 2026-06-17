@@ -9,10 +9,12 @@
 //! are the static meta-tools; the registered flows are surfaced dynamically in
 //! `schemas()` and executed via `dispatch()`.
 
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::git::workspace_root;
+use crate::git::{find_repo_root, workspace_root};
 use crate::proc::run_capture;
 use crate::proto::{text, ToolResult};
 
@@ -41,23 +43,62 @@ struct Manifest {
     tools: Vec<ProjectTool>,
 }
 
-fn manifest_path() -> std::path::PathBuf {
-    workspace_root()
-        .join(".gsh")
-        .join("tools")
-        .join("manifest.json")
+/// The `.gsh/tools/manifest.json` path for a given workspace root.
+fn manifest_path_in(ws: &Path) -> PathBuf {
+    ws.join(".gsh").join("tools").join("manifest.json")
 }
 
-fn load_tools() -> Vec<ProjectTool> {
-    std::fs::read_to_string(manifest_path())
+/// The repo containing the running `gsh-native` binary — i.e. the GSH install
+/// itself. Project flows almost never belong here, so a write landing here is
+/// the signal that the workspace was misresolved (see [`writable_workspace`]).
+fn install_repo_root() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    find_repo_root(exe.parent()?)
+}
+
+/// Whether two paths point at the same location, comparing canonical forms when
+/// they resolve and falling back to a literal comparison.
+fn same_path(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
+    }
+}
+
+/// Resolve the workspace a manifest write should target, refusing to contaminate
+/// the GSH install repo. A misresolved workspace (the MCP host's cwd left
+/// pointing at the GSH source tree) used to silently register project flows into
+/// GSH's own `.gsh/tools/manifest.json`; now that fails loudly unless `force` is
+/// set, so a stray registration is impossible to miss instead of polluting an
+/// unrelated repo.
+fn writable_workspace(force: bool) -> Result<PathBuf, String> {
+    let ws = workspace_root();
+    if !force {
+        if let Some(install) = install_repo_root() {
+            if same_path(&ws, &install) {
+                return Err(format!(
+                    "Refusing to write project flows into the GSH install repo ({}). \
+                     The workspace was not resolved to your project — open the intended \
+                     project (or set GSH_WORKSPACE_ROOTS to it) and retry. Pass \
+                     {{\"force\": true}} only to register a flow for GSH itself.",
+                    ws.display()
+                ));
+            }
+        }
+    }
+    Ok(ws)
+}
+
+fn load_tools_at(path: &Path) -> Vec<ProjectTool> {
+    std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str::<Manifest>(&s).ok())
         .map(|m| m.tools)
         .unwrap_or_default()
 }
 
-fn save_tools(tools: &[ProjectTool]) -> Result<(), String> {
-    let path = manifest_path();
+fn save_tools_at(path: &Path, tools: &[ProjectTool]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -66,6 +107,12 @@ fn save_tools(tools: &[ProjectTool]) -> Result<(), String> {
     })
     .map_err(|e| e.to_string())?;
     std::fs::write(path, json + "\n").map_err(|e| e.to_string())
+}
+
+/// Tools registered in the current workspace, for read-only surfacing
+/// (`schemas`, `list`). Reads never trigger the install-repo guard.
+fn load_tools() -> Vec<ProjectTool> {
+    load_tools_at(&manifest_path_in(&workspace_root()))
 }
 
 /// Dynamic schemas for the registered flows (runnable ones only).
@@ -133,6 +180,10 @@ fn str_arg(args: &Value, key: &str) -> String {
         .to_string()
 }
 
+fn bool_arg(args: &Value, key: &str) -> bool {
+    args.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
 /// Register (or update) a named project flow from `name`/`description`/`command`
 /// args, persisting it to the workspace manifest so it becomes callable by name.
 pub fn run_register(args: &Value) -> ToolResult {
@@ -157,7 +208,8 @@ pub fn run_register(args: &Value) -> ToolResult {
         );
     }
 
-    let mut tools = load_tools();
+    let path = manifest_path_in(&writable_workspace(bool_arg(args, "force"))?);
+    let mut tools = load_tools_at(&path);
     let input_schema = args.get("inputSchema").cloned().unwrap_or(Value::Null);
     let record = ProjectTool {
         name: name.clone(),
@@ -175,7 +227,7 @@ pub fn run_register(args: &Value) -> ToolResult {
             false
         }
     };
-    save_tools(&tools)?;
+    save_tools_at(&path, &tools)?;
 
     Ok(vec![text(format!(
         "Project tool \"{name}\" {}.\nStored in .gsh/tools/manifest.json (scoped to this project).\n\nIt is now live in tools/list — call it directly:\n  tools/call {{ \"name\": \"{name}\", \"arguments\": {{ ... }} }}",
@@ -189,11 +241,12 @@ pub fn run_unregister(args: &Value) -> ToolResult {
     if name.is_empty() {
         return Err("unregister_workspace_tool: 'name' is required.".into());
     }
-    let mut tools = load_tools();
+    let path = manifest_path_in(&writable_workspace(bool_arg(args, "force"))?);
+    let mut tools = load_tools_at(&path);
     match tools.iter().position(|t| t.name == name) {
         Some(i) => {
             tools.remove(i);
-            save_tools(&tools)?;
+            save_tools_at(&path, &tools)?;
             Ok(vec![text(format!(
                 "Project tool \"{name}\" removed. It no longer appears in tools/list."
             ))])
@@ -243,7 +296,8 @@ pub fn schema_register() -> Value {
                 "name": { "type": "string", "description": "Tool name (lowercase letters/digits/-/_, starts with a letter). Becomes the tools/call name." },
                 "description": { "type": "string", "description": "What the flow does — agents use this to decide when to call it." },
                 "command": { "type": "string", "description": "Shell command/flow to run (may be multi-line). Arguments to the tool call are provided as JSON in $GSH_TOOL_ARGS." },
-                "inputSchema": { "type": "object", "description": "Optional JSON schema for the tool's arguments. Defaults to a free-form object." }
+                "inputSchema": { "type": "object", "description": "Optional JSON schema for the tool's arguments. Defaults to a free-form object." },
+                "force": { "type": "boolean", "description": "Override the safety guard that refuses to write into the GSH install repo itself. Only set this to register a flow for GSH's own development." }
             },
             "required": ["name", "description", "command"]
         }
@@ -257,7 +311,10 @@ pub fn schema_unregister() -> Value {
         "description": "Remove a registered project flow. It immediately disappears from tools/list.",
         "inputSchema": {
             "type": "object",
-            "properties": { "name": { "type": "string", "description": "Exact tool name to remove." } },
+            "properties": {
+                "name": { "type": "string", "description": "Exact tool name to remove." },
+                "force": { "type": "boolean", "description": "Override the guard that refuses to operate on the GSH install repo itself." }
+            },
             "required": ["name"]
         }
     })
@@ -275,9 +332,15 @@ pub fn schema_list() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Both tests mutate the process-global GSH_WORKSPACE_ROOTS; serialize them so
+    // they don't race under cargo's parallel test runner.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn register_list_dispatch_unregister_cycle() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = std::env::temp_dir().join(format!("gsh-pt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -312,5 +375,38 @@ mod tests {
 
         std::env::remove_var("GSH_WORKSPACE_ROOTS");
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn register_refuses_to_write_into_gsh_install_repo() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Point the workspace at the GSH install repo itself (the repo holding
+        // the running binary). Registering there must fail loudly rather than
+        // contaminate GSH's own manifest — the bug this guard prevents.
+        let install = install_repo_root().expect("test binary lives in a repo");
+        std::env::set_var(
+            "GSH_WORKSPACE_ROOTS",
+            format!("[{:?}]", install.to_string_lossy()),
+        );
+
+        let blocked = run_register(&json!({
+            "name": "stray-flow",
+            "description": "should never be written",
+            "command": "echo nope"
+        }));
+        assert!(blocked.is_err(), "expected the install-repo guard to fire");
+        assert!(blocked.unwrap_err().contains("GSH install repo"));
+
+        // The manifest in the install repo must be untouched by the refusal.
+        let manifest = manifest_path_in(&install);
+        assert!(
+            !load_tools_at(&manifest).iter().any(|t| t.name == "stray-flow"),
+            "guarded write must not persist the flow"
+        );
+
+        // force:true is the documented escape hatch.
+        assert!(writable_workspace(true).is_ok());
+
+        std::env::remove_var("GSH_WORKSPACE_ROOTS");
     }
 }
