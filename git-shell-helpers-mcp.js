@@ -53,6 +53,80 @@ function sendError(id, code, message) {
   });
 }
 
+// ─── per-session workspace via the MCP `roots` capability ───────────────────
+// A resident daemon serves many projects from one process, so the workspace
+// cannot come from process cwd/env. Instead each session learns its project
+// from the client: clients that advertise the `roots` capability answer a
+// `roots/list` request with their open folder(s). That answer is authoritative
+// — it is the client's real project — so we prefer it over the cwd/env fallback.
+
+// A `file://` URI (or a bare path) as a filesystem path; null if unusable.
+function uriToPath(uri) {
+  if (!uri || typeof uri !== "string") return null;
+  if (uri.startsWith("file://")) {
+    try {
+      return decodeURIComponent(new URL(uri).pathname) || null;
+    } catch {
+      return null;
+    }
+  }
+  return uri.startsWith("/") ? uri : null;
+}
+
+// Per-connection state, reused across every line of the session so a workspace
+// learned at initialize/roots persists for later tool calls.
+function makeSession(write) {
+  return {
+    write,
+    workspaceRoot: null,
+    supportsRoots: false,
+    pending: new Map(), // server-issued request id -> response callback
+    nextId: 1,
+  };
+}
+
+// Ask the client for its roots; record the first as the session workspace.
+function requestRoots(session) {
+  if (!session || !session.supportsRoots) return;
+  const id = `gsh-roots-${session.nextId++}`;
+  session.pending.set(id, (msg) => {
+    const roots = msg && msg.result && msg.result.roots;
+    if (Array.isArray(roots) && roots.length > 0) {
+      const p = uriToPath(roots[0].uri);
+      if (p) session.workspaceRoot = p;
+    }
+  });
+  send({ jsonrpc: "2.0", id, method: "roots/list", params: {} });
+}
+
+// True for a JSON-RPC response (a reply to a request we issued), not a request.
+function isResponse(msg) {
+  return (
+    msg &&
+    msg.method === undefined &&
+    msg.id !== undefined &&
+    ("result" in msg || "error" in msg)
+  );
+}
+
+// Route one parsed message: replies to our own requests resolve pending
+// callbacks; everything else is a client request/notification we handle.
+async function dispatchMessage(session, msg) {
+  if (isResponse(msg)) {
+    const cb = session && session.pending.get(msg.id);
+    if (cb) {
+      session.pending.delete(msg.id);
+      try {
+        cb(msg);
+      } catch {
+        /* a bad roots reply just leaves the cwd/env fallback in place */
+      }
+    }
+    return;
+  }
+  await handleRequest(msg);
+}
+
 function loadResearchModule() {
   if (process.env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH) {
     return null;
@@ -85,10 +159,17 @@ loadNativeSchemas();
 // binary advertises (built-in Rust tools + project-local flows). Re-read each
 // time so newly registered flows appear live.
 function getAllTools() {
-  return [...(researchModule?.tools || []), ...loadNativeSchemas()];
+  return [
+    ...(researchModule?.tools || []),
+    ...loadNativeSchemas(getWorkspaceRoot()),
+  ];
 }
 
 function getWorkspaceRoot() {
+  // The client's own project (via the `roots` capability) wins when known — it
+  // is correct even when a shared daemon's cwd points elsewhere.
+  const session = outputStore.getStore();
+  if (session && session.workspaceRoot) return session.workspaceRoot;
   const raw = process.env.GSH_WORKSPACE_ROOTS || "";
   if (raw.trim().startsWith("[")) {
     try {
@@ -135,8 +216,9 @@ function isToolDisabled(toolName) {
 // Native Rust tools (built-ins + project-local flows) are dispatched to the
 // binary; everything else falls through to the delegated Node handlers (web).
 async function runBuiltInTool(toolName, toolArguments) {
-  if (isNativeTool(toolName)) {
-    return runNativeTool(toolName, toolArguments);
+  const workspaceRoot = getWorkspaceRoot();
+  if (isNativeTool(toolName, workspaceRoot)) {
+    return runNativeTool(toolName, toolArguments, { workspaceRoot });
   }
   return null;
 }
@@ -145,6 +227,19 @@ async function handleRequest(request) {
   const { id, method } = request;
 
   if (method === "initialize") {
+    const session = outputStore.getStore();
+    if (session) {
+      const params = request.params || {};
+      session.supportsRoots = !!(params.capabilities && params.capabilities.roots);
+      // Some clients also include the folder synchronously in initialize; take
+      // it as an immediate hint, later refined by the authoritative roots/list.
+      const folders = params.workspaceFolders;
+      const hint =
+        uriToPath(params.rootUri) ||
+        (Array.isArray(folders) && folders[0] && uriToPath(folders[0].uri)) ||
+        (typeof params.rootPath === "string" ? params.rootPath : null);
+      if (hint) session.workspaceRoot = hint;
+    }
     send({
       jsonrpc: "2.0",
       id,
@@ -158,6 +253,14 @@ async function handleRequest(request) {
   }
 
   if (method === "notifications/initialized") {
+    // Now that the session is live, fetch the client's authoritative roots.
+    requestRoots(outputStore.getStore());
+    return;
+  }
+
+  if (method === "notifications/roots/list_changed") {
+    // The client opened/closed a folder — re-resolve the workspace.
+    requestRoots(outputStore.getStore());
     return;
   }
 
@@ -220,26 +323,31 @@ async function handleRequest(request) {
 }
 
 function startServer() {
+  // One session for the whole stdio process, run inside the store so per-session
+  // workspace (roots) and routing work identically to the daemon path.
+  const session = makeSession((s) => process.stdout.write(s));
   const lineReader = readline.createInterface({
     input: process.stdin,
     crlfDelay: Infinity,
   });
 
-  lineReader.on("line", async (line) => {
-    if (!line.trim()) {
-      return;
-    }
-    try {
-      await handleRequest(JSON.parse(line));
-    } catch {
-      sendError(null, -32700, "Parse error");
-    }
+  lineReader.on("line", (line) => {
+    if (!line.trim()) return;
+    outputStore.run(session, async () => {
+      try {
+        await dispatchMessage(session, JSON.parse(line));
+      } catch {
+        sendError(null, -32700, "Parse error");
+      }
+    });
   });
 }
 
 // Serve one MCP session over a duplex stream (a unix socket from the daemon).
-// Each line is processed inside an AsyncLocalStorage scope whose write() points
-// back at this stream, so concurrent connections never cross responses.
+// One session object is reused for every line so workspace state learned at
+// initialize/roots survives across the connection; each line runs inside an
+// AsyncLocalStorage scope whose write() points back at this stream, so
+// concurrent connections never cross responses.
 function serveConnection(stream) {
   const write = (s) => {
     try {
@@ -248,15 +356,16 @@ function serveConnection(stream) {
       /* peer gone */
     }
   };
+  const session = makeSession(write);
   const lineReader = readline.createInterface({
     input: stream,
     crlfDelay: Infinity,
   });
   lineReader.on("line", (line) => {
     if (!line.trim()) return;
-    outputStore.run({ write }, async () => {
+    outputStore.run(session, async () => {
       try {
-        await handleRequest(JSON.parse(line));
+        await dispatchMessage(session, JSON.parse(line));
       } catch {
         sendError(null, -32700, "Parse error");
       }
