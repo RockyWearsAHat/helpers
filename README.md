@@ -105,32 +105,12 @@ design patterns, JUnit coverage, Javadoc, and cleanliness).
 
 ---
 
-## Branch Sessions (VS Code extension)
+## VS Code extension
 
-The VS Code extension enables **per-chat branch isolation**: each Copilot chat can work on a different feature branch, and switching between chats changes which branch is visible in the workspace.
+The companion VS Code extension surfaces the GSH community-cache panel, live tool
+activity, strict-lint diagnostics, and model controls.
 
-### How it works
-
-1. An agent calls `branch_session_start({ branch: "feature/my-work" })`
-2. The extension creates a git worktree in `~/.cache/gsh/worktrees/` and checks out the branch **in your main repo view** via `git symbolic-ref`
-3. You see the feature branch in VS Code's status bar, SCM panel, and Explorer — it looks like a normal checkout
-4. When you switch to a different Copilot chat, the extension switches the visible branch to match that chat's session
-5. When no bound chat is active, the main repo returns to its baseline branch and the feature session stays parked in its worktree
-6. When the agent calls `branch_session_end`, the extension restores your original branch and pops any stashed work
-
-Multiple chats can keep different branches parked in parallel. If a branch seems to disappear from the workspace, it is usually parked in another chat rather than lost; switch back to that chat or run `branch_status`.
-
-### Enabling branch sessions
-
-Branch sessions are off by default. Enable them in VS Code settings:
-
-```
-Settings → Git Shell Helpers → Branch Sessions → Enabled
-```
-
-Then reload the window. The `gsh` MCP server exposes `branch_session_start`, `branch_session_end`, `branch_read_file`, and `branch_status` once the setting is on.
-
-### VS Code extension installation
+### Installation
 
 The extension is bundled as a `.vsix`. Build it locally:
 
@@ -144,50 +124,9 @@ Then install via **Extensions → Install from VSIX…** in VS Code, or:
 code --install-extension vscode-extension/git-shell-helpers-*.vsix
 ```
 
-### VS Code patches (optional)
-
-Optional patches improve the branch session experience by modifying VS Code's compiled bundles:
-
-| Patch              | Effect                                                                        | Requires      |
-| ------------------ | ----------------------------------------------------------------------------- | ------------- |
-| `folder-switch`    | Removes the "do you want to switch folders?" dialog when worktrees change     | Full restart  |
-| `git-head-display` | Shows the worktree branch name in the status bar via `.git/gsh-head-override` | Window reload |
-
-Apply both patches:
-
-```sh
-node scripts/patch-vscode-apply-all.js
-```
-
-Check status, revert, or apply individually:
-
-```sh
-node scripts/patch-vscode-apply-all.js --check
-node scripts/patch-vscode-apply-all.js --revert
-node scripts/patch-vscode-folder-switch.js
-node scripts/patch-vscode-git-head-display.js
-```
-
-The patch scripts detect VS Code's install location automatically on macOS, Linux (including Snap), and Windows.
-
-#### Upstream PR status
-
-These patches address real VS Code gaps. Corresponding PRs are open against `microsoft/vscode`:
-
-| Proposal                                               | PR                                                         | Status                                                   |
-| ------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
-| Suppress folder switch dialog (`suppressConfirmation`) | [#306519](https://github.com/microsoft/vscode/pull/306519) | Open — awaiting review; needs community upvotes          |
-| Branch name display override (`headLabelOverride`)     | [#306517](https://github.com/microsoft/vscode/pull/306517) | Open — assigned [@lszomoru](https://github.com/lszomoru) |
-| Chat session focus stability                           | [#306518](https://github.com/microsoft/vscode/pull/306518) | Open — assigned [@jrieken](https://github.com/jrieken)   |
-
-If any of these PRs land in VS Code, the corresponding local patch becomes unnecessary. The extension will detect the native API and skip the patched code path automatically when the real API becomes available.
-
-### Known limitations
-
-- The `which code` / `where code` dynamic path detection requires `code` to be in your PATH. If it isn't, add it via **Shell Command: Install 'code' command in PATH** in the VS Code command palette.
-- Patches are applied to VS Code's compiled bundles. They may need to be re-applied after VS Code auto-updates. Run `node scripts/patch-vscode-apply-all.js --check` to verify status after an update.
-- Stash recovery after a VS Code reload is best-effort. If you manually run `git stash` between a `branch_session_start` and `branch_session_end`, the extension uses the stash message `"gsh-session-focus: auto-stash"` to find and restore the correct stash entry.
-- Branch sessions are chat-bound. If the current chat does not own a session, the workspace can return to baseline even though other sessions still exist. Use `branch_status` or the Branch Files view to find parked sessions.
+> The `code --install-extension` form needs the `code` command on your PATH. If
+> it isn't, add it via **Shell Command: Install 'code' command in PATH** from the
+> VS Code command palette.
 
 ---
 
@@ -533,7 +472,6 @@ Key files:
 | File                                       | Domain                                                     |
 | ------------------------------------------ | ---------------------------------------------------------- |
 | `vscode-extension/extension.js`            | Extension entry point, command registration                |
-| `vscode-extension/src/worktree-manager.js` | Branch session focus/unfocus, binding, stash, git ops      |
 | `vscode-extension/src/ipc-servers.js`      | Unix socket IPC between MCP server and extension           |
 | `git-shell-helpers-mcp`                    | MCP server — project index, checkpoint, strict_lint, knowledge, project flows, web research |
 | `git-upload`                               | Stage/commit/push with AI messages and test detection      |

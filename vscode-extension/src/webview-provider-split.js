@@ -106,15 +106,6 @@ module.exports = function createWebviewProviderClass(deps) {
                 vscode.ConfigurationTarget.Global,
               );
             break;
-          case "toggleBranchSessions":
-            await vscode.workspace
-              .getConfiguration("gitShellHelpers.branchSessions")
-              .update(
-                "enabled",
-                msg.enabled,
-                vscode.ConfigurationTarget.Global,
-              );
-            break;
           case "toggleSessionMemory":
             await vscode.workspace
               .getConfiguration("gitShellHelpers.sessionMemory")
