@@ -1,32 +1,32 @@
 ---
-name: gsh
-description: Discover, control, and use Git Shell Helpers (GSH) — the gsh MCP tools (research, knowledge memory, checkpoint, strict_lint, local subagents, vision) and the gsh CLI for enabling/disabling GSH and individual tools. Use when the user mentions GSH, asks to enable/disable GSH or a GSH tool, asks what GSH tools exist, or wants to install/configure GSH.
+name: helpers
+description: Discover, control, and use Helpers (Helpers) — the helpers MCP tools (research, knowledge memory, checkpoint, strict_lint, local subagents, vision) and the helpers CLI for enabling/disabling Helpers and individual tools. Use when the user mentions Helpers, asks to enable/disable Helpers or a Helpers tool, asks what Helpers tools exist, or wants to install/configure Helpers.
 ---
 
-# GSH — Git Shell Helpers
+# Helpers — Helpers
 
-GSH ships AI-agent tooling as a standard MCP server plus a `gsh` control CLI. It is
+Helpers ships AI-agent tooling as a standard MCP server plus a `helpers` control CLI. It is
 agent-agnostic; this skill is the Claude-side guide.
 
 ## Control the surface (run in a shell)
 
 | Goal | Command |
 | ---- | ------- |
-| See what's installed & healthy | `gsh status` / `gsh doctor` |
-| Turn ALL of GSH off (bypass) | `gsh disable` |
-| Turn GSH back on | `gsh enable` |
-| Toggle master switch | `gsh bypass` |
-| List tools + on/off state | `gsh tool list` |
-| Disable one tool | `gsh tool disable <name>` |
-| Enable one tool | `gsh tool enable <name>` |
-| Re-enable everything | `gsh tool enable all` |
-| (Re)install into an agent | `gsh install [--agent auto\|claude\|copilot\|all]` |
+| See what's installed & healthy | `helpers status` / `helpers doctor` |
+| Turn ALL of Helpers off (bypass) | `helpers disable` |
+| Turn Helpers back on | `helpers enable` |
+| Toggle master switch | `helpers bypass` |
+| List tools + on/off state | `helpers tool list` |
+| Disable one tool | `helpers tool disable <name>` |
+| Enable one tool | `helpers tool enable <name>` |
+| Re-enable everything | `helpers tool enable all` |
+| (Re)install into an agent | `helpers install [--agent auto\|claude\|copilot\|all]` |
 
-Toggles are **live** — the MCP server re-reads `~/.config/git-shell-helpers-mcp/tools.json`
-on every request, so no restart is needed. After `gsh install`, run `/mcp` or restart
-Claude Code so the `gsh` server connects.
+Toggles are **live** — the MCP server re-reads `~/.config/helpers-server/tools.json`
+on every request, so no restart is needed. After `helpers install`, run `/mcp` or restart
+Claude Code so the `helpers` server connects.
 
-If GSH is disabled but the user explicitly asks for a GSH action, you may call the tool
+If Helpers is disabled but the user explicitly asks for a Helpers action, you may call the tool
 once with `{ "force": true }` to override the kill-switch.
 
 ## Tools (prefer these over shell emulation when they fit)
@@ -60,5 +60,5 @@ All tools are deterministic native Rust (no AI), except web search/scrape (Node)
 
 ## Grading CS projects
 For CS2420 (data structures/algorithms) or CS3500 (OOD/MVC) projects, use the `cs-grade`
-skill or run `gsh grade <path> --course cs2420|cs3500` to produce an objective `GRADE.md`
+skill or run `helpers grade <path> --course cs2420|cs3500` to produce an objective `GRADE.md`
 and a prioritized path to an A+.

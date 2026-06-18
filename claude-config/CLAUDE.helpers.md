@@ -1,6 +1,6 @@
-# Git Shell Helpers (GSH)
+# Helpers (Helpers)
 
-GSH is installed. It adds an MCP server (`gsh`) plus a `gsh` CLI for control. These
+Helpers is installed. It adds an MCP server (`helpers`) plus a `helpers` CLI for control. These
 notes are always on; they shape how to work, not what to conclude.
 
 ## Working discipline
@@ -14,7 +14,7 @@ notes are always on; they shape how to work, not what to conclude.
    current. For durable facts, consult knowledge (`search_knowledge_index`,
    `search_knowledge_cache`) before reaching for the web. Stop once evidence suffices —
    over-exploration burns tokens.
-2. **Prefer a GSH tool over shell emulation** when one fits, but don't over-tool: no
+2. **Prefer a Helpers tool over shell emulation** when one fits, but don't over-tool: no
    one-off tools for trivial tasks. Built-in Claude tools (Read/Edit/Grep/Bash) remain
    first choice for ordinary file and shell work. When a multi-step task will recur,
    register it once as a project flow (`register_workspace_tool` → callable by name);
@@ -45,21 +45,21 @@ style preference** — they are a behavior you always follow. Whenever you touch
   output like compiler errors: resolve them before claiming done; re-run until the count
   is zero (or each remaining item is explicitly justified). Do not introduce new
   violations, and leave code at least as clean as you found it.
-- `gsh grade` gives the rubric grade and gap-to-A+ checklist; `cs_lint` gives the exact
+- `helpers grade` gives the rubric grade and gap-to-A+ checklist; `cs_lint` gives the exact
   lines to fix. Use both: grade to know where you stand, `cs_lint` to drive it to clean.
 
 ## Control surface
 
-- `gsh status` / `gsh doctor` — what's installed and healthy.
-- `gsh index build|map|lookup <q>` — build the project index, print the ranked module
-  map, or find a symbol/file. `gsh index export|install` shares a project's map as a
+- `helpers status` / `helpers doctor` — what's installed and healthy.
+- `helpers index build|map|lookup <q>` — build the project index, print the ranked module
+  map, or find a symbol/file. `helpers index export|install` shares a project's map as a
   portable `.dxbundle` so you can reference another project's structure.
-- `gsh disable` / `gsh enable` — master switch; hides/shows the entire GSH tool surface
-  live (no restart). `gsh bypass` toggles.
-- `gsh tool list|enable|disable <name>` — turn individual tools on/off.
+- `helpers disable` / `helpers enable` — master switch; hides/shows the entire Helpers tool surface
+  live (no restart). `helpers bypass` toggles.
+- `helpers tool list|enable|disable <name>` — turn individual tools on/off.
 - Any disabled tool can be overridden for a single call with `{ force: true }`.
 
-Every GSH tool is deterministic and standalone — no tool calls an AI model, and they
+Every Helpers tool is deterministic and standalone — no tool calls an AI model, and they
 all work in any agent. The tools (project index, knowledge, checkpoint, strict_lint,
 project flows, grading) are native Rust for speed and type safety; only `search_web` /
 `scrape_webpage` stay in Node (they drive a headless browser).

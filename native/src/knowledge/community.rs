@@ -66,7 +66,7 @@ pub fn fetch_github_file(cfg: &KnowledgeConfig, repo_path: &str) -> Result<Strin
         "--max-time".into(),
         "15".into(),
         "-A".into(),
-        "gsh-mcp/1.0".into(),
+        "helpers-mcp/1.0".into(),
         "-D".into(),
         headers_tmp.to_string_lossy().to_string(),
         "-o".into(),

@@ -206,7 +206,7 @@ async function main() {
   // 1. Concurrent interactive challenge resolutions share a single browser launch.
   {
     const tempDir = await fs.mkdtemp(
-      path.join(os.tmpdir(), "gsh-google-share-"),
+      path.join(os.tmpdir(), "helpers-google-share-"),
     );
     const fake = makeFakePuppeteer();
     await withMockedPuppeteer(fake.puppeteer, async (createGoogleHeadless) => {
@@ -249,7 +249,7 @@ async function main() {
   // 2. Genuine Google no-results pages are not classified as CAPTCHA challenges.
   {
     const tempDir = await fs.mkdtemp(
-      path.join(os.tmpdir(), "gsh-google-no-results-"),
+      path.join(os.tmpdir(), "helpers-google-no-results-"),
     );
     const fake = makeFakePuppeteer({ noResults: true });
     await withMockedPuppeteer(fake.puppeteer, async (createGoogleHeadless) => {

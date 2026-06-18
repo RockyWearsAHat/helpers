@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-# install-git-shell-helpers
+# install-helpers
 #
 # One-shot (and re-runnable) installer for the custom git subcommands:
 #   - git-upload
 #   - git-get
 #   - git-initialize
 #   - git-fucked-the-push
-#   (the native Rust git-* CLIs are built and symlinked by `gsh build`)
+#   (the native Rust git-* CLIs are built and symlinked by `helpers build`)
 #
 # Responsibilities:
 #   - Ensure ~/bin and ~/man/man1 exist
@@ -20,7 +20,7 @@
 #   - git upload
 #   - git get
 #   - git initialize
-#   - gsh setup
+#   - helpers setup
 # and see docs via:
 #   - git help upload
 #   - git help get
@@ -36,9 +36,9 @@ DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
 DEFAULT_COMMUNITY_BRANCH="main"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SHELL_ENV_DIR="${HOME}/.config/git-shell-helpers"
+SHELL_ENV_DIR="${HOME}/.config/helpers"
 LOCAL_PATH_SNIPPET="${SHELL_ENV_DIR}/paths-local.sh"
-LOCAL_PATH_SOURCE='[ -f "$HOME/.config/git-shell-helpers/paths-local.sh" ] && . "$HOME/.config/git-shell-helpers/paths-local.sh"'
+LOCAL_PATH_SOURCE='[ -f "$HOME/.config/helpers/paths-local.sh" ] && . "$HOME/.config/helpers/paths-local.sh"'
 
 ensure_dir() {
   local dir="$1"
@@ -64,7 +64,7 @@ ensure_line_in_file() {
 write_local_path_snippet() {
   ensure_dir "$SHELL_ENV_DIR"
   printf '%s\n' \
-    '# Added by install-git-shell-helpers.' \
+    '# Added by install-helpers.' \
     'case ":${PATH:-}:" in' \
     '  *":$HOME/bin:"*) ;;' \
     '  *) export PATH="$HOME/bin${PATH:+:$PATH}" ;;' \
@@ -130,7 +130,7 @@ install_script() {
   local dest="${BIN_DIR}/${name}"
 
   if [ ! -f "$src" ]; then
-    echo "[install-git-shell-helpers] WARNING: source script not found: $src" >&2
+    echo "[install-helpers] WARNING: source script not found: $src" >&2
     return
   fi
 
@@ -138,7 +138,7 @@ install_script() {
     cp "$src" "$dest"
   fi
   chmod +x "$dest"
-  echo "[install-git-shell-helpers] Installed script: $dest"
+  echo "[install-helpers] Installed script: $dest"
 }
 
 install_support_script() {
@@ -148,7 +148,7 @@ install_support_script() {
   local dest="${BIN_DIR}/${dest_name}"
 
   if [ ! -f "$src" ]; then
-    echo "[install-git-shell-helpers] WARNING: support script not found: $src" >&2
+    echo "[install-helpers] WARNING: support script not found: $src" >&2
     return
   fi
 
@@ -156,7 +156,7 @@ install_support_script() {
     cp "$src" "$dest"
   fi
   chmod +x "$dest"
-  echo "[install-git-shell-helpers] Installed support script: $dest"
+  echo "[install-helpers] Installed support script: $dest"
 }
 
 install_support_script_into_subdir() {
@@ -166,7 +166,7 @@ install_support_script_into_subdir() {
   local dest="${BIN_DIR}/${dest_rel}"
 
   if [ ! -f "$src" ]; then
-    echo "[install-git-shell-helpers] WARNING: support script not found: $src" >&2
+    echo "[install-helpers] WARNING: support script not found: $src" >&2
     return
   fi
 
@@ -175,7 +175,7 @@ install_support_script_into_subdir() {
     cp "$src" "$dest"
   fi
   chmod +x "$dest"
-  echo "[install-git-shell-helpers] Installed support script: $dest"
+  echo "[install-helpers] Installed support script: $dest"
 }
 
 write_community_settings() {
@@ -196,14 +196,14 @@ write_community_settings() {
   "branchPrefix": "automation/community-cache-submission"$( [ -n "$local_clone" ] && printf ',\n  "localClone": "%s"' "$local_clone" )
 }
 EOF
-  echo "[install-git-shell-helpers] Wrote community cache settings: $COMMUNITY_SETTINGS_FILE"
+  echo "[install-helpers] Wrote community cache settings: $COMMUNITY_SETTINGS_FILE"
 }
 
 configure_community_cache() {
   local reply=""
   local mode="pull-only"
 
-  printf '[install-git-shell-helpers] Enable privacy-safe community cache uploads after successful audits? [y/N]: '
+  printf '[install-helpers] Enable privacy-safe community cache uploads after successful audits? [y/N]: '
   read -r reply || reply=""
   if [[ "$reply" == "y" || "$reply" == "Y" ]]; then
     mode="pull-and-auto-submit"
@@ -212,9 +212,9 @@ configure_community_cache() {
   write_community_settings "$mode"
 
   if "${BIN_DIR}/git-copilot-devops-audit-community-pull" >/dev/null 2>&1; then
-    echo "[install-git-shell-helpers] Pulled the latest shared DevOps audit community cache."
+    echo "[install-helpers] Pulled the latest shared DevOps audit community cache."
   else
-    echo "[install-git-shell-helpers] WARNING: failed to pull the shared DevOps audit community cache." >&2
+    echo "[install-helpers] WARNING: failed to pull the shared DevOps audit community cache." >&2
   fi
 }
 
@@ -245,27 +245,27 @@ maybe_install_vscode_extensions() {
   local code_cli="$1"
   local reply=""
 
-  printf '[install-git-shell-helpers] Install or update VS Code GitHub Copilot extensions now? [Y/n]: '
+  printf '[install-helpers] Install or update VS Code GitHub Copilot extensions now? [Y/n]: '
   read -r reply || reply=""
 
   if [[ -n "$reply" && "$reply" != "y" && "$reply" != "Y" ]]; then
-    echo "[install-git-shell-helpers] Skipped VS Code extension install. Install GitHub.copilot and GitHub.copilot-chat later if needed."
+    echo "[install-helpers] Skipped VS Code extension install. Install GitHub.copilot and GitHub.copilot-chat later if needed."
     return
   fi
 
   if "$code_cli" --install-extension GitHub.copilot --force >/dev/null 2>&1; then
-    echo "[install-git-shell-helpers] Installed or updated VS Code extension: GitHub.copilot"
+    echo "[install-helpers] Installed or updated VS Code extension: GitHub.copilot"
   else
-    echo "[install-git-shell-helpers] Failed to install VS Code extension: GitHub.copilot" >&2
+    echo "[install-helpers] Failed to install VS Code extension: GitHub.copilot" >&2
   fi
 
   if "$code_cli" --install-extension GitHub.copilot-chat --force >/dev/null 2>&1; then
-    echo "[install-git-shell-helpers] Installed or updated VS Code extension: GitHub.copilot-chat"
+    echo "[install-helpers] Installed or updated VS Code extension: GitHub.copilot-chat"
   else
-    echo "[install-git-shell-helpers] Failed to install VS Code extension: GitHub.copilot-chat" >&2
+    echo "[install-helpers] Failed to install VS Code extension: GitHub.copilot-chat" >&2
   fi
 
-  # Install the git-shell-helpers settings extension
+  # Install the helpers settings extension
   maybe_install_settings_extension "$code_cli"
 }
 
@@ -274,7 +274,7 @@ maybe_install_settings_extension() {
   local ext_dir="$SCRIPT_DIR/vscode-extension"
 
   if [[ ! -d "$ext_dir" ]]; then
-    echo "[install-git-shell-helpers] VS Code settings extension directory not found, skipping."
+    echo "[install-helpers] VS Code settings extension directory not found, skipping."
     return
   fi
 
@@ -284,24 +284,24 @@ maybe_install_settings_extension() {
   # Build if no .vsix exists or if source is newer
   if [[ -z "$vsix_file" ]] || [[ "$ext_dir/package.json" -nt "$vsix_file" ]] || [[ "$ext_dir/extension.js" -nt "$vsix_file" ]]; then
     if command -v npx >/dev/null 2>&1; then
-      echo "[install-git-shell-helpers] Building git-shell-helpers VS Code extension..."
+      echo "[install-helpers] Building helpers VS Code extension..."
       if (cd "$ext_dir" && npx @vscode/vsce package --no-dependencies --allow-missing-repository) >/dev/null 2>&1; then
         vsix_file=$(find "$ext_dir" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null)
       else
-        echo "[install-git-shell-helpers] WARNING: Failed to build VS Code settings extension. Skipping." >&2
+        echo "[install-helpers] WARNING: Failed to build VS Code settings extension. Skipping." >&2
         return
       fi
     else
-      echo "[install-git-shell-helpers] npx not found, cannot build VS Code settings extension. Skipping."
+      echo "[install-helpers] npx not found, cannot build VS Code settings extension. Skipping."
       return
     fi
   fi
 
   if [[ -n "$vsix_file" ]]; then
     if "$code_cli" --install-extension "$vsix_file" --force >/dev/null 2>&1; then
-      echo "[install-git-shell-helpers] Installed VS Code extension: git-shell-helpers (community cache settings in VS Code Settings UI)"
+      echo "[install-helpers] Installed VS Code extension: helpers (community cache settings in VS Code Settings UI)"
     else
-      echo "[install-git-shell-helpers] WARNING: Failed to install git-shell-helpers VS Code extension." >&2
+      echo "[install-helpers] WARNING: Failed to install helpers VS Code extension." >&2
     fi
   fi
 }
@@ -423,7 +423,7 @@ git upload "Fix typo in README"
 .BR git-push (1),
 .BR copilot (1)
 EOF
-  echo "[install-git-shell-helpers] Installed man page: $dest"
+  echo "[install-helpers] Installed man page: $dest"
 }
 
 install_man_git_get() {
@@ -475,7 +475,7 @@ git get https://github.com/user/project.git develop
 .BR git-remote (1),
 .BR git-pull (1)
 EOF
-  echo "[install-git-shell-helpers] Installed man page: $dest"
+  echo "[install-helpers] Installed man page: $dest"
 }
 
 install_man_git_initialize() {
@@ -545,7 +545,7 @@ git initialize https://github.com/user/new-repo.git develop "Bootstrap project l
 .BR git-remote (1),
 .BR git-push (1)
 EOF
-  echo "[install-git-shell-helpers] Installed man page: $dest"
+  echo "[install-helpers] Installed man page: $dest"
 }
 
 install_man_git_fucked_the_push() {
@@ -593,7 +593,7 @@ git fucked-the-push --yes
 .BR git-reset (1),
 .BR git-push (1)
 EOF
-  echo "[install-git-shell-helpers] Installed man page: $dest"
+  echo "[install-helpers] Installed man page: $dest"
 }
 
 install_man_git_research_mcp() {
@@ -601,7 +601,7 @@ install_man_git_research_mcp() {
   local dest="${MAN_DIR}/git-research-mcp.1"
   if [ -f "$src" ]; then
     cp "$src" "$dest"
-    echo "[install-git-shell-helpers] Installed man page: $dest"
+    echo "[install-helpers] Installed man page: $dest"
   fi
 }
 
@@ -616,7 +616,7 @@ install_mcp_vision_tool() {
   local src_dir="${SCRIPT_DIR}/vision-tool"
 
   if [ ! -d "$src_dir" ]; then
-    echo "[install-git-shell-helpers] WARNING: vision-tool source not found: $src_dir" >&2
+    echo "[install-helpers] WARNING: vision-tool source not found: $src_dir" >&2
     return 1
   fi
 
@@ -626,7 +626,7 @@ install_mcp_vision_tool() {
       cp "$src_dir/$f" "$dest_dir/$f"
     fi
   done
-  echo "[install-git-shell-helpers] Installed MCP tool: vision-tool -> $dest_dir"
+  echo "[install-helpers] Installed MCP tool: vision-tool -> $dest_dir"
 }
 
 maybe_install_vision_extension() {
@@ -642,24 +642,24 @@ maybe_install_vision_extension() {
 
   if [[ -z "$vsix_file" ]] || [[ "$ext_dir/package.json" -nt "$vsix_file" ]] || [[ "$ext_dir/extension.js" -nt "$vsix_file" ]]; then
     if command -v npx >/dev/null 2>&1; then
-      echo "[install-git-shell-helpers] Building gsh-vision VS Code extension..."
+      echo "[install-helpers] Building helpers-vision VS Code extension..."
       if (cd "$ext_dir" && npx @vscode/vsce package --no-dependencies --allow-missing-repository) >/dev/null 2>&1; then
         vsix_file=$(find "$ext_dir" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null)
       else
-        echo "[install-git-shell-helpers] WARNING: Failed to build gsh-vision extension. Skipping." >&2
+        echo "[install-helpers] WARNING: Failed to build helpers-vision extension. Skipping." >&2
         return
       fi
     else
-      echo "[install-git-shell-helpers] npx not found, cannot build gsh-vision extension. Skipping."
+      echo "[install-helpers] npx not found, cannot build helpers-vision extension. Skipping."
       return
     fi
   fi
 
   if [[ -n "$vsix_file" ]] && [[ -n "$code_cli" ]]; then
     if "$code_cli" --install-extension "$vsix_file" --force >/dev/null 2>&1; then
-      echo "[install-git-shell-helpers] Installed VS Code extension: gsh-vision-tool"
+      echo "[install-helpers] Installed VS Code extension: helpers-vision-tool"
     else
-      echo "[install-git-shell-helpers] WARNING: Failed to install gsh-vision VS Code extension." >&2
+      echo "[install-helpers] WARNING: Failed to install helpers-vision VS Code extension." >&2
     fi
   fi
 }
@@ -689,9 +689,9 @@ if "servers" in data and isinstance(data["servers"], dict):
 PYEOF
 }
 
-remove_legacy_gsh_mcp_servers() {
-  remove_mcp_server "gsh"
-  remove_mcp_server "git-shell-helpers"
+remove_legacy_helpers_mcp_servers() {
+  remove_mcp_server "helpers"
+  remove_mcp_server "helpers"
 }
 
 configure_mcp_tools() {
@@ -700,16 +700,16 @@ configure_mcp_tools() {
   local install_vision=true
 
   echo ""
-  echo "[install-git-shell-helpers] MCP Tools (global via Git Shell Helpers extension)"
+  echo "[install-helpers] MCP Tools (global via Helpers extension)"
   echo "  Bundled tool modules:"
   echo "    1) git-research-mcp  — web search & knowledge cache for Copilot agents"
-  echo "    2) gsh-vision        — screenshot analysis with vision models"
+  echo "    2) helpers-vision        — screenshot analysis with vision models"
   echo ""
-  printf '[install-git-shell-helpers] Install MCP tools into VS Code? [Y/n/pick]: '
+  printf '[install-helpers] Install MCP tools into VS Code? [Y/n/pick]: '
   read -r mcp_reply || mcp_reply=""
 
   if [[ "$mcp_reply" == "n" || "$mcp_reply" == "N" ]]; then
-    echo "[install-git-shell-helpers] Skipped MCP tool installation."
+    echo "[install-helpers] Skipped MCP tool installation."
     return
   fi
 
@@ -728,8 +728,8 @@ configure_mcp_tools() {
   fi
 
   # Copy the combined server entry point
-  local mcp_src="${SCRIPT_DIR}/git-shell-helpers-mcp"
-  local mcp_dest="${BIN_DIR}/git-shell-helpers-mcp"
+  local mcp_src="${SCRIPT_DIR}/helpers-server"
+  local mcp_dest="${BIN_DIR}/helpers-server"
   if [ -f "$mcp_src" ] && [ "$mcp_src" != "$mcp_dest" ]; then
     cp "$mcp_src" "$mcp_dest"
   fi
@@ -743,10 +743,10 @@ configure_mcp_tools() {
   fi
 
   # Remove legacy static mcp.json entries — the VS Code extension now
-  # registers GitHub Shell Helpers automatically.
-  remove_legacy_gsh_mcp_servers
+  # registers Helpers automatically.
+  remove_legacy_helpers_mcp_servers
 
-  echo "[install-git-shell-helpers] Installed MCP server runtime: ${BIN_DIR}/git-shell-helpers-mcp"
+  echo "[install-helpers] Installed MCP server runtime: ${BIN_DIR}/helpers-server"
   if [ "$install_research" = true ]; then
     echo "  ✓ research tools (web search, knowledge cache, fetch pages)"
   else
@@ -757,13 +757,13 @@ configure_mcp_tools() {
   else
     echo "  - vision tools not installed"
   fi
-  echo "[install-git-shell-helpers] GitHub Shell Helpers is registered by the Git Shell Helpers VS Code extension."
-  echo "[install-git-shell-helpers] Reload VS Code to refresh MCP server discovery."
+  echo "[install-helpers] Helpers is registered by the Helpers VS Code extension."
+  echo "[install-helpers] Reload VS Code to refresh MCP server discovery."
 }
 
 setup_gpg_signing() {
   if ! command -v gpg >/dev/null 2>&1; then
-    echo "[install-git-shell-helpers] gpg not found — skipping commit signing setup."
+    echo "[install-helpers] gpg not found — skipping commit signing setup."
     echo "  Install with: brew install gnupg"
     return 0
   fi
@@ -773,7 +773,7 @@ setup_gpg_signing() {
   git_name="$(git config --global user.name 2>/dev/null || echo "$USER")"
 
   if [[ -z "$git_email" ]]; then
-    echo "[install-git-shell-helpers] No git user.email configured — skipping GPG signing setup."
+    echo "[install-helpers] No git user.email configured — skipping GPG signing setup."
     return 0
   fi
 
@@ -783,7 +783,7 @@ setup_gpg_signing() {
     | awk '/^sec/{split($2,a,"/"); print a[2]; exit}')"
 
   if [[ -z "$key_id" ]]; then
-    echo "[install-git-shell-helpers] No GPG key found for $git_email — generating one..."
+    echo "[install-helpers] No GPG key found for $git_email — generating one..."
     gpg --batch --gen-key <<GPGEOF
 %no-protection
 Key-Type: RSA
@@ -796,43 +796,43 @@ Expire-Date: 0
 GPGEOF
     key_id="$(gpg --list-secret-keys --keyid-format=long "$git_email" 2>/dev/null \
       | awk '/^sec/{split($2,a,"/"); print a[2]; exit}')"
-    echo "[install-git-shell-helpers] GPG key generated: $key_id"
+    echo "[install-helpers] GPG key generated: $key_id"
   else
-    echo "[install-git-shell-helpers] Found existing GPG key: $key_id"
+    echo "[install-helpers] Found existing GPG key: $key_id"
   fi
 
   if [[ -z "$key_id" ]]; then
-    echo "[install-git-shell-helpers] ERROR: Could not determine GPG key ID." >&2
+    echo "[install-helpers] ERROR: Could not determine GPG key ID." >&2
     return 1
   fi
 
   # Configure git to sign all commits with this key
   git config --global user.signingkey "$key_id"
   git config --global commit.gpgsign true
-  echo "[install-git-shell-helpers] Git configured to sign commits with key $key_id."
+  echo "[install-helpers] Git configured to sign commits with key $key_id."
 
   # Upload public key to GitHub
   if ! command -v gh >/dev/null 2>&1; then
-    echo "[install-git-shell-helpers] gh CLI not found — add your GPG public key manually at:"
+    echo "[install-helpers] gh CLI not found — add your GPG public key manually at:"
     echo "  https://github.com/settings/keys"
     return 0
   fi
 
   if ! gh auth status >/dev/null 2>&1; then
-    echo "[install-git-shell-helpers] Not logged in to GitHub — add your GPG public key manually at:"
+    echo "[install-helpers] Not logged in to GitHub — add your GPG public key manually at:"
     echo "  https://github.com/settings/keys"
     return 0
   fi
 
   # Ensure write:gpg_key scope — open browser directly instead of device code flow
   if ! gh auth status 2>&1 | grep -qE 'write:gpg_key|admin:gpg_key'; then
-    echo "[install-git-shell-helpers] Requesting write:gpg_key scope from GitHub..."
+    echo "[install-helpers] Requesting write:gpg_key scope from GitHub..."
     gh auth refresh -s write:gpg_key --web
   fi
 
   # Skip upload if key is already present on GitHub
   if gh gpg-key list 2>/dev/null | grep -qi "$key_id"; then
-    echo "[install-git-shell-helpers] GPG key already on GitHub — commits will show as Verified."
+    echo "[install-helpers] GPG key already on GitHub — commits will show as Verified."
     return 0
   fi
 
@@ -840,9 +840,9 @@ GPGEOF
   tmpfile="$(mktemp)"
   gpg --armor --export "$key_id" >"$tmpfile"
   if gh gpg-key add "$tmpfile" 2>/dev/null; then
-    echo "[install-git-shell-helpers] GPG public key uploaded to GitHub — commits will now show as Verified."
+    echo "[install-helpers] GPG public key uploaded to GitHub — commits will now show as Verified."
   else
-    echo "[install-git-shell-helpers] Could not upload GPG key automatically — add it manually at:"
+    echo "[install-helpers] Could not upload GPG key automatically — add it manually at:"
     echo "  https://github.com/settings/keys"
   fi
   rm -f "$tmpfile"
@@ -853,30 +853,30 @@ setup_vscode_proposed_api() {
   # This sets the flag in ~/.vscode/argv.json so VS Code exposes
   # onDidChangeActiveChatPanelSessionResource to our extension.
   local argv_file="$HOME/.vscode/argv.json"
-  local ext_id="RockyWearsAHat.git-shell-helpers"
+  local ext_id="RockyWearsAHat.helpers"
   local patch_argv_script="${SCRIPT_DIR}/scripts/patch-vscode-argv.js"
 
   if [ ! -f "$argv_file" ]; then
-    echo "[install-git-shell-helpers] No ~/.vscode/argv.json found — skipping proposed API setup."
+    echo "[install-helpers] No ~/.vscode/argv.json found — skipping proposed API setup."
     return
   fi
 
   if grep -q "$ext_id" "$argv_file" 2>/dev/null; then
-    echo "[install-git-shell-helpers] Proposed API already enabled for $ext_id."
+    echo "[install-helpers] Proposed API already enabled for $ext_id."
     return
   fi
 
   if [ ! -f "$patch_argv_script" ]; then
-    echo "[install-git-shell-helpers] Proposed API patch helper not found — skipping argv.json update."
+    echo "[install-helpers] Proposed API patch helper not found — skipping argv.json update."
     return
   fi
 
   if command -v node >/dev/null 2>&1 && node "$patch_argv_script" "$argv_file" "$ext_id" >/dev/null 2>&1; then
-    echo "[install-git-shell-helpers] Enabled proposed API for $ext_id in argv.json."
+    echo "[install-helpers] Enabled proposed API for $ext_id in argv.json."
     return
   fi
 
-  echo "[install-git-shell-helpers] Could not auto-patch argv.json."
+  echo "[install-helpers] Could not auto-patch argv.json."
   echo "  Add \"$ext_id\" to the enable-proposed-api array in $argv_file manually."
 }
 
@@ -884,23 +884,23 @@ apply_vscode_patches() {
   local patch_script="${SCRIPT_DIR}/scripts/patch-vscode-apply-all.js"
 
   if [ ! -f "$patch_script" ]; then
-    echo "[install-git-shell-helpers] Patch script not found — skipping VS Code patches."
+    echo "[install-helpers] Patch script not found — skipping VS Code patches."
     return
   fi
 
   if ! command -v node >/dev/null 2>&1; then
-    echo "[install-git-shell-helpers] Node.js not found — cannot apply VS Code patches."
+    echo "[install-helpers] Node.js not found — cannot apply VS Code patches."
     return
   fi
 
   local all_patched
   all_patched="$(node "$patch_script" --all-patched 2>/dev/null)" || {
-    echo "[install-git-shell-helpers] Could not check patch status."
+    echo "[install-helpers] Could not check patch status."
     return
   }
 
   if [ "$all_patched" = "true" ]; then
-    echo "[install-git-shell-helpers] VS Code patches already applied."
+    echo "[install-helpers] VS Code patches already applied."
     return
   fi
 
@@ -908,7 +908,7 @@ apply_vscode_patches() {
   missing="$(node "$patch_script" --missing 2>/dev/null)" || missing="unknown"
 
   echo ""
-  echo "[install-git-shell-helpers] VS Code Branch Session Patches"
+  echo "[install-helpers] VS Code Branch Session Patches"
   echo "  Missing patches: $missing"
   echo ""
   echo "  These patches enable seamless branch-per-chat in Copilot:"
@@ -918,7 +918,7 @@ apply_vscode_patches() {
   echo "  Patches are non-destructive (originals are backed up) and can be"
   echo "  reverted at any time with: node scripts/patch-vscode-apply-all.js --revert"
   echo ""
-  printf '[install-git-shell-helpers] Apply VS Code patches? [Y/n]: '
+  printf '[install-helpers] Apply VS Code patches? [Y/n]: '
   read -r patch_reply || patch_reply=""
 
   if [[ -z "$patch_reply" || "$patch_reply" == "y" || "$patch_reply" == "Y" ]]; then
@@ -926,41 +926,41 @@ apply_vscode_patches() {
       echo "  $line"
     done; then
       if node "$patch_script" --check >/dev/null 2>&1; then
-        echo "[install-git-shell-helpers] Patches applied and verified. Quit and restart VS Code (Cmd+Q → reopen) to activate."
+        echo "[install-helpers] Patches applied and verified. Quit and restart VS Code (Cmd+Q → reopen) to activate."
       else
-        echo "[install-git-shell-helpers] Patch verification failed. Re-run 'node $patch_script --check' before relying on branch sessions."
+        echo "[install-helpers] Patch verification failed. Re-run 'node $patch_script --check' before relying on branch sessions."
       fi
     else
-      echo "[install-git-shell-helpers] Patch application failed. Re-run 'node $patch_script' after resolving the error output above."
+      echo "[install-helpers] Patch application failed. Re-run 'node $patch_script' after resolving the error output above."
     fi
   else
-    echo "[install-git-shell-helpers] Skipped. Apply later with: node scripts/patch-vscode-apply-all.js"
+    echo "[install-helpers] Skipped. Apply later with: node scripts/patch-vscode-apply-all.js"
   fi
 }
 
 main() {
-  echo "[install-git-shell-helpers] Installing git shell helpers..."
+  echo "[install-helpers] Installing helpers..."
 
   ensure_dir "$BIN_DIR"
   ensure_dir "$MAN_DIR"
 
   # git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
   # git-resolve, and git-scan-for-leaked-envs are now native Rust (the gitcli
-  # module of the gsh-native crate). `gsh build` (run below) compiles the binary
+  # module of the helpers-native crate). `helpers build` (run below) compiles the binary
   # and symlinks each CLI name to it — no script copy needed here.
   install_script "git-research-mcp"
-  install_script "git-shell-helpers-mcp"
-  install_script "git-shell-helpers-mcp.js"
-  install_script "git-shell-helpers-mcpd.js"
+  install_script "helpers-server"
+  install_script "helpers-server.js"
+  install_script "helpers-serverd.js"
   install_script "git-cs-grade.js"
-  install_script "gsh"
+  install_script "helpers"
 
-  # Fast C shim source — compiled by `gsh install` (gsh build) into ~/bin/gsh-mcp.
-  if [ -f "${SCRIPT_DIR}/gsh-mcp.c" ] && [ "${SCRIPT_DIR}/gsh-mcp.c" != "${BIN_DIR}/gsh-mcp.c" ]; then
-    cp "${SCRIPT_DIR}/gsh-mcp.c" "${BIN_DIR}/gsh-mcp.c"
+  # Fast C shim source — compiled by `helpers install` (helpers build) into ~/bin/helpers-mcp.
+  if [ -f "${SCRIPT_DIR}/helpers-mcp.c" ] && [ "${SCRIPT_DIR}/helpers-mcp.c" != "${BIN_DIR}/helpers-mcp.c" ]; then
+    cp "${SCRIPT_DIR}/helpers-mcp.c" "${BIN_DIR}/helpers-mcp.c"
   fi
 
-  # Native git-cs-grade source (Rust crate) — compiled by `gsh build` into the
+  # Native git-cs-grade source (Rust crate) — compiled by `helpers build` into the
   # fast ~/bin/git-cs-grade binary, falling back to git-cs-grade.js when there
   # is no Rust toolchain. Copy sources only; never the build target/ artifacts.
   if [ -d "${SCRIPT_DIR}/cs-grade" ] && [ "${SCRIPT_DIR}/cs-grade" != "${BIN_DIR}/cs-grade" ]; then
@@ -970,18 +970,18 @@ main() {
     rm -rf "${BIN_DIR}/cs-grade/src" && cp -R "${SCRIPT_DIR}/cs-grade/src" "${BIN_DIR}/cs-grade/src"
   fi
 
-  # Compile the native helpers now (gsh-mcp + git-cs-grade). Each degrades to a
+  # Compile the native helpers now (helpers-mcp + git-cs-grade). Each degrades to a
   # working Node implementation with guidance if its toolchain is missing.
-  if [ -x "${BIN_DIR}/gsh" ]; then
-    "${BIN_DIR}/gsh" build || echo "[install-git-shell-helpers] 'gsh build' reported an issue; Node fallbacks remain in place."
+  if [ -x "${BIN_DIR}/helpers" ]; then
+    "${BIN_DIR}/helpers" build || echo "[install-helpers] 'helpers build' reported an issue; Node fallbacks remain in place."
   fi
 
-  # Agent config bundle (consumed by `gsh install`). Keep it next to the bins so
-  # gsh can resolve it relative to its own location.
+  # Agent config bundle (consumed by `helpers install`). Keep it next to the bins so
+  # helpers can resolve it relative to its own location.
   if [ -d "${SCRIPT_DIR}/claude-config" ] && [ "${SCRIPT_DIR}/claude-config" != "${BIN_DIR}/claude-config" ]; then
     rm -rf "${BIN_DIR}/claude-config"
     cp -R "${SCRIPT_DIR}/claude-config" "${BIN_DIR}/claude-config"
-    echo "[install-git-shell-helpers] Installed agent config bundle to ${BIN_DIR}/claude-config"
+    echo "[install-helpers] Installed agent config bundle to ${BIN_DIR}/claude-config"
   fi
   install_support_script "scripts/community-cache-submit.sh" "git-copilot-devops-audit-community-submit"
   install_support_script "scripts/community-cache-pull.sh" "git-copilot-devops-audit-community-pull"
@@ -1002,7 +1002,7 @@ main() {
 # Start with: docker run -d --name searxng -p 8888:8080 searxng/searxng:latest
 SEARXNG_URL=http://localhost:8888
 RENV
-    echo "[install-git-shell-helpers] Wrote default config: $research_env_file"
+    echo "[install-helpers] Wrote default config: $research_env_file"
   fi
 
   configure_community_cache
@@ -1018,16 +1018,16 @@ RENV
   echo ""
   setup_gpg_signing
 
-  # Optional: wire GSH into Claude Code (MCP server + skills + commands + core).
+  # Optional: wire Helpers into Claude Code (MCP server + skills + commands + core).
   if command -v claude >/dev/null 2>&1 || [ -d "${HOME}/.claude" ]; then
     echo ""
-    printf '[install-git-shell-helpers] Install GSH into Claude Code (MCP server, skills, /gsh command, CLAUDE.md core)? [Y/n]: '
+    printf '[install-helpers] Install Helpers into Claude Code (MCP server, skills, /helpers command, CLAUDE.md core)? [Y/n]: '
     read -r claude_reply || claude_reply=""
     if [[ -z "$claude_reply" || "$claude_reply" == "y" || "$claude_reply" == "Y" ]]; then
-      "${BIN_DIR}/gsh" install --agent claude --force || \
-        echo "[install-git-shell-helpers] Claude install hit an error — run 'gsh install --agent claude' manually."
+      "${BIN_DIR}/helpers" install --agent claude --force || \
+        echo "[install-helpers] Claude install hit an error — run 'helpers install --agent claude' manually."
     else
-      echo "[install-git-shell-helpers] Skipped. Run 'gsh install --agent claude' anytime."
+      echo "[install-helpers] Skipped. Run 'helpers install --agent claude' anytime."
     fi
   fi
 
@@ -1039,26 +1039,26 @@ RENV
   echo ""
   if command -v gh >/dev/null 2>&1; then
     if gh extension list 2>/dev/null | grep -q 'gh-copilot'; then
-      printf '[install-git-shell-helpers] (HIGHLY RECOMMENDED) GitHub Copilot CLI is installed. Update it now? [Y/n]: '
+      printf '[install-helpers] (HIGHLY RECOMMENDED) GitHub Copilot CLI is installed. Update it now? [Y/n]: '
       read -r copilot_reply || copilot_reply=""
       if [[ -z "$copilot_reply" || "$copilot_reply" == "y" || "$copilot_reply" == "Y" ]]; then
         gh extension upgrade gh-copilot && \
-          echo "[install-git-shell-helpers] GitHub Copilot CLI updated." || \
-          echo "[install-git-shell-helpers] Update failed — try: gh extension upgrade gh-copilot"
+          echo "[install-helpers] GitHub Copilot CLI updated." || \
+          echo "[install-helpers] Update failed — try: gh extension upgrade gh-copilot"
       fi
     else
-      printf '[install-git-shell-helpers] (HIGHLY RECOMMENDED) Install GitHub Copilot CLI? Enables AI commit messages and better Copilot integration. [Y/n]: '
+      printf '[install-helpers] (HIGHLY RECOMMENDED) Install GitHub Copilot CLI? Enables AI commit messages and better Copilot integration. [Y/n]: '
       read -r copilot_reply || copilot_reply=""
       if [[ -z "$copilot_reply" || "$copilot_reply" == "y" || "$copilot_reply" == "Y" ]]; then
         gh extension install github/gh-copilot && \
-          echo "[install-git-shell-helpers] GitHub Copilot CLI installed. Try: gh copilot suggest" || \
-          echo "[install-git-shell-helpers] Install failed — try manually: gh extension install github/gh-copilot"
+          echo "[install-helpers] GitHub Copilot CLI installed. Try: gh copilot suggest" || \
+          echo "[install-helpers] Install failed — try manually: gh extension install github/gh-copilot"
       else
-        echo "[install-git-shell-helpers] Skipped. Install later with: gh extension install github/gh-copilot"
+        echo "[install-helpers] Skipped. Install later with: gh extension install github/gh-copilot"
       fi
     fi
   else
-    echo "[install-git-shell-helpers] (HIGHLY RECOMMENDED) GitHub CLI (gh) not found."
+    echo "[install-helpers] (HIGHLY RECOMMENDED) GitHub CLI (gh) not found."
     echo "  Install it to enable AI commit messages and better Copilot integration:"
     if command -v brew >/dev/null 2>&1; then
       echo "  brew install gh && gh extension install github/gh-copilot"
@@ -1081,8 +1081,8 @@ RENV
   elif [ -d "$VSCODE_USER_DIR" ]; then
     should_offer_vscode_setup=true
     echo ""
-    echo "[install-git-shell-helpers] VS Code user profile found, but no usable 'code' CLI was detected."
-    echo "[install-git-shell-helpers] Install the GitHub Copilot and GitHub Copilot Chat extensions manually for the best experience."
+    echo "[install-helpers] VS Code user profile found, but no usable 'code' CLI was detected."
+    echo "[install-helpers] Install the GitHub Copilot and GitHub Copilot Chat extensions manually for the best experience."
   fi
 
   if [ "$should_offer_vscode_setup" = true ]; then
@@ -1095,9 +1095,9 @@ RENV
   fi
 
   echo ""
-  echo "[install-git-shell-helpers] Done. Open a new terminal to reload PATH and MANPATH changes."
+  echo "[install-helpers] Done. Open a new terminal to reload PATH and MANPATH changes."
   echo "Then you can use: git upload, git get, git initialize, git fucked-the-push,"
-  echo "  gsh setup, and view docs via git help <command>."
+  echo "  helpers setup, and view docs via git help <command>."
 }
 
 main "$@"

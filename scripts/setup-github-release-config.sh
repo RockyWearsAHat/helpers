@@ -20,7 +20,7 @@
 # Examples:
 #   bash ./scripts/setup-github-release-config.sh --defaults-only
 #   bash ./scripts/setup-github-release-config.sh --env release --defaults-only
-#   set -a; source ~/.config/gsh-release.env; set +a
+#   set -a; source ~/.config/helpers-release.env; set +a
 #   bash ./scripts/setup-github-release-config.sh --env release
 
 set -euo pipefail

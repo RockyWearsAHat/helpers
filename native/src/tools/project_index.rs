@@ -68,7 +68,7 @@ pub fn run_index(args: &Value) -> ToolResult {
             .unwrap_or_default()
     )];
     lines.push(format!(
-        "Wrote {} + {} .dx doc(s) under .gsh/index/.",
+        "Wrote {} + {} .dx doc(s) under .helpers/index/.",
         rel(&root, &graph_path(&root)),
         docs
     ));
@@ -210,7 +210,7 @@ fn load_or_build(root: &Path) -> Result<ProjectIndex, String> {
 pub fn schema_index() -> Value {
     json!({
         "name": "index_project",
-        "description": "Build (or refresh) the GSH project index: a cheap, static map of the repository's files, symbols (functions/classes/types), and the reference graph between them, ranked by importance. Writes .gsh/index/graph.json plus portable .dx documents (with embedded Mermaid graphs). Run this once per session or after structural changes so project_map and lookup stay current — it lets the model orient without expensive file exploration.",
+        "description": "Build (or refresh) the Helpers project index: a cheap, static map of the repository's files, symbols (functions/classes/types), and the reference graph between them, ranked by importance. Writes .helpers/index/graph.json plus portable .dx documents (with embedded Mermaid graphs). Run this once per session or after structural changes so project_map and lookup stay current — it lets the model orient without expensive file exploration.",
         "inputSchema": {
             "type": "object",
             "properties": {

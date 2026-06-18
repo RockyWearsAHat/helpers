@@ -1,4 +1,0 @@
-#!/usr/bin/env node
-"use strict";
-
-require("./git-shell-helpers-mcp.js").startServer();

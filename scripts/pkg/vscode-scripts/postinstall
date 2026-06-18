@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-log() { echo "[gsh-vscode] $1"; }
+log() { echo "[helpers-vscode] $1"; }
 
 DATA_DIR="/usr/local/share/github-shell-helpers"
 VSCODE_EXT_DIR="$DATA_DIR/vscode"
 PATCH_SCRIPT="$DATA_DIR/scripts/patch-vscode-apply-all.js"
 ARGV_PATCH_SCRIPT="$DATA_DIR/scripts/patch-vscode-argv.js"
-EXT_ID="RockyWearsAHat.git-shell-helpers"
+EXT_ID="RockyWearsAHat.helpers"
 NODE_BIN="$(command -v node 2>/dev/null || true)"
 
 console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
@@ -52,19 +52,19 @@ if code_cli="$(find_vscode_cli)"; then
     log "Failed to install GitHub.copilot-chat — install manually."
   fi
 
-  bundled_vsix="$(find "$VSCODE_EXT_DIR" -maxdepth 1 -name 'git-shell-helpers-*.vsix' -print -quit 2>/dev/null || true)"
+  bundled_vsix="$(find "$VSCODE_EXT_DIR" -maxdepth 1 -name 'helpers-*.vsix' -print -quit 2>/dev/null || true)"
   if [ -n "$bundled_vsix" ]; then
     if run_as "$code_cli" --install-extension "$bundled_vsix" --force >/dev/null 2>&1; then
-      log "Installed/updated: git-shell-helpers extension"
+      log "Installed/updated: helpers extension"
     else
-      log "Failed to install git-shell-helpers extension."
+      log "Failed to install helpers extension."
     fi
   fi
 
   vision_vsix="$(find "$DATA_DIR/vision-tool" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null || true)"
   if [ -n "$vision_vsix" ]; then
     if run_as "$code_cli" --install-extension "$vision_vsix" --force >/dev/null 2>&1; then
-      log "Installed/updated: gsh-vision-tool extension"
+      log "Installed/updated: helpers-vision-tool extension"
     fi
   fi
 else

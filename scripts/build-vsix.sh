@@ -34,4 +34,4 @@ rm -f *.vsix
 # backgrounded test runs when stdout/stderr are redirected.
 npm exec --yes @vscode/vsce -- package --no-dependencies --allow-missing-repository
 
-echo "[build-vsix] Built ${EXT_DIR}/git-shell-helpers-${VERSION}.vsix"
+echo "[build-vsix] Built ${EXT_DIR}/helpers-${VERSION}.vsix"

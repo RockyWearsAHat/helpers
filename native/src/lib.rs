@@ -1,5 +1,5 @@
-//! gsh-native — native Rust implementations of the hot Git Shell Helpers MCP
-//! tools. The Node MCP daemon shells out to the `gsh-native` binary for these
+//! helpers-native — native Rust implementations of the hot Helpers MCP
+//! tools. The Node MCP daemon shells out to the `helpers-native` binary for these
 //! tools; everything is exposed here as a library so it can be unit-tested
 //! without spawning a process.
 

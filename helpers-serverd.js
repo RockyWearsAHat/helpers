@@ -2,15 +2,15 @@
 "use strict";
 
 /*
- * git-shell-helpers-mcpd — warm MCP daemon.
+ * helpers-serverd — warm MCP daemon.
  *
  * Loads the (heavy) MCP server modules ONCE and keeps them resident, then
  * serves each incoming connection as an independent MCP session. The C client
- * shim (gsh-mcp) connects here, so after the first launch every new agent
+ * shim (helpers-mcp) connects here, so after the first launch every new agent
  * session starts in ~1ms instead of paying cold Node+compile startup.
  *
  * Lifecycle:
- *   - Socket path comes from $GSH_MCPD_SOCK (the shim derives it per workspace
+ *   - Socket path comes from $HELPERS_MCPD_SOCK (the shim derives it per workspace
  *     so different projects/env get isolated, correctly-scoped daemons).
  *   - Exits after IDLE_MS with no connections, so edits to the server code are
  *     picked up on the next launch and stale daemons don't linger.
@@ -22,13 +22,13 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { serveConnection } = require("./git-shell-helpers-mcp.js");
+const { serveConnection } = require("./helpers-server.js");
 
 const HOME = process.env.HOME || process.env.USERPROFILE || os.homedir();
 const SOCK =
-  process.env.GSH_MCPD_SOCK ||
-  path.join(HOME, ".cache", "gsh", "mcpd-default.sock");
-const IDLE_MS = Number(process.env.GSH_MCPD_IDLE_MS || 15 * 60 * 1000);
+  process.env.HELPERS_MCPD_SOCK ||
+  path.join(HOME, ".cache", "helpers", "mcpd-default.sock");
+const IDLE_MS = Number(process.env.HELPERS_MCPD_IDLE_MS || 15 * 60 * 1000);
 
 let connections = 0;
 let idleTimer = null;
@@ -88,7 +88,7 @@ function listen() {
   });
 
   server.on("error", (err) => {
-    process.stderr.write(`[gsh-mcpd] listen error: ${err.message}\n`);
+    process.stderr.write(`[helpers-mcpd] listen error: ${err.message}\n`);
     process.exit(1);
   });
 
@@ -97,7 +97,7 @@ function listen() {
     try {
       fs.chmodSync(SOCK, 0o600);
     } catch {}
-    process.stderr.write(`[gsh-mcpd] ready on ${SOCK}\n`);
+    process.stderr.write(`[helpers-mcpd] ready on ${SOCK}\n`);
     armIdleExit();
   });
 

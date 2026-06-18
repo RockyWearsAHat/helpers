@@ -3,7 +3,7 @@
 //!
 //! A bundle is a single self-contained JSON file: the machine graph plus every
 //! `.dx` doc. Installing it drops the bundle under the host project's
-//! `.gsh/index/refs/<name>/`, where `project_map`/`lookup` can consult it.
+//! `.helpers/index/refs/<name>/`, where `project_map`/`lookup` can consult it.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -87,7 +87,7 @@ pub fn export_bundle(root: &Path, out: &Path) -> Result<Bundle, String> {
     Ok(bundle)
 }
 
-/// Install a `.dxbundle` into `root/.gsh/index/refs/<name>/`. Returns the
+/// Install a `.dxbundle` into `root/.helpers/index/refs/<name>/`. Returns the
 /// installed reference name.
 pub fn install_bundle(root: &Path, bundle_path: &Path) -> Result<String, String> {
     let raw = std::fs::read_to_string(bundle_path)
@@ -111,7 +111,7 @@ pub fn install_bundle(root: &Path, bundle_path: &Path) -> Result<String, String>
     Ok(bundle.name)
 }
 
-/// Names of installed reference indexes under `.gsh/index/refs/`.
+/// Names of installed reference indexes under `.helpers/index/refs/`.
 pub fn list_refs(root: &Path) -> Vec<String> {
     let refs_dir = index_dir(root).join("refs");
     let mut names = Vec::new();
