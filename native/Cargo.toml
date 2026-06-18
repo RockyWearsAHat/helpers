@@ -1,21 +1,21 @@
 [package]
-name = "gsh-native"
+name = "helpers-native"
 version = "0.3.8"
 edition = "2021"
 rust-version = "1.74"
-description = "Native Rust implementations of the hot Git Shell Helpers MCP tools."
+description = "Native Rust implementations of the hot Helpers MCP tools."
 license = "MIT"
 repository = "https://github.com/RockyWearsAHat/github-shell-helpers"
 
 # One multiplexed binary the Node MCP daemon shells out to:
-#   gsh-native schemas        -> JSON array of native tool schemas
-#   gsh-native call <tool>    -> reads {args} JSON on stdin, prints MCP content
+#   helpers-native schemas        -> JSON array of native tool schemas
+#   helpers-native call <tool>    -> reads {args} JSON on stdin, prints MCP content
 [[bin]]
-name = "gsh-native"
+name = "helpers-native"
 path = "src/main.rs"
 
 [lib]
-name = "gsh_native"
+name = "helpers_native"
 path = "src/lib.rs"
 
 [dependencies]

@@ -14,12 +14,12 @@ const COMMUNITY_MANIFEST_PATH = path.join(
   "manifest.json",
 );
 const REPO_WEB_BASE =
-  process.env.GSH_PAGES_REPO_URL ||
+  process.env.HELPERS_PAGES_REPO_URL ||
   "https://github.com/RockyWearsAHat/github-shell-helpers";
 const REPO_RAW_BASE =
-  process.env.GSH_PAGES_RAW_BASE ||
+  process.env.HELPERS_PAGES_RAW_BASE ||
   "https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers";
-const REPO_BRANCH = process.env.GSH_PAGES_BRANCH || "main";
+const REPO_BRANCH = process.env.HELPERS_PAGES_BRANCH || "main";
 
 // English stopwords stripped from tokens before building the search index, so
 // common filler words don't dominate the term frequencies.

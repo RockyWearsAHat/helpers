@@ -1,4 +1,4 @@
-//! `project_setup` (a.k.a. `gsh setup`) — a deterministic project build-out
+//! `project_setup` (a.k.a. `helpers setup`) — a deterministic project build-out
 //! engine. Replaces the old Copilot devops-audit: instead of installing an AI
 //! agent system, it analyses the repository *without any AI* and produces a
 //! concise, structured plan that helps an agent build the project out to
@@ -10,7 +10,7 @@
 //!   3. Clarify with the user — ambiguities become explicit questions to ask
 //!      before acting.
 //!
-//! Output is written to `.gsh/SETUP.md` and returned as the tool result.
+//! Output is written to `.helpers/SETUP.md` and returned as the tool result.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,7 +77,7 @@ pub fn run(args: &Value) -> ToolResult {
     // Persist the plan unless the caller opts out, so the agent (and the user)
     // share one durable, minimal source of truth.
     if args.get("write").and_then(Value::as_bool) != Some(false) {
-        let dir = root.join(".gsh");
+        let dir = root.join(".helpers");
         let _ = fs::create_dir_all(&dir);
         let _ = fs::write(dir.join("SETUP.md"), &md);
     }
@@ -438,7 +438,7 @@ fn render(r: &SetupReport) -> String {
     let mut s = String::new();
     s.push_str(&format!("# Project setup plan — {}\n\n", r.name));
     s.push_str(
-        "_Deterministic build-out plan from `gsh setup`. Work top-down: understand goals, \
+        "_Deterministic build-out plan from `helpers setup`. Work top-down: understand goals, \
          clarify with the user, then close the gaps — keeping context minimal._\n\n",
     );
 
@@ -517,12 +517,12 @@ fn render(r: &SetupReport) -> String {
 pub fn schema() -> Value {
     json!({
         "name": "project_setup",
-        "description": "Analyze the repository deterministically (no AI) and return a concise, structured build-out plan: detected purpose/goals, technology stack with build/test/lint commands, project shape, a prioritized gap checklist, and clarifying questions to ask the user before building. Use this when starting on a project or to drive it toward a complete, well-structured state quickly. Enforces minimal context, understanding goals first, and clarifying ambiguities with the user. Writes .gsh/SETUP.md.",
+        "description": "Analyze the repository deterministically (no AI) and return a concise, structured build-out plan: detected purpose/goals, technology stack with build/test/lint commands, project shape, a prioritized gap checklist, and clarifying questions to ask the user before building. Use this when starting on a project or to drive it toward a complete, well-structured state quickly. Enforces minimal context, understanding goals first, and clarifying ambiguities with the user. Writes .helpers/SETUP.md.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "root": { "type": "string", "description": "Optional path to the project root. Defaults to the current workspace." },
-                "write": { "type": "boolean", "description": "Write the plan to .gsh/SETUP.md. Default true." }
+                "write": { "type": "boolean", "description": "Write the plan to .helpers/SETUP.md. Default true." }
             },
             "required": []
         }
@@ -534,7 +534,7 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!("gsh-setup-{name}-{}", std::process::id()));
+        let p = std::env::temp_dir().join(format!("helpers-setup-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         p

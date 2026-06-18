@@ -3,7 +3,7 @@
 // Patches VS Code's built-in Git extension to support a "display override"
 // for the branch name shown in the status bar.
 //
-// When the file .git/gsh-head-override exists in a repo root, its contents
+// When the file .git/helpers-head-override exists in a repo root, its contents
 // (trimmed) replace the branch name in the status bar — WITHOUT changing
 // the real HEAD, index, or working tree.  This lets our extension show
 // worktree branch names without git checkout/stash overhead.
@@ -84,7 +84,7 @@ const OLD_HEAD = "get headLabel(){let e=this.HEAD;return e?(e.name||";
 const NEW_HEAD =
   "get headLabel(){let e=this.HEAD;" +
   'try{let g=require("fs").readFileSync(' +
-  'require("path").join(this.repository.root,".git","gsh-head-override"),' +
+  'require("path").join(this.repository.root,".git","helpers-head-override"),' +
   '"utf8").trim();if(g)return g}catch{}' +
   "return e?(e.name||";
 
@@ -97,7 +97,7 @@ const OLD_SYNC =
 const NEW_SYNC =
   "get command(){" +
   'try{let g=require("fs").readFileSync(' +
-  'require("path").join(this.repository.root,".git","gsh-head-override"),' +
+  'require("path").join(this.repository.root,".git","helpers-head-override"),' +
   '"utf8").trim();if(g)return}catch{}' +
   "if(!this.state.enabled)return;" +
   "if(!this.state.hasRemotes){if(this.state.remoteSourcePublishers.length===0)return;";

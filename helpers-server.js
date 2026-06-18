@@ -28,7 +28,7 @@ const SERVER_VERSION = "1.1.0";
 const TOOLS_CONFIG_PATH = path.join(
   process.env.HOME || process.env.USERPROFILE || "",
   ".config",
-  "git-shell-helpers-mcp",
+  "helpers-server",
   "tools.json",
 );
 
@@ -88,7 +88,7 @@ function makeSession(write) {
 // Ask the client for its roots; record the first as the session workspace.
 function requestRoots(session) {
   if (!session || !session.supportsRoots) return;
-  const id = `gsh-roots-${session.nextId++}`;
+  const id = `helpers-roots-${session.nextId++}`;
   session.pending.set(id, (msg) => {
     const roots = msg && msg.result && msg.result.roots;
     if (Array.isArray(roots) && roots.length > 0) {
@@ -128,7 +128,7 @@ async function dispatchMessage(session, msg) {
 }
 
 function loadResearchModule() {
-  if (process.env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH) {
+  if (process.env.HELPERS_MCP_DISABLE_RESEARCH) {
     return null;
   }
   try {
@@ -143,7 +143,7 @@ function loadResearchModule() {
     };
   } catch (err) {
     process.stderr.write(
-      `[git-shell-helpers-mcp] WARNING: could not load research modules: ${err.message}\n`,
+      `[helpers-server] WARNING: could not load research modules: ${err.message}\n`,
     );
     return null;
   }
@@ -170,7 +170,7 @@ function getWorkspaceRoot() {
   // is correct even when a shared daemon's cwd points elsewhere.
   const session = outputStore.getStore();
   if (session && session.workspaceRoot) return session.workspaceRoot;
-  const raw = process.env.GSH_WORKSPACE_ROOTS || "";
+  const raw = process.env.HELPERS_WORKSPACE_ROOTS || "";
   if (raw.trim().startsWith("[")) {
     try {
       const parsed = JSON.parse(raw);
@@ -188,28 +188,28 @@ function readToolsConfig() {
   }
 }
 
-// Master kill-switch. When `disabled` is true in tools.json, GSH is bypassed:
+// Master kill-switch. When `disabled` is true in tools.json, Helpers is bypassed:
 // the server advertises no tools and refuses every call (except `force`).
-// This lets `gsh disable` / `gsh bypass` toggle the entire surface live —
+// This lets `helpers disable` / `helpers bypass` toggle the entire surface live —
 // the config is re-read on every request, so no restart is needed.
-function isGshDisabled() {
-  // `gsh tool list` sets GSH_FORCE_ENABLE=1 to enumerate the full universe of
-  // tools even while GSH is bypassed.
-  if (process.env.GSH_FORCE_ENABLE === "1") return false;
+function isHelpersDisabled() {
+  // `helpers tool list` sets HELPERS_FORCE_ENABLE=1 to enumerate the full universe of
+  // tools even while Helpers is bypassed.
+  if (process.env.HELPERS_FORCE_ENABLE === "1") return false;
   return readToolsConfig().disabled === true;
 }
 
 function getEnabledTools() {
   const all = getAllTools();
-  if (process.env.GSH_FORCE_ENABLE === "1") return all;
-  if (isGshDisabled()) return [];
+  if (process.env.HELPERS_FORCE_ENABLE === "1") return all;
+  if (isHelpersDisabled()) return [];
   const disabled = new Set(readToolsConfig().disabledTools || []);
   if (disabled.size === 0) return all;
   return all.filter((tool) => !disabled.has(tool.name));
 }
 
 function isToolDisabled(toolName) {
-  if (isGshDisabled()) return true;
+  if (isHelpersDisabled()) return true;
   return (readToolsConfig().disabledTools || []).includes(toolName);
 }
 
@@ -246,7 +246,7 @@ async function handleRequest(request) {
       result: {
         protocolVersion: MCP_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "GitHub Shell Helpers", version: SERVER_VERSION },
+        serverInfo: { name: "Helpers", version: SERVER_VERSION },
       },
     });
     return;
@@ -332,7 +332,7 @@ function startServer() {
   });
 
   // A stdio MCP server's lifetime is its stdin: when the client closes the pipe
-  // (disconnects, or a one-shot probe like `gsh status` finishes) we must exit
+  // (disconnects, or a one-shot probe like `helpers status` finishes) we must exit
   // rather than linger — otherwise the activity-IPC socket and other keep-alive
   // handles outlive the client, leaving zombie node servers and stalling callers
   // that spawnSync-wait for the process to die. But we cannot exit the instant

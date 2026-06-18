@@ -1,6 +1,6 @@
 //! MCP wire helpers shared by every native tool.
 //!
-//! Each `gsh-native call <tool>` invocation prints exactly one JSON line:
+//! Each `helpers-native call <tool>` invocation prints exactly one JSON line:
 //!   success -> {"content":[{"type":"text","text":"..."}]}
 //!   failure -> {"error":{"message":"..."}}
 //! The Node bridge (`lib/mcp-native.js`) parses that line either way.

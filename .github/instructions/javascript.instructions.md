@@ -13,7 +13,7 @@ description: "JavaScript and Node.js conventions for MCP servers and the VS Code
 - Handle errors at system boundaries (stdin/stdout parsing, HTTP responses, file I/O). Do not wrap every function in try/catch.
 - Use `process.exit(1)` with stderr for fatal errors.
 
-## MCP Servers (`git-research-mcp`, `git-shell-helpers-mcp`)
+## MCP Servers (`git-research-mcp`, `helpers-server`)
 
 - These are single-file servers communicating via JSON-RPC over stdin/stdout.
 - The `send()` function is the only output path — never write to stdout directly.

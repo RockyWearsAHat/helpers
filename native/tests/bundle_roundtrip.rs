@@ -3,7 +3,7 @@
 
 use std::fs;
 
-use gsh_native::index::bundle::{export_bundle, install_bundle, list_refs};
+use helpers_native::index::bundle::{export_bundle, install_bundle, list_refs};
 
 fn write(dir: &std::path::Path, rel: &str, body: &str) {
     let p = dir.join(rel);
@@ -15,7 +15,7 @@ fn write(dir: &std::path::Path, rel: &str, body: &str) {
 
 #[test]
 fn export_then_install_roundtrips() {
-    let base = std::env::temp_dir().join(format!("gsh-bundle-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("helpers-bundle-{}", std::process::id()));
     let src = base.join("libproj");
     let dst = base.join("hostproj");
     let _ = fs::remove_dir_all(&base);
@@ -37,7 +37,7 @@ fn export_then_install_roundtrips() {
     let name = install_bundle(&dst, &bundle_path).expect("install");
     assert_eq!(name, "libproj");
 
-    let ref_dir = dst.join(".gsh").join("index").join("refs").join("libproj");
+    let ref_dir = dst.join(".helpers").join("index").join("refs").join("libproj");
     assert!(ref_dir.join("graph.json").exists());
     assert!(ref_dir.join("map.dx").exists());
 

@@ -93,7 +93,7 @@ jobs:
 
       - name: Make scripts executable
         run: |
-          chmod +x Git-Shell-Helpers-Installer.sh scripts/build-dist.sh \
+          chmod +x Helpers-Installer.sh scripts/build-dist.sh \
             scripts/build-deb.sh scripts/build-homebrew-formula.sh \
             scripts/build-aur-package.sh scripts/build-npm-package.sh \
             scripts/test-git-upload-states.sh \
@@ -129,8 +129,8 @@ jobs:
         with:
           name: github-shell-helpers-cross-platform
           path: |
-            dist/Git-Shell-Helpers-Installer.sh
-            dist/Git-Shell-Helpers-Installer-*.sh
+            dist/Helpers-Installer.sh
+            dist/Helpers-Installer-*.sh
             dist/github-shell-helpers-*.tar.gz
             dist/github-shell-helpers-*-checksums.txt
             dist/github-shell-helpers_*_all.deb
@@ -171,7 +171,7 @@ jobs:
         run: |
           VERSION="$(tr -d '\n' < VERSION | xargs)"
           mkdir -p dist
-          cp "vscode-extension/git-shell-helpers-${VERSION}.vsix" dist/
+          cp "vscode-extension/helpers-${VERSION}.vsix" dist/
 
       - name: Upload macOS release artifacts
         uses: actions/upload-artifact@v4
@@ -179,7 +179,7 @@ jobs:
           name: github-shell-helpers-macos-validation
           path: |
             dist/github-shell-helpers-*.pkg
-            dist/git-shell-helpers-*.vsix
+            dist/helpers-*.vsix
 
   build-macos-release:
     runs-on: macos-latest
@@ -248,7 +248,7 @@ jobs:
         run: |
           VERSION="$(tr -d '\n' < VERSION | xargs)"
           mkdir -p dist
-          cp "vscode-extension/git-shell-helpers-${VERSION}.vsix" dist/
+          cp "vscode-extension/helpers-${VERSION}.vsix" dist/
 
       - name: Upload macOS release artifacts
         uses: actions/upload-artifact@v4
@@ -256,7 +256,7 @@ jobs:
           name: github-shell-helpers-macos
           path: |
             dist/github-shell-helpers-*.pkg
-            dist/git-shell-helpers-*.vsix
+            dist/helpers-*.vsix
 
       - name: Clean up keychain
         if: always()
@@ -318,7 +318,7 @@ jobs:
           make_latest: true
           files: |
             release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}.pkg
-            release-assets/dist/Git-Shell-Helpers-Installer-${{ steps.read_version.outputs.version }}.sh
+            release-assets/dist/Helpers-Installer-${{ steps.read_version.outputs.version }}.sh
             release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}.tar.gz
             release-assets/dist/github-shell-helpers-${{ steps.read_version.outputs.version }}-checksums.txt
             release-assets/dist/github-shell-helpers_${{ steps.read_version.outputs.version }}_all.deb
@@ -326,7 +326,7 @@ jobs:
             release-assets/dist/homebrew/github-shell-helpers.rb
             release-assets/dist/aur/PKGBUILD
             release-assets/dist/aur/.SRCINFO
-            release-assets/dist/git-shell-helpers-${{ steps.read_version.outputs.version }}.vsix
+            release-assets/dist/helpers-${{ steps.read_version.outputs.version }}.vsix
 
       - name: Publish npm package
         if: env.ENABLE_NPM_PUBLISH == 'true'

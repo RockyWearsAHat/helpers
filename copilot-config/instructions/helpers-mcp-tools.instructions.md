@@ -1,10 +1,10 @@
 ---
-description: "Lean reference for gsh MCP tools."
+description: "Lean reference for helpers MCP tools."
 ---
 
-# gsh MCP Tools (Lean)
+# helpers MCP Tools (Lean)
 
-When a gsh MCP tool exists for the requested action, prefer it over terminal emulation.
+When a helpers MCP tool exists for the requested action, prefer it over terminal emulation.
 
 Core tools to prioritize:
 

@@ -50,7 +50,7 @@ printf '%s\n' \
 	'  end' \
 	'' \
 	'  def caveats' \
-	"    \"The VS Code extension is shipped separately as git-shell-helpers-${VERSION}.vsix. Install it manually after brew install if you want the extension-managed MCP and branch-session features.\"" \
+	"    \"The VS Code extension is shipped separately as helpers-${VERSION}.vsix. Install it manually after brew install if you want the extension-managed MCP and branch-session features.\"" \
 	'  end' \
 	'' \
 	'  test do' \

@@ -354,7 +354,7 @@ if (gaps.length === 0) {
     if (g.fixes.length === 0) lines.push(`- [ ] Polish "${g.name}" — close the remaining gap to full marks.`);
     lines.push("");
   }
-  lines.push("After applying fixes, re-run `git-cs-grade` (or `gsh grade`) and repeat until the grade is A+.");
+  lines.push("After applying fixes, re-run `git-cs-grade` (or `helpers grade`) and repeat until the grade is A+.");
 }
 lines.push("");
 
