@@ -331,15 +331,39 @@ function startServer() {
     crlfDelay: Infinity,
   });
 
+  // A stdio MCP server's lifetime is its stdin: when the client closes the pipe
+  // (disconnects, or a one-shot probe like `gsh status` finishes) we must exit
+  // rather than linger — otherwise the activity-IPC socket and other keep-alive
+  // handles outlive the client, leaving zombie node servers and stalling callers
+  // that spawnSync-wait for the process to die. But we cannot exit the instant
+  // stdin closes: in-flight requests are handled asynchronously, so a bare exit
+  // would race ahead and cut off the response still being written. Track pending
+  // requests and exit only once the last one has flushed.
+  let pending = 0;
+  let stdinClosed = false;
+  const exitWhenDrained = () => {
+    if (!stdinClosed || pending > 0) return;
+    // Flush any buffered stdout before tearing down lingering handles.
+    process.stdout.write("", () => process.exit(0));
+  };
+
   lineReader.on("line", (line) => {
     if (!line.trim()) return;
+    pending += 1;
     outputStore.run(session, async () => {
       try {
         await dispatchMessage(session, JSON.parse(line));
       } catch {
         sendError(null, -32700, "Parse error");
+      } finally {
+        pending -= 1;
+        exitWhenDrained();
       }
     });
+  });
+  lineReader.on("close", () => {
+    stdinClosed = true;
+    exitWhenDrained();
   });
 }
 
