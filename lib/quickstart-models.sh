@@ -144,11 +144,12 @@ interactive_select() {
 	shift
 	local options=("$@")
 	local num_options=${#options[@]}
-	local selected=1
-	local default_idx=1
+	# Bash arrays are 0-indexed, so the selector is 0-based throughout.
+	local selected=0
+	local default_idx=0
 
 	# Find default/recommended option (first one, or one marked with ⭐)
-	for i in $(seq 1 "$num_options"); do
+	for i in $(seq 0 $((num_options - 1))); do
 		if [[ "${options[$i]}" == *"⭐"* ]] || [[ "${options[$i]}" == *"(default)"* ]]; then
 			selected=$i
 			default_idx=$i
@@ -170,12 +171,12 @@ interactive_select() {
 	# Function to draw options
 	draw_options() {
 		# Move cursor up to redraw
-		for ((i = 1; i <= num_options; i++)); do
+		for ((i = 0; i < num_options; i++)); do
 			tput cuu1 2>/dev/null || printf '\033[1A'
 		done
 		tput cr 2>/dev/null || printf '\r'
 
-		for i in $(seq 1 "$num_options"); do
+		for i in $(seq 0 $((num_options - 1))); do
 			# Clear line
 			tput el 2>/dev/null || printf '\033[K'
 
@@ -189,7 +190,7 @@ interactive_select() {
 	}
 
 	# Initial draw
-	for i in $(seq 1 "$num_options"); do
+	for i in $(seq 0 $((num_options - 1))); do
 		if [ "$i" -eq "$selected" ]; then
 			printf "  \033[7m → %s \033[0m\n" "${options[$i]}"
 		else
@@ -209,13 +210,13 @@ interactive_select() {
 				read -rsn2 -t 0.1 key2 || true
 				case "$key2" in
 					'[A') # Up arrow
-						if [ "$selected" -gt 1 ]; then
+						if [ "$selected" -gt 0 ]; then
 							((selected--))
 							draw_options
 						fi
 						;;
 					'[B') # Down arrow
-						if [ "$selected" -lt "$num_options" ]; then
+						if [ "$selected" -lt $((num_options - 1)) ]; then
 							((selected++))
 							draw_options
 						fi
@@ -223,13 +224,13 @@ interactive_select() {
 				esac
 				;;
 			'k'|'K') # Vim up
-				if [ "$selected" -gt 1 ]; then
+				if [ "$selected" -gt 0 ]; then
 					((selected--))
 					draw_options
 				fi
 				;;
 			'j'|'J') # Vim down
-				if [ "$selected" -lt "$num_options" ]; then
+				if [ "$selected" -lt $((num_options - 1)) ]; then
 					((selected++))
 					draw_options
 				fi
@@ -241,9 +242,9 @@ interactive_select() {
 				selected=$default_idx
 				break
 				;;
-			[1-9]) # Number key for quick selection
-				if [ "$key" -le "$num_options" ]; then
-					selected=$key
+			[1-9]) # Number key (1-based for the user) maps to a 0-based index
+				if [ "$key" -ge 1 ] && [ "$key" -le "$num_options" ]; then
+					selected=$((key - 1))
 					draw_options
 				fi
 				;;
@@ -292,9 +293,9 @@ select_model() {
 		done
 	fi
 
-	# Build display options
+	# Build display options (0-based, matching the MODEL_* arrays)
 	local display_options=()
-	for i in $(seq 1 "${#MODEL_IDS[@]}"); do
+	for i in $(seq 0 $((${#MODEL_IDS[@]} - 1))); do
 		local id="${MODEL_IDS[$i]}"
 		local name="${MODEL_NAMES[$i]}"
 		local vendor="${MODEL_VENDORS[$i]}"
@@ -305,7 +306,7 @@ select_model() {
 		fi
 
 		# Mark first option as default/recommended
-		if [ "$i" -eq 1 ] && [ "$use_api" = true ]; then
+		if [ "$i" -eq 0 ] && [ "$use_api" = true ]; then
 			display="⭐ $display (recommended)"
 		fi
 
@@ -318,10 +319,10 @@ select_model() {
 		interactive_select "  Available models:" "${display_options[@]}"
 		local selection=$SELECTED_INDEX
 	else
-		# Non-interactive - just use first option
+		# Non-interactive - just use the first option
 		echo ""
-		echo "  Non-interactive mode, using default: ${MODEL_NAMES[1]}"
-		local selection=1
+		echo "  Non-interactive mode, using default: ${MODEL_NAMES[0]}"
+		local selection=0
 	fi
 
 	# Set selected model

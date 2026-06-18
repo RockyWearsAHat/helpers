@@ -43,7 +43,7 @@ remove_mcp_server_for_user() {
 	# Purge pre-rebrand static MCP registrations (now extension-managed). Single
 	# -c one-liner (no heredoc, no multi-line body) per shell-safety; a malformed
 	# mcp.json just throws and is swallowed by the trailing `2>/dev/null || true`.
-	run_as_console_user "$user_name" /usr/bin/python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); s=d.get('servers'); r=[k for k in ('gsh','git-shell-helpers','git-shell-helpers-mcp') if isinstance(s,dict) and s.pop(k,None) is not None]; open(p,'w').write(json.dumps(d,indent=2)+chr(10)) if r else None" "$mcp_file" 2>/dev/null || true
+	run_as_console_user "$user_name" /usr/bin/python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); s=d.get('servers'); r=[k for k in ('gsh','git-shell-helpers','git-shell-helpers-mcp') if isinstance(s,dict) and k in s]; [s.pop(k,None) for k in r]; open(p,'w').write(json.dumps(d,indent=2)+chr(10)) if r else None" "$mcp_file" 2>/dev/null || true
 }
 
 console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
