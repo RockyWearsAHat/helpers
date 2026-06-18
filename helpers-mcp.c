@@ -8,8 +8,8 @@
  * necessary" — this shim spawns it on demand and it idle-exits when unused.
  *
  * Behavior:
- *   1. Derive a per-workspace socket path from cwd plus HELPERS_ / HELPERS_
- *      env, so different projects/configs get isolated, correctly-scoped daemons.
+ *   1. Derive a per-workspace socket path from cwd plus the HELPERS_* env,
+ *      so different projects/configs get isolated, correctly-scoped daemons.
  *   2. Connect. If no daemon is listening, spawn one (detached, inheriting our
  *      cwd+env so its scope matches) and wait briefly for it.
  *   3. Transparently proxy stdin<->socket: standard stdio MCP, so every agent
@@ -81,10 +81,10 @@ static void compute_socket(char *out, size_t n, const char *home) {
     unsigned long long h = 1469598103934665603ULL;
     h = fnv1a(h, cwd);
     for (char **e = environ; *e; e++) {
-        if (strncmp(*e, "HELPERS_", 4) == 0 ||
-            strncmp(*e, "HELPERS", 17) == 0) {
+        /* Fold in every HELPERS_* var (prefix is 8 chars incl. the underscore). */
+        if (strncmp(*e, "HELPERS_", 8) == 0) {
             /* HELPERS_MCPD_SOCK is derived output, not input — don't fold it in. */
-            if (strncmp(*e, "HELPERS_MCPD_SOCK=", 14) == 0) continue;
+            if (strncmp(*e, "HELPERS_MCPD_SOCK=", 18) == 0) continue;
             h = fnv1a(h, *e);
         }
     }

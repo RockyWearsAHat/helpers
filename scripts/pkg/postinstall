@@ -40,23 +40,24 @@ remove_mcp_server_for_user() {
 
 	[ -f "$mcp_file" ] || return 0
 
-	run_as_console_user "$user_name" /usr/bin/python3 - "$mcp_file" <<'PYEOF'
-import json, sys
-
+	# Purge pre-rebrand static MCP registrations (now extension-managed). The
+	# embedded Python is a single `-c` invocation (no heredoc) per shell-safety.
+	run_as_console_user "$user_name" /usr/bin/python3 -c 'import json, sys
 mcp_path = sys.argv[1]
+legacy = ("gsh", "git-shell-helpers", "git-shell-helpers-mcp")
 try:
-	with open(mcp_path, "r", encoding="utf-8") as f:
-		data = json.load(f)
+    with open(mcp_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
 except (json.JSONDecodeError, FileNotFoundError):
-	sys.exit(0)
-
-if "servers" in data and isinstance(data["servers"], dict):
-	if "helpers" in data["servers"]:
-		del data["servers"]["helpers"]
-		with open(mcp_path, "w", encoding="utf-8") as f:
-			json.dump(data, f, indent=2)
-			f.write("\n")
-PYEOF
+    sys.exit(0)
+servers = data.get("servers")
+if isinstance(servers, dict):
+    removed = [k for k in legacy if servers.pop(k, None) is not None]
+    if removed:
+        with open(mcp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+' "$mcp_file" 2>/dev/null || true
 }
 
 console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"

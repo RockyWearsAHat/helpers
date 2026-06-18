@@ -377,7 +377,10 @@ module.exports = function createMcpServer(deps) {
   }
 
   function removeStaticGitShellHelpersServers(configPath) {
-    const legacyServerNames = ["helpers", "helpers"];
+    // Pre-rebrand static registrations to purge so upgraded installs don't keep
+    // server entries pointing at binaries that no longer exist (the current
+    // "helpers" server is extension-managed and must NOT be removed here).
+    const legacyServerNames = ["gsh", "git-shell-helpers", "git-shell-helpers-mcp"];
     const config = readJsonFile(configPath);
     if (!config?.servers || typeof config.servers !== "object") {
       return false;
