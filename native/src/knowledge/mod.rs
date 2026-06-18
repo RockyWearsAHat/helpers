@@ -34,7 +34,7 @@ impl KnowledgeConfig {
     /// else `.github/knowledge/`), the repo-bundled root, and the GitHub cache.
     pub fn resolve() -> Self {
         let workspace_root = workspace_root();
-        // The GSH install dir is this binary's parent (REPO_ROOT in the JS).
+        // The Helpers install dir is this binary's parent (REPO_ROOT in the JS).
         let repo_root = std::env::current_exe()
             .ok()
             .and_then(|e| e.parent().map(Path::to_path_buf))
@@ -48,7 +48,7 @@ impl KnowledgeConfig {
             workspace_root.join(".github").join("knowledge")
         };
 
-        let github_cache_dir = home().join(".cache").join("gsh");
+        let github_cache_dir = home().join(".cache").join("helpers");
         KnowledgeConfig {
             local_index_path: knowledge_root.join("_index.json"),
             repo_knowledge_root: repo_root.join("knowledge"),

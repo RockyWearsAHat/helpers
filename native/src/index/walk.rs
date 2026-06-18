@@ -17,7 +17,7 @@ pub struct WalkedFile {
 /// own index, dependency trees).
 const SKIP_DIRS: &[&str] = &[
     ".git",
-    ".gsh",
+    ".helpers",
     "node_modules",
     "target",
     "dist",

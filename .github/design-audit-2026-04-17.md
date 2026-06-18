@@ -1,4 +1,4 @@
-# UI Design Audit — Git Shell Helpers
+# UI Design Audit — Helpers
 **Date:** April 17, 2026  
 **Auditor:** UI Design Engineer Agent  
 **Scope:** Visual consistency across Pages/Atlas, VS Code Extension, and future components

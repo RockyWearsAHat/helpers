@@ -2,7 +2,7 @@
 "use strict";
 
 // Smoke test for the native project-index tools (index_project / lookup).
-// Skips cleanly when the gsh-native binary has not been built, so CI without a
+// Skips cleanly when the helpers-native binary has not been built, so CI without a
 // Rust toolchain stays green; the authoritative coverage lives in the crate's
 // `cargo test` integration tests.
 
@@ -12,10 +12,10 @@ const path = require("path");
 const { spawnSync, execFileSync } = require("child_process");
 
 const BIN =
-  process.env.GSH_NATIVE_BIN || path.join(__dirname, "..", "gsh-native");
+  process.env.HELPERS_NATIVE_BIN || path.join(__dirname, "..", "helpers-native");
 
 if (!fs.existsSync(BIN)) {
-  console.log("SKIP test-project-index: gsh-native not built (run `gsh build`).");
+  console.log("SKIP test-project-index: helpers-native not built (run `helpers build`).");
   process.exit(0);
 }
 
@@ -34,7 +34,7 @@ function assert(cond, msg) {
   if (!cond) throw new Error("ASSERT: " + msg);
 }
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "gsh-pi-"));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "helpers-pi-"));
 try {
   spawnSync("git", ["init", "-q"], { cwd: root });
   fs.mkdirSync(path.join(root, "src"));

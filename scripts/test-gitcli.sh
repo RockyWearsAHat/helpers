@@ -3,19 +3,19 @@
 # test-gitcli.sh — black-box smoke test for the native Rust git-* CLIs.
 #
 # Exercises the busybox dispatch (argv[0] basename and the explicit `gitcli`
-# subcommand) end-to-end against the built gsh-native binary, in a throwaway
+# subcommand) end-to-end against the built helpers-native binary, in a throwaway
 # git repo. Deterministic, no network, no AI.
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NB="${REPO_DIR}/native/target/release/gsh-native"
+NB="${REPO_DIR}/native/target/release/helpers-native"
 
 if [ ! -x "$NB" ]; then
-	NB="${REPO_DIR}/gsh-native"
+	NB="${REPO_DIR}/helpers-native"
 fi
 if [ ! -x "$NB" ]; then
-	echo "GITCLI: skip (gsh-native not built; run 'gsh build')"
+	echo "GITCLI: skip (helpers-native not built; run 'helpers build')"
 	exit 0
 fi
 
@@ -24,7 +24,7 @@ fail() {
 	exit 1
 }
 
-work="$(mktemp -d -t gsh-gitcli.XXXXXX)"
+work="$(mktemp -d -t helpers-gitcli.XXXXXX)"
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 

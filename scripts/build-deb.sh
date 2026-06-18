@@ -52,42 +52,42 @@ mkdir -p "$DEBIAN_DIR" "$PKG_BIN" "$PKG_LIB" "$PKG_SCRIPTS" "$PKG_MAN"
 while IFS= read -r command_file; do
 	[ -n "$command_file" ] || continue
 	copy_exec "${ROOT_DIR}/${command_file}" "${PKG_BIN}/${command_file}"
-done < <(gsh_core_commands)
+done < <(helpers_core_commands)
 
 while IFS= read -r command_file; do
 	[ -n "$command_file" ] || continue
 	copy_exec "${ROOT_DIR}/${command_file}" "${PKG_BIN}/${command_file}"
-done < <(gsh_audit_commands)
+done < <(helpers_audit_commands)
 
 while IFS= read -r command_file; do
 	[ -n "$command_file" ] || continue
 	copy_exec "${ROOT_DIR}/${command_file}" "${PKG_BIN}/${command_file}"
-done < <(gsh_mcp_commands)
+done < <(helpers_mcp_commands)
 
 while IFS= read -r shell_lib; do
 	[ -n "$shell_lib" ] || continue
 	cp "${ROOT_DIR}/lib/${shell_lib}" "${PKG_LIB}/${shell_lib}"
-done < <(gsh_shell_libs)
+done < <(helpers_shell_libs)
 
 while IFS= read -r mcp_lib; do
 	[ -n "$mcp_lib" ] || continue
 	cp "${ROOT_DIR}/lib/${mcp_lib}" "${PKG_LIB}/${mcp_lib}"
-done < <(gsh_mcp_libs)
+done < <(helpers_mcp_libs)
 
 while IFS= read -r support_script; do
 	[ -n "$support_script" ] || continue
 	copy_exec "${ROOT_DIR}/scripts/${support_script}" "${PKG_SCRIPTS}/${support_script}"
-done < <(gsh_support_scripts)
+done < <(helpers_support_scripts)
 
 while IFS= read -r data_dir; do
 	[ -n "$data_dir" ] || continue
 	cp -R "${ROOT_DIR}/${data_dir}" "${PKG_BIN}/${data_dir}"
-done < <(gsh_data_dirs)
+done < <(helpers_data_dirs)
 
 while IFS= read -r man_page; do
 	[ -n "$man_page" ] || continue
 	cp "${ROOT_DIR}/man/man1/${man_page}" "${PKG_MAN}/${man_page}"
-done < <(gsh_man_pages)
+done < <(helpers_man_pages)
 
 printf '%s\n' \
 	"Package: github-shell-helpers" \
@@ -99,7 +99,7 @@ printf '%s\n' \
 	"Depends: bash, zsh, git, curl, jq, nodejs" \
 	"Homepage: https://github.com/RockyWearsAHat/github-shell-helpers" \
 	"Description: Git helpers, MCP tools, and Copilot audit workflow" \
-	" Portable package for git-shell-helpers commands, MCP servers, and" \
+	" Portable package for helpers commands, MCP servers, and" \
 	" bundled Copilot audit assets." > "${DEBIAN_DIR}/control"
 
 dpkg-deb --build "$DEB_BUILD_ROOT" "$DEB_PATH"

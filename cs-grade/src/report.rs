@@ -78,7 +78,7 @@ pub fn markdown(grade: &Grade, project_label: &str, src_files: usize, test_files
             lines.push(String::new());
         }
         lines.push(
-            "After applying fixes, re-run `git-cs-grade` (or `gsh grade`) and repeat until the grade is A+."
+            "After applying fixes, re-run `git-cs-grade` (or `helpers grade`) and repeat until the grade is A+."
                 .into(),
         );
     }

@@ -6,19 +6,19 @@ const net = require("net");
 const os = require("os");
 const path = require("path");
 
-const STRICT_LINT_SOCKET_PATH = path.join(os.tmpdir(), "gsh-strict-lint.sock");
+const STRICT_LINT_SOCKET_PATH = path.join(os.tmpdir(), "helpers-strict-lint.sock");
 const STRICT_LINT_IPC_INFO_PATH = path.join(
   os.homedir(),
   ".cache",
-  "gsh",
+  "helpers",
   "strict-lint-ipc.json",
 );
 
-const ACTIVITY_SOCKET_PATH = path.join(os.tmpdir(), "gsh-activity.sock");
+const ACTIVITY_SOCKET_PATH = path.join(os.tmpdir(), "helpers-activity.sock");
 const ACTIVITY_IPC_INFO_PATH = path.join(
   os.homedir(),
   ".cache",
-  "gsh",
+  "helpers",
   "activity-ipc.json",
 );
 

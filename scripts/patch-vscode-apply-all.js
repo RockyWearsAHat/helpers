@@ -9,7 +9,7 @@
 //   runsubagent-model     — adds optional `model` param to runSubagent tool
 //
 // Git extension patches (pick up on Reload Window):
-//   git-head-display   — supports branch name display override via .git/gsh-head-override
+//   git-head-display   — supports branch name display override via .git/helpers-head-override
 //
 // Usage:
 //   node patch-vscode-apply-all.js              # apply all patches
@@ -114,7 +114,7 @@ const PATCH_DEFS = [
   },
 ];
 
-const LEGACY_PATCHES_ENABLED = process.env.GSH_ENABLE_LEGACY_VSCODE_PATCHES === "1";
+const LEGACY_PATCHES_ENABLED = process.env.HELPERS_ENABLE_LEGACY_VSCODE_PATCHES === "1";
 const ACTIVE_PATCH_DEFS = LEGACY_PATCHES_ENABLED ? PATCH_DEFS : [];
 
 // Legacy detection patterns for workbench bundle
@@ -212,7 +212,7 @@ if (process.argv.includes("--check")) {
     console.log("VS Code Patches");
     console.log("=".repeat(40));
     console.log("Legacy VS Code bundle patches are retired by default.");
-    console.log("Set GSH_ENABLE_LEGACY_VSCODE_PATCHES=1 to re-enable patch checks/apply.");
+    console.log("Set HELPERS_ENABLE_LEGACY_VSCODE_PATCHES=1 to re-enable patch checks/apply.");
     process.exit(0);
   }
   console.log("VS Code Patches");
@@ -261,7 +261,7 @@ if (!LEGACY_PATCHES_ENABLED) {
   console.log(
     "Legacy VS Code bundle patches are retired by default. Nothing to apply.",
   );
-  console.log("Set GSH_ENABLE_LEGACY_VSCODE_PATCHES=1 to re-enable apply mode.");
+  console.log("Set HELPERS_ENABLE_LEGACY_VSCODE_PATCHES=1 to re-enable apply mode.");
   process.exit(0);
 }
 

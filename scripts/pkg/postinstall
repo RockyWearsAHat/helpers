@@ -51,8 +51,8 @@ except (json.JSONDecodeError, FileNotFoundError):
 	sys.exit(0)
 
 if "servers" in data and isinstance(data["servers"], dict):
-	if "gsh" in data["servers"]:
-		del data["servers"]["gsh"]
+	if "helpers" in data["servers"]:
+		del data["servers"]["helpers"]
 		with open(mcp_path, "w", encoding="utf-8") as f:
 			json.dump(data, f, indent=2)
 			f.write("\n")
@@ -74,9 +74,9 @@ fi
 vscode_user_dir="$user_home/Library/Application Support/Code/User"
 run_as_console_user "$console_user" /bin/mkdir -p "$vscode_user_dir/agents" "$vscode_user_dir/prompts"
 # Remove legacy mcp.json entry — the VS Code extension now registers the
-# gsh MCP server automatically via registerMcpServerDefinitionProvider.
+# helpers MCP server automatically via registerMcpServerDefinitionProvider.
 remove_mcp_server_for_user "$console_user" "$user_home"
-log "Cleaned legacy gsh entry from mcp.json for $console_user (now extension-managed)."
+log "Cleaned legacy helpers entry from mcp.json for $console_user (now extension-managed)."
 
 if code_cli="$(find_vscode_cli "$user_home")"; then
 	if run_as_console_user "$console_user" "$code_cli" --install-extension GitHub.copilot --force >/dev/null 2>&1; then
@@ -91,15 +91,15 @@ if code_cli="$(find_vscode_cli "$user_home")"; then
 		log "Failed to install VS Code extension GitHub.copilot-chat for $console_user."
 	fi
 
-	bundled_vsix="$(find "$VSCODE_EXTENSION_DIR" -maxdepth 1 -name 'git-shell-helpers-*.vsix' -print -quit 2>/dev/null || true)"
+	bundled_vsix="$(find "$VSCODE_EXTENSION_DIR" -maxdepth 1 -name 'helpers-*.vsix' -print -quit 2>/dev/null || true)"
 	if [ -n "$bundled_vsix" ]; then
 		if run_as_console_user "$console_user" "$code_cli" --install-extension "$bundled_vsix" --force >/dev/null 2>&1; then
-			log "Installed or updated VS Code extension git-shell-helpers for $console_user."
+			log "Installed or updated VS Code extension helpers for $console_user."
 		else
-			log "Failed to install VS Code extension git-shell-helpers for $console_user."
+			log "Failed to install VS Code extension helpers for $console_user."
 		fi
 	else
-		log "Bundled git-shell-helpers VS Code extension not found at $VSCODE_EXTENSION_DIR."
+		log "Bundled helpers VS Code extension not found at $VSCODE_EXTENSION_DIR."
 	fi
 	else
 	log "No usable VS Code CLI found for $console_user. Install the Copilot extensions manually if you want VS Code integration."

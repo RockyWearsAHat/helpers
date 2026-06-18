@@ -8,7 +8,7 @@ const SETUP_GUIDE_URL =
   "https://github.com/RockyWearsAHat/github-shell-helpers#script-installer-cross-platform";
 
 /**
- * Startup install-health checks: detect an incomplete local GSH bundle and offer
+ * Startup install-health checks: detect an incomplete local Helpers bundle and offer
  * to run the installer (or open the setup guide).
  * @param {{ _context: object, findGitShellHelpersMcpPath: Function }} deps
  */
@@ -43,9 +43,9 @@ module.exports = function createInstallHealth(deps) {
   function resolveInstallerPath(serverPath) {
     const serverDir = path.dirname(serverPath);
     return firstExistingPath([
-      path.join(serverDir, "install-git-shell-helpers"),
+      path.join(serverDir, "install-helpers"),
       ...getWorkspaceRoots().map((root) =>
-        path.join(root, "install-git-shell-helpers"),
+        path.join(root, "install-helpers"),
       ),
     ]);
   }
@@ -93,7 +93,7 @@ module.exports = function createInstallHealth(deps) {
     const canRunInstaller = Boolean(installerPath);
 
     const message =
-      "Git Shell Helpers is installed, but parts of the local bundle are missing.";
+      "Helpers is installed, but parts of the local bundle are missing.";
 
     const detail = issues
       .map((issue) => {
@@ -148,7 +148,7 @@ module.exports = function createInstallHealth(deps) {
       return;
     }
 
-    const terminal = vscode.window.createTerminal("gsh installer");
+    const terminal = vscode.window.createTerminal("helpers installer");
     terminal.show();
     terminal.sendText(`bash ${shellQuote(status.installerPath)}`);
   }

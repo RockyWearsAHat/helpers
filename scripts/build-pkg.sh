@@ -4,7 +4,7 @@
 #
 # Produces a productbuild archive with four selectable components:
 #   1. Core Git Commands    (required) — git-upload, git-get, etc. + lib/ + man pages
-#   2. MCP Research Tools   (optional) — git-research-mcp, git-shell-helpers-mcp + lib/mcp-*.js
+#   2. MCP Research Tools   (optional) — git-research-mcp, helpers-server + lib/mcp-*.js
 #   3. DevOps Audit Agents  (optional) — audit commands + copilot-config/ + community-cache/
 #   4. VS Code Integration  (optional) — VSIX + vision-tool + patches + proposed API
 #
@@ -37,7 +37,7 @@ source "${ROOT_DIR}/scripts/package-manifest.sh"
 
 PKG_PATH="${DIST_DIR}/github-shell-helpers-${VERSION}.pkg"
 
-echo "[build-pkg] Building Git Shell Helpers ${VERSION} installer..."
+echo "[build-pkg] Building Helpers ${VERSION} installer..."
 
 rm -rf "$BUILD_DIR" "$COMPONENTS_DIR"
 rm -f "$PKG_PATH" "${PKG_PATH%.pkg}-unsigned.pkg"
@@ -74,28 +74,28 @@ while IFS= read -r cmd; do
   if [ -f "${ROOT_DIR}/${cmd}" ]; then
     copy_exec "${ROOT_DIR}/${cmd}" "${CORE_BIN}/${cmd}"
   fi
-done < <(gsh_core_commands)
+done < <(helpers_core_commands)
 
 while IFS= read -r lib; do
   [ -n "$lib" ] || continue
   if [ -f "${ROOT_DIR}/lib/${lib}" ]; then
     cp "${ROOT_DIR}/lib/${lib}" "${CORE_LIB}/${lib}"
   fi
-done < <(gsh_shell_libs)
+done < <(helpers_shell_libs)
 
 while IFS= read -r man; do
   [ -n "$man" ] || continue
   if [ -f "${ROOT_DIR}/man/man1/${man}" ]; then
     cp "${ROOT_DIR}/man/man1/${man}" "${CORE_MAN}/${man}"
   fi
-done < <(gsh_core_man_pages)
+done < <(helpers_core_man_pages)
 
 chmod +x "${PKG_DIR}/core-scripts/postinstall"
 CORE_KB="$(pkg_size_kb "$CORE_ROOT")"
 
 pkgbuild --root "$CORE_ROOT" \
   --scripts "${PKG_DIR}/core-scripts" \
-  --identifier "com.rockywearsahat.gsh.core" \
+  --identifier "com.rockywearsahat.helpers.core" \
   --version "$VERSION" \
   --install-location / \
   "${COMPONENTS_DIR}/core.pkg"
@@ -115,28 +115,28 @@ while IFS= read -r entry; do
   if [ -f "${ROOT_DIR}/${entry}" ]; then
     copy_exec "${ROOT_DIR}/${entry}" "${MCP_BIN}/${entry}"
   fi
-done < <(gsh_mcp_commands)
+done < <(helpers_mcp_commands)
 
 while IFS= read -r lib; do
   [ -n "$lib" ] || continue
   if [ -f "${ROOT_DIR}/lib/${lib}" ]; then
     cp "${ROOT_DIR}/lib/${lib}" "${MCP_LIB}/${lib}"
   fi
-done < <(gsh_mcp_libs)
+done < <(helpers_mcp_libs)
 
 while IFS= read -r man; do
   [ -n "$man" ] || continue
   if [ -f "${ROOT_DIR}/man/man1/${man}" ]; then
     cp "${ROOT_DIR}/man/man1/${man}" "${MCP_MAN}/${man}"
   fi
-done < <(gsh_mcp_man_pages)
+done < <(helpers_mcp_man_pages)
 
 chmod +x "${PKG_DIR}/mcp-scripts/postinstall"
 MCP_KB="$(pkg_size_kb "$MCP_ROOT")"
 
 pkgbuild --root "$MCP_ROOT" \
   --scripts "${PKG_DIR}/mcp-scripts" \
-  --identifier "com.rockywearsahat.gsh.mcp" \
+  --identifier "com.rockywearsahat.helpers.mcp" \
   --version "$VERSION" \
   --install-location / \
   "${COMPONENTS_DIR}/mcp.pkg"
@@ -157,14 +157,14 @@ while IFS= read -r cmd; do
   if [ -f "${ROOT_DIR}/${cmd}" ]; then
     copy_exec "${ROOT_DIR}/${cmd}" "${AUDIT_BIN}/${cmd}"
   fi
-done < <(gsh_audit_commands)
+done < <(helpers_audit_commands)
 
 while IFS= read -r data_dir; do
   [ -n "$data_dir" ] || continue
   if [ -d "${ROOT_DIR}/${data_dir}" ]; then
     cp -R "${ROOT_DIR}/${data_dir}" "${AUDIT_DATA}/${data_dir}"
   fi
-done < <(gsh_data_dirs)
+done < <(helpers_data_dirs)
 
 while IFS= read -r support_script; do
   [ -n "$support_script" ] || continue
@@ -172,7 +172,7 @@ while IFS= read -r support_script; do
     cp "${ROOT_DIR}/scripts/${support_script}" "${AUDIT_SCRIPTS}/${support_script}"
     chmod +x "${AUDIT_SCRIPTS}/${support_script}"
   fi
-done < <(gsh_support_scripts)
+done < <(helpers_support_scripts)
 
 ln -sf "/usr/local/share/github-shell-helpers/copilot-config" "${AUDIT_BIN}/copilot-config"
 ln -sf "/usr/local/share/github-shell-helpers/community-cache" "${AUDIT_BIN}/community-cache"
@@ -184,14 +184,14 @@ while IFS= read -r man; do
   if [ -f "${ROOT_DIR}/man/man1/${man}" ]; then
     cp "${ROOT_DIR}/man/man1/${man}" "${AUDIT_MAN}/${man}"
   fi
-done < <(gsh_audit_man_pages)
+done < <(helpers_audit_man_pages)
 
 chmod +x "${PKG_DIR}/audit-scripts/postinstall"
 AUDIT_KB="$(pkg_size_kb "$AUDIT_ROOT")"
 
 pkgbuild --root "$AUDIT_ROOT" \
   --scripts "${PKG_DIR}/audit-scripts" \
-  --identifier "com.rockywearsahat.gsh.audit" \
+  --identifier "com.rockywearsahat.helpers.audit" \
   --version "$VERSION" \
   --install-location / \
   "${COMPONENTS_DIR}/audit.pkg"
@@ -207,7 +207,7 @@ VSCODE_VISION="${VSCODE_DATA}/vision-tool"
 
 ensure_dir "$VSCODE_VSIX" "$VSCODE_SCRIPTS" "$VSCODE_VISION"
 
-VSIX_FILE="${ROOT_DIR}/vscode-extension/git-shell-helpers-${VERSION}.vsix"
+VSIX_FILE="${ROOT_DIR}/vscode-extension/helpers-${VERSION}.vsix"
 if [ -f "$VSIX_FILE" ]; then
   cp "$VSIX_FILE" "$VSCODE_VSIX/"
 fi
@@ -232,7 +232,7 @@ VSCODE_KB="$(pkg_size_kb "$VSCODE_ROOT")"
 
 pkgbuild --root "$VSCODE_ROOT" \
   --scripts "${PKG_DIR}/vscode-scripts" \
-  --identifier "com.rockywearsahat.gsh.vscode" \
+  --identifier "com.rockywearsahat.helpers.vscode" \
   --version "$VERSION" \
   --install-location / \
   "${COMPONENTS_DIR}/vscode.pkg"

@@ -9,7 +9,7 @@ Java project until it earns an **A+** on the `git-cs-grade` rubric.
 
 ## Procedure
 
-1. **Baseline grade.** Run `gsh grade <path> --course <cs2420|cs3500|auto>` (or
+1. **Baseline grade.** Run `helpers grade <path> --course <cs2420|cs3500|auto>` (or
    `git-cs-grade ... --json`). Read `GRADE.md`. State the starting grade and the gaps.
 
 2. **Work the checklist top-down** (items are ordered by points recoverable). For each
@@ -27,7 +27,7 @@ Java project until it earns an **A+** on the `git-cs-grade` rubric.
 3. **Validate after each category.** If the project builds (Maven/Gradle/javac) and has
    tests, compile and run them; fix regressions before moving on.
 
-4. **Re-grade** with `gsh grade`. Repeat until the grade is **A+ (≥ 97)** or no further
+4. **Re-grade** with `helpers grade`. Repeat until the grade is **A+ (≥ 97)** or no further
    structural gains are possible.
 
 ## Rules

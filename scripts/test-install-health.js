@@ -8,7 +8,7 @@ const os = require("os");
 const path = require("path");
 
 async function main() {
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "gsh-install-health-"));
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "helpers-install-health-"));
   const originalLoad = Module._load;
 
   let nextWarningChoice;
@@ -65,12 +65,12 @@ async function main() {
     // should flag the incomplete feature bundle and offer the setup guide.
     const installRootOne = path.join(tmpRoot, "install-one");
     fs.mkdirSync(installRootOne, { recursive: true });
-    fs.writeFileSync(path.join(installRootOne, "git-shell-helpers-mcp"), "", "utf8");
+    fs.writeFileSync(path.join(installRootOne, "helpers-server"), "", "utf8");
 
     const healthOne = createInstallHealth({
       _context: {},
       findGitShellHelpersMcpPath: () =>
-        path.join(installRootOne, "git-shell-helpers-mcp"),
+        path.join(installRootOne, "helpers-server"),
     });
 
     const statusOne = healthOne.collectHealthStatus();
@@ -89,10 +89,10 @@ async function main() {
     // Install two: complete feature bundle + installer present → no popup.
     const installRootTwo = path.join(tmpRoot, "install-two");
     fs.mkdirSync(installRootTwo, { recursive: true });
-    fs.writeFileSync(path.join(installRootTwo, "git-shell-helpers-mcp"), "", "utf8");
+    fs.writeFileSync(path.join(installRootTwo, "helpers-server"), "", "utf8");
     fs.writeFileSync(path.join(installRootTwo, "git-research-mcp"), "", "utf8");
     fs.writeFileSync(
-      path.join(installRootTwo, "install-git-shell-helpers"),
+      path.join(installRootTwo, "install-helpers"),
       "",
       "utf8",
     );
@@ -100,7 +100,7 @@ async function main() {
     const healthTwo = createInstallHealth({
       _context: {},
       findGitShellHelpersMcpPath: () =>
-        path.join(installRootTwo, "git-shell-helpers-mcp"),
+        path.join(installRootTwo, "helpers-server"),
     });
 
     const statusTwo = healthTwo.collectHealthStatus();

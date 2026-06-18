@@ -1,79 +1,79 @@
-# Git Shell Helpers
+# Helpers
 
-Quality-of-life git subcommands, an MCP tool server, an AI-agent control CLI (`gsh`),
+Quality-of-life git subcommands, an MCP tool server, an AI-agent control CLI (`helpers`),
 a Copilot audit tool, and a VS Code extension that makes AI agents work transparently on
 feature branches — without switching tabs or changing directories.
 
-GSH is **agent-agnostic**: its tools ship as a standard stdio MCP server, so Claude Code,
+Helpers is **agent-agnostic**: its tools ship as a standard stdio MCP server, so Claude Code,
 GitHub Copilot, and any MCP-capable agent can use them. See [`AGENTS.md`](AGENTS.md) for
 the agent-facing quickstart.
 
-- [Use with any AI agent (gsh CLI)](#use-with-any-ai-agent-gsh-cli)
+- [Use with any AI agent (helpers CLI)](#use-with-any-ai-agent-helpers-cli)
 - [CS2420 / CS3500 A+ grading](#cs2420--cs3500-a-grading)
 - [Branch Sessions (VS Code extension)](#branch-sessions-vs-code-extension)
 - [Git subcommands](#git-subcommands)
 - [MCP servers](#mcp-servers)
 - [Research Search (GitHub Pages)](#research-search-github-pages)
-- [gsh setup (project build-out)](#gsh-setup-project-build-out)
+- [helpers setup (project build-out)](#helpers-setup-project-build-out)
 - [Installation](#installation)
 - [Development & Contributing](#development--contributing)
 
 ---
 
-## Use with any AI agent (gsh CLI)
+## Use with any AI agent (helpers CLI)
 
-`gsh` is the single control surface for GSH. It installs GSH into your AI agent(s),
+`helpers` is the single control surface for Helpers. It installs Helpers into your AI agent(s),
 toggles the whole tool surface or individual tools live, and reports health.
 
 ```sh
-gsh install              # auto-detect agents (Claude Code, Copilot) and wire GSH in
-gsh install --agent claude   # Claude Code only ( --agent copilot | all )
-gsh status               # what's installed, master switch, tool counts, agents
-gsh doctor               # health checks
+helpers install              # auto-detect agents (Claude Code, Copilot) and wire Helpers in
+helpers install --agent claude   # Claude Code only ( --agent copilot | all )
+helpers status               # what's installed, master switch, tool counts, agents
+helpers doctor               # health checks
 ```
 
 ### Toggling (live — no agent restart)
 
 ```sh
-gsh disable | enable     # master kill-switch for the entire GSH tool surface
-gsh bypass               # toggle the master switch
-gsh tool list            # every tool + on/off state
-gsh tool disable <name>  # turn one tool off
-gsh tool enable all      # turn everything back on
+helpers disable | enable     # master kill-switch for the entire Helpers tool surface
+helpers bypass               # toggle the master switch
+helpers tool list            # every tool + on/off state
+helpers tool disable <name>  # turn one tool off
+helpers tool enable all      # turn everything back on
 ```
 
-Tool state lives in `~/.config/git-shell-helpers-mcp/tools.json` and is re-read by the
+Tool state lives in `~/.config/helpers-server/tools.json` and is re-read by the
 running MCP server on every request, so toggles take effect immediately. A disabled tool
 can be overridden for a single call with `{ "force": true }`.
 
 ### Fast startup (C launcher + auto-managed background server)
 
-`gsh install` registers a small **C launcher** (`gsh-mcp`, compiled on install) instead of
+`helpers install` registers a small **C launcher** (`helpers-mcp`, compiled on install) instead of
 launching Node directly. It starts in ~1ms and connects to a background server
-(`git-shell-helpers-mcpd.js`) that loads the tool modules once and stays resident, so
+(`helpers-serverd.js`) that loads the tool modules once and stays resident, so
 sessions start fast (~tens of ms) instead of paying cold Node startup every time.
 
 It just works — nothing to manage:
 
 - the background server **starts automatically** on first use and **exits after ~15 min
   idle**;
-- it's per-workspace (keyed by cwd + GSH env) so scope is preserved;
-- it re-reads tool state per request, so `gsh` toggles stay live;
+- it's per-workspace (keyed by cwd + Helpers env) so scope is preserved;
+- it re-reads tool state per request, so `helpers` toggles stay live;
 - if it isn't instantly ready (or there's no C compiler), the launcher **falls back to
   running Node directly within ~2s** — so startup is always reliable, never worse than
   plain Node.
 
 ```sh
-gsh build            # (re)compile the launcher (optional; auto-run by install)
-gsh daemon status    # is the background server running?
-gsh daemon restart   # restart it (use after changing GSH code)
+helpers build            # (re)compile the launcher (optional; auto-run by install)
+helpers daemon status    # is the background server running?
+helpers daemon restart   # restart it (use after changing Helpers code)
 ```
 
-### What `gsh install --agent claude` does
+### What `helpers install --agent claude` does
 
-- Registers the `gsh` MCP server with Claude Code (`claude mcp add -s user`).
-- Writes the GSH core behavior into `~/.claude/CLAUDE.md` as a managed block (no clobber).
-- Installs the `gsh` and `cs-grade` **skills**, the `/gsh` **slash command**, and the
+- Registers the `helpers` MCP server with Claude Code (`claude mcp add -s user`).
+- Writes the Helpers core behavior into `~/.claude/CLAUDE.md` as a managed block (no clobber).
+- Installs the `helpers` and `cs-grade` **skills**, the `/helpers` **slash command**, and the
   `cs-grade-improver` **subagent** into `~/.claude/`.
 
 Run `/mcp` (or restart Claude Code) afterward so the server connects. The same artifacts
@@ -84,14 +84,14 @@ live under [`claude-config/`](claude-config) and the Copilot equivalents under
 
 ## CS2420 / CS3500 A+ grading
 
-`git-cs-grade` (also `gsh grade`) scores a Java course project against an objective
+`git-cs-grade` (also `helpers grade`) scores a Java course project against an objective
 structural rubric and writes `GRADE.md`: a numeric+letter grade, a per-category scorecard
 with the evidence behind each score, and a prioritized **Path to A+** checklist.
 
 ```sh
-gsh grade .                      # auto-detect course
-gsh grade ./hw3 --course cs3500  # object-oriented design rubric
-gsh grade ./lab --course cs2420  # data-structures/algorithms rubric
+helpers grade .                      # auto-detect course
+helpers grade ./hw3 --course cs3500  # object-oriented design rubric
+helpers grade ./lab --course cs2420  # data-structures/algorithms rubric
 git-cs-grade . --json            # machine-readable, for an automated loop
 ```
 
@@ -107,7 +107,7 @@ design patterns, JUnit coverage, Javadoc, and cleanliness).
 
 ## VS Code extension
 
-The companion VS Code extension surfaces the GSH community-cache panel, live tool
+The companion VS Code extension surfaces the Helpers community-cache panel, live tool
 activity, strict-lint diagnostics, and model controls.
 
 ### Installation
@@ -121,7 +121,7 @@ The extension is bundled as a `.vsix`. Build it locally:
 Then install via **Extensions → Install from VSIX…** in VS Code, or:
 
 ```sh
-code --install-extension vscode-extension/git-shell-helpers-*.vsix
+code --install-extension vscode-extension/helpers-*.vsix
 ```
 
 > The `code --install-extension` form needs the `code` command on your PATH. If
@@ -133,7 +133,7 @@ code --install-extension vscode-extension/git-shell-helpers-*.vsix
 ## Git subcommands
 
 The standalone `git-*` CLIs are native Rust (the `gitcli` module of the
-`gsh-native` crate), built and symlinked by `gsh build`. They are deterministic;
+`helpers-native` crate), built and symlinked by `helpers build`. They are deterministic;
 `git upload` is the only one that touches AI, and only as an opt-in.
 
 | Command                    | What it does                                                                    |
@@ -141,14 +141,14 @@ The standalone `git-*` CLIs are native Rust (the `gitcli` module of the
 | `git upload`               | Stage, commit, and push with safe recovery; deterministic message by default, optional `-ai` via Claude/Copilot |
 | `git get`                  | Initialize a local repo from a remote (lightweight clone flow)                  |
 | `git initialize`           | Initialize the directory as a repo, create initial commit, set `origin`, push   |
-| `git checkpoint`           | Commit current state with a deterministic message (used by `gsh` MCP tools)     |
+| `git checkpoint`           | Commit current state with a deterministic message (used by `helpers` MCP tools)     |
 | `git fucked-the-push`      | Destructive recovery: undo the last pushed commit while keeping changes staged  |
 | `git resolve`              | Safe merge/rebase conflict resolution with automatic backup branches            |
 | `git remerge`              | Merge a detached-work branch back into a target; aborts cleanly on conflicts    |
 | `git scan-for-leaked-envs` | Scan for leaked secrets, API keys, and env vars with deterministic patterns     |
 | `git help-i-pushed-an-env` | Emergency: scrub secrets from git history, including batch ops across all repos |
 
-Plus `gsh setup` — a deterministic project build-out plan (see **gsh setup** below).
+Plus `helpers setup` — a deterministic project build-out plan (see **helpers setup** below).
 
 Man pages are installed for all commands. Use `git help <subcommand>` or `man git-<subcommand>` after installation.
 
@@ -156,19 +156,19 @@ Man pages are installed for all commands. Use `git help <subcommand>` or `man gi
 
 ## MCP servers
 
-### git-shell-helpers-mcp (combined server — recommended)
+### helpers-server (combined server — recommended)
 
-`git-shell-helpers-mcp` exposes all tooling under one MCP server entry. When the VS Code extension is installed, it publishes this server globally so `checkpoint`, `branch_session_start`, and other tools are available in every workspace without editing `mcp.json` manually.
+`helpers-server` exposes all tooling under one MCP server entry. When the VS Code extension is installed, it publishes this server globally so `checkpoint`, `branch_session_start`, and other tools are available in every workspace without editing `mcp.json` manually.
 
 Manual registration if needed:
 
 ```json
 {
   "servers": {
-    "gsh": {
+    "helpers": {
       "type": "stdio",
       "command": "node",
-      "args": ["git-shell-helpers-mcp"]
+      "args": ["helpers-server"]
     }
   }
 }
@@ -176,26 +176,26 @@ Manual registration if needed:
 
 #### Exposed tools
 
-Every GSH tool below is implemented in native Rust (the `gsh-native` binary),
+Every Helpers tool below is implemented in native Rust (the `helpers-native` binary),
 except web search/scrape which stay in Node (they drive a headless browser).
 All tools are deterministic — no tool calls an AI model.
 
 Core workflow and quality:
 
 - `strict_lint` - run each language's own linters on a file/folder/workspace.
-- `cs_lint` - scan for CS2420/CS3500 software-principle violations (single responsibility, documentation gaps, error handling, maintainability) and return one prioritized list with `file:line` + fix. Complements `gsh grade`; re-run to track the count to zero.
+- `cs_lint` - scan for CS2420/CS3500 software-principle violations (single responsibility, documentation gaps, error handling, maintainability) and return one prioritized list with `file:line` + fix. Complements `helpers grade`; re-run to track the count to zero.
 - `checkpoint` - stage and commit (deterministic message from the diff, or your own); optionally push. Stage a precise subset with `paths` (specific files) or `lines` (specific line ranges) for a focused checkpoint.
 
 Project index (cheap repo map — orient without grepping):
 
-- `index_project` - build/refresh a static map of files, symbols, and the reference graph (ranked), written to `.gsh/index/`.
+- `index_project` - build/refresh a static map of files, symbols, and the reference graph (ranked), written to `.helpers/index/`.
 - `project_map` - return a compact, token-cheap overview of the top modules plus a Mermaid graph; orient in one call.
 - `lookup` - find where a symbol is defined and what references it, from the index graph instead of a grep sweep.
-- `project_setup` - analyze the repo deterministically and return a concise build-out plan (purpose, stack + build/test/lint commands, gap checklist, and questions to ask the user). Drives a project to a complete, well-structured state fast; writes `.gsh/SETUP.md`. Also available as `gsh setup`.
+- `project_setup` - analyze the repo deterministically and return a concise build-out plan (purpose, stack + build/test/lint commands, gap checklist, and questions to ask the user). Drives a project to a complete, well-structured state fast; writes `.helpers/SETUP.md`. Also available as `helpers setup`.
 
 Project flows (agent-agnostic reusable tools, scoped to the project):
 
-- `register_workspace_tool` - register a named shell command/flow as a callable MCP tool (stored in `.gsh/tools/manifest.json`); turns a repetitive multi-step task into one tool call. Live immediately — no restart.
+- `register_workspace_tool` - register a named shell command/flow as a callable MCP tool (stored in `.helpers/tools/manifest.json`); turns a repetitive multi-step task into one tool call. Live immediately — no restart.
 - `unregister_workspace_tool` - remove a registered flow.
 - `list_workspace_tools` - list the flows registered for this project.
 
@@ -227,8 +227,8 @@ Context-efficient usage order (minimal context, maximal output):
 Environment variables to selectively disable groups:
 
 ```
-GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH=1
-GIT_SHELL_HELPERS_MCP_DISABLE_VISION=1
+HELPERS_MCP_DISABLE_RESEARCH=1
+HELPERS_MCP_DISABLE_VISION=1
 ```
 
 ### git-research-mcp (standalone research server)
@@ -288,11 +288,11 @@ node ./scripts/capture-live-site-browser-flows.js --output-dir /tmp/atlas-live-s
 
 ---
 
-## gsh setup (project build-out)
+## helpers setup (project build-out)
 
-`gsh setup` replaces the old Copilot DevOps audit with a **deterministic** project
+`helpers setup` replaces the old Copilot DevOps audit with a **deterministic** project
 build-out engine — no AI, no agent install. It analyzes the repository and prints
-(and writes to `.gsh/SETUP.md`) a concise, structured plan that drives any project
+(and writes to `.helpers/SETUP.md`) a concise, structured plan that drives any project
 to a complete, well-structured state quickly, while enforcing three rules:
 
 1. **Minimal context** — the plan is a tight, ranked summary, never a file dump.
@@ -301,8 +301,8 @@ to a complete, well-structured state quickly, while enforcing three rules:
 3. **Clarify with the user** — ambiguities become explicit questions to ask first.
 
 ```sh
-gsh setup            # analyze, print the plan, write .gsh/SETUP.md
-gsh setup --no-write # print only
+helpers setup            # analyze, print the plan, write .helpers/SETUP.md
+helpers setup --no-write # print only
 ```
 
 The plan contains: detected purpose, the technology stack with its build/test/lint
@@ -326,7 +326,7 @@ The postinstall script also attempts to install the VS Code extensions for the l
 If the optional tap-publish workflow is configured, install from the tap:
 
 ```sh
-brew tap RockyWearsAHat/gsh
+brew tap RockyWearsAHat/helpers
 brew install github-shell-helpers
 ```
 
@@ -374,7 +374,7 @@ tar -xzf github-shell-helpers-<version>.tar.gz
 
 ```sh
 curl -fsSL \
-  https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main/Git-Shell-Helpers-Installer.sh \
+  https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main/Helpers-Installer.sh \
   | bash
 ```
 
@@ -473,7 +473,7 @@ Key files:
 | ------------------------------------------ | ---------------------------------------------------------- |
 | `vscode-extension/extension.js`            | Extension entry point, command registration                |
 | `vscode-extension/src/ipc-servers.js`      | Unix socket IPC between MCP server and extension           |
-| `git-shell-helpers-mcp`                    | MCP server — project index, checkpoint, strict_lint, knowledge, project flows, web research |
+| `helpers-server`                    | MCP server — project index, checkpoint, strict_lint, knowledge, project flows, web research |
 | `git-upload`                               | Stage/commit/push with AI messages and test detection      |
 | `git-help-i-pushed-an-env`                 | Secret scrubbing from git history                          |
 | `scripts/patch-vscode-apply-all.js`        | Coordinator for VS Code bundle patches                     |

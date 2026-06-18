@@ -1,5 +1,5 @@
 //! Serializable data model for the project index (persisted as
-//! `.gsh/index/graph.json`).
+//! `.helpers/index/graph.json`).
 
 use serde::{Deserialize, Serialize};
 

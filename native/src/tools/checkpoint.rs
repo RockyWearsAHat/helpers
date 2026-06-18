@@ -51,7 +51,7 @@ fn worktree_path(branch: &str) -> PathBuf {
         .collect();
     home()
         .join(".cache")
-        .join("gsh")
+        .join("helpers")
         .join("worktrees")
         .join(safe)
 }

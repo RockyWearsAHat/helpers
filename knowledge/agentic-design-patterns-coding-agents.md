@@ -318,9 +318,9 @@ For coding agents, the most commonly used architectures are:
 
 ---
 
-## Pattern Traceability — gsh copilot-config
+## Pattern Traceability — helpers copilot-config
 
-Maps each of the 21 patterns to the gsh instruction/skill that implements it. Patterns marked ✅ are well-covered; ⚡ indicates a gap that has been addressed.
+Maps each of the 21 patterns to the helpers instruction/skill that implements it. Patterns marked ✅ are well-covered; ⚡ indicates a gap that has been addressed.
 
 | # | Pattern | Status | Primary implementation | Notes |
 |---|---------|--------|----------------------|-------|
@@ -333,7 +333,7 @@ Maps each of the 21 patterns to the gsh instruction/skill that implements it. Pa
 | 7 | Multi-Agent | ✅ | `subagent-strategy` + `tiered-agents` | Orchestrator/specialist decomposition, cost-proportional dispatch |
 | 8 | Memory | ✅ | `session-learning` + `expand-and-engage` | Three tiers: user memory (persistent), session memory (surprise-weighted), repo memory (workspace-scoped). Knowledge-First Protocol for long-term retrieval |
 | 9 | Learning | ✅ | `session-learning` | Engram-inspired surprise-weighted logging. Knowledge Gap Rule in `expand-and-engage` for KB growth |
-| 10 | MCP | ✅ | `gsh-mcp-tools` + `expand-and-engage` | MCP-over-builtin preference, standardized tool interface |
+| 10 | MCP | ✅ | `helpers-mcp-tools` + `expand-and-engage` | MCP-over-builtin preference, standardized tool interface |
 | 11 | Goal Setting | ✅ | `request-preparse` | Quality bar, validation requirements, explicit exit conditions, loop iteration limit |
 | 12 | Exception Handling | ✅ | `git-checkpoint` + `vscode-tool-safety` + `branch-lifecycle` | Transactional checkpoints, recovery protocols, branch guards |
 | 13 | HITL | ✅ | `request-preparse` + system-level operational safety | Destructive-action confirmation, ambiguity resolution via clarifying questions |

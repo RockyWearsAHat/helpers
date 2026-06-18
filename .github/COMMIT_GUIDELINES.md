@@ -4,7 +4,7 @@ This file is automatically referenced when generating AI commit messages via `gi
 
 ## Project Context
 
-This repository contains **git-shell-helpers**: a collection of shell scripts that extend Git with user-friendly commands:
+This repository contains **helpers**: a collection of shell scripts that extend Git with user-friendly commands:
 
 - `git-upload` - Stage, commit, and push in one command (with optional AI commit messages)
 - `git-get` - Clone or pull with smart defaults

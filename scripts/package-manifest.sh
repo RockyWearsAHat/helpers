@@ -14,16 +14,16 @@
 #
 # Examples:
 #   source ./scripts/package-manifest.sh
-#   gsh_core_commands
-#   gsh_man_pages
+#   helpers_core_commands
+#   helpers_man_pages
 
 set -euo pipefail
 
 # Shell commands still shipped as scripts. The git-* CLIs ported to Rust
 # (git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
 # git-resolve, git-scan-for-leaked-envs, git-checkpoint, git-help-i-pushed-an-env)
-# are built by `gsh build` as symlinks to the gsh-native binary, not copied here.
-gsh_core_commands() {
+# are built by `helpers build` as symlinks to the helpers-native binary, not copied here.
+helpers_core_commands() {
 	printf '%s\n' \
 		git-copilot-quickstart
 }
@@ -31,28 +31,28 @@ gsh_core_commands() {
 # Community-cache knowledge-sharing commands (the AI audit orchestrator was
 # removed; these submit/pull community research and remain part of the knowledge
 # subsystem).
-gsh_audit_commands() {
+helpers_audit_commands() {
 	printf '%s\n' \
 		git-copilot-devops-audit-community-pull \
 		git-copilot-devops-audit-community-submit \
 		git-copilot-devops-audit-community-research-submit
 }
 
-gsh_mcp_commands() {
+helpers_mcp_commands() {
 	printf '%s\n' \
 		git-research-mcp \
 		git-research-mcp.js \
-		git-shell-helpers-mcp \
-		git-shell-helpers-mcp.js
+		helpers-server \
+		helpers-server.js
 }
 
-gsh_shell_libs() {
+helpers_shell_libs() {
 	printf '%s\n' \
 		quickstart-detect.sh \
 		quickstart-models.sh
 }
 
-gsh_mcp_libs() {
+helpers_mcp_libs() {
 	printf '%s\n' \
 		mcp-activity-ipc.js \
 		mcp-git.js \
@@ -65,7 +65,7 @@ gsh_mcp_libs() {
 		mcp-web-search.js
 }
 
-gsh_support_scripts() {
+helpers_support_scripts() {
 	printf '%s\n' \
 		build-knowledge-index.js \
 		patch-vscode-apply-all.js \
@@ -78,14 +78,14 @@ gsh_support_scripts() {
 		community-research-submit.sh
 }
 
-gsh_data_dirs() {
+helpers_data_dirs() {
 	printf '%s\n' \
 		copilot-config \
 		community-cache \
 		templates
 }
 
-gsh_core_man_pages() {
+helpers_core_man_pages() {
 	printf '%s\n' \
 		git-checkpoint.1 \
 		git-copilot-quickstart.1 \
@@ -99,17 +99,17 @@ gsh_core_man_pages() {
 }
 
 # The AI audit orchestrator (and its man page) were removed; no audit man pages.
-gsh_audit_man_pages() {
+helpers_audit_man_pages() {
 	:
 }
 
-gsh_mcp_man_pages() {
+helpers_mcp_man_pages() {
 	printf '%s\n' \
 		git-research-mcp.1
 }
 
-gsh_man_pages() {
-	gsh_core_man_pages
-	gsh_audit_man_pages
-	gsh_mcp_man_pages
+helpers_man_pages() {
+	helpers_core_man_pages
+	helpers_audit_man_pages
+	helpers_mcp_man_pages
 }

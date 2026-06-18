@@ -117,7 +117,7 @@ pub fn all_tools() -> Vec<Tool> {
 }
 
 /// The `schemas` subcommand payload: the built-in tools plus any project-local
-/// flows registered in this workspace's `.gsh/tools/manifest.json`.
+/// flows registered in this workspace's `.helpers/tools/manifest.json`.
 pub fn schemas() -> Vec<Value> {
     let mut out: Vec<Value> = all_tools().iter().map(|t| (t.schema)()).collect();
     out.extend(tools::project_tools::schemas());

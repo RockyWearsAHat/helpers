@@ -1,7 +1,7 @@
 {
-  "name": "git-shell-helpers",
-  "displayName": "GitHub Shell Helpers",
-  "description": "Settings for git-shell-helpers community cache participation and DevOps audit configuration.",
+  "name": "helpers",
+  "displayName": "Helpers",
+  "description": "Settings for helpers community cache participation and DevOps audit configuration.",
   "version": "0.3.8",
   "publisher": "RockyWearsAHat",
   "license": "MIT",
@@ -16,66 +16,66 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onLanguageModelTool:gsh-inspect-copilot-customization-warnings",
-    "onLanguageModelTool:gsh-strict-lint"
+    "onLanguageModelTool:helpers-inspect-copilot-customization-warnings",
+    "onLanguageModelTool:helpers-strict-lint"
   ],
   "main": "./extension.js",
   "contributes": {
     "mcpServerDefinitionProviders": [
       {
         "id": "gitShellHelpers.mcpServers",
-        "label": "GitHub Shell Helpers"
+        "label": "Helpers"
       }
     ],
     "commands": [
       {
         "command": "gitShellHelpers.showCommunityStatus",
-        "title": "GitHub Shell Helpers: Show Community Cache Status"
+        "title": "Helpers: Show Community Cache Status"
       },
       {
         "command": "gitShellHelpers.inspectCopilotCustomizationWarnings",
-        "title": "GitHub Shell Helpers: Run Strict Linting"
+        "title": "Helpers: Run Strict Linting"
       },
       {
         "command": "gitShellHelpers.systemExecute.interrupt",
-        "title": "GitHub Shell Helpers: Interrupt Local System Agent"
+        "title": "Helpers: Interrupt Local System Agent"
       },
       {
         "command": "gitShellHelpers.loginGitHub",
-        "title": "GitHub Shell Helpers: Sign in to GitHub"
+        "title": "Helpers: Sign in to GitHub"
       },
       {
         "command": "gitShellHelpers.logoutGitHub",
-        "title": "GitHub Shell Helpers: Sign out of GitHub"
+        "title": "Helpers: Sign out of GitHub"
       },
       {
         "command": "gitShellHelpers.selectRepos",
-        "title": "GitHub Shell Helpers: Select Whitelisted Repositories"
+        "title": "Helpers: Select Whitelisted Repositories"
       },
       {
         "command": "gitShellHelpers.restartMcpServer",
-        "title": "GitHub Shell Helpers: Restart MCP Server"
+        "title": "Helpers: Restart MCP Server"
       },
       {
         "command": "gitShellHelpers.openMcpServerControls",
-        "title": "GitHub Shell Helpers: Open MCP Server Controls"
+        "title": "Helpers: Open MCP Server Controls"
       },
       {
         "command": "gitShellHelpers.refreshModels",
-        "title": "GitHub Shell Helpers: Refresh Available Models"
+        "title": "Helpers: Refresh Available Models"
       },
       {
         "command": "gitShellHelpers.openModelPicker",
-        "title": "GitHub Shell Helpers: Set Active Chat Model"
+        "title": "Helpers: Set Active Chat Model"
       },
       {
         "command": "gitShellHelpers.formatOpenFiles",
-        "title": "GitHub Shell Helpers: Format All Open Files"
+        "title": "Helpers: Format All Open Files"
       }
     ],
     "languageModelTools": [
       {
-        "name": "gsh-inspect-copilot-customization-warnings",
+        "name": "helpers-inspect-copilot-customization-warnings",
         "displayName": "Strict Linting (Customization File)",
         "userDescription": "Read live VS Code errors, warnings, hover details, and quick fixes for a Copilot customization file's frontmatter tools list.",
         "modelDescription": "Use this tool when working on Copilot customization files such as .agent.md, .instructions.md, .prompt.md, SKILL.md, or copilot-instructions.md and you need the real VS Code diagnostics for the frontmatter tools list. It reads editor errors, warnings, hover details, and available quick fixes, then returns a readable report directly in chat.",
@@ -90,7 +90,7 @@
         }
       },
       {
-        "name": "gsh-strict-lint",
+        "name": "helpers-strict-lint",
         "displayName": "Strict Linting",
         "userDescription": "Read live VS Code errors and warnings for any file, folder, or the whole workspace.",
         "modelDescription": "Use this tool to get real VS Code diagnostics (errors, warnings, info) for any file, folder, or the entire workspace. Pass filePath for a single file, folderPath to scan a directory recursively, or omit both for a full workspace scan. Use severityFilter to limit results to errors-only or warnings-and-above.",
@@ -123,7 +123,7 @@
       "activitybar": [
         {
           "id": "gitShellHelpers",
-          "title": "GitHub Shell Helpers",
+          "title": "Helpers",
           "icon": "media/git-helpers.svg"
         }
       ]
@@ -133,14 +133,14 @@
         {
           "type": "webview",
           "id": "gitShellHelpers.communityCache",
-          "name": "GitHub Shell Helpers",
+          "name": "Helpers",
           "icon": "media/git-helpers.svg",
           "visibility": "visible"
         }
       ]
     },
     "configuration": {
-      "title": "GitHub Shell Helpers",
+      "title": "Helpers",
       "properties": {
         "gitShellHelpers.checkpoint.enabled": {
           "type": "boolean",
@@ -253,7 +253,7 @@
         "gitShellHelpers.localSubagents.systemExecute.browserUserDataDir": {
           "type": "string",
           "default": "",
-          "description": "Persistent profile directory for the system_execute browser. Empty = use ~/.cache/gsh/playwright-profile (recommended). Point at your real Chrome profile (~/Library/Application Support/Google/Chrome/Default on macOS) ONLY when Chrome is closed."
+          "description": "Persistent profile directory for the system_execute browser. Empty = use ~/.cache/helpers/playwright-profile (recommended). Point at your real Chrome profile (~/Library/Application Support/Google/Chrome/Default on macOS) ONLY when Chrome is closed."
         }
       }
     }

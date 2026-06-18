@@ -18,12 +18,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GIT_UPLOAD="$REPO_ROOT/git-upload"
 
-# git-upload is a gsh-native subcommand (a gitignored symlink to the built
+# git-upload is a helpers-native subcommand (a gitignored symlink to the built
 # binary), so it is absent on a fresh checkout. Skip cleanly when it isn't
 # built — mirrors scripts/test-gitcli.sh — so CI without a Rust build stays
 # green instead of failing on a missing binary.
 if [ ! -x "$GIT_UPLOAD" ]; then
-	echo "GIT_UPLOAD_STATES: skip (git-upload / gsh-native not built; run 'gsh build')"
+	echo "GIT_UPLOAD_STATES: skip (git-upload / helpers-native not built; run 'helpers build')"
 	exit 0
 fi
 

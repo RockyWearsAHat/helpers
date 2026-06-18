@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-log() { echo "[gsh-core] $1"; }
+log() { echo "[helpers-core] $1"; }
 
 console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
 if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
@@ -18,9 +18,9 @@ if [ -z "$user_shell" ]; then
   user_shell="${SHELL:-/bin/bash}"
 fi
 
-shell_env_dir="$user_home/.config/git-shell-helpers"
+shell_env_dir="$user_home/.config/helpers"
 shell_env_snippet="$shell_env_dir/paths-system.sh"
-shell_env_source='[ -f "$HOME/.config/git-shell-helpers/paths-system.sh" ] && . "$HOME/.config/git-shell-helpers/paths-system.sh"'
+shell_env_source='[ -f "$HOME/.config/helpers/paths-system.sh" ] && . "$HOME/.config/helpers/paths-system.sh"'
 
 add_line_if_missing() {
   local file="$1" line="$2"
