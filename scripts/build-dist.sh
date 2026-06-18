@@ -94,6 +94,18 @@ while IFS= read -r data_dir; do
 	cp -R "${ROOT_DIR}/${data_dir}" "${ARCHIVE_BIN}/${data_dir}"
 done < <(helpers_data_dirs)
 
+# Rust crate sources, staged next to the bins so `helpers build` (run by the
+# installer) can compile the native binary in place. Copy sources only — never
+# the multi-hundred-MB target/ build cache.
+while IFS= read -r crate_dir; do
+	[ -n "$crate_dir" ] || continue
+	dest="${ARCHIVE_BIN}/${crate_dir}"
+	mkdir -p "$dest"
+	cp "${ROOT_DIR}/${crate_dir}/Cargo.toml" "$dest/"
+	[ -f "${ROOT_DIR}/${crate_dir}/Cargo.lock" ] && cp "${ROOT_DIR}/${crate_dir}/Cargo.lock" "$dest/"
+	cp -R "${ROOT_DIR}/${crate_dir}/src" "$dest/src"
+done < <(helpers_crate_dirs)
+
 while IFS= read -r man_page; do
 	[ -n "$man_page" ] || continue
 	cp "${ROOT_DIR}/man/man1/${man_page}" "${ARCHIVE_MAN}/${man_page}"

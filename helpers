@@ -647,7 +647,161 @@ function cmdStatus() {
     (reg === null ? "" : reg ? `  (${green("mcp registered")})` : `  (${yellow("mcp NOT registered — run helpers install")})`));
   console.log(`    copilot: ${agents.includes("copilot") ? ok + " present" : dim("not detected")}`);
   if (disabledCount) console.log(dim(`\n  Disabled tools: ${(cfg.disabledTools || []).join(", ")}`));
+  maybeShowUpdateHint();
   console.log("");
+}
+
+// ---------------------------------------------------------------------------
+// self-update: check the latest GitHub release and upgrade in place
+// ---------------------------------------------------------------------------
+const REPO_SLUG = "RockyWearsAHat/github-shell-helpers";
+const UPDATE_CACHE = path.join(HOME, ".config", "helpers", "update-check.json");
+const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
+
+// The installed version, read from the VERSION file shipped next to this CLI.
+function localVersion() {
+  try {
+    return fs.readFileSync(path.join(REPO_DIR, "VERSION"), "utf8").trim();
+  } catch {
+    return "0.0.0";
+  }
+}
+
+// Compare dotted numeric versions (pre-release suffix after '-' is ignored for
+// ordering). Returns 1 / 0 / -1 for a>b / a==b / a<b.
+function cmpVersion(a, b) {
+  const parts = (v) =>
+    String(v).replace(/^v/, "").split("-")[0].split(".").map((n) => parseInt(n, 10) || 0);
+  const x = parts(a);
+  const y = parts(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d !== 0) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+// Highest published release version (without the leading "v") via the GitHub
+// API; null if the network/API is unavailable. We list /releases and take the
+// max rather than /releases/latest, because every release here is a 0.x
+// prerelease (Beta) and /releases/latest only returns stable releases (404s).
+function latestReleaseVersion() {
+  const r = spawnSync(
+    "curl",
+    ["-fsSL", "-H", "Accept: application/vnd.github+json",
+      `https://api.github.com/repos/${REPO_SLUG}/releases?per_page=30`],
+    { encoding: "utf8", timeout: 15000 },
+  );
+  if (r.status !== 0) return null;
+  try {
+    const releases = JSON.parse(r.stdout);
+    if (!Array.isArray(releases)) return null;
+    let best = null;
+    for (const rel of releases) {
+      if (rel.draft || !rel.tag_name) continue;
+      const v = String(rel.tag_name).replace(/^v/, "");
+      if (best === null || cmpVersion(v, best) > 0) best = v;
+    }
+    return best;
+  } catch {
+    return null;
+  }
+}
+
+function writeUpdateCache(latest) {
+  try {
+    fs.mkdirSync(path.dirname(UPDATE_CACHE), { recursive: true });
+    fs.writeFileSync(UPDATE_CACHE, `${JSON.stringify({ checkedAt: Date.now(), latest }, null, 2)}\n`);
+  } catch {
+    /* a non-writable cache just means we re-check next time */
+  }
+}
+
+function readUpdateCache() {
+  try {
+    return JSON.parse(fs.readFileSync(UPDATE_CACHE, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+// Show a one-line hint when the cached check knows of a newer release, and
+// refresh that cache in a detached background process when it's stale — so the
+// hint stays current without ever blocking `helpers status`.
+function maybeShowUpdateHint() {
+  const cache = readUpdateCache();
+  const current = localVersion();
+  if (cache && cache.latest && cmpVersion(cache.latest, current) > 0) {
+    console.log(yellow(`\n  ↑ Update available: v${current} → v${cache.latest}`) + dim(" — run `helpers update`"));
+  }
+  const stale = !cache || Date.now() - (cache.checkedAt || 0) > UPDATE_CHECK_TTL_MS;
+  if (stale) {
+    try {
+      const child = require("child_process").spawn(
+        process.execPath, [__filename, "update", "--check"],
+        { detached: true, stdio: "ignore" },
+      );
+      child.unref();
+    } catch {
+      /* best-effort background refresh */
+    }
+  }
+}
+
+function cmdUpdate(args) {
+  const checkOnly = args.includes("--check");
+  const current = localVersion();
+  const latest = latestReleaseVersion();
+  if (!latest) {
+    if (checkOnly) return; // silent for the background refresh path
+    die("could not reach GitHub to check for updates (network?).");
+  }
+  writeUpdateCache(latest);
+  if (cmpVersion(latest, current) <= 0) {
+    if (!checkOnly) console.log(`${ok} Helpers is up to date (v${current}).`);
+    return;
+  }
+  if (checkOnly) {
+    console.log(`${yellow("↑")} Update available: v${current} → ${bold("v" + latest)}` + dim(" — run `helpers update`"));
+    return;
+  }
+  applyUpdate(latest);
+}
+
+// Upgrade in place: fast-forward a git checkout, or download+unpack the release
+// tarball for a packaged install; then rebuild the native tools and re-register.
+function applyUpdate(latest) {
+  console.log(`${yellow("↑")} Updating Helpers → ${bold("v" + latest)}`);
+  if (fs.existsSync(path.join(REPO_DIR, ".git"))) {
+    console.log(dim(`  git pull (${REPO_DIR})…`));
+    const r = spawnSync("git", ["-C", REPO_DIR, "pull", "--ff-only"], { stdio: "inherit" });
+    if (r.status !== 0) die("git pull failed — resolve manually, then re-run `helpers update`.");
+  } else {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "helpers-update-"));
+    const tarball = path.join(tmp, "helpers.tar.gz");
+    const url = `https://github.com/${REPO_SLUG}/releases/download/v${latest}/github-shell-helpers-${latest}.tar.gz`;
+    console.log(dim(`  downloading ${url}…`));
+    let r = spawnSync("curl", ["-fsSL", "-o", tarball, url], { encoding: "utf8" });
+    if (r.status !== 0) die(`could not download release tarball: ${url}`);
+    r = spawnSync("tar", ["-xzf", tarball, "-C", tmp], { encoding: "utf8" });
+    if (r.status !== 0) die("could not extract the release tarball.");
+    const binRoot = path.join(tmp, `github-shell-helpers-${latest}`, "bin");
+    if (!fs.existsSync(binRoot)) die("release tarball is missing its bin/ tree.");
+    for (const entry of fs.readdirSync(binRoot)) {
+      const dst = path.join(REPO_DIR, entry);
+      try { fs.rmSync(dst, { recursive: true, force: true }); } catch {}
+      fs.cpSync(path.join(binRoot, entry), dst, { recursive: true });
+    }
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  console.log(dim("  building native tools…"));
+  buildShim();
+  buildCsGrade();
+  buildNative();
+  console.log(dim("  re-registering with agents…"));
+  cmdInstall(["--agent", "auto"]);
+  writeUpdateCache(localVersion());
+  console.log(green(bold(`\nUpdated to v${localVersion()}.`)) + dim(" Restart your agent (or /mcp reconnect) to load the new tools."));
 }
 
 function cmdDoctor() {
@@ -798,6 +952,9 @@ ${bold("SETUP")}
                          Rust git-cs-grade, and the native MCP tools
                          (helpers-native). helpers-native is required (no Node fallback);
                          a failed build is reported as an error.
+  update [--check]       Upgrade to the latest GitHub release (git pull for a
+                         clone, release tarball otherwise), then rebuild + re-register.
+                         --check only reports whether an update is available.
 
 ${bold("BACKGROUND SERVER (auto-managed; for fast startup)")}
   daemon status          Show whether the background server is running.
@@ -879,6 +1036,7 @@ function main() {
     case "doctor": return cmdDoctor();
     case "daemon": return cmdDaemon(rest);
     case "build": buildShim(); buildCsGrade(); buildNative(); return;
+    case "update": return cmdUpdate(rest);
     case "grade": return cmdGrade(rest);
     case "index": return cmdIndex(rest);
     case "setup": return cmdSetup(rest);

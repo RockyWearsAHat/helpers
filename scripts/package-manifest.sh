@@ -25,6 +25,8 @@ set -euo pipefail
 # are built by `helpers build` as symlinks to the helpers-native binary, not copied here.
 helpers_core_commands() {
 	printf '%s\n' \
+		helpers \
+		git-cs-grade.js \
 		git-copilot-quickstart
 }
 
@@ -43,7 +45,18 @@ helpers_mcp_commands() {
 		git-research-mcp \
 		git-research-mcp.js \
 		helpers-server \
-		helpers-server.js
+		helpers-server.js \
+		helpers-serverd.js \
+		helpers-mcp.c
+}
+
+# Rust crate sources (sources only — never the build target/). `helpers build`,
+# run by the installer after the tree is staged, compiles these into the
+# helpers-native binary (MCP tools + ported git-* CLIs) and git-cs-grade.
+helpers_crate_dirs() {
+	printf '%s\n' \
+		native \
+		cs-grade
 }
 
 helpers_shell_libs() {
@@ -80,6 +93,7 @@ helpers_support_scripts() {
 
 helpers_data_dirs() {
 	printf '%s\n' \
+		claude-config \
 		copilot-config \
 		community-cache \
 		templates
