@@ -7,13 +7,16 @@
 "use strict";
 
 const fs = require("fs/promises");
+const os = require("os");
 const path = require("path");
 
 let passed = 0;
 let failed = 0;
 
+// Use the platform temp dir (os.tmpdir()) rather than a hardcoded /tmp, which
+// does not exist on Windows.
 const TEMP_WORKSPACE = path.join(
-  "/tmp",
+  os.tmpdir(),
   "test-search-auto-scrape-" + Date.now(),
 );
 

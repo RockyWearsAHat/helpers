@@ -103,7 +103,16 @@ tar -czf "$TARBALL_PATH" -C "$RELEASE_ROOT_PARENT" "$ARCHIVE_ROOT_NAME"
 
 (
 	cd "$DIST_DIR"
-	shasum -a 256 "$(basename "$VERSIONED_INSTALLER_PATH")" "$(basename "$TARBALL_PATH")" > "$CHECKSUM_PATH"
+	# Portable SHA-256: GNU coreutils ships `sha256sum`; macOS/Perl ship
+	# `shasum`. Windows Git Bash typically has `sha256sum` but not `shasum`.
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$(basename "$VERSIONED_INSTALLER_PATH")" "$(basename "$TARBALL_PATH")" > "$CHECKSUM_PATH"
+	elif command -v shasum >/dev/null 2>&1; then
+		shasum -a 256 "$(basename "$VERSIONED_INSTALLER_PATH")" "$(basename "$TARBALL_PATH")" > "$CHECKSUM_PATH"
+	else
+		echo "[build-dist] ERROR: no SHA-256 tool (need sha256sum or shasum)" >&2
+		exit 1
+	fi
 )
 
 echo "[build-dist] Wrote dist/Git-Shell-Helpers-Installer.sh"
