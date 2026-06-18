@@ -20,21 +20,9 @@ remove_mcp_entry() {
   local mcp_file="$user_home/Library/Application Support/Code/User/mcp.json"
   [ -f "$mcp_file" ] || return 0
 
-  run_as /usr/bin/python3 -c "
-import json, sys
-p = sys.argv[1]
-n = sys.argv[2]
-try:
-    with open(p, 'r') as f:
-        d = json.load(f)
-except:
-    sys.exit(0)
-if 'servers' in d and isinstance(d['servers'], dict) and n in d['servers']:
-    del d['servers'][n]
-    with open(p, 'w') as f:
-        json.dump(d, f, indent=2)
-        f.write('\n')
-" "$mcp_file" "$srv_name" 2>/dev/null || true
+  # Single -c one-liner (no heredoc / multi-line body) per shell-safety; a
+  # malformed mcp.json throws and is swallowed by `2>/dev/null || true`.
+  run_as /usr/bin/python3 -c "import json,sys; p,n=sys.argv[1],sys.argv[2]; d=json.load(open(p)); s=d.get('servers'); (s.pop(n,None), open(p,'w').write(json.dumps(d,indent=2)+chr(10))) if isinstance(s,dict) and n in s else None" "$mcp_file" "$srv_name" 2>/dev/null || true
 }
 
 remove_mcp_entry "gsh"

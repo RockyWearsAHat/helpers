@@ -470,28 +470,17 @@ remove_mcp_server() {
 
   [ -f "$mcp_file" ] || return 0
 
-  python3 - "$mcp_file" "$name" <<'PYEOF'
-import json, sys
-
-mcp_path, srv_name = sys.argv[1], sys.argv[2]
-try:
-  with open(mcp_path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError):
-  sys.exit(0)
-
-if "servers" in data and isinstance(data["servers"], dict):
-  if srv_name in data["servers"]:
-    del data["servers"][srv_name]
-    with open(mcp_path, "w", encoding="utf-8") as f:
-      json.dump(data, f, indent=2)
-      f.write("\n")
-PYEOF
+  # Single -c one-liner (no heredoc / multi-line body) per shell-safety; a
+  # malformed mcp.json throws and is swallowed by `2>/dev/null || true`.
+  python3 -c "import json,sys; p,n=sys.argv[1],sys.argv[2]; d=json.load(open(p)); s=d.get('servers'); (s.pop(n,None), open(p,'w').write(json.dumps(d,indent=2)+chr(10))) if isinstance(s,dict) and n in s else None" "$mcp_file" "$name" 2>/dev/null || true
 }
 
+# Purge pre-rebrand static registrations; the current "helpers" server is
+# extension-managed and must not be removed here.
 remove_legacy_helpers_mcp_servers() {
-  remove_mcp_server "helpers"
-  remove_mcp_server "helpers"
+  remove_mcp_server "gsh"
+  remove_mcp_server "git-shell-helpers"
+  remove_mcp_server "git-shell-helpers-mcp"
 }
 
 configure_mcp_tools() {
