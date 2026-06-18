@@ -203,91 +203,32 @@ install_source_archive() {
   return 0
 }
 
-fetch_mcp_runtime() {
-  local dest_bin_dir="$1"
-  local dest_lib_dir="${dest_bin_dir}/lib"
-  local mcp_lib=""
-
-  ensure_dir "$dest_lib_dir"
-
-  fetch "$REPO_RAW_BASE/helpers-server" "$dest_bin_dir/helpers-server"
-  fetch "$REPO_RAW_BASE/helpers-server.js" "$dest_bin_dir/helpers-server.js"
-  fetch "$REPO_RAW_BASE/git-research-mcp" "$dest_bin_dir/git-research-mcp"
-  fetch "$REPO_RAW_BASE/git-research-mcp.js" "$dest_bin_dir/git-research-mcp.js"
-
-  # Keep this list in sync with the require() closure of helpers-server.js.
-  # A missing lib makes the server crash on load (a require of an absent file),
-  # so every module the server transitively requires must be fetched here.
-  for mcp_lib in \
-    mcp-activity-ipc.js \
-    mcp-branch-sessions.js \
-    mcp-checkpoint.js \
-    mcp-git.js \
-    mcp-google-headless.js \
-    mcp-knowledge-index.js \
-    mcp-knowledge-rw.js \
-    mcp-language-models.js \
-    mcp-local-subagents.js \
-    mcp-model-utils.js \
-    mcp-pdf-extract.js \
-    mcp-research-tools.js \
-    mcp-research.js \
-    mcp-session-memory.js \
-    mcp-strict-lint.js \
-    mcp-strict-lint-standalone.js \
-    mcp-user-tools.js \
-    mcp-utils.js \
-    mcp-web-search.js \
-    mcp-workspace-context.js \
-    video-analysis.js \
-    video-asr.js \
-    video-frames.js \
-    video-report.js
-  do
-    fetch "$REPO_RAW_BASE/lib/${mcp_lib}" "$dest_lib_dir/${mcp_lib}"
-  done
-
-  chmod +x "$dest_bin_dir/helpers-server" "$dest_bin_dir/git-research-mcp"
-
-  # Fast C launcher: fetch the warm-daemon runtime + shim source and compile a
-  # native binary for THIS OS so the agent pays Node's cold-start cost once
-  # instead of on every session. Falls back to direct node when no C compiler is
-  # present — identical behaviour to `helpers build`, just inlined for curl installs.
-  fetch "$REPO_RAW_BASE/helpers-serverd.js" "$dest_bin_dir/helpers-serverd.js"
-  fetch "$REPO_RAW_BASE/helpers-mcp.c" "$dest_bin_dir/helpers-mcp.c"
-  fetch "$REPO_RAW_BASE/helpers" "$dest_bin_dir/helpers"
-  chmod +x "$dest_bin_dir/helpers"
-  build_fast_launcher "$dest_bin_dir"
-}
-
-# Compile the fast C launcher (helpers-mcp) for the host OS. POSIX-only (Unix domain
-# sockets + fork); on platforms without a C compiler we simply skip and the
-# launcher list falls back to direct node, which still works.
-build_fast_launcher() {
-  local dest_bin_dir="$1"
-  local cc=""
-  local candidate
-  for candidate in "${CC:-}" cc clang gcc; do
-    [ -n "$candidate" ] || continue
-    if command -v "$candidate" >/dev/null 2>&1; then cc="$candidate"; break; fi
-  done
-  if [ -z "$cc" ]; then
-    echo "[Helpers-Installer] No C compiler found — using direct node (fast launcher skipped)."
+# Compile the native binaries and register the MCP server, reusing the helpers
+# CLI's own build/install logic (DRY) once the packaged tree — which ships the
+# helpers CLI plus the native/ and cs-grade/ crate sources — is staged in
+# BIN_DIR. `helpers build` produces helpers-native (MCP tools + ported git-*
+# CLIs), git-cs-grade, and the fast C launcher; `helpers install` registers the
+# MCP server and skills with any detected agent. The native build needs cargo
+# (https://rustup.rs); without it the install still lands the files but the
+# Rust-only tools won't run.
+build_and_register() {
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[Helpers-Installer] Node.js not found — cannot build native tools or register the MCP server." >&2
+    echo "[Helpers-Installer] Install Node.js (https://nodejs.org), then run: helpers build && helpers install" >&2
     return 0
   fi
-  local node_bin
-  node_bin="$(command -v node || true)"
-  [ -n "$node_bin" ] || node_bin="node"
-  if "$cc" -O2 -Wall \
-      -DNODE_BIN="\"${node_bin}\"" \
-      -DDAEMON_JS="\"${dest_bin_dir}/helpers-serverd.js\"" \
-      -DSTDIO_JS="\"${dest_bin_dir}/helpers-server\"" \
-      -o "$dest_bin_dir/helpers-mcp" "$dest_bin_dir/helpers-mcp.c" 2>/dev/null; then
-    chmod +x "$dest_bin_dir/helpers-mcp"
-    echo "[Helpers-Installer] Compiled fast C launcher: $dest_bin_dir/helpers-mcp"
-  else
-    echo "[Helpers-Installer] Fast launcher compile failed — using direct node (still works)."
+  if [ ! -x "$BIN_DIR/helpers" ]; then
+    echo "[Helpers-Installer] ERROR: helpers CLI missing from $BIN_DIR after staging." >&2
+    return 1
   fi
+  if ! node "$BIN_DIR/helpers" build; then
+    echo "[Helpers-Installer] 'helpers build' reported an issue (Rust toolchain may be missing)." >&2
+    echo "[Helpers-Installer] Install Rust (https://rustup.rs), then run: helpers build" >&2
+  fi
+  # Register the MCP server + skills with detected agents. Tolerate "no agent
+  # detected" (e.g. headless servers) — the files are installed either way.
+  node "$BIN_DIR/helpers" install --agent auto 2>/dev/null ||
+    echo "[Helpers-Installer] No AI agent auto-detected — register later with: helpers install"
 }
 
 write_community_settings() {
@@ -621,6 +562,10 @@ install_all() {
     echo "[Helpers-Installer] ERROR: failed to install packaged release files from both release and source archives." >&2
     exit 1
   fi
+
+  # Build the native binaries and register the MCP server now that the full tree
+  # (helpers CLI + crate sources) is staged.
+  build_and_register
 
   configure_community_cache
 
