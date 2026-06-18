@@ -55,7 +55,7 @@ jobs:
 
       - name: Build search site
         env:
-          GSH_PAGES_BRANCH: main
+          HELPERS_PAGES_BRANCH: main
         run: node ./scripts/build-pages-search-site.js
 
       - name: Upload Pages artifact

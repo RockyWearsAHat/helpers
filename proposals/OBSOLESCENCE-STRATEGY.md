@@ -66,7 +66,7 @@ async function setDisplayBranch(repoRoot, branchName) {
   }
 
   // Fall back to file-based override (works with or without our patch)
-  const overridePath = path.join(repoRoot, ".git", "gsh-head-override");
+  const overridePath = path.join(repoRoot, ".git", "helpers-head-override");
   if (branchName) {
     fs.writeFileSync(overridePath, branchName + "\n", "utf8");
   } else {
@@ -83,7 +83,7 @@ async function setDisplayBranch(repoRoot, branchName) {
 
 **When upstream lands**: The API branch executes, no file writes needed, no patch needed.
 
-**If upstream uses a file convention**: If they adopt `.git/head-display-override` as a standard, we rename our file from `gsh-head-override` to match. If they pick a different mechanism, we adapt.
+**If upstream uses a file convention**: If they adopt `.git/head-display-override` as a standard, we rename our file from `helpers-head-override` to match. If they pick a different mechanism, we adapt.
 
 **Cleanup trigger**: When `vscode.git` API version exposes `headLabelOverride`, remove the file-based fallback and the patch script.
 
@@ -204,7 +204,7 @@ const HAS_NATIVE_FOLDER_SWITCH = semver.gte(VSCODE_VERSION, "1.XX.0"); // fill w
 
 ## File Naming Convention
 
-Our current override file is `.git/gsh-head-override` (prefixed with `gsh-` to indicate it's our convention). If upstream adopts a standard name, we'll migrate. The `gsh-` prefix ensures we don't conflict with any future upstream convention.
+Our current override file is `.git/helpers-head-override` (prefixed with `helpers-` to indicate it's our convention). If upstream adopts a standard name, we'll migrate. The `helpers-` prefix ensures we don't conflict with any future upstream convention.
 
 ## Timeline
 

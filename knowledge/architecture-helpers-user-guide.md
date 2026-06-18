@@ -1,12 +1,12 @@
-# Architecture — gsh User Guide
+# Architecture — helpers User Guide
 
-For agents working **with** gsh (any project that has github-shell-helpers installed). Covers CLI commands, MCP tools, dataflows, and configuration.
+For agents working **with** helpers (any project that has github-shell-helpers installed). Covers CLI commands, MCP tools, dataflows, and configuration.
 
-For internal module details (file-level mappings, JS/shell library inventory), see `architecture-gsh-internals.md`.
+For internal module details (file-level mappings, JS/shell library inventory), see `architecture-helpers-internals.md`.
 
 ---
 
-## What gsh Provides
+## What helpers Provides
 
 ```mermaid
 graph TB
@@ -65,7 +65,7 @@ All commands are git subcommands — run them as `git <name>` (e.g., `git upload
 
 Two MCP servers expose tools to agents. Both use stdio transport and are managed by the VS Code extension.
 
-### Core Server (`git-shell-helpers-mcp`)
+### Core Server (`helpers-server`)
 
 Git operations, workspace awareness, branch isolation, and code quality.
 
@@ -139,7 +139,7 @@ sequenceDiagram
 - `workspace_context()` shows active branch sessions
 - `branch_status()` shows all worktrees across chats
 - Switching chats auto-switches the visible branch
-- Enable via: Settings → Git Shell Helpers → Branch Sessions → Enabled
+- Enable via: Settings → Helpers → Branch Sessions → Enabled
 
 ---
 
@@ -173,7 +173,7 @@ flowchart TD
 
 ## Copilot Config
 
-gsh ships behavioral rules, skills, agents, and prompts that install to `~/.copilot/`. These customize how AI agents behave in any workspace.
+helpers ships behavioral rules, skills, agents, and prompts that install to `~/.copilot/`. These customize how AI agents behave in any workspace.
 
 ### Instructions (behavioral rules)
 
@@ -243,4 +243,4 @@ Session logs live at `<workspace>/.github/session-memory/session-log.jsonl`. App
 |-------|---------|
 | `communityRepo` | GitHub repo for community cache (default: `RockyWearsAHat/github-shell-helpers`) |
 | `shareKnowledge` | Enable auto-submit of published knowledge notes |
-| `localClone` | Path to local gsh clone |
+| `localClone` | Path to local helpers clone |

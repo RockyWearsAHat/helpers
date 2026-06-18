@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// `~/.cache/gsh/worktrees` — base dir for branch-session worktrees.
+/// `~/.cache/helpers/worktrees` — base dir for branch-session worktrees.
 pub fn worktree_base() -> PathBuf {
-    home().join(".cache").join("gsh").join("worktrees")
+    home().join(".cache").join("helpers").join("worktrees")
 }
 
 /// Resolve the user's home directory the same way the JS helpers do.
@@ -70,10 +70,10 @@ pub fn exec_git_stdin(args: &[&str], cwd: &Path, stdin: &str) -> Result<String, 
     }
 }
 
-/// Workspace roots from `$GSH_WORKSPACE_ROOTS` (a JSON array), or an empty vec
+/// Workspace roots from `$HELPERS_WORKSPACE_ROOTS` (a JSON array), or an empty vec
 /// so the caller can apply its own fallback (cwd, etc.).
 pub fn workspace_roots() -> Vec<PathBuf> {
-    if let Ok(raw) = std::env::var("GSH_WORKSPACE_ROOTS") {
+    if let Ok(raw) = std::env::var("HELPERS_WORKSPACE_ROOTS") {
         if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(&raw) {
             let roots: Vec<PathBuf> = arr
                 .iter()
@@ -104,8 +104,8 @@ pub fn find_repo_root(start: &Path) -> Option<PathBuf> {
 }
 
 /// The workspace root used by the session/knowledge tools. Mirrors the detection
-/// in `mcp-research.js`: first `$GSH_WORKSPACE_ROOTS` entry, else the repo root
-/// containing cwd, else the GSH install dir (this binary's parent).
+/// in `mcp-research.js`: first `$HELPERS_WORKSPACE_ROOTS` entry, else the repo root
+/// containing cwd, else the Helpers install dir (this binary's parent).
 pub fn workspace_root() -> PathBuf {
     if let Some(first) = workspace_roots().into_iter().next() {
         return first;
@@ -121,7 +121,7 @@ pub fn workspace_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Resolve the repository root: the first `$GSH_WORKSPACE_ROOTS` entry / cwd
+/// Resolve the repository root: the first `$HELPERS_WORKSPACE_ROOTS` entry / cwd
 /// whose `git rev-parse --show-toplevel` succeeds. Mirrors `resolveRepoRoot`.
 pub fn resolve_repo_root() -> Result<PathBuf, String> {
     let mut candidates = workspace_roots();
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn find_repo_root_walks_up_to_marker() {
-        let base = std::env::temp_dir().join(format!("gsh-root-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("helpers-root-{}", std::process::id()));
         let nested = base.join("a").join("b").join("c");
         std::fs::create_dir_all(&nested).unwrap();
         std::fs::create_dir_all(base.join(".git")).unwrap();

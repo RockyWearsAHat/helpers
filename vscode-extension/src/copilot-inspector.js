@@ -25,7 +25,7 @@ module.exports = function createCopilotInspector(deps) {
   function getDiagnosticsOutputChannel() {
     if (!getDiagnosticsChannel()) {
       setDiagnosticsChannel(
-        vscode.window.createOutputChannel("Git Shell Helpers Diagnostics"),
+        vscode.window.createOutputChannel("Helpers Diagnostics"),
       );
     }
     return getDiagnosticsChannel();
@@ -444,7 +444,7 @@ module.exports = function createCopilotInspector(deps) {
 
     if (notify && foundSignal) {
       vscode.window.showInformationMessage(
-        "Strict Linting finished. See Git Shell Helpers Diagnostics output.",
+        "Strict Linting finished. See Helpers Diagnostics output.",
       );
     } else if (notify) {
       vscode.window.showInformationMessage(
@@ -605,7 +605,7 @@ module.exports = function createCopilotInspector(deps) {
     ensureDiagnosticsTracker(context);
 
     setInspectorDisposable(
-      vscode.lm.registerTool("gsh-inspect-copilot-customization-warnings", {
+      vscode.lm.registerTool("helpers-inspect-copilot-customization-warnings", {
         async invoke(options, token) {
           const filePath = options?.input?.filePath || "";
           const callId = beginToolCall(
@@ -640,7 +640,7 @@ module.exports = function createCopilotInspector(deps) {
     );
     context.subscriptions.push(getInspectorDisposable());
 
-    _strictLintToolDisposable = vscode.lm.registerTool("gsh-strict-lint", {
+    _strictLintToolDisposable = vscode.lm.registerTool("helpers-strict-lint", {
       async invoke(options, token) {
         const filePath = String(options?.input?.filePath || "").trim();
         const folderPath = String(options?.input?.folderPath || "").trim();

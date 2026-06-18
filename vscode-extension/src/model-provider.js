@@ -12,8 +12,8 @@ const AVAILABLE_MODELS_PATH = path.join(
 );
 const { execFile } = require("child_process");
 
-const API_KEY_ANTHROPIC = "gsh.apiKey.anthropic";
-const API_KEY_OPENAI = "gsh.apiKey.openai";
+const API_KEY_ANTHROPIC = "helpers.apiKey.anthropic";
+const API_KEY_OPENAI = "helpers.apiKey.openai";
 
 const QUICK_ACTIONS = [
   {
@@ -44,12 +44,12 @@ module.exports = function createModelProvider(deps) {
     if (now - _lastAvailableModelsWriteWarningAt < 60000) return;
     _lastAvailableModelsWriteWarningAt = now;
     console.warn(
-      `[gsh] Failed to write available models cache at ${AVAILABLE_MODELS_PATH}: ${formatErrorMessage(err)}`,
+      `[helpers] Failed to write available models cache at ${AVAILABLE_MODELS_PATH}: ${formatErrorMessage(err)}`,
     );
   }
 
   function initPinnedModels(context) {
-    const savedPinned = context.globalState.get("gsh.ollama.pinned", []);
+    const savedPinned = context.globalState.get("helpers.ollama.pinned", []);
     _ollamaPinned = new Set(Array.isArray(savedPinned) ? savedPinned : []);
   }
 
@@ -70,7 +70,7 @@ module.exports = function createModelProvider(deps) {
         seen.add(m.id);
         return true;
       });
-      // Write available models so the gsh MCP server can expose list_language_models
+      // Write available models so the helpers MCP server can expose list_language_models
       try {
         const dir = path.dirname(AVAILABLE_MODELS_PATH);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

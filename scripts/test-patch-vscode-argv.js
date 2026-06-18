@@ -9,8 +9,8 @@ const path = require("path");
 const { patchArgvFile } = require("./patch-vscode-argv");
 
 function main() {
-  const extensionId = "RockyWearsAHat.git-shell-helpers";
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "gsh-argv-"));
+  const extensionId = "RockyWearsAHat.helpers";
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "helpers-argv-"));
 
   try {
     const existingPath = path.join(tempDir, "existing.json");
@@ -22,7 +22,7 @@ function main() {
     const patchedExisting = patchArgvFile(existingPath, extensionId);
     assert.ok(
       patchedExisting.includes(
-        '"enable-proposed-api": ["sample.extension","RockyWearsAHat.git-shell-helpers"]',
+        '"enable-proposed-api": ["sample.extension","RockyWearsAHat.helpers"]',
       ),
     );
     assert.ok(patchedExisting.includes("// Keep my other proposals"));
@@ -32,7 +32,7 @@ function main() {
     const patchedMissing = patchArgvFile(missingPath, extensionId);
     assert.ok(
       patchedMissing.includes(
-        '"enable-proposed-api": ["RockyWearsAHat.git-shell-helpers"]',
+        '"enable-proposed-api": ["RockyWearsAHat.helpers"]',
       ),
     );
     assert.ok(patchedMissing.includes('"window.zoomLevel": 1,'));
@@ -40,12 +40,12 @@ function main() {
     const duplicatePath = path.join(tempDir, "duplicate.json");
     fs.writeFileSync(
       duplicatePath,
-      '{\n  "enable-proposed-api": ["RockyWearsAHat.git-shell-helpers"]\n}\n',
+      '{\n  "enable-proposed-api": ["RockyWearsAHat.helpers"]\n}\n',
       "utf8",
     );
     const patchedDuplicate = patchArgvFile(duplicatePath, extensionId);
     const idMatches = patchedDuplicate.match(
-      /RockyWearsAHat\.git-shell-helpers/g,
+      /RockyWearsAHat\.helpers/g,
     );
     assert.strictEqual(idMatches ? idMatches.length : 0, 1);
 

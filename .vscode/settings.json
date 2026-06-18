@@ -2,8 +2,8 @@
   "files.associations": {
     "VERSION": "plaintext",
     "git-*": "shellscript",
-    "git-shell-helpers-mcp": "javascript",
-    "git-shell-helpers-mcp.js": "javascript",
+    "helpers-server": "javascript",
+    "helpers-server.js": "javascript",
     "git-research-mcp": "javascript",
     "git-research-mcp.js": "javascript"
   },
@@ -16,6 +16,6 @@
     "**/local-qwen-ollama-outbound*": true,
     "**/.local-qwen/**": true
   },
-  "gsh.previousWindowTitleTemplate": "${activeEditorShort}${separator}${rootName}${separator}${profileName}",
+  "helpers.previousWindowTitleTemplate": "${activeEditorShort}${separator}${rootName}${separator}${profileName}",
   "window.title": "fix cache invalidation bug ${separator} ${rootName}"
 }

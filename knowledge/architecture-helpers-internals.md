@@ -1,8 +1,8 @@
-# Architecture — gsh Internals (Contributor Reference)
+# Architecture — helpers Internals (Contributor Reference)
 
 For contributors and agents working **inside** the github-shell-helpers repository. Covers module inventory, file-level mappings, dataflows, and implementation details.
 
-For user-facing command and tool reference, see `architecture-gsh-user-guide.md`.
+For user-facing command and tool reference, see `architecture-helpers-user-guide.md`.
 
 ---
 
@@ -11,7 +11,7 @@ For user-facing command and tool reference, see `architecture-gsh-user-guide.md`
 ```mermaid
 graph TB
     CLI["CLI Commands<br/>(bash scripts)"] --> LIB_SH["Shell Libraries<br/>(lib/*.sh)"]
-    VSCODE["VS Code Extension"] --> MCP_CORE["Core MCP Server<br/>(git-shell-helpers-mcp)"]
+    VSCODE["VS Code Extension"] --> MCP_CORE["Core MCP Server<br/>(helpers-server)"]
     VSCODE --> MCP_RESEARCH["Research MCP Server<br/>(git-research-mcp)"]
     MCP_CORE --> LIB_JS["JS Libraries<br/>(lib/mcp-*.js)"]
     MCP_RESEARCH --> LIB_JS
@@ -54,7 +54,7 @@ Decomposes `git-upload` into testable, replaceable units:
 
 ## JS Libraries (`lib/mcp-*.js`)
 
-Each MCP tool is backed by a dedicated module. Both MCP servers (`git-shell-helpers-mcp` and `git-research-mcp`) consume these.
+Each MCP tool is backed by a dedicated module. Both MCP servers (`helpers-server` and `git-research-mcp`) consume these.
 
 ### Git operations
 
@@ -105,7 +105,7 @@ Each MCP tool is backed by a dedicated module. Both MCP servers (`git-shell-help
 - **chat-sessions.js** — Watches Copilot Chat's JSONL session files to surface live agent activity
 - **format-control.js** — Gate `formatOnSave` during agent edits to prevent formatter interference
 - **activity-tracker.js** — User activity tracking for session pulse
-- **install-health.js** — Verify gsh installation and PATH availability
+- **install-health.js** — Verify helpers installation and PATH availability
 
 ---
 
@@ -113,7 +113,7 @@ Each MCP tool is backed by a dedicated module. Both MCP servers (`git-shell-help
 
 | Server | Entry | Node.js script |
 |--------|-------|-----------------|
-| Core | `git-shell-helpers-mcp` (bash wrapper) | `git-shell-helpers-mcp.js` |
+| Core | `helpers-server` (bash wrapper) | `helpers-server.js` |
 | Research | `git-research-mcp` (bash wrapper) | `git-research-mcp.js` |
 
 Both servers use stdio transport and are started by the VS Code extension. The bash wrappers handle PATH setup and delegate to the `.js` files.
@@ -187,11 +187,11 @@ The MCP server resolves `KNOWLEDGE_ROOT` per workspace:
 1. If `<workspace>/knowledge/` exists and contains `.md` files → use it
 2. Otherwise → `<workspace>/.github/knowledge/`
 
-`REPO_KNOWLEDGE_ROOT` always points to `<gsh-install>/knowledge/` (the shipped community KB).
+`REPO_KNOWLEDGE_ROOT` always points to `<helpers-install>/knowledge/` (the shipped community KB).
 
 At search time, both local and repo knowledge are merged — local results get a 1.15x score boost. Writes always go to `KNOWLEDGE_ROOT`.
 
-**When working inside the gsh repo itself**: `KNOWLEDGE_ROOT` = `~/bin/knowledge/` = the community KB. Local and shipped overlap — writes to knowledge notes are writes to the community KB.
+**When working inside the helpers repo itself**: `KNOWLEDGE_ROOT` = `~/bin/knowledge/` = the community KB. Local and shipped overlap — writes to knowledge notes are writes to the community KB.
 
 ---
 
@@ -215,8 +215,8 @@ Version is stored in `VERSION` (single-line semver).
 |------|-------------|-------------|
 | CLI commands | Added to `PATH` (typically `~/bin/`) | Permanent |
 | Copilot config | `~/.copilot/` (instructions, skills, agents, prompts) | User-level, persists across workspaces |
-| Knowledge notes (shipped) | `<gsh-root>/knowledge/` | Permanent, TF-IDF indexed |
+| Knowledge notes (shipped) | `<helpers-root>/knowledge/` | Permanent, TF-IDF indexed |
 | Knowledge notes (local) | `<workspace>/.github/knowledge/` | Per-project, TF-IDF indexed |
-| Community cache | `<gsh-root>/community-cache/` | Shared via GitHub PRs |
+| Community cache | `<helpers-root>/community-cache/` | Shared via GitHub PRs |
 | Session memory | `<workspace>/.github/session-memory/session-log.jsonl` | Per-workspace, append-only |
 | Community settings | `~/.copilot/devops-audit-community-settings.json` | User-level |

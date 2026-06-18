@@ -1,14 +1,14 @@
 /*
- * gsh-mcp — tiny C client shim for the Git Shell Helpers MCP server.
+ * helpers-mcp — tiny C client shim for the Helpers MCP server.
  *
  * Why C: an MCP-capable agent spawns this once per session and waits for it.
  * A C binary starts in ~1ms (no V8), so the only cost left is connecting to an
- * already-warm Node daemon (git-shell-helpers-mcpd.js). After the first launch
+ * already-warm Node daemon (helpers-serverd.js). After the first launch
  * there is effectively no startup time, and the daemon "always runs when
  * necessary" — this shim spawns it on demand and it idle-exits when unused.
  *
  * Behavior:
- *   1. Derive a per-workspace socket path from cwd plus GSH_ / GIT_SHELL_HELPERS_
+ *   1. Derive a per-workspace socket path from cwd plus HELPERS_ / HELPERS_
  *      env, so different projects/configs get isolated, correctly-scoped daemons.
  *   2. Connect. If no daemon is listening, spawn one (detached, inheriting our
  *      cwd+env so its scope matches) and wait briefly for it.
@@ -18,9 +18,9 @@
  *      directly — the shim can never be worse than running node directly.
  *
  * Compile-time paths (override with -D at build, or env at runtime):
- *   NODE_BIN    node executable           (env GSH_NODE_BIN)
- *   DAEMON_JS   git-shell-helpers-mcpd.js (env GSH_DAEMON_JS)
- *   STDIO_JS    git-shell-helpers-mcp     (env GSH_STDIO_JS)
+ *   NODE_BIN    node executable           (env HELPERS_NODE_BIN)
+ *   DAEMON_JS   helpers-serverd.js (env HELPERS_DAEMON_JS)
+ *   STDIO_JS    helpers-server     (env HELPERS_STDIO_JS)
  */
 
 #include <stdio.h>
@@ -54,7 +54,7 @@ static void dbg(const char *fmt, ...) {
     if (!g_debug) return;
     va_list ap;
     va_start(ap, fmt);
-    fputs("[gsh-mcp] ", stderr);
+    fputs("[helpers-mcp] ", stderr);
     vfprintf(stderr, fmt, ap);
     fputc('\n', stderr);
     va_end(ap);
@@ -74,28 +74,28 @@ static unsigned long long fnv1a(unsigned long long h, const char *s) {
     return h;
 }
 
-/* Socket path = ~/.cache/gsh/mcpd-<hash(cwd + relevant env)>.sock */
+/* Socket path = ~/.cache/helpers/mcpd-<hash(cwd + relevant env)>.sock */
 static void compute_socket(char *out, size_t n, const char *home) {
     char cwd[4096];
     if (!getcwd(cwd, sizeof cwd)) strcpy(cwd, "?");
     unsigned long long h = 1469598103934665603ULL;
     h = fnv1a(h, cwd);
     for (char **e = environ; *e; e++) {
-        if (strncmp(*e, "GSH_", 4) == 0 ||
-            strncmp(*e, "GIT_SHELL_HELPERS", 17) == 0) {
-            /* GSH_MCPD_SOCK is derived output, not input — don't fold it in. */
-            if (strncmp(*e, "GSH_MCPD_SOCK=", 14) == 0) continue;
+        if (strncmp(*e, "HELPERS_", 4) == 0 ||
+            strncmp(*e, "HELPERS", 17) == 0) {
+            /* HELPERS_MCPD_SOCK is derived output, not input — don't fold it in. */
+            if (strncmp(*e, "HELPERS_MCPD_SOCK=", 14) == 0) continue;
             h = fnv1a(h, *e);
         }
     }
-    snprintf(out, n, "%s/.cache/gsh/mcpd-%016llx.sock", home, h);
+    snprintf(out, n, "%s/.cache/helpers/mcpd-%016llx.sock", home, h);
 }
 
 static void ensure_cache_dir(const char *home) {
     char p[4096];
     snprintf(p, sizeof p, "%s/.cache", home);
     mkdir(p, 0700);
-    snprintf(p, sizeof p, "%s/.cache/gsh", home);
+    snprintf(p, sizeof p, "%s/.cache/helpers", home);
     mkdir(p, 0700);
 }
 
@@ -121,13 +121,13 @@ static void spawn_daemon(const char *node, const char *daemon_js,
     int devnull = open("/dev/null", O_RDWR);
     if (devnull >= 0) { dup2(devnull, 0); dup2(devnull, 1); }
     char logp[4096];
-    snprintf(logp, sizeof logp, "%s/.cache/gsh/mcpd.log", home);
+    snprintf(logp, sizeof logp, "%s/.cache/helpers/mcpd.log", home);
     int log = open(logp, O_WRONLY | O_CREAT | O_APPEND, 0600);
     dup2(log >= 0 ? log : devnull, 2);
     if (devnull > 2) close(devnull);
     if (log > 2) close(log);
 
-    setenv("GSH_MCPD_SOCK", sock, 1);
+    setenv("HELPERS_MCPD_SOCK", sock, 1);
     char *argv[] = {(char *)node, (char *)daemon_js, NULL};
     execv(node, argv);                 /* baked/abs path */
     char *argv2[] = {"node", (char *)daemon_js, NULL};
@@ -187,25 +187,25 @@ static void proxy(int sock) {
 
 static void exec_stdio_fallback(const char *node, const char *stdio_js) {
     if (!stdio_js || !*stdio_js) {
-        fprintf(stderr, "gsh-mcp: no daemon and no stdio fallback configured\n");
+        fprintf(stderr, "helpers-mcp: no daemon and no stdio fallback configured\n");
         _exit(1);
     }
     char *argv[] = {(char *)node, (char *)stdio_js, NULL};
     execv(node, argv);
     char *argv2[] = {"node", (char *)stdio_js, NULL};
     execvp("node", argv2);
-    fprintf(stderr, "gsh-mcp: failed to exec node: %s\n", strerror(errno));
+    fprintf(stderr, "helpers-mcp: failed to exec node: %s\n", strerror(errno));
     _exit(127);
 }
 
 int main(void) {
     const char *home = getenv("HOME");
     if (!home || !*home) home = "/tmp";
-    const char *node = envdef("GSH_NODE_BIN", NODE_BIN);
-    const char *daemon_js = envdef("GSH_DAEMON_JS", DAEMON_JS);
-    const char *stdio_js = envdef("GSH_STDIO_JS", STDIO_JS);
+    const char *node = envdef("HELPERS_NODE_BIN", NODE_BIN);
+    const char *daemon_js = envdef("HELPERS_DAEMON_JS", DAEMON_JS);
+    const char *stdio_js = envdef("HELPERS_STDIO_JS", STDIO_JS);
 
-    g_debug = getenv("GSH_MCP_DEBUG") != NULL;
+    g_debug = getenv("HELPERS_MCP_DEBUG") != NULL;
 
     char sock[4096];
     compute_socket(sock, sizeof sock, home);

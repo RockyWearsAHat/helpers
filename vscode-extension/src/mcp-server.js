@@ -49,8 +49,8 @@ module.exports = function createMcpServer(deps) {
     }
 
     const absoluteCandidates = uniquePaths([
-      process.env.GSH_NODE_PATH,
-      process.env.VSCODE_GSH_NODE_PATH,
+      process.env.HELPERS_NODE_PATH,
+      process.env.VSCODE_HELPERS_NODE_PATH,
       newestNvmNode,
       "/opt/homebrew/bin/node",
       "/usr/local/bin/node",
@@ -87,25 +87,25 @@ module.exports = function createMcpServer(deps) {
   function findGitShellHelpersMcpPath(context) {
     const homeDir = process.env.HOME || process.env.USERPROFILE || "";
     const workspaceCandidates = (vscode.workspace.workspaceFolders || []).map(
-      (folder) => path.join(folder.uri.fsPath, "git-shell-helpers-mcp"),
+      (folder) => path.join(folder.uri.fsPath, "helpers-server"),
     );
     const candidates = uniquePaths([
       ...workspaceCandidates,
-      path.join(homeDir, "bin", "git-shell-helpers-mcp"),
+      path.join(homeDir, "bin", "helpers-server"),
       GLOBAL_MCP_SERVER_PATH,
-      context.asAbsolutePath("git-shell-helpers-mcp"),
+      context.asAbsolutePath("helpers-server"),
     ]);
 
     return candidates.find((candidate) => fs.existsSync(candidate)) || "";
   }
 
-  // Prefer the compiled fast C launcher (gsh-mcp) that sits next to the node
+  // Prefer the compiled fast C launcher (helpers-mcp) that sits next to the node
   // server. It proxies to a warm daemon so VS Code pays Node's cold start once
   // instead of on every session start. Returns "" when it hasn't been compiled
   // (no C compiler at install time), in which case we fall back to direct node.
   function findFastLauncher(serverPath) {
     if (!serverPath) return "";
-    const shim = path.join(path.dirname(serverPath), "gsh-mcp");
+    const shim = path.join(path.dirname(serverPath), "helpers-mcp");
     try {
       if (fs.existsSync(shim) && (fs.statSync(shim).mode & 0o111) !== 0) {
         return shim;
@@ -123,11 +123,11 @@ module.exports = function createMcpServer(deps) {
     const env = { ...process.env };
 
     if (!fs.existsSync(path.join(serverDir, "git-research-mcp"))) {
-      env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH = "1";
+      env.HELPERS_MCP_DISABLE_RESEARCH = "1";
     }
 
     if (!fs.existsSync(path.join(serverDir, "vision-tool", "mcp-server.js"))) {
-      env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION = "1";
+      env.HELPERS_MCP_DISABLE_VISION = "1";
     }
 
     // Pass current workspace folder paths so the MCP server resolves the
@@ -136,7 +136,7 @@ module.exports = function createMcpServer(deps) {
       (f) => f.uri.fsPath,
     );
     if (roots.length > 0) {
-      env.GSH_WORKSPACE_ROOTS = JSON.stringify(roots);
+      env.HELPERS_WORKSPACE_ROOTS = JSON.stringify(roots);
     }
 
     // Pass current active chat session URI so session-memory entries are
@@ -144,7 +144,7 @@ module.exports = function createMcpServer(deps) {
     try {
       const sessionUri = vscode.window.activeChatPanelSessionResource;
       if (sessionUri) {
-        env.GSH_CHAT_SESSION_URI = sessionUri.toString();
+        env.HELPERS_CHAT_SESSION_URI = sessionUri.toString();
       }
     } catch {
       /* proposed API unavailable */
@@ -155,7 +155,7 @@ module.exports = function createMcpServer(deps) {
       .getConfiguration("gitShellHelpers.sessionMemory")
       .get("enabled", true);
     if (!sessionMemoryEnabled) {
-      env.GSH_SESSION_MEMORY_DISABLED = "1";
+      env.HELPERS_SESSION_MEMORY_DISABLED = "1";
     }
 
     // Pass local sub-agent settings (Ollama + system_execute) so the MCP
@@ -168,56 +168,56 @@ module.exports = function createMcpServer(deps) {
     const ollamaHost = String(
       localSubagents.get("ollama.host", "http://127.0.0.1:11434") || "",
     ).trim();
-    if (ollamaHost) env.GSH_LOCAL_SUBAGENT_OLLAMA_HOST = ollamaHost;
+    if (ollamaHost) env.HELPERS_LOCAL_SUBAGENT_OLLAMA_HOST = ollamaHost;
     const ollamaModel = String(
       localSubagents.get("ollama.defaultModel", "") || "",
     ).trim();
-    if (ollamaModel) env.GSH_LOCAL_SUBAGENT_OLLAMA_MODEL = ollamaModel;
+    if (ollamaModel) env.HELPERS_LOCAL_SUBAGENT_OLLAMA_MODEL = ollamaModel;
     const ollamaMaxIter = localSubagents.get("ollama.maxIterations", 12);
     if (Number.isFinite(ollamaMaxIter)) {
-      env.GSH_LOCAL_SUBAGENT_OLLAMA_MAX_ITER = String(ollamaMaxIter);
+      env.HELPERS_LOCAL_SUBAGENT_OLLAMA_MAX_ITER = String(ollamaMaxIter);
     }
     const ollamaTimeout = localSubagents.get("ollama.timeoutSeconds", 300);
     if (Number.isFinite(ollamaTimeout)) {
-      env.GSH_LOCAL_SUBAGENT_OLLAMA_TIMEOUT = String(ollamaTimeout);
+      env.HELPERS_LOCAL_SUBAGENT_OLLAMA_TIMEOUT = String(ollamaTimeout);
     }
     if (localSubagents.get("ollama.allowWrite", false)) {
-      env.GSH_LOCAL_SUBAGENT_ALLOW_WRITE = "1";
+      env.HELPERS_LOCAL_SUBAGENT_ALLOW_WRITE = "1";
     }
     if (localSubagents.get("ollama.allowShell", false)) {
-      env.GSH_LOCAL_SUBAGENT_ALLOW_SHELL = "1";
+      env.HELPERS_LOCAL_SUBAGENT_ALLOW_SHELL = "1";
     }
     if (localSubagents.get("fullSystemAccess", false)) {
-      env.GSH_LOCAL_SUBAGENT_FULL_SYSTEM = "1";
+      env.HELPERS_LOCAL_SUBAGENT_FULL_SYSTEM = "1";
     }
     const systemModel = String(
       localSubagents.get("systemExecute.defaultModel", "") || "",
     ).trim();
-    if (systemModel) env.GSH_LOCAL_SUBAGENT_SYSTEM_MODEL = systemModel;
+    if (systemModel) env.HELPERS_LOCAL_SUBAGENT_SYSTEM_MODEL = systemModel;
     const systemMaxIter = localSubagents.get("systemExecute.maxIterations", 25);
     if (Number.isFinite(systemMaxIter)) {
-      env.GSH_LOCAL_SUBAGENT_SYSTEM_MAX_ITER = String(systemMaxIter);
+      env.HELPERS_LOCAL_SUBAGENT_SYSTEM_MAX_ITER = String(systemMaxIter);
     }
     const systemTimeout = localSubagents.get("systemExecute.timeoutSeconds", 900);
     if (Number.isFinite(systemTimeout)) {
-      env.GSH_LOCAL_SUBAGENT_SYSTEM_TIMEOUT = String(systemTimeout);
+      env.HELPERS_LOCAL_SUBAGENT_SYSTEM_TIMEOUT = String(systemTimeout);
     }
     const browserHeadless = localSubagents.get(
       "systemExecute.browserHeadless",
       true,
     );
-    env.GSH_LOCAL_SUBAGENT_BROWSER_HEADLESS = browserHeadless ? "1" : "0";
+    env.HELPERS_LOCAL_SUBAGENT_BROWSER_HEADLESS = browserHeadless ? "1" : "0";
     const browserChannel = String(
       localSubagents.get("systemExecute.browserChannel", "chrome") || "",
     ).trim();
     if (browserChannel) {
-      env.GSH_LOCAL_SUBAGENT_BROWSER_CHANNEL = browserChannel;
+      env.HELPERS_LOCAL_SUBAGENT_BROWSER_CHANNEL = browserChannel;
     }
     const browserUserDataDir = String(
       localSubagents.get("systemExecute.browserUserDataDir", "") || "",
     ).trim();
     if (browserUserDataDir) {
-      env.GSH_LOCAL_SUBAGENT_BROWSER_USER_DATA_DIR = browserUserDataDir;
+      env.HELPERS_LOCAL_SUBAGENT_BROWSER_USER_DATA_DIR = browserUserDataDir;
     }
 
     return env;
@@ -235,7 +235,7 @@ module.exports = function createMcpServer(deps) {
     context.subscriptions.push(changeEmitter);
 
     // Restart the MCP server when workspace folders change so the server
-    // picks up the updated GSH_WORKSPACE_ROOTS environment variable.
+    // picks up the updated HELPERS_WORKSPACE_ROOTS environment variable.
     context.subscriptions.push(
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
         changeEmitter.fire();
@@ -253,7 +253,7 @@ module.exports = function createMcpServer(deps) {
     );
 
     // Restart the MCP server when the active chat session changes so the
-    // server picks up the updated GSH_CHAT_SESSION_URI environment variable.
+    // server picks up the updated HELPERS_CHAT_SESSION_URI environment variable.
     // This ensures session-memory entries are scoped to the correct chat.
     try {
       if (vscode.window.onDidChangeActiveChatPanelSessionResource) {
@@ -296,7 +296,7 @@ module.exports = function createMcpServer(deps) {
 
           return [
             new vscode.McpStdioServerDefinition(
-              "gsh",
+              "helpers",
               command,
               serverArgs,
               buildGitShellHelpersMcpEnv(serverPath),
@@ -377,7 +377,7 @@ module.exports = function createMcpServer(deps) {
   }
 
   function removeStaticGitShellHelpersServers(configPath) {
-    const legacyServerNames = ["gsh", "git-shell-helpers"];
+    const legacyServerNames = ["helpers", "helpers"];
     const config = readJsonFile(configPath);
     if (!config?.servers || typeof config.servers !== "object") {
       return false;
@@ -413,7 +413,7 @@ module.exports = function createMcpServer(deps) {
   function getConfiguredGitShellHelpersMcpServer() {
     const configPath = userMcpConfigPath();
     const config = readJsonFile(configPath);
-    const server = config?.servers?.["gsh"];
+    const server = config?.servers?.["helpers"];
     const serverPath =
       server?.command === "node" && Array.isArray(server?.args)
         ? server.args[0] || ""
@@ -434,7 +434,7 @@ module.exports = function createMcpServer(deps) {
         label: "Not found",
         detail: resolvedPath
           ? `Server binary is missing: ${resolvedPath}`
-          : "Could not locate git-shell-helpers-mcp. Reinstall may be needed.",
+          : "Could not locate helpers-server. Reinstall may be needed.",
       };
     }
 

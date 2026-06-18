@@ -4,7 +4,7 @@
 //!
 //! Without `--json` it writes GRADE.md in the project root and prints the same
 //! report. Exit code is 0 when the grade is A+ (≥97), 2 otherwise — matching the
-//! original so the `gsh grade` fix-loop can detect completion.
+//! original so the `helpers grade` fix-loop can detect completion.
 
 use std::path::Path;
 use std::process::ExitCode;

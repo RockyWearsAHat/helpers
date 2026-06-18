@@ -65,7 +65,7 @@ jobs:
           node-version: "20"
 
       - name: Validate MCP server syntax
-        run: node --check git-shell-helpers-mcp git-research-mcp
+        run: node --check helpers-server git-research-mcp
 
       - name: Validate patch scripts syntax
         run: |

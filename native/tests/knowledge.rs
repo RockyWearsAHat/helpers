@@ -6,12 +6,12 @@
 use std::fs;
 use std::path::Path;
 
-use gsh_native::knowledge::index::{build_knowledge_index, search_knowledge_index};
-use gsh_native::knowledge::notes::{
+use helpers_native::knowledge::index::{build_knowledge_index, search_knowledge_index};
+use helpers_native::knowledge::notes::{
     read_knowledge_file_content, read_knowledge_note, search_knowledge_cache,
 };
-use gsh_native::knowledge::KnowledgeConfig;
-use gsh_native::util::now_millis;
+use helpers_native::knowledge::KnowledgeConfig;
+use helpers_native::util::now_millis;
 use serde_json::json;
 
 fn mkcfg(tmp: &Path) -> KnowledgeConfig {
@@ -48,7 +48,7 @@ fn mkcfg(tmp: &Path) -> KnowledgeConfig {
 
 #[test]
 fn build_search_and_note_crud() {
-    let tmp = std::env::temp_dir().join(format!("gsh-kn-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("helpers-kn-{}", std::process::id()));
     let _ = fs::remove_dir_all(&tmp);
     let cfg = mkcfg(&tmp);
 
@@ -90,7 +90,7 @@ fn build_search_and_note_crud() {
         .any(|h| h.path.contains("algorithms-graph")));
 
     // ── note CRUD (black box behaviors) ─────────────────────────────────────
-    use gsh_native::knowledge::notes::{
+    use helpers_native::knowledge::notes::{
         append_to_knowledge_note, update_knowledge_note, write_knowledge_note,
     };
 

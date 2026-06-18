@@ -7,21 +7,21 @@
 // from its own process cwd, so register_workspace_tool wrote project flows into
 // the wrong repo. The fix: a roots-capable client's declared folder is
 // authoritative. Here we launch the real stdio server in a DECOY cwd with no
-// GSH_WORKSPACE_ROOTS, answer its roots/list with a DIFFERENT project dir, and
+// HELPERS_WORKSPACE_ROOTS, answer its roots/list with a DIFFERENT project dir, and
 // assert the registration lands in the project — not the decoy cwd.
 //
-// Exits non-zero on failure; skips cleanly if gsh-native isn't built.
+// Exits non-zero on failure; skips cleanly if helpers-native isn't built.
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
 
-const SERVER = path.join(__dirname, "..", "git-shell-helpers-mcp.js");
-const NATIVE = path.join(__dirname, "..", "gsh-native");
+const SERVER = path.join(__dirname, "..", "helpers-server.js");
+const NATIVE = path.join(__dirname, "..", "helpers-native");
 
 if (!fs.existsSync(NATIVE)) {
-  console.log("SKIP test-mcp-roots-workspace: gsh-native not built (run `gsh build`).");
+  console.log("SKIP test-mcp-roots-workspace: helpers-native not built (run `helpers build`).");
   process.exit(0);
 }
 
@@ -32,8 +32,8 @@ function makeRepo(prefix) {
 }
 
 // Decoy = where the "daemon" is parked; project = the client's real folder.
-const decoy = makeRepo("gsh-decoy-");
-const project = makeRepo("gsh-proj-");
+const decoy = makeRepo("helpers-decoy-");
+const project = makeRepo("helpers-proj-");
 
 let failures = 0;
 const fail = (m) => {
@@ -47,8 +47,8 @@ class RootsClient {
   constructor() {
     this.child = spawn(process.execPath, [SERVER], {
       cwd: decoy,
-      // Crucially: no GSH_WORKSPACE_ROOTS — the workspace must come from roots.
-      env: { ...process.env, GSH_WORKSPACE_ROOTS: "" },
+      // Crucially: no HELPERS_WORKSPACE_ROOTS — the workspace must come from roots.
+      env: { ...process.env, HELPERS_WORKSPACE_ROOTS: "" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.buf = "";
@@ -133,8 +133,8 @@ async function main() {
   });
   if (res.error) fail(`register returned error: ${res.error.message}`);
 
-  const projManifest = path.join(project, ".gsh", "tools", "manifest.json");
-  const decoyManifest = path.join(decoy, ".gsh", "tools", "manifest.json");
+  const projManifest = path.join(project, ".helpers", "tools", "manifest.json");
+  const decoyManifest = path.join(decoy, ".helpers", "tools", "manifest.json");
 
   if (!fs.existsSync(projManifest)) {
     fail("project manifest was not written");

@@ -49,7 +49,7 @@ We modify **3 things** in VS Code to enable branch-per-chat (each Copilot Chat g
 
 **Problem**: When a branch session is active, the status bar shows `dev` (the real HEAD) instead of `feature/my-work` (the worktree's branch). The only way to change it is `git checkout`, which is slow (~150ms), risks stash conflicts, and mutates the working tree.
 
-**What we change**: Prefix the `headLabel` getter with a file check. If `.git/gsh-head-override` exists, return its contents as the branch label. Everything else (git operations, status, diff) uses the real HEAD.
+**What we change**: Prefix the `headLabel` getter with a file check. If `.git/helpers-head-override` exists, return its contents as the branch label. Everything else (git operations, status, diff) uses the real HEAD.
 
 ```diff
   // extensions/git/dist/main.js (minified) → source: repository.ts
@@ -57,7 +57,7 @@ We modify **3 things** in VS Code to enable branch-per-chat (each Copilot Chat g
 +   // Display override — cosmetic only, no git state modified
 +   try {
 +     const override = fs.readFileSync(
-+       path.join(this.repository.root, '.git', 'gsh-head-override'), 'utf8'
++       path.join(this.repository.root, '.git', 'helpers-head-override'), 'utf8'
 +     ).trim();
 +     if (override) return override;
 +   } catch {}
@@ -100,7 +100,7 @@ vscode.window.onDidChangeActiveChatPanelSessionResource((sessionUri) => {
 
 **How it's enabled** (user setup, not a patch):
 
-1. `~/.vscode/argv.json` → `"enable-proposed-api": ["RockyWearsAHat.git-shell-helpers"]`
+1. `~/.vscode/argv.json` → `"enable-proposed-api": ["RockyWearsAHat.helpers"]`
 2. `package.json` → `"enabledApiProposals": ["chatParticipantPrivate"]`
 
 **Why it's needed**: Chat panels don't fire tab-change events when switching conversations. Without this, we can't detect which chat the user is looking at.
