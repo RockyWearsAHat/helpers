@@ -12,23 +12,23 @@
 //     their logic is covered by their own unit tests.
 //
 // Exits non-zero on the first failure. Skips cleanly if the server can't load
-// its required native binary (so a machine without `gsh build` stays green).
+// its required native binary (so a machine without `helpers build` stays green).
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
 
-const SERVER = path.join(__dirname, "..", "git-shell-helpers-mcp.js");
-const NATIVE = path.join(__dirname, "..", "gsh-native");
+const SERVER = path.join(__dirname, "..", "helpers-server.js");
+const NATIVE = path.join(__dirname, "..", "helpers-native");
 
 if (!fs.existsSync(NATIVE)) {
-  console.log("SKIP test-mcp-tools-blackbox: gsh-native not built (run `gsh build`).");
+  console.log("SKIP test-mcp-tools-blackbox: helpers-native not built (run `helpers build`).");
   process.exit(0);
 }
 
 // ── A throwaway git repo so root-scoped tools have real content ──────────────
-const repo = fs.mkdtempSync(path.join(os.tmpdir(), "gsh-bb-"));
+const repo = fs.mkdtempSync(path.join(os.tmpdir(), "helpers-bb-"));
 spawnSync("git", ["init", "-q"], { cwd: repo });
 spawnSync("git", ["config", "user.email", "t@t.t"], { cwd: repo });
 spawnSync("git", ["config", "user.name", "t"], { cwd: repo });
@@ -119,8 +119,8 @@ const ok = (msg) => console.log("  ok: " + msg);
 async function main() {
   const client = new Client({
     ...process.env,
-    GSH_WORKSPACE_ROOTS: JSON.stringify([repo]),
-    GSH_DISABLE_LOCAL_SUBAGENTS: "1", // don't spin up local model handlers
+    HELPERS_WORKSPACE_ROOTS: JSON.stringify([repo]),
+    HELPERS_DISABLE_LOCAL_SUBAGENTS: "1", // don't spin up local model handlers
   });
 
   const init = await client.req("initialize", {});

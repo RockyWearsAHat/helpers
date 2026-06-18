@@ -1,12 +1,12 @@
 ---
-description: "Git Shell Helpers workspace baseline: architecture, build/test, coding standards, and boundaries."
+description: "Helpers workspace baseline: architecture, build/test, coding standards, and boundaries."
 ---
 
-If ever asked to implement something and afterwards it needs to be installed or built, please actually install it or build it afterwards so I can immediatley see the live results from this change, it does no good to me to sit in just this workspace. Always ensure installers and scripts for others to install GSH onto their machines, plus the packages and everything always stay up to date.
+If ever asked to implement something and afterwards it needs to be installed or built, please actually install it or build it afterwards so I can immediatley see the live results from this change, it does no good to me to sit in just this workspace. Always ensure installers and scripts for others to install Helpers onto their machines, plus the packages and everything always stay up to date.
 
 # Workspace Baseline
 
-Git Shell Helpers (`github-shell-helpers`) — shell-based git helpers, MCP servers, Copilot customization automation, a VS Code extension, and a community-backed research cache.
+Helpers (`github-shell-helpers`) — shell-based git helpers, MCP servers, Copilot customization automation, a VS Code extension, and a community-backed research cache.
 
 ## Non-Negotiable Boundary
 
@@ -37,7 +37,7 @@ These files are large and tightly coupled. **Check actual size with `wc -l` befo
 | `vscode-extension/extension.js` | VS Code extension (MCP client, commands, config)                       |
 | `git-research-mcp`              | Node.js MCP server (web search, knowledge index, headless Chrome)      |
 | `native/src/gitcli/`            | Rust: the git-* CLIs (upload, checkpoint, resolve, scan, scrub, …)     |
-| `native/src/tools/setup.rs`     | Rust: `gsh setup` / project_setup — deterministic project build-out    |
+| `native/src/tools/setup.rs`     | Rust: `helpers setup` / project_setup — deterministic project build-out    |
 | `git-copilot-quickstart`        | Bash: scaffold Copilot workflows                                       |
 
 **Before editing any file over 500 lines**: check `wc -l`, read at least the function index (`grep -n 'function \|^[a-z_]*()' <file>`), and understand the call chain you are modifying. Do not submit an 8-line patch to a large file without understanding the surrounding 200+ lines of context.
@@ -45,7 +45,7 @@ These files are large and tightly coupled. **Check actual size with `wc -l` befo
 ### Directory structure
 
 - Shell commands: repo root (`git-upload`, `git-checkpoint`, etc.) — **no `.sh` extension**
-- MCP servers: `git-research-mcp` (Node.js), `git-shell-helpers-mcp` (Node.js)
+- MCP servers: `git-research-mcp` (Node.js), `helpers-server` (Node.js)
 - VS Code extension: `vscode-extension/`
 - Vision tools: `vision-tool/`
 - Community cache: `community-cache/`

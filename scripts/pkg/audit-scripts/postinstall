@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-log() { echo "[gsh-audit] $1"; }
+log() { echo "[helpers-audit] $1"; }
 
 DATA_DIR="/usr/local/share/github-shell-helpers"
 DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"

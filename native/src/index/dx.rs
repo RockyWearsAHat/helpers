@@ -244,7 +244,7 @@ fn file_mermaid(index: &ProjectIndex, idx: usize) -> String {
 
 // ─── Writing docs ───────────────────────────────────────────────────────────
 
-/// Write `map.dx` plus per-file node docs under `.gsh/index/`. Returns the
+/// Write `map.dx` plus per-file node docs under `.helpers/index/`. Returns the
 /// number of `.dx` files written.
 pub fn write_docs(root: &Path, index: &ProjectIndex) -> std::io::Result<usize> {
     let dir = index_dir(root);

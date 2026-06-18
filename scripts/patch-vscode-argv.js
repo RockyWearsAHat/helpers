@@ -34,7 +34,7 @@ function patchArgvFile(argvFile, extensionId) {
 
   const before = raw.slice(0, closingBrace).trimEnd();
   const needsComma = /[}\]"\d]$/.test(before);
-  const insertion = `${needsComma ? "," : ""}\n\n\t// Enable proposed APIs for Git Shell Helpers extension.\n\t// Required for branch-per-chat session tracking.\n\t"enable-proposed-api": ${arrayText}\n`;
+  const insertion = `${needsComma ? "," : ""}\n\n\t// Enable proposed APIs for Helpers extension.\n\t// Required for branch-per-chat session tracking.\n\t"enable-proposed-api": ${arrayText}\n`;
   return `${before}${insertion}}\n`;
 }
 

@@ -1,9 +1,9 @@
 //! Native Rust ports of the standalone `git-*` shell CLIs.
 //!
-//! These are invoked busybox-style: the `gsh-native` binary is symlinked to
+//! These are invoked busybox-style: the `helpers-native` binary is symlinked to
 //! each CLI name (`git-resolve`, `git-remerge`, …) and dispatches on the
 //! basename of `argv[0]`. They can also be run explicitly as
-//! `gsh-native gitcli <name> [args…]`.
+//! `helpers-native gitcli <name> [args…]`.
 //!
 //! Every CLI here is deterministic (no AI) except `git-upload`, which is
 //! deterministic by default and offers an opt-in AI commit-message path.
@@ -53,7 +53,7 @@ pub fn dispatch(name: &str, args: &[String]) -> ExitCode {
         "git-checkpoint" => checkpoint::run(args),
         "git-help-i-pushed-an-env" => pushed_env::run(args),
         other => {
-            eprintln!("gsh-native gitcli: unknown CLI: {other}");
+            eprintln!("helpers-native gitcli: unknown CLI: {other}");
             ExitCode::from(2)
         }
     }

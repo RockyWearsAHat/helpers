@@ -14,7 +14,7 @@ Extensions that manage automated workflows — such as git worktree switching, p
 
 ### Real-world use case: Branch-per-chat worktree switching
 
-Our extension ([git-shell-helpers](https://github.com/RockyWearsAHat/github-shell-helpers)) implements branch isolation for Copilot Chat conversations. Each chat gets its own git worktree. When the user switches between chats, the extension calls `updateWorkspaceFolders()` to transition to the corresponding worktree. The confirmation dialog breaks this flow — users would see a dialog on every chat switch, defeating the purpose of seamless branch navigation.
+Our extension ([helpers](https://github.com/RockyWearsAHat/github-shell-helpers)) implements branch isolation for Copilot Chat conversations. Each chat gets its own git worktree. When the user switches between chats, the extension calls `updateWorkspaceFolders()` to transition to the corresponding worktree. The confirmation dialog breaks this flow — users would see a dialog on every chat switch, defeating the purpose of seamless branch navigation.
 
 ### Prior art: VS Code already does this internally
 
@@ -113,4 +113,4 @@ This patch breaks on every VS Code update and must be reapplied. A proper API op
 ## References
 
 - [PR #292783](https://github.com/microsoft/vscode/pull/292783) — @bpasero's implementation of dialog suppression for agent sessions (merged Feb 4, 2026)
-- [git-shell-helpers branch sessions](https://github.com/RockyWearsAHat/github-shell-helpers) — real-world extension using this pattern for branch-per-chat worktree switching
+- [helpers branch sessions](https://github.com/RockyWearsAHat/github-shell-helpers) — real-world extension using this pattern for branch-per-chat worktree switching

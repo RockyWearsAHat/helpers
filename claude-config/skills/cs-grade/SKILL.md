@@ -11,7 +11,7 @@ Drive a Java course project to an A+ on an objective structural rubric.
 
 1. **Grade.** From the project root, run:
    ```sh
-   gsh grade . --course cs3500      # or --course cs2420, or omit for auto-detect
+   helpers grade . --course cs3500      # or --course cs2420, or omit for auto-detect
    ```
    This writes `GRADE.md`: a numeric+letter grade, a per-category scorecard with the
    exact evidence behind each score, and a prioritized **Path to A+** checklist.
@@ -32,7 +32,7 @@ Drive a Java course project to an A+ on an objective structural rubric.
    - **Style & cleanliness:** no god classes, no long methods, no debug prints, no TODO/
      FIXME, no commented-out code, standard `src/` layout and packages, a build file.
 
-4. **Re-grade.** Run `gsh grade` again. Repeat until the grade is **A+ (≥ 97)**.
+4. **Re-grade.** Run `helpers grade` again. Repeat until the grade is **A+ (≥ 97)**.
 
 ## Notes
 
