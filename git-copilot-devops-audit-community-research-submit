@@ -148,10 +148,10 @@ main() {
   local global_settings_file="$HOME/.copilot/devops-audit-community-settings.json"
   local repo_settings_file="$repo_root/.github/devops-audit-community-settings.json"
 
-  local global_share_knowledge="$(read_setting "$global_settings_file" shareKnowledge)"
-  local repo_share_knowledge="$(read_setting "$repo_settings_file" shareKnowledge)"
-  local global_share_research="$(read_setting "$global_settings_file" shareResearch)"
-  local repo_share_research="$(read_setting "$repo_settings_file" shareResearch)"
+  local global_share_knowledge; global_share_knowledge="$(read_setting "$global_settings_file" shareKnowledge)"
+  local repo_share_knowledge; repo_share_knowledge="$(read_setting "$repo_settings_file" shareKnowledge)"
+  local global_share_research; global_share_research="$(read_setting "$global_settings_file" shareResearch)"
+  local repo_share_research; repo_share_research="$(read_setting "$repo_settings_file" shareResearch)"
   local share_knowledge=""
 
   if [[ -n "$repo_share_knowledge" ]]; then
@@ -170,8 +170,8 @@ main() {
   fi
 
   # Check community mode allows submissions
-  local global_mode="$(read_setting "$global_settings_file" mode)"
-  local repo_mode="$(read_setting "$repo_settings_file" mode)"
+  local global_mode; global_mode="$(read_setting "$global_settings_file" mode)"
+  local repo_mode; repo_mode="$(read_setting "$repo_settings_file" mode)"
   local configured_mode="${global_mode:-${repo_mode:-}}"
 
   local submit_allowed=false
@@ -216,12 +216,12 @@ main() {
   esac
 
   # Resolve community repo
-  local global_repo="$(read_setting "$global_settings_file" communityRepo)"
-  local repo_repo="$(read_setting "$repo_settings_file" communityRepo)"
-  local global_local_clone_raw="$(read_setting "$global_settings_file" localClone)"
-  local repo_local_clone_raw="$(read_setting "$repo_settings_file" localClone)"
-  local repo_local_clone="$(expand_path "$repo_local_clone_raw" "$repo_root")"
-  local global_local_clone="$(expand_path "$global_local_clone_raw" "$HOME")"
+  local global_repo; global_repo="$(read_setting "$global_settings_file" communityRepo)"
+  local repo_repo; repo_repo="$(read_setting "$repo_settings_file" communityRepo)"
+  local global_local_clone_raw; global_local_clone_raw="$(read_setting "$global_settings_file" localClone)"
+  local repo_local_clone_raw; repo_local_clone_raw="$(read_setting "$repo_settings_file" localClone)"
+  local repo_local_clone; repo_local_clone="$(expand_path "$repo_local_clone_raw" "$repo_root")"
+  local global_local_clone; global_local_clone="$(expand_path "$global_local_clone_raw" "$HOME")"
   local local_clone="${COMMUNITY_CACHE_LOCAL_CLONE:-${repo_local_clone:-${global_local_clone:-}}}"
   local manifest_default_repo=""
   local inferred_repo=""
@@ -235,8 +235,8 @@ main() {
   fi
 
   local community_repo="${COMMUNITY_CACHE_REPO:-${repo_repo:-${global_repo:-${manifest_default_repo:-${inferred_repo:-$DEFAULT_COMMUNITY_REPO}}}}}"
-  local global_branch="$(read_setting "$global_settings_file" baseBranch)"
-  local repo_branch="$(read_setting "$repo_settings_file" baseBranch)"
+  local global_branch; global_branch="$(read_setting "$global_settings_file" baseBranch)"
+  local repo_branch; repo_branch="$(read_setting "$repo_settings_file" baseBranch)"
   local base_branch="${COMMUNITY_CACHE_BASE_BRANCH:-${repo_branch:-${global_branch:-main}}}"
   local branch_prefix="automation/community-research"
   local index_builder=""

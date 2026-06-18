@@ -76,6 +76,19 @@ while IFS= read -r cmd; do
   fi
 done < <(helpers_core_commands)
 
+while IFS= read -r support_file; do
+  [ -n "$support_file" ] || continue
+  if [ -f "${ROOT_DIR}/${support_file}" ]; then
+    cp "${ROOT_DIR}/${support_file}" "${CORE_BIN}/${support_file}"
+  fi
+done < <(helpers_support_files)
+
+# Ship VERSION beside the helpers CLI so `helpers status` / `helpers update`
+# report the real version instead of 0.0.0. (The .pkg format does not build the
+# native Rust tools at install time — that remains a curl-installer / clone
+# capability.)
+cp "${VERSION_FILE}" "${CORE_BIN}/VERSION"
+
 while IFS= read -r lib; do
   [ -n "$lib" ] || continue
   if [ -f "${ROOT_DIR}/lib/${lib}" ]; then
