@@ -41,8 +41,8 @@ jobs:
       - name: Make scripts executable
         if: runner.os != 'Windows'
         run: |
-          chmod +x git-upload scripts/test.sh scripts/test-git-upload-detect.sh \
-            scripts/test-git-upload-states.sh scripts/build-dist.sh \
+          chmod +x scripts/test.sh scripts/test-git-upload-states.sh \
+            scripts/build-dist.sh \
             scripts/community-cache-submit.sh scripts/community-cache-pull.sh \
             scripts/community-research-submit.sh
 

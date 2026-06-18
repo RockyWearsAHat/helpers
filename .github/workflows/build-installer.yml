@@ -96,7 +96,7 @@ jobs:
           chmod +x Git-Shell-Helpers-Installer.sh scripts/build-dist.sh \
             scripts/build-deb.sh scripts/build-homebrew-formula.sh \
             scripts/build-aur-package.sh scripts/build-npm-package.sh \
-            git-upload scripts/test-git-upload-detect.sh scripts/test-git-upload-states.sh \
+            scripts/test-git-upload-states.sh \
             scripts/community-cache-submit.sh scripts/community-cache-pull.sh \
             scripts/community-research-submit.sh
 
@@ -158,8 +158,7 @@ jobs:
       - name: Make scripts executable
         run: |
           chmod +x scripts/build-dist.sh scripts/build-pkg.sh scripts/build-vsix.sh \
-            git-upload git-get git-initialize git-fucked-the-push \
-            git-copilot-devops-audit scripts/community-cache-submit.sh \
+            scripts/community-cache-submit.sh \
             scripts/community-cache-pull.sh scripts/community-research-submit.sh
 
       - name: Build macOS pkg
@@ -231,8 +230,7 @@ jobs:
       - name: Make scripts executable
         run: |
           chmod +x scripts/build-dist.sh scripts/build-pkg.sh scripts/build-vsix.sh \
-            git-upload git-get git-initialize git-fucked-the-push \
-            git-copilot-devops-audit scripts/community-cache-submit.sh \
+            scripts/community-cache-submit.sh \
             scripts/community-cache-pull.sh scripts/community-research-submit.sh
 
       - name: Build macOS pkg
