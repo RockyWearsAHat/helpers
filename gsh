@@ -101,9 +101,42 @@ function writeConfig(cfg) {
 }
 
 // ---------------------------------------------------------------------------
-// query the MCP server for the full universe of tool names
+// the full universe of tool names (native Rust tools + Node web-research tools)
 // ---------------------------------------------------------------------------
+// Node-only tools the MCP server adds on top of the native binary. Sourced from
+// the same module the server uses so this list can't drift; the literal names
+// are the fallback if that module can't be loaded.
+function researchToolNames() {
+  if (process.env.GIT_SHELL_HELPERS_MCP_DISABLE_RESEARCH) return [];
+  try {
+    return require("./lib/mcp-research-tools").RESEARCH_TOOLS.map((t) => t.name);
+  } catch {
+    return ["search_web", "scrape_webpage"];
+  }
+}
+
+// Fast path: ask the native binary for its schemas (~10ms) and add the Node
+// tools. This mirrors the server's getAllTools() without paying a node MCP
+// server cold start. Falls back to the server only if the binary is unusable.
 function listAllTools() {
+  const res = spawnSync(GSH_NATIVE_CMD, ["schemas"], {
+    encoding: "utf8",
+    timeout: 10000,
+  });
+  if (res.status === 0) {
+    try {
+      const native = JSON.parse(res.stdout).map((t) => t.name);
+      return [...native, ...researchToolNames()].sort();
+    } catch {
+      /* malformed output — fall through to the server path */
+    }
+  }
+  return listAllToolsViaServer();
+}
+
+// Fallback: drive the MCP server over stdio. Slower (node cold start) and only
+// used when the native binary is missing or broken.
+function listAllToolsViaServer() {
   const req =
     JSON.stringify({
       jsonrpc: "2.0",
@@ -626,7 +659,9 @@ function cmdDoctor() {
   };
   check("node available", true);
   check("MCP server file present", fs.existsSync(SERVER_PATH), `expected at ${SERVER_PATH}`);
-  const all = listAllTools();
+  // doctor is a health probe: actually boot the MCP server here (the fast native
+  // path that `gsh status` uses would not prove the server starts).
+  const all = listAllToolsViaServer();
   check(`MCP server starts and lists tools (${all.length})`, all.length > 0, "check `node " + SERVER_PATH + "` for load errors");
   check("tools.json present", fs.existsSync(TOOLS_CONFIG_PATH), "run `gsh enable` to create it");
   check("fast C launcher compiled", fs.existsSync(SHIM_BIN), "run `gsh build` (needs a C compiler); optional — falls back to node");
