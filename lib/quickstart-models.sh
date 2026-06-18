@@ -148,7 +148,7 @@ interactive_select() {
 	local default_idx=1
 
 	# Find default/recommended option (first one, or one marked with ⭐)
-	for i in {1..$num_options}; do
+	for i in $(seq 1 "$num_options"); do
 		if [[ "${options[$i]}" == *"⭐"* ]] || [[ "${options[$i]}" == *"(default)"* ]]; then
 			selected=$i
 			default_idx=$i
@@ -175,7 +175,7 @@ interactive_select() {
 		done
 		tput cr 2>/dev/null || printf '\r'
 
-		for i in {1..$num_options}; do
+		for i in $(seq 1 "$num_options"); do
 			# Clear line
 			tput el 2>/dev/null || printf '\033[K'
 
@@ -189,7 +189,7 @@ interactive_select() {
 	}
 
 	# Initial draw
-	for i in {1..$num_options}; do
+	for i in $(seq 1 "$num_options"); do
 		if [ "$i" -eq "$selected" ]; then
 			printf "  \033[7m → %s \033[0m\n" "${options[$i]}"
 		else
@@ -294,7 +294,7 @@ select_model() {
 
 	# Build display options
 	local display_options=()
-	for i in {1..${#MODEL_IDS[@]}}; do
+	for i in $(seq 1 "${#MODEL_IDS[@]}"); do
 		local id="${MODEL_IDS[$i]}"
 		local name="${MODEL_NAMES[$i]}"
 		local vendor="${MODEL_VENDORS[$i]}"
