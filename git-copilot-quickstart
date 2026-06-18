@@ -253,9 +253,8 @@ if [ "$minimal_mode" = false ]; then
 	write_file ".github/instructions/tdd.md" "$(cat "$TEMPLATE_DIR/tdd.md")"
 
 	# code-style: static template + language-specific appendix
-	local code_style_content
+	# (top-level script scope — no `local`, which is only valid inside functions)
 	code_style_content="$(cat "$TEMPLATE_DIR/code-style.md")"
-	local lang_extra
 	lang_extra="$(lang_specific_style)"
 	if [ -n "$lang_extra" ]; then
 		code_style_content="${code_style_content}

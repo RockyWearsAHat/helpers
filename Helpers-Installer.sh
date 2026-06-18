@@ -140,7 +140,7 @@ install_release_archive() {
   local version="$1"
   local archive_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${version}/github-shell-helpers-${version}.tar.gz"
   local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-${version}.tar.gz"
-  local extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-release.XXXXXX")"
+  local extract_dir; extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-release.XXXXXX")"
   local source_root="${extract_dir}/github-shell-helpers-${version}"
 
   if ! curl -fsSL -o "$archive_tmp" "$archive_url" 2>/dev/null; then
@@ -166,7 +166,7 @@ install_release_archive() {
 install_source_archive() {
   local archive_url="https://codeload.github.com/RockyWearsAHat/github-shell-helpers/tar.gz/refs/heads/main"
   local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-main.tar.gz"
-  local extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-source.XXXXXX")"
+  local extract_dir; extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-source.XXXXXX")"
   local source_root=""
 
   if ! curl -fsSL -o "$archive_tmp" "$archive_url" 2>/dev/null; then
