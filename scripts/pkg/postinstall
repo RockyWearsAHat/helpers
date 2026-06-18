@@ -2,7 +2,6 @@
 
 set -euo pipefail
 
-AUDIT_CMD="/usr/local/bin/git-copilot-devops-audit"
 VSCODE_EXTENSION_DIR="/usr/local/share/github-shell-helpers/vscode"
 
 log() {
@@ -63,12 +62,7 @@ PYEOF
 console_user="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)"
 
 if [ -z "$console_user" ] || [ "$console_user" = "root" ] || [ "$console_user" = "loginwindow" ]; then
-	log "Skipping VS Code global audit setup because no logged-in console user was detected."
-	exit 0
-fi
-
-if [ ! -x "$AUDIT_CMD" ]; then
-	log "Skipping VS Code global audit setup because $AUDIT_CMD was not installed."
+	log "Skipping VS Code setup because no logged-in console user was detected."
 	exit 0
 fi
 
@@ -108,13 +102,7 @@ if code_cli="$(find_vscode_cli "$user_home")"; then
 		log "Bundled git-shell-helpers VS Code extension not found at $VSCODE_EXTENSION_DIR."
 	fi
 	else
-	log "No usable VS Code CLI found for $console_user. The audit surfaces will still be installed, but the Copilot extensions may need to be installed manually."
-fi
-
-if run_as_console_user "$console_user" "$AUDIT_CMD" --update-agent --force >/dev/null 2>&1; then
-	log "Installed global DevOpsAudit router, agents, skills, and prompt for $console_user."
-else
-	log "Failed to run the global audit setup automatically. Run 'git copilot-devops-audit --update-agent --force' manually as $console_user."
+	log "No usable VS Code CLI found for $console_user. Install the Copilot extensions manually if you want VS Code integration."
 fi
 
 exit 0

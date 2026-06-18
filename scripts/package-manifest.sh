@@ -19,23 +19,20 @@
 
 set -euo pipefail
 
+# Shell commands still shipped as scripts. The git-* CLIs ported to Rust
+# (git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
+# git-resolve, git-scan-for-leaked-envs, git-checkpoint, git-help-i-pushed-an-env)
+# are built by `gsh build` as symlinks to the gsh-native binary, not copied here.
 gsh_core_commands() {
 	printf '%s\n' \
-		git-upload \
-		git-get \
-		git-initialize \
-		git-checkpoint \
-		git-fucked-the-push \
-		git-remerge \
-		git-resolve \
-		git-scan-for-leaked-envs \
-		git-help-i-pushed-an-env \
 		git-copilot-quickstart
 }
 
+# Community-cache knowledge-sharing commands (the AI audit orchestrator was
+# removed; these submit/pull community research and remain part of the knowledge
+# subsystem).
 gsh_audit_commands() {
 	printf '%s\n' \
-		git-copilot-devops-audit \
 		git-copilot-devops-audit-community-pull \
 		git-copilot-devops-audit-community-submit \
 		git-copilot-devops-audit-community-research-submit
@@ -51,40 +48,21 @@ gsh_mcp_commands() {
 
 gsh_shell_libs() {
 	printf '%s\n' \
-		env-batch-ops.sh \
-		env-cache.sh \
-		env-git-ops.sh \
-		env-history-clean.sh \
-		env-patterns.sh \
-		env-scan.sh \
-		env-ui.sh \
 		quickstart-detect.sh \
-		quickstart-models.sh \
-		upload-ai-message.sh \
-		upload-diff-analysis.sh \
-		upload-spinner.sh \
-		upload-test-detection.sh \
-		upload-test-output.sh
+		quickstart-models.sh
 }
 
 gsh_mcp_libs() {
 	printf '%s\n' \
 		mcp-activity-ipc.js \
-		mcp-branch-sessions.js \
-		mcp-checkpoint.js \
 		mcp-git.js \
 		mcp-google-headless.js \
-		mcp-knowledge-index.js \
-		mcp-knowledge-rw.js \
-		mcp-language-models.js \
+		mcp-native.js \
 		mcp-pdf-extract.js \
 		mcp-research-tools.js \
 		mcp-research.js \
-		mcp-session-memory.js \
-		mcp-strict-lint.js \
 		mcp-utils.js \
-		mcp-web-search.js \
-		mcp-workspace-context.js
+		mcp-web-search.js
 }
 
 gsh_support_scripts() {
@@ -120,9 +98,9 @@ gsh_core_man_pages() {
 		git-upload.1
 }
 
+# The AI audit orchestrator (and its man page) were removed; no audit man pages.
 gsh_audit_man_pages() {
-	printf '%s\n' \
-		git-copilot-devops-audit.1
+	:
 }
 
 gsh_mcp_man_pages() {

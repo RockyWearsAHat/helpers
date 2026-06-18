@@ -182,9 +182,6 @@ module.exports = function createRenderWebviewHtml(deps) {
       isGroupEnabled(group.key),
     ).length;
     const strictLintingEnabled = isStrictLintingEnabled();
-    const branchSessionsEnabled = vscode.workspace
-      .getConfiguration("gitShellHelpers.branchSessions")
-      .get("enabled", false);
     const sessionMemoryEnabled = vscode.workspace
       .getConfiguration("gitShellHelpers.sessionMemory")
       .get("enabled", true);
@@ -339,15 +336,6 @@ module.exports = function createRenderWebviewHtml(deps) {
         <div class="tool-text">
           <span class="tl">Strict Linting</span>
           <span class="td">Reads live VS Code errors, warnings, hover details, and quick fixes in chat</span>
-        </div>
-      </div>`;
-
-    const branchSessionsRow = `
-      <div class="tool-item${branchSessionsEnabled ? " active" : ""}" data-branch-sessions="enabled">
-        <div class="cb${branchSessionsEnabled ? " on" : ""}"><div class="cb-tick"></div></div>
-        <div class="tool-text">
-          <span class="tl">Branch Sessions</span>
-          <span class="td">The workspace follows the active chat's branch; parked sessions stay available via branch_status</span>
         </div>
       </div>`;
 
@@ -550,14 +538,12 @@ module.exports = function createRenderWebviewHtml(deps) {
       CHAT_TOOL_COUNT: String(
         [
           strictLintingEnabled,
-          branchSessionsEnabled,
           sessionMemoryEnabled,
           formatBypassEnabled,
         ].filter(Boolean).length,
       ),
-      CHAT_TOOL_TOTAL: "4",
+      CHAT_TOOL_TOTAL: "3",
       STRICT_LINTING_ROW: strictLintingRow,
-      BRANCH_SESSIONS_ROW: branchSessionsRow,
       SESSION_MEMORY_ROW: sessionMemoryRow,
       FORMAT_BYPASS_ROW: formatBypassRow,
       LOCAL_SUBAGENT_COUNT: String(localSubagentCount),

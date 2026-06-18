@@ -7,7 +7,7 @@
 #   - git-get
 #   - git-initialize
 #   - git-fucked-the-push
-#   - git-copilot-devops-audit
+#   (the native Rust git-* CLIs are built and symlinked by `gsh build`)
 #
 # Responsibilities:
 #   - Ensure ~/bin and ~/man/man1 exist
@@ -20,7 +20,7 @@
 #   - git upload
 #   - git get
 #   - git initialize
-#   - git copilot-devops-audit
+#   - gsh setup
 # and see docs via:
 #   - git help upload
 #   - git help get
@@ -596,15 +596,6 @@ EOF
   echo "[install-git-shell-helpers] Installed man page: $dest"
 }
 
-install_man_git_copilot_devops_audit() {
-  local src="${SCRIPT_DIR}/man/man1/git-copilot-devops-audit.1"
-  local dest="${MAN_DIR}/git-copilot-devops-audit.1"
-  if [ -f "$src" ]; then
-    cp "$src" "$dest"
-    echo "[install-git-shell-helpers] Installed man page: $dest"
-  fi
-}
-
 install_man_git_research_mcp() {
   local src="${SCRIPT_DIR}/man/man1/git-research-mcp.1"
   local dest="${MAN_DIR}/git-research-mcp.1"
@@ -953,11 +944,10 @@ main() {
   ensure_dir "$BIN_DIR"
   ensure_dir "$MAN_DIR"
 
-  install_script "git-upload"
-  install_script "git-get"
-  install_script "git-initialize"
-  install_script "git-fucked-the-push"
-  install_script "git-copilot-devops-audit"
+  # git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
+  # git-resolve, and git-scan-for-leaked-envs are now native Rust (the gitcli
+  # module of the gsh-native crate). `gsh build` (run below) compiles the binary
+  # and symlinks each CLI name to it — no script copy needed here.
   install_script "git-research-mcp"
   install_script "git-shell-helpers-mcp"
   install_script "git-shell-helpers-mcp.js"
@@ -1021,7 +1011,6 @@ RENV
   install_man_git_get
   install_man_git_initialize
   install_man_git_fucked_the_push
-  install_man_git_copilot_devops_audit
   install_man_git_research_mcp
 
   install_shell_path_setup
@@ -1078,7 +1067,7 @@ RENV
     fi
   fi
 
-  # Optional: install DevOpsAudit into standard user-level Copilot locations.
+  # Optional: configure VS Code MCP + patches when VS Code is present.
   VSCODE_USER_DIR="$HOME/Library/Application Support/Code/User"
   local code_cli=""
   local should_offer_vscode_setup=false
@@ -1093,21 +1082,10 @@ RENV
     should_offer_vscode_setup=true
     echo ""
     echo "[install-git-shell-helpers] VS Code user profile found, but no usable 'code' CLI was detected."
-    echo "[install-git-shell-helpers] Install the GitHub Copilot and GitHub Copilot Chat extensions manually if you want the audit surfaces to be usable in VS Code."
+    echo "[install-git-shell-helpers] Install the GitHub Copilot and GitHub Copilot Chat extensions manually for the best experience."
   fi
 
   if [ "$should_offer_vscode_setup" = true ]; then
-    echo ""
-    printf '[install-git-shell-helpers] Install private Copilot audit agents, natural-language router, and /copilot-devops-audit globally in VS Code? [Y/n]: '
-    read -r vscode_reply || vscode_reply=""
-    if [[ -z "$vscode_reply" || "$vscode_reply" == "y" || "$vscode_reply" == "Y" ]]; then
-      "${BIN_DIR}/git-copilot-devops-audit" --update-agent --force >/dev/null 2>&1 || true
-      echo "[install-git-shell-helpers] Installed DevOpsAudit agents, router, prompt, and skills into ~/.copilot."
-      echo "[install-git-shell-helpers] Reload VS Code window (Cmd+Shift+P → 'Developer: Reload Window') to activate."
-    else
-      echo "[install-git-shell-helpers] Skipped VS Code global install. Run 'git copilot-devops-audit' in any repo to install later."
-    fi
-
     # MCP tools — always offer when VS Code is available
     configure_mcp_tools "$code_cli"
 
@@ -1119,7 +1097,7 @@ RENV
   echo ""
   echo "[install-git-shell-helpers] Done. Open a new terminal to reload PATH and MANPATH changes."
   echo "Then you can use: git upload, git get, git initialize, git fucked-the-push,"
-  echo "  git copilot-devops-audit, and view docs via git help <command>."
+  echo "  gsh setup, and view docs via git help <command>."
 }
 
 main "$@"

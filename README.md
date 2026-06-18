@@ -1,43 +1,116 @@
 # Git Shell Helpers
 
-Quality-of-life git subcommands, an MCP research server, a Copilot audit tool, and a VS Code extension that makes AI agents work transparently on feature branches — without switching tabs or changing directories.
+Quality-of-life git subcommands, an MCP tool server, an AI-agent control CLI (`gsh`),
+a Copilot audit tool, and a VS Code extension that makes AI agents work transparently on
+feature branches — without switching tabs or changing directories.
 
+GSH is **agent-agnostic**: its tools ship as a standard stdio MCP server, so Claude Code,
+GitHub Copilot, and any MCP-capable agent can use them. See [`AGENTS.md`](AGENTS.md) for
+the agent-facing quickstart.
+
+- [Use with any AI agent (gsh CLI)](#use-with-any-ai-agent-gsh-cli)
+- [CS2420 / CS3500 A+ grading](#cs2420--cs3500-a-grading)
 - [Branch Sessions (VS Code extension)](#branch-sessions-vs-code-extension)
 - [Git subcommands](#git-subcommands)
 - [MCP servers](#mcp-servers)
 - [Research Search (GitHub Pages)](#research-search-github-pages)
-- [Copilot DevOps Audit](#copilot-devops-audit)
+- [gsh setup (project build-out)](#gsh-setup-project-build-out)
 - [Installation](#installation)
 - [Development & Contributing](#development--contributing)
 
 ---
 
-## Branch Sessions (VS Code extension)
+## Use with any AI agent (gsh CLI)
 
-The VS Code extension enables **per-chat branch isolation**: each Copilot chat can work on a different feature branch, and switching between chats changes which branch is visible in the workspace.
+`gsh` is the single control surface for GSH. It installs GSH into your AI agent(s),
+toggles the whole tool surface or individual tools live, and reports health.
 
-### How it works
-
-1. An agent calls `branch_session_start({ branch: "feature/my-work" })`
-2. The extension creates a git worktree in `~/.cache/gsh/worktrees/` and checks out the branch **in your main repo view** via `git symbolic-ref`
-3. You see the feature branch in VS Code's status bar, SCM panel, and Explorer — it looks like a normal checkout
-4. When you switch to a different Copilot chat, the extension switches the visible branch to match that chat's session
-5. When no bound chat is active, the main repo returns to its baseline branch and the feature session stays parked in its worktree
-6. When the agent calls `branch_session_end`, the extension restores your original branch and pops any stashed work
-
-Multiple chats can keep different branches parked in parallel. If a branch seems to disappear from the workspace, it is usually parked in another chat rather than lost; switch back to that chat or run `branch_status`.
-
-### Enabling branch sessions
-
-Branch sessions are off by default. Enable them in VS Code settings:
-
-```
-Settings → Git Shell Helpers → Branch Sessions → Enabled
+```sh
+gsh install              # auto-detect agents (Claude Code, Copilot) and wire GSH in
+gsh install --agent claude   # Claude Code only ( --agent copilot | all )
+gsh status               # what's installed, master switch, tool counts, agents
+gsh doctor               # health checks
 ```
 
-Then reload the window. The `gsh` MCP server exposes `branch_session_start`, `branch_session_end`, `branch_read_file`, and `branch_status` once the setting is on.
+### Toggling (live — no agent restart)
 
-### VS Code extension installation
+```sh
+gsh disable | enable     # master kill-switch for the entire GSH tool surface
+gsh bypass               # toggle the master switch
+gsh tool list            # every tool + on/off state
+gsh tool disable <name>  # turn one tool off
+gsh tool enable all      # turn everything back on
+```
+
+Tool state lives in `~/.config/git-shell-helpers-mcp/tools.json` and is re-read by the
+running MCP server on every request, so toggles take effect immediately. A disabled tool
+can be overridden for a single call with `{ "force": true }`.
+
+### Fast startup (C launcher + auto-managed background server)
+
+`gsh install` registers a small **C launcher** (`gsh-mcp`, compiled on install) instead of
+launching Node directly. It starts in ~1ms and connects to a background server
+(`git-shell-helpers-mcpd.js`) that loads the tool modules once and stays resident, so
+sessions start fast (~tens of ms) instead of paying cold Node startup every time.
+
+It just works — nothing to manage:
+
+- the background server **starts automatically** on first use and **exits after ~15 min
+  idle**;
+- it's per-workspace (keyed by cwd + GSH env) so scope is preserved;
+- it re-reads tool state per request, so `gsh` toggles stay live;
+- if it isn't instantly ready (or there's no C compiler), the launcher **falls back to
+  running Node directly within ~2s** — so startup is always reliable, never worse than
+  plain Node.
+
+```sh
+gsh build            # (re)compile the launcher (optional; auto-run by install)
+gsh daemon status    # is the background server running?
+gsh daemon restart   # restart it (use after changing GSH code)
+```
+
+### What `gsh install --agent claude` does
+
+- Registers the `gsh` MCP server with Claude Code (`claude mcp add -s user`).
+- Writes the GSH core behavior into `~/.claude/CLAUDE.md` as a managed block (no clobber).
+- Installs the `gsh` and `cs-grade` **skills**, the `/gsh` **slash command**, and the
+  `cs-grade-improver` **subagent** into `~/.claude/`.
+
+Run `/mcp` (or restart Claude Code) afterward so the server connects. The same artifacts
+live under [`claude-config/`](claude-config) and the Copilot equivalents under
+[`copilot-config/`](copilot-config).
+
+---
+
+## CS2420 / CS3500 A+ grading
+
+`git-cs-grade` (also `gsh grade`) scores a Java course project against an objective
+structural rubric and writes `GRADE.md`: a numeric+letter grade, a per-category scorecard
+with the evidence behind each score, and a prioritized **Path to A+** checklist.
+
+```sh
+gsh grade .                      # auto-detect course
+gsh grade ./hw3 --course cs3500  # object-oriented design rubric
+gsh grade ./lab --course cs2420  # data-structures/algorithms rubric
+git-cs-grade . --json            # machine-readable, for an automated loop
+```
+
+The intended loop: grade → fix the highest-impact checklist items → re-grade, until A+.
+Claude Code users can hand the whole job to the **`cs-grade-improver`** subagent or the
+**`cs-grade`** skill, which implement that loop (MVC separation, programming to interfaces,
+design patterns, JUnit coverage, Javadoc, and cleanliness).
+
+> The rubric grades what you can restructure (design, tests, docs, style); it does **not**
+> run the course autograder's correctness suite, so pair it with the official tests.
+
+---
+
+## VS Code extension
+
+The companion VS Code extension surfaces the GSH community-cache panel, live tool
+activity, strict-lint diagnostics, and model controls.
+
+### Installation
 
 The extension is bundled as a `.vsix`. Build it locally:
 
@@ -51,68 +124,31 @@ Then install via **Extensions → Install from VSIX…** in VS Code, or:
 code --install-extension vscode-extension/git-shell-helpers-*.vsix
 ```
 
-### VS Code patches (optional)
-
-Optional patches improve the branch session experience by modifying VS Code's compiled bundles:
-
-| Patch              | Effect                                                                        | Requires      |
-| ------------------ | ----------------------------------------------------------------------------- | ------------- |
-| `folder-switch`    | Removes the "do you want to switch folders?" dialog when worktrees change     | Full restart  |
-| `git-head-display` | Shows the worktree branch name in the status bar via `.git/gsh-head-override` | Window reload |
-
-Apply both patches:
-
-```sh
-node scripts/patch-vscode-apply-all.js
-```
-
-Check status, revert, or apply individually:
-
-```sh
-node scripts/patch-vscode-apply-all.js --check
-node scripts/patch-vscode-apply-all.js --revert
-node scripts/patch-vscode-folder-switch.js
-node scripts/patch-vscode-git-head-display.js
-```
-
-The patch scripts detect VS Code's install location automatically on macOS, Linux (including Snap), and Windows.
-
-#### Upstream PR status
-
-These patches address real VS Code gaps. Corresponding PRs are open against `microsoft/vscode`:
-
-| Proposal                                               | PR                                                         | Status                                                   |
-| ------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
-| Suppress folder switch dialog (`suppressConfirmation`) | [#306519](https://github.com/microsoft/vscode/pull/306519) | Open — awaiting review; needs community upvotes          |
-| Branch name display override (`headLabelOverride`)     | [#306517](https://github.com/microsoft/vscode/pull/306517) | Open — assigned [@lszomoru](https://github.com/lszomoru) |
-| Chat session focus stability                           | [#306518](https://github.com/microsoft/vscode/pull/306518) | Open — assigned [@jrieken](https://github.com/jrieken)   |
-
-If any of these PRs land in VS Code, the corresponding local patch becomes unnecessary. The extension will detect the native API and skip the patched code path automatically when the real API becomes available.
-
-### Known limitations
-
-- The `which code` / `where code` dynamic path detection requires `code` to be in your PATH. If it isn't, add it via **Shell Command: Install 'code' command in PATH** in the VS Code command palette.
-- Patches are applied to VS Code's compiled bundles. They may need to be re-applied after VS Code auto-updates. Run `node scripts/patch-vscode-apply-all.js --check` to verify status after an update.
-- Stash recovery after a VS Code reload is best-effort. If you manually run `git stash` between a `branch_session_start` and `branch_session_end`, the extension uses the stash message `"gsh-session-focus: auto-stash"` to find and restore the correct stash entry.
-- Branch sessions are chat-bound. If the current chat does not own a session, the workspace can return to baseline even though other sessions still exist. Use `branch_status` or the Branch Files view to find parked sessions.
+> The `code --install-extension` form needs the `code` command on your PATH. If
+> it isn't, add it via **Shell Command: Install 'code' command in PATH** from the
+> VS Code command palette.
 
 ---
 
 ## Git subcommands
 
+The standalone `git-*` CLIs are native Rust (the `gitcli` module of the
+`gsh-native` crate), built and symlinked by `gsh build`. They are deterministic;
+`git upload` is the only one that touches AI, and only as an opt-in.
+
 | Command                    | What it does                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------- |
-| `git upload`               | Stage, commit, and push with optional AI-generated commit messages              |
+| `git upload`               | Stage, commit, and push with safe recovery; deterministic message by default, optional `-ai` via Claude/Copilot |
 | `git get`                  | Initialize a local repo from a remote (lightweight clone flow)                  |
 | `git initialize`           | Initialize the directory as a repo, create initial commit, set `origin`, push   |
-| `git checkpoint`           | Commit current state with an AI-generated message (used by `gsh` MCP tools)     |
+| `git checkpoint`           | Commit current state with a deterministic message (used by `gsh` MCP tools)     |
 | `git fucked-the-push`      | Destructive recovery: undo the last pushed commit while keeping changes staged  |
 | `git resolve`              | Safe merge/rebase conflict resolution with automatic backup branches            |
 | `git remerge`              | Merge a detached-work branch back into a target; aborts cleanly on conflicts    |
-| `git copilot-quickstart`   | Scaffold a `.github/` Copilot self-iteration workflow for any repository        |
-| `git scan-for-leaked-envs` | Scan for leaked secrets, API keys, and environment variables using Copilot      |
+| `git scan-for-leaked-envs` | Scan for leaked secrets, API keys, and env vars with deterministic patterns     |
 | `git help-i-pushed-an-env` | Emergency: scrub secrets from git history, including batch ops across all repos |
-| `git copilot-devops-audit` | Run the Copilot customization audit workflow (see below)                        |
+
+Plus `gsh setup` — a deterministic project build-out plan (see **gsh setup** below).
 
 Man pages are installed for all commands. Use `git help <subcommand>` or `man git-<subcommand>` after installation.
 
@@ -140,25 +176,31 @@ Manual registration if needed:
 
 #### Exposed tools
 
+Every GSH tool below is implemented in native Rust (the `gsh-native` binary),
+except web search/scrape which stay in Node (they drive a headless browser).
+All tools are deterministic — no tool calls an AI model.
+
 Core workflow and quality:
 
-- `workspace_context` - summarize active workspace roots and branch state.
-- `strict_lint` - run Problems diagnostics for one file, folder, or workspace.
-- `checkpoint` - stage/commit with AI-generated message; optionally push.
-- `list_language_models` - list available local language models.
+- `strict_lint` - run each language's own linters on a file/folder/workspace.
+- `cs_lint` - scan for CS2420/CS3500 software-principle violations (single responsibility, documentation gaps, error handling, maintainability) and return one prioritized list with `file:line` + fix. Complements `gsh grade`; re-run to track the count to zero.
+- `checkpoint` - stage and commit (deterministic message from the diff, or your own); optionally push. Stage a precise subset with `paths` (specific files) or `lines` (specific line ranges) for a focused checkpoint.
 
-Branch-session management:
+Project index (cheap repo map — orient without grepping):
 
-- `branch_session_start`
-- `branch_session_end`
-- `branch_read_file`
-- `branch_status`
-- `branch_cleanup`
+- `index_project` - build/refresh a static map of files, symbols, and the reference graph (ranked), written to `.gsh/index/`.
+- `project_map` - return a compact, token-cheap overview of the top modules plus a Mermaid graph; orient in one call.
+- `lookup` - find where a symbol is defined and what references it, from the index graph instead of a grep sweep.
+- `project_setup` - analyze the repo deterministically and return a concise build-out plan (purpose, stack + build/test/lint commands, gap checklist, and questions to ask the user). Drives a project to a complete, well-structured state fast; writes `.gsh/SETUP.md`. Also available as `gsh setup`.
 
-Research and knowledge tools:
+Project flows (agent-agnostic reusable tools, scoped to the project):
 
-- `search_web`
-- `scrape_webpage`
+- `register_workspace_tool` - register a named shell command/flow as a callable MCP tool (stored in `.gsh/tools/manifest.json`); turns a repetitive multi-step task into one tool call. Live immediately — no restart.
+- `unregister_workspace_tool` - remove a registered flow.
+- `list_workspace_tools` - list the flows registered for this project.
+
+Knowledge:
+
 - `search_knowledge_cache`
 - `search_knowledge_index`
 - `build_knowledge_index`
@@ -167,37 +209,20 @@ Research and knowledge tools:
 - `update_knowledge_note`
 - `append_to_knowledge_note`
 - `submit_community_research`
-- `log_session_event`
-- `search_session_log`
-- `get_session_summary`
-- `rebuild_session_index`
 
-Vision tools:
+Web research (Node — headless browser):
 
-- `take_screenshot`
-- `analyze_images`
-- `analyze_video`
-- `transcribe_video`
-
-Workspace tool management:
-
-- `register_workspace_tool`
-- `unregister_workspace_tool`
-- `reload_window_ready`
-
-Local sub-agents:
-
-- `ollama_subagent`
-- `ollama_list_models`
-- `system_execute`
-- `build_workspace_tool`
+- `search_web`
+- `scrape_webpage`
 
 Context-efficient usage order (minimal context, maximal output):
 
-1. `workspace_context` once per task.
-2. Call one specialized tool for the user goal (for example `search_web` or `strict_lint`).
-3. Use `scrape_webpage` only for top hits that need deeper evidence.
-4. End with `checkpoint` only after validation passes.
+1. `project_map` (and `index_project` to refresh) to orient cheaply instead of reading/grepping many files.
+2. `lookup <symbol|file>` to jump straight to definitions and references.
+3. `list_workspace_tools` to reuse an existing project flow before re-implementing a task.
+4. Call one specialized tool for the user goal (for example `search_web` or `strict_lint`).
+5. Use `scrape_webpage` only for top hits that need deeper evidence.
+6. End with `checkpoint` only after validation passes.
 
 Environment variables to selectively disable groups:
 
@@ -263,28 +288,28 @@ node ./scripts/capture-live-site-browser-flows.js --output-dir /tmp/atlas-live-s
 
 ---
 
-## Copilot DevOps Audit
+## gsh setup (project build-out)
 
-`git-copilot-devops-audit` audits GitHub Copilot customization in any workspace — keeping `.github/` setup current, project-specific, and aligned with what VS Code and Copilot actually support.
+`gsh setup` replaces the old Copilot DevOps audit with a **deterministic** project
+build-out engine — no AI, no agent install. It analyzes the repository and prints
+(and writes to `.gsh/SETUP.md`) a concise, structured plan that drives any project
+to a complete, well-structured state quickly, while enforcing three rules:
 
-### Install the audit surfaces
+1. **Minimal context** — the plan is a tight, ranked summary, never a file dump.
+2. **Understand goals first** — purpose/goals are surfaced (or flagged as unknown)
+   before any build-out steps are proposed.
+3. **Clarify with the user** — ambiguities become explicit questions to ask first.
 
 ```sh
-git copilot-devops-audit --update-agent --force
+gsh setup            # analyze, print the plan, write .gsh/SETUP.md
+gsh setup --no-write # print only
 ```
 
-This installs:
-
-- Audit agents under `~/.copilot/agents/`
-- Natural-language router under `~/.copilot/instructions/`
-- Audit skills under `~/.copilot/skills/`
-- The `/copilot-devops-audit` slash command prompt in VS Code's user prompts folder
-
-### Running an audit
-
-Use the `/copilot-devops-audit` slash command in VS Code Copilot Chat for the deterministic entry point. Natural-language routing ("audit my Copilot setup") works through the installed router instruction but is best-effort.
-
-Each full audit runs four phases: Context → Research → Evaluation → Implementation.
+The plan contains: detected purpose, the technology stack with its build/test/lint
+commands, the project shape (languages, top-level dirs, entry points), a prioritized
+gap checklist (missing tests, CI, license, lint config, …), and clarifying questions.
+The same engine is exposed to agents as the `project_setup` MCP tool, so an agent can
+orient and build out in one call.
 
 ---
 
@@ -294,7 +319,7 @@ Each full audit runs four phases: Context → Research → Evaluation → Implem
 
 Download the latest `.pkg` from the [releases page](https://github.com/RockyWearsAHat/github-shell-helpers/releases/latest) and run the installer. It places binaries in `/usr/local/bin` and man pages in `/usr/local/share/man/man1` without touching shell config files.
 
-The postinstall script also attempts to install the VS Code extensions and run `git copilot-devops-audit --update-agent --force` for the logged-in user. If it can't (no VS Code CLI in PATH), run that command manually.
+The postinstall script also attempts to install the VS Code extensions for the logged-in user.
 
 ### Homebrew
 
@@ -447,9 +472,8 @@ Key files:
 | File                                       | Domain                                                     |
 | ------------------------------------------ | ---------------------------------------------------------- |
 | `vscode-extension/extension.js`            | Extension entry point, command registration                |
-| `vscode-extension/src/worktree-manager.js` | Branch session focus/unfocus, binding, stash, git ops      |
 | `vscode-extension/src/ipc-servers.js`      | Unix socket IPC between MCP server and extension           |
-| `git-shell-helpers-mcp`                    | MCP server — branch sessions, checkpoint, research, vision |
+| `git-shell-helpers-mcp`                    | MCP server — project index, checkpoint, strict_lint, knowledge, project flows, web research |
 | `git-upload`                               | Stage/commit/push with AI messages and test detection      |
 | `git-help-i-pushed-an-env`                 | Secret scrubbing from git history                          |
 | `scripts/patch-vscode-apply-all.js`        | Coordinator for VS Code bundle patches                     |

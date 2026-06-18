@@ -36,10 +36,9 @@ These files are large and tightly coupled. **Check actual size with `wc -l` befo
 | ------------------------------- | ---------------------------------------------------------------------- |
 | `vscode-extension/extension.js` | VS Code extension (MCP client, commands, config)                       |
 | `git-research-mcp`              | Node.js MCP server (web search, knowledge index, headless Chrome)      |
-| `git-upload`                    | Bash: stage/commit/push with AI messages, test detection, risk scoring |
-| `git-help-i-pushed-an-env`      | Bash: secret scrubbing from git history                                |
+| `native/src/gitcli/`            | Rust: the git-* CLIs (upload, checkpoint, resolve, scan, scrub, …)     |
+| `native/src/tools/setup.rs`     | Rust: `gsh setup` / project_setup — deterministic project build-out    |
 | `git-copilot-quickstart`        | Bash: scaffold Copilot workflows                                       |
-| `git-copilot-devops-audit`      | Bash: install/run audit agents                                         |
 
 **Before editing any file over 500 lines**: check `wc -l`, read at least the function index (`grep -n 'function \|^[a-z_]*()' <file>`), and understand the call chain you are modifying. Do not submit an 8-line patch to a large file without understanding the surrounding 200+ lines of context.
 

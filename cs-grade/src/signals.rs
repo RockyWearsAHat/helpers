@@ -81,6 +81,8 @@ fn line_count(text: &str) -> usize {
 }
 
 impl Signals {
+    /// Derive every rubric metric from a scanned `Project` in one pass, applying
+    /// the same regexes and corpora as the original `git-cs-grade.js`.
     pub fn compute(project: &Project) -> Signals {
         let joined = &project.joined;
         let test_corpus = &project.test_corpus;
