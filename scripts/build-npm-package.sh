@@ -40,17 +40,17 @@ fi
 while IFS= read -r command_file; do
 	[ -n "$command_file" ] || continue
 	chmod +x "${ROOT_DIR}/${command_file}"
-done < <(gsh_core_commands)
+done < <(helpers_core_commands)
 
 while IFS= read -r command_file; do
 	[ -n "$command_file" ] || continue
 	chmod +x "${ROOT_DIR}/${command_file}"
-done < <(gsh_audit_commands)
+done < <(helpers_audit_commands)
 
 while IFS= read -r command_file; do
 	[ -n "$command_file" ] || continue
 	chmod +x "${ROOT_DIR}/${command_file}"
-done < <(gsh_mcp_commands)
+done < <(helpers_mcp_commands)
 
 mkdir -p "$DIST_DIR"
 PACKAGE_FILE="$(cd "$ROOT_DIR" && npm pack --pack-destination "$DIST_DIR" | tail -n 1)"

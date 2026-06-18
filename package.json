@@ -26,7 +26,7 @@
     "automation"
   ],
   "bin": {
-    "gsh": "gsh",
+    "helpers": "helpers",
     "git-cs-grade": "git-cs-grade.js",
     "git-upload": "git-upload",
     "git-get": "git-get",
@@ -42,10 +42,10 @@
     "git-copilot-devops-audit-community-submit": "git-copilot-devops-audit-community-submit",
     "git-copilot-devops-audit-community-research-submit": "git-copilot-devops-audit-community-research-submit",
     "git-research-mcp": "git-research-mcp",
-    "git-shell-helpers-mcp": "git-shell-helpers-mcp"
+    "helpers-server": "helpers-server"
   },
   "files": [
-    "gsh",
+    "helpers",
     "git-cs-grade.js",
     "cs-grade/Cargo.toml",
     "cs-grade/Cargo.lock",
@@ -68,10 +68,10 @@
     "git-copilot-devops-audit-community-research-submit",
     "git-research-mcp",
     "git-research-mcp.js",
-    "git-shell-helpers-mcp",
-    "git-shell-helpers-mcp.js",
-    "git-shell-helpers-mcpd.js",
-    "gsh-mcp.c",
+    "helpers-server",
+    "helpers-server.js",
+    "helpers-serverd.js",
+    "helpers-mcp.c",
     "lib/**/*.sh",
     "lib/mcp-*.js",
     "copilot-config/**",

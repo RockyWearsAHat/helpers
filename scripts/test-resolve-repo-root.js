@@ -58,31 +58,31 @@ async function main() {
     "findRepoRoot returns empty outside a repo",
   );
 
-  // 1. With GSH_WORKSPACE_ROOTS pointing to the repo — should resolve.
-  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([repoRoot]);
+  // 1. With HELPERS_WORKSPACE_ROOTS pointing to the repo — should resolve.
+  process.env.HELPERS_WORKSPACE_ROOTS = JSON.stringify([repoRoot]);
   {
     const result = await resolveRepoRoot();
     assert(
       normalizeRepoPath(result) === repoRoot,
-      "GSH_WORKSPACE_ROOTS set to repo root",
+      "HELPERS_WORKSPACE_ROOTS set to repo root",
     );
   }
 
-  // 2. With GSH_WORKSPACE_ROOTS pointing to a non-repo dir, but __dirname
+  // 2. With HELPERS_WORKSPACE_ROOTS pointing to a non-repo dir, but __dirname
   //    is inside the repo — should fall through and succeed via __dirname.
-  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([badDir]);
+  process.env.HELPERS_WORKSPACE_ROOTS = JSON.stringify([badDir]);
   {
     // __dirname is scripts/, which IS inside the repo
     const result = await resolveRepoRoot();
     assert(
       normalizeRepoPath(result) === repoRoot,
-      "Bad GSH_WORKSPACE_ROOTS, falls through to __dirname",
+      "Bad HELPERS_WORKSPACE_ROOTS, falls through to __dirname",
     );
   }
 
-  // 3. With GSH_WORKSPACE_ROOTS unset and cwd outside any repo.
+  // 3. With HELPERS_WORKSPACE_ROOTS unset and cwd outside any repo.
   //    __dirname (scripts/) should still resolve.
-  delete process.env.GSH_WORKSPACE_ROOTS;
+  delete process.env.HELPERS_WORKSPACE_ROOTS;
   const origCwd = process.cwd;
   process.cwd = () => badDir;
   {
@@ -94,20 +94,20 @@ async function main() {
   }
   process.cwd = origCwd;
 
-  // 4. With GSH_WORKSPACE_ROOTS malformed JSON — should not throw,
+  // 4. With HELPERS_WORKSPACE_ROOTS malformed JSON — should not throw,
   //    should fall through gracefully.
-  process.env.GSH_WORKSPACE_ROOTS = "not-json";
+  process.env.HELPERS_WORKSPACE_ROOTS = "not-json";
   {
     const result = await resolveRepoRoot();
     assert(
       normalizeRepoPath(result) === repoRoot,
-      "Malformed GSH_WORKSPACE_ROOTS, graceful fallback",
+      "Malformed HELPERS_WORKSPACE_ROOTS, graceful fallback",
     );
   }
-  delete process.env.GSH_WORKSPACE_ROOTS;
+  delete process.env.HELPERS_WORKSPACE_ROOTS;
 
   // 5. Multiple roots, first is bad, second is good.
-  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([badDir, repoRoot]);
+  process.env.HELPERS_WORKSPACE_ROOTS = JSON.stringify([badDir, repoRoot]);
   {
     const result = await resolveRepoRoot();
     assert(
@@ -115,13 +115,13 @@ async function main() {
       "Multiple roots, first bad, second good",
     );
   }
-  delete process.env.GSH_WORKSPACE_ROOTS;
+  delete process.env.HELPERS_WORKSPACE_ROOTS;
 
   // 6. All candidates invalid — should throw.
-  process.env.GSH_WORKSPACE_ROOTS = JSON.stringify([badDir]);
+  process.env.HELPERS_WORKSPACE_ROOTS = JSON.stringify([badDir]);
   process.cwd = () => badDir;
   {
-    // We can't override __dirname easily, but we CAN set GSH_WORKSPACE_ROOTS
+    // We can't override __dirname easily, but we CAN set HELPERS_WORKSPACE_ROOTS
     // to only bad paths and a cwd that's also bad. __dirname is still in the
     // repo, so this test verifies the fallback chain ends at __dirname.
     // To truly test the throw, we'd need to run in a subprocess.
@@ -133,7 +133,7 @@ async function main() {
     );
   }
   process.cwd = origCwd;
-  delete process.env.GSH_WORKSPACE_ROOTS;
+  delete process.env.HELPERS_WORKSPACE_ROOTS;
 
   // Summary
   process.stderr.write(

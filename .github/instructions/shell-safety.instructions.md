@@ -1,6 +1,6 @@
 ---
-applyTo: "git-*,**/*.sh,scripts/**,install-git-shell-helpers"
-description: "Shell safety rules for git-shell-helpers. Prohibits heredocs, enforces safe patterns, and requires modular thinking for large scripts."
+applyTo: "git-*,**/*.sh,scripts/**,install-helpers"
+description: "Shell safety rules for helpers. Prohibits heredocs, enforces safe patterns, and requires modular thinking for large scripts."
 ---
 
 # Shell Safety Rules
@@ -21,7 +21,7 @@ Instead:
 
 **Legacy heredoc hotspots still exist.** Refresh the current list with:
 
-- `rg -n "<<[-'[:alnum:]]|cat <<" git-* scripts/ Git-Shell-Helpers-Installer.sh install-git-shell-helpers`
+- `rg -n "<<[-'[:alnum:]]|cat <<" git-* scripts/ Helpers-Installer.sh install-helpers`
 
 ## Unsafe Pattern Prevention
 

@@ -84,7 +84,7 @@ get headLabel() {
 }
 ```
 
-This is what we currently implement via a bundle patch, using `.git/gsh-head-override` as the file name.
+This is what we currently implement via a bundle patch, using `.git/helpers-head-override` as the file name.
 
 ### Supplementary: Hide sync button when override is active
 
@@ -122,14 +122,14 @@ We patch the Git extension bundle (`extensions/git/dist/main.js`) to inject over
 // headLabel patch — prepends override check:
 get headLabel(){let e=this.HEAD;
   try{let g=require("fs").readFileSync(
-    require("path").join(this.repository.root,".git","gsh-head-override"),
+    require("path").join(this.repository.root,".git","helpers-head-override"),
     "utf8").trim();if(g)return g}catch{}
   return e?(e.name||...
 
 // sync button patch — hides sync when override active:
 get command(){
   try{let g=require("fs").readFileSync(
-    require("path").join(this.repository.root,".git","gsh-head-override"),
+    require("path").join(this.repository.root,".git","helpers-head-override"),
     "utf8").trim();if(g)return}catch{}
   if(!this.state.enabled)return;...
 ```
@@ -146,4 +146,4 @@ This breaks on every VS Code update. A proper API or file convention would elimi
 - [Issue #260706](https://github.com/microsoft/vscode/issues/260706) — @sbatten requesting better worktree visual distinction (assigned to @lszomoru)
 - [PR #305643](https://github.com/microsoft/vscode/pull/305643) — @lszomoru scaffolding the Git extension API (merged Mar 26, 2026)
 - [Issue #277163](https://github.com/microsoft/vscode/issues/277163) — Git extension API for agent/CLI scenarios
-- [git-shell-helpers](https://github.com/RockyWearsAHat/github-shell-helpers) — real-world extension using this pattern for branch-per-chat sessions
+- [helpers](https://github.com/RockyWearsAHat/github-shell-helpers) — real-world extension using this pattern for branch-per-chat sessions

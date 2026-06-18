@@ -1,6 +1,6 @@
 ---
 applyTo: "**/*.sh"
-description: "Shell scripting conventions for git-shell-helpers commands."
+description: "Shell scripting conventions for helpers commands."
 ---
 
 # Shell Script Conventions

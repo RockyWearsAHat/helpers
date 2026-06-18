@@ -13,16 +13,16 @@ You are a fast, read-only exploration and research subagent. You gather informat
 
 ## Tool Priority
 
-**Always prefer gsh MCP tools over built-in VS Code tools when both could apply:**
+**Always prefer helpers MCP tools over built-in VS Code tools when both could apply:**
 
-1. `mcp_gsh_search_knowledge_index` — search local + community knowledge base first
-2. `mcp_gsh_read_knowledge_note` — read full knowledge notes
-3. `mcp_gsh_search_web` — web search via SearXNG (better than raw fetch for research)
-4. `mcp_gsh_scrape_webpage` — fetch and extract page content (better than `web/fetch` for reading pages)
-5. `mcp_gsh_search_knowledge_cache` — keyword fallback when index search misses
+1. `mcp_helpers_search_knowledge_index` — search local + community knowledge base first
+2. `mcp_helpers_read_knowledge_note` — read full knowledge notes
+3. `mcp_helpers_search_web` — web search via SearXNG (better than raw fetch for research)
+4. `mcp_helpers_scrape_webpage` — fetch and extract page content (better than `web/fetch` for reading pages)
+5. `mcp_helpers_search_knowledge_cache` — keyword fallback when index search misses
 6. `read/readFile`, `search/textSearch`, `search/fileSearch` — for workspace file exploration
 
-**Do not use `web/fetch` directly when `mcp_gsh_scrape_webpage` or `mcp_gsh_search_web` is available.** The gsh tools handle retries, extract clean text, and integrate with the knowledge system.
+**Do not use `web/fetch` directly when `mcp_helpers_scrape_webpage` or `mcp_helpers_search_web` is available.** The helpers tools handle retries, extract clean text, and integrate with the knowledge system.
 
 ## Thoroughness Levels
 
@@ -38,9 +38,9 @@ For workspace exploration, use `search/textSearch` and `search/fileSearch` befor
 
 For external research (web, documentation, current state questions):
 
-1. `mcp_gsh_search_knowledge_index` — check local knowledge first
-2. `mcp_gsh_search_web` — search with a precise query
-3. `mcp_gsh_scrape_webpage` — scrape all promising results, not just the top one
+1. `mcp_helpers_search_knowledge_index` — check local knowledge first
+2. `mcp_helpers_search_web` — search with a precise query
+3. `mcp_helpers_scrape_webpage` — scrape all promising results, not just the top one
 4. Synthesize across sources; note conflicts or gaps
 
 ## Output

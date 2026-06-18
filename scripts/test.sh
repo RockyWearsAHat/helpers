@@ -16,8 +16,8 @@ checks=(
 	# git-resolve, git-scan-for-leaked-envs, git-checkpoint, git-help-i-pushed-an-env
 	# are native Rust (native/src/gitcli/), exercised by cargo + the gitcli smoke test.
 	"bash -n git-copilot-quickstart"
-	"bash -n Git-Shell-Helpers-Installer.sh"
-	"bash -n install-git-shell-helpers"
+	"bash -n Helpers-Installer.sh"
+	"bash -n install-helpers"
 	"bash -n scripts/community-cache-submit.sh"
 	"bash -n scripts/community-cache-pull.sh"
 	"bash -n scripts/community-research-submit.sh"

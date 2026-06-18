@@ -285,7 +285,7 @@ fn shorten(file: &str) -> String {
 fn ipc_info_path() -> PathBuf {
     home()
         .join(".cache")
-        .join("gsh")
+        .join("helpers")
         .join("strict-lint-ipc.json")
 }
 

@@ -1,4 +1,4 @@
-// Git Shell Helpers — VS Code extension
+// Helpers — VS Code extension
 //
 // Thin entry point: initializes extracted modules and wires dependencies.
 //
@@ -35,7 +35,7 @@ const PREDEFINED = {
   branchPrefix: "automation/community-cache-submission",
 };
 const MCP_PROVIDER_ID = "gitShellHelpers.mcpServers";
-const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/git-shell-helpers-mcp";
+const GLOBAL_MCP_SERVER_PATH = "/usr/local/bin/helpers-server";
 
 // Shared mutable state — owned by entry point, accessed by modules via closures
 let _context = null;
@@ -122,7 +122,7 @@ async function fetchRepos() {
 const os = require("os");
 
 function listActiveSystemExecuteSessions() {
-  const dir = path.join(os.homedir(), ".cache", "gsh", "system-execute-active");
+  const dir = path.join(os.homedir(), ".cache", "helpers", "system-execute-active");
   try {
     return fs
       .readdirSync(dir)
@@ -159,7 +159,7 @@ async function interruptSystemExecute() {
     ignoreFocusOut: true,
   });
   if (input === undefined) return; // user dismissed → no-op
-  const dir = path.join(os.homedir(), ".cache", "gsh");
+  const dir = path.join(os.homedir(), ".cache", "helpers");
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch {}
@@ -482,7 +482,7 @@ function activate(context) {
       async () => {
         await models.refreshModels();
         vscode.window.showInformationMessage(
-          `Git Shell Helpers: ${models.getCachedModels().length} Copilot model(s) found.`,
+          `Helpers: ${models.getCachedModels().length} Copilot model(s) found.`,
         );
       },
     ),

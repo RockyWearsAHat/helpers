@@ -1,6 +1,6 @@
 ---
 applyTo: "**"
-description: "Modular architecture principles for the git-shell-helpers codebase. Prevents shallow patches and enforces decomposition of monolithic files."
+description: "Modular architecture principles for the helpers codebase. Prevents shallow patches and enforces decomposition of monolithic files."
 ---
 
 # Modular Architecture Principles

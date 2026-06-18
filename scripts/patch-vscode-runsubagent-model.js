@@ -116,7 +116,7 @@ const NEW_SCHEMA =
 // ---------------------------------------------------------------------------
 // Patch 2: Apply call-time model override just before request construction
 // ---------------------------------------------------------------------------
-// Sentinel-based design: a unique variable name `_GSH_RSMM_` bookends the
+// Sentinel-based design: a unique variable name `_HELPERS_RSMM_` bookends the
 // inject.  Revert strips everything from the sentinel up to (but not
 // including) INVOKE_ANCHOR — immune to future edits of the inject body.
 //
@@ -124,10 +124,10 @@ const NEW_SCHEMA =
 // `p` = modeModelId / userSelectedModelId  (set by resolveSubagentModel)
 // `v` = resolvedModelName (displayed in the UI)
 
-const INVOKE_SENTINEL = "let _GSH_RSMM_=1;";
+const INVOKE_SENTINEL = "let _HELPERS_RSMM_=1;";
 const INVOKE_ANCHOR_RX = /let[\s]+[a-zA-Z_$0-9]+=\{sessionResource:e\.context\.sessionResource,requestId:e\.callId/;
 
-const PREPARE_SENTINEL = "let _GSH_RSMM_PREP_=1;";
+const PREPARE_SENTINEL = "let _HELPERS_RSMM_PREP_=1;";
 const PREPARE_RESOLVE = "c=this.resolveSubagentModel(l,e.modelId);";
 const PREPARE_ANCHOR =
   'return this._resolvedModels.set(e.toolCallId,c),{invocationMessage:o.description,toolSpecificData:{kind:"subagent",description:o.description,agentName:s?eJ:l?.name??o.agentName,prompt:o.prompt,modelName:c.resolvedModelName}}';
@@ -185,7 +185,7 @@ const INVOKE_BODY =
   "else{p=_input;v=_normalized.replace(/-/g,' ').replace(/\.\./g,c=>c.toUpperCase())}" +
   "}" +
   "}}" +
-  "this.logService.info(`[gsh] runSubagent model override → ${p} (${v})`)" +
+  "this.logService.info(`[helpers] runSubagent model override → ${p} (${v})`)" +
   "}";
 
 const PREPARE_BODY =
@@ -330,7 +330,7 @@ function apply(bundleSrc) {
 
 function validateJavaScriptSource(source, label) {
   const tempDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "gsh-runsubagent-model-"),
+    path.join(os.tmpdir(), "helpers-runsubagent-model-"),
   );
   const tempFile = path.join(
     tempDir,

@@ -1,6 +1,6 @@
 # VS Code Upstream Proposals
 
-This directory contains PR-ready proposals for VS Code features that git-shell-helpers currently implements via bundle patches and proposed APIs. Each proposal is self-contained with motivation, implementation specification, and backward-compatibility design.
+This directory contains PR-ready proposals for VS Code features that helpers currently implements via bundle patches and proposed APIs. Each proposal is self-contained with motivation, implementation specification, and backward-compatibility design.
 
 ## Proposals
 
@@ -19,7 +19,7 @@ See [OBSOLESCENCE-STRATEGY.md](OBSOLESCENCE-STRATEGY.md) for how our patch syste
 
 ## How We Use These Today
 
-Our extension (`RockyWearsAHat.git-shell-helpers`) implements **branch-per-chat** — each Copilot Chat conversation gets its own git worktree, and switching between chats seamlessly switches the visible branch, file explorer, and git status. This requires three non-standard integrations:
+Our extension (`RockyWearsAHat.helpers`) implements **branch-per-chat** — each Copilot Chat conversation gets its own git worktree, and switching between chats seamlessly switches the visible branch, file explorer, and git status. This requires three non-standard integrations:
 
 1. **Programmatic folder switching** without a confirmation dialog
 2. **Branch display override** in the status bar without mutating HEAD

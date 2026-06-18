@@ -5,7 +5,7 @@
 use std::fs;
 use std::process::Command;
 
-use gsh_native::tools::checkpoint;
+use helpers_native::tools::checkpoint;
 use serde_json::json;
 
 fn git(args: &[&str], cwd: &std::path::Path) {
@@ -18,7 +18,7 @@ fn git(args: &[&str], cwd: &std::path::Path) {
 
 #[test]
 fn commits_with_manual_message_then_noops_when_clean() {
-    let dir = std::env::temp_dir().join(format!("gsh-cp-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("helpers-cp-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     git(&["init", "-q"], &dir);
@@ -53,7 +53,7 @@ fn commits_with_manual_message_then_noops_when_clean() {
 
 #[test]
 fn branch_assertion_fails_on_mismatch() {
-    let dir = std::env::temp_dir().join(format!("gsh-cp2-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("helpers-cp2-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     git(&["init", "-q", "-b", "main"], &dir);

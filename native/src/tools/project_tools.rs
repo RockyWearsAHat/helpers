@@ -2,7 +2,7 @@
 //!
 //! An agent registers a named command once; afterwards any agent can run it
 //! with a single `tools/call` instead of repeating the steps (and the context)
-//! every time. Definitions live in `<workspace>/.gsh/tools/manifest.json`, so
+//! every time. Definitions live in `<workspace>/.helpers/tools/manifest.json`, so
 //! they are scoped to the project and shared across agents. No editor, no AI.
 //!
 //! `register_workspace_tool` / `unregister_workspace_tool` / `list_workspace_tools`
@@ -43,12 +43,12 @@ struct Manifest {
     tools: Vec<ProjectTool>,
 }
 
-/// The `.gsh/tools/manifest.json` path for a given workspace root.
+/// The `.helpers/tools/manifest.json` path for a given workspace root.
 fn manifest_path_in(ws: &Path) -> PathBuf {
-    ws.join(".gsh").join("tools").join("manifest.json")
+    ws.join(".helpers").join("tools").join("manifest.json")
 }
 
-/// The repo containing the running `gsh-native` binary — i.e. the GSH install
+/// The repo containing the running `helpers-native` binary — i.e. the Helpers install
 /// itself. Project flows almost never belong here, so a write landing here is
 /// the signal that the workspace was misresolved (see [`writable_workspace`]).
 fn install_repo_root() -> Option<PathBuf> {
@@ -67,9 +67,9 @@ fn same_path(a: &Path, b: &Path) -> bool {
 }
 
 /// Resolve the workspace a manifest write should target, refusing to contaminate
-/// the GSH install repo. A misresolved workspace (the MCP host's cwd left
-/// pointing at the GSH source tree) used to silently register project flows into
-/// GSH's own `.gsh/tools/manifest.json`; now that fails loudly unless `force` is
+/// the Helpers install repo. A misresolved workspace (the MCP host's cwd left
+/// pointing at the Helpers source tree) used to silently register project flows into
+/// Helpers's own `.helpers/tools/manifest.json`; now that fails loudly unless `force` is
 /// set, so a stray registration is impossible to miss instead of polluting an
 /// unrelated repo.
 fn writable_workspace(force: bool) -> Result<PathBuf, String> {
@@ -78,10 +78,10 @@ fn writable_workspace(force: bool) -> Result<PathBuf, String> {
         if let Some(install) = install_repo_root() {
             if same_path(&ws, &install) {
                 return Err(format!(
-                    "Refusing to write project flows into the GSH install repo ({}). \
+                    "Refusing to write project flows into the Helpers install repo ({}). \
                      The workspace was not resolved to your project — open the intended \
-                     project (or set GSH_WORKSPACE_ROOTS to it) and retry. Pass \
-                     {{\"force\": true}} only to register a flow for GSH itself.",
+                     project (or set HELPERS_WORKSPACE_ROOTS to it) and retry. Pass \
+                     {{\"force\": true}} only to register a flow for Helpers itself.",
                     ws.display()
                 ));
             }
@@ -149,7 +149,7 @@ pub fn dispatch(name: &str, args: &Value) -> Option<ToolResult> {
         "sh",
         &["-c", &tool.command],
         Some(&workspace_root()),
-        &[("GSH_TOOL_ARGS", args_json.as_str())],
+        &[("HELPERS_TOOL_ARGS", args_json.as_str())],
         120,
     );
     let body = {
@@ -230,7 +230,7 @@ pub fn run_register(args: &Value) -> ToolResult {
     save_tools_at(&path, &tools)?;
 
     Ok(vec![text(format!(
-        "Project tool \"{name}\" {}.\nStored in .gsh/tools/manifest.json (scoped to this project).\n\nIt is now live in tools/list — call it directly:\n  tools/call {{ \"name\": \"{name}\", \"arguments\": {{ ... }} }}",
+        "Project tool \"{name}\" {}.\nStored in .helpers/tools/manifest.json (scoped to this project).\n\nIt is now live in tools/list — call it directly:\n  tools/call {{ \"name\": \"{name}\", \"arguments\": {{ ... }} }}",
         if existed { "updated" } else { "registered" }
     ))])
 }
@@ -289,15 +289,15 @@ pub fn run_list(_args: &Value) -> ToolResult {
 pub fn schema_register() -> Value {
     json!({
         "name": "register_workspace_tool",
-        "description": "Register a reusable project flow as a callable MCP tool. Give it a name, a description, and a shell command (the flow). It is written to .gsh/tools/manifest.json (scoped to this project, shared across agents) and becomes immediately callable via tools/call — so a repetitive multi-step task becomes one tool call instead of repeated context. No editor or AI required. The command runs in the project root with the call's arguments available as JSON in $GSH_TOOL_ARGS.",
+        "description": "Register a reusable project flow as a callable MCP tool. Give it a name, a description, and a shell command (the flow). It is written to .helpers/tools/manifest.json (scoped to this project, shared across agents) and becomes immediately callable via tools/call — so a repetitive multi-step task becomes one tool call instead of repeated context. No editor or AI required. The command runs in the project root with the call's arguments available as JSON in $HELPERS_TOOL_ARGS.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Tool name (lowercase letters/digits/-/_, starts with a letter). Becomes the tools/call name." },
                 "description": { "type": "string", "description": "What the flow does — agents use this to decide when to call it." },
-                "command": { "type": "string", "description": "Shell command/flow to run (may be multi-line). Arguments to the tool call are provided as JSON in $GSH_TOOL_ARGS." },
+                "command": { "type": "string", "description": "Shell command/flow to run (may be multi-line). Arguments to the tool call are provided as JSON in $HELPERS_TOOL_ARGS." },
                 "inputSchema": { "type": "object", "description": "Optional JSON schema for the tool's arguments. Defaults to a free-form object." },
-                "force": { "type": "boolean", "description": "Override the safety guard that refuses to write into the GSH install repo itself. Only set this to register a flow for GSH's own development." }
+                "force": { "type": "boolean", "description": "Override the safety guard that refuses to write into the Helpers install repo itself. Only set this to register a flow for Helpers's own development." }
             },
             "required": ["name", "description", "command"]
         }
@@ -313,7 +313,7 @@ pub fn schema_unregister() -> Value {
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Exact tool name to remove." },
-                "force": { "type": "boolean", "description": "Override the guard that refuses to operate on the GSH install repo itself." }
+                "force": { "type": "boolean", "description": "Override the guard that refuses to operate on the Helpers install repo itself." }
             },
             "required": ["name"]
         }
@@ -334,18 +334,18 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    // Both tests mutate the process-global GSH_WORKSPACE_ROOTS; serialize them so
+    // Both tests mutate the process-global HELPERS_WORKSPACE_ROOTS; serialize them so
     // they don't race under cargo's parallel test runner.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn register_list_dispatch_unregister_cycle() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = std::env::temp_dir().join(format!("gsh-pt-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("helpers-pt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         std::env::set_var(
-            "GSH_WORKSPACE_ROOTS",
+            "HELPERS_WORKSPACE_ROOTS",
             format!("[{:?}]", tmp.to_string_lossy()),
         );
 
@@ -373,19 +373,19 @@ mod tests {
         run_unregister(&json!({ "name": "say-hi" })).unwrap();
         assert!(dispatch("say-hi", &json!({})).is_none());
 
-        std::env::remove_var("GSH_WORKSPACE_ROOTS");
+        std::env::remove_var("HELPERS_WORKSPACE_ROOTS");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
-    fn register_refuses_to_write_into_gsh_install_repo() {
+    fn register_refuses_to_write_into_helpers_install_repo() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // Point the workspace at the GSH install repo itself (the repo holding
+        // Point the workspace at the Helpers install repo itself (the repo holding
         // the running binary). Registering there must fail loudly rather than
-        // contaminate GSH's own manifest — the bug this guard prevents.
+        // contaminate Helpers's own manifest — the bug this guard prevents.
         let install = install_repo_root().expect("test binary lives in a repo");
         std::env::set_var(
-            "GSH_WORKSPACE_ROOTS",
+            "HELPERS_WORKSPACE_ROOTS",
             format!("[{:?}]", install.to_string_lossy()),
         );
 
@@ -395,7 +395,7 @@ mod tests {
             "command": "echo nope"
         }));
         assert!(blocked.is_err(), "expected the install-repo guard to fire");
-        assert!(blocked.unwrap_err().contains("GSH install repo"));
+        assert!(blocked.unwrap_err().contains("Helpers install repo"));
 
         // The manifest in the install repo must be untouched by the refusal.
         let manifest = manifest_path_in(&install);
@@ -407,6 +407,6 @@ mod tests {
         // force:true is the documented escape hatch.
         assert!(writable_workspace(true).is_ok());
 
-        std::env::remove_var("GSH_WORKSPACE_ROOTS");
+        std::env::remove_var("HELPERS_WORKSPACE_ROOTS");
     }
 }

@@ -5,7 +5,7 @@
 //! one clean, prioritized list with `file:line`, a message, and a concrete
 //! suggestion — so an agent can see exactly what to fix and track progress.
 //!
-//! It complements `git-cs-grade` (which produces the rubric grade): `gsh grade`
+//! It complements `git-cs-grade` (which produces the rubric grade): `helpers grade`
 //! tells you *where you stand*; `cs_lint` tells you *the specific lines to fix*.
 //! Fully deterministic, no AI.
 
@@ -485,7 +485,7 @@ fn render(issues: &[Issue], max: usize) -> String {
         "# CS2420/CS3500 principle review — {} issue(s): {hi} high, {med} medium, {lo} low\n\n",
         issues.len()
     ));
-    s.push_str("_Fix high first. Each line is a concrete, deterministic violation; re-run `cs_lint` to watch the count drop. Pair with `gsh grade` for the rubric._\n\n");
+    s.push_str("_Fix high first. Each line is a concrete, deterministic violation; re-run `cs_lint` to watch the count drop. Pair with `helpers grade` for the rubric._\n\n");
 
     for i in issues.iter().take(max) {
         s.push_str(&format!(
@@ -513,7 +513,7 @@ fn render(issues: &[Issue], max: usize) -> String {
 pub fn schema() -> Value {
     json!({
         "name": "cs_lint",
-        "description": "Scan the project for CS2420/CS3500 software-principle violations and return one clean, prioritized list (severity, file:line, message, fix suggestion). Covers single responsibility (long functions), documentation gaps (undocumented public functions), error handling (empty catch / ignored errors), and maintainability (long files, large uncommented blocks). Deterministic, no AI. Complements `gsh grade`: grade gives the rubric, cs_lint gives the exact lines to fix. Re-run to track progress as the count drops.",
+        "description": "Scan the project for CS2420/CS3500 software-principle violations and return one clean, prioritized list (severity, file:line, message, fix suggestion). Covers single responsibility (long functions), documentation gaps (undocumented public functions), error handling (empty catch / ignored errors), and maintainability (long files, large uncommented blocks). Deterministic, no AI. Complements `helpers grade`: grade gives the rubric, cs_lint gives the exact lines to fix. Re-run to track progress as the count drops.",
         "inputSchema": {
             "type": "object",
             "properties": {

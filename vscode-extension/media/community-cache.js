@@ -5,7 +5,7 @@
   const savedState = vscode.getState() || {};
 
   let bootstrap = {};
-  const bootstrapEl = document.getElementById("gsh-bootstrap");
+  const bootstrapEl = document.getElementById("helpers-bootstrap");
   if (bootstrapEl?.textContent) {
     try {
       bootstrap = JSON.parse(bootstrapEl.textContent);
@@ -268,7 +268,7 @@
     badge.textContent = active.length + "/" + items.length;
   }
 
-  console.log("[gsh-debug] Starting handler attachment...");
+  console.log("[helpers-debug] Starting handler attachment...");
 
   // --- MCP Tool group toggles ---
   document.getElementById("loginBtn")?.addEventListener("click", () => {
@@ -310,13 +310,13 @@
 
   // --- Local Sub-agent controls ---
   const toggleEls = document.querySelectorAll("[data-localsubtoggle]");
-  console.log("[gsh-debug] Found", toggleEls.length, "data-localsubtoggle elements");
+  console.log("[helpers-debug] Found", toggleEls.length, "data-localsubtoggle elements");
   toggleEls.forEach((el, idx) => {
-    console.log(`[gsh-debug] Attaching toggle handler to [data-localsubtoggle="${el.dataset.localsubtoggle}"]`);
+    console.log(`[helpers-debug] Attaching toggle handler to [data-localsubtoggle="${el.dataset.localsubtoggle}"]`);
     el.addEventListener("click", (event) => {
-      console.log(`[gsh-debug] Toggle clicked: ${el.dataset.localsubtoggle}`);
+      console.log(`[helpers-debug] Toggle clicked: ${el.dataset.localsubtoggle}`);
       const nowActive = toggleCheckbox(el);
-      console.log(`[gsh-debug] Now active: ${nowActive}, sending message...`);
+      console.log(`[helpers-debug] Now active: ${nowActive}, sending message...`);
       vscode.postMessage({
         type: "setLocalSubagent",
         key: el.dataset.localsubtoggle,
@@ -326,17 +326,17 @@
   });
 
   const inputEls = document.querySelectorAll("[data-localsub]");
-  console.log("[gsh-debug] Found", inputEls.length, "data-localsub elements");
+  console.log("[helpers-debug] Found", inputEls.length, "data-localsub elements");
   inputEls.forEach((el, idx) => {
     const tagName = el.tagName;
-    console.log(`[gsh-debug] Attaching input handler to ${tagName}[data-localsub="${el.dataset.localsub}"]`);
+    console.log(`[helpers-debug] Attaching input handler to ${tagName}[data-localsub="${el.dataset.localsub}"]`);
     const send = () => {
       let value = el.value;
       if (el.type === "number") {
         const n = Number(value);
         value = Number.isFinite(n) ? n : value;
       }
-      console.log(`[gsh-debug] Sending for ${el.dataset.localsub}: ${value}`);
+      console.log(`[helpers-debug] Sending for ${el.dataset.localsub}: ${value}`);
       vscode.postMessage({
         type: "setLocalSubagent",
         key: el.dataset.localsub,
@@ -345,19 +345,19 @@
     };
     if (el.tagName === "SELECT") {
       el.addEventListener("change", (event) => {
-        console.log(`[gsh-debug] SELECT changed: ${el.dataset.localsub}`);
+        console.log(`[helpers-debug] SELECT changed: ${el.dataset.localsub}`);
         send();
       });
     } else {
       el.addEventListener("focus", () => {
-        console.log(`[gsh-debug] INPUT focused: ${el.dataset.localsub}`);
+        console.log(`[helpers-debug] INPUT focused: ${el.dataset.localsub}`);
       });
       el.addEventListener("change", (event) => {
-        console.log(`[gsh-debug] INPUT changed: ${el.dataset.localsub}`);
+        console.log(`[helpers-debug] INPUT changed: ${el.dataset.localsub}`);
         send();
       });
       el.addEventListener("blur", (event) => {
-        console.log(`[gsh-debug] INPUT blurred: ${el.dataset.localsub}`);
+        console.log(`[helpers-debug] INPUT blurred: ${el.dataset.localsub}`);
         send();
       });
     }

@@ -6,7 +6,7 @@ const path = require("path");
 const MCP_TOOLS_CONFIG_DIR = path.join(
   process.env.HOME || process.env.USERPROFILE || "",
   ".config",
-  "git-shell-helpers-mcp",
+  "helpers-server",
 );
 const MCP_TOOLS_CONFIG_PATH = path.join(MCP_TOOLS_CONFIG_DIR, "tools.json");
 

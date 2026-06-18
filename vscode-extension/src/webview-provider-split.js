@@ -228,7 +228,7 @@ module.exports = function createWebviewProviderClass(deps) {
             } else {
               deps._ollamaPinned.add(model);
             }
-            deps._context.globalState.update("gsh.ollama.pinned", [
+            deps._context.globalState.update("helpers.ollama.pinned", [
               ...deps._ollamaPinned,
             ]);
             this._scheduleUpdate();
@@ -247,14 +247,14 @@ module.exports = function createWebviewProviderClass(deps) {
           case "mcpChipAction": {
             if (msg.tone === "bad") {
               const action = await vscode.window.showErrorMessage(
-                "git-shell-helpers-mcp binary not found. Reinstall the extension or run the installer script.",
+                "helpers-server binary not found. Reinstall the extension or run the installer script.",
                 "Run Installer",
                 "Open Terminal",
               );
               if (action === "Run Installer") {
-                const terminal = vscode.window.createTerminal("gsh installer");
+                const terminal = vscode.window.createTerminal("helpers installer");
                 terminal.show();
-                terminal.sendText("install-git-shell-helpers");
+                terminal.sendText("install-helpers");
               } else if (action === "Open Terminal") {
                 await vscode.commands.executeCommand(
                   "workbench.action.terminal.new",
@@ -262,7 +262,7 @@ module.exports = function createWebviewProviderClass(deps) {
               }
             } else if (msg.tone === "warn") {
               const action = await vscode.window.showWarningMessage(
-                "MCP provider API unavailable. Open the MCP panel and start or trust the gsh server.",
+                "MCP provider API unavailable. Open the MCP panel and start or trust the helpers server.",
                 "Open MCP Panel",
               );
               if (action === "Open MCP Panel") {
@@ -310,7 +310,7 @@ module.exports = function createWebviewProviderClass(deps) {
       return `<!DOCTYPE html>
 <html lang="en">
   <body style="font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-sideBar-background); padding: 12px;">
-    Loading GitHub Shell Helpers...
+    Loading Helpers...
   </body>
 </html>`;
     }
@@ -319,7 +319,7 @@ module.exports = function createWebviewProviderClass(deps) {
       return `<!DOCTYPE html>
 <html lang="en">
   <body style="font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-sideBar-background); padding: 12px;">
-    GitHub Shell Helpers failed to load this view. Check the extension host logs and reload the window after fixing the error.
+    Helpers failed to load this view. Check the extension host logs and reload the window after fixing the error.
   </body>
 </html>`;
     }
@@ -334,7 +334,7 @@ module.exports = function createWebviewProviderClass(deps) {
         if (!this._view || updateVersion !== this._updateVersion) return;
         this._view.webview.html = html;
       } catch (error) {
-        console.error("[gsh] Failed to render community cache webview:", error);
+        console.error("[helpers] Failed to render community cache webview:", error);
         if (!this._view || updateVersion !== this._updateVersion) return;
         this._view.webview.html = this._renderErrorHtml();
       }

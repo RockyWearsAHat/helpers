@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-    <title>Git Shell Helpers</title>
+    <title>Helpers</title>
     <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
     <welcome file="welcome.html" mime-type="text/html"/>
     <license file="license.html" mime-type="text/html"/>
@@ -20,16 +20,16 @@
             enabled="false"
             selected="true"
             visible="true">
-        <pkg-ref id="com.rockywearsahat.gsh.core"/>
+        <pkg-ref id="com.rockywearsahat.helpers.core"/>
     </choice>
 
     <!-- MCP Research and Shell Helpers servers -->
     <choice id="mcp-tools"
             title="MCP Research Tools"
-            description="MCP servers for Copilot agents: web search, knowledge cache, webpage scraping, and the git-shell-helpers tool server. Requires Node.js."
+            description="MCP servers for Copilot agents: web search, knowledge cache, webpage scraping, and the helpers tool server. Requires Node.js."
             selected="true"
             visible="true">
-        <pkg-ref id="com.rockywearsahat.gsh.mcp"/>
+        <pkg-ref id="com.rockywearsahat.helpers.mcp"/>
     </choice>
 
     <!-- DevOps Audit agents and community cache -->
@@ -38,34 +38,34 @@
             description="Copilot customization audit system with agents, skills, prompts, a natural-language router, and a community knowledge cache. Installs the @DevOpsAudit agent globally in VS Code."
             selected="true"
             visible="true">
-        <pkg-ref id="com.rockywearsahat.gsh.audit"/>
+        <pkg-ref id="com.rockywearsahat.helpers.audit"/>
     </choice>
 
     <!-- VS Code extension, patches, and proposed API setup -->
     <choice id="vscode-integration"
             title="VS Code Integration"
-            description="Installs the Git Shell Helpers VS Code extension, GitHub Copilot extensions, branch-per-chat bundle patches, and the proposed API flag for chat session tracking. Requires VS Code."
+            description="Installs the Helpers VS Code extension, GitHub Copilot extensions, branch-per-chat bundle patches, and the proposed API flag for chat session tracking. Requires VS Code."
             selected="true"
             visible="true">
-        <pkg-ref id="com.rockywearsahat.gsh.vscode"/>
+        <pkg-ref id="com.rockywearsahat.helpers.vscode"/>
     </choice>
 
-    <pkg-ref id="com.rockywearsahat.gsh.core"
+    <pkg-ref id="com.rockywearsahat.helpers.core"
              version="__VERSION__"
              installKBytes="__CORE_KB__"
              auth="root">core.pkg</pkg-ref>
 
-    <pkg-ref id="com.rockywearsahat.gsh.mcp"
+    <pkg-ref id="com.rockywearsahat.helpers.mcp"
              version="__VERSION__"
              installKBytes="__MCP_KB__"
              auth="root">mcp.pkg</pkg-ref>
 
-    <pkg-ref id="com.rockywearsahat.gsh.audit"
+    <pkg-ref id="com.rockywearsahat.helpers.audit"
              version="__VERSION__"
              installKBytes="__AUDIT_KB__"
              auth="root">audit.pkg</pkg-ref>
 
-    <pkg-ref id="com.rockywearsahat.gsh.vscode"
+    <pkg-ref id="com.rockywearsahat.helpers.vscode"
              version="__VERSION__"
              installKBytes="__VSCODE_KB__"
              auth="root">vscode.pkg</pkg-ref>

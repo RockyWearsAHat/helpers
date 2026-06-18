@@ -3,7 +3,7 @@
 
 use std::fs;
 
-use gsh_native::index::build::build_index;
+use helpers_native::index::build::build_index;
 
 fn write(dir: &std::path::Path, rel: &str, body: &str) {
     let p = dir.join(rel);
@@ -15,7 +15,7 @@ fn write(dir: &std::path::Path, rel: &str, body: &str) {
 
 #[test]
 fn builds_graph_and_ranks_referenced_files_higher() {
-    let dir = std::env::temp_dir().join(format!("gsh-idx-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("helpers-idx-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
 

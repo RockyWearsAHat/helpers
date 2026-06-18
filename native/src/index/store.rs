@@ -1,15 +1,15 @@
-//! On-disk layout for the index under `<workspace>/.gsh/index/`.
+//! On-disk layout for the index under `<workspace>/.helpers/index/`.
 
 use std::path::{Path, PathBuf};
 
 use crate::index::model::ProjectIndex;
 
-/// `<root>/.gsh/index` — where the machine index and `.dx` docs live.
+/// `<root>/.helpers/index` — where the machine index and `.dx` docs live.
 pub fn index_dir(root: &Path) -> PathBuf {
-    root.join(".gsh").join("index")
+    root.join(".helpers").join("index")
 }
 
-/// Machine-readable index: `<root>/.gsh/index/graph.json`.
+/// Machine-readable index: `<root>/.helpers/index/graph.json`.
 pub fn graph_path(root: &Path) -> PathBuf {
     index_dir(root).join("graph.json")
 }

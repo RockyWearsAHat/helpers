@@ -1,4 +1,4 @@
-# Git Shell Helpers VS Code Extension
+# Helpers VS Code Extension
 
 Surfaces community cache participation settings in VS Code's native Settings UI with GitHub authentication integration.
 
@@ -22,20 +22,20 @@ Community repo, base branch, and branch prefix are predefined and not user-confi
 
 ## Commands
 
-- **Git Shell Helpers: Log in to GitHub** — opens a terminal for `gh auth login` if not authenticated
-- **Git Shell Helpers: Refresh Repository List** — fetches your repos via `gh` and shows a multi-select picker for the whitelist
-- **Git Shell Helpers: Show Community Cache Status** — displays current settings and JSON file state
+- **Helpers: Log in to GitHub** — opens a terminal for `gh auth login` if not authenticated
+- **Helpers: Refresh Repository List** — fetches your repos via `gh` and shows a multi-select picker for the whitelist
+- **Helpers: Show Community Cache Status** — displays current settings and JSON file state
 
 ## Install
 
 ```bash
 cd vscode-extension
 npx @vscode/vsce package --no-dependencies
-code --install-extension git-shell-helpers-*.vsix
+code --install-extension helpers-*.vsix
 ```
 
-Or via the project installer: `./install-git-shell-helpers`
+Or via the project installer: `./install-helpers`
 
-When installed, the extension publishes the bundled `gsh` MCP server globally across workspaces, so the `checkpoint` tool is discoverable without manually editing `mcp.json`.
+When installed, the extension publishes the bundled `helpers` MCP server globally across workspaces, so the `checkpoint` tool is discoverable without manually editing `mcp.json`.
 
-- **Git Shell Helpers: Show Community Cache Status** — displays current settings and JSON file state
+- **Helpers: Show Community Cache Status** — displays current settings and JSON file state
