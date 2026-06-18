@@ -225,10 +225,18 @@ build_and_register() {
     echo "[Helpers-Installer] 'helpers build' reported an issue (Rust toolchain may be missing)." >&2
     echo "[Helpers-Installer] Install Rust (https://rustup.rs), then run: helpers build" >&2
   fi
-  # Register the MCP server + skills with detected agents. Tolerate "no agent
-  # detected" (e.g. headless servers) — the files are installed either way.
-  node "$BIN_DIR/helpers" install --agent auto 2>/dev/null ||
-    echo "[Helpers-Installer] No AI agent auto-detected — register later with: helpers install"
+  # Register the MCP server + skills with detected agents. Only skip cleanly when
+  # there is genuinely no agent to register (headless servers); surface any other
+  # failure instead of masking it as an agent-detection issue. Errors stay visible
+  # on stderr either way.
+  if ! command -v claude >/dev/null 2>&1 && [ ! -d "$HOME/.claude" ] &&
+     ! command -v code >/dev/null 2>&1 && [ ! -d "$HOME/.copilot" ]; then
+    echo "[Helpers-Installer] No AI agent detected — register later with: helpers install"
+    return 0
+  fi
+  if ! node "$BIN_DIR/helpers" install --agent auto; then
+    echo "[Helpers-Installer] WARNING: 'helpers install' failed — see the error above; retry with: helpers install" >&2
+  fi
 }
 
 write_community_settings() {

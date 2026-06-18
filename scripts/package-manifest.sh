@@ -46,7 +46,13 @@ helpers_mcp_commands() {
 		git-research-mcp.js \
 		helpers-server \
 		helpers-server.js \
-		helpers-serverd.js \
+		helpers-serverd.js
+}
+
+# Non-executable support files copied verbatim (no chmod +x) into the staged
+# bin/ tree — e.g. the fast C launcher source, compiled by `helpers build`.
+helpers_support_files() {
+	printf '%s\n' \
 		helpers-mcp.c
 }
 
