@@ -56,11 +56,15 @@ failures=()
 
 for check in "${checks[@]}"; do
 	echo "[test] run: $check" >&2
-	if eval "$check" >/dev/null 2>&1; then
+	if output="$(eval "$check" 2>&1)"; then
 		passed=$((passed + 1))
 	else
 		failed=$((failed + 1))
 		failures+=("$check")
+		# Surface why it failed (the suite otherwise hides output), so CI logs
+		# show the root cause instead of just the failing command name.
+		echo "[test] FAILED: $check" >&2
+		printf '%s\n' "$output" | tail -25 | sed 's/^/[test]   /' >&2
 	fi
 done
 
