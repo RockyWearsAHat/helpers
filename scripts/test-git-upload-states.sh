@@ -18,6 +18,15 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GIT_UPLOAD="$REPO_ROOT/git-upload"
 
+# git-upload is a gsh-native subcommand (a gitignored symlink to the built
+# binary), so it is absent on a fresh checkout. Skip cleanly when it isn't
+# built — mirrors scripts/test-gitcli.sh — so CI without a Rust build stays
+# green instead of failing on a missing binary.
+if [ ! -x "$GIT_UPLOAD" ]; then
+	echo "GIT_UPLOAD_STATES: skip (git-upload / gsh-native not built; run 'gsh build')"
+	exit 0
+fi
+
 # Provide a mock AI command so -ai tests work in CI (where copilot is
 # not installed).  The mock emits the COMMIT_BEGIN/COMMIT_END markers
 # that generate_ai_message() expects.
