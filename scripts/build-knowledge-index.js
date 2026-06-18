@@ -4,6 +4,8 @@
 const fs = require("fs/promises");
 const path = require("path");
 
+// English stopwords stripped from tokens before TF-IDF indexing, so common
+// filler words don't dominate the term frequencies.
 const STOPWORDS = new Set([
   "a",
   "about",

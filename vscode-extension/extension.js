@@ -23,7 +23,6 @@ const createCommunitySettings = require("./src/community-settings");
 const createActivityTracker = require("./src/activity-tracker");
 const createChatSessions = require("./src/chat-sessions");
 const createModelProvider = require("./src/model-provider");
-const createWorktreeManager = require("./src/worktree-manager");
 const createInstallHealth = require("./src/install-health");
 const createIpcServers = require("./src/ipc-servers");
 const toolsConfig = require("./src/tools-config");
@@ -292,12 +291,6 @@ function activate(context) {
     getWebviewProvider,
   });
 
-  // 8. Worktree manager
-  const worktree = createWorktreeManager({
-    _context,
-    getDiagnosticsOutputChannel: inspector.getDiagnosticsOutputChannel,
-  });
-
   const installHealth = createInstallHealth({
     _context,
     findGitShellHelpersMcpPath: mcpServer.findGitShellHelpersMcpPath,
@@ -310,12 +303,7 @@ function activate(context) {
     runStrictLinting: inspector.runStrictLinting,
     getActivityItems: activity.getActivityItems,
     getWebviewProvider,
-    handleWorktreeIpcMessage: worktree.handleWorktreeIpcMessage,
-    getActiveChatTabKey: worktree.getActiveChatTabKey,
-    getPendingBranchSessionStarts: worktree.getPendingBranchSessionStarts,
-    setSuppressTabDrivenUnfocusUntil: worktree.setSuppressTabDrivenUnfocusUntil,
     ensureSessionStarted: activity.ensureSessionStarted,
-    writeWorktreeDebug: worktree.writeWorktreeDebug,
   });
   _ipc = ipc;
 
@@ -423,37 +411,6 @@ function activate(context) {
   // Start IPC servers
   ipc.startStrictLintIpcServer();
   ipc.startActivityIpcServer();
-
-  // Worktree management
-  worktree.loadWorktreeBindings();
-  worktree.loadTabWorktreeMap();
-  worktree.loadSessionState();
-  worktree.reconcileWorktreeBindings();
-  worktree.registerWorktreeFileView(context);
-
-  // Track chat editor tabs — switch explorer focus to the active worktree
-  context.subscriptions.push(
-    vscode.window.tabGroups.onDidChangeTabs(() =>
-      worktree.onActiveTabChanged(),
-    ),
-    vscode.window.tabGroups.onDidChangeTabGroups(() =>
-      worktree.onActiveTabChanged(),
-    ),
-  );
-
-  // Track active chat session via proposed API (chatParticipantPrivate)
-  try {
-    if (vscode.window.onDidChangeActiveChatPanelSessionResource) {
-      context.subscriptions.push(
-        vscode.window.onDidChangeActiveChatPanelSessionResource(
-          worktree.onChatSessionFocusChanged,
-        ),
-      );
-    }
-  } catch {}
-
-  // Restore worktree focus if VS Code reopened with an active branch session
-  worktree.waitForGitExtensionThenRestore();
 
   // Watch Copilot Chat's JSONL session files for live activity
   chatSessionsModule.startChatSessionWatcher(context);

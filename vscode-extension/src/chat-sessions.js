@@ -326,9 +326,12 @@ module.exports = function createChatSessions(deps) {
     }
 
     if (isActive) {
+      // Active session: preserve the original activation time across updates.
       const activeAt = existing?.active
         ? existing.activeAt || existing.startedAt || startedAt
         : now;
+      // Demote to "completed" when an active session's file has not grown for
+      // 2 minutes — the underlying agent has gone quiet.
       if (existing && existing.lastSize === fileSize && existing.active) {
         const staleMs = now - (existing._lastChangedAt || existing.startedAt);
         if (staleMs > 120000) {
@@ -364,6 +367,7 @@ module.exports = function createChatSessions(deps) {
             : existing?._lastChangedAt || now,
       });
     } else {
+      // Inactive session: record completion time (first time we observe it idle).
       const completedAt = existing?.active ? now : existing?.completedAt || now;
       _chatSessions.set(sessionId, {
         title,

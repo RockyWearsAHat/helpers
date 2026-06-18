@@ -1,41 +1,22 @@
 #!/usr/bin/env node
 "use strict";
 
+// Persist V8 bytecode across runs so module compilation isn't repeated on every
+// cold start. No-op on Node < 22.8. Keeps the cache keyed by Node version, so a
+// runtime upgrade transparently rebuilds it. This is the cheapest boot win.
+try {
+  require("module").enableCompileCache?.();
+} catch {
+  /* older Node — ignore */
+}
+
 const path = require("path");
 const readline = require("readline");
-const { CHECKPOINT_TOOL, handleCheckpoint } = require("./lib/mcp-checkpoint");
 const {
-  WORKSPACE_CONTEXT_TOOL,
-  handleWorkspaceContext,
-} = require("./lib/mcp-workspace-context");
-const { STRICT_LINT_TOOL, handleStrictLint } = require("./lib/mcp-strict-lint");
-const {
-  BRANCH_SESSION_TOOLS,
-  handleBranchSessionStart,
-  handleBranchSessionEnd,
-  handleBranchReadFile,
-  handleBranchStatus,
-  handleBranchCleanup,
-} = require("./lib/mcp-branch-sessions");
-const {
-  LIST_LANGUAGE_MODELS_TOOL,
-  handleListLanguageModels,
-} = require("./lib/mcp-language-models");
-const {
-  LOCAL_SUBAGENT_TOOLS,
-  createLocalSubagentHandler,
-} = require("./lib/mcp-local-subagents");
-const {
-  REGISTER_WORKSPACE_TOOL,
-  RELOAD_WINDOW_READY_TOOL,
-  UNREGISTER_WORKSPACE_TOOL,
-  getUserToolSchemas,
-  isUserTool,
-  executeUserTool,
-  handleRegisterWorkspaceTool,
-  handleReloadWindowReady,
-  handleUnregisterWorkspaceTool,
-} = require("./lib/mcp-user-tools");
+  isNativeTool,
+  loadNativeSchemas,
+  runNativeTool,
+} = require("./lib/mcp-native");
 const {
   notifyActivityBegin,
   notifyActivityEnd,
@@ -51,8 +32,17 @@ const TOOLS_CONFIG_PATH = path.join(
   "tools.json",
 );
 
+// Per-connection output target. In stdio mode there is none and we write to
+// stdout; in daemon mode each connection runs inside outputStore.run({write})
+// so responses go to the right socket even across awaits.
+const { AsyncLocalStorage } = require("async_hooks");
+const outputStore = new AsyncLocalStorage();
+
 function send(message) {
-  process.stdout.write(`${JSON.stringify(message)}\n`);
+  const line = `${JSON.stringify(message)}\n`;
+  const store = outputStore.getStore();
+  if (store && store.write) store.write(line);
+  else process.stdout.write(line);
 }
 
 function sendError(id, code, message) {
@@ -61,6 +51,80 @@ function sendError(id, code, message) {
     id,
     error: { code, message },
   });
+}
+
+// ─── per-session workspace via the MCP `roots` capability ───────────────────
+// A resident daemon serves many projects from one process, so the workspace
+// cannot come from process cwd/env. Instead each session learns its project
+// from the client: clients that advertise the `roots` capability answer a
+// `roots/list` request with their open folder(s). That answer is authoritative
+// — it is the client's real project — so we prefer it over the cwd/env fallback.
+
+// A `file://` URI (or a bare path) as a filesystem path; null if unusable.
+function uriToPath(uri) {
+  if (!uri || typeof uri !== "string") return null;
+  if (uri.startsWith("file://")) {
+    try {
+      return decodeURIComponent(new URL(uri).pathname) || null;
+    } catch {
+      return null;
+    }
+  }
+  return uri.startsWith("/") ? uri : null;
+}
+
+// Per-connection state, reused across every line of the session so a workspace
+// learned at initialize/roots persists for later tool calls.
+function makeSession(write) {
+  return {
+    write,
+    workspaceRoot: null,
+    supportsRoots: false,
+    pending: new Map(), // server-issued request id -> response callback
+    nextId: 1,
+  };
+}
+
+// Ask the client for its roots; record the first as the session workspace.
+function requestRoots(session) {
+  if (!session || !session.supportsRoots) return;
+  const id = `gsh-roots-${session.nextId++}`;
+  session.pending.set(id, (msg) => {
+    const roots = msg && msg.result && msg.result.roots;
+    if (Array.isArray(roots) && roots.length > 0) {
+      const p = uriToPath(roots[0].uri);
+      if (p) session.workspaceRoot = p;
+    }
+  });
+  send({ jsonrpc: "2.0", id, method: "roots/list", params: {} });
+}
+
+// True for a JSON-RPC response (a reply to a request we issued), not a request.
+function isResponse(msg) {
+  return (
+    msg &&
+    msg.method === undefined &&
+    msg.id !== undefined &&
+    ("result" in msg || "error" in msg)
+  );
+}
+
+// Route one parsed message: replies to our own requests resolve pending
+// callbacks; everything else is a client request/notification we handle.
+async function dispatchMessage(session, msg) {
+  if (isResponse(msg)) {
+    const cb = session && session.pending.get(msg.id);
+    if (cb) {
+      session.pending.delete(msg.id);
+      try {
+        cb(msg);
+      } catch {
+        /* a bad roots reply just leaves the cwd/env fallback in place */
+      }
+    }
+    return;
+  }
+  await handleRequest(msg);
 }
 
 function loadResearchModule() {
@@ -85,136 +149,27 @@ function loadResearchModule() {
   }
 }
 
-function loadVisionModule() {
-  if (process.env.GIT_SHELL_HELPERS_MCP_DISABLE_VISION) {
-    return null;
-  }
-  try {
-    const vision = require("./vision-tool/mcp-server.js");
-    return {
-      tools: vision.tools || [],
-      handler: vision.handleToolCall,
-    };
-  } catch (err) {
-    process.stderr.write(
-      `[git-shell-helpers-mcp] WARNING: could not load vision-tool: ${err.message}\n`,
-    );
-    return null;
-  }
-}
-
 const researchModule = loadResearchModule();
-const visionModule = loadVisionModule();
-const localSubagentHandler = process.env.GSH_DISABLE_LOCAL_SUBAGENTS
-  ? null
-  : createLocalSubagentHandler({
-      researchHandler: researchModule?.handler || null,
-    });
-const delegatedHandlers = [
-  researchModule?.handler,
-  visionModule?.handler,
-  localSubagentHandler,
-].filter(Boolean);
+const delegatedHandlers = [researchModule?.handler].filter(Boolean);
 
-const SESSION_MEMORY_TOOLS = new Set([
-  "log_session_event",
-  "search_session_log",
-  "get_session_summary",
-  "rebuild_session_index",
-]);
+// Validate the required native binary at startup (fail-loud if missing/broken).
+loadNativeSchemas();
 
-function summarizeToolArguments(toolArguments) {
-  const obj =
-    toolArguments && typeof toolArguments === "object" ? toolArguments : {};
-  const keys = Object.keys(obj);
-  if (!keys.length) return "(none)";
-  const summary = {};
-  for (const key of keys.slice(0, 8)) {
-    const value = obj[key];
-    if (value === null || value === undefined) {
-      summary[key] = value;
-      continue;
-    }
-    if (typeof value === "string") {
-      summary[key] = value.length > 160 ? value.slice(0, 157) + "..." : value;
-      continue;
-    }
-    if (typeof value === "number" || typeof value === "boolean") {
-      summary[key] = value;
-      continue;
-    }
-    if (Array.isArray(value)) {
-      summary[key] = `[array:${value.length}]`;
-      continue;
-    }
-    summary[key] = "[object]";
-  }
-  return JSON.stringify(summary);
+// The full tool surface: the Node web-research tools plus everything the native
+// binary advertises (built-in Rust tools + project-local flows). Re-read each
+// time so newly registered flows appear live.
+function getAllTools() {
+  return [
+    ...(researchModule?.tools || []),
+    ...loadNativeSchemas(getWorkspaceRoot()),
+  ];
 }
-
-function summarizeToolResult(content) {
-  if (!Array.isArray(content) || content.length === 0) return "no content";
-  const textChunk = content.find(
-    (item) => item && item.type === "text" && typeof item.text === "string",
-  );
-  if (!textChunk || !textChunk.text) return "non-text content";
-  const oneLine = textChunk.text.replace(/\s+/g, " ").trim();
-  if (!oneLine) return "empty text content";
-  return oneLine.length > 180 ? oneLine.slice(0, 177) + "..." : oneLine;
-}
-
-function normalizeToolTag(name) {
-  return String(name || "tool")
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-}
-
-async function autoLogToolEvent(toolName, toolArguments, status, detail) {
-  if (process.env.GSH_SESSION_MEMORY_DISABLED) return;
-  if (process.env.GSH_AUTO_SESSION_LOG_DISABLED === "1") return;
-  if (!researchModule?.handler) return;
-  if (SESSION_MEMORY_TOOLS.has(toolName)) return;
-
-  const safeArgs = summarizeToolArguments(toolArguments);
-  const toolTag = normalizeToolTag(toolName);
-  const outcome =
-    status === "success"
-      ? `success - ${detail || "completed"}`
-      : `failed - ${detail || "tool call failed"}`;
-
-  try {
-    await researchModule.handler("log_session_event", {
-      action: `auto tool call: ${toolName}`,
-      outcome,
-      tags: ["auto", "mcp-tool", toolTag, status],
-      context: `args=${safeArgs}`,
-    });
-  } catch {
-    // Never let telemetry-style auto logging affect user-visible tool behavior.
-  }
-}
-
-const ALL_TOOLS = [
-  ...(researchModule?.tools || []).filter(
-    (t) =>
-      !process.env.GSH_SESSION_MEMORY_DISABLED ||
-      !SESSION_MEMORY_TOOLS.has(t.name),
-  ),
-  ...(visionModule?.tools || []),
-  CHECKPOINT_TOOL,
-  WORKSPACE_CONTEXT_TOOL,
-  LIST_LANGUAGE_MODELS_TOOL,
-  STRICT_LINT_TOOL,
-  REGISTER_WORKSPACE_TOOL,
-  RELOAD_WINDOW_READY_TOOL,
-  UNREGISTER_WORKSPACE_TOOL,
-  ...(process.env.GSH_DISABLE_BRANCH_SESSIONS ? [] : BRANCH_SESSION_TOOLS),
-  ...(process.env.GSH_DISABLE_LOCAL_SUBAGENTS ? [] : LOCAL_SUBAGENT_TOOLS),
-];
 
 function getWorkspaceRoot() {
+  // The client's own project (via the `roots` capability) wins when known — it
+  // is correct even when a shared daemon's cwd points elsewhere.
+  const session = outputStore.getStore();
+  if (session && session.workspaceRoot) return session.workspaceRoot;
   const raw = process.env.GSH_WORKSPACE_ROOTS || "";
   if (raw.trim().startsWith("[")) {
     try {
@@ -225,74 +180,45 @@ function getWorkspaceRoot() {
   return raw.split(",").filter(Boolean)[0] || process.cwd();
 }
 
-function getEnabledTools() {
-  const userTools = getUserToolSchemas(getWorkspaceRoot());
-  const allWithUser = [...ALL_TOOLS, ...userTools];
+function readToolsConfig() {
   try {
-    const config = JSON.parse(
-      require("fs").readFileSync(TOOLS_CONFIG_PATH, "utf8"),
-    );
-    const disabled = new Set(config.disabledTools || []);
-    if (disabled.size === 0) return allWithUser;
-    return allWithUser.filter((tool) => !disabled.has(tool.name));
+    return JSON.parse(require("fs").readFileSync(TOOLS_CONFIG_PATH, "utf8"));
   } catch {
-    return allWithUser;
+    return {};
   }
+}
+
+// Master kill-switch. When `disabled` is true in tools.json, GSH is bypassed:
+// the server advertises no tools and refuses every call (except `force`).
+// This lets `gsh disable` / `gsh bypass` toggle the entire surface live —
+// the config is re-read on every request, so no restart is needed.
+function isGshDisabled() {
+  // `gsh tool list` sets GSH_FORCE_ENABLE=1 to enumerate the full universe of
+  // tools even while GSH is bypassed.
+  if (process.env.GSH_FORCE_ENABLE === "1") return false;
+  return readToolsConfig().disabled === true;
+}
+
+function getEnabledTools() {
+  const all = getAllTools();
+  if (process.env.GSH_FORCE_ENABLE === "1") return all;
+  if (isGshDisabled()) return [];
+  const disabled = new Set(readToolsConfig().disabledTools || []);
+  if (disabled.size === 0) return all;
+  return all.filter((tool) => !disabled.has(tool.name));
 }
 
 function isToolDisabled(toolName) {
-  try {
-    const config = JSON.parse(
-      require("fs").readFileSync(TOOLS_CONFIG_PATH, "utf8"),
-    );
-    return (config.disabledTools || []).includes(toolName);
-  } catch {
-    return false;
-  }
+  if (isGshDisabled()) return true;
+  return (readToolsConfig().disabledTools || []).includes(toolName);
 }
 
-async function runBuiltInTool(toolName, toolArguments, activityId) {
-  if (toolName === "checkpoint") {
-    return handleCheckpoint(toolArguments);
-  }
-  if (toolName === "workspace_context") {
-    return handleWorkspaceContext();
-  }
-  if (toolName === "list_language_models") {
-    return handleListLanguageModels();
-  }
-  if (toolName === "strict_lint") {
-    return handleStrictLint(toolArguments);
-  }
-  if (!process.env.GSH_DISABLE_BRANCH_SESSIONS) {
-    if (toolName === "branch_session_start") {
-      return handleBranchSessionStart(toolArguments, activityId);
-    }
-    if (toolName === "branch_session_end") {
-      return handleBranchSessionEnd(toolArguments);
-    }
-    if (toolName === "branch_read_file") {
-      return handleBranchReadFile(toolArguments);
-    }
-    if (toolName === "branch_status") {
-      return handleBranchStatus();
-    }
-    if (toolName === "branch_cleanup") {
-      return handleBranchCleanup(toolArguments);
-    }
-  }
-  if (toolName === "register_workspace_tool") {
-    return handleRegisterWorkspaceTool(toolArguments, getWorkspaceRoot());
-  }
-  if (toolName === "reload_window_ready") {
-    return handleReloadWindowReady(toolArguments, getWorkspaceRoot());
-  }
-  if (toolName === "unregister_workspace_tool") {
-    return handleUnregisterWorkspaceTool(toolArguments, getWorkspaceRoot());
-  }
-  const root = getWorkspaceRoot();
-  if (isUserTool(toolName, root)) {
-    return executeUserTool(toolName, toolArguments, root);
+// Native Rust tools (built-ins + project-local flows) are dispatched to the
+// binary; everything else falls through to the delegated Node handlers (web).
+async function runBuiltInTool(toolName, toolArguments) {
+  const workspaceRoot = getWorkspaceRoot();
+  if (isNativeTool(toolName, workspaceRoot)) {
+    return runNativeTool(toolName, toolArguments, { workspaceRoot });
   }
   return null;
 }
@@ -301,6 +227,19 @@ async function handleRequest(request) {
   const { id, method } = request;
 
   if (method === "initialize") {
+    const session = outputStore.getStore();
+    if (session) {
+      const params = request.params || {};
+      session.supportsRoots = !!(params.capabilities && params.capabilities.roots);
+      // Some clients also include the folder synchronously in initialize; take
+      // it as an immediate hint, later refined by the authoritative roots/list.
+      const folders = params.workspaceFolders;
+      const hint =
+        uriToPath(params.rootUri) ||
+        (Array.isArray(folders) && folders[0] && uriToPath(folders[0].uri)) ||
+        (typeof params.rootPath === "string" ? params.rootPath : null);
+      if (hint) session.workspaceRoot = hint;
+    }
     send({
       jsonrpc: "2.0",
       id,
@@ -314,6 +253,14 @@ async function handleRequest(request) {
   }
 
   if (method === "notifications/initialized") {
+    // Now that the session is live, fetch the client's authoritative roots.
+    requestRoots(outputStore.getStore());
+    return;
+  }
+
+  if (method === "notifications/roots/list_changed") {
+    // The client opened/closed a folder — re-resolve the workspace.
+    requestRoots(outputStore.getStore());
     return;
   }
 
@@ -330,7 +277,9 @@ async function handleRequest(request) {
 
   const toolName = request.params?.name;
   const toolArguments = request.params?.arguments || {};
-  const isForced = toolName === "checkpoint" && toolArguments.force === true;
+  // `{ force: true }` is the documented escape hatch (see the no-op message
+  // below): it overrides both a per-tool disable and the master kill-switch.
+  const isForced = toolArguments.force === true;
 
   if (isToolDisabled(toolName) && !isForced) {
     send({
@@ -350,18 +299,8 @@ async function handleRequest(request) {
 
   const activityId = notifyActivityBegin(toolName, toolArguments);
   try {
-    const builtInContent = await runBuiltInTool(
-      toolName,
-      toolArguments,
-      activityId,
-    );
+    const builtInContent = await runBuiltInTool(toolName, toolArguments);
     if (builtInContent) {
-      await autoLogToolEvent(
-        toolName,
-        toolArguments,
-        "success",
-        summarizeToolResult(builtInContent),
-      );
       send({ jsonrpc: "2.0", id, result: { content: builtInContent } });
       return;
     }
@@ -369,12 +308,6 @@ async function handleRequest(request) {
     for (const handler of delegatedHandlers) {
       const content = await handler(toolName, toolArguments);
       if (content) {
-        await autoLogToolEvent(
-          toolName,
-          toolArguments,
-          "success",
-          summarizeToolResult(content),
-        );
         send({ jsonrpc: "2.0", id, result: { content } });
         return;
       }
@@ -383,7 +316,6 @@ async function handleRequest(request) {
     sendError(id, -32601, `Unknown tool: ${toolName}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await autoLogToolEvent(toolName, toolArguments, "failed", message);
     sendError(id, -32603, message);
   } finally {
     notifyActivityEnd(activityId);
@@ -391,24 +323,57 @@ async function handleRequest(request) {
 }
 
 function startServer() {
+  // One session for the whole stdio process, run inside the store so per-session
+  // workspace (roots) and routing work identically to the daemon path.
+  const session = makeSession((s) => process.stdout.write(s));
   const lineReader = readline.createInterface({
     input: process.stdin,
     crlfDelay: Infinity,
   });
 
-  lineReader.on("line", async (line) => {
-    if (!line.trim()) {
-      return;
-    }
-    try {
-      await handleRequest(JSON.parse(line));
-    } catch {
-      sendError(null, -32700, "Parse error");
-    }
+  lineReader.on("line", (line) => {
+    if (!line.trim()) return;
+    outputStore.run(session, async () => {
+      try {
+        await dispatchMessage(session, JSON.parse(line));
+      } catch {
+        sendError(null, -32700, "Parse error");
+      }
+    });
   });
 }
 
-module.exports = { handleRequest, startServer };
+// Serve one MCP session over a duplex stream (a unix socket from the daemon).
+// One session object is reused for every line so workspace state learned at
+// initialize/roots survives across the connection; each line runs inside an
+// AsyncLocalStorage scope whose write() points back at this stream, so
+// concurrent connections never cross responses.
+function serveConnection(stream) {
+  const write = (s) => {
+    try {
+      stream.write(s);
+    } catch {
+      /* peer gone */
+    }
+  };
+  const session = makeSession(write);
+  const lineReader = readline.createInterface({
+    input: stream,
+    crlfDelay: Infinity,
+  });
+  lineReader.on("line", (line) => {
+    if (!line.trim()) return;
+    outputStore.run(session, async () => {
+      try {
+        await dispatchMessage(session, JSON.parse(line));
+      } catch {
+        sendError(null, -32700, "Parse error");
+      }
+    });
+  });
+}
+
+module.exports = { handleRequest, startServer, serveConnection };
 
 if (require.main === module) {
   startServer();

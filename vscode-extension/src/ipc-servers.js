@@ -29,10 +29,6 @@ module.exports = function createIpcServers(deps) {
     runStrictLinting,
     getActivityItems,
     getWebviewProvider,
-    handleWorktreeIpcMessage,
-    getActiveChatTabKey,
-    getPendingBranchSessionStarts,
-    setSuppressTabDrivenUnfocusUntil,
     ensureSessionStarted,
   } = deps;
 
@@ -181,24 +177,6 @@ module.exports = function createIpcServers(deps) {
               msg.args || {},
             );
             _externalToInternal.set(msg.id, internalId);
-            if (msg.tool === "branch_session_start") {
-              // Capture both the proposed session URI (more stable) and the
-              // tab key so binding survives tab navigation during the IPC round-trip
-              let tabKey = null;
-              try {
-                const sessionRes = vscode.window.activeChatPanelSessionResource;
-                if (sessionRes) tabKey = sessionRes.toString();
-              } catch {}
-              if (!tabKey) tabKey = getActiveChatTabKey();
-              getPendingBranchSessionStarts().set(msg.id, {
-                tabKey,
-                capturedAt: Date.now(),
-              });
-              setSuppressTabDrivenUnfocusUntil(Date.now() + 1500);
-              deps.writeWorktreeDebug?.(
-                `activityBegin branch_session_start activity=${msg.id} tab=${tabKey || "null"}`,
-              );
-            }
           } else if (msg.type === "activityEnd" && msg.id) {
             const internalId = _externalToInternal.get(msg.id);
             if (internalId) {
@@ -211,11 +189,6 @@ module.exports = function createIpcServers(deps) {
               type: "activityUpdate",
               items: getActivityItems(),
             });
-          } else if (
-            msg.type === "worktreeCreated" ||
-            msg.type === "worktreeRemoved"
-          ) {
-            handleWorktreeIpcMessage(msg);
           }
         }
       });

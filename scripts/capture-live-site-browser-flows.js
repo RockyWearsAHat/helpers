@@ -196,6 +196,8 @@ function parseArgs(argv) {
     const flag = splitIndex >= 0 ? rawArg.slice(0, splitIndex) : rawArg;
     const inlineValue = splitIndex >= 0 ? rawArg.slice(splitIndex + 1) : undefined;
 
+    // Dispatch each supported flag; value-bearing flags read their argument via
+    // readFlagValue and advance the loop index past the consumed value.
     if (flag === "--help" || flag === "-h") {
       config.help = true;
       continue;
