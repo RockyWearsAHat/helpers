@@ -4,7 +4,6 @@ set -euo pipefail
 log() { echo "[gsh-audit] $1"; }
 
 DATA_DIR="/usr/local/share/github-shell-helpers"
-AUDIT_CMD="/usr/local/bin/git-copilot-devops-audit"
 DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
 DEFAULT_COMMUNITY_BRANCH="main"
 
@@ -38,19 +37,11 @@ if [ ! -f "$settings_file" ]; then
   log "Wrote community cache settings: $settings_file"
 fi
 
-if [ -x "$AUDIT_CMD" ]; then
-  if run_as "$AUDIT_CMD" --update-agent --force >/dev/null 2>&1; then
-    log "Installed DevOpsAudit agents, router, prompt, and skills globally."
-  else
-    log "Auto-install of audit agents failed. Run 'git copilot-devops-audit --update-agent --force' manually."
-  fi
-fi
-
 if [ -x "/usr/local/bin/git-copilot-devops-audit-community-pull" ]; then
   if run_as /usr/local/bin/git-copilot-devops-audit-community-pull >/dev/null 2>&1; then
     log "Pulled latest community cache."
   fi
 fi
 
-log "DevOps Audit agents installed."
+log "Community cache configured."
 exit 0

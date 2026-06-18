@@ -21,6 +21,8 @@ const REPO_RAW_BASE =
   "https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers";
 const REPO_BRANCH = process.env.GSH_PAGES_BRANCH || "main";
 
+// English stopwords stripped from tokens before building the search index, so
+// common filler words don't dominate the term frequencies.
 const STOPWORDS = new Set([
   "a",
   "about",
@@ -197,6 +199,8 @@ const MARKDOWN_SOURCES = [
   },
 ];
 
+// Each entry maps one community-pack manifest section to search-document fields
+// (title/preview/highlights/topics/links) so every pack type indexes uniformly.
 const COMMUNITY_PACK_DEFINITIONS = [
   {
     manifestKey: "promptingPrinciples",

@@ -1,56 +1,35 @@
 #!/usr/bin/env node
 "use strict";
 
+// Verify every advertised MCP tool is documented in the README. Tool names come
+// from the Node web-research tools plus the native binary's advertised schemas
+// (built-in Rust tools + project-local flows). If the native binary isn't built
+// yet, only the Node tools are checked.
+
 const fs = require("fs");
 const path = require("path");
 
-const { CHECKPOINT_TOOL } = require("../lib/mcp-checkpoint");
-const { WORKSPACE_CONTEXT_TOOL } = require("../lib/mcp-workspace-context");
-const { STRICT_LINT_TOOL } = require("../lib/mcp-strict-lint");
-const { BRANCH_SESSION_TOOLS } = require("../lib/mcp-branch-sessions");
-const { LIST_LANGUAGE_MODELS_TOOL } = require("../lib/mcp-language-models");
 const { RESEARCH_TOOLS } = require("../lib/mcp-research-tools");
-const {
-  LOCAL_SUBAGENT_TOOLS,
-} = require("../lib/mcp-local-subagents");
-const {
-  REGISTER_WORKSPACE_TOOL,
-  RELOAD_WINDOW_READY_TOOL,
-  UNREGISTER_WORKSPACE_TOOL,
-} = require("../lib/mcp-user-tools");
-const { tools: VISION_TOOLS } = require("../vision-tool/mcp-server");
+const { getNativeToolNames } = require("../lib/mcp-native");
 
 function collectToolNames() {
-  const schemas = [
-    CHECKPOINT_TOOL,
-    WORKSPACE_CONTEXT_TOOL,
-    STRICT_LINT_TOOL,
-    LIST_LANGUAGE_MODELS_TOOL,
-    REGISTER_WORKSPACE_TOOL,
-    RELOAD_WINDOW_READY_TOOL,
-    UNREGISTER_WORKSPACE_TOOL,
-    ...BRANCH_SESSION_TOOLS,
-    ...RESEARCH_TOOLS,
-    ...LOCAL_SUBAGENT_TOOLS,
-    ...VISION_TOOLS,
-  ];
-
-  return [...new Set(schemas.map((tool) => tool && tool.name).filter(Boolean))]
-    .sort();
+  const names = new Set(RESEARCH_TOOLS.map((t) => t.name));
+  try {
+    for (const n of getNativeToolNames()) names.add(n);
+  } catch {
+    // Native binary not built — skip native names (covered by the black-box test).
+  }
+  return [...names].sort();
 }
 
 function main() {
-  const readmePath = path.join(__dirname, "..", "README.md");
-  const readme = fs.readFileSync(readmePath, "utf8");
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
   const toolNames = collectToolNames();
-
   const missing = toolNames.filter((name) => !readme.includes("`" + name + "`"));
 
   if (missing.length > 0) {
     console.error("MCP_DOCS_SYNC: FAIL");
-    for (const name of missing) {
-      console.error("MISSING_TOOL_IN_README: " + name);
-    }
+    for (const name of missing) console.error("MISSING_TOOL_IN_README: " + name);
     process.exit(1);
   }
 
