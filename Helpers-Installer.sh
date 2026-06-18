@@ -140,7 +140,7 @@ install_release_archive() {
   local version="$1"
   local archive_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${version}/github-shell-helpers-${version}.tar.gz"
   local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-${version}.tar.gz"
-  local extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-release.XXXXXX")"
+  local extract_dir; extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-release.XXXXXX")"
   local source_root="${extract_dir}/github-shell-helpers-${version}"
 
   if ! curl -fsSL -o "$archive_tmp" "$archive_url" 2>/dev/null; then
@@ -166,7 +166,7 @@ install_release_archive() {
 install_source_archive() {
   local archive_url="https://codeload.github.com/RockyWearsAHat/github-shell-helpers/tar.gz/refs/heads/main"
   local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-main.tar.gz"
-  local extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-source.XXXXXX")"
+  local extract_dir; extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-source.XXXXXX")"
   local source_root=""
 
   if ! curl -fsSL -o "$archive_tmp" "$archive_url" 2>/dev/null; then
@@ -225,10 +225,18 @@ build_and_register() {
     echo "[Helpers-Installer] 'helpers build' reported an issue (Rust toolchain may be missing)." >&2
     echo "[Helpers-Installer] Install Rust (https://rustup.rs), then run: helpers build" >&2
   fi
-  # Register the MCP server + skills with detected agents. Tolerate "no agent
-  # detected" (e.g. headless servers) — the files are installed either way.
-  node "$BIN_DIR/helpers" install --agent auto 2>/dev/null ||
-    echo "[Helpers-Installer] No AI agent auto-detected — register later with: helpers install"
+  # Register the MCP server + skills with detected agents. Only skip cleanly when
+  # there is genuinely no agent to register (headless servers); surface any other
+  # failure instead of masking it as an agent-detection issue. Errors stay visible
+  # on stderr either way.
+  if ! command -v claude >/dev/null 2>&1 && [ ! -d "$HOME/.claude" ] &&
+     ! command -v code >/dev/null 2>&1 && [ ! -d "$HOME/.copilot" ]; then
+    echo "[Helpers-Installer] No AI agent detected — register later with: helpers install"
+    return 0
+  fi
+  if ! node "$BIN_DIR/helpers" install --agent auto; then
+    echo "[Helpers-Installer] WARNING: 'helpers install' failed — see the error above; retry with: helpers install" >&2
+  fi
 }
 
 write_community_settings() {
@@ -462,28 +470,17 @@ remove_mcp_server() {
 
   [ -f "$mcp_file" ] || return 0
 
-  python3 - "$mcp_file" "$name" <<'PYEOF'
-import json, sys
-
-mcp_path, srv_name = sys.argv[1], sys.argv[2]
-try:
-  with open(mcp_path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError):
-  sys.exit(0)
-
-if "servers" in data and isinstance(data["servers"], dict):
-  if srv_name in data["servers"]:
-    del data["servers"][srv_name]
-    with open(mcp_path, "w", encoding="utf-8") as f:
-      json.dump(data, f, indent=2)
-      f.write("\n")
-PYEOF
+  # Single -c one-liner (no heredoc / multi-line body) per shell-safety; a
+  # malformed mcp.json throws and is swallowed by `2>/dev/null || true`.
+  python3 -c "import json,sys; p,n=sys.argv[1],sys.argv[2]; d=json.load(open(p)); s=d.get('servers'); (s.pop(n,None), open(p,'w').write(json.dumps(d,indent=2)+chr(10))) if isinstance(s,dict) and n in s else None" "$mcp_file" "$name" 2>/dev/null || true
 }
 
+# Purge pre-rebrand static registrations; the current "helpers" server is
+# extension-managed and must not be removed here.
 remove_legacy_helpers_mcp_servers() {
-  remove_mcp_server "helpers"
-  remove_mcp_server "helpers"
+  remove_mcp_server "gsh"
+  remove_mcp_server "git-shell-helpers"
+  remove_mcp_server "git-shell-helpers-mcp"
 }
 
 configure_mcp_tools() {

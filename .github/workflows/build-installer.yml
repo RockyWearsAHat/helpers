@@ -128,6 +128,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: github-shell-helpers-cross-platform
+          # AUR .SRCINFO is a dotfile; upload-artifact@v4 excludes hidden files
+          # unless this is set, which previously dropped it from the release.
+          include-hidden-files: true
           path: |
             dist/Helpers-Installer.sh
             dist/Helpers-Installer-*.sh

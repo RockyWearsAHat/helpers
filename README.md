@@ -46,6 +46,19 @@ Tool state lives in `~/.config/helpers-server/tools.json` and is re-read by the
 running MCP server on every request, so toggles take effect immediately. A disabled tool
 can be overridden for a single call with `{ "force": true }`.
 
+### Updating
+
+```sh
+helpers update           # upgrade to the latest release, rebuild, and re-register
+helpers update --check   # only report whether a newer release is available
+```
+
+`helpers update` upgrades a git checkout with `git pull` and a packaged install by
+downloading the latest release tarball, then rebuilds the native tools and re-registers
+with your agents. `helpers status` also shows a non-blocking "update available" hint,
+refreshed in the background at most once a day. Restart your agent (or run `/mcp
+reconnect`) afterward to load the new tools.
+
 ### Fast startup (C launcher + auto-managed background server)
 
 `helpers install` registers a small **C launcher** (`helpers-mcp`, compiled on install) instead of

@@ -89,10 +89,19 @@ while IFS= read -r support_script; do
 	copy_exec "${ROOT_DIR}/scripts/${support_script}" "${ARCHIVE_SCRIPTS}/${support_script}"
 done < <(helpers_support_scripts)
 
+while IFS= read -r support_file; do
+	[ -n "$support_file" ] || continue
+	cp "${ROOT_DIR}/${support_file}" "${ARCHIVE_BIN}/${support_file}"
+done < <(helpers_support_files)
+
 while IFS= read -r data_dir; do
 	[ -n "$data_dir" ] || continue
 	cp -R "${ROOT_DIR}/${data_dir}" "${ARCHIVE_BIN}/${data_dir}"
 done < <(helpers_data_dirs)
+
+# Ship VERSION next to the bins so the installed CLI can read its own version
+# (helpers update / the status update-hint resolve VERSION relative to the CLI).
+cp "${VERSION_FILE}" "${ARCHIVE_BIN}/VERSION"
 
 # Rust crate sources, staged next to the bins so `helpers build` (run by the
 # installer) can compile the native binary in place. Copy sources only — never
