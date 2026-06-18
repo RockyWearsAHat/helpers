@@ -79,10 +79,20 @@ while IFS= read -r support_script; do
 	copy_exec "${ROOT_DIR}/scripts/${support_script}" "${PKG_SCRIPTS}/${support_script}"
 done < <(helpers_support_scripts)
 
+while IFS= read -r support_file; do
+	[ -n "$support_file" ] || continue
+	cp "${ROOT_DIR}/${support_file}" "${PKG_BIN}/${support_file}"
+done < <(helpers_support_files)
+
 while IFS= read -r data_dir; do
 	[ -n "$data_dir" ] || continue
 	cp -R "${ROOT_DIR}/${data_dir}" "${PKG_BIN}/${data_dir}"
 done < <(helpers_data_dirs)
+
+# Ship VERSION next to the bins so `helpers status` / `helpers update` report the
+# real version instead of 0.0.0. (This format does not build the native Rust
+# tools at install time — that remains a curl-installer / clone capability.)
+cp "${VERSION_FILE}" "${PKG_BIN}/VERSION"
 
 while IFS= read -r man_page; do
 	[ -n "$man_page" ] || continue
