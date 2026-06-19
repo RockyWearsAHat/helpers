@@ -393,9 +393,10 @@ function fetchPrebuiltNative({ quiet } = {}) {
       lastErr = `curl exit ${r.status} for ${url}`;
     }
     if (!got) { cleanup(); return skip(`download failed (${lastErr || "unknown"})`); }
-    // Extract with tmpDir as cwd (more portable than -C on Windows bsdtar) and
-    // let tar auto-detect the gzip compression.
-    const ex = spawnSync("tar", ["-xf", tarPath], { cwd: tmpDir, encoding: "utf8" });
+    // Extract from tmpDir with a RELATIVE filename: a Windows `C:\…` path makes
+    // GNU tar (git-bash) treat the drive letter as a remote `host:path`. tar
+    // auto-detects the gzip compression.
+    const ex = spawnSync("tar", ["-xf", path.basename(tarPath)], { cwd: tmpDir, encoding: "utf8" });
     if (ex.status !== 0) {
       cleanup();
       return skip(`tar extract failed (exit ${ex.status}: ${(ex.stderr || "").trim().split("\n")[0] || "no stderr"})`);
