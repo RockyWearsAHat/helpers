@@ -131,22 +131,40 @@ fn profile_dir() -> PathBuf {
     dir
 }
 
-/// Launch Chrome (headless or visible) against the shared profile.
+/// Launch Chrome (headless or visible) against the shared profile. Returns a
+/// clear, actionable error when Chrome can't be found or started so the agent
+/// can fix it (install Chrome / set HELPERS_CHROME_EXECUTABLE).
 fn launch(headless: bool) -> Result<Browser, String> {
     let profile = profile_dir();
+    let resolved = chrome_executable();
     let mut builder = LaunchOptions::default_builder();
     builder
         .headless(headless)
         .sandbox(false)
         .user_data_dir(Some(profile))
         .window_size(Some((1440, 900)));
-    if let Some(path) = chrome_executable() {
+    if let Some(path) = resolved.clone() {
         builder.path(Some(path));
     }
     let opts = builder
         .build()
         .map_err(|e| format!("invalid Chrome launch options: {e}"))?;
-    Browser::new(opts).map_err(|e| format!("could not launch Chrome: {e}"))
+    Browser::new(opts).map_err(|e| {
+        if resolved.is_none() {
+            format!(
+                "Google Chrome is required for web search/scrape but none was found. \
+                 Install Google Chrome (https://www.google.com/chrome) or set the \
+                 HELPERS_CHROME_EXECUTABLE environment variable to a Chrome/Chromium \
+                 binary, then retry. (underlying error: {e})"
+            )
+        } else {
+            format!(
+                "Found Chrome at {} but could not launch it: {e}. If you are on a \
+                 headless/CI machine the visible-browser CAPTCHA step needs a display.",
+                resolved.as_ref().unwrap().display()
+            )
+        }
+    })
 }
 
 // ── result extraction (runs in the page; returns a JSON string) ──────────────
@@ -175,15 +193,29 @@ const EXTRACT_JS: &str = r#"
     seen[href] = 1;
     var title = (h.textContent || "").replace(/\s+/g, " ").trim();
     if (!title) continue;
-    var c = a.closest("div.g") || a.closest("div[data-ved]") || a.closest("div.MjjYud") || a.closest("div");
-    var snippet = c ? (c.innerText || "").replace(/\s+/g, " ").trim() : "";
     var url = href;
     if (url.indexOf("/url?q=") === 0 || url.indexOf("/url?") === 0) {
       try { url = decodeURIComponent((url.split("q=")[1] || "").split("&")[0]); } catch (e) {}
     }
     if (!/^https?:\/\//.test(url)) continue;
-    if (/google\.com/.test(url)) continue;
-    results.push({ url: url, title: title, snippet: snippet.slice(0, 500) });
+    if (/(^|\.)google\.com/.test(url)) continue;
+    var c = a.closest("div.g") || a.closest("div.MjjYud") || a.closest("div[data-ved]") || a.closest("div");
+    // Prefer Google's dedicated snippet element; fall back to the container text
+    // with the title/URL chrome stripped so snippets aren't full of breadcrumbs.
+    var snippet = "";
+    if (c) {
+      var sn = c.querySelector(".VwiC3b, .lEBKkf, .s3v9rd, span.aCOpRe, div[data-sncf], .IsZvec");
+      if (sn) {
+        snippet = (sn.innerText || "").replace(/\s+/g, " ").trim();
+      } else {
+        var ct = (c.innerText || "").replace(/\s+/g, " ").trim();
+        var ti = title.replace(/\s+/g, " ").trim();
+        var idx = ct.indexOf(ti);
+        if (idx !== -1) ct = ct.slice(idx + ti.length);
+        snippet = ct.replace(/^[\s›·|\-—]+/, "").replace(/\bRead more\b/gi, "").trim();
+      }
+    }
+    results.push({ url: url, title: title, snippet: snippet.slice(0, 400) });
   }
   var captchaText = /detected unusual traffic|about this page|before you continue|verify you are human|not a robot|press and hold|enable javascript|unusual traffic from your computer/i.test(challengeText);
   var noResultsText = /did not match any documents|no results found for|try different keywords|try using more general keywords|check your spelling/i.test(challengeText);
