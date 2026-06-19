@@ -433,6 +433,31 @@ function cmdDaemon(args) {
 // ---------------------------------------------------------------------------
 // install: Claude Code
 // ---------------------------------------------------------------------------
+// Tell any running warm daemon(s) that the tool set changed, so agents already
+// connected (this very session included) refresh their tools live — no restart.
+// Best-effort: pings every per-workspace daemon socket; the daemon rebroadcasts
+// notifications/tools/list_changed to its MCP clients, which re-fetch tools/list.
+function signalReload() {
+  const net = require("net");
+  const sockDir = path.join(HOME, ".cache", "helpers");
+  let socks;
+  try {
+    socks = fs.readdirSync(sockDir).filter((f) => f.startsWith("mcpd-") && f.endsWith(".sock"));
+  } catch {
+    return; // no daemon dir => nothing connected
+  }
+  for (const f of socks) {
+    try {
+      const c = net.connect(path.join(sockDir, f));
+      c.on("connect", () => {
+        c.write(`${JSON.stringify({ jsonrpc: "2.0", method: "$/helpers/reload" })}\n`);
+        c.end();
+      });
+      c.on("error", () => {}); // stale/closed socket — ignore
+    } catch {}
+  }
+}
+
 // Remove pre-rebrand (GSH / Git Shell Helpers) agent-config artifacts so an
 // upgraded install doesn't keep stale, conflicting instructions/skills/commands
 // next to the current Helpers ones.
@@ -560,7 +585,10 @@ function cmdInstall(args) {
   }
   // Ensure tools.json exists in a known-good state.
   if (!fs.existsSync(TOOLS_CONFIG_PATH)) writeConfig(readConfig());
-  console.log(green(bold("\nHelpers installed.")) + dim(" Run `helpers status` to verify."));
+  // Nudge any live daemon so already-connected agents pick up the new tools
+  // without a session restart.
+  signalReload();
+  console.log(green(bold("\nHelpers installed.")) + dim(" Run `helpers status` to verify.") + dim(" Connected agents refresh automatically."));
 }
 
 function cmdUninstall(args) {
@@ -1063,7 +1091,7 @@ function main() {
     case "tools": return cmdTool(rest);
     case "doctor": return cmdDoctor();
     case "daemon": return cmdDaemon(rest);
-    case "build": buildShim(); buildCsGrade(); buildNative(); return;
+    case "build": buildShim(); buildCsGrade(); buildNative(); signalReload(); return;
     case "update": return cmdUpdate(rest);
     case "grade": return cmdGrade(rest);
     case "index": return cmdIndex(rest);
