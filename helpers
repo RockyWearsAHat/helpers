@@ -371,15 +371,19 @@ function fetchPrebuiltNative({ quiet } = {}) {
   if (!has("curl")) return skip("curl not found");
   if (!has("tar")) return skip("tar not found");
 
+  const asset = `helpers-native-${tag}.tar.gz`;
   const version = localVersion();
   const urls = [];
-  if (version) urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${version}/helpers-native-${tag}.tar.gz`);
+  // Prefer the exact installed version; then the newest published release (all
+  // releases here are prereleases, so this uses the API, not /latest); then the
+  // /releases/latest/download redirect as a last-ditch (works once a non-prerelease
+  // exists). Multiple fallbacks keep installs working when this exact version isn't
+  // published yet (e.g. a pre-release CI build).
+  if (version) urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${version}/${asset}`);
   let latest = null;
-  try { latest = latestReleaseVersion(); } catch { /* offline → version-pinned URL only */ }
-  if (latest && latest !== version) {
-    urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${latest}/helpers-native-${tag}.tar.gz`);
-  }
-  if (urls.length === 0) return skip("could not resolve a release version");
+  try { latest = latestReleaseVersion(); } catch { /* offline → other URLs */ }
+  if (latest && latest !== version) urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${latest}/${asset}`);
+  urls.push(`https://github.com/${REPO_SLUG}/releases/latest/download/${asset}`);
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "helpers-bin-"));
   const tarPath = path.join(tmpDir, "bin.tar.gz");
@@ -814,12 +818,13 @@ function cmpVersion(a, b) {
 // max rather than /releases/latest, because every release here is a 0.x
 // prerelease (Beta) and /releases/latest only returns stable releases (404s).
 function latestReleaseVersion() {
-  const r = spawnSync(
-    "curl",
-    ["-fsSL", "-H", "Accept: application/vnd.github+json",
-      `https://api.github.com/repos/${REPO_SLUG}/releases?per_page=30`],
-    { encoding: "utf8", timeout: 15000 },
-  );
+  // Authenticate when a token is present (e.g. CI) to dodge the 60/hr
+  // unauthenticated GitHub API rate limit; harmless/optional for normal users.
+  const args = ["-fsSL", "-H", "Accept: application/vnd.github+json"];
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (token) args.push("-H", `Authorization: Bearer ${token}`);
+  args.push(`https://api.github.com/repos/${REPO_SLUG}/releases?per_page=30`);
+  const r = spawnSync("curl", args, { encoding: "utf8", timeout: 15000 });
   if (r.status !== 0) return null;
   try {
     const releases = JSON.parse(r.stdout);
