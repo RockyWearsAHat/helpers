@@ -27,7 +27,7 @@
   ],
   "bin": {
     "helpers": "helpers",
-    "git-cs-grade": "git-cs-grade.js",
+    "git-cs-grade": "git-cs-grade",
     "git-upload": "git-upload",
     "git-get": "git-get",
     "git-initialize": "git-initialize",
@@ -46,7 +46,6 @@
   },
   "files": [
     "helpers",
-    "git-cs-grade.js",
     "cs-grade/Cargo.toml",
     "cs-grade/Cargo.lock",
     "cs-grade/src/**",
