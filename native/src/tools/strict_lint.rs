@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+#[cfg(unix)]
 use crate::git::home;
 use crate::proto::{text, ToolResult};
 
@@ -284,6 +285,8 @@ fn shorten(file: &str) -> String {
 // ─── VS Code IPC primary path ───────────────────────────────────────────────
 
 /// Path to the JSON file advertising VS Code's strict-lint IPC socket.
+/// Unix-only: it is consulted solely by the `#[cfg(unix)]` `try_ipc`.
+#[cfg(unix)]
 fn ipc_info_path() -> PathBuf {
     home()
         .join(".cache")
@@ -292,7 +295,10 @@ fn ipc_info_path() -> PathBuf {
 }
 
 /// VS Code IPC outcome: a rendered result, or an error (with whether the error
-/// indicates no diagnostics provider was active).
+/// indicates no diagnostics provider was active). The type is referenced by
+/// `run` on every platform, but its variants are only constructed by the
+/// `#[cfg(unix)]` `try_ipc`, so non-Unix builds never instantiate them.
+#[cfg_attr(not(unix), allow(dead_code))]
 enum Ipc {
     Ok(String),
     Err {
