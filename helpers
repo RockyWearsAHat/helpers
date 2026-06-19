@@ -381,25 +381,35 @@ function buildNative({ quiet } = {}) {
   } catch (e) {
     return fail(`could not install helpers-native: ${e.message}`, `Check write permissions on ${REPO_DIR}.`);
   }
-  // Symlink each ported git-* CLI to the helpers-native binary (busybox dispatch).
+  // The native MCP tools are the success criterion, so probe them (valid JSON,
+  // tool count > 0) BEFORE the optional git-* symlinks — that way a filesystem
+  // limitation on the symlinks (e.g. Windows requires elevation to create them)
+  // can never fail an otherwise-working install. A broken binary is still caught
+  // here at build time rather than on the agent's first tool call.
+  const probe = spawnSync(HELPERS_NATIVE_CMD, ["schemas"], { encoding: "utf8" });
+  let toolCount = 0;
+  try { toolCount = JSON.parse(probe.stdout).length; } catch {}
+  if (probe.status !== 0 || toolCount === 0) {
+    return fail("helpers-native built but did not report any tools.", "Run `" + HELPERS_NATIVE_CMD + " schemas` to see the error.");
+  }
+  // Best-effort: symlink each ported git-* CLI to the one binary (busybox-style
+  // dispatch on argv[0]). Non-fatal — these are standalone conveniences, not part
+  // of the MCP tool surface; on Windows symlinks need elevation, so a failure just
+  // means the git-* shortcuts are unavailable while the MCP tools work fine.
+  let linkFailures = 0;
   for (const name of GITCLI_NAMES) {
     const link = path.join(REPO_DIR, name);
     try {
       if (fs.existsSync(link) || fs.lstatSync(link, { throwIfNoEntry: false })) fs.rmSync(link, { force: true });
     } catch {}
     try {
-      fs.symlinkSync("helpers-native", link);
-    } catch (e) {
-      return fail(`could not symlink ${name} -> helpers-native: ${e.message}`, `Check write permissions on ${REPO_DIR}.`);
+      fs.symlinkSync(`helpers-native${EXE}`, link);
+    } catch {
+      linkFailures++;
     }
   }
-  // Sanity-check that the binary answers `schemas` with valid JSON, so a broken
-  // binary is caught at build time rather than when the agent first calls a tool.
-  const probe = spawnSync(HELPERS_NATIVE_CMD, ["schemas"], { encoding: "utf8" });
-  let toolCount = 0;
-  try { toolCount = JSON.parse(probe.stdout).length; } catch {}
-  if (probe.status !== 0 || toolCount === 0) {
-    return fail("helpers-native built but did not report any tools.", "Run `" + HELPERS_NATIVE_CMD + " schemas` to see the error.");
+  if (linkFailures > 0 && !quiet) {
+    console.log(dim(`      (${linkFailures}/${GITCLI_NAMES.length} git-* CLI shims not linked — optional; MCP tools unaffected)`));
   }
   if (!quiet) console.log(`  ${ok} compiled native MCP tools (helpers-native, Rust) — ${toolCount} tool(s), ~1ms startup`);
   return true;
@@ -876,6 +886,37 @@ function cmdDoctor() {
   };
   check("node available", true);
   check("MCP server file present", fs.existsSync(SERVER_PATH), `expected at ${SERVER_PATH}`);
+
+  // Toolchain preflight — surface missing build prerequisites up front with
+  // copy-pasteable, per-OS install commands, instead of discovering them one
+  // failed build at a time.
+  const isWin = process.platform === "win32";
+  const cargo = findCargo();
+  check(
+    "Rust toolchain (cargo) — REQUIRED for the native tools",
+    Boolean(cargo),
+    isWin
+      ? "Install Rust: https://rustup.rs (winget install Rustlang.Rustup), then `helpers build`."
+      : "Install Rust: https://rustup.rs (or: brew install rust), then `helpers build`.",
+  );
+  check(
+    "C compiler (cc/clang/gcc) — optional fast launcher",
+    Boolean(findCC()),
+    isWin
+      ? "Install MinGW-w64 (e.g. WinLibs) and add its bin/ to PATH. Without it the server still runs via node (cold start)."
+      : "Install Xcode CLT (xcode-select --install) or gcc. Without it the server still runs via node (cold start).",
+  );
+  if (isWin && cargo) {
+    // The GNU Rust host links windows-sys via dlltool; the MSVC host does not.
+    const host = (spawnSync("rustc", ["-vV"], { encoding: "utf8" }).stdout || "");
+    if (/host:\s*\S*gnu/i.test(host)) {
+      check(
+        "dlltool (MinGW-w64) — required for the GNU Rust host",
+        has("dlltool"),
+        "Install MinGW-w64 (WinLibs) and add its bin/ to PATH, or switch host: rustup default stable-x86_64-pc-windows-msvc",
+      );
+    }
+  }
   // doctor is a health probe: actually boot the MCP server here (the fast native
   // path that `helpers status` uses would not prove the server starts).
   const all = listAllToolsViaServer();

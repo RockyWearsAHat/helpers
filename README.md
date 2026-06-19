@@ -393,6 +393,28 @@ curl -fsSL \
 
 Then open a new terminal so your shell profile reloads the installed PATH and MANPATH snippet.
 
+### Build prerequisites (esp. Windows)
+
+The native MCP tools (`helpers-native`) are Rust — they have **no Node fallback**, so a
+working install needs a build toolchain. Run **`helpers doctor`** first: it preflights
+every prerequisite below and prints the exact install command for your OS.
+
+| Prerequisite | Required? | Install |
+| --- | --- | --- |
+| **Rust** (`cargo`) | **Yes** — native tools won't build without it | <https://rustup.rs> · macOS `brew install rust` · Windows `winget install Rustlang.Rustup` |
+| **C compiler** (`cc`/`clang`/`gcc`) | Optional — only the fast C launcher; without it the server runs via Node (cold start) | macOS `xcode-select --install` · Linux `apt install build-essential` · Windows MinGW-w64 (e.g. [WinLibs](https://winlibs.com/)) on `PATH` |
+| **MinGW-w64** (`dlltool` + `gcc`) | Windows **only**, and only when using the **GNU** Rust host | Install WinLibs and add its `bin/` to `PATH` — or use the MSVC host: `rustup default stable-x86_64-pc-windows-msvc` |
+| `gh` (GitHub CLI) | Optional | Not needed for install |
+
+Notes for Windows:
+
+- The C launcher shim is optional and **never fatal** — if it can't compile, the server
+  falls back to running Node directly.
+- `helpers build` reports failure (non-zero exit) if it cannot produce working tools — it
+  never claims success with 0 tools. Re-run `helpers doctor` to see what's missing.
+- The standalone `git-*` CLI shortcuts are created via symlinks; on Windows those need
+  elevation, so they may be skipped — this is non-fatal and the MCP tools are unaffected.
+
 ---
 
 ## Development & Contributing
