@@ -29,8 +29,11 @@ const SHIM_SRC = path.join(REPO_DIR, "helpers-mcp.c");
 const SHIM_BIN = path.join(REPO_DIR, "helpers-mcp");
 // Native Rust git-cs-grade: crate dir, its release artifact, the installed
 // command, and the Node implementation used as a graceful fallback.
+// Windows cargo emits `.exe` binaries; every native artifact/command path must
+// account for that suffix or the loader/built-detection misses the binary.
+const EXE = process.platform === "win32" ? ".exe" : "";
 const CS_GRADE_CRATE = path.join(REPO_DIR, "cs-grade");
-const CS_GRADE_ARTIFACT = path.join(CS_GRADE_CRATE, "target", "release", "git-cs-grade");
+const CS_GRADE_ARTIFACT = path.join(CS_GRADE_CRATE, "target", "release", `git-cs-grade${EXE}`);
 const CS_GRADE_CMD = path.join(REPO_DIR, "git-cs-grade");
 const CS_GRADE_JS = path.join(REPO_DIR, "git-cs-grade.js");
 // Native Rust MCP tools (helpers-native): the crate dir, its release artifact, and
@@ -38,8 +41,12 @@ const CS_GRADE_JS = path.join(REPO_DIR, "git-cs-grade.js");
 // is NO Node fallback — these tools are Rust-only, so a missing/broken build is
 // a hard error the user must fix (install Rust, then `helpers build`).
 const HELPERS_NATIVE_CRATE = path.join(REPO_DIR, "native");
-const HELPERS_NATIVE_ARTIFACT = path.join(HELPERS_NATIVE_CRATE, "target", "release", "helpers-native");
-const HELPERS_NATIVE_CMD = path.join(REPO_DIR, "helpers-native");
+const HELPERS_NATIVE_ARTIFACT = path.join(HELPERS_NATIVE_CRATE, "target", "release", `helpers-native${EXE}`);
+// The installed binary the MCP daemon shells out to. HELPERS_NATIVE_BIN overrides
+// it (matching lib/mcp-native.js so the CLI and the server agree); otherwise it is
+// the `.exe`-aware repo-root path. Without this, Windows built-detection looked for
+// a suffix-less `helpers-native` and reported "not built" despite a working .exe.
+const HELPERS_NATIVE_CMD = process.env.HELPERS_NATIVE_BIN || path.join(REPO_DIR, `helpers-native${EXE}`);
 // Standalone git-* CLIs ported to Rust: symlinked to the one helpers-native binary,
 // which dispatches busybox-style on argv[0]. Keep in sync with gitcli::CLI_NAMES.
 const GITCLI_NAMES = [
