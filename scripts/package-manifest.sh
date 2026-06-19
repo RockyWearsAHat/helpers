@@ -21,12 +21,12 @@ set -euo pipefail
 
 # Shell commands still shipped as scripts. The git-* CLIs ported to Rust
 # (git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
-# git-resolve, git-scan-for-leaked-envs, git-checkpoint, git-help-i-pushed-an-env)
-# are built by `helpers build` as symlinks to the helpers-native binary, not copied here.
+# git-resolve, git-scan-for-leaked-envs, git-checkpoint, git-help-i-pushed-an-env,
+# git-cs-grade) are built by `helpers build` as symlinks to the helpers-native
+# binary, not copied here.
 helpers_core_commands() {
 	printf '%s\n' \
 		helpers \
-		git-cs-grade.js \
 		git-copilot-quickstart
 }
 

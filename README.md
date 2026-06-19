@@ -393,27 +393,38 @@ curl -fsSL \
 
 Then open a new terminal so your shell profile reloads the installed PATH and MANPATH snippet.
 
-### Build prerequisites (esp. Windows)
+### No toolchain needed — prebuilt binaries
 
-The native MCP tools (`helpers-native`) are Rust — they have **no Node fallback**, so a
-working install needs a build toolchain. Run **`helpers doctor`** first: it preflights
-every prerequisite below and prints the exact install command for your OS.
+`helpers build` (run automatically by every install path) **downloads a prebuilt
+`helpers-native` binary for your platform** from the GitHub release, so a normal install
+needs **no Rust or C toolchain**. The one binary hosts the MCP tools, `git-cs-grade`, and
+the ported `git-*` CLIs. Prebuilts are published for:
 
-| Prerequisite | Required? | Install |
+- macOS (universal: Apple Silicon + Intel)
+- Linux x86_64 and aarch64 (glibc), Linux x86_64 (musl, e.g. Alpine)
+- Windows x86_64 and arm64
+
+If there's no prebuilt for your platform, or the download is unavailable, `helpers build`
+**falls back to compiling from source** (and you can force that with
+`helpers build --from-source`). Run **`helpers doctor`** to see status; the source-build
+toolchain below is only needed for that fallback.
+
+| Tool (source build only) | When needed | Install |
 | --- | --- | --- |
-| **Rust** (`cargo`) | **Yes** — native tools won't build without it | <https://rustup.rs> · macOS `brew install rust` · Windows `winget install Rustlang.Rustup` |
-| **C compiler** (`cc`/`clang`/`gcc`) | Optional — only the fast C launcher; without it the server runs via Node (cold start) | macOS `xcode-select --install` · Linux `apt install build-essential` · Windows MinGW-w64 (e.g. [WinLibs](https://winlibs.com/)) on `PATH` |
-| **MinGW-w64** (`dlltool` + `gcc`) | Windows **only**, and only when using the **GNU** Rust host | Install WinLibs and add its `bin/` to `PATH` — or use the MSVC host: `rustup default stable-x86_64-pc-windows-msvc` |
-| `gh` (GitHub CLI) | Optional | Not needed for install |
+| **Rust** (`cargo`) | `helpers build --from-source` | <https://rustup.rs> · macOS `brew install rust` · Windows `winget install Rustlang.Rustup` |
+| **C compiler** (`cc`/`clang`/`gcc`) | the optional fast C launcher (always built locally) | macOS `xcode-select --install` · Linux `apt install build-essential` · Windows MinGW-w64 (e.g. [WinLibs](https://winlibs.com/)) on `PATH` |
+| **MinGW-w64** (`dlltool`) | source build on the Windows **GNU** Rust host | WinLibs on `PATH`, or use the MSVC host: `rustup default stable-x86_64-pc-windows-msvc` |
 
-Notes for Windows:
+Notes:
 
-- The C launcher shim is optional and **never fatal** — if it can't compile, the server
-  falls back to running Node directly.
-- `helpers build` reports failure (non-zero exit) if it cannot produce working tools — it
-  never claims success with 0 tools. Re-run `helpers doctor` to see what's missing.
-- The standalone `git-*` CLI shortcuts are created via symlinks; on Windows those need
-  elevation, so they may be skipped — this is non-fatal and the MCP tools are unaffected.
+- The C launcher is a perf optimization, built locally and **never fatal** — without a C
+  compiler the server just runs via Node (cold start). It is not shipped prebuilt because it
+  bakes install-specific paths.
+- `helpers build` reports failure (non-zero exit) if it can neither download nor build
+  working tools — it never claims success with 0 tools.
+- The `git-*` CLI shortcuts are symlinks to the one binary; on Windows symlinks need
+  elevation, so they may be skipped — non-fatal, and the MCP tools (and `helpers grade`)
+  work regardless.
 
 ---
 

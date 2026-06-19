@@ -206,14 +206,14 @@ install_source_archive() {
 # Compile the native binaries and register the MCP server, reusing the helpers
 # CLI's own build/install logic (DRY) once the packaged tree — which ships the
 # helpers CLI plus the native/ and cs-grade/ crate sources — is staged in
-# BIN_DIR. `helpers build` produces helpers-native (MCP tools + ported git-*
-# CLIs), git-cs-grade, and the fast C launcher; `helpers install` registers the
-# MCP server and skills with any detected agent. The native build needs cargo
-# (https://rustup.rs); without it the install still lands the files but the
-# Rust-only tools won't run.
+# BIN_DIR. `helpers build` provisions helpers-native (the MCP tools, git-cs-grade,
+# and the ported git-* CLIs) by DOWNLOADING the prebuilt binary for this platform
+# (no toolchain needed), or building from source as a fallback; it also builds the
+# fast C launcher locally. `helpers install` registers the MCP server and skills
+# with any detected agent.
 build_and_register() {
   if ! command -v node >/dev/null 2>&1; then
-    echo "[Helpers-Installer] Node.js not found — cannot build native tools or register the MCP server." >&2
+    echo "[Helpers-Installer] Node.js not found — cannot provision native tools or register the MCP server." >&2
     echo "[Helpers-Installer] Install Node.js (https://nodejs.org), then run: helpers build && helpers install" >&2
     return 0
   fi
@@ -222,8 +222,8 @@ build_and_register() {
     return 1
   fi
   if ! node "$BIN_DIR/helpers" build; then
-    echo "[Helpers-Installer] 'helpers build' reported an issue (Rust toolchain may be missing)." >&2
-    echo "[Helpers-Installer] Install Rust (https://rustup.rs), then run: helpers build" >&2
+    echo "[Helpers-Installer] 'helpers build' reported an issue. Run 'helpers doctor' to diagnose," >&2
+    echo "[Helpers-Installer] or build from source with a Rust toolchain: helpers build --from-source" >&2
   fi
   # Register the MCP server + skills with detected agents. Only skip cleanly when
   # there is genuinely no agent to register (headless servers); surface any other
