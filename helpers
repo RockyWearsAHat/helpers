@@ -360,40 +360,59 @@ function finalizeNative({ quiet, origin }) {
 // prebuilt; the optional C launcher is built locally because it bakes
 // install-specific paths and so cannot be a portable prebuilt.
 function fetchPrebuiltNative({ quiet } = {}) {
+  // Explain (dim) why a prebuilt couldn't be used, so the source-build fallback
+  // isn't a silent mystery. Returns false uniformly.
+  const skip = (reason) => {
+    if (!quiet) console.log(dim(`      no prebuilt used: ${reason}`));
+    return false;
+  };
   const tag = hostTargetTag();
-  if (!tag) return false;
-  if (!has("curl") || !has("tar")) return false;
+  if (!tag) return skip(`no prebuilt for ${process.platform}/${process.arch}`);
+  if (!has("curl")) return skip("curl not found");
+  if (!has("tar")) return skip("tar not found");
 
+  const asset = `helpers-native-${tag}.tar.gz`;
   const version = localVersion();
   const urls = [];
-  if (version) urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${version}/helpers-native-${tag}.tar.gz`);
+  // Prefer the exact installed version; then the newest published release (all
+  // releases here are prereleases, so this uses the API, not /latest); then the
+  // /releases/latest/download redirect as a last-ditch (works once a non-prerelease
+  // exists). Multiple fallbacks keep installs working when this exact version isn't
+  // published yet (e.g. a pre-release CI build).
+  if (version) urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${version}/${asset}`);
   let latest = null;
-  try { latest = latestReleaseVersion(); } catch { /* offline → version-pinned URL only */ }
-  if (latest && latest !== version) {
-    urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${latest}/helpers-native-${tag}.tar.gz`);
-  }
-  if (urls.length === 0) return false;
+  try { latest = latestReleaseVersion(); } catch { /* offline → other URLs */ }
+  if (latest && latest !== version) urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${latest}/${asset}`);
+  urls.push(`https://github.com/${REPO_SLUG}/releases/latest/download/${asset}`);
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "helpers-bin-"));
   const tarPath = path.join(tmpDir, "bin.tar.gz");
   const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
   try {
     let got = false;
+    let lastErr = "";
     for (const url of urls) {
       const r = spawnSync("curl", ["-fsSL", "-o", tarPath, url], { encoding: "utf8" });
       if (r.status === 0 && fs.existsSync(tarPath)) { got = true; break; }
+      lastErr = `curl exit ${r.status} for ${url}`;
     }
-    if (!got) return false;
-    if (spawnSync("tar", ["-xzf", tarPath, "-C", tmpDir], { encoding: "utf8" }).status !== 0) return false;
+    if (!got) { cleanup(); return skip(`download failed (${lastErr || "unknown"})`); }
+    // Extract from tmpDir with a RELATIVE filename: a Windows `C:\…` path makes
+    // GNU tar (git-bash) treat the drive letter as a remote `host:path`. tar
+    // auto-detects the gzip compression.
+    const ex = spawnSync("tar", ["-xf", path.basename(tarPath)], { cwd: tmpDir, encoding: "utf8" });
+    if (ex.status !== 0) {
+      cleanup();
+      return skip(`tar extract failed (exit ${ex.status}: ${(ex.stderr || "").trim().split("\n")[0] || "no stderr"})`);
+    }
 
     const nativeSrc = path.join(tmpDir, `helpers-native${EXE}`);
-    if (!fs.existsSync(nativeSrc)) return false;
+    if (!fs.existsSync(nativeSrc)) { cleanup(); return skip(`helpers-native${EXE} missing from prebuilt archive`); }
     fs.copyFileSync(nativeSrc, HELPERS_NATIVE_CMD);
     fs.chmodSync(HELPERS_NATIVE_CMD, 0o755);
   } catch (e) {
-    if (!quiet) console.log(dim(`      prebuilt download unavailable (${e.message}) — will build from source`));
     cleanup();
-    return false;
+    return skip(`error (${e.message})`);
   }
   cleanup();
   return finalizeNative({ quiet, origin: `installed prebuilt (${tag})` });
@@ -799,12 +818,13 @@ function cmpVersion(a, b) {
 // max rather than /releases/latest, because every release here is a 0.x
 // prerelease (Beta) and /releases/latest only returns stable releases (404s).
 function latestReleaseVersion() {
-  const r = spawnSync(
-    "curl",
-    ["-fsSL", "-H", "Accept: application/vnd.github+json",
-      `https://api.github.com/repos/${REPO_SLUG}/releases?per_page=30`],
-    { encoding: "utf8", timeout: 15000 },
-  );
+  // Authenticate when a token is present (e.g. CI) to dodge the 60/hr
+  // unauthenticated GitHub API rate limit; harmless/optional for normal users.
+  const args = ["-fsSL", "-H", "Accept: application/vnd.github+json"];
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (token) args.push("-H", `Authorization: Bearer ${token}`);
+  args.push(`https://api.github.com/repos/${REPO_SLUG}/releases?per_page=30`);
+  const r = spawnSync("curl", args, { encoding: "utf8", timeout: 15000 });
   if (r.status !== 0) return null;
   try {
     const releases = JSON.parse(r.stdout);
