@@ -7,6 +7,7 @@ pub mod git;
 pub mod gitcli;
 pub mod index;
 pub mod knowledge;
+pub mod mcp;
 pub mod proc;
 pub mod proto;
 pub mod registry;

@@ -16,6 +16,7 @@ use std::process::ExitCode;
 
 use helpers_native::gitcli;
 use helpers_native::index::bundle;
+use helpers_native::mcp;
 use helpers_native::proto::{emit_content, emit_error};
 use helpers_native::registry;
 
@@ -55,6 +56,7 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        Some("mcp") => mcp::run(),
         Some("call") => run_call(argv.get(1).map(String::as_str)),
         Some("bundle") => run_bundle(argv.get(1), argv.get(2)),
         Some("install") => run_install(argv.get(1), argv.get(2)),
@@ -64,7 +66,7 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         None => {
-            eprintln!("usage: helpers-native <schemas | call <tool> | bundle | install | refs>");
+            eprintln!("usage: helpers-native <mcp | schemas | call <tool> | bundle | install | refs>");
             ExitCode::from(2)
         }
     }
