@@ -360,9 +360,16 @@ function finalizeNative({ quiet, origin }) {
 // prebuilt; the optional C launcher is built locally because it bakes
 // install-specific paths and so cannot be a portable prebuilt.
 function fetchPrebuiltNative({ quiet } = {}) {
+  // Explain (dim) why a prebuilt couldn't be used, so the source-build fallback
+  // isn't a silent mystery. Returns false uniformly.
+  const skip = (reason) => {
+    if (!quiet) console.log(dim(`      no prebuilt used: ${reason}`));
+    return false;
+  };
   const tag = hostTargetTag();
-  if (!tag) return false;
-  if (!has("curl") || !has("tar")) return false;
+  if (!tag) return skip(`no prebuilt for ${process.platform}/${process.arch}`);
+  if (!has("curl")) return skip("curl not found");
+  if (!has("tar")) return skip("tar not found");
 
   const version = localVersion();
   const urls = [];
@@ -372,28 +379,30 @@ function fetchPrebuiltNative({ quiet } = {}) {
   if (latest && latest !== version) {
     urls.push(`https://github.com/${REPO_SLUG}/releases/download/v${latest}/helpers-native-${tag}.tar.gz`);
   }
-  if (urls.length === 0) return false;
+  if (urls.length === 0) return skip("could not resolve a release version");
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "helpers-bin-"));
   const tarPath = path.join(tmpDir, "bin.tar.gz");
   const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
   try {
     let got = false;
+    let lastErr = "";
     for (const url of urls) {
       const r = spawnSync("curl", ["-fsSL", "-o", tarPath, url], { encoding: "utf8" });
       if (r.status === 0 && fs.existsSync(tarPath)) { got = true; break; }
+      lastErr = `curl exit ${r.status} for ${url}`;
     }
-    if (!got) return false;
-    if (spawnSync("tar", ["-xzf", tarPath, "-C", tmpDir], { encoding: "utf8" }).status !== 0) return false;
+    if (!got) { cleanup(); return skip(`download failed (${lastErr || "unknown"})`); }
+    const ex = spawnSync("tar", ["-xzf", tarPath, "-C", tmpDir], { encoding: "utf8" });
+    if (ex.status !== 0) { cleanup(); return skip(`tar extract failed (exit ${ex.status})`); }
 
     const nativeSrc = path.join(tmpDir, `helpers-native${EXE}`);
-    if (!fs.existsSync(nativeSrc)) return false;
+    if (!fs.existsSync(nativeSrc)) { cleanup(); return skip(`helpers-native${EXE} missing from prebuilt archive`); }
     fs.copyFileSync(nativeSrc, HELPERS_NATIVE_CMD);
     fs.chmodSync(HELPERS_NATIVE_CMD, 0o755);
   } catch (e) {
-    if (!quiet) console.log(dim(`      prebuilt download unavailable (${e.message}) — will build from source`));
     cleanup();
-    return false;
+    return skip(`error (${e.message})`);
   }
   cleanup();
   return finalizeNative({ quiet, origin: `installed prebuilt (${tag})` });
