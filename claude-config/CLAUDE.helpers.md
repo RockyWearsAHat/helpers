@@ -1,7 +1,11 @@
-# Helpers (Helpers)
+# Helpers (formerly GSH / Git Shell Helpers)
 
 Helpers is installed. It adds an MCP server (`helpers`) plus a `helpers` CLI for control. These
 notes are always on; they shape how to work, not what to conclude.
+
+**Naming:** Helpers was previously called **GSH** / **Git Shell Helpers** — same thing. If asked
+to "use GSH" (or to run a `gsh …` command), use Helpers: the command is `helpers …` and the MCP
+server is `helpers`. Treat "GSH", "gsh", and "Git Shell Helpers" as aliases for Helpers.
 
 ## Working discipline
 

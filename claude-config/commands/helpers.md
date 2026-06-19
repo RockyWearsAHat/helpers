@@ -1,10 +1,11 @@
 ---
-description: Control Helpers — show status, enable/disable Helpers, or toggle individual tools
-argument-hint: "[status|enable|disable|bypass|tool list|tool disable <name>|tool enable <name>|doctor]"
+description: Control Helpers (formerly GSH / Git Shell Helpers) — show status, enable/disable Helpers, or toggle individual tools. "GSH"/"gsh" means Helpers.
+argument-hint: "[status|enable|disable|bypass|tool list|tool disable <name>|tool enable <name>|doctor|update]"
 allowed-tools: Bash(helpers:*)
 ---
 
 Run the `helpers` control CLI to manage Helpers, then briefly report the result.
+("GSH" / "gsh" / "Git Shell Helpers" are the former names for Helpers — same tool.)
 
 Requested action: `$ARGUMENTS` (default to `status` if empty).
 
