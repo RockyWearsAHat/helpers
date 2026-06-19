@@ -1,9 +1,12 @@
 ---
 name: helpers
-description: Discover, control, and use Helpers (Helpers) — the helpers MCP tools (research, knowledge memory, checkpoint, strict_lint, local subagents, vision) and the helpers CLI for enabling/disabling Helpers and individual tools. Use when the user mentions Helpers, asks to enable/disable Helpers or a Helpers tool, asks what Helpers tools exist, or wants to install/configure Helpers.
+description: Discover, control, and use Helpers (formerly GSH / Git Shell Helpers) — the helpers MCP tools (research, knowledge memory, checkpoint, strict_lint, local subagents, vision) and the helpers CLI for enabling/disabling Helpers and individual tools. Use when the user mentions Helpers OR its former names GSH / gsh / Git Shell Helpers, asks to enable/disable Helpers or a Helpers tool, asks what Helpers/GSH tools exist, wants to run a `gsh …`/`helpers …` command, or wants to install/configure Helpers. "GSH", "gsh", and "Git Shell Helpers" all mean Helpers.
 ---
 
-# Helpers — Helpers
+# Helpers (formerly GSH / Git Shell Helpers)
+
+> "GSH", "gsh", and "Git Shell Helpers" are the former names for Helpers. If the user asks to
+> "use GSH" or run a `gsh …` command, that means Helpers / `helpers …`.
 
 Helpers ships AI-agent tooling as a standard MCP server plus a `helpers` control CLI. It is
 agent-agnostic; this skill is the Claude-side guide.
