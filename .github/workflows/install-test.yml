@@ -100,7 +100,8 @@ jobs:
               ;;
             npm)
               bash scripts/build-npm-package.sh
-              npm install -g "dist/github-shell-helpers-${V}.tgz"
+              # Absolute path so npm treats it as a local tarball, not a git/github spec.
+              npm install -g "$(pwd)/dist/github-shell-helpers-${V}.tgz"
               verify "$(realpath_node "$(command -v helpers)")"
               ;;
             deb)
