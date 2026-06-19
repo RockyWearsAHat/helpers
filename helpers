@@ -393,8 +393,13 @@ function fetchPrebuiltNative({ quiet } = {}) {
       lastErr = `curl exit ${r.status} for ${url}`;
     }
     if (!got) { cleanup(); return skip(`download failed (${lastErr || "unknown"})`); }
-    const ex = spawnSync("tar", ["-xzf", tarPath, "-C", tmpDir], { encoding: "utf8" });
-    if (ex.status !== 0) { cleanup(); return skip(`tar extract failed (exit ${ex.status})`); }
+    // Extract with tmpDir as cwd (more portable than -C on Windows bsdtar) and
+    // let tar auto-detect the gzip compression.
+    const ex = spawnSync("tar", ["-xf", tarPath], { cwd: tmpDir, encoding: "utf8" });
+    if (ex.status !== 0) {
+      cleanup();
+      return skip(`tar extract failed (exit ${ex.status}: ${(ex.stderr || "").trim().split("\n")[0] || "no stderr"})`);
+    }
 
     const nativeSrc = path.join(tmpDir, `helpers-native${EXE}`);
     if (!fs.existsSync(nativeSrc)) { cleanup(); return skip(`helpers-native${EXE} missing from prebuilt archive`); }
