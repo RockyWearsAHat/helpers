@@ -82,9 +82,6 @@ jobs:
           NODE="$(command -v node)"
           V="$(tr -d '\n' < VERSION | xargs)"
           verify() { NODE_BIN="$NODE" bash scripts/verify-install.sh "$1"; }
-          # Resolve a (possibly symlinked) CLI to its real path so verify-install
-          # finds helpers-native in the package dir, not the bin-symlink dir.
-          realpath_node() { node -e "console.log(require('fs').realpathSync(process.argv[1]))" "$1"; }
 
           case "${{ matrix.method }}" in
             installer)
@@ -102,7 +99,9 @@ jobs:
               bash scripts/build-npm-package.sh
               # Absolute path so npm treats it as a local tarball, not a git/github spec.
               npm install -g "$(pwd)/dist/github-shell-helpers-${V}.tgz"
-              verify "$(realpath_node "$(command -v helpers)")"
+              # Use the package's real CLI file (npm root -g) — on Windows the bin
+              # is a shell shim, not a symlink, so `command -v helpers` won't reach it.
+              verify "$(npm root -g)/github-shell-helpers/helpers"
               ;;
             deb)
               bash scripts/build-deb.sh
