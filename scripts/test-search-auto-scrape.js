@@ -79,6 +79,9 @@ function makeMockDeps(opts = {}) {
   const resolveGoogleChallengeViaLiveChrome =
     opts.resolveGoogleChallengeViaLiveChrome ||
     (async () => ({ challenge: true, noResults: false, results: [] }));
+  // No verified interactive session by default → reuse path is a no-op (null).
+  const searchViaVerifiedChrome =
+    opts.searchViaVerifiedChrome || (async () => null);
 
   return {
     fetchText: async (url) => {
@@ -123,6 +126,7 @@ function makeMockDeps(opts = {}) {
     runInteractiveGoogleBrowser: async () => ({ results: [] }),
     googleRateLimit: async () => {},
     resolveGoogleChallengeViaLiveChrome,
+    searchViaVerifiedChrome,
     WORKSPACE_ROOT: opts.workspaceRoot || TEMP_WORKSPACE,
     DEFAULT_USER_AGENT: "test-agent",
     GOOGLE_RESULTS_PER_PAGE: 10,
@@ -336,57 +340,34 @@ async function main() {
     );
   }
 
-  // 11. challenge resolution retries the caller query instead of merging interactive results
+  // 11. After a CAPTCHA solve, the solved query's OWN results are used. The
+  //     interactive browser navigated to the caller's query, so its results are
+  //     the answer — previously they were discarded, forcing a headless re-fetch
+  //     that hit the CAPTCHA again (the "spam captchas" bug).
   {
-    let searchCalls = 0;
     let fallbackCalls = 0;
-    const retriedHeadlessResults = [
-      {
-        title: "Page One",
-        url: "https://example.com/1",
-        snippet: "First result",
-      },
-      {
-        title: "Page Two",
-        url: "https://example.com/2",
-        snippet: "Second result",
-      },
-    ];
     const { searchWeb } = createWebSearch(
       makeMockDeps({
-        googleEmptyRetryMax: 2,
         canUseLiveChromeFallback: () => true,
-        searchGoogleHeadless: async () => {
-          searchCalls++;
-          if (searchCalls === 1) {
-            return {
-              challenge: true,
-              noResults: false,
-              results: [],
-              pageUrl: "https://www.google.com/sorry/index",
-              pageTitle: "About this page",
-              bodyText: "detected unusual traffic",
-            };
-          }
-          return {
-            challenge: false,
-            noResults: false,
-            results: retriedHeadlessResults,
-            pageUrl: "https://www.google.com/search?q=test",
-            pageTitle: "Google Search",
-            bodyText: "",
-          };
-        },
-        resolveGoogleChallengeViaLiveChrome: async () => {
+        searchGoogleHeadless: async () => ({
+          challenge: true,
+          noResults: false,
+          results: [],
+          pageUrl: "https://www.google.com/sorry/index",
+          pageTitle: "About this page",
+          bodyText: "detected unusual traffic",
+        }),
+        resolveGoogleChallengeViaLiveChrome: async (url) => {
           fallbackCalls++;
           return {
             challenge: false,
             noResults: false,
+            resolvedUrl: url,
             results: [
               {
-                title: "Interactive Result",
-                url: "https://example.com/interactive",
-                snippet: "Should not be merged into the caller results",
+                title: "Solved Result",
+                url: "https://example.com/solved",
+                snippet: "Rendered by the verified browser for this query",
               },
             ],
           };
@@ -394,14 +375,70 @@ async function main() {
       }),
     );
     const result = await searchWeb({ query: "test" });
-    assert(fallbackCalls === 1, "Challenge path invokes interactive resolution once");
+    assert(fallbackCalls === 1, "Challenge path solves the CAPTCHA once");
     assert(
-      searchCalls >= 2,
-      "Challenge path retries headless search after resolution",
+      result.results.some((item) => item.url === "https://example.com/solved"),
+      "Solved query's own results are used instead of being discarded",
+    );
+  }
+
+  // 11b. Cross-query protection: when a shared solve resolved a DIFFERENT query,
+  //      the caller re-runs its own query through the verified browser instead of
+  //      merging the other query's results (the resolvedUrl guard).
+  {
+    let verifiedCalls = 0;
+    const { searchWeb } = createWebSearch(
+      makeMockDeps({
+        canUseLiveChromeFallback: () => true,
+        searchGoogleHeadless: async () => ({
+          challenge: true,
+          noResults: false,
+          results: [],
+          pageUrl: "https://www.google.com/sorry/index",
+          pageTitle: "About this page",
+          bodyText: "detected unusual traffic",
+        }),
+        resolveGoogleChallengeViaLiveChrome: async () => ({
+          challenge: false,
+          noResults: false,
+          // A different concurrent query won this shared solve.
+          resolvedUrl: "https://www.google.com/search?q=other",
+          results: [
+            {
+              title: "Other Query",
+              url: "https://example.com/other",
+              snippet: "Belongs to another query",
+            },
+          ],
+        }),
+        searchViaVerifiedChrome: async (url) => {
+          verifiedCalls++;
+          // Step 1 (before any solve) has no verified session yet.
+          if (verifiedCalls === 1) return null;
+          // After the solve, our own query runs through the verified browser.
+          return {
+            challenge: false,
+            noResults: false,
+            resolvedUrl: url,
+            results: [
+              {
+                title: "My Result",
+                url: "https://example.com/mine",
+                snippet: "Belongs to this caller",
+              },
+            ],
+          };
+        },
+      }),
+    );
+    const result = await searchWeb({ query: "test" });
+    assert(
+      result.results.some((item) => item.url === "https://example.com/mine"),
+      "Caller re-runs its own query via the verified browser on cross-query resolution",
     );
     assert(
-      result.results.every((item) => item.url !== "https://example.com/interactive"),
-      "Interactive results are not merged into the caller response",
+      result.results.every((item) => item.url !== "https://example.com/other"),
+      "A concurrent query's interactive results are not merged into the caller response",
     );
   }
 

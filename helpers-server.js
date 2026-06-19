@@ -53,6 +53,26 @@ function sendError(id, code, message) {
   });
 }
 
+// Live MCP sessions in the warm daemon (each is a makeSession() object with a
+// .write to its client). Tracked so a `helpers build/install/update` can make
+// already-connected agents pick up new tools WITHOUT a session restart.
+const liveSessions = new Set();
+
+// Tell every connected client its tool list changed; MCP clients that saw our
+// `tools.listChanged` capability respond by re-requesting tools/list — so newly
+// built tools appear live. Paired with the native cache's short TTL, the
+// re-fetch returns the fresh set.
+function broadcastToolsChanged() {
+  const line = `${JSON.stringify({ jsonrpc: "2.0", method: "notifications/tools/list_changed" })}\n`;
+  for (const session of liveSessions) {
+    try {
+      session.write(line);
+    } catch {
+      /* dead peer — its close handler will drop it */
+    }
+  }
+}
+
 // ─── per-session workspace via the MCP `roots` capability ───────────────────
 // A resident daemon serves many projects from one process, so the workspace
 // cannot come from process cwd/env. Instead each session learns its project
@@ -112,6 +132,14 @@ function isResponse(msg) {
 // Route one parsed message: replies to our own requests resolve pending
 // callbacks; everything else is a client request/notification we handle.
 async function dispatchMessage(session, msg) {
+  // Out-of-band control line (sent by `helpers build/install/update` on a throwaway
+  // connection): rebroadcast tools/list_changed to every live session so connected
+  // agents refresh their tools without restarting. Not part of MCP — handled here
+  // and never forwarded to the tool dispatcher.
+  if (msg && msg.method === "$/helpers/reload") {
+    broadcastToolsChanged();
+    return;
+  }
   if (isResponse(msg)) {
     const cb = session && session.pending.get(msg.id);
     if (cb) {
@@ -245,7 +273,7 @@ async function handleRequest(request) {
       id,
       result: {
         protocolVersion: MCP_VERSION,
-        capabilities: { tools: {} },
+        capabilities: { tools: { listChanged: true } },
         serverInfo: { name: "Helpers", version: SERVER_VERSION },
       },
     });
@@ -381,6 +409,11 @@ function serveConnection(stream) {
     }
   };
   const session = makeSession(write);
+  // Track this session so build/install/update can broadcast tools/list_changed.
+  liveSessions.add(session);
+  const drop = () => liveSessions.delete(session);
+  stream.on("close", drop);
+  stream.on("error", drop);
   const lineReader = readline.createInterface({
     input: stream,
     crlfDelay: Infinity,

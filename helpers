@@ -29,8 +29,11 @@ const SHIM_SRC = path.join(REPO_DIR, "helpers-mcp.c");
 const SHIM_BIN = path.join(REPO_DIR, "helpers-mcp");
 // Native Rust git-cs-grade: crate dir, its release artifact, the installed
 // command, and the Node implementation used as a graceful fallback.
+// Windows cargo emits `.exe` binaries; every native artifact/command path must
+// account for that suffix or the loader/built-detection misses the binary.
+const EXE = process.platform === "win32" ? ".exe" : "";
 const CS_GRADE_CRATE = path.join(REPO_DIR, "cs-grade");
-const CS_GRADE_ARTIFACT = path.join(CS_GRADE_CRATE, "target", "release", "git-cs-grade");
+const CS_GRADE_ARTIFACT = path.join(CS_GRADE_CRATE, "target", "release", `git-cs-grade${EXE}`);
 const CS_GRADE_CMD = path.join(REPO_DIR, "git-cs-grade");
 const CS_GRADE_JS = path.join(REPO_DIR, "git-cs-grade.js");
 // Native Rust MCP tools (helpers-native): the crate dir, its release artifact, and
@@ -38,8 +41,12 @@ const CS_GRADE_JS = path.join(REPO_DIR, "git-cs-grade.js");
 // is NO Node fallback — these tools are Rust-only, so a missing/broken build is
 // a hard error the user must fix (install Rust, then `helpers build`).
 const HELPERS_NATIVE_CRATE = path.join(REPO_DIR, "native");
-const HELPERS_NATIVE_ARTIFACT = path.join(HELPERS_NATIVE_CRATE, "target", "release", "helpers-native");
-const HELPERS_NATIVE_CMD = path.join(REPO_DIR, "helpers-native");
+const HELPERS_NATIVE_ARTIFACT = path.join(HELPERS_NATIVE_CRATE, "target", "release", `helpers-native${EXE}`);
+// The installed binary the MCP daemon shells out to. HELPERS_NATIVE_BIN overrides
+// it (matching lib/mcp-native.js so the CLI and the server agree); otherwise it is
+// the `.exe`-aware repo-root path. Without this, Windows built-detection looked for
+// a suffix-less `helpers-native` and reported "not built" despite a working .exe.
+const HELPERS_NATIVE_CMD = process.env.HELPERS_NATIVE_BIN || path.join(REPO_DIR, `helpers-native${EXE}`);
 // Standalone git-* CLIs ported to Rust: symlinked to the one helpers-native binary,
 // which dispatches busybox-style on argv[0]. Keep in sync with gitcli::CLI_NAMES.
 const GITCLI_NAMES = [
@@ -374,25 +381,35 @@ function buildNative({ quiet } = {}) {
   } catch (e) {
     return fail(`could not install helpers-native: ${e.message}`, `Check write permissions on ${REPO_DIR}.`);
   }
-  // Symlink each ported git-* CLI to the helpers-native binary (busybox dispatch).
+  // The native MCP tools are the success criterion, so probe them (valid JSON,
+  // tool count > 0) BEFORE the optional git-* symlinks — that way a filesystem
+  // limitation on the symlinks (e.g. Windows requires elevation to create them)
+  // can never fail an otherwise-working install. A broken binary is still caught
+  // here at build time rather than on the agent's first tool call.
+  const probe = spawnSync(HELPERS_NATIVE_CMD, ["schemas"], { encoding: "utf8" });
+  let toolCount = 0;
+  try { toolCount = JSON.parse(probe.stdout).length; } catch {}
+  if (probe.status !== 0 || toolCount === 0) {
+    return fail("helpers-native built but did not report any tools.", "Run `" + HELPERS_NATIVE_CMD + " schemas` to see the error.");
+  }
+  // Best-effort: symlink each ported git-* CLI to the one binary (busybox-style
+  // dispatch on argv[0]). Non-fatal — these are standalone conveniences, not part
+  // of the MCP tool surface; on Windows symlinks need elevation, so a failure just
+  // means the git-* shortcuts are unavailable while the MCP tools work fine.
+  let linkFailures = 0;
   for (const name of GITCLI_NAMES) {
     const link = path.join(REPO_DIR, name);
     try {
       if (fs.existsSync(link) || fs.lstatSync(link, { throwIfNoEntry: false })) fs.rmSync(link, { force: true });
     } catch {}
     try {
-      fs.symlinkSync("helpers-native", link);
-    } catch (e) {
-      return fail(`could not symlink ${name} -> helpers-native: ${e.message}`, `Check write permissions on ${REPO_DIR}.`);
+      fs.symlinkSync(`helpers-native${EXE}`, link);
+    } catch {
+      linkFailures++;
     }
   }
-  // Sanity-check that the binary answers `schemas` with valid JSON, so a broken
-  // binary is caught at build time rather than when the agent first calls a tool.
-  const probe = spawnSync(HELPERS_NATIVE_CMD, ["schemas"], { encoding: "utf8" });
-  let toolCount = 0;
-  try { toolCount = JSON.parse(probe.stdout).length; } catch {}
-  if (probe.status !== 0 || toolCount === 0) {
-    return fail("helpers-native built but did not report any tools.", "Run `" + HELPERS_NATIVE_CMD + " schemas` to see the error.");
+  if (linkFailures > 0 && !quiet) {
+    console.log(dim(`      (${linkFailures}/${GITCLI_NAMES.length} git-* CLI shims not linked — optional; MCP tools unaffected)`));
   }
   if (!quiet) console.log(`  ${ok} compiled native MCP tools (helpers-native, Rust) — ${toolCount} tool(s), ~1ms startup`);
   return true;
@@ -433,6 +450,31 @@ function cmdDaemon(args) {
 // ---------------------------------------------------------------------------
 // install: Claude Code
 // ---------------------------------------------------------------------------
+// Tell any running warm daemon(s) that the tool set changed, so agents already
+// connected (this very session included) refresh their tools live — no restart.
+// Best-effort: pings every per-workspace daemon socket; the daemon rebroadcasts
+// notifications/tools/list_changed to its MCP clients, which re-fetch tools/list.
+function signalReload() {
+  const net = require("net");
+  const sockDir = path.join(HOME, ".cache", "helpers");
+  let socks;
+  try {
+    socks = fs.readdirSync(sockDir).filter((f) => f.startsWith("mcpd-") && f.endsWith(".sock"));
+  } catch {
+    return; // no daemon dir => nothing connected
+  }
+  for (const f of socks) {
+    try {
+      const c = net.connect(path.join(sockDir, f));
+      c.on("connect", () => {
+        c.write(`${JSON.stringify({ jsonrpc: "2.0", method: "$/helpers/reload" })}\n`);
+        c.end();
+      });
+      c.on("error", () => {}); // stale/closed socket — ignore
+    } catch {}
+  }
+}
+
 // Remove pre-rebrand (GSH / Git Shell Helpers) agent-config artifacts so an
 // upgraded install doesn't keep stale, conflicting instructions/skills/commands
 // next to the current Helpers ones.
@@ -560,7 +602,10 @@ function cmdInstall(args) {
   }
   // Ensure tools.json exists in a known-good state.
   if (!fs.existsSync(TOOLS_CONFIG_PATH)) writeConfig(readConfig());
-  console.log(green(bold("\nHelpers installed.")) + dim(" Run `helpers status` to verify."));
+  // Nudge any live daemon so already-connected agents pick up the new tools
+  // without a session restart.
+  signalReload();
+  console.log(green(bold("\nHelpers installed.")) + dim(" Run `helpers status` to verify.") + dim(" Connected agents refresh automatically."));
 }
 
 function cmdUninstall(args) {
@@ -841,6 +886,37 @@ function cmdDoctor() {
   };
   check("node available", true);
   check("MCP server file present", fs.existsSync(SERVER_PATH), `expected at ${SERVER_PATH}`);
+
+  // Toolchain preflight — surface missing build prerequisites up front with
+  // copy-pasteable, per-OS install commands, instead of discovering them one
+  // failed build at a time.
+  const isWin = process.platform === "win32";
+  const cargo = findCargo();
+  check(
+    "Rust toolchain (cargo) — REQUIRED for the native tools",
+    Boolean(cargo),
+    isWin
+      ? "Install Rust: https://rustup.rs (winget install Rustlang.Rustup), then `helpers build`."
+      : "Install Rust: https://rustup.rs (or: brew install rust), then `helpers build`.",
+  );
+  check(
+    "C compiler (cc/clang/gcc) — optional fast launcher",
+    Boolean(findCC()),
+    isWin
+      ? "Install MinGW-w64 (e.g. WinLibs) and add its bin/ to PATH. Without it the server still runs via node (cold start)."
+      : "Install Xcode CLT (xcode-select --install) or gcc. Without it the server still runs via node (cold start).",
+  );
+  if (isWin && cargo) {
+    // The GNU Rust host links windows-sys via dlltool; the MSVC host does not.
+    const host = (spawnSync("rustc", ["-vV"], { encoding: "utf8" }).stdout || "");
+    if (/host:\s*\S*gnu/i.test(host)) {
+      check(
+        "dlltool (MinGW-w64) — required for the GNU Rust host",
+        has("dlltool"),
+        "Install MinGW-w64 (WinLibs) and add its bin/ to PATH, or switch host: rustup default stable-x86_64-pc-windows-msvc",
+      );
+    }
+  }
   // doctor is a health probe: actually boot the MCP server here (the fast native
   // path that `helpers status` uses would not prove the server starts).
   const all = listAllToolsViaServer();
@@ -1063,7 +1139,7 @@ function main() {
     case "tools": return cmdTool(rest);
     case "doctor": return cmdDoctor();
     case "daemon": return cmdDaemon(rest);
-    case "build": buildShim(); buildCsGrade(); buildNative(); return;
+    case "build": buildShim(); buildCsGrade(); buildNative(); signalReload(); return;
     case "update": return cmdUpdate(rest);
     case "grade": return cmdGrade(rest);
     case "index": return cmdIndex(rest);
