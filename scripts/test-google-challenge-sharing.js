@@ -230,17 +230,74 @@ async function main() {
         !first.challenge && !second.challenge && !third.challenge,
         "Shared CAPTCHA resolution succeeds for all waiting callers",
       );
+      // The query that actually ran (alpha) renders results, and we no longer
+      // discard them — that discard was what forced a headless re-fetch that hit
+      // the CAPTCHA again. Concurrent waiters (beta/gamma) receive the same
+      // resolution tagged with alpha's resolvedUrl, so they can detect the
+      // mismatch and re-run their own query through the now-verified browser
+      // instead of mistaking alpha's results for their own.
+      const alphaUrl = "https://www.google.com/search?q=alpha";
       assert(
-        first.results.length === 0 &&
-          second.results.length === 0 &&
-          third.results.length === 0,
-        "Shared CAPTCHA resolution returns retry-only metadata, not cross-query results",
+        first.results.length > 0 &&
+          second.results.length > 0 &&
+          third.results.length > 0,
+        "Shared CAPTCHA resolution returns the solved query's results (no longer discarded)",
+      );
+      assert(
+        first.resolvedUrl === alphaUrl &&
+          second.resolvedUrl === alphaUrl &&
+          third.resolvedUrl === alphaUrl,
+        "Shared CAPTCHA resolution tags results with resolvedUrl so waiters detect cross-query reuse",
       );
       const cookiePath = path.join(tempDir, "_captcha_cookies.json");
       const cookieText = await fs.readFile(cookiePath, "utf8");
       assert(
         cookieText.includes("captcha-cleared"),
         "Interactive CAPTCHA cookies are persisted for reuse",
+      );
+    });
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+
+  // 1b. Once a CAPTCHA is solved, the verified browser is reused for later
+  //     searches — the user is prompted at most once, not per query.
+  {
+    const tempDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "helpers-google-reuse-"),
+    );
+    const fake = makeFakePuppeteer();
+    await withMockedPuppeteer(fake.puppeteer, async (createGoogleHeadless) => {
+      const google = createGoogleHeadless(buildDeps(tempDir));
+
+      // No verified session yet → reuse path is a no-op.
+      const beforeSolve = await google.searchViaVerifiedChrome(
+        "https://www.google.com/search?q=early",
+      );
+      assert(
+        beforeSolve === null,
+        "searchViaVerifiedChrome is a no-op before any CAPTCHA is solved",
+      );
+
+      // Solve once interactively (one visible browser launch).
+      await google.resolveGoogleChallengeViaLiveChrome(
+        "https://www.google.com/search?q=first",
+      );
+      const launchesAfterSolve = fake.state.interactiveLaunches;
+
+      // Subsequent searches reuse the verified browser — no new launch, no prompt.
+      const reuseUrl = "https://www.google.com/search?q=second";
+      const reused = await google.searchViaVerifiedChrome(reuseUrl);
+      assert(
+        reused && !reused.challenge && reused.results.length > 0,
+        "Verified browser reuse returns results without re-prompting",
+      );
+      assert(
+        reused.resolvedUrl === reuseUrl,
+        "Verified browser reuse runs the caller's own query",
+      );
+      assert(
+        fake.state.interactiveLaunches === launchesAfterSolve,
+        "Verified browser reuse launches no additional interactive browser",
       );
     });
     await fs.rm(tempDir, { recursive: true, force: true });
