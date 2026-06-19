@@ -433,6 +433,33 @@ function cmdDaemon(args) {
 // ---------------------------------------------------------------------------
 // install: Claude Code
 // ---------------------------------------------------------------------------
+// Remove pre-rebrand (GSH / Git Shell Helpers) agent-config artifacts so an
+// upgraded install doesn't keep stale, conflicting instructions/skills/commands
+// next to the current Helpers ones.
+function pruneLegacyAgentConfig() {
+  const legacy = [
+    path.join(CLAUDE_DIR, "commands", "gsh.md"),
+    path.join(CLAUDE_DIR, "skills", "gsh"),
+    path.join(COPILOT_DIR, "instructions", "gsh-routing-index.instructions.md"),
+    path.join(COPILOT_DIR, "instructions", "gsh-mcp-tools.instructions.md"),
+    path.join(COPILOT_DIR, "skills", "gsh"),
+  ];
+  let removed = 0;
+  for (const p of legacy) {
+    try {
+      // lstat (not exists) so dangling symlinks from old installs are caught;
+      // unlink removes a symlink without following it (rmSync+force would treat
+      // a broken link's ENOENT as "already gone" and leave it behind).
+      const st = fs.lstatSync(p, { throwIfNoEntry: false });
+      if (!st) continue;
+      if (st.isDirectory()) fs.rmSync(p, { recursive: true, force: true });
+      else fs.unlinkSync(p);
+      removed++;
+    } catch {}
+  }
+  if (removed) console.log(dim(`  Removed ${removed} legacy GSH config file(s).`));
+}
+
 function installClaude(force) {
   console.log(bold("\n→ Installing Helpers for Claude Code"));
 
@@ -499,9 +526,9 @@ function installCopilot(force) {
     if (!fs.existsSync(src)) continue;
     const dest = path.join(COPILOT_DIR, kind);
     for (const entry of fs.readdirSync(src)) {
-      const target = path.join(dest, entry);
-      if (fs.existsSync(target) && !force) continue;
-      copyTree(path.join(src, entry), target);
+      // Always refresh the bundled guidance so instruction/skill updates land on
+      // reinstall (matches the Claude side, which overwrites).
+      copyTree(path.join(src, entry), path.join(dest, entry));
     }
     console.log(`  ${ok} ${kind} installed to ~/.copilot/${kind}/`);
   }
@@ -525,6 +552,7 @@ function cmdInstall(args) {
     console.log(dim(`Detected: ${targets.join(", ")}`));
   } else targets = [agent];
 
+  pruneLegacyAgentConfig();
   for (const t of targets) {
     if (t === "claude") installClaude(force);
     else if (t === "copilot") installCopilot(force);

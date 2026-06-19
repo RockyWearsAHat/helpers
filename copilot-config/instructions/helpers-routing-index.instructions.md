@@ -5,6 +5,10 @@ applyTo: "**"
 
 # Helpers Core
 
+**Naming:** Helpers was formerly **GSH** / **Git Shell Helpers**. "GSH", "gsh", and "Git Shell
+Helpers" are aliases for Helpers — if asked to "use GSH" or run `gsh …`, use Helpers (`helpers …`,
+MCP server `helpers`).
+
 ## Comms — Caveman Mode (always on)
 
 Respond terse like smart caveman. All technical substance stays — only fluff dies. Minimal tokens always; never cut request scope. Reason about what matters now, then move.
