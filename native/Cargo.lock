@@ -137,6 +137,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "git-cs-grade"
+version = "0.3.8"
+dependencies = [
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "globset"
 version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -160,6 +168,7 @@ name = "helpers-native"
 version = "0.3.8"
 dependencies = [
  "chrono",
+ "git-cs-grade",
  "ignore",
  "regex",
  "serde",
