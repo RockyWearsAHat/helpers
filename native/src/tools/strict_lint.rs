@@ -13,8 +13,10 @@
 mod parsers;
 mod runners;
 
+#[cfg(unix)]
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -299,7 +301,21 @@ enum Ipc {
     },
 }
 
+/// VS Code's diagnostics bridge is a unix-domain socket, so on non-Unix targets
+/// (e.g. Windows) there is no IPC path: return `None` so `run` cleanly falls
+/// back to the standalone CLI linters. This stub also keeps the crate free of
+/// any `std::os::unix` reference on those targets.
+#[cfg(not(unix))]
+fn try_ipc(_args: &Value) -> Option<Ipc> {
+    None
+}
+
 /// Try VS Code's diagnostics over its unix socket; `None` if unreachable.
+///
+/// Unix-only: it connects to the advertised `UnixStream`. The non-Unix build
+/// uses the [`#[cfg(not(unix))]`](try_ipc) stub above, which always returns
+/// `None`.
+#[cfg(unix)]
 fn try_ipc(args: &Value) -> Option<Ipc> {
     let info = std::fs::read_to_string(ipc_info_path()).ok()?;
     let socket_path = serde_json::from_str::<Value>(&info)
