@@ -15,6 +15,7 @@ use std::io::{BufRead, Write};
 use serde_json::{json, Value};
 
 use crate::registry;
+use crate::tools::web;
 
 /// Run the MCP server loop until stdin closes (the client disconnected).
 pub fn run() -> std::process::ExitCode {
@@ -57,12 +58,25 @@ pub fn run() -> std::process::ExitCode {
             }
             // Notifications carry no id and require no response.
             m if m.starts_with("notifications/") => {}
-            "tools/list" => send_result(&mut out, id, json!({ "tools": registry::schemas() })),
+            "tools/list" => {
+                // Native registry tools, plus the web tools — which live only in
+                // this long-lived server (their human-verified browser reuse needs
+                // a persistent process, unlike the per-call `helpers-native call`).
+                let mut tools = registry::schemas();
+                tools.push(web::schema_search());
+                tools.push(web::schema_scrape());
+                send_result(&mut out, id, json!({ "tools": tools }));
+            }
             "tools/call" => {
                 let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
                 let name = params.get("name").and_then(Value::as_str).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-                match registry::dispatch(name, &args) {
+                let result = match name {
+                    "search_web" => Some(web::run_search(&args)),
+                    "scrape_webpage" => Some(web::run_scrape(&args)),
+                    _ => registry::dispatch(name, &args),
+                };
+                match result {
                     Some(Ok(content)) => send_result(&mut out, id, json!({ "content": content })),
                     Some(Err(e)) => send_error(&mut out, id, -32603, &e),
                     None => send_error(&mut out, id, -32601, &format!("unknown tool: {name}")),
