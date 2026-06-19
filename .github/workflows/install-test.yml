@@ -77,6 +77,11 @@ jobs:
           echo "cargo on PATH after hiding: $(command -v cargo || echo none)"
 
       - name: Build, install, and verify (${{ matrix.method }})
+        env:
+          # Authenticates the CLI's release-API lookup so the prebuilt fallback
+          # isn't rate-limited on shared CI IPs (matters for the pre-release version
+          # under test, whose exact tag isn't published yet).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           NODE="$(command -v node)"
@@ -106,11 +111,11 @@ jobs:
             deb)
               bash scripts/build-deb.sh
               sudo dpkg -i "dist/github-shell-helpers_${V}_all.deb" || sudo apt-get -f install -y
-              sudo NODE_BIN="$NODE" PATH="$PATH" bash scripts/verify-install.sh /usr/bin/helpers
+              sudo NODE_BIN="$NODE" PATH="$PATH" GITHUB_TOKEN="$GITHUB_TOKEN" bash scripts/verify-install.sh /usr/bin/helpers
               ;;
             pkg)
               bash scripts/build-pkg.sh
               sudo installer -pkg "dist/github-shell-helpers-${V}.pkg" -target /
-              sudo NODE_BIN="$NODE" PATH="$PATH" bash scripts/verify-install.sh /usr/local/bin/helpers
+              sudo NODE_BIN="$NODE" PATH="$PATH" GITHUB_TOKEN="$GITHUB_TOKEN" bash scripts/verify-install.sh /usr/local/bin/helpers
               ;;
           esac
