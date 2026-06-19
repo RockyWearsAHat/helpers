@@ -27,8 +27,14 @@ for tool in cargo rustc cc gcc clang; do
 done
 
 echo "[verify-install] provisioning via: $helpers_cli"
+# Capture without letting `set -e` abort on a non-zero `helpers build` — we want
+# to print its output and give a clear diagnosis either way.
+set +e
 build_out="$("$node_bin" "$helpers_cli" build 2>&1)"
-echo "$build_out"
+build_rc=$?
+set -e
+printf '%s\n' "$build_out"
+echo "[verify-install] helpers build exit code: $build_rc"
 
 if ! printf '%s\n' "$build_out" | grep -q "installed prebuilt"; then
 	echo "[verify-install] FAIL: native tools were not provisioned from a prebuilt download." >&2
