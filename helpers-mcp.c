@@ -21,7 +21,22 @@
  *   NODE_BIN    node executable           (env HELPERS_NODE_BIN)
  *   DAEMON_JS   helpers-serverd.js (env HELPERS_DAEMON_JS)
  *   STDIO_JS    helpers-server     (env HELPERS_STDIO_JS)
+ *
+ * Platform split:
+ *   The fast-path daemon design relies on POSIX unix-domain sockets + poll(),
+ *   which do not exist (in this form) on Windows. The entire daemon/proxy
+ *   implementation below is therefore compiled ONLY on non-Windows platforms
+ *   (#if !defined(_WIN32)). On Windows (#ifdef _WIN32) this shim is OPTIONAL:
+ *   it compiles to a thin stub whose main() simply execv's
+ *   `node <STDIO_JS>` — the same documented Node-stdio fallback the POSIX path
+ *   uses when the daemon can't be reached. It resolves the server path from the
+ *   same env vars the POSIX code uses (HELPERS_NODE_BIN / HELPERS_STDIO_JS).
+ *   This keeps `helpers build` from ever aborting because the C shim failed to
+ *   compile under MinGW; the Node MCP server still works without the daemon.
  */
+
+#if !defined(_WIN32)
+/* ===== POSIX implementation (unix sockets + poll daemon proxy) ===== */
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -246,3 +261,52 @@ int main(void) {
     exec_stdio_fallback(node, stdio_js);
     return 1;
 }
+
+#else /* defined(_WIN32) */
+/* ===== Windows stub: the daemon fast-path is unsupported here. =====
+ *
+ * The unix-domain-socket + poll() daemon design does not apply on Windows, so
+ * this shim degrades to the documented Node-stdio fallback: exec
+ * `node <STDIO_JS>` directly. The Node MCP server is fully functional without
+ * the C daemon, so this is never worse than launching node yourself. We resolve
+ * the node binary and server script from the SAME env vars / -D defines the
+ * POSIX path uses: HELPERS_NODE_BIN (NODE_BIN) and HELPERS_STDIO_JS (STDIO_JS).
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <process.h>   /* _execv / _execvp */
+
+#ifndef NODE_BIN
+#define NODE_BIN "node"
+#endif
+#ifndef STDIO_JS
+#define STDIO_JS ""
+#endif
+
+/* Return env value if set and non-empty, else the compile-time fallback. */
+static const char *envdef(const char *name, const char *fallback) {
+    const char *v = getenv(name);
+    return (v && *v) ? v : fallback;
+}
+
+int main(void) {
+    const char *node = envdef("HELPERS_NODE_BIN", NODE_BIN);
+    const char *stdio_js = envdef("HELPERS_STDIO_JS", STDIO_JS);
+
+    if (!stdio_js || !*stdio_js) {
+        fprintf(stderr,
+                "helpers-mcp: no stdio server configured (set HELPERS_STDIO_JS)\n");
+        return 1;
+    }
+
+    const char *argv[] = {node, stdio_js, NULL};
+    _execv(node, argv);                 /* baked/abs path */
+    const char *argv2[] = {"node", stdio_js, NULL};
+    _execvp("node", argv2);             /* PATH fallback */
+    fprintf(stderr, "helpers-mcp: failed to exec node\n");
+    return 127;
+}
+
+#endif /* _WIN32 */
