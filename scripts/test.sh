@@ -22,6 +22,7 @@ checks=(
 	"bash -n scripts/community-cache-pull.sh"
 	"bash -n scripts/community-research-submit.sh"
 	"bash -n scripts/build-native-binaries.sh"
+	"bash -n scripts/verify-install.sh"
 	"bash -n scripts/build-pkg.sh"
 	"bash -n scripts/pkg/postinstall"
 	"bash -n scripts/pkg/core-scripts/postinstall"

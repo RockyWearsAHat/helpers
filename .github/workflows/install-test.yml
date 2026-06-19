@@ -1,0 +1,115 @@
+name: Install test
+
+# Verifies that every install/packaging method lands WORKING native tools on a
+# clean machine WITHOUT any build toolchain — i.e. by downloading the prebuilt
+# helpers-native binary. Each job hides cargo/rustc/cc first, so a green run
+# proves no external compilation was required. The heavy tools (helpers-native,
+# which hosts the MCP tools + git-cs-grade) carry no Node dependency and are
+# checked standalone; Node is only the runtime for the CLI and the MCP server.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Helpers-Installer.sh"
+      - "install-helpers"
+      - "helpers"
+      - "lib/mcp-native.js"
+      - "package.json"
+      - "scripts/build-dist.sh"
+      - "scripts/build-deb.sh"
+      - "scripts/build-pkg.sh"
+      - "scripts/build-npm-package.sh"
+      - "scripts/build-native-binaries.sh"
+      - "scripts/package-manifest.sh"
+      - "scripts/verify-install.sh"
+      - ".github/workflows/install-test.yml"
+  # Weekly, to catch drift between the installers and the published release.
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-test:
+    name: ${{ matrix.method }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { method: installer, os: ubuntu-latest }
+          - { method: installer, os: macos-latest }
+          - { method: tarball, os: ubuntu-latest }
+          - { method: tarball, os: macos-latest }
+          - { method: npm, os: ubuntu-latest }
+          - { method: npm, os: macos-latest }
+          - { method: npm, os: windows-latest }
+          - { method: deb, os: ubuntu-latest }
+          - { method: pkg, os: macos-latest }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Hide build toolchain (prove no external build is needed)
+        run: |
+          for t in cargo rustc cc gcc clang; do
+            p="$(command -v "$t" 2>/dev/null || true)"
+            if [ -n "$p" ] && [ -f "$p" ]; then
+              sudo mv "$p" "$p.hidden" 2>/dev/null || mv "$p" "$p.hidden" 2>/dev/null || true
+            fi
+          done
+          echo "cargo on PATH after hiding: $(command -v cargo || echo none)"
+
+      - name: Build, install, and verify (${{ matrix.method }})
+        run: |
+          set -euo pipefail
+          NODE="$(command -v node)"
+          V="$(tr -d '\n' < VERSION | xargs)"
+          verify() { NODE_BIN="$NODE" bash scripts/verify-install.sh "$1"; }
+          # Resolve a (possibly symlinked) CLI to its real path so verify-install
+          # finds helpers-native in the package dir, not the bin-symlink dir.
+          realpath_node() { node -e "console.log(require('fs').realpathSync(process.argv[1]))" "$1"; }
+
+          case "${{ matrix.method }}" in
+            installer)
+              # Headline curl | bash path. </dev/null keeps its prompts non-interactive.
+              bash Helpers-Installer.sh </dev/null || true
+              verify "$(realpath_node "$(command -v helpers)")"
+              ;;
+            tarball)
+              ./scripts/build-dist.sh
+              mkdir -p /tmp/tb && tar -xzf "dist/github-shell-helpers-${V}.tar.gz" -C /tmp/tb
+              verify "$(find /tmp/tb -name helpers -type f | head -1)"
+              ;;
+            npm)
+              ./scripts/build-npm-package.sh
+              npm install -g "dist/github-shell-helpers-${V}.tgz"
+              verify "$(realpath_node "$(command -v helpers)")"
+              ;;
+            deb)
+              ./scripts/build-deb.sh
+              sudo dpkg -i "dist/github-shell-helpers_${V}_all.deb" || sudo apt-get -f install -y
+              sudo NODE_BIN="$NODE" PATH="$PATH" bash scripts/verify-install.sh /usr/bin/helpers
+              ;;
+            pkg)
+              ./scripts/build-pkg.sh
+              sudo installer -pkg "dist/github-shell-helpers-${V}.pkg" -target /
+              sudo NODE_BIN="$NODE" PATH="$PATH" bash scripts/verify-install.sh /usr/local/bin/helpers
+              ;;
+          esac
