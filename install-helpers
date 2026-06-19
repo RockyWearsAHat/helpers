@@ -941,7 +941,6 @@ main() {
   install_script "helpers-server"
   install_script "helpers-server.js"
   install_script "helpers-serverd.js"
-  install_script "git-cs-grade.js"
   install_script "helpers"
 
   # Fast C shim source — compiled by `helpers install` (helpers build) into ~/bin/helpers-mcp.
@@ -949,9 +948,9 @@ main() {
     cp "${SCRIPT_DIR}/helpers-mcp.c" "${BIN_DIR}/helpers-mcp.c"
   fi
 
-  # Native git-cs-grade source (Rust crate) — compiled by `helpers build` into the
-  # fast ~/bin/git-cs-grade binary, falling back to git-cs-grade.js when there
-  # is no Rust toolchain. Copy sources only; never the build target/ artifacts.
+  # cs-grade source (Rust lib) — the native/ crate depends on it, and git-cs-grade
+  # is folded into the one helpers-native binary. Needed only for `--from-source`
+  # builds. Copy sources only; never the build target/ artifacts.
   if [ -d "${SCRIPT_DIR}/cs-grade" ] && [ "${SCRIPT_DIR}/cs-grade" != "${BIN_DIR}/cs-grade" ]; then
     mkdir -p "${BIN_DIR}/cs-grade"
     cp "${SCRIPT_DIR}/cs-grade/Cargo.toml" "${BIN_DIR}/cs-grade/" 2>/dev/null || true
@@ -959,10 +958,10 @@ main() {
     rm -rf "${BIN_DIR}/cs-grade/src" && cp -R "${SCRIPT_DIR}/cs-grade/src" "${BIN_DIR}/cs-grade/src"
   fi
 
-  # Compile the native helpers now (helpers-mcp + git-cs-grade). Each degrades to a
-  # working Node implementation with guidance if its toolchain is missing.
+  # Provision the native tools now: `helpers build` downloads the prebuilt binary
+  # for this platform (no toolchain), or builds from source as a fallback.
   if [ -x "${BIN_DIR}/helpers" ]; then
-    "${BIN_DIR}/helpers" build || echo "[install-helpers] 'helpers build' reported an issue; Node fallbacks remain in place."
+    "${BIN_DIR}/helpers" build || echo "[install-helpers] 'helpers build' reported an issue — run 'helpers doctor'."
   fi
 
   # Agent config bundle (consumed by `helpers install`). Keep it next to the bins so

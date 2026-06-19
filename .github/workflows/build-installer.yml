@@ -269,9 +269,52 @@ jobs:
             security delete-keychain "$KEYCHAIN_PATH" || true
           fi
 
+  # Cross-build the one required Rust binary (helpers-native — which also hosts
+  # git-cs-grade and the git-* CLIs) for every supported platform, so installs
+  # download a prebuilt and need NO Rust toolchain. Runs on PRs too, so the
+  # cross-builds are validated before merge. The optional C launcher is NOT
+  # prebuilt (it bakes install-specific paths); it is always built locally.
+  build-natives:
+    name: build-natives (${{ matrix.tag }})
+    needs: [version-guard]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tag: macos-universal, os: macos-latest }
+          - { tag: linux-x86_64, os: ubuntu-latest }
+          - { tag: linux-aarch64, os: ubuntu-latest, apt: gcc-aarch64-linux-gnu }
+          - { tag: linux-x86_64-musl, os: ubuntu-latest, apt: musl-tools }
+          - { tag: windows-x86_64, os: ubuntu-latest, apt: gcc-mingw-w64-x86-64 }
+          - { tag: windows-arm64, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cross toolchain (Linux targets)
+        if: matrix.apt != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.apt }}
+
+      - name: Build prebuilt helpers-native (${{ matrix.tag }})
+        run: bash scripts/build-native-binaries.sh ${{ matrix.tag }}
+
+      - name: Upload prebuilt native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.tag }}
+          path: dist/helpers-native-${{ matrix.tag }}.tar.gz
+          if-no-files-found: error
+
   publish-release:
     runs-on: ubuntu-latest
-    needs: [build-installer, build-macos-release]
+    needs: [build-installer, build-macos-release, build-natives]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 20
     permissions:
@@ -310,6 +353,20 @@ jobs:
           name: github-shell-helpers-macos
           path: release-assets
 
+      - name: Download prebuilt native binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Add prebuilt binaries to checksums
+        run: |
+          cd release-assets
+          for f in helpers-native-*.tar.gz; do
+            [ -f "$f" ] && sha256sum "$f" >> "github-shell-helpers-${{ steps.read_version.outputs.version }}-checksums.txt"
+          done
+
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -330,6 +387,7 @@ jobs:
             release-assets/aur/PKGBUILD
             release-assets/aur/.SRCINFO
             release-assets/helpers-${{ steps.read_version.outputs.version }}.vsix
+            release-assets/helpers-native-*.tar.gz
 
       - name: Publish npm package
         if: env.ENABLE_NPM_PUBLISH == 'true'

@@ -12,6 +12,7 @@ use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 
 pub mod checkpoint;
+pub mod cs_grade;
 pub mod fucked_push;
 pub mod get;
 pub mod initialize;
@@ -32,6 +33,7 @@ pub const CLI_NAMES: &[&str] = &[
     "git-upload",
     "git-checkpoint",
     "git-help-i-pushed-an-env",
+    "git-cs-grade",
 ];
 
 /// Returns `true` when `basename` names one of the ported CLIs.
@@ -52,6 +54,7 @@ pub fn dispatch(name: &str, args: &[String]) -> ExitCode {
         "git-upload" => upload::run(args),
         "git-checkpoint" => checkpoint::run(args),
         "git-help-i-pushed-an-env" => pushed_env::run(args),
+        "git-cs-grade" => cs_grade::run(args),
         other => {
             eprintln!("helpers-native gitcli: unknown CLI: {other}");
             ExitCode::from(2)
