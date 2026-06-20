@@ -211,6 +211,20 @@ install_source_archive() {
 # (no toolchain needed), or building from source as a fallback; it also builds the
 # fast C launcher locally. `helpers install` registers the MCP server and skills
 # with any detected agent.
+# Node-free primary install: fetch the shared bootstrap (scripts/fetch-prebuilt.sh)
+# and run it to download the prebuilt binary, symlink the CLIs, and register. Keeps
+# the curl|bash installer self-contained (the bootstrap is pulled from raw). Returns
+# non-zero if there's no prebuilt for this platform (caller falls back to source).
+fetch_and_register_prebuilt() {
+  local version="$1"
+  local boot; boot="$(mktemp "${TMPDIR:-/tmp}/helpers-boot.XXXXXX")"
+  if ! curl -fsSL -o "$boot" "$REPO_RAW_BASE/scripts/fetch-prebuilt.sh" 2>/dev/null; then
+    rm -f "$boot"; return 1
+  fi
+  if bash "$boot" "$BIN_DIR" "$version" --register; then rm -f "$boot"; return 0; fi
+  rm -f "$boot"; return 1
+}
+
 build_and_register() {
   if ! command -v node >/dev/null 2>&1; then
     echo "[Helpers-Installer] Node.js not found — cannot provision native tools or register the MCP server." >&2
@@ -551,18 +565,19 @@ install_all() {
   local helpers_version=""
   helpers_version="$(curl -fsSL "$REPO_RAW_BASE/VERSION" 2>/dev/null | tr -d '\n' || echo "")"
 
-  if [ -n "$helpers_version" ] && install_release_archive "$helpers_version"; then
+  # Primary path: download the prebuilt helpers-native binary for THIS platform,
+  # symlink the helpers/git-* CLIs to it, and register — entirely Node-free, no
+  # source, no toolchain (the binary embeds its agent config).
+  if fetch_and_register_prebuilt "$helpers_version"; then
     :
-  elif install_source_archive; then
-    :
+  # Fallback for platforms without a prebuilt: stage the source tree and build.
+  elif { [ -n "$helpers_version" ] && install_release_archive "$helpers_version"; } || install_source_archive; then
+    echo "[Helpers-Installer] No prebuilt for this platform — using the source tree (needs Rust)."
+    build_and_register
   else
-    echo "[Helpers-Installer] ERROR: failed to install packaged release files from both release and source archives." >&2
+    echo "[Helpers-Installer] ERROR: could not install from prebuilt binary or source archives." >&2
     exit 1
   fi
-
-  # Build the native binaries and register the MCP server now that the full tree
-  # (helpers CLI + crate sources) is staged.
-  build_and_register
 
   configure_community_cache
 
