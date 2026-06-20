@@ -70,6 +70,23 @@ sign your name to. Whenever you touch code:
 - `helpers grade` gives the rubric grade and gap-to-A+ checklist; `cs_lint` gives the exact
   lines to fix. Use both: grade to know where you stand, `cs_lint` to drive it to clean.
 
+### Engineering skills (Matt Pocock — `mattpocock/skills`)
+
+"Skills for real engineers — not vibe coding." Reach for these practices; they are the
+discipline that keeps AI from shipping slop:
+
+- **Align before building.** Grill the request until every branch is resolved (`grill-me`
+  / `grill-with-docs`) — most failures are misalignment, not bad code.
+- **Build a shared language.** Keep a `CONTEXT.md` glossary; name variables, functions, and
+  files from it. Concise domain terms make the codebase navigable and cost fewer tokens —
+  this is how you *reserve context*.
+- **Trust feedback loops.** Red-green-refactor TDD (`tdd`): failing test first, then make it
+  pass. For hard bugs, a disciplined reproduce → minimise → hypothesise → instrument → fix →
+  regression-test loop (`diagnosing-bugs`).
+- **Design deep modules** (Ousterhout): a lot of behaviour behind a small interface, at a
+  clean seam, testable through that interface. Agents accelerate entropy — periodically
+  rescue the codebase from becoming a ball of mud (`improve-codebase-architecture`).
+
 ## Control surface
 
 - `helpers status` / `helpers doctor` — what's installed and healthy.
