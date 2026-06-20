@@ -352,6 +352,17 @@ type CategoryFn = fn(&Signals) -> Category;
 /// (display name, weight, scorer) tuples per course; weights sum to 100.
 fn rubric_for(course: &str) -> Vec<(&'static str, i64, CategoryFn)> {
     match course {
+        // The full suite — every category from both courses, scored every time
+        // (no course auto-detection). Weights sum to 100.
+        "full" | "all" => vec![
+            ("Object-oriented design & structure", 20, category_design_ood),
+            ("Data structures & complexity", 15, category_data_structures),
+            ("Tests & coverage", 20, category_tests),
+            ("Documentation & Javadoc", 15, category_docs),
+            ("Code style & cleanliness", 10, category_style),
+            ("Correctness & build", 15, category_build),
+            ("Abstraction & encapsulation", 5, category_abstraction),
+        ],
         "cs3500" => vec![
             ("Object-oriented design", 25, category_design_ood),
             ("Tests & coverage", 20, category_tests),
