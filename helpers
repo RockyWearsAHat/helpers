@@ -148,7 +148,10 @@ function listAllToolsViaServer() {
     "\n" +
     JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) +
     "\n";
-  const res = spawnSync(process.execPath, [SERVER_PATH], {
+  // Boot the actually-registered MCP server (native `helpers-native mcp` when
+  // available, else the Node server) so doctor verifies what agents really run.
+  const { cmd, args } = mcpLaunch();
+  const res = spawnSync(cmd, args, {
     input: req,
     encoding: "utf8",
     timeout: 20000,
@@ -280,6 +283,14 @@ function buildShim({ quiet } = {}) {
 
 // The command+args to register with an agent for the MCP server.
 function mcpLaunch() {
+  // Node-free MCP server: the native binary speaks MCP over stdio directly
+  // (`helpers-native mcp`) — no Node runtime, no warm daemon, ~1ms start. It
+  // serves the native tools plus the Rust search_web/scrape_webpage. Falls back
+  // to the Node server (C shim / direct node) only if the native binary is
+  // missing (e.g. provisioning failed).
+  if (fs.existsSync(HELPERS_NATIVE_CMD)) {
+    return { cmd: HELPERS_NATIVE_CMD, args: ["mcp"] };
+  }
   if (fs.existsSync(SHIM_BIN)) return { cmd: SHIM_BIN, args: [] };
   return { cmd: process.execPath, args: [SERVER_PATH] };
 }
