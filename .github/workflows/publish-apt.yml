@@ -1,0 +1,62 @@
+name: Publish APT repo
+
+# Builds a (signed) Debian/Ubuntu APT repository from the release .deb and
+# publishes it to the gh-pages branch. Enable by setting the repo variable
+# ENABLE_APT_PUBLISH=true and (to sign) the secret APT_GPG_PRIVATE_KEY, then
+# turn on GitHub Pages → "Deploy from branch" → gh-pages.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apt:
+    if: vars.ENABLE_APT_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tooling
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils
+
+      - name: Read VERSION
+        id: v
+        run: echo "version=$(tr -d '\n' < VERSION | xargs)" >> "$GITHUB_OUTPUT"
+
+      - name: Download .deb from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "v${{ steps.v.outputs.version }}" --pattern '*_all.deb' --dir deb
+
+      - name: Build APT repository
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          deb="$(ls deb/*_all.deb | head -1)"
+          bash scripts/build-apt-repo.sh "$deb" public
+          cat > public/index.html <<'HTML'
+          <!doctype html><meta charset=utf-8><title>Helpers APT repo</title>
+          <h1>Helpers APT repository</h1>
+          <pre>sudo curl -fsSL https://rockywearsahat.github.io/helpers/helpers-archive-keyring.gpg \
+            -o /usr/share/keyrings/helpers-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/helpers-archive-keyring.gpg] https://rockywearsahat.github.io/helpers stable main" \
+            | sudo tee /etc/apt/sources.list.d/helpers.list
+          sudo apt update && sudo apt install helpers</pre>
+          HTML
+          touch public/.nojekyll
+
+      - name: Publish to gh-pages
+        run: |
+          cd public
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "apt repo v${{ steps.v.outputs.version }}"
+          git branch -M gh-pages
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages

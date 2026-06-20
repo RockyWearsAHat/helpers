@@ -35,8 +35,13 @@ The one-line installer above is the recommended path. Alternatives:
 | Method | How |
 | --- | --- |
 | Script installer (any OS) | `curl -fsSL …/Helpers-Installer.sh \| bash` |
+| npm | `npm i -g @rockywearsahat/helpers` |
+| Homebrew (macOS) | `brew install rockywearsahat/helpers/helpers` |
+| Scoop (Windows) | `scoop bucket add helpers …; scoop install helpers` |
+| Winget (Windows) | `winget install RockyWearsAHat.Helpers` |
+| apt (Debian/Ubuntu) | add the [apt repo](https://rockywearsahat.github.io/helpers), then `apt install helpers` |
 | Direct binary | download `helpers-native-<platform>.tar.gz` from [Releases](https://github.com/RockyWearsAHat/helpers/releases), extract, symlink `helpers` → `helpers-native`, run `helpers install` |
-| macOS `.pkg` / Debian `.deb` / npm | see [Releases](https://github.com/RockyWearsAHat/helpers/releases) |
+| macOS `.pkg` / Debian `.deb` | see [Releases](https://github.com/RockyWearsAHat/helpers/releases) |
 | From source | clone, then `helpers build --from-source` (needs Rust) |
 
 After installing, run `helpers install` once to register with your agent (the

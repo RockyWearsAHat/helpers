@@ -68,3 +68,18 @@ esac
 
 tar -czf "$OUT/helpers-native-$tag.tar.gz" -C "$stage" .
 echo "built $OUT/helpers-native-$tag.tar.gz"
+
+# Windows package managers (Scoop, Winget) consume a .zip, not a .tar.gz.
+# Emit one alongside the tarball using python3 (present on every runner) so the
+# archive is portable regardless of whether `zip` is installed.
+case "$tag" in
+windows-*)
+	python3 - "$OUT/helpers-native-$tag.zip" "$stage/helpers-native.exe" <<'PY'
+import sys, zipfile
+out, exe = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+    z.write(exe, "helpers-native.exe")
+PY
+	echo "built $OUT/helpers-native-$tag.zip"
+	;;
+esac
