@@ -35,6 +35,10 @@ wait-timeout = "0.2"
 # synchronous and Node-free). CDP is a local ws:// socket, so no TLS/OpenSSL —
 # keeps cross-compilation to musl/windows-gnu clean.
 headless_chrome = "1"
+# Embed the agent-config trees (claude-config/, copilot-config/) into the binary
+# so `helpers install` is self-contained — no source tree needed at install time.
+# Pure Rust, so cross-compilation to musl/windows stays clean.
+include_dir = "0.7"
 
 # Project indexer: gitignore-aware walk + tree-sitter symbol/reference tags.
 ignore = "0.4"
