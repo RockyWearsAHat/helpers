@@ -31,12 +31,12 @@ fi
 
 mkdir -p "$FORMULA_DIR"
 SHA256="$(shasum -a 256 "$ARCHIVE_PATH" | awk '{print $1}')"
-RELEASE_URL="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${VERSION}/${ARCHIVE_NAME}"
+RELEASE_URL="https://github.com/RockyWearsAHat/helpers/releases/download/v${VERSION}/${ARCHIVE_NAME}"
 
 printf '%s\n' \
 	'class GithubShellHelpers < Formula' \
 	'  desc "Git helpers, MCP tools, and Copilot audit workflow"' \
-	'  homepage "https://github.com/RockyWearsAHat/github-shell-helpers"' \
+	'  homepage "https://github.com/RockyWearsAHat/helpers"' \
 	"  url \"${RELEASE_URL}\"" \
 	"  sha256 \"${SHA256}\"" \
 	"  version \"${VERSION}\"" \

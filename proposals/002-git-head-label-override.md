@@ -146,4 +146,4 @@ This breaks on every VS Code update. A proper API or file convention would elimi
 - [Issue #260706](https://github.com/microsoft/vscode/issues/260706) — @sbatten requesting better worktree visual distinction (assigned to @lszomoru)
 - [PR #305643](https://github.com/microsoft/vscode/pull/305643) — @lszomoru scaffolding the Git extension API (merged Mar 26, 2026)
 - [Issue #277163](https://github.com/microsoft/vscode/issues/277163) — Git extension API for agent/CLI scenarios
-- [helpers](https://github.com/RockyWearsAHat/github-shell-helpers) — real-world extension using this pattern for branch-per-chat sessions
+- [helpers](https://github.com/RockyWearsAHat/helpers) — real-world extension using this pattern for branch-per-chat sessions

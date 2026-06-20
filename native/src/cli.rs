@@ -18,7 +18,7 @@ use crate::registry;
 
 /// The shipped version, baked in at compile time from the repo VERSION file.
 const VERSION: &str = include_str!("../../VERSION");
-const REPO_SLUG: &str = "RockyWearsAHat/github-shell-helpers";
+const REPO_SLUG: &str = "RockyWearsAHat/helpers";
 const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
 
 /// git-* CLIs (and `helpers`, `git-cs-grade`) symlinked busybox-style to the binary.

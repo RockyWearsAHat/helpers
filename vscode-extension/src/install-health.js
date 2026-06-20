@@ -5,7 +5,7 @@ const path = require("path");
 const vscode = require("vscode");
 
 const SETUP_GUIDE_URL =
-  "https://github.com/RockyWearsAHat/github-shell-helpers#script-installer-cross-platform";
+  "https://github.com/RockyWearsAHat/helpers#script-installer-cross-platform";
 
 /**
  * Startup install-health checks: detect an incomplete local Helpers bundle and offer
