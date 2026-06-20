@@ -64,8 +64,10 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Validate MCP server syntax
-        run: node --check helpers-server git-research-mcp
+      - name: Validate npm shim syntax
+        run: |
+          node --check bin/helpers.cjs
+          node --check scripts/npm-postinstall.cjs
 
       - name: Validate patch scripts syntax
         run: |
@@ -79,11 +81,5 @@ jobs:
       - name: Validate extension source files syntax
         run: |
           for f in vscode-extension/src/*.js; do
-            node --check "$f"
-          done
-
-      - name: Validate lib scripts syntax
-        run: |
-          for f in lib/*.js; do
             node --check "$f"
           done

@@ -19,15 +19,20 @@
 
 set -euo pipefail
 
-# Shell commands still shipped as scripts. The git-* CLIs ported to Rust
-# (git-upload, git-get, git-initialize, git-fucked-the-push, git-remerge,
-# git-resolve, git-scan-for-leaked-envs, git-checkpoint, git-help-i-pushed-an-env,
-# git-cs-grade) are built by `helpers build` as symlinks to the helpers-native
-# binary, not copied here.
+# Shell commands still shipped as scripts. The `helpers` CLI and the git-* CLIs
+# are the native Rust binary (`helpers-native`, downloaded as a prebuilt by the
+# bootstrap and symlinked busybox-style), so they are NOT shipped as scripts.
 helpers_core_commands() {
 	printf '%s\n' \
-		helpers \
 		git-copilot-quickstart
+}
+
+# The Node-free bootstrap shipped in every package: the installer + the shared
+# fetch-prebuilt helper download the native binary for the host, symlink the CLIs,
+# and register the MCP server — no Node, no source tree.
+helpers_bootstrap_files() {
+	printf '%s\n' \
+		Helpers-Installer.sh
 }
 
 # Community-cache knowledge-sharing commands (the AI audit orchestrator was
@@ -40,30 +45,10 @@ helpers_audit_commands() {
 		git-copilot-devops-audit-community-research-submit
 }
 
-helpers_mcp_commands() {
-	printf '%s\n' \
-		git-research-mcp \
-		git-research-mcp.js \
-		helpers-server \
-		helpers-server.js \
-		helpers-serverd.js
-}
-
-# Non-executable support files copied verbatim (no chmod +x) into the staged
-# bin/ tree — e.g. the fast C launcher source, compiled by `helpers build`.
-helpers_support_files() {
-	printf '%s\n' \
-		helpers-mcp.c
-}
-
-# Rust crate sources (sources only — never the build target/). `helpers build`,
-# run by the installer after the tree is staged, compiles these into the
-# helpers-native binary (MCP tools + ported git-* CLIs) and git-cs-grade.
-helpers_crate_dirs() {
-	printf '%s\n' \
-		native \
-		cs-grade
-}
+# The MCP server is the native binary (`helpers-native mcp`) — no Node server,
+# daemon, or C shim is shipped. Rust crate sources are not shipped either: the
+# bootstrap downloads the prebuilt binary (which embeds its agent config), and
+# `helpers build --from-source` clones for the niche source-build fallback.
 
 helpers_shell_libs() {
 	printf '%s\n' \
@@ -71,22 +56,9 @@ helpers_shell_libs() {
 		quickstart-models.sh
 }
 
-helpers_mcp_libs() {
-	printf '%s\n' \
-		mcp-activity-ipc.js \
-		mcp-git.js \
-		mcp-google-headless.js \
-		mcp-native.js \
-		mcp-pdf-extract.js \
-		mcp-research-tools.js \
-		mcp-research.js \
-		mcp-utils.js \
-		mcp-web-search.js
-}
-
 helpers_support_scripts() {
 	printf '%s\n' \
-		build-knowledge-index.js \
+		fetch-prebuilt.sh \
 		patch-vscode-apply-all.js \
 		patch-vscode-argv.js \
 		patch-vscode-folder-switch.js \
@@ -99,8 +71,6 @@ helpers_support_scripts() {
 
 helpers_data_dirs() {
 	printf '%s\n' \
-		claude-config \
-		copilot-config \
 		community-cache \
 		templates
 }
@@ -123,13 +93,7 @@ helpers_audit_man_pages() {
 	:
 }
 
-helpers_mcp_man_pages() {
-	printf '%s\n' \
-		git-research-mcp.1
-}
-
 helpers_man_pages() {
 	helpers_core_man_pages
 	helpers_audit_man_pages
-	helpers_mcp_man_pages
 }

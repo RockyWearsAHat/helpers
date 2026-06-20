@@ -69,30 +69,15 @@ while IFS= read -r command_file; do
 	copy_exec "${ROOT_DIR}/${command_file}" "${ARCHIVE_BIN}/${command_file}"
 done < <(helpers_audit_commands)
 
-while IFS= read -r command_file; do
-	[ -n "$command_file" ] || continue
-	copy_exec "${ROOT_DIR}/${command_file}" "${ARCHIVE_BIN}/${command_file}"
-done < <(helpers_mcp_commands)
-
 while IFS= read -r shell_lib; do
 	[ -n "$shell_lib" ] || continue
 	cp "${ROOT_DIR}/lib/${shell_lib}" "${ARCHIVE_LIB}/${shell_lib}"
 done < <(helpers_shell_libs)
 
-while IFS= read -r mcp_lib; do
-	[ -n "$mcp_lib" ] || continue
-	cp "${ROOT_DIR}/lib/${mcp_lib}" "${ARCHIVE_LIB}/${mcp_lib}"
-done < <(helpers_mcp_libs)
-
 while IFS= read -r support_script; do
 	[ -n "$support_script" ] || continue
 	copy_exec "${ROOT_DIR}/scripts/${support_script}" "${ARCHIVE_SCRIPTS}/${support_script}"
 done < <(helpers_support_scripts)
-
-while IFS= read -r support_file; do
-	[ -n "$support_file" ] || continue
-	cp "${ROOT_DIR}/${support_file}" "${ARCHIVE_BIN}/${support_file}"
-done < <(helpers_support_files)
 
 while IFS= read -r data_dir; do
 	[ -n "$data_dir" ] || continue
@@ -100,20 +85,8 @@ while IFS= read -r data_dir; do
 done < <(helpers_data_dirs)
 
 # Ship VERSION next to the bins so the installed CLI can read its own version
-# (helpers update / the status update-hint resolve VERSION relative to the CLI).
+# and the bootstrap knows which prebuilt to download.
 cp "${VERSION_FILE}" "${ARCHIVE_BIN}/VERSION"
-
-# Rust crate sources, staged next to the bins so `helpers build` (run by the
-# installer) can compile the native binary in place. Copy sources only — never
-# the multi-hundred-MB target/ build cache.
-while IFS= read -r crate_dir; do
-	[ -n "$crate_dir" ] || continue
-	dest="${ARCHIVE_BIN}/${crate_dir}"
-	mkdir -p "$dest"
-	cp "${ROOT_DIR}/${crate_dir}/Cargo.toml" "$dest/"
-	[ -f "${ROOT_DIR}/${crate_dir}/Cargo.lock" ] && cp "${ROOT_DIR}/${crate_dir}/Cargo.lock" "$dest/"
-	cp -R "${ROOT_DIR}/${crate_dir}/src" "$dest/src"
-done < <(helpers_crate_dirs)
 
 while IFS= read -r man_page; do
 	[ -n "$man_page" ] || continue

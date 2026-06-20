@@ -1,4 +1,0 @@
-#!/usr/bin/env node
-"use strict";
-
-require("./git-research-mcp.js").startServer();

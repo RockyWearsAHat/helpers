@@ -59,39 +59,22 @@ while IFS= read -r command_file; do
 	copy_exec "${ROOT_DIR}/${command_file}" "${PKG_BIN}/${command_file}"
 done < <(helpers_audit_commands)
 
-while IFS= read -r command_file; do
-	[ -n "$command_file" ] || continue
-	copy_exec "${ROOT_DIR}/${command_file}" "${PKG_BIN}/${command_file}"
-done < <(helpers_mcp_commands)
-
 while IFS= read -r shell_lib; do
 	[ -n "$shell_lib" ] || continue
 	cp "${ROOT_DIR}/lib/${shell_lib}" "${PKG_LIB}/${shell_lib}"
 done < <(helpers_shell_libs)
-
-while IFS= read -r mcp_lib; do
-	[ -n "$mcp_lib" ] || continue
-	cp "${ROOT_DIR}/lib/${mcp_lib}" "${PKG_LIB}/${mcp_lib}"
-done < <(helpers_mcp_libs)
 
 while IFS= read -r support_script; do
 	[ -n "$support_script" ] || continue
 	copy_exec "${ROOT_DIR}/scripts/${support_script}" "${PKG_SCRIPTS}/${support_script}"
 done < <(helpers_support_scripts)
 
-while IFS= read -r support_file; do
-	[ -n "$support_file" ] || continue
-	cp "${ROOT_DIR}/${support_file}" "${PKG_BIN}/${support_file}"
-done < <(helpers_support_files)
-
 while IFS= read -r data_dir; do
 	[ -n "$data_dir" ] || continue
 	cp -R "${ROOT_DIR}/${data_dir}" "${PKG_BIN}/${data_dir}"
 done < <(helpers_data_dirs)
 
-# Ship VERSION next to the bins so `helpers status` / `helpers update` report the
-# real version instead of 0.0.0. (This format does not build the native Rust
-# tools at install time — that remains a curl-installer / clone capability.)
+# Ship VERSION so the postinstall knows which prebuilt binary to download.
 cp "${VERSION_FILE}" "${PKG_BIN}/VERSION"
 
 while IFS= read -r man_page; do
@@ -106,11 +89,25 @@ printf '%s\n' \
 	"Priority: optional" \
 	"Architecture: all" \
 	"Maintainer: RockyWearsAHat" \
-	"Depends: bash, zsh, git, curl, jq, nodejs" \
+	"Depends: bash, git, curl, tar" \
 	"Homepage: https://github.com/RockyWearsAHat/helpers" \
-	"Description: Git helpers, MCP tools, and Copilot audit workflow" \
-	" Portable package for helpers commands, MCP servers, and" \
-	" bundled Copilot audit assets." > "${DEBIAN_DIR}/control"
+	"Description: Native AI-agent tooling (MCP server + CLI), Node-free" \
+	" Downloads the prebuilt helpers-native binary for this host on install" \
+	" and symlinks the helpers/git-* CLIs — no Node or build toolchain." > "${DEBIAN_DIR}/control"
+
+# Postinstall: download the prebuilt native binary for the host, symlink the CLIs,
+# and register the MCP server (Node-free; runs as root → writes /usr/bin).
+cat > "${DEBIAN_DIR}/postinst" <<'POSTINST'
+#!/bin/bash
+set -e
+VERSION="$(cat /usr/bin/VERSION 2>/dev/null || echo '')"
+if [ -f /usr/bin/scripts/fetch-prebuilt.sh ]; then
+	bash /usr/bin/scripts/fetch-prebuilt.sh /usr/bin "$VERSION" --register || \
+		echo "helpers: finish setup with: bash /usr/bin/scripts/fetch-prebuilt.sh /usr/bin --register"
+fi
+exit 0
+POSTINST
+chmod 0755 "${DEBIAN_DIR}/postinst"
 
 dpkg-deb --build "$DEB_BUILD_ROOT" "$DEB_PATH"
 
