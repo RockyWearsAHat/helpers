@@ -152,10 +152,16 @@ if [ -n "${AUR_SSH_PRIVATE_KEY:-}" ]; then
 	aur_publish_default=true
 fi
 
+apt_publish_default=false
+if [ -n "${APT_GPG_PRIVATE_KEY:-}" ]; then
+	apt_publish_default=true
+fi
+
 ENABLE_MACOS_SIGNING_VALUE="$(infer_bool "${ENABLE_MACOS_SIGNING:-}" "$macos_signing_default")"
 ENABLE_NPM_PUBLISH_VALUE="$(infer_bool "${ENABLE_NPM_PUBLISH:-}" "$npm_publish_default")"
 ENABLE_HOMEBREW_PUBLISH_VALUE="$(infer_bool "${ENABLE_HOMEBREW_PUBLISH:-}" "$homebrew_publish_default")"
 ENABLE_AUR_PUBLISH_VALUE="$(infer_bool "${ENABLE_AUR_PUBLISH:-}" "$aur_publish_default")"
+ENABLE_APT_PUBLISH_VALUE="$(infer_bool "${ENABLE_APT_PUBLISH:-}" "$apt_publish_default")"
 AUR_PACKAGE_NAME_VALUE="${AUR_PACKAGE_NAME:-github-shell-helpers}"
 RELEASE_ENVIRONMENT_VALUE="${RELEASE_ENVIRONMENT:-${TARGET_ENVIRONMENT:-release}}"
 
@@ -165,6 +171,7 @@ set_variable "$REPO" ENABLE_MACOS_SIGNING "$ENABLE_MACOS_SIGNING_VALUE"
 set_variable "$REPO" ENABLE_NPM_PUBLISH "$ENABLE_NPM_PUBLISH_VALUE"
 set_variable "$REPO" ENABLE_HOMEBREW_PUBLISH "$ENABLE_HOMEBREW_PUBLISH_VALUE"
 set_variable "$REPO" ENABLE_AUR_PUBLISH "$ENABLE_AUR_PUBLISH_VALUE"
+set_variable "$REPO" ENABLE_APT_PUBLISH "$ENABLE_APT_PUBLISH_VALUE"
 set_variable "$REPO" AUR_PACKAGE_NAME "$AUR_PACKAGE_NAME_VALUE"
 
 if [ -n "${HOMEBREW_TAP_REPOSITORY:-}" ]; then
@@ -187,5 +194,6 @@ set_secret_if_present "$REPO" NOTARIZE_TEAM_ID "${NOTARIZE_TEAM_ID:-}"
 set_secret_if_present "$REPO" NPM_TOKEN "${NPM_TOKEN:-}"
 set_secret_if_present "$REPO" HOMEBREW_TAP_TOKEN "${HOMEBREW_TAP_TOKEN:-}"
 set_secret_if_present "$REPO" AUR_SSH_PRIVATE_KEY "${AUR_SSH_PRIVATE_KEY:-}"
+set_secret_if_present "$REPO" APT_GPG_PRIVATE_KEY "${APT_GPG_PRIVATE_KEY:-}"
 
 printf '[setup-github-release-config] Release configuration complete for %s (%s)\n' "$REPO" "$SCOPE_LABEL"
