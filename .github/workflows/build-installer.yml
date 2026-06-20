@@ -325,7 +325,9 @@ jobs:
       ENABLE_NPM_PUBLISH: ${{ vars['ENABLE_NPM_PUBLISH'] }}
       ENABLE_HOMEBREW_PUBLISH: ${{ vars['ENABLE_HOMEBREW_PUBLISH'] }}
       ENABLE_AUR_PUBLISH: ${{ vars['ENABLE_AUR_PUBLISH'] }}
+      ENABLE_SCOOP_PUBLISH: ${{ vars['ENABLE_SCOOP_PUBLISH'] }}
       HOMEBREW_TAP_REPOSITORY: ${{ vars['HOMEBREW_TAP_REPOSITORY'] }}
+      SCOOP_BUCKET_REPOSITORY: ${{ vars['SCOOP_BUCKET_REPOSITORY'] }}
       AUR_PACKAGE_NAME: ${{ vars['AUR_PACKAGE_NAME'] }}
     steps:
       - name: Checkout
@@ -423,6 +425,27 @@ jobs:
             exit 0
           fi
           git add Formula/helpers.rb
+          git commit -m "Update helpers to v${RELEASE_VERSION}"
+          git push
+
+      - name: Publish Scoop bucket manifest
+        if: env.ENABLE_SCOOP_PUBLISH == 'true' && env.SCOOP_BUCKET_REPOSITORY != ''
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets['SCOOP_BUCKET_TOKEN'] }}
+          RELEASE_VERSION: ${{ steps.read_version.outputs.version }}
+        run: |
+          BUCKET_DIR="$RUNNER_TEMP/scoop-bucket"
+          git clone "https://x-access-token:${SCOOP_BUCKET_TOKEN}@github.com/${SCOOP_BUCKET_REPOSITORY}.git" "$BUCKET_DIR"
+          mkdir -p "$BUCKET_DIR/bucket"
+          cp release-assets/scoop/helpers.json "$BUCKET_DIR/bucket/helpers.json"
+          cd "$BUCKET_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- bucket/helpers.json; then
+            echo "[publish-scoop] Manifest already up to date"
+            exit 0
+          fi
+          git add bucket/helpers.json
           git commit -m "Update helpers to v${RELEASE_VERSION}"
           git push
 
