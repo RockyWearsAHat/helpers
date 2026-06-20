@@ -266,18 +266,89 @@ fn is_public(lang: Lang, name: &str, decl_line: &str) -> bool {
     }
 }
 
-/// True when the line(s) directly above `idx` form a doc/comment.
+/// True when the declaration at `idx` is documented.
+///
+/// Walks upward past blank lines and any annotations/attributes/decorators that
+/// legitimately sit between a doc comment and the declaration — Rust
+/// `#[must_use]` / `#[wasm_bindgen]` (including multi-line attributes), Java/JS
+/// `@Override`, Python `@staticmethod` — then checks for a doc/comment line.
+/// For Python it also accepts a docstring on the first line after the `def`
+/// (the idiomatic placement). Skipping attributes is the fix for a common false
+/// positive: an item is documented, but an attribute between the `///` and the
+/// `fn` previously hid the doc comment from this check.
 fn has_doc_above(lang: Lang, lines: &[&str], idx: usize) -> bool {
-    if idx == 0 {
-        return false;
+    if matches!(lang, Lang::Python) && python_has_docstring_below(lines, idx) {
+        return true;
     }
-    let prev = lines[idx - 1].trim();
-    matches!(lang, Lang::Python) && prev.starts_with('#')
-        || prev.starts_with("//")
-        || prev.starts_with("///")
-        || prev.starts_with('*')
-        || prev.ends_with("*/")
-        || prev.starts_with("\"\"\"") // python docstring just below handled loosely
+    let mut i = idx;
+    while i > 0 {
+        let prev = lines[i - 1].trim();
+        if prev.is_empty() || is_annotation_line(lang, prev) {
+            i -= 1;
+            continue;
+        }
+        // Rust multi-line attribute (`#[cfg(\n  …\n)]`): its closing line ends
+        // with `]` but doesn't start with `#`; skip up to the `#[`/`#![` opener.
+        if matches!(lang, Lang::Rust) && prev.ends_with(']') && !prev.starts_with("//") {
+            let mut k = i - 1;
+            while k > 0 && !lines[k].trim_start().starts_with('#') {
+                k -= 1;
+            }
+            if lines.get(k).is_some_and(|l| l.trim_start().starts_with('#')) {
+                i = k;
+                continue;
+            }
+        }
+        return is_doc_line(lang, prev);
+    }
+    false
+}
+
+/// True when `line` is an annotation/attribute/decorator that may separate a
+/// doc comment from the declaration it documents (and so must be skipped).
+fn is_annotation_line(lang: Lang, line: &str) -> bool {
+    match lang {
+        Lang::Rust => line.starts_with("#[") || line.starts_with("#!["),
+        // Java/C# annotations and JS/TS decorators, e.g. `@Override`, `@Component`.
+        Lang::JavaLike | Lang::Js | Lang::Python => line.starts_with('@'),
+        Lang::Go => false,
+    }
+}
+
+/// True when `line` opens a documentation/comment for `lang`.
+fn is_doc_line(lang: Lang, line: &str) -> bool {
+    if matches!(lang, Lang::Python) {
+        return line.starts_with('#') || line.starts_with("\"\"\"") || line.starts_with("'''");
+    }
+    line.starts_with("//")      // //, ///, //!
+        || line.starts_with("/*") // /* or /**
+        || line.starts_with('*')  // continuation line inside a block comment
+        || line.ends_with("*/") // closing line of a block comment
+}
+
+/// True when the first non-blank line after a Python `def` opens a docstring —
+/// the idiomatic place Python documents a function, which lives *inside* the
+/// body rather than above the declaration.
+fn python_has_docstring_below(lines: &[&str], idx: usize) -> bool {
+    // A signature can span lines until the `:`; find the line that ends it.
+    let mut j = idx;
+    while j < lines.len() && !lines[j].trim_end().ends_with(':') {
+        if j - idx > 8 {
+            return false; // pathological signature; give up rather than misread
+        }
+        j += 1;
+    }
+    for line in lines.iter().skip(j + 1) {
+        let t = line.trim_start();
+        if t.is_empty() {
+            continue;
+        }
+        return t.starts_with("\"\"\"")
+            || t.starts_with("'''")
+            || t.starts_with("r\"\"\"")
+            || t.starts_with("r'''");
+    }
+    false
 }
 
 /// Span of a brace-delimited body: from the opening `{` until depth returns to 0.
@@ -556,6 +627,49 @@ mod tests {
         assert!(out
             .iter()
             .any(|i| i.category == "cs-principle" && i.message.contains("Empty catch")));
+        assert!(out.iter().any(|i| i.category == "documentation-gap"));
+    }
+
+    #[test]
+    fn doc_above_skips_attributes_and_decorators() {
+        // Rust: `///` doc separated from `pub fn` by attributes (the reported
+        // false positive) must still count as documented.
+        let rust = vec![
+            "/// Adds two numbers.",
+            "#[must_use]",
+            "#[wasm_bindgen(js_name = add)]",
+            "pub fn add(a: i32, b: i32) -> i32 { a + b }",
+        ];
+        assert!(has_doc_above(Lang::Rust, &rust, 3));
+
+        // Rust: multi-line attribute between doc and fn.
+        let rust_multiline = vec![
+            "/// Builds it.",
+            "#[cfg(",
+            "    feature = \"x\"",
+            ")]",
+            "pub fn build() {}",
+        ];
+        assert!(has_doc_above(Lang::Rust, &rust_multiline, 4));
+
+        // Rust: genuinely undocumented (only an attribute, no doc) stays flagged.
+        let undocumented = vec!["#[must_use]", "pub fn lonely() {}"];
+        assert!(!has_doc_above(Lang::Rust, &undocumented, 1));
+
+        // Python: docstring below the `def` is documentation.
+        let py = vec!["def greet(name):", "    \"\"\"Greet someone.\"\"\"", "    pass"];
+        assert!(has_doc_above(Lang::Python, &py, 0));
+
+        // Python: decorator between comment and def.
+        let py_decorated = vec!["# helper", "@staticmethod", "def util():", "    return 1"];
+        assert!(has_doc_above(Lang::Python, &py_decorated, 2));
+    }
+
+    #[test]
+    fn rust_attribute_only_function_is_flagged_as_doc_gap() {
+        let lines = vec!["#[no_mangle]", "pub fn entry() {}"];
+        let mut out = Vec::new();
+        scan_file("src/lib.rs", Lang::Rust, &lines, false, false, false, &mut out);
         assert!(out.iter().any(|i| i.category == "documentation-gap"));
     }
 
