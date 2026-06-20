@@ -12,10 +12,45 @@
 
 use std::io::{BufRead, Write};
 
+use std::collections::HashSet;
+
 use serde_json::{json, Value};
 
+use crate::git::home;
 use crate::registry;
 use crate::tools::web;
+
+/// The live control config (`helpers disable` / `helpers tool disable`): the
+/// master switch and the set of disabled tool names. Read fresh each request so
+/// toggles take effect without restarting the server.
+fn tool_config() -> (bool, HashSet<String>) {
+    // Diagnostics (e.g. `helpers doctor`) set this to enumerate the full surface
+    // regardless of the kill-switch — match the Node server's behavior.
+    if std::env::var("HELPERS_FORCE_ENABLE").as_deref() == Ok("1") {
+        return (false, HashSet::new());
+    }
+    let path = home()
+        .join(".config")
+        .join("helpers-server")
+        .join("tools.json");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return (false, HashSet::new());
+    };
+    let Ok(cfg) = serde_json::from_str::<Value>(&raw) else {
+        return (false, HashSet::new());
+    };
+    let master = cfg.get("disabled").and_then(Value::as_bool).unwrap_or(false);
+    let disabled = cfg
+        .get("disabledTools")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    (master, disabled)
+}
 
 /// Run the MCP server loop until stdin closes (the client disconnected).
 pub fn run() -> std::process::ExitCode {
@@ -65,12 +100,41 @@ pub fn run() -> std::process::ExitCode {
                 let mut tools = registry::schemas();
                 tools.push(web::schema_search());
                 tools.push(web::schema_scrape());
+                // Honor the live control surface: master switch hides everything;
+                // otherwise drop individually disabled tools.
+                let (master, disabled) = tool_config();
+                if master {
+                    tools.clear();
+                } else if !disabled.is_empty() {
+                    tools.retain(|t| {
+                        t.get("name")
+                            .and_then(Value::as_str)
+                            .map(|n| !disabled.contains(n))
+                            .unwrap_or(true)
+                    });
+                }
                 send_result(&mut out, id, json!({ "tools": tools }));
             }
             "tools/call" => {
                 let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
                 let name = params.get("name").and_then(Value::as_str).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                // A disabled tool (or the master kill-switch) refuses to run unless
+                // the caller passes { "force": true } — matching the JS server.
+                let forced = args.get("force").and_then(Value::as_bool).unwrap_or(false);
+                let (master, disabled) = tool_config();
+                if !forced && (master || disabled.contains(name)) {
+                    send_error(
+                        &mut out,
+                        id,
+                        -32601,
+                        &format!(
+                            "tool '{name}' is disabled (helpers {}). Pass {{\"force\": true}} to override.",
+                            if master { "is bypassed" } else { "tool disable" }
+                        ),
+                    );
+                    continue;
+                }
                 let result = match name {
                     "search_web" => Some(web::run_search(&args)),
                     "scrape_webpage" => Some(web::run_scrape(&args)),
