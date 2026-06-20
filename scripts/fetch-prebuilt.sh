@@ -11,7 +11,7 @@
 #   --register  also run `helpers install --agent auto` after placing the binary
 set -euo pipefail
 
-REPO_SLUG="RockyWearsAHat/github-shell-helpers"
+REPO_SLUG="RockyWearsAHat/helpers"
 BIN_DIR="${1:?usage: fetch-prebuilt.sh <bin-dir> [version] [--register]}"
 VERSION="${2:-}"
 REGISTER="no"

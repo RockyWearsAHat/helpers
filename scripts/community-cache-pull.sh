@@ -208,7 +208,7 @@ main() {
   local local_manifest=""
   local manifest_default_repo=""
   local inferred_repo=""
-  local fallback_default_repo="RockyWearsAHat/github-shell-helpers"
+  local fallback_default_repo="RockyWearsAHat/helpers"
 
   if [[ -n "$local_clone" && -f "$local_clone/$DEFAULT_MANIFEST_PATH" ]]; then
     local_manifest="$local_clone/$DEFAULT_MANIFEST_PATH"
