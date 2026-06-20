@@ -100,18 +100,17 @@ configure_shell_profiles() {
 
 configure_shell_profiles
 
-research_config_dir="$user_home/.config/git-research-mcp"
-research_env_file="$research_config_dir/.env"
-if [ ! -f "$research_env_file" ]; then
-  /usr/bin/sudo -H -u "$console_user" -- mkdir -p "$research_config_dir"
-  printf '%s\n' \
-    '# SearXNG — local meta-search instance (Docker container on port 8888).' \
-    '# Start with: docker run -d --name searxng -p 8888:8080 searxng/searxng:latest' \
-    'SEARXNG_URL=http://localhost:8888' \
-    >"$research_env_file"
-  chown "$console_user" "$research_env_file"
-  log "Wrote default config: $research_env_file"
+# Download the prebuilt native binary for this host (Node-free) and symlink the
+# CLIs. Runs as root → writes /usr/local/bin. Registration with an agent is left
+# to the user's `helpers install` so it lands in their config, not root's.
+if [ -f /usr/local/bin/scripts/fetch-prebuilt.sh ]; then
+  pkg_version="$(cat /usr/local/bin/VERSION 2>/dev/null || echo '')"
+  if /bin/bash /usr/local/bin/scripts/fetch-prebuilt.sh /usr/local/bin "$pkg_version"; then
+    log "Installed helpers-native. Run 'helpers install' to register with your AI agent."
+  else
+    log "Could not download helpers-native; finish with: bash /usr/local/bin/scripts/fetch-prebuilt.sh /usr/local/bin --register"
+  fi
 fi
 
-log "Core git commands installed."
+log "Helpers installed."
 exit 0

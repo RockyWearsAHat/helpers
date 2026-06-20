@@ -15,32 +15,22 @@ use std::process::ExitCode;
 
 use cs_grade::{evaluate, paths, project_label, report};
 
-const USAGE: &str = "usage: git-cs-grade [path] [--course cs2420|cs3500|auto] [--json]";
+const USAGE: &str = "usage: git-cs-grade [path] [--json]";
 
-/// Parsed command-line arguments for a grading run.
+/// Parsed command-line arguments for a grading run. The course is always
+/// auto-detected from the project — there is no course option.
 struct Args {
     root: String,
-    course: String,
     as_json: bool,
 }
 
 /// Parse the post-program arguments, or `Err(code)` to exit early (help → 0).
 fn parse(argv: &[String]) -> Result<Args, ExitCode> {
     let mut root = ".".to_string();
-    let mut course = "auto".to_string();
     let mut as_json = false;
 
-    let mut i = 0;
-    while i < argv.len() {
-        let a = &argv[i];
+    for a in argv {
         match a.as_str() {
-            "--course" => {
-                i += 1;
-                course = argv
-                    .get(i)
-                    .map(|s| s.to_lowercase())
-                    .unwrap_or_else(|| "auto".into());
-            }
             "--json" => as_json = true,
             "-h" | "--help" => {
                 println!("{USAGE}");
@@ -49,13 +39,8 @@ fn parse(argv: &[String]) -> Result<Args, ExitCode> {
             other if !other.starts_with('-') => root = other.to_string(),
             _ => {}
         }
-        i += 1;
     }
-    Ok(Args {
-        root,
-        course,
-        as_json,
-    })
+    Ok(Args { root, as_json })
 }
 
 /// Run `git-cs-grade` against `args` (the arguments after the program name).
@@ -72,7 +57,8 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let (grade, src_files, test_files) = evaluate(&root, &parsed.course);
+    // Course is auto-detected from the project (no course option).
+    let (grade, src_files, test_files) = evaluate(&root, "auto");
     let pass = grade.pct >= 97.0;
 
     if parsed.as_json {

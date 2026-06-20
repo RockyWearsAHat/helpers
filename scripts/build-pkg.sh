@@ -76,17 +76,13 @@ while IFS= read -r cmd; do
   fi
 done < <(helpers_core_commands)
 
-while IFS= read -r support_file; do
-  [ -n "$support_file" ] || continue
-  if [ -f "${ROOT_DIR}/${support_file}" ]; then
-    cp "${ROOT_DIR}/${support_file}" "${CORE_BIN}/${support_file}"
-  fi
-done < <(helpers_support_files)
+# Ship the Node-free bootstrap so the postinstall can download the prebuilt
+# native binary for this host (no Node, no toolchain).
+ensure_dir "${CORE_BIN}/scripts"
+cp "${ROOT_DIR}/scripts/fetch-prebuilt.sh" "${CORE_BIN}/scripts/fetch-prebuilt.sh"
+chmod +x "${CORE_BIN}/scripts/fetch-prebuilt.sh"
 
-# Ship VERSION beside the helpers CLI so `helpers status` / `helpers update`
-# report the real version instead of 0.0.0. (The .pkg format does not build the
-# native Rust tools at install time — that remains a curl-installer / clone
-# capability.)
+# Ship VERSION so the postinstall knows which prebuilt to download.
 cp "${VERSION_FILE}" "${CORE_BIN}/VERSION"
 
 while IFS= read -r lib; do
@@ -113,46 +109,8 @@ pkgbuild --root "$CORE_ROOT" \
   --install-location / \
   "${COMPONENTS_DIR}/core.pkg"
 
-# ── Component 2: MCP Research Tools ──────────────────────────────────────────
-
-echo "[build-pkg] Assembling MCP tools component..."
-MCP_ROOT="${BUILD_DIR}/mcp"
-MCP_BIN="${MCP_ROOT}/usr/local/bin"
-MCP_LIB="${MCP_ROOT}/usr/local/bin/lib"
-MCP_MAN="${MCP_ROOT}/usr/local/share/man/man1"
-
-ensure_dir "$MCP_BIN" "$MCP_LIB" "$MCP_MAN"
-
-while IFS= read -r entry; do
-  [ -n "$entry" ] || continue
-  if [ -f "${ROOT_DIR}/${entry}" ]; then
-    copy_exec "${ROOT_DIR}/${entry}" "${MCP_BIN}/${entry}"
-  fi
-done < <(helpers_mcp_commands)
-
-while IFS= read -r lib; do
-  [ -n "$lib" ] || continue
-  if [ -f "${ROOT_DIR}/lib/${lib}" ]; then
-    cp "${ROOT_DIR}/lib/${lib}" "${MCP_LIB}/${lib}"
-  fi
-done < <(helpers_mcp_libs)
-
-while IFS= read -r man; do
-  [ -n "$man" ] || continue
-  if [ -f "${ROOT_DIR}/man/man1/${man}" ]; then
-    cp "${ROOT_DIR}/man/man1/${man}" "${MCP_MAN}/${man}"
-  fi
-done < <(helpers_mcp_man_pages)
-
-chmod +x "${PKG_DIR}/mcp-scripts/postinstall"
-MCP_KB="$(pkg_size_kb "$MCP_ROOT")"
-
-pkgbuild --root "$MCP_ROOT" \
-  --scripts "${PKG_DIR}/mcp-scripts" \
-  --identifier "com.rockywearsahat.helpers.mcp" \
-  --version "$VERSION" \
-  --install-location / \
-  "${COMPONENTS_DIR}/mcp.pkg"
+# The former "MCP Research Tools" component is gone — the MCP server is the native
+# binary the core postinstall downloads, not a shipped Node tree.
 
 # ── Component 3: DevOps Audit Agents ─────────────────────────────────────────
 
@@ -257,7 +215,6 @@ DIST_XML="${BUILD_DIR}/distribution.xml"
 
 sed -e "s/__VERSION__/${VERSION}/g" \
     -e "s/__CORE_KB__/${CORE_KB}/g" \
-    -e "s/__MCP_KB__/${MCP_KB}/g" \
     -e "s/__AUDIT_KB__/${AUDIT_KB}/g" \
     -e "s/__VSCODE_KB__/${VSCODE_KB}/g" \
     "${PKG_DIR}/distribution.xml" > "$DIST_XML"
@@ -314,4 +271,4 @@ fi
 
 echo ""
 echo "[build-pkg] ✓ Built installer: $PKG_PATH"
-echo "[build-pkg]   Components: core (${CORE_KB}KB) + mcp (${MCP_KB}KB) + audit (${AUDIT_KB}KB) + vscode (${VSCODE_KB}KB)"
+echo "[build-pkg]   Components: core (${CORE_KB}KB) + audit (${AUDIT_KB}KB) + vscode (${VSCODE_KB}KB)"

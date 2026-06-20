@@ -118,99 +118,36 @@ fetch() {
   curl -fsSL "$src" -o "$dest"
 }
 
-copy_packaged_tree() {
-  local source_root="$1"
-
-  if [ ! -d "$source_root/bin" ]; then
+# Source-build fallback for platforms without a prebuilt binary: clone the repo,
+# compile helpers-native with cargo, symlink the CLIs, and register. Needs Rust.
+install_from_source() {
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "[Helpers-Installer] No prebuilt for $(uname -s)/$(uname -m) and no Rust toolchain (cargo)." >&2
+    echo "[Helpers-Installer] Install Rust (https://rustup.rs), then re-run this installer." >&2
     return 1
   fi
-
-  ensure_dir "$BIN_DIR"
-  ensure_dir "$MAN_DIR"
-  cp -R "$source_root/bin/." "$BIN_DIR/"
-  if [ -d "$source_root/man/man1" ]; then
-    cp -R "$source_root/man/man1/." "$MAN_DIR/"
-  fi
-
-  find "$BIN_DIR" -maxdepth 1 -type f -name 'git-*' -exec chmod +x {} + 2>/dev/null || true
-  return 0
-}
-
-install_release_archive() {
-  local version="$1"
-  local archive_url="https://github.com/RockyWearsAHat/helpers/releases/download/v${version}/github-shell-helpers-${version}.tar.gz"
-  local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-${version}.tar.gz"
-  local extract_dir; extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-release.XXXXXX")"
-  local source_root="${extract_dir}/github-shell-helpers-${version}"
-
-  if ! curl -fsSL -o "$archive_tmp" "$archive_url" 2>/dev/null; then
-    rm -rf "$extract_dir" "$archive_tmp"
-    return 1
-  fi
-
-  if ! tar -xzf "$archive_tmp" -C "$extract_dir"; then
-    rm -rf "$extract_dir" "$archive_tmp"
-    return 1
-  fi
-
-  if ! copy_packaged_tree "$source_root"; then
-    rm -rf "$extract_dir" "$archive_tmp"
-    return 1
-  fi
-
-  rm -rf "$extract_dir" "$archive_tmp"
-  echo "[Helpers-Installer] Installed packaged release tree for v${version}"
-  return 0
-}
-
-install_source_archive() {
-  local archive_url="https://codeload.github.com/RockyWearsAHat/helpers/tar.gz/refs/heads/main"
-  local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-main.tar.gz"
   local extract_dir; extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-source.XXXXXX")"
-  local source_root=""
-
-  if ! curl -fsSL -o "$archive_tmp" "$archive_url" 2>/dev/null; then
-    rm -rf "$extract_dir" "$archive_tmp"
-    return 1
+  if ! curl -fsSL "https://codeload.github.com/RockyWearsAHat/helpers/tar.gz/refs/heads/main" | tar -xz -C "$extract_dir"; then
+    rm -rf "$extract_dir"; return 1
   fi
-
-  if ! tar -xzf "$archive_tmp" -C "$extract_dir"; then
-    rm -rf "$extract_dir" "$archive_tmp"
-    return 1
+  local root; root="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -name 'helpers-*' | head -n 1)"
+  [ -n "$root" ] || { rm -rf "$extract_dir"; return 1; }
+  echo "[Helpers-Installer] Building helpers-native from source (cargo)…"
+  if ! cargo build --release --manifest-path "$root/native/Cargo.toml"; then
+    rm -rf "$extract_dir"; return 1
   fi
-
-  source_root="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -name 'github-shell-helpers-*' | head -n 1)"
-  if [ -z "$source_root" ]; then
-    rm -rf "$extract_dir" "$archive_tmp"
-    return 1
-  fi
-
-  if ! copy_packaged_tree "$source_root/build/release-root/$(basename "$source_root" | sed 's/-main$//')"; then
-    if ! bash "$source_root/scripts/build-dist.sh" >/dev/null 2>&1; then
-      rm -rf "$extract_dir" "$archive_tmp"
-      return 1
-    fi
-    local built_root
-    built_root="$(find "$source_root/build/release-root" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-    if [ -z "$built_root" ] || ! copy_packaged_tree "$built_root"; then
-      rm -rf "$extract_dir" "$archive_tmp"
-      return 1
-    fi
-  fi
-
-  rm -rf "$extract_dir" "$archive_tmp"
-  echo "[Helpers-Installer] Installed packaged tree from source archive fallback"
+  ensure_dir "$BIN_DIR"
+  install -m 0755 "$root/native/target/release/helpers-native" "$BIN_DIR/helpers-native" 2>/dev/null ||
+    { cp "$root/native/target/release/helpers-native" "$BIN_DIR/helpers-native" && chmod 0755 "$BIN_DIR/helpers-native"; }
+  ( cd "$BIN_DIR" && for n in helpers git-resolve git-remerge git-fucked-the-push git-initialize \
+      git-get git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env git-cs-grade; do
+      ln -sf helpers-native "$n"; done )
+  rm -rf "$extract_dir"
+  "$BIN_DIR/helpers" install --agent auto || true
+  echo "[Helpers-Installer] Installed helpers-native from source."
   return 0
 }
 
-# Compile the native binaries and register the MCP server, reusing the helpers
-# CLI's own build/install logic (DRY) once the packaged tree — which ships the
-# helpers CLI plus the native/ and cs-grade/ crate sources — is staged in
-# BIN_DIR. `helpers build` provisions helpers-native (the MCP tools, git-cs-grade,
-# and the ported git-* CLIs) by DOWNLOADING the prebuilt binary for this platform
-# (no toolchain needed), or building from source as a fallback; it also builds the
-# fast C launcher locally. `helpers install` registers the MCP server and skills
-# with any detected agent.
 # Node-free primary install: fetch the shared bootstrap (scripts/fetch-prebuilt.sh)
 # and run it to download the prebuilt binary, symlink the CLIs, and register. Keeps
 # the curl|bash installer self-contained (the bootstrap is pulled from raw). Returns
@@ -225,33 +162,6 @@ fetch_and_register_prebuilt() {
   rm -f "$boot"; return 1
 }
 
-build_and_register() {
-  if ! command -v node >/dev/null 2>&1; then
-    echo "[Helpers-Installer] Node.js not found — cannot provision native tools or register the MCP server." >&2
-    echo "[Helpers-Installer] Install Node.js (https://nodejs.org), then run: helpers build && helpers install" >&2
-    return 0
-  fi
-  if [ ! -x "$BIN_DIR/helpers" ]; then
-    echo "[Helpers-Installer] ERROR: helpers CLI missing from $BIN_DIR after staging." >&2
-    return 1
-  fi
-  if ! node "$BIN_DIR/helpers" build; then
-    echo "[Helpers-Installer] 'helpers build' reported an issue. Run 'helpers doctor' to diagnose," >&2
-    echo "[Helpers-Installer] or build from source with a Rust toolchain: helpers build --from-source" >&2
-  fi
-  # Register the MCP server + skills with detected agents. Only skip cleanly when
-  # there is genuinely no agent to register (headless servers); surface any other
-  # failure instead of masking it as an agent-detection issue. Errors stay visible
-  # on stderr either way.
-  if ! command -v claude >/dev/null 2>&1 && [ ! -d "$HOME/.claude" ] &&
-     ! command -v code >/dev/null 2>&1 && [ ! -d "$HOME/.copilot" ]; then
-    echo "[Helpers-Installer] No AI agent detected — register later with: helpers install"
-    return 0
-  fi
-  if ! node "$BIN_DIR/helpers" install --agent auto; then
-    echo "[Helpers-Installer] WARNING: 'helpers install' failed — see the error above; retry with: helpers install" >&2
-  fi
-}
 
 write_community_settings() {
   local mode="$1"
@@ -567,15 +477,14 @@ install_all() {
 
   # Primary path: download the prebuilt helpers-native binary for THIS platform,
   # symlink the helpers/git-* CLIs to it, and register — entirely Node-free, no
-  # source, no toolchain (the binary embeds its agent config).
+  # source, no toolchain (the binary embeds its agent config). Fallback: build
+  # from source with cargo (needs Rust) for platforms without a prebuilt.
   if fetch_and_register_prebuilt "$helpers_version"; then
     :
-  # Fallback for platforms without a prebuilt: stage the source tree and build.
-  elif { [ -n "$helpers_version" ] && install_release_archive "$helpers_version"; } || install_source_archive; then
-    echo "[Helpers-Installer] No prebuilt for this platform — using the source tree (needs Rust)."
-    build_and_register
+  elif install_from_source; then
+    :
   else
-    echo "[Helpers-Installer] ERROR: could not install from prebuilt binary or source archives." >&2
+    echo "[Helpers-Installer] ERROR: could not install a prebuilt binary or build from source." >&2
     exit 1
   fi
 

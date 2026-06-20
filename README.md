@@ -53,7 +53,7 @@ helpers enable | disable | bypass [on|off]      Master switch (live, no restart)
 helpers tool list | tool {enable,disable} <name|all> | tool reset
 helpers update [--check]       Download the latest prebuilt binary for this platform
 helpers build [--from-source]  (Re)create the helpers/git-* symlinks (or compile)
-helpers grade <path> [--course cs2420|cs3500]   Objective CS project grade
+helpers grade <path> [--json]  Objective CS project grade (course auto-detected)
 helpers index build|map|lookup <query>          Cheap project index
 helpers setup                  Deterministic project build-out plan
 ```
@@ -95,8 +95,8 @@ The same binary is symlinked busybox-style to standalone `git-*` helpers:
 
 ## CS2420 / CS3500 grading
 
-`helpers grade <path> --course cs2420|cs3500` produces an objective `GRADE.md` with
-per-category scores and a prioritized path to an A+. `cs_lint` gives the exact lines
+`helpers grade <path>` produces an objective `GRADE.md` with per-category scores and
+a prioritized path to an A+ (the course is auto-detected). `cs_lint` gives the exact lines
 to fix; `helpers grade` gives the rubric.
 
 ## VS Code extension
