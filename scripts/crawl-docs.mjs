@@ -216,7 +216,8 @@ async function main() {
   const queue = [{ url: start, depth: 0 }];
   const nodes = [];
   const edges = [];
-  const corpus = []; // {url, label, text, code}
+  const corpus = []; // {url, label, text, code} — signal sentences (extraction set)
+  const pages = []; // {url, text} — full page prose (LM pretraining corpus)
   let fetched = 0;
 
   while (queue.length && fetched < MAX_PAGES) {
@@ -239,6 +240,7 @@ async function main() {
     // Reader-model when configured (route B), else the deterministic fallback.
     const signals = MODEL_URL ? (await modelExtract(text, MODEL_URL)) ?? extractSignals(text) : extractSignals(text);
     nodes.push({ url, depth, bytes: html.length, signalCount: signals.length, codeBlocks: code.length });
+    if (text.length > 200) pages.push({ url, text });
     for (const sig of signals) {
       corpus.push({ url, label: sig.label, text: sig.text, strong: sig.strong, code: code[0] || "" });
     }
@@ -282,9 +284,12 @@ async function main() {
   writeFileSync(`${base}.graph.json`, JSON.stringify({ host, seededFrom: start, pages: nodes.length, links: edges.length, nodes, edges }, null, 2) + "\n");
   writeFileSync(`${base}.rules.json`, JSON.stringify({ host, fetchedAt: new Date().toISOString(), ruleCount: rules.length, rules }, null, 2) + "\n");
   writeFileSync(`${base}.corpus.jsonl`, corpus.map((c) => JSON.stringify(c)).join("\n") + "\n");
+  // Full page prose — the predictive-coding (next-token) pretraining corpus.
+  writeFileSync(`${base}.text.jsonl`, pages.map((p) => JSON.stringify(p)).join("\n") + "\n");
 
-  console.log(`[crawl] ${host}: ${nodes.length} pages, ${edges.length} links, ${corpus.length} signal chunks, ${rules.length} ranked rules`);
-  console.log(`[crawl] wrote ${base}.{graph.json,rules.json,corpus.jsonl}`);
+  const words = pages.reduce((n, p) => n + p.text.split(/\s+/).length, 0);
+  console.log(`[crawl] ${host}: ${nodes.length} pages, ${edges.length} links, ${corpus.length} signal chunks, ${rules.length} ranked rules, ~${words} words of prose`);
+  console.log(`[crawl] wrote ${base}.{graph.json,rules.json,corpus.jsonl,text.jsonl}`);
 }
 
 main().catch((e) => {
