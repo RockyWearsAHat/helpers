@@ -84,17 +84,22 @@ module.exports = function createMcpServer(deps) {
     return "/usr/bin/env";
   }
 
+  // Locate the native helpers-native binary; the MCP server is `helpers-native mcp`
+  // (Node-free). Honors HELPERS_NATIVE_BIN, then ~/bin, then common locations.
   function findGitShellHelpersMcpPath(context) {
     const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-    const workspaceCandidates = (vscode.workspace.workspaceFolders || []).map(
-      (folder) => path.join(folder.uri.fsPath, "helpers-server"),
-    );
+    const exe = process.platform === "win32" ? ".exe" : "";
+    const name = `helpers-native${exe}`;
     const candidates = uniquePaths([
-      ...workspaceCandidates,
-      path.join(homeDir, "bin", "helpers-server"),
-      GLOBAL_MCP_SERVER_PATH,
-      context.asAbsolutePath("helpers-server"),
-    ]);
+      process.env.HELPERS_NATIVE_BIN || "",
+      ...(vscode.workspace.workspaceFolders || []).map((f) =>
+        path.join(f.uri.fsPath, name),
+      ),
+      path.join(homeDir, "bin", name),
+      path.join("/usr/local/bin", name),
+      path.join("/usr/bin", name),
+      context.asAbsolutePath(name),
+    ].filter(Boolean));
 
     return candidates.find((candidate) => fs.existsSync(candidate)) || "";
   }
@@ -276,23 +281,9 @@ module.exports = function createMcpServer(deps) {
             return [];
           }
 
-          // Fast path: launch the C shim directly (no node, ~1ms start; it
-          // connects to / spawns the warm daemon). Fall back to direct node
-          // when the shim isn't compiled on this machine.
-          const fastLauncher = findFastLauncher(serverPath);
-          let command;
-          let serverArgs;
-          if (fastLauncher) {
-            command = fastLauncher;
-            serverArgs = [];
-          } else {
-            const nodeCommand = await resolveNodeCommand();
-            command = nodeCommand;
-            serverArgs =
-              nodeCommand === "/usr/bin/env"
-                ? ["node", serverPath]
-                : [serverPath];
-          }
+          // The MCP server is the native binary, Node-free (~1ms start).
+          const command = serverPath;
+          const serverArgs = ["mcp"];
 
           return [
             new vscode.McpStdioServerDefinition(

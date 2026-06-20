@@ -8,7 +8,6 @@
 
     <choices-outline>
         <line choice="core"/>
-        <line choice="mcp-tools"/>
         <line choice="devops-audit"/>
         <line choice="vscode-integration"/>
     </choices-outline>
@@ -21,15 +20,6 @@
             selected="true"
             visible="true">
         <pkg-ref id="com.rockywearsahat.helpers.core"/>
-    </choice>
-
-    <!-- MCP Research and Shell Helpers servers -->
-    <choice id="mcp-tools"
-            title="MCP Research Tools"
-            description="MCP servers for Copilot agents: web search, knowledge cache, webpage scraping, and the helpers tool server. Requires Node.js."
-            selected="true"
-            visible="true">
-        <pkg-ref id="com.rockywearsahat.helpers.mcp"/>
     </choice>
 
     <!-- DevOps Audit agents and community cache -->
@@ -54,11 +44,6 @@
              version="__VERSION__"
              installKBytes="__CORE_KB__"
              auth="root">core.pkg</pkg-ref>
-
-    <pkg-ref id="com.rockywearsahat.helpers.mcp"
-             version="__VERSION__"
-             installKBytes="__MCP_KB__"
-             auth="root">mcp.pkg</pkg-ref>
 
     <pkg-ref id="com.rockywearsahat.helpers.audit"
              version="__VERSION__"

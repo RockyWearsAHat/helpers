@@ -563,7 +563,7 @@ fn help() {
         "  tool list | tool {enable,disable} <name|all> | tool reset",
         "  build [--from-source]  (Re)create the helpers/git-* symlinks (or compile).",
         "  update [--check]       Download the latest prebuilt binary for this platform.",
-        "  grade <path> [--course cs2420|cs3500]   Grade a CS project.",
+        "  grade <path> [--json] Grade a CS project (course auto-detected).",
         "  index build|map|lookup <q>              Project index.",
         "  setup                  Deterministic project build-out plan.",
         "",
