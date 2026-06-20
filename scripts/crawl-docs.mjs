@@ -36,6 +36,9 @@ const SEED = arg("--seed", null);
 const MAX_PAGES = Number(arg("--max", "25"));
 const MAX_DEPTH = Number(arg("--depth", "3"));
 const DELAY_MS = Number(arg("--delay", "300"));
+// Optional local reader-model endpoint (OpenAI-compatible). When set, the model
+// is the extractor; otherwise the deterministic keyword extractor runs.
+const MODEL_URL = arg("--model-url", null);
 
 /** Prose markers that flag a sentence as a rule / anti-pattern / footgun. */
 const SIGNALS = [
@@ -103,20 +106,101 @@ function links(html, pageUrl, host) {
   return [...out];
 }
 
-/** Split readable text into sentences and keep those carrying a rule signal. */
+/** Meta/changelog prose that is not a code rule — dropped to cut noise. */
+const NOISE = /\b(internal changes|stabilized|compatibility notes|release notes?|changelog|§ Version|this release|now stable)\b/i;
+
+/**
+ * High-confidence sections that documentation generators publish as explicit
+ * contracts. A sentence sitting under one of these headers is a rule by
+ * construction (e.g. rustdoc's `§ Panics`/`§ Safety`/`§ Errors`), so it is
+ * labeled and weighted above loose keyword matches.
+ */
+const SECTIONS = [
+  [/§\s*Safety\b/i, "footgun"],
+  [/§\s*Panics\b/i, "bug"],
+  [/§\s*Errors\b/i, "error"],
+  [/\bdeprecated since\b|§\s*Deprecated\b/i, "deprecation"],
+];
+
+/**
+ * Split readable text into sentences and keep those that state a rule. A
+ * sentence is high-confidence (`strong`) only when it *itself* carries an
+ * explicit doc-contract marker (rustdoc's `§ Safety`/`§ Panics`/`§ Errors`,
+ * "undefined behavior", "deprecated since"); otherwise it must carry an
+ * imperative/prohibitive signal word. Changelog/meta prose is filtered out.
+ *
+ * This is the extractor seam: it is deliberately conservative and keyword-based.
+ * A learned reader (a local model — see `--extractor model`) can replace it for
+ * far better recall/precision without touching the crawl or graph machinery.
+ */
 function extractSignals(text) {
   const sentences = text.split(/(?<=[.!?])\s+/);
   const hits = [];
   for (const s of sentences) {
-    if (s.length < 25 || s.length > 320) continue;
-    for (const [re, label] of SIGNALS) {
-      if (re.test(s)) {
-        hits.push({ label, text: s.trim() });
-        break;
-      }
+    if (s.length < 25 || s.length > 320 || NOISE.test(s)) continue;
+    const strong = SECTIONS.find(([re]) => re.test(s));
+    if (strong) {
+      hits.push({ label: strong[1], text: s.trim(), strong: true });
+      continue;
     }
+    const sig = SIGNALS.find(([re]) => re.test(s));
+    if (sig) hits.push({ label: sig[1], text: s.trim(), strong: false });
   }
   return hits;
+}
+
+/**
+ * The reader-model extractor (route B). When `--model-url` points at a local,
+ * OpenAI-compatible chat endpoint (e.g. llama.cpp's server, Ollama, or your own
+ * 1-bit runtime), each page is read by the model instead of the keyword
+ * heuristic. The model is asked for strict JSON so its output is machine-usable
+ * ("force specific output"); any failure falls back to [`extractSignals`] so a
+ * crawl never breaks. The model itself is user-supplied/-trained — this is the
+ * integration seam, not the model.
+ */
+const MODEL_PROMPT =
+  "You read software documentation and extract durable CODE RULES. " +
+  'Return ONLY a JSON array; each item: {"label":"avoid|prefer|deprecation|footgun|bug|error","text":"<the rule in one sentence>","strong":true|false}. ' +
+  "Include only genuine, reusable rules / anti-patterns / footguns / bugs — skip prose, navigation, and changelog noise. If none, return [].";
+
+/** Pull the first JSON array out of a model response (tolerates wrapper prose). */
+function parseRules(content) {
+  const start = content.indexOf("[");
+  const end = content.lastIndexOf("]");
+  if (start < 0 || end <= start) return null;
+  try {
+    const arr = JSON.parse(content.slice(start, end + 1));
+    if (!Array.isArray(arr)) return null;
+    return arr
+      .filter((r) => r && typeof r.text === "string" && r.text.length > 10)
+      .map((r) => ({ label: String(r.label || "avoid"), text: r.text.trim(), strong: !!r.strong }));
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the local model to extract rules from `text`; null on any failure. */
+async function modelExtract(text, modelUrl) {
+  try {
+    const res = await fetch(modelUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: MODEL_PROMPT },
+          { role: "user", content: text.slice(0, 6000) },
+        ],
+        temperature: 0,
+        stream: false,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content ?? data?.content ?? "";
+    return parseRules(content);
+  } catch {
+    return null;
+  }
 }
 
 async function main() {
@@ -152,10 +236,11 @@ async function main() {
 
     const text = htmlToText(html);
     const code = codeBlocks(html);
-    const signals = extractSignals(text);
+    // Reader-model when configured (route B), else the deterministic fallback.
+    const signals = MODEL_URL ? (await modelExtract(text, MODEL_URL)) ?? extractSignals(text) : extractSignals(text);
     nodes.push({ url, depth, bytes: html.length, signalCount: signals.length, codeBlocks: code.length });
     for (const sig of signals) {
-      corpus.push({ url, label: sig.label, text: sig.text, code: code[0] || "" });
+      corpus.push({ url, label: sig.label, text: sig.text, strong: sig.strong, code: code[0] || "" });
     }
 
     const outLinks = links(html, url, host);
@@ -172,9 +257,10 @@ async function main() {
   const byKey = new Map();
   for (const c of corpus) {
     const key = c.text.toLowerCase().replace(/[^a-z0-9 ]/g, "").slice(0, 80);
-    const cur = byKey.get(key) || { label: c.label, text: c.text, urls: new Set(), code: c.code, count: 0 };
+    const cur = byKey.get(key) || { label: c.label, text: c.text, urls: new Set(), code: c.code, count: 0, strong: false };
     cur.count++;
     cur.urls.add(c.url);
+    cur.strong = cur.strong || !!c.strong;
     if (!cur.code && c.code) cur.code = c.code;
     byKey.set(key, cur);
   }
@@ -183,9 +269,12 @@ async function main() {
       label: r.label,
       text: r.text,
       code: r.code,
+      strong: r.strong,
       occurrences: r.count,
       sources: [...r.urls].slice(0, 5),
-      score: (WEIGHT[r.label] || 1) * Math.log2(1 + r.count),
+      // Explicit doc-contract sections (Safety/Panics/Errors/Deprecated) are
+      // rules by construction, so they outrank loose keyword matches.
+      score: (WEIGHT[r.label] || 1) * Math.log2(1 + r.count) * (r.strong ? 2 : 1),
     }))
     .sort((a, b) => b.score - a.score);
 
