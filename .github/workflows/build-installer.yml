@@ -94,7 +94,7 @@ jobs:
       - name: Make scripts executable
         run: |
           chmod +x Helpers-Installer.sh scripts/build-dist.sh \
-            scripts/build-deb.sh scripts/build-homebrew-formula.sh \
+            scripts/build-deb.sh scripts/build-pkg-manifests.sh \
             scripts/build-aur-package.sh scripts/build-npm-package.sh \
             scripts/test-git-upload-states.sh \
             scripts/community-cache-submit.sh scripts/community-cache-pull.sh \
@@ -115,9 +115,6 @@ jobs:
       - name: Build Debian package
         run: ./scripts/build-deb.sh
 
-      - name: Build Homebrew formula
-        run: ./scripts/build-homebrew-formula.sh
-
       - name: Build AUR metadata
         run: ./scripts/build-aur-package.sh
 
@@ -137,7 +134,6 @@ jobs:
             dist/github-shell-helpers-*.tar.gz
             dist/github-shell-helpers-*-checksums.txt
             dist/github-shell-helpers_*_all.deb
-            dist/homebrew/github-shell-helpers.rb
             dist/aur/PKGBUILD
             dist/aur/.SRCINFO
             dist/*.tgz
@@ -309,7 +305,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.tag }}
-          path: dist/helpers-native-${{ matrix.tag }}.tar.gz
+          # Windows tags also emit a .zip (for Scoop/Winget); non-Windows tags
+          # only have the .tar.gz, so the missing .zip path is harmless.
+          path: |
+            dist/helpers-native-${{ matrix.tag }}.tar.gz
+            dist/helpers-native-${{ matrix.tag }}.zip
           if-no-files-found: error
 
   publish-release:
@@ -363,9 +363,12 @@ jobs:
       - name: Add prebuilt binaries to checksums
         run: |
           cd release-assets
-          for f in helpers-native-*.tar.gz; do
+          for f in helpers-native-*.tar.gz helpers-native-*.zip; do
             [ -f "$f" ] && sha256sum "$f" >> "github-shell-helpers-${{ steps.read_version.outputs.version }}-checksums.txt"
           done
+
+      - name: Generate package-manager manifests (Homebrew, Scoop, Winget)
+        run: bash scripts/build-pkg-manifests.sh "${{ steps.read_version.outputs.version }}" release-assets release-assets
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -383,11 +386,16 @@ jobs:
             release-assets/github-shell-helpers-${{ steps.read_version.outputs.version }}-checksums.txt
             release-assets/github-shell-helpers_${{ steps.read_version.outputs.version }}_all.deb
             release-assets/*.tgz
-            release-assets/homebrew/github-shell-helpers.rb
+            release-assets/homebrew/helpers.rb
+            release-assets/scoop/helpers.json
+            release-assets/winget/RockyWearsAHat.Helpers.yaml
+            release-assets/winget/RockyWearsAHat.Helpers.installer.yaml
+            release-assets/winget/RockyWearsAHat.Helpers.locale.en-US.yaml
             release-assets/aur/PKGBUILD
             release-assets/aur/.SRCINFO
             release-assets/helpers-${{ steps.read_version.outputs.version }}.vsix
             release-assets/helpers-native-*.tar.gz
+            release-assets/helpers-native-*.zip
 
       - name: Publish npm package
         if: env.ENABLE_NPM_PUBLISH == 'true'
@@ -406,16 +414,16 @@ jobs:
           TAP_DIR="$RUNNER_TEMP/homebrew-tap"
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPOSITORY}.git" "$TAP_DIR"
           mkdir -p "$TAP_DIR/Formula"
-          cp release-assets/homebrew/github-shell-helpers.rb "$TAP_DIR/Formula/github-shell-helpers.rb"
+          cp release-assets/homebrew/helpers.rb "$TAP_DIR/Formula/helpers.rb"
           cd "$TAP_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- Formula/github-shell-helpers.rb; then
+          if git diff --quiet -- Formula/helpers.rb; then
             echo "[publish-homebrew] Formula already up to date"
             exit 0
           fi
-          git add Formula/github-shell-helpers.rb
-          git commit -m "Update github-shell-helpers to v${RELEASE_VERSION}"
+          git add Formula/helpers.rb
+          git commit -m "Update helpers to v${RELEASE_VERSION}"
           git push
 
       - name: Publish AUR package
