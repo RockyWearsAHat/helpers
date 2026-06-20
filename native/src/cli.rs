@@ -206,17 +206,81 @@ fn cmd_status() {
     println!();
 }
 
+/// Raw `claude mcp get helpers` output (Command/Args/Status lines), or `None`
+/// when `claude` is absent or no `helpers` server is registered. Callers inspect
+/// it to tell a current native registration from a stale Node shim.
+fn claude_mcp_registration() -> Option<String> {
+    if !has_cmd("claude") {
+        return None;
+    }
+    let out = Command::new("claude")
+        .args(["mcp", "get", "helpers"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// True only when the live registration runs *this* binary's `mcp` subcommand.
+/// A registration pointing at the retired `helpers-mcp` Node shim is treated as
+/// stale: it connects only while a warm daemon lingers and fails for every fresh
+/// agent/subagent (the shim execs a `helpers-serverd.js` that no longer exists).
+fn claude_mcp_is_current(reg: &str) -> bool {
+    // Retired Node shim / daemon launcher — never the current server.
+    if reg.contains("helpers-mcp") || reg.contains("helpers-serverd") {
+        return false;
+    }
+    let runs_native = reg.contains("helpers-native");
+    let runs_mcp = reg
+        .lines()
+        .any(|l| l.trim_start().starts_with("Args:") && l.contains("mcp"));
+    runs_native && runs_mcp
+}
+
+/// Repoint the Claude Code MCP registration at this binary's `mcp` server when it
+/// is missing or stale — e.g. left on the retired `helpers-mcp` shim by an old
+/// install, or by a binary-only package-manager upgrade that swaps the binary
+/// without re-running `helpers install`. Returns true when the registration
+/// afterwards runs the current native server. Idempotent; quiet on success.
+fn ensure_claude_mcp_registered() -> bool {
+    if !has_cmd("claude") {
+        return false;
+    }
+    if let Some(reg) = claude_mcp_registration() {
+        if claude_mcp_is_current(&reg) {
+            return true;
+        }
+    }
+    let bin = native_bin();
+    let _ = Command::new("claude")
+        .args(["mcp", "remove", "-s", "user", "helpers"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    Command::new("claude")
+        .args(["mcp", "add", "-s", "user", "helpers", "--"])
+        .arg(&bin)
+        .arg("mcp")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Whether Claude Code has a *working* `helpers` registration (runs the current
+/// native `mcp` server). `None` when the `claude` CLI is unavailable. A stale
+/// shim registration reports `Some(false)` even though an entry technically
+/// exists, so `doctor`/`status` surface the real problem.
 fn claude_mcp_registered() -> Option<bool> {
     if !has_cmd("claude") {
         return None;
     }
     Some(
-        Command::new("claude")
-            .args(["mcp", "get", "helpers"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
+        claude_mcp_registration()
+            .map(|r| claude_mcp_is_current(&r))
             .unwrap_or(false),
     )
 }
@@ -502,6 +566,11 @@ fn apply_update(latest: &str) {
     }
     let _ = std::fs::remove_dir_all(&tmp);
     let _ = create_symlinks();
+    // Repoint a stale MCP registration (e.g. the retired `helpers-mcp` shim) at
+    // the freshly-swapped native server, so the upgrade actually fixes connects.
+    if ensure_claude_mcp_registered() {
+        println!("  {} MCP registration verified (native `helpers-native mcp`)", ok_mark());
+    }
     write_update_cache(latest);
     println!("{}", green(&bold(&format!("\nUpdated to v{latest}."))) + &dim(" Restart your agent (or /mcp reconnect) to load it."));
 }
@@ -525,7 +594,11 @@ fn cmd_doctor() {
     let helpers_link = repo_dir().join("helpers");
     check("helpers symlink present", helpers_link.exists(), "run `helpers build`");
     if let Some(reg) = claude_mcp_registered() {
-        check("helpers registered with Claude Code", reg, "run `helpers install --agent claude`");
+        // Auto-repair a missing/stale registration (e.g. left on the retired
+        // `helpers-mcp` shim) rather than only reporting it — doctor is the
+        // place users land when connects fail.
+        let reg = reg || ensure_claude_mcp_registered();
+        check("helpers registered with Claude Code (native mcp)", reg, "run `helpers install --agent claude`");
     }
     // Toolchain is informational only (prebuilt is the default).
     let has_cargo = has_cmd("cargo");

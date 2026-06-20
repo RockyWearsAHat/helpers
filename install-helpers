@@ -938,15 +938,17 @@ main() {
   # module of the helpers-native crate). `helpers build` (run below) compiles the binary
   # and symlinks each CLI name to it — no script copy needed here.
   install_script "git-research-mcp"
-  install_script "helpers-server"
-  install_script "helpers-server.js"
-  install_script "helpers-serverd.js"
   install_script "helpers"
 
-  # Fast C shim source — compiled by `helpers install` (helpers build) into ~/bin/helpers-mcp.
-  if [ -f "${SCRIPT_DIR}/helpers-mcp.c" ] && [ "${SCRIPT_DIR}/helpers-mcp.c" != "${BIN_DIR}/helpers-mcp.c" ]; then
-    cp "${SCRIPT_DIR}/helpers-mcp.c" "${BIN_DIR}/helpers-mcp.c"
-  fi
+  # The MCP server is the native binary itself (`helpers-native mcp`) — a single
+  # static Rust binary that speaks JSON-RPC over stdio with ~1ms cold start. The
+  # old Node daemon + C launcher shim (helpers-server*.js, helpers-mcp.c) are
+  # retired: they proxied to a warm `helpers-serverd.js` that no longer ships, so
+  # any fresh agent/subagent connect failed. Remove stale copies left by older
+  # installs so nothing can re-point at the dead shim.
+  rm -f "${BIN_DIR}/helpers-mcp" "${BIN_DIR}/helpers-mcp.c" \
+        "${BIN_DIR}/helpers-server" "${BIN_DIR}/helpers-server.js" \
+        "${BIN_DIR}/helpers-serverd.js" 2>/dev/null || true
 
   # Provision the native tools now: `helpers build` downloads the prebuilt binary
   # for this platform (no toolchain), or builds from source as a fallback.

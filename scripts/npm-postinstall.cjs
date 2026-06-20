@@ -81,8 +81,14 @@ async function main() {
     console.warn("[helpers] could not extract the prebuilt binary.");
     return;
   }
-  try { fs.chmodSync(path.join(PKG_DIR, `helpers-native${exe}`), 0o755); } catch {}
-  console.log(`[helpers] installed helpers-native (${tag}). Run 'helpers install' to register with your agent.`);
+  const bin = path.join(PKG_DIR, `helpers-native${exe}`);
+  try { fs.chmodSync(bin, 0o755); } catch {}
+  // Self-heal the Claude Code MCP registration. A binary-only upgrade leaves any
+  // prior registration pointing at the old path (or the retired `helpers-mcp`
+  // Node shim), which fails for every fresh agent/subagent. `doctor` re-points it
+  // at this binary's `mcp` server; it's a quiet no-op when `claude` is absent.
+  try { spawnSync(bin, ["cli", "doctor"], { stdio: "ignore", timeout: 15000 }); } catch {}
+  console.log(`[helpers] installed helpers-native (${tag}). Run 'helpers install' to register skills/agents with your agent.`);
 }
 
 main().catch((e) => console.warn(`[helpers] postinstall: ${e.message}`));
