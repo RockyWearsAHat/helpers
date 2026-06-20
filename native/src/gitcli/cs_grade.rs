@@ -57,8 +57,9 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::from(1);
     }
 
-    // Course is auto-detected from the project (no course option).
-    let (grade, src_files, test_files) = evaluate(&root, "auto");
+    // Always grade the full suite — every category from both courses, no course
+    // detection or option.
+    let (grade, src_files, test_files) = evaluate(&root, "full");
     let pass = grade.pct >= 97.0;
 
     if parsed.as_json {
