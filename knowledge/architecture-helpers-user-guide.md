@@ -241,6 +241,6 @@ Session logs live at `<workspace>/.github/session-memory/session-log.jsonl`. App
 
 | Field | Purpose |
 |-------|---------|
-| `communityRepo` | GitHub repo for community cache (default: `RockyWearsAHat/github-shell-helpers`) |
+| `communityRepo` | GitHub repo for community cache (default: `RockyWearsAHat/helpers`) |
 | `shareKnowledge` | Enable auto-submit of published knowledge notes |
 | `localClone` | Path to local helpers clone |

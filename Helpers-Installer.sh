@@ -10,18 +10,18 @@
 #
 # Usage (one line):
 #   curl -fsSL \
-#     https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main/Helpers-Installer.sh \
+#     https://raw.githubusercontent.com/RockyWearsAHat/helpers/main/Helpers-Installer.sh \
 #     | bash
 
 set -euo pipefail
 
-REPO_RAW_BASE="https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/main"
+REPO_RAW_BASE="https://raw.githubusercontent.com/RockyWearsAHat/helpers/main"
 
 BIN_DIR="${HOME}/bin"
 MAN_DIR="${HOME}/man/man1"
 COMMUNITY_SETTINGS_DIR="${HOME}/.copilot"
 COMMUNITY_SETTINGS_FILE="${COMMUNITY_SETTINGS_DIR}/devops-audit-community-settings.json"
-DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
+DEFAULT_COMMUNITY_REPO="RockyWearsAHat/helpers"
 DEFAULT_COMMUNITY_BRANCH="main"
 SHELL_ENV_DIR="${HOME}/.config/helpers"
 LOCAL_PATH_SNIPPET="${SHELL_ENV_DIR}/paths-local.sh"
@@ -138,7 +138,7 @@ copy_packaged_tree() {
 
 install_release_archive() {
   local version="$1"
-  local archive_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${version}/github-shell-helpers-${version}.tar.gz"
+  local archive_url="https://github.com/RockyWearsAHat/helpers/releases/download/v${version}/github-shell-helpers-${version}.tar.gz"
   local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-${version}.tar.gz"
   local extract_dir; extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-release.XXXXXX")"
   local source_root="${extract_dir}/github-shell-helpers-${version}"
@@ -164,7 +164,7 @@ install_release_archive() {
 }
 
 install_source_archive() {
-  local archive_url="https://codeload.github.com/RockyWearsAHat/github-shell-helpers/tar.gz/refs/heads/main"
+  local archive_url="https://codeload.github.com/RockyWearsAHat/helpers/tar.gz/refs/heads/main"
   local archive_tmp="${TMPDIR:-/tmp}/github-shell-helpers-main.tar.gz"
   local extract_dir; extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/helpers-source.XXXXXX")"
   local source_root=""
@@ -364,7 +364,7 @@ maybe_install_helpers_extension() {
     return
   fi
 
-  local vsix_url="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${version}/helpers-${version}.vsix"
+  local vsix_url="https://github.com/RockyWearsAHat/helpers/releases/download/v${version}/helpers-${version}.vsix"
   local vsix_tmp="${TMPDIR:-/tmp}/helpers-${version}.vsix"
 
   if curl -fsSL -o "$vsix_tmp" "$vsix_url" 2>/dev/null; then
@@ -380,7 +380,7 @@ maybe_install_helpers_extension() {
       echo "[Helpers-Installer] Installed Helpers from marketplace."
     else
       echo "[Helpers-Installer] Extension not yet on marketplace. Download the .vsix from:" >&2
-      echo "  https://github.com/RockyWearsAHat/github-shell-helpers/releases/latest" >&2
+      echo "  https://github.com/RockyWearsAHat/helpers/releases/latest" >&2
     fi
   fi
 }
