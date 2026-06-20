@@ -8,6 +8,9 @@ cs-grade/target/
 # Native MCP tools — platform-specific, built on install from native/ (Rust).
 # Rust-only: no Node fallback. The committed source is the native/ crate.
 /helpers-native
+# The `helpers` CLI is a busybox symlink to helpers-native, recreated by
+# `helpers build`/install (was previously the tracked Node CLI, now removed).
+/helpers
 native/target/
 # Ported git-* CLIs — symlinks to helpers-native, recreated by `helpers build`.
 # The committed source is native/src/gitcli/. Keep in sync with GITCLI_NAMES.
