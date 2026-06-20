@@ -1,11 +1,11 @@
 name: Install test
 
-# Verifies that every install/packaging method lands WORKING native tools on a
-# clean machine WITHOUT any build toolchain — i.e. by downloading the prebuilt
-# helpers-native binary. Each job hides cargo/rustc/cc first, so a green run
-# proves no external compilation was required. The heavy tools (helpers-native,
-# which hosts the MCP tools + git-cs-grade) carry no Node dependency and are
-# checked standalone; Node is only the runtime for the CLI and the MCP server.
+# Proves a Helpers install is fully Node-free on every major OS: on each runner we
+# build the native binary (the prebuilt that ships), simulate the install (place
+# the binary + symlink the `helpers`/git-* CLIs + register), then verify with NODE
+# and the build toolchain hidden — so a green run means the install needs nothing
+# external, just the single binary. Runs on PRs touching install/CLI/packaging, on
+# pushes to main (install is built+tested on version merge), and weekly.
 
 on:
   workflow_dispatch:
@@ -13,19 +13,16 @@ on:
     branches: [main]
     paths:
       - "Helpers-Installer.sh"
-      - "install-helpers"
-      - "helpers"
-      - "lib/mcp-native.js"
-      - "package.json"
-      - "scripts/build-dist.sh"
-      - "scripts/build-deb.sh"
-      - "scripts/build-pkg.sh"
-      - "scripts/build-npm-package.sh"
-      - "scripts/build-native-binaries.sh"
-      - "scripts/package-manifest.sh"
+      - "scripts/fetch-prebuilt.sh"
       - "scripts/verify-install.sh"
+      - "native/**"
+      - "claude-config/**"
+      - "copilot-config/**"
       - ".github/workflows/install-test.yml"
-  # Weekly, to catch drift between the installers and the published release.
+  push:
+    branches: [main]
+    paths-ignore:
+      - "community-cache/**"
   schedule:
     - cron: "0 7 * * 1"
 
@@ -37,23 +34,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  install-test:
-    name: ${{ matrix.method }} (${{ matrix.os }})
+  node-free-install:
+    name: node-free install (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { method: installer, os: ubuntu-latest }
-          - { method: installer, os: macos-latest }
-          - { method: tarball, os: ubuntu-latest }
-          - { method: tarball, os: macos-latest }
-          - { method: npm, os: ubuntu-latest }
-          - { method: npm, os: macos-latest }
-          - { method: npm, os: windows-latest }
-          - { method: deb, os: ubuntu-latest }
-          - { method: pkg, os: macos-latest }
+        os: [ubuntu-latest, macos-latest, windows-latest]
     defaults:
       run:
         shell: bash
@@ -61,61 +49,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Hide build toolchain (prove no external build is needed)
+      - name: Build the native binary (the prebuilt that ships)
         run: |
-          for t in cargo rustc cc gcc clang; do
-            p="$(command -v "$t" 2>/dev/null || true)"
-            if [ -n "$p" ] && [ -f "$p" ]; then
-              sudo mv "$p" "$p.hidden" 2>/dev/null || mv "$p" "$p.hidden" 2>/dev/null || true
-            fi
-          done
-          echo "cargo on PATH after hiding: $(command -v cargo || echo none)"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo build --release --manifest-path native/Cargo.toml
 
-      - name: Build, install, and verify (${{ matrix.method }})
-        env:
-          # Authenticates the CLI's release-API lookup so the prebuilt fallback
-          # isn't rate-limited on shared CI IPs (matters for the pre-release version
-          # under test, whose exact tag isn't published yet).
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Simulate a Node-free install, then verify with Node hidden
         run: |
           set -euo pipefail
-          NODE="$(command -v node)"
-          V="$(tr -d '\n' < VERSION | xargs)"
-          verify() { NODE_BIN="$NODE" bash scripts/verify-install.sh "$1"; }
+          EXE=""; [ "${{ runner.os }}" = "Windows" ] && EXE=".exe"
+          BIN="$RUNNER_TEMP/helpersbin"
+          mkdir -p "$BIN"
+          cp "native/target/release/helpers-native$EXE" "$BIN/helpers-native$EXE"
+          # Symlink the busybox CLIs to the binary (copy fallback where symlinks
+          # need elevation, e.g. Windows).
+          cd "$BIN"
+          for n in helpers git-resolve git-remerge git-fucked-the-push git-initialize \
+                   git-get git-scan-for-leaked-envs git-upload git-checkpoint \
+                   git-help-i-pushed-an-env git-cs-grade; do
+            ln -sf "helpers-native$EXE" "$n$EXE" 2>/dev/null || cp "helpers-native$EXE" "$n$EXE"
+          done
+          cd - >/dev/null
+          # Register (no `claude` in CI → it prints the manual line and writes the
+          # embedded agent config + managed CLAUDE.md block).
+          "$BIN/helpers$EXE" install --agent claude || true
+          # Now prove it's Node-free.
+          bash scripts/verify-install.sh "$BIN/helpers$EXE"
 
-          case "${{ matrix.method }}" in
-            installer)
-              # Headline curl | bash path. </dev/null keeps its prompts non-interactive.
-              # The installer lands the CLI at $HOME/bin (not on this shell's PATH yet).
-              bash Helpers-Installer.sh </dev/null || true
-              verify "$HOME/bin/helpers"
-              ;;
-            tarball)
-              bash scripts/build-dist.sh
-              mkdir -p /tmp/tb && tar -xzf "dist/github-shell-helpers-${V}.tar.gz" -C /tmp/tb
-              verify "$(find /tmp/tb -name helpers -type f | head -1)"
-              ;;
-            npm)
-              bash scripts/build-npm-package.sh
-              # Absolute path so npm treats it as a local tarball, not a git/github spec.
-              npm install -g "$(pwd)/dist/github-shell-helpers-${V}.tgz"
-              # Use the package's real CLI file (npm root -g) — on Windows the bin
-              # is a shell shim, not a symlink, so `command -v helpers` won't reach it.
-              verify "$(npm root -g)/github-shell-helpers/helpers"
-              ;;
-            deb)
-              bash scripts/build-deb.sh
-              sudo dpkg -i "dist/github-shell-helpers_${V}_all.deb" || sudo apt-get -f install -y
-              sudo NODE_BIN="$NODE" PATH="$PATH" GITHUB_TOKEN="$GITHUB_TOKEN" bash scripts/verify-install.sh /usr/bin/helpers
-              ;;
-            pkg)
-              bash scripts/build-pkg.sh
-              sudo installer -pkg "dist/github-shell-helpers-${V}.pkg" -target /
-              sudo NODE_BIN="$NODE" PATH="$PATH" GITHUB_TOKEN="$GITHUB_TOKEN" bash scripts/verify-install.sh /usr/local/bin/helpers
-              ;;
-          esac
+      - name: Lint the Node-free bootstrap scripts
+        if: runner.os != 'Windows'
+        run: bash -n scripts/fetch-prebuilt.sh && bash -n scripts/verify-install.sh && bash -n Helpers-Installer.sh
