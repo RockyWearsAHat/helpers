@@ -3,6 +3,8 @@
 //! tools; everything is exposed here as a library so it can be unit-tested
 //! without spawning a process.
 
+pub mod cli;
+pub mod embed;
 pub mod git;
 pub mod gitcli;
 pub mod index;

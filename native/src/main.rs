@@ -14,6 +14,7 @@ use std::io::Read;
 use std::path::Path;
 use std::process::ExitCode;
 
+use helpers_native::cli;
 use helpers_native::gitcli;
 use helpers_native::index::bundle;
 use helpers_native::mcp;
@@ -33,10 +34,17 @@ fn main() -> ExitCode {
             let args: Vec<String> = std::env::args().skip(1).collect();
             return gitcli::dispatch(&basename, &args);
         }
+        // Invoked as the `helpers` control CLI (a symlink to this binary).
+        if basename == "helpers" || basename == "helpers.exe" {
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            return cli::run(&args);
+        }
     }
 
     let argv: Vec<String> = std::env::args().skip(1).collect();
     match argv.first().map(String::as_str) {
+        // Explicit form: `helpers-native cli <args…>`.
+        Some("cli") => cli::run(&argv[1..]),
         // Explicit form: `helpers-native gitcli <name> [args…]`.
         Some("gitcli") => {
             let name = match argv.get(1) {
