@@ -80,7 +80,7 @@ module.exports = function createCommunitySettings(deps) {
       (localCloneFolder
         ? defaultCommunityRepoFromWorkspace(localCloneFolder)
         : "") ||
-      "RockyWearsAHat/github-shell-helpers";
+      "RockyWearsAHat/helpers";
 
     return {
       schemaVersion: SCHEMA_VERSION,

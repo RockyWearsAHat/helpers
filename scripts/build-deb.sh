@@ -107,7 +107,7 @@ printf '%s\n' \
 	"Architecture: all" \
 	"Maintainer: RockyWearsAHat" \
 	"Depends: bash, zsh, git, curl, jq, nodejs" \
-	"Homepage: https://github.com/RockyWearsAHat/github-shell-helpers" \
+	"Homepage: https://github.com/RockyWearsAHat/helpers" \
 	"Description: Git helpers, MCP tools, and Copilot audit workflow" \
 	" Portable package for helpers commands, MCP servers, and" \
 	" bundled Copilot audit assets." > "${DEBIAN_DIR}/control"
