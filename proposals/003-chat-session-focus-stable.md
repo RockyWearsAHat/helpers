@@ -126,4 +126,4 @@ This works but requires manual `argv.json` setup, cannot be distributed via the 
 - [PR #305730](https://github.com/microsoft/vscode/pull/305730) — Session types changes and smarter mapping (merged)
 - [PR #305297](https://github.com/microsoft/vscode/pull/305297) — Multi chat support (merged)
 - [PR #304532](https://github.com/microsoft/vscode/pull/304532) — Chat session customizations (merged)
-- [helpers](https://github.com/RockyWearsAHat/github-shell-helpers) — extension consuming this API for branch-per-chat sessions
+- [helpers](https://github.com/RockyWearsAHat/helpers) — extension consuming this API for branch-per-chat sessions

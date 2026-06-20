@@ -13,7 +13,7 @@ use crate::git::{home, workspace_root};
 
 /// Raw-content base for the community knowledge repo.
 pub const GITHUB_RAW_BASE: &str =
-    "https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers/dev";
+    "https://raw.githubusercontent.com/RockyWearsAHat/helpers/dev";
 /// Re-check the community index at most this often (10 minutes).
 pub const INDEX_MAX_AGE_MS: i64 = 10 * 60 * 1000;
 

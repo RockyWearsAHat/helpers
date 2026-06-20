@@ -15,10 +15,10 @@ const COMMUNITY_MANIFEST_PATH = path.join(
 );
 const REPO_WEB_BASE =
   process.env.HELPERS_PAGES_REPO_URL ||
-  "https://github.com/RockyWearsAHat/github-shell-helpers";
+  "https://github.com/RockyWearsAHat/helpers";
 const REPO_RAW_BASE =
   process.env.HELPERS_PAGES_RAW_BASE ||
-  "https://raw.githubusercontent.com/RockyWearsAHat/github-shell-helpers";
+  "https://raw.githubusercontent.com/RockyWearsAHat/helpers";
 const REPO_BRANCH = process.env.HELPERS_PAGES_BRANCH || "main";
 
 // English stopwords stripped from tokens before building the search index, so

@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-DEFAULT_COMMUNITY_REPO="RockyWearsAHat/github-shell-helpers"
+DEFAULT_COMMUNITY_REPO="RockyWearsAHat/helpers"
 
 usage() {
   cat <<'EOF'
