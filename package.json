@@ -1,6 +1,6 @@
 {
-  "name": "github-shell-helpers",
-  "version": "0.5.1",
+  "name": "@rockywearsahat/helpers",
+  "version": "0.5.2",
   "description": "Native AI-agent tooling (MCP server + CLI) as a single binary — Node-free runtime.",
   "license": "MIT",
   "preferGlobal": true,
