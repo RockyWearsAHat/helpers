@@ -26,7 +26,7 @@ ARCHIVE_NAME="${PKG_NAME}-${VERSION}.tar.gz"
 ARCHIVE_PATH="${DIST_DIR}/${ARCHIVE_NAME}"
 PKGBUILD_PATH="${AUR_DIR}/PKGBUILD"
 SRCINFO_PATH="${AUR_DIR}/.SRCINFO"
-SOURCE_URL="https://github.com/RockyWearsAHat/github-shell-helpers/releases/download/v${VERSION}/${ARCHIVE_NAME}"
+SOURCE_URL="https://github.com/RockyWearsAHat/helpers/releases/download/v${VERSION}/${ARCHIVE_NAME}"
 
 if [ ! -f "$ARCHIVE_PATH" ]; then
 	bash "${ROOT_DIR}/scripts/build-dist.sh"
@@ -41,7 +41,7 @@ printf '%s\n' \
 	'pkgrel=1' \
 	"pkgdesc='Git helpers, MCP tools, and Copilot audit workflow'" \
 	"arch=('any')" \
-	"url='https://github.com/RockyWearsAHat/github-shell-helpers'" \
+	"url='https://github.com/RockyWearsAHat/helpers'" \
 	"license=('MIT')" \
 	"depends=('bash' 'zsh' 'git' 'curl' 'jq' 'nodejs')" \
 	"source=(\"${ARCHIVE_NAME}::${SOURCE_URL}\")" \
@@ -58,7 +58,7 @@ printf '%s\n' \
 	"\tpkgdesc = Git helpers, MCP tools, and Copilot audit workflow" \
 	"\tpkgver = ${VERSION}" \
 	'\tpkgrel = 1' \
-	"\turl = https://github.com/RockyWearsAHat/github-shell-helpers" \
+	"\turl = https://github.com/RockyWearsAHat/helpers" \
 	'\tarch = any' \
 	'\tlicense = MIT' \
 	'\tdepends = bash' \
