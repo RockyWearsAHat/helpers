@@ -202,17 +202,8 @@ function sectionText(docs, header) {
   return body.replace(/\s+/g, " ").trim();
 }
 
-/** Clippy lint group -> our normalized CS-principle category. */
-const CLIPPY_GROUP_CATEGORY = {
-  correctness: "correctness",
-  suspicious: "correctness",
-  complexity: "complexity",
-  perf: "performance",
-};
 /** Clippy level -> our severity (high|medium|low). */
 const CLIPPY_LEVEL_SEVERITY = { deny: "high", warn: "medium", allow: "low" };
-/** Groups that carry CS-principle substance (skip pedantic/nursery/restriction/cargo/style). */
-const CLIPPY_KEEP_GROUPS = new Set(["correctness", "suspicious", "complexity", "perf"]);
 
 /**
  * Build the Rust/Clippy index from the official lints database. `docsVersion`
@@ -226,13 +217,15 @@ async function buildClippy(toolchain) {
   const lints = await fetchJson(`${base}/lints.json`);
   const rules = [];
   for (const lint of lints) {
-    if (!CLIPPY_KEEP_GROUPS.has(lint.group) || lint.level === "allow") continue;
+    // Index EVERY official lint (no group filter) for 100% coverage; the official
+    // group is kept verbatim as the category, and `severity` (from `level`) marks
+    // which are default-enabled vs allow-by-default.
     const docs = lint.docs || "";
     const whatItDoes = sectionText(docs, "What it does");
     const whyBad = sectionText(docs, "Why is this bad?") || sectionText(docs, "Why is this bad");
     rules.push({
       id: lint.id,
-      category: CLIPPY_GROUP_CATEGORY[lint.group] ?? "correctness",
+      category: lint.group,
       severity: CLIPPY_LEVEL_SEVERITY[lint.level] ?? "medium",
       description: [whatItDoes, whyBad].filter(Boolean).join(" — ") || lint.id,
       exampleBad: codeAfter(docs, "Example"),
