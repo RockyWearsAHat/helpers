@@ -11,6 +11,7 @@ pub mod index;
 pub mod knowledge;
 pub mod lint_ai;
 pub mod lint_ast;
+pub mod lint_brain;
 pub mod lint_checkers;
 pub mod lint_index;
 pub mod lint_metrics;
