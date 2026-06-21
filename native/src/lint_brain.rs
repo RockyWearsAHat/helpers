@@ -175,21 +175,18 @@ impl Brain {
     }
 
     /// Predict an output code from a context, in block `b`: output bit i is set when the
-    /// context agrees (positive dot) with that bit's learned weight vector. Each output
-    /// word's 64 rows are independent, so the rows are evaluated in parallel — this is
-    /// the O(BD²) hot path that gates training speed.
+    /// context agrees (positive dot) with that bit's learned weight vector. Kept
+    /// sequential — it's a single tight 1-bit matrix-vector (cheap in release); the
+    /// useful parallelism is coarse-grained (many independent windows at inference), not
+    /// inside one predict, where task overhead would dominate.
     fn predict_blk(&self, b: usize, ctx: &[u64], out: &mut [u64]) {
         let w = &self.blocks[b];
-        out.par_iter_mut().enumerate().for_each(|(word, slot)| {
-            let mut bits = 0u64;
-            for bit in 0..64 {
-                let i = word * 64 + bit;
-                if dot(ctx, &w[i * BL..i * BL + BL]) > 0 {
-                    bits |= 1u64 << bit;
-                }
+        out.iter_mut().for_each(|x| *x = 0);
+        for i in 0..BD {
+            if dot(ctx, &w[i * BL..i * BL + BL]) > 0 {
+                sbit(out, i);
             }
-            *slot = bits;
-        });
+        }
     }
 
     /// Predictive-coding update: where the prediction disagrees with the observed word's
