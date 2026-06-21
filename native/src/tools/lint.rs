@@ -17,8 +17,8 @@ use serde_json::{json, Value};
 
 use crate::git::workspace_root;
 use crate::index::walk::walk_repo;
-use crate::lint_index;
 use crate::proto::{text, ToolResult};
+use crate::{lint_checkers, lint_index, lint_metrics};
 
 // ── thresholds (mirrors the MyEditor quality engine) ─────────────────────────
 const SOURCE_LONG_FILE: usize = 700;
@@ -56,6 +56,15 @@ impl Sev {
     }
 }
 
+/// Map an index severity label (`high`/`medium`/`low`) to the internal bucket.
+fn sev_from_label(s: &str) -> Sev {
+    match s {
+        "high" => Sev::High,
+        "low" => Sev::Low,
+        _ => Sev::Medium,
+    }
+}
+
 fn root_arg(args: &Value) -> PathBuf {
     match args.get("root").and_then(Value::as_str) {
         Some(p) if !p.trim().is_empty() => PathBuf::from(p),
@@ -77,6 +86,8 @@ pub fn run(args: &Value) -> ToolResult {
 
     let mut issues: Vec<Issue> = Vec::new();
     let mut lang_counts: HashMap<&'static str, usize> = HashMap::new();
+    // Metric models, loaded lazily per language.
+    let mut metric_models: HashMap<&'static str, Option<lint_metrics::Metrics>> = HashMap::new();
     for f in walk_repo(&root) {
         let Some(lang) = Lang::from_ext(&f.ext) else {
             continue;
@@ -103,6 +114,29 @@ pub fn run(args: &Value) -> ToolResult {
             allow_long_file,
             &mut issues,
         );
+        // (The lint judgment is moving to the 1-bit XOR associative model in
+        // `lint_ai`: the whole repo is encoded and judged by the trained model, no
+        // per-language parsing. Wiring lands once the model is trained and measured.)
+        // (The text/regex checker engine was removed: it false-flagged on code that
+        // only appears inside strings/comments. The AST engine above decides those
+        // same rules exactly — never a false positive — so it supersedes it.)
+        // Metric rules: exact measurements (too many args/branches/nesting), with
+        // each rule's threshold read from its own docs. Precise — never fuzzy.
+        let metrics = metric_models
+            .entry(lang.id())
+            .or_insert_with(|| lint_index::for_language(lang.id()).map(|idx| lint_metrics::Metrics::build(&idx)));
+        if let Some(mm) = metrics.as_ref() {
+            for hit in mm.scan(&lines) {
+                issues.push(Issue {
+                    severity: sev_from_label(&hit.severity),
+                    category: "official-rule",
+                    file: f.rel.clone(),
+                    line: hit.line,
+                    message: format!("exceeds official rule `{}` — {}", hit.rule_id, hit.detail),
+                    suggestion: "reduce the measure below the rule's documented threshold",
+                });
+            }
+        }
     }
 
     issues.sort_by(|a, b| {
@@ -122,7 +156,51 @@ pub fn run(args: &Value) -> ToolResult {
         out.push('\n');
         out.push_str(&note);
     }
+    // Program → AI seam: hand the rules that need understanding to the AI reviewer.
+    if let Some(note) = dominant_lang(&lang_counts).and_then(ai_review_note) {
+        out.push('\n');
+        out.push_str(&note);
+    }
     Ok(vec![text(out)])
+}
+
+/// The AI-reviewer hand-off: the official rules NOT covered by a deterministic
+/// checker — the ones that need understanding (type/semantic/intent), not pattern
+/// matching. This is the program→AI seam of the hybrid: the program decides what it
+/// can precisely, then tells the AI reviewer exactly what's left to judge by reading
+/// the code. `None` when every indexed rule is already deterministically covered.
+fn ai_review_note(lang: &str) -> Option<String> {
+    let idx = lint_index::for_language(lang)?;
+    let covered: std::collections::HashSet<String> = lint_checkers::assemble(lang)
+        .map(|b| b.checkers.into_iter().map(|c| c.rule).collect())
+        .unwrap_or_default();
+    let uncovered: Vec<&lint_index::Rule> = idx.rules.iter().filter(|r| !covered.contains(&r.id)).collect();
+    if uncovered.is_empty() {
+        return None;
+    }
+    let mut s = format!(
+        "\n## Grounded AI-review pass — the \"unslop\" check ({lang} {})\n\
+         The deterministic checks above are exact (zero false positives) but only decide *syntactic* \
+         rules. The {} rules below need understanding — and the rule is: **verify against the docs, \
+         never from memory.** Ground every judgment in `lint-index/{}.json` (these webscraped, \
+         version-matched official rules for v{}) — that is how this stays current and never \
+         hallucinates a deprecated API. As the reviewer, read the compacted repo and flag what's \
+         wrong, deprecated-as-of-this-version, or against CS principles; emit each finding for a \
+         fixing agent (file:line + why + the doc it violates):\n",
+        idx.docs_version, uncovered.len(), idx.tool, idx.docs_version
+    );
+    for r in uncovered.iter().take(20) {
+        let desc: String = r.description.chars().take(90).collect();
+        s.push_str(&format!("- `{}` — {desc}\n", r.id));
+    }
+    if uncovered.len() > 20 {
+        s.push_str(&format!(
+            "- …and {} more (full version-matched set in `lint-index/{}.json` — the grounding source)\n",
+            uncovered.len() - 20,
+            idx.tool
+        ));
+    }
+    Some(s)
 }
 
 /// The language with the most scanned files, if any — the one whose packed lint
