@@ -35,8 +35,9 @@ fn rust_sources(dir: &Path, out: &mut Vec<(String, String)>) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let window: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(5);
-    let cap: u32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2048);
-    let show = args.get(3).map(|s| s == "show").unwrap_or(false);
+    let cap: u32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1024);
+    let ambig: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let show = args.get(4).map(|s| s == "show").unwrap_or(false);
 
     // 1. Official clippy rules → (id, bad, good) pairs.
     let raw = fs::read_to_string("../lint-index/clippy.json").expect("read clippy.json");
@@ -63,7 +64,7 @@ fn main() {
     let calib_refs: Vec<&str> = calib.iter().map(|(_, t)| t.as_str()).collect();
 
     // 3. Train.
-    let model = Model::train(window, cap, &pairs, &calib_refs);
+    let model = Model::train(window, cap, ambig, &pairs, &calib_refs);
 
     // 4a. Self-recall: does each rule flag its own documented bad example?
     let recalled = pairs
@@ -86,7 +87,7 @@ fn main() {
     }
     let per_100 = total as f64 / held_loc.max(1) as f64 * 100.0;
 
-    println!("window={window} cap={cap}");
+    println!("window={window} cap={cap} ambig={ambig}");
     println!("clippy bad→good pairs: {}", pairs.len());
     println!("rules trained (separable): {}", model.rule_count());
     println!(
