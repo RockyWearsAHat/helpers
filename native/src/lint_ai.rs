@@ -52,8 +52,8 @@ impl Hv {
     /// XOR — the binding/comparison primitive. Self-inverse: `a.xor(b).xor(b) == a`.
     pub fn xor(&self, other: &Hv) -> Hv {
         let mut w = [0u64; WORDS];
-        for i in 0..WORDS {
-            w[i] = self.0[i] ^ other.0[i];
+        for (out, (a, b)) in w.iter_mut().zip(self.0.iter().zip(other.0.iter())) {
+            *out = a ^ b;
         }
         Hv(w)
     }
@@ -61,11 +61,11 @@ impl Hv {
     /// Number of differing bits (`popcount` of the XOR). 0 ⇒ identical; ~`DIM/2` ⇒
     /// unrelated. This is the only "score" in the engine — smaller is more similar.
     pub fn distance(&self, other: &Hv) -> u32 {
-        let mut d = 0;
-        for i in 0..WORDS {
-            d += (self.0[i] ^ other.0[i]).count_ones();
-        }
-        d
+        self.0
+            .iter()
+            .zip(other.0.iter())
+            .map(|(a, b)| (a ^ b).count_ones())
+            .sum()
     }
 
     /// Rotate all `DIM` bits left by one. Composed `k` times this encodes position `k`,
@@ -73,9 +73,9 @@ impl Hv {
     fn rotl1(&self) -> Hv {
         let mut w = [0u64; WORDS];
         let top = self.0[WORDS - 1] >> 63; // wraps around into bit 0
-        for i in 0..WORDS {
+        for (i, out) in w.iter_mut().enumerate() {
             let carry_in = if i == 0 { top } else { self.0[i - 1] >> 63 };
-            w[i] = (self.0[i] << 1) | carry_in;
+            *out = (self.0[i] << 1) | carry_in;
         }
         Hv(w)
     }
@@ -320,25 +320,28 @@ pub struct Flag {
 /// threshold cleanly separates "present in the good example too" from "new in the bad".
 const NOVEL_THRESH: u32 = (DIM / 8) as u32;
 
-/// One trained rule: its id, the novel (violation) windows kept as sharp exemplars, and
-/// one decision radius. A window flags the rule iff it lies within `radius` of *any*
-/// exemplar — k-nearest-neighbour association with a per-rule, repo-calibrated boundary.
-/// Exemplars (not a blurry centroid) are what let an unseen variant of the violation
-/// still match while keeping the boundary tight.
+/// One trained rule: its id and its violation windows kept as sharp exemplars, each
+/// paired with its OWN decision radius. A window flags the rule iff it lies within some
+/// exemplar's radius — k-nearest-neighbour association with a per-exemplar, repo-
+/// calibrated boundary. Per-exemplar radii (not one rule-wide value) let a distinctive
+/// violation window keep a wide ball while a window that brushes clean code gets a tiny
+/// one, instead of one near-clean window collapsing the whole rule.
 struct RuleProto {
     id: String,
-    exemplars: Vec<Hv>,
-    radius: u32,
+    exemplars: Vec<(Hv, u32)>,
 }
 
 impl RuleProto {
-    /// Distance from `hv` to the nearest exemplar — the rule's match score (lower = closer).
-    fn nearest(&self, hv: &Hv) -> u32 {
+    /// Distance to the nearest exemplar whose own radius admits `hv`, if any — the
+    /// rule's match score (lower = closer). `None` ⇒ no exemplar claims this window.
+    fn best(&self, hv: &Hv) -> Option<u32> {
         self.exemplars
             .iter()
-            .map(|e| hv.distance(e))
+            .filter_map(|(e, r)| {
+                let d = hv.distance(e);
+                (d <= *r).then_some(d)
+            })
             .min()
-            .unwrap_or(u32::MAX)
     }
 }
 
@@ -347,6 +350,7 @@ impl RuleProto {
 /// grammar, no per-rule code — and the calibration is what holds false positives down.
 pub struct Model {
     window: usize,
+    ambig: u32,
     rules: Vec<RuleProto>,
 }
 
@@ -374,10 +378,12 @@ impl Model {
     /// known-good code. `cap` is the one knob trading recall (larger ⇒ catches more
     /// variants) against false flags (smaller ⇒ stricter). A rule whose radius collapses
     /// to zero (clean code sits on its violation) is dropped — never a guess. The result
-    /// false-flags on none of `clean` by construction.
+    /// false-flags on none of `clean` by construction. `ambig` is the judging margin: a
+    /// window is only flagged when its best rule beats the runner-up by that many bits.
     pub fn train(
         window: usize,
         cap: u32,
+        ambig: u32,
         rules: &[(String, String, String)],
         clean: &[&str],
     ) -> Model {
@@ -412,27 +418,36 @@ impl Model {
             if novel.is_empty() {
                 continue; // bad and good are structurally the same here — nothing to flag
             }
-            // calibrate the radius against the clean repo: it must stay strictly below
-            // the nearest clean window to any exemplar, so no known-good code can fire.
-            let nearest_clean = clean_windows
-                .iter()
-                .flat_map(|c| novel.iter().map(move |e| c.distance(e)))
-                .min()
-                .unwrap_or(u32::MAX);
-            // generalization ball, capped (`cap`) so a loose clean repo can't over-open
-            // it — the single knob trading recall against false flags.
-            let radius = nearest_clean.saturating_sub(1).min(cap);
-            if radius == 0 {
-                continue; // clean code sits right on the violation — not separable here
+            // Give each violation window its OWN radius: just under its nearest clean
+            // window, capped at `cap`. A window distinctive from clean code earns a wide
+            // ball (up to `cap`); one that brushes clean code gets a tiny ball and so
+            // effectively only fires on near-exact repeats. Windows that sit on clean
+            // code (radius 0) are dropped — they're indistinguishable from known-good and
+            // can't be a trustworthy fingerprint. No clean calibration window lies inside
+            // any kept ball, by construction.
+            let exemplars: Vec<(Hv, u32)> = novel
+                .into_iter()
+                .filter_map(|e| {
+                    let nearest_clean = clean_windows
+                        .iter()
+                        .map(|c| c.distance(&e))
+                        .min()
+                        .unwrap_or(u32::MAX);
+                    let radius = nearest_clean.saturating_sub(1).min(cap);
+                    (radius >= 1).then_some((e, radius))
+                })
+                .collect();
+            if exemplars.is_empty() {
+                continue; // every window of this violation sits on known-good code
             }
             trained.push(RuleProto {
                 id: id.clone(),
-                exemplars: novel,
-                radius,
+                exemplars,
             });
         }
         Model {
             window,
+            ambig,
             rules: trained,
         }
     }
@@ -448,16 +463,26 @@ impl Model {
     pub fn judge(&self, source: &str) -> Vec<Flag> {
         let mut flags = Vec::new();
         for (hv, line) in windows(&tokenize(source), self.window) {
-            let best = self
+            // every rule that claims this window, nearest first
+            let mut claims: Vec<(u32, &str)> = self
                 .rules
                 .iter()
-                .map(|r| (r.nearest(&hv), r))
-                .filter(|(d, r)| *d <= r.radius)
-                .min_by_key(|(d, _)| *d);
-            if let Some((_, r)) = best {
+                .filter_map(|r| r.best(&hv).map(|d| (d, r.id.as_str())))
+                .collect();
+            claims.sort_by_key(|(d, _)| *d);
+            // AMBIGUITY REJECTION: flag only when one rule owns the window distinctly —
+            // the runner-up must be at least `self.ambig` bits farther. If two rules
+            // match almost equally, the window isn't a fingerprint of either, so the
+            // attribution can't be trusted and we stay silent (never a wrong-rule flag).
+            let distinct = match (claims.first(), claims.get(1)) {
+                (Some(_), None) => true,
+                (Some((d0, _)), Some((d1, _))) => *d1 >= d0 + self.ambig,
+                _ => false,
+            };
+            if distinct {
                 flags.push(Flag {
                     line,
-                    rule_id: r.id.clone(),
+                    rule_id: claims[0].1.to_string(),
                 });
             }
         }
@@ -520,7 +545,7 @@ mod tests {
             "fn b(v: Vec<i32>) { for e in v { use_it(e) } }",
             "fn c(s: String) { print(s) }",
         ];
-        let model = Model::train(4, 2048, &rules, &clean);
+        let model = Model::train(4, 2048, 0, &rules, &clean);
         assert_eq!(model.rule_count(), 1, "the rule should be separable");
         // real violation in unseen code is flagged
         let bad = model.judge("fn h(flag: bool) { if flag == true { do_thing() } }");
