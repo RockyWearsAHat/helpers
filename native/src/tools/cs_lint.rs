@@ -9,13 +9,16 @@
 //! tells you *where you stand*; `cs_lint` tells you *the specific lines to fix*.
 //! Fully deterministic, no AI.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Command;
 
 use regex::Regex;
 use serde_json::{json, Value};
 
 use crate::git::workspace_root;
 use crate::index::walk::walk_repo;
+use crate::lint_index::{self, Resolution};
 use crate::proto::{text, ToolResult};
 
 // ── thresholds (mirrors the MyEditor quality engine) ─────────────────────────
@@ -74,6 +77,7 @@ pub fn run(args: &Value) -> ToolResult {
         .clamp(1, 500) as usize;
 
     let mut issues: Vec<Issue> = Vec::new();
+    let mut lang_counts: HashMap<&'static str, usize> = HashMap::new();
     for f in walk_repo(&root) {
         let Some(lang) = Lang::from_ext(&f.ext) else {
             continue;
@@ -81,6 +85,7 @@ pub fn run(args: &Value) -> ToolResult {
         if is_declaration_file(&f.rel) {
             continue;
         }
+        *lang_counts.entry(lang.id()).or_insert(0) += 1;
         let Ok(content) = std::fs::read_to_string(&f.abs) else {
             continue;
         };
@@ -107,7 +112,70 @@ pub fn run(args: &Value) -> ToolResult {
             .then_with(|| a.file.cmp(&b.file))
             .then_with(|| a.line.cmp(&b.line))
     });
-    Ok(vec![text(render(&issues, max))])
+
+    // Fast-path note: if a packed lint index covers the dominant language's
+    // toolchain, surface that its official rules are active. The built-in checks
+    // above remain the fallback and run unconditionally.
+    let official_note = dominant_lang(&lang_counts).and_then(official_rules_note);
+
+    let mut out = render(&issues, max);
+    if let Some(note) = official_note {
+        out.push('\n');
+        out.push_str(&note);
+    }
+    Ok(vec![text(out)])
+}
+
+/// The language with the most scanned files, if any — the one whose packed lint
+/// index (if present) is most relevant to surface.
+fn dominant_lang(counts: &HashMap<&'static str, usize>) -> Option<&'static str> {
+    counts
+        .iter()
+        .max_by_key(|(lang, n)| (**n, **lang))
+        .map(|(lang, _)| *lang)
+}
+
+/// The canonical (tool, toolchain-version-command) pair Helpers indexes for a
+/// language id, or `None` when no official lint index is tracked for it.
+fn lang_tool(lang: &str) -> Option<(&'static str, &'static [&'static str])> {
+    match lang {
+        "rust" => Some(("clippy", &["rustc", "--version"])),
+        "python" => Some(("ruff", &["ruff", "--version"])),
+        "js" => Some(("eslint", &["eslint", "--version"])),
+        "go" => Some(("go-vet", &["go", "version"])),
+        _ => None,
+    }
+}
+
+/// Detect a tool's toolchain version by running its version command and
+/// extracting the first dotted-number token (e.g. `rustc 1.95.0` → `1.95.0`).
+/// Returns `None` when the command is unavailable or prints no version.
+fn detect_version(cmd: &[&str]) -> Option<String> {
+    let (prog, args) = cmd.split_first()?;
+    let output = Command::new(prog).args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let re = Regex::new(r"\d+\.\d+(?:\.\d+)?").ok()?;
+    re.find(&text).map(|m| m.as_str().to_string())
+}
+
+/// Build the "official rules active" note for `lang` when a packed lint index
+/// resolves on the fast path (file present, checksum intact, version covered).
+/// Returns `None` when no index is tracked, the toolchain can't be detected, or
+/// the fast path misses — so the renderer stays unchanged with no index present.
+fn official_rules_note(lang: &str) -> Option<String> {
+    let (tool, version_cmd) = lang_tool(lang)?;
+    let version = detect_version(version_cmd)?;
+    match lint_index::resolve(tool, lang, &version) {
+        Resolution::Packed(idx) => Some(format!(
+            "\n_Official rules: {} {} rules active for {} v{} (sourced from docs v{}). \
+             These augment the built-in checks above._\n",
+            idx.rule_count, tool, tool, version, idx.docs_version
+        )),
+        Resolution::NeedsCrawl { .. } => None,
+    }
 }
 
 // ── languages ────────────────────────────────────────────────────────────────
@@ -134,6 +202,16 @@ impl Lang {
     }
     fn brace_based(self) -> bool {
         !matches!(self, Lang::Python)
+    }
+    /// Stable lowercase id used to key the packed lint index by language.
+    fn id(self) -> &'static str {
+        match self {
+            Lang::Rust => "rust",
+            Lang::Go => "go",
+            Lang::Js => "js",
+            Lang::Python => "python",
+            Lang::JavaLike => "java",
+        }
     }
 }
 
@@ -574,5 +652,21 @@ mod tests {
             .captures("export const handler = async (req) => {")
             .unwrap();
         assert_eq!(captured_name(&caps), "handler");
+    }
+
+    #[test]
+    fn dominant_lang_picks_most_files() {
+        let mut counts: HashMap<&'static str, usize> = HashMap::new();
+        counts.insert("rust", 5);
+        counts.insert("python", 2);
+        assert_eq!(dominant_lang(&counts), Some("rust"));
+        assert_eq!(dominant_lang(&HashMap::new()), None);
+    }
+
+    #[test]
+    fn lang_tool_maps_known_languages_only() {
+        assert_eq!(lang_tool("rust").map(|(t, _)| t), Some("clippy"));
+        assert_eq!(lang_tool("python").map(|(t, _)| t), Some("ruff"));
+        assert!(lang_tool("java").is_none());
     }
 }
