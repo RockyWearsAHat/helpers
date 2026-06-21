@@ -510,8 +510,48 @@ function loadSources() {
   return JSON.parse(raw).sources || [];
 }
 
+/** Parse `--add <tool> <language> <docs-url>` — an agent-supplied source. */
+function addSourceArg() {
+  const i = process.argv.indexOf("--add");
+  if (i < 0) return null;
+  const [tool, language, url] = process.argv.slice(i + 1, i + 4);
+  if (!tool || !language || !url || url.startsWith("--")) {
+    console.error("usage: node scripts/build-lint-index.mjs --add <tool> <language> <docs-url>");
+    process.exit(2);
+  }
+  return { tool, language, url };
+}
+
+/** Register an agent-supplied crawl source in sources.json (idempotent), persist
+ *  it, and return the entry — the self-expansion hook for an uncovered linter. */
+function registerSource({ tool, language, url }) {
+  const file = join(ROOT, "lint-index", "sources.json");
+  const data = JSON.parse(readFileSync(file, "utf8"));
+  data.sources = data.sources || [];
+  const entry = { tool, language, kind: "crawl", docsBase: url.replace(/[^/]*$/, ""), seed: url };
+  const existing = data.sources.find((s) => s.tool === tool);
+  if (existing) Object.assign(existing, entry);
+  else data.sources.push(entry);
+  writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+  return entry;
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
+
+  // Self-expansion: the agent hands us an uncovered linter's official docs URL;
+  // we register it, crawl it, and pack its index — then it's part of the set.
+  const add = addSourceArg();
+  if (add) {
+    const entry = registerSource(add);
+    const index = await buildFromCrawl(entry);
+    const f = join(OUT, `${index.tool}.json`);
+    writeFileSync(f, JSON.stringify(index, null, 2) + "\n");
+    console.log(`[lint-index] added ${entry.tool} (${entry.language}) [crawl]: ${index.ruleCount} rules -> ${f}`);
+    console.log("[lint-index] registered in lint-index/sources.json — commit + `lint-index-submit.sh` to share it.");
+    return;
+  }
+
   const want = selectedTools();
   const sources = loadSources().filter((s) => !want || want.includes(s.tool));
   if (want && sources.length === 0) {

@@ -1,11 +1,27 @@
 {
   "version": 1,
-  "_note": "The scraper's source registry — adding a linter is a DATA entry here, no Rust change (the lint tool discovers indexes by their `language` field). `kind:builtin` uses a structured adapter in build-lint-index.mjs for the highest-fidelity, version-matched extraction from the tool's machine-readable docs. `kind:crawl` is the universal fallback: the generic crawler fetches a rules-index URL (`seed`) and extracts each linked rule with no parser code. Crawl is best-effort — on unstructured doc sites it can pick up nav/chrome instead of rules, which is the gap the AI reader is meant to close — so prefer a `builtin` adapter, and only enable a `crawl` source once its docs yield clean rules.",
+  "_note": "The scraper's source registry \u2014 adding a linter is a DATA entry here, no Rust change (the lint tool discovers indexes by their `language` field). `kind:builtin` uses a structured adapter in build-lint-index.mjs for the highest-fidelity, version-matched extraction from the tool's machine-readable docs. `kind:crawl` is the universal fallback: the generic crawler fetches a rules-index URL (`seed`) and extracts each linked rule with no parser code. Crawl is best-effort \u2014 on unstructured doc sites it can pick up nav/chrome instead of rules, which is the gap the AI reader is meant to close \u2014 so prefer a `builtin` adapter, and only enable a `crawl` source once its docs yield clean rules.",
   "sources": [
-    { "tool": "clippy", "language": "rust", "kind": "builtin" },
-    { "tool": "ruff", "language": "python", "kind": "builtin" },
-    { "tool": "eslint", "language": "javascript", "kind": "builtin" },
-    { "tool": "staticcheck", "language": "go", "kind": "builtin" }
+    {
+      "tool": "clippy",
+      "language": "rust",
+      "kind": "builtin"
+    },
+    {
+      "tool": "ruff",
+      "language": "python",
+      "kind": "builtin"
+    },
+    {
+      "tool": "eslint",
+      "language": "javascript",
+      "kind": "builtin"
+    },
+    {
+      "tool": "staticcheck",
+      "language": "go",
+      "kind": "builtin"
+    }
   ],
   "_crawl_example": {
     "tool": "shellcheck",
