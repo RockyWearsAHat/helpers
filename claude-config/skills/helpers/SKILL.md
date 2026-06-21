@@ -1,6 +1,6 @@
 ---
 name: helpers
-description: Discover, control, and use Helpers (formerly GSH / Git Shell Helpers) — the helpers MCP tools (research, knowledge memory, checkpoint, strict_lint, local subagents, vision) and the helpers CLI for enabling/disabling Helpers and individual tools. Use when the user mentions Helpers OR its former names GSH / gsh / Git Shell Helpers, asks to enable/disable Helpers or a Helpers tool, asks what Helpers/GSH tools exist, wants to run a `gsh …`/`helpers …` command, or wants to install/configure Helpers. "GSH", "gsh", and "Git Shell Helpers" all mean Helpers.
+description: Discover, control, and use Helpers (formerly GSH / Git Shell Helpers) — the helpers MCP tools (research, knowledge memory, checkpoint, lint, local subagents, vision) and the helpers CLI for enabling/disabling Helpers and individual tools. Use when the user mentions Helpers OR its former names GSH / gsh / Git Shell Helpers, asks to enable/disable Helpers or a Helpers tool, asks what Helpers/GSH tools exist, wants to run a `gsh …`/`helpers …` command, or wants to install/configure Helpers. "GSH", "gsh", and "Git Shell Helpers" all mean Helpers.
 ---
 
 # Helpers (formerly GSH / Git Shell Helpers)
@@ -37,8 +37,8 @@ once with `{ "force": true }` to override the kill-switch.
 All tools are deterministic native Rust (no AI), except web search/scrape (Node).
 
 **Workflow & quality**
-- `cs_lint` — prioritized CS2420/CS3500 violation list (file:line + fix); fix violations as you go.
-- `strict_lint` — run each language's own linters for a file/folder/workspace after edits.
+- `lint` — prioritized CS2420/CS3500 violation list (file:line + fix); fix violations as you go.
+- `lint` — run each language's own linters for a file/folder/workspace after edits.
 - `checkpoint` — stage/commit with your own `message` (or a deterministic one); stage a precise subset with `paths` (files) or `lines` (line ranges).
 
 **Project index** (cheap repo map — orient without grepping)
@@ -59,7 +59,7 @@ All tools are deterministic native Rust (no AI), except web search/scrape (Node)
 1. `project_map` / `lookup` (refresh with `index_project`) to orient cheaply instead of grepping.
 2. Consult knowledge before web search.
 3. One specialized tool for the goal; `scrape_webpage` only for top hits needing depth.
-4. `strict_lint` after edits; `checkpoint` only after validation passes.
+4. `lint` after edits; `checkpoint` only after validation passes.
 
 ## Grading CS projects
 For CS2420 (data structures/algorithms) or CS3500 (OOD/MVC) projects, use the `cs-grade`
