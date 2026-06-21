@@ -31,6 +31,8 @@ cs_grade = { path = "../cs-grade", package = "git-cs-grade" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Bounded waits so strict_lint never hangs on a slow linter subprocess.
 wait-timeout = "0.2"
+# Canonical sha256 for the packed lint-index checksum (fast-path integrity check).
+sha2 = "0.10"
 # search_web / scrape_webpage drive a real Chrome over CDP (like puppeteer, but
 # synchronous and Node-free). CDP is a local ws:// socket, so no TLS/OpenSSL —
 # keeps cross-compilation to musl/windows-gnu clean.

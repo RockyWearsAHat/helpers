@@ -1,0 +1,2197 @@
+{
+  "tool": "eslint",
+  "language": "javascript",
+  "toolchainVersion": null,
+  "docsVersion": "10.5.0",
+  "source": "eslint-org",
+  "docsBase": "https://eslint.org/docs/latest/rules/",
+  "fetchedAt": "2026-06-21T00:16:03.640Z",
+  "checksum": "sha256:3b3686b006bfca02b10dec0301b5fadc0e4cdd581d11e552c7184b9ca507c109",
+  "ruleCount": 312,
+  "rules": [
+    {
+      "id": "accessor-pairs",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce getter and setter pairs in objects and classes",
+      "source": "https://eslint.org/docs/latest/rules/accessor-pairs"
+    },
+    {
+      "id": "array-bracket-newline",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by array-bracket-newline in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/array-bracket-newline"
+    },
+    {
+      "id": "array-bracket-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by array-bracket-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/array-bracket-spacing"
+    },
+    {
+      "id": "array-callback-return",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Enforce return statements in callbacks of array methods",
+      "source": "https://eslint.org/docs/latest/rules/array-callback-return"
+    },
+    {
+      "id": "array-element-newline",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by array-element-newline in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/array-element-newline"
+    },
+    {
+      "id": "arrow-body-style",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require braces around arrow function bodies",
+      "source": "https://eslint.org/docs/latest/rules/arrow-body-style"
+    },
+    {
+      "id": "arrow-parens",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by arrow-parens in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/arrow-parens"
+    },
+    {
+      "id": "arrow-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by arrow-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/arrow-spacing"
+    },
+    {
+      "id": "block-scoped-var",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce the use of variables within the scope they are defined",
+      "source": "https://eslint.org/docs/latest/rules/block-scoped-var"
+    },
+    {
+      "id": "block-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by block-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/block-spacing"
+    },
+    {
+      "id": "brace-style",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by brace-style in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/brace-style"
+    },
+    {
+      "id": "callback-return",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by callback-return in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/callback-return"
+    },
+    {
+      "id": "camelcase",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce camelcase naming convention",
+      "source": "https://eslint.org/docs/latest/rules/camelcase"
+    },
+    {
+      "id": "capitalized-comments",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce or disallow capitalization of the first letter of a comment",
+      "source": "https://eslint.org/docs/latest/rules/capitalized-comments"
+    },
+    {
+      "id": "class-methods-use-this",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce that class methods utilize this",
+      "source": "https://eslint.org/docs/latest/rules/class-methods-use-this"
+    },
+    {
+      "id": "comma-dangle",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by comma-dangle in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/comma-dangle"
+    },
+    {
+      "id": "comma-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by comma-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/comma-spacing"
+    },
+    {
+      "id": "comma-style",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by comma-style in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/comma-style"
+    },
+    {
+      "id": "complexity",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce a maximum cyclomatic complexity allowed in a program",
+      "source": "https://eslint.org/docs/latest/rules/complexity"
+    },
+    {
+      "id": "computed-property-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by computed-property-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/computed-property-spacing"
+    },
+    {
+      "id": "consistent-return",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require return statements to either always or never specify values",
+      "source": "https://eslint.org/docs/latest/rules/consistent-return"
+    },
+    {
+      "id": "consistent-this",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce consistent naming when capturing the current execution context",
+      "source": "https://eslint.org/docs/latest/rules/consistent-this"
+    },
+    {
+      "id": "constructor-super",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Require super() calls in constructors",
+      "source": "https://eslint.org/docs/latest/rules/constructor-super"
+    },
+    {
+      "id": "curly",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce consistent brace style for all control statements",
+      "source": "https://eslint.org/docs/latest/rules/curly"
+    },
+    {
+      "id": "default-case",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require default cases in switch statements",
+      "source": "https://eslint.org/docs/latest/rules/default-case"
+    },
+    {
+      "id": "default-case-last",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce default clauses in switch statements to be last",
+      "source": "https://eslint.org/docs/latest/rules/default-case-last"
+    },
+    {
+      "id": "default-param-last",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce default parameters to be last",
+      "source": "https://eslint.org/docs/latest/rules/default-param-last"
+    },
+    {
+      "id": "dot-location",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by dot-location in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/dot-location"
+    },
+    {
+      "id": "dot-notation",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce dot notation whenever possible",
+      "source": "https://eslint.org/docs/latest/rules/dot-notation"
+    },
+    {
+      "id": "eol-last",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by eol-last in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/eol-last"
+    },
+    {
+      "id": "eqeqeq",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require the use of === and !==",
+      "source": "https://eslint.org/docs/latest/rules/eqeqeq"
+    },
+    {
+      "id": "for-direction",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Enforce for loop update clause moving the counter in the right direction",
+      "source": "https://eslint.org/docs/latest/rules/for-direction"
+    },
+    {
+      "id": "func-call-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by function-call-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/func-call-spacing"
+    },
+    {
+      "id": "func-name-matching",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require function names to match the name of the variable or property to which they are assigned",
+      "source": "https://eslint.org/docs/latest/rules/func-name-matching"
+    },
+    {
+      "id": "func-names",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require or disallow named function expressions",
+      "source": "https://eslint.org/docs/latest/rules/func-names"
+    },
+    {
+      "id": "func-style",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce the consistent use of either function declarations or expressions assigned to variables",
+      "source": "https://eslint.org/docs/latest/rules/func-style"
+    },
+    {
+      "id": "function-call-argument-newline",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by function-call-argument-newline in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/function-call-argument-newline"
+    },
+    {
+      "id": "function-paren-newline",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by function-paren-newline in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/function-paren-newline"
+    },
+    {
+      "id": "generator-star",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by generator-star-spacing",
+      "source": "https://eslint.org/docs/latest/rules/generator-star"
+    },
+    {
+      "id": "generator-star-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by generator-star-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/generator-star-spacing"
+    },
+    {
+      "id": "getter-return",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Enforce return statements in getters",
+      "source": "https://eslint.org/docs/latest/rules/getter-return"
+    },
+    {
+      "id": "global-require",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by global-require in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/global-require"
+    },
+    {
+      "id": "global-strict",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by strict",
+      "source": "https://eslint.org/docs/latest/rules/global-strict"
+    },
+    {
+      "id": "grouped-accessor-pairs",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require grouped accessor pairs in object literals and classes",
+      "source": "https://eslint.org/docs/latest/rules/grouped-accessor-pairs"
+    },
+    {
+      "id": "guard-for-in",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require for-in loops to include an if statement",
+      "source": "https://eslint.org/docs/latest/rules/guard-for-in"
+    },
+    {
+      "id": "handle-callback-err",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by handle-callback-err in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/handle-callback-err"
+    },
+    {
+      "id": "id-blacklist",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by id-denylist",
+      "source": "https://eslint.org/docs/latest/rules/id-blacklist"
+    },
+    {
+      "id": "id-denylist",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow specified identifiers",
+      "source": "https://eslint.org/docs/latest/rules/id-denylist"
+    },
+    {
+      "id": "id-length",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce minimum and maximum identifier lengths",
+      "source": "https://eslint.org/docs/latest/rules/id-length"
+    },
+    {
+      "id": "id-match",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require identifiers to match a specified regular expression",
+      "source": "https://eslint.org/docs/latest/rules/id-match"
+    },
+    {
+      "id": "implicit-arrow-linebreak",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by implicit-arrow-linebreak in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/implicit-arrow-linebreak"
+    },
+    {
+      "id": "indent",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by indent in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/indent"
+    },
+    {
+      "id": "indent-legacy",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by indent in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/indent-legacy"
+    },
+    {
+      "id": "init-declarations",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require or disallow initialization in variable declarations",
+      "source": "https://eslint.org/docs/latest/rules/init-declarations"
+    },
+    {
+      "id": "jsx-quotes",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by jsx-quotes in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/jsx-quotes"
+    },
+    {
+      "id": "key-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by key-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/key-spacing"
+    },
+    {
+      "id": "keyword-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by keyword-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/keyword-spacing"
+    },
+    {
+      "id": "line-comment-position",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by line-comment-position in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/line-comment-position"
+    },
+    {
+      "id": "linebreak-style",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by linebreak-style in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/linebreak-style"
+    },
+    {
+      "id": "lines-around-comment",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by lines-around-comment in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/lines-around-comment"
+    },
+    {
+      "id": "lines-around-directive",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by padding-line-between-statements in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/lines-around-directive"
+    },
+    {
+      "id": "lines-between-class-members",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by lines-between-class-members in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/lines-between-class-members"
+    },
+    {
+      "id": "logical-assignment-operators",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require or disallow logical assignment operator shorthand",
+      "source": "https://eslint.org/docs/latest/rules/logical-assignment-operators"
+    },
+    {
+      "id": "max-classes-per-file",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce a maximum number of classes per file",
+      "source": "https://eslint.org/docs/latest/rules/max-classes-per-file"
+    },
+    {
+      "id": "max-depth",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce a maximum depth that blocks can be nested",
+      "source": "https://eslint.org/docs/latest/rules/max-depth"
+    },
+    {
+      "id": "max-len",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by max-len in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/max-len"
+    },
+    {
+      "id": "max-lines",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce a maximum number of lines per file",
+      "source": "https://eslint.org/docs/latest/rules/max-lines"
+    },
+    {
+      "id": "max-lines-per-function",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce a maximum number of lines of code in a function",
+      "source": "https://eslint.org/docs/latest/rules/max-lines-per-function"
+    },
+    {
+      "id": "max-nested-callbacks",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce a maximum depth that callbacks can be nested",
+      "source": "https://eslint.org/docs/latest/rules/max-nested-callbacks"
+    },
+    {
+      "id": "max-params",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce a maximum number of parameters in function definitions",
+      "source": "https://eslint.org/docs/latest/rules/max-params"
+    },
+    {
+      "id": "max-statements",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce a maximum number of statements allowed in function blocks",
+      "source": "https://eslint.org/docs/latest/rules/max-statements"
+    },
+    {
+      "id": "max-statements-per-line",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by max-statements-per-line in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/max-statements-per-line"
+    },
+    {
+      "id": "multiline-comment-style",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by multiline-comment-style in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/multiline-comment-style"
+    },
+    {
+      "id": "multiline-ternary",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by multiline-ternary in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/multiline-ternary"
+    },
+    {
+      "id": "new-cap",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require constructor names to begin with a capital letter",
+      "source": "https://eslint.org/docs/latest/rules/new-cap"
+    },
+    {
+      "id": "new-parens",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by new-parens in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/new-parens"
+    },
+    {
+      "id": "newline-after-var",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by padding-line-between-statements in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/newline-after-var"
+    },
+    {
+      "id": "newline-before-return",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by padding-line-between-statements in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/newline-before-return"
+    },
+    {
+      "id": "newline-per-chained-call",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by newline-per-chained-call in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/newline-per-chained-call"
+    },
+    {
+      "id": "no-alert",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of alert , confirm , and prompt",
+      "source": "https://eslint.org/docs/latest/rules/no-alert"
+    },
+    {
+      "id": "no-array-constructor",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow Array constructors",
+      "source": "https://eslint.org/docs/latest/rules/no-array-constructor"
+    },
+    {
+      "id": "no-arrow-condition",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-confusing-arrow or no-constant-condition",
+      "source": "https://eslint.org/docs/latest/rules/no-arrow-condition"
+    },
+    {
+      "id": "no-async-promise-executor",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow using an async function as a Promise executor",
+      "source": "https://eslint.org/docs/latest/rules/no-async-promise-executor"
+    },
+    {
+      "id": "no-await-in-loop",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow await inside of loops",
+      "source": "https://eslint.org/docs/latest/rules/no-await-in-loop"
+    },
+    {
+      "id": "no-bitwise",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow bitwise operators",
+      "source": "https://eslint.org/docs/latest/rules/no-bitwise"
+    },
+    {
+      "id": "no-buffer-constructor",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-deprecated-api in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/no-buffer-constructor"
+    },
+    {
+      "id": "no-caller",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of arguments.caller or arguments.callee",
+      "source": "https://eslint.org/docs/latest/rules/no-caller"
+    },
+    {
+      "id": "no-case-declarations",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow lexical declarations in case clauses",
+      "source": "https://eslint.org/docs/latest/rules/no-case-declarations"
+    },
+    {
+      "id": "no-catch-shadow",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-shadow",
+      "source": "https://eslint.org/docs/latest/rules/no-catch-shadow"
+    },
+    {
+      "id": "no-class-assign",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow reassigning class members",
+      "source": "https://eslint.org/docs/latest/rules/no-class-assign"
+    },
+    {
+      "id": "no-comma-dangle",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by comma-dangle",
+      "source": "https://eslint.org/docs/latest/rules/no-comma-dangle"
+    },
+    {
+      "id": "no-compare-neg-zero",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow comparing against -0",
+      "source": "https://eslint.org/docs/latest/rules/no-compare-neg-zero"
+    },
+    {
+      "id": "no-cond-assign",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow assignment operators in conditional expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-cond-assign"
+    },
+    {
+      "id": "no-confusing-arrow",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-confusing-arrow in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-confusing-arrow"
+    },
+    {
+      "id": "no-console",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of console",
+      "source": "https://eslint.org/docs/latest/rules/no-console"
+    },
+    {
+      "id": "no-const-assign",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow reassigning const , using , and await using variables",
+      "source": "https://eslint.org/docs/latest/rules/no-const-assign"
+    },
+    {
+      "id": "no-constant-binary-expression",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow expressions where the operation doesn’t affect the value",
+      "source": "https://eslint.org/docs/latest/rules/no-constant-binary-expression"
+    },
+    {
+      "id": "no-constant-condition",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow constant expressions in conditions",
+      "source": "https://eslint.org/docs/latest/rules/no-constant-condition"
+    },
+    {
+      "id": "no-constructor-return",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow returning value from constructor",
+      "source": "https://eslint.org/docs/latest/rules/no-constructor-return"
+    },
+    {
+      "id": "no-continue",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow continue statements",
+      "source": "https://eslint.org/docs/latest/rules/no-continue"
+    },
+    {
+      "id": "no-control-regex",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow control characters in regular expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-control-regex"
+    },
+    {
+      "id": "no-debugger",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow the use of debugger",
+      "source": "https://eslint.org/docs/latest/rules/no-debugger"
+    },
+    {
+      "id": "no-delete-var",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow deleting variables",
+      "source": "https://eslint.org/docs/latest/rules/no-delete-var"
+    },
+    {
+      "id": "no-div-regex",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow equal signs explicitly at the beginning of regular expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-div-regex"
+    },
+    {
+      "id": "no-dupe-args",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow duplicate arguments in function definitions",
+      "source": "https://eslint.org/docs/latest/rules/no-dupe-args"
+    },
+    {
+      "id": "no-dupe-class-members",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow duplicate class members",
+      "source": "https://eslint.org/docs/latest/rules/no-dupe-class-members"
+    },
+    {
+      "id": "no-dupe-else-if",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow duplicate conditions in if-else-if chains",
+      "source": "https://eslint.org/docs/latest/rules/no-dupe-else-if"
+    },
+    {
+      "id": "no-dupe-keys",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow duplicate keys in object literals",
+      "source": "https://eslint.org/docs/latest/rules/no-dupe-keys"
+    },
+    {
+      "id": "no-duplicate-case",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow duplicate case labels",
+      "source": "https://eslint.org/docs/latest/rules/no-duplicate-case"
+    },
+    {
+      "id": "no-duplicate-imports",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow duplicate module imports",
+      "source": "https://eslint.org/docs/latest/rules/no-duplicate-imports"
+    },
+    {
+      "id": "no-else-return",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow else blocks after return statements in if statements",
+      "source": "https://eslint.org/docs/latest/rules/no-else-return"
+    },
+    {
+      "id": "no-empty",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow empty block statements",
+      "source": "https://eslint.org/docs/latest/rules/no-empty"
+    },
+    {
+      "id": "no-empty-character-class",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow empty character classes in regular expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-empty-character-class"
+    },
+    {
+      "id": "no-empty-class",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-empty-character-class",
+      "source": "https://eslint.org/docs/latest/rules/no-empty-class"
+    },
+    {
+      "id": "no-empty-function",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow empty functions",
+      "source": "https://eslint.org/docs/latest/rules/no-empty-function"
+    },
+    {
+      "id": "no-empty-label",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-labels",
+      "source": "https://eslint.org/docs/latest/rules/no-empty-label"
+    },
+    {
+      "id": "no-empty-pattern",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow empty destructuring patterns",
+      "source": "https://eslint.org/docs/latest/rules/no-empty-pattern"
+    },
+    {
+      "id": "no-empty-static-block",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow empty static blocks",
+      "source": "https://eslint.org/docs/latest/rules/no-empty-static-block"
+    },
+    {
+      "id": "no-eq-null",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow null comparisons without type-checking operators",
+      "source": "https://eslint.org/docs/latest/rules/no-eq-null"
+    },
+    {
+      "id": "no-eval",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of eval()",
+      "source": "https://eslint.org/docs/latest/rules/no-eval"
+    },
+    {
+      "id": "no-ex-assign",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow reassigning exceptions in catch clauses",
+      "source": "https://eslint.org/docs/latest/rules/no-ex-assign"
+    },
+    {
+      "id": "no-extend-native",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow extending native types",
+      "source": "https://eslint.org/docs/latest/rules/no-extend-native"
+    },
+    {
+      "id": "no-extra-bind",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary calls to .bind()",
+      "source": "https://eslint.org/docs/latest/rules/no-extra-bind"
+    },
+    {
+      "id": "no-extra-boolean-cast",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary boolean casts",
+      "source": "https://eslint.org/docs/latest/rules/no-extra-boolean-cast"
+    },
+    {
+      "id": "no-extra-label",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary labels",
+      "source": "https://eslint.org/docs/latest/rules/no-extra-label"
+    },
+    {
+      "id": "no-extra-parens",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-extra-parens in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-extra-parens"
+    },
+    {
+      "id": "no-extra-semi",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-extra-semi in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-extra-semi"
+    },
+    {
+      "id": "no-extra-strict",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by strict",
+      "source": "https://eslint.org/docs/latest/rules/no-extra-strict"
+    },
+    {
+      "id": "no-fallthrough",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow fallthrough of case statements",
+      "source": "https://eslint.org/docs/latest/rules/no-fallthrough"
+    },
+    {
+      "id": "no-floating-decimal",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-floating-decimal in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-floating-decimal"
+    },
+    {
+      "id": "no-func-assign",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow reassigning function declarations",
+      "source": "https://eslint.org/docs/latest/rules/no-func-assign"
+    },
+    {
+      "id": "no-global-assign",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow assignments to native objects or read-only global variables",
+      "source": "https://eslint.org/docs/latest/rules/no-global-assign"
+    },
+    {
+      "id": "no-implicit-coercion",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow shorthand type conversions",
+      "source": "https://eslint.org/docs/latest/rules/no-implicit-coercion"
+    },
+    {
+      "id": "no-implicit-globals",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow declarations in the global scope",
+      "source": "https://eslint.org/docs/latest/rules/no-implicit-globals"
+    },
+    {
+      "id": "no-implied-eval",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of eval() -like methods",
+      "source": "https://eslint.org/docs/latest/rules/no-implied-eval"
+    },
+    {
+      "id": "no-import-assign",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow assigning to imported bindings",
+      "source": "https://eslint.org/docs/latest/rules/no-import-assign"
+    },
+    {
+      "id": "no-inline-comments",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow inline comments after code",
+      "source": "https://eslint.org/docs/latest/rules/no-inline-comments"
+    },
+    {
+      "id": "no-inner-declarations",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow variable or function declarations in nested blocks",
+      "source": "https://eslint.org/docs/latest/rules/no-inner-declarations"
+    },
+    {
+      "id": "no-invalid-regexp",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow invalid regular expression strings in RegExp constructors",
+      "source": "https://eslint.org/docs/latest/rules/no-invalid-regexp"
+    },
+    {
+      "id": "no-invalid-this",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow use of this in contexts where the value of this is undefined",
+      "source": "https://eslint.org/docs/latest/rules/no-invalid-this"
+    },
+    {
+      "id": "no-irregular-whitespace",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow irregular whitespace",
+      "source": "https://eslint.org/docs/latest/rules/no-irregular-whitespace"
+    },
+    {
+      "id": "no-iterator",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of the __iterator__ property",
+      "source": "https://eslint.org/docs/latest/rules/no-iterator"
+    },
+    {
+      "id": "no-label-var",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow labels that share a name with a variable",
+      "source": "https://eslint.org/docs/latest/rules/no-label-var"
+    },
+    {
+      "id": "no-labels",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow labeled statements",
+      "source": "https://eslint.org/docs/latest/rules/no-labels"
+    },
+    {
+      "id": "no-lone-blocks",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary nested blocks",
+      "source": "https://eslint.org/docs/latest/rules/no-lone-blocks"
+    },
+    {
+      "id": "no-lonely-if",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow if statements as the only statement in else blocks",
+      "source": "https://eslint.org/docs/latest/rules/no-lonely-if"
+    },
+    {
+      "id": "no-loop-func",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow function declarations that contain unsafe references inside loop statements",
+      "source": "https://eslint.org/docs/latest/rules/no-loop-func"
+    },
+    {
+      "id": "no-loss-of-precision",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow literal numbers that lose precision",
+      "source": "https://eslint.org/docs/latest/rules/no-loss-of-precision"
+    },
+    {
+      "id": "no-magic-numbers",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow magic numbers",
+      "source": "https://eslint.org/docs/latest/rules/no-magic-numbers"
+    },
+    {
+      "id": "no-misleading-character-class",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow characters which are made with multiple code points in character class syntax",
+      "source": "https://eslint.org/docs/latest/rules/no-misleading-character-class"
+    },
+    {
+      "id": "no-mixed-operators",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-mixed-operators in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-mixed-operators"
+    },
+    {
+      "id": "no-mixed-requires",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-mixed-requires in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/no-mixed-requires"
+    },
+    {
+      "id": "no-mixed-spaces-and-tabs",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-mixed-spaces-and-tabs in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-mixed-spaces-and-tabs"
+    },
+    {
+      "id": "no-multi-assign",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow use of chained assignment expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-multi-assign"
+    },
+    {
+      "id": "no-multi-spaces",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-multi-spaces in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-multi-spaces"
+    },
+    {
+      "id": "no-multi-str",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow multiline strings",
+      "source": "https://eslint.org/docs/latest/rules/no-multi-str"
+    },
+    {
+      "id": "no-multiple-empty-lines",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-multiple-empty-lines in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-multiple-empty-lines"
+    },
+    {
+      "id": "no-native-reassign",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-global-assign",
+      "source": "https://eslint.org/docs/latest/rules/no-native-reassign"
+    },
+    {
+      "id": "no-negated-condition",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow negated conditions",
+      "source": "https://eslint.org/docs/latest/rules/no-negated-condition"
+    },
+    {
+      "id": "no-negated-in-lhs",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-unsafe-negation",
+      "source": "https://eslint.org/docs/latest/rules/no-negated-in-lhs"
+    },
+    {
+      "id": "no-nested-ternary",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow nested ternary expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-nested-ternary"
+    },
+    {
+      "id": "no-new",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow new operators outside of assignments or comparisons",
+      "source": "https://eslint.org/docs/latest/rules/no-new"
+    },
+    {
+      "id": "no-new-func",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow new operators with the Function object",
+      "source": "https://eslint.org/docs/latest/rules/no-new-func"
+    },
+    {
+      "id": "no-new-native-nonconstructor",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow new operators with global non-constructor functions",
+      "source": "https://eslint.org/docs/latest/rules/no-new-native-nonconstructor"
+    },
+    {
+      "id": "no-new-object",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-object-constructor",
+      "source": "https://eslint.org/docs/latest/rules/no-new-object"
+    },
+    {
+      "id": "no-new-require",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-new-require in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/no-new-require"
+    },
+    {
+      "id": "no-new-symbol",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-new-native-nonconstructor",
+      "source": "https://eslint.org/docs/latest/rules/no-new-symbol"
+    },
+    {
+      "id": "no-new-wrappers",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow new operators with the String , Number , and Boolean objects",
+      "source": "https://eslint.org/docs/latest/rules/no-new-wrappers"
+    },
+    {
+      "id": "no-nonoctal-decimal-escape",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow &#92;8 and &#92;9 escape sequences in string literals",
+      "source": "https://eslint.org/docs/latest/rules/no-nonoctal-decimal-escape"
+    },
+    {
+      "id": "no-obj-calls",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow calling global object properties as functions",
+      "source": "https://eslint.org/docs/latest/rules/no-obj-calls"
+    },
+    {
+      "id": "no-object-constructor",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow calls to the Object constructor without an argument",
+      "source": "https://eslint.org/docs/latest/rules/no-object-constructor"
+    },
+    {
+      "id": "no-octal",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow octal literals",
+      "source": "https://eslint.org/docs/latest/rules/no-octal"
+    },
+    {
+      "id": "no-octal-escape",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow octal escape sequences in string literals",
+      "source": "https://eslint.org/docs/latest/rules/no-octal-escape"
+    },
+    {
+      "id": "no-param-reassign",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow reassigning function parameters",
+      "source": "https://eslint.org/docs/latest/rules/no-param-reassign"
+    },
+    {
+      "id": "no-path-concat",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-path-concat in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/no-path-concat"
+    },
+    {
+      "id": "no-plusplus",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the unary operators ++ and --",
+      "source": "https://eslint.org/docs/latest/rules/no-plusplus"
+    },
+    {
+      "id": "no-process-env",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-process-env in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/no-process-env"
+    },
+    {
+      "id": "no-process-exit",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-process-exit in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/no-process-exit"
+    },
+    {
+      "id": "no-promise-executor-return",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow returning values from Promise executor functions",
+      "source": "https://eslint.org/docs/latest/rules/no-promise-executor-return"
+    },
+    {
+      "id": "no-proto",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of the __proto__ property",
+      "source": "https://eslint.org/docs/latest/rules/no-proto"
+    },
+    {
+      "id": "no-prototype-builtins",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow calling some Object.prototype methods directly on objects",
+      "source": "https://eslint.org/docs/latest/rules/no-prototype-builtins"
+    },
+    {
+      "id": "no-redeclare",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow variable redeclaration",
+      "source": "https://eslint.org/docs/latest/rules/no-redeclare"
+    },
+    {
+      "id": "no-regex-spaces",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow multiple spaces in regular expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-regex-spaces"
+    },
+    {
+      "id": "no-reserved-keys",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by quote-props",
+      "source": "https://eslint.org/docs/latest/rules/no-reserved-keys"
+    },
+    {
+      "id": "no-restricted-exports",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow specified names in exports",
+      "source": "https://eslint.org/docs/latest/rules/no-restricted-exports"
+    },
+    {
+      "id": "no-restricted-globals",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow specified global variables",
+      "source": "https://eslint.org/docs/latest/rules/no-restricted-globals"
+    },
+    {
+      "id": "no-restricted-imports",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow specified modules when loaded by import",
+      "source": "https://eslint.org/docs/latest/rules/no-restricted-imports"
+    },
+    {
+      "id": "no-restricted-modules",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-restricted-require in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/no-restricted-modules"
+    },
+    {
+      "id": "no-restricted-properties",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow certain properties on certain objects",
+      "source": "https://eslint.org/docs/latest/rules/no-restricted-properties"
+    },
+    {
+      "id": "no-restricted-syntax",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow specified syntax",
+      "source": "https://eslint.org/docs/latest/rules/no-restricted-syntax"
+    },
+    {
+      "id": "no-return-assign",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow assignment operators in return statements",
+      "source": "https://eslint.org/docs/latest/rules/no-return-assign"
+    },
+    {
+      "id": "no-return-await",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "",
+      "source": "https://eslint.org/docs/latest/rules/no-return-await"
+    },
+    {
+      "id": "no-script-url",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow javascript: URLs",
+      "source": "https://eslint.org/docs/latest/rules/no-script-url"
+    },
+    {
+      "id": "no-self-assign",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow assignments where both sides are exactly the same",
+      "source": "https://eslint.org/docs/latest/rules/no-self-assign"
+    },
+    {
+      "id": "no-self-compare",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow comparisons where both sides are exactly the same",
+      "source": "https://eslint.org/docs/latest/rules/no-self-compare"
+    },
+    {
+      "id": "no-sequences",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow comma operators",
+      "source": "https://eslint.org/docs/latest/rules/no-sequences"
+    },
+    {
+      "id": "no-setter-return",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow returning values from setters",
+      "source": "https://eslint.org/docs/latest/rules/no-setter-return"
+    },
+    {
+      "id": "no-shadow",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow variable declarations from shadowing variables declared in the outer scope",
+      "source": "https://eslint.org/docs/latest/rules/no-shadow"
+    },
+    {
+      "id": "no-shadow-restricted-names",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow identifiers from shadowing restricted names",
+      "source": "https://eslint.org/docs/latest/rules/no-shadow-restricted-names"
+    },
+    {
+      "id": "no-space-before-semi",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by semi-spacing",
+      "source": "https://eslint.org/docs/latest/rules/no-space-before-semi"
+    },
+    {
+      "id": "no-spaced-func",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by function-call-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-spaced-func"
+    },
+    {
+      "id": "no-sparse-arrays",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow sparse arrays",
+      "source": "https://eslint.org/docs/latest/rules/no-sparse-arrays"
+    },
+    {
+      "id": "no-sync",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-sync in eslint-plugin-n",
+      "source": "https://eslint.org/docs/latest/rules/no-sync"
+    },
+    {
+      "id": "no-tabs",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-tabs in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-tabs"
+    },
+    {
+      "id": "no-template-curly-in-string",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow template literal placeholder syntax in regular strings",
+      "source": "https://eslint.org/docs/latest/rules/no-template-curly-in-string"
+    },
+    {
+      "id": "no-ternary",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow ternary operators",
+      "source": "https://eslint.org/docs/latest/rules/no-ternary"
+    },
+    {
+      "id": "no-this-before-super",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow this / super before calling super() in constructors",
+      "source": "https://eslint.org/docs/latest/rules/no-this-before-super"
+    },
+    {
+      "id": "no-throw-literal",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow throwing literals as exceptions",
+      "source": "https://eslint.org/docs/latest/rules/no-throw-literal"
+    },
+    {
+      "id": "no-trailing-spaces",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-trailing-spaces in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-trailing-spaces"
+    },
+    {
+      "id": "no-unassigned-vars",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow let or var variables that are read but never assigned",
+      "source": "https://eslint.org/docs/latest/rules/no-unassigned-vars"
+    },
+    {
+      "id": "no-undef",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow the use of undeclared variables unless mentioned in /*global */ comments",
+      "source": "https://eslint.org/docs/latest/rules/no-undef"
+    },
+    {
+      "id": "no-undef-init",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow initializing variables to undefined",
+      "source": "https://eslint.org/docs/latest/rules/no-undef-init"
+    },
+    {
+      "id": "no-undefined",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of undefined as an identifier",
+      "source": "https://eslint.org/docs/latest/rules/no-undefined"
+    },
+    {
+      "id": "no-underscore-dangle",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow dangling underscores in identifiers",
+      "source": "https://eslint.org/docs/latest/rules/no-underscore-dangle"
+    },
+    {
+      "id": "no-unexpected-multiline",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow confusing multiline expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-unexpected-multiline"
+    },
+    {
+      "id": "no-unmodified-loop-condition",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow unmodified loop conditions",
+      "source": "https://eslint.org/docs/latest/rules/no-unmodified-loop-condition"
+    },
+    {
+      "id": "no-unneeded-ternary",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow ternary operators when simpler alternatives exist",
+      "source": "https://eslint.org/docs/latest/rules/no-unneeded-ternary"
+    },
+    {
+      "id": "no-unreachable",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow unreachable code after return , throw , continue , and break statements",
+      "source": "https://eslint.org/docs/latest/rules/no-unreachable"
+    },
+    {
+      "id": "no-unreachable-loop",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow loops with a body that allows only one iteration",
+      "source": "https://eslint.org/docs/latest/rules/no-unreachable-loop"
+    },
+    {
+      "id": "no-unsafe-finally",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow control flow statements in finally blocks",
+      "source": "https://eslint.org/docs/latest/rules/no-unsafe-finally"
+    },
+    {
+      "id": "no-unsafe-negation",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow negating the left operand of relational operators",
+      "source": "https://eslint.org/docs/latest/rules/no-unsafe-negation"
+    },
+    {
+      "id": "no-unsafe-optional-chaining",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow use of optional chaining in contexts where the undefined value is not allowed",
+      "source": "https://eslint.org/docs/latest/rules/no-unsafe-optional-chaining"
+    },
+    {
+      "id": "no-unused-expressions",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unused expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-unused-expressions"
+    },
+    {
+      "id": "no-unused-labels",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unused labels",
+      "source": "https://eslint.org/docs/latest/rules/no-unused-labels"
+    },
+    {
+      "id": "no-unused-private-class-members",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow unused private class members",
+      "source": "https://eslint.org/docs/latest/rules/no-unused-private-class-members"
+    },
+    {
+      "id": "no-unused-vars",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow unused variables",
+      "source": "https://eslint.org/docs/latest/rules/no-unused-vars"
+    },
+    {
+      "id": "no-use-before-define",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow the use of variables before they are defined",
+      "source": "https://eslint.org/docs/latest/rules/no-use-before-define"
+    },
+    {
+      "id": "no-useless-assignment",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow variable assignments when the value is not used",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-assignment"
+    },
+    {
+      "id": "no-useless-backreference",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow useless backreferences in regular expressions",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-backreference"
+    },
+    {
+      "id": "no-useless-call",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary calls to .call() and .apply()",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-call"
+    },
+    {
+      "id": "no-useless-catch",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary catch clauses",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-catch"
+    },
+    {
+      "id": "no-useless-computed-key",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary computed property keys in objects and classes",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-computed-key"
+    },
+    {
+      "id": "no-useless-concat",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary concatenation of literals or template literals",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-concat"
+    },
+    {
+      "id": "no-useless-constructor",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary constructors",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-constructor"
+    },
+    {
+      "id": "no-useless-escape",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow unnecessary escape characters",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-escape"
+    },
+    {
+      "id": "no-useless-rename",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow renaming import, export, and destructured assignments to the same name",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-rename"
+    },
+    {
+      "id": "no-useless-return",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow redundant return statements",
+      "source": "https://eslint.org/docs/latest/rules/no-useless-return"
+    },
+    {
+      "id": "no-var",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require let or const instead of var",
+      "source": "https://eslint.org/docs/latest/rules/no-var"
+    },
+    {
+      "id": "no-void",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow void operators",
+      "source": "https://eslint.org/docs/latest/rules/no-void"
+    },
+    {
+      "id": "no-warning-comments",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow specified warning terms in comments",
+      "source": "https://eslint.org/docs/latest/rules/no-warning-comments"
+    },
+    {
+      "id": "no-whitespace-before-property",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-whitespace-before-property in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/no-whitespace-before-property"
+    },
+    {
+      "id": "no-with",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow with statements",
+      "source": "https://eslint.org/docs/latest/rules/no-with"
+    },
+    {
+      "id": "no-wrap-func",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by no-extra-parens",
+      "source": "https://eslint.org/docs/latest/rules/no-wrap-func"
+    },
+    {
+      "id": "nonblock-statement-body-position",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by nonblock-statement-body-position in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/nonblock-statement-body-position"
+    },
+    {
+      "id": "object-curly-newline",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by object-curly-newline in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/object-curly-newline"
+    },
+    {
+      "id": "object-curly-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by object-curly-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/object-curly-spacing"
+    },
+    {
+      "id": "object-property-newline",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by object-property-newline in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/object-property-newline"
+    },
+    {
+      "id": "object-shorthand",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require or disallow method and property shorthand syntax for object literals",
+      "source": "https://eslint.org/docs/latest/rules/object-shorthand"
+    },
+    {
+      "id": "one-var",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce variables to be declared either together or separately in functions",
+      "source": "https://eslint.org/docs/latest/rules/one-var"
+    },
+    {
+      "id": "one-var-declaration-per-line",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by one-var-declaration-per-line in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/one-var-declaration-per-line"
+    },
+    {
+      "id": "operator-assignment",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require or disallow assignment operator shorthand where possible",
+      "source": "https://eslint.org/docs/latest/rules/operator-assignment"
+    },
+    {
+      "id": "operator-linebreak",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by operator-linebreak in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/operator-linebreak"
+    },
+    {
+      "id": "padded-blocks",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by padded-blocks in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/padded-blocks"
+    },
+    {
+      "id": "padding-line-between-statements",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by padding-line-between-statements in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/padding-line-between-statements"
+    },
+    {
+      "id": "prefer-arrow-callback",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require using arrow functions for callbacks",
+      "source": "https://eslint.org/docs/latest/rules/prefer-arrow-callback"
+    },
+    {
+      "id": "prefer-const",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require const declarations for variables that are never reassigned after declared",
+      "source": "https://eslint.org/docs/latest/rules/prefer-const"
+    },
+    {
+      "id": "prefer-destructuring",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require destructuring from arrays and/or objects",
+      "source": "https://eslint.org/docs/latest/rules/prefer-destructuring"
+    },
+    {
+      "id": "prefer-exponentiation-operator",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow the use of Math.pow in favor of the ** operator",
+      "source": "https://eslint.org/docs/latest/rules/prefer-exponentiation-operator"
+    },
+    {
+      "id": "prefer-named-capture-group",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce using named capture group in regular expression",
+      "source": "https://eslint.org/docs/latest/rules/prefer-named-capture-group"
+    },
+    {
+      "id": "prefer-numeric-literals",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow parseInt() and Number.parseInt() in favor of binary, octal, and hexadecimal literals",
+      "source": "https://eslint.org/docs/latest/rules/prefer-numeric-literals"
+    },
+    {
+      "id": "prefer-object-has-own",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow use of Object.prototype.hasOwnProperty.call() and prefer use of Object.hasOwn()",
+      "source": "https://eslint.org/docs/latest/rules/prefer-object-has-own"
+    },
+    {
+      "id": "prefer-object-spread",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow using Object.assign with an object literal as the first argument and prefer the use of object spread instead",
+      "source": "https://eslint.org/docs/latest/rules/prefer-object-spread"
+    },
+    {
+      "id": "prefer-promise-reject-errors",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require using Error objects as Promise rejection reasons",
+      "source": "https://eslint.org/docs/latest/rules/prefer-promise-reject-errors"
+    },
+    {
+      "id": "prefer-reflect",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "",
+      "source": "https://eslint.org/docs/latest/rules/prefer-reflect"
+    },
+    {
+      "id": "prefer-regex-literals",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow use of the RegExp constructor in favor of regular expression literals",
+      "source": "https://eslint.org/docs/latest/rules/prefer-regex-literals"
+    },
+    {
+      "id": "prefer-rest-params",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require rest parameters instead of arguments",
+      "source": "https://eslint.org/docs/latest/rules/prefer-rest-params"
+    },
+    {
+      "id": "prefer-spread",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require spread operators instead of .apply()",
+      "source": "https://eslint.org/docs/latest/rules/prefer-spread"
+    },
+    {
+      "id": "prefer-template",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require template literals instead of string concatenation",
+      "source": "https://eslint.org/docs/latest/rules/prefer-template"
+    },
+    {
+      "id": "preserve-caught-error",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow losing originally caught error when re-throwing custom errors",
+      "source": "https://eslint.org/docs/latest/rules/preserve-caught-error"
+    },
+    {
+      "id": "quote-props",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by quote-props in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/quote-props"
+    },
+    {
+      "id": "quotes",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by quotes in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/quotes"
+    },
+    {
+      "id": "radix",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce the use of the radix argument when using parseInt()",
+      "source": "https://eslint.org/docs/latest/rules/radix"
+    },
+    {
+      "id": "require-atomic-updates",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Disallow assignments that can lead to race conditions due to usage of await or yield",
+      "source": "https://eslint.org/docs/latest/rules/require-atomic-updates"
+    },
+    {
+      "id": "require-await",
+      "category": "style",
+      "severity": "medium",
+      "description": "Disallow async functions which have no await expression",
+      "source": "https://eslint.org/docs/latest/rules/require-await"
+    },
+    {
+      "id": "require-jsdoc",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "",
+      "source": "https://eslint.org/docs/latest/rules/require-jsdoc"
+    },
+    {
+      "id": "require-unicode-regexp",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce the use of u or v flag on regular expressions",
+      "source": "https://eslint.org/docs/latest/rules/require-unicode-regexp"
+    },
+    {
+      "id": "require-yield",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require generator functions to contain yield",
+      "source": "https://eslint.org/docs/latest/rules/require-yield"
+    },
+    {
+      "id": "rest-spread-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by rest-spread-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/rest-spread-spacing"
+    },
+    {
+      "id": "semi",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by semi in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/semi"
+    },
+    {
+      "id": "semi-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by semi-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/semi-spacing"
+    },
+    {
+      "id": "semi-style",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by semi-style in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/semi-style"
+    },
+    {
+      "id": "sort-imports",
+      "category": "style",
+      "severity": "medium",
+      "description": "Enforce sorted import declarations within modules",
+      "source": "https://eslint.org/docs/latest/rules/sort-imports"
+    },
+    {
+      "id": "sort-keys",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require object keys to be sorted",
+      "source": "https://eslint.org/docs/latest/rules/sort-keys"
+    },
+    {
+      "id": "sort-vars",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require variables within the same declaration block to be sorted",
+      "source": "https://eslint.org/docs/latest/rules/sort-vars"
+    },
+    {
+      "id": "space-after-function-name",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by space-before-function-paren",
+      "source": "https://eslint.org/docs/latest/rules/space-after-function-name"
+    },
+    {
+      "id": "space-after-keywords",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by keyword-spacing",
+      "source": "https://eslint.org/docs/latest/rules/space-after-keywords"
+    },
+    {
+      "id": "space-before-blocks",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by space-before-blocks in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/space-before-blocks"
+    },
+    {
+      "id": "space-before-function-paren",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by space-before-function-paren in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/space-before-function-paren"
+    },
+    {
+      "id": "space-before-function-parentheses",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by space-before-function-paren",
+      "source": "https://eslint.org/docs/latest/rules/space-before-function-parentheses"
+    },
+    {
+      "id": "space-before-keywords",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by keyword-spacing",
+      "source": "https://eslint.org/docs/latest/rules/space-before-keywords"
+    },
+    {
+      "id": "space-in-brackets",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by object-curly-spacing or array-bracket-spacing or computed-property-spacing",
+      "source": "https://eslint.org/docs/latest/rules/space-in-brackets"
+    },
+    {
+      "id": "space-in-parens",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by space-in-parens in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/space-in-parens"
+    },
+    {
+      "id": "space-infix-ops",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by space-infix-ops in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/space-infix-ops"
+    },
+    {
+      "id": "space-return-throw-case",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by keyword-spacing",
+      "source": "https://eslint.org/docs/latest/rules/space-return-throw-case"
+    },
+    {
+      "id": "space-unary-ops",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by space-unary-ops in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/space-unary-ops"
+    },
+    {
+      "id": "space-unary-word-ops",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by space-unary-ops",
+      "source": "https://eslint.org/docs/latest/rules/space-unary-word-ops"
+    },
+    {
+      "id": "spaced-comment",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by spaced-comment in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/spaced-comment"
+    },
+    {
+      "id": "spaced-line-comment",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by spaced-comment",
+      "source": "https://eslint.org/docs/latest/rules/spaced-line-comment"
+    },
+    {
+      "id": "strict",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require or disallow strict mode directives",
+      "source": "https://eslint.org/docs/latest/rules/strict"
+    },
+    {
+      "id": "switch-colon-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by switch-colon-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/switch-colon-spacing"
+    },
+    {
+      "id": "symbol-description",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require symbol descriptions",
+      "source": "https://eslint.org/docs/latest/rules/symbol-description"
+    },
+    {
+      "id": "template-curly-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by template-curly-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/template-curly-spacing"
+    },
+    {
+      "id": "template-tag-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by template-tag-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/template-tag-spacing"
+    },
+    {
+      "id": "unicode-bom",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require or disallow Unicode byte order mark (BOM)",
+      "source": "https://eslint.org/docs/latest/rules/unicode-bom"
+    },
+    {
+      "id": "use-isnan",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Require calls to isNaN() when checking for NaN",
+      "source": "https://eslint.org/docs/latest/rules/use-isnan"
+    },
+    {
+      "id": "valid-jsdoc",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "",
+      "source": "https://eslint.org/docs/latest/rules/valid-jsdoc"
+    },
+    {
+      "id": "valid-typeof",
+      "category": "correctness",
+      "severity": "high",
+      "description": "Enforce comparing typeof expressions against valid strings",
+      "source": "https://eslint.org/docs/latest/rules/valid-typeof"
+    },
+    {
+      "id": "vars-on-top",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require var declarations be placed at the top of their containing scope",
+      "source": "https://eslint.org/docs/latest/rules/vars-on-top"
+    },
+    {
+      "id": "wrap-iife",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by wrap-iife in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/wrap-iife"
+    },
+    {
+      "id": "wrap-regex",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by wrap-regex in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/wrap-regex"
+    },
+    {
+      "id": "yield-star-spacing",
+      "category": "deprecation",
+      "severity": "low",
+      "description": "Replaced by yield-star-spacing in @stylistic/eslint-plugin",
+      "source": "https://eslint.org/docs/latest/rules/yield-star-spacing"
+    },
+    {
+      "id": "yoda",
+      "category": "style",
+      "severity": "medium",
+      "description": "Require or disallow “Yoda” conditions",
+      "source": "https://eslint.org/docs/latest/rules/yoda"
+    }
+  ]
+}
