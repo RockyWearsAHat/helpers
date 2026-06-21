@@ -5,7 +5,7 @@
   "docsVersion": "10.5.0",
   "source": "eslint-org",
   "docsBase": "https://eslint.org/docs/latest/rules/",
-  "fetchedAt": "2026-06-21T00:16:03.640Z",
+  "fetchedAt": "2026-06-21T01:03:49.964Z",
   "checksum": "sha256:3b3686b006bfca02b10dec0301b5fadc0e4cdd581d11e552c7184b9ca507c109",
   "ruleCount": 312,
   "rules": [
