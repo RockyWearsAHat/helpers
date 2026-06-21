@@ -399,6 +399,105 @@ impl Brain {
         Some(self.tok[best].clone())
     }
 
+    /// Read one labeled example: associate an already-tokenized context (e.g. code
+    /// tokens — every one counts as content, so operators like `==` are learned, unlike
+    /// the English `observe`) with a target token. This is how the net learns
+    /// code-pattern → rule-label. Trains+freezes automatically when a block fills.
+    pub fn observe_pair(&mut self, ctx: &[&str], target: &str) {
+        if ctx.len() < 2 {
+            return;
+        }
+        let cids: Vec<usize> = ctx.iter().filter_map(|t| self.vid(t, true)).collect();
+        let Some(tid) = self.vid(target, true) else {
+            return;
+        };
+        for &id in &cids {
+            self.freq[id] += 1;
+            self.total += 1;
+        }
+        self.freq[tid] += 1;
+        self.total += 1;
+        self.buf.push((cids, tid));
+        if self.buf.len() >= CAP_PER_BLOCK {
+            self.train_and_freeze();
+        }
+    }
+
+    /// Nearest token *among a small candidate set* to the prediction from `ctx_ids`,
+    /// excluding `drop`. Used at lint time so a query scans only the rule labels, not all
+    /// of English — fast, and the candidate set is what makes recall a verdict.
+    fn recall_among(
+        &self,
+        ctx_ids: &[usize],
+        cands: &[usize],
+        drop: Option<usize>,
+    ) -> (Option<usize>, u32) {
+        let use_ids: Vec<usize> = ctx_ids.iter().copied().filter(|&i| Some(i) != drop).collect();
+        if use_ids.is_empty() {
+            return (None, BD as u32 + 1);
+        }
+        let mut best = None;
+        let mut bd = BD as u32 + 1;
+        let mut ctx = [0u64; BL];
+        let mut pr = [0u64; BL];
+        let mut c = [0u64; BL];
+        for b in 0..self.blocks.len() {
+            self.bag(&use_ids, b, &mut ctx);
+            self.predict_blk(b, &ctx, &mut pr);
+            for &t in cands {
+                if Some(t) == drop {
+                    continue;
+                }
+                code_of(&self.tok[t], b, &mut c);
+                let d = ham(&pr, &c);
+                if d < bd {
+                    bd = d;
+                    best = Some(t);
+                }
+            }
+        }
+        (best, bd)
+    }
+
+    /// The KNOWING gate over an explicit code context and candidate labels. Returns the
+    /// label the context is *known to cause* (close association AND it changes when the
+    /// distinctive subject token is removed), else `None`. This is the lint verdict: flag
+    /// only when the specific construct drives the rule — never on a generic token match.
+    pub fn known_among(&mut self, ctx: &[&str], candidates: &[&str]) -> Option<String> {
+        let ctx_ids: Vec<usize> = ctx.iter().filter_map(|t| self.index.get(*t).copied()).collect();
+        if ctx_ids.len() < 2 {
+            return None;
+        }
+        let cand_ids: Vec<usize> =
+            candidates.iter().filter_map(|t| self.index.get(*t).copied()).collect();
+        if cand_ids.is_empty() {
+            return None;
+        }
+        let (best, bd) = self.recall_among(&ctx_ids, &cand_ids, None);
+        let best = best?;
+        if bd > (BD as f64 * CONF) as u32 {
+            return None; // association isn't real
+        }
+        let mut subj = None;
+        let mut best_idf = -1.0;
+        for &id in &ctx_ids {
+            if self.freq.get(id).copied().unwrap_or(0) < 2 {
+                continue;
+            }
+            let w = self.idf(id);
+            if w > best_idf {
+                best_idf = w;
+                subj = Some(id);
+            }
+        }
+        let subj = subj?;
+        let (generic, _) = self.recall_among(&ctx_ids, &cand_ids, Some(subj));
+        if generic == Some(best) {
+            return None; // generic-frame match, not caused by the construct → abstain
+        }
+        Some(self.tok[best].clone())
+    }
+
     /// Vocabulary size — how many distinct words the net has read.
     pub fn vocab(&self) -> usize {
         self.tok.len()
@@ -434,5 +533,75 @@ mod tests {
         // A query with only the generic frame and no learned distinctive subject must
         // not be reported as KNOWN (it can only be a generic guess).
         assert_eq!(b.known("capital city"), None);
+    }
+
+    /// Teach `code`'s 4-token windows to associate with `label` (code-aware tokens).
+    fn teach(b: &mut Brain, code: &str, label: &str) {
+        let toks: Vec<String> = crate::lint_ai::tokenize(code).into_iter().map(|t| t.text).collect();
+        for w in toks.windows(4) {
+            let refs: Vec<&str> = w.iter().map(String::as_str).collect();
+            b.observe_pair(&refs, label);
+        }
+    }
+
+    /// Lint `code` by asking the KNOWING gate for each window, dropping "clean" verdicts.
+    fn lint(b: &mut Brain, code: &str, cands: &[&str]) -> Vec<String> {
+        let toks: Vec<String> = crate::lint_ai::tokenize(code).into_iter().map(|t| t.text).collect();
+        let mut hits = Vec::new();
+        for w in toks.windows(4) {
+            let refs: Vec<&str> = w.iter().map(String::as_str).collect();
+            if let Some(lbl) = b.known_among(&refs, cands) {
+                if lbl != "clean" {
+                    hits.push(lbl);
+                }
+            }
+        }
+        hits
+    }
+
+    #[test]
+    fn learns_to_lint_a_violation_through_the_gate() {
+        let mut b = Brain::new();
+        let rules: &[(&str, &str, &str)] = &[
+            ("boolcomparison", "fn f(x: bool) { if x == true {} }", "fn f(x: bool) { if x {} }"),
+            ("eqop", "fn f(a: i32) { if a == a {} }", "fn f(a: i32, c: i32) { if a == c {} }"),
+            ("needlessreturn", "fn g(n: i32) -> i32 { return n; }", "fn g(n: i32) -> i32 { n }"),
+        ];
+        // Ordinary clean code, so scaffolding (fn/parens/braces, `let x = ...`) firmly
+        // reads as "clean" — in production this volume comes from reading the repo.
+        let clean_extra = [
+            "fn a(n: i32) -> i32 { n + 1 }",
+            "fn b() { let s = compute(); use_it(s); }",
+            "fn c(v: Vec<i32>) { for e in v { go(e) } }",
+            "fn d(p: bool) { while p { step() } }",
+        ];
+        for _ in 0..8 {
+            for (label, bad, good) in rules {
+                teach(&mut b, bad, label);
+                teach(&mut b, good, "clean");
+            }
+            for c in clean_extra {
+                teach(&mut b, c, "clean");
+            }
+        }
+        b.flush();
+
+        let cands = ["boolcomparison", "eqop", "needlessreturn", "clean"];
+        // flags the bool comparison in unseen code
+        assert!(
+            lint(&mut b, "fn h(y: bool) { if y == true {} }", &cands)
+                .contains(&"boolcomparison".to_string()),
+            "should flag the bool comparison"
+        );
+        // does not flag genuinely clean code
+        assert!(
+            lint(&mut b, "fn h(y: bool) { if y {} }", &cands).is_empty(),
+            "should not flag clean code"
+        );
+        // the pattern only inside a string is not code (collapses to <str>) → no flag
+        assert!(
+            lint(&mut b, r#"fn h() { let s = "if y == true"; }"#, &cands).is_empty(),
+            "should not flag the pattern inside a string"
+        );
     }
 }
