@@ -18,7 +18,11 @@
 
 use std::collections::HashMap;
 
-/// Code/þrediction width in bits. 8192 bits ⇒ random codes are near-orthogonal.
+use rayon::prelude::*;
+
+/// Code/prediction width in bits. 8192 keeps random codes well separated (lower widths
+/// lost enough capacity to confuse the KNOWING gate); the O(BD²) predict cost is held in
+/// check by parallelism and a per-session reading budget rather than by shrinking it.
 const BD: usize = 8192;
 /// Words of `u64` per code.
 const BL: usize = BD / 64;
@@ -171,15 +175,21 @@ impl Brain {
     }
 
     /// Predict an output code from a context, in block `b`: output bit i is set when the
-    /// context agrees (positive dot) with that bit's learned weight vector.
+    /// context agrees (positive dot) with that bit's learned weight vector. Each output
+    /// word's 64 rows are independent, so the rows are evaluated in parallel — this is
+    /// the O(BD²) hot path that gates training speed.
     fn predict_blk(&self, b: usize, ctx: &[u64], out: &mut [u64]) {
         let w = &self.blocks[b];
-        out.iter_mut().for_each(|x| *x = 0);
-        for i in 0..BD {
-            if dot(ctx, &w[i * BL..i * BL + BL]) > 0 {
-                sbit(out, i);
+        out.par_iter_mut().enumerate().for_each(|(word, slot)| {
+            let mut bits = 0u64;
+            for bit in 0..64 {
+                let i = word * 64 + bit;
+                if dot(ctx, &w[i * BL..i * BL + BL]) > 0 {
+                    bits |= 1u64 << bit;
+                }
             }
-        }
+            *slot = bits;
+        });
     }
 
     /// Predictive-coding update: where the prediction disagrees with the observed word's
@@ -323,20 +333,23 @@ impl Brain {
         let mut bd = BD as u32 + 1;
         let mut ctx = [0u64; BL];
         let mut pr = [0u64; BL];
-        let mut c = [0u64; BL];
         for b in 0..self.blocks.len() {
             self.bag(&use_ids, b, &mut ctx);
             self.predict_blk(b, &ctx, &mut pr);
-            for t in 0..self.tok.len() {
-                if Some(t) == drop || use_ids.contains(&t) {
-                    continue;
-                }
-                code_of(&self.tok[t], b, &mut c);
-                let d = ham(&pr, &c);
-                if d < bd {
-                    bd = d;
-                    best = Some(t);
-                }
+            // nearest vocab code to the prediction, scanned in parallel
+            let (d, t) = (0..self.tok.len())
+                .into_par_iter()
+                .filter(|&t| Some(t) != drop && !use_ids.contains(&t))
+                .map(|t| {
+                    let mut c = [0u64; BL];
+                    code_of(&self.tok[t], b, &mut c);
+                    (ham(&pr, &c), t)
+                })
+                .min()
+                .unwrap_or((BD as u32 + 1, usize::MAX));
+            if d < bd {
+                bd = d;
+                best = Some(t);
             }
         }
         (best, bd)
