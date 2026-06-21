@@ -183,6 +183,19 @@ impl Default for Bundler {
     }
 }
 
+/// Byte length of the UTF-8 codepoint that starts with lead byte `b`.
+fn utf8_len(b: u8) -> usize {
+    if b < 0x80 {
+        1
+    } else if b < 0xE0 {
+        2
+    } else if b < 0xF0 {
+        3
+    } else {
+        4
+    }
+}
+
 /// A token with its 1-based source line. Tokens are the model's only view of code.
 pub struct Tok {
     /// The normalized token text (a codebook key).
@@ -217,6 +230,12 @@ pub fn tokenize(source: &str) -> Vec<Tok> {
         }
         if c.is_whitespace() {
             i += 1;
+            continue;
+        }
+        // non-ASCII byte outside a string/comment: skip the whole UTF-8 codepoint so we
+        // never slice mid-character (code tokens are ASCII; this is stray text/symbols).
+        if !c.is_ascii() {
+            i += utf8_len(bytes[i]);
             continue;
         }
         // line comments: // ... and # ...
@@ -301,11 +320,6 @@ pub struct Flag {
 /// threshold cleanly separates "present in the good example too" from "new in the bad".
 const NOVEL_THRESH: u32 = (DIM / 8) as u32;
 
-/// Upper bound on a rule's generalization radius: wide enough to admit a small variant
-/// of the violation (a renamed operand) but not so wide it matches unrelated code, even
-/// if the clean repo happens to leave room. Tuned against the real corpus measurement.
-const GENERALIZE_CAP: u32 = (DIM / 4) as u32;
-
 /// One trained rule: its id, the novel (violation) windows kept as sharp exemplars, and
 /// one decision radius. A window flags the rule iff it lies within `radius` of *any*
 /// exemplar — k-nearest-neighbour association with a per-rule, repo-calibrated boundary.
@@ -354,16 +368,16 @@ fn windows(toks: &[Tok], window: usize) -> Vec<(Hv, usize)> {
 impl Model {
     /// Train from the docs. `rules` is `(id, exampleBad, exampleGood)`; `clean` is
     /// known-good source — the repo itself — used to calibrate boundaries. For each
-    /// rule: take the windows of its bad example that are novel vs its good example (the
-    /// violation), bundle them into a prototype, and set the radius to cover them
-    /// (`+margin` slack). Then **shrink the radius below the nearest clean-repo window**
-    /// so the rule cannot fire on known-good code. A rule whose violation can't be
-    /// separated from the clean repo (radius collapses below its own examples) is
-    /// dropped — never a guess. The result false-flags on none of `clean` by
-    /// construction.
+    /// rule: keep the windows of its bad example that are novel vs its good example (the
+    /// violation) as exemplars, then set the decision radius to the smaller of `cap` and
+    /// **just below the nearest clean-repo window**, so the rule cannot fire on
+    /// known-good code. `cap` is the one knob trading recall (larger ⇒ catches more
+    /// variants) against false flags (smaller ⇒ stricter). A rule whose radius collapses
+    /// to zero (clean code sits on its violation) is dropped — never a guess. The result
+    /// false-flags on none of `clean` by construction.
     pub fn train(
         window: usize,
-        margin: u32,
+        cap: u32,
         rules: &[(String, String, String)],
         clean: &[&str],
     ) -> Model {
@@ -405,8 +419,9 @@ impl Model {
                 .flat_map(|c| novel.iter().map(move |e| c.distance(e)))
                 .min()
                 .unwrap_or(u32::MAX);
-            // generalization ball, capped so a loose clean repo can't over-open it
-            let radius = nearest_clean.saturating_sub(1).min(GENERALIZE_CAP + margin);
+            // generalization ball, capped (`cap`) so a loose clean repo can't over-open
+            // it — the single knob trading recall against false flags.
+            let radius = nearest_clean.saturating_sub(1).min(cap);
             if radius == 0 {
                 continue; // clean code sits right on the violation — not separable here
             }
@@ -505,7 +520,7 @@ mod tests {
             "fn b(v: Vec<i32>) { for e in v { use_it(e) } }",
             "fn c(s: String) { print(s) }",
         ];
-        let model = Model::train(4, 1, &rules, &clean);
+        let model = Model::train(4, 2048, &rules, &clean);
         assert_eq!(model.rule_count(), 1, "the rule should be separable");
         // real violation in unseen code is flagged
         let bad = model.judge("fn h(flag: bool) { if flag == true { do_thing() } }");
