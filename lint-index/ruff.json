@@ -5,7 +5,7 @@
   "docsVersion": "1.6.1",
   "source": "astral-ruff",
   "docsBase": "https://docs.astral.sh/ruff/rules/",
-  "fetchedAt": "2026-06-21T00:16:03.451Z",
+  "fetchedAt": "2026-06-21T01:03:49.491Z",
   "checksum": "sha256:57163ea62b3e1bc48cdab9e61a4f5c07904e29a89671158a87e27c693b467a20",
   "ruleCount": 947,
   "rules": [

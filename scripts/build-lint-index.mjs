@@ -23,7 +23,7 @@
 
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -472,7 +472,8 @@ async function staticcheckDocsVersion() {
 // Driver
 // ---------------------------------------------------------------------------
 
-/** Registry of adapters: each builds one schema-conformant index object. */
+/** Structured adapters (`kind: "builtin"`): highest-fidelity, version-matched
+ * extraction from each tool's machine-readable source. */
 const ADAPTERS = {
   clippy: () => buildClippy(rustVersion()),
   ruff: () => buildRuff(),
@@ -480,31 +481,63 @@ const ADAPTERS = {
   staticcheck: () => buildStaticcheck(),
 };
 
+/**
+ * The universal adapter (`kind: "crawl"`): fetch a linter's official rules-index
+ * page and extract each linked rule (anchor slug = id, text = description). Lower
+ * fidelity than a structured adapter, but it makes adding ANY linter a data entry
+ * in sources.json — no parser code. Output is the same Rust-parsable index.
+ */
+async function buildFromCrawl({ tool, language, docsVersion, docsBase, seed }) {
+  const html = await fetchText(seed);
+  const skip = /^(home|edit|history|login|logout|search|wiki|index|next|previous|prev|back|top|home page|table of contents|contents)$/i;
+  const seen = new Set();
+  const rules = [];
+  const re = /<a[^>]+href="([^"]+)"[^>]*>([^<]{2,90})<\/a>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const text = m[2].replace(/\s+/g, " ").trim();
+    const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!id || id.length < 2 || seen.has(id) || skip.test(text)) continue;
+    seen.add(id);
+    let url;
+    try {
+      url = new URL(m[1], seed).toString();
+    } catch {
+      url = seed;
+    }
+    rules.push({ id, category: "correctness", severity: "medium", description: text, source: url });
+  }
+  if (rules.length === 0) throw new Error(`generic crawl extracted 0 rules from ${seed}`);
+  return packIndex({ tool, language, toolchainVersion: null, docsVersion: docsVersion ?? "latest", source: `crawl:${seed}`, docsBase, rules });
+}
+
+/** Read the source registry (lint-index/sources.json) — the data-driven tool list. */
+function loadSources() {
+  const raw = readFileSync(join(ROOT, "lint-index", "sources.json"), "utf8");
+  return JSON.parse(raw).sources || [];
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const want = selectedTools();
-  if (want) {
-    for (const t of want) {
-      if (!ADAPTERS[t]) {
-        console.error(`[lint-index] unknown tool '${t}'. known: ${Object.keys(ADAPTERS).join(", ")}`);
-        process.exit(2);
-      }
-    }
+  const sources = loadSources().filter((s) => !want || want.includes(s.tool));
+  if (want && sources.length === 0) {
+    console.error(`[lint-index] no source in sources.json matches: ${want.join(", ")}`);
+    process.exit(2);
   }
-  const tools = want ?? Object.keys(ADAPTERS);
 
   const built = [];
-  for (const tool of tools) {
+  for (const s of sources) {
     try {
-      const index = await ADAPTERS[tool]();
+      const index = s.kind === "crawl" ? await buildFromCrawl(s) : await ADAPTERS[s.tool]();
       const file = join(OUT, `${index.tool}.json`);
       writeFileSync(file, JSON.stringify(index, null, 2) + "\n");
       const ver = index.toolchainVersion
         ? `toolchain ${index.toolchainVersion} -> docs ${index.docsVersion}`
         : `docs ${index.docsVersion}`;
-      built.push(`${tool} (${ver}): ${index.ruleCount} rules -> ${file}`);
+      built.push(`${s.tool} [${s.kind}] (${ver}): ${index.ruleCount} rules -> ${file}`);
     } catch (e) {
-      console.error(`[lint-index] ${tool} failed: ${e.message}`);
+      console.error(`[lint-index] ${s.tool} failed: ${e.message}`);
     }
   }
 

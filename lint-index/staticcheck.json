@@ -5,7 +5,7 @@
   "docsVersion": "2026.1",
   "source": "staticcheck-dev",
   "docsBase": "https://staticcheck.dev/docs/checks/",
-  "fetchedAt": "2026-06-21T00:16:04.579Z",
+  "fetchedAt": "2026-06-21T01:03:50.589Z",
   "checksum": "sha256:d4778fa8245e997e8d3f992111b2603c92321f1cafba11eef6fa24ad421c721a",
   "ruleCount": 160,
   "rules": [

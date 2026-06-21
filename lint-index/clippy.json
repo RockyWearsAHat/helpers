@@ -5,7 +5,7 @@
   "docsVersion": "1.82.0",
   "source": "rust-clippy",
   "docsBase": "https://rust-lang.github.io/rust-clippy/rust-1.82.0",
-  "fetchedAt": "2026-06-21T00:16:03.268Z",
+  "fetchedAt": "2026-06-21T01:03:49.168Z",
   "checksum": "sha256:3434be3b15d753fad8e097daecf7dcfe4633de04396b3c39a85645ddf61b2fe3",
   "ruleCount": 294,
   "rules": [
