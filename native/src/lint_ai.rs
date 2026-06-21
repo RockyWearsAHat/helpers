@@ -183,6 +183,273 @@ impl Default for Bundler {
     }
 }
 
+/// A token with its 1-based source line. Tokens are the model's only view of code.
+pub struct Tok {
+    /// The normalized token text (a codebook key).
+    pub text: String,
+    /// 1-based source line the token starts on.
+    pub line: usize,
+}
+
+/// Tokenize source of *any* language into normalized tokens. This is a universal
+/// lexer, not a grammar: identifiers/keywords pass through (so language keywords and
+/// API names become codebook entries), numbers collapse to `<num>`, string and comment
+/// bodies collapse to `<str>`/`<comment>` so text *inside* them is never seen as code,
+/// and operators/punctuation pass through (multi-char operators kept whole). Anything
+/// it doesn't recognize still becomes a single-char token — nothing is dropped, so the
+/// model can learn structure from whatever it's shown.
+pub fn tokenize(source: &str) -> Vec<Tok> {
+    let bytes = source.as_bytes();
+    let mut toks = Vec::new();
+    let mut i = 0;
+    let mut line = 1usize;
+    let n = bytes.len();
+    let multi: &[&str] = &[
+        "==", "!=", "<=", ">=", "&&", "||", "->", "=>", "::", "++", "--", "+=", "-=", "*=", "/=",
+        "%=", "**", "<<", ">>", "..", "...", "?.", "??",
+    ];
+    while i < n {
+        let c = bytes[i] as char;
+        if c == '\n' {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+        // line comments: // ... and # ...
+        if (c == '/' && i + 1 < n && bytes[i + 1] == b'/') || c == '#' {
+            while i < n && bytes[i] != b'\n' {
+                i += 1;
+            }
+            toks.push(Tok { text: "<comment>".into(), line });
+            continue;
+        }
+        // block comment: /* ... */
+        if c == '/' && i + 1 < n && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < n && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                if bytes[i] == b'\n' {
+                    line += 1;
+                }
+                i += 1;
+            }
+            i = (i + 2).min(n);
+            toks.push(Tok { text: "<comment>".into(), line });
+            continue;
+        }
+        // string/char literals: collapse the whole body so its contents aren't code
+        if c == '"' || c == '\'' || c == '`' {
+            let quote = bytes[i];
+            let start_line = line;
+            i += 1;
+            while i < n && bytes[i] != quote {
+                if bytes[i] == b'\\' {
+                    i += 1; // skip escaped char
+                } else if bytes[i] == b'\n' {
+                    line += 1;
+                }
+                i += 1;
+            }
+            i = (i + 1).min(n);
+            toks.push(Tok { text: "<str>".into(), line: start_line });
+            continue;
+        }
+        // numbers collapse to a single class token
+        if c.is_ascii_digit() {
+            while i < n && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.' || bytes[i] == b'_') {
+                i += 1;
+            }
+            toks.push(Tok { text: "<num>".into(), line });
+            continue;
+        }
+        // identifiers / keywords
+        if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            while i < n && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            toks.push(Tok { text: source[start..i].to_string(), line });
+            continue;
+        }
+        // multi-char operators (longest match), else a single punctuation char
+        let rest = &source[i..];
+        if let Some(op) = multi.iter().filter(|op| rest.starts_with(**op)).max_by_key(|op| op.len()) {
+            toks.push(Tok { text: (*op).to_string(), line });
+            i += op.len();
+            continue;
+        }
+        toks.push(Tok { text: c.to_string(), line });
+        i += 1;
+    }
+    toks
+}
+
+/// One flag the model emits: a source line and the rule it best matched.
+pub struct Flag {
+    /// 1-based source line of the offending window.
+    pub line: usize,
+    /// The id of the rule whose bad prototype the window matched.
+    pub rule_id: String,
+}
+
+/// A window whose nearest good-example window is at least this far away counts as
+/// *novel* — it represents the violation, not the shared scaffolding. Token-identical
+/// windows are distance 0; changing even one token moves a window far past this, so the
+/// threshold cleanly separates "present in the good example too" from "new in the bad".
+const NOVEL_THRESH: u32 = (DIM / 8) as u32;
+
+/// Upper bound on a rule's generalization radius: wide enough to admit a small variant
+/// of the violation (a renamed operand) but not so wide it matches unrelated code, even
+/// if the clean repo happens to leave room. Tuned against the real corpus measurement.
+const GENERALIZE_CAP: u32 = (DIM / 4) as u32;
+
+/// One trained rule: its id, the novel (violation) windows kept as sharp exemplars, and
+/// one decision radius. A window flags the rule iff it lies within `radius` of *any*
+/// exemplar — k-nearest-neighbour association with a per-rule, repo-calibrated boundary.
+/// Exemplars (not a blurry centroid) are what let an unseen variant of the violation
+/// still match while keeping the boundary tight.
+struct RuleProto {
+    id: String,
+    exemplars: Vec<Hv>,
+    radius: u32,
+}
+
+impl RuleProto {
+    /// Distance from `hv` to the nearest exemplar — the rule's match score (lower = closer).
+    fn nearest(&self, hv: &Hv) -> u32 {
+        self.exemplars
+            .iter()
+            .map(|e| hv.distance(e))
+            .min()
+            .unwrap_or(u32::MAX)
+    }
+}
+
+/// The trained linter: per-rule violation prototypes, each with a radius calibrated so
+/// no window of the clean repo falls inside it. Judgment is pure association — no
+/// grammar, no per-rule code — and the calibration is what holds false positives down.
+pub struct Model {
+    window: usize,
+    rules: Vec<RuleProto>,
+}
+
+/// Slide a `window`-token window over `toks`, yielding each window's code and start
+/// line. Short token streams yield a single whole-stream window so nothing is missed.
+fn windows(toks: &[Tok], window: usize) -> Vec<(Hv, usize)> {
+    if toks.is_empty() {
+        return Vec::new();
+    }
+    let texts: Vec<&str> = toks.iter().map(|t| t.text.as_str()).collect();
+    if texts.len() <= window {
+        return vec![(bind(&texts), toks[0].line)];
+    }
+    (0..=texts.len() - window)
+        .map(|i| (bind(&texts[i..i + window]), toks[i].line))
+        .collect()
+}
+
+impl Model {
+    /// Train from the docs. `rules` is `(id, exampleBad, exampleGood)`; `clean` is
+    /// known-good source — the repo itself — used to calibrate boundaries. For each
+    /// rule: take the windows of its bad example that are novel vs its good example (the
+    /// violation), bundle them into a prototype, and set the radius to cover them
+    /// (`+margin` slack). Then **shrink the radius below the nearest clean-repo window**
+    /// so the rule cannot fire on known-good code. A rule whose violation can't be
+    /// separated from the clean repo (radius collapses below its own examples) is
+    /// dropped — never a guess. The result false-flags on none of `clean` by
+    /// construction.
+    pub fn train(
+        window: usize,
+        margin: u32,
+        rules: &[(String, String, String)],
+        clean: &[&str],
+    ) -> Model {
+        let clean_windows: Vec<Hv> = clean
+            .iter()
+            .flat_map(|src| windows(&tokenize(src), window))
+            .map(|(hv, _)| hv)
+            .collect();
+
+        let mut trained = Vec::new();
+        for (id, bad_src, good) in rules {
+            if bad_src.is_empty() || good.is_empty() {
+                continue; // ungroundable: needs both examples to find the novel windows
+            }
+            let good_windows: Vec<Hv> = windows(&tokenize(good), window)
+                .into_iter()
+                .map(|(hv, _)| hv)
+                .collect();
+            // the violation = bad windows with no near-equivalent in the good example
+            let novel: Vec<Hv> = windows(&tokenize(bad_src), window)
+                .into_iter()
+                .map(|(hv, _)| hv)
+                .filter(|hv| {
+                    good_windows
+                        .iter()
+                        .map(|g| hv.distance(g))
+                        .min()
+                        .map(|d| d > NOVEL_THRESH)
+                        .unwrap_or(true)
+                })
+                .collect();
+            if novel.is_empty() {
+                continue; // bad and good are structurally the same here — nothing to flag
+            }
+            // calibrate the radius against the clean repo: it must stay strictly below
+            // the nearest clean window to any exemplar, so no known-good code can fire.
+            let nearest_clean = clean_windows
+                .iter()
+                .flat_map(|c| novel.iter().map(move |e| c.distance(e)))
+                .min()
+                .unwrap_or(u32::MAX);
+            // generalization ball, capped so a loose clean repo can't over-open it
+            let radius = nearest_clean.saturating_sub(1).min(GENERALIZE_CAP + margin);
+            if radius == 0 {
+                continue; // clean code sits right on the violation — not separable here
+            }
+            trained.push(RuleProto {
+                id: id.clone(),
+                exemplars: novel,
+                radius,
+            });
+        }
+        Model {
+            window,
+            rules: trained,
+        }
+    }
+
+    /// How many rules survived training as separable, repo-calibrated prototypes.
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+
+    /// Judge `source`: flag each window that lies within some rule's radius of its
+    /// prototype, attributing the window to its nearest such rule. By calibration, no
+    /// window matching the clean repo can fire.
+    pub fn judge(&self, source: &str) -> Vec<Flag> {
+        let mut flags = Vec::new();
+        for (hv, line) in windows(&tokenize(source), self.window) {
+            let best = self
+                .rules
+                .iter()
+                .map(|r| (r.nearest(&hv), r))
+                .filter(|(d, r)| *d <= r.radius)
+                .min_by_key(|(d, _)| *d);
+            if let Some((_, r)) = best {
+                flags.push(Flag {
+                    line,
+                    rule_id: r.id.clone(),
+                });
+            }
+        }
+        flags
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +476,44 @@ mod tests {
     fn order_matters_in_a_window() {
         // same tokens, different order ⇒ different code (position rotation works)
         assert_ne!(bind(&["a", "==", "true"]), bind(&["true", "==", "a"]));
+    }
+
+    #[test]
+    fn tokenizer_collapses_strings_and_comments_so_their_text_isnt_code() {
+        let toks: Vec<String> = tokenize(r#"let e = "if x == true"; // x == true"#)
+            .into_iter()
+            .map(|t| t.text)
+            .collect();
+        // the `== true` inside the string and the comment never appear as tokens
+        assert!(toks.contains(&"<str>".to_string()));
+        assert!(toks.contains(&"<comment>".to_string()));
+        assert!(!toks.contains(&"==".to_string()));
+        assert!(!toks.contains(&"true".to_string()));
+        // real code tokens survive
+        assert!(toks.contains(&"let".to_string()));
+    }
+
+    #[test]
+    fn trained_model_flags_the_bad_pattern_not_clean_or_strings() {
+        let rules = vec![(
+            "bool_comparison".to_string(),
+            "fn f(x: bool) { if x == true { g() } }".to_string(),
+            "fn f(x: bool) { if x { g() } }".to_string(),
+        )];
+        let clean = [
+            "fn a(x: i32) -> i32 { x + 1 }",
+            "fn b(v: Vec<i32>) { for e in v { use_it(e) } }",
+            "fn c(s: String) { print(s) }",
+        ];
+        let model = Model::train(4, 1, &rules, &clean);
+        assert_eq!(model.rule_count(), 1, "the rule should be separable");
+        // real violation in unseen code is flagged
+        let bad = model.judge("fn h(flag: bool) { if flag == true { do_thing() } }");
+        assert!(bad.iter().any(|f| f.rule_id == "bool_comparison"));
+        // clean code is not flagged
+        assert!(model.judge("fn h(flag: bool) { if flag { do_thing() } }").is_empty());
+        // the pattern only inside a string is not code, so not flagged
+        assert!(model.judge(r#"fn h() { let msg = "if flag == true"; log(msg); }"#).is_empty());
     }
 
     #[test]
