@@ -1,4 +1,4 @@
-//! `cs_lint` — a deterministic CS2420/CS3500 software-principle scanner.
+//! `lint` — a deterministic CS2420/CS3500 software-principle scanner.
 //!
 //! Ported from the MyEditor quality engine: it reports principle *violations*
 //! (single responsibility, documentation, error handling, maintainability) as
@@ -6,19 +6,18 @@
 //! suggestion — so an agent can see exactly what to fix and track progress.
 //!
 //! It complements `git-cs-grade` (which produces the rubric grade): `helpers grade`
-//! tells you *where you stand*; `cs_lint` tells you *the specific lines to fix*.
+//! tells you *where you stand*; `lint` tells you *the specific lines to fix*.
 //! Fully deterministic, no AI.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
 
 use regex::Regex;
 use serde_json::{json, Value};
 
 use crate::git::workspace_root;
 use crate::index::walk::walk_repo;
-use crate::lint_index::{self, Resolution};
+use crate::lint_index;
 use crate::proto::{text, ToolResult};
 
 // ── thresholds (mirrors the MyEditor quality engine) ─────────────────────────
@@ -68,7 +67,7 @@ fn root_arg(args: &Value) -> PathBuf {
 pub fn run(args: &Value) -> ToolResult {
     let root = root_arg(args);
     if !root.exists() {
-        return Err(format!("cs_lint: path not found: {}", root.display()));
+        return Err(format!("lint: path not found: {}", root.display()));
     }
     let max = args
         .get("max")
@@ -135,47 +134,24 @@ fn dominant_lang(counts: &HashMap<&'static str, usize>) -> Option<&'static str> 
         .map(|(lang, _)| *lang)
 }
 
-/// The canonical (tool, toolchain-version-command) pair Helpers indexes for a
-/// language id, or `None` when no official lint index is tracked for it.
-fn lang_tool(lang: &str) -> Option<(&'static str, &'static [&'static str])> {
-    match lang {
-        "rust" => Some(("clippy", &["rustc", "--version"])),
-        "python" => Some(("ruff", &["ruff", "--version"])),
-        "js" => Some(("eslint", &["eslint", "--version"])),
-        "go" => Some(("go-vet", &["go", "version"])),
-        _ => None,
-    }
-}
-
-/// Detect a tool's toolchain version by running its version command and
-/// extracting the first dotted-number token (e.g. `rustc 1.95.0` → `1.95.0`).
-/// Returns `None` when the command is unavailable or prints no version.
-fn detect_version(cmd: &[&str]) -> Option<String> {
-    let (prog, args) = cmd.split_first()?;
-    let output = Command::new(prog).args(args).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let re = Regex::new(r"\d+\.\d+(?:\.\d+)?").ok()?;
-    re.find(&text).map(|m| m.as_str().to_string())
-}
-
-/// Build the "official rules active" note for `lang` when a packed lint index
-/// resolves on the fast path (file present, checksum intact, version covered).
-/// Returns `None` when no index is tracked, the toolchain can't be detected, or
-/// the fast path misses — so the renderer stays unchanged with no index present.
+/// Build the "official rules active" note from Helpers' **webscraped lint index**
+/// for `lang` — our own always-current rule catalog, sourced directly from the
+/// official docs and refreshed via `helpers lint-index pull`. Deliberately does
+/// NOT run or depend on the project's toolchain: the index is the source of
+/// truth, so linting works even where clippy/ruff/eslint aren't installed.
+///
+/// Discovery is data-driven — [`lint_index::for_language`] matches the project's
+/// language against each packed index's own `language` field, so adding a tool
+/// is just dropping in its `lint-index/<tool>.json`. `None` when none serves the
+/// language (or its checksum doesn't verify).
 fn official_rules_note(lang: &str) -> Option<String> {
-    let (tool, version_cmd) = lang_tool(lang)?;
-    let version = detect_version(version_cmd)?;
-    match lint_index::resolve(tool, lang, &version) {
-        Resolution::Packed(idx) => Some(format!(
-            "\n_Official rules: {} {} rules active for {} v{} (sourced from docs v{}). \
-             These augment the built-in checks above._\n",
-            idx.rule_count, tool, tool, version, idx.docs_version
-        )),
-        Resolution::NeedsCrawl { .. } => None,
-    }
+    let idx = lint_index::for_language(lang)?;
+    Some(format!(
+        "\n_Official rules: {} {} rules active — webscraped from the official docs (v{}), \
+         kept current via `helpers lint-index pull`; no local toolchain required. \
+         These augment the built-in checks above._\n",
+        idx.rule_count, idx.tool, idx.docs_version
+    ))
 }
 
 // ── languages ────────────────────────────────────────────────────────────────
@@ -634,7 +610,7 @@ fn render(issues: &[Issue], max: usize) -> String {
         "# CS2420/CS3500 principle review — {} issue(s): {hi} high, {med} medium, {lo} low\n\n",
         issues.len()
     ));
-    s.push_str("_Fix high first. Each line is a concrete, deterministic violation; re-run `cs_lint` to watch the count drop. Pair with `helpers grade` for the rubric._\n\n");
+    s.push_str("_Fix high first. Each line is a concrete, deterministic violation; re-run `lint` to watch the count drop. Pair with `helpers grade` for the rubric._\n\n");
 
     for i in issues.iter().take(max) {
         s.push_str(&format!(
@@ -658,11 +634,11 @@ fn render(issues: &[Issue], max: usize) -> String {
 
 // ── schema ───────────────────────────────────────────────────────────────────
 
-/// MCP schema for the `cs_lint` tool.
+/// MCP schema for the unified `lint` tool (supersedes the former cs_lint + strict_lint).
 pub fn schema() -> Value {
     json!({
-        "name": "cs_lint",
-        "description": "Scan the project for CS2420/CS3500 software-principle violations and return one clean, prioritized list (severity, file:line, message, fix suggestion). Covers single responsibility (long functions), documentation gaps (undocumented public functions), error handling (empty catch / ignored errors), and maintainability (long files, large uncommented blocks). Deterministic, no AI. Complements `helpers grade`: grade gives the rubric, cs_lint gives the exact lines to fix. Re-run to track progress as the count drops.",
+        "name": "lint",
+        "description": "Lint the project and return one clean, prioritized list (severity, file:line, message, fix). Combines deterministic CS2420/CS3500 software-principle checks (single responsibility, documentation gaps, error handling, maintainability) with the official rules from Helpers' webscraped, always-current lint index (clippy/ruff/eslint/staticcheck), sourced directly from the official docs and refreshed via `helpers lint-index pull`. No local toolchain required — works even where clippy/ruff/eslint aren't installed. Deterministic. Pair with `helpers grade` for the rubric; re-run to track the count down.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -777,10 +753,4 @@ mod tests {
         assert_eq!(dominant_lang(&HashMap::new()), None);
     }
 
-    #[test]
-    fn lang_tool_maps_known_languages_only() {
-        assert_eq!(lang_tool("rust").map(|(t, _)| t), Some("clippy"));
-        assert_eq!(lang_tool("python").map(|(t, _)| t), Some("ruff"));
-        assert!(lang_tool("java").is_none());
-    }
 }

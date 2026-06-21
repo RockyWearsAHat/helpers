@@ -63,9 +63,11 @@ pub struct Index {
     pub tool: String,
     /// Lowercase language the tool lints (e.g. `rust`).
     pub language: String,
-    /// Toolchain version this snapshot targets (e.g. `1.95.0`).
-    #[serde(rename = "toolchainVersion")]
-    pub toolchain_version: String,
+    /// Toolchain version this snapshot is pinned to (e.g. `1.95.0`), or `None`
+    /// when the tool publishes no per-version rule set so the snapshot tracks the
+    /// latest docs (ruff/eslint/staticcheck). `Some` ⇒ version-pinned.
+    #[serde(default, rename = "toolchainVersion")]
+    pub toolchain_version: Option<String>,
     /// Official-docs version the rules were sourced from; may lag the toolchain.
     #[serde(rename = "docsVersion")]
     pub docs_version: String,
@@ -123,6 +125,47 @@ fn index_path(tool: &str) -> PathBuf {
     workspace_root().join("lint-index").join(format!("{tool}.json"))
 }
 
+/// Find the packed index that serves `lang`, by scanning the lint-index
+/// directory and matching each file's own `language` field (alias-aware, so
+/// `js`/`ts`/`typescript` all resolve to a `javascript` index).
+///
+/// This is the data-driven discovery path: a tool becomes active simply by
+/// dropping its `lint-index/<tool>.json` in — no language→tool table to edit.
+/// Returns the first checksum-valid match.
+pub fn for_language(lang: &str) -> Option<Index> {
+    let dir = workspace_root().join("lint-index");
+    for entry in std::fs::read_dir(&dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(idx) = serde_json::from_str::<Index>(&raw) else {
+            continue;
+        };
+        if language_matches(&idx.language, lang) && checksum_ok(&idx) {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+/// Whether a packed index's `language` serves the requested language id. Exact
+/// (case-insensitive) match works for *any* language with no table to maintain;
+/// the only special case is folding the JS/TS family together so an
+/// `eslint`/`javascript` index answers a `js`/`ts` project.
+fn language_matches(index_lang: &str, want: &str) -> bool {
+    let (il, wl) = (index_lang.to_ascii_lowercase(), want.to_ascii_lowercase());
+    if il == wl {
+        return true;
+    }
+    let js_family =
+        |s: &str| matches!(s, "js" | "jsx" | "ts" | "tsx" | "javascript" | "typescript");
+    js_family(&il) && js_family(&wl)
+}
+
 /// Canonical serialization of an index's rules: id-sorted, compact (no
 /// whitespace) JSON of the `rules` array — the exact bytes the checksum covers.
 fn canonical_rules_json(idx: &Index) -> String {
@@ -164,6 +207,11 @@ fn hex_lower(bytes: &[u8]) -> String {
 /// describing a newer toolchain would be a coverage gap). Unparsable versions
 /// compare as equal segments, so a clean numeric match still resolves.
 pub fn covers(idx: &Index, toolchain_version: &str) -> bool {
+    if idx.toolchain_version.is_none() {
+        // Unpinned snapshot tracks the tool's latest docs; always usable, and the
+        // caller labels it "latest, not version-pinned" rather than asserting a match.
+        return true;
+    }
     semver_cmp(&idx.docs_version, toolchain_version) != std::cmp::Ordering::Greater
 }
 
@@ -261,7 +309,7 @@ mod tests {
         let mut idx = Index {
             tool: "clippy".into(),
             language: "rust".into(),
-            toolchain_version: "1.95.0".into(),
+            toolchain_version: Some("1.95.0".into()),
             docs_version: "1.82.0".into(),
             source: "rust-clippy".into(),
             docs_base: Some("https://example.test/rust-1.82.0".into()),
@@ -329,7 +377,26 @@ mod tests {
         let idx = sample_index();
         assert!(idx.language.eq_ignore_ascii_case("rust"));
         assert!(checksum_ok(&idx));
-        assert!(covers(&idx, &idx.toolchain_version));
+        assert!(covers(&idx, idx.toolchain_version.as_deref().unwrap()));
+    }
+
+    #[test]
+    fn unpinned_snapshot_is_always_covered_and_marked_latest() {
+        let mut idx = sample_index();
+        idx.toolchain_version = None; // ruff/eslint-style "latest" snapshot
+        // Covered regardless of the project's version (it's the latest docs).
+        assert!(covers(&idx, "0.6.1"));
+        assert!(covers(&idx, "999.0.0"));
+    }
+
+    #[test]
+    fn language_matches_exact_and_js_family() {
+        assert!(language_matches("rust", "rust"));
+        assert!(language_matches("javascript", "js")); // eslint index serves a js project
+        assert!(language_matches("typescript", "tsx"));
+        assert!(!language_matches("rust", "python"));
+        // A brand-new language needs no code change — an exact match just works.
+        assert!(language_matches("ruby", "ruby"));
     }
 
     #[test]
