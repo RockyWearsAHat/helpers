@@ -24,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 # community-index contract) match the original JavaScript JSON.stringify output.
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
+rayon = "1"
 # git-cs-grade is folded into this one binary (busybox dispatch). The grading
 # logic lives in the cs_grade library crate; we ship a single helpers-native.
 cs_grade = { path = "../cs-grade", package = "git-cs-grade" }
