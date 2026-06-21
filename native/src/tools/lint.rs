@@ -157,9 +157,11 @@ fn official_rules_note(lang: &str) -> Option<String> {
         // linter's official rules-docs page so the index self-expands (the new
         // source is crawled, packed, and submitted back for everyone).
         None => Some(format!(
-            "\n_No official lint index for `{lang}` yet. Find that linter's official rules-docs \
-             page and run `node scripts/build-lint-index.mjs --add <tool> {lang} <docs-url>` to \
-             crawl and add it (it gets packed + shared). Built-in checks above still apply._\n"
+            "\n_No official lint index for `{lang}` yet. As the agent (you are the reader): \
+             scrape that linter's official rules-docs page (e.g. `scrape_webpage`), extract its \
+             rules as JSON `[{{id, category, severity, description, source}}]`, then run \
+             `node scripts/build-lint-index.mjs --add-rules <tool> {lang} <rules.json> --docs <url>` \
+             to pack + share them. Built-in checks above still apply._\n"
         )),
     }
 }

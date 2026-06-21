@@ -536,11 +536,76 @@ function registerSource({ tool, language, url }) {
   return entry;
 }
 
+/** Parse `--add-rules <tool> <language> <rules.json> [--docs <url>]` — rules the
+ *  AGENT extracted by reading the official docs (the AI-reader path). */
+function addRulesArg() {
+  const i = process.argv.indexOf("--add-rules");
+  if (i < 0) return null;
+  const [tool, language, file] = process.argv.slice(i + 1, i + 4);
+  if (!tool || !language || !file || file.startsWith("--")) {
+    console.error("usage: node scripts/build-lint-index.mjs --add-rules <tool> <language> <rules.json> [--docs <url>]");
+    process.exit(2);
+  }
+  const di = process.argv.indexOf("--docs");
+  return { tool, language, file, docs: di >= 0 ? process.argv[di + 1] : undefined };
+}
+
+/** Register an agent-read source in sources.json (kind:agent) and persist it. */
+function registerAgentSource({ tool, language, docs }) {
+  const file = join(ROOT, "lint-index", "sources.json");
+  const data = JSON.parse(readFileSync(file, "utf8"));
+  data.sources = data.sources || [];
+  const entry = { tool, language, kind: "agent", docsBase: docs ?? null };
+  const existing = data.sources.find((s) => s.tool === tool);
+  if (existing) Object.assign(existing, entry);
+  else data.sources.push(entry);
+  writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+  return entry;
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
 
-  // Self-expansion: the agent hands us an uncovered linter's official docs URL;
-  // we register it, crawl it, and pack its index — then it's part of the set.
+  // AI-reader path: the agent read the official docs and extracted clean rules;
+  // pack them directly (highest fidelity for a tool with no machine-readable source).
+  const addRules = addRulesArg();
+  if (addRules) {
+    const raw = JSON.parse(readFileSync(addRules.file, "utf8"));
+    const list = Array.isArray(raw) ? raw : raw.rules || [];
+    const rules = list
+      .filter((r) => r && r.id && r.description)
+      .map((r) => ({
+        id: String(r.id),
+        category: r.category || "correctness",
+        severity: r.severity || "medium",
+        description: String(r.description),
+        ...(r.exampleBad ? { exampleBad: String(r.exampleBad) } : {}),
+        ...(r.exampleGood ? { exampleGood: String(r.exampleGood) } : {}),
+        source: r.source || addRules.docs || "",
+      }));
+    if (rules.length === 0) {
+      console.error(`[lint-index] no valid rules ({id, description}) in ${addRules.file}`);
+      process.exit(1);
+    }
+    registerAgentSource(addRules);
+    const index = packIndex({
+      tool: addRules.tool,
+      language: addRules.language,
+      toolchainVersion: null,
+      docsVersion: "agent-read",
+      source: `agent:${addRules.docs ?? "official-docs"}`,
+      docsBase: addRules.docs,
+      rules,
+    });
+    const f = join(OUT, `${index.tool}.json`);
+    writeFileSync(f, JSON.stringify(index, null, 2) + "\n");
+    console.log(`[lint-index] added ${index.tool} (${addRules.language}) [agent-read]: ${index.ruleCount} rules -> ${f}`);
+    console.log("[lint-index] registered in lint-index/sources.json — commit + `lint-index-submit.sh` to share it.");
+    return;
+  }
+
+  // Self-expansion (generic crawl fallback): the agent hands us a docs URL and we
+  // scrape it — lower fidelity than --add-rules; prefer that when possible.
   const add = addSourceArg();
   if (add) {
     const entry = registerSource(add);
