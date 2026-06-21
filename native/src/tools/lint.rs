@@ -145,13 +145,23 @@ fn dominant_lang(counts: &HashMap<&'static str, usize>) -> Option<&'static str> 
 /// is just dropping in its `lint-index/<tool>.json`. `None` when none serves the
 /// language (or its checksum doesn't verify).
 fn official_rules_note(lang: &str) -> Option<String> {
-    let idx = lint_index::for_language(lang)?;
-    Some(format!(
-        "\n_Official rules: {} {} rules active — webscraped from the official docs (v{}), \
-         kept current via `helpers lint-index pull`; no local toolchain required. \
-         These augment the built-in checks above._\n",
-        idx.rule_count, idx.tool, idx.docs_version
-    ))
+    match lint_index::for_language(lang) {
+        // A packed index serves this language → report the active official rules.
+        Some(idx) => Some(format!(
+            "\n_Official rules: {} {} rules active — webscraped from the official docs (v{}), \
+             kept current via `helpers lint-index pull`; no local toolchain required. \
+             These augment the built-in checks above._\n",
+            idx.rule_count, idx.tool, idx.docs_version
+        )),
+        // No index for a language we just scanned → ask the agent to supply the
+        // linter's official rules-docs page so the index self-expands (the new
+        // source is crawled, packed, and submitted back for everyone).
+        None => Some(format!(
+            "\n_No official lint index for `{lang}` yet. Find that linter's official rules-docs \
+             page and run `node scripts/build-lint-index.mjs --add <tool> {lang} <docs-url>` to \
+             crawl and add it (it gets packed + shared). Built-in checks above still apply._\n"
+        )),
+    }
 }
 
 // ── languages ────────────────────────────────────────────────────────────────
