@@ -28,8 +28,10 @@ const BD: usize = 8192;
 const BL: usize = BD / 64;
 /// Context half-window: a word sees `WIN` neighbours on each side.
 const WIN: usize = 4;
-/// Cloze items buffered before a block trains-to-convergence and freezes.
-const CAP_PER_BLOCK: usize = 2000;
+/// Cloze items buffered before a block auto-trains and freezes. Large, so a single
+/// training run learns into ONE cohesive block (coherent recall + fast inference);
+/// new blocks grow only across separate sessions (continual learning), via `flush`.
+const CAP_PER_BLOCK: usize = 1_000_000;
 /// Training passes over a block's buffer before it freezes.
 const EPOCHS: usize = 20;
 /// An association is only "real" when its bit-distance is under this fraction of `BD`.
@@ -501,6 +503,11 @@ impl Brain {
     /// Vocabulary size — how many distinct words the net has read.
     pub fn vocab(&self) -> usize {
         self.tok.len()
+    }
+
+    /// Number of frozen blocks — the main driver of inference cost (each is one predict).
+    pub fn blocks(&self) -> usize {
+        self.blocks.len()
     }
 }
 
