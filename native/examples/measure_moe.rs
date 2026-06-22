@@ -39,7 +39,7 @@ fn main() {
     for r in idx["rules"].as_array().expect("rules") {
         let bad = r["exampleBad"].as_str().unwrap_or("");
         let good = r["exampleGood"].as_str().unwrap_or("");
-        if bad.is_empty() || good.is_empty() {
+        if bad.is_empty() {
             continue;
         }
         examples.push(Example {
