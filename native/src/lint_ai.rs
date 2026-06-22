@@ -37,6 +37,21 @@ impl Hv {
         Hv([0; WORDS])
     }
 
+    /// The packed `u64` words backing this vector — for persisting a trained model.
+    pub fn as_words(&self) -> &[u64] {
+        &self.0
+    }
+
+    /// Rebuild a vector from packed words (e.g. when loading a saved model). Extra words
+    /// are ignored and missing ones are zero, so a length mismatch can't panic.
+    pub fn from_words(words: &[u64]) -> Hv {
+        let mut w = [0u64; WORDS];
+        for (slot, v) in w.iter_mut().zip(words.iter()) {
+            *slot = *v;
+        }
+        Hv(w)
+    }
+
     /// A deterministic pseudo-random vector for `seed`. Filling every bit from a
     /// splitmix64 stream makes independent seeds near-orthogonal, which is what lets
     /// XOR-binding and majority-bundling stay separable.
@@ -483,6 +498,183 @@ impl Model {
                 flags.push(Flag {
                     line,
                     rule_id: claims[0].1.to_string(),
+                });
+            }
+        }
+        flags
+    }
+}
+
+/// One rule the net has *learned*: the id, the 1-bit prototype it converged on, and the
+/// score threshold above which a window is judged a violation of this rule.
+struct Learned {
+    id: String,
+    proto: Hv,
+    threshold: i32,
+}
+
+/// A linter the net actually *trains*, rather than memorizing examples. For each rule it
+/// runs a 1-bit perceptron (predictive coding): show it the rule's violation windows
+/// (positives) and known-good windows + *other rules' violations* (negatives, so it
+/// learns to tell rules apart), let it predict, and on every mistake nudge the weights
+/// toward the right answer. It repeats epochs until it stops making mistakes — "train
+/// until accurate". The learned weights are thresholded to one bit, so the runtime model
+/// stays binary and self-contained.
+pub struct LinterNet {
+    window: usize,
+    rules: Vec<Learned>,
+}
+
+/// Bipolar dot product `Σ wᵢ·xᵢ` where `xᵢ ∈ {+1,-1}` is the i-th bit of `hv`. Computed
+/// as `2·(sum of wᵢ over set bits) − (sum of all wᵢ)` so only set bits are walked.
+fn dot(w: &[i32], total: i32, hv: &Hv) -> i32 {
+    let mut sum_set = 0i32;
+    for (word_idx, &word) in hv.0.iter().enumerate() {
+        let mut bits = word;
+        while bits != 0 {
+            let b = bits.trailing_zeros() as usize;
+            sum_set = sum_set.wrapping_add(w[word_idx * 64 + b]);
+            bits &= bits - 1;
+        }
+    }
+    sum_set.wrapping_mul(2).wrapping_sub(total)
+}
+
+/// Perceptron update `w += y·x` (with `x` bipolar): add `y` on set bits, subtract on
+/// unset. Returns the *change* to the running total `Σ wᵢ` so `dot` stays cheap without
+/// re-summing the whole weight vector each step.
+fn learn_step(w: &mut [i32], hv: &Hv, y: i32) -> i32 {
+    for (i, wi) in w.iter_mut().enumerate() {
+        let set = (hv.0[i / 64] >> (i % 64)) & 1 == 1;
+        *wi += if set { y } else { -y };
+    }
+    let ones: u32 = hv.0.iter().map(|x| x.count_ones()).sum();
+    // +y on each of `ones` set bits, −y on each of the (DIM−ones) unset bits
+    y * (2 * ones as i32 - DIM as i32)
+}
+
+impl LinterNet {
+    /// Train one prototype per rule by 1-bit perceptron, up to `epochs` passes each (it
+    /// stops early once a rule is classified with no mistakes). Negatives include other
+    /// rules' violations (so it attributes the *right* rule) and a large sample of
+    /// `clean` known-good code (so it learns what *fine* looks like and doesn't fire on
+    /// everything). `clean` is the user's own code — nothing external.
+    pub fn train(
+        window: usize,
+        epochs: usize,
+        rules: &[(String, String, String)],
+        clean: &[&str],
+    ) -> LinterNet {
+        // A bounded sample of clean windows, shared as negatives across every rule.
+        // Strided down to ~1500 so training stays fast while still teaching "fine".
+        let all_clean: Vec<Hv> = clean
+            .iter()
+            .flat_map(|s| windows(&tokenize(s), window))
+            .map(|(h, _)| h)
+            .collect();
+        let stride = (all_clean.len() / 1500).max(1);
+        let clean_neg: Vec<Hv> = all_clean.into_iter().step_by(stride).collect();
+        // Per rule, the novel (violation) windows of its bad example vs its good example.
+        let mut positives: Vec<Vec<Hv>> = Vec::with_capacity(rules.len());
+        let mut goods: Vec<Vec<Hv>> = Vec::with_capacity(rules.len());
+        for (_, bad, good) in rules {
+            let gw: Vec<Hv> = windows(&tokenize(good), window)
+                .into_iter()
+                .map(|(h, _)| h)
+                .collect();
+            let nov: Vec<Hv> = windows(&tokenize(bad), window)
+                .into_iter()
+                .map(|(h, _)| h)
+                .filter(|h| {
+                    gw.iter().map(|g| h.distance(g)).min().map(|d| d > NOVEL_THRESH).unwrap_or(true)
+                })
+                .collect();
+            positives.push(nov);
+            goods.push(gw);
+        }
+
+        let mut learned = Vec::new();
+        for (ri, (id, _, _)) in rules.iter().enumerate() {
+            if positives[ri].is_empty() {
+                continue; // nothing distinctive to learn for this rule
+            }
+            // Negatives: this rule's own good windows + a rotating sample of OTHER rules'
+            // violation windows (hard negatives → learns to separate rules, not just
+            // bad-vs-good). Keeping the sample bounded keeps training fast.
+            let mut negatives: Vec<&Hv> = goods[ri].iter().collect();
+            for (rj, pos) in positives.iter().enumerate() {
+                if rj != ri {
+                    if let Some(h) = pos.first() {
+                        negatives.push(h);
+                    }
+                }
+            }
+            negatives.extend(clean_neg.iter());
+
+            let mut w = vec![0i32; DIM];
+            let mut total = 0i32;
+            for _ in 0..epochs {
+                let mut errors = 0;
+                for x in &positives[ri] {
+                    if dot(&w, total, x) <= 0 {
+                        total += learn_step(&mut w, x, 1);
+                        errors += 1;
+                    }
+                }
+                for x in &negatives {
+                    if dot(&w, total, x) > 0 {
+                        total += learn_step(&mut w, x, -1);
+                        errors += 1;
+                    }
+                }
+                if errors == 0 {
+                    break; // converged: this rule is classified with no mistakes
+                }
+            }
+
+            // Freeze to one bit: prototype = sign(w); threshold = just below the lowest
+            // positive score, so every learned violation still fires.
+            let mut bits = [0u64; WORDS];
+            for (i, &wi) in w.iter().enumerate() {
+                if wi > 0 {
+                    bits[i / 64] |= 1 << (i % 64);
+                }
+            }
+            let proto = Hv(bits);
+            let agree = |x: &Hv| DIM as i32 - 2 * proto.distance(x) as i32;
+            let threshold = positives[ri].iter().map(agree).min().unwrap_or(0) - 1;
+            learned.push(Learned {
+                id: id.clone(),
+                proto,
+                threshold,
+            });
+        }
+        LinterNet {
+            window,
+            rules: learned,
+        }
+    }
+
+    /// How many rules the net learned a prototype for.
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+
+    /// Judge `source`: a window is flagged for the rule whose prototype it agrees with
+    /// most, provided that agreement clears the rule's learned threshold.
+    pub fn judge(&self, source: &str) -> Vec<Flag> {
+        let mut flags = Vec::new();
+        for (hv, line) in windows(&tokenize(source), self.window) {
+            let best = self
+                .rules
+                .iter()
+                .map(|r| (DIM as i32 - 2 * r.proto.distance(&hv) as i32 - r.threshold, &r.id))
+                .filter(|(margin, _)| *margin >= 0)
+                .max_by_key(|(margin, _)| *margin);
+            if let Some((_, id)) = best {
+                flags.push(Flag {
+                    line,
+                    rule_id: id.clone(),
                 });
             }
         }

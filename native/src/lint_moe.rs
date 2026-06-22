@@ -11,6 +11,9 @@
 //! faster than the flat pool.
 
 use std::collections::HashMap;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
 
 use crate::lint_ai::{bind, tokenize, Bundler, Hv};
 
@@ -230,6 +233,27 @@ impl Moe {
         hits
     }
 
+    /// Judge a source and locate each violation at the source line of the window that
+    /// triggered it, reporting each rule at most once (its first occurrence) so the tool
+    /// emits one issue per rule per file rather than one per matching window.
+    pub fn judge_located(&self, code: &str) -> Vec<(usize, u32)> {
+        let toks = tokenize(code);
+        if toks.len() < WIN {
+            return Vec::new();
+        }
+        let texts: Vec<String> = toks.iter().map(|t| t.text.clone()).collect();
+        let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for i in 0..=texts.len() - WIN {
+            if let Some(r) = self.judge_window(&texts[i..i + WIN]) {
+                if seen.insert(r) {
+                    out.push((toks[i].line, r));
+                }
+            }
+        }
+        out
+    }
+
     /// The rule name for an index (decode a signal-space verdict to a word, for reporting).
     pub fn rule_name(&self, idx: u32) -> &str {
         self.rule_names.get(idx as usize).map(String::as_str).unwrap_or("?")
@@ -239,6 +263,90 @@ impl Moe {
     pub fn stats(&self) -> (usize, usize) {
         (self.experts.len(), self.experts.iter().map(|e| e.sigs.len()).sum())
     }
+
+    /// Directory where trained per-language models live (one-time training writes here,
+    /// the `lint` tool loads from here). Override with `HELPERS_LINT_MODELS`.
+    pub fn model_dir() -> std::path::PathBuf {
+        if let Ok(d) = std::env::var("HELPERS_LINT_MODELS") {
+            return std::path::PathBuf::from(d);
+        }
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        std::path::Path::new(&home).join(".cache/helpers/lint-models")
+    }
+
+    /// The saved-model path for a language id (e.g. `rust` → `.../rust.moe.json`).
+    pub fn model_path(lang: &str) -> std::path::PathBuf {
+        Self::model_dir().join(format!("{lang}.moe.json"))
+    }
+
+    /// Persist the trained model so it is loaded — not retrained — on each lint. Training
+    /// is the slow step; this makes it a one-time, checksum-gated job.
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let dto = MoeDto {
+            cap: self.cap,
+            topk: self.topk,
+            rule_names: self.rule_names.clone(),
+            freq: self.freq.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            experts: self
+                .experts
+                .iter()
+                .map(|e| ExpertDto {
+                    name: e.name.clone(),
+                    signature: e.signature.as_words().to_vec(),
+                    sigs: e.sigs.iter().map(|s| (s.hv.as_words().to_vec(), s.rule)).collect(),
+                })
+                .collect(),
+        };
+        let f = std::fs::File::create(path)?;
+        serde_json::to_writer(std::io::BufWriter::new(f), &dto)?;
+        Ok(())
+    }
+
+    /// Load a previously saved model, or `None` if absent/unreadable.
+    pub fn load(path: &Path) -> Option<Moe> {
+        let f = std::fs::File::open(path).ok()?;
+        let dto: MoeDto = serde_json::from_reader(std::io::BufReader::new(f)).ok()?;
+        Some(Moe {
+            experts: dto
+                .experts
+                .into_iter()
+                .map(|e| Expert {
+                    name: e.name,
+                    signature: Hv::from_words(&e.signature),
+                    sigs: e
+                        .sigs
+                        .into_iter()
+                        .map(|(w, rule)| Sig { hv: Hv::from_words(&w), rule })
+                        .collect(),
+                })
+                .collect(),
+            rule_names: dto.rule_names,
+            freq: dto.freq.into_iter().collect(),
+            cap: dto.cap,
+            topk: dto.topk,
+        })
+    }
+}
+
+/// On-disk form of an expert.
+#[derive(Serialize, Deserialize)]
+struct ExpertDto {
+    name: String,
+    signature: Vec<u64>,
+    sigs: Vec<(Vec<u64>, u32)>,
+}
+
+/// On-disk form of the whole model.
+#[derive(Serialize, Deserialize)]
+struct MoeDto {
+    cap: u32,
+    topk: usize,
+    rule_names: Vec<String>,
+    freq: Vec<(String, u32)>,
+    experts: Vec<ExpertDto>,
 }
 
 #[cfg(test)]
