@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use crate::git::workspace_root;
 use crate::index::walk::walk_repo;
 use crate::proto::{text, ToolResult};
-use crate::{lint_checkers, lint_index, lint_metrics};
+use crate::{lint_checkers, lint_index, lint_metrics, lint_moe};
 
 // ── thresholds (mirrors the MyEditor quality engine) ─────────────────────────
 const SOURCE_LONG_FILE: usize = 700;
@@ -88,6 +88,9 @@ pub fn run(args: &Value) -> ToolResult {
     let mut lang_counts: HashMap<&'static str, usize> = HashMap::new();
     // Metric models, loaded lazily per language.
     let mut metric_models: HashMap<&'static str, Option<lint_metrics::Metrics>> = HashMap::new();
+    // Trained MoE linters (the "AI tree-sitter"), loaded per language from disk — never
+    // trained here. Absent model ⇒ no AI judgments for that language (train_lint first).
+    let mut ai_models: HashMap<&'static str, Option<lint_moe::Moe>> = HashMap::new();
     for f in walk_repo(&root) {
         let Some(lang) = Lang::from_ext(&f.ext) else {
             continue;
@@ -114,12 +117,28 @@ pub fn run(args: &Value) -> ToolResult {
             allow_long_file,
             &mut issues,
         );
-        // (The lint judgment is moving to the 1-bit XOR associative model in
-        // `lint_ai`: the whole repo is encoded and judged by the trained model, no
-        // per-language parsing. Wiring lands once the model is trained and measured.)
-        // (The text/regex checker engine was removed: it false-flagged on code that
-        // only appears inside strings/comments. The AST engine above decides those
-        // same rules exactly — never a false positive — so it supersedes it.)
+        // AI judgment: delegate the file to its language's trained MoE ("AI tree-sitter").
+        // It reasons in 1-bit signal space and flags only what it is sure of via the
+        // causation gate. Loaded from disk (trained once), never trained here; if no model
+        // exists for this language, this is silently skipped.
+        let model = ai_models
+            .entry(lang.id())
+            .or_insert_with(|| lint_moe::Moe::load(&lint_moe::Moe::model_path(lang.id())));
+        if let Some(m) = model.as_ref() {
+            for (line, rule) in m.judge_located(&content) {
+                issues.push(Issue {
+                    severity: Sev::Medium,
+                    category: "official-rule",
+                    file: f.rel.clone(),
+                    line,
+                    message: format!(
+                        "violates `{}` (AI-judged from the official docs)",
+                        m.rule_name(rule)
+                    ),
+                    suggestion: "rewrite to the rule's documented good form",
+                });
+            }
+        }
         // Metric rules: exact measurements (too many args/branches/nesting), with
         // each rule's threshold read from its own docs. Precise — never fuzzy.
         let metrics = metric_models
