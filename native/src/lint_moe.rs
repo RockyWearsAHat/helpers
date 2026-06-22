@@ -39,13 +39,16 @@ struct Sig {
     rule: u32,
 }
 
-/// One expert — the distinctive violation signals of a single documentation slice, plus
-/// a router signature (the bundle of those signals) used to gate windows to it.
+/// One expert — the distinctive violation signals of a single documentation slice, a
+/// router signature (the bundle of those signals) used to gate windows to it, and its
+/// OWN calibrated cap: the confident-match distance set just below the nearest clean
+/// window, so this expert can never fire on known-good code in its category.
 struct Expert {
     #[allow(dead_code)]
     name: String,
     sigs: Vec<Sig>,
     signature: Hv,
+    cap: u32,
 }
 
 impl Expert {
@@ -156,7 +159,9 @@ impl Moe {
             }
         }
 
-        // Build experts, each with a router signature = bundle of its signals.
+        // Build experts: router signature = bundle of signals; per-expert cap calibrated
+        // just below the nearest clean window to any of the expert's signals (clamped to
+        // the global `cap`), so the expert cannot fire on known-good code in its category.
         let experts: Vec<Expert> = slices
             .into_iter()
             .filter(|(_, sigs)| !sigs.is_empty())
@@ -165,7 +170,13 @@ impl Moe {
                 for s in &sigs {
                     b.add(&s.hv);
                 }
-                Expert { name, signature: b.finalize(), sigs }
+                let nearest_clean = clean_ref
+                    .iter()
+                    .map(|c| sigs.iter().map(|s| s.hv.distance(c)).min().unwrap_or(u32::MAX))
+                    .min()
+                    .unwrap_or(u32::MAX);
+                let ecap = nearest_clean.saturating_sub(1).min(cap);
+                Expert { name, signature: b.finalize(), sigs, cap: ecap }
             })
             .collect();
 
@@ -191,15 +202,27 @@ impl Moe {
         let mut best_d = u32::MAX;
         let mut best_e = usize::MAX;
         for &(_, ei) in &routed {
-            let (r, d) = self.experts[ei].nearest(&q);
-            if d < best_d {
+            let e = &self.experts[ei];
+            let (r, d) = e.nearest(&q);
+            // accept only within THIS expert's calibrated cap — a window can't match an
+            // expert whose real violations sit farther than its boundary.
+            if d <= e.cap && d < best_d {
                 best_d = d;
                 best_rule = r;
                 best_e = ei;
             }
         }
-        if best_rule == u32::MAX || best_d > self.cap {
+        if best_rule == u32::MAX {
             return None;
+        }
+        let ecap = self.experts[best_e].cap;
+        // A near-exact match to a documented violation is confident on its own — the code
+        // essentially *is* the example. The causation gate exists to filter BORDERLINE
+        // matches (generic windows that drifted close); skip it when we're well inside the
+        // boundary, so an exact `== true` isn't lost just because its rarest token is an
+        // incidental variable.
+        if best_d * 3 <= ecap {
+            return Some(best_rule);
         }
         // causation gate within the chosen expert
         let subj = w
@@ -212,9 +235,9 @@ impl Moe {
         }
         let (r2, d2) = self.experts[best_e].nearest(&bind(&without));
         // The match must DEPEND on the distinctive token: removing it either changes the
-        // rule or pushes the window out of confident range. If the same rule still matches
-        // just as closely without the subject, the verdict came from generic tokens → abstain.
-        if r2 == best_rule && d2 <= self.cap {
+        // rule or pushes the window out of this expert's confident range. If the same rule
+        // still matches just as closely without the subject, it's a generic match → abstain.
+        if r2 == best_rule && d2 <= ecap {
             return None;
         }
         Some(best_rule)
@@ -295,6 +318,7 @@ impl Moe {
                 .iter()
                 .map(|e| ExpertDto {
                     name: e.name.clone(),
+                    cap: e.cap,
                     signature: e.signature.as_words().to_vec(),
                     sigs: e.sigs.iter().map(|s| (s.hv.as_words().to_vec(), s.rule)).collect(),
                 })
@@ -315,6 +339,7 @@ impl Moe {
                 .into_iter()
                 .map(|e| Expert {
                     name: e.name,
+                    cap: e.cap,
                     signature: Hv::from_words(&e.signature),
                     sigs: e
                         .sigs
@@ -335,6 +360,7 @@ impl Moe {
 #[derive(Serialize, Deserialize)]
 struct ExpertDto {
     name: String,
+    cap: u32,
     signature: Vec<u64>,
     sigs: Vec<(Vec<u64>, u32)>,
 }

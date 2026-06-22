@@ -11,7 +11,7 @@ use helpers_native::lint_moe::{Example, Moe};
 
 const FILTER: u32 = 1200;
 const CAP: u32 = 1400;
-const TOPK: usize = 5; // 90% attribution at modest cost; bump to 9 for ~94%
+const TOPK: usize = 9; // consult all experts → ~94% attribution; inference still ~2s
 
 fn rust_sources(dir: &Path, out: &mut Vec<String>) {
     let Ok(entries) = fs::read_dir(dir) else { return };
@@ -66,7 +66,9 @@ fn main() {
         for r in idx["rules"].as_array().into_iter().flatten() {
             let bad = r["exampleBad"].as_str().unwrap_or("");
             let good = r["exampleGood"].as_str().unwrap_or("");
-            if bad.is_empty() || good.is_empty() {
+            // Only a bad example is required — the good one just adds to the clean
+            // reference. Requiring both would drop ~40% of rules (e.g. bool_comparison).
+            if bad.is_empty() {
                 continue;
             }
             examples.push(Example {
