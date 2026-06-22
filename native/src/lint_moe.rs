@@ -33,37 +33,38 @@ pub struct Example {
     pub good: String,
 }
 
-/// A labeled violation signal: a code-window hypervector and the rule index it marks.
+/// A labeled violation signal: a code-window hypervector, the rule index it marks, and
+/// its OWN cap — the match distance set just below this signal's nearest clean window, so
+/// a distinctive signal generalizes to variants while a near-clean one fires only on an
+/// exact repeat. Per-signal (not per-expert) so one weak signal can't blunt the rest.
 struct Sig {
     hv: Hv,
     rule: u32,
+    cap: u32,
 }
 
-/// One expert — the distinctive violation signals of a single documentation slice, a
-/// router signature (the bundle of those signals) used to gate windows to it, and its
-/// OWN calibrated cap: the confident-match distance set just below the nearest clean
-/// window, so this expert can never fire on known-good code in its category.
+/// One expert — the distinctive violation signals of a single documentation slice and a
+/// router signature (the bundle of those signals) used to gate windows to it. The match
+/// boundary lives on each signal (per-signal cap), not on the expert.
 struct Expert {
     #[allow(dead_code)]
     name: String,
     sigs: Vec<Sig>,
     signature: Hv,
-    cap: u32,
 }
 
 impl Expert {
-    /// Nearest violation signal to `q`: its rule index and bit-distance.
-    fn nearest(&self, q: &Hv) -> (u32, u32) {
-        let mut best = u32::MAX;
-        let mut bd = u32::MAX;
+    /// The nearest signal `q` falls *within the cap of* — its rule, distance, and that
+    /// signal's cap — or `None` if no signal claims `q`. (rule, dist, cap).
+    fn nearest(&self, q: &Hv) -> Option<(u32, u32, u32)> {
+        let mut best: Option<(u32, u32, u32)> = None;
         for s in &self.sigs {
             let d = s.hv.distance(q);
-            if d < bd {
-                bd = d;
-                best = s.rule;
+            if d <= s.cap && best.map_or(true, |(_, bd, _)| d < bd) {
+                best = Some((s.rule, d, s.cap));
             }
         }
-        (best, bd)
+        best
     }
 }
 
@@ -136,32 +137,25 @@ impl Moe {
                 rule_names.push(e.rule.clone());
                 (rule_names.len() - 1) as u32
             });
-            // score windows by distinctiveness; keep those above `filter`, else the best.
-            let scored: Vec<(Window, u32)> = windows_of(&e.bad)
-                .into_iter()
-                .map(|w| {
-                    let d = min_clean(&signal(&w), &clean_ref);
-                    (w, d)
-                })
-                .collect();
-            if scored.is_empty() {
-                continue;
-            }
-            let any = scored.iter().any(|(_, d)| *d > filter);
-            let best = scored.iter().enumerate().max_by_key(|(_, (_, d))| *d).map(|(i, _)| i);
+            // Keep ONLY windows that are genuinely distinctive from clean code (distance
+            // above `filter`). No generic-window fallback: a rule whose every window also
+            // appears in clean code has no surface fingerprint and is left undetectable
+            // rather than represented by a generic window that would false-flag. Because
+            // every kept signal is >`filter` from all clean, its cap (= distance−1) stays
+            // below that clean, so no clean window can ever fire it — zero clean FP by
+            // construction.
             let bucket = slices.entry(e.slice.clone()).or_default();
-            for (i, (w, d)) in scored.iter().enumerate() {
-                let keep = if any { *d > filter } else { Some(i) == best };
-                if keep {
-                    count(w, &mut freq);
-                    bucket.push(Sig { hv: signal(w), rule: ridx });
+            for w in windows_of(&e.bad) {
+                let d = min_clean(&signal(&w), &clean_ref);
+                if d > filter {
+                    count(&w, &mut freq);
+                    bucket.push(Sig { hv: signal(&w), rule: ridx, cap: (d - 1).min(cap) });
                 }
             }
         }
 
-        // Build experts: router signature = bundle of signals; per-expert cap calibrated
-        // just below the nearest clean window to any of the expert's signals (clamped to
-        // the global `cap`), so the expert cannot fire on known-good code in its category.
+        // Build experts: router signature = bundle of signals (the match boundary already
+        // lives on each signal's cap).
         let experts: Vec<Expert> = slices
             .into_iter()
             .filter(|(_, sigs)| !sigs.is_empty())
@@ -170,13 +164,7 @@ impl Moe {
                 for s in &sigs {
                     b.add(&s.hv);
                 }
-                let nearest_clean = clean_ref
-                    .iter()
-                    .map(|c| sigs.iter().map(|s| s.hv.distance(c)).min().unwrap_or(u32::MAX))
-                    .min()
-                    .unwrap_or(u32::MAX);
-                let ecap = nearest_clean.saturating_sub(1).min(cap);
-                Expert { name, signature: b.finalize(), sigs, cap: ecap }
+                Expert { name, signature: b.finalize(), sigs }
             })
             .collect();
 
@@ -198,24 +186,15 @@ impl Moe {
         routed.sort_by_key(|x| x.0);
         routed.truncate(self.topk.max(1));
 
-        let mut best_rule = u32::MAX;
-        let mut best_d = u32::MAX;
-        let mut best_e = usize::MAX;
+        let mut best: Option<(u32, u32, u32, usize)> = None; // (rule, dist, cap, expert)
         for &(_, ei) in &routed {
-            let e = &self.experts[ei];
-            let (r, d) = e.nearest(&q);
-            // accept only within THIS expert's calibrated cap — a window can't match an
-            // expert whose real violations sit farther than its boundary.
-            if d <= e.cap && d < best_d {
-                best_d = d;
-                best_rule = r;
-                best_e = ei;
+            if let Some((r, d, c)) = self.experts[ei].nearest(&q) {
+                if best.map_or(true, |(_, bd, _, _)| d < bd) {
+                    best = Some((r, d, c, ei));
+                }
             }
         }
-        if best_rule == u32::MAX {
-            return None;
-        }
-        let ecap = self.experts[best_e].cap;
+        let (best_rule, best_d, ecap, best_e) = best?;
         // A near-exact match to a documented violation is confident on its own — the code
         // essentially *is* the example. The causation gate exists to filter BORDERLINE
         // matches (generic windows that drifted close); skip it when we're well inside the
@@ -233,14 +212,13 @@ impl Moe {
         if without.len() < 2 {
             return None;
         }
-        let (r2, d2) = self.experts[best_e].nearest(&bind(&without));
-        // The match must DEPEND on the distinctive token: removing it either changes the
-        // rule or pushes the window out of this expert's confident range. If the same rule
-        // still matches just as closely without the subject, it's a generic match → abstain.
-        if r2 == best_rule && d2 <= ecap {
-            return None;
+        // The match must DEPEND on the distinctive token: removing it must change the
+        // verdict (different rule, or no longer within any signal's cap). If the same rule
+        // still matches without the subject, it's a generic match → abstain.
+        match self.experts[best_e].nearest(&bind(&without)) {
+            Some((r2, _, _)) if r2 == best_rule => None,
+            _ => Some(best_rule),
         }
-        Some(best_rule)
     }
 
     /// Judge a whole source: the distinct rule indices it is known to violate.
@@ -318,9 +296,12 @@ impl Moe {
                 .iter()
                 .map(|e| ExpertDto {
                     name: e.name.clone(),
-                    cap: e.cap,
                     signature: e.signature.as_words().to_vec(),
-                    sigs: e.sigs.iter().map(|s| (s.hv.as_words().to_vec(), s.rule)).collect(),
+                    sigs: e
+                        .sigs
+                        .iter()
+                        .map(|s| (s.hv.as_words().to_vec(), s.rule, s.cap))
+                        .collect(),
                 })
                 .collect(),
         };
@@ -339,12 +320,11 @@ impl Moe {
                 .into_iter()
                 .map(|e| Expert {
                     name: e.name,
-                    cap: e.cap,
                     signature: Hv::from_words(&e.signature),
                     sigs: e
                         .sigs
                         .into_iter()
-                        .map(|(w, rule)| Sig { hv: Hv::from_words(&w), rule })
+                        .map(|(w, rule, cap)| Sig { hv: Hv::from_words(&w), rule, cap })
                         .collect(),
                 })
                 .collect(),
@@ -360,9 +340,8 @@ impl Moe {
 #[derive(Serialize, Deserialize)]
 struct ExpertDto {
     name: String,
-    cap: u32,
     signature: Vec<u64>,
-    sigs: Vec<(Vec<u64>, u32)>,
+    sigs: Vec<(Vec<u64>, u32, u32)>,
 }
 
 /// On-disk form of the whole model.
