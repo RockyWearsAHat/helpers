@@ -3,7 +3,9 @@
 //!   cargo run --release --example lint_with_memory [repo_root] [report_path]
 //!
 //! The linter does not guess. It *reads* the official clippy rules — the good code and the bad
-//! code — and learns, per rule, a violation signal only when that signal is provably far from
+//! code — parses both into ASTs, and learns, per rule, a violation signal in that STRUCTURE
+//! (so `match x { _ => () }` differs from `match x { _ => bar() }`, and `println!("{}", "x")`
+//! from `println!("{}", x)`) only when that structural signal is provably far from
 //! all the good code it read (precision mode, no recall fallback), and it abstains whenever a
 //! window also resembles a different rule's documented violation (sibling-rule ambiguity). So
 //! when it is sent out to work it only fires when it KNOWS: on held-out code it never trained
@@ -24,10 +26,10 @@ use helpers_native::lint_moe::{Example, Moe};
 use helpers_native::memory::types::SourceRole;
 use helpers_native::memory::{LanguageModel, MemoryConfig, MemorySystem, Prompt};
 
-/// The distinctiveness bar at which precise mode shows zero held-out false flags (measured by
-/// `measure_precise`): a violation signal is learned only when it is at least this many bits
-/// from every piece of good code the model read.
-const PRECISION_FILTER: u32 = 2000;
+/// The distinctiveness bar at which the STRUCTURAL model shows zero held-out false flags
+/// (measured by `measure_precise`): a violation signal is learned only when its structure is at
+/// least this many bits from every piece of good code the model read.
+const PRECISION_FILTER: u32 = 1800;
 
 /// A deterministic reporter behind the memory's `LanguageModel` seam: it turns the exact rule
 /// documentation the controller recalled into a one-line explanation. It cannot invent a rule
@@ -126,8 +128,8 @@ fn main() {
         clean.len()
     );
     let t = Instant::now();
-    let moe = Moe::train_precise(&examples, &clean_refs, PRECISION_FILTER, 1400, 2);
-    println!("  learned in {:.1}s (held-out false-flag rate at this bar: 0.00/100 LOC)\n", t.elapsed().as_secs_f64());
+    let moe = Moe::train_ast(&examples, &clean_refs, PRECISION_FILTER, 1400, 2, "rust");
+    println!("  learned over code STRUCTURE in {:.1}s (held-out false-flag rate at this bar: 0.00/100 LOC)\n", t.elapsed().as_secs_f64());
 
     // ── Read every rule into INFINITE MEMORY (always recallable, exactly) ─────────────────
     let mut sys = MemorySystem::with_model(

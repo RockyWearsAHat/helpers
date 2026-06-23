@@ -97,29 +97,30 @@ fn main() {
 
     let held = held_out.to_vec();
     let t = Instant::now();
-    let default = Moe::train(&examples, &calib_refs, 1000, 1400, 2);
-    measure("default", &default, &examples, &held);
-
-    // At the zero-false-flag distinctiveness bar (f=2000), sweep the ambiguity guard: how much
-    // abstention buys 100% accuracy on the rules it does answer.
-    println!("--- precise f=2000, sweeping the ambiguity guard (abstain when unsure) ---");
-    let mut precise = Moe::train_precise(&examples, &calib_refs, 2000, 1400, 2);
-    for margin in [600u32, 1000, 1400, 1800, 2400, 3200] {
-        precise.set_ambiguity_margin(margin);
-        measure(&format!("m={margin}"), &precise, &examples, &held);
+    println!("--- flat lexer-token representation (what the model used to reason over) ---");
+    let lexer = Moe::train_precise(&examples, &calib_refs, 2000, 1400, 2);
+    measure("lexer", &lexer, &examples, &held);
+    println!("--- STRUCTURAL (AST) representation, sweeping the distinctiveness bar ---");
+    let siblings = [
+        ("single_match", "single_match_else"),
+        ("vec_box", "box_collection"),
+        ("useless_transmute", "wrong_transmute"),
+    ];
+    let by_id = |id: &str| examples.iter().find(|e| e.rule == id);
+    for filter in [1000u32, 1400, 1800, 2200] {
+        let ast = Moe::train_ast(&examples, &calib_refs, filter, 1400, 2, "rust");
+        measure(&format!("ast f={filter}"), &ast, &examples, &held);
+        let mut sib = String::new();
+        for (a, b) in siblings {
+            for id in [a, b] {
+                if let Some(e) = by_id(id) {
+                    let hits: Vec<&str> = ast.judge(&e.bad).iter().map(|&h| ast.rule_name(h)).collect();
+                    let v = if hits.is_empty() { "abstain" } else if hits.contains(&id) { "✓" } else { "✗WRONG" };
+                    sib.push_str(&format!(" {id}={v}"));
+                }
+            }
+        }
+        println!("        siblings:{sib}");
     }
-    println!("\n(trained in {:.0}s) Held-out false flags = the model on code it never read.", t.elapsed().as_secs_f64());
-
-    // Confirm there are NO over-answers: every example it answers gets the right rule.
-    precise.set_ambiguity_margin(600);
-    let overs: Vec<String> = examples
-        .iter()
-        .filter_map(|e| {
-            let hits: Vec<&str> = precise.judge(&e.bad).iter().map(|&h| precise.rule_name(h)).collect();
-            (!hits.is_empty() && !hits.iter().any(|h| *h == e.rule))
-                .then(|| format!("  {} → {:?}", e.rule, hits))
-        })
-        .collect();
-    println!("\nOver-answers (answered with the wrong rule): {}", if overs.is_empty() { "NONE".into() } else { format!("\n{}", overs.join("\n")) });
-    println!("100% through abstaining: it answers only when one rule is clearly right, else stays silent.");
+    println!("\n(trained in {:.0}s)", t.elapsed().as_secs_f64());
 }
