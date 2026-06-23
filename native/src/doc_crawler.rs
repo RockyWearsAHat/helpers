@@ -91,11 +91,82 @@ pub fn extract_code_blocks(html: &str) -> Vec<String> {
     blocks
 }
 
+/// Extract `(local prose, code)` sections from a fetched body of ANY textual type — not just
+/// HTML. Documentation knowledge lives in JSON (machine-readable rule data), Markdown, and plain
+/// text too, so the right extractor is chosen by the server's content type. Binary types never
+/// reach here (rejected at fetch). This is what lets the crawler pull *everything* a site serves.
+pub fn extract(content_type: &str, body: &str) -> Vec<(String, String)> {
+    let ct = content_type.to_lowercase();
+    if ct.contains("json") {
+        extract_sections_json(body)
+    } else if ct.contains("html") || ct.contains("xml") || body.contains("</") {
+        extract_sections_html(body)
+    } else {
+        // Markdown / reStructuredText / plain text — fenced code blocks with their lead-in prose.
+        extract_sections_text(body)
+    }
+}
+
+/// Sections from a Markdown/plain-text body: each fenced ```code``` block paired with the prose
+/// just before it. No language assumptions — the optional info string after the fence is dropped.
+pub fn extract_sections_text(text: &str) -> Vec<(String, String)> {
+    let parts: Vec<&str> = text.split("```").collect();
+    let mut out = Vec::new();
+    let mut i = 1;
+    while i < parts.len() {
+        let block = parts[i];
+        // Drop the fence info string (the first line after ```), keep the code body.
+        let code = block.split_once('\n').map(|(_, c)| c).unwrap_or(block).trim();
+        let local: String = words_tail(parts[i - 1], 40);
+        if code.len() >= 3 && local.len() >= 8 {
+            out.push((local, code.to_string()));
+        }
+        i += 2; // parts alternate prose / code / prose / code …
+    }
+    out
+}
+
+/// Sections from a JSON body: walk to every string leaf and run the text/HTML extractor on it, so
+/// a rules file whose fields embed Markdown or HTML examples (e.g. clippy's `lints.json` `docs`)
+/// yields its (prose, code) pairs — no knowledge of the schema's field names required.
+pub fn extract_sections_json(body: &str) -> Vec<(String, String)> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let mut strings = Vec::new();
+    collect_json_strings(&value, &mut strings);
+    let mut out = Vec::new();
+    for s in strings {
+        if s.contains("```") {
+            out.extend(extract_sections_text(&s));
+        } else if s.contains("</") {
+            out.extend(extract_sections_html(&s));
+        }
+    }
+    out
+}
+
+/// Recursively gather every string leaf in a JSON value.
+fn collect_json_strings(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::String(s) => out.push(s.clone()),
+        serde_json::Value::Array(a) => a.iter().for_each(|x| collect_json_strings(x, out)),
+        serde_json::Value::Object(o) => o.values().for_each(|x| collect_json_strings(x, out)),
+        _ => {}
+    }
+}
+
+/// The last `n` whitespace-separated words of `s`, in order — the local lead-in prose.
+fn words_tail(s: &str, n: usize) -> String {
+    let w: Vec<&str> = s.split_whitespace().collect();
+    w[w.len().saturating_sub(n)..].join(" ")
+}
+
 /// Pair each code block with the prose immediately before it — its local explanation — instead
 /// of the whole page. Documentation puts the lesson for a snippet right above the snippet; whole-
 /// page pairing instead lets one ubiquitous construct (a doctest `assert_eq!`) co-occur with every
 /// concept on the page and blur the signal. The local window keeps each (prose, code) record tight.
-pub fn extract_sections(html: &str) -> Vec<(String, String)> {
+pub fn extract_sections_html(html: &str) -> Vec<(String, String)> {
     let h = drop_script_style(html);
     let mut out = Vec::new();
     for (open, close) in [("<pre", "</pre>"), ("<code", "</code>")] {
@@ -109,8 +180,7 @@ pub fn extract_sections(html: &str) -> Vec<(String, String)> {
             let code = strip_tags(&h[body_start..body_start + end_rel]);
             // Local context: the ~1500 chars of markup before this block, tag-stripped, last words.
             let ctx_start = start.saturating_sub(1500);
-            let prose = strip_tags(&h[ctx_start..start]);
-            let local: String = prose.split_whitespace().rev().take(40).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" ");
+            let local = words_tail(&strip_tags(&h[ctx_start..start]), 40);
             if code.len() >= 3 && local.len() >= 8 {
                 out.push((local, code));
             }
@@ -166,23 +236,24 @@ fn normalize_path(path: &str) -> String {
     format!("/{}", stack.join("/"))
 }
 
-/// File extensions that are page assets, not documentation — never crawled.
-fn is_asset(path: &str) -> bool {
-    let p = path.split('?').next().unwrap_or(path);
-    [
-        ".css", ".js", ".mjs", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff",
-        ".woff2", ".ttf", ".eot", ".map", ".xml", ".pdf", ".zip", ".wasm", ".webp",
-    ]
-    .iter()
-    .any(|e| p.ends_with(e))
-}
-
-/// Resolve `href` against `base` into an absolute, path-normalized URL (drops fragments and page
-/// assets). Handles absolute, protocol-relative, root-relative, and relative links.
+/// Resolve `href` against `base` into an absolute, path-normalized URL (drops fragments). Handles
+/// absolute, protocol-relative, root-relative, and relative links. It does NOT guess which links
+/// are "assets" by extension — what is and isn't a document is decided generally, by the content
+/// type the server returns at fetch time, so the crawler works for any site in any language
+/// without a hardcoded file-type list.
 pub fn resolve(base: &str, href: &str) -> Option<String> {
     let href = href.split('#').next().unwrap_or(href).trim();
-    if href.is_empty() || href.starts_with("mailto:") || href.starts_with("javascript:") {
+    if href.is_empty() {
         return None;
+    }
+    // Exclude only non-HTTP URI schemes (mailto:, javascript:, tel:, data:) — they can't be
+    // fetched. This is a scheme check, not a content/extension guess: a `:` appearing before the
+    // first `/` marks a scheme.
+    if let Some(colon) = href.find(':') {
+        let first_slash = href.find('/').unwrap_or(usize::MAX);
+        if colon < first_slash && !matches!(&href[..colon], "http" | "https") {
+            return None;
+        }
     }
     let (scheme, host, path) = split_url(base)?;
     let raw = if href.starts_with("http://") || href.starts_with("https://") {
@@ -196,9 +267,6 @@ pub fn resolve(base: &str, href: &str) -> Option<String> {
         format!("{scheme}://{host}{dir}/{href}")
     };
     let (rscheme, rhost, rpath) = split_url(&raw)?;
-    if is_asset(&rpath) {
-        return None;
-    }
     Some(format!("{rscheme}://{rhost}{}", normalize_path(&rpath)))
 }
 
@@ -238,27 +306,34 @@ mod net {
     use std::collections::{HashSet, VecDeque};
     use std::time::Duration;
 
-    /// Fetch a URL directly over HTTP (no browser). `None` on any network/decode error.
-    pub fn fetch(url: &str) -> Option<String> {
+    /// Fetch a URL directly over HTTP (no browser). Returns `(content_type, body)` for any TEXTUAL
+    /// response — HTML, JSON, Markdown, plain text — and `None` only for true binaries (images,
+    /// fonts, archives) or network errors. We keep everything textual a docs site serves; what to
+    /// do with it is decided later by content type, not discarded up front.
+    pub fn fetch(url: &str) -> Option<(String, String)> {
         let agent = ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(15))
             .user_agent("helpers-doc-crawler/1.0 (+direct-fetch)")
             .build();
-        match agent.get(url).call() {
-            Ok(resp) => {
-                // Documentation pages only — not CSS/JSON/plain-text assets that slip through.
-                let ct = resp.content_type().to_string();
-                if !(ct.contains("html") || ct.is_empty()) {
-                    return None;
-                }
-                resp.into_string().ok()
-            }
-            Err(_) => None,
+        let resp = agent.get(url).call().ok()?;
+        let ct = resp.content_type().to_string();
+        let binary = ct.starts_with("image/")
+            || ct.starts_with("font/")
+            || ct.starts_with("audio/")
+            || ct.starts_with("video/")
+            || ct.contains("octet-stream")
+            || ct.contains("zip")
+            || ct.contains("pdf")
+            || ct.contains("wasm");
+        if binary {
+            return None;
         }
+        resp.into_string().ok().map(|body| (ct, body))
     }
 
     /// Crawl the documentation graph breadth-first from `seeds`, staying in scope of each seed,
-    /// up to `max_pages`. Returns every page's extracted prose + code. Polite fixed delay.
+    /// up to `max_pages`. Returns every page's extracted (prose, code) sections — from whatever
+    /// textual type the page is. Polite fixed delay.
     pub fn crawl(seeds: &[&str], max_pages: usize, delay_ms: u64) -> Vec<Page> {
         let mut seen: HashSet<String> = HashSet::new();
         let mut queue: VecDeque<String> = VecDeque::new();
@@ -271,8 +346,10 @@ mod net {
             if pages.len() >= max_pages {
                 break;
             }
-            let Some(html) = fetch(&url) else { continue };
-            for link in extract_links(&url, &html) {
+            let Some((ct, body)) = fetch(&url) else { continue };
+            // Follow links from any text that carries them (HTML hrefs); terminal data
+            // (JSON/Markdown) simply yields no links and is ingested as knowledge.
+            for link in extract_links(&url, &body) {
                 if seen.len() < max_pages * 8
                     && !seen.contains(&link)
                     && seeds.iter().any(|s| in_scope(s, &link))
@@ -283,9 +360,9 @@ mod net {
             }
             pages.push(Page {
                 url: url.clone(),
-                prose: extract_prose(&html),
-                code: extract_code_blocks(&html),
-                sections: extract_sections(&html),
+                prose: extract_prose(&body),
+                code: extract_code_blocks(&body),
+                sections: extract(&ct, &body),
             });
             if delay_ms > 0 {
                 std::thread::sleep(Duration::from_millis(delay_ms));
@@ -324,6 +401,18 @@ mod tests {
         // In scope: same host, under the seed's directory. Out: other host or above the path.
         assert!(in_scope("https://doc.rust-lang.org/book/", "https://doc.rust-lang.org/book/ch02.html"));
         assert!(!in_scope("https://doc.rust-lang.org/book/", "https://crates.io/x"));
+    }
+
+    #[test]
+    fn extracts_from_markdown_and_json_not_just_html() {
+        // Markdown fenced block + its lead-in prose.
+        let md = "Prefer iterators here.\n```rust\nv.iter().map(f).collect()\n```\n";
+        let secs = extract("text/markdown", md);
+        assert!(secs.iter().any(|(p, c)| p.contains("iterators") && c.contains("iter")), "markdown section: {secs:?}");
+        // JSON whose field embeds a markdown example (the lints.json shape) — schema-free.
+        let json = r#"{"id":"x","docs":"Avoid this.\n```rust\nfoo.unwrap()\n```"}"#;
+        let secs = extract("application/json", json);
+        assert!(secs.iter().any(|(_, c)| c.contains("unwrap")), "json-embedded code extracted: {secs:?}");
     }
 
     #[test]
