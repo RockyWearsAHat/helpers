@@ -195,9 +195,59 @@ fn salient_features(node: Node, src: &[u8]) -> Vec<String> {
                 }
             }
         }
+        // Nested generics as a SINGLE relational feature: `gen:Vec<Box>` vs `gen:Box<Vec>`.
+        // Without this, `Vec<Box<_>>` and `Box<Vec<_>>` both merely "contain Vec and Box" and
+        // look identical to a flat model; the nesting order is the whole distinction.
+        "generic_type" => {
+            if let (Some(outer), Some(args)) = (
+                node.child_by_field_name("type"),
+                node.child_by_field_name("type_arguments"),
+            ) {
+                if let Some(o) = type_head(outer, src) {
+                    let mut cursor = args.walk();
+                    for inner in args.named_children(&mut cursor) {
+                        if matches!(inner.kind(), "generic_type" | "type_identifier" | "scoped_type_identifier") {
+                            if let Some(i) = type_head(inner, src) {
+                                out.push(format!("gen:{o}<{i}>"));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        // A `match`/`if` arm whose body is the no-op unit `()` vs a real expression is the
+        // structural line between e.g. single_match (`_ => ()`) and single_match_else
+        // (`_ => bar()`). Emit the wildcard/else arm's body shape so they separate.
+        "match_arm" => {
+            let is_wild = node
+                .child_by_field_name("pattern")
+                .map(|p| p.utf8_text(src).map(|t| t.trim() == "_").unwrap_or(false))
+                .unwrap_or(false);
+            if is_wild {
+                if let Some(body) = node.child_by_field_name("value") {
+                    let shape = if matches!(body.kind(), "unit_expression") { "unit" } else { body.kind() };
+                    out.push(format!("wildarm:{shape}"));
+                }
+            }
+        }
         _ => {}
     }
     out
+}
+
+/// The head type name of a type node — `Vec` for `Vec<T>`, `Box` for `Box<U>`, the last
+/// segment of a scoped path — so nested generics reduce to a comparable `Outer<Inner>` shape.
+fn type_head(node: Node, src: &[u8]) -> Option<String> {
+    match node.kind() {
+        "type_identifier" | "primitive_type" => node.utf8_text(src).ok().map(str::to_string),
+        "generic_type" => node.child_by_field_name("type").and_then(|t| type_head(t, src)),
+        "scoped_type_identifier" => node
+            .child_by_field_name("name")
+            .and_then(|n| n.utf8_text(src).ok())
+            .map(str::to_string),
+        _ => node.utf8_text(src).ok().map(|s| s.rsplit("::").next().unwrap_or(s).to_string()),
+    }
 }
 
 /// Linearize `code` into a **structural token stream** for the learned linter: a pre-order
