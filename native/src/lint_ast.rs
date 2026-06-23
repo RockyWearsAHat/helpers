@@ -299,6 +299,85 @@ fn structural_collect(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
     }
 }
 
+/// A **fully generic** structural encoding — ZERO per-rule or per-node-kind special cases. Each
+/// named node becomes a label (`kind:head`, the head pulled from whatever naming field the
+/// grammar exposes) plus a parent→child edge to its context. Every structural distinction is
+/// therefore present (nesting order shows up as edges, arm shape as a child kind, …); which ones
+/// MATTER is not decided here — it is learned downstream by weighting features by how rare they
+/// are in the language corpus (common grammar ≈ noise, rare structure ≈ meaning). This is the
+/// "read the docs, learn the language" path: no hand-written rules, just the tree + statistics.
+pub fn generic_features(lang: &str, code: &str) -> Vec<(String, usize)> {
+    let Some(language) = language(lang) else {
+        return Vec::new();
+    };
+    let mut parser = Parser::new();
+    if parser.set_language(&language).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(code, None) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    generic_walk(tree.root_node(), None, code.as_bytes(), &mut out);
+    out
+}
+
+fn generic_walk(node: Node, parent: Option<&str>, src: &[u8], out: &mut Vec<(String, usize)>) {
+    let mut here = parent.map(str::to_string);
+    if node.is_named() {
+        let line = node.start_position().row + 1;
+        let label = generic_label(node, src);
+        out.push((label.clone(), line));
+        if let Some(p) = parent {
+            out.push((format!("{p}>{label}"), line));
+        }
+        here = Some(label);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        generic_walk(child, here.as_deref(), src, out);
+    }
+}
+
+/// A node's label: its kind plus its head identifier when [`generic_head`] finds one. A leaf
+/// that is neither a variable `identifier` nor a literal *value* keeps its text (types, fields,
+/// keywords, operators carry structural identity); variables and literal values reduce to kind.
+fn generic_label(node: Node, src: &[u8]) -> String {
+    let kind = node.kind();
+    if let Some(head) = generic_head(node, src) {
+        return format!("{kind}:{head}");
+    }
+    if node.named_child_count() == 0
+        && kind != "identifier"
+        && kind != "string_content"
+        && !kind.ends_with("_literal")
+    {
+        if let Ok(t) = node.utf8_text(src) {
+            let t = t.trim();
+            if !t.is_empty() && t.len() <= 24 {
+                return format!("{kind}:{t}");
+            }
+        }
+    }
+    kind.to_string()
+}
+
+/// The head identifier of a node via the grammar's naming fields (`name`/`type`/`function`/
+/// `macro`/`field`), recursing through nested types/paths. Generic — reads field names, never a
+/// hardcoded node list — so `Vec<Box<_>>` heads at `Vec` and its inner type at `Box`.
+fn generic_head(node: Node, src: &[u8]) -> Option<String> {
+    for field in ["name", "type", "function", "macro", "field"] {
+        if let Some(c) = node.child_by_field_name(field) {
+            if c.named_child_count() == 0 {
+                let t = c.utf8_text(src).ok()?.trim().to_string();
+                return (!t.is_empty() && t.len() <= 24).then_some(t);
+            }
+            return generic_head(c, src);
+        }
+    }
+    None
+}
+
 /// The operator + operand texts of a binary comparison. Grammar-agnostic: finds the
 /// operator child, then the nearest NAMED node on each side (works whether the grammar
 /// uses left/right fields or bare operand children, e.g. Python `comparison_operator`).
