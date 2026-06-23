@@ -17,8 +17,9 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use headless_chrome::{Browser, LaunchOptions};
+use headless_chrome::{Browser, LaunchOptions, Tab};
 use serde_json::{json, Value};
 
 use crate::git::home;
@@ -34,11 +35,74 @@ const CAPTCHA_POLL_ATTEMPTS: usize = 20;
 const CAPTCHA_POLL_DELAY_MS: u64 = 2000;
 
 thread_local! {
-    /// A visible Chrome opened for a CAPTCHA the user hasn't finished solving.
-    /// Kept open across calls so the user can solve at their own pace; the next
-    /// search reuses it. Thread-local because the MCP loop is single-threaded and
-    /// `Browser` need not cross threads.
-    static PENDING_INTERACTIVE: RefCell<Option<Browser>> = const { RefCell::new(None) };
+    /// Long-lived headless Chrome on the shared profile — plus one reusable tab —
+    /// shared by every `search_web` / `scrape_webpage` call. Each call merely
+    /// *navigates* this tab; we never open or close tabs per request. That matters
+    /// because current Chrome drops the reply to both `Browser.close` (on `Browser`
+    /// drop) and `Target.closeTarget` (on `Tab::close`), so either call blocks for
+    /// the full idle timeout (~30s). Keeping one browser + one tab alive sidesteps
+    /// both; the slow close is paid only when the cache is reset or the process exits.
+    static HEADLESS: RefCell<Option<(Browser, Arc<Tab>)>> = const { RefCell::new(None) };
+
+    /// A visible Chrome (and the tab on it) opened for a CAPTCHA the user hasn't
+    /// finished solving. Kept open across calls so the user can solve at their own
+    /// pace; the next search re-runs the query on that same solved tab. Thread-local
+    /// because the MCP loop is single-threaded and `Browser` need not cross threads.
+    static PENDING_INTERACTIVE: RefCell<Option<(Browser, Arc<Tab>)>> = const { RefCell::new(None) };
+}
+
+/// Borrow the cached headless tab, launching the browser and opening the tab on
+/// first use. The returned `Arc<Tab>` shares the one long-lived tab; dropping the
+/// clone is just a refcount decrement, never a (slow) tab close.
+fn ensure_tab() -> Result<Arc<Tab>, String> {
+    HEADLESS.with(|cell| {
+        if cell.borrow().is_none() {
+            let browser = launch_with_retry(true)?;
+            let tab = browser
+                .new_tab()
+                .map_err(|e| format!("new tab failed: {e}"))?;
+            *cell.borrow_mut() = Some((browser, tab));
+        }
+        Ok(cell.borrow().as_ref().expect("just populated").1.clone())
+    })
+}
+
+/// Drop the cached browser/tab — because it died, or to free the shared profile's
+/// lock so a visible CAPTCHA window can take it. The graceful close runs on a
+/// detached thread so callers never block on Chrome's slow shutdown reply.
+fn reset_headless() {
+    if let Some((browser, _tab)) = HEADLESS.with(|c| c.borrow_mut().take()) {
+        background_drop(browser);
+    }
+}
+
+/// Drop a `Browser` off the calling thread. Current Chrome makes the graceful
+/// `Browser.close` on drop block for ~the idle timeout; the Chrome process itself
+/// exits (and frees the profile lock) quickly, so only this throwaway thread waits.
+fn background_drop(browser: Browser) {
+    let _ = std::thread::Builder::new()
+        .name("helpers-chrome-close".into())
+        .spawn(move || drop(browser));
+}
+
+/// Launch Chrome, retrying briefly on failure. After a sibling Chrome on the shared
+/// profile is dropped, its `SingletonLock` lingers until the process exits; a few
+/// short retries ride that out so the next launch succeeds instead of erroring.
+fn launch_with_retry(headless: bool) -> Result<Browser, String> {
+    const ATTEMPTS: usize = 8;
+    let mut last = String::new();
+    for attempt in 0..ATTEMPTS {
+        match launch(headless) {
+            Ok(browser) => return Ok(browser),
+            Err(e) => {
+                last = e;
+                if attempt + 1 < ATTEMPTS {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            }
+        }
+    }
+    Err(last)
 }
 
 /// One page's outcome: parsed results, plus whether Google showed a CAPTCHA or a
@@ -162,21 +226,18 @@ fn launch(headless: bool) -> Result<Browser, String> {
     let opts = builder
         .build()
         .map_err(|e| format!("invalid Chrome launch options: {e}"))?;
-    Browser::new(opts).map_err(|e| {
-        if resolved.is_none() {
-            format!(
-                "Google Chrome is required for web search/scrape but none was found. \
-                 Install Google Chrome (https://www.google.com/chrome) or set the \
-                 HELPERS_CHROME_EXECUTABLE environment variable to a Chrome/Chromium \
-                 binary, then retry. (underlying error: {e})"
-            )
-        } else {
-            format!(
-                "Found Chrome at {} but could not launch it: {e}. If you are on a \
-                 headless/CI machine the visible-browser CAPTCHA step needs a display.",
-                resolved.as_ref().unwrap().display()
-            )
-        }
+    Browser::new(opts).map_err(|e| match &resolved {
+        None => format!(
+            "Google Chrome is required for web search/scrape but none was found. \
+             Install Google Chrome (https://www.google.com/chrome) or set the \
+             HELPERS_CHROME_EXECUTABLE environment variable to a Chrome/Chromium \
+             binary, then retry. (underlying error: {e})"
+        ),
+        Some(path) => format!(
+            "Found Chrome at {} but could not launch it: {e}. If you are on a \
+             headless/CI machine the visible-browser CAPTCHA step needs a display.",
+            path.display()
+        ),
     })
 }
 
@@ -238,55 +299,65 @@ const EXTRACT_JS: &str = r#"
 })()
 "#;
 
-// Image-search extractor (Google `tbm=isch`). Each result is an anchor pointing at
-// `/imgres?imgurl=…&imgrefurl=…`; we decode the direct image URL and its source
-// page, with the thumbnail's alt text as the title. Shares the same CAPTCHA / no-
-// results detection as the web extractor and returns a JSON STRING.
+// Image-search extractor for Google's current Images vertical (`udm=2`). Results
+// are `<img>` thumbnails served from `encrypted-tbn0.gstatic.com` carrying the
+// description in their `alt` (empty-alt thumbnails are UI chrome / related-search
+// chips, so we skip them). The gstatic thumbnail is itself a real, loadable image
+// URL; we also walk up the DOM for a best-effort non-Google source page. Unlike
+// the web extractor, an *empty* image grid is NOT treated as a CAPTCHA (Google no
+// longer renders parseable anchors here), only explicit challenge signals are.
+// Returns a JSON STRING.
 const EXTRACT_IMAGES_JS: &str = r#"
 (function () {
   var bodyText = document.body ? (document.body.innerText || "") : "";
   var pageTitle = document.title || "";
-  var googleOwned = /(^|\.)google\./i.test(location.hostname || "");
   var interruptionUi = !!document.querySelector(
     'form[action*="sorry"], iframe[src*="recaptcha"], #captcha, input[name="captcha"], textarea#g-recaptcha-response, div.g-recaptcha, form#captcha-form'
   );
   var challengeText = (pageTitle + "\n" + bodyText).replace(/\s+/g, " ").slice(0, 4000);
-  function param(href, name) {
-    try {
-      var m = href.match(new RegExp("[?&]" + name + "=([^&]+)"));
-      return m ? decodeURIComponent(m[1]) : "";
-    } catch (e) { return ""; }
-  }
   var results = [];
   var seen = {};
-  var anchors = document.querySelectorAll('a[href*="/imgres?"]');
-  for (var i = 0; i < anchors.length; i++) {
-    var a = anchors[i];
-    var href = a.getAttribute("href") || a.href || "";
-    var imgurl = param(href, "imgurl");
-    if (!imgurl || !/^https?:\/\//.test(imgurl) || seen[imgurl]) continue;
-    seen[imgurl] = 1;
-    var imgref = param(href, "imgrefurl");
-    var img = a.querySelector("img");
-    var title = ((img && img.getAttribute("alt")) || "").replace(/\s+/g, " ").trim();
-    results.push({ url: imgref || imgurl, title: title, snippet: "", image_url: imgurl });
+  var imgs = document.querySelectorAll("img");
+  for (var i = 0; i < imgs.length; i++) {
+    var im = imgs[i];
+    var src = im.src || "";
+    if (!/^https?:\/\//.test(src)) continue;
+    if (!/(encrypted-tbn|gstatic\.com\/images|googleusercontent)/.test(src)) continue;
+    var alt = (im.getAttribute("alt") || "").replace(/\s+/g, " ").trim();
+    if (alt.length < 3) continue;            // skip logos / related-search chips
+    if (seen[src]) continue;
+    seen[src] = 1;
+    // Best-effort source page: nearest non-Google external link up the tree.
+    var page = "", node = im;
+    for (var d = 0; d < 8 && node; d++) {
+      node = node.parentElement;
+      if (!node) break;
+      var a = node.querySelector('a[href^="http"], a[href^="/url?"]');
+      if (a) {
+        var h = a.getAttribute("href") || "";
+        if (h.indexOf("/url?") === 0) {
+          try { h = decodeURIComponent((h.split("q=")[1] || "").split("&")[0]); } catch (e) {}
+        }
+        if (/^https?:\/\//.test(h) && !/(^|\.)google\.com/.test(h)) { page = h; break; }
+      }
+    }
+    results.push({ url: page || src, title: alt, snippet: "", image_url: src });
   }
   var captchaText = /detected unusual traffic|about this page|before you continue|verify you are human|not a robot|press and hold|enable javascript|unusual traffic from your computer/i.test(challengeText);
   var noResultsText = /did not match any documents|no results found for|try different keywords|try using more general keywords|check your spelling/i.test(challengeText);
-  var noResults = googleOwned && results.length === 0 && noResultsText;
-  var challenge = location.href.indexOf("/sorry/") !== -1 || interruptionUi || captchaText || (googleOwned && results.length === 0 && !noResults);
+  var noResults = results.length === 0 && noResultsText;
+  var challenge = location.href.indexOf("/sorry/") !== -1 || interruptionUi || captchaText;
   return JSON.stringify({ challenge: challenge, noResults: noResults, results: results });
 })()
 "#;
 
 /// Navigate `tab` to `url`, apply the navigation profile, and extract the outcome.
 /// `images` selects the image-search extractor over the web-results one.
-fn fetch_and_extract(browser: &Browser, url: &str, images: bool) -> Result<Outcome, String> {
-    let tab = browser.new_tab().map_err(|e| format!("new tab failed: {e}"))?;
+fn fetch_and_extract(tab: &Tab, url: &str, images: bool) -> Result<Outcome, String> {
     let _ = tab.set_user_agent(USER_AGENT, Some("en-US,en;q=0.9"), Some("macOS"));
     tab.navigate_to(url).map_err(|e| format!("navigate failed: {e}"))?;
     let _ = tab.wait_until_navigated();
-    extract(&tab, images)
+    extract(tab, images)
 }
 
 /// Run the appropriate extractor script in a tab and parse its JSON result.
@@ -369,7 +440,9 @@ fn build_query_url(args: &Value, images: bool) -> Option<String> {
         percent_encode(lang),
     );
     if images {
-        url.push_str("&tbm=isch");
+        // `udm=2` is Google's current Images vertical (the old `tbm=isch` now just
+        // redirects here). Setting it directly avoids the redirect round-trip.
+        url.push_str("&udm=2");
     }
     if let Some(tr) = args.get("time_range").and_then(Value::as_str) {
         let tbs = match tr {
@@ -451,21 +524,34 @@ pub fn run_search(args: &Value) -> ToolResult {
 /// Collect one result set for `url`: try headless first, then fall back to a
 /// visible Chrome the user can solve a CAPTCHA in.
 fn collect(url: &str, images: bool) -> Result<Collected, String> {
-    // 1) Headless attempt.
-    let headless = launch(true)?;
-    let outcome = fetch_and_extract(&headless, url, images)?;
+    // 1) Headless attempt against the long-lived cached browser.
+    let outcome = fetch_with_cached(url, images)?;
     if !outcome.challenge && !outcome.results.is_empty() {
         return Ok(Collected::Results(outcome.results));
     }
-    if outcome.no_results {
+    if outcome.no_results || !outcome.challenge {
+        // Either an explicit "no results" page, or a genuinely empty result set
+        // that is not a CAPTCHA — report empty rather than opening a visible window.
         return Ok(Collected::NoResults);
     }
-    // Release the headless profile lock before opening a visible Chrome.
-    drop(headless);
-
-    // 2) CAPTCHA path — reuse a pending interactive window if the user solved it,
-    //    else open one and either harvest the solved results or ask them to solve.
+    // 2) CAPTCHA path. The visible window needs the shared profile, so drop the
+    //    cached headless first to free its lock, then drive the solve.
+    reset_headless();
     resolve_via_visible_chrome(url, images)
+}
+
+/// Fetch + extract on the cached headless tab, relaunching once if the cached
+/// browser/tab has died (a navigation that can't even start), then retrying.
+fn fetch_with_cached(url: &str, images: bool) -> Result<Outcome, String> {
+    let tab = ensure_tab()?;
+    match fetch_and_extract(&tab, url, images) {
+        Err(e) if e.starts_with("navigate failed") => {
+            reset_headless();
+            let tab = ensure_tab()?;
+            fetch_and_extract(&tab, url, images)
+        }
+        other => other,
+    }
 }
 
 /// Handle a CAPTCHA by driving a visible Chrome the user can solve, reusing a
@@ -473,23 +559,25 @@ fn collect(url: &str, images: bool) -> Result<Collected, String> {
 /// window is dropped, which triggers a graceful CDP `Browser.close`: the tab is
 /// closed and the cleared-CAPTCHA cookie is flushed to the shared profile.
 fn resolve_via_visible_chrome(url: &str, images: bool) -> Result<Collected, String> {
-    // Reuse a window left open by a prior call (user may have solved it since).
+    // Reuse the window (and its tab) left open by a prior call — the user may have
+    // solved the CAPTCHA since. Re-running the query on that same tab now passes.
     let reused = PENDING_INTERACTIVE.with(|cell| cell.borrow_mut().take());
-    if let Some(browser) = reused {
-        if let Ok(out) = fetch_and_extract(&browser, url, images) {
+    if let Some((browser, tab)) = reused {
+        if let Ok(out) = fetch_and_extract(&tab, url, images) {
             if !out.challenge && !out.results.is_empty() {
-                // Solved — close the window (drop flushes cookies), then return.
-                drop(browser);
+                // Solved — close the window off-thread (Chrome flushes the cleared
+                // cookie to the profile as it exits), then return.
+                background_drop(browser);
                 return Ok(Collected::Results(out.results));
             }
         }
         // Still challenged — keep it open for the user and re-prompt.
-        PENDING_INTERACTIVE.with(|c| *c.borrow_mut() = Some(browser));
+        PENDING_INTERACTIVE.with(|c| *c.borrow_mut() = Some((browser, tab)));
         return Ok(Collected::CaptchaPending);
     }
 
     // Open a fresh visible Chrome on the query and poll briefly for a solve.
-    let browser = launch(false)?;
+    let browser = launch_with_retry(false)?;
     let tab = browser.new_tab().map_err(|e| format!("new tab failed: {e}"))?;
     let _ = tab.set_user_agent(USER_AGENT, Some("en-US,en;q=0.9"), Some("macOS"));
     tab.navigate_to(url).map_err(|e| format!("navigate failed: {e}"))?;
@@ -500,18 +588,17 @@ fn resolve_via_visible_chrome(url: &str, images: bool) -> Result<Collected, Stri
     for _ in 0..CAPTCHA_POLL_ATTEMPTS {
         if let Ok(out) = extract(&tab, images) {
             if !out.challenge && !out.results.is_empty() {
-                // Solved within the poll window — close the tab and the window so
-                // it doesn't linger, flushing the cleared session to the profile.
-                let _ = tab.close(false);
-                drop(browser);
+                // Solved within the poll window — close the window off-thread so it
+                // doesn't linger; Chrome flushes the cleared session as it exits.
+                background_drop(browser);
                 return Ok(Collected::Results(out.results));
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(CAPTCHA_POLL_DELAY_MS));
     }
 
-    // Not solved within the window — keep Chrome open for the user and ask them.
-    PENDING_INTERACTIVE.with(|c| *c.borrow_mut() = Some(browser));
+    // Not solved within the window — keep Chrome (and its tab) open for the user.
+    PENDING_INTERACTIVE.with(|c| *c.borrow_mut() = Some((browser, tab)));
     Ok(Collected::CaptchaPending)
 }
 
@@ -558,10 +645,9 @@ pub fn run_scrape(args: &Value) -> ToolResult {
     if urls.is_empty() {
         return Err("scrape_webpage requires at least one URL.".into());
     }
-    let browser = launch(true)?;
     let mut blocks = Vec::new();
     for url in &urls {
-        match scrape_one(&browser, url) {
+        match scrape_with_cached(url) {
             Ok((title, body)) => {
                 blocks.push(text(format!("Title: {title}\nURL: {url}\n\n{body}")));
             }
@@ -571,9 +657,21 @@ pub fn run_scrape(args: &Value) -> ToolResult {
     Ok(blocks)
 }
 
-/// Render one page and return (title, readable text).
-fn scrape_one(browser: &Browser, url: &str) -> Result<(String, String), String> {
-    let tab = browser.new_tab().map_err(|e| format!("new tab failed: {e}"))?;
+/// Scrape on the cached headless tab, relaunching once if it has died.
+fn scrape_with_cached(url: &str) -> Result<(String, String), String> {
+    let tab = ensure_tab()?;
+    match scrape_one(&tab, url) {
+        Err(e) if e.starts_with("navigate failed") => {
+            reset_headless();
+            let tab = ensure_tab()?;
+            scrape_one(&tab, url)
+        }
+        other => other,
+    }
+}
+
+/// Render one page on the reusable tab and return (title, readable text).
+fn scrape_one(tab: &Tab, url: &str) -> Result<(String, String), String> {
     let _ = tab.set_user_agent(USER_AGENT, Some("en-US,en;q=0.9"), None);
     tab.navigate_to(url).map_err(|e| format!("navigate failed: {e}"))?;
     let _ = tab.wait_until_navigated();
