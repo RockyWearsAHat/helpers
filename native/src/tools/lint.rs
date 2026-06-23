@@ -72,6 +72,74 @@ fn root_arg(args: &Value) -> PathBuf {
     }
 }
 
+/// Which lint modules to run, parsed from the `modules` arg. The selection has two
+/// independent axes: which *kinds* of check (`cs` principles vs `official` rules) and
+/// which *languages*. Both default to "everything" so an empty/absent `modules`
+/// preserves the original behaviour.
+struct Selection {
+    /// Run the CS2420/CS3500 principle checks (single responsibility, docs, error
+    /// handling, maintainability).
+    cs: bool,
+    /// Run the official-doc rules (the MoE "AI tree-sitter" + metric thresholds).
+    official: bool,
+    /// Restrict to these canonical language ids; `None` ⇒ all languages.
+    langs: Option<std::collections::HashSet<&'static str>>,
+}
+
+/// Fold a user module token (case-insensitive) to a canonical language id, or `None`
+/// if it isn't a language token. Aliases mirror [`Lang::from_ext`] so `js`/`ts` etc.
+/// all resolve, matching what the rest of the tool keys on.
+fn canon_lang(tok: &str) -> Option<&'static str> {
+    // Note: `cs` is deliberately NOT a language token — it names the CS-principle kind.
+    Some(match tok {
+        "rust" | "rs" => "rust",
+        "go" | "golang" => "go",
+        "js" | "javascript" | "jsx" | "ts" | "typescript" | "tsx" => "js",
+        "python" | "py" => "python",
+        "java" | "kotlin" | "kt" | "swift" | "cpp" | "c" => "java",
+        _ => return None,
+    })
+}
+
+/// Parse the `modules` arg into a [`Selection`].
+///
+/// Recognized tokens: `cs` (principle checks), `official` (official-doc rules), `all`
+/// (everything), and language ids (`rust`, `go`, `js`/`ts`, `python`, `java`, …).
+/// Rules: absent/empty/`all` ⇒ everything. Listing only languages keeps BOTH check
+/// kinds for those languages. Listing a kind (`cs`/`official`) restricts to the kinds
+/// named. Unknown tokens are ignored so a typo degrades to "run nothing extra" rather
+/// than erroring mid-scan.
+fn parse_selection(args: &Value) -> Selection {
+    let all = Selection { cs: true, official: true, langs: None };
+    let Some(arr) = args.get("modules").and_then(Value::as_array) else {
+        return all;
+    };
+    let toks: Vec<String> = arr
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if toks.is_empty() || toks.iter().any(|t| t == "all") {
+        return all;
+    }
+    let langs: std::collections::HashSet<&'static str> =
+        toks.iter().filter_map(|t| canon_lang(t)).collect();
+    let wants_cs = toks.iter().any(|t| t == "cs");
+    let wants_official = toks.iter().any(|t| t == "official");
+    // Languages alone (no kind named) ⇒ run both kinds for them.
+    let (cs, official) = if wants_cs || wants_official {
+        (wants_cs, wants_official)
+    } else {
+        (true, true)
+    };
+    Selection {
+        cs,
+        official,
+        langs: if langs.is_empty() { None } else { Some(langs) },
+    }
+}
+
 /// Scan the project and return the prioritized CS2420/CS3500 violation list.
 pub fn run(args: &Value) -> ToolResult {
     let root = root_arg(args);
@@ -83,6 +151,7 @@ pub fn run(args: &Value) -> ToolResult {
         .and_then(Value::as_u64)
         .unwrap_or(80)
         .clamp(1, 500) as usize;
+    let sel = parse_selection(args);
 
     let mut issues: Vec<Issue> = Vec::new();
     let mut lang_counts: HashMap<&'static str, usize> = HashMap::new();
@@ -95,6 +164,12 @@ pub fn run(args: &Value) -> ToolResult {
         let Some(lang) = Lang::from_ext(&f.ext) else {
             continue;
         };
+        // Skip languages the caller didn't select (None ⇒ all languages).
+        if let Some(langs) = &sel.langs {
+            if !langs.contains(lang.id()) {
+                continue;
+            }
+        }
         if is_declaration_file(&f.rel) {
             continue;
         }
@@ -108,15 +183,20 @@ pub fn run(args: &Value) -> ToolResult {
         let allow_block = lower.contains("quality:allow-large-block");
         let allow_long_file = lower.contains("quality:allow-long-file");
         let lines: Vec<&str> = content.lines().collect();
-        scan_file(
-            &f.rel,
-            lang,
-            &lines,
-            allow_long_fn,
-            allow_block,
-            allow_long_file,
-            &mut issues,
-        );
+        if sel.cs {
+            scan_file(
+                &f.rel,
+                lang,
+                &lines,
+                allow_long_fn,
+                allow_block,
+                allow_long_file,
+                &mut issues,
+            );
+        }
+        if !sel.official {
+            continue; // CS-only selection: skip the official-doc rule passes below.
+        }
         // AI judgment: delegate the file to its language's trained MoE ("AI tree-sitter").
         // It reasons in 1-bit signal space and flags only what it is sure of via the
         // causation gate. Loaded from disk (trained once), never trained here; if no model
@@ -167,8 +247,13 @@ pub fn run(args: &Value) -> ToolResult {
 
     // Fast-path note: if a packed lint index covers the dominant language's
     // toolchain, surface that its official rules are active. The built-in checks
-    // above remain the fallback and run unconditionally.
-    let official_note = dominant_lang(&lang_counts).and_then(official_rules_note);
+    // above remain the fallback and run unconditionally. Both notes describe the
+    // official-rule layer, so they are suppressed for a CS-only selection.
+    let official_note = if sel.official {
+        dominant_lang(&lang_counts).and_then(official_rules_note)
+    } else {
+        None
+    };
 
     let mut out = render(&issues, max);
     if let Some(note) = official_note {
@@ -176,9 +261,11 @@ pub fn run(args: &Value) -> ToolResult {
         out.push_str(&note);
     }
     // Program → AI seam: hand the rules that need understanding to the AI reviewer.
-    if let Some(note) = dominant_lang(&lang_counts).and_then(ai_review_note) {
-        out.push('\n');
-        out.push_str(&note);
+    if sel.official {
+        if let Some(note) = dominant_lang(&lang_counts).and_then(ai_review_note) {
+            out.push('\n');
+            out.push_str(&note);
+        }
     }
     Ok(vec![text(out)])
 }
@@ -634,17 +721,15 @@ fn error_handling(rel: &str, lang: Lang, lines: &[&str], out: &mut Vec<Issue>) {
     let empty_catch = Regex::new(r"catch\s*\([^)]*\)\s*\{\s*\}").unwrap();
     for (idx, raw) in lines.iter().enumerate() {
         match lang {
-            Lang::Js | Lang::JavaLike => {
-                if empty_catch.is_match(raw) {
-                    out.push(Issue {
-                        severity: Sev::High,
-                        category: "cs-principle",
-                        file: rel.to_string(),
-                        line: idx + 1,
-                        message: "Empty catch block swallows errors silently.".into(),
-                        suggestion: "Handle, log, or rethrow the error — never swallow it.",
-                    });
-                }
+            Lang::Js | Lang::JavaLike if empty_catch.is_match(raw) => {
+                out.push(Issue {
+                    severity: Sev::High,
+                    category: "cs-principle",
+                    file: rel.to_string(),
+                    line: idx + 1,
+                    message: "Empty catch block swallows errors silently.".into(),
+                    suggestion: "Handle, log, or rethrow the error — never swallow it.",
+                });
             }
             Lang::Go => {
                 let t = raw.trim();
@@ -752,7 +837,12 @@ pub fn schema() -> Value {
             "type": "object",
             "properties": {
                 "root": { "type": "string", "description": "Project root. Defaults to the current workspace." },
-                "max": { "type": "integer", "description": "Max issues to list (1-500). Default 80." }
+                "max": { "type": "integer", "description": "Max issues to list (1-500). Default 80." },
+                "modules": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Selectable lint modules. Two axes: KIND — `cs` (CS2420/CS3500 principle checks) and/or `official` (webscraped official-doc rules); and LANGUAGE — `rust`, `go`, `js`/`ts`, `python`, `java`. Listing only languages runs both kinds for them; listing a kind restricts to it; `all` or omitted runs everything. Example: [\"cs\",\"rust\"] = principle checks on Rust only."
+                }
             },
             "required": []
         }
@@ -851,6 +941,38 @@ mod tests {
             .captures("export const handler = async (req) => {")
             .unwrap();
         assert_eq!(captured_name(&caps), "handler");
+    }
+
+    #[test]
+    fn selection_defaults_to_everything() {
+        let s = parse_selection(&json!({}));
+        assert!(s.cs && s.official && s.langs.is_none());
+        // Explicit `all` is the same as omitting.
+        let s = parse_selection(&json!({ "modules": ["all"] }));
+        assert!(s.cs && s.official && s.langs.is_none());
+        // Empty list degrades to everything, not "nothing".
+        let s = parse_selection(&json!({ "modules": [] }));
+        assert!(s.cs && s.official && s.langs.is_none());
+    }
+
+    #[test]
+    fn selection_by_kind_and_language() {
+        // A kind alone restricts to that kind, all languages.
+        let s = parse_selection(&json!({ "modules": ["cs"] }));
+        assert!(s.cs && !s.official && s.langs.is_none());
+        // A language alone keeps BOTH kinds, restricted to that language.
+        let s = parse_selection(&json!({ "modules": ["rust"] }));
+        assert!(s.cs && s.official);
+        assert_eq!(s.langs.as_ref().unwrap().len(), 1);
+        assert!(s.langs.as_ref().unwrap().contains("rust"));
+        // Kind + language together: just that kind, just that language. Aliases fold.
+        let s = parse_selection(&json!({ "modules": ["official", "ts", "py"] }));
+        assert!(!s.cs && s.official);
+        let langs = s.langs.unwrap();
+        assert!(langs.contains("js") && langs.contains("python"));
+        // Unknown tokens are ignored (no language restriction emerges from a typo).
+        let s = parse_selection(&json!({ "modules": ["cs", "cobol"] }));
+        assert!(s.cs && !s.official && s.langs.is_none());
     }
 
     #[test]
