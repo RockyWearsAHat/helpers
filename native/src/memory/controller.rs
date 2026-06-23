@@ -160,6 +160,20 @@ impl MemorySystem {
     /// Ingest a statement: store it immutably, file it under concepts, persist its salient
     /// facts as recallable memory, and compact the live window if ingest overflowed it.
     pub fn ingest(&mut self, role: SourceRole, text: &str) -> IngestReport {
+        self.ingest_inner(role, text, false)
+    }
+
+    /// Remember a document: like [`MemorySystem::ingest`], but the text is **always** persisted
+    /// as a recallable memory item, not only when it carries concrete facts. Use this for
+    /// knowledge you explicitly want recallable later (e.g. linter rule documentation), where
+    /// fact-gating would wrongly drop a prose-only rule. Returns the same report.
+    pub fn remember(&mut self, role: SourceRole, text: &str) -> IngestReport {
+        self.ingest_inner(role, text, true)
+    }
+
+    /// Shared ingest path. `always_write` forces the salient-fact item to be written even when
+    /// no concrete facts are extracted (the difference between `remember` and `ingest`).
+    fn ingest_inner(&mut self, role: SourceRole, text: &str, always_write: bool) -> IngestReport {
         let concept_ids = self.concepts.assign_or_create(text, 4);
         let raw_id = self.store.add_raw(role, text, concept_ids.clone());
         self.audit.record(
@@ -175,9 +189,10 @@ impl MemorySystem {
             ..Default::default()
         };
 
-        // Persist salient facts so they are recallable even before any eviction. Only spans
-        // that carry concrete facts become items, to avoid polluting memory with chatter.
-        if !extract_facts(text).is_empty() {
+        // Persist salient facts so they are recallable even before any eviction. Plain `ingest`
+        // only stores spans carrying concrete facts (so chatter does not pollute memory);
+        // `remember` always stores, for documents we explicitly want to recall.
+        if always_write || !extract_facts(text).is_empty() {
             let before = self.working.footprint();
             let outcome = self.store.write_memory(text, concept_ids.clone(), vec![raw_id.clone()], 0.95, 0.8);
             if !outcome.deduped {
@@ -332,6 +347,69 @@ impl MemorySystem {
         }
     }
 
+    /// Recall the exact memory item for a known key (e.g. a clippy rule id), bypassing fuzzy
+    /// ranking. The key must match the item's leading identifier exactly — the character
+    /// right after the key must be a non-word boundary — so `needless_return` never matches
+    /// `needless_return_with_question_mark`. The fullest matching item (the complete doc, not
+    /// a compaction stub) is loaded into the bounded working set, the retrieval is audited,
+    /// and the grounded answer is returned. Returns `None` only if nothing with that key was
+    /// ever stored.
+    pub fn recall_exact(&mut self, key: &str, label: &str) -> Option<Answer> {
+        let found = self
+            .store
+            .items()
+            .filter(|i| i.status == ItemStatus::Active && key_prefix_match(&i.text, key))
+            .max_by_key(|i| i.text.len())
+            .map(|i| (i.id.clone(), i.text.clone(), i.source_span_ids.clone()))?;
+        let (id, text, provenance) = found;
+
+        self.store.touch(&id);
+        let before = self.working.footprint();
+        self.working
+            .load_retrieved(vec![format!("{text} (prov: {})", provenance.join(","))]);
+        self.audit.record(
+            EventType::Retrieve,
+            format!("exact recall of rule '{key}' from memory"),
+            "retriever",
+            vec![],
+            1.0,
+            provenance.clone(),
+        );
+        self.decide(
+            Action::Retrieve,
+            format!("exact memory lookup for known key '{key}'"),
+            "the linter knows the rule id, so recall is exact, not ranked",
+            (before, self.working.footprint()),
+            vec![],
+            provenance.clone(),
+        );
+
+        let prompt = self.working.assemble(label);
+        let prompt_tokens = prompt.token_count();
+        let answer_text = self.model.complete(&prompt);
+        self.working.clear_retrieved();
+        self.decide(
+            Action::Answer,
+            "explain the finding from the exact recalled rule doc",
+            "exact rule documentation loaded into the bounded working set",
+            (prompt_tokens, self.working.footprint()),
+            vec![],
+            provenance.clone(),
+        );
+
+        Some(Answer {
+            text: answer_text,
+            retrieval: vec![RetrievalResult {
+                memory_item_id: id,
+                relevance_score: 1.0,
+                reason_selected: "exact key match".into(),
+                provenance: provenance.clone(),
+            }],
+            provenance,
+            prompt_tokens,
+        })
+    }
+
     /// Generate a long, segmented answer with bounded per-segment input. Each segment is a
     /// `ContinueOutput` cycle and is audited; the model never sees the accumulated output.
     pub fn long_answer(
@@ -411,11 +489,53 @@ impl MemorySystem {
     }
 }
 
+/// True when `text` begins with `key` as a whole identifier — `key` is a prefix and the
+/// next character (if any) is not a word character. This is what makes exact rule recall
+/// reject longer sibling ids like `needless_return_with_question_mark` for key
+/// `needless_return`.
+fn key_prefix_match(text: &str, key: &str) -> bool {
+    match text.strip_prefix(key) {
+        Some(rest) => rest
+            .chars()
+            .next()
+            .map_or(true, |c| !c.is_alphanumeric() && c != '_'),
+        None => false,
+    }
+}
+
 /// Truncate text for compact audit messages, adding an ellipsis when cut.
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         s.to_string()
     } else {
         format!("{}…", s.chars().take(max).collect::<String>())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_prefix_match_rejects_siblings() {
+        assert!(key_prefix_match("needless_return [style]: ...", "needless_return"));
+        assert!(!key_prefix_match("needless_return_with_question_mark [style]: ...", "needless_return"));
+        assert!(key_prefix_match("needless_return", "needless_return"));
+    }
+
+    #[test]
+    fn recall_exact_returns_the_precise_rule_not_a_neighbor() {
+        let mut sys = MemorySystem::new(MemoryConfig { working_budget: 80, ..Default::default() });
+        // Two sibling rules whose names share a prefix and whose docs share vocabulary.
+        sys.remember(SourceRole::System, "needless_return_with_question_mark [style]: return with a question mark on Result");
+        sys.remember(SourceRole::System, "needless_return [style]: unnecessary return statement at the end of a block");
+        let ans = sys.recall_exact("needless_return", "explain needless_return").expect("must recall");
+        assert!(
+            ans.text.contains("unnecessary return statement"),
+            "exact recall must return needless_return, not its sibling; got: {}",
+            ans.text
+        );
+        // And it is exact, not fuzzy.
+        assert_eq!(ans.retrieval[0].relevance_score, 1.0);
     }
 }

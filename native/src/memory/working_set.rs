@@ -113,13 +113,21 @@ impl WorkingSet {
         let instruction = truncate_tokens(instruction, instr_budget);
         let mut remaining = instr_budget.saturating_sub(count_tokens(&instruction));
 
-        // Retrieved grounding fills next, line by line, until the budget is spent.
+        // Retrieved grounding fills next, line by line, until the budget is spent. A line that
+        // does not fit is truncated (not dropped) when it would otherwise leave the grounding
+        // empty, so a recalled rule doc larger than the whole window still surfaces — bounded.
         let mut retrieved = Vec::new();
         for line in &self.retrieved {
+            if remaining == 0 {
+                break;
+            }
             let t = count_tokens(line);
             if t <= remaining {
                 retrieved.push(line.clone());
                 remaining -= t;
+            } else if retrieved.is_empty() {
+                retrieved.push(truncate_tokens(line, remaining));
+                remaining = 0;
             }
         }
 
