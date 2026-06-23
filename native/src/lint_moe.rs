@@ -43,6 +43,7 @@ pub struct Example {
 /// its OWN cap — the match distance set just below this signal's nearest clean window, so
 /// a distinctive signal generalizes to variants while a near-clean one fires only on an
 /// exact repeat. Per-signal (not per-expert) so one weak signal can't blunt the rest.
+#[derive(Clone, Copy)]
 struct Sig {
     hv: Hv,
     rule: u32,
@@ -174,6 +175,54 @@ fn min_to_nearest(queries: &[Hv], keys: &[Hv]) -> Vec<u32> {
         .collect()
 }
 
+/// Build the expert set from per-slice signals. `subexpert_cap == 0` ⇒ one expert per slice
+/// (flat). Otherwise each slice's signals are clustered into coherent groups of at most
+/// `subexpert_cap`, each becoming its own sub-expert — the recursive split that keeps a router
+/// signature from bundling (and blurring) too many signals at once.
+fn build_experts(slices: HashMap<String, Vec<Sig>>, subexpert_cap: usize) -> Vec<Expert> {
+    let mut experts = Vec::new();
+    for (name, sigs) in slices {
+        if sigs.is_empty() {
+            continue;
+        }
+        let groups = if subexpert_cap == 0 || sigs.len() <= subexpert_cap {
+            vec![sigs]
+        } else {
+            cluster_sigs(sigs, subexpert_cap)
+        };
+        for (i, group) in groups.into_iter().enumerate() {
+            if group.is_empty() {
+                continue;
+            }
+            let mut b = Bundler::new();
+            for s in &group {
+                b.add(&s.hv);
+            }
+            experts.push(Expert { name: format!("{name}#{i}"), signature: b.finalize(), sigs: group });
+        }
+    }
+    experts
+}
+
+/// Greedily cluster signals into coherent groups of at most `cap` by Hamming proximity, so each
+/// sub-expert bundles internally-similar signals (low interference). Deterministic: take a seed,
+/// pull its nearest remaining signals up to `cap`, repeat.
+fn cluster_sigs(mut sigs: Vec<Sig>, cap: usize) -> Vec<Vec<Sig>> {
+    let mut clusters = Vec::new();
+    while !sigs.is_empty() {
+        let seed = sigs.swap_remove(0);
+        sigs.sort_by_key(|s| s.hv.distance(&seed.hv));
+        let take = cap.saturating_sub(1).min(sigs.len());
+        let mut group = Vec::with_capacity(take + 1);
+        group.push(seed);
+        for _ in 0..take {
+            group.push(sigs.remove(0));
+        }
+        clusters.push(group);
+    }
+    clusters
+}
+
 /// The mixture of experts: the reasoning model.
 pub struct Moe {
     experts: Vec<Expert>,
@@ -214,14 +263,39 @@ impl Moe {
     /// is the configuration to use when false positives must be erased: every kept signal has a
     /// cap strictly inside its nearest clean window, so no clean code it learned can trip it.
     pub fn train_precise(examples: &[Example], clean: &[&str], filter: u32, cap: u32, topk: usize) -> Moe {
-        Self::train_with_opts(examples, clean, filter, cap, topk, Tokenizer::Lexer, false)
+        Self::train_with_opts(examples, clean, filter, cap, topk, Tokenizer::Lexer, false, 0)
     }
 
     /// Train precision-first over the **structural** (AST) representation for `lang`. The model
     /// reasons over code structure, so it can separate good from bad and tell sibling rules
     /// apart where a flat token model cannot. This is the configuration the linter should ship.
     pub fn train_ast(examples: &[Example], clean: &[&str], filter: u32, cap: u32, topk: usize, lang: &str) -> Moe {
-        Self::train_with_opts(examples, clean, filter, cap, topk, Tokenizer::Ast { lang: lang.to_string() }, false)
+        Self::train_with_opts(examples, clean, filter, cap, topk, Tokenizer::Ast { lang: lang.to_string() }, false, 0)
+    }
+
+    /// Train the **recursive MoE**: structural representation, precision-first, with each
+    /// documentation slice split into sub-experts of at most `subexpert_cap` signals. Smaller
+    /// bundles interfere less, so routing reaches signals a single overloaded expert would
+    /// have drowned — the "net expands to hold more entropy" without losing precision.
+    pub fn train_recursive(
+        examples: &[Example],
+        clean: &[&str],
+        filter: u32,
+        cap: u32,
+        topk: usize,
+        lang: &str,
+        subexpert_cap: usize,
+    ) -> Moe {
+        Self::train_with_opts(
+            examples,
+            clean,
+            filter,
+            cap,
+            topk,
+            Tokenizer::Ast { lang: lang.to_string() },
+            false,
+            subexpert_cap,
+        )
     }
 
     /// Train as [`Moe::train`], but over an arbitrary `tok` representation. Swapping in a
@@ -236,7 +310,7 @@ impl Moe {
         topk: usize,
         tok: Tokenizer,
     ) -> Moe {
-        Self::train_with_opts(examples, clean, filter, cap, topk, tok, true)
+        Self::train_with_opts(examples, clean, filter, cap, topk, tok, true, 0)
     }
 
     /// The shared training core. `recall_fallback` controls the precision/recall trade: when
@@ -245,6 +319,7 @@ impl Moe {
     /// recall, but those weak signals are the dominant source of held-out false positives. When
     /// `false` ([`Moe::train_precise`]), such rules abstain entirely: the model only keeps
     /// signals it learned are genuinely far from all good code, so it knows good from bad.
+    #[allow(clippy::too_many_arguments)] // low-level training entry: each arg is a real knob
     pub fn train_with_opts(
         examples: &[Example],
         clean: &[&str],
@@ -253,6 +328,7 @@ impl Moe {
         topk: usize,
         tok: Tokenizer,
         recall_fallback: bool,
+        subexpert_cap: usize,
     ) -> Moe {
         let mut freq: HashMap<String, u32> = HashMap::new();
         let count = |w: &[String], freq: &mut HashMap<String, u32>| {
@@ -356,19 +432,11 @@ impl Moe {
             }
         }
 
-        // Build experts: router signature = bundle of signals (the match boundary already
-        // lives on each signal's cap).
-        let experts: Vec<Expert> = slices
-            .into_iter()
-            .filter(|(_, sigs)| !sigs.is_empty())
-            .map(|(name, sigs)| {
-                let mut b = Bundler::new();
-                for s in &sigs {
-                    b.add(&s.hv);
-                }
-                Expert { name, signature: b.finalize(), sigs }
-            })
-            .collect();
+        // Build experts. Flat (`subexpert_cap == 0`): one expert per slice. Recursive
+        // (`subexpert_cap > 0`): split each slice's signals into coherent sub-experts of at
+        // most `subexpert_cap` signals, so each router signature bundles FEWER signals and
+        // therefore interferes less — finer routing, more rules actually reachable.
+        let experts: Vec<Expert> = build_experts(slices, subexpert_cap);
 
         // Ambiguity reference: every documented bad-example window with its rule, kept or not.
         let ambig_ref: Vec<(u32, Hv)> =

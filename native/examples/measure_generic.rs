@@ -153,4 +153,27 @@ fn main() {
         println!("   siblings:{line}\n");
     }
     println!("No per-rule or per-node-kind code: signatures are rare generic structures, learned from the corpus.");
+
+    // WHY are rules missed? Categorize at df<=1 so we can tell a capacity/threshold problem
+    // (tunable) from an information problem (the distinction simply isn't in the syntax).
+    let (mut no_good, mut empty_diff, mut zero_rare, mut one_rare, mut grounded) = (0, 0, 0, 0, 0);
+    for r in &rules {
+        let bad = feats(&r.bad);
+        let good = if r.good.is_empty() { HashSet::new() } else { feats(&r.good) };
+        let diff: Vec<&String> = bad.iter().filter(|f| !good.contains(*f)).collect();
+        let rare = diff.iter().filter(|f| df.get(**f).copied().unwrap_or(0) <= 1).count();
+        if r.good.is_empty() { no_good += 1; }
+        if diff.is_empty() { empty_diff += 1; continue; }
+        match rare {
+            0 => zero_rare += 1,
+            1 => one_rare += 1,
+            _ => grounded += 1,
+        }
+    }
+    println!("\nMiss analysis of {} rules (df<=1):", rules.len());
+    println!("  grounded (>=2 rare distinctive structures): {grounded}");
+    println!("  only 1 rare structure (needs a finer/extra signal, not capacity): {one_rare}");
+    println!("  0 rare structures — bad looks like common code, distinction NOT in the syntax: {zero_rare}");
+    println!("  bad == good structurally (the diff is non-syntactic, e.g. naming/semantics): {empty_diff}");
+    println!("  (rules shipping no good example, so only the corpus is the negative: {no_good})");
 }
