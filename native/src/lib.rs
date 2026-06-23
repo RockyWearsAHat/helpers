@@ -4,6 +4,7 @@
 //! without spawning a process.
 
 pub mod cli;
+pub mod doc_crawler;
 pub mod embed;
 pub mod git;
 pub mod gitcli;

@@ -53,6 +53,31 @@ tree-sitter-typescript = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-go = "0.23"
 
+# GPU acceleration for the lint-moe hypervector distance batch — OPTIONAL, OFF by
+# default, so the shipped binary stays portable and cross-compiles clean to
+# musl/windows. Enable with `--features gpu`. wgpu picks Metal/Vulkan/DX12 at runtime;
+# the CPU path is the fallback when no GPU is present, so behaviour is identical.
+wgpu = { version = "22", optional = true }
+pollster = { version = "0.3", optional = true }
+bytemuck = { version = "1", optional = true }
+
+# Direct-fetch documentation crawler — OPTIONAL, OFF by default. `ureq` is a tiny blocking HTTP
+# client; with rustls (pure-Rust TLS, no OpenSSL) it cross-compiles to musl/windows as cleanly as
+# the rest of the binary, so the crawler adds no toolchain burden when the `crawl` feature is on.
+ureq = { version = "2", optional = true, default-features = false, features = ["tls", "gzip"] }
+
+[features]
+# Off by default: `cargo build` ships the portable CPU build; `--features gpu` adds the
+# wgpu-backed batch Hamming kernel used by lint-moe training; `--features crawl` adds the
+# direct-fetch documentation crawler (no headless browser).
+default = []
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+crawl = ["dep:ureq"]
+
+[[example]]
+name = "crawl_and_learn"
+required-features = ["crawl"]
+
 [profile.release]
 opt-level = 3
 lto = true
