@@ -18,6 +18,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::lint_ast::generic_features;
 
 /// One documented rule: id, the two code examples, and the English description.
@@ -41,7 +43,7 @@ pub struct Hit {
 }
 
 /// How a rule was grounded — surfaced so a report can explain itself.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Ground {
     /// Grounded in rare AST structure.
     Structure,
@@ -49,6 +51,7 @@ pub enum Ground {
     Description,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 struct RuleSig {
     id: String,
     ground: Ground,
@@ -59,6 +62,11 @@ struct RuleSig {
 }
 
 /// A trained signature model: a flat list of per-rule signatures over one language.
+///
+/// It is `Serialize`/`Deserialize` so a trained model can be **packed once and reused
+/// anywhere** ([`SigModel::to_json`] / [`SigModel::from_json`]) — the same model linting on
+/// any machine, no retraining, the artifact carrying everything it learned from the docs.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SigModel {
     lang: String,
     sigs: Vec<RuleSig>,
@@ -76,6 +84,17 @@ fn feature_value(f: &str) -> Option<&str> {
 /// The set of structural features present in `code`.
 fn feature_set(lang: &str, code: &str) -> HashSet<String> {
     generic_features(lang, code).into_iter().map(|(f, _)| f).collect()
+}
+
+/// A structural feature is INCIDENTAL when it pins an example's local name: a bare
+/// `identifier:<name>` node (`x`, `y`, `tmp`) the author chose arbitrarily. Such a feature can
+/// never generalize — a signature must match the SHAPE of a violation, not the example's local
+/// names — so it is excluded from structural signatures. Meaningful names (methods, types) live
+/// in `field_identifier:`/`type_identifier:`/value features and are grounded by the description
+/// modality instead. This is what lets a learned pattern catch the SAME mistake on new variables.
+fn pins_local_name(feat: &str) -> bool {
+    feat.split('>')
+        .any(|seg| seg.strip_prefix("identifier:").is_some_and(|head| !head.is_empty()))
 }
 
 /// The set of construct values (node heads) present in `code`.
@@ -149,7 +168,11 @@ impl SigModel {
             let good = if r.good.is_empty() { HashSet::new() } else { feature_set(lang, &r.good) };
             let struct_feats: Vec<String> = feature_set(lang, &r.bad)
                 .into_iter()
-                .filter(|f| !good.contains(f) && feat_df.get(f).copied().unwrap_or(0) <= STRUCT_DF_MAX)
+                .filter(|f| {
+                    !good.contains(f)
+                        && !pins_local_name(f)
+                        && feat_df.get(f).copied().unwrap_or(0) <= STRUCT_DF_MAX
+                })
                 .collect();
             if struct_feats.len() >= STRUCT_MIN {
                 sigs.push(RuleSig { id: r.id.clone(), ground: Ground::Structure, struct_feats, desc_values: Vec::new() });
@@ -169,6 +192,31 @@ impl SigModel {
                 .collect();
             if !desc_values.is_empty() {
                 sigs.push(RuleSig { id: r.id.clone(), ground: Ground::Description, struct_feats: Vec::new(), desc_values });
+            }
+        }
+        SigModel { lang: lang.to_string(), sigs }
+    }
+
+    /// Train from rules that come WITH a good counter-example, trusting the **bad-vs-good diff**
+    /// as the distinctive signal rather than corpus rarity. This is the right mode for user-TAUGHT
+    /// principles: the author supplies both forms, so what is unique to the bad form *is* the
+    /// pattern — no corpus needed. (The corpus-based [`SigModel::train`] is for the harder case of
+    /// learning from docs that only show the bad form.) Local variable names are still excluded so
+    /// the signature matches the SHAPE, and a rule with fewer than [`STRUCT_MIN`] distinctive
+    /// features abstains rather than ground on something too generic.
+    pub fn train_trusted(lang: &str, rules: &[Rule]) -> SigModel {
+        let mut sigs = Vec::new();
+        for r in rules {
+            if r.bad.is_empty() || r.good.is_empty() {
+                continue; // trusted training requires both forms to take the diff
+            }
+            let good = feature_set(lang, &r.good);
+            let struct_feats: Vec<String> = feature_set(lang, &r.bad)
+                .into_iter()
+                .filter(|f| !good.contains(f) && !pins_local_name(f))
+                .collect();
+            if struct_feats.len() >= STRUCT_MIN {
+                sigs.push(RuleSig { id: r.id.clone(), ground: Ground::Structure, struct_feats, desc_values: Vec::new() });
             }
         }
         SigModel { lang: lang.to_string(), sigs }
@@ -222,6 +270,22 @@ impl SigModel {
     pub fn judge(&self, code: &str) -> Vec<String> {
         let mut seen = HashSet::new();
         self.judge_located(code).into_iter().map(|h| h.rule).filter(|r| seen.insert(r.clone())).collect()
+    }
+
+    /// The language this model lints.
+    pub fn language(&self) -> &str {
+        &self.lang
+    }
+
+    /// Pack the trained model to JSON — the self-contained artifact that can be stored (GitHub)
+    /// and reused on any machine without retraining.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// Load a packed model produced by [`SigModel::to_json`], or `None` if the JSON is invalid.
+    pub fn from_json(json: &str) -> Option<SigModel> {
+        serde_json::from_str(json).ok()
     }
 }
 

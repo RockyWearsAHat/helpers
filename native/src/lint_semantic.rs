@@ -111,6 +111,38 @@ pub fn functions(lang: &str, code: &str) -> Vec<FnMetrics> {
     out
 }
 
+/// Extract each function's `(1-based start line, source text)` — so a detector can judge one
+/// function at a time and attribute a finding to the right line, instead of smearing a whole-file
+/// match. Language-agnostic, using the same function-node detection as [`functions`].
+pub fn function_sources(lang: &str, code: &str) -> Vec<(usize, String)> {
+    let Some(language) = language(lang) else {
+        return Vec::new();
+    };
+    let mut parser = Parser::new();
+    if parser.set_language(&language).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(code, None) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_function_sources(tree.root_node(), code.as_bytes(), &mut out);
+    out
+}
+
+fn collect_function_sources(node: Node, src: &[u8], out: &mut Vec<(usize, String)>) {
+    if is_function(node.kind()) {
+        if let Ok(text) = node.utf8_text(src) {
+            out.push((node.start_position().row + 1, text.to_string()));
+        }
+        return; // a nested fn is part of its enclosing fn's text; don't double-count
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_function_sources(child, src, out);
+    }
+}
+
 fn collect_functions(node: Node, src: &[u8], out: &mut Vec<FnMetrics>) {
     if is_function(node.kind()) {
         let name = node
