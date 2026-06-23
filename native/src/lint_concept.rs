@@ -58,9 +58,9 @@ fn concepts(desc: &str) -> Vec<String> {
 /// The code constructs a snippet exhibits: the *named* head/leaf identities of its AST nodes —
 /// method and type names like `clone`, `Vec`, `await` — where semantic meaning lives. Pure
 /// punctuation/operator values (`.`, `()`, `=`, `"`) are dropped: they co-occur with everything
-/// and carry no concept, so they only add noise.
-fn constructs(code: &str) -> Vec<String> {
-    generic_features("rust", code)
+/// and carry no concept, so they only add noise. Parsed with the page's own language.
+fn constructs(lang: &str, code: &str) -> Vec<String> {
+    generic_features(lang, code)
         .into_iter()
         .filter_map(|(f, _)| {
             if f.contains('>') {
@@ -74,15 +74,16 @@ fn constructs(code: &str) -> Vec<String> {
 }
 
 impl Lexicon {
-    /// Learn the lexicon by reading `(description, bad_example)` pairs — the documentation. Every
-    /// concept in a description is associated with every construct in that rule's example; the
-    /// counts accumulate the conventional co-occurrence across all rules.
-    pub fn learn(rules: &[(&str, &str)]) -> Lexicon {
+    /// Learn the lexicon by reading `(language, description, code_example)` triples — the crawled
+    /// documentation. Every concept in a description is associated with every construct in that
+    /// page's example, parsed in its own language; the counts accumulate the conventional
+    /// co-occurrence across the whole crawl, so one lexicon spans every language read.
+    pub fn learn(rules: &[(&str, &str, &str)]) -> Lexicon {
         let mut lex = Lexicon::default();
-        for (desc, bad) in rules {
+        for (lang, desc, bad) in rules {
             lex.rules += 1;
             let cs: Vec<String> = concepts(desc);
-            let ks: Vec<String> = constructs(bad);
+            let ks: Vec<String> = constructs(lang, bad);
             if cs.is_empty() || ks.is_empty() {
                 continue;
             }
@@ -123,9 +124,9 @@ impl Lexicon {
     /// The semantic concepts a piece of `code` involves, learned from the docs: each construct in
     /// the code votes for the concepts it co-occurred with, weighted by how distinctive that
     /// construct is for the concept. The model's read of "what does this code mean?".
-    pub fn concepts_of(&self, code: &str, top: usize) -> Vec<(String, f64)> {
+    pub fn concepts_of(&self, lang: &str, code: &str, top: usize) -> Vec<(String, f64)> {
         let mut score: HashMap<String, f64> = HashMap::new();
-        let ks = constructs(code);
+        let ks = constructs(lang, code);
         let uniq: std::collections::HashSet<&String> = ks.iter().collect();
         for k in uniq {
             if let Some(concepts) = self.construct_to_concepts.get(k) {
@@ -162,23 +163,23 @@ mod tests {
     fn learns_a_concept_from_its_description() {
         // Two rules teach "clone" alongside a .clone() call, amid unrelated rules so the
         // frequency filter (a domain concept appears in a minority of rules) holds.
-        let mut rules: Vec<(&str, &str)> = vec![
-            ("Checks for `clone` on a value that is already owned.", "let y = x.clone();"),
-            ("Redundant `clone` of a reference that is copied.", "let z = a.clone();"),
+        let mut rules: Vec<(&str, &str, &str)> = vec![
+            ("rust", "Checks for `clone` on a value that is already owned.", "let y = x.clone();"),
+            ("rust", "Redundant `clone` of a reference that is copied.", "let z = a.clone();"),
         ];
-        let filler: [(&str, &str); 12] = [
-            ("Checks for needless iterator collect.", "let v: Vec<_> = it.collect();"),
-            ("Prefer matches over equality on enums.", "if e == Foo {}"),
-            ("Avoid redundant return statements.", "fn f() -> i32 { return 1; }"),
-            ("Detects manual swap of two variables.", "let t = a; a = b; b = t;"),
-            ("Suggests using is_empty over len zero.", "if v.len() == 0 {}"),
-            ("Avoid casting with as where From fits.", "let x = y as i64;"),
-            ("Checks for needless borrow in calls.", "foo(&bar);"),
-            ("Detects boolean comparison to true.", "if flag == true {}"),
-            ("Prefer push_str over push of string.", "s.push_str(\"x\");"),
-            ("Avoid unwrap on results in library code.", "let r = parse().unwrap();"),
-            ("Detects single-character string splits.", "s.split(\"a\");"),
-            ("Prefer or_default over or_insert default.", "m.entry(k).or_default();"),
+        let filler: [(&str, &str, &str); 12] = [
+            ("rust", "Checks for needless iterator collect.", "let v: Vec<_> = it.collect();"),
+            ("rust", "Prefer matches over equality on enums.", "if e == Foo {}"),
+            ("rust", "Avoid redundant return statements.", "fn f() -> i32 { return 1; }"),
+            ("rust", "Detects manual swap of two variables.", "let t = a; a = b; b = t;"),
+            ("rust", "Suggests using is_empty over len zero.", "if v.len() == 0 {}"),
+            ("rust", "Avoid casting with as where From fits.", "let x = y as i64;"),
+            ("rust", "Checks for needless borrow in calls.", "foo(&bar);"),
+            ("rust", "Detects boolean comparison to true.", "if flag == true {}"),
+            ("rust", "Prefer push_str over push of string.", "s.push_str(\"x\");"),
+            ("rust", "Avoid unwrap on results in library code.", "let r = parse().unwrap();"),
+            ("rust", "Detects single-character string splits.", "s.split(\"a\");"),
+            ("rust", "Prefer or_default over or_insert default.", "m.entry(k).or_default();"),
         ];
         rules.extend_from_slice(&filler);
         let lex = Lexicon::learn(&rules);
@@ -186,7 +187,7 @@ mod tests {
         let m = lex.meaning_of("clone", 3);
         assert!(m.iter().any(|(k, _)| k == "clone"), "concept 'clone' learned the clone construct: {m:?}");
         // Code that clones should evoke the "clone" concept.
-        let cs = lex.concepts_of("fn f(x: String) -> String { x.clone() }", 5);
+        let cs = lex.concepts_of("rust", "fn f(x: String) -> String { x.clone() }", 5);
         assert!(cs.iter().any(|(c, _)| c == "clone"), "cloning code evokes 'clone': {cs:?}");
     }
 }

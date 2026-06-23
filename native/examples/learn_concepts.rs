@@ -25,7 +25,7 @@ fn main() {
             (!desc.is_empty() && !bad.is_empty()).then(|| (desc.to_string(), bad.to_string()))
         })
         .collect();
-    let refs: Vec<(&str, &str)> = rules.iter().map(|(d, b)| (d.as_str(), b.as_str())).collect();
+    let refs: Vec<(&str, &str, &str)> = rules.iter().map(|(d, b)| ("rust", d.as_str(), b.as_str())).collect();
 
     let lex = Lexicon::learn(&refs);
     println!("Read {} documented rules → learned {} concepts.\n", refs.len(), lex.concept_count());
@@ -47,7 +47,7 @@ fn main() {
         ("a panicky parse", "fn n(s: &str) -> i64 { s.parse().unwrap() }"),
     ];
     for (label, code) in samples {
-        let cs = lex.concepts_of(code, 6);
+        let cs = lex.concepts_of("rust", code, 6);
         let profile: Vec<String> = cs.iter().map(|(c, s)| format!("{c}({s:.2})")).collect();
         println!("  {label:20} → {}", profile.join(", "));
     }
