@@ -36,6 +36,9 @@ fn language(lang: &str) -> Option<tree_sitter::Language> {
 pub struct FnMetrics {
     /// The function's name (best-effort from the grammar's `name` field).
     pub name: String,
+    /// The leading name token, lowercased (`get_user` ⇒ `get`, `isValid` ⇒ `is`). The part that
+    /// carries the behavioral contract a reader expects.
+    pub name_lead: String,
     /// 1-based line where the function starts.
     pub line: usize,
     /// Distinct callee names invoked in the body — distinct *concerns* touched.
@@ -46,8 +49,29 @@ pub struct FnMetrics {
     pub loops: usize,
     /// Maximum block-nesting depth inside the body.
     pub depth: usize,
-    /// Fallible results left unhandled (`unwrap` / `expect` and friends).
+    /// Fallible results left unhandled (`unwrap` / `expect` / `panic`, plus `let _ =` discards).
     pub forced_results: usize,
+    /// Whether the function yields a value: a declared return type, or a `return <expr>`/tail.
+    pub produces_value: bool,
+    /// Whether the function mutates state: an assignment/compound-assignment in the body.
+    pub mutates: bool,
+}
+
+/// The leading token of a name, lowercased: up to the first `_` or camelCase boundary. This is
+/// the word that sets a reader's expectation — `get`, `is`, `set`, `parse`, `render`.
+fn lead_token(name: &str) -> String {
+    let n = name.trim_start_matches(|c: char| !c.is_alphabetic());
+    let mut out = String::new();
+    for c in n.chars() {
+        if c == '_' {
+            break;
+        }
+        if !out.is_empty() && c.is_uppercase() {
+            break;
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
 }
 
 impl FnMetrics {
@@ -94,14 +118,25 @@ fn collect_functions(node: Node, src: &[u8], out: &mut Vec<FnMetrics>) {
             .and_then(|n| n.utf8_text(src).ok())
             .unwrap_or("<anon>")
             .to_string();
+        // A declared return type (Rust `-> T`, TS `: T`, Go result) means the function yields a
+        // value — unless it is the unit type. Languages without annotations rely on the
+        // `return <expr>`/tail detection in `summarize`.
+        let returns_typed = node
+            .child_by_field_name("return_type")
+            .and_then(|n| n.utf8_text(src).ok())
+            .is_some_and(|t| !matches!(t.trim(), "()" | "( )" | "void" | "Unit"));
+        let name_lead = lead_token(&name);
         let mut m = FnMetrics {
             name,
+            name_lead,
             line: node.start_position().row + 1,
             distinct_calls: 0,
             branches: 0,
             loops: 0,
             depth: 0,
             forced_results: 0,
+            produces_value: returns_typed,
+            mutates: false,
         };
         let mut calls = HashSet::new();
         summarize(node, src, 0, &mut m, &mut calls);
@@ -161,12 +196,30 @@ fn summarize(node: Node, src: &[u8], depth: usize, m: &mut FnMetrics, calls: &mu
     if named && kind_has(kind, &["for", "while", "loop", "foreach"]) {
         m.loops += 1;
     }
+    // Mutation: a (re)assignment or compound/augmented assignment — not a `let`/declaration.
+    if named && kind_has(kind, &["assignment", "augmented"]) && !kind_has(kind, &["let", "declaration"]) {
+        m.mutates = true;
+    }
+    // Produces a value: an explicit `return <expr>` (a return node with a value child). Covers
+    // languages without return-type annotations; the typed case is handled at the function node.
+    if named && kind_has(kind, &["return"]) && node.named_child_count() > 0 {
+        m.produces_value = true;
+    }
+    // Error handling, dataflow-lite: forcing a fallible result (`unwrap`/`expect`/`panic`) or
+    // explicitly discarding one with `let _ = …` — both walk past a failure instead of handling it.
     if kind_has(kind, &["call", "invocation"]) {
         if let Some(name) = call_name(node, src) {
             if matches!(name.as_str(), "unwrap" | "expect" | "unwrap_err" | "panic") {
                 m.forced_results += 1;
             }
             calls.insert(name);
+        }
+    }
+    if named && kind_has(kind, &["let", "declaration", "assignment"]) {
+        if let Some(pat) = node.child_by_field_name("pattern").or_else(|| node.child_by_field_name("left")) {
+            if pat.utf8_text(src).map(|t| t.trim() == "_").unwrap_or(false) {
+                m.forced_results += 1;
+            }
         }
     }
     let mut cursor = node.walk();
@@ -194,8 +247,17 @@ fn call_name(node: Node, src: &[u8]) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Learned norms for a metric: the threshold (a high percentile) above which a function is an
-/// outlier worth flagging. Learned from the corpus, so the bar fits the language/project.
+/// What the corpus has learned about a leading name token: how often functions named with it
+/// produce a value and how often they mutate. This is the convention, learned — not declared.
+#[derive(Clone, Debug, Default)]
+struct NameStat {
+    total: usize,
+    produces: usize,
+    mutates: usize,
+}
+
+/// Learned norms: outlier thresholds for size/complexity, plus the learned behavioral contract of
+/// each leading name token. All learned from the corpus, so the bar fits the language/project.
 #[derive(Clone, Debug)]
 pub struct Norms {
     /// Responsibility outlier threshold (90th percentile of the corpus).
@@ -204,28 +266,44 @@ pub struct Norms {
     pub complexity_p90: usize,
     /// Number of functions the norms were learned from.
     pub sampled: usize,
+    /// Per leading-name-token behavioral statistics.
+    name_stats: std::collections::HashMap<String, NameStat>,
 }
 
 /// One principle judgment about a function.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Principle {
-    /// Does more distinct things than `0` of corpus functions (single-responsibility).
+    /// Does more distinct things than the corpus norm (single-responsibility).
     SingleResponsibility,
     /// More complex (branch/loop/nesting) than the corpus norm.
     Complexity,
-    /// Forces fallible results instead of handling them.
+    /// Forces or discards fallible results instead of handling them.
     ErrorHandling,
+    /// The name promises behavior the body does not match — a getter that returns nothing, or a
+    /// query-named function that mutates — judged against the convention learned from the corpus.
+    NamingMismatch,
 }
+
+/// A name token must appear at least this many times in the corpus before its learned contract
+/// is trusted enough to flag a violation of it.
+const NAME_MIN_SAMPLES: usize = 8;
 
 impl Norms {
     /// Learn the normal distribution of behavior from a corpus of `(lang, code)` sources.
     pub fn learn(sources: &[(&str, &str)]) -> Norms {
         let mut resp: Vec<usize> = Vec::new();
         let mut cplx: Vec<usize> = Vec::new();
+        let mut name_stats: std::collections::HashMap<String, NameStat> = std::collections::HashMap::new();
         for (lang, code) in sources {
             for f in functions(lang, code) {
                 resp.push(f.responsibility());
                 cplx.push(f.complexity());
+                if !f.name_lead.is_empty() {
+                    let s = name_stats.entry(f.name_lead.clone()).or_default();
+                    s.total += 1;
+                    s.produces += f.produces_value as usize;
+                    s.mutates += f.mutates as usize;
+                }
             }
         }
         resp.sort_unstable();
@@ -236,7 +314,12 @@ impl Norms {
             }
             v[(v.len() * 9 / 10).min(v.len() - 1)].max(1)
         };
-        Norms { responsibility_p90: p90(&resp), complexity_p90: p90(&cplx), sampled: resp.len() }
+        Norms {
+            responsibility_p90: p90(&resp),
+            complexity_p90: p90(&cplx),
+            sampled: resp.len(),
+            name_stats,
+        }
     }
 
     /// Judge a function against the learned norms: the principles it violates (possibly none).
@@ -250,6 +333,22 @@ impl Norms {
         }
         if m.forced_results > 0 {
             out.push(Principle::ErrorHandling);
+        }
+        // Naming vs behavior, against the learned convention for this name's leading token.
+        if let Some(s) = self.name_stats.get(&m.name_lead) {
+            if s.total >= NAME_MIN_SAMPLES {
+                let produce_rate = s.produces as f64 / s.total as f64;
+                let mutate_rate = s.mutates as f64 / s.total as f64;
+                // The corpus says functions with this lead almost always return a value, but this
+                // one doesn't — the name promises a result it never yields.
+                let promises_value = produce_rate >= 0.85 && !m.produces_value;
+                // The corpus says functions with this lead almost never mutate (a query), but this
+                // one does — the name reads as a query while it writes.
+                let query_but_mutates = mutate_rate <= 0.10 && produce_rate >= 0.5 && m.mutates;
+                if promises_value || query_but_mutates {
+                    out.push(Principle::NamingMismatch);
+                }
+            }
         }
         out
     }
@@ -277,6 +376,23 @@ mod tests {
         assert!(big.forced_results >= 1, "unwrap flagged as forced result");
         let small = fns.iter().find(|f| f.name == "small").unwrap();
         assert!(small.responsibility() < big.responsibility(), "big does more than small");
+    }
+
+    #[test]
+    fn naming_mismatch_learned_from_convention() {
+        // Corpus convention: `get_*` functions return a value (learned from many examples).
+        let mut code = String::new();
+        for i in 0..12 {
+            code.push_str(&format!("fn get_thing{i}() -> i32 {{ {i} }}\n"));
+        }
+        // The offender: named like a getter, returns nothing.
+        code.push_str("fn get_nothing() { let _x = 1; }\n");
+        let norms = Norms::learn(&[("rust", &code)]);
+        let fns = functions("rust", &code);
+        let bad = fns.iter().find(|f| f.name == "get_nothing").unwrap();
+        assert!(norms.judge(bad).contains(&Principle::NamingMismatch), "getter returning nothing should flag");
+        let good = fns.iter().find(|f| f.name == "get_thing0").unwrap();
+        assert!(!norms.judge(good).contains(&Principle::NamingMismatch), "a real getter must not flag");
     }
 
     #[test]
