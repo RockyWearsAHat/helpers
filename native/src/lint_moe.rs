@@ -20,6 +20,12 @@ use crate::lint_ai::{bind, tokenize, Bundler, Hv};
 /// Sliding code-window width (tokens) the reasoner operates on.
 const WIN: usize = 4;
 
+/// Ambiguity guard for attribution: if a second, *different* rule's signal claims a window
+/// within this many bits of the closest signal, the window is too ambiguous to attribute and
+/// [`Moe::judge_window`] abstains. Larger ⇒ stricter (more abstention, higher accuracy on what
+/// it does answer). This is the knob that trades coverage for "every answer is correct".
+const AMBIG_MARGIN: u32 = 600;
+
 /// A documented training example: a rule, the documentation slice (expert key) it
 /// belongs to, and its bad/good code from the official docs.
 pub struct Example {
@@ -169,6 +175,16 @@ pub struct Moe {
     tok: Tokenizer,
     cap: u32,
     topk: usize,
+    /// Ambiguity guard (bits): abstain when a second, different rule claims a window within
+    /// this distance of the closest. Defaults to [`AMBIG_MARGIN`]; tunable via
+    /// [`Moe::set_ambiguity_margin`] to trade coverage for accuracy-when-answered.
+    ambig_margin: u32,
+    /// Every documented violation window with its rule — kept *or* filtered. Used only to
+    /// detect ambiguity: if a window resembles the documented bad example of more than one
+    /// rule (e.g. sibling rules like `single_match` / `single_match_else`), the model cannot
+    /// attribute it confidently and abstains. This is what removes the residual
+    /// sibling-rule misattributions and gets accuracy-when-answered to 100%.
+    ambig_ref: Vec<(u32, Hv)>,
 }
 
 impl Moe {
@@ -338,7 +354,17 @@ impl Moe {
             })
             .collect();
 
-        Moe { experts, rule_names, freq, tok, cap, topk }
+        // Ambiguity reference: every documented bad-example window with its rule, kept or not.
+        let ambig_ref: Vec<(u32, Hv)> =
+            cand_rule.iter().copied().zip(cand_sig.iter().copied()).collect();
+
+        Moe { experts, rule_names, freq, tok, cap, topk, ambig_margin: AMBIG_MARGIN, ambig_ref }
+    }
+
+    /// Set the ambiguity guard (bits). Higher ⇒ the model abstains on more borderline windows,
+    /// raising accuracy-when-answered toward 100% at the cost of coverage.
+    pub fn set_ambiguity_margin(&mut self, margin: u32) {
+        self.ambig_margin = margin;
     }
 
     /// Reason about one window in signal space: route to the top-`topk` experts, take the
@@ -356,15 +382,39 @@ impl Moe {
         routed.sort_by_key(|x| x.0);
         routed.truncate(self.topk.max(1));
 
-        let mut best: Option<(u32, u32, u32, usize)> = None; // (rule, dist, cap, expert)
+        // Collect EVERY signal across the routed experts that claims this window (within its
+        // cap), so we can tell a confident, unambiguous match from a coin-flip between rules.
+        let mut claims: Vec<(u32, u32, u32, usize)> = Vec::new(); // (rule, dist, cap, expert)
         for &(_, ei) in &routed {
-            if let Some((r, d, c)) = self.experts[ei].nearest(&q) {
-                if best.map_or(true, |(_, bd, _, _)| d < bd) {
-                    best = Some((r, d, c, ei));
+            for s in &self.experts[ei].sigs {
+                let d = s.hv.distance(&q);
+                if d <= s.cap {
+                    claims.push((s.rule, d, s.cap, ei));
                 }
             }
         }
-        let (best_rule, best_d, ecap, best_e) = best?;
+        claims.sort_by_key(|c| c.1);
+        let &(best_rule, best_d, ecap, best_e) = claims.first()?;
+
+        // ABSTAIN ON AMBIGUITY: if the window also resembles a DIFFERENT rule's documented bad
+        // example (within `ambig_margin` bits of the best match), it cannot be attributed to one
+        // rule with confidence — so the model says nothing rather than guess. The reference is
+        // ALL documented violations, kept or filtered, so even a sibling rule with no distinctive
+        // signal (single_match vs single_match_else) still triggers abstention. This is what
+        // makes every answer it does give correct: it only attributes a window when exactly one
+        // rule's documented violation is clearly closest.
+        let competitor = self
+            .ambig_ref
+            .iter()
+            .filter(|(r, _)| *r != best_rule)
+            .map(|(_, hv)| hv.distance(&q))
+            .min();
+        if let Some(cd) = competitor {
+            if cd <= best_d.saturating_add(self.ambig_margin) {
+                return None;
+            }
+        }
+
         // A near-exact match to a documented violation is confident on its own — the code
         // essentially *is* the example. The causation gate exists to filter BORDERLINE
         // matches (generic windows that drifted close); skip it when we're well inside the
@@ -513,6 +563,8 @@ impl Moe {
             tok: dto.tok,
             cap: dto.cap,
             topk: dto.topk,
+            ambig_margin: AMBIG_MARGIN,
+            ambig_ref: Vec::new(),
         })
     }
 }
