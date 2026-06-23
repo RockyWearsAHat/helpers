@@ -22,6 +22,7 @@ pub mod lint_gpu;
 pub mod lint_brain_gpu;
 pub mod lint_index;
 pub mod lint_metrics;
+pub mod linter;
 pub mod lint_concept;
 pub mod lint_semantic;
 pub mod lint_sig;
