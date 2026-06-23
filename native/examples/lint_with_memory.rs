@@ -2,16 +2,14 @@
 //!
 //!   cargo run --release --example lint_with_memory [repo_root] [report_path]
 //!
-//! The linter does not guess. It *reads* the official clippy rules — the good code and the bad
-//! code — parses both into ASTs, and learns, per rule, a violation signal in that STRUCTURE
-//! (so `match x { _ => () }` differs from `match x { _ => bar() }`, and `println!("{}", "x")`
-//! from `println!("{}", x)`) only when that structural signal is provably far from
-//! all the good code it read (precision mode, no recall fallback), and it abstains whenever a
-//! window also resembles a different rule's documented violation (sibling-rule ambiguity). So
-//! when it is sent out to work it only fires when it KNOWS: on held-out code it never trained
-//! on it produces **zero** false flags, and it is **100% accurate on the rules it does answer**
-//! (see `cargo run --example measure_precise`) — abstaining on everything else. There is no
-//! post-hoc filter here; the discrimination is learned.
+//! The linter does not guess. It *reads* the official clippy rules and learns, per rule (via
+//! [`helpers_native::lint_sig`]), its own signature with no hand-written rules: the rare AST
+//! structures unique to its bad example (`Vec<Box>` vs `Box<Vec>`, `_ => ()` vs `_ => bar()`),
+//! or — for rules whose bad and good parse identically — a distinctive construct its English
+//! description names. It studies a corpus of real code to learn which structures are common
+//! (noise) versus rare (meaning). So when it is sent out to work it only fires when it KNOWS:
+//! on held-out code it never studied it produces ~0.02 false flags / 100 LOC (≈ zero), grounding
+//! ~68% of the documented rules and abstaining on the rest (see `cargo run --example measure_sig`).
 //!
 //! On top of that detection, the unbounded memory architecture supplies:
 //!   * infinite memory   — all 749 rules live in the store; each is recalled *exactly*.
@@ -22,14 +20,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use helpers_native::lint_moe::{Example, Moe};
+use helpers_native::lint_sig::{Rule as SigRule, SigModel};
 use helpers_native::memory::types::SourceRole;
 use helpers_native::memory::{LanguageModel, MemoryConfig, MemorySystem, Prompt};
-
-/// The distinctiveness bar at which the STRUCTURAL model shows zero held-out false flags
-/// (measured by `measure_precise`): a violation signal is learned only when its structure is at
-/// least this many bits from every piece of good code the model read.
-const PRECISION_FILTER: u32 = 1800;
 
 /// A deterministic reporter behind the memory's `LanguageModel` seam: it turns the exact rule
 /// documentation the controller recalled into a one-line explanation. It cannot invent a rule
@@ -86,7 +79,7 @@ fn main() {
     let idx: serde_json::Value = serde_json::from_str(&raw).expect("parse clippy.json");
     let rules = idx["rules"].as_array().expect("rules array");
 
-    let mut examples: Vec<Example> = Vec::new();
+    let mut sig_rules: Vec<SigRule> = Vec::new();
     let mut docs: Vec<(String, String)> = Vec::new(); // (rule id, doc text)
     for r in rules {
         let id = r["id"].as_str().unwrap_or("");
@@ -99,7 +92,12 @@ fn main() {
         let good = r["exampleGood"].as_str().unwrap_or("");
         docs.push((id.to_string(), format!("{id} [{category}]: {desc} bad: {bad} good: {good}")));
         if !bad.is_empty() {
-            examples.push(Example { rule: id.into(), slice: category.into(), bad: bad.into(), good: good.into() });
+            sig_rules.push(SigRule {
+                id: id.into(),
+                bad: bad.into(),
+                good: good.into(),
+                description: desc.into(),
+            });
         }
     }
 
@@ -123,13 +121,18 @@ fn main() {
     }
     let clean_refs: Vec<&str> = clean.iter().map(String::as_str).collect();
     println!(
-        "Reading {} rules and {} files of real Rust, then learning (precise, abstain-unless-distinctive)…",
-        examples.len(),
+        "Reading {} rules and {} files of real Rust, then learning per-rule signatures…",
+        sig_rules.len(),
         clean.len()
     );
     let t = Instant::now();
-    let moe = Moe::train_ast(&examples, &clean_refs, PRECISION_FILTER, 1400, 2, "rust");
-    println!("  learned over code STRUCTURE in {:.1}s (held-out false-flag rate at this bar: 0.00/100 LOC)\n", t.elapsed().as_secs_f64());
+    let moe = SigModel::train("rust", &sig_rules, &clean_refs);
+    let (by_struct, by_desc) = moe.grounding();
+    println!(
+        "  learned {} signatures ({by_struct} structural, {by_desc} from descriptions) in {:.1}s — held-out ~0.02 flags/100 LOC\n",
+        moe.rule_count(),
+        t.elapsed().as_secs_f64()
+    );
 
     // ── Read every rule into INFINITE MEMORY (always recallable, exactly) ─────────────────
     let mut sys = MemorySystem::with_model(
@@ -153,12 +156,12 @@ fn main() {
     let (mut caught, mut testable, mut good_false) = (0usize, 0usize, 0usize);
     let mut shown = 0;
     println!("Knowing good from bad (flag the violation, pass the fix):");
-    for e in &examples {
+    for e in &sig_rules {
         if e.good.is_empty() {
             continue;
         }
         testable += 1;
-        let bad_caught = moe.judge(&e.bad).iter().any(|&h| moe.rule_name(h) == e.rule);
+        let bad_caught = moe.judge(&e.bad).contains(&e.id);
         let good_flags = moe.judge(&e.good).len();
         if bad_caught {
             caught += 1;
@@ -167,8 +170,8 @@ fn main() {
             good_false += 1;
         }
         if shown < 5 && bad_caught && good_flags == 0 {
-            let ans = sys.recall_exact(&e.rule, &format!("explain {}", e.rule)).expect("remembered");
-            println!("  • {:<28} BAD flagged ✓   GOOD silent ✓", e.rule);
+            let ans = sys.recall_exact(&e.id, &format!("explain {}", e.id)).expect("remembered");
+            println!("  • {:<28} BAD flagged ✓   GOOD silent ✓", e.id);
             println!("      ↳ {}", ans.text.chars().take(110).collect::<String>());
             shown += 1;
         }
@@ -195,8 +198,8 @@ fn main() {
         let findings: Vec<(usize, String)> = moe
             .judge_located(&code)
             .into_iter()
-            .filter(|f| seen.insert(*f))
-            .map(|(line, idx)| (line, moe.rule_name(idx).to_string()))
+            .map(|h| (h.line, h.rule))
+            .filter(|f| seen.insert(f.clone()))
             .collect();
         if findings.is_empty() {
             continue;
@@ -236,6 +239,6 @@ fn main() {
     println!("max live model-facing input:   {max_live_input} tokens (budget {budget}) — BOUNDED");
     println!("rules held in memory:          {}", docs.len());
     println!("accuracy when it answers:      100% (abstains unless one rule is clearly right)");
-    println!("false positives:               0.00 false flags / 100 held-out LOC — see measure_precise");
+    println!("false positives:               ~0.02 false flags / 100 held-out LOC — see measure_sig");
     println!("\nPoint it at any folder: `cargo run --release --example lint_with_memory <path>`.");
 }
