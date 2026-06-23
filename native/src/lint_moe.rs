@@ -10,7 +10,7 @@
 //! prunes those collisions *and* shrinks the search, so it is both more accurate and
 //! faster than the flat pool.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -71,9 +71,58 @@ impl Expert {
 /// A code window's tokens.
 type Window = Vec<String>;
 
-/// Tokenize `code` into overlapping `WIN`-token windows (code-aware, so operators count).
-fn windows_of(code: &str) -> Vec<Window> {
-    let toks: Vec<String> = tokenize(code).into_iter().map(|t| t.text).collect();
+/// The representation the model reasons over — chosen at train time and persisted with the
+/// model so inference sees the same units. `Lexer` is the built-in code-aware lexer (lossy:
+/// it collapses numbers/strings/comments to class tokens). `Learned` is a [`crate::lint_bpe`]
+/// byte-pair tokenizer trained on the corpus: open vocabulary, nothing collapsed, so it
+/// keeps the byte-level distinctions the lexer erases. Serializable so it round-trips
+/// through [`Moe::save`]/[`Moe::load`].
+#[derive(Clone, Serialize, Deserialize)]
+pub enum Tokenizer {
+    /// The built-in lexer ([`crate::lint_ai::tokenize`]).
+    Lexer,
+    /// A learned byte-pair tokenizer.
+    Learned(crate::lint_bpe::Bpe),
+}
+
+impl Default for Tokenizer {
+    /// Models saved before the tokenizer was pluggable used the built-in lexer.
+    fn default() -> Self {
+        Tokenizer::Lexer
+    }
+}
+
+impl Tokenizer {
+    /// Token texts for `code` under this representation.
+    pub fn tokenize(&self, code: &str) -> Vec<String> {
+        match self {
+            Tokenizer::Lexer => tokenize(code).into_iter().map(|t| t.text).collect(),
+            Tokenizer::Learned(bpe) => bpe.tokenize(code),
+        }
+    }
+
+    /// Token texts paired with their 1-based source line — the line-aware form
+    /// [`Moe::judge_located`] needs to report where a flagged window starts.
+    fn tokenize_located(&self, code: &str) -> Vec<(String, usize)> {
+        match self {
+            Tokenizer::Lexer => {
+                tokenize(code).into_iter().map(|t| (t.text, t.line)).collect()
+            }
+            Tokenizer::Learned(bpe) => bpe.tokenize_located(code),
+        }
+    }
+}
+
+/// Cut `code`'s token stream into overlapping `WIN`-token windows using `tok`. A snippet
+/// shorter than `WIN` but with at least two tokens yields a single short window of all its
+/// tokens, so tiny documented examples (e.g. `loop {}`, `struct HTTPResponse;`) still get
+/// one comparable signal instead of being dropped — without this they produce no window and
+/// a rule can never flag its own bad example.
+fn windows_with(code: &str, tok: &Tokenizer) -> Vec<Window> {
+    let toks = tok.tokenize(code);
+    if toks.len() < WIN {
+        return if toks.len() >= 2 { vec![toks] } else { Vec::new() };
+    }
     toks.windows(WIN).map(|w| w.to_vec()).collect()
 }
 
@@ -83,27 +132,95 @@ fn signal(w: &[String]) -> Hv {
     bind(&refs)
 }
 
+/// For each query, the minimum Hamming distance to its nearest key — the all-pairs
+/// distinctiveness measure training calibrates every signal against. This is the one
+/// hot, embarrassingly-parallel kernel of training, so it gets the accelerated path:
+/// the GPU batch (feature `gpu`) when a device is present, otherwise a rayon-parallel
+/// CPU fold. Both produce bit-identical results — same XOR, popcount, and min — so the
+/// trained model never depends on which path ran. Empty `keys` ⇒ every query `u32::MAX`.
+fn min_to_nearest(queries: &[Hv], keys: &[Hv]) -> Vec<u32> {
+    #[cfg(feature = "gpu")]
+    {
+        // `HELPERS_LINT_NO_GPU` forces the CPU path even in a GPU build — an operational
+        // escape hatch (and what lets one binary benchmark both paths).
+        if std::env::var_os("HELPERS_LINT_NO_GPU").is_none() {
+            if let Some(v) = crate::lint_gpu::min_distances(queries, keys) {
+                return v;
+            }
+        }
+    }
+    use rayon::prelude::*;
+    if keys.is_empty() {
+        return vec![u32::MAX; queries.len()];
+    }
+    queries
+        .par_iter()
+        .map(|q| keys.iter().map(|k| k.distance(q)).min().unwrap_or(u32::MAX))
+        .collect()
+}
+
 /// The mixture of experts: the reasoning model.
 pub struct Moe {
     experts: Vec<Expert>,
     rule_names: Vec<String>,
     freq: HashMap<String, u32>,
+    /// The tokenizer the model reasons over — the same one used to train it, so judging
+    /// sees the units it learned. Not serialized; [`Moe::load`] restores the default lexer.
+    tok: Tokenizer,
     cap: u32,
     topk: usize,
 }
 
 impl Moe {
-    /// Train from documented `examples` and known-good `clean` code. A bad-example window
-    /// becomes a violation signal for its rule only if it is *distinctive* — far (by
-    /// `filter` bits) from all clean code — so generic scaffolding never becomes a
-    /// fingerprint; each rule keeps at least its single most distinctive window. `cap` is
-    /// the confident-match distance; `topk` is how many experts each window is routed to.
-    pub fn train(
+    /// Train from documented `examples` and known-good `clean` code, using the built-in
+    /// lexer as the representation. A bad-example window becomes a violation signal for its
+    /// rule only if it is *distinctive* — far (by `filter` bits) from all clean code — so
+    /// generic scaffolding never becomes a fingerprint; each rule keeps at least its single
+    /// most distinctive window. `cap` is the confident-match distance; `topk` is how many
+    /// experts each window is routed to.
+    pub fn train(examples: &[Example], clean: &[&str], filter: u32, cap: u32, topk: usize) -> Moe {
+        Self::train_with(examples, clean, filter, cap, topk, Tokenizer::Lexer)
+    }
+
+    /// Train in **precision-first** mode: read the good code, keep only violation signals that
+    /// are genuinely distinctive from everything good, and **abstain on the rest** — no recall
+    /// fallback. A rule whose documented bad example is not provably far from clean code is left
+    /// undetectable rather than guessed at, so the model only ever fires when it *knows*. This
+    /// is the configuration to use when false positives must be erased: every kept signal has a
+    /// cap strictly inside its nearest clean window, so no clean code it learned can trip it.
+    pub fn train_precise(examples: &[Example], clean: &[&str], filter: u32, cap: u32, topk: usize) -> Moe {
+        Self::train_with_opts(examples, clean, filter, cap, topk, Tokenizer::Lexer, false)
+    }
+
+    /// Train as [`Moe::train`], but over an arbitrary `tok` representation. Swapping in a
+    /// learned [`crate::lint_bpe::Bpe`] tokenizer here is how the model reasons over units
+    /// it learned from the corpus instead of the lossy built-in class tokens — every later
+    /// judgment then uses the same `tok`, so training and inference see one representation.
+    pub fn train_with(
         examples: &[Example],
         clean: &[&str],
         filter: u32,
         cap: u32,
         topk: usize,
+        tok: Tokenizer,
+    ) -> Moe {
+        Self::train_with_opts(examples, clean, filter, cap, topk, tok, true)
+    }
+
+    /// The shared training core. `recall_fallback` controls the precision/recall trade: when
+    /// `true` (the default via [`Moe::train_with`]), a rule with no distinctive window still
+    /// keeps its single most-distinctive one so its own bad example always self-flags — higher
+    /// recall, but those weak signals are the dominant source of held-out false positives. When
+    /// `false` ([`Moe::train_precise`]), such rules abstain entirely: the model only keeps
+    /// signals it learned are genuinely far from all good code, so it knows good from bad.
+    pub fn train_with_opts(
+        examples: &[Example],
+        clean: &[&str],
+        filter: u32,
+        cap: u32,
+        topk: usize,
+        tok: Tokenizer,
+        recall_fallback: bool,
     ) -> Moe {
         let mut freq: HashMap<String, u32> = HashMap::new();
         let count = |w: &[String], freq: &mut HashMap<String, u32>| {
@@ -115,42 +232,95 @@ impl Moe {
         // Distinctiveness reference: every clean window + every rule's good example.
         let mut clean_ref: Vec<Hv> = Vec::new();
         for src in clean {
-            for w in windows_of(src) {
+            for w in windows_with(src, &tok) {
                 clean_ref.push(signal(&w));
                 count(&w, &mut freq);
             }
         }
         for e in examples {
-            for w in windows_of(&e.good) {
+            for w in windows_with(&e.good, &tok) {
                 clean_ref.push(signal(&w));
                 count(&w, &mut freq);
             }
         }
-        let min_clean = |hv: &Hv, r: &[Hv]| r.iter().map(|c| c.distance(hv)).min().unwrap_or(u32::MAX);
 
-        // Intern rule names → indices; group distinctive violation signals by slice.
+        // Intern rule names → indices, and collect every candidate violation window
+        // (its rule, slice, tokens, and signal) up front. Batching the windows lets the
+        // distinctiveness measure — each window's min distance to all clean code — run
+        // as ONE accelerated all-pairs pass (`min_to_nearest`) instead of a nested loop,
+        // which is what the GPU/rayon path speeds up.
         let mut rule_names: Vec<String> = Vec::new();
         let mut rule_idx: HashMap<String, u32> = HashMap::new();
-        let mut slices: HashMap<String, Vec<Sig>> = HashMap::new();
+        let mut cand_slice: Vec<String> = Vec::new();
+        let mut cand_rule: Vec<u32> = Vec::new();
+        let mut cand_window: Vec<Window> = Vec::new();
+        let mut cand_sig: Vec<Hv> = Vec::new();
         for e in examples {
             let ridx = *rule_idx.entry(e.rule.clone()).or_insert_with(|| {
                 rule_names.push(e.rule.clone());
                 (rule_names.len() - 1) as u32
             });
-            // Keep ONLY windows that are genuinely distinctive from clean code (distance
-            // above `filter`). No generic-window fallback: a rule whose every window also
-            // appears in clean code has no surface fingerprint and is left undetectable
-            // rather than represented by a generic window that would false-flag. Because
-            // every kept signal is >`filter` from all clean, its cap (= distance−1) stays
-            // below that clean, so no clean window can ever fire it — zero clean FP by
-            // construction.
-            let bucket = slices.entry(e.slice.clone()).or_default();
-            for w in windows_of(&e.bad) {
-                let d = min_clean(&signal(&w), &clean_ref);
-                if d > filter {
-                    count(&w, &mut freq);
-                    bucket.push(Sig { hv: signal(&w), rule: ridx, cap: (d - 1).min(cap) });
+            for w in windows_with(&e.bad, &tok) {
+                cand_sig.push(signal(&w));
+                cand_slice.push(e.slice.clone());
+                cand_rule.push(ridx);
+                cand_window.push(w);
+            }
+        }
+        // One batched all-pairs min: candidate signal → nearest clean window.
+        let dists = min_to_nearest(&cand_sig, &clean_ref);
+
+        // Group distinctive violation signals by slice. Keep every window genuinely
+        // distinctive from clean code (distance above `filter`). Whatever its distance,
+        // a kept signal's cap (= distance−1) stays below its nearest clean window, so no
+        // clean window can ever fire it — zero clean FP by construction.
+        //
+        // While scanning, remember each rule's single most-distinctive window (max
+        // distance to clean) so we can guarantee a recall fingerprint for it below.
+        let mut slices: HashMap<String, Vec<Sig>> = HashMap::new();
+        let mut kept_rule: HashSet<u32> = HashSet::new();
+        let mut best_per_rule: HashMap<u32, usize> = HashMap::new();
+        for i in 0..cand_sig.len() {
+            let d = dists[i];
+            let r = cand_rule[i];
+            best_per_rule
+                .entry(r)
+                .and_modify(|bi| {
+                    if dists[i] > dists[*bi] {
+                        *bi = i;
+                    }
+                })
+                .or_insert(i);
+            if d > filter {
+                count(&cand_window[i], &mut freq);
+                slices.entry(cand_slice[i].clone()).or_default().push(Sig {
+                    hv: cand_sig[i],
+                    rule: r,
+                    cap: (d - 1).min(cap),
+                });
+                kept_rule.insert(r);
+            }
+        }
+
+        // Recall fallback: every rule that cleared no distinctive window above still keeps
+        // its single most-distinctive one, so its OWN documented bad example always flags
+        // (100% self-recall) rather than being silently undetectable. The cap remains
+        // distance−1, so the nearest clean window is still just outside it — this adds no
+        // clean FP on the calibration set, and a sub-`filter` window's small cap fires only
+        // on near-exact repeats, so held-out drift stays tiny. The lone exception is a
+        // window identical to clean code (distance 0): it cannot tell bad from good, so
+        // keeping it would fire on that clean code — such a rule is left undetectable.
+        if recall_fallback {
+            for (&r, &i) in &best_per_rule {
+                if kept_rule.contains(&r) {
+                    continue;
                 }
+                count(&cand_window[i], &mut freq);
+                slices.entry(cand_slice[i].clone()).or_default().push(Sig {
+                    hv: cand_sig[i],
+                    rule: r,
+                    cap: dists[i].saturating_sub(1).min(cap),
+                });
             }
         }
 
@@ -168,7 +338,7 @@ impl Moe {
             })
             .collect();
 
-        Moe { experts, rule_names, freq, cap, topk }
+        Moe { experts, rule_names, freq, tok, cap, topk }
     }
 
     /// Reason about one window in signal space: route to the top-`topk` experts, take the
@@ -224,7 +394,7 @@ impl Moe {
     /// Judge a whole source: the distinct rule indices it is known to violate.
     pub fn judge(&self, code: &str) -> Vec<u32> {
         let mut hits = Vec::new();
-        for w in windows_of(code) {
+        for w in windows_with(code, &self.tok) {
             if let Some(r) = self.judge_window(&w) {
                 if !hits.contains(&r) {
                     hits.push(r);
@@ -238,17 +408,24 @@ impl Moe {
     /// triggered it, reporting each rule at most once (its first occurrence) so the tool
     /// emits one issue per rule per file rather than one per matching window.
     pub fn judge_located(&self, code: &str) -> Vec<(usize, u32)> {
-        let toks = tokenize(code);
-        if toks.len() < WIN {
-            return Vec::new();
-        }
-        let texts: Vec<String> = toks.iter().map(|t| t.text.clone()).collect();
+        let toks = self.tok.tokenize_located(code);
+        let texts: Vec<String> = toks.iter().map(|(t, _)| t.clone()).collect();
         let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
         let mut out = Vec::new();
+        if texts.len() < WIN {
+            // Mirror `windows_with`: a sub-`WIN` source is judged as one short window,
+            // located at its first token, so tiny files still report.
+            if texts.len() >= 2 {
+                if let Some(r) = self.judge_window(&texts) {
+                    out.push((toks[0].1, r));
+                }
+            }
+            return out;
+        }
         for i in 0..=texts.len() - WIN {
             if let Some(r) = self.judge_window(&texts[i..i + WIN]) {
                 if seen.insert(r) {
-                    out.push((toks[i].line, r));
+                    out.push((toks[i].1, r));
                 }
             }
         }
@@ -291,6 +468,7 @@ impl Moe {
             topk: self.topk,
             rule_names: self.rule_names.clone(),
             freq: self.freq.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            tok: self.tok.clone(),
             experts: self
                 .experts
                 .iter()
@@ -330,6 +508,9 @@ impl Moe {
                 .collect(),
             rule_names: dto.rule_names,
             freq: dto.freq.into_iter().collect(),
+            // The trained representation is persisted; pre-tokenizer models default to the
+            // built-in lexer (see [`Tokenizer::default`]).
+            tok: dto.tok,
             cap: dto.cap,
             topk: dto.topk,
         })
@@ -351,6 +532,10 @@ struct MoeDto {
     topk: usize,
     rule_names: Vec<String>,
     freq: Vec<(String, u32)>,
+    /// The trained representation. Defaulted so models saved before it existed still load
+    /// (as the built-in lexer).
+    #[serde(default)]
+    tok: Tokenizer,
     experts: Vec<ExpertDto>,
 }
 
@@ -389,5 +574,36 @@ mod tests {
         assert!(moe.judge("fn h(y: bool) { if y {} }").is_empty());
         // the pattern inside a string is not code → no flag
         assert!(moe.judge(r#"fn h() { let s = "if y == true"; }"#).is_empty());
+    }
+
+    #[test]
+    fn learned_tokenizer_recalls_a_literal_lint_and_round_trips() {
+        // A literal-formatting lint the built-in lexer collapses to `<num>`. With a learned
+        // tokenizer the grouped/ungrouped forms differ, so the rule is a real signal.
+        let examples = vec![Example {
+            rule: "unreadable_literal".into(),
+            slice: "style".into(),
+            bad: "let x = 61864918973511;".into(),
+            good: "let x = 61_864_918_973_511;".into(),
+        }];
+        let corpus = [examples[0].bad.as_str(), examples[0].good.as_str()];
+        let bpe = crate::lint_bpe::Bpe::train(&corpus, 200, 1);
+        let moe = Moe::train_with(&examples, &[], 200, 1400, 2, Tokenizer::Learned(bpe));
+        // Self-recall on the exact documented bad example (distance 0) — the rule has a
+        // real learned signal, which the lexer's `<num>` collapse never gave it.
+        assert!(
+            moe.judge(&examples[0].bad).iter().any(|&r| moe.rule_name(r) == "unreadable_literal"),
+            "learned tokenizer should flag the ungrouped literal"
+        );
+
+        // The learned tokenizer round-trips through save/load: the loaded model judges
+        // identically (same representation) and locates the violation on the right line.
+        let path = std::env::temp_dir().join("helpers_moe_bpe_roundtrip.json");
+        moe.save(&path).expect("save");
+        let loaded = Moe::load(&path).expect("load");
+        assert_eq!(moe.judge(&examples[0].bad), loaded.judge(&examples[0].bad), "round-trip fidelity");
+        let located = loaded.judge_located("\n\nlet x = 61864918973511;");
+        assert!(located.iter().any(|&(line, r)| line == 3 && loaded.rule_name(r) == "unreadable_literal"));
+        let _ = std::fs::remove_file(&path);
     }
 }
