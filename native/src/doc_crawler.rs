@@ -270,22 +270,102 @@ pub fn resolve(base: &str, href: &str) -> Option<String> {
     Some(format!("{rscheme}://{rhost}{}", normalize_path(&rpath)))
 }
 
-/// Extract and resolve every `href` link on the page.
-pub fn extract_links(base: &str, html: &str) -> Vec<String> {
+/// Extract `(url, anchor_text)` for every link — the anchor text is the human label for where a
+/// link goes, the strongest pre-fetch hint of whether it leads to real documentation.
+pub fn extract_anchors(base: &str, html: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for attr in ["href=\"", "href='"] {
-        let quote = attr.chars().last().unwrap();
-        let mut rest = html;
-        while let Some(i) = rest.find(attr) {
-            let after = &rest[i + attr.len()..];
-            let Some(end) = after.find(quote) else { break };
-            if let Some(u) = resolve(base, &after[..end]) {
-                out.push(u);
+    let mut rest = html;
+    while let Some(i) = rest.find("<a") {
+        let tag_and_after = &rest[i..];
+        let Some(gt) = tag_and_after.find('>') else { break };
+        let tag = &tag_and_after[..gt];
+        let after = &tag_and_after[gt + 1..];
+        let anchor = match after.find("</a>") {
+            Some(e) => strip_tags(&after[..e]),
+            None => String::new(),
+        };
+        if let Some(href) = attr_value(tag, "href") {
+            if let Some(u) = resolve(base, &href) {
+                out.push((u, anchor));
             }
-            rest = &after[end + 1..];
         }
+        rest = after;
     }
     out
+}
+
+/// Read an attribute's value out of a tag's text (`href="…"` / `href='…'`).
+fn attr_value(tag: &str, name: &str) -> Option<String> {
+    for q in ['"', '\''] {
+        let needle = format!("{name}={q}");
+        if let Some(i) = tag.find(&needle) {
+            let after = &tag[i + needle.len()..];
+            if let Some(end) = after.find(q) {
+                return Some(after[..end].to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Extract and resolve every link URL on the page (anchor text discarded).
+pub fn extract_links(base: &str, html: &str) -> Vec<String> {
+    extract_anchors(base, html).into_iter().map(|(u, _)| u).collect()
+}
+
+/// A learned crawl frontier: it builds a fingerprint of what links to GOOD documentation pages
+/// look like (their URL + anchor words), then scores unvisited links by similarity to it. The
+/// crawler visits the highest-scoring links first and the model evolves as it reads — so the walk
+/// is guided by what it has learned leads to content, not a blind queue. Cold (nothing learned
+/// yet) every link scores 0 and order falls back to discovery order.
+#[derive(Default)]
+pub struct Frontier {
+    prototype: crate::lint_ai::Bundler,
+    learned: usize,
+}
+
+/// Fingerprint a link's words (its URL path tokens + anchor text) into a hypervector.
+fn link_fingerprint(url: &str, anchor: &str) -> crate::lint_ai::Hv {
+    let path = split_url(url).map(|(_, _, p)| p).unwrap_or_default();
+    let mut b = crate::lint_ai::Bundler::new();
+    for tok in path.split(|c: char| !c.is_alphanumeric()).chain(anchor.split_whitespace()) {
+        let t = tok.to_lowercase();
+        if t.len() >= 2 {
+            b.add(&crate::lint_ai::token_hv(&t));
+        }
+    }
+    if b.is_empty() {
+        crate::lint_ai::Hv::zero()
+    } else {
+        b.finalize()
+    }
+}
+
+impl Frontier {
+    /// A fresh frontier with nothing learned.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record the link that led to a page and whether that page was valuable (yielded content).
+    /// Valuable links teach the prototype what to chase next.
+    pub fn observe(&mut self, url: &str, anchor: &str, valuable: bool) {
+        if valuable {
+            self.prototype.add(&link_fingerprint(url, anchor));
+            self.learned += 1;
+        }
+    }
+
+    /// Predicted value of an unvisited link in `[0,1000]`: similarity of its words to the learned
+    /// "leads to good docs" prototype. `0` until something has been learned.
+    pub fn score(&self, url: &str, anchor: &str) -> i64 {
+        if self.learned == 0 {
+            return 0;
+        }
+        let proto = self.prototype.finalize();
+        let d = link_fingerprint(url, anchor).distance(&proto) as f64;
+        ((1.0 - d / crate::lint_ai::DIM as f64) * 1000.0) as i64
+    }
 }
 
 /// True if `url` belongs to the same host as `seed` and sits under its directory prefix — the
@@ -303,7 +383,7 @@ pub fn in_scope(seed: &str, url: &str) -> bool {
 #[cfg(feature = "crawl")]
 mod net {
     use super::*;
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::{BinaryHeap, HashSet};
     use std::time::Duration;
 
     /// Fetch a URL directly over HTTP (no browser). Returns `(content_type, body)` for any TEXTUAL
@@ -331,43 +411,53 @@ mod net {
         resp.into_string().ok().map(|body| (ct, body))
     }
 
-    /// Crawl the documentation graph breadth-first from `seeds`, staying in scope of each seed,
-    /// up to `max_pages`. Returns every page's extracted (prose, code) sections — from whatever
-    /// textual type the page is. Polite fixed delay.
+    /// Pages with at least this many (prose, code) sections taught the frontier that the link
+    /// which led to them is worth chasing — they are documentation, not navigation/landing pages.
+    const VALUABLE_SECTIONS: usize = 2;
+
+    /// Crawl the documentation graph from `seeds`, staying in scope, up to `max_pages` — BEST-FIRST,
+    /// not blindly. A learned [`Frontier`] scores each unvisited link by how much its URL/anchor
+    /// words resemble the links that have led to real content so far, and the crawler always visits
+    /// the highest-scoring link next. So it spends its budget on the documentation and evolves
+    /// toward the meaty pages as it reads. Returns each page's extracted (prose, code) sections from
+    /// whatever textual type it is.
     pub fn crawl(seeds: &[&str], max_pages: usize, delay_ms: u64) -> Vec<Page> {
         let mut seen: HashSet<String> = HashSet::new();
-        let mut queue: VecDeque<String> = VecDeque::new();
+        let mut frontier = Frontier::new();
+        // Max-heap of (score, seq, url, anchor); higher score is visited first.
+        let mut heap: BinaryHeap<(i64, u64, String, String)> = BinaryHeap::new();
+        let mut seq: u64 = 0;
         for s in seeds {
-            queue.push_back((*s).to_string());
+            heap.push((i64::MAX, seq, (*s).to_string(), String::new()));
             seen.insert((*s).to_string());
+            seq += 1;
         }
         let mut pages = Vec::new();
-        while let Some(url) = queue.pop_front() {
+        while let Some((_, _, url, anchor)) = heap.pop() {
             if pages.len() >= max_pages {
                 break;
             }
             let Some((ct, body)) = fetch(&url) else { continue };
-            // Follow links from any text that carries them (HTML hrefs); terminal data
-            // (JSON/Markdown) simply yields no links and is ingested as knowledge.
-            for link in extract_links(&url, &body) {
+            let sections = extract(&ct, &body);
+            // Teach the frontier: did the link that led here pay off in content?
+            frontier.observe(&url, &anchor, sections.len() >= VALUABLE_SECTIONS);
+            // Score and enqueue new in-scope links by predicted value.
+            for (link, atext) in extract_anchors(&url, &body) {
                 if seen.len() < max_pages * 8
                     && !seen.contains(&link)
                     && seeds.iter().any(|s| in_scope(s, &link))
                 {
                     seen.insert(link.clone());
-                    queue.push_back(link);
+                    let score = frontier.score(&link, &atext);
+                    heap.push((score, seq, link, atext));
+                    seq += 1;
                 }
             }
-            pages.push(Page {
-                url: url.clone(),
-                prose: extract_prose(&body),
-                code: extract_code_blocks(&body),
-                sections: extract(&ct, &body),
-            });
             if delay_ms > 0 {
                 std::thread::sleep(Duration::from_millis(delay_ms));
             }
-            eprintln!("crawled {} ({} pages, {} queued)", url, pages.len(), queue.len());
+            eprintln!("crawled {} ({} sections; {} pages, {} queued)", url, sections.len(), pages.len() + 1, heap.len());
+            pages.push(Page { url, prose: extract_prose(&body), code: extract_code_blocks(&body), sections });
         }
         pages
     }
@@ -401,6 +491,18 @@ mod tests {
         // In scope: same host, under the seed's directory. Out: other host or above the path.
         assert!(in_scope("https://doc.rust-lang.org/book/", "https://doc.rust-lang.org/book/ch02.html"));
         assert!(!in_scope("https://doc.rust-lang.org/book/", "https://crates.io/x"));
+    }
+
+    #[test]
+    fn frontier_learns_which_links_lead_to_content() {
+        let mut f = Frontier::new();
+        assert_eq!(f.score("https://d/api/Vec.html", "Vec struct"), 0, "cold frontier scores 0");
+        // Learn that /api/<Type> links with type-ish anchors led to good pages.
+        f.observe("https://d/api/HashMap.html", "HashMap struct", true);
+        f.observe("https://d/api/String.html", "String struct", true);
+        let relevant = f.score("https://d/api/BTreeMap.html", "BTreeMap struct");
+        let irrelevant = f.score("https://d/about/license.html", "license and legal");
+        assert!(relevant > irrelevant, "learned frontier ranks api/type links above unrelated ones ({relevant} vs {irrelevant})");
     }
 
     #[test]
