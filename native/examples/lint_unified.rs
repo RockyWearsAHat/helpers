@@ -77,10 +77,29 @@ fn main() {
         .collect();
     let src_refs: Vec<(&str, &str)> = sources.iter().map(|(l, c)| (l.as_str(), c.as_str())).collect();
 
-    // ---- 1) The reasoner learns the CS principles from the document ----
+    // ---- 1) The reasoner reads the CS principles from the document and SELF-VALIDATES ----
     let cs_doc = fs::read_to_string("../corpus/cs-principles.md").expect("read corpus/cs-principles.md");
     let mut reasoner = Reasoner::from_cs_principles("rust", &cs_doc);
-    println!("Reasoner learned {} CS principle pattern(s) from corpus/cs-principles.md.", reasoner.principle_count());
+
+    // It reads known-idiomatic reference code — the "good" forms the docs themselves publish (from
+    // the crawled lint corpus) — and tests every candidate rule against all of it, keeping only
+    // what genuinely separates a violation from normal idiomatic code, abstaining otherwise. This
+    // is the "read it, try it, test it, thousands of times" step. The reference is trusted doc
+    // code, NOT the project under review (using the project would let its own bugs hide a rule).
+    let corpus_knowledge = Knowledge::from_corpus(&PathBuf::from("../corpus/lint-corpus.jsonl")).ok();
+    let ref_store: Vec<String> = corpus_knowledge
+        .as_ref()
+        .map(|k| k.rules.iter().filter(|r| r.language == "rust" && !r.good.is_empty()).map(|r| r.good.clone()).collect())
+        .unwrap_or_default();
+    let rust_ref: Vec<&str> = ref_store.iter().map(|s| s.as_str()).collect();
+    reasoner.study_reference(&rust_ref);
+    let (grounded, total, failures) = reasoner.self_test();
+    println!(
+        "Reasoner read {total} principle(s) from corpus/cs-principles.md, tested them {} times against\n  {} idiomatic reference snippets, and grounded {grounded} (abstained on {}); self-test failures: {failures}.",
+        reasoner.fit_tests(),
+        rust_ref.len(),
+        total - grounded
+    );
 
     // Calibrate the behavioral norms on the project's own code (tailors the bar to the project).
     reasoner.calibrate(&src_refs);
@@ -185,8 +204,34 @@ fn dice() -> u32 { let mut n = 0; for r in 1..=6 { n += r; } n } // 41: LEGIT in
     let fp: Vec<&_> = findings.iter().filter(|f| f.line == 40 || f.line == 41).collect();
     println!("\n{caught}/{} caught, {missed} missed.  Flags on clean code (L40 plain, L41 legit `1..=6`): {} {}", key.len(), fp.len(), if fp.is_empty() { "✓ none" } else { "← see below" });
     for f in &fp {
-        println!("  L{} {} [{}] — {}", f.line, f.rule_id, f.source, if f.line == 41 { "the off-by-one pattern is only as specific as its bad/good contrast (here: any inclusive range)" } else { "unexpected" });
+        println!("  L{} {} [{}] — unexpected flag on clean code", f.line, f.rule_id, f.source);
     }
-    println!("\nThe off-by-one — once an honest blind spot — is now caught because the reasoner learned it");
-    println!("from a document. Add a rule to corpus/cs-principles.md and it is enforced, no code change.");
+
+    // ---- 5) Incremental, non-lossy update: a new rule starts working immediately ----
+    let before = reasoner.principle_count();
+    reasoner.learn(
+        r#"
+# Double negation [medium]
+Don't write a redundant boolean — a double negation says nothing the plain condition doesn't.
+```rust:bad
+fn ready(c: bool) -> bool { if !!c { true } else { false } }
+```
+```rust:good
+fn ready(c: bool) -> bool { c }
+```
+"#,
+    );
+    reasoner.study_reference(&rust_ref); // re-test the new rule against the same idiomatic reference
+    let probe = "fn ok(flag: bool) -> bool { if !!flag { true } else { false } }";
+    let new_hit = reasoner.review("rust", probe, &[]).iter().any(|f| f.rule_id == "double_negation");
+    let old_still = reasoner
+        .review("rust", "fn s(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..=xs.len() { t += xs[i]; } t }", &[])
+        .iter()
+        .any(|f| f.rule_id == "off_by_one_indexing");
+    println!("\n=== INCREMENTAL UPDATE (no retrain) ===");
+    println!("  Learned a new principle at runtime: {before} → {} grounded.", reasoner.principle_count());
+    println!("  New rule fires immediately: {new_hit}.  Previously-learned off-by-one still fires: {old_still} (non-lossy).");
+
+    println!("\nMinimal input — a documented bad/good pair — read and tested thousands of times against");
+    println!("idiomatic reference, grounded precisely or abstained. Add a rule to the doc, it works at once.");
 }
