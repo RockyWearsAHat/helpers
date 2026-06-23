@@ -324,9 +324,16 @@ pub fn generic_features(lang: &str, code: &str) -> Vec<(String, usize)> {
 
 fn generic_walk(node: Node, parent: Option<&str>, src: &[u8], out: &mut Vec<(String, usize)>) {
     let mut here = parent.map(str::to_string);
-    if node.is_named() {
+    // Named nodes get a full label; unnamed nodes are emitted only when they are OPERATORS
+    // (`==`, `..=`, `/`, `&`) — real tree content the rule may turn on — never structural
+    // punctuation (`(){}[],;`), which is noise.
+    let label = if node.is_named() {
+        Some(generic_label(node, src))
+    } else {
+        operator_label(node, src)
+    };
+    if let Some(label) = label {
         let line = node.start_position().row + 1;
-        let label = generic_label(node, src);
         out.push((label.clone(), line));
         if let Some(p) = parent {
             out.push((format!("{p}>{label}"), line));
@@ -339,19 +346,46 @@ fn generic_walk(node: Node, parent: Option<&str>, src: &[u8], out: &mut Vec<(Str
     }
 }
 
-/// A node's label: its kind plus its head identifier when [`generic_head`] finds one. A leaf
-/// that is neither a variable `identifier` nor a literal *value* keeps its text (types, fields,
-/// keywords, operators carry structural identity); variables and literal values reduce to kind.
+/// An unnamed node's label iff it is an operator: short, all-symbolic, and not bracketing
+/// punctuation. Captures `==` vs `!=`, `..` vs `..=`, `/`, `&` — distinctions the AST keeps in
+/// anonymous tokens that the named-node walk would otherwise drop.
+fn operator_label(node: Node, src: &[u8]) -> Option<String> {
+    let t = node.utf8_text(src).ok()?.trim();
+    if t.is_empty() || t.len() > 3 {
+        return None;
+    }
+    let symbolic = t.chars().all(|c| c.is_ascii_punctuation() && !"(){}[],;".contains(c));
+    symbolic.then(|| format!("op:{t}"))
+}
+
+/// A node's label: its kind plus its head identifier ([`generic_head`]) when it has one. Leaves
+/// keep their text — types, fields, keywords, path roots, attribute names all carry structural
+/// identity — EXCEPT a literal's raw value, which is reduced to its kind (and, for a number, its
+/// type *suffix*: `10i32` ⇒ `integer_literal:i32`, so a type annotation shows up while the digits
+/// don't). This keeps real content (operators, types, the `i32`) without memorizing data.
 fn generic_label(node: Node, src: &[u8]) -> String {
     let kind = node.kind();
     if let Some(head) = generic_head(node, src) {
         return format!("{kind}:{head}");
     }
-    if node.named_child_count() == 0
-        && kind != "identifier"
-        && kind != "string_content"
-        && !kind.ends_with("_literal")
-    {
+    if node.named_child_count() == 0 {
+        if kind.ends_with("_literal") {
+            // Numeric literals: keep only a trailing type suffix (i32/f64/usize/…), drop digits.
+            if matches!(kind, "integer_literal" | "float_literal") {
+                if let Ok(t) = node.utf8_text(src) {
+                    let suffix: String =
+                        t.chars().rev().take_while(|c| c.is_ascii_alphabetic()).collect();
+                    if !suffix.is_empty() {
+                        let suffix: String = suffix.chars().rev().collect();
+                        return format!("{kind}:{suffix}");
+                    }
+                }
+            }
+            return kind.to_string();
+        }
+        if kind == "string_content" {
+            return kind.to_string();
+        }
         if let Ok(t) = node.utf8_text(src) {
             let t = t.trim();
             if !t.is_empty() && t.len() <= 24 {
