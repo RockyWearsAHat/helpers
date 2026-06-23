@@ -89,6 +89,7 @@ fn main() {
                 Principle::SingleResponsibility => "single-responsibility",
                 Principle::Complexity => "complexity",
                 Principle::ErrorHandling => "error-handling",
+                Principle::NamingMismatch => "naming-vs-behavior",
             })
             .collect();
         println!(
@@ -100,5 +101,15 @@ fn main() {
             m.distinct_calls, m.branches, m.loops, m.depth, m.forced_results
         );
     }
+    // The comprehension highlight: names that don't match behavior, judged against the
+    // convention the project itself taught the model.
+    let naming: Vec<_> = flagged.iter().filter(|(_, v, _, _)| v.contains(&Principle::NamingMismatch)).collect();
+    println!("\n{} name-vs-behavior mismatches (the learned-convention check):", naming.len());
+    for (m, _, path, _) in naming.iter().take(8) {
+        let rel = path.strip_prefix(&root).unwrap_or(path).display();
+        let why = if m.produces_value { "reads as a query but mutates" } else { "name implies a value it never returns" };
+        println!("  {rel}:{}  fn {}  — {why}", m.line, m.name);
+    }
+
     println!("\nLanguage-agnostic, learned from the project itself — judging what the code DOES.");
 }
