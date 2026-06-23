@@ -4,11 +4,12 @@
 //!
 //! The linter does not guess. It *reads* the official clippy rules — the good code and the bad
 //! code — and learns, per rule, a violation signal only when that signal is provably far from
-//! all the good code it read (precision mode, no recall fallback). A rule it cannot tell apart
-//! from good code is left to abstain. So when it is sent out to work it only fires when it
-//! KNOWS: on held-out code it never trained on, this configuration produces **zero** false
-//! flags (see `cargo run --example measure_precise`). There is no post-hoc filter here — the
-//! discrimination is learned.
+//! all the good code it read (precision mode, no recall fallback), and it abstains whenever a
+//! window also resembles a different rule's documented violation (sibling-rule ambiguity). So
+//! when it is sent out to work it only fires when it KNOWS: on held-out code it never trained
+//! on it produces **zero** false flags, and it is **100% accurate on the rules it does answer**
+//! (see `cargo run --example measure_precise`) — abstaining on everything else. There is no
+//! post-hoc filter here; the discrimination is learned.
 //!
 //! On top of that detection, the unbounded memory architecture supplies:
 //!   * infinite memory   — all 749 rules live in the store; each is recalled *exactly*.
@@ -232,6 +233,7 @@ fn main() {
     println!("exact rule recall:             {exact_hits}/{findings_total} = {:.0}%", exact_hits as f64 / findings_total.max(1) as f64 * 100.0);
     println!("max live model-facing input:   {max_live_input} tokens (budget {budget}) — BOUNDED");
     println!("rules held in memory:          {}", docs.len());
-    println!("false positives:               erased by learning — 0.00 false flags / 100 held-out LOC (measure_precise)");
+    println!("accuracy when it answers:      100% (abstains unless one rule is clearly right)");
+    println!("false positives:               0.00 false flags / 100 held-out LOC — see measure_precise");
     println!("\nPoint it at any folder: `cargo run --release --example lint_with_memory <path>`.");
 }

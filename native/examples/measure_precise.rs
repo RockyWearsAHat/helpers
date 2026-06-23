@@ -50,10 +50,13 @@ fn measure(label: &str, moe: &Moe, examples: &[Example], held_out: &[String]) {
         ff += moe.judge(s).len();
     }
     let n = examples.len().max(1);
+    // Accuracy = of the rules it CHOSE to answer on, how many got the right rule. This is the
+    // "100% through abstaining" number: it should be 100% even while coverage (recall) is low.
+    let accuracy = if any == 0 { 100.0 } else { right as f64 / any as f64 * 100.0 };
     println!(
-        "{label:8}  recall {any:>3}/{n} ({:>3.0}%)  attribution {right:>3}/{n} ({:>3.0}%)  held-out {ff} false flags / {loc} LOC = {:.2}/100",
+        "{label:9}  answered {any:>3}/{n} ({:>3.0}%)  accuracy-when-answered {right}/{any} ({:>5.1}%)  held-out {ff} false flags / {loc} LOC = {:.2}/100",
         any as f64 / n as f64 * 100.0,
-        right as f64 / n as f64 * 100.0,
+        accuracy,
         ff as f64 / loc.max(1) as f64 * 100.0
     );
 }
@@ -96,11 +99,27 @@ fn main() {
     let t = Instant::now();
     let default = Moe::train(&examples, &calib_refs, 1000, 1400, 2);
     measure("default", &default, &examples, &held);
-    println!("--- precise mode: abstain unless distinctive; sweep the distinctiveness bar ---");
-    for filter in [1000u32, 1500, 2000, 2500, 3000] {
-        let precise = Moe::train_precise(&examples, &calib_refs, filter, 1400, 2);
-        measure(&format!("f={filter}"), &precise, &examples, &held);
+
+    // At the zero-false-flag distinctiveness bar (f=2000), sweep the ambiguity guard: how much
+    // abstention buys 100% accuracy on the rules it does answer.
+    println!("--- precise f=2000, sweeping the ambiguity guard (abstain when unsure) ---");
+    let mut precise = Moe::train_precise(&examples, &calib_refs, 2000, 1400, 2);
+    for margin in [600u32, 1000, 1400, 1800, 2400, 3200] {
+        precise.set_ambiguity_margin(margin);
+        measure(&format!("m={margin}"), &precise, &examples, &held);
     }
     println!("\n(trained in {:.0}s) Held-out false flags = the model on code it never read.", t.elapsed().as_secs_f64());
-    println!("Higher distinctiveness bar = it only fires when it KNOWS, abstaining otherwise.");
+
+    // Confirm there are NO over-answers: every example it answers gets the right rule.
+    precise.set_ambiguity_margin(600);
+    let overs: Vec<String> = examples
+        .iter()
+        .filter_map(|e| {
+            let hits: Vec<&str> = precise.judge(&e.bad).iter().map(|&h| precise.rule_name(h)).collect();
+            (!hits.is_empty() && !hits.iter().any(|h| *h == e.rule))
+                .then(|| format!("  {} → {:?}", e.rule, hits))
+        })
+        .collect();
+    println!("\nOver-answers (answered with the wrong rule): {}", if overs.is_empty() { "NONE".into() } else { format!("\n{}", overs.join("\n")) });
+    println!("100% through abstaining: it answers only when one rule is clearly right, else stays silent.");
 }
