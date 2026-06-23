@@ -96,48 +96,57 @@ impl WorkingSet {
 
     /// Assemble the bounded model-facing prompt for `instruction`, enforcing the budget.
     ///
-    /// The returned [`Prompt`] is **guaranteed** to satisfy `token_count() <= budget`. If the
-    /// raw assembly would exceed the budget, retrieved lines are dropped first (they are
-    /// transient and re-derivable), then, only as a last resort, the oldest recent spans —
-    /// and finally the instruction itself is truncated. In normal operation `ingest` keeps
-    /// the recent window small enough that only retrieved trimming is ever needed.
+    /// The returned [`Prompt`] is **unconditionally** guaranteed to satisfy
+    /// `token_count() <= budget` — even if a single ingested span is itself larger than the
+    /// whole budget (an input bigger than the window is the one genuine hardware-style limit;
+    /// it is truncated, never allowed to blow the bound).
+    ///
+    /// It is a greedy fit by priority: the system preamble is always kept, then the
+    /// instruction (truncated if need be), then the deliberately-retrieved memory (the
+    /// grounding for this call), then the verbatim recent window newest-first, truncating the
+    /// last admitted span so the total lands exactly within budget.
     pub fn assemble(&self, instruction: &str) -> Prompt {
-        let mut retrieved = self.retrieved.clone();
-        let mut recent: Vec<String> = self.recent.iter().map(|s| s.text.clone()).collect();
-        let mut instruction = instruction.to_string();
+        let sys_tokens = count_tokens(&self.system);
 
-        let build = |retrieved: &[String], recent: &[String], instruction: &str| Prompt {
+        // The instruction comes after the system preamble; never let it exceed the budget.
+        let instr_budget = self.budget.saturating_sub(sys_tokens);
+        let instruction = truncate_tokens(instruction, instr_budget);
+        let mut remaining = instr_budget.saturating_sub(count_tokens(&instruction));
+
+        // Retrieved grounding fills next, line by line, until the budget is spent.
+        let mut retrieved = Vec::new();
+        for line in &self.retrieved {
+            let t = count_tokens(line);
+            if t <= remaining {
+                retrieved.push(line.clone());
+                remaining -= t;
+            }
+        }
+
+        // The verbatim recent window fills whatever is left, newest-first, but is rendered
+        // oldest-first for chronological order; the last admitted span is truncated to fit.
+        let mut recent_rev: Vec<String> = Vec::new();
+        for span in self.recent.iter().rev() {
+            if remaining == 0 {
+                break;
+            }
+            if span.tokens <= remaining {
+                recent_rev.push(span.text.clone());
+                remaining -= span.tokens;
+            } else {
+                recent_rev.push(truncate_tokens(&span.text, remaining));
+                remaining = 0;
+            }
+        }
+        recent_rev.reverse();
+
+        let prompt = Prompt {
             system: self.system.clone(),
-            retrieved: retrieved.to_vec(),
-            recent: recent.to_vec(),
+            retrieved,
+            recent: recent_rev,
             running_summary: String::new(),
-            instruction: instruction.to_string(),
+            instruction,
         };
-
-        // 1) Drop the oldest recent spans first: retrieved memory is the deliberately
-        //    chosen grounding for this call and outranks incidental recent chatter. Keep at
-        //    least the newest recent span for local continuity.
-        while build(&retrieved, &recent, &instruction).token_count() > self.budget
-            && recent.len() > 1
-        {
-            recent.remove(0);
-        }
-        // 2) Only if still over budget, drop retrieved lines from the least-relevant end.
-        while build(&retrieved, &recent, &instruction).token_count() > self.budget
-            && !retrieved.is_empty()
-        {
-            retrieved.pop();
-        }
-        // 3) Final guarantee: truncate the instruction itself to fit the budget.
-        let fixed = count_tokens(&self.system)
-            + recent.iter().map(|r| count_tokens(r)).sum::<usize>();
-        if fixed + count_tokens(&instruction) > self.budget {
-            let allow = self.budget.saturating_sub(fixed);
-            let words: Vec<&str> = instruction.split_whitespace().take(allow).collect();
-            instruction = words.join(" ");
-        }
-
-        let prompt = build(&retrieved, &recent, &instruction);
         debug_assert!(
             prompt.token_count() <= self.budget,
             "working-set invariant violated: {} > {}",
@@ -146,6 +155,19 @@ impl WorkingSet {
         );
         prompt
     }
+}
+
+/// Keep at most `max` whitespace tokens of `text`. The single primitive that lets
+/// [`WorkingSet::assemble`] guarantee its bound even against an oversized atomic span.
+fn truncate_tokens(text: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.len() <= max {
+        return text.trim().to_string();
+    }
+    words[..max].join(" ")
 }
 
 /// A span evicted from the live window, handed to the controller for compaction.
@@ -189,6 +211,17 @@ mod tests {
                 ws.budget()
             );
         }
+    }
+
+    #[test]
+    fn a_single_span_larger_than_budget_is_still_bounded() {
+        // The one genuine limit: an atomic input bigger than the whole window. It must be
+        // truncated into the prompt, never allowed to exceed the budget.
+        let mut ws = WorkingSet::new(20, "sys");
+        let huge = "word ".repeat(500);
+        ws.ingest(&span("raw-big", huge.trim()));
+        let prompt = ws.assemble("question here");
+        assert!(prompt.token_count() <= ws.budget(), "oversized span must not blow the bound");
     }
 
     #[test]

@@ -388,8 +388,18 @@ impl MemorySystem {
         &self.store
     }
     /// The current live working-set footprint (tokens), excluding the per-call instruction.
+    /// Note: this raw window total can momentarily hold one not-yet-evicted oversized span;
+    /// the *enforced* bound is on the assembled model-facing prompt — see
+    /// [`MemorySystem::peek_prompt_tokens`].
     pub fn working_footprint(&self) -> usize {
         self.working.footprint()
+    }
+
+    /// The token size of the bounded model-facing prompt that *would* be assembled right now
+    /// for `instruction`. This is the number the budget actually constrains, and it is always
+    /// `<= budget()`. Useful for observing the bounded-input invariant during ingest.
+    pub fn peek_prompt_tokens(&self, instruction: &str) -> usize {
+        self.working.assemble(instruction).token_count()
     }
     /// The configured working-set budget.
     pub fn budget(&self) -> usize {
