@@ -16,7 +16,9 @@
 //! machines and [`checksum_ok`] can certify "this index is intact and current"
 //! without refetching.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -133,15 +135,60 @@ fn index_path(tool: &str) -> PathBuf {
 /// dropping its `lint-index/<tool>.json` in — no language→tool table to edit.
 /// Returns the first checksum-valid match.
 pub fn for_language(lang: &str) -> Option<Index> {
+    // Memoize per language: this scans and parses every file in `lint-index/` on each call, so a
+    // busy run would re-read the whole directory repeatedly — the read pressure that, under
+    // parallel load, made a transient read fail and drop the index. Cache a real index only (never
+    // a `None`, which may be a transient miss), so the failure never sticks for the run.
+    static CACHE: OnceLock<Mutex<HashMap<String, Index>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(map) = cache.lock() {
+        if let Some(hit) = map.get(lang) {
+            return Some(hit.clone());
+        }
+    }
+    let found = for_language_uncached(lang);
+    if let (Ok(mut map), Some(idx)) = (cache.lock(), found.as_ref()) {
+        map.insert(lang.to_string(), idx.clone());
+    }
+    found
+}
+
+/// The actual directory scan (see [`for_language`], which memoizes this). Retries briefly on a
+/// transient directory-read error so the index is not dropped under parallel FS pressure.
+fn for_language_uncached(lang: &str) -> Option<Index> {
     let dir = workspace_root().join("lint-index");
-    for entry in std::fs::read_dir(&dir).ok()?.flatten() {
+    let entries = {
+        let mut got = None;
+        for attempt in 0..6 {
+            match std::fs::read_dir(&dir) {
+                Ok(rd) => {
+                    got = Some(rd);
+                    break;
+                }
+                Err(_) if attempt < 5 => std::thread::sleep(std::time::Duration::from_millis(3)),
+                Err(_) => return None,
+            }
+        }
+        got?
+    };
+    for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        let Ok(raw) = std::fs::read_to_string(&path) else {
-            continue;
-        };
+        // A transient per-file read error must not be mistaken for "no match" — retry briefly.
+        let mut raw = None;
+        for attempt in 0..6 {
+            match std::fs::read_to_string(&path) {
+                Ok(s) => {
+                    raw = Some(s);
+                    break;
+                }
+                Err(_) if attempt < 5 => std::thread::sleep(std::time::Duration::from_millis(3)),
+                Err(_) => break,
+            }
+        }
+        let Some(raw) = raw else { continue };
         let Ok(idx) = serde_json::from_str::<Index>(&raw) else {
             continue;
         };

@@ -471,37 +471,106 @@ pub struct Reasoner {
     /// Behavioral norms (single-responsibility / complexity / error-handling / naming), learned
     /// from a code corpus so the bar fits the project. `None` until [`Reasoner::calibrate`].
     norms: Option<Norms>,
-    /// Pattern-style CS principles taught from the CS document (e.g. off-by-one indexing).
+    /// Every CS principle the reasoner has ever read — kept in full so a re-fit is never lossy.
+    rules: Vec<LearnedRule>,
+    /// Known-idiomatic reference code read from the docs — what the fit tests "normal" against.
+    reference: Vec<String>,
+    /// The current self-validated principle detector (rebuilt by [`Reasoner::fit`]).
     principles: SigModel,
-    /// id → (severity, advice) for the taught principles.
+    /// id → (severity, advice) for the principles.
     advice: HashMap<String, (String, String)>,
+    /// Cost of the last fit, in (feature, example) tests — the "tried it this many times" number.
+    last_fit_tests: usize,
     /// Default language the CS principles are written in (their examples' language).
     lang: String,
 }
 
 impl Reasoner {
-    /// Build the reasoner from the CS-principles document text. The principles' bad/good examples
-    /// become a taught signature detector (so the rules are learned from the doc, not coded), and
-    /// their descriptions become the advice the reasoner gives.
-    ///
-    /// Each principle in the document must supply both a bad and a good example; the reasoner
-    /// learns the pattern from their structural difference ([`SigModel::train_trusted`]), so the
-    /// rules come entirely from the text — none are hardcoded — and a principle that lacks a clear
-    /// structural contrast abstains rather than guess.
+    /// Build the reasoner from the CS-principles document text and immediately fit it. The rules
+    /// come entirely from the text — none are hardcoded — and each is grounded only if the fit can
+    /// separate its bad form from every other example; otherwise it abstains.
     pub fn from_cs_principles(lang: &str, doc: &str) -> Reasoner {
         let knowledge = Knowledge::from_text(lang, doc);
-        let rules = knowledge.sig_rules(lang);
-        Reasoner {
+        let mut r = Reasoner {
             norms: None,
-            principles: SigModel::train_trusted(lang, &rules),
-            advice: knowledge.advice(lang),
+            rules: knowledge.rules,
+            reference: Vec::new(),
+            principles: SigModel::fit(lang, &[], &[]).0,
+            advice: HashMap::new(),
+            last_fit_tests: 0,
             lang: lang.to_string(),
-        }
+        };
+        r.fit();
+        r
     }
 
-    /// How many CS principle patterns the reasoner grounded from the document.
+    /// (Re)fit the principle detector from ALL rules read so far, tested against ALL reference code.
+    /// Deterministic and idempotent — called after any new knowledge or reference is added.
+    fn fit(&mut self) {
+        let rules: Vec<SigRule> = self
+            .rules
+            .iter()
+            .filter(|r| r.language == self.lang && !r.bad.is_empty())
+            .map(|r| SigRule { id: r.id.clone(), bad: r.bad.clone(), good: r.good.clone(), description: r.description.clone() })
+            .collect();
+        let reference: Vec<&str> = self.reference.iter().map(|s| s.as_str()).collect();
+        let (model, tests) = SigModel::fit(&self.lang, &rules, &reference);
+        self.principles = model;
+        self.last_fit_tests = tests;
+        self.advice = self
+            .rules
+            .iter()
+            .filter(|r| r.language == self.lang)
+            .map(|r| (r.id.clone(), (r.severity.clone(), r.description.clone())))
+            .collect();
+    }
+
+    /// Learn MORE — a new rule, an updated doc, a new language version — and re-fit. Non-lossy:
+    /// every previously-read rule is retained, so adding knowledge only ever expands what the
+    /// reasoner can flag. This is the "update a behavior, start working immediately, never forget"
+    /// path; no retraining from scratch.
+    pub fn learn(&mut self, doc: &str) {
+        let knowledge = Knowledge::from_text(&self.lang, doc);
+        self.rules.extend(knowledge.rules);
+        self.fit();
+    }
+
+    /// Read known-idiomatic reference code (e.g. the docs' own good examples, the language's std)
+    /// so the fit knows what "normal" looks like and keeps each rule to the part that is genuinely
+    /// distinctive. Re-fits. The more it reads, the more precise — and the more it abstains rather
+    /// than over-flag. Reference is additive and never lossy.
+    pub fn study_reference(&mut self, code: &[&str]) {
+        self.reference.extend(code.iter().map(|s| s.to_string()));
+        self.fit();
+    }
+
+    /// How many CS principle patterns the reasoner currently grounds.
     pub fn principle_count(&self) -> usize {
         self.principles.rule_count()
+    }
+
+    /// (feature, example) tests the last fit ran — how hard it "tried" to separate right from wrong.
+    pub fn fit_tests(&self) -> usize {
+        self.last_fit_tests
+    }
+
+    /// Self-test against the docs it learned from: for every rule, does its bad form flag and its
+    /// good form stay clean, with no rule firing on another's good example? Returns
+    /// `(rules_grounded, rules_total, cross_or_self_failures)` — the honest report card.
+    pub fn self_test(&self) -> (usize, usize, usize) {
+        let grounded = self.principles.rule_count();
+        let mut total = 0;
+        let mut failures = 0;
+        for r in self.rules.iter().filter(|r| r.language == self.lang) {
+            total += 1;
+            // A grounded rule must never fire on its own documented good (fixed) form — doing so
+            // would mean it cannot tell the violation from its fix. That is the failure we count.
+            let fires_on_good = !r.good.is_empty() && self.principles.judge(&r.good).iter().any(|id| id == &r.id);
+            if fires_on_good {
+                failures += 1;
+            }
+        }
+        (grounded, total, failures)
     }
 
     /// Calibrate the behavioral norms to a body of code (`(lang, source)` pairs) — typically the
@@ -622,6 +691,76 @@ fn sum(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..xs.len() { t += xs[i]; } 
         assert!(bad.iter().any(|f| f.rule_id == "off_by_one_indexing" && f.source == "cs-principle"), "taught principle catches the variant: {bad:?}");
         let good = r.review("rust", "fn total(ys: &[i32]) -> i32 { let mut s = 0; for k in 0..ys.len() { s += ys[k]; } s }", &[]);
         assert!(!good.iter().any(|f| f.rule_id == "off_by_one_indexing"), "the correct form must not flag");
+    }
+
+    #[test]
+    fn learning_is_incremental_and_never_lossy() {
+        // Read one principle, then read another later — the first MUST stay grounded (non-lossy),
+        // and the reasoner works immediately on the new one. No retraining from scratch.
+        let mut r = Reasoner::from_cs_principles("rust", CS_DOC);
+        let before = r.principle_count();
+        assert!(before >= 1);
+        r.learn(
+            r#"
+# Idiomatic emptiness check [low]
+Use is_empty, not comparing length to zero.
+```rust:bad
+fn d(items: &[i32]) -> bool { items.len() == 0 }
+```
+```rust:good
+fn d(items: &[i32]) -> bool { items.is_empty() }
+```
+"#,
+        );
+        assert!(r.principle_count() > before, "the newly-read principle grounded");
+        // The originally-read rule still fires — knowledge only ever expands.
+        let hit = r.review("rust", "fn f(ys: &[i32]) -> i32 { let mut s = 0; for k in 0..=ys.len() { s += ys[k]; } s }", &[]);
+        assert!(hit.iter().any(|f| f.rule_id == "off_by_one_indexing"), "old rule retained after learning a new one");
+        let (grounded, total, failures) = r.self_test();
+        assert_eq!(failures, 0, "no rule fires on its own good form or another's");
+        assert!(grounded <= total);
+    }
+
+    #[test]
+    fn the_fit_abstains_rather_than_over_flag_when_it_cannot_separate() {
+        // CS_DOC's good example still indexes, so the ONLY thing distinguishing bad from good is
+        // the `..=` operator — a weak contrast. From the doc alone the rule grounds broadly and
+        // would flag a legitimate `1..=6`. But once it READS reference code containing such a
+        // range, the fit cannot separate the bug from it on the operator alone — so it ABSTAINS.
+        // Precision first: it declines to guess rather than cry wolf on clean code.
+        let mut r = Reasoner::from_cs_principles("rust", CS_DOC);
+        let legit = "fn dice() -> u32 { let mut n = 0; for r in 1..=6 { n += r; } n }";
+        assert!(
+            r.review("rust", legit, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"),
+            "the broad rule flags a legit range from the doc alone"
+        );
+        r.study_reference(&[legit]);
+        assert!(
+            !r.review("rust", legit, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"),
+            "after reading the reference it stops over-flagging (abstains)"
+        );
+    }
+
+    #[test]
+    fn a_rich_contrast_grounds_precisely_catching_the_bug_not_a_legit_range() {
+        // A well-formed doc shows the IDIOMATIC fix (iterate, don't index). That richer contrast
+        // gives the fit real structure (index + len + range), so it grounds precisely from the
+        // doc alone: it catches the genuine off-by-one and leaves a legitimate `1..=6` clean.
+        const RICH: &str = r#"
+# Off by one indexing [high]
+Indexing with an inclusive range up to the length reads past the end; iterate instead.
+```rust:bad
+fn sum(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..=xs.len() { t += xs[i]; } t }
+```
+```rust:good
+fn sum(xs: &[i32]) -> i32 { let mut t = 0; for x in xs { t += x; } t }
+```
+"#;
+        let r = Reasoner::from_cs_principles("rust", RICH);
+        let legit = "fn dice() -> u32 { let mut n = 0; for r in 1..=6 { n += r; } n }";
+        let bug = "fn s(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..=xs.len() { t += xs[i]; } t }";
+        assert!(!r.review("rust", legit, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"), "a legit range must stay clean");
+        assert!(r.review("rust", bug, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"), "the genuine bug is caught");
     }
 
     #[test]

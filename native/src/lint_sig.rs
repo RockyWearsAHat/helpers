@@ -97,6 +97,23 @@ fn pins_local_name(feat: &str) -> bool {
         .any(|seg| seg.strip_prefix("identifier:").is_some_and(|head| !head.is_empty()))
 }
 
+/// Order candidate features most-specific first, so the greedy fit reaches for a meaningful
+/// structure (a named call/type, then a structural kind) before a bare operator on ties.
+fn order_features(mut pool: Vec<String>) -> Vec<String> {
+    fn rank(f: &str) -> u8 {
+        let leaf = f.rsplit('>').next().unwrap_or(f);
+        if leaf.starts_with("op:") {
+            2 // bare operator — least specific
+        } else if leaf.contains(':') {
+            0 // carries a value (call:len, field_identifier:len) — most specific
+        } else {
+            1 // structural kind (index_expression, binary_expression)
+        }
+    }
+    pool.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.cmp(b)));
+    pool
+}
+
 /// The set of construct values (node heads) present in `code`.
 fn value_set(lang: &str, code: &str) -> HashSet<String> {
     generic_features(lang, code)
@@ -197,29 +214,81 @@ impl SigModel {
         SigModel { lang: lang.to_string(), sigs }
     }
 
-    /// Train from rules that come WITH a good counter-example, trusting the **bad-vs-good diff**
-    /// as the distinctive signal rather than corpus rarity. This is the right mode for user-TAUGHT
-    /// principles: the author supplies both forms, so what is unique to the bad form *is* the
-    /// pattern — no corpus needed. (The corpus-based [`SigModel::train`] is for the harder case of
-    /// learning from docs that only show the bad form.) Local variable names are still excluded so
-    /// the signature matches the SHAPE, and a rule with fewer than [`STRUCT_MIN`] distinctive
-    /// features abstains rather than ground on something too generic.
-    pub fn train_trusted(lang: &str, rules: &[Rule]) -> SigModel {
+    /// **Self-validating fit** — the "read the docs, then test, repeatedly, until it reliably tells
+    /// right from wrong" loop, made deterministic. For each documented rule it grows the *minimal*
+    /// set of structural features that fires on the rule's bad form but matches **none** of the
+    /// negatives — the rule's own good form, every other rule's examples, and the `reference`
+    /// (known-idiomatic code read from the docs). A rule whose bad form cannot be separated from
+    /// every negative ABSTAINS rather than guess, so the model never learns a pattern it cannot
+    /// defend against everything it has seen. This is what lets it generalize from a tiny example:
+    /// the example says *what* is wrong, the reference corpus says what is *normal*, and the fit
+    /// keeps only the difference. Returns the model and the number of (feature, example) tests run.
+    pub fn fit(lang: &str, rules: &[Rule], reference: &[&str]) -> (SigModel, usize) {
+        let bad_feats: Vec<HashSet<String>> = rules.iter().map(|r| feature_set(lang, &r.bad)).collect();
+        let good_feats: Vec<HashSet<String>> =
+            rules.iter().map(|r| if r.good.is_empty() { HashSet::new() } else { feature_set(lang, &r.good) }).collect();
+        let ref_feats: Vec<HashSet<String>> = reference.iter().map(|c| feature_set(lang, c)).collect();
+
         let mut sigs = Vec::new();
-        for r in rules {
-            if r.bad.is_empty() || r.good.is_empty() {
-                continue; // trusted training requires both forms to take the diff
+        let mut tests = 0usize;
+        for (i, r) in rules.iter().enumerate() {
+            if r.bad.is_empty() {
+                continue;
             }
-            let good = feature_set(lang, &r.good);
-            let struct_feats: Vec<String> = feature_set(lang, &r.bad)
-                .into_iter()
-                .filter(|f| !good.contains(f) && !pins_local_name(f))
-                .collect();
-            if struct_feats.len() >= STRUCT_MIN {
-                sigs.push(RuleSig { id: r.id.clone(), ground: Ground::Structure, struct_feats, desc_values: Vec::new() });
+            // Candidate features: distinctive vs the rule's own fix, never pinning a local name.
+            let pool = order_features(
+                bad_feats[i]
+                    .iter()
+                    .filter(|f| !good_feats[i].contains(*f) && !pins_local_name(f))
+                    .cloned()
+                    .collect(),
+            );
+            if pool.is_empty() {
+                continue;
+            }
+            // Negatives this rule must NOT match: its own good, every sibling example, the reference.
+            let mut negatives: Vec<&HashSet<String>> = Vec::new();
+            if !r.good.is_empty() {
+                negatives.push(&good_feats[i]);
+            }
+            for (j, rj) in rules.iter().enumerate() {
+                if j == i {
+                    continue;
+                }
+                negatives.push(&bad_feats[j]);
+                if !rj.good.is_empty() {
+                    negatives.push(&good_feats[j]);
+                }
+            }
+            negatives.extend(ref_feats.iter());
+
+            // Greedy minimal cover: repeatedly add the feature that breaks (is absent from) the most
+            // still-fully-matching negatives, until none remain — or until no feature makes progress.
+            let mut chosen: Vec<String> = Vec::new();
+            let mut unbroken: Vec<&HashSet<String>> = negatives;
+            while !unbroken.is_empty() {
+                let mut best: Option<(&String, usize)> = None;
+                for f in pool.iter().filter(|f| !chosen.contains(*f)) {
+                    let breaks = unbroken.iter().filter(|n| !n.contains(f.as_str())).count();
+                    tests += unbroken.len();
+                    if best.map(|(_, b)| breaks > b).unwrap_or(true) {
+                        best = Some((f, breaks));
+                    }
+                }
+                match best {
+                    Some((f, breaks)) if breaks > 0 => {
+                        let f = f.clone();
+                        unbroken.retain(|n| n.contains(f.as_str()));
+                        chosen.push(f);
+                    }
+                    _ => break, // no remaining feature separates a negative → cannot ground
+                }
+            }
+            if unbroken.is_empty() && !chosen.is_empty() {
+                sigs.push(RuleSig { id: r.id.clone(), ground: Ground::Structure, struct_feats: chosen, desc_values: Vec::new() });
             }
         }
-        SigModel { lang: lang.to_string(), sigs }
+        (SigModel { lang: lang.to_string(), sigs }, tests)
     }
 
     /// Number of rules the model could ground (and will therefore ever flag).
