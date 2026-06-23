@@ -89,6 +89,11 @@ pub enum Tokenizer {
     Lexer,
     /// A learned byte-pair tokenizer.
     Learned(crate::lint_bpe::Bpe),
+    /// A **structural** representation: the AST node-kind stream + salient features from
+    /// [`crate::lint_ast::structural_tokens`] for the given language. The model reasons over
+    /// code STRUCTURE, so sibling rules and literal-vs-variable cases that look identical to a
+    /// flat token bag become separable.
+    Ast { lang: String },
 }
 
 impl Default for Tokenizer {
@@ -104,6 +109,9 @@ impl Tokenizer {
         match self {
             Tokenizer::Lexer => tokenize(code).into_iter().map(|t| t.text).collect(),
             Tokenizer::Learned(bpe) => bpe.tokenize(code),
+            Tokenizer::Ast { lang } => {
+                crate::lint_ast::structural_tokens(lang, code).into_iter().map(|(t, _)| t).collect()
+            }
         }
     }
 
@@ -115,6 +123,7 @@ impl Tokenizer {
                 tokenize(code).into_iter().map(|t| (t.text, t.line)).collect()
             }
             Tokenizer::Learned(bpe) => bpe.tokenize_located(code),
+            Tokenizer::Ast { lang } => crate::lint_ast::structural_tokens(lang, code),
         }
     }
 }
@@ -206,6 +215,13 @@ impl Moe {
     /// cap strictly inside its nearest clean window, so no clean code it learned can trip it.
     pub fn train_precise(examples: &[Example], clean: &[&str], filter: u32, cap: u32, topk: usize) -> Moe {
         Self::train_with_opts(examples, clean, filter, cap, topk, Tokenizer::Lexer, false)
+    }
+
+    /// Train precision-first over the **structural** (AST) representation for `lang`. The model
+    /// reasons over code structure, so it can separate good from bad and tell sibling rules
+    /// apart where a flat token model cannot. This is the configuration the linter should ship.
+    pub fn train_ast(examples: &[Example], clean: &[&str], filter: u32, cap: u32, topk: usize, lang: &str) -> Moe {
+        Self::train_with_opts(examples, clean, filter, cap, topk, Tokenizer::Ast { lang: lang.to_string() }, false)
     }
 
     /// Train as [`Moe::train`], but over an arbitrary `tok` representation. Swapping in a
