@@ -122,5 +122,17 @@ fn main() {
         }
         println!("        siblings:{sib}");
     }
+
+    // Recursive MoE: split each slice into sub-experts of <= cap signals. If routing
+    // interference was capping recall, finer experts reach signals a single overloaded expert
+    // drowned — more rules answered at the same precision. cap=0 is the flat baseline.
+    println!("\n--- recursive MoE (structural, f=1400, topk=4): does the net hold more? ---");
+    for cap in [0usize, 12, 6, 3] {
+        let m = Moe::train_recursive(&examples, &calib_refs, 1400, 1400, 4, "rust", cap);
+        let (experts, _sigs) = m.stats();
+        let label = if cap == 0 { "flat".to_string() } else { format!("cap={cap}") };
+        print!("{label:8} experts={experts:<4} ");
+        measure("", &m, &examples, &held);
+    }
     println!("\n(trained in {:.0}s)", t.elapsed().as_secs_f64());
 }
