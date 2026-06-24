@@ -318,11 +318,31 @@ pub fn generic_features(lang: &str, code: &str) -> Vec<(String, usize)> {
         return Vec::new();
     };
     let mut out = Vec::new();
-    generic_walk(tree.root_node(), None, code.as_bytes(), &mut out);
+    generic_walk(tree.root_node(), None, None, code.as_bytes(), &mut out);
     out
 }
 
-fn generic_walk(node: Node, parent: Option<&str>, src: &[u8], out: &mut Vec<(String, usize)>) {
+/// True when `node` introduces a nested SCOPE for its descendants — a loop, function, class,
+/// conditional, `try`, `with`/`match` arm: anything whose body is a block. Detected generically
+/// (the node has a block-like child), not by a hardcoded kind list, so it holds across grammars.
+/// This is what lets the trace ask "is this construct INSIDE a loop?" without naming any rule.
+fn opens_scope(node: Node) -> bool {
+    let mut c = node.walk();
+    for ch in node.children(&mut c) {
+        let k = ch.kind();
+        if k == "block" || k == "suite" || k == "consequence" || k.contains("block") || k.ends_with("body") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Walk the tree emitting, per named/operator node: its label, its parent→child edge, AND a
+/// RELATIONAL trace feature — the label qualified by its nearest enclosing scope (`in:for_statement>
+/// break_statement:break` vs `in:function_definition>break_statement:break`). The scope is threaded
+/// down as we descend, so a rule internalized from its example can turn on WHERE a construct lives —
+/// a `break` outside a loop, a `return` inside an `__init__` — not just the construct's local shape.
+fn generic_walk(node: Node, parent: Option<&str>, scope: Option<&'static str>, src: &[u8], out: &mut Vec<(String, usize)>) {
     let mut here = parent.map(str::to_string);
     // Named nodes get a full label; unnamed nodes are emitted only when they are OPERATORS
     // (`==`, `..=`, `/`, `&`) — real tree content the rule may turn on — never structural
@@ -338,11 +358,15 @@ fn generic_walk(node: Node, parent: Option<&str>, src: &[u8], out: &mut Vec<(Str
         if let Some(p) = parent {
             out.push((format!("{p}>{label}"), line));
         }
+        if let Some(s) = scope {
+            out.push((format!("in:{s}>{label}"), line));
+        }
         here = Some(label);
     }
+    let child_scope = if opens_scope(node) { Some(node.kind()) } else { scope };
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        generic_walk(child, here.as_deref(), src, out);
+        generic_walk(child, here.as_deref(), child_scope, src, out);
     }
 }
 
