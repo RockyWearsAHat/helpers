@@ -22,7 +22,7 @@
 //! plain text/markdown document. The CS principles, a language module, a house style — all of it
 //! is "a document you hand it," and every layer learns from that same shape.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -549,6 +549,19 @@ impl Reasoner {
         self.principles.rule_count()
     }
 
+    /// A human-readable list of what the reasoner judges against: the grounded principle ids plus
+    /// the always-on behavioral checks. Surfaced so a report can say what it checked.
+    pub fn knowledge_summary(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .rules
+            .iter()
+            .filter(|r| r.language == self.lang && self.principles.judge(&r.bad).iter().any(|id| id == &r.id))
+            .map(|r| r.id.clone())
+            .collect();
+        out.push("single-responsibility / complexity / error-handling / naming (behavioral)".to_string());
+        out
+    }
+
     /// (feature, example) tests the last fit ran — how hard it "tried" to separate right from wrong.
     pub fn fit_tests(&self) -> usize {
         self.last_fit_tests
@@ -633,6 +646,241 @@ impl Reasoner {
         out.retain(|f| seen.insert((f.line, f.rule_id.clone())));
         out.sort_by_key(|f| f.line);
         out
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Whole-repository review: read the entire folder, then talk back in English.
+// ---------------------------------------------------------------------------------------------
+
+/// One file's place in a repository review.
+pub struct FileReport {
+    /// Path relative to the repository root.
+    pub path: String,
+    /// Detected language (by extension).
+    pub language: String,
+    /// Whether the file could be analyzed (we have a parser/bank for its language). A file we can
+    /// read but not deeply parse is reported honestly rather than silently skipped.
+    pub analyzed: bool,
+    /// Findings in this file.
+    pub findings: Vec<Finding>,
+}
+
+/// A whole-repository review: the project picture plus every file's findings, renderable as an
+/// English report a person can read.
+pub struct RepoReport {
+    /// The repository root that was read.
+    pub root: String,
+    /// Per-file reports, in path order.
+    pub files: Vec<FileReport>,
+    /// Source-file counts per language.
+    pub by_language: BTreeMap<String, usize>,
+    /// Languages found that have no parser/bank, so they were read but not linted.
+    pub unanalyzed_languages: BTreeMap<String, usize>,
+    /// The principle/module names the review checked against — what the reasoner knows.
+    pub knowledge: Vec<String>,
+}
+
+impl RepoReport {
+    /// Total findings across the repository.
+    pub fn total_findings(&self) -> usize {
+        self.files.iter().map(|f| f.findings.len()).sum()
+    }
+
+    /// Files with at least one finding.
+    pub fn flagged_files(&self) -> usize {
+        self.files.iter().filter(|f| !f.findings.is_empty()).count()
+    }
+
+    /// True when nothing was flagged — the repository follows every principle the reasoner learned.
+    pub fn is_clean(&self) -> bool {
+        self.total_findings() == 0
+    }
+
+    /// Findings bucketed by severity across the whole repo: `(high, medium, low)`.
+    pub fn severity_counts(&self) -> (usize, usize, usize) {
+        let (mut hi, mut me, mut lo) = (0, 0, 0);
+        for f in &self.files {
+            for fi in &f.findings {
+                match fi.severity.as_str() {
+                    "high" => hi += 1,
+                    "low" => lo += 1,
+                    _ => me += 1,
+                }
+            }
+        }
+        (hi, me, lo)
+    }
+
+    /// Render the review as an English report: what it read, the verdict, the issues (grouped so a
+    /// rule repeated across a file reads as one line, highest-severity first), what it could not
+    /// analyze, and the knowledge it judged against. This is the "talk back in English" the linter
+    /// is for — readable, not a wall of one-line-per-occurrence noise.
+    pub fn to_english(&self) -> String {
+        let mut s = String::new();
+        let analyzed: usize = self.by_language.values().sum();
+        let langs: Vec<String> = self.by_language.iter().map(|(l, n)| format!("{l} ({n})")).collect();
+        s.push_str(&format!("I read {} and looked at {analyzed} source file(s): {}.\n\n", self.root, langs.join(", ")));
+
+        if self.is_clean() {
+            s.push_str("Verdict: CLEAN. Every file I could analyze follows the principles I learned.\n");
+        } else {
+            let (hi, me, lo) = self.severity_counts();
+            s.push_str(&format!(
+                "Verdict: {} issue(s) across {} of {analyzed} file(s) — {hi} high, {me} medium, {lo} low. Highest-severity first.\n",
+                self.total_findings(),
+                self.flagged_files()
+            ));
+        }
+
+        for f in &self.files {
+            if f.findings.is_empty() {
+                continue;
+            }
+            s.push_str(&format!("\n{}\n", f.path));
+            for line in group_findings(&f.findings) {
+                s.push_str(&format!("  {line}\n"));
+            }
+        }
+
+        if !self.unanalyzed_languages.is_empty() {
+            let u: Vec<String> = self.unanalyzed_languages.iter().map(|(l, n)| format!("{l} ({n})")).collect();
+            s.push_str(&format!(
+                "\nI read but could not deeply analyze these (no parser learned yet): {}.\n",
+                u.join(", ")
+            ));
+        }
+        if !self.knowledge.is_empty() {
+            s.push_str(&format!("\nJudged against what I learned: {}.\n", self.knowledge.join(", ")));
+        }
+        s
+    }
+}
+
+/// Severity rank for ordering (high first).
+fn severity_rank(sev: &str) -> u8 {
+    match sev {
+        "high" => 0,
+        "low" => 2,
+        _ => 1,
+    }
+}
+
+/// Collapse a file's findings into readable English lines: one line per distinct (source, rule),
+/// carrying the advice once and the lines it occurred on (capped), ordered highest-severity first.
+/// So 30 `print_stdout` hits read as a single "×30 (lines …)" line, not 30 lines of noise.
+fn group_findings(findings: &[Finding]) -> Vec<String> {
+    // key -> (severity, source, advice, lines)
+    let mut groups: Vec<(String, String, String, String, Vec<usize>)> = Vec::new();
+    for f in findings {
+        let advice = if f.message.is_empty() { format!("violates `{}`", f.rule_id) } else { f.message.clone() };
+        let key = format!("{}|{}", f.source, f.rule_id);
+        if let Some(g) = groups.iter_mut().find(|g| g.0 == key) {
+            g.4.push(f.line);
+        } else {
+            groups.push((key, f.severity.clone(), f.source.clone(), advice, vec![f.line]));
+        }
+    }
+    groups.sort_by(|a, b| severity_rank(&a.1).cmp(&severity_rank(&b.1)).then_with(|| b.4.len().cmp(&a.4.len())));
+    groups
+        .into_iter()
+        .map(|(_, sev, source, advice, mut lines)| {
+            lines.sort_unstable();
+            let count = lines.len();
+            let shown: Vec<String> = lines.iter().take(6).map(|l| l.to_string()).collect();
+            let more = if count > 6 { format!(", +{} more", count - 6) } else { String::new() };
+            let occ = if count == 1 { format!("L{}", lines[0]) } else { format!("×{count} (lines {}{more})", shown.join(", ")) };
+            format!("[{sev}] [{source}] {advice}  {occ}")
+        })
+        .collect()
+}
+
+/// Map a file extension to a language tag — by name only, so it works for any project with no
+/// toolchain installed. The tree-sitter grammars compiled into the binary cover these; a file in
+/// any other language is read and reported, but not deeply linted.
+fn language_of(path: &Path) -> Option<&'static str> {
+    match path.extension().and_then(|e| e.to_str())? {
+        "rs" => Some("rust"),
+        "py" => Some("python"),
+        "js" | "mjs" | "cjs" | "jsx" => Some("javascript"),
+        "ts" | "tsx" => Some("typescript"),
+        "go" => Some("go"),
+        "java" => Some("java"),
+        "c" | "h" => Some("c"),
+        "cpp" | "cc" | "hpp" => Some("cpp"),
+        "rb" => Some("ruby"),
+        _ => None,
+    }
+}
+
+/// We can deeply analyze a language only if a tree-sitter grammar is compiled in for it.
+fn have_parser(lang: &str) -> bool {
+    matches!(lang, "rust" | "python" | "javascript" | "typescript" | "go")
+}
+
+/// Walk a directory tree collecting source files, skipping the usual generated/vendor folders.
+fn walk_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if matches!(n, "target" | ".git" | "node_modules" | ".helpers" | "dist" | "build" | "vendor" | "__pycache__") {
+                continue;
+            }
+            walk_sources(&p, out);
+        } else if language_of(&p).is_some() {
+            out.push(p);
+        }
+    }
+}
+
+/// Read an entire repository and review it: detect each file's language by name (no toolchain
+/// needed), pull the modules each language needs from `registry` lazily, and judge every parseable
+/// file with `reasoner` (floor + taught principles + behavioral norms + modules). Files in a
+/// language with no parser are read and reported, not silently dropped. Returns a [`RepoReport`]
+/// that renders to English.
+pub fn review_repository(root: &Path, reasoner: &Reasoner, registry: &mut ModuleRegistry) -> RepoReport {
+    let mut files_on_disk = Vec::new();
+    walk_sources(root, &mut files_on_disk);
+    files_on_disk.sort();
+
+    let mut by_language: BTreeMap<String, usize> = BTreeMap::new();
+    let mut unanalyzed_languages: BTreeMap<String, usize> = BTreeMap::new();
+    let mut reports = Vec::new();
+    // Cache modules per language so the registry pulls each at most once for the whole repo.
+    let mut modules_by_lang: HashMap<String, Vec<LintModule>> = HashMap::new();
+
+    for path in &files_on_disk {
+        let Some(lang) = language_of(path) else { continue };
+        let rel = path.strip_prefix(root).unwrap_or(path).display().to_string();
+        let Ok(code) = std::fs::read_to_string(path) else { continue };
+
+        if !have_parser(lang) {
+            *unanalyzed_languages.entry(lang.to_string()).or_default() += 1;
+            reports.push(FileReport { path: rel, language: lang.to_string(), analyzed: false, findings: Vec::new() });
+            continue;
+        }
+        *by_language.entry(lang.to_string()).or_default() += 1;
+
+        let modules = modules_by_lang.entry(lang.to_string()).or_insert_with(|| {
+            registry
+                .select(&[lang.to_string()])
+                .iter()
+                .filter_map(|id| registry.load(id).cloned())
+                .collect()
+        });
+        let refs: Vec<&LintModule> = modules.iter().collect();
+        let findings = reasoner.review(lang, &code, &refs);
+        reports.push(FileReport { path: rel, language: lang.to_string(), analyzed: true, findings });
+    }
+
+    RepoReport {
+        root: root.display().to_string(),
+        files: reports,
+        by_language,
+        unanalyzed_languages,
+        knowledge: reasoner.knowledge_summary(),
     }
 }
 
@@ -761,6 +1009,27 @@ fn sum(xs: &[i32]) -> i32 { let mut t = 0; for x in xs { t += x; } t }
         let bug = "fn s(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..=xs.len() { t += xs[i]; } t }";
         assert!(!r.review("rust", legit, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"), "a legit range must stay clean");
         assert!(r.review("rust", bug, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"), "the genuine bug is caught");
+    }
+
+    #[test]
+    fn repo_review_reads_a_folder_and_talks_back_in_english() {
+        let dir = std::env::temp_dir().join(format!("repo_review_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/clean.rs"), "fn add(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
+        std::fs::write(dir.join("src/buggy.rs"), "fn f(x: bool) -> bool {\n    if x == true { return true; }\n    x\n}\n").unwrap();
+
+        let reasoner = Reasoner::from_cs_principles("rust", CS_DOC);
+        let mut reg = ModuleRegistry::open(dir.join("nostore"));
+        let report = review_repository(&dir, &reasoner, &mut reg);
+
+        assert_eq!(report.by_language.get("rust").copied(), Some(2), "read both rust files");
+        assert!(!report.is_clean(), "the buggy file must produce findings");
+        let english = report.to_english();
+        assert!(english.contains("Verdict:"), "report reads as English");
+        assert!(english.contains("bool_comparison"), "the `== true` is reported: {english}");
+        assert!(english.contains("buggy.rs"), "the offending file is named");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

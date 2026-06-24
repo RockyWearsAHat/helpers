@@ -379,6 +379,15 @@ fn generic_label(node: Node, src: &[u8]) -> String {
                         let suffix: String = suffix.chars().rev().collect();
                         return format!("{kind}:{suffix}");
                     }
+                    // Keep the value ONLY for small boundary constants (0, 1, 2): these carry
+                    // correctness meaning — `== 0`, `len - 1`, index `0` — so a comparison-to-zero
+                    // stays distinguishable from arithmetic on another number. Larger/arbitrary
+                    // numbers are still reduced to the bare kind, so we never memorize data.
+                    if let Ok(n) = t.trim().parse::<i64>() {
+                        if n.abs() <= 2 {
+                            return format!("{kind}:{n}");
+                        }
+                    }
                 }
             }
             return kind.to_string();
