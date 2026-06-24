@@ -308,42 +308,43 @@ pub struct LintModule {
     pub version: String,
     /// Where it was trained from — provenance for auditability.
     pub provenance: String,
-    /// The trained signature detector.
-    sig: SigModel,
+    /// The lossless rule patterns: one generalized sub-tree pattern per rule, compiled from its
+    /// example. Matched by EXACT sub-tree containment, so scope and co-reference fall out of the
+    /// tree — no lossy feature bag, no per-relation code.
+    patterns: Vec<PatRule>,
     /// id → (severity, advice) so flags carry their message without re-reading the docs.
     advice: HashMap<String, (String, String)>,
 }
 
+/// A rule's compiled pattern alongside its id, so a match carries the rule it proves.
+#[derive(Clone, Serialize, Deserialize)]
+struct PatRule {
+    rule_id: String,
+    pattern: crate::lint_match::RulePattern,
+}
+
 impl LintModule {
-    /// Train and pack a module for `lang` from `knowledge`. This is the "train once" step; the
-    /// result is serialized and shared so no machine repeats it. It uses the **self-validating
-    /// fit**: every rule is tested against all the other rules' examples AND the documented good
-    /// (idiomatic) forms, and is kept only if it separates the violation from all of them —
-    /// otherwise it abstains. Precision over coverage, so the module does not over-flag (an import
-    /// line is not mistaken for a write-amount bug).
+    /// Train and pack a module for `lang` from `knowledge` — the "train once" step, serialized and
+    /// reused anywhere. Each rule becomes a LOSSLESS generalized sub-tree pattern from its bad/good
+    /// example (`lint_match`); a rule whose example carries no distinctive structure compiles to
+    /// nothing and is skipped (abstain). No statistics, no reference corpus: the pattern IS the rule.
     pub fn pack(id: &str, version: &str, provenance: &str, lang: &str, knowledge: &Knowledge) -> LintModule {
-        let rules = knowledge.sig_rules(lang);
-        // Reference = "what's normal in this language": the documented good forms PLUS every real
-        // code block the crawler read across the whole docs site. Calibrating distinctiveness against
-        // this large real sample (not just a handful of good examples) is what stops the fit from
-        // grounding a feature that is merely absent from the docs but common in real code (`== <lit>`,
-        // a bare `break`) — the cause of the context-insensitive false positives. A feature must be
-        // genuinely rare HERE to be trusted, otherwise the rule abstains.
-        let mut reference: Vec<String> = knowledge
-            .rules
-            .iter()
-            .filter(|r| r.language == lang && !r.good.is_empty())
-            .map(|r| r.good.clone())
-            .collect();
-        reference.extend(knowledge.reference.iter().cloned());
-        let reference_refs: Vec<&str> = reference.iter().map(|s| s.as_str()).collect();
-        let (sig, _tests) = SigModel::fit(lang, &rules, &reference_refs);
+        let mut patterns = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for r in &knowledge.rules {
+            if r.language != lang || r.bad.is_empty() || !seen.insert(r.id.clone()) {
+                continue;
+            }
+            if let Some(pattern) = crate::lint_match::RulePattern::compile(lang, &r.bad, &r.good, &r.description) {
+                patterns.push(PatRule { rule_id: r.id.clone(), pattern });
+            }
+        }
         LintModule {
             id: id.to_string(),
             languages: vec![lang.to_string()],
             version: version.to_string(),
             provenance: provenance.to_string(),
-            sig,
+            patterns,
             advice: knowledge.advice(lang),
         }
     }
@@ -353,23 +354,34 @@ impl LintModule {
         self.languages.iter().any(|l| l == lang)
     }
 
-    /// Rules this module could ground (and will therefore ever flag).
+    /// Rules this module can flag (compiled to a precise pattern).
     pub fn rule_count(&self) -> usize {
-        self.sig.rule_count()
+        self.patterns.len()
     }
 
-    /// Lint `code`: every taught pattern whose signature is present, with its advice.
+    /// Lint `code`: every rule whose generalized pattern occurs (exact sub-tree match), with advice.
     pub fn review(&self, lang: &str, code: &str) -> Vec<Finding> {
         if !self.applies_to(lang) {
             return Vec::new();
         }
-        judge_by_function(&self.sig, lang, code)
-            .into_iter()
-            .map(|(line, rule)| {
-                let (sev, msg) = self.advice.get(&rule).cloned().unwrap_or_else(|| ("medium".to_string(), String::new()));
-                Finding { line, rule_id: rule, severity: sev, source: format!("module:{}", self.id), message: msg }
-            })
-            .collect()
+        let mut out = Vec::new();
+        for pr in &self.patterns {
+            for line in pr.pattern.matches(code) {
+                let (sev, msg) = self
+                    .advice
+                    .get(&pr.rule_id)
+                    .cloned()
+                    .unwrap_or_else(|| ("medium".to_string(), String::new()));
+                out.push(Finding {
+                    line,
+                    rule_id: pr.rule_id.clone(),
+                    severity: sev,
+                    source: format!("module:{}", self.id),
+                    message: msg,
+                });
+            }
+        }
+        out
     }
 
     /// Pack to JSON — the artifact you store/share.
