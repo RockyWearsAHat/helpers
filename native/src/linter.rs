@@ -887,7 +887,10 @@ fn walk_sources(dir: &Path, out: &mut Vec<PathBuf>) {
         let p = e.path();
         if p.is_dir() {
             let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            if matches!(n, "target" | ".git" | "node_modules" | ".helpers" | "dist" | "build" | "vendor" | "__pycache__") {
+            // Prune dependency trees and build output (the same set the index walker skips) — a
+            // review is about the PROJECT's own code, not the thousands of files under `.venv`,
+            // `node_modules`, etc., which would otherwise dominate every count.
+            if crate::index::walk::SKIP_DIRS.contains(&n) {
                 continue;
             }
             walk_sources(&p, out);

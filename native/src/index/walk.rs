@@ -13,21 +13,40 @@ pub struct WalkedFile {
     pub ext: String,
 }
 
-/// Directories we never index even when not gitignored (build output, vcs, our
-/// own index, dependency trees).
-const SKIP_DIRS: &[&str] = &[
+/// Directories we never index even when not gitignored (build output, vcs, our own index, and —
+/// crucially — dependency trees, which are NOT the project's own code and would swamp a review with
+/// thousands of third-party findings). Shared so every walker (index + review) prunes identically.
+pub const SKIP_DIRS: &[&str] = &[
     ".git",
     ".helpers",
+    // dependency trees (JS / Python / general)
     "node_modules",
+    "vendor",
+    ".venv",
+    "venv",
+    "env",
+    ".env",
+    "site-packages",
+    "bower_components",
+    "Pods",
+    // build / generated output
     "target",
     "dist",
     "build",
     "out",
-    "vendor",
-    ".venv",
-    "__pycache__",
     ".next",
+    ".nuxt",
+    ".svelte-kit",
+    // caches / tooling
+    "__pycache__",
     ".cache",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".gradle",
+    "coverage",
+    ".idea",
 ];
 
 /// Skip files larger than this — they are almost never source worth indexing.
