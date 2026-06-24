@@ -89,6 +89,11 @@ pub struct LearnedRule {
 pub struct Knowledge {
     /// Every rule-candidate this knowledge carries.
     pub rules: Vec<LearnedRule>,
+    /// Real code the source served alongside the rules (every code block on every crawled doc page).
+    /// It is the "what's normal in this language" sample the fit calibrates distinctiveness against:
+    /// a feature is only trusted to mark a violation if it is genuinely RARE here, not merely absent
+    /// from the handful of documented good examples. Empty when learning from a plain text document.
+    pub reference: Vec<String>,
 }
 
 impl Knowledge {
@@ -109,7 +114,7 @@ impl Knowledge {
                 });
             }
         }
-        Ok(Knowledge { rules })
+        Ok(Knowledge { rules, reference: Vec::new() })
     }
 
     /// Learn from a plain **text / markdown document**. This is how a user hands the system their
@@ -209,7 +214,7 @@ impl Knowledge {
                 rules.push(r);
             }
         }
-        Knowledge { rules }
+        Knowledge { rules, reference: Vec::new() }
     }
 
     /// Fold another body of knowledge in (later rules win on id collision within a language).
@@ -319,13 +324,19 @@ impl LintModule {
     /// line is not mistaken for a write-amount bug).
     pub fn pack(id: &str, version: &str, provenance: &str, lang: &str, knowledge: &Knowledge) -> LintModule {
         let rules = knowledge.sig_rules(lang);
-        // Reference = the documented good forms — known-idiomatic code the fit tests "normal" against.
-        let reference: Vec<String> = knowledge
+        // Reference = "what's normal in this language": the documented good forms PLUS every real
+        // code block the crawler read across the whole docs site. Calibrating distinctiveness against
+        // this large real sample (not just a handful of good examples) is what stops the fit from
+        // grounding a feature that is merely absent from the docs but common in real code (`== <lit>`,
+        // a bare `break`) — the cause of the context-insensitive false positives. A feature must be
+        // genuinely rare HERE to be trusted, otherwise the rule abstains.
+        let mut reference: Vec<String> = knowledge
             .rules
             .iter()
             .filter(|r| r.language == lang && !r.good.is_empty())
             .map(|r| r.good.clone())
             .collect();
+        reference.extend(knowledge.reference.iter().cloned());
         let reference_refs: Vec<&str> = reference.iter().map(|s| s.as_str()).collect();
         let (sig, _tests) = SigModel::fit(lang, &rules, &reference_refs);
         LintModule {
@@ -384,9 +395,13 @@ pub struct ModuleEntry {
     pub id: String,
     /// Languages it lints — used to decide whether a project needs it.
     pub languages: Vec<String>,
-    /// Trained-from version.
+    /// Trained-from version (the project toolchain version the docs were matched to). Staleness is
+    /// decided by comparing this to the project's current toolchain version.
     #[serde(default)]
     pub version: String,
+    /// ISO timestamp the artifact was learned/packed — provenance and a tie-breaker for refresh.
+    #[serde(default)]
+    pub fetched_at: String,
     /// Artifact location relative to the store root (a `<id>.json` file; could be a remote URL in
     /// a networked deployment — resolved lazily either way).
     pub location: String,
@@ -423,6 +438,12 @@ impl ModuleRegistry {
         &self.entries
     }
 
+    /// The manifest entry of a module serving `lang`, if any — used to decide staleness (compare its
+    /// `version` to the project's current toolchain version) without loading the artifact.
+    pub fn entry_for_lang(&self, lang: &str) -> Option<&ModuleEntry> {
+        self.entries.iter().find(|e| e.languages.iter().any(|l| l == lang))
+    }
+
     /// The ids of modules a project in `langs` needs — the lazy-load shortlist.
     pub fn select(&self, langs: &[String]) -> Vec<String> {
         self.entries
@@ -455,6 +476,7 @@ impl ModuleRegistry {
             id: module.id.clone(),
             languages: module.languages.clone(),
             version: module.version.clone(),
+            fetched_at: crate::util::now_iso(),
             location,
         });
         let manifest = Manifest { modules: self.entries.clone() };
@@ -1036,22 +1058,23 @@ fn d(items: &[i32]) -> bool { items.is_empty() }
     }
 
     #[test]
-    fn the_fit_abstains_rather_than_over_flag_when_it_cannot_separate() {
-        // CS_DOC's good example still indexes, so the ONLY thing distinguishing bad from good is
-        // the `..=` operator — a weak contrast. From the doc alone the rule grounds broadly and
-        // would flag a legitimate `1..=6`. But once it READS reference code containing such a
-        // range, the fit cannot separate the bug from it on the operator alone — so it ABSTAINS.
-        // Precision first: it declines to guess rather than cry wolf on clean code.
-        let mut r = Reasoner::from_cs_principles("rust", CS_DOC);
+    fn a_constraining_feature_makes_even_a_weak_contrast_precise() {
+        // CS_DOC's good example still INDEXES (`0..xs.len()`), so `..=` vs `..` is the only
+        // discriminating contrast — historically too weak: the signature was a lone `..=` operator
+        // and flagged a legitimate `1..=6`. The fit now anchors that signature on the co-occurring
+        // `.len()` call (a constraining feature present in the bad example), so it requires `..=`
+        // AND a `.len()` nearby. Result: it catches the real off-by-one and leaves `1..=6` clean —
+        // precise from the doc alone, no reference reading needed.
+        let r = Reasoner::from_cs_principles("rust", CS_DOC);
         let legit = "fn dice() -> u32 { let mut n = 0; for r in 1..=6 { n += r; } n }";
-        assert!(
-            r.review("rust", legit, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"),
-            "the broad rule flags a legit range from the doc alone"
-        );
-        r.study_reference(&[legit]);
+        let bug = "fn s(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..=xs.len() { t += xs[i]; } t }";
         assert!(
             !r.review("rust", legit, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"),
-            "after reading the reference it stops over-flagging (abstains)"
+            "a legitimate inclusive range stays clean (no lone-operator over-flag)"
+        );
+        assert!(
+            r.review("rust", bug, &[]).iter().any(|f| f.rule_id == "off_by_one_indexing"),
+            "the genuine `0..=xs.len()` off-by-one is still caught"
         );
     }
 

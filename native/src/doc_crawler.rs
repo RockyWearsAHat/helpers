@@ -24,6 +24,10 @@ pub struct Page {
     /// `(local prose, code)` pairs — each snippet with the explanation right before it. This is
     /// the clean training material; `prose`/`code` are kept for inspection.
     pub sections: Vec<(String, String)>,
+    /// The raw fetched body. Kept so a caller can run a structure-aware per-page extractor (e.g. a
+    /// rule page's ordered `<pre>` blocks + incorrect/correct markers) instead of the lossy
+    /// flattened sections. Held only for the lifetime of the returned crawl.
+    pub html: String,
 }
 
 /// Decode the handful of HTML entities that actually appear in docs prose/code.
@@ -56,7 +60,7 @@ fn decode_entities(s: &str) -> String {
 }
 
 /// Remove HTML tags from a fragment, decode entities, collapse whitespace.
-fn strip_tags(html: &str) -> String {
+pub fn strip_tags(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut in_tag = false;
     for c in html.chars() {
@@ -70,6 +74,31 @@ fn strip_tags(html: &str) -> String {
     decode_entities(&out).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Like [`strip_tags`], but for CODE: removes tags and decodes entities while PRESERVING line
+/// structure. Prose collapses all whitespace (a paragraph is one logical line), but code is
+/// newline-significant — collapsing a multi-line snippet onto one line makes it unparseable (a
+/// `for`/`break`/`def` body vanishes), which silently destroys every multi-line example the model
+/// learns from. Trailing spaces per line are trimmed and surrounding blank lines dropped.
+pub fn strip_code(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    decode_entities(&out)
+        .lines()
+        .map(|l| l.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim_matches('\n')
+        .to_string()
+}
+
 /// Extract the contents of every `<pre …>…</pre>` and `<code …>…</code>` block as code text.
 pub fn extract_code_blocks(html: &str) -> Vec<String> {
     let mut blocks = Vec::new();
@@ -81,7 +110,7 @@ pub fn extract_code_blocks(html: &str) -> Vec<String> {
             let body_start = start + gt + 1;
             let Some(end_rel) = rest[body_start..].find(close) else { break };
             let body = &rest[body_start..body_start + end_rel];
-            let code = strip_tags(body);
+            let code = strip_code(body);
             if code.len() >= 3 {
                 blocks.push(code);
             }
@@ -156,6 +185,17 @@ fn collect_json_strings(v: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+/// The largest byte index `<= i` that lies on a UTF-8 char boundary of `s` (a stable stand-in for
+/// the unstable `str::floor_char_boundary`). Slicing at a raw byte offset computed by arithmetic can
+/// land inside a multi-byte char and panic; flooring it first keeps the slice safe.
+fn floor_char_boundary(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 /// The last `n` whitespace-separated words of `s`, in order — the local lead-in prose.
 fn words_tail(s: &str, n: usize) -> String {
     let w: Vec<&str> = s.split_whitespace().collect();
@@ -177,9 +217,11 @@ pub fn extract_sections_html(html: &str) -> Vec<(String, String)> {
             let Some(gt) = after_open.find('>') else { break };
             let body_start = start + gt + 1;
             let Some(end_rel) = h[body_start..].find(close) else { break };
-            let code = strip_tags(&h[body_start..body_start + end_rel]);
-            // Local context: the ~1500 chars of markup before this block, tag-stripped, last words.
-            let ctx_start = start.saturating_sub(1500);
+            let code = strip_code(&h[body_start..body_start + end_rel]);
+            // Local context: the ~1500 bytes of markup before this block, tag-stripped, last words.
+            // Floor the window start to a char boundary — `start - 1500` can land inside a multi-byte
+            // char (docs prose has emoji/punctuation), which would panic the slice.
+            let ctx_start = floor_char_boundary(&h, start.saturating_sub(1500));
             let local = words_tail(&strip_tags(&h[ctx_start..start]), 40);
             if code.len() >= 3 && local.len() >= 8 {
                 out.push((local, code));
@@ -457,7 +499,7 @@ mod net {
                 std::thread::sleep(Duration::from_millis(delay_ms));
             }
             eprintln!("crawled {} ({} sections; {} pages, {} queued)", url, sections.len(), pages.len() + 1, heap.len());
-            pages.push(Page { url, prose: extract_prose(&body), code: extract_code_blocks(&body), sections });
+            pages.push(Page { url, prose: extract_prose(&body), code: extract_code_blocks(&body), sections, html: body });
         }
         pages
     }
@@ -515,6 +557,24 @@ mod tests {
         let json = r#"{"id":"x","docs":"Avoid this.\n```rust\nfoo.unwrap()\n```"}"#;
         let secs = extract("application/json", json);
         assert!(secs.iter().any(|(_, c)| c.contains("unwrap")), "json-embedded code extracted: {secs:?}");
+    }
+
+    #[test]
+    fn context_window_across_multibyte_char_does_not_panic() {
+        // A `<pre>` preceded by prose containing a multi-byte char positioned so the 1500-byte
+        // look-back window starts inside that char — the real ruff-docs crash. Must not panic.
+        let prose = format!("{}🛠 fast linter", "x".repeat(1490));
+        let html = format!("<p>{prose}</p><pre>code here</pre>");
+        let secs = extract_sections_html(&html);
+        assert!(secs.iter().any(|(_, c)| c.contains("code here")), "code extracted: {secs:?}");
+    }
+
+    #[test]
+    fn floor_char_boundary_never_splits_a_char() {
+        let s = "ab🛠cd"; // '🛠' is 4 bytes at offsets 2..6
+        assert_eq!(floor_char_boundary(s, 3), 2, "floors into the emoji back to its start");
+        assert_eq!(floor_char_boundary(s, 2), 2, "already a boundary stays put");
+        assert_eq!(floor_char_boundary(s, 100), s.len(), "clamped to len");
     }
 
     #[test]

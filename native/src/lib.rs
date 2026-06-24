@@ -16,6 +16,7 @@ pub mod lint_bpe;
 pub mod lint_brain;
 pub mod lint_moe;
 pub mod lint_checkers;
+pub mod lint_docs;
 #[cfg(feature = "gpu")]
 pub mod lint_gpu;
 #[cfg(feature = "gpu")]
