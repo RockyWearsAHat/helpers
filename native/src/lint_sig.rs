@@ -97,6 +97,60 @@ fn pins_local_name(feat: &str) -> bool {
         .any(|seg| seg.strip_prefix("identifier:").is_some_and(|head| !head.is_empty()))
 }
 
+/// A feature is LITERAL NOISE when it pins an example's arbitrary literal data — the text of a
+/// string, or a specific numeric value (`re.sub("abc"…)`'s `"abc"`, a magic `5`). Like a local
+/// name, it is example-specific and would over-narrow a signature, so it is excluded from the
+/// constraining features. Keyword constants (`none:None`, `true:True`) are NOT noise — they are
+/// part of a rule's meaning ("compare to None") and are exactly what should constrain a match.
+fn is_literal_noise(feat: &str) -> bool {
+    let leaf = feat.rsplit('>').next().unwrap_or(feat);
+    if leaf.starts_with("string_content") || leaf.starts_with("string_start") || leaf.starts_with("string_end") {
+        return true;
+    }
+    matches!(leaf.rsplit_once(':'), Some((_, v)) if !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// How many lines apart a signature's features may sit and still count as ONE construct. Rule
+/// examples are small; a genuine match's features cluster tightly. A wider span means the features
+/// come from different statements — a phantom match — so it is rejected.
+const LOCAL_WINDOW: usize = 4;
+
+/// The line of a LOCAL structural match: a line `a` carrying a required feature such that EVERY
+/// required feature also occurs within `[a - LOCAL_WINDOW, a + LOCAL_WINDOW]`. `None` when the
+/// features never cluster that tightly — i.e. they are scattered across the function, not a single
+/// construct. `(feature, line)` pairs come straight from the AST walk, so this is real co-location.
+fn local_match_line(feats: &[(String, usize)], required: &[String]) -> Option<usize> {
+    let req: HashSet<&str> = required.iter().map(String::as_str).collect();
+    let mut anchors: Vec<usize> = feats
+        .iter()
+        .filter(|(f, _)| req.contains(f.as_str()))
+        .map(|(_, l)| *l)
+        .collect();
+    anchors.sort_unstable();
+    anchors.dedup();
+    for a in anchors {
+        let (lo, hi) = (a.saturating_sub(LOCAL_WINDOW), a + LOCAL_WINDOW);
+        let near: HashSet<&str> = feats
+            .iter()
+            .filter(|(_, l)| *l >= lo && *l <= hi)
+            .map(|(f, _)| f.as_str())
+            .collect();
+        if required.iter().all(|f| near.contains(f.as_str())) {
+            return Some(a);
+        }
+    }
+    None
+}
+
+/// A feature is SPECIFIC when it names a concrete construct — a call/type/field/keyword-constant
+/// value (`call:sub`, `none:None`), as opposed to a bare operator (`op:!=`) or a structural kind
+/// (`comparison_operator`). A signature anchored only on operators/kinds matches any expression of
+/// that shape; requiring one specific feature is what makes it match the RULE, not the shape.
+fn is_specific_feature(feat: &str) -> bool {
+    let leaf = feat.rsplit('>').next().unwrap_or(feat);
+    leaf.contains(':') && !leaf.starts_with("op:") && !is_literal_noise(feat) && !pins_local_name(feat)
+}
+
 /// Order candidate features most-specific first, so the greedy fit reaches for a meaningful
 /// structure (a named call/type, then a structural kind) before a bare operator on ties.
 fn order_features(mut pool: Vec<String>) -> Vec<String> {
@@ -246,6 +300,18 @@ impl SigModel {
             if pool.is_empty() {
                 continue;
             }
+            // Constraining features: every non-noise feature the bad example HAS (specific first),
+            // INCLUDING ones it shares with the fix. These don't separate bad from good on their own
+            // (that's `pool`'s job) but they narrow WHAT the signature matches — e.g. `none:None`
+            // turns a bare `op:!=` signature into "a `!=` comparison against None", so it no longer
+            // fires on `len(a) != len(b)`.
+            let constrain_pool = order_features(
+                bad_feats[i]
+                    .iter()
+                    .filter(|f| !pins_local_name(f) && !is_literal_noise(f))
+                    .cloned()
+                    .collect(),
+            );
             // Negatives this rule must NOT match: its own good, every sibling example, the reference.
             let mut negatives: Vec<&HashSet<String>> = Vec::new();
             if !r.good.is_empty() {
@@ -285,13 +351,23 @@ impl SigModel {
                 }
             }
             if unbroken.is_empty() && !chosen.is_empty() {
+                // Anchor on a concrete construct. A cover made only of operators/structural kinds
+                // (`op:!=`, `comparison_operator`) matches any expression of that shape, not the rule
+                // — the `!= None` → fires on `len(a) != len(b)` class. If nothing chosen is specific,
+                // add the bad example's most specific constraining feature (a named call/type or a
+                // keyword constant like `none:None`), so the match requires that construct too.
+                if !chosen.iter().any(|f| is_specific_feature(f)) {
+                    if let Some(c) = constrain_pool.iter().find(|f| is_specific_feature(f) && !chosen.contains(*f)) {
+                        chosen.push(c.clone());
+                    }
+                }
                 // Require at least STRUCT_MIN features for a trustworthy signature. If one feature
                 // happened to separate the (necessarily incomplete) negatives, a lone token can
                 // still match unrelated code outside the reference — e.g. `op:..=` alone would flag
-                // a legitimate `1..=6`. Pad with the bad example's next most-specific features (the
-                // pool is ordered specific-first), which the bad example has by construction, so the
-                // signature constrains on real co-occurring structure without losing the true match.
-                for f in &pool {
+                // a legitimate `1..=6`. Pad with the bad example's next most-specific constraining
+                // features, which the bad example has by construction, so the signature constrains on
+                // real co-occurring structure without losing the true match.
+                for f in &constrain_pool {
                     if chosen.len() >= STRUCT_MIN {
                         break;
                     }
@@ -316,34 +392,36 @@ impl SigModel {
         (s, self.sigs.len() - s)
     }
 
-    /// Flag `code`: every rule whose whole signature is present, located at the first line that
-    /// carries a signature feature. One hit per rule per source (a rule either applies or not).
+    /// Flag `code`: every rule whose whole signature is present AND LOCAL — its features co-occur
+    /// within a few lines of one another, the way they do in the rule's own (small) example — not
+    /// merely scattered somewhere in the function. Whole-function presence let unrelated statements
+    /// (a `zip` here, a slice there) form a phantom match; requiring locality ties the signature to a
+    /// single construct. One hit per rule per source.
     pub fn judge_located(&self, code: &str) -> Vec<Hit> {
         let feats = generic_features(&self.lang, code);
         if feats.is_empty() {
             return Vec::new();
         }
-        let present: HashSet<&str> = feats.iter().map(|(f, _)| f.as_str()).collect();
         let values: HashSet<&str> = feats.iter().filter_map(|(f, _)| feature_value(f)).collect();
 
         let mut hits = Vec::new();
         for sig in &self.sigs {
-            let structural_ok = !sig.struct_feats.is_empty()
-                && sig.struct_feats.iter().all(|f| present.contains(f.as_str()));
+            // Structural: all required features must appear within one LOCAL_WINDOW span.
+            let structural_line = (!sig.struct_feats.is_empty())
+                .then(|| local_match_line(&feats, &sig.struct_feats))
+                .flatten();
+            // Descriptive: the named constructs must be present (values are name-level, not local).
             let descriptive_ok = !sig.desc_values.is_empty()
                 && sig.desc_values.iter().all(|v| values.contains(v.as_str()));
-            if !(structural_ok || descriptive_ok) {
-                continue;
-            }
-            // Locate at the first line carrying any required feature/value.
-            let line = feats
-                .iter()
-                .find(|(f, _)| {
-                    sig.struct_feats.iter().any(|s| s == f)
-                        || feature_value(f).is_some_and(|v| sig.desc_values.iter().any(|d| d == v))
-                })
-                .map(|(_, l)| *l)
-                .unwrap_or(1);
+            let line = match (structural_line, descriptive_ok) {
+                (Some(l), _) => l,
+                (None, true) => feats
+                    .iter()
+                    .find(|(f, _)| feature_value(f).is_some_and(|v| sig.desc_values.iter().any(|d| d == v)))
+                    .map(|(_, l)| *l)
+                    .unwrap_or(1),
+                (None, false) => continue,
+            };
             hits.push(Hit { line, rule: sig.id.clone() });
         }
         hits
