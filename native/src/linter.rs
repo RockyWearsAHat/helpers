@@ -27,7 +27,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::lint_checkers;
 use crate::lint_semantic::{function_sources, functions, Norms, Principle};
 use crate::lint_sig::{Rule as SigRule, SigModel};
 
@@ -624,21 +623,13 @@ impl Reasoner {
     /// norms (if calibrated), and every plugged-in module — returning one composed, de-duplicated
     /// list of findings, each tagged with where it came from.
     pub fn review(&self, lang: &str, code: &str, modules: &[&LintModule]) -> Vec<Finding> {
-        let lines: Vec<&str> = code.lines().collect();
         let mut out: Vec<Finding> = Vec::new();
 
-        // 1) Deterministic floor — exact, zero false positives.
-        if let Some(set) = lint_checkers::assemble(lang) {
-            for h in set.run(&lines) {
-                out.push(Finding {
-                    line: h.line,
-                    rule_id: h.rule_id,
-                    severity: h.severity,
-                    source: "floor".to_string(),
-                    message: String::new(),
-                });
-            }
-        }
+        // (The former "deterministic floor" — a bank of regexes generated offline by
+        // gen-lint-checkers — was retired: a single-method regex (`.join(`, `.array(`) cannot
+        // express a context-dependent rule, so it over-flagged clean code. Those same rules are now
+        // learned LIVE from the docs by the signature module below, which has the AST/real-code
+        // calibration to apply them precisely. Learned-from-docs replaces the static rulebook.)
 
         // 2) Taught CS principles — patterns learned from the CS document, judged per function.
         if lang == self.lang {
@@ -966,6 +957,33 @@ pub fn review_repository(root: &Path, reasoner: &mut Reasoner, registry: &mut Mo
         reports.push(FileReport { path: rel.clone(), language: lang.clone(), analyzed: true, findings });
     }
 
+    // Project calibration of the module layer. A learned signature that fires across a large share of
+    // the project's files is matching the project's OWN idiom — e.g. numpy `[:, None]` indexing read
+    // as a "list copy" in scientific code — not a defect. "Calibrate the bar to the project's own
+    // idiomatic code": suppress those rules so the module surfaces the rare, genuine issues instead of
+    // the codebase's prevalent patterns. (The docs taught the rule; the project says what's normal HERE.)
+    let analyzed = by_language.values().sum::<usize>().max(1);
+    let idiom_threshold = (analyzed / 10).max(5); // fires in ≥10% of files (min 5) ⇒ a project idiom
+    let mut module_files: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for fr in &reports {
+        for f in &fr.findings {
+            if f.source.starts_with("module:") {
+                module_files.entry(f.rule_id.clone()).or_default().insert(fr.path.clone());
+            }
+        }
+    }
+    let idiom_rules: std::collections::HashSet<String> = module_files
+        .into_iter()
+        .filter(|(_, files)| files.len() >= idiom_threshold)
+        .map(|(rule, _)| rule)
+        .collect();
+    if !idiom_rules.is_empty() {
+        for fr in &mut reports {
+            fr.findings
+                .retain(|f| !(f.source.starts_with("module:") && idiom_rules.contains(&f.rule_id)));
+        }
+    }
+
     RepoReport {
         root: root.display().to_string(),
         files: reports,
@@ -1109,17 +1127,29 @@ fn sum(xs: &[i32]) -> i32 { let mut t = 0; for x in xs { t += x; } t }
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("src/clean.rs"), "fn add(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
-        std::fs::write(dir.join("src/buggy.rs"), "fn f(x: bool) -> bool {\n    if x == true { return true; }\n    x\n}\n").unwrap();
+        // The buggy file carries the off-by-one the CS document teaches — the engine's own
+        // learned-from-docs principle, not the retired regex floor — so the end-to-end review is
+        // exercised through the layer that actually judges now.
+        std::fs::write(
+            dir.join("src/buggy.rs"),
+            "fn s(xs: &[i32]) -> i32 {\n    let mut t = 0;\n    for i in 0..=xs.len() { t += xs[i]; }\n    t\n}\n",
+        )
+        .unwrap();
 
         let mut reasoner = Reasoner::from_cs_principles("rust", CS_DOC);
-        let mut reg = ModuleRegistry::open(dir.join("nostore"));
+        // Pack the rule into a module and publish it — the production path. A module judges directly
+        // (it is not calibrated away by the repo the way a taught principle is), so the lone bug is
+        // still caught, the way the live-learned language module catches it on a real project.
+        let mut reg = ModuleRegistry::open(dir.join("store"));
+        let module = LintModule::pack("rust-cs", "test", "unit", "rust", &Knowledge::from_text("rust", CS_DOC));
+        reg.publish(&module).unwrap();
         let report = review_repository(&dir, &mut reasoner, &mut reg);
 
         assert_eq!(report.by_language.get("rust").copied(), Some(2), "read both rust files");
         assert!(!report.is_clean(), "the buggy file must produce findings");
         let english = report.to_english();
         assert!(english.contains("Verdict:"), "report reads as English");
-        assert!(english.contains("bool_comparison"), "the `== true` is reported: {english}");
+        assert!(english.contains("Off by one indexing"), "the off-by-one is reported: {english}");
         assert!(english.contains("buggy.rs"), "the offending file is named");
         let _ = std::fs::remove_dir_all(&dir);
     }

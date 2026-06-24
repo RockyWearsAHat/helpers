@@ -49,66 +49,6 @@ pub fn known_docs_url(lang: &str, version: &str) -> Option<DocsSource> {
     Some(DocsSource { url, crawl, tool: tool.to_string() })
 }
 
-/// The official LANGUAGE docs to crawl for a sample of NORMAL, idiomatic code — the "what does
-/// normal code look like" corpus the fit calibrates distinctiveness against. It is the other half of
-/// the learn-by-crawling idea: a violation is a shape common in the *linter* docs but RARE here, so
-/// the model needs to read real usage to tell a genuine anti-pattern (`zip(x, x[1:])`) from a common
-/// construct (`zip`, `break`, a slice). A code-rich, bounded subtree of the language's own docs.
-pub fn language_corpus_url(lang: &str) -> Option<String> {
-    Some(match lang {
-        "python" => "https://docs.python.org/3/tutorial/".to_string(),
-        "rust" => "https://doc.rust-lang.org/rust-by-example/".to_string(),
-        "javascript" | "typescript" => {
-            "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide".to_string()
-        }
-        "go" => "https://go.dev/tour/".to_string(),
-        _ => return None,
-    })
-}
-
-/// Crawl a language-docs subtree and return every distinct code block — a sample of normal code in
-/// the language, for distinctiveness calibration. Best-effort and network-only; an empty result just
-/// means the fit falls back to the (sparser) linter-doc good examples.
-#[cfg(feature = "crawl")]
-pub fn crawl_code_corpus(url: &str, max_pages: usize) -> Vec<String> {
-    use crate::doc_crawler::crawl;
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for p in crawl(&[url], max_pages, 50) {
-        for c in p.code {
-            let c = strip_interactive_prompts(&c);
-            if c.len() >= 8 && seen.insert(c.clone()) {
-                out.push(c);
-            }
-        }
-    }
-    out
-}
-
-/// Normalize an interactive-interpreter (doctest / REPL) code block to plain source: keep the lines
-/// that carry a `>>> ` / `... ` prompt (stripped of it), drop the rest (they are program OUTPUT, not
-/// code). Many official docs — notably the Python tutorial — present code this way; left as-is it
-/// fails to parse (every line an ERROR node), so it would teach the model NOTHING about what normal
-/// code looks like. A block with no prompt is returned unchanged.
-#[cfg(feature = "crawl")]
-fn strip_interactive_prompts(code: &str) -> String {
-    if !code.lines().any(|l| l.trim_start().starts_with(">>>")) {
-        return code.to_string();
-    }
-    code.lines()
-        .filter_map(|l| {
-            let t = l.trim_start();
-            for p in [">>> ", "... "] {
-                if let Some(rest) = t.strip_prefix(p) {
-                    return Some(rest.to_string());
-                }
-            }
-            matches!(t, ">>>" | "...").then(String::new)
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// The clippy lint-list page URLs to try, in order: the exact Rust version, then `stable`, then
 /// `master`. A clean dev toolchain matches the first version-pinned page (`rust-<version>/`); an
 /// unreleased/nightly version falls back so learning still succeeds rather than 404-ing. Each page

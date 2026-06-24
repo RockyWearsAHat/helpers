@@ -406,27 +406,14 @@ fn module_fresh(registry: &ModuleRegistry, lang: &str, version: &str) -> bool {
 #[cfg(feature = "crawl")]
 fn learn_known(registry: &mut ModuleRegistry, lang: &str, version: &str) -> Option<String> {
     let src = lint_docs::known_docs_url(lang, version)?;
-    let mut knowledge = if lang == "rust" {
+    let knowledge = if lang == "rust" {
         // Clippy ships a structured lints.json per Rust version (pinned → stable → master fallback).
         lint_docs::learn_clippy(lang, version, MAX_CRAWL_PAGES)
     } else {
         lint_docs::learn_from_url(lang, &src, MAX_CRAWL_PAGES)
     };
-    // Companion crawl: read the language's OWN docs for a sample of normal code, so distinctiveness
-    // is calibrated against real usage. Without it, common constructs (zip/break/slice) look rare in
-    // the sparse linter-doc examples and get mistaken for violation signatures — the over-broad
-    // false positives. A violation is what's common in the linter docs but RARE in real code.
-    if let Some(corpus_url) = lint_docs::language_corpus_url(lang) {
-        knowledge.reference.extend(lint_docs::crawl_code_corpus(&corpus_url, LANG_CORPUS_PAGES));
-    }
     publish_knowledge(registry, lang, version, &src.tool, knowledge)
 }
-
-/// How many pages of the language's own docs to crawl for the normal-code distinctiveness corpus.
-/// A bounded, code-rich subtree (the tutorial / by-example) is plenty to mark common constructs as
-/// common; the result is folded into the cached module, so this is paid once per version.
-#[cfg(feature = "crawl")]
-const LANG_CORPUS_PAGES: usize = 80;
 
 /// Without the crawler compiled in, the engine cannot learn over the network — it reuses caches and
 /// asks the agent for docs instead.

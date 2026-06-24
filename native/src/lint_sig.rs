@@ -104,7 +104,14 @@ fn pins_local_name(feat: &str) -> bool {
 /// part of a rule's meaning ("compare to None") and are exactly what should constrain a match.
 fn is_literal_noise(feat: &str) -> bool {
     let leaf = feat.rsplit('>').next().unwrap_or(feat);
-    if leaf.starts_with("string_content") || leaf.starts_with("string_start") || leaf.starts_with("string_end") {
+    // Comment text is prose the example author wrote, never part of the violation's shape — pinning
+    // it both over-narrows (only matches that exact comment) and lets junk like `# Timezone: UTC-14`
+    // become a "signature". String contents and bare numeric literals are example-specific data.
+    if leaf.starts_with("comment:")
+        || leaf.starts_with("string_content")
+        || leaf.starts_with("string_start")
+        || leaf.starts_with("string_end")
+    {
         return true;
     }
     matches!(leaf.rsplit_once(':'), Some((_, v)) if !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()))
@@ -289,11 +296,12 @@ impl SigModel {
             if r.bad.is_empty() {
                 continue;
             }
-            // Candidate features: distinctive vs the rule's own fix, never pinning a local name.
+            // Candidate features: distinctive vs the rule's own fix, never pinning a local name or
+            // example-specific noise (a comment, a literal value) — those don't generalize.
             let pool = order_features(
                 bad_feats[i]
                     .iter()
-                    .filter(|f| !good_feats[i].contains(*f) && !pins_local_name(f))
+                    .filter(|f| !good_feats[i].contains(*f) && !pins_local_name(f) && !is_literal_noise(f))
                     .cloned()
                     .collect(),
             );
@@ -360,6 +368,14 @@ impl SigModel {
                     if let Some(c) = constrain_pool.iter().find(|f| is_specific_feature(f) && !chosen.contains(*f)) {
                         chosen.push(c.clone());
                     }
+                }
+                // ABSTAIN when the signature names no concrete construct. A cover of only operators
+                // and structural kinds (`op:%` + `binary_operator`, an `if` + an `attribute`) is just
+                // a shape — it matches any `"…" % x`, any conditional — so it cannot identify the RULE
+                // (string-as-SQL, a min/max ternary). Such rules need semantics the syntax doesn't
+                // carry; flagging on shape alone is the over-broad false positive. Precision first.
+                if !chosen.iter().any(|f| is_specific_feature(f)) {
+                    continue;
                 }
                 // Require at least STRUCT_MIN features for a trustworthy signature. If one feature
                 // happened to separate the (necessarily incomplete) negatives, a lone token can
