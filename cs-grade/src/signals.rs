@@ -5,6 +5,7 @@
 //! Counts use non-overlapping left-to-right matching, exactly like JavaScript's
 //! `String.prototype.match` with a global flag.
 
+use crate::lang::{LangProfile, Vocab};
 use crate::project::{read_text, Project};
 use regex::Regex;
 
@@ -26,6 +27,11 @@ const PATTERNS: &[&str] = &[
 
 /// All derived metrics the rubric scores against.
 pub struct Signals {
+    /// Detected language name (for the report header).
+    pub lang: &'static str,
+    /// Per-language report wording used by the scorers.
+    pub vocab: Vocab,
+
     pub src_files: usize,
     pub test_files: usize,
 
@@ -82,27 +88,24 @@ fn line_count(text: &str) -> usize {
 
 impl Signals {
     /// Derive every rubric metric from a scanned `Project` in one pass, applying
-    /// the same regexes and corpora as the original `git-cs-grade.js`.
-    pub fn compute(project: &Project) -> Signals {
+    /// `profile`'s language-specific patterns over the project corpora.
+    pub fn compute(project: &Project, profile: &LangProfile) -> Signals {
         let joined = &project.joined;
         let test_corpus = &project.test_corpus;
         let src_files = project.src_files.len();
         let test_files = project.test_files.len();
 
-        let public_decls = count(
-            r"\bpublic\s+(?:static\s+)?(?:final\s+)?(?:abstract\s+)?(?:class|interface|enum|[\w<>\[\]]+\s+\w+\s*\()",
-            joined,
-        );
-        let javadoc_blocks = count(r"/\*\*[\s\S]*?\*/", joined);
+        let public_decls = count(profile.public_decl, joined);
+        let javadoc_blocks = count(profile.doc_block, joined);
         let javadoc_ratio = if public_decls > 0 {
             (javadoc_blocks as f64 / public_decls as f64).min(1.0)
         } else {
             0.0
         };
 
-        let interface_count = count(r"\binterface\s+\w+", joined);
-        let class_count = count(r"\bclass\s+\w+", joined).max(1);
-        let abstract_count = count(r"\babstract\s+class\s+\w+", joined);
+        let interface_count = count(profile.interface_decl, joined);
+        let class_count = count(profile.type_decl, joined).max(1);
+        let abstract_count = count(profile.abstract_decl, joined);
 
         let pattern_hits: Vec<String> = PATTERNS
             .iter()
@@ -110,14 +113,16 @@ impl Signals {
             .map(|p| p.to_string())
             .collect();
 
-        // MVC probe runs over the source corpus concatenated with every Java
-        // file's relative path (tests included), with no separator between.
-        let java_rel_joined = project
-            .java_files()
+        // MVC probe runs over the source corpus concatenated with every
+        // language file's relative path (tests included), with no separator
+        // between. MVC naming is language-agnostic (it matches identifiers and
+        // directory names), so it stays the same across languages.
+        let lang_rel_joined = project
+            .lang_files()
             .map(|i| project.files[i].rel.clone())
             .collect::<Vec<_>>()
             .join("\n");
-        let mvc_hay = format!("{joined}{java_rel_joined}");
+        let mvc_hay = format!("{joined}{lang_rel_joined}");
         let has_model = has(
             r"(?i)(^|/)model(s)?(/|\.|$)|class\s+\w*Model\b|interface\s+\w*Model\b",
             &mvc_hay,
@@ -132,26 +137,25 @@ impl Signals {
         );
         let mvc_score = has_model as usize + has_view as usize + has_controller as usize;
 
-        let junit_usage = has(r"org\.junit|@Test", &format!("{test_corpus}{joined}"));
+        let junit_usage = has(profile.test_framework, &format!("{test_corpus}{joined}"));
         let test_ratio = if src_files > 0 {
             (test_files as f64 / src_files as f64).min(1.0)
         } else {
             0.0
         };
-        let assertion_count = count(r"\bassert\w*\s*\(", test_corpus);
+        let assertion_count = count(profile.assertion, test_corpus);
 
-        let build_re =
-            Regex::new(r"(^|/)(pom\.xml|build\.gradle(\.kts)?|build\.xml|Makefile)$").unwrap();
+        let build_re = Regex::new(profile.build_files).unwrap();
         let build_files: Vec<String> = project
             .files
             .iter()
             .filter(|f| build_re.is_match(&f.rel))
             .map(|f| f.rel.clone())
             .collect();
-        let uses_packages = count(r"(?m)^\s*package\s+[\w.]+;", joined);
-        let src_layout_re = Regex::new(r"(^|/)src/").unwrap();
+        let uses_packages = count(profile.module_decl, joined);
+        let src_layout_re = Regex::new(profile.src_layout).unwrap();
         let uses_src_layout = project
-            .java_files()
+            .lang_files()
             .any(|i| src_layout_re.is_match(&project.files[i].rel));
 
         let readme_re = Regex::new(r"(?i)readme(\.md|\.txt)?$").unwrap();
@@ -198,10 +202,7 @@ impl Signals {
             r"(?i)\bO\([^)]+\)|big-?o|asymptotic|time complexity",
             &big_o_hay,
         );
-        let uses_good_structures = has(
-            r"\b(HashMap|HashSet|TreeMap|TreeSet|PriorityQueue|ArrayDeque|LinkedList|ArrayList)\b",
-            joined,
-        );
+        let uses_good_structures = has(profile.good_structures, joined);
 
         let god_classes: Vec<String> = project
             .src_files
@@ -209,15 +210,18 @@ impl Signals {
             .filter(|&&i| line_count(&project.read(i)) > 400)
             .map(|&i| project.files[i].rel.clone())
             .collect();
-        let long_method_hits = count(r"\{[^{}]{1600,}\}", joined);
-        let debug_prints = count(r"System\.out\.print|printStackTrace\(", joined);
+        // Brace-free languages (e.g. Python) opt out of the long-body probe.
+        let long_method_hits = profile
+            .long_method
+            .map(|pat| count(pat, joined))
+            .unwrap_or(0);
+        let debug_prints = count(profile.debug_print, joined);
         let todo_markers = count(r"\b(TODO|FIXME|XXX|HACK)\b", joined);
-        let commented_code = count(
-            r"(?m)^\s*//\s*(if|for|while|return|System\.|int |String |public |private )",
-            joined,
-        );
+        let commented_code = count(profile.commented_code, joined);
 
         Signals {
+            lang: profile.name,
+            vocab: profile.vocab,
             src_files,
             test_files,
             public_decls,

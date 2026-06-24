@@ -44,3 +44,22 @@ fn auto_detects_cs3500_for_oo_project() {
     let (grade, ..) = evaluate(&fixture("sample"), "auto");
     assert_eq!(grade.course, "cs3500");
 }
+
+/// A non-Java project must be detected as its real language and graded on its
+/// own merits — not handed an automatic F for containing zero `.java` files
+/// (the bug this multi-language support fixes).
+#[test]
+fn rust_project_is_detected_and_graded_on_its_merits() {
+    let (grade, src, test) = evaluate(&fixture("rust"), "full");
+    assert_eq!(grade.lang, "Rust");
+    assert!(src >= 2, "expected the Rust source files, found {src}");
+    assert!(test >= 1, "expected the Rust test file, found {test}");
+    // Well-documented, tested, Cargo-built crate should land a real grade, not F.
+    assert_ne!(grade.grade, "F", "Rust project wrongly graded F ({})", grade.pct);
+    assert!(grade.pct > 70.0, "expected a solid grade, got {}", grade.pct);
+    // The report header and evidence must speak Rust, not Java.
+    let md = report::markdown(&grade, &project_label(&fixture("rust")), src, test);
+    assert!(md.contains("· Rust ·"), "header should name the language");
+    assert!(md.contains("cargo test"), "tests evidence should name the runner");
+    assert!(!md.contains("Javadoc"), "Java wording must not leak into a Rust report");
+}

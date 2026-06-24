@@ -1,11 +1,13 @@
 //! Scanning a project directory into the inputs the rubric needs: the full file
-//! list (with root-relative paths), the Java source/test partition, and the
-//! concatenated text corpora the signal extractors run over.
+//! list (with root-relative paths), the source/test partition for the detected
+//! language, and the concatenated text corpora the signal extractors run over.
 //!
-//! Behaviour mirrors the original `walk`, `rel`, `readText`, and `isTestFile`
-//! logic from `git-cs-grade.js` exactly, including which directories are
-//! skipped and how relative paths are normalised to forward slashes.
+//! The walk/relativize/read logic mirrors the original `git-cs-grade.js`
+//! exactly; the source/test partition is now driven by a [`LangProfile`] (the
+//! Java profile reproduces the original `.java` + `isTestFile` behaviour) so the
+//! same pipeline grades any supported language.
 
+use crate::lang::LangProfile;
 use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -40,6 +42,8 @@ pub struct Project {
     pub files: Vec<FileEntry>,
     pub src_files: Vec<usize>,  // indices into `files`
     pub test_files: Vec<usize>, // indices into `files`
+    /// Indices of every file in the detected language (source and test).
+    pub lang_files: Vec<usize>,
     /// Source files joined with "\n" (the primary analysis corpus).
     pub joined: String,
     /// Test files joined with "\n".
@@ -47,21 +51,25 @@ pub struct Project {
 }
 
 impl Project {
-    /// Walk `root` and build the analysis inputs.
-    pub fn scan(root: &Path) -> Project {
-        let mut files = Vec::new();
-        walk(root, root, &mut files);
-        // Stable order independent of filesystem enumeration so corpora — and
-        // therefore scores — are deterministic across platforms.
-        files.sort_by(|a, b| a.rel.cmp(&b.rel));
+    /// Walk `root` and build the analysis inputs, partitioning source/test files
+    /// for `profile`'s language.
+    pub fn scan(root: &Path, profile: &LangProfile) -> Project {
+        Project::from_files(root, walk_files(root), profile)
+    }
 
-        let is_test = test_matcher();
+    /// Partition a pre-walked file list for `profile`'s language and build the
+    /// corpora. Split from [`scan`] so the caller can detect the language from
+    /// the same `files` it then partitions (one walk, not two).
+    pub fn from_files(root: &Path, files: Vec<FileEntry>, profile: &LangProfile) -> Project {
+        let is_test = TestMatcher::for_profile(profile);
         let mut src_files = Vec::new();
         let mut test_files = Vec::new();
+        let mut lang_files = Vec::new();
         for (i, f) in files.iter().enumerate() {
-            if !f.abs.to_string_lossy().ends_with(".java") {
+            if !profile.owns(&f.rel) {
                 continue;
             }
+            lang_files.push(i);
             if is_test.matches(&f.abs.to_string_lossy(), &f.rel) {
                 test_files.push(i);
             } else {
@@ -78,18 +86,15 @@ impl Project {
             files,
             src_files,
             test_files,
+            lang_files,
             joined,
             test_corpus,
         }
     }
 
-    /// Indices of every `.java` file (source and test).
-    pub fn java_files(&self) -> impl Iterator<Item = usize> + '_ {
-        self.files
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| f.abs.to_string_lossy().ends_with(".java"))
-            .map(|(i, _)| i)
+    /// Indices of every file in the detected language (source and test).
+    pub fn lang_files(&self) -> impl Iterator<Item = usize> + '_ {
+        self.lang_files.iter().copied()
     }
 
     /// Read a discovered file as UTF-8 (lossy, like Node's `readFileSync`),
@@ -97,6 +102,16 @@ impl Project {
     pub fn read(&self, index: usize) -> String {
         read_text(&self.files[index].abs)
     }
+}
+
+/// Walk `root` and return every discovered file in a stable, platform-independent
+/// order (sorted by root-relative path) so corpora — and therefore scores — are
+/// deterministic. Used to detect the language before partitioning source/tests.
+pub fn walk_files(root: &Path) -> Vec<FileEntry> {
+    let mut files = Vec::new();
+    walk(root, root, &mut files);
+    files.sort_by(|a, b| a.rel.cmp(&b.rel));
+    files
 }
 
 /// Read a file as lossy UTF-8, "" on error (mirrors `readText`).
@@ -158,28 +173,40 @@ fn walk(root: &Path, dir: &Path, acc: &mut Vec<FileEntry>) {
     }
 }
 
-/// The three independent conditions that mark a Java file as a test, matching
-/// `isTestFile` (note the deliberate case-sensitivity of the last two).
+/// The independent conditions that mark a source file as a test, one regex per
+/// [`LangProfile`] partition rule. Each is optional (an empty pattern means
+/// "this rule doesn't apply"); a file is a test if any present rule matches. For
+/// the Java profile these reproduce the original `isTestFile` exactly, including
+/// the deliberate case-sensitivity of the suffix/basename rules.
 struct TestMatcher {
-    rel_dir: Regex,       // (^|/)(test|tests)/   case-insensitive
-    abs_suffix: Regex,    // Test[s]?\.java$      case-sensitive
-    basename_word: Regex, // Tests?\b             case-sensitive
-}
-
-fn test_matcher() -> TestMatcher {
-    TestMatcher {
-        rel_dir: Regex::new(r"(?i)(^|/)(test|tests)/").unwrap(),
-        abs_suffix: Regex::new(r"Test[s]?\.java$").unwrap(),
-        basename_word: Regex::new(r"Tests?\b").unwrap(),
-    }
+    rel_dir: Option<Regex>,       // matched against the root-relative path
+    abs_suffix: Option<Regex>,    // matched against the absolute path
+    basename_word: Option<Regex>, // matched against the file basename
 }
 
 impl TestMatcher {
+    fn for_profile(profile: &LangProfile) -> TestMatcher {
+        let compile = |pat: &str| {
+            if pat.is_empty() {
+                None
+            } else {
+                Some(Regex::new(pat).expect("valid test-partition regex"))
+            }
+        };
+        TestMatcher {
+            rel_dir: compile(profile.test_dir),
+            abs_suffix: compile(profile.test_suffix),
+            basename_word: compile(profile.test_basename),
+        }
+    }
+
     fn matches(&self, abs: &str, rel: &str) -> bool {
-        if self.rel_dir.is_match(rel) || self.abs_suffix.is_match(abs) {
+        if self.rel_dir.as_ref().is_some_and(|r| r.is_match(rel))
+            || self.abs_suffix.as_ref().is_some_and(|r| r.is_match(abs))
+        {
             return true;
         }
         let base = abs.rsplit(['/', '\\']).next().unwrap_or(abs);
-        self.basename_word.is_match(base)
+        self.basename_word.as_ref().is_some_and(|r| r.is_match(base))
     }
 }

@@ -1,5 +1,6 @@
 {
   "course": "cs3500",
+  "lang": "Java",
   "pct": 73.5,
   "grade": "C",
   "total": 73.48375,
@@ -27,7 +28,7 @@
       ]
     },
     {
-      "name": "Documentation & Javadoc",
+      "name": "Documentation & comments",
       "weight": 15,
       "earned": 11.733750000000002,
       "score": 0.7822500000000001,
@@ -93,7 +94,7 @@
       "recoverable": 7.5
     },
     {
-      "name": "Documentation & Javadoc",
+      "name": "Documentation & comments",
       "weight": 15,
       "earned": 11.733750000000002,
       "score": 0.7822500000000001,

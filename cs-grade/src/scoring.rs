@@ -34,6 +34,8 @@ pub struct Gap {
 /// The full graded result.
 pub struct Grade {
     pub course: String,
+    /// Detected language name (shown in the report header).
+    pub lang: String,
     pub pct: f64,
     pub grade: &'static str,
     pub total: f64,
@@ -62,11 +64,7 @@ fn category_tests(s: &Signals) -> Category {
             + 0.3 * clamp01(s.assertion_count as f64 / assertion_target),
     );
     let mut fixes = Vec::new();
-    push_if(
-        &mut fixes,
-        !s.junit_usage,
-        "Add JUnit tests (`@Test`, assertions) — no test framework usage detected.",
-    );
+    push_if(&mut fixes, !s.junit_usage, s.vocab.add_tests_fix);
     push_if(
         &mut fixes,
         s.test_ratio < 0.5,
@@ -80,11 +78,12 @@ fn category_tests(s: &Signals) -> Category {
     Category {
         score,
         evidence: format!(
-            "{} test file(s) for {} source file(s) (ratio {}), {} assertion(s), JUnit {}.",
+            "{} test file(s) for {} source file(s) (ratio {}), {} assertion(s), {} {}.",
             s.test_files,
             s.src_files,
             to_fixed(s.test_ratio, 2),
             s.assertion_count,
+            s.vocab.test_framework_name,
             if s.junit_usage {
                 "detected"
             } else {
@@ -100,11 +99,7 @@ fn category_docs(s: &Signals) -> Category {
     let score =
         clamp01(0.55 * s.javadoc_ratio + 0.3 * readme_score + 0.15 * clamp01(s.design_docs as f64));
     let mut fixes = Vec::new();
-    push_if(
-        &mut fixes,
-        s.javadoc_ratio < 0.9,
-        "Add Javadoc to every public class, interface, and method (purpose, @param, @return, @throws).",
-    );
+    push_if(&mut fixes, s.javadoc_ratio < 0.9, s.vocab.add_docs_fix);
     push_if(
         &mut fixes,
         s.readme_bytes < 1200,
@@ -118,7 +113,8 @@ fn category_docs(s: &Signals) -> Category {
     Category {
         score,
         evidence: format!(
-            "Javadoc coverage ~{}% ({} blocks / {} public decls), README {} bytes, {} design/analysis doc(s).",
+            "{} coverage ~{}% ({} blocks / {} public decls), README {} bytes, {} design/analysis doc(s).",
+            s.vocab.doc_name,
             to_fixed(s.javadoc_ratio * 100.0, 0),
             s.javadoc_blocks,
             s.public_decls,
@@ -196,16 +192,8 @@ fn category_build(s: &Signals) -> Category {
     let package_term = if s.uses_packages > 0 { 1.0 } else { 0.4 };
     let score = clamp01(0.5 * build_term + 0.5 * package_term);
     let mut fixes = Vec::new();
-    push_if(
-        &mut fixes,
-        s.build_files.is_empty(),
-        "Add a build file (pom.xml / build.gradle / Makefile) so the project builds reproducibly.",
-    );
-    push_if(
-        &mut fixes,
-        s.uses_packages == 0,
-        "Organize classes into Java packages rather than the default package.",
-    );
+    push_if(&mut fixes, s.build_files.is_empty(), s.vocab.add_build_fix);
+    push_if(&mut fixes, s.uses_packages == 0, s.vocab.add_module_fix);
     push_if(
         &mut fixes,
         !s.uses_src_layout,
@@ -214,13 +202,14 @@ fn category_build(s: &Signals) -> Category {
     Category {
         score,
         evidence: format!(
-            "Build file: {}; {} package declaration(s); src/ layout {}.",
+            "Build file: {}; {} {}; src/ layout {}.",
             if s.build_files.is_empty() {
                 "none".to_string()
             } else {
                 s.build_files.join(", ")
             },
             s.uses_packages,
+            s.vocab.module_label,
             if s.uses_src_layout { "yes" } else { "no" }
         ),
         fixes,
@@ -252,11 +241,7 @@ fn category_design_ood(s: &Signals) -> Category {
             missing.join(", ")
         ));
     }
-    push_if(
-        &mut fixes,
-        interface_use < 0.8,
-        "Program to interfaces: expose behavior through interfaces, keep concrete classes behind them.",
-    );
+    push_if(&mut fixes, interface_use < 0.8, s.vocab.program_to_interfaces_fix);
     push_if(
         &mut fixes,
         s.pattern_hits.len() < 2,
@@ -265,12 +250,14 @@ fn category_design_ood(s: &Signals) -> Category {
     Category {
         score,
         evidence: format!(
-            "MVC: model={}, view={}, controller={}; {} interface(s) / {} class(es); patterns seen: {}.",
+            "MVC: model={}, view={}, controller={}; {} {} / {} {}; patterns seen: {}.",
             s.has_model,
             s.has_view,
             s.has_controller,
             s.interface_count,
+            s.vocab.interfaces_label,
             s.class_count,
+            s.vocab.types_label,
             if s.pattern_hits.is_empty() {
                 "none".to_string()
             } else {
@@ -294,7 +281,7 @@ fn category_abstraction(s: &Signals) -> Category {
     push_if(
         &mut fixes,
         (s.interface_count as f64) < ceil_quarter,
-        "Increase abstraction: define interfaces for major roles; avoid depending on concrete types.",
+        s.vocab.add_abstraction_fix,
     );
     fixes.push(
         "Ensure no field is public; expose state through methods and keep representation private."
@@ -303,9 +290,11 @@ fn category_abstraction(s: &Signals) -> Category {
     Category {
         score,
         evidence: format!(
-            "{} interface(s), {} abstract class(es); implementation details {}.",
+            "{} {}, {} {}; implementation details {}.",
             s.interface_count,
+            s.vocab.interfaces_label,
             s.abstract_count,
+            s.vocab.abstract_label,
             if s.debug_prints > 0 {
                 "leak via prints"
             } else {
@@ -322,11 +311,7 @@ fn category_data_structures(s: &Signals) -> Category {
             + 0.5 * clamp01(s.big_o_mentions as f64 / 4.0),
     );
     let mut fixes = Vec::new();
-    push_if(
-        &mut fixes,
-        !s.uses_good_structures,
-        "Use appropriate data structures (HashMap/TreeMap/PriorityQueue/…) for each access pattern.",
-    );
+    push_if(&mut fixes, !s.uses_good_structures, s.vocab.good_structures_fix);
     push_if(
         &mut fixes,
         s.big_o_mentions < 4,
@@ -358,7 +343,7 @@ fn rubric_for(course: &str) -> Vec<(&'static str, i64, CategoryFn)> {
             ("Object-oriented design & structure", 20, category_design_ood),
             ("Data structures & complexity", 15, category_data_structures),
             ("Tests & coverage", 20, category_tests),
-            ("Documentation & Javadoc", 15, category_docs),
+            ("Documentation & comments", 15, category_docs),
             ("Code style & cleanliness", 10, category_style),
             ("Correctness & build", 15, category_build),
             ("Abstraction & encapsulation", 5, category_abstraction),
@@ -366,7 +351,7 @@ fn rubric_for(course: &str) -> Vec<(&'static str, i64, CategoryFn)> {
         "cs3500" => vec![
             ("Object-oriented design", 25, category_design_ood),
             ("Tests & coverage", 20, category_tests),
-            ("Documentation & Javadoc", 15, category_docs),
+            ("Documentation & comments", 15, category_docs),
             ("Code style & cleanliness", 15, category_style),
             ("Correctness & build", 15, category_build),
             ("Abstraction & encapsulation", 10, category_abstraction),
@@ -375,7 +360,7 @@ fn rubric_for(course: &str) -> Vec<(&'static str, i64, CategoryFn)> {
             ("Correctness & build", 20, category_build),
             ("Tests & coverage", 20, category_tests),
             ("Data structures & complexity", 15, category_data_structures),
-            ("Documentation & Javadoc", 15, category_docs),
+            ("Documentation & comments", 15, category_docs),
             ("Code style & cleanliness", 15, category_style),
             ("Design & structure", 15, category_design_ood),
         ],
@@ -455,6 +440,7 @@ pub fn grade(course: &str, signals: &Signals) -> Grade {
 
     Grade {
         course: course.to_string(),
+        lang: signals.lang.to_string(),
         pct,
         grade,
         total,

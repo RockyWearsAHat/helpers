@@ -1,5 +1,6 @@
 {
   "course": "cs2420",
+  "lang": "Java",
   "pct": 100,
   "grade": "A+",
   "total": 100,
@@ -29,7 +30,7 @@
       "fixes": []
     },
     {
-      "name": "Documentation & Javadoc",
+      "name": "Documentation & comments",
       "weight": 15,
       "earned": 15,
       "score": 1,
