@@ -285,6 +285,20 @@ impl SigModel {
                 }
             }
             if unbroken.is_empty() && !chosen.is_empty() {
+                // Require at least STRUCT_MIN features for a trustworthy signature. If one feature
+                // happened to separate the (necessarily incomplete) negatives, a lone token can
+                // still match unrelated code outside the reference — e.g. `op:..=` alone would flag
+                // a legitimate `1..=6`. Pad with the bad example's next most-specific features (the
+                // pool is ordered specific-first), which the bad example has by construction, so the
+                // signature constrains on real co-occurring structure without losing the true match.
+                for f in &pool {
+                    if chosen.len() >= STRUCT_MIN {
+                        break;
+                    }
+                    if !chosen.contains(f) {
+                        chosen.push(f.clone());
+                    }
+                }
                 sigs.push(RuleSig { id: r.id.clone(), ground: Ground::Structure, struct_feats: chosen, desc_values: Vec::new() });
             }
         }
