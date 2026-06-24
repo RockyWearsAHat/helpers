@@ -237,11 +237,6 @@ impl Knowledge {
             .collect()
     }
 
-    /// The corpus (bad examples) for `lang` — what rarity is measured against during training.
-    fn corpus(&self, lang: &str) -> Vec<String> {
-        self.rules.iter().filter(|r| r.language == lang).map(|r| r.bad.clone()).collect()
-    }
-
     /// id → (severity, advice message) for `lang`, so a flag can carry its description.
     fn advice(&self, lang: &str) -> HashMap<String, (String, String)> {
         self.rules
@@ -317,12 +312,22 @@ pub struct LintModule {
 
 impl LintModule {
     /// Train and pack a module for `lang` from `knowledge`. This is the "train once" step; the
-    /// result is serialized and shared so no machine repeats it.
+    /// result is serialized and shared so no machine repeats it. It uses the **self-validating
+    /// fit**: every rule is tested against all the other rules' examples AND the documented good
+    /// (idiomatic) forms, and is kept only if it separates the violation from all of them —
+    /// otherwise it abstains. Precision over coverage, so the module does not over-flag (an import
+    /// line is not mistaken for a write-amount bug).
     pub fn pack(id: &str, version: &str, provenance: &str, lang: &str, knowledge: &Knowledge) -> LintModule {
         let rules = knowledge.sig_rules(lang);
-        let corpus = knowledge.corpus(lang);
-        let corpus_refs: Vec<&str> = corpus.iter().map(|s| s.as_str()).collect();
-        let sig = SigModel::train(lang, &rules, &corpus_refs);
+        // Reference = the documented good forms — known-idiomatic code the fit tests "normal" against.
+        let reference: Vec<String> = knowledge
+            .rules
+            .iter()
+            .filter(|r| r.language == lang && !r.good.is_empty())
+            .map(|r| r.good.clone())
+            .collect();
+        let reference_refs: Vec<&str> = reference.iter().map(|s| s.as_str()).collect();
+        let (sig, _tests) = SigModel::fit(lang, &rules, &reference_refs);
         LintModule {
             id: id.to_string(),
             languages: vec![lang.to_string()],
@@ -697,11 +702,13 @@ impl RepoReport {
         self.total_findings() == 0
     }
 
-    /// Findings bucketed by severity across the whole repo: `(high, medium, low)`.
+    /// Confident findings bucketed by severity: `(high, medium, low)`. Confident = the floor,
+    /// taught principles, and behavioral norms — all calibrated to this project. Module findings
+    /// are excluded; they are reported separately as lower-confidence candidates.
     pub fn severity_counts(&self) -> (usize, usize, usize) {
         let (mut hi, mut me, mut lo) = (0, 0, 0);
         for f in &self.files {
-            for fi in &f.findings {
+            for fi in f.findings.iter().filter(|x| is_confident(&x.source)) {
                 match fi.severity.as_str() {
                     "high" => hi += 1,
                     "low" => lo += 1,
@@ -712,34 +719,58 @@ impl RepoReport {
         (hi, me, lo)
     }
 
-    /// Render the review as an English report: what it read, the verdict, the issues (grouped so a
-    /// rule repeated across a file reads as one line, highest-severity first), what it could not
-    /// analyze, and the knowledge it judged against. This is the "talk back in English" the linter
-    /// is for — readable, not a wall of one-line-per-occurrence noise.
+    /// Count of confident findings — the ones the verdict is based on.
+    pub fn confident_count(&self) -> usize {
+        self.files.iter().flat_map(|f| &f.findings).filter(|x| is_confident(&x.source)).count()
+    }
+
+    /// Render the review as an English report. The verdict is based ONLY on the confident layers
+    /// (floor + taught principles + behavioral norms, all calibrated to this project). Module
+    /// findings — higher recall but lower precision, generated from crawled docs — are listed
+    /// separately and clearly labelled as candidates to review, so the verdict stays trustworthy.
     pub fn to_english(&self) -> String {
         let mut s = String::new();
         let analyzed: usize = self.by_language.values().sum();
         let langs: Vec<String> = self.by_language.iter().map(|(l, n)| format!("{l} ({n})")).collect();
         s.push_str(&format!("I read {} and looked at {analyzed} source file(s): {}.\n\n", self.root, langs.join(", ")));
 
-        if self.is_clean() {
-            s.push_str("Verdict: CLEAN. Every file I could analyze follows the principles I learned.\n");
+        let confident = self.confident_count();
+        let confident_files = self.files.iter().filter(|f| f.findings.iter().any(|x| is_confident(&x.source))).count();
+        if confident == 0 {
+            s.push_str("Verdict: CLEAN. Every file follows the principles and rules I learned (nothing the confident layers flag).\n");
         } else {
             let (hi, me, lo) = self.severity_counts();
             s.push_str(&format!(
-                "Verdict: {} issue(s) across {} of {analyzed} file(s) — {hi} high, {me} medium, {lo} low. Highest-severity first.\n",
-                self.total_findings(),
-                self.flagged_files()
+                "Verdict: {confident} issue(s) across {confident_files} of {analyzed} file(s) — {hi} high, {me} medium, {lo} low. Highest-severity first.\n"
             ));
         }
 
         for f in &self.files {
-            if f.findings.is_empty() {
+            let confident_findings: Vec<Finding> = f.findings.iter().filter(|x| is_confident(&x.source)).cloned().collect();
+            if confident_findings.is_empty() {
                 continue;
             }
             s.push_str(&format!("\n{}\n", f.path));
-            for line in group_findings(&f.findings) {
+            for line in group_findings(&confident_findings) {
                 s.push_str(&format!("  {line}\n"));
+            }
+        }
+
+        // Module candidates — surfaced but clearly fenced off from the verdict.
+        let candidates: usize = self.total_findings() - confident;
+        if candidates > 0 {
+            s.push_str(&format!(
+                "\n--- {candidates} candidate suggestion(s) from language modules (higher recall, LOWER precision — generated from crawled docs, may over-flag; review before acting) ---\n"
+            ));
+            for f in &self.files {
+                let module_findings: Vec<Finding> = f.findings.iter().filter(|x| !is_confident(&x.source)).cloned().collect();
+                if module_findings.is_empty() {
+                    continue;
+                }
+                s.push_str(&format!("\n{}\n", f.path));
+                for line in group_findings(&module_findings) {
+                    s.push_str(&format!("  {line}\n"));
+                }
             }
         }
 
@@ -751,10 +782,17 @@ impl RepoReport {
             ));
         }
         if !self.knowledge.is_empty() {
-            s.push_str(&format!("\nJudged against what I learned: {}.\n", self.knowledge.join(", ")));
+            s.push_str(&format!("\nVerdict judged against what I learned: {}.\n", self.knowledge.join(", ")));
         }
         s
     }
+}
+
+/// A finding is "confident" when it comes from a layer calibrated to this project — the
+/// deterministic floor, the taught principles, or the behavioral norms. Module findings (source
+/// `module:*`) are higher-recall candidates and are reported separately, not in the verdict.
+fn is_confident(source: &str) -> bool {
+    !source.starts_with("module:")
 }
 
 /// Severity rank for ordering (high first).
@@ -770,11 +808,13 @@ fn severity_rank(sev: &str) -> u8 {
 /// carrying the advice once and the lines it occurred on (capped), ordered highest-severity first.
 /// So 30 `print_stdout` hits read as a single "×30 (lines …)" line, not 30 lines of noise.
 fn group_findings(findings: &[Finding]) -> Vec<String> {
-    // key -> (severity, source, advice, lines)
+    // key -> (severity, source, advice, lines). Keyed by the ADVICE TEXT, not just the rule id, so
+    // distinct per-function messages (a `cs-norm` naming each function) stay separate while
+    // identical messages (a `floor` rule with no message) collapse into one line.
     let mut groups: Vec<(String, String, String, String, Vec<usize>)> = Vec::new();
     for f in findings {
         let advice = if f.message.is_empty() { format!("violates `{}`", f.rule_id) } else { f.message.clone() };
-        let key = format!("{}|{}", f.source, f.rule_id);
+        let key = format!("{}|{}|{}", f.source, f.rule_id, advice);
         if let Some(g) = groups.iter_mut().find(|g| g.0 == key) {
             g.4.push(f.line);
         } else {
@@ -835,44 +875,70 @@ fn walk_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Read an entire repository and review it: detect each file's language by name (no toolchain
-/// needed), pull the modules each language needs from `registry` lazily, and judge every parseable
-/// file with `reasoner` (floor + taught principles + behavioral norms + modules). Files in a
-/// language with no parser are read and reported, not silently dropped. Returns a [`RepoReport`]
-/// that renders to English.
-pub fn review_repository(root: &Path, reasoner: &Reasoner, registry: &mut ModuleRegistry) -> RepoReport {
+/// Read an entire repository and review it. The reasoner first **calibrates to this repository**:
+/// it reads every parseable file once, studies them as reference (so a principle is tested against
+/// the project's own prevalent patterns — e.g. a correct `0..len` indexing loop — and keeps only
+/// what truly separates a violation from them, or abstains), and learns the behavioral norms from
+/// the same code. Then it judges each file with floor + taught principles + behavioral norms +
+/// the modules each language needs (pulled lazily from `registry`). Files in a language with no
+/// parser are read and reported, not silently dropped.
+///
+/// The tradeoff of calibrating to the repo is the same one [`Reasoner::calibrate`] makes: the
+/// project's prevalent patterns become "normal", so a violation that is pervasive throughout the
+/// project would be treated as the norm. An isolated violation is still caught (the prevalent
+/// correct form forces the distinguishing feature into the signature).
+pub fn review_repository(root: &Path, reasoner: &mut Reasoner, registry: &mut ModuleRegistry) -> RepoReport {
     let mut files_on_disk = Vec::new();
     walk_sources(root, &mut files_on_disk);
     files_on_disk.sort();
 
-    let mut by_language: BTreeMap<String, usize> = BTreeMap::new();
+    // First pass: read every parseable file and calibrate the reasoner to this repository, so its
+    // principles are tested against the project's own idiomatic code before it judges anything.
+    let mut sources: Vec<(String, String, String)> = Vec::new(); // (rel, lang, code)
     let mut unanalyzed_languages: BTreeMap<String, usize> = BTreeMap::new();
-    let mut reports = Vec::new();
-    // Cache modules per language so the registry pulls each at most once for the whole repo.
-    let mut modules_by_lang: HashMap<String, Vec<LintModule>> = HashMap::new();
-
     for path in &files_on_disk {
         let Some(lang) = language_of(path) else { continue };
         let rel = path.strip_prefix(root).unwrap_or(path).display().to_string();
         let Ok(code) = std::fs::read_to_string(path) else { continue };
-
-        if !have_parser(lang) {
+        if have_parser(lang) {
+            sources.push((rel, lang.to_string(), code));
+        } else {
             *unanalyzed_languages.entry(lang.to_string()).or_default() += 1;
-            reports.push(FileReport { path: rel, language: lang.to_string(), analyzed: false, findings: Vec::new() });
-            continue;
         }
-        *by_language.entry(lang.to_string()).or_default() += 1;
+    }
+    let reference: Vec<&str> = sources.iter().map(|(_, _, c)| c.as_str()).collect();
+    reasoner.study_reference(&reference);
+    let norm_refs: Vec<(&str, &str)> = sources.iter().map(|(_, l, c)| (l.as_str(), c.as_str())).collect();
+    reasoner.calibrate(&norm_refs);
 
-        let modules = modules_by_lang.entry(lang.to_string()).or_insert_with(|| {
+    let mut by_language: BTreeMap<String, usize> = BTreeMap::new();
+    let mut reports = Vec::new();
+    // Cache modules per language so the registry pulls each at most once for the whole repo.
+    let mut modules_by_lang: HashMap<String, Vec<LintModule>> = HashMap::new();
+
+    // Report the files we could not parse (read but not linted) alongside the analyzed ones.
+    for path in &files_on_disk {
+        if let Some(lang) = language_of(path) {
+            if !have_parser(lang) {
+                let rel = path.strip_prefix(root).unwrap_or(path).display().to_string();
+                reports.push(FileReport { path: rel, language: lang.to_string(), analyzed: false, findings: Vec::new() });
+            }
+        }
+    }
+
+    // Second pass: judge each analyzable file with the now-calibrated reasoner.
+    for (rel, lang, code) in &sources {
+        *by_language.entry(lang.clone()).or_default() += 1;
+        let modules = modules_by_lang.entry(lang.clone()).or_insert_with(|| {
             registry
-                .select(&[lang.to_string()])
+                .select(std::slice::from_ref(lang))
                 .iter()
                 .filter_map(|id| registry.load(id).cloned())
                 .collect()
         });
         let refs: Vec<&LintModule> = modules.iter().collect();
-        let findings = reasoner.review(lang, &code, &refs);
-        reports.push(FileReport { path: rel, language: lang.to_string(), analyzed: true, findings });
+        let findings = reasoner.review(lang, code, &refs);
+        reports.push(FileReport { path: rel.clone(), language: lang.clone(), analyzed: true, findings });
     }
 
     RepoReport {
@@ -1019,9 +1085,9 @@ fn sum(xs: &[i32]) -> i32 { let mut t = 0; for x in xs { t += x; } t }
         std::fs::write(dir.join("src/clean.rs"), "fn add(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
         std::fs::write(dir.join("src/buggy.rs"), "fn f(x: bool) -> bool {\n    if x == true { return true; }\n    x\n}\n").unwrap();
 
-        let reasoner = Reasoner::from_cs_principles("rust", CS_DOC);
+        let mut reasoner = Reasoner::from_cs_principles("rust", CS_DOC);
         let mut reg = ModuleRegistry::open(dir.join("nostore"));
-        let report = review_repository(&dir, &reasoner, &mut reg);
+        let report = review_repository(&dir, &mut reasoner, &mut reg);
 
         assert_eq!(report.by_language.get("rust").copied(), Some(2), "read both rust files");
         assert!(!report.is_clean(), "the buggy file must produce findings");
