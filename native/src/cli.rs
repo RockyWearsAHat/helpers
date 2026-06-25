@@ -1,9 +1,9 @@
 //! The `helpers` control CLI — pure Rust, Node-free. Dispatched busybox-style
 //! when the binary is invoked as `helpers` (a symlink to `helpers-native`), or
 //! explicitly via `helpers-native cli <args…>`. Ports the former Node `helpers`
-//! script: status, enable/disable/bypass, tool toggles, build, update, grade,
+//! script: status, enable/disable/bypass, tool toggles, build, update,
 //! index, setup, doctor, install/uninstall — reusing the in-process native tool
-//! registry (no subprocess for grade/index/setup) and the embedded agent config.
+//! registry (no subprocess for index/setup) and the embedded agent config.
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,6 @@ use serde_json::{json, Value};
 
 use crate::embed;
 use crate::git::home;
-use crate::gitcli;
 use crate::registry;
 
 /// The shipped version, baked in at compile time from the repo VERSION file.
@@ -21,7 +20,7 @@ const VERSION: &str = include_str!("../../VERSION");
 const REPO_SLUG: &str = "RockyWearsAHat/helpers";
 const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
 
-/// git-* CLIs (and `helpers`, `git-cs-grade`) symlinked busybox-style to the binary.
+/// git-* CLIs (and `helpers`) symlinked busybox-style to the binary.
 const SYMLINK_NAMES: &[&str] = &[
     "helpers",
     "git-resolve",
@@ -33,7 +32,6 @@ const SYMLINK_NAMES: &[&str] = &[
     "git-upload",
     "git-checkpoint",
     "git-help-i-pushed-an-env",
-    "git-cs-grade",
 ];
 
 // ── colors ───────────────────────────────────────────────────────────────────
@@ -72,6 +70,7 @@ fn tools_config_path() -> PathBuf {
 }
 fn claude_dir() -> PathBuf { home().join(".claude") }
 fn copilot_dir() -> PathBuf { home().join(".copilot") }
+fn codex_dir() -> PathBuf { home().join(".codex") }
 
 // ── tools.json config ────────────────────────────────────────────────────────
 fn read_config() -> Value {
@@ -152,7 +151,6 @@ pub fn run(args: &[String]) -> ExitCode {
         "doctor" => cmd_doctor(),
         "build" => return cmd_build(rest),
         "update" => cmd_update(rest),
-        "grade" => return cmd_grade(rest),
         "index" => return cmd_index(rest),
         "setup" => return cmd_setup(rest),
         "install" => cmd_install(rest),
@@ -309,11 +307,7 @@ fn cmd_tool(args: &[String]) {
     }
 }
 
-// ── grade / index / setup (in-process, no subprocess) ────────────────────────
-fn cmd_grade(args: &[String]) -> ExitCode {
-    gitcli::cs_grade::run(args)
-}
-
+// ── index / setup (in-process, no subprocess) ────────────────────────────────
 fn cmd_index(args: &[String]) -> ExitCode {
     let sub = args.first().map(String::as_str).unwrap_or("build");
     let (tool, tool_args): (&str, Value) = match sub {
@@ -563,7 +557,6 @@ fn help() {
         "  tool list | tool {enable,disable} <name|all> | tool reset",
         "  build [--from-source]  (Re)create the helpers/git-* symlinks (or compile).",
         "  update [--check]       Download the latest prebuilt binary for this platform.",
-        "  grade <path> [--json] Grade a CS project (full suite, all categories).",
         "  index build|map|lookup <q>              Project index.",
         "  setup                  Deterministic project build-out plan.",
         "",
@@ -698,6 +691,9 @@ fn detect_agents() -> Vec<&'static str> {
     if copilot_dir().exists() || has_cmd("code") {
         a.push("copilot");
     }
+    if has_cmd("codex") || codex_dir().exists() {
+        a.push("codex");
+    }
     a
 }
 
@@ -711,15 +707,20 @@ fn cmd_install(args: &[String]) {
         }
         i += 1;
     }
+    // One install wires every supported agent by default, so a single
+    // `helpers install` leaves Helpers (and the bundled skills) ready no matter
+    // which agent the user reaches for. `--agent <name>` scopes to just one.
     let targets: Vec<&str> = match agent.as_str() {
-        "all" => vec!["claude", "copilot"],
-        "auto" => {
-            let d = detect_agents();
-            if d.is_empty() {
-                die("no AI agent detected. Use --agent claude|copilot|all to force.");
+        "all" | "auto" => {
+            let detected = detect_agents();
+            if !detected.is_empty() {
+                println!("{}", dim(&format!("Detected: {}", detected.join(", "))));
             }
-            println!("{}", dim(&format!("Detected: {}", d.join(", "))));
-            d
+            println!(
+                "{}",
+                dim("Wiring all agents (claude, copilot, codex) — one install, ready whichever you use.")
+            );
+            vec!["claude", "copilot", "codex"]
         }
         a => vec![Box::leak(a.to_string().into_boxed_str()) as &str],
     };
@@ -728,9 +729,13 @@ fn cmd_install(args: &[String]) {
         match *t {
             "claude" => install_claude(),
             "copilot" => install_copilot(),
+            "codex" => install_codex(),
             other => die(&format!("unknown agent '{other}'")),
         }
     }
+    // Bundle Matt Pocock's skills into every agent we just wired (best-effort;
+    // a fresh install ships them so they're available without extra setup).
+    install_matt_skills(&targets);
     // Ensure tools.json exists in a known-good state.
     if !tools_config_path().exists() {
         let cfg = read_config();
@@ -741,6 +746,12 @@ fn cmd_install(args: &[String]) {
         green(&bold("\nHelpers installed.")),
         dim(" Run `helpers status` to verify. Restart your agent (or /mcp reconnect).")
     );
+}
+
+/// The one agent-agnostic core body (`agent-config/CORE.md`) installed verbatim for every
+/// agent. Single source of truth — Claude/Codex/Copilot all write this same text.
+fn agent_core_body() -> Option<String> {
+    embed::file_text(&embed::AGENT_CONFIG, "CORE.md").map(|b| b.trim().to_string())
 }
 
 fn install_claude() {
@@ -772,9 +783,9 @@ fn install_claude() {
         println!("{}", dim(&format!("      claude mcp add -s user helpers -- {} mcp", bin.display())));
     }
 
-    // 2. CLAUDE.md managed block (from embedded config).
-    if let Some(body) = embed::file_text(&embed::CLAUDE_CONFIG, "CLAUDE.helpers.md") {
-        write_managed_block(&claude_dir().join("CLAUDE.md"), body.trim());
+    // 2. CLAUDE.md managed block — the shared agent core.
+    if let Some(body) = agent_core_body() {
+        write_managed_block(&claude_dir().join("CLAUDE.md"), &body);
         println!("  {} Helpers core written to ~/.claude/CLAUDE.md (managed block)", ok_mark());
     }
 
@@ -790,6 +801,7 @@ fn install_claude() {
 
 fn install_copilot() {
     println!("{}", bold("\n→ Installing Helpers for GitHub Copilot"));
+    // Copilot-only assets (scoped instructions, agents, skills) layer on top of the core.
     for kind in ["instructions", "agents", "skills"] {
         if let Some(sub) = embed::COPILOT_CONFIG.get_dir(kind) {
             if embed::extract_dir(sub, &copilot_dir().join(kind)).is_ok() {
@@ -797,7 +809,193 @@ fn install_copilot() {
             }
         }
     }
+    // The always-on core: the shared body wrapped in Copilot's `applyTo: **` frontmatter.
+    if let Some(body) = agent_core_body() {
+        let doc = format!(
+            "---\ndescription: \"Always-on Helpers core (single source: agent-config/CORE.md). Injected every request.\"\napplyTo: \"**\"\n---\n\n{body}\n"
+        );
+        let dest = copilot_dir().join("instructions").join("helpers-routing-index.instructions.md");
+        if let Some(p) = dest.parent() {
+            let _ = std::fs::create_dir_all(p);
+        }
+        if std::fs::write(&dest, doc).is_ok() {
+            println!("  {} Helpers core written to ~/.copilot/instructions/helpers-routing-index.instructions.md", ok_mark());
+        }
+    }
     println!("{}", dim("  Reload VS Code (or restart Copilot) to pick up the guidance."));
+}
+
+/// Wire Helpers into OpenAI Codex: the shared agent core as an always-on `~/.codex/AGENTS.md`
+/// managed block, plus the `helpers` MCP server in `~/.codex/config.toml`. Codex has no skills
+/// directory of its own; Matt Pocock's skills are dropped under `~/.codex/skills/` by
+/// `install_matt_skills` for forward-compatibility and discovery.
+fn install_codex() {
+    println!("{}", bold("\n→ Installing Helpers for OpenAI Codex"));
+    let _ = create_symlinks();
+
+    // 1. The shared agent core as an always-on managed block.
+    if let Some(body) = agent_core_body() {
+        write_managed_block(&codex_dir().join("AGENTS.md"), &body);
+        println!("  {} Helpers core written to ~/.codex/AGENTS.md (managed block)", ok_mark());
+    }
+
+    // 2. Register the native MCP server in ~/.codex/config.toml.
+    register_codex_mcp(&native_bin());
+}
+
+/// Upsert a `[mcp_servers.helpers]` table in `~/.codex/config.toml` pointing at the
+/// native binary. Any prior helpers table is replaced so the path stays current on
+/// reinstall; unrelated config is preserved. No TOML dependency — Codex's format is
+/// line-oriented and a single table is safe to splice by hand.
+fn register_codex_mcp(bin: &Path) {
+    let cfg = codex_dir().join("config.toml");
+    let existing = std::fs::read_to_string(&cfg).unwrap_or_default();
+    let stripped = strip_toml_table(&existing, "[mcp_servers.helpers]");
+    let block = format!(
+        "[mcp_servers.helpers]\ncommand = {:?}\nargs = [\"mcp\"]\n",
+        bin.display().to_string()
+    );
+    let next = if stripped.trim().is_empty() {
+        block
+    } else {
+        format!("{}\n\n{}", stripped.trim_end(), block)
+    };
+    if let Some(p) = cfg.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
+    match std::fs::write(&cfg, next) {
+        Ok(()) => println!("  {} MCP server 'helpers' registered in ~/.codex/config.toml — native, no Node", ok_mark()),
+        Err(e) => println!("  {} could not write ~/.codex/config.toml: {e}", no_mark()),
+    }
+}
+
+/// Remove a TOML table header and its body (up to the next `[` header or EOF).
+/// Returns `src` unchanged when the header isn't present.
+fn strip_toml_table(src: &str, header: &str) -> String {
+    let Some(start) = src.find(header) else { return src.to_string() };
+    // Find the next table header after this one to know where the body ends.
+    let after = &src[start + header.len()..];
+    let end = after
+        .match_indices('\n')
+        .find_map(|(i, _)| {
+            let line_start = start + header.len() + i + 1;
+            src[line_start..].trim_start().starts_with('[').then_some(line_start)
+        })
+        .unwrap_or(src.len());
+    format!("{}{}", &src[..start], &src[end..])
+}
+
+/// Upstream for the bundled engineering/productivity skills (MIT, © Matt Pocock).
+const MATT_SKILLS_REPO: &str = "https://github.com/mattpocock/skills.git";
+
+/// The agent's on-disk skills directory, or `None` for agents without one.
+fn agent_skills_dir(target: &str) -> Option<PathBuf> {
+    match target {
+        "claude" => Some(claude_dir().join("skills")),
+        "copilot" => Some(copilot_dir().join("skills")),
+        "codex" => Some(codex_dir().join("skills")),
+        _ => None,
+    }
+}
+
+/// Fetch Matt Pocock's curated skills and copy them into each wired agent's skills
+/// directory, so a fresh `helpers install` ships them. Best-effort: a missing `git`
+/// or no network prints a note and leaves the rest of the install intact.
+fn install_matt_skills(targets: &[&str]) {
+    let dests: Vec<PathBuf> = targets.iter().filter_map(|t| agent_skills_dir(t)).collect();
+    if dests.is_empty() {
+        return;
+    }
+    println!("{}", bold("\n→ Bundling Matt Pocock's skills (mattpocock/skills, MIT)"));
+    let Some(repo) = ensure_matt_clone() else {
+        println!("  {} skipped — needs `git` + network. Re-run `helpers install` once available.", yellow("!"));
+        return;
+    };
+    let skills = curated_skill_paths(&repo);
+    if skills.is_empty() {
+        println!("  {} no skills found in the fetched repo; skipped.", yellow("!"));
+        return;
+    }
+    for dest in &dests {
+        let mut count = 0usize;
+        for src in &skills {
+            if let Some(name) = src.file_name() {
+                if copy_dir_recursive(src, &dest.join(name)).is_ok() {
+                    count += 1;
+                }
+            }
+        }
+        let _ = std::fs::write(
+            dest.join("MATTPOCOCK-SKILLS-NOTICE.md"),
+            "These skills are vendored from https://github.com/mattpocock/skills\n\
+             (MIT License, © 2026 Matt Pocock) by `helpers install`. Re-run install to update.\n",
+        );
+        let shown = dest
+            .strip_prefix(home())
+            .map(|p| format!("~/{}", p.display()))
+            .unwrap_or_else(|_| dest.display().to_string());
+        println!("  {} {count} skills installed to {shown}/", ok_mark());
+    }
+}
+
+/// Clone (or refresh) the skills repo into `~/.cache/helpers/mattpocock-skills`.
+/// Returns the checkout path, or `None` when git is absent or the clone fails.
+fn ensure_matt_clone() -> Option<PathBuf> {
+    if !has_cmd("git") {
+        return None;
+    }
+    let dir = home().join(".cache").join("helpers").join("mattpocock-skills");
+    let quiet = |c: &mut Command| {
+        c.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    };
+    if dir.join(".git").exists() {
+        let mut c = Command::new("git");
+        c.args(["-C", &dir.to_string_lossy(), "pull", "--ff-only"]);
+        quiet(&mut c);
+        let _ = c.status(); // best-effort refresh; fall back to the cached checkout
+        Some(dir)
+    } else {
+        if let Some(p) = dir.parent() {
+            let _ = std::fs::create_dir_all(p);
+        }
+        let mut c = Command::new("git");
+        c.args(["clone", "--depth", "1", MATT_SKILLS_REPO, &dir.to_string_lossy()]);
+        quiet(&mut c);
+        c.status().map(|s| s.success()).unwrap_or(false).then_some(dir)
+    }
+}
+
+/// Read the repo's plugin manifest and resolve its curated skill folders (Matt's own
+/// shipping list — excludes deprecated/in-progress/personal drafts).
+fn curated_skill_paths(repo: &Path) -> Vec<PathBuf> {
+    let manifest = repo.join(".claude-plugin").join("plugin.json");
+    let Ok(text) = std::fs::read_to_string(&manifest) else { return Vec::new() };
+    let Ok(val) = serde_json::from_str::<Value>(&text) else { return Vec::new() };
+    val.get("skills")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(|rel| repo.join(rel.trim_start_matches("./")))
+                .filter(|p| p.is_dir())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Recursively copy `src` into `dst`, creating directories as needed.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &to)?;
+        } else {
+            std::fs::copy(entry.path(), &to)?;
+        }
+    }
+    Ok(())
 }
 
 fn cmd_uninstall(args: &[String]) {
@@ -819,6 +1017,10 @@ fn cmd_uninstall(args: &[String]) {
     }
     if agent == "copilot" || agent == "all" {
         println!("{}", dim("Copilot config left in place; remove ~/.copilot/{agents,instructions,skills} manually if desired."));
+    }
+    if agent == "codex" || agent == "all" {
+        remove_managed_block(&codex_dir().join("AGENTS.md"));
+        println!("{} Removed helpers block from ~/.codex/AGENTS.md (config.toml MCP entry + skills left in place).", ok_mark());
     }
 }
 

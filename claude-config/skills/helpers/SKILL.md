@@ -61,7 +61,8 @@ All tools are deterministic native Rust (no AI), except web search/scrape (Node)
 3. One specialized tool for the goal; `scrape_webpage` only for top hits needing depth.
 4. `lint` after edits; `checkpoint` only after validation passes.
 
-## Grading CS projects
-For CS2420 (data structures/algorithms) or CS3500 (OOD/MVC) projects, use the `cs-grade`
-skill or run `helpers grade <path> --course cs2420|cs3500` to produce an objective `GRADE.md`
-and a prioritized path to an A+.
+## CS2420 / CS3500 quality
+`lint` enforces the CS2420 / CS3500 principles directly: it learns them from
+`corpus/cs-principles.md` (alongside the official language rules it learns from the docs) and
+flags violations with the exact `file:line` to fix. Followed to a T those principles ~guarantee
+an A+, so a clean `lint` is the signal — there is no separate grader to run.

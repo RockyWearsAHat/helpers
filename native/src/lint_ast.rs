@@ -16,6 +16,12 @@
 use std::collections::BTreeSet;
 use tree_sitter::{Node, Parser};
 
+/// The tree-sitter language for `lang`, or `None` if we have no grammar for it — public so other
+/// detectors (e.g. [`crate::lint_practice`]) parse the same languages from the same grammars.
+pub fn language_of(lang: &str) -> Option<tree_sitter::Language> {
+    language(lang)
+}
+
 /// The tree-sitter language for `lang`, or `None` if we have no grammar for it.
 fn language(lang: &str) -> Option<tree_sitter::Language> {
     Some(match lang {
@@ -289,14 +295,52 @@ fn structural_collect(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
                 out.push((format!("name:{name}"), line));
             }
         }
+        // Emit the VALUE of a small numeric/char literal: `len() == 0` (emptiness) must differ
+        // from `len() == 1`, and `0..=n` from `0..=1` — the value IS the discriminator. Long
+        // literals are left as the bare kind so the model generalizes instead of memorizing a
+        // 14-digit constant.
+        if matches!(node.kind(), "integer_literal" | "char_literal" | "float_literal") {
+            if let Ok(t) = node.utf8_text(src) {
+                if t.len() <= 4 {
+                    out.push((format!("lit:{t}"), line));
+                }
+            }
+        }
         for f in salient_features(node, src) {
             out.push((f, line));
+        }
+        // Emit the OPERATOR tokens — `..=`, `..`, `==`, `<=`, `+=`, `&&`, … — that a named-only
+        // walk drops. They are anonymous children of their expression node, yet they are exactly
+        // what separates `0..=xs.len()` (off-by-one) from `0..xs.len()` (correct). Pure delimiters
+        // (`(){}[],;`) are excluded, so this adds discrimination without adding noise. This is the
+        // entropy the structural stream was missing — generic, no per-rule cases.
+        let mut c = node.walk();
+        for child in node.children(&mut c) {
+            if !child.is_named() {
+                if let Ok(t) = child.utf8_text(src) {
+                    if is_operator_token(t) {
+                        out.push((format!("op:{}", t.trim()), line));
+                    }
+                }
+            }
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         structural_collect(child, src, out);
     }
+}
+
+/// Whether an anonymous token is a meaningful OPERATOR (so it discriminates) rather than a pure
+/// delimiter (which would only add noise). True for short runs of operator punctuation —
+/// `..=`/`..`/`==`/`<=`/`+=`/`&&`/`?` — and never for a lone `.` (field access, ubiquitous) or
+/// brackets/commas/semicolons.
+fn is_operator_token(t: &str) -> bool {
+    let t = t.trim();
+    if t == "." || t.is_empty() || t.len() > 3 {
+        return false;
+    }
+    t.chars().all(|c| "=!<>+-*/%&|^~.?".contains(c))
 }
 
 /// A **fully generic** structural encoding — ZERO per-rule or per-node-kind special cases. Each

@@ -300,11 +300,14 @@ fn clippy_what_it_does(seg: &str) -> String {
 
 /// Turn generic `(prose, code)` documentation sections into rule candidates by reading the
 /// imperative/deprecation signal in each section's prose: a prohibitive lead-in marks its code as a
-/// bad example, a positive one marks a fix. A bad example is paired with the next good one seen
-/// (the documented fix usually follows the anti-pattern). Sections with no signal are ignored.
+/// bad example, a positive one marks a fix. A fix is attached ONLY when the positive section is the
+/// one IMMEDIATELY following the anti-pattern — adjacency is the page asserting "this fixes that".
+/// Pairing a bad with a far-off positive section (as a persistent `pending_bad` once did) manufactured
+/// fixes across unrelated rules; a fabricated `good` trains the engine on a lie. So the pending bad is
+/// cleared the moment the next section is not its labeled fix. Sections with no signal are ignored.
 pub fn rules_from_sections(lang: &str, tool: &str, sections: &[(String, String)]) -> Vec<LearnedRule> {
     let mut out: Vec<LearnedRule> = Vec::new();
-    let mut pending_bad: Option<usize> = None; // index into `out` awaiting its fix
+    let mut pending_bad: Option<usize> = None; // index into `out` awaiting its IMMEDIATELY-following fix
     let mut seq = 0usize;
     for (prose, code) in sections {
         match prose_signal(prose) {
@@ -320,12 +323,15 @@ pub fn rules_from_sections(lang: &str, tool: &str, sections: &[(String, String)]
                 });
                 pending_bad = Some(out.len() - 1);
             }
+            // A fix only counts as this bad's fix when it directly follows it.
             Some(false) => {
                 if let Some(i) = pending_bad.take() {
                     out[i].good = code.clone();
                 }
             }
-            None => {}
+            // Any unlabeled section between a bad and a candidate fix breaks the adjacency: the next
+            // positive section is no longer THIS bad's fix, so stop waiting rather than guess.
+            None => pending_bad = None,
         }
     }
     out
@@ -335,8 +341,9 @@ pub fn rules_from_sections(lang: &str, tool: &str, sections: &[(String, String)]
 /// out one-rule-per-page (ruff, eslint). It is how the AI learns from the live site: every page
 /// that is an individual rule (exactly one path segment below the crawl `seed`) becomes a rule whose
 /// id is the URL slug, whose lesson is the page's "what it does" prose, and whose bad/good code come
-/// from the page's ordered `<pre>` blocks (incorrect/correct markers when present, else first=bad
-/// and second=fix). Pages with no code are skipped — without a bad form there is nothing to ground.
+/// from the page's ordered `<pre>` blocks via [`bad_good_from_blocks`] (bad = the lead/incorrect-
+/// labeled block; good ONLY from an explicit correct-label, never positional). Pages with no code are
+/// skipped — without a bad form there is nothing to ground.
 /// This recovers the clean bad→good pair the flattened-section path loses, so the fit grounds rather
 /// than abstains.
 #[cfg(feature = "crawl")]
@@ -386,31 +393,87 @@ fn rule_slug_under(seed: &str, url: &str) -> Option<String> {
     (slug.len() >= 2).then_some(slug)
 }
 
-/// Pick the (bad, good) code from a rule page's ordered `<pre>` blocks. The anti-pattern is the
-/// first block at/after an "incorrect"/"problematic" marker (or simply the first block); the fix is
-/// the first block after a "use instead"/"correct" marker (or the next distinct block). Mirrors how
-/// the docs themselves present bad-then-good.
+/// How much page text immediately before a code block counts as the prose that GOVERNS it — the
+/// label/heading a docs page puts right above its example. Wide enough to catch a short heading or a
+/// `class="incorrect"` wrapper, narrow enough not to bleed into the previous example's discussion.
+#[cfg(feature = "crawl")]
+const GOVERNING_CTX: usize = 320;
+
+/// Read the polarity a page asserts ABOUT a code block from the words that govern it — the text just
+/// before the block, wherever the page wrote the signal: heading prose ("Examples of incorrect
+/// code"), inline guidance ("use instead"), or the structural class a page tags the example with
+/// (`class="incorrect"`). This is general English comprehension, not a per-site marker table: any
+/// docs site that says, in English, whether code is wrong or right is understood. Positive ⇒ the page
+/// calls this code a FIX; negative ⇒ a VIOLATION; zero ⇒ the page does not say, so we will not guess.
+/// Substring-safe: "incorrect" is not double-counted as "correct".
+#[cfg(feature = "crawl")]
+fn governed_polarity(ctx: &str) -> i32 {
+    let c = ctx.to_lowercase();
+    let n = |needle: &str| c.matches(needle).count() as i32;
+    let incorrect = n("incorrect");
+    let not_recommended = n("not recommended");
+    // "correct" that is not the tail of "incorrect"; "recommended" that is not "not recommended".
+    let correct = (n("correct") - incorrect).max(0);
+    let recommended = (n("recommended") - not_recommended).max(0);
+    let neg = incorrect
+        + not_recommended
+        + n("avoid")
+        + n("anti-pattern")
+        + n("problematic")
+        + n("deprecated")
+        + n("don't")
+        + n("do not")
+        + n("will be flagged")
+        + n("bad example");
+    let pos = correct
+        + recommended
+        + n("use instead")
+        + n("instead:")
+        + n("do this")
+        + n("fixed")
+        + n("good example")
+        + n("prefer");
+    pos - neg
+}
+
+/// Pick the (bad, good) code from a rule page's ordered `<pre>` blocks by READING the page, not by
+/// position. Each block is judged by the polarity of the prose that governs it ([`governed_polarity`])
+/// — the page's own English label. The anti-pattern is the first block the page calls a violation
+/// (or, when the page labels none but is itself a rule page, its first code block — a rule page leads
+/// with the offending code); the fix is the first LATER block the page calls correct. A `good` is
+/// only ever a block the page positively labels as a fix — never a positional guess — so a violation
+/// is never paired with an unrelated snippet. The page asserts the pairing or we emit none of it.
 #[cfg(feature = "crawl")]
 fn bad_good_from_blocks(html: &str, blocks: &[(usize, String)]) -> (String, String) {
     if blocks.is_empty() {
         return (String::new(), String::new());
     }
-    let lower = html.to_lowercase();
-    let first_marker = |needles: &[&str]| needles.iter().filter_map(|m| lower.find(m)).min();
-    let bad_at = first_marker(&["incorrect", "problematic", "anti-pattern", "will be flagged"]);
-    let good_at = first_marker(&["use instead", "examples of correct", "correct code", "instead:", "fixed code"]);
-    let bad = match bad_at {
-        Some(b) => blocks.iter().find(|(o, _)| *o >= b).or_else(|| blocks.first()),
-        None => blocks.first(),
-    }
-    .map(|(_, c)| c.clone())
-    .unwrap_or_default();
-    let good = match good_at {
-        Some(g) => blocks.iter().find(|(o, _)| *o >= g).map(|(_, c)| c.clone()),
-        None => blocks.get(1).map(|(_, c)| c.clone()),
-    }
-    .filter(|g| g != &bad)
-    .unwrap_or_default();
+    // The governing context of each block: the page text from the previous block's start up to this
+    // block (capped), where the docs put the example's label — keeping each example bound to its own
+    // prose so polarity is read from THIS rule's words, not a neighbour's.
+    let polarity: Vec<i32> = blocks
+        .iter()
+        .enumerate()
+        .map(|(i, (off, _))| {
+            let prev_end = if i == 0 { 0 } else { blocks[i - 1].0 };
+            let start = (*off).saturating_sub(GOVERNING_CTX).max(prev_end);
+            governed_polarity(&html[start..*off])
+        })
+        .collect();
+
+    // The violation: the first block the page calls wrong; else the lead block (a rule page opens
+    // with the code it flags).
+    let bad_i = polarity.iter().position(|&p| p < 0).unwrap_or(0);
+    let bad = blocks[bad_i].1.clone();
+    // The fix: the first LATER block the page positively labels correct. No positive label ⇒ no fix.
+    let good = blocks
+        .iter()
+        .zip(&polarity)
+        .skip(bad_i + 1)
+        .find(|((_, _), &p)| p > 0)
+        .map(|((_, c), _)| c.clone())
+        .filter(|g| g != &bad)
+        .unwrap_or_default();
     (bad, good)
 }
 
@@ -575,6 +638,43 @@ mod tests {
         assert_eq!(rules.len(), 1, "only the signalled section becomes a rule");
         assert!(rules[0].bad.contains("0..=xs.len()"));
         assert!(rules[0].good.contains("for x in xs"), "the next good section is paired as the fix");
+    }
+
+    #[cfg(feature = "crawl")]
+    #[test]
+    fn good_is_never_fabricated_from_position() {
+        // Two code blocks, NO "correct/use instead" label. The old code grabbed the second block as
+        // the fix — a fabrication. Faithful behavior: bad is the first block, good is EMPTY.
+        let html = "<p>incorrect:</p><pre>h := http.Header{}\nh[\"etag\"] = x</pre><pre>// Output:\n// map[Etag]</pre>";
+        let blocks = pre_blocks(html);
+        let (bad, good) = bad_good_from_blocks(html, &blocks);
+        assert!(bad.contains("http.Header"), "bad is the lead block: {bad:?}");
+        assert!(good.is_empty(), "no labeled fix ⇒ no fabricated good, got: {good:?}");
+    }
+
+    #[cfg(feature = "crawl")]
+    #[test]
+    fn good_is_taken_only_from_an_explicit_correct_label() {
+        let html = "<p>Examples of incorrect code:</p><pre>if x == true {}</pre>\
+                    <p>Examples of correct code:</p><pre>if x {}</pre>";
+        let blocks = pre_blocks(html);
+        let (bad, good) = bad_good_from_blocks(html, &blocks);
+        assert!(bad.contains("== true"), "bad captured: {bad:?}");
+        assert!(good.contains("if x {}"), "labeled fix captured: {good:?}");
+    }
+
+    #[test]
+    fn sections_do_not_pair_a_fix_across_an_unrelated_section() {
+        // bad, then an UNLABELED section, then a positive one. Adjacency is broken, so the far-off
+        // positive section is NOT this bad's fix — pairing it would be a manufactured good.
+        let sections = vec![
+            ("Avoid indexing past len, incorrect".to_string(), "xs[xs.len()]".to_string()),
+            ("Some neutral explanation paragraph".to_string(), "let y = 1;".to_string()),
+            ("Prefer this correct form instead".to_string(), "xs.last()".to_string()),
+        ];
+        let rules = rules_from_sections("go", "staticcheck", &sections);
+        assert_eq!(rules.len(), 1, "only the bad-signalled section becomes a rule");
+        assert!(rules[0].good.is_empty(), "no adjacent fix ⇒ empty good, got: {:?}", rules[0].good);
     }
 
     #[test]

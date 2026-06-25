@@ -180,9 +180,12 @@ async function resolveClippyVersion(toolchainVersion) {
 }
 
 /** Pull the first fenced ```rust block out of a Clippy `docs` markdown body that
- * follows the given header (e.g. "Example", "Use instead"). "" when absent. */
+ * follows the given header. Matches both a `### Header` section and a plain inline
+ * `Header:` lead-in (Clippy writes the fix as "Use instead:" inside the Example
+ * section, not as its own `###` header). "" when absent. */
 function codeAfter(docs, header) {
-  const at = docs.indexOf(`### ${header}`);
+  let at = docs.indexOf(`### ${header}`);
+  if (at < 0) at = docs.indexOf(`${header}:`); // plain "Use instead:" form
   if (at < 0) return "";
   const fence = docs.indexOf("```", at);
   if (fence < 0) return "";
@@ -275,6 +278,98 @@ function ruffSeverity(code) {
  * group. We parse the `Code | Name | Message` rows directly; a "🧪 preview"
  * marker in the status column is recorded but does not exclude the rule.
  */
+/** Decode the HTML entities that matter for code (`&lt;`, `&gt;`, `&amp;`, …). */
+function decodeEntities(s) {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/** Clean a `<pre>` body to plain code text, or `undefined` if it is not code.
+ * Strips inline ESLint config directives (the `eslint ...` block-comment headers),
+ * which are documentation scaffolding, never part of the anti-pattern itself. */
+function preToCode(preBody) {
+  const txt = decodeEntities(preBody.replace(/<[^>]+>/g, ""))
+    .replace(/\/\*\s*eslint[\s\S]*?\*\//g, "")
+    .trim();
+  return txt.length >= 5 && /[A-Za-z]/.test(txt) ? txt : undefined;
+}
+
+/**
+ * The code block that *triggers* a rule (the documented anti-pattern). Prefers a
+ * block explicitly marked incorrect/bad (ESLint-style "incorrect code" sections);
+ * falls back to the first block (ruff pages lead with the bad example). Never the
+ * "correct" block — learning from good code would cause false positives.
+ */
+function badCodeBlock(html) {
+  const mark = html.search(/examples of \*\*incorrect|incorrect code|problematic|will (be|get) (flagged|reported)/i);
+  if (mark >= 0) {
+    const after = html.slice(mark).match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
+    if (after) {
+      const code = preToCode(after[1]);
+      if (code) return code;
+    }
+  }
+  const first = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
+  return first ? preToCode(first[1]) : undefined;
+}
+
+/**
+ * The "fixed" code block — the snippet that *satisfies* the rule. Prefers a block
+ * marked correct/good (ESLint "correct code"); falls back to the second block
+ * (ruff/clippy pages lead bad-then-good). Its value is the DIFF: a fragment in the
+ * bad example but absent here is the rule's precise anti-pattern signature.
+ */
+function goodCodeBlock(html) {
+  // "examples of correct" must not match "examples of INcorrect" (which would
+  // re-capture the bad block); the distinct word boundary keeps them separate.
+  const mark = html.search(/examples of correct|\bcorrect code for/i);
+  if (mark >= 0) {
+    const after = html.slice(mark).match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
+    if (after) {
+      const code = preToCode(after[1]);
+      if (code) return code;
+    }
+  }
+  const blocks = [...html.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/g)];
+  return blocks.length >= 2 ? preToCode(blocks[1][1]) : undefined;
+}
+
+/**
+ * Fetch each rule's doc page and attach its `exampleBad` (the triggering snippet)
+ * and `exampleGood` (the fix) — the data the signature linter learns from. Bounded
+ * concurrency, best-effort: a rule whose page is missing or has no code simply
+ * keeps no example. Mutates `rules`.
+ */
+async function attachExamples(rules, concurrency = 16) {
+  let next = 0;
+  let got = 0;
+  async function worker() {
+    while (next < rules.length) {
+      const r = rules[next++];
+      if (!r.source) continue;
+      try {
+        const html = await fetchText(r.source);
+        const bad = badCodeBlock(html);
+        if (bad) {
+          r.exampleBad = bad;
+          got++;
+          const good = goodCodeBlock(html);
+          if (good && good !== bad) r.exampleGood = good;
+        }
+      } catch {
+        /* best-effort: skip rules whose page fails to fetch */
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  process.stderr.write(`  attached ${got}/${rules.length} examples\n`);
+}
+
 async function buildRuff() {
   const html = await fetchText("https://docs.astral.sh/ruff/rules/");
   const docsVersion = await ruffDocsVersion(html);
@@ -299,6 +394,7 @@ async function buildRuff() {
     });
   }
   if (rules.length === 0) throw new Error("ruff: parsed 0 rules (table layout changed?)");
+  await attachExamples(rules); // learn-from-docs: each rule's triggering snippet
   return packIndex({
     tool: "ruff",
     language: "python",
@@ -379,6 +475,7 @@ async function buildEslint() {
     });
   }
   if (rules.length === 0) throw new Error("eslint: parsed 0 rules (page layout changed?)");
+  await attachExamples(rules); // learn-from-docs: each rule's "incorrect code" snippet
   return packIndex({
     tool: "eslint",
     language: "javascript",
