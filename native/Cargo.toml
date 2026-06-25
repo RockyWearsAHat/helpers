@@ -25,9 +25,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
 rayon = "1"
-# git-cs-grade is folded into this one binary (busybox dispatch). The grading
-# logic lives in the cs_grade library crate; we ship a single helpers-native.
-cs_grade = { path = "../cs-grade", package = "git-cs-grade" }
 # Timestamps that match JavaScript's Date.toISOString() exactly (UTC, millis, Z).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Bounded waits so strict_lint never hangs on a slow linter subprocess.
@@ -67,16 +64,17 @@ bytemuck = { version = "1", optional = true }
 ureq = { version = "2", optional = true, default-features = false, features = ["tls", "gzip"] }
 
 [features]
-# Off by default: `cargo build` ships the portable CPU build; `--features gpu` adds the
-# wgpu-backed batch Hamming kernel used by lint-moe training; `--features crawl` adds the
-# direct-fetch documentation crawler (no headless browser).
-default = []
+# `crawl` is ON by default: the `lint` tool learns each language's rules directly from its official
+# docs (clippy/ruff/eslint/staticcheck) on a cache-miss, so it needs the direct-fetch crawler. It
+# pulls only the tiny blocking `ureq` (TLS, no headless browser), so the binary stays portable and
+# cross-compiles clean. `--no-default-features` drops it (offline-only build that reuses caches and
+# asks the calling agent for docs). `--features gpu` adds the wgpu batch Hamming kernel.
+# `gpu` is ON by default: the memory subsystem's batch Hamming kernel (`memory/gpu.rs`) runs on the
+# GPU when a device is present, falling back to the CPU fold otherwise. wgpu picks Metal/Vulkan/DX12
+# at runtime. (The linter itself is deterministic tree-pattern matching and uses no GPU.)
+default = ["crawl", "gpu"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 crawl = ["dep:ureq"]
-
-[[example]]
-name = "crawl_and_learn"
-required-features = ["crawl"]
 
 [profile.release]
 opt-level = 3

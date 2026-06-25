@@ -187,6 +187,24 @@ fn novel_root<'t>(
     }
 }
 
+/// With no fix to diff against, a documented bad example often shows the SAME anti-pattern more than
+/// once (clippy lists several instances: `if x == true {}` / `if y == false {}`). Keeping the whole
+/// multi-statement root then builds a pattern that demands every instance at once — so brittle that
+/// not even the example's own reuse matches it. When every meaningful child of `node` shares one
+/// shape, they ARE the one violation repeated, so descend to a single representative instance. A node
+/// whose children differ in shape is left intact (we cannot localize a real difference without a fix).
+fn collapse_repeated(node: Node) -> Node {
+    let kids = meaningful_children(node);
+    if kids.len() < 2 {
+        return node;
+    }
+    let first = shape_hash(kids[0]);
+    if kids.iter().all(|k| shape_hash(*k) == first) {
+        return collapse_repeated(kids[0]);
+    }
+    node
+}
+
 /// Collect every node kind under `node`.
 fn collect_kinds(node: Node, out: &mut HashSet<String>) {
     out.insert(node.kind().to_string());
@@ -320,7 +338,7 @@ impl RulePattern {
         // With a fix to diff against, isolate the smallest distinguishing construct. With no fix,
         // we cannot localize — keep the whole bad construct (its context, e.g. a `break`'s scope).
         let root = if good_shapes.is_empty() {
-            bad_tree.root_node()
+            collapse_repeated(bad_tree.root_node())
         } else {
             novel_root(bad_tree.root_node(), &good_shapes, &good_kinds, &good_children)?
         };
@@ -449,12 +467,19 @@ impl RuleSet {
                 compiled.push(CompiledRule { id: id.clone(), severity: severity.clone(), pat });
             }
         }
-        // SELF-TEST against the docs' own known-correct corpus: every rule's `good` example is code
-        // the docs certify as clean. A compiled pattern that matches ANY good example is firing on
-        // correct code — its syntax is not the violation, the violation is semantic (a `&mut` arg
-        // that is never mutated, a `pub _field` that is never read: dataflow the tree cannot see).
-        // Such a rule would over-flag every correct use, so it is dropped. This is the documentation
-        // testing itself — no assembled reference set, only the good examples already provided.
+        // SELF-FIRE: a compiled pattern must flag its own `bad` example. A pattern that does not
+        // self-fire is broken by construction — the extraction failed to represent the violation —
+        // and would be a guaranteed false negative on the simplest possible case. Drop such rules
+        // before they reach the good-corpus test; keeping them would corrupt the ruleset silently.
+        let bad_map: std::collections::HashMap<&str, &str> =
+            rules.iter().map(|(id, _, bad, _, _)| (id.as_str(), bad.as_str())).collect();
+        compiled.retain(|r| {
+            let bad = bad_map.get(r.id.as_str()).copied().unwrap_or("");
+            !r.pat.matches(bad).is_empty()
+        });
+        // OVER-FIRE: drop rules whose pattern fires on any doc-certified clean example. Such a rule
+        // is flagging correct code — its violation is semantic (dataflow, ownership) not syntactic.
+        // The docs' own `good` examples form the reference; no external corpus is needed.
         let good_corpus: Vec<&str> =
             rules.iter().map(|(_, _, _, g, _)| g.trim()).filter(|g| !g.is_empty()).collect();
         compiled.retain(|r| !good_corpus.iter().any(|g| !r.pat.matches(g).is_empty()));
@@ -583,6 +608,18 @@ mod tests {
     }
 
     #[test]
+    fn empty_good_repeated_instances_collapse_to_one_and_fire() {
+        // The clippy seed shows `bool_comparison` as the same anti-pattern twice with NO fix:
+        // `if x == true {}` / `if y == false {}`. The whole-tree pattern demanded both at once, so
+        // not even a single real use (or the example's own first line) matched. Collapsing repeated
+        // instances must yield a pattern that fires on one ordinary comparison.
+        let rule = RulePattern::compile("rust", "if x == true {}\nif y == false {}", "", "Comparing a bool to true is redundant.")
+            .expect("repeated-instance example compiles to a single pattern");
+        assert!(!rule.matches("fn g(flag: bool) { if flag == true {} }").is_empty(), "flags a real == true use");
+        assert!(rule.matches("fn g(flag: bool) { if flag {} }").is_empty(), "the idiomatic form is clean");
+    }
+
+    #[test]
     fn operation_name_is_exact_not_a_wildcard() {
         // `re.sub` with a literal pattern → use str.replace. The operation `.sub` is kept exact; the
         // string is a typed wildcard, so any `re.sub("…", …)` matches but `.replace(` does not.
@@ -590,5 +627,30 @@ mod tests {
             .expect("rule compiles");
         assert!(!rule.matches("y = re.sub(\"x\", \"\", text)").is_empty(), "any re.sub literal call matches");
         assert!(rule.matches("y = text.replace(\"x\", \"\")").is_empty(), "the fixed form does not match");
+    }
+
+    /// Zero-false-negatives property: every rule that survives build() fires on its own bad example.
+    /// This is guaranteed by construction (build() drops non-self-firing rules), but this test makes
+    /// the invariant explicit and catches any regression in the self-fire gate.
+    #[test]
+    fn every_compiled_rule_fires_on_its_own_bad_example() {
+        let rules = vec![
+            ("bool_comparison".to_string(), "low".to_string(),
+             "fn f(x: bool) { if x == true {} }".to_string(),
+             "fn f(x: bool) { if x {} }".to_string(),
+             "Comparing a bool to true is redundant.".to_string()),
+            // A semantically-unlearnable rule: the bad == good (over-fires the good corpus) — build()
+            // must drop it. Including it proves the self-fire gate alone does not keep bad rules.
+            ("always_fires".to_string(), "high".to_string(),
+             "fn f() { let x = 1; }".to_string(),
+             "fn f() { let x = 1; }".to_string(),
+             "Fires on correct code too.".to_string()),
+        ];
+        let m = RuleSet::build("rust", &rules);
+        // Only `bool_comparison` survives: it self-fires AND doesn't fire on the good corpus.
+        assert_eq!(m.rule_count(), 1, "only the self-firing, non-over-firing rule compiles");
+        // The surviving rule fires on its bad example — the zero-FN guarantee.
+        let flags = m.flag("fn g(y: bool) { if y == true {} }");
+        assert!(flags.iter().any(|f| f.rule == "bool_comparison"), "surviving rule self-fires");
     }
 }

@@ -1,10 +1,6 @@
 .DS_Store
 # Compiled C shim — platform-specific, built on install from helpers-mcp.c
 helpers-mcp
-# git-cs-grade is folded into helpers-native (busybox dispatch); the installed
-# /git-cs-grade is a symlink recreated by `helpers build`. Source: cs-grade/ (Rust).
-/git-cs-grade
-cs-grade/target/
 # Native MCP tools — platform-specific, built on install from native/ (Rust).
 # Rust-only: no Node fallback. The committed source is the native/ crate.
 /helpers-native

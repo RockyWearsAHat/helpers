@@ -140,7 +140,7 @@ install_from_source() {
   install -m 0755 "$root/native/target/release/helpers-native" "$BIN_DIR/helpers-native" 2>/dev/null ||
     { cp "$root/native/target/release/helpers-native" "$BIN_DIR/helpers-native" && chmod 0755 "$BIN_DIR/helpers-native"; }
   ( cd "$BIN_DIR" && for n in helpers git-resolve git-remerge git-fucked-the-push git-initialize \
-      git-get git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env git-cs-grade; do
+      git-get git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env; do
       ln -sf helpers-native "$n"; done )
   rm -rf "$extract_dir"
   "$BIN_DIR/helpers" install --agent auto || true
