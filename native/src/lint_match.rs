@@ -103,18 +103,75 @@ fn collect_shapes(node: Node, out: &mut HashSet<String>) {
     }
 }
 
+/// For every node in the fix, its kind paired with the sorted multiset of its meaningful children's
+/// shape hashes. This lets the localizer recognize a construct the fix kept intact but added
+/// siblings INTO (a None-guard, an early return, a `try`/`except` wrap): such a node's own contents
+/// are unchanged, so it is incidental context, not the violation — the change is in a sibling.
+fn collect_child_shapes(node: Node, out: &mut Vec<(String, Vec<String>)>) {
+    let kids = meaningful_children(node);
+    let mut shapes: Vec<String> = kids.iter().map(|k| shape_hash(*k)).collect();
+    shapes.sort();
+    out.push((node.kind().to_string(), shapes));
+    for c in kids {
+        collect_child_shapes(c, out);
+    }
+}
+
+/// Whether the sorted multiset `sub` is contained in the sorted multiset `sup`.
+fn is_submultiset(sub: &[String], sup: &[String]) -> bool {
+    let mut counts: HashMap<&String, i32> = HashMap::new();
+    for s in sup {
+        *counts.entry(s).or_default() += 1;
+    }
+    sub.iter().all(|s| match counts.get_mut(s) {
+        Some(c) if *c > 0 => {
+            *c -= 1;
+            true
+        }
+        _ => false,
+    })
+}
+
+/// True when the fix kept this exact construct and only INSERTED siblings inside it: some fix node of
+/// the same kind has a child-shape multiset that STRICTLY contains this node's. The construct's own
+/// children are all preserved by the fix, so the violation is not here — it is in a sibling subtree
+/// (the `target=[]` default that sits beside the body the fix only wrapped in a guard). Without this,
+/// a fix that adds a guard makes the body itself look novel, and the localizer over-captures the
+/// whole unit into a pattern so literal that a stray docstring or log line defeats the match.
+fn fix_only_inserted(node: Node, good_children: &[(String, Vec<String>)]) -> bool {
+    let kids = meaningful_children(node);
+    if kids.is_empty() {
+        return false;
+    }
+    let mut want: Vec<String> = kids.iter().map(|k| shape_hash(*k)).collect();
+    want.sort();
+    good_children
+        .iter()
+        .any(|(kind, have)| kind == node.kind() && have.len() > want.len() && is_submultiset(&want, have))
+}
+
 /// The SMALLEST subtree of `node` carrying the distinction from the fix: the deepest named node that
 /// is novel (its shape is absent from `good_shapes`) yet sits over children the fix DOES share — so
 /// the difference is localized right here. This is what isolates `0..=W.len()` from a whole function
 /// (the operator diff would otherwise bubble all the way up), while still keeping the function scope
 /// for a `break` (because the break-block shape IS shared with the loop fix, descent stops above it).
-fn novel_root<'t>(node: Node<'t>, good_shapes: &HashSet<String>, good_kinds: &HashSet<String>) -> Option<Node<'t>> {
+fn novel_root<'t>(
+    node: Node<'t>,
+    good_shapes: &HashSet<String>,
+    good_kinds: &HashSet<String>,
+    good_children: &[(String, Vec<String>)],
+) -> Option<Node<'t>> {
     if good_shapes.contains(&shape_hash(node)) {
         return None; // shape shared with the fix → incidental context, not the violation
     }
+    if fix_only_inserted(node, good_children) {
+        return None; // the fix only added siblings here → this construct is not the violation
+    }
     let mut cur = node.walk();
-    let novel: Vec<Node> =
-        node.named_children(&mut cur).filter(|c| novel_root(*c, good_shapes, good_kinds).is_some()).collect();
+    let novel: Vec<Node> = node
+        .named_children(&mut cur)
+        .filter(|c| novel_root(*c, good_shapes, good_kinds, good_children).is_some())
+        .collect();
     // Descend into the single differing child ONLY when this node's KIND survives in the fix — i.e.
     // the construct is preserved and only its content changed (a `range_expression` `..=`→`..`). If
     // the fix REPLACED this kind (a `lambda` assignment became a `def`, so `assignment` is absent
@@ -124,7 +181,7 @@ fn novel_root<'t>(node: Node<'t>, good_shapes: &HashSet<String>, good_kinds: &Ha
     // descending into its arguments. So stop at a call even if the change is in an argument.
     let atomic = matches!(node.kind(), "call" | "call_expression" | "macro_invocation");
     if novel.len() == 1 && good_kinds.contains(node.kind()) && !atomic {
-        novel_root(novel[0], good_shapes, good_kinds)
+        novel_root(novel[0], good_shapes, good_kinds, good_children)
     } else {
         Some(node)
     }
@@ -221,6 +278,25 @@ fn compile(node: Node, src: &[u8], desc: &str, binds: &mut HashMap<String, u32>)
     Pat { kind, text, bind: None, children }
 }
 
+/// A collection-literal node kind (`[]`, `{}`, `(a, b)`) across the grammars we parse. Unlike a bare
+/// identifier or operator, a collection literal is a CONCRETE construct a rule can turn on (a mutable
+/// default argument, a list where a generator belongs), so it counts as an anchoring identity even as
+/// a typed wildcard — the rule is "a value of this kind in this slot".
+fn is_container_kind(kind: &str) -> bool {
+    matches!(kind, "list" | "dictionary" | "set" | "tuple" | "array" | "object" | "array_expression")
+}
+
+/// Whether `pat` keeps at least one anchoring IDENTITY — a leaf whose retained text carries a word (a
+/// method/operation name, a keyword, or a doc-named literal like `0.0.0.0`), or a collection literal
+/// ([`is_container_kind`]). Operators and punctuation are exact-by-kind but not an identity (too
+/// common), so they do not count. A pattern with no anchor is pure structure-plus-wildcards and would
+/// match a generic shape; it has no rule to match and abstains. (A pattern that does anchor but is
+/// still too broad is caught downstream by the self-test against the docs' own good examples.)
+fn has_named_anchor(pat: &Pat) -> bool {
+    let word = pat.text.as_deref().is_some_and(|t| t.chars().any(|c| c.is_ascii_alphanumeric()));
+    word || is_container_kind(&pat.kind) || pat.children.iter().any(has_named_anchor)
+}
+
 impl RulePattern {
     /// Build a rule pattern from its documented `bad` example and (optional) `good` fix, in `lang`.
     /// `desc` is the rule's English description: a literal/name it mentions is kept exact (the rule
@@ -233,10 +309,12 @@ impl RulePattern {
         let bad_tree = parser.parse(bad, None)?;
         let mut good_shapes = HashSet::new();
         let mut good_kinds = HashSet::new();
+        let mut good_children = Vec::new();
         if !good.trim().is_empty() {
             if let Some(gt) = parser.parse(good, None) {
                 collect_shapes(gt.root_node(), &mut good_shapes);
                 collect_kinds(gt.root_node(), &mut good_kinds);
+                collect_child_shapes(gt.root_node(), &mut good_children);
             }
         }
         // With a fix to diff against, isolate the smallest distinguishing construct. With no fix,
@@ -244,7 +322,7 @@ impl RulePattern {
         let root = if good_shapes.is_empty() {
             bad_tree.root_node()
         } else {
-            novel_root(bad_tree.root_node(), &good_shapes, &good_kinds)?
+            novel_root(bad_tree.root_node(), &good_shapes, &good_kinds, &good_children)?
         };
         // Skip past trivial single-child wrappers (module / expression_statement) to the construct.
         let mut node = root;
@@ -255,6 +333,17 @@ impl RulePattern {
         let pat = compile(node, bad.as_bytes(), &desc.to_lowercase(), &mut binds);
         // A pattern that is a lone wildcard or a single bare leaf carries no rule — abstain.
         if pat.children.is_empty() && pat.text.is_none() {
+            return None;
+        }
+        // The rule's IDENTITY is the named tokens it turns on — a method/operation name, a keyword,
+        // or a literal the docs name (`len`, `true`, `break`, `re.sub`, `0.0.0.0`). A pattern that
+        // generalized down to pure structure plus wildcards, with no such anchor, matches a generic
+        // shape (`let x = a::b::c` for `absolute_paths`) rather than its own rule — it has no
+        // identity to match, so it abstains. Operators/punctuation alone (`::`, `=`) are not an
+        // identity: they are too common to be the rule. This is the docs deciding what is learnable
+        // from a single example: a rule whose essence is types or dataflow leaves no syntactic
+        // anchor and is correctly not learned here.
+        if !has_named_anchor(&pat) {
             return None;
         }
         Some(RulePattern { lang: lang.to_string(), pat })
@@ -317,9 +406,113 @@ fn match_at(node: Node, pat: &Pat, src: &[u8], binds: &mut HashMap<u32, String>)
     kids.iter().zip(&pat.children).all(|(c, p)| match_at(*c, p, src, binds))
 }
 
+/// One documented rule compiled to its exact pattern, carrying the reporting facts a finding needs.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CompiledRule {
+    id: String,
+    severity: String,
+    pat: RulePattern,
+}
+
+/// A language's compiled rule set: every documented rule reduced to its lossless tree pattern. This
+/// is the cached, serializable model a lint run loads and matches each file against — deterministic,
+/// no thresholds, no statistics. Mirrors the engine's old model API so judging code is unchanged.
+#[derive(Serialize, Deserialize)]
+pub struct RuleSet {
+    /// Language id (e.g. `rust`).
+    pub lang: String,
+    rules: Vec<CompiledRule>,
+}
+
+/// One flagged violation: the rule it violates, that rule's severity, and the 1-based source line.
+pub struct Finding {
+    /// The matched rule's id.
+    pub rule: String,
+    /// Severity bucket (`high`/`medium`/`low`).
+    pub severity: String,
+    /// 1-based source line of the match.
+    pub line: usize,
+}
+
+impl RuleSet {
+    /// Compile a language's documented `(id, severity, bad, good, description)` rules into exact
+    /// patterns. A rule whose example carries no distinctive structure (its difference is data the
+    /// tree abstracts away) compiles to nothing and is dropped — the docs decide what is learnable.
+    pub fn build(lang: &str, rules: &[(String, String, String, String, String)]) -> RuleSet {
+        let mut compiled = Vec::new();
+        let mut seen = HashSet::new();
+        for (id, severity, bad, good, desc) in rules {
+            if id.is_empty() || bad.trim().is_empty() || !seen.insert(id.clone()) {
+                continue;
+            }
+            if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
+                compiled.push(CompiledRule { id: id.clone(), severity: severity.clone(), pat });
+            }
+        }
+        // SELF-TEST against the docs' own known-correct corpus: every rule's `good` example is code
+        // the docs certify as clean. A compiled pattern that matches ANY good example is firing on
+        // correct code — its syntax is not the violation, the violation is semantic (a `&mut` arg
+        // that is never mutated, a `pub _field` that is never read: dataflow the tree cannot see).
+        // Such a rule would over-flag every correct use, so it is dropped. This is the documentation
+        // testing itself — no assembled reference set, only the good examples already provided.
+        let good_corpus: Vec<&str> =
+            rules.iter().map(|(_, _, _, g, _)| g.trim()).filter(|g| !g.is_empty()).collect();
+        compiled.retain(|r| !good_corpus.iter().any(|g| !r.pat.matches(g).is_empty()));
+        RuleSet { lang: lang.to_string(), rules: compiled }
+    }
+
+    /// Number of compiled rules.
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+
+    /// Flag `code`: every line where a rule's exact pattern occurs, deduped per rule. A file with no
+    /// match yields nothing — the match is deterministic sub-tree containment, so there is no
+    /// project calibration and no shared state between files.
+    pub fn flag(&self, code: &str) -> Vec<Finding> {
+        let mut out = Vec::new();
+        for r in &self.rules {
+            let mut lines = r.pat.matches(code);
+            lines.sort_unstable();
+            lines.dedup();
+            for line in lines {
+                out.push(Finding { rule: r.id.clone(), severity: r.severity.clone(), line });
+            }
+        }
+        out
+    }
+
+    /// Serialize to JSON for caching.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// Load from cached JSON.
+    pub fn from_json(s: &str) -> Option<RuleSet> {
+        serde_json::from_str(s).ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The model end-to-end: a documented rule compiles, flags its bad form, clears its good form.
+    #[test]
+    fn ruleset_flags_bad_clears_good() {
+        let rules = vec![(
+            "bool_comparison".to_string(),
+            "low".to_string(),
+            "fn f(x: bool) { if x == true {} }".to_string(),
+            "fn f(x: bool) { if x {} }".to_string(),
+            "Comparing a bool to true is redundant.".to_string(),
+        )];
+        let m = RuleSet::build("rust", &rules);
+        assert_eq!(m.rule_count(), 1, "the rule compiles to a pattern");
+        let fires = |code: &str| m.flag(code).iter().any(|f| f.rule == "bool_comparison");
+        assert!(fires("fn g(y: bool) { if y == true {} }"), "flags the violation (any variable)");
+        assert!(!fires("fn g(y: bool) { if y {} }"), "clears the fixed form");
+    }
 
     #[test]
     fn scope_falls_out_of_the_tree_break_outside_loop() {
@@ -361,6 +554,31 @@ mod tests {
         assert!(
             rule.matches("if isinstance(a, dict) or isinstance(b, list):\n    pass").is_empty(),
             "DIFFERENT targets are NOT flagged (binding requires the same variable)"
+        );
+    }
+
+    #[test]
+    fn fix_that_adds_a_guard_localizes_to_the_violation_not_the_whole_unit() {
+        // The fix for a mutable default argument both changes the param (`[]`→`None`) AND inserts a
+        // None-guard into the body. A naive diff sees two novel sites and captures the WHOLE function
+        // verbatim — a pattern so literal a stray docstring defeats it. The localizer must see the
+        // body as fix-inserted context and pin the rule to the `target=[]` default itself.
+        let rule = RulePattern::compile(
+            "python",
+            "def append_item(item, target=[]):\n    target.append(item)\n    return target",
+            "def append_item(item, target=None):\n    if target is None:\n        target = []\n    target.append(item)\n    return target",
+            "A mutable default argument is shared across calls",
+        )
+        .expect("a collection-literal default is a learnable rule");
+        // Real code with a docstring and an extra statement must still match (the over-fit pattern did not).
+        assert!(
+            !rule.matches("def f(x, acc=[]):\n    \"\"\"doc.\"\"\"\n    acc.append(x)\n    log(x)\n    return acc").is_empty(),
+            "flags a mutable default regardless of surrounding body"
+        );
+        // The idiomatic None-default form is clean.
+        assert!(
+            rule.matches("def f(x, acc=None):\n    if acc is None:\n        acc = []\n    acc.append(x)\n    return acc").is_empty(),
+            "the None-default fix is not flagged"
         );
     }
 
