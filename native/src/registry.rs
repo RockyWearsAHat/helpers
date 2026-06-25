@@ -53,6 +53,11 @@ pub fn all_tools() -> Vec<Tool> {
             handler: ln::run,
         },
         Tool {
+            name: "lint_languages",
+            schema: ls::schema_languages,
+            handler: ls::run_languages,
+        },
+        Tool {
             name: "lint_add_source",
             schema: ls::schema_add_source,
             handler: ls::run_add_source,

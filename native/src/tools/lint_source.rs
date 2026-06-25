@@ -1,16 +1,159 @@
-//! Three MCP tools that manage the linter's language/doc sources:
+//! MCP tools for managing the linter's language and doc sources.
 //!
-//! * `lint_add_source` — register a new language by pointing it at its official docs URL;
-//!   the linter then learns from those docs automatically on next use.
-//! * `lint_learn` — force-crawl a language's registered docs right now, compile the model,
-//!   and save it as a committed module (`lint-models/<lang>.learned.json`) so `git pull`
-//!   ships the learned rules to everyone without a per-machine crawl.
-//! * `lint_submit` — stage the trained modules + corpus changes, commit, push, and open a
-//!   GitHub PR so others get the improvements on their next pull.
+//! **Adding a new language — 3-step workflow for an agent:**
+//!
+//! 1. Call `lint_languages` — see what's already supported and what's missing.
+//! 2. If the language has built-in docs knowledge (listed by `lint_languages`), call
+//!    `lint_learn language="<lang>"` — it crawls, compiles, and saves the model. Done.
+//! 3. If it is a custom or lesser-known language, call `lint_add_source` first to register
+//!    its docs URL, then `lint_learn`, then `lint_submit` to open a PR.
+//!
+//! Tools:
+//! * `lint_languages` — full status: docs-knowledge, grammar, and trained state per language.
+//! * `lint_add_source` — register a custom language's docs URL in `sources.json`.
+//! * `lint_learn`      — force-crawl a language's docs now and save a committed model.
+//! * `lint_submit`     — commit trained models + corpus, push, and open a GitHub PR.
+
+use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
 use crate::proto::{text, ToolResult};
+
+// ── lint_languages ────────────────────────────────────────────────────────────
+
+/// Every language the linter knows about, with grammar support and docs-knowledge status.
+/// Grammar = can parse and match tree patterns. Docs = built-in URL knowledge or custom entry.
+/// Trained = a compiled model file exists on disk right now.
+static BUILTIN_LANGUAGES: &[(&str, bool, &str, &str)] = &[
+    // (name, grammar_support, docs_tool, docs_url_hint)
+    ("rust",       true,  "clippy",          "docs.rust-lang.org/clippy"),
+    ("python",     true,  "ruff",            "docs.astral.sh/ruff/rules"),
+    ("javascript", true,  "eslint",          "eslint.org/docs/latest/rules"),
+    ("typescript", true,  "typescript-eslint","typescript-eslint.io/rules"),
+    ("go",         true,  "staticcheck",     "staticcheck.dev/docs/checks"),
+    ("java",       true,  "pmd",             "pmd.github.io"),
+    ("ruby",       true,  "rubocop",         "docs.rubocop.org"),
+    ("c",          true,  "clang-tidy",      "clang.llvm.org/extra/clang-tidy"),
+    ("bash",       true,  "shellcheck",      "shellcheck.net/wiki/Checks"),
+    ("cpp",        false, "clang-tidy",      "clang.llvm.org/extra/clang-tidy"),
+    ("kotlin",     false, "detekt",          "detekt.dev/docs/rules"),
+    ("swift",      false, "swiftlint",       "realm.github.io/SwiftLint"),
+    ("php",        false, "phpstan",         "phpstan.org"),
+    ("csharp",     false, "roslyn",          "learn.microsoft.com/dotnet/csharp/roslyn"),
+];
+
+/// Show every language the linter knows — docs URL, grammar support, and trained status —
+/// so an agent immediately knows what to call next.
+pub fn run_languages(args: &Value) -> ToolResult {
+    let data_root = crate::tools::lint::data_root_pub();
+    let models_dir = data_root.join("lint-models");
+
+    // Check which models are actually trained on disk.
+    let trained: BTreeMap<String, bool> = BUILTIN_LANGUAGES.iter().map(|(lang, _, _, _)| {
+        let path = models_dir.join(format!("{lang}.learned.json"));
+        (lang.to_string(), path.exists())
+    }).collect();
+
+    // Load custom sources from sources.json.
+    let sources_path = data_root.join("lint-index/sources.json");
+    let custom_langs: Vec<String> = std::fs::read_to_string(&sources_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|v| v["sources"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|e| e["language"].as_str().map(str::to_string))
+        .filter(|l| !BUILTIN_LANGUAGES.iter().any(|(b, _, _, _)| *b == l))
+        .collect();
+
+    let filter = args.get("language").and_then(Value::as_str).map(str::to_ascii_lowercase);
+
+    let mut out = String::from("Language support status:\n");
+    out.push_str(&format!("  {:<14} {:<8} {:<18} {:<8} {}\n", "LANGUAGE", "GRAMMAR", "DOCS TOOL", "TRAINED", "ACTION"));
+    out.push_str(&format!("  {}\n", "-".repeat(72)));
+
+    let mut can_learn: Vec<&str> = Vec::new();
+    let mut needs_grammar: Vec<&str> = Vec::new();
+
+    for (lang, grammar, tool, hint) in BUILTIN_LANGUAGES {
+        if let Some(ref f) = filter { if f != lang { continue; } }
+        let is_trained = trained.get(*lang).copied().unwrap_or(false);
+        let action = if is_trained {
+            "ready"
+        } else if *grammar {
+            can_learn.push(lang);
+            "→ call lint_learn"
+        } else {
+            needs_grammar.push(lang);
+            "→ needs grammar crate first"
+        };
+        out.push_str(&format!(
+            "  {:<14} {:<8} {:<18} {:<8} {}  ({})\n",
+            lang,
+            if *grammar { "yes" } else { "no" },
+            tool,
+            if is_trained { "yes" } else { "no" },
+            action,
+            hint,
+        ));
+    }
+
+    if !custom_langs.is_empty() {
+        out.push_str("\nCustom languages (from sources.json):\n");
+        for lang in &custom_langs {
+            let is_trained = models_dir.join(format!("{lang}.learned.json")).exists();
+            out.push_str(&format!(
+                "  {:<14} trained={}\n",
+                lang, if is_trained { "yes" } else { "no → call lint_learn" }
+            ));
+        }
+    }
+
+    if filter.is_none() {
+        if !can_learn.is_empty() {
+            out.push_str(&format!(
+                "\nTo train all ready languages now:\n  call lint_learn once per language: {}\n",
+                can_learn.join(", ")
+            ));
+        }
+        if !needs_grammar.is_empty() {
+            out.push_str(&format!(
+                "\nLanguages needing a grammar crate before they can be trained: {}\n\
+                 Add tree-sitter-<lang> to Cargo.toml and wire it into lint_match.rs + lint_ast.rs,\n\
+                 then lint_learn will work for them too.\n",
+                needs_grammar.join(", ")
+            ));
+        }
+        out.push_str("\nFull workflow for a NEW language:\n\
+            1. lint_languages                        — check if it's already known\n\
+            2. lint_add_source language=X url=<docs> — register it (skip if already in list above)\n\
+            3. lint_learn language=X                 — crawl docs, compile model, save to lint-models/\n\
+            4. lint_submit description=\"add X\"       — commit, push, open PR\n");
+    }
+
+    Ok(vec![text(out)])
+}
+
+pub fn schema_languages() -> Value {
+    json!({
+        "name": "lint_languages",
+        "description": "List every language the linter knows about, with grammar support (can parse files), \
+                        built-in docs-URL knowledge, and trained status (model on disk). \
+                        Start here when adding a new language — it tells you exactly what to do next. \
+                        Full workflow: lint_languages → lint_learn (for built-ins) or lint_add_source → lint_learn → lint_submit.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "language": {
+                    "type": "string",
+                    "description": "Filter to one specific language. Omit to see all."
+                }
+            },
+            "required": []
+        }
+    })
+}
 
 // ── lint_add_source ───────────────────────────────────────────────────────────
 
@@ -57,21 +200,23 @@ pub fn run_add_source(args: &Value) -> ToolResult {
     std::fs::write(&sources_path, out).map_err(|e| format!("could not write sources.json: {e}"))?;
 
     Ok(vec![text(format!(
-        "Registered `{tool}` for `{lang}` ({kind}).\n\
-         URL: {url}\n\n\
-         The linter will crawl this URL and train automatically on the next `lint` run \
-         (or immediately via `lint_learn` with language=\"{lang}\").\n\n\
-         Note: to analyze `{lang}` files, a tree-sitter grammar crate must also be wired in \
-         (Cargo.toml + lint_match.rs). Languages already wired: rust, python, javascript, typescript, go."
+        "Registered `{tool}` for `{lang}` ({kind}).\nURL: {url}\n\n\
+         Next: call lint_learn language=\"{lang}\" to crawl the docs and compile the model now.\n\
+         Then lint_submit to share it via PR.\n\n\
+         Note: to analyze `{lang}` source files, a tree-sitter grammar must exist in Cargo.toml \
+         and be wired into lint_match.rs + lint_ast.rs. \
+         Call lint_languages to see which languages already have grammar support."
     ))])
 }
 
 pub fn schema_add_source() -> Value {
     json!({
         "name": "lint_add_source",
-        "description": "Register a language's official docs URL so the linter knows where to learn its rules. \
-                        The linter crawls the URL automatically on the next lint run, or immediately when you call lint_learn. \
-                        This is the whole workflow for adding a new language: point it at its linter docs, train, submit as PR.",
+        "description": "Register a CUSTOM or lesser-known language's docs URL in sources.json. \
+                        NOT needed for built-in languages (rust, python, javascript, typescript, go, java, ruby, c, bash, \
+                        cpp, kotlin, swift, php, csharp) — those already have docs-URL knowledge built in, just call lint_learn. \
+                        Use lint_add_source only when lint_languages shows a language is missing entirely. \
+                        After registering: call lint_learn to train, then lint_submit to PR it.",
         "inputSchema": {
             "type": "object",
             "properties": {
