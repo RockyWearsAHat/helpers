@@ -2,6 +2,7 @@
 
 pub mod checkpoint;
 pub mod lint;
+pub mod lint_source;
 pub mod knowledge;
 pub mod project_index;
 pub mod project_tools;

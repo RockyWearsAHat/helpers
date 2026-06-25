@@ -371,14 +371,24 @@ fn seed_with_version(data_root: &Path, lang: &str) -> (Vec<DocRule>, String) {
     (out, version)
 }
 
-/// Whether a catalog's `language` serves the requested model language (folds the JS/TS family).
+/// Whether a catalog's `language` serves the requested model language.
+/// TypeScript extends JavaScript: a TypeScript model learns all JavaScript rules too.
 fn lang_matches(catalog: &str, want: &str) -> bool {
-    let c = catalog.to_ascii_lowercase();
+    // Normalize short aliases to canonical language names.
+    let norm = |s: &str| match s.to_ascii_lowercase().as_str() {
+        "js" | "jsx" => "javascript".to_string(),
+        "ts" | "tsx" => "typescript".to_string(),
+        other => other.to_ascii_lowercase(),
+    };
+    let c = norm(catalog);
     if c == want {
         return true;
     }
-    let js = |s: &str| matches!(s, "js" | "jsx" | "ts" | "tsx" | "javascript" | "typescript");
-    js(&c) && js(want)
+    // TypeScript is a superset of JavaScript: include all JavaScript rules in the TypeScript model.
+    if want == "typescript" && c == "javascript" {
+        return true;
+    }
+    false
 }
 
 /// The raw JSON of every committed/embedded rule catalog (excluding `sources.json`).
@@ -544,6 +554,75 @@ pub fn practice_principles(data_root: &Path) -> Vec<crate::lint_practice::Princi
     }
     flush(&heading, &body, had_fence, &mut out);
     out
+}
+
+// ── public training API ──────────────────────────────────────────────────────
+
+/// The result of a successful `learn_and_commit` call.
+pub struct LearnResult {
+    /// The language that was trained.
+    pub lang: String,
+    /// Number of rules learned from the docs.
+    pub rule_count: usize,
+    /// Number of those rules that compiled to a matchable tree pattern.
+    pub pattern_count: usize,
+    /// Path of the committed module that was written.
+    pub module_path: PathBuf,
+}
+
+/// Force-crawl a language's registered docs URL, compile the model, and persist it as a
+/// committed module (`<data_root>/lint-models/<lang>.learned.json`). This is how a trained
+/// language is shared: commit the module, push, open a PR — others get it on `git pull` with
+/// no per-machine crawl. Also updates the user's local pattern cache so the next `lint` run
+/// loads immediately. Returns an error when no docs URL is registered for the language or the
+/// crawl returns no rules.
+#[cfg(feature = "crawl")]
+pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, String> {
+    let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
+    let (rules, reference) =
+        crawl_learn(data_root, lang, &version).ok_or_else(|| {
+            format!(
+                "no docs URL configured for `{lang}` — add one with `lint_add_source` first, \
+                 or set HELPERS_LINT_OFFLINE to use a committed module"
+            )
+        })?;
+    if rules.is_empty() {
+        return Err(format!("crawled docs for `{lang}` but found no rules with examples"));
+    }
+    let rule_count = rules.len();
+    let catalog = LearnedCatalog {
+        version: version.clone(),
+        learned_from: "docs".to_string(),
+        rules: rules.clone(),
+        reference,
+    };
+    // Save to user cache.
+    save_cache(lang, &catalog);
+    // Compile the pattern model and cache it.
+    let stamp = stamp_of(&version, &rules);
+    let tuples: Vec<(String, String, String, String, String)> = rules
+        .iter()
+        .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone()))
+        .collect();
+    let model = crate::lint_match::RuleSet::build(lang, &tuples);
+    let pattern_count = model.rule_count();
+    let _ = std::fs::write(patterns_path(lang), model.to_json());
+    let _ = std::fs::write(stamp_path(lang), &stamp);
+    // Persist as a committed module so `git pull` ships it to others.
+    let module_dir = committed_modules_dir(data_root);
+    let _ = std::fs::create_dir_all(&module_dir);
+    let module_path = module_dir.join(format!("{lang}.learned.json"));
+    let json = serde_json::to_string_pretty(&catalog).map_err(|e| e.to_string())?;
+    std::fs::write(&module_path, json).map_err(|e| format!("could not write module: {e}"))?;
+    Ok(LearnResult { lang: lang.to_string(), rule_count, pattern_count, module_path })
+}
+
+#[cfg(not(feature = "crawl"))]
+pub fn learn_and_commit(lang: &str, _data_root: &Path) -> Result<LearnResult, String> {
+    Err(format!(
+        "learn_and_commit requires the `crawl` feature; \
+         rebuild with `cargo build --features crawl` to enable doc-crawling for `{lang}`"
+    ))
 }
 
 // ── cache + checksum plumbing ────────────────────────────────────────────────
