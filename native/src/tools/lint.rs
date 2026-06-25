@@ -36,30 +36,26 @@ fn root_arg(args: &Value) -> PathBuf {
     }
 }
 
-/// Map a file extension to the model language it is linted by — the languages the documentation
-/// links cover and a tree-sitter-capable model exists for. Returns `None` for everything else.
-fn model_lang(ext: &str) -> Option<&'static str> {
+/// Map a file extension to a language name. Covers every extension the linter recognises.
+/// Whether a language can actually be analyzed (grammar + docs available) is determined at
+/// runtime — not by this table. The table is purely "what language is this file written in?"
+fn file_lang(ext: &str) -> Option<&'static str> {
     Some(match ext {
-        "rs" => "rust",
-        "py" => "python",
-        "js" | "mjs" | "cjs" | "jsx" | "ts" | "tsx" => "javascript",
-        "go" => "go",
-        _ => return None,
-    })
-}
-
-/// Map an extension to a recognizable code language that has NO trained model yet — so the review
-/// can honestly report "read but not analyzed" instead of silently dropping the file.
-fn other_code_lang(ext: &str) -> Option<&'static str> {
-    Some(match ext {
-        "java" => "java",
-        "kt" => "kotlin",
-        "swift" => "swift",
-        "c" | "h" => "c",
-        "cpp" | "cc" | "hpp" => "cpp",
-        "rb" => "ruby",
-        "cs" => "csharp",
-        _ => return None,
+        "rs"                            => "rust",
+        "py"                            => "python",
+        "js" | "mjs" | "cjs" | "jsx"   => "javascript",
+        "ts" | "tsx"                    => "typescript",
+        "go"                            => "go",
+        "java"                          => "java",
+        "rb"                            => "ruby",
+        "c"  | "h"                      => "c",
+        "cpp" | "cc" | "cxx" | "hpp"   => "cpp",
+        "sh" | "bash"                   => "bash",
+        "kt" | "kts"                    => "kotlin",
+        "swift"                         => "swift",
+        "cs"                            => "csharp",
+        "php"                           => "php",
+        _                               => return None,
     })
 }
 
@@ -71,12 +67,22 @@ fn parse_lang_filter(args: &Value) -> Option<BTreeSet<String>> {
     for tok in arr.iter().filter_map(Value::as_str) {
         match tok.trim().to_ascii_lowercase().as_str() {
             "all" | "" => return None,
-            "rust" | "rs" => set.insert("rust".to_string()),
-            "python" | "py" => set.insert("python".to_string()),
-            "js" | "javascript" | "jsx" | "ts" | "typescript" | "tsx" => set.insert("javascript".to_string()),
-            "go" | "golang" => set.insert("go".to_string()),
-            _ => false,
-        };
+            "rust" | "rs" => { set.insert("rust".to_string()); }
+            "python" | "py" => { set.insert("python".to_string()); }
+            "js" | "javascript" | "jsx" => { set.insert("javascript".to_string()); }
+            "ts" | "typescript" | "tsx" => { set.insert("typescript".to_string()); }
+            "go" | "golang" => { set.insert("go".to_string()); }
+            "java" => { set.insert("java".to_string()); }
+            "ruby" | "rb" => { set.insert("ruby".to_string()); }
+            "c" => { set.insert("c".to_string()); }
+            "cpp" | "c++" => { set.insert("cpp".to_string()); }
+            "bash" | "sh" | "shell" => { set.insert("bash".to_string()); }
+            "kotlin" | "kt" => { set.insert("kotlin".to_string()); }
+            "swift" => { set.insert("swift".to_string()); }
+            "csharp" | "cs" => { set.insert("csharp".to_string()); }
+            "php" => { set.insert("php".to_string()); }
+            _ => {}
+        }
     }
     if set.is_empty() {
         None
@@ -120,11 +126,12 @@ pub fn run(args: &Value) -> ToolResult {
     // 1) Read the whole repository (gitignore-aware; dependency trees and build output pruned).
     let files = walk_repo(&root);
 
-    // 2) Which model languages the project actually uses (respecting any filter) — the self-setup
-    //    shortlist.
+    // 2) Which languages the project actually uses (respecting any filter) — the self-setup
+    //    shortlist. Every recognised language is included; whether a model can be trained
+    //    is determined at runtime by grammar+docs availability.
     let mut present: BTreeSet<String> = BTreeSet::new();
     for f in &files {
-        if let Some(l) = model_lang(&f.ext) {
+        if let Some(l) = file_lang(&f.ext) {
             if filter.as_ref().is_none_or(|set| set.contains(l)) {
                 present.insert(l.to_string());
             }
@@ -142,26 +149,21 @@ pub fn run(args: &Value) -> ToolResult {
     }
     let advice = lint_train::advice(&data);
 
-    // 4) Partition the files (cheap, sequential): which get judged by which model, and which are
-    //    recognized code we have no model for (read but not analyzed).
+    // 4) Partition the files: those with a loaded model get judged; everything else is recognized
+    //    but unanalyzed (training found no signal, or no grammar/docs exist yet for the language).
     let mut to_judge: Vec<(&str, &WalkedFile)> = Vec::new();
     let mut by_language: BTreeMap<String, usize> = BTreeMap::new();
     let mut unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     for f in &files {
-        if let Some(l) = model_lang(&f.ext) {
-            if filter.as_ref().is_some_and(|set| !set.contains(l)) {
-                continue;
-            }
-            if models.contains_key(l) {
-                *by_language.entry(l.to_string()).or_default() += 1;
-                to_judge.push((l, f));
-            } else {
-                // A language we use but have no model for (training found no signal): report it as
-                // read-not-analyzed rather than pretending it was reviewed.
-                *unanalyzed.entry(l.to_string()).or_default() += 1;
-            }
-        } else if let Some(o) = other_code_lang(&f.ext) {
-            *unanalyzed.entry(o.to_string()).or_default() += 1;
+        let Some(l) = file_lang(&f.ext) else { continue };
+        if filter.as_ref().is_some_and(|set| !set.contains(l)) {
+            continue;
+        }
+        if models.contains_key(l) {
+            *by_language.entry(l.to_string()).or_default() += 1;
+            to_judge.push((l, f));
+        } else {
+            *unanalyzed.entry(l.to_string()).or_default() += 1;
         }
     }
 
@@ -354,6 +356,9 @@ fn render(
 
 // ── runtime resource resolution ──────────────────────────────────────────────
 
+/// Public for sibling tools that need the same data root.
+pub(crate) fn data_root_pub() -> PathBuf { data_root() }
+
 /// Locate the directory that holds the linter's knowledge sources (`lint-index/`, `corpus/`).
 /// Prefers the resolved workspace root (the dev checkout); otherwise walks up from the executable
 /// (the installed case). Always returns a path — missing files fall back to the embedded copies in
@@ -408,17 +413,26 @@ mod tests {
         assert!(parse_lang_filter(&json!({ "modules": ["all"] })).is_none());
         assert!(parse_lang_filter(&json!({ "modules": [] })).is_none());
         let f = parse_lang_filter(&json!({ "modules": ["ts", "py"] })).unwrap();
-        assert!(f.contains("javascript") && f.contains("python") && f.len() == 2);
+        assert!(f.contains("typescript") && f.contains("python") && f.len() == 2);
         // Unknown tokens are ignored rather than erroring.
         assert!(parse_lang_filter(&json!({ "modules": ["cobol"] })).is_none());
     }
 
     #[test]
-    fn model_lang_maps_extensions() {
-        assert_eq!(model_lang("rs"), Some("rust"));
-        assert_eq!(model_lang("tsx"), Some("javascript"));
-        assert_eq!(model_lang("go"), Some("go"));
-        assert_eq!(model_lang("txt"), None);
+    fn file_lang_maps_extensions() {
+        assert_eq!(file_lang("rs"), Some("rust"));
+        assert_eq!(file_lang("tsx"), Some("typescript"));
+        assert_eq!(file_lang("go"), Some("go"));
+        assert_eq!(file_lang("java"), Some("java"));
+        assert_eq!(file_lang("rb"), Some("ruby"));
+        assert_eq!(file_lang("c"), Some("c"));
+        assert_eq!(file_lang("cpp"), Some("cpp"));
+        assert_eq!(file_lang("sh"), Some("bash"));
+        assert_eq!(file_lang("kt"), Some("kotlin"));
+        assert_eq!(file_lang("swift"), Some("swift"));
+        assert_eq!(file_lang("cs"), Some("csharp"));
+        assert_eq!(file_lang("php"), Some("php"));
+        assert_eq!(file_lang("txt"), None);
     }
 
     #[test]

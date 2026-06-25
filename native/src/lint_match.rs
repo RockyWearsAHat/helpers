@@ -29,6 +29,10 @@ fn language(lang: &str) -> Option<tree_sitter::Language> {
         "javascript" => tree_sitter_javascript::LANGUAGE.into(),
         "typescript" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         "go" => tree_sitter_go::LANGUAGE.into(),
+        "java" => tree_sitter_java::LANGUAGE.into(),
+        "ruby" => tree_sitter_ruby::LANGUAGE.into(),
+        "c" => tree_sitter_c::LANGUAGE.into(),
+        "bash" => tree_sitter_bash::LANGUAGE.into(),
         _ => return None,
     })
 }

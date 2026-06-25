@@ -30,20 +30,55 @@ pub struct DocsSource {
     pub tool: String,
 }
 
-/// The known per-version docs URL for `lang`, or `None` when we have no pattern — in which case the
-/// calling agent is asked to supply one (via `search_web`). Version-pinned where the docs are
-/// (clippy ships per Rust version); "latest" otherwise, which staleness re-checks track by toolchain
-/// version. See [`clippy_url_candidates`] for the pinned→stable→master fallback clippy uses.
+/// The known per-version docs URL for `lang` — the AI's built-in knowledge of where each
+/// language's official linter publishes its rules. Covers all common languages; `sources.json`
+/// is an override and extension point for custom or less-common linters. Version-pinned where
+/// the docs support it (clippy); "latest" otherwise.
 pub fn known_docs_url(lang: &str, version: &str) -> Option<DocsSource> {
     let (url, crawl, tool) = match lang {
-        // Clippy renders every lint inline in one HTML page (no standalone lints.json anymore), so
-        // it is fetched once (not crawled) and parsed by [`rules_from_clippy_html`].
+        // ── Rust ──────────────────────────────────────────────────────────────────────────────────
+        // Clippy renders every lint inline in one HTML page, fetched once and parsed by
+        // rules_from_clippy_html. Version-pinned URL; falls back to stable then master.
         "rust" => (clippy_url_candidates(version).remove(0), false, "clippy"),
+
+        // ── Python ────────────────────────────────────────────────────────────────────────────────
         "python" => ("https://docs.astral.sh/ruff/rules/".to_string(), true, "ruff"),
-        "javascript" | "typescript" => {
-            ("https://eslint.org/docs/latest/rules/".to_string(), true, "eslint")
-        }
+
+        // ── JavaScript ────────────────────────────────────────────────────────────────────────────
+        "javascript" => ("https://eslint.org/docs/latest/rules/".to_string(), true, "eslint"),
+
+        // ── TypeScript ────────────────────────────────────────────────────────────────────────────
+        // TypeScript-specific rules from typescript-eslint; base JavaScript rules are included
+        // automatically via the lang_matches inheritance (TypeScript ⊇ JavaScript).
+        "typescript" => ("https://typescript-eslint.io/rules/".to_string(), true, "typescript-eslint"),
+
+        // ── Go ────────────────────────────────────────────────────────────────────────────────────
         "go" => ("https://staticcheck.dev/docs/checks/".to_string(), true, "staticcheck"),
+
+        // ── Java ──────────────────────────────────────────────────────────────────────────────────
+        "java" => ("https://pmd.github.io/latest/pmd_rules_java.html".to_string(), true, "pmd"),
+
+        // ── Ruby ──────────────────────────────────────────────────────────────────────────────────
+        "ruby" => ("https://docs.rubocop.org/rubocop/cops.html".to_string(), true, "rubocop"),
+
+        // ── C ─────────────────────────────────────────────────────────────────────────────────────
+        "c" => ("https://clang.llvm.org/extra/clang-tidy/checks/list.html".to_string(), true, "clang-tidy"),
+
+        // ── C++ ───────────────────────────────────────────────────────────────────────────────────
+        "cpp" => ("https://clang.llvm.org/extra/clang-tidy/checks/list.html".to_string(), true, "clang-tidy"),
+
+        // ── Bash / Shell ──────────────────────────────────────────────────────────────────────────
+        "bash" => ("https://www.shellcheck.net/wiki/Checks".to_string(), true, "shellcheck"),
+
+        // ── Swift ─────────────────────────────────────────────────────────────────────────────────
+        "swift" => ("https://realm.github.io/SwiftLint/rule-directory.html".to_string(), true, "swiftlint"),
+
+        // ── Kotlin ────────────────────────────────────────────────────────────────────────────────
+        "kotlin" => ("https://detekt.dev/docs/rules/comments".to_string(), true, "detekt"),
+
+        // ── PHP ───────────────────────────────────────────────────────────────────────────────────
+        "php" => ("https://phpstan.org/user-guide/ignoring-errors".to_string(), true, "phpstan"),
+
         _ => return None,
     };
     Some(DocsSource { url, crawl, tool: tool.to_string() })
