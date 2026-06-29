@@ -11,8 +11,8 @@
 //!      it learns is cached and refreshed when the toolchain version changes, so it stays current —
 //!      never stale, never dependent on someone pre-building an index. A committed `lint-index/`
 //!      snapshot, when present, is used as a fast seed; the embedded copy is the offline fallback.
-//!   2. **Files in a folder** — `corpus/` (`cs-principles.md`): the CS2420 / CS3500 rules. Each
-//!      fenced `bad`/`good` pair becomes a pattern the model detects.
+//!   2. **Files in a folder** — `corpus/`: the CS course principles (CS2420 Data Structures &
+//!      Algorithms, CS3500 Software Design). Each fenced `bad`/`good` pair becomes a pattern.
 //!
 //! Training is the slow step, so [`ensure_models`] does it once and caches it, gated on a checksum
 //! of the resolved rules + toolchain version: it relearns only when the docs or the folder change.

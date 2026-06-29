@@ -1,7 +1,8 @@
 //! `lint` — the AI code reviewer: reads the whole repository and reports in English.
 //!
 //! Rules are compiled from two sources — official docs (clippy / ruff / eslint / staticcheck)
-//! and the CS2420/CS3500 corpus — into lossless tree patterns via [`crate::lint_match`].
+//! and the corpus (CS2420 Data Structures & Algorithms + CS3500 Software Design course docs)
+//! — into lossless tree patterns via [`crate::lint_match`].
 //! Each match is the rule's documented structure verbatim, with scope and co-reference intact.
 //! For project-wide graph tracing see the `lint_build_web`, `lint_probe`, and `lint_trace` tools.
 
@@ -16,6 +17,7 @@ use crate::index::walk::{walk_repo, WalkedFile};
 use crate::lint_match::RuleSet;
 use crate::lint_train::{self, RuleInfo, TrainReport};
 use crate::proto::{text, ToolResult};
+use crate::util::file_lang;
 
 /// Per-project linter preferences loaded from `.helpers/lint.json`.
 ///
@@ -51,59 +53,23 @@ fn root_arg(args: &Value) -> PathBuf {
     }
 }
 
-/// Map a file extension to a language name. Covers every extension the linter recognises.
-/// Whether a language can actually be analyzed (grammar + docs available) is determined at
-/// runtime — not by this table. The table is purely "what language is this file written in?"
-fn file_lang(ext: &str) -> Option<&'static str> {
-    Some(match ext {
-        "rs"                            => "rust",
-        "py"                            => "python",
-        "js" | "mjs" | "cjs" | "jsx"   => "javascript",
-        "ts" | "tsx"                    => "typescript",
-        "go"                            => "go",
-        "java"                          => "java",
-        "rb"                            => "ruby",
-        "c"  | "h"                      => "c",
-        "cpp" | "cc" | "cxx" | "hpp"   => "cpp",
-        "sh" | "bash"                   => "bash",
-        "kt" | "kts"                    => "kotlin",
-        "swift"                         => "swift",
-        "cs"                            => "csharp",
-        "php"                           => "php",
-        _                               => return None,
-    })
-}
-
-/// Optional language filter from the `modules` arg: a list of language tokens restricts the review
-/// to those languages. Absent / empty / `all` ⇒ every language. Unknown tokens are ignored.
+/// Optional language filter from the `modules` arg. Absent / empty / `all` ⇒ every language.
+///
+/// Extension-like aliases ("ts", "py") are resolved via `file_lang` to their canonical name.
+/// Canonical names ("typescript", "python") and unknown names pass through unchanged — an
+/// unknown language produces no files in the output rather than being silently discarded,
+/// which surfaces the typo instead of hiding it.
 fn parse_lang_filter(args: &Value) -> Option<BTreeSet<String>> {
     let arr = args.get("modules").and_then(Value::as_array)?;
     let mut set = BTreeSet::new();
     for tok in arr.iter().filter_map(Value::as_str) {
-        match tok.trim().to_ascii_lowercase().as_str() {
+        let s = tok.trim().to_ascii_lowercase();
+        match s.as_str() {
             "all" | "" => return None,
-            "rust" | "rs" => { set.insert("rust".to_string()); }
-            "python" | "py" => { set.insert("python".to_string()); }
-            "js" | "javascript" | "jsx" => { set.insert("javascript".to_string()); }
-            "ts" | "typescript" | "tsx" => { set.insert("typescript".to_string()); }
-            "go" | "golang" => { set.insert("go".to_string()); }
-            "java" => { set.insert("java".to_string()); }
-            "ruby" | "rb" => { set.insert("ruby".to_string()); }
-            "c" => { set.insert("c".to_string()); }
-            "cpp" | "c++" => { set.insert("cpp".to_string()); }
-            "bash" | "sh" | "shell" => { set.insert("bash".to_string()); }
-            "kotlin" | "kt" => { set.insert("kotlin".to_string()); }
-            "swift" => { set.insert("swift".to_string()); }
-            "csharp" | "cs" => { set.insert("csharp".to_string()); }
-            "php" => { set.insert("php".to_string()); }
-            _ => {}
+            other => { set.insert(file_lang(other).unwrap_or(other).to_string()); }
         }
     }
-    if set.is_empty() {
-        None
-    } else {
-        Some(set)
-    }
+    if set.is_empty() { None } else { Some(set) }
 }
 
 /// One reported violation in a file.
@@ -385,7 +351,7 @@ fn data_root() -> PathBuf {
 pub fn schema() -> Value {
     json!({
         "name": "lint",
-        "description": "Review the whole project like a meticulous TA. ONE mixture-of-experts model per language reads every file and reports in English: the verdict, the exact lines to fix, and what it could not analyze. Its rules are learned from exactly two sources and nothing else — the official, version-matched rule docs in lint-index/ (clippy/ruff/eslint/staticcheck) and the CS2420/CS3500 principles in corpus/cs-principles.md. Followed to a T those principles ~guarantee an A+, so a clean lint IS the grade. Self-sets-up on first run (trains + caches a model per language), then loads the cache. No local toolchain required. Grounded in the docs and the project's own code — never memory.",
+        "description": "Review the whole project like a meticulous TA. ONE mixture-of-experts model per language reads every file and reports in English: the verdict, the exact lines to fix, and what it could not analyze. Rules come from two sources: the official, version-matched rule docs in lint-index/ (clippy/ruff/eslint/staticcheck/checkstyle/pmd) and the CS course principles in corpus/ (CS2420 Data Structures & Algorithms + CS3500 Software Design). A clean lint means the code follows the course rubric. Self-sets-up on first run (trains + caches a model per language), then loads the cache. No local toolchain required. Grounded in the docs and the project's own code — never memory.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -407,34 +373,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lang_filter_parsing() {
-        assert!(parse_lang_filter(&json!({})).is_none());
-        assert!(parse_lang_filter(&json!({ "modules": ["all"] })).is_none());
-        assert!(parse_lang_filter(&json!({ "modules": [] })).is_none());
-        let f = parse_lang_filter(&json!({ "modules": ["ts", "py"] })).unwrap();
-        assert!(f.contains("typescript") && f.contains("python") && f.len() == 2);
-        // Unknown tokens are ignored rather than erroring.
-        assert!(parse_lang_filter(&json!({ "modules": ["cobol"] })).is_none());
-    }
-
-    #[test]
-    fn file_lang_maps_extensions() {
-        assert_eq!(file_lang("rs"), Some("rust"));
-        assert_eq!(file_lang("tsx"), Some("typescript"));
-        assert_eq!(file_lang("go"), Some("go"));
-        assert_eq!(file_lang("java"), Some("java"));
-        assert_eq!(file_lang("rb"), Some("ruby"));
-        assert_eq!(file_lang("c"), Some("c"));
-        assert_eq!(file_lang("cpp"), Some("cpp"));
-        assert_eq!(file_lang("sh"), Some("bash"));
-        assert_eq!(file_lang("kt"), Some("kotlin"));
-        assert_eq!(file_lang("swift"), Some("swift"));
-        assert_eq!(file_lang("cs"), Some("csharp"));
-        assert_eq!(file_lang("php"), Some("php"));
-        assert_eq!(file_lang("txt"), None);
-    }
-
-    #[test]
     fn group_hits_orders_by_severity_and_collapses() {
         let hits = vec![
             Hit { line: 9, rule: "a".into(), severity: "low".into(), advice: "x".into() },
@@ -449,7 +387,20 @@ mod tests {
     #[test]
     fn data_root_resolves_to_a_dir_with_sources_or_workspace() {
         let d = data_root();
-        // In the dev checkout this resolves to the directory carrying the knowledge sources.
         assert!(d.join("corpus/cs-principles.md").exists() || d.join("lint-index").exists() || d.exists());
+    }
+
+    #[test]
+    fn unknown_lang_in_filter_passes_through_not_silently_dropped() {
+        // An unrecognised language name should reach the filter set unchanged so
+        // the caller sees zero files for it rather than "all languages" being reviewed.
+        let f = parse_lang_filter(&json!({ "modules": ["elixir"] })).unwrap();
+        assert!(f.contains("elixir"), "unknown lang passes through: {f:?}");
+    }
+
+    #[test]
+    fn extension_aliases_resolve_to_canonical_names() {
+        let f = parse_lang_filter(&json!({ "modules": ["ts", "py"] })).unwrap();
+        assert!(f.contains("typescript") && f.contains("python"));
     }
 }
