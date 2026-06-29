@@ -53,6 +53,11 @@ tree-sitter-java = "0.23"
 tree-sitter-ruby = "0.23"
 tree-sitter-c = "0.23"
 tree-sitter-bash = "0.23"
+# Explicit dep so we can use LanguageFn::from_raw when loading grammars dynamically.
+tree-sitter-language = "0.1"
+# Runtime loading of tree-sitter grammar .so/.dylib files for languages not compiled in.
+# Drop a grammar into ~/.cache/helpers/grammars/ and it is used immediately — no rebuild needed.
+libloading = "0.8"
 
 # GPU acceleration for the lint-moe hypervector distance batch — OPTIONAL, OFF by
 # default, so the shipped binary stays portable and cross-compiles clean to
