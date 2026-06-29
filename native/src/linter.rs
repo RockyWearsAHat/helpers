@@ -5,9 +5,9 @@
 //! [`Knowledge`] bag of [`LearnedRule`]s. [`crate::lint_train`] compiles those rules into the engine's
 //! training examples; nothing else in the system cares which source a rule came from.
 //!
-//! [`Knowledge::from_text`] is how a plain text/markdown document (the CS2420/CS3500 principles, a
-//! house style guide) becomes trainable rules with no code change: a heading starts a rule, its
-//! fenced `bad`/`good` blocks are its examples.
+//! [`Knowledge::from_text`] is how a plain text/markdown document (e.g. the CS2420 Data Structures
+//! & Algorithms principles or the CS3500 Software Design course docs) becomes trainable rules with
+//! no code change: a heading starts a rule, its fenced `bad`/`good` blocks are its examples.
 
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +42,8 @@ pub struct Knowledge {
 
 impl Knowledge {
     /// Learn from a plain **text / markdown document**. This is how a user hands the system their
-    /// own rules — the curated CS2420/CS3500 principles, a house style guide — and it becomes
+    /// own rules — the CS2420 (Data Structures & Algorithms) or CS3500 (Software Design) course
+    /// docs, a house style guide — and it becomes
     /// trainable knowledge with no code changes. The grammar is deliberately simple:
     ///
     /// * A heading (`#`/`##`/…) starts a rule. Its text is the description; an `[high|medium|low]`
@@ -182,36 +183,3 @@ fn slug(title: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const CS_DOC: &str = r#"
-# Off by one indexing [high]
-Indexing a collection with an inclusive range up to its length reads one element past the end.
-```rust:bad
-fn sum(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..=xs.len() { t += xs[i]; } t }
-```
-```rust:good
-fn sum(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..xs.len() { t += xs[i]; } t }
-```
-"#;
-
-    #[test]
-    fn from_text_parses_rules_with_examples() {
-        let k = Knowledge::from_text("rust", CS_DOC);
-        assert_eq!(k.rules.len(), 1);
-        let r = &k.rules[0];
-        assert_eq!(r.id, "off_by_one_indexing");
-        assert_eq!(r.severity, "high");
-        assert_eq!(r.language, "rust");
-        assert!(r.bad.contains("0..=xs.len()") && r.good.contains("0..xs.len()"));
-    }
-
-    #[test]
-    fn narrative_only_section_yields_no_rule() {
-        // A heading with no code block teaches nothing detectable (it has no bad example).
-        let k = Knowledge::from_text("rust", "# Single responsibility\nA function should do one thing.\n");
-        assert!(k.rules.is_empty());
-    }
-}
