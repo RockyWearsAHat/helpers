@@ -1,20 +1,9 @@
-//! `lint` — the AI code reviewer. It reads the whole repository and reports in English like a
-//! meticulous TA: the verdict, the exact lines to fix, and what it could not analyze. Two detectors,
-//! both assembled from the two knowledge sources alone — nothing hardcoded, nothing from memory:
+//! `lint` — the AI code reviewer: reads the whole repository and reports in English.
 //!
-//!   1. **Code rules** — exact tree patterns ([`crate::lint_match`]) compiled from each documented
-//!      rule's `bad`/`good` example. The docs from the links — `lint-index/<tool>.json`, the official
-//!      catalogs (clippy / ruff / eslint / staticcheck) — and the fenced pairs in `corpus/` supply
-//!      these. A match is the rule's structure occurring verbatim, with scope and co-reference intact.
-//!   2. **Practice rules** — the corpus's narrative principles ([`crate::lint_practice`]): a prose
-//!      principle ("a function should do one thing") activates a general structural sense and the
-//!      project's outliers on it are flagged, judged against the project's own norm. This is what
-//!      catches the un-maintainable shape AI code drifts into — sprawling, deeply-nested units.
-//!
-//! The CS2420 / CS3500 corpus rules, followed to a T, ~guarantee an A+, so a clean lint against them
-//! *is* the grade — there is no separate rubric tool in the loop. Setup is automatic and cached: on
-//! first run [`crate::lint_train::ensure_models`] compiles a pattern set per project language and
-//! caches it; later runs just load it. The verdict is grounded in those docs and that folder.
+//! Rules are compiled from two sources — official docs (clippy / ruff / eslint / staticcheck)
+//! and the CS2420/CS3500 corpus — into lossless tree patterns via [`crate::lint_match`].
+//! Each match is the rule's documented structure verbatim, with scope and co-reference intact.
+//! For project-wide graph tracing see the `lint_build_web`, `lint_probe`, and `lint_trace` tools.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -203,14 +192,7 @@ pub fn run(args: &Value) -> ToolResult {
     // 5) Judge the whole project in parallel.
     let mut reports = judge_all(&to_judge, &models, &advice);
 
-    // 6) Practice rules: narrative corpus principles measure each unit against the project norm.
-    //    Project-local principles from .helpers/lint-rules/any.md are included.
-    let practice = crate::lint_practice::PracticeRules::new(
-        lint_train::practice_principles(&data, Some(&root)),
-    );
-    merge_practice(&mut reports, &to_judge, &practice);
-
-    // 7) Apply per-project config: suppress ignored rules, apply severity overrides.
+    // 6) Apply per-project config: suppress ignored rules, apply severity overrides.
     for report in &mut reports {
         report.hits.retain(|h| !ignore_set.contains(h.rule.as_str()));
         if !config.severity_overrides.is_empty() {
@@ -254,35 +236,6 @@ fn judge_all(
             Some(FileReport { path: f.rel.clone(), hits })
         })
         .collect()
-}
-
-/// Run the practice rules over the whole project (grouped by language, since the norm is per-
-/// language) and merge their findings into `reports`, attaching to the matching file or adding a new
-/// entry. A no-op when no principle is active.
-fn merge_practice(
-    reports: &mut Vec<FileReport>,
-    to_judge: &[(&str, &WalkedFile)],
-    practice: &crate::lint_practice::PracticeRules,
-) {
-    if practice.is_empty() {
-        return;
-    }
-    let mut by_lang: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
-    for (lang, f) in to_judge {
-        if let Ok(code) = std::fs::read_to_string(&f.abs) {
-            by_lang.entry(lang).or_default().push((f.rel.clone(), code));
-        }
-    }
-    for (lang, files) in &by_lang {
-        for (path, fd) in practice.flag_project(lang, files) {
-            let advice = format!("{} — {}", fd.advice.trim_end_matches('.'), fd.detail);
-            let hit = Hit { line: fd.line, rule: fd.rule, severity: fd.severity, advice };
-            match reports.iter_mut().find(|r| r.path == path) {
-                Some(r) => r.hits.push(hit),
-                None => reports.push(FileReport { path: path.to_string(), hits: vec![hit] }),
-            }
-        }
-    }
 }
 
 // ── English report ────────────────────────────────────────────────────────────
