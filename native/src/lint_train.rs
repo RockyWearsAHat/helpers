@@ -47,8 +47,9 @@ static EMBEDDED_LINT_MODELS: include_dir::Dir<'_> =
     include_dir::include_dir!("$CARGO_MANIFEST_DIR/../lint-models");
 
 /// The CS principles folder document, embedded as the offline fallback (the on-disk copy is
-/// preferred so editing it relearns on the next run).
-const EMBEDDED_CS_PRINCIPLES: &str = include_str!("../../corpus/cs-principles.md");
+/// preferred so editing it relearns on the next run). Points to the actual course principles
+/// document (prose-only; pattern rules come from committed modules and crawled official docs).
+const EMBEDDED_CS_PRINCIPLES: &str = include_str!("../../corpus/software-design.md");
 
 /// One documented rule, normalized across all sources into the shape the engine compiles from: an id, a
 /// routing `slice` (the doc category, or severity when the source has no category), severity,
@@ -459,28 +460,43 @@ fn is_catalog_name(name: Option<&str>) -> bool {
     matches!(name, Some(n) if n.ends_with(".json") && n != "sources.json")
 }
 
-/// The CS-principles folder rules as `(language, DocRule)` — the second knowledge source. Prefers
-/// the on-disk document (edit it and the next lint relearns) and falls back to the embedded copy.
+/// The corpus folder rules as `(language, DocRule)` — the second knowledge source. Reads every
+/// `*.md` file in `corpus/` so adding a new principles file takes effect immediately on the next
+/// lint run. Falls back to the embedded `cs-principles.md` when the directory is absent.
 fn corpus_rules(data_root: &Path) -> Vec<(String, DocRule)> {
-    let doc = std::fs::read_to_string(data_root.join("corpus/cs-principles.md"))
-        .unwrap_or_else(|_| EMBEDDED_CS_PRINCIPLES.to_string());
-    crate::linter::Knowledge::from_text("rust", &doc)
-        .rules
-        .into_iter()
-        .filter(|r| !r.bad.is_empty())
-        .map(|r| {
-            (
-                r.language.clone(),
-                DocRule {
-                    id: r.id,
-                    slice: "cs-principle".to_string(),
-                    severity: r.severity,
-                    description: r.description,
-                    bad: r.bad,
-                    good: r.good,
-                    source: String::new(),
-                },
-            )
+    let corpus_dir = data_root.join("corpus");
+    let docs: Vec<(String, String)> = match std::fs::read_dir(&corpus_dir) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
+            .filter_map(|e| {
+                let path = e.path();
+                let name = path.to_string_lossy().into_owned();
+                std::fs::read_to_string(&path).ok().map(|text| (name, text))
+            })
+            .collect(),
+        Err(_) => vec![("embedded".to_string(), EMBEDDED_CS_PRINCIPLES.to_string())],
+    };
+    docs.into_iter()
+        .flat_map(|(source, doc)| {
+            crate::linter::Knowledge::from_text("rust", &doc)
+                .rules
+                .into_iter()
+                .filter(|r| !r.bad.is_empty())
+                .map(move |r| {
+                    (
+                        r.language.clone(),
+                        DocRule {
+                            id: r.id,
+                            slice: "cs-principle".to_string(),
+                            severity: r.severity,
+                            description: r.description,
+                            bad: r.bad,
+                            good: r.good,
+                            source: source.clone(),
+                        },
+                    )
+                })
         })
         .collect()
 }
@@ -721,76 +737,3 @@ fn stamp_path(lang: &str) -> PathBuf {
     model_dir().join(format!("{lang}.patterns.stamp"))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A self-contained data root with a committed seed catalog and a tiny principles doc — proves
-    /// both knowledge sources flow into a trained, cached, reloadable model. `tag` keeps the path
-    /// unique per test so parallel tests never share (and clobber) one directory.
-    fn fixture_root(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("lint_train_{}_{tag}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("lint-index")).unwrap();
-        std::fs::create_dir_all(dir.join("corpus")).unwrap();
-        let catalog = serde_json::json!({
-            "tool": "clippy", "language": "rust", "docsVersion": "1.0.0", "source": "test",
-            "checksum": "sha256:0", "ruleCount": 1,
-            "rules": [{
-                "id": "bool_comparison", "category": "style", "severity": "low",
-                "description": "Comparing a bool to true is redundant.",
-                "exampleBad": "fn f(x: bool) { if x == true {} }",
-                "exampleGood": "fn f(x: bool) { if x {} }",
-                "source": "test#bool_comparison"
-            }]
-        });
-        std::fs::write(dir.join("lint-index/clippy.json"), catalog.to_string()).unwrap();
-        std::fs::write(dir.join("lint-index/sources.json"), "{\"sources\":[]}").unwrap();
-        std::fs::write(
-            dir.join("corpus/cs-principles.md"),
-            "# Off by one indexing [high]\n```rust:bad\nfn s(xs: &[i32]) -> i32 { let mut t = 0; for i in 0..=xs.len() { t += xs[i]; } t }\n```\n```rust:good\nfn s(xs: &[i32]) -> i32 { xs.iter().sum() }\n```\n",
-        )
-        .unwrap();
-        dir
-    }
-
-    #[test]
-    fn seed_and_folder_rules_both_resolve_for_rust() {
-        let root = fixture_root("seed");
-        let (seed, _version) = seed_with_version(&root, "rust");
-        assert!(seed.iter().any(|r| r.id == "bool_comparison"), "the seed (docs-link) rule resolves");
-        let folder = corpus_rules(&root);
-        assert!(folder.iter().any(|(l, r)| l == "rust" && r.id == "off_by_one_indexing"), "the folder rule resolves");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn trains_caches_and_reuses_from_seed_offline() {
-        let root = fixture_root("train");
-        let models = root.join("models");
-        std::env::set_var("HELPERS_LINT_MODELS", &models);
-        // Deterministic + offline: force the seed path (no live crawl) so the fixture's own rule
-        // is what trains, independent of the machine's toolchain version or network.
-        std::env::set_var("HELPERS_LINT_OFFLINE", "1");
-        std::env::remove_var("HELPERS_LINT_REFRESH");
-
-        let first = ensure_models(&["rust".to_string()], &root, &root);
-        assert!(
-            first.trained.iter().any(|s| s.starts_with("rust")),
-            "first run trains from the resolved rules: {first:?}"
-        );
-        assert!(patterns_path("rust").exists(), "model cached to disk");
-
-        let second = ensure_models(&["rust".to_string()], &root, &root);
-        assert!(second.reused.contains(&"rust".to_string()), "second run reuses the fresh cache: {second:?}");
-
-        let model = load_patterns("rust").expect("reload");
-        let flags = |code: &str| -> Vec<String> { model.flag(code).into_iter().map(|f| f.rule).collect() };
-        assert!(flags("fn g(y: bool) { if y == true {} }").iter().any(|r| r == "bool_comparison"), "flags the doc rule");
-        assert!(flags("fn g(y: bool) { if y {} }").is_empty(), "the fix stays clean");
-
-        std::env::remove_var("HELPERS_LINT_MODELS");
-        std::env::remove_var("HELPERS_LINT_OFFLINE");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-}

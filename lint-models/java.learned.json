@@ -1,0 +1,70 @@
+{
+  "version": "",
+  "learned_from": "checkstyle+pmd+cs-rubric",
+  "rules": [
+    {
+      "id": "SystemPrintln",
+      "slice": "style",
+      "severity": "high",
+      "description": "Remove debug prints (System.out.println / System.err.println) before submission. Each occurrence deducts from style score.",
+      "bad": "System.out.println(\"DEBUG: \" + value);",
+      "good": "logger.info(\"value: {}\", value);",
+      "source": "https://pmd.github.io/pmd/pmd_rules_java_bestpractices.html#systemprintln"
+    },
+    {
+      "id": "AvoidPrintStackTrace",
+      "slice": "errorhandling",
+      "severity": "high",
+      "description": "Never call e.printStackTrace() to swallow an exception. Log or rethrow with context.",
+      "bad": "e.printStackTrace();",
+      "good": "logger.error(\"operation failed\", e);",
+      "source": "https://pmd.github.io/pmd/pmd_rules_java_bestpractices.html#avoidprintstacktrace"
+    },
+    {
+      "id": "LooseCoupling",
+      "slice": "design",
+      "severity": "high",
+      "description": "Return the most abstract collection type (List, not ArrayList). Callers should not depend on the concrete implementation.",
+      "bad": "public ArrayList<E> getItems() { return items; }",
+      "good": "public List<E> getItems() { return items; }",
+      "source": "https://pmd.github.io/pmd/pmd_rules_java_bestpractices.html#loosecoupling"
+    },
+    {
+      "id": "UseSetForMembership",
+      "slice": "performance",
+      "severity": "high",
+      "description": "Use HashSet for O(1) membership testing instead of a LinkedList scan. Data structure choice determines time complexity.",
+      "bad": "LinkedList<String> seen = new LinkedList<>();",
+      "good": "HashSet<String> seen = new HashSet<>();",
+      "source": "https://pmd.github.io/pmd/pmd_rules_java_performance.html"
+    },
+    {
+      "id": "StubMethodSubmission",
+      "slice": "completeness",
+      "severity": "high",
+      "description": "Do not submit stub methods that throw UnsupportedOperationException. Implement the method.",
+      "bad": "throw new UnsupportedOperationException();",
+      "good": "throw new NoSuchElementException(\"stack is empty\");",
+      "source": "https://checkstyle.sourceforge.io/"
+    },
+    {
+      "id": "DoNotCallSystemExit",
+      "slice": "design",
+      "severity": "high",
+      "description": "Do not call System.exit() in library or model code. Throw an exception so the caller can handle it.",
+      "bad": "System.exit(1);",
+      "good": "validateInput(score);",
+      "source": "https://pmd.github.io/pmd/pmd_rules_java_errorprone.html#donotcallsystemexit"
+    },
+    {
+      "id": "ReplaceVectorWithList",
+      "slice": "design",
+      "severity": "medium",
+      "description": "Replace Vector with a modern collection (ArrayList, ArrayDeque). Vector is synchronized by default and obsolete.",
+      "bad": "Vector<String> queue = new Vector<>();",
+      "good": "Deque<String> queue = new ArrayDeque<>();",
+      "source": "https://pmd.github.io/pmd/pmd_rules_java_bestpractices.html"
+    }
+  ],
+  "reference": []
+}
