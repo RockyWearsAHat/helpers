@@ -16,7 +16,7 @@
 //! first run [`crate::lint_train::ensure_models`] compiles a pattern set per project language and
 //! caches it; later runs just load it. The verdict is grounded in those docs and that folder.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
@@ -27,6 +27,32 @@ use crate::index::walk::{walk_repo, WalkedFile};
 use crate::lint_match::RuleSet;
 use crate::lint_train::{self, RuleInfo, TrainReport};
 use crate::proto::{text, ToolResult};
+
+/// Per-project linter preferences loaded from `.helpers/lint.json`.
+///
+/// Agents and users write this file (via `lint_config`) to tailor which rules fire,
+/// what languages are reviewed, and how severe each finding is reported.
+#[derive(Default, serde::Deserialize)]
+pub struct LintConfig {
+    /// Rule ids to suppress entirely — they will never appear in lint output.
+    #[serde(default)]
+    pub ignore_rules: Vec<String>,
+    /// Override severity for specific rules: `{"rule-id": "high"|"medium"|"low"}`.
+    #[serde(default)]
+    pub severity_overrides: HashMap<String, String>,
+    /// When set, only these languages are reviewed (in addition to any `--lang` CLI flag).
+    #[serde(default)]
+    pub languages: Option<Vec<String>>,
+}
+
+/// Load `.helpers/lint.json` from the project root, returning defaults on any read/parse error.
+pub fn load_config(project_root: &Path) -> LintConfig {
+    let path = project_root.join(".helpers/lint.json");
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
 
 /// The project root to review, from the `root` arg or the resolved workspace.
 fn root_arg(args: &Value) -> PathBuf {
@@ -123,40 +149,47 @@ pub fn run(args: &Value) -> ToolResult {
     let filter = parse_lang_filter(args);
     let data = data_root();
 
+    // Per-project preferences: ignore list, severity overrides, language filter.
+    let config = load_config(&root);
+    let ignore_set: HashSet<&str> = config.ignore_rules.iter().map(String::as_str).collect();
+
     // 1) Read the whole repository (gitignore-aware; dependency trees and build output pruned).
     let files = walk_repo(&root);
 
-    // 2) Which languages the project actually uses (respecting any filter) — the self-setup
-    //    shortlist. Every recognised language is included; whether a model can be trained
-    //    is determined at runtime by grammar+docs availability.
+    // 2) Which languages the project actually uses — CLI filter AND config language filter applied.
     let mut present: BTreeSet<String> = BTreeSet::new();
     for f in &files {
         if let Some(l) = file_lang(&f.ext) {
-            if filter.as_ref().is_none_or(|set| set.contains(l)) {
+            let cli_ok = filter.as_ref().is_none_or(|set| set.contains(l));
+            let cfg_ok = config.languages.as_ref().is_none_or(|set| set.iter().any(|x| x == l));
+            if cli_ok && cfg_ok {
                 present.insert(l.to_string());
             }
         }
     }
     let langs: Vec<String> = present.iter().cloned().collect();
 
-    // 3) Self-setup: ensure a fresh cached model per language, then load each once for this run.
-    let setup = lint_train::ensure_models(&langs, &data);
+    // 3) Self-setup: train (once, cached) and load a compiled rule set per language.
+    //    Project-local rules from .helpers/lint-rules/ are merged in during training.
+    let setup = lint_train::ensure_models(&langs, &data, &root);
     let mut models: HashMap<String, RuleSet> = HashMap::new();
     for l in &langs {
         if let Some(m) = lint_train::load_patterns(l) {
             models.insert(l.clone(), m);
         }
     }
-    let advice = lint_train::advice(&data);
+    let advice = lint_train::advice(&data, Some(&root));
 
-    // 4) Partition the files: those with a loaded model get judged; everything else is recognized
-    //    but unanalyzed (training found no signal, or no grammar/docs exist yet for the language).
+    // 4) Partition files: modeled → judge; unmodeled → report as unanalyzed.
     let mut to_judge: Vec<(&str, &WalkedFile)> = Vec::new();
     let mut by_language: BTreeMap<String, usize> = BTreeMap::new();
     let mut unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     for f in &files {
         let Some(l) = file_lang(&f.ext) else { continue };
         if filter.as_ref().is_some_and(|set| !set.contains(l)) {
+            continue;
+        }
+        if config.languages.as_ref().is_some_and(|set| !set.iter().any(|x| x == l)) {
             continue;
         }
         if models.contains_key(l) {
@@ -167,16 +200,29 @@ pub fn run(args: &Value) -> ToolResult {
         }
     }
 
-    // 5) Judge the whole project: each file in parallel, flagging a rule only where its exact tree
-    //    pattern occurs in that file.
+    // 5) Judge the whole project in parallel.
     let mut reports = judge_all(&to_judge, &models, &advice);
 
-    // 6) Practice rules: the corpus's narrative principles measure the project against its own norm
-    //    (a unit that does far more than the project usually does). Merged into the same reports.
-    let practice = crate::lint_practice::PracticeRules::new(lint_train::practice_principles(&data));
+    // 6) Practice rules: narrative corpus principles measure each unit against the project norm.
+    //    Project-local principles from .helpers/lint-rules/any.md are included.
+    let practice = crate::lint_practice::PracticeRules::new(
+        lint_train::practice_principles(&data, Some(&root)),
+    );
     merge_practice(&mut reports, &to_judge, &practice);
-    reports.sort_by(|a, b| a.path.cmp(&b.path));
 
+    // 7) Apply per-project config: suppress ignored rules, apply severity overrides.
+    for report in &mut reports {
+        report.hits.retain(|h| !ignore_set.contains(h.rule.as_str()));
+        if !config.severity_overrides.is_empty() {
+            for hit in &mut report.hits {
+                if let Some(sev) = config.severity_overrides.get(&hit.rule) {
+                    hit.severity = sev.clone();
+                }
+            }
+        }
+    }
+
+    reports.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(vec![text(render(&root, &reports, &by_language, &unanalyzed, &models, &setup, max))])
 }
 
