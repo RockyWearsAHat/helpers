@@ -7,8 +7,8 @@
       "slice": "style",
       "severity": "high",
       "description": "Remove debug prints (System.out.println / System.err.println) before submission. Each occurrence deducts from style score.",
-      "bad": "System.out.println(\"DEBUG: \" + value);",
-      "good": "logger.info(\"value: {}\", value);",
+      "bad": "System.out.println(msg);",
+      "good": "logger.info(msg);",
       "source": "https://pmd.github.io/pmd/pmd_rules_java_bestpractices.html#systemprintln"
     },
     {

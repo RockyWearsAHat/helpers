@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_note": "The scraper's source registry \u2014 adding a linter is a DATA entry here, no Rust change (the lint tool discovers indexes by their `language` field). `kind:builtin` uses a structured adapter in build-lint-index.mjs for the highest-fidelity, version-matched extraction from the tool's machine-readable docs. `kind:crawl` is the universal fallback: the generic crawler fetches a rules-index URL (`seed`) and extracts each linked rule with no parser code. Crawl is best-effort \u2014 on unstructured doc sites it can pick up nav/chrome instead of rules, which is the gap the AI reader is meant to close \u2014 so prefer a `builtin` adapter, and only enable a `crawl` source once its docs yield clean rules.",
+  "_note": "The scraper's source registry — adding a linter is a DATA entry here, no Rust change. `kind:builtin` uses a structured adapter in build-lint-index.mjs. `kind:crawl` fetches a rules-index page (`seed`) and follows links. `kind:agent` uses `docsBase` as the crawl root. The linter trains from these URLs automatically on first use; run `lint_learn` to force immediate training and save a committed module.",
   "sources": [
     {
       "tool": "clippy",
@@ -23,17 +23,80 @@
       "kind": "builtin"
     },
     {
+      "tool": "typescript-eslint",
+      "language": "typescript",
+      "kind": "crawl",
+      "seed": "https://typescript-eslint.io/rules/",
+      "docsBase": "https://typescript-eslint.io/rules/"
+    },
+    {
+      "tool": "checkstyle",
+      "language": "java",
+      "kind": "crawl",
+      "seed": "https://checkstyle.sourceforge.io/checks.html",
+      "docsBase": "https://checkstyle.sourceforge.io/"
+    },
+    {
+      "tool": "pmd",
+      "language": "java",
+      "kind": "crawl",
+      "seed": "https://pmd.github.io/pmd/pmd_rules_java.html",
+      "docsBase": "https://pmd.github.io/pmd/"
+    },
+    {
+      "tool": "rubocop",
+      "language": "ruby",
+      "kind": "crawl",
+      "seed": "https://docs.rubocop.org/rubocop/cops.html",
+      "docsBase": "https://docs.rubocop.org/rubocop/"
+    },
+    {
+      "tool": "shellcheck",
+      "language": "bash",
+      "kind": "crawl",
+      "seed": "https://www.shellcheck.net/wiki/Checks",
+      "docsBase": "https://www.shellcheck.net/wiki/"
+    },
+    {
+      "tool": "clangtidy",
+      "language": "c",
+      "kind": "crawl",
+      "seed": "https://clang.llvm.org/extra/clang-tidy/checks/list.html",
+      "docsBase": "https://clang.llvm.org/extra/clang-tidy/"
+    },
+    {
+      "tool": "clangtidy",
+      "language": "cpp",
+      "kind": "crawl",
+      "seed": "https://clang.llvm.org/extra/clang-tidy/checks/list.html",
+      "docsBase": "https://clang.llvm.org/extra/clang-tidy/"
+    },
+    {
+      "tool": "swiftlint",
+      "language": "swift",
+      "kind": "crawl",
+      "seed": "https://realm.github.io/SwiftLint/rule-directory.html",
+      "docsBase": "https://realm.github.io/SwiftLint/"
+    },
+    {
+      "tool": "detekt",
+      "language": "kotlin",
+      "kind": "crawl",
+      "seed": "https://detekt.dev/docs/rules/comments",
+      "docsBase": "https://detekt.dev/docs/rules/"
+    },
+    {
+      "tool": "phpstan",
+      "language": "php",
+      "kind": "crawl",
+      "seed": "https://phpstan.org/user-guide/ignoring-errors",
+      "docsBase": "https://phpstan.org/"
+    },
+    {
       "tool": "markdownlint",
       "language": "markdown",
       "kind": "agent",
       "docsBase": "https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md"
     }
-  ],
-  "_crawl_example": {
-    "tool": "shellcheck",
-    "language": "bash",
-    "kind": "crawl",
-    "docsBase": "https://www.shellcheck.net/wiki/",
-    "seed": "https://www.shellcheck.net/wiki/Checks"
-  }
+  ]
 }
