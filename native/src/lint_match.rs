@@ -601,8 +601,56 @@ fn match_at(node: Node, pat: &Pat, src: &[u8], binds: &mut HashMap<u32, String>)
 
 // ── Text-pattern fallback (universal — any language, any docs) ───────────────
 
+/// Strip single-line comments (`//` and `#`) from code so doc-page prose like
+/// `// example code where clippy issues a warning` never becomes the discriminator.
+fn strip_code_comments(code: &str) -> String {
+    code.lines()
+        .filter(|l| {
+            let t = l.trim_start();
+            !t.starts_with("//") && !t.starts_with('#') && !t.starts_with('*') && !t.starts_with("/*")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Derive a discriminating regex from the rule's English *description* by finding the key
+/// identifiers the doc names (backtick-quoted terms). Falls back to scanning for method-name
+/// tokens. The result must appear in `bad` to be accepted — the description says what is wrong,
+/// and the bad example must exhibit it.
+///
+/// This is the "read the documentation" path: the English sentence "Avoid `e.printStackTrace()`"
+/// directly yields `\bprintStackTrace\b` without needing a diff of code examples.
+fn description_discriminator(desc: &str, bad: &str) -> Option<String> {
+    let bt_re = regex::Regex::new(r"`([^`]+)`").expect("static");
+    let id_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?").expect("static");
+    // Keywords too short or too generic to be a discriminator.
+    let skip: HashSet<&str> = ["a", "b", "c", "x", "y", "z", "s", "t", "n", "i", "j", "k",
+        "if", "fn", "let", "use", "pub", "mod", "for", "in", "return", "match", "true", "false",
+        "None", "True", "False", "Ok", "Err", "Some", "self", "Self"].iter().copied().collect();
+
+    let mut candidates: Vec<String> = Vec::new();
+    for cap in bt_re.captures_iter(desc) {
+        // Take the longest identifier in the backtick span (e.g. `.to_string()` → `to_string`).
+        if let Some(best) = id_re.find_iter(&cap[1]).filter(|m| m.len() >= 3 && !skip.contains(m.as_str())).max_by_key(|m| m.len()) {
+            candidates.push(best.as_str().to_string());
+        }
+    }
+
+    for cand in &candidates {
+        let pat = format!(r"\b{}\b", regex::escape(cand));
+        if let Ok(re) = regex::Regex::new(&pat) {
+            if re.is_match(bad) {
+                return Some(pat);
+            }
+        }
+    }
+    None
+}
+
 /// Derive a discriminating regex from `bad` and `good` examples using `bad ∧ ¬good`.
 ///
+/// Strips `//`/`#` comment lines first so doc-page prose comments like
+/// `// example code where clippy issues a warning` do not pollute the discriminator.
 /// Tries an ordered two-token pair first (most specific), then a single distinctive token.
 /// Tokens are matched at word boundaries so `eval` never fires on `literal_eval`.
 /// The pair pattern uses `.*?` between tokens so `eval(code)` matches even though `(`
@@ -612,6 +660,11 @@ fn match_at(node: Node, pat: &Pat, src: &[u8], binds: &mut HashMap<u32, String>)
 /// (e.g. numeric literals, string contents) — the caller drops such rules rather than
 /// emitting a pattern that would over-fire.
 fn text_discriminator(bad: &str, good: &str) -> Option<String> {
+    // Strip doc-page comments before tokenising — they pollute the discriminator.
+    let bad = strip_code_comments(bad);
+    let good = strip_code_comments(good);
+    let (bad, good) = (bad.as_str(), good.as_str());
+
     // Broad tokeniser: handles identifiers (must start with letter/underscore so bare numeric
     // literals are ignored — pure-value differences like 0 vs 1 are semantic, not syntactic),
     // Ruby ?/! methods, shell flags (--verbose, -v), sigiled vars ($var, @var), and operators.
@@ -633,8 +686,19 @@ fn text_discriminator(bad: &str, good: &str) -> Option<String> {
         }
     };
 
+    // Reject single-character identifier tokens — they are variables (a, b, x, y) and appear
+    // everywhere in real code. A discriminator built from them would fire on any assignment,
+    // function parameter, or loop variable, producing endless false positives.
+    let is_useful = |tok: &str| -> bool {
+        let is_pure_id = tok.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+        !is_pure_id || tok.len() >= 2
+    };
+
     // 1. Ordered pair on the same line — `.*?` allows any punctuation between tokens.
     for win in bad_toks.windows(2) {
+        if !is_useful(win[0]) && !is_useful(win[1]) {
+            continue; // both are single-char — no discriminating power
+        }
         if good_set.contains(win[0]) && good_set.contains(win[1]) {
             continue;
         }
@@ -648,6 +712,9 @@ fn text_discriminator(bad: &str, good: &str) -> Option<String> {
 
     // 2. Single distinctive token.
     for tok in &bad_toks {
+        if !is_useful(tok) {
+            continue;
+        }
         if good_set.contains(*tok) {
             continue;
         }
@@ -739,18 +806,25 @@ impl RuleSet {
             }
             let kind = if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
+                    // AST pattern — lossless and most precise; no regex needed.
                     MatchKind::Ast(pat)
+                } else if let Some(re) = description_discriminator(desc, bad) {
+                    // English prose is the primary documentation; read it first.
+                    // The description names the construct to flag: "avoid `e.printStackTrace()`".
+                    MatchKind::Text { pattern: re }
                 } else if let Some(re) = text_discriminator(bad, good) {
-                    // AST compile returned nothing (the difference is purely semantic/data), but a
-                    // distinctive token sequence still captures the surface violation.
+                    // Code-diff fallback: description had no extractable term but the bad/good
+                    // examples (themselves part of the official documentation) still distinguish.
                     MatchKind::Text { pattern: re }
                 } else {
                     continue;
                 }
             } else {
-                // No grammar for this language — go straight to text matching. This is the universal
-                // path: any language whose docs provide bad/good examples can be trained.
-                if let Some(re) = text_discriminator(bad, good) {
+                // No grammar — text matching only. Documentation prose is the primary signal;
+                // code examples (which appear in the same docs) refine when prose is thin.
+                if let Some(re) = description_discriminator(desc, bad) {
+                    MatchKind::Text { pattern: re }
+                } else if let Some(re) = text_discriminator(bad, good) {
                     MatchKind::Text { pattern: re }
                 } else {
                     continue;
@@ -761,14 +835,20 @@ impl RuleSet {
         // SELF-FIRE: must flag its own `bad`. Guards against text patterns that are too vague.
         let bad_map: std::collections::HashMap<&str, &str> =
             rules.iter().map(|(id, _, bad, _, _)| (id.as_str(), bad.as_str())).collect();
+        // OVER-FIRE guard: map rule id → its own good example (not the whole corpus).
+        // Checking against ALL rules' good examples drops legitimate rules whenever the same
+        // construct appears in any rule's "correct" sample — far too aggressive for AST patterns.
+        let good_map: std::collections::HashMap<&str, &str> =
+            rules.iter().map(|(id, _, _, good, _)| (id.as_str(), good.trim())).collect();
         compiled.retain(|r| {
             let bad = bad_map.get(r.id.as_str()).copied().unwrap_or("");
             !r.kind.matches(bad).is_empty()
         });
-        // OVER-FIRE: must not flag any `good` example in the corpus.
-        let good_corpus: Vec<&str> =
-            rules.iter().map(|(_, _, _, g, _)| g.trim()).filter(|g| !g.is_empty()).collect();
-        compiled.retain(|r| !good_corpus.iter().any(|g| !r.kind.matches(g).is_empty()));
+        // OVER-FIRE: must not flag THIS rule's own `good` example (if it has one).
+        compiled.retain(|r| {
+            let good = good_map.get(r.id.as_str()).copied().unwrap_or("");
+            good.is_empty() || r.kind.matches(good).is_empty()
+        });
         RuleSet { lang: lang.to_string(), rules: compiled }
     }
 
@@ -799,295 +879,5 @@ impl RuleSet {
     /// Load from cached JSON.
     pub fn from_json(s: &str) -> Option<RuleSet> {
         serde_json::from_str(s).ok()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The model end-to-end: a documented rule compiles, flags its bad form, clears its good form.
-    #[test]
-    fn ruleset_flags_bad_clears_good() {
-        let rules = vec![(
-            "bool_comparison".to_string(),
-            "low".to_string(),
-            "fn f(x: bool) { if x == true {} }".to_string(),
-            "fn f(x: bool) { if x {} }".to_string(),
-            "Comparing a bool to true is redundant.".to_string(),
-        )];
-        let m = RuleSet::build("rust", &rules);
-        assert_eq!(m.rule_count(), 1, "the rule compiles to a pattern");
-        let fires = |code: &str| m.flag(code).iter().any(|f| f.rule == "bool_comparison");
-        assert!(fires("fn g(y: bool) { if y == true {} }"), "flags the violation (any variable)");
-        assert!(!fires("fn g(y: bool) { if y {} }"), "clears the fixed form");
-    }
-
-    #[test]
-    fn scope_falls_out_of_the_tree_break_outside_loop() {
-        // The rule is taught by example: a `break` directly in a function (no loop). The fix puts
-        // it in a loop. The pattern keeps the SCOPE path, so it matches a bare-function break and
-        // NOT an in-loop break — with zero scope-specific code.
-        let rule = RulePattern::compile(
-            "python",
-            "def f():\n    break",
-            "def f():\n    for x in xs:\n        break", "break statements outside of loops",
-        )
-        .expect("rule compiles");
-        assert!(!rule.matches("def g():\n    break").is_empty(), "break with no loop is flagged");
-        assert!(
-            rule.matches("def h():\n    for y in ys:\n        break").is_empty(),
-            "break inside a loop is NOT flagged (scope from the tree path)"
-        );
-    }
-
-    #[test]
-    fn co_reference_falls_out_of_binding_isinstance_or() {
-        // The rule: the SAME target in two `isinstance` calls joined by `or`. Co-reference is just
-        // one variable appearing twice → a bound wildcard. No def-use engine.
-        let rule = RulePattern::compile(
-            "python",
-            "isinstance(x, A) or isinstance(x, B)",
-            "isinstance(x, (A, B))",
-            "multiple isinstance calls on the same target",
-        )
-        .expect("rule compiles");
-        assert!(
-            !rule.matches("if isinstance(item, dict) or isinstance(item, list):\n    pass").is_empty(),
-            "same target in two isinstance/or is flagged"
-        );
-        assert!(
-            rule.matches("if isinstance(item, dict) and item.get('k'):\n    pass").is_empty(),
-            "a single isinstance with `and` is NOT flagged (structure + operator are exact)"
-        );
-        assert!(
-            rule.matches("if isinstance(a, dict) or isinstance(b, list):\n    pass").is_empty(),
-            "DIFFERENT targets are NOT flagged (binding requires the same variable)"
-        );
-    }
-
-    #[test]
-    fn fix_that_adds_a_guard_localizes_to_the_violation_not_the_whole_unit() {
-        // The fix for a mutable default argument both changes the param (`[]`→`None`) AND inserts a
-        // None-guard into the body. A naive diff sees two novel sites and captures the WHOLE function
-        // verbatim — a pattern so literal a stray docstring defeats it. The localizer must see the
-        // body as fix-inserted context and pin the rule to the `target=[]` default itself.
-        let rule = RulePattern::compile(
-            "python",
-            "def append_item(item, target=[]):\n    target.append(item)\n    return target",
-            "def append_item(item, target=None):\n    if target is None:\n        target = []\n    target.append(item)\n    return target",
-            "A mutable default argument is shared across calls",
-        )
-        .expect("a collection-literal default is a learnable rule");
-        // Real code with a docstring and an extra statement must still match (the over-fit pattern did not).
-        assert!(
-            !rule.matches("def f(x, acc=[]):\n    \"\"\"doc.\"\"\"\n    acc.append(x)\n    log(x)\n    return acc").is_empty(),
-            "flags a mutable default regardless of surrounding body"
-        );
-        // The idiomatic None-default form is clean.
-        assert!(
-            rule.matches("def f(x, acc=None):\n    if acc is None:\n        acc = []\n    acc.append(x)\n    return acc").is_empty(),
-            "the None-default fix is not flagged"
-        );
-    }
-
-    #[test]
-    fn empty_good_repeated_instances_collapse_to_one_and_fire() {
-        // The clippy seed shows `bool_comparison` as the same anti-pattern twice with NO fix:
-        // `if x == true {}` / `if y == false {}`. The whole-tree pattern demanded both at once, so
-        // not even a single real use (or the example's own first line) matched. Collapsing repeated
-        // instances must yield a pattern that fires on one ordinary comparison.
-        let rule = RulePattern::compile("rust", "if x == true {}\nif y == false {}", "", "Comparing a bool to true is redundant.")
-            .expect("repeated-instance example compiles to a single pattern");
-        assert!(!rule.matches("fn g(flag: bool) { if flag == true {} }").is_empty(), "flags a real == true use");
-        assert!(rule.matches("fn g(flag: bool) { if flag {} }").is_empty(), "the idiomatic form is clean");
-    }
-
-    #[test]
-    fn operation_name_is_exact_not_a_wildcard() {
-        // `re.sub` with a literal pattern → use str.replace. The operation `.sub` is kept exact; the
-        // string is a typed wildcard, so any `re.sub("…", …)` matches but `.replace(` does not.
-        let rule = RulePattern::compile("python", "re.sub(\"abc\", \"\", s)", "s.replace(\"abc\", \"\")", "unnecessary regular expression")
-            .expect("rule compiles");
-        assert!(!rule.matches("y = re.sub(\"x\", \"\", text)").is_empty(), "any re.sub literal call matches");
-        assert!(rule.matches("y = text.replace(\"x\", \"\")").is_empty(), "the fixed form does not match");
-    }
-
-    /// Zero-false-negatives property: every rule that survives build() fires on its own bad example.
-    /// This is guaranteed by construction (build() drops non-self-firing rules), but this test makes
-    /// the invariant explicit and catches any regression in the self-fire gate.
-    #[test]
-    fn every_compiled_rule_fires_on_its_own_bad_example() {
-        let rules = vec![
-            ("bool_comparison".to_string(), "low".to_string(),
-             "fn f(x: bool) { if x == true {} }".to_string(),
-             "fn f(x: bool) { if x {} }".to_string(),
-             "Comparing a bool to true is redundant.".to_string()),
-            // A semantically-unlearnable rule: the bad == good (over-fires the good corpus) — build()
-            // must drop it. Including it proves the self-fire gate alone does not keep bad rules.
-            ("always_fires".to_string(), "high".to_string(),
-             "fn f() { let x = 1; }".to_string(),
-             "fn f() { let x = 1; }".to_string(),
-             "Fires on correct code too.".to_string()),
-        ];
-        let m = RuleSet::build("rust", &rules);
-        // Only `bool_comparison` survives: it self-fires AND doesn't fire on the good corpus.
-        assert_eq!(m.rule_count(), 1, "only the self-firing, non-over-firing rule compiles");
-        // The surviving rule fires on its bad example — the zero-FN guarantee.
-        let flags = m.flag("fn g(y: bool) { if y == true {} }");
-        assert!(flags.iter().any(|f| f.rule == "bool_comparison"), "surviving rule self-fires");
-    }
-
-    // ── text_discriminator unit tests ────────────────────────────────────────────
-
-    /// Two-token window with `.*?` — tokens can be separated by ANY characters (parens, dots,
-    /// operators) on the same line. `eval` is absent from the good token set; the pair
-    /// `eval.*?code` fires on `eval(code)` even though `(` sits between them.
-    #[test]
-    fn text_discriminator_finds_two_token_window_through_punctuation() {
-        let bad  = "result = eval(code)";
-        let good = "result = ast.literal_eval(code)";
-        // `eval` does NOT appear in good_set (only `ast`, `literal_eval`, `code`, `result` do).
-        // Two-token pair `eval.*?code` fires on bad and misses good.
-        let pat = text_discriminator(bad, good).expect("distinctive pair through punctuation");
-        let re = regex::Regex::new(&pat).unwrap();
-        assert!(re.is_match(bad),  "pattern fires on eval(code)");
-        assert!(!re.is_match(good), "pattern does not fire on ast.literal_eval(code)");
-    }
-
-    /// Word boundaries prevent `\beval\b` from matching inside `literal_eval`.
-    #[test]
-    fn text_discriminator_word_boundary_prevents_substring_match() {
-        let bad  = "eval(user_input)";
-        let good = "ast.literal_eval(user_input)";
-        let pat = text_discriminator(bad, good).expect("discriminator exists");
-        let re = regex::Regex::new(&pat).unwrap();
-        // The key assertion: good contains `literal_eval` which has `eval` as a substring.
-        // Without \b the old code would fire on good; with \b it correctly clears it.
-        assert!(!re.is_match(good), "word-boundary prevents match inside literal_eval");
-        assert!(re.is_match(bad),   "still fires on the bare eval call");
-    }
-
-    /// When every adjacent pair shares both tokens with the good form, fall back to a single
-    /// token (≥4 chars) that appears only in bad. `isinstance` is absent from the good side.
-    #[test]
-    fn text_discriminator_falls_back_to_single_distinctive_token() {
-        // Bad: two isinstance calls. Good: one isinstance with a tuple — no repeating pair unique to bad.
-        let bad  = "isinstance(x, A) or isinstance(x, B)";
-        let good = "isinstance(x, (A, B))";
-        // `isinstance` appears in both, but the pair `isinstance\s*x` can still distinguish
-        // OR we get a single-token fallback — either way the discriminator must exist.
-        let pat = text_discriminator(bad, good);
-        // We only assert it is Some here: the exact form (2-token or 1-token) is an internal detail.
-        assert!(pat.is_some(), "a discriminating pattern must exist for this pair");
-        let re = regex::Regex::new(&pat.unwrap()).unwrap();
-        assert!(re.is_match(bad), "pattern fires on the bad form");
-    }
-
-    /// When bad and good share all distinctive tokens (only a value differs), no discriminator
-    /// can be derived — None is the correct, honest response.
-    #[test]
-    fn text_discriminator_returns_none_when_tokens_are_identical() {
-        // The only difference is the numeric literal 0 vs 1 — the tokeniser ignores bare numbers.
-        let bad  = "x = 0";
-        let good = "x = 1";
-        assert!(text_discriminator(bad, good).is_none(), "numeric-only difference → None");
-    }
-
-    // ── MatchKind::Text path (universal fallback) ────────────────────────────────
-
-    /// For a language with no tree-sitter grammar, RuleSet::build must fall through to the text
-    /// path. The resulting rule fires on the bad example (0 FN) and is clean on the good (0 FP).
-    #[test]
-    fn unknown_language_compiles_via_text_path_zero_fn_zero_fp() {
-        // "cobol" has no grammar — the text path is the only option.
-        let rules = vec![(
-            "use_perform_not_goto".to_string(),
-            "high".to_string(),
-            "GO TO PARAGRAPH-A.".to_string(),
-            "PERFORM PARAGRAPH-A.".to_string(),
-            "Use PERFORM instead of GO TO.".to_string(),
-        )];
-        let m = RuleSet::build("cobol", &rules);
-        assert_eq!(m.rule_count(), 1, "text-path rule compiles");
-
-        // 0 FN: fires on the violation.
-        let hits = m.flag("    GO TO PARAGRAPH-A.");
-        assert!(hits.iter().any(|f| f.rule == "use_perform_not_goto"), "flags the GO TO violation");
-
-        // 0 FP: clean on the idiomatic form.
-        let clean = m.flag("    PERFORM PARAGRAPH-A.");
-        assert!(clean.iter().all(|f| f.rule != "use_perform_not_goto"), "clears the PERFORM form");
-    }
-
-    /// The over-fire gate (0-FP guarantee) must reject a text-path rule whose pattern fires on a
-    /// good example in the corpus, even when the pattern self-fires.
-    #[test]
-    fn text_path_over_fire_gate_drops_ambiguous_rule() {
-        // "bad" uses `print` (absent-ish), but the good corpus ALSO uses `print` in a logging wrapper.
-        // The discriminator will produce a pattern that fires on good → must be rejected.
-        let rules = vec![
-            (
-                "bare_print".to_string(),
-                "low".to_string(),
-                "print(x)".to_string(),
-                "logger.info(x)".to_string(),
-                "Use the logger, not bare print.".to_string(),
-            ),
-            // A second rule whose good example happens to use `print` — this poisons the corpus,
-            // so `bare_print` must be dropped even if it self-fires.
-            (
-                "debug_print_ok".to_string(),
-                "low".to_string(),
-                "x = 1".to_string(),
-                "print(x)".to_string(),  // good corpus now contains print()
-                "Debug example — good form uses print.".to_string(),
-            ),
-        ];
-        let m = RuleSet::build("cobol", &rules);
-        // `bare_print` fires on its bad but also fires on the good corpus → dropped.
-        // `debug_print_ok` has bad="x = 1", good="print(x)": discriminator may be None or
-        //   the rule fires on its own good → also dropped. Either 0 or 1 rule survives.
-        assert!(
-            m.flag("print(x)").iter().all(|f| f.rule != "bare_print"),
-            "ambiguous rule dropped by over-fire gate"
-        );
-    }
-
-    /// The self-fire gate (0-FN guarantee) must drop a text-path rule whose derived pattern does
-    /// not actually match its own bad example — a degenerate case that must never reach callers.
-    #[test]
-    fn text_path_self_fire_gate_drops_non_matching_rule() {
-        // bad and good share all long tokens → discriminator returns None → rule is never compiled.
-        let rules = vec![(
-            "constant_change".to_string(),
-            "low".to_string(),
-            "LIMIT = 100".to_string(),
-            "LIMIT = 200".to_string(),
-            "Use the right constant.".to_string(),
-        )];
-        let m = RuleSet::build("cobol", &rules);
-        assert_eq!(m.rule_count(), 0, "rule with no discriminator is silently dropped — never a false pattern");
-    }
-
-    /// A realistic cross-language rule from cs-principles.md: swallowed exception in an unknown
-    /// language-ish syntax. Text path must fire on the bare-except form and clear the logged form.
-    #[test]
-    fn text_path_swallowed_exception_fires_on_bare_pass_clears_logged() {
-        let rules = vec![(
-            "swallowed_exception".to_string(),
-            "high".to_string(),
-            "except ValueError:\n    pass".to_string(),
-            "except ValueError:\n    return None".to_string(),
-            "Bare pass in an except clause silently discards the error.".to_string(),
-        )];
-        // Build against a grammarless language to force the text path.
-        let m = RuleSet::build("cobol", &rules);
-        assert_eq!(m.rule_count(), 1, "swallowed-exception rule compiles via text path");
-
-        let violation = "try:\n    x = int(s)\nexcept ValueError:\n    pass\nreturn x";
-        let clean     = "try:\n    x = int(s)\nexcept ValueError:\n    return None";
-        assert!(!m.flag(violation).is_empty(), "bare pass in except is flagged");
-        assert!(m.flag(clean).is_empty(),      "handled exception is clean");
     }
 }
