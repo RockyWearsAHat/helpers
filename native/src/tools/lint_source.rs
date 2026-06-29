@@ -449,6 +449,7 @@ pub fn run_rule(args: &Value) -> ToolResult {
     ))])
 }
 
+/// MCP schema for the `lint_rule` tool.
 pub fn schema_rule() -> Value {
     json!({
         "name": "lint_rule",
@@ -546,6 +547,7 @@ fn save_config(path: &std::path::Path, cfg: &serde_json::Value) -> Result<(), St
         .map_err(|e| format!("lint_config: {e}"))
 }
 
+/// MCP schema for the `lint_config` tool.
 pub fn schema_config() -> Value {
     json!({
         "name": "lint_config",

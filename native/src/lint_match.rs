@@ -204,7 +204,7 @@ fn dynamic_grammar(lang: &str) -> Option<tree_sitter::Language> {
 ///   3. Auto-compiled — downloads and compiles via npm + tree-sitter CLI on
 ///      first encounter; cached to `~/.cache/helpers/grammars/` for future runs.
 ///   4. `None` — text-pattern fallback handles any language without a grammar.
-fn language(lang: &str) -> Option<tree_sitter::Language> {
+pub(crate) fn language(lang: &str) -> Option<tree_sitter::Language> {
     BUNDLED.get(lang).cloned().or_else(|| dynamic_grammar(lang))
 }
 
