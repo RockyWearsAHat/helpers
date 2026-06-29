@@ -56,7 +56,7 @@ pub fn known_docs_url(lang: &str, version: &str) -> Option<DocsSource> {
         "go" => ("https://staticcheck.dev/docs/checks/".to_string(), true, "staticcheck"),
 
         // ── Java ──────────────────────────────────────────────────────────────────────────────────
-        "java" => ("https://pmd.github.io/latest/pmd_rules_java.html".to_string(), true, "pmd"),
+        "java" => ("https://pmd.github.io/pmd/pmd_rules_java.html".to_string(), true, "pmd"),
 
         // ── Ruby ──────────────────────────────────────────────────────────────────────────────────
         "ruby" => ("https://docs.rubocop.org/rubocop/cops.html".to_string(), true, "rubocop"),
