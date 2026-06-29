@@ -54,7 +54,7 @@ const EMBEDDED_CS_PRINCIPLES: &str = include_str!("../../corpus/cs-principles.md
 /// routing `slice` (the doc category, or severity when the source has no category), severity,
 /// English advice, the anti-pattern, its fix, and a doc URL for citation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct DocRule {
+pub(crate) struct DocRule {
     id: String,
     slice: String,
     severity: String,
@@ -115,14 +115,53 @@ pub struct TrainReport {
 /// stale/absent catalog is relearned from the live docs when the crawler is available. Each rule is
 /// compiled to its exact tree pattern from its own bad/good example — no thresholds, no statistics —
 /// so a match is the rule's structure occurring verbatim, with scope and co-reference intact.
-pub fn ensure_models(langs: &[String], data_root: &Path) -> TrainReport {
+/// Load a language's rules from the project's own `.helpers/lint-rules/` directory.
+///
+/// Reads `<lang>.md` (rules specific to that language) and `any.md` (rules that apply to every
+/// language). These are authored in the same markdown format as `corpus/cs-principles.md`:
+/// a `## rule-id [severity]` heading followed by a description and optional `bad`/`good` fenced
+/// blocks. Project rules are merged AFTER the global corpus, so they take priority over it.
+pub(crate) fn project_rules(project_root: &Path, lang: &str) -> Vec<DocRule> {
+    let dir = project_root.join(".helpers/lint-rules");
+    let mut out = Vec::new();
+    for filename in [format!("{lang}.md"), "any.md".to_string()] {
+        let path = dir.join(&filename);
+        let Ok(doc) = std::fs::read_to_string(&path) else { continue };
+        let source = path.to_string_lossy().into_owned();
+        for r in crate::linter::Knowledge::from_text(lang, &doc).rules {
+            if r.bad.is_empty() {
+                continue;
+            }
+            out.push(DocRule {
+                id: r.id,
+                slice: "project-rule".to_string(),
+                severity: r.severity,
+                description: r.description,
+                bad: r.bad,
+                good: r.good,
+                source: source.clone(),
+            });
+        }
+    }
+    out
+}
+
+/// Expose the stamp file path so external tools (e.g. `lint_rule`) can invalidate it,
+/// forcing a retrain on the next `lint` call without requiring a version bump.
+pub fn stamp_path_pub(lang: &str) -> PathBuf {
+    stamp_path(lang)
+}
+
+pub fn ensure_models(langs: &[String], data_root: &Path, project_root: &Path) -> TrainReport {
     let mut report = TrainReport::default();
     let folder = corpus_rules(data_root);
     for lang in langs {
         let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
         let (mut rules, _reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
-        // The CS-principles folder rules apply to whatever language they were written in.
+        // CS-principles folder rules for this language.
         rules.extend(folder.iter().filter(|(l, _)| l == lang).map(|(_, r)| r.clone()));
+        // Project-local rules — higher priority than global corpus, so appended last.
+        rules.extend(project_rules(project_root, lang));
         if rules.iter().all(|r| r.bad.is_empty()) {
             report.skipped.push((lang.clone(), "no rule has a bad example to learn the pattern from".to_string()));
             continue;
@@ -447,10 +486,10 @@ fn corpus_rules(data_root: &Path) -> Vec<(String, DocRule)> {
 }
 
 /// Build the rule-id → [`RuleInfo`] map for rendering findings, from the SAME sources the models
-/// learned from (cached learned catalogs + committed seed + corpus folder), so every finding's
-/// advice and citation trace back to a doc link or a folder rule and nothing else. Read-only — it
-/// never crawls (that already happened during [`ensure_models`]).
-pub fn advice(data_root: &Path) -> HashMap<String, RuleInfo> {
+/// learned from (cached learned catalogs + committed seed + corpus folder + project rules), so every
+/// finding's advice and citation trace back to a doc link or a rule file and nothing else.
+/// Read-only — never crawls (that already happened during [`ensure_models`]).
+pub fn advice(data_root: &Path, project_root: Option<&Path>) -> HashMap<String, RuleInfo> {
     /// Record a rule's reportable facts, later sources overriding earlier (more-current) ones.
     fn put(out: &mut HashMap<String, RuleInfo>, r: &DocRule) {
         out.insert(
@@ -510,24 +549,46 @@ pub fn advice(data_root: &Path) -> HashMap<String, RuleInfo> {
     for (_, r) in corpus_rules(data_root) {
         put(&mut out, &r);
     }
+    // Project-local rules — highest priority; their descriptions override everything else
+    // so a user's custom advice appears verbatim in lint output.
+    if let Some(pr) = project_root {
+        let dir = pr.join(".helpers/lint-rules");
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
+                }
+                let lang_hint = path.file_stem().and_then(|s| s.to_str()).unwrap_or("any");
+                if let Ok(doc) = std::fs::read_to_string(&path) {
+                    let src = path.to_string_lossy().into_owned();
+                    for r in crate::linter::Knowledge::from_text(lang_hint, &doc).rules {
+                        out.insert(
+                            r.id.clone(),
+                            RuleInfo {
+                                severity: r.severity,
+                                description: r.description,
+                                source: src.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
     out
 }
 
-/// The corpus's PRACTICE principles — its narrative sections (a heading with prose but no `bad`/
-/// `good` code block). These cannot be a tree pattern; each becomes a [`crate::lint_practice::
-/// Principle`] that measures the project against the practice it describes. The same document feeds
-/// both detectors: fenced sections become code-rule patterns, narrative sections become practice
-/// rules — drop in a principle and the right detector picks it up, no code change.
-pub fn practice_principles(data_root: &Path) -> Vec<crate::lint_practice::Principle> {
-    let doc = std::fs::read_to_string(data_root.join("corpus/cs-principles.md"))
-        .unwrap_or_else(|_| EMBEDDED_CS_PRINCIPLES.to_string());
+/// Parse narrative sections from a corpus-format markdown document into practice principles.
+/// Sections with a code pair (`bad`/`good` blocks) become code-rule patterns, not practice rules;
+/// this function yields only the narrative-only sections.
+fn parse_practice_doc(doc: &str) -> Vec<crate::lint_practice::Principle> {
     let mut out = Vec::new();
     let mut heading: Option<String> = None;
     let mut body = String::new();
     let mut in_fence = false;
     let mut had_fence = false;
     let flush = |heading: &Option<String>, body: &str, had_fence: bool, out: &mut Vec<_>| {
-        // Only narrative sections (no code pair) are practice rules; fenced ones are code rules.
         if had_fence {
             return;
         }
@@ -553,6 +614,32 @@ pub fn practice_principles(data_root: &Path) -> Vec<crate::lint_practice::Princi
         }
     }
     flush(&heading, &body, had_fence, &mut out);
+    out
+}
+
+/// The corpus's PRACTICE principles — its narrative sections (a heading with prose but no `bad`/
+/// `good` code block). These cannot be a tree pattern; each becomes a [`crate::lint_practice::
+/// Principle`] that measures the project against the practice it describes. The same document feeds
+/// both detectors: fenced sections become code-rule patterns, narrative sections become practice
+/// rules — drop in a principle and the right detector picks it up, no code change.
+///
+/// Also loads `.helpers/lint-rules/any.md` from the project root when provided, so users can add
+/// behavioral principles (not just code-pattern rules) to their project without touching global files.
+pub fn practice_principles(
+    data_root: &Path,
+    project_root: Option<&Path>,
+) -> Vec<crate::lint_practice::Principle> {
+    let doc = std::fs::read_to_string(data_root.join("corpus/cs-principles.md"))
+        .unwrap_or_else(|_| EMBEDDED_CS_PRINCIPLES.to_string());
+    let mut out = parse_practice_doc(&doc);
+
+    // Project-local principles from .helpers/lint-rules/any.md
+    if let Some(pr) = project_root {
+        let any_file = pr.join(".helpers/lint-rules/any.md");
+        if let Ok(doc) = std::fs::read_to_string(&any_file) {
+            out.extend(parse_practice_doc(&doc));
+        }
+    }
     out
 }
 
@@ -751,14 +838,14 @@ mod tests {
         std::env::set_var("HELPERS_LINT_OFFLINE", "1");
         std::env::remove_var("HELPERS_LINT_REFRESH");
 
-        let first = ensure_models(&["rust".to_string()], &root);
+        let first = ensure_models(&["rust".to_string()], &root, &root);
         assert!(
             first.trained.iter().any(|s| s.starts_with("rust")),
             "first run trains from the resolved rules: {first:?}"
         );
         assert!(patterns_path("rust").exists(), "model cached to disk");
 
-        let second = ensure_models(&["rust".to_string()], &root);
+        let second = ensure_models(&["rust".to_string()], &root, &root);
         assert!(second.reused.contains(&"rust".to_string()), "second run reuses the fresh cache: {second:?}");
 
         let model = load_patterns("rust").expect("reload");

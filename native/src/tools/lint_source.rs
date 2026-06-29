@@ -135,6 +135,7 @@ pub fn run_languages(args: &Value) -> ToolResult {
     Ok(vec![text(out)])
 }
 
+/// MCP schema for the `lint_languages` tool.
 pub fn schema_languages() -> Value {
     json!({
         "name": "lint_languages",
@@ -209,6 +210,7 @@ pub fn run_add_source(args: &Value) -> ToolResult {
     ))])
 }
 
+/// MCP schema for the `lint_add_source` tool.
 pub fn schema_add_source() -> Value {
     json!({
         "name": "lint_add_source",
@@ -261,6 +263,7 @@ pub fn run_learn(args: &Value) -> ToolResult {
     }
 }
 
+/// MCP schema for the `lint_learn` tool.
 pub fn schema_learn() -> Value {
     json!({
         "name": "lint_learn",
@@ -383,6 +386,7 @@ fn commit_and_pr(root: &std::path::Path, paths: &[std::path::PathBuf], desc: &st
     Ok(msg)
 }
 
+/// MCP schema for the `lint_submit` tool.
 pub fn schema_submit() -> Value {
     json!({
         "name": "lint_submit",
@@ -396,6 +400,172 @@ pub fn schema_submit() -> Value {
                 }
             },
             "required": []
+        }
+    })
+}
+
+// ── lint_rule ─────────────────────────────────────────────────────────────────
+
+/// Add a single custom rule to the project linter by providing a bad/good code example pair.
+///
+/// Writes (or appends) to `.helpers/lint-rules/<language>.md` in the project root, using the
+/// same markdown format as `corpus/cs-principles.md`. The linter picks the rule up automatically
+/// on the next run (the compiled pattern stamp is invalidated so a retrain is triggered).
+pub fn run_rule(args: &Value) -> ToolResult {
+    let lang = args["language"].as_str().ok_or("lint_rule: `language` is required")?;
+    let id = args["id"].as_str().ok_or("lint_rule: `id` is required")?;
+    let bad = args["bad"].as_str().ok_or("lint_rule: `bad` is required")?;
+    let good = args["good"].as_str().unwrap_or("");
+    let description = args["description"].as_str().unwrap_or(id);
+    let severity = args["severity"].as_str().unwrap_or("medium");
+    let root = args["root"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(crate::git::workspace_root);
+
+    let rules_dir = root.join(".helpers/lint-rules");
+    std::fs::create_dir_all(&rules_dir).map_err(|e| format!("lint_rule: {e}"))?;
+
+    let file = rules_dir.join(format!("{lang}.md"));
+    let mut content = std::fs::read_to_string(&file).unwrap_or_default();
+
+    // Append the rule in corpus markdown format: heading, description, fenced bad/good pair.
+    let block = format!(
+        "\n## {id} [{severity}]\n\n{description}\n\n\
+         ```{lang}:bad\n{bad}\n```\n\n\
+         ```{lang}:good\n{good}\n```\n"
+    );
+    content.push_str(&block);
+    std::fs::write(&file, &content).map_err(|e| format!("lint_rule: {e}"))?;
+
+    // Invalidate the compiled pattern stamp so the next `lint` run retrains this language.
+    let _ = std::fs::remove_file(crate::lint_train::stamp_path_pub(lang));
+
+    Ok(vec![text(format!(
+        "Rule `{id}` added to `.helpers/lint-rules/{lang}.md`.\n\
+         Severity: {severity}.\n\
+         Description: {description}\n\n\
+         The linter will retrain on the next `lint` run and apply this rule automatically."
+    ))])
+}
+
+pub fn schema_rule() -> Value {
+    json!({
+        "name": "lint_rule",
+        "description": "Add a custom lint rule to the project by providing a bad/good code example pair. \
+                        Writes to .helpers/lint-rules/<language>.md (created if needed) in the project root. \
+                        No other setup required — the linter picks it up automatically on the next run. \
+                        Use this to encode project-specific conventions, security rules, style preferences, \
+                        or any pattern you want enforced consistently across the codebase.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "language":    { "type": "string", "description": "Language the rule applies to (e.g. python, rust, javascript, go)." },
+                "id":          { "type": "string", "description": "Unique rule id in snake_case (e.g. no_bare_eval, require_logging)." },
+                "bad":         { "type": "string", "description": "Code snippet that violates the rule — the pattern to detect." },
+                "good":        { "type": "string", "description": "The correct form. Omit if the rule is purely prohibitive with no fix." },
+                "description": { "type": "string", "description": "Human-readable advice shown in lint output: WHY it's wrong and WHAT to do instead." },
+                "severity":    { "type": "string", "enum": ["high", "medium", "low"], "description": "How serious the violation is. Default: medium." },
+                "root":        { "type": "string", "description": "Project root. Defaults to the workspace root." }
+            },
+            "required": ["language", "id", "bad", "description"]
+        }
+    })
+}
+
+// ── lint_config ───────────────────────────────────────────────────────────────
+
+/// Read or write the project's lint preferences in `.helpers/lint.json`.
+pub fn run_config(args: &Value) -> ToolResult {
+    let action = args["action"].as_str().unwrap_or("get");
+    let root = args["root"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(crate::git::workspace_root);
+
+    let cfg_path = root.join(".helpers/lint.json");
+    let mut cfg: serde_json::Value = std::fs::read_to_string(&cfg_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| json!({"ignore_rules": [], "severity_overrides": {}}));
+
+    match action {
+        "get" => Ok(vec![text(format!(
+            "Lint config ({})\n{}",
+            cfg_path.display(),
+            serde_json::to_string_pretty(&cfg).unwrap_or_default()
+        ))]),
+        "ignore" => {
+            let rule = args["rule"].as_str()
+                .ok_or("lint_config: `rule` required for action=ignore")?;
+            let list = cfg["ignore_rules"].as_array_mut()
+                .ok_or("lint_config: malformed ignore_rules")?;
+            if !list.iter().any(|v| v.as_str() == Some(rule)) {
+                list.push(json!(rule));
+            }
+            save_config(&cfg_path, &cfg)?;
+            Ok(vec![text(format!("Rule `{rule}` suppressed. It will not appear in lint output."))])
+        }
+        "unignore" => {
+            let rule = args["rule"].as_str()
+                .ok_or("lint_config: `rule` required for action=unignore")?;
+            if let Some(list) = cfg["ignore_rules"].as_array_mut() {
+                list.retain(|v| v.as_str() != Some(rule));
+            }
+            save_config(&cfg_path, &cfg)?;
+            Ok(vec![text(format!("Rule `{rule}` re-enabled."))])
+        }
+        "severity" => {
+            let rule = args["rule"].as_str()
+                .ok_or("lint_config: `rule` required for action=severity")?;
+            let sev = args["severity"].as_str()
+                .ok_or("lint_config: `severity` required for action=severity")?;
+            cfg["severity_overrides"][rule] = json!(sev);
+            save_config(&cfg_path, &cfg)?;
+            Ok(vec![text(format!("Rule `{rule}` severity overridden to `{sev}`."))])
+        }
+        "set_languages" => {
+            let langs = args["languages"].as_array()
+                .ok_or("lint_config: `languages` array required")?;
+            cfg["languages"] = json!(langs);
+            save_config(&cfg_path, &cfg)?;
+            let names: Vec<&str> = langs.iter().filter_map(|v| v.as_str()).collect();
+            Ok(vec![text(format!("Language filter set to: {}", names.join(", ")))])
+        }
+        _ => Err(format!(
+            "lint_config: unknown action `{action}`. Valid: get | ignore | unignore | severity | set_languages"
+        )),
+    }
+}
+
+fn save_config(path: &std::path::Path, cfg: &serde_json::Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("lint_config: {e}"))?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(cfg).unwrap_or_default())
+        .map_err(|e| format!("lint_config: {e}"))
+}
+
+pub fn schema_config() -> Value {
+    json!({
+        "name": "lint_config",
+        "description": "Read or write the project's lint preferences (.helpers/lint.json). \
+                        Suppress noisy rules, change severities, or restrict which languages are reviewed — \
+                        without touching any source file. Changes take effect on the next `lint` run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["get", "ignore", "unignore", "severity", "set_languages"],
+                    "description": "get=show config | ignore=suppress a rule | unignore=re-enable | severity=change level | set_languages=restrict languages"
+                },
+                "rule":      { "type": "string", "description": "Rule id (for ignore/unignore/severity)." },
+                "severity":  { "type": "string", "enum": ["high","medium","low"], "description": "New severity (for action=severity)." },
+                "languages": { "type": "array",  "items": {"type": "string"}, "description": "Languages to lint (for set_languages). Pass [] to clear the filter." },
+                "root":      { "type": "string", "description": "Project root. Defaults to the workspace root." }
+            },
+            "required": ["action"]
         }
     })
 }

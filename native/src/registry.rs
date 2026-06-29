@@ -73,6 +73,16 @@ pub fn all_tools() -> Vec<Tool> {
             handler: ls::run_submit,
         },
         Tool {
+            name: "lint_rule",
+            schema: ls::schema_rule,
+            handler: ls::run_rule,
+        },
+        Tool {
+            name: "lint_config",
+            schema: ls::schema_config,
+            handler: ls::run_config,
+        },
+        Tool {
             name: "build_knowledge_index",
             schema: kn::schema_build_index,
             handler: kn::run_build_index,

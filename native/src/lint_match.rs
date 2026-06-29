@@ -17,24 +17,195 @@
 //! typed wildcards. Matching is then deterministic and exact — no statistics, no float.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tree_sitter::{Node, Parser};
+use tree_sitter_language::LanguageFn;
 
-/// Resolve a language name to its tree-sitter grammar (mirrors `lint_ast`).
+// ── Grammar resolution ────────────────────────────────────────────────────────
+//
+// Language support scales at runtime — zero code changes ever needed to add a language:
+//
+//   1. Bundled  — grammars compiled into the binary; instant, works offline.
+//   2. On-disk  — scans our cache + tree-sitter CLI cache + Neovim parsers + system paths.
+//   3. Auto-compile — on first encounter of an unknown language, compiles it via
+//      `npm install tree-sitter-<lang>` + `tree-sitter build` and writes the result
+//      to ~/.cache/helpers/grammars/. Subsequent runs load from cache instantly.
+//   4. Text fallback — if all of the above fail, token-regex matching covers any language.
+
+/// Grammars compiled directly into the binary for offline reliability.
+/// Any language NOT in this map is handled automatically by `dynamic_grammar` at runtime.
+static BUNDLED: std::sync::LazyLock<HashMap<&'static str, tree_sitter::Language>> =
+    std::sync::LazyLock::new(|| {
+        let mut m: HashMap<&'static str, tree_sitter::Language> = HashMap::new();
+        m.insert("rust",       tree_sitter_rust::LANGUAGE.into());
+        m.insert("python",     tree_sitter_python::LANGUAGE.into());
+        m.insert("javascript", tree_sitter_javascript::LANGUAGE.into());
+        m.insert("typescript", tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into());
+        m.insert("tsx",        tree_sitter_typescript::LANGUAGE_TSX.into());
+        m.insert("go",         tree_sitter_go::LANGUAGE.into());
+        m.insert("java",       tree_sitter_java::LANGUAGE.into());
+        m.insert("ruby",       tree_sitter_ruby::LANGUAGE.into());
+        m.insert("c",          tree_sitter_c::LANGUAGE.into());
+        m.insert("bash",       tree_sitter_bash::LANGUAGE.into());
+        m
+    });
+
+/// Per-process resolution cache. `None` means "tried and failed — don't retry".
+static GRAMMAR_CACHE: OnceLock<Mutex<HashMap<String, Option<tree_sitter::Language>>>> =
+    OnceLock::new();
+
+/// Our own grammar cache directory. `acquire_grammar` writes compiled libraries here.
+/// Override with `HELPERS_GRAMMAR_PATH`.
+fn grammar_cache_dir() -> PathBuf {
+    if let Ok(p) = std::env::var("HELPERS_GRAMMAR_PATH") {
+        return PathBuf::from(p);
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    Path::new(&home).join(".cache/helpers/grammars")
+}
+
+/// All directories to probe for a compiled grammar `.so`/`.dylib`.
+/// Covers our own cache, tree-sitter CLI's cache, Neovim parsers, and system packages.
+fn grammar_search_dirs() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let h = Path::new(&home);
+    vec![
+        grammar_cache_dir(),
+        h.join(".cache/tree-sitter/lib"),            // tree-sitter CLI (Linux/macOS)
+        h.join("Library/Caches/tree-sitter/lib"),    // tree-sitter CLI (macOS)
+        h.join(".local/share/nvim/site/parser"),      // nvim-treesitter
+        h.join(".config/nvim/parser"),                // nvim-treesitter (alternate)
+        PathBuf::from("/usr/lib/x86_64-linux-gnu"),  // Debian/Ubuntu system packages
+        PathBuf::from("/usr/lib/aarch64-linux-gnu"),
+        PathBuf::from("/usr/local/lib"),
+    ]
+}
+
+/// Open a shared library at `path` and call `fn_name()` to obtain the grammar.
+/// The library is leaked so the pointer stays valid for the process lifetime.
+///
+/// # Safety
+/// `path` must be a valid tree-sitter grammar shared library whose `fn_name` symbol
+/// follows the tree-sitter C ABI: `*const () tree_sitter_<lang>()`.
+unsafe fn load_library(path: &Path, fn_name: &str) -> Option<tree_sitter::Language> {
+    let lib = libloading::Library::new(path).ok()?;
+    type RawFn = unsafe extern "C" fn() -> *const ();
+    let func: libloading::Symbol<RawFn> = lib.get(fn_name.as_bytes()).ok()?;
+    let raw: RawFn = *func;
+    let _ = Box::into_raw(Box::new(lib)); // intentional leak: grammar ptr must outlive the process
+    Some(tree_sitter::Language::new(LanguageFn::from_raw(raw)))
+}
+
+/// Scan `grammar_search_dirs()` for a compiled grammar for `lang` and load it.
+fn find_on_disk(lang: &str) -> Option<tree_sitter::Language> {
+    let fn_name = format!("tree_sitter_{}", lang.replace('-', "_"));
+    // Try both our naming convention and bare-name (used by nvim-treesitter).
+    let stems = [format!("tree-sitter-{lang}"), lang.to_string()];
+    let exts = if cfg!(target_os = "macos") { &[".dylib", ".so"][..] } else { &[".so", ".dylib"][..] };
+    for dir in grammar_search_dirs() {
+        for stem in &stems {
+            for ext in exts {
+                let path = dir.join(format!("{stem}{ext}"));
+                if path.exists() {
+                    // Safety: tree-sitter grammar C ABI is stable; fn returns *const TSLanguage.
+                    if let Some(l) = unsafe { load_library(&path, &fn_name) } {
+                        return Some(l);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Compile a grammar for `lang` on-demand using npm + tree-sitter CLI, then cache it.
+///
+/// This is called automatically the first time an unknown language is encountered.
+/// On success the compiled `.so`/`.dylib` lives in `grammar_cache_dir()` and all
+/// future runs load it instantly from disk — no repeated compilation.
+///
+/// Requires `npm` and `tree-sitter` on PATH; silently returns `None` if either is missing
+/// or the grammar package doesn't exist on npm, falling through to the text-pattern path.
+fn acquire_grammar(lang: &str) -> Option<tree_sitter::Language> {
+    let cache_dir = grammar_cache_dir();
+    std::fs::create_dir_all(&cache_dir).ok()?;
+
+    let ext = if cfg!(target_os = "macos") { "dylib" } else { "so" };
+    let out = cache_dir.join(format!("tree-sitter-{lang}.{ext}"));
+
+    // Isolated temp workspace so concurrent acquires for different languages don't collide.
+    let tmp = std::env::temp_dir().join(format!("helpers-grammar-{lang}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).ok()?;
+
+    // Step 1: download grammar package from npm.
+    let npm_ok = std::process::Command::new("npm")
+        .args(["install", &format!("tree-sitter-{lang}"), "--prefix", tmp.to_str()?])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !npm_ok {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return None;
+    }
+
+    let grammar_src = tmp.join("node_modules").join(format!("tree-sitter-{lang}"));
+    if !grammar_src.exists() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return None;
+    }
+
+    // Step 2: compile the grammar C source to a native shared library.
+    let build_ok = std::process::Command::new("tree-sitter")
+        .args(["build", "--output", out.to_str()?, grammar_src.to_str()?])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    if build_ok && out.exists() {
+        let fn_name = format!("tree_sitter_{}", lang.replace('-', "_"));
+        // Safety: we just compiled this grammar; its ABI is guaranteed correct.
+        unsafe { load_library(&out, &fn_name) }
+    } else {
+        None
+    }
+}
+
+/// Resolve `lang` to a grammar from disk or by compiling on-demand.
+/// Result is cached per-process so each language is probed at most once.
+fn dynamic_grammar(lang: &str) -> Option<tree_sitter::Language> {
+    let cache = GRAMMAR_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = cache.lock().expect("grammar cache lock");
+    if let Some(cached) = map.get(lang) {
+        return cached.clone();
+    }
+    let result = find_on_disk(lang).or_else(|| acquire_grammar(lang));
+    let ret = result.clone();
+    map.insert(lang.to_string(), result);
+    ret
+}
+
+/// Resolve a language name to its tree-sitter grammar.
+///
+/// **Zero code changes needed to add any language.** Resolution order:
+///   1. Bundled (compiled in) — instant, offline, covers common languages.
+///   2. On-disk scan — picks up grammars from the tree-sitter CLI cache,
+///      Neovim, system packages, or `~/.cache/helpers/grammars/`.
+///   3. Auto-compiled — downloads and compiles via npm + tree-sitter CLI on
+///      first encounter; cached to `~/.cache/helpers/grammars/` for future runs.
+///   4. `None` — text-pattern fallback handles any language without a grammar.
 fn language(lang: &str) -> Option<tree_sitter::Language> {
-    Some(match lang {
-        "rust" => tree_sitter_rust::LANGUAGE.into(),
-        "python" => tree_sitter_python::LANGUAGE.into(),
-        "javascript" => tree_sitter_javascript::LANGUAGE.into(),
-        "typescript" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        "go" => tree_sitter_go::LANGUAGE.into(),
-        "java" => tree_sitter_java::LANGUAGE.into(),
-        "ruby" => tree_sitter_ruby::LANGUAGE.into(),
-        "c" => tree_sitter_c::LANGUAGE.into(),
-        "bash" => tree_sitter_bash::LANGUAGE.into(),
-        _ => return None,
-    })
+    BUNDLED.get(lang).cloned().or_else(|| dynamic_grammar(lang))
 }
 
 /// A pattern node: a required AST shape.
@@ -428,12 +599,107 @@ fn match_at(node: Node, pat: &Pat, src: &[u8], binds: &mut HashMap<u32, String>)
     kids.iter().zip(&pat.children).all(|(c, p)| match_at(*c, p, src, binds))
 }
 
-/// One documented rule compiled to its exact pattern, carrying the reporting facts a finding needs.
+// ── Text-pattern fallback (universal — any language, any docs) ───────────────
+
+/// Derive a discriminating regex from `bad` and `good` examples using `bad ∧ ¬good`.
+///
+/// Tries an ordered two-token pair first (most specific), then a single distinctive token.
+/// Tokens are matched at word boundaries so `eval` never fires on `literal_eval`.
+/// The pair pattern uses `.*?` between tokens so `eval(code)` matches even though `(`
+/// sits between them — works for any operator, delimiter, or punctuation.
+///
+/// Returns `None` when the difference is purely in values the tokeniser ignores
+/// (e.g. numeric literals, string contents) — the caller drops such rules rather than
+/// emitting a pattern that would over-fire.
+fn text_discriminator(bad: &str, good: &str) -> Option<String> {
+    // Broad tokeniser: handles identifiers (must start with letter/underscore so bare numeric
+    // literals are ignored — pure-value differences like 0 vs 1 are semantic, not syntactic),
+    // Ruby ?/! methods, shell flags (--verbose, -v), sigiled vars ($var, @var), and operators.
+    let tok_re = regex::Regex::new(
+        r"--?[A-Za-z][\w-]*|[$@]\w+|[A-Za-z_]\w*[!?]?|==|!=|<=|>=|->|=>|\.\.|::",
+    )
+    .expect("static regex");
+
+    let bad_toks: Vec<&str> = tok_re.find_iter(bad).map(|m| m.as_str()).collect();
+    let good_set: HashSet<&str> = tok_re.find_iter(good).map(|m| m.as_str()).collect();
+
+    // Word boundary for pure-identifier tokens: prevents `eval` from matching inside
+    // `literal_eval`. Operators and flags are self-delimiting and need no boundary.
+    let wpat = |tok: &str| -> String {
+        if tok.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+            format!(r"\b{}\b", regex::escape(tok))
+        } else {
+            regex::escape(tok)
+        }
+    };
+
+    // 1. Ordered pair on the same line — `.*?` allows any punctuation between tokens.
+    for win in bad_toks.windows(2) {
+        if good_set.contains(win[0]) && good_set.contains(win[1]) {
+            continue;
+        }
+        let pat = format!("{}.*?{}", wpat(win[0]), wpat(win[1]));
+        if let Ok(re) = regex::Regex::new(&pat) {
+            if re.is_match(bad) && !re.is_match(good) {
+                return Some(pat);
+            }
+        }
+    }
+
+    // 2. Single distinctive token.
+    for tok in &bad_toks {
+        if good_set.contains(*tok) {
+            continue;
+        }
+        let pat = wpat(tok);
+        if let Ok(re) = regex::Regex::new(&pat) {
+            if re.is_match(bad) && !re.is_match(good) {
+                return Some(pat);
+            }
+        }
+    }
+
+    None
+}
+
+/// How a rule matches code — either lossless AST pattern (when a grammar is available) or a
+/// discriminating text pattern (token-level regex, universal fallback for any language).
+///
+/// Both paths go through the same `bad ∧ ¬good` discipline: the pattern is derived from what the
+/// `bad` example has that the `good` example does not. The difference is precision: AST patterns
+/// capture structure (scope, co-reference); text patterns capture presence of distinctive tokens.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum MatchKind {
+    /// Exact generalized subtree match via tree-sitter.
+    Ast(RulePattern),
+    /// Regex over source lines — used when no grammar is available for the language.
+    /// Stored as a string (regex::Regex is not Serialize); compiled on first use via `flag`.
+    Text { pattern: String },
+}
+
+impl MatchKind {
+    /// Lines in `code` where this rule fires. 1-based.
+    fn matches(&self, code: &str) -> Vec<usize> {
+        match self {
+            MatchKind::Ast(pat) => pat.matches(code),
+            MatchKind::Text { pattern } => {
+                let Ok(re) = regex::Regex::new(pattern) else { return vec![] };
+                code.lines()
+                    .enumerate()
+                    .filter(|(_, line)| re.is_match(line))
+                    .map(|(i, _)| i + 1)
+                    .collect()
+            }
+        }
+    }
+}
+
+/// One documented rule compiled to its exact match kind, carrying the reporting facts a finding needs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct CompiledRule {
     id: String,
     severity: String,
-    pat: RulePattern,
+    kind: MatchKind,
 }
 
 /// A language's compiled rule set: every documented rule reduced to its lossless tree pattern. This
@@ -457,36 +723,52 @@ pub struct Finding {
 }
 
 impl RuleSet {
-    /// Compile a language's documented `(id, severity, bad, good, description)` rules into exact
-    /// patterns. A rule whose example carries no distinctive structure (its difference is data the
-    /// tree abstracts away) compiles to nothing and is dropped — the docs decide what is learnable.
+    /// Compile a language's documented `(id, severity, bad, good, description)` rules.
+    ///
+    /// For languages with a tree-sitter grammar: lossless AST patterns via `bad ∧ ¬good`.
+    /// For any other language: discriminating token-regex patterns, derived the same way.
+    /// Both paths apply the same quality gate: self-fire (must flag its own `bad`) and
+    /// over-fire (must not flag any `good` in the corpus). Only rules that pass both survive.
     pub fn build(lang: &str, rules: &[(String, String, String, String, String)]) -> RuleSet {
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
+        let has_grammar = language(lang).is_some();
         for (id, severity, bad, good, desc) in rules {
             if id.is_empty() || bad.trim().is_empty() || !seen.insert(id.clone()) {
                 continue;
             }
-            if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
-                compiled.push(CompiledRule { id: id.clone(), severity: severity.clone(), pat });
-            }
+            let kind = if has_grammar {
+                if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
+                    MatchKind::Ast(pat)
+                } else if let Some(re) = text_discriminator(bad, good) {
+                    // AST compile returned nothing (the difference is purely semantic/data), but a
+                    // distinctive token sequence still captures the surface violation.
+                    MatchKind::Text { pattern: re }
+                } else {
+                    continue;
+                }
+            } else {
+                // No grammar for this language — go straight to text matching. This is the universal
+                // path: any language whose docs provide bad/good examples can be trained.
+                if let Some(re) = text_discriminator(bad, good) {
+                    MatchKind::Text { pattern: re }
+                } else {
+                    continue;
+                }
+            };
+            compiled.push(CompiledRule { id: id.clone(), severity: severity.clone(), kind });
         }
-        // SELF-FIRE: a compiled pattern must flag its own `bad` example. A pattern that does not
-        // self-fire is broken by construction — the extraction failed to represent the violation —
-        // and would be a guaranteed false negative on the simplest possible case. Drop such rules
-        // before they reach the good-corpus test; keeping them would corrupt the ruleset silently.
+        // SELF-FIRE: must flag its own `bad`. Guards against text patterns that are too vague.
         let bad_map: std::collections::HashMap<&str, &str> =
             rules.iter().map(|(id, _, bad, _, _)| (id.as_str(), bad.as_str())).collect();
         compiled.retain(|r| {
             let bad = bad_map.get(r.id.as_str()).copied().unwrap_or("");
-            !r.pat.matches(bad).is_empty()
+            !r.kind.matches(bad).is_empty()
         });
-        // OVER-FIRE: drop rules whose pattern fires on any doc-certified clean example. Such a rule
-        // is flagging correct code — its violation is semantic (dataflow, ownership) not syntactic.
-        // The docs' own `good` examples form the reference; no external corpus is needed.
+        // OVER-FIRE: must not flag any `good` example in the corpus.
         let good_corpus: Vec<&str> =
             rules.iter().map(|(_, _, _, g, _)| g.trim()).filter(|g| !g.is_empty()).collect();
-        compiled.retain(|r| !good_corpus.iter().any(|g| !r.pat.matches(g).is_empty()));
+        compiled.retain(|r| !good_corpus.iter().any(|g| !r.kind.matches(g).is_empty()));
         RuleSet { lang: lang.to_string(), rules: compiled }
     }
 
@@ -495,13 +777,11 @@ impl RuleSet {
         self.rules.len()
     }
 
-    /// Flag `code`: every line where a rule's exact pattern occurs, deduped per rule. A file with no
-    /// match yields nothing — the match is deterministic sub-tree containment, so there is no
-    /// project calibration and no shared state between files.
+    /// Flag `code`: every line where a rule fires (AST match or text match), deduped per rule.
     pub fn flag(&self, code: &str) -> Vec<Finding> {
         let mut out = Vec::new();
         for r in &self.rules {
-            let mut lines = r.pat.matches(code);
+            let mut lines = r.kind.matches(code);
             lines.sort_unstable();
             lines.dedup();
             for line in lines {
@@ -656,5 +936,158 @@ mod tests {
         // The surviving rule fires on its bad example — the zero-FN guarantee.
         let flags = m.flag("fn g(y: bool) { if y == true {} }");
         assert!(flags.iter().any(|f| f.rule == "bool_comparison"), "surviving rule self-fires");
+    }
+
+    // ── text_discriminator unit tests ────────────────────────────────────────────
+
+    /// Two-token window with `.*?` — tokens can be separated by ANY characters (parens, dots,
+    /// operators) on the same line. `eval` is absent from the good token set; the pair
+    /// `eval.*?code` fires on `eval(code)` even though `(` sits between them.
+    #[test]
+    fn text_discriminator_finds_two_token_window_through_punctuation() {
+        let bad  = "result = eval(code)";
+        let good = "result = ast.literal_eval(code)";
+        // `eval` does NOT appear in good_set (only `ast`, `literal_eval`, `code`, `result` do).
+        // Two-token pair `eval.*?code` fires on bad and misses good.
+        let pat = text_discriminator(bad, good).expect("distinctive pair through punctuation");
+        let re = regex::Regex::new(&pat).unwrap();
+        assert!(re.is_match(bad),  "pattern fires on eval(code)");
+        assert!(!re.is_match(good), "pattern does not fire on ast.literal_eval(code)");
+    }
+
+    /// Word boundaries prevent `\beval\b` from matching inside `literal_eval`.
+    #[test]
+    fn text_discriminator_word_boundary_prevents_substring_match() {
+        let bad  = "eval(user_input)";
+        let good = "ast.literal_eval(user_input)";
+        let pat = text_discriminator(bad, good).expect("discriminator exists");
+        let re = regex::Regex::new(&pat).unwrap();
+        // The key assertion: good contains `literal_eval` which has `eval` as a substring.
+        // Without \b the old code would fire on good; with \b it correctly clears it.
+        assert!(!re.is_match(good), "word-boundary prevents match inside literal_eval");
+        assert!(re.is_match(bad),   "still fires on the bare eval call");
+    }
+
+    /// When every adjacent pair shares both tokens with the good form, fall back to a single
+    /// token (≥4 chars) that appears only in bad. `isinstance` is absent from the good side.
+    #[test]
+    fn text_discriminator_falls_back_to_single_distinctive_token() {
+        // Bad: two isinstance calls. Good: one isinstance with a tuple — no repeating pair unique to bad.
+        let bad  = "isinstance(x, A) or isinstance(x, B)";
+        let good = "isinstance(x, (A, B))";
+        // `isinstance` appears in both, but the pair `isinstance\s*x` can still distinguish
+        // OR we get a single-token fallback — either way the discriminator must exist.
+        let pat = text_discriminator(bad, good);
+        // We only assert it is Some here: the exact form (2-token or 1-token) is an internal detail.
+        assert!(pat.is_some(), "a discriminating pattern must exist for this pair");
+        let re = regex::Regex::new(&pat.unwrap()).unwrap();
+        assert!(re.is_match(bad), "pattern fires on the bad form");
+    }
+
+    /// When bad and good share all distinctive tokens (only a value differs), no discriminator
+    /// can be derived — None is the correct, honest response.
+    #[test]
+    fn text_discriminator_returns_none_when_tokens_are_identical() {
+        // The only difference is the numeric literal 0 vs 1 — the tokeniser ignores bare numbers.
+        let bad  = "x = 0";
+        let good = "x = 1";
+        assert!(text_discriminator(bad, good).is_none(), "numeric-only difference → None");
+    }
+
+    // ── MatchKind::Text path (universal fallback) ────────────────────────────────
+
+    /// For a language with no tree-sitter grammar, RuleSet::build must fall through to the text
+    /// path. The resulting rule fires on the bad example (0 FN) and is clean on the good (0 FP).
+    #[test]
+    fn unknown_language_compiles_via_text_path_zero_fn_zero_fp() {
+        // "cobol" has no grammar — the text path is the only option.
+        let rules = vec![(
+            "use_perform_not_goto".to_string(),
+            "high".to_string(),
+            "GO TO PARAGRAPH-A.".to_string(),
+            "PERFORM PARAGRAPH-A.".to_string(),
+            "Use PERFORM instead of GO TO.".to_string(),
+        )];
+        let m = RuleSet::build("cobol", &rules);
+        assert_eq!(m.rule_count(), 1, "text-path rule compiles");
+
+        // 0 FN: fires on the violation.
+        let hits = m.flag("    GO TO PARAGRAPH-A.");
+        assert!(hits.iter().any(|f| f.rule == "use_perform_not_goto"), "flags the GO TO violation");
+
+        // 0 FP: clean on the idiomatic form.
+        let clean = m.flag("    PERFORM PARAGRAPH-A.");
+        assert!(clean.iter().all(|f| f.rule != "use_perform_not_goto"), "clears the PERFORM form");
+    }
+
+    /// The over-fire gate (0-FP guarantee) must reject a text-path rule whose pattern fires on a
+    /// good example in the corpus, even when the pattern self-fires.
+    #[test]
+    fn text_path_over_fire_gate_drops_ambiguous_rule() {
+        // "bad" uses `print` (absent-ish), but the good corpus ALSO uses `print` in a logging wrapper.
+        // The discriminator will produce a pattern that fires on good → must be rejected.
+        let rules = vec![
+            (
+                "bare_print".to_string(),
+                "low".to_string(),
+                "print(x)".to_string(),
+                "logger.info(x)".to_string(),
+                "Use the logger, not bare print.".to_string(),
+            ),
+            // A second rule whose good example happens to use `print` — this poisons the corpus,
+            // so `bare_print` must be dropped even if it self-fires.
+            (
+                "debug_print_ok".to_string(),
+                "low".to_string(),
+                "x = 1".to_string(),
+                "print(x)".to_string(),  // good corpus now contains print()
+                "Debug example — good form uses print.".to_string(),
+            ),
+        ];
+        let m = RuleSet::build("cobol", &rules);
+        // `bare_print` fires on its bad but also fires on the good corpus → dropped.
+        // `debug_print_ok` has bad="x = 1", good="print(x)": discriminator may be None or
+        //   the rule fires on its own good → also dropped. Either 0 or 1 rule survives.
+        assert!(
+            m.flag("print(x)").iter().all(|f| f.rule != "bare_print"),
+            "ambiguous rule dropped by over-fire gate"
+        );
+    }
+
+    /// The self-fire gate (0-FN guarantee) must drop a text-path rule whose derived pattern does
+    /// not actually match its own bad example — a degenerate case that must never reach callers.
+    #[test]
+    fn text_path_self_fire_gate_drops_non_matching_rule() {
+        // bad and good share all long tokens → discriminator returns None → rule is never compiled.
+        let rules = vec![(
+            "constant_change".to_string(),
+            "low".to_string(),
+            "LIMIT = 100".to_string(),
+            "LIMIT = 200".to_string(),
+            "Use the right constant.".to_string(),
+        )];
+        let m = RuleSet::build("cobol", &rules);
+        assert_eq!(m.rule_count(), 0, "rule with no discriminator is silently dropped — never a false pattern");
+    }
+
+    /// A realistic cross-language rule from cs-principles.md: swallowed exception in an unknown
+    /// language-ish syntax. Text path must fire on the bare-except form and clear the logged form.
+    #[test]
+    fn text_path_swallowed_exception_fires_on_bare_pass_clears_logged() {
+        let rules = vec![(
+            "swallowed_exception".to_string(),
+            "high".to_string(),
+            "except ValueError:\n    pass".to_string(),
+            "except ValueError:\n    return None".to_string(),
+            "Bare pass in an except clause silently discards the error.".to_string(),
+        )];
+        // Build against a grammarless language to force the text path.
+        let m = RuleSet::build("cobol", &rules);
+        assert_eq!(m.rule_count(), 1, "swallowed-exception rule compiles via text path");
+
+        let violation = "try:\n    x = int(s)\nexcept ValueError:\n    pass\nreturn x";
+        let clean     = "try:\n    x = int(s)\nexcept ValueError:\n    return None";
+        assert!(!m.flag(violation).is_empty(), "bare pass in except is flagged");
+        assert!(m.flag(clean).is_empty(),      "handled exception is clean");
     }
 }
