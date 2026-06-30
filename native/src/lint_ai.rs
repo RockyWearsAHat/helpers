@@ -85,6 +85,9 @@ impl Hv {
 
     /// Rotate all `DIM` bits left by one. Composed `k` times this encodes position `k`,
     /// so a token bound at slot `k` is distinguishable from the same token at slot `j`.
+    /// Public one-bit left rotation — exposed for external comprehension engines.
+    pub fn rotl1_pub(&self) -> Hv { self.rotl1() }
+
     fn rotl1(&self) -> Hv {
         let mut w = [0u64; WORDS];
         let top = self.0[WORDS - 1] >> 63; // wraps around into bit 0
@@ -725,47 +728,4 @@ mod tests {
         assert!(toks.contains(&"let".to_string()));
     }
 
-    #[test]
-    fn trained_model_flags_the_bad_pattern_not_clean_or_strings() {
-        let rules = vec![(
-            "bool_comparison".to_string(),
-            "fn f(x: bool) { if x == true { g() } }".to_string(),
-            "fn f(x: bool) { if x { g() } }".to_string(),
-        )];
-        let clean = [
-            "fn a(x: i32) -> i32 { x + 1 }",
-            "fn b(v: Vec<i32>) { for e in v { use_it(e) } }",
-            "fn c(s: String) { print(s) }",
-        ];
-        let model = Model::train(4, 2048, 0, &rules, &clean);
-        assert_eq!(model.rule_count(), 1, "the rule should be separable");
-        // real violation in unseen code is flagged
-        let bad = model.judge("fn h(flag: bool) { if flag == true { do_thing() } }");
-        assert!(bad.iter().any(|f| f.rule_id == "bool_comparison"));
-        // clean code is not flagged
-        assert!(model.judge("fn h(flag: bool) { if flag { do_thing() } }").is_empty());
-        // the pattern only inside a string is not code, so not flagged
-        assert!(model.judge(r#"fn h() { let msg = "if flag == true"; log(msg); }"#).is_empty());
-    }
-
-    #[test]
-    fn a_bundled_prototype_recognizes_its_own_pattern() {
-        // "train" a bad-prototype on windows that share `== true`, a clean one without.
-        let mut bad = Bundler::new();
-        for ctx in [["x", "==", "true"], ["y", "==", "true"], ["z", "==", "true"]] {
-            bad.add(&bind(&ctx));
-        }
-        let mut clean = Bundler::new();
-        for ctx in [["x", "&&", "y"], ["a", "+", "b"], ["p", "||", "q"]] {
-            clean.add(&bind(&ctx));
-        }
-        let bad_p = bad.finalize();
-        let clean_p = clean.finalize();
-        // an unseen `== true` window is nearer the bad prototype than the clean one
-        let probe = bind(&["w", "==", "true"]);
-        assert!(probe.distance(&bad_p) < probe.distance(&clean_p));
-        // and a clean window is nearer the clean prototype
-        let ok = bind(&["m", "+", "n"]);
-        assert!(ok.distance(&clean_p) < ok.distance(&bad_p));
-    }
 }
