@@ -1,14 +1,9 @@
-//! `lint` — the AI code reviewer: reads the whole repository and reports in English.
+//! `lint` — the AI code reviewer: reads documentation, trains a model, runs it against the project.
 //!
-//! Two complementary engines run in parallel:
-//!  1. **Pattern engine** ([`crate::lint_match`]) — each rule from the official docs (clippy /
-//!     ruff / eslint / staticcheck / pmd) and `.helpers/lint-rules/` is compiled to a lossless
-//!     AST pattern or discriminating regex; matched verbatim, no false patterns.
-//!  2. **Behavioral engine** ([`crate::lint_practice`]) — corpus prose principles (CS2420 / CS3500
-//!     and any file in `corpus/`) are read as documentation, activate structural senses
-//!     (responsibility, complexity, length), and flag the project's statistical outliers — units
-//!     that do far more than how this codebase normally writes code. Threshold is project-relative
-//!     (Tukey's fence), so a 700-line generated table is fine if that is normal here.
+//! One call to [`crate::lint_train::ensure_models`] trains from both documentation sources and
+//! returns a [`crate::lint_train::LangModel`] per language. Each model carries pattern rules
+//! (compiled from bad/good examples in the docs) and behavioral principles (extracted from prose).
+//! The lint tool runs both against the project and merges the findings into one English report.
 //!
 //! For project-wide graph tracing see `lint_build_web`, `lint_probe`, and `lint_trace`.
 
@@ -20,9 +15,8 @@ use serde_json::{json, Value};
 
 use crate::git::workspace_root;
 use crate::index::walk::{walk_repo, WalkedFile};
-use crate::lint_match::RuleSet;
-use crate::lint_practice::{Principle, PracticeRules};
-use crate::lint_train::{self, RuleInfo, TrainReport};
+use crate::lint_practice::PracticeRules;
+use crate::lint_train::{self, LangModel, RuleInfo, TrainReport};
 use crate::proto::{text, ToolResult};
 use crate::util::file_lang;
 
@@ -131,20 +125,11 @@ pub fn run(args: &Value) -> ToolResult {
     }
     let langs: Vec<String> = present.iter().cloned().collect();
 
-    // 3) Self-setup: train (once, cached) and load a compiled rule set per language.
-    //    Project-local rules from .helpers/lint-rules/ are merged in during training.
-    let setup = lint_train::ensure_models(&langs, &data, &root);
-    let mut models: HashMap<String, RuleSet> = HashMap::new();
-    for l in &langs {
-        if let Some(m) = lint_train::load_patterns(l) {
-            models.insert(l.clone(), m);
-        }
-    }
+    // 3) Train from both documentation sources and get one model per language.
+    //    Source 1: official web docs (crawled / cached). Source 2: corpus/ + .helpers/lint-rules/.
+    //    Each LangModel carries pattern rules and behavioral principles — no second training pass.
+    let (setup, models) = lint_train::ensure_models(&langs, &data, &root);
     let advice = lint_train::advice(&data, Some(&root));
-
-    // 3b) Behavioral engine: read corpus prose into practice principles. These activate
-    //     structural senses by the words they use ("one thing" → Responsibility, etc.).
-    let practice_principles = load_practice_principles(&data, &root);
 
     // 4) Partition files: modeled → judge; unmodeled → report as unanalyzed.
     let mut to_judge: Vec<(&str, &WalkedFile)> = Vec::new();
@@ -166,27 +151,26 @@ pub fn run(args: &Value) -> ToolResult {
         }
     }
 
-    // 5a) Pattern-based judgment (per-file, parallel).
+    // 5) Run the model against the project: pattern matching (per-file, parallel) then behavioral
+    //    analysis (per-language, project-wide norm). Both come from the same trained LangModel.
     let mut reports = judge_all(&to_judge, &models, &advice);
 
-    // 5b) Behavioral judgment (per-language, project-wide norm).
-    //     Requires ≥ 8 functions in the project for a norm to exist (Tukey abstains otherwise).
-    let practice_rules = PracticeRules::new(practice_principles);
-    if !practice_rules.is_empty() {
-        for lang in &langs {
-            let lang_files: Vec<(String, String)> = to_judge.iter()
-                .filter(|(l, _)| l == lang)
-                .filter_map(|(_, f)| std::fs::read_to_string(&f.abs).ok().map(|src| (f.rel.clone(), src)))
-                .collect();
-            for (path, finding) in practice_rules.flag_project(lang, &lang_files) {
-                let advice_text = if finding.detail.is_empty() { finding.advice.clone() }
-                    else { format!("{} — {}", finding.advice, finding.detail) };
-                let hit = Hit { line: finding.line, rule: finding.rule, severity: finding.severity, advice: advice_text };
-                if let Some(r) = reports.iter_mut().find(|r| r.path == path) {
-                    r.hits.push(hit);
-                } else {
-                    reports.push(FileReport { path: path.to_string(), hits: vec![hit] });
-                }
+    for lang in &langs {
+        let Some(lang_model) = models.get(lang) else { continue };
+        let practice = PracticeRules::new(lang_model.principles.clone());
+        if practice.is_empty() { continue; }
+        let lang_files: Vec<(String, String)> = to_judge.iter()
+            .filter(|(l, _)| l == lang)
+            .filter_map(|(_, f)| std::fs::read_to_string(&f.abs).ok().map(|src| (f.rel.clone(), src)))
+            .collect();
+        for (path, finding) in practice.flag_project(lang, &lang_files) {
+            let advice_text = if finding.detail.is_empty() { finding.advice.clone() }
+                else { format!("{} — {}", finding.advice, finding.detail) };
+            let hit = Hit { line: finding.line, rule: finding.rule, severity: finding.severity, advice: advice_text };
+            if let Some(r) = reports.iter_mut().find(|r| r.path == path) {
+                r.hits.push(hit);
+            } else {
+                reports.push(FileReport { path: path.to_string(), hits: vec![hit] });
             }
         }
     }
@@ -213,13 +197,13 @@ pub fn run(args: &Value) -> ToolResult {
 /// nothing shared between files.
 fn judge_all(
     to_judge: &[(&str, &WalkedFile)],
-    models: &HashMap<String, RuleSet>,
+    models: &HashMap<String, LangModel>,
     advice: &HashMap<String, RuleInfo>,
 ) -> Vec<FileReport> {
     to_judge
         .par_iter()
         .filter_map(|(lang, f)| {
-            let model = models.get(*lang)?;
+            let model = &models.get(*lang)?.rules;
             let code = std::fs::read_to_string(&f.abs).ok()?;
             let findings = model.flag(&code);
             if findings.is_empty() {
@@ -281,7 +265,7 @@ fn render(
     reports: &[FileReport],
     by_language: &BTreeMap<String, usize>,
     unanalyzed: &BTreeMap<String, usize>,
-    models: &HashMap<String, RuleSet>,
+    models: &HashMap<String, LangModel>,
     setup: &TrainReport,
     max: usize,
 ) -> String {
@@ -335,7 +319,7 @@ fn render(
     }
 
     if !models.is_empty() {
-        let mut k: Vec<String> = models.iter().map(|(l, m)| format!("{l}: {} rules", m.rule_count())).collect();
+        let mut k: Vec<String> = models.iter().map(|(l, m)| format!("{l}: {} rules", m.rules.rule_count())).collect();
         k.sort();
         s.push_str(&format!("\nJudged against what I learned from the docs + CS principles: {}.\n", k.join(", ")));
     }
@@ -378,58 +362,6 @@ fn data_root() -> PathBuf {
     ws
 }
 
-/// Load behavioral practice principles from the corpus (every `*.md` in `corpus/` plus embedded
-/// fallback) and project-local `.helpers/lint-rules/any.md`. Principles activate the structural
-/// senses by the words they use — no separate compilation step required.
-fn load_practice_principles(data_root: &Path, project_root: &Path) -> Vec<Principle> {
-    let mut principles: Vec<Principle> = Vec::new();
-
-    // Parse corpus docs: each heading + its prose body becomes a candidate principle.
-    let corpus_dir = data_root.join("corpus");
-    let docs: Vec<String> = match std::fs::read_dir(&corpus_dir) {
-        Ok(entries) => entries
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
-            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-            .collect(),
-        Err(_) => vec![crate::lint_train::embedded_cs_principles().to_string()],
-    };
-
-    let mut all = docs;
-    if let Ok(doc) = std::fs::read_to_string(project_root.join(".helpers/lint-rules/any.md")) {
-        all.push(doc);
-    }
-    for doc in &all {
-        extract_principles(doc, &mut principles);
-    }
-    principles
-}
-
-/// Walk a markdown document extracting `Principle` from each heading + its prose body.
-fn extract_principles(doc: &str, out: &mut Vec<Principle>) {
-    let mut heading: Option<&str> = None;
-    let mut body = String::new();
-    for line in doc.lines() {
-        let t = line.trim_start();
-        if t.starts_with('#') {
-            if let Some(h) = heading {
-                if let Some(p) = Principle::from_section(h, body.trim()) {
-                    out.push(p);
-                }
-            }
-            heading = Some(t.trim_start_matches('#').trim());
-            body.clear();
-        } else if heading.is_some() && !t.starts_with("```") {
-            if !body.is_empty() { body.push(' '); }
-            body.push_str(t);
-        }
-    }
-    if let Some(h) = heading {
-        if let Some(p) = Principle::from_section(h, body.trim()) {
-            out.push(p);
-        }
-    }
-}
 
 // ── schema ───────────────────────────────────────────────────────────────────
 
