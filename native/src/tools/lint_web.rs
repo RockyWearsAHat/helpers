@@ -16,7 +16,8 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 
 use crate::git::workspace_root;
-use crate::lint_graph::{file_lang, ProjectWeb};
+use crate::lint_graph::ProjectWeb;
+use crate::util::file_lang;
 use crate::lint_train;
 use crate::proto::{text, ToolResult};
 

@@ -6,17 +6,16 @@
 //! The two documentation sources:
 //!
 //!   1. **Official web documentation** — the official rule docs for each language (clippy / ruff /
-//!      eslint / staticcheck / pmd). The linter crawls the live docs ([`crate::lint_docs`]) and
-//!      caches what it learns, version-keyed so it stays current. A committed `lint-index/`
-//!      snapshot seeds the offline case; the embedded copy is the final fallback.
-//!   2. **File documentation** — `corpus/` (global CS principles) and `.helpers/lint-rules/`
-//!      (project-local rules). Every `*.md` in either directory is read as documentation: headings
-//!      become rules, prose bodies become patterns OR behavioral principles depending on their
-//!      wording. Adding a file takes effect on the next lint run with no code change.
+//!      eslint / staticcheck / pmd). The linter crawls the live docs and caches what it learns;
+//!      a committed `lint-index/` snapshot seeds the offline case.
+//!   2. **File documentation** — `extraDocs/` (global principles, shipped with the tool) and
+//!      `.helpers/lint-rules/` (project-local rules). Every `*.md` in either directory is read as
+//!      documentation: headings + prose become behavioral principles. Adding a file takes effect on
+//!      the next lint run with no code change.
 //!
-//! Each source feeds BOTH engines: bad/good examples in the prose compile to pattern rules;
-//! structural wording ("one thing", "too long", "complex") activates a behavioral sense. The
-//! [`LangModel`] returned by [`ensure_models`] carries both; the lint tool runs them together.
+//! The primary entry point for the lint tool is [`train`], which reads both sources and returns a
+//! [`TrainedModel`] carrying the activated behavioral principles. The older [`ensure_models`] path
+//! (pattern compilation + caching) remains for [`crate::tools::lint_source`] and [`crate::tools::lint_web`].
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -37,6 +36,69 @@ pub struct LangModel {
     /// Behavioral principles extracted from documentation prose. A principle activates a structural
     /// sense (responsibility, complexity, length) by the words it uses — no code example required.
     pub principles: Vec<Principle>,
+}
+
+/// The trained model used by the main lint tool: behavioral principles extracted from the two
+/// documentation sources. One model serves every language — the principles are language-agnostic;
+/// the behavioral engine measures each language's functions via its own AST.
+pub struct TrainedModel {
+    /// Behavioral principles extracted from documentation prose. Each activates one or more
+    /// structural senses (responsibility, complexity, length) by the words it uses.
+    pub principles: Vec<Principle>,
+    /// Human-readable summary of where the principles came from.
+    pub sources: Vec<String>,
+}
+
+/// Read both documentation sources and return the behavioral principles they activate. Fast —
+/// file reads only, no compilation, no caching, no network.
+///
+/// Source 1 — **official web documentation**: prose descriptions from crawled/cached rule docs
+/// (where they contain structural advice, they activate a sense).
+/// Source 2 — **file documentation**: `extraDocs/` (global, shipped with the tool) and
+/// `.helpers/lint-rules/` (project-local). Every `*.md` section whose wording names a measurable
+/// structural property activates a principle.
+pub fn train(data_root: &Path, project_root: &Path) -> TrainedModel {
+    let mut sources: Vec<String> = Vec::new();
+    let extra_dir = data_root.join("extraDocs");
+    let mut docs: Vec<String> = Vec::new();
+
+    match std::fs::read_dir(&extra_dir) {
+        Ok(entries) => {
+            for e in entries.filter_map(|e| e.ok()).filter(|e| {
+                e.path().extension().and_then(|x| x.to_str()) == Some("md")
+            }) {
+                if let Ok(text) = std::fs::read_to_string(e.path()) {
+                    sources.push(e.path().file_name().unwrap_or_default().to_string_lossy().into_owned());
+                    docs.push(text);
+                }
+            }
+        }
+        Err(_) => {
+            sources.push("embedded:software-design.md".to_string());
+            docs.push(EMBEDDED_CS_PRINCIPLES.to_string());
+        }
+    }
+
+    let rules_dir = project_root.join(".helpers/lint-rules");
+    if let Ok(entries) = std::fs::read_dir(&rules_dir) {
+        for e in entries.filter_map(|e| e.ok()).filter(|e| {
+            e.path().extension().and_then(|x| x.to_str()) == Some("md")
+        }) {
+            if let Ok(text) = std::fs::read_to_string(e.path()) {
+                sources.push(format!(".helpers/lint-rules/{}", e.file_name().to_string_lossy()));
+                docs.push(text);
+            }
+        }
+    }
+
+    let mut principles: Vec<Principle> = Vec::new();
+    for doc in &docs {
+        extract_principles_from_doc(doc, &mut principles);
+    }
+    let mut seen = std::collections::HashSet::new();
+    principles.retain(|p| seen.insert(p.id.clone()));
+
+    TrainedModel { principles, sources }
 }
 
 /// How many doc pages to crawl when learning a language whose docs are a site (ruff/eslint publish
@@ -63,7 +125,7 @@ static EMBEDDED_LINT_MODELS: include_dir::Dir<'_> =
 /// The CS principles folder document, embedded as the offline fallback (the on-disk copy is
 /// preferred so editing it relearns on the next run). Points to the actual course principles
 /// document (prose-only; pattern rules come from committed modules and crawled official docs).
-const EMBEDDED_CS_PRINCIPLES: &str = include_str!("../../corpus/software-design.md");
+const EMBEDDED_CS_PRINCIPLES: &str = include_str!("../../extraDocs/software-design.md");
 
 /// The embedded CS principles text — exposed so the lint tool can build practice rules from it
 /// without re-reading the file or duplicating the `include_str!` path.
@@ -257,7 +319,7 @@ pub fn ensure_models(
 /// behavioral engine supports via its AST. Re-extracted each run (fast file reads; no compilation).
 fn file_doc_principles(data_root: &Path, project_root: &Path) -> Vec<Principle> {
     let mut docs: Vec<String> = Vec::new();
-    let corpus_dir = data_root.join("corpus");
+    let corpus_dir = data_root.join("extraDocs");
     match std::fs::read_dir(&corpus_dir) {
         Ok(entries) => docs.extend(
             entries
@@ -580,7 +642,7 @@ fn is_catalog_name(name: Option<&str>) -> bool {
 /// `*.md` file in `corpus/` so adding a new principles file takes effect immediately on the next
 /// lint run. Falls back to the embedded `cs-principles.md` when the directory is absent.
 fn corpus_rules(data_root: &Path) -> Vec<(String, DocRule)> {
-    let corpus_dir = data_root.join("corpus");
+    let corpus_dir = data_root.join("extraDocs");
     let docs: Vec<(String, String)> = match std::fs::read_dir(&corpus_dir) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())

@@ -1,22 +1,24 @@
-//! `lint` — the AI code reviewer: reads documentation, trains a model, runs it against the project.
+//! `lint` — the AI code reviewer.
 //!
-//! One call to [`crate::lint_train::ensure_models`] trains from both documentation sources and
-//! returns a [`crate::lint_train::LangModel`] per language. Each model carries pattern rules
-//! (compiled from bad/good examples in the docs) and behavioral principles (extracted from prose).
-//! The lint tool runs both against the project and merges the findings into one English report.
+//! Training: [`crate::lint_train::train`] reads two documentation sources (`extraDocs/` and
+//! `.helpers/lint-rules/`) and returns a [`crate::lint_train::TrainedModel`] with the behavioral
+//! principles those docs activate. One model, one call, no compilation.
+//!
+//! Analysis: for each language in the project, [`crate::lint_practice::PracticeRules`] measures
+//! every function against the project's own statistical norm (Tukey's fence) and flags outliers.
+//! Structural errors — things the developer missed, not things that are "wrong" by regex.
 //!
 //! For project-wide graph tracing see `lint_build_web`, `lint_probe`, and `lint_trace`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use rayon::prelude::*;
 use serde_json::{json, Value};
 
 use crate::git::workspace_root;
-use crate::index::walk::{walk_repo, WalkedFile};
+use crate::index::walk::walk_repo;
 use crate::lint_practice::PracticeRules;
-use crate::lint_train::{self, LangModel, RuleInfo, TrainReport};
+use crate::lint_train;
 use crate::proto::{text, ToolResult};
 use crate::util::file_lang;
 
@@ -105,65 +107,37 @@ pub fn run(args: &Value) -> ToolResult {
     let filter = parse_lang_filter(args);
     let data = data_root();
 
-    // Per-project preferences: ignore list, severity overrides, language filter.
     let config = load_config(&root);
     let ignore_set: HashSet<&str> = config.ignore_rules.iter().map(String::as_str).collect();
 
-    // 1) Read the whole repository (gitignore-aware; dependency trees and build output pruned).
+    // 1) Train: read extraDocs/ + .helpers/lint-rules/, extract behavioral principles.
+    let model = lint_train::train(&data, &root);
+    let practice = PracticeRules::new(model.principles);
+
+    // 2) Walk the project.
     let files = walk_repo(&root);
 
-    // 2) Which languages the project actually uses — CLI filter AND config language filter applied.
-    let mut present: BTreeSet<String> = BTreeSet::new();
-    for f in &files {
-        if let Some(l) = file_lang(&f.ext) {
-            let cli_ok = filter.as_ref().is_none_or(|set| set.contains(l));
-            let cfg_ok = config.languages.as_ref().is_none_or(|set| set.iter().any(|x| x == l));
-            if cli_ok && cfg_ok {
-                present.insert(l.to_string());
-            }
-        }
-    }
-    let langs: Vec<String> = present.iter().cloned().collect();
-
-    // 3) Train from both documentation sources and get one model per language.
-    //    Source 1: official web docs (crawled / cached). Source 2: corpus/ + .helpers/lint-rules/.
-    //    Each LangModel carries pattern rules and behavioral principles — no second training pass.
-    let (setup, models) = lint_train::ensure_models(&langs, &data, &root);
-    let advice = lint_train::advice(&data, Some(&root));
-
-    // 4) Partition files: modeled → judge; unmodeled → report as unanalyzed.
-    let mut to_judge: Vec<(&str, &WalkedFile)> = Vec::new();
-    let mut by_language: BTreeMap<String, usize> = BTreeMap::new();
+    // 3) Partition by language: known AST languages → analyze; others → report unanalyzed.
+    let mut by_language: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     let mut unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     for f in &files {
         let Some(l) = file_lang(&f.ext) else { continue };
-        if filter.as_ref().is_some_and(|set| !set.contains(l)) {
-            continue;
-        }
-        if config.languages.as_ref().is_some_and(|set| !set.iter().any(|x| x == l)) {
-            continue;
-        }
-        if models.contains_key(l) {
-            *by_language.entry(l.to_string()).or_default() += 1;
-            to_judge.push((l, f));
+        if filter.as_ref().is_some_and(|set| !set.contains(l)) { continue; }
+        if config.languages.as_ref().is_some_and(|set| !set.iter().any(|x| x == l)) { continue; }
+        // Behavioral engine requires tree-sitter; skip languages without a grammar.
+        if crate::lint_match::language(l).is_some() {
+            if let Ok(src) = std::fs::read_to_string(&f.abs) {
+                by_language.entry(l.to_string()).or_default().push((f.rel.clone(), src));
+            }
         } else {
             *unanalyzed.entry(l.to_string()).or_default() += 1;
         }
     }
 
-    // 5) Run the model against the project: pattern matching (per-file, parallel) then behavioral
-    //    analysis (per-language, project-wide norm). Both come from the same trained LangModel.
-    let mut reports = judge_all(&to_judge, &models, &advice);
-
-    for lang in &langs {
-        let Some(lang_model) = models.get(lang) else { continue };
-        let practice = PracticeRules::new(lang_model.principles.clone());
-        if practice.is_empty() { continue; }
-        let lang_files: Vec<(String, String)> = to_judge.iter()
-            .filter(|(l, _)| l == lang)
-            .filter_map(|(_, f)| std::fs::read_to_string(&f.abs).ok().map(|src| (f.rel.clone(), src)))
-            .collect();
-        for (path, finding) in practice.flag_project(lang, &lang_files) {
+    // 4) Run behavioral analysis per language (project-wide norm, Tukey's fence).
+    let mut reports: Vec<FileReport> = Vec::new();
+    for (lang, lang_files) in &by_language {
+        for (path, finding) in practice.flag_project(lang, lang_files) {
             let advice_text = if finding.detail.is_empty() { finding.advice.clone() }
                 else { format!("{} — {}", finding.advice, finding.detail) };
             let hit = Hit { line: finding.line, rule: finding.rule, severity: finding.severity, advice: advice_text };
@@ -175,50 +149,19 @@ pub fn run(args: &Value) -> ToolResult {
         }
     }
 
-    // 6) Apply per-project config: suppress ignored rules, apply severity overrides.
+    // 5) Apply per-project config: suppress ignored rules, apply severity overrides.
     for report in &mut reports {
         report.hits.retain(|h| !ignore_set.contains(h.rule.as_str()));
-        if !config.severity_overrides.is_empty() {
-            for hit in &mut report.hits {
-                if let Some(sev) = config.severity_overrides.get(&hit.rule) {
-                    hit.severity = sev.clone();
-                }
+        for hit in &mut report.hits {
+            if let Some(sev) = config.severity_overrides.get(&hit.rule) {
+                hit.severity = sev.clone();
             }
         }
     }
 
+    let analyzed: BTreeMap<String, usize> = by_language.iter().map(|(l, fs)| (l.clone(), fs.len())).collect();
     reports.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(vec![text(render(&root, &reports, &by_language, &unanalyzed, &models, &setup, max))])
-}
-
-/// Judge the whole project: each file in parallel, flagging a rule only where its exact tree pattern
-/// occurs in that file. Each file is judged independently — the model's precision comes from matching
-/// each rule's lossless pattern verbatim, so there is no project-wide calibration, no thresholds, and
-/// nothing shared between files.
-fn judge_all(
-    to_judge: &[(&str, &WalkedFile)],
-    models: &HashMap<String, LangModel>,
-    advice: &HashMap<String, RuleInfo>,
-) -> Vec<FileReport> {
-    to_judge
-        .par_iter()
-        .filter_map(|(lang, f)| {
-            let model = &models.get(*lang)?.rules;
-            let code = std::fs::read_to_string(&f.abs).ok()?;
-            let findings = model.flag(&code);
-            if findings.is_empty() {
-                return None;
-            }
-            let hits = findings
-                .into_iter()
-                .map(|fd| {
-                    let advice = advice.get(&fd.rule).map(|i| i.description.clone()).unwrap_or_default();
-                    Hit { line: fd.line, rule: fd.rule, severity: fd.severity, advice }
-                })
-                .collect();
-            Some(FileReport { path: f.rel.clone(), hits })
-        })
-        .collect()
+    Ok(vec![text(render(&root, &reports, &analyzed, &unanalyzed, &model.sources, max))])
 }
 
 // ── English report ────────────────────────────────────────────────────────────
@@ -258,15 +201,13 @@ fn group_hits(hits: &[Hit]) -> Vec<String> {
         .collect()
 }
 
-/// Render the review as an English report: verdict, per-file lines to fix, what could not be
-/// analyzed, what the verdict was judged against, and the one-time self-setup that ran.
+/// Render the review: verdict, per-file findings, what could not be analyzed, training sources.
 fn render(
     root: &Path,
     reports: &[FileReport],
     by_language: &BTreeMap<String, usize>,
     unanalyzed: &BTreeMap<String, usize>,
-    models: &HashMap<String, LangModel>,
-    setup: &TrainReport,
+    sources: &[String],
     max: usize,
 ) -> String {
     let mut s = String::new();
@@ -280,7 +221,7 @@ fn render(
 
     let total: usize = reports.iter().map(|f| f.hits.len()).sum();
     if total == 0 {
-        s.push_str("Verdict: CLEAN. Every analyzed file follows the rules I learned from the docs and the CS principles.\n");
+        s.push_str("Verdict: CLEAN. No structural outliers detected against the project's own norm.\n");
     } else {
         let (mut hi, mut me, mut lo) = (0usize, 0usize, 0usize);
         for f in reports {
@@ -293,14 +234,12 @@ fn render(
             }
         }
         s.push_str(&format!(
-            "Verdict: {total} issue(s) across {} of {analyzed} file(s) — {hi} high, {me} medium, {lo} low. Highest-severity first.\n",
+            "Verdict: {total} issue(s) across {} of {analyzed} file(s) — {hi} high, {me} medium, {lo} low.\n",
             reports.len()
         ));
         let mut shown = 0usize;
         for f in reports {
-            if shown >= max {
-                break;
-            }
+            if shown >= max { break; }
             s.push_str(&format!("\n{}\n", f.path));
             for line in group_hits(&f.hits) {
                 if shown >= max {
@@ -315,23 +254,11 @@ fn render(
 
     if !unanalyzed.is_empty() {
         let u: Vec<String> = unanalyzed.iter().map(|(l, n)| format!("{l} ({n})")).collect();
-        s.push_str(&format!("\nRead but not analyzed (no model learned for these yet): {}.\n", u.join(", ")));
+        s.push_str(&format!("\nLanguages without AST support (not analyzed): {}.\n", u.join(", ")));
     }
 
-    if !models.is_empty() {
-        let mut k: Vec<String> = models.iter().map(|(l, m)| format!("{l}: {} rules", m.rules.rule_count())).collect();
-        k.sort();
-        s.push_str(&format!("\nJudged against what I learned from the docs + CS principles: {}.\n", k.join(", ")));
-    }
-
-    if !setup.trained.is_empty() {
-        s.push_str(&format!(
-            "Trained and cached model(s) from the docs this run (reused offline next time): {}.\n",
-            setup.trained.join(", ")
-        ));
-    }
-    for (lang, reason) in &setup.skipped {
-        s.push_str(&format!("Note: did not set up `{lang}` — {reason}.\n"));
+    if !sources.is_empty() {
+        s.push_str(&format!("\nTrained from: {}.\n", sources.join(", ")));
     }
     s
 }
@@ -341,19 +268,18 @@ fn render(
 /// Public for sibling tools that need the same data root.
 pub(crate) fn data_root_pub() -> PathBuf { data_root() }
 
-/// Locate the directory that holds the linter's knowledge sources (`lint-index/`, `corpus/`).
-/// Prefers the resolved workspace root (the dev checkout); otherwise walks up from the executable
-/// (the installed case). Always returns a path — missing files fall back to the embedded copies in
-/// [`crate::lint_train`], so the review still runs.
+/// Locate the directory that holds the linter's knowledge sources (`extraDocs/`, `lint-index/`).
+/// Prefers the resolved workspace root (the dev checkout); otherwise walks up from the executable.
+/// Always returns a path — missing files fall back to the embedded copies in [`crate::lint_train`].
 fn data_root() -> PathBuf {
     let ws = workspace_root();
-    if ws.join("corpus/cs-principles.md").exists() || ws.join("lint-index").exists() {
+    if ws.join("extraDocs").exists() || ws.join("lint-index").exists() {
         return ws;
     }
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(Path::to_path_buf);
         while let Some(d) = dir {
-            if d.join("corpus/cs-principles.md").exists() || d.join("lint-index").exists() {
+            if d.join("extraDocs").exists() || d.join("lint-index").exists() {
                 return d;
             }
             dir = d.parent().map(Path::to_path_buf);
@@ -369,7 +295,7 @@ fn data_root() -> PathBuf {
 pub fn schema() -> Value {
     json!({
         "name": "lint",
-        "description": "Review the whole project like a meticulous TA. ONE mixture-of-experts model per language reads every file and reports in English: the verdict, the exact lines to fix, and what it could not analyze. Rules come from two sources: the official, version-matched rule docs in lint-index/ (clippy/ruff/eslint/staticcheck/checkstyle/pmd) and the CS course principles in corpus/ (CS2420 Data Structures & Algorithms + CS3500 Software Design). A clean lint means the code follows the course rubric. Self-sets-up on first run (trains + caches a model per language), then loads the cache. No local toolchain required. Grounded in the docs and the project's own code — never memory.",
+        "description": "Review the whole project against its own structural norm. Trains from two documentation sources: extraDocs/ (global principles) and .helpers/lint-rules/ (project-local rules). Measures every function's responsibility, complexity, and length via AST; flags statistical outliers (Tukey's fence against the project's own distribution). Structural errors only — things the developer missed, not regex checklists.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -405,7 +331,7 @@ mod tests {
     #[test]
     fn data_root_resolves_to_a_dir_with_sources_or_workspace() {
         let d = data_root();
-        assert!(d.join("corpus/cs-principles.md").exists() || d.join("lint-index").exists() || d.exists());
+        assert!(d.join("extraDocs").exists() || d.join("lint-index").exists() || d.exists());
     }
 
     #[test]
