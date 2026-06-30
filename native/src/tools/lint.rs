@@ -134,8 +134,28 @@ pub fn run(args: &Value) -> ToolResult {
         }
     }
 
-    // 4) Run behavioral analysis per language (project-wide norm, Tukey's fence).
+    // 4) Run both engines against the project.
     let mut reports: Vec<FileReport> = Vec::new();
+
+    // 4a) AI forward pass: one LinterNet per language, only fires on files of that language.
+    for (lang, lang_files) in &by_language {
+        let Some(net) = model.nets.get(lang) else { continue };
+        for (path, src) in lang_files {
+            for flag in net.judge(src) {
+                let (severity, advice) = model.rule_advice.get(&flag.rule_id)
+                    .map(|(s, a)| (s.clone(), a.clone()))
+                    .unwrap_or_else(|| ("medium".to_string(), format!("violates `{}`", flag.rule_id)));
+                let hit = Hit { line: flag.line, rule: flag.rule_id.clone(), severity, advice };
+                if let Some(r) = reports.iter_mut().find(|r| r.path == *path) {
+                    r.hits.push(hit);
+                } else {
+                    reports.push(FileReport { path: path.clone(), hits: vec![hit] });
+                }
+            }
+        }
+    }
+
+    // 4b) Behavioral analysis (per language, project-wide norm): structural outliers.
     for (lang, lang_files) in &by_language {
         for (path, finding) in practice.flag_project(lang, lang_files) {
             let advice_text = if finding.detail.is_empty() { finding.advice.clone() }

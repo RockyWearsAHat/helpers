@@ -33,11 +33,25 @@ enum Sense {
 impl Sense {
     /// The words in a principle's prose that select this sense. A principle activates a sense when
     /// its text contains any of these — so the doc's own language decides what is measured.
+    ///
+    /// Phrases are chosen to require software-quality context (not big-O notation, data structure
+    /// names, or algorithm descriptions). "length" alone is too broad — it matches "key_length" or
+    /// "array length" in reference material. The phrases here demand a quality judgment.
     fn keywords(self) -> &'static [&'static str] {
         match self {
-            Sense::Responsibility => &["responsibilit", "one thing", "does too much", "split", "single-respons", "cohes"],
-            Sense::Complexity => &["complex", "nest", "control flow", "deep", "decision point", "cyclomatic"],
-            Sense::Length => &["length", "long", "small", "short", "too big", "lines of code", "line count"],
+            Sense::Responsibility => &[
+                "responsibilit", "one thing", "does too much", "split it",
+                "single-respons", "cohes", "single purpose",
+            ],
+            Sense::Complexity => &[
+                "control flow", "deeply nested", "nesting depth", "cyclomatic",
+                "decision point", "too complex", "cognitive complexity",
+            ],
+            Sense::Length => &[
+                "lines of code", "line count", "too long", "too big",
+                "function length", "method length", "keep it short", "keep functions short",
+                "should be small", "break it up", "break up long",
+            ],
         }
     }
 
