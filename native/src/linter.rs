@@ -41,17 +41,21 @@ pub struct Knowledge {
 }
 
 impl Knowledge {
-    /// Learn from a plain **text / markdown document**. This is how a user hands the system their
-    /// own rules — the CS2420 (Data Structures & Algorithms) or CS3500 (Software Design) course
-    /// docs, a house style guide — and it becomes
-    /// trainable knowledge with no code changes. The grammar is deliberately simple:
+    /// Learn from a plain **text / markdown document**. The document IS the training input —
+    /// no structured format required. Any documentation page, coding-standards wiki, or language
+    /// tutorial becomes trainable rules by simply pointing the system at it.
     ///
-    /// * A heading (`#`/`##`/…) starts a rule. Its text is the description; an `[high|medium|low]`
-    ///   suffix sets severity; the id is the heading slugified.
-    /// * Fenced code blocks under a heading are its examples. The info string's tag decides which:
-    ///   `bad`/`wrong`/`avoid` ⇒ the bad example, `good`/`right`/`correct`/`fix` ⇒ the good one
-    ///   (an untagged first block is treated as bad, a second as good). The fence's language word
-    ///   (` ```rust `) sets the example language, else `default_lang`.
+    /// The grammar has two modes:
+    ///
+    /// * **Prose-only** (the common case for real documentation): a heading starts a rule, the
+    ///   prose beneath it is the rule description. The downstream engine reads that English
+    ///   description and derives the lint pattern — no code examples needed. A sentence like
+    ///   "Avoid `e.printStackTrace()`" yields a `printStackTrace` detector automatically.
+    ///
+    /// * **With examples** (for corpus files that include them): fenced code blocks under a
+    ///   heading supply concrete bad/good examples that sharpen the derived pattern.
+    ///   `bad`/`wrong`/`avoid` ⇒ the bad example, `good`/`right`/`correct`/`fix` ⇒ the good one.
+    ///   The fence's language word (` ```rust `) sets the example language, else `default_lang`.
     pub fn from_text(default_lang: &str, doc: &str) -> Knowledge {
         let mut rules: Vec<LearnedRule> = Vec::new();
         let mut cur: Option<LearnedRule> = None;
@@ -109,8 +113,12 @@ impl Knowledge {
                 continue;
             }
             if let Some(h) = heading(trimmed) {
-                if let Some(r) = cur.take() {
-                    if !r.bad.is_empty() {
+                if let Some(mut r) = cur.take() {
+                    // Commit when there is either a code example OR a non-trivial description.
+                    // Prose-only rules (no bad example) are valid: the engine reads the English
+                    // description and derives the pattern; the SELF-FIRE gate validates or drops it.
+                    if r.language.is_empty() { r.language = default_lang.to_string(); }
+                    if !r.bad.is_empty() || r.description.len() > r.id.len() {
                         rules.push(r);
                     }
                 }
@@ -134,8 +142,9 @@ impl Knowledge {
                 }
             }
         }
-        if let Some(r) = cur.take() {
-            if !r.bad.is_empty() {
+        if let Some(mut r) = cur.take() {
+            if r.language.is_empty() { r.language = default_lang.to_string(); }
+            if !r.bad.is_empty() || r.description.len() > r.id.len() {
                 rules.push(r);
             }
         }
