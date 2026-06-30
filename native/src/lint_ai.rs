@@ -1,70 +1,66 @@
-//! `lint_ai` — the 1-bit XOR associative engine: the model that *is* the linter.
+//! `lint_ai` — the hypervector XOR engine: the model that *is* the linter.
 //!
-//! No tree-sitter, no grammar, no per-rule code. Everything is a fixed-width binary
-//! hypervector and the only operations are XOR (bind/compare), bit-rotate (order), and
-//! majority (bundle). That makes it 1-bit, float-free, and **open-vocabulary**: any
-//! token of any language maps to a code by hashing, so the model isn't built for a
-//! language — it ingests whatever it's shown. Knowledge of "all the languages" is just
-//! the codebook being universal.
+//! Everything is a fixed-width binary hypervector. The only operations are XOR (bind/compare),
+//! bit-rotate (encode position), and Hamming distance (similarity). Open-vocabulary: any token of
+//! any language maps to a code by hashing — the engine isn't built for a language.
 //!
-//! How it represents code:
-//!   * `Hv` — a `DIM`-bit vector packed into `u64`s.
-//!   * `token_hv(t)` — a token's code: a deterministic random `Hv` seeded by the token
-//!     hash. Same token ⇒ same code, everywhere, in every language.
-//!   * a window of tokens ⇒ one `Hv` by XOR-binding each token under a position
-//!     rotation (`bind`), so order matters and the whole window is one code.
-//!   * a *class* (e.g. a rule's bad pattern, or "clean") ⇒ a prototype `Hv`: the
-//!     majority-bundle of all its training windows, thresholded back to 1 bit.
+//! **Identifier normalization**: user-defined names (`x`, `myVar`, `count`) are normalized to
+//! `<id>` so `var x = 1` and `var myCount = getValue()` produce the same token stream. Structural
+//! keywords (`var`, `let`, `===`, `null`, etc.) are preserved. This gives the engine semantic
+//! invariance: it matches the *structure* of a violation, not specific variable names.
 //!
-//! How it judges: encode a window, XOR it against each prototype, count set bits
-//! (`distance`). Nearest prototype wins. A window is flagged for a rule only when it is
-//! closer to that rule's bad prototype than to the clean prototype by a margin — the
-//! associative form of "matches the documented bad example, not the good one".
+//! **Per-rule window sizes**: each rule uses its bad example's actual token count as its window.
+//! A 5-token bad example creates 5-token exemplars and 5-token windows in source. No structural
+//! information is lost to fixed-window padding or context bleed.
+//!
+//! **Exemplar matching (no perceptron)**: rather than training a perceptron (which can fail to
+//! converge), the engine stores the novel bad-example windows directly as exemplars and calibrates
+//! a per-exemplar radius to be just below the distance to the nearest good-example window. By
+//! construction: nothing that looks like the good example fires (0 FP), everything that looks like
+//! the bad example fires (0 FN for patterns with sufficient documentation).
 
-/// Hypervector width in bits. 8192 bits = 1 KiB/vector — wide enough that random codes
-/// are near-orthogonal (binding/bundling stay separable), small enough to be cheap.
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
+/// Hypervector width in bits. 8192 bits — wide enough for near-orthogonal random codes.
 pub const DIM: usize = 8192;
 const WORDS: usize = DIM / 64;
 
-/// A `DIM`-bit binary hypervector. The one and only representation the engine uses;
-/// all knowledge lives as these. `Copy` so windows compose without allocation.
+/// Maximum window size. Bad examples longer than this use overlapping MAX_WINDOW-token windows.
+const MAX_WINDOW: usize = 24;
+
+/// Maximum exemplar radius in bits. Exact structural matches have Hamming distance 0 (always fire);
+/// random production code is at ~DIM/2 ≈ 4096 bits. This cap keeps balls tiny so FP rate is
+/// negligible — even a window 256 bits from an exemplar is astronomically unlikely by chance alone.
+const MAX_RADIUS_CAP: u32 = 256;
+
+/// A `DIM`-bit binary hypervector. The one and only representation the engine uses.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Hv(#[serde(with = "hv_serde")] [u64; WORDS]);
 
 impl Hv {
-    /// The all-zero vector — the identity for XOR and the empty bundle.
-    pub fn zero() -> Hv {
-        Hv([0; WORDS])
-    }
+    /// The all-zero vector — the identity for XOR.
+    pub fn zero() -> Hv { Hv([0; WORDS]) }
 
-    /// The packed `u64` words backing this vector — for persisting a trained model.
-    pub fn as_words(&self) -> &[u64] {
-        &self.0
-    }
+    /// The packed `u64` words — for external serialization.
+    pub fn as_words(&self) -> &[u64] { &self.0 }
 
-    /// Rebuild a vector from packed words (e.g. when loading a saved model). Extra words
-    /// are ignored and missing ones are zero, so a length mismatch can't panic.
+    /// Rebuild from packed words; missing words are zero.
     pub fn from_words(words: &[u64]) -> Hv {
         let mut w = [0u64; WORDS];
-        for (slot, v) in w.iter_mut().zip(words.iter()) {
-            *slot = *v;
-        }
+        for (slot, v) in w.iter_mut().zip(words.iter()) { *slot = *v; }
         Hv(w)
     }
 
-    /// A deterministic pseudo-random vector for `seed`. Filling every bit from a
-    /// splitmix64 stream makes independent seeds near-orthogonal, which is what lets
-    /// XOR-binding and majority-bundling stay separable.
+    /// A deterministic pseudo-random vector for `seed` — the codebook entry for any seed.
     pub fn random(seed: u64) -> Hv {
         let mut s = seed ^ 0xA0761D6478BD642F;
         let mut w = [0u64; WORDS];
-        for word in w.iter_mut() {
-            *word = splitmix64(&mut s);
-        }
+        for word in w.iter_mut() { *word = splitmix64(&mut s); }
         Hv(w)
     }
 
-    /// XOR — the binding/comparison primitive. Self-inverse: `a.xor(b).xor(b) == a`.
+    /// XOR — the binding/comparison primitive.
     pub fn xor(&self, other: &Hv) -> Hv {
         let mut w = [0u64; WORDS];
         for (out, (a, b)) in w.iter_mut().zip(self.0.iter().zip(other.0.iter())) {
@@ -73,24 +69,17 @@ impl Hv {
         Hv(w)
     }
 
-    /// Number of differing bits (`popcount` of the XOR). 0 ⇒ identical; ~`DIM/2` ⇒
-    /// unrelated. This is the only "score" in the engine — smaller is more similar.
+    /// Hamming distance — the similarity score. 0 = identical, ~DIM/2 = unrelated.
     pub fn distance(&self, other: &Hv) -> u32 {
-        self.0
-            .iter()
-            .zip(other.0.iter())
-            .map(|(a, b)| (a ^ b).count_ones())
-            .sum()
+        self.0.iter().zip(other.0.iter()).map(|(a, b)| (a ^ b).count_ones()).sum()
     }
 
-    /// Rotate all `DIM` bits left by one. Composed `k` times this encodes position `k`,
-    /// so a token bound at slot `k` is distinguishable from the same token at slot `j`.
-    /// Public one-bit left rotation — exposed for external comprehension engines.
+    /// Public 1-bit left rotation (for external use).
     pub fn rotl1_pub(&self) -> Hv { self.rotl1() }
 
     fn rotl1(&self) -> Hv {
         let mut w = [0u64; WORDS];
-        let top = self.0[WORDS - 1] >> 63; // wraps around into bit 0
+        let top = self.0[WORDS - 1] >> 63;
         for (i, out) in w.iter_mut().enumerate() {
             let carry_in = if i == 0 { top } else { self.0[i - 1] >> 63 };
             *out = (self.0[i] << 1) | carry_in;
@@ -98,17 +87,14 @@ impl Hv {
         Hv(w)
     }
 
-    /// This vector rotated left by `k` bits — the position-`k` role transform.
     fn rotate(&self, k: usize) -> Hv {
         let mut v = *self;
-        for _ in 0..(k % DIM) {
-            v = v.rotl1();
-        }
+        for _ in 0..(k % DIM) { v = v.rotl1(); }
         v
     }
 }
 
-/// Serde helper: serialize `[u64; WORDS]` as a `Vec<u64>` since serde doesn't support large arrays.
+/// Serde helper: serialize `[u64; WORDS]` as a sequence (serde doesn't support large arrays).
 mod hv_serde {
     use super::WORDS;
     use serde::{Deserializer, Serializer, de::SeqAccess, de::Visitor, ser::SerializeSeq};
@@ -128,9 +114,7 @@ mod hv_serde {
             }
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
                 let mut arr = [0u64; WORDS];
-                for slot in arr.iter_mut() {
-                    *slot = seq.next_element()?.unwrap_or(0);
-                }
+                for slot in arr.iter_mut() { *slot = seq.next_element()?.unwrap_or(0); }
                 Ok(arr)
             }
         }
@@ -138,7 +122,7 @@ mod hv_serde {
     }
 }
 
-/// Splitmix64: a tiny, well-distributed PRNG step. Deterministic codebook fuel.
+/// Splitmix64: a tiny, well-distributed PRNG step.
 fn splitmix64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E3779B97F4A7C15);
     let mut z = *state;
@@ -157,18 +141,12 @@ fn token_seed(token: &str) -> u64 {
     h
 }
 
-/// The code for a single token: a universal, language-agnostic codebook entry.
-pub fn token_hv(token: &str) -> Hv {
-    Hv::random(token_seed(token))
-}
+/// The code for a single token: universal, language-agnostic.
+pub fn token_hv(token: &str) -> Hv { Hv::random(token_seed(token)) }
 
-/// Encode a token window into one vector. Each token is *bound* to its slot by a
-/// position rotation (so order matters), then the bound tokens are *bundled* by
-/// majority into one code. Bundling — not XOR-folding — is what preserves similarity:
-/// two windows that share a sub-pattern (say `== true`) keep that pattern's bits in
-/// common, so they stay near each other under the XOR distance. (XOR-folding would
-/// cancel the shared part and erase exactly the signal we match on.) Fixed-width, so
-/// any window of any length in any language becomes one comparable code.
+/// Encode a token window into one vector. Each token is bound to its slot by position rotation,
+/// then the bound tokens are bundled by majority. Preserves similarity: windows sharing a
+/// sub-pattern stay near each other under Hamming distance.
 pub fn bind(tokens: &[&str]) -> Hv {
     let mut b = Bundler::new();
     for (i, t) in tokens.iter().enumerate() {
@@ -177,23 +155,15 @@ pub fn bind(tokens: &[&str]) -> Hv {
     b.finalize()
 }
 
-/// Accumulates training vectors into one prototype by per-bit majority vote. Storage
-/// of the result is 1-bit; only the running tally is integer, thresholded on finalize.
+/// Accumulates training vectors into one prototype by per-bit majority vote.
 pub struct Bundler {
     counts: Vec<i32>,
     n: usize,
 }
 
 impl Bundler {
-    /// An empty bundle.
-    pub fn new() -> Bundler {
-        Bundler {
-            counts: vec![0; DIM],
-            n: 0,
-        }
-    }
+    pub fn new() -> Bundler { Bundler { counts: vec![0; DIM], n: 0 } }
 
-    /// Fold one example vector into the running majority tally.
     pub fn add(&mut self, hv: &Hv) {
         for bit in 0..DIM {
             let set = (hv.0[bit / 64] >> (bit % 64)) & 1 == 1;
@@ -202,129 +172,167 @@ impl Bundler {
         self.n += 1;
     }
 
-    /// How many examples have been bundled.
-    pub fn len(&self) -> usize {
-        self.n
-    }
+    pub fn len(&self) -> usize { self.n }
+    pub fn is_empty(&self) -> bool { self.n == 0 }
 
-    /// True when nothing has been bundled yet.
-    pub fn is_empty(&self) -> bool {
-        self.n == 0
-    }
-
-    /// Threshold the tally back to a 1-bit prototype: a bit is set iff it was set in the
-    /// majority of examples. Ties (count 0) resolve to 0.
     pub fn finalize(&self) -> Hv {
         let mut w = [0u64; WORDS];
         for bit in 0..DIM {
-            if self.counts[bit] > 0 {
-                w[bit / 64] |= 1 << (bit % 64);
-            }
+            if self.counts[bit] > 0 { w[bit / 64] |= 1 << (bit % 64); }
         }
         Hv(w)
     }
 }
 
-impl Default for Bundler {
-    fn default() -> Self {
-        Bundler::new()
-    }
+impl Default for Bundler { fn default() -> Self { Bundler::new() } }
+
+// ── Identifier normalization ──────────────────────────────────────────────────
+
+/// Keywords and well-known identifiers preserved verbatim by the tokenizer.
+///
+/// Anything NOT in this set and recognized as an identifier (ASCII alpha/underscore start)
+/// is normalized to `<id>`. This makes structural patterns invariant to variable names:
+/// `var x = 1` and `var myCount = getValue()` both become `var <id> = ...`.
+fn keywords() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    SET.get_or_init(|| [
+        // Control flow
+        "if", "else", "elif", "for", "while", "do", "switch", "case", "default",
+        "break", "continue", "return", "yield", "loop", "match", "defer", "goto",
+        "select", "range", "then",
+        // Declarations
+        "var", "let", "mut", "const", "static", "final",
+        "fn", "func", "fun", "def", "function",
+        "class", "struct", "enum", "interface", "trait", "type",
+        "impl", "extends", "implements", "mod", "module", "namespace",
+        // Access / visibility
+        "pub", "public", "private", "protected", "abstract", "native",
+        "synchronized", "transient", "volatile", "override", "virtual",
+        "readonly", "declare", "sealed",
+        // Error handling
+        "try", "catch", "except", "finally", "throw", "raise", "throws",
+        // Primitive types
+        "void", "int", "long", "short", "byte", "float", "double", "char",
+        "bool", "boolean", "str", "string", "uint", "usize", "isize",
+        "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128",
+        "f32", "f64",
+        // Special values / literals
+        "null", "undefined", "nil", "None", "Some", "Ok", "Err",
+        "true", "false", "True", "False", "NaN", "Infinity",
+        // Async / ownership
+        "async", "await", "sync", "unsafe", "move", "ref", "box", "dyn",
+        "where",
+        // Module / import
+        "import", "export", "from", "use", "require", "include",
+        "package", "crate", "extern", "super", "self", "Self",
+        // Operators spelled as words
+        "new", "delete", "typeof", "instanceof", "in", "of", "as",
+        "is", "not", "and", "or", "with", "pass", "assert", "del",
+        "global", "nonlocal", "lambda",
+        // OOP / class
+        "this", "super",
+        // Go
+        "go", "chan", "make", "cap", "close", "recover", "panic",
+        // JavaScript built-ins appearing in rules
+        "console", "Math", "Object", "Array", "String", "Number", "Boolean",
+        "Promise", "Error", "JSON", "Symbol", "Map", "Set", "WeakMap", "WeakSet",
+        "Date", "RegExp", "Buffer", "process", "global", "window", "document",
+        "eval", "arguments", "prototype", "constructor",
+        // Python built-ins appearing in rules
+        "print", "len", "range", "list", "dict", "tuple", "type", "set",
+        "isinstance", "hasattr", "getattr", "setattr", "open", "input", "iter",
+        "next", "enumerate", "zip", "map", "filter", "sorted", "reversed",
+        "staticmethod", "classmethod", "property", "super",
+        // Rust stdlib in rules
+        "Vec", "HashMap", "HashSet", "BTreeMap", "BTreeSet",
+        "Option", "Result", "Box", "Rc", "Arc", "Cell", "RefCell",
+        "println", "eprintln", "format", "todo", "unimplemented", "unreachable",
+        "assert", "assert_eq", "assert_ne", "debug_assert",
+        "unwrap", "expect", "clone", "collect", "iter", "into_iter",
+        "push", "pop", "len", "is_empty", "contains", "insert", "remove",
+        "unwrap_or", "unwrap_or_else",
+        // Common method names in rules
+        "log", "warn", "error", "info", "debug",
+        "get", "set", "has", "add",
+        "map", "filter", "reduce", "find", "some", "every", "includes",
+        "join", "split", "slice", "splice", "concat", "flat", "flatMap",
+        "toString", "valueOf", "toFixed", "toInt", "toFloat",
+        "apply", "call", "bind",
+        "then", "catch", "finally",
+        "keys", "values", "entries", "assign", "create", "freeze",
+        "parseInt", "parseFloat", "isNaN", "isFinite",
+        // Java
+        "throws", "abstract", "native", "strictfp",
+    ].iter().copied().collect())
 }
 
-/// Byte length of the UTF-8 codepoint that starts with lead byte `b`.
+// ── Tokenizer ─────────────────────────────────────────────────────────────────
+
+/// Byte length of the UTF-8 codepoint starting with lead byte `b`.
 fn utf8_len(b: u8) -> usize {
-    if b < 0x80 {
-        1
-    } else if b < 0xE0 {
-        2
-    } else if b < 0xF0 {
-        3
-    } else {
-        4
-    }
+    if b < 0x80 { 1 } else if b < 0xE0 { 2 } else if b < 0xF0 { 3 } else { 4 }
 }
 
-/// A token with its 1-based source line. Tokens are the model's only view of code.
+/// A token with its 1-based source line.
 pub struct Tok {
-    /// The normalized token text (a codebook key).
     pub text: String,
-    /// 1-based source line the token starts on.
     pub line: usize,
 }
 
-/// Tokenize source of *any* language into normalized tokens. This is a universal
-/// lexer, not a grammar: identifiers/keywords pass through (so language keywords and
-/// API names become codebook entries), numbers collapse to `<num>`, string and comment
-/// bodies collapse to `<str>`/`<comment>` so text *inside* them is never seen as code,
-/// and operators/punctuation pass through (multi-char operators kept whole). Anything
-/// it doesn't recognize still becomes a single-char token — nothing is dropped, so the
-/// model can learn structure from whatever it's shown.
+/// Tokenize source of any language into normalized tokens.
+///
+/// - Comments collapse to `<comment>`, string/char literals to `<str>`, numbers to `<num>`.
+/// - Keywords and well-known identifiers (the [`keywords()`] set) pass through unchanged.
+/// - All other identifiers are normalized to `<id>` — the engine sees structure, not names.
+/// - Operators and punctuation pass through (multi-char operators kept whole).
 pub fn tokenize(source: &str) -> Vec<Tok> {
+    let kw = keywords();
     let bytes = source.as_bytes();
     let mut toks = Vec::new();
     let mut i = 0;
     let mut line = 1usize;
     let n = bytes.len();
     let multi: &[&str] = &[
-        "==", "!=", "<=", ">=", "&&", "||", "->", "=>", "::", "++", "--", "+=", "-=", "*=", "/=",
-        "%=", "**", "<<", ">>", "..", "...", "?.", "??",
+        "===", "!==", "==", "!=", "<=", ">=", "&&", "||", "->", "=>", "::", "++", "--",
+        "+=", "-=", "*=", "/=", "%=", "**", "<<", ">>", "..", "...", "?.", "??",
     ];
     while i < n {
         let c = bytes[i] as char;
-        if c == '\n' {
-            line += 1;
-            i += 1;
-            continue;
-        }
-        if c.is_whitespace() {
-            i += 1;
-            continue;
-        }
-        // non-ASCII byte outside a string/comment: skip the whole UTF-8 codepoint so we
-        // never slice mid-character (code tokens are ASCII; this is stray text/symbols).
-        if !c.is_ascii() {
-            i += utf8_len(bytes[i]);
-            continue;
-        }
-        // line comments: // ... and # ...
+        if c == '\n' { line += 1; i += 1; continue; }
+        if c.is_whitespace() { i += 1; continue; }
+        if !c.is_ascii() { i += utf8_len(bytes[i]); continue; }
+        // line comments
         if (c == '/' && i + 1 < n && bytes[i + 1] == b'/') || c == '#' {
-            while i < n && bytes[i] != b'\n' {
-                i += 1;
-            }
+            while i < n && bytes[i] != b'\n' { i += 1; }
             toks.push(Tok { text: "<comment>".into(), line });
             continue;
         }
-        // block comment: /* ... */
+        // block comment
         if c == '/' && i + 1 < n && bytes[i + 1] == b'*' {
             i += 2;
             while i + 1 < n && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                if bytes[i] == b'\n' {
-                    line += 1;
-                }
+                if bytes[i] == b'\n' { line += 1; }
                 i += 1;
             }
             i = (i + 2).min(n);
             toks.push(Tok { text: "<comment>".into(), line });
             continue;
         }
-        // string/char literals: collapse the whole body so its contents aren't code
+        // string/char literals
         if c == '"' || c == '\'' || c == '`' {
             let quote = bytes[i];
             let start_line = line;
             i += 1;
             while i < n && bytes[i] != quote {
-                if bytes[i] == b'\\' {
-                    i += 1; // skip escaped char
-                } else if bytes[i] == b'\n' {
-                    line += 1;
-                }
+                if bytes[i] == b'\\' { i += 1; }
+                else if bytes[i] == b'\n' { line += 1; }
                 i += 1;
             }
             i = (i + 1).min(n);
             toks.push(Tok { text: "<str>".into(), line: start_line });
             continue;
         }
-        // numbers collapse to a single class token
+        // numbers
         if c.is_ascii_digit() {
             while i < n && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.' || bytes[i] == b'_') {
                 i += 1;
@@ -332,16 +340,16 @@ pub fn tokenize(source: &str) -> Vec<Tok> {
             toks.push(Tok { text: "<num>".into(), line });
             continue;
         }
-        // identifiers / keywords
+        // identifiers — normalize non-keywords to `<id>`
         if c.is_ascii_alphabetic() || c == '_' {
             let start = i;
-            while i < n && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
-                i += 1;
-            }
-            toks.push(Tok { text: source[start..i].to_string(), line });
+            while i < n && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') { i += 1; }
+            let word = &source[start..i];
+            let text = if kw.contains(word) { word.to_string() } else { "<id>".to_string() };
+            toks.push(Tok { text, line });
             continue;
         }
-        // multi-char operators (longest match), else a single punctuation char
+        // multi-char operators (longest match first)
         let rest = &source[i..];
         if let Some(op) = multi.iter().filter(|op| rest.starts_with(**op)).max_by_key(|op| op.len()) {
             toks.push(Tok { text: (*op).to_string(), line });
@@ -354,60 +362,16 @@ pub fn tokenize(source: &str) -> Vec<Tok> {
     toks
 }
 
-/// One flag the model emits: a source line and the rule it best matched.
-pub struct Flag {
-    /// 1-based source line of the offending window.
-    pub line: usize,
-    /// The id of the rule whose bad prototype the window matched.
-    pub rule_id: String,
-}
+// ── Window computation ────────────────────────────────────────────────────────
 
-/// A window whose nearest good-example window is at least this far away counts as
-/// *novel* — it represents the violation, not the shared scaffolding. Token-identical
-/// windows are distance 0; changing even one token moves a window far past this, so the
-/// threshold cleanly separates "present in the good example too" from "new in the bad".
+/// A window is far enough from the good example to be a genuine violation signal.
+/// At DIM/8 = 1024 bits, a window differing in 1 of 8 tokens clears this threshold.
 const NOVEL_THRESH: u32 = (DIM / 8) as u32;
 
-/// One trained rule: its id and its violation windows kept as sharp exemplars, each
-/// paired with its OWN decision radius. A window flags the rule iff it lies within some
-/// exemplar's radius — k-nearest-neighbour association with a per-exemplar, repo-
-/// calibrated boundary. Per-exemplar radii (not one rule-wide value) let a distinctive
-/// violation window keep a wide ball while a window that brushes clean code gets a tiny
-/// one, instead of one near-clean window collapsing the whole rule.
-struct RuleProto {
-    id: String,
-    exemplars: Vec<(Hv, u32)>,
-}
-
-impl RuleProto {
-    /// Distance to the nearest exemplar whose own radius admits `hv`, if any — the
-    /// rule's match score (lower = closer). `None` ⇒ no exemplar claims this window.
-    fn best(&self, hv: &Hv) -> Option<u32> {
-        self.exemplars
-            .iter()
-            .filter_map(|(e, r)| {
-                let d = hv.distance(e);
-                (d <= *r).then_some(d)
-            })
-            .min()
-    }
-}
-
-/// The trained linter: per-rule violation prototypes, each with a radius calibrated so
-/// no window of the clean repo falls inside it. Judgment is pure association — no
-/// grammar, no per-rule code — and the calibration is what holds false positives down.
-pub struct Model {
-    window: usize,
-    ambig: u32,
-    rules: Vec<RuleProto>,
-}
-
-/// Slide a `window`-token window over `toks`, yielding each window's code and start
-/// line. Short token streams yield a single whole-stream window so nothing is missed.
+/// Slide a `window`-token window over `toks`, yielding `(bound_code, start_line)` pairs.
+/// When the token count ≤ window, one whole-stream window is returned so nothing is missed.
 fn windows(toks: &[Tok], window: usize) -> Vec<(Hv, usize)> {
-    if toks.is_empty() {
-        return Vec::new();
-    }
+    if toks.is_empty() { return Vec::new(); }
     let texts: Vec<&str> = toks.iter().map(|t| t.text.as_str()).collect();
     if texts.len() <= window {
         return vec![(bind(&texts), toks[0].line)];
@@ -417,310 +381,222 @@ fn windows(toks: &[Tok], window: usize) -> Vec<(Hv, usize)> {
         .collect()
 }
 
-impl Model {
-    /// Train from the docs. `rules` is `(id, exampleBad, exampleGood)`; `clean` is
-    /// known-good source — the repo itself — used to calibrate boundaries. For each
-    /// rule: keep the windows of its bad example that are novel vs its good example (the
-    /// violation) as exemplars, then set the decision radius to the smaller of `cap` and
-    /// **just below the nearest clean-repo window**, so the rule cannot fire on
-    /// known-good code. `cap` is the one knob trading recall (larger ⇒ catches more
-    /// variants) against false flags (smaller ⇒ stricter). A rule whose radius collapses
-    /// to zero (clean code sits on its violation) is dropped — never a guess. The result
-    /// false-flags on none of `clean` by construction. `ambig` is the judging margin: a
-    /// window is only flagged when its best rule beats the runner-up by that many bits.
-    pub fn train(
-        window: usize,
-        cap: u32,
-        ambig: u32,
-        rules: &[(String, String, String)],
-        clean: &[&str],
-    ) -> Model {
-        let clean_windows: Vec<Hv> = clean
-            .iter()
-            .flat_map(|src| windows(&tokenize(src), window))
-            .map(|(hv, _)| hv)
-            .collect();
+// ── One reported finding ──────────────────────────────────────────────────────
 
-        let mut trained = Vec::new();
-        for (id, bad_src, good) in rules {
-            if bad_src.is_empty() || good.is_empty() {
-                continue; // ungroundable: needs both examples to find the novel windows
-            }
-            let good_windows: Vec<Hv> = windows(&tokenize(good), window)
+/// One flag the engine emits: a source line and the rule it best matched.
+pub struct Flag {
+    pub line: usize,
+    pub rule_id: String,
+}
+
+// ── Exemplar-based rule detector ──────────────────────────────────────────────
+
+/// One trained rule: the window size derived from the bad example, and the novel violation
+/// windows stored as exemplars, each with a calibrated radius. A window is flagged for this
+/// rule iff it falls within any exemplar's ball. The radius is set to be just below the
+/// distance to the nearest good-example window — by construction, nothing that structurally
+/// matches the good example can be inside any ball.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Learned {
+    id: String,
+    window: usize,
+    exemplars: Vec<(Hv, u32)>,  // (novel window code, calibrated_radius)
+}
+
+/// THE linting engine: per-rule exemplar matching over identifier-normalized token streams.
+///
+/// Training is parameter-free: window size comes from the bad example's token count, radius
+/// comes from the good example's distance. No epoch count, no threshold to tune, no clean
+/// calibration corpus needed — the documentation alone drives everything.
+///
+/// Judgment dispatches one GPU batch per distinct window size: all source windows of that size
+/// against all exemplars of that size in one Metal/Vulkan/DX12 dispatch.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct LinterNet {
+    rules: Vec<Learned>,
+}
+
+impl LinterNet {
+    /// Train from documentation pairs `(id, bad_example, good_example)`.
+    ///
+    /// For each rule:
+    /// - Tokenize bad and good (with identifier normalization).
+    /// - Window size = min(bad tokens, MAX_WINDOW) — the pattern's natural width.
+    /// - Novel windows = bad windows not structurally close to any good window.
+    /// - For each novel window, radius = dist_to_nearest_good - 1. By construction,
+    ///   every good-example window is outside every ball (0 FP on documentation patterns).
+    /// - Rules where no novel window survives calibration (bad ≈ good) are dropped.
+    ///
+    /// Parallelized with rayon across rules — each rule is fully independent.
+    pub fn train(rules: &[(String, String, String)]) -> LinterNet {
+        use rayon::prelude::*;
+        let learned: Vec<Option<Learned>> = rules.par_iter().map(|(id, bad, good)| {
+            let bad_toks = tokenize(bad);
+            let good_toks = tokenize(good);
+            if bad_toks.is_empty() || good_toks.is_empty() { return None; }
+
+            let window = bad_toks.len().min(MAX_WINDOW);
+
+            let good_hvs: Vec<Hv> = windows(&good_toks, window).into_iter().map(|(h, _)| h).collect();
+            if good_hvs.is_empty() { return None; }
+
+            // Novel: bad windows that are far from every good window (they encode the violation).
+            // Calibrate each: radius = just below the nearest good window's distance.
+            let exemplars: Vec<(Hv, u32)> = windows(&bad_toks, window)
                 .into_iter()
-                .map(|(hv, _)| hv)
-                .collect();
-            // the violation = bad windows with no near-equivalent in the good example
-            let novel: Vec<Hv> = windows(&tokenize(bad_src), window)
-                .into_iter()
-                .map(|(hv, _)| hv)
-                .filter(|hv| {
-                    good_windows
-                        .iter()
-                        .map(|g| hv.distance(g))
-                        .min()
-                        .map(|d| d > NOVEL_THRESH)
-                        .unwrap_or(true)
+                .map(|(h, _)| h)
+                .filter(|h| {
+                    good_hvs.iter().map(|g| h.distance(g)).min()
+                        .map(|d| d > NOVEL_THRESH).unwrap_or(true)
                 })
-                .collect();
-            if novel.is_empty() {
-                continue; // bad and good are structurally the same here — nothing to flag
-            }
-            // Give each violation window its OWN radius: just under its nearest clean
-            // window, capped at `cap`. A window distinctive from clean code earns a wide
-            // ball (up to `cap`); one that brushes clean code gets a tiny ball and so
-            // effectively only fires on near-exact repeats. Windows that sit on clean
-            // code (radius 0) are dropped — they're indistinguishable from known-good and
-            // can't be a trustworthy fingerprint. No clean calibration window lies inside
-            // any kept ball, by construction.
-            let exemplars: Vec<(Hv, u32)> = novel
-                .into_iter()
                 .filter_map(|e| {
-                    let nearest_clean = clean_windows
-                        .iter()
-                        .map(|c| c.distance(&e))
-                        .min()
-                        .unwrap_or(u32::MAX);
-                    let radius = nearest_clean.saturating_sub(1).min(cap);
-                    (radius >= 1).then_some((e, radius))
+                    let nearest_good = good_hvs.iter().map(|g| g.distance(&e)).min()?;
+                    // Cap radius: exact structural matches hit at distance 0; production code is at
+                    // ~DIM/2 ≈ 4096. MAX_RADIUS_CAP keeps the ball tiny so only near-identical
+                    // normalized token sequences fire.
+                    let radius = nearest_good.saturating_sub(1).min(MAX_RADIUS_CAP);
+                    (radius > 0).then_some((e, radius))
                 })
                 .collect();
-            if exemplars.is_empty() {
-                continue; // every window of this violation sits on known-good code
-            }
-            trained.push(RuleProto {
-                id: id.clone(),
-                exemplars,
-            });
-        }
-        Model {
-            window,
-            ambig,
-            rules: trained,
-        }
+
+            if exemplars.is_empty() { return None; }
+            Some(Learned { id: id.clone(), window, exemplars })
+        }).collect();
+
+        LinterNet { rules: learned.into_iter().flatten().collect() }
     }
 
-    /// How many rules survived training as separable, repo-calibrated prototypes.
-    pub fn rule_count(&self) -> usize {
-        self.rules.len()
-    }
+    /// How many rules the engine loaded a valid detector for.
+    pub fn rule_count(&self) -> usize { self.rules.len() }
 
-    /// Judge `source`: flag each window that lies within some rule's radius of its
-    /// prototype, attributing the window to its nearest such rule. By calibration, no
-    /// window matching the clean repo can fire.
+    /// Judge `source`: tokenize it, then for each distinct window size in the loaded rules,
+    /// dispatch one GPU batch (source windows of that size × rule exemplars of that size).
+    /// A window is flagged for the nearest rule whose exemplar ball it falls inside.
     pub fn judge(&self, source: &str) -> Vec<Flag> {
+        if self.rules.is_empty() { return Vec::new(); }
+        let toks = tokenize(source);
+        if toks.is_empty() { return Vec::new(); }
+
+        // Group rules by window size — one GPU batch per size.
+        let mut by_window: std::collections::HashMap<usize, Vec<&Learned>> = std::collections::HashMap::new();
+        for rule in &self.rules {
+            by_window.entry(rule.window).or_default().push(rule);
+        }
+
         let mut flags = Vec::new();
-        for (hv, line) in windows(&tokenize(source), self.window) {
-            // every rule that claims this window, nearest first
-            let mut claims: Vec<(u32, &str)> = self
-                .rules
-                .iter()
-                .filter_map(|r| r.best(&hv).map(|d| (d, r.id.as_str())))
+        for (window_size, rules_for_size) in &by_window {
+            let src_windows: Vec<(Hv, usize)> = windows(&toks, *window_size);
+            if src_windows.is_empty() { continue; }
+
+            // Flatten exemplars: (exemplar_hv, radius, rule_id)
+            let exemplar_info: Vec<(Hv, u32, &str)> = rules_for_size.iter()
+                .flat_map(|r| r.exemplars.iter().map(|(h, rad)| (*h, *rad, r.id.as_str())))
                 .collect();
-            claims.sort_by_key(|(d, _)| *d);
-            // AMBIGUITY REJECTION: flag only when one rule owns the window distinctly —
-            // the runner-up must be at least `self.ambig` bits farther. If two rules
-            // match almost equally, the window isn't a fingerprint of either, so the
-            // attribution can't be trusted and we stay silent (never a wrong-rule flag).
-            let distinct = match (claims.first(), claims.get(1)) {
-                (Some(_), None) => true,
-                (Some((d0, _)), Some((d1, _))) => *d1 >= d0 + self.ambig,
-                _ => false,
-            };
-            if distinct {
-                flags.push(Flag {
-                    line,
-                    rule_id: claims[0].1.to_string(),
-                });
+            if exemplar_info.is_empty() { continue; }
+
+            // GPU batch: M source windows × N exemplars → M×N distances.
+            let protos: Vec<Hv> = exemplar_info.iter().map(|(h, _, _)| *h).collect();
+            let hvs: Vec<Hv> = src_windows.iter().map(|(h, _)| *h).collect();
+            let distances = crate::memory::gpu::batch_hamming(&hvs, &protos);
+            let n_ex = exemplar_info.len();
+
+            for (wi, (_, line)) in src_windows.iter().enumerate() {
+                let row = &distances[wi * n_ex..(wi + 1) * n_ex];
+                // Best match: smallest distance that still fits within the exemplar's radius.
+                let best = exemplar_info.iter().enumerate()
+                    .filter_map(|(ei, (_, radius, id))| {
+                        (row[ei] <= *radius).then_some((row[ei], *id))
+                    })
+                    .min_by_key(|(d, _)| *d);
+                if let Some((_, id)) = best {
+                    flags.push(Flag { line: *line, rule_id: id.to_string() });
+                }
             }
         }
         flags
     }
 }
 
-/// One rule the net has *learned*: the id, the 1-bit prototype it converged on, and the
-/// score threshold above which a window is judged a violation of this rule.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct Learned {
+// ── Legacy Model (k-NN with exemplars and ambiguity rejection) ────────────────
+//
+// Kept for reference and potential specialized use. The primary engine is now LinterNet above.
+
+/// A window whose nearest good-example window is at least this far counts as novel.
+const _NOVEL_THRESH: u32 = NOVEL_THRESH;
+
+/// One trained rule in the legacy Model: exemplars with per-exemplar radii.
+struct RuleProto {
     id: String,
-    proto: Hv,
-    threshold: i32,
+    exemplars: Vec<(Hv, u32)>,
 }
 
-/// A linter the net actually *trains*, rather than memorizing examples. For each rule it
-/// runs a 1-bit perceptron (predictive coding): show it the rule's violation windows
-/// (positives) and known-good windows + *other rules' violations* (negatives, so it
-/// learns to tell rules apart), let it predict, and on every mistake nudge the weights
-/// toward the right answer. It repeats epochs until it stops making mistakes — "train
-/// until accurate". The learned weights are thresholded to one bit, so the runtime model
-/// stays binary and self-contained.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct LinterNet {
+impl RuleProto {
+    fn best(&self, hv: &Hv) -> Option<u32> {
+        self.exemplars.iter()
+            .filter_map(|(e, r)| { let d = hv.distance(e); (d <= *r).then_some(d) })
+            .min()
+    }
+}
+
+/// The legacy trained model: per-rule violation prototypes with calibrated radii.
+pub struct Model {
     window: usize,
-    rules: Vec<Learned>,
+    ambig: u32,
+    rules: Vec<RuleProto>,
 }
 
-/// Bipolar dot product `Σ wᵢ·xᵢ` where `xᵢ ∈ {+1,-1}` is the i-th bit of `hv`. Computed
-/// as `2·(sum of wᵢ over set bits) − (sum of all wᵢ)` so only set bits are walked.
-fn dot(w: &[i32], total: i32, hv: &Hv) -> i32 {
-    let mut sum_set = 0i32;
-    for (word_idx, &word) in hv.0.iter().enumerate() {
-        let mut bits = word;
-        while bits != 0 {
-            let b = bits.trailing_zeros() as usize;
-            sum_set = sum_set.wrapping_add(w[word_idx * 64 + b]);
-            bits &= bits - 1;
-        }
-    }
-    sum_set.wrapping_mul(2).wrapping_sub(total)
-}
-
-/// Perceptron update `w += y·x` (with `x` bipolar): add `y` on set bits, subtract on
-/// unset. Returns the *change* to the running total `Σ wᵢ` so `dot` stays cheap without
-/// re-summing the whole weight vector each step.
-fn learn_step(w: &mut [i32], hv: &Hv, y: i32) -> i32 {
-    for (i, wi) in w.iter_mut().enumerate() {
-        let set = (hv.0[i / 64] >> (i % 64)) & 1 == 1;
-        *wi += if set { y } else { -y };
-    }
-    let ones: u32 = hv.0.iter().map(|x| x.count_ones()).sum();
-    // +y on each of `ones` set bits, −y on each of the (DIM−ones) unset bits
-    y * (2 * ones as i32 - DIM as i32)
-}
-
-impl LinterNet {
-    /// Train one prototype per rule by 1-bit perceptron, up to `epochs` passes each (it
-    /// stops early once a rule is classified with no mistakes). Negatives include other
-    /// rules' violations (so it attributes the *right* rule) and a large sample of
-    /// `clean` known-good code (so it learns what *fine* looks like and doesn't fire on
-    /// everything). `clean` is the user's own code — nothing external.
+impl Model {
+    /// Train the legacy model. `cap` caps each exemplar's radius; `ambig` is the minimum
+    /// distance margin between the best and runner-up rules to avoid ambiguous attribution.
     pub fn train(
-        window: usize,
-        epochs: usize,
+        window: usize, cap: u32, ambig: u32,
         rules: &[(String, String, String)],
         clean: &[&str],
-    ) -> LinterNet {
-        // A bounded sample of clean windows, shared as negatives across every rule.
-        // Strided down to ~1500 so training stays fast while still teaching "fine".
-        let all_clean: Vec<Hv> = clean
-            .iter()
-            .flat_map(|s| windows(&tokenize(s), window))
-            .map(|(h, _)| h)
-            .collect();
-        let stride = (all_clean.len() / 1500).max(1);
-        let clean_neg: Vec<Hv> = all_clean.into_iter().step_by(stride).collect();
-        // Per rule, the novel (violation) windows of its bad example vs its good example.
-        let mut positives: Vec<Vec<Hv>> = Vec::with_capacity(rules.len());
-        let mut goods: Vec<Vec<Hv>> = Vec::with_capacity(rules.len());
-        for (_, bad, good) in rules {
-            let gw: Vec<Hv> = windows(&tokenize(good), window)
-                .into_iter()
-                .map(|(h, _)| h)
-                .collect();
-            let nov: Vec<Hv> = windows(&tokenize(bad), window)
-                .into_iter()
-                .map(|(h, _)| h)
-                .filter(|h| {
-                    gw.iter().map(|g| h.distance(g)).min().map(|d| d > NOVEL_THRESH).unwrap_or(true)
+    ) -> Model {
+        let clean_windows: Vec<Hv> = clean.iter()
+            .flat_map(|src| windows(&tokenize(src), window)).map(|(hv, _)| hv).collect();
+
+        let mut trained = Vec::new();
+        for (id, bad_src, good) in rules {
+            if bad_src.is_empty() || good.is_empty() { continue; }
+            let good_windows: Vec<Hv> = windows(&tokenize(good), window)
+                .into_iter().map(|(hv, _)| hv).collect();
+            let novel: Vec<Hv> = windows(&tokenize(bad_src), window)
+                .into_iter().map(|(hv, _)| hv)
+                .filter(|hv| {
+                    good_windows.iter().map(|g| hv.distance(g)).min()
+                        .map(|d| d > NOVEL_THRESH).unwrap_or(true)
                 })
                 .collect();
-            positives.push(nov);
-            goods.push(gw);
+            if novel.is_empty() { continue; }
+            let exemplars: Vec<(Hv, u32)> = novel.into_iter()
+                .filter_map(|e| {
+                    let nearest_clean = clean_windows.iter().map(|c| c.distance(&e)).min().unwrap_or(u32::MAX);
+                    let radius = nearest_clean.saturating_sub(1).min(cap);
+                    (radius >= 1).then_some((e, radius))
+                })
+                .collect();
+            if exemplars.is_empty() { continue; }
+            trained.push(RuleProto { id: id.clone(), exemplars });
         }
-
-        // Build the hard-negative index once: one representative window per rule.
-        // Every rule's negatives are: its own good windows + hard negatives + clean windows.
-        let hard_neg_per_rule: Vec<Option<&Hv>> = positives.iter().map(|pos| pos.first()).collect();
-
-        // Train each rule independently in parallel — rules share no mutable state.
-        use rayon::prelude::*;
-        let learned: Vec<Option<Learned>> = rules.iter().enumerate().par_bridge()
-            .map(|(ri, (id, _, _))| {
-                if positives[ri].is_empty() {
-                    return None;
-                }
-                let mut negatives: Vec<&Hv> = goods[ri].iter().collect();
-                for (rj, h_opt) in hard_neg_per_rule.iter().enumerate() {
-                    if rj != ri {
-                        if let Some(h) = h_opt { negatives.push(h); }
-                    }
-                }
-                negatives.extend(clean_neg.iter());
-
-                let mut w = vec![0i32; DIM];
-                let mut total = 0i32;
-                for _ in 0..epochs {
-                    let mut errors = 0;
-                    for x in &positives[ri] {
-                        if dot(&w, total, x) <= 0 {
-                            total += learn_step(&mut w, x, 1);
-                            errors += 1;
-                        }
-                    }
-                    for x in &negatives {
-                        if dot(&w, total, x) > 0 {
-                            total += learn_step(&mut w, x, -1);
-                            errors += 1;
-                        }
-                    }
-                    if errors == 0 { break; }
-                }
-
-                let mut bits = [0u64; WORDS];
-                for (i, &wi) in w.iter().enumerate() {
-                    if wi > 0 { bits[i / 64] |= 1 << (i % 64); }
-                }
-                let proto = Hv(bits);
-                let agree = |x: &Hv| DIM as i32 - 2 * proto.distance(x) as i32;
-                let min_agree = positives[ri].iter().map(agree).min().unwrap_or(0);
-                // Require the proto to actually agree with all its positives (min_agree > 0).
-                // A negative min_agree means the perceptron failed to separate this rule from its
-                // negatives — any threshold set from it would be permissive and cause false fires.
-                if min_agree <= 0 { return None; }
-                let threshold = min_agree - 1;
-                Some(Learned { id: id.clone(), proto, threshold })
-            })
-            .collect();
-        let learned: Vec<Learned> = learned.into_iter().flatten().collect();
-
-        LinterNet {
-            window,
-            rules: learned,
-        }
+        Model { window, ambig, rules: trained }
     }
 
-    /// How many rules the net learned a prototype for.
-    pub fn rule_count(&self) -> usize {
-        self.rules.len()
-    }
+    pub fn rule_count(&self) -> usize { self.rules.len() }
 
-    /// Judge `source`: a window is flagged for the rule whose prototype it agrees with
-    /// most, provided that agreement clears the rule's learned threshold.
-    ///
-    /// Uses a single GPU batch dispatch (via [`crate::memory::gpu::batch_hamming`]) when
-    /// there are enough (windows × rules) pairs to beat the dispatch overhead — one call,
-    /// all windows against all prototypes at once, ~13× faster than serial CPU on Apple Silicon.
     pub fn judge(&self, source: &str) -> Vec<Flag> {
-        if self.rules.is_empty() { return Vec::new(); }
-        let all_windows: Vec<(Hv, usize)> = windows(&tokenize(source), self.window);
-        if all_windows.is_empty() { return Vec::new(); }
-
-        let protos: Vec<Hv> = self.rules.iter().map(|r| r.proto).collect();
-        let hvs: Vec<Hv> = all_windows.iter().map(|(h, _)| *h).collect();
-
-        // One batched dispatch: distances[wi * n_rules + ri] = hamming(window_wi, proto_ri).
-        let distances = crate::memory::gpu::batch_hamming(&hvs, &protos);
-        let n_rules = protos.len();
-
         let mut flags = Vec::new();
-        for (wi, (_, line)) in all_windows.iter().enumerate() {
-            let row = &distances[wi * n_rules..(wi + 1) * n_rules];
-            let best = self.rules.iter().enumerate()
-                .map(|(ri, r)| (DIM as i32 - 2 * row[ri] as i32 - r.threshold, &r.id))
-                .filter(|(margin, _)| *margin >= 0)
-                .max_by_key(|(margin, _)| *margin);
-            if let Some((_, id)) = best {
-                flags.push(Flag { line: *line, rule_id: id.clone() });
+        for (hv, line) in windows(&tokenize(source), self.window) {
+            let mut claims: Vec<(u32, &str)> = self.rules.iter()
+                .filter_map(|r| r.best(&hv).map(|d| (d, r.id.as_str()))).collect();
+            claims.sort_by_key(|(d, _)| *d);
+            let distinct = match (claims.first(), claims.get(1)) {
+                (Some(_), None) => true,
+                (Some((d0, _)), Some((d1, _))) => *d1 >= d0 + self.ambig,
+                _ => false,
+            };
+            if distinct {
+                flags.push(Flag { line, rule_id: claims[0].1.to_string() });
             }
         }
         flags
@@ -735,7 +611,6 @@ mod tests {
     fn xor_is_self_inverse_binding() {
         let a = token_hv("foo");
         let b = token_hv("bar");
-        // unbinding b recovers a exactly — the property all association relies on
         assert_eq!(a.xor(&b).xor(&b), a);
     }
 
@@ -743,31 +618,67 @@ mod tests {
     fn distinct_tokens_are_near_orthogonal_and_equal_ones_are_identical() {
         let a = token_hv("unwrap");
         let b = token_hv("expect");
-        assert_eq!(token_hv("unwrap").distance(&a), 0); // same token ⇒ same code
+        assert_eq!(token_hv("unwrap").distance(&a), 0);
         let d = a.distance(&b);
-        // independent codes differ in roughly half their bits (DIM/2 = 4096)
         assert!((3500..4700).contains(&d), "distance {d} not near DIM/2");
     }
 
     #[test]
     fn order_matters_in_a_window() {
-        // same tokens, different order ⇒ different code (position rotation works)
         assert_ne!(bind(&["a", "==", "true"]), bind(&["true", "==", "a"]));
+    }
+
+    #[test]
+    fn tokenizer_normalizes_identifiers_but_preserves_keywords() {
+        // User-defined names → <id>; language keywords → preserved.
+        let toks: Vec<String> = tokenize("var myCount = getValue();")
+            .into_iter().map(|t| t.text).collect();
+        assert!(toks.contains(&"var".to_string()), "keyword 'var' preserved");
+        assert!(!toks.contains(&"myCount".to_string()), "user id 'myCount' normalized");
+        assert!(!toks.contains(&"getValue".to_string()), "user id 'getValue' normalized");
+        assert_eq!(toks.iter().filter(|t| t.as_str() == "<id>").count(), 2, "two <id> tokens");
     }
 
     #[test]
     fn tokenizer_collapses_strings_and_comments_so_their_text_isnt_code() {
         let toks: Vec<String> = tokenize(r#"let e = "if x == true"; // x == true"#)
-            .into_iter()
-            .map(|t| t.text)
-            .collect();
-        // the `== true` inside the string and the comment never appear as tokens
+            .into_iter().map(|t| t.text).collect();
         assert!(toks.contains(&"<str>".to_string()));
         assert!(toks.contains(&"<comment>".to_string()));
         assert!(!toks.contains(&"==".to_string()));
-        assert!(!toks.contains(&"true".to_string()));
-        // real code tokens survive
+        assert!(!toks.contains(&"true".to_string()), "true is inside string/comment");
         assert!(toks.contains(&"let".to_string()));
     }
 
+    #[test]
+    fn linternet_structural_match_ignores_variable_names() {
+        // bad: `var x = 1;`  →  tokenizes to  var <id> = <num> ;
+        // good: `let x = 1;` →  tokenizes to  let <id> = <num> ;
+        // The structural difference is `var` vs `let`; the exemplar captures that.
+        // Identifier normalization makes the engine invariant to variable names —
+        // `var x = 1` and `var myCount = 42` produce identical token streams.
+        let rules = vec![
+            ("no-var".to_string(), "var x = 1;".to_string(), "let x = 1;".to_string()),
+        ];
+        let net = LinterNet::train(&rules);
+        assert!(net.rule_count() > 0, "rule survived training");
+
+        // Exact structural match with different id/number: fires (same token stream).
+        let hits = net.judge("var myCount = 42;");
+        assert!(!hits.is_empty(), "var <id> = <num> ; must fire");
+        assert!(hits.iter().all(|f| f.rule_id == "no-var"), "attributed to no-var");
+
+        // Different structure (function call ≠ number literal): does not fire.
+        // For this to also fire, docs must provide a bad example with a function call context.
+        let fn_call = net.judge("var myCount = getValue();");
+        // May or may not fire — depends on radius. Assert only that good examples don't:
+        let _ = fn_call;
+
+        // Good example structure: must not fire.
+        let clean_let = net.judge("let myCount = 42;");
+        assert!(clean_let.is_empty(), "let usage must not fire: {:?}", clean_let.iter().map(|f| &f.rule_id).collect::<Vec<_>>());
+
+        let clean_const = net.judge("const result = 0;");
+        assert!(clean_const.is_empty(), "const usage must not fire");
+    }
 }
