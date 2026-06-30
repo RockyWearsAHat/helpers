@@ -17,6 +17,7 @@ use tree_sitter::Parser;
 
 use crate::index::walk::walk_repo;
 use crate::lint_match::language;
+use crate::util::file_lang;
 
 // ── public types ─────────────────────────────────────────────────────────────
 
@@ -338,24 +339,3 @@ fn callee_name(node: tree_sitter::Node, src: &[u8], lang: &str) -> Option<String
 
 // ── file → language mapping ───────────────────────────────────────────────────
 
-/// Map a file extension to a language name. Mirrors the table in `tools/lint.rs`
-/// (shared logic, kept local to avoid a cross-module dependency).
-pub fn file_lang(ext: &str) -> Option<&'static str> {
-    Some(match ext {
-        "rs"                            => "rust",
-        "py"                            => "python",
-        "js" | "mjs" | "cjs" | "jsx"   => "javascript",
-        "ts" | "tsx"                    => "typescript",
-        "go"                            => "go",
-        "java"                          => "java",
-        "rb"                            => "ruby",
-        "c"  | "h"                      => "c",
-        "cpp" | "cc" | "cxx" | "hpp"   => "cpp",
-        "sh" | "bash"                   => "bash",
-        "kt" | "kts"                    => "kotlin",
-        "swift"                         => "swift",
-        "cs"                            => "csharp",
-        "php"                           => "php",
-        _                               => return None,
-    })
-}
