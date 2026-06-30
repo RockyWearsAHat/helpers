@@ -130,9 +130,8 @@ pub(crate) fn project_rules(project_root: &Path, lang: &str) -> Vec<DocRule> {
         let Ok(doc) = std::fs::read_to_string(&path) else { continue };
         let source = path.to_string_lossy().into_owned();
         for r in crate::linter::Knowledge::from_text(lang, &doc).rules {
-            if r.bad.is_empty() {
-                continue;
-            }
+            // Prose-only rules (no bad example) are valid: the pattern is derived from the
+            // English description. Only skip when both bad and description are empty.
             out.push(DocRule {
                 id: r.id,
                 slice: "project-rule".to_string(),
@@ -159,12 +158,16 @@ pub fn ensure_models(langs: &[String], data_root: &Path, project_root: &Path) ->
     for lang in langs {
         let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
         let (mut rules, _reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
-        // CS-principles folder rules for this language.
-        rules.extend(folder.iter().filter(|(l, _)| l == lang).map(|(_, r)| r.clone()));
+        // CS-principles folder rules: language-specific + cross-language ("any").
+        rules.extend(
+            folder.iter()
+                .filter(|(l, _)| l == lang || l == "any" || l.is_empty())
+                .map(|(_, r)| r.clone()),
+        );
         // Project-local rules — higher priority than global corpus, so appended last.
         rules.extend(project_rules(project_root, lang));
-        if rules.iter().all(|r| r.bad.is_empty()) {
-            report.skipped.push((lang.clone(), "no rule has a bad example to learn the pattern from".to_string()));
+        if rules.is_empty() {
+            report.skipped.push((lang.clone(), "no rules found for this language".to_string()));
             continue;
         }
         let stamp = stamp_of(&version, &rules);
@@ -479,10 +482,10 @@ fn corpus_rules(data_root: &Path) -> Vec<(String, DocRule)> {
     };
     docs.into_iter()
         .flat_map(|(source, doc)| {
-            crate::linter::Knowledge::from_text("rust", &doc)
+            crate::linter::Knowledge::from_text("any", &doc)
                 .rules
                 .into_iter()
-                .filter(|r| !r.bad.is_empty())
+                // Prose-only rules (no bad example) are valid: pattern comes from description.
                 .map(move |r| {
                     (
                         r.language.clone(),
