@@ -25,6 +25,10 @@ use crate::lint_ai::Hv;
 /// imperfect threshold only ever costs a little speed, never accuracy.
 const GPU_WORTH_IT: usize = 50_000;
 
+/// Above this many total (queries × keys) pairs, the batched GPU dispatch pays for itself.
+/// At ~100 windows × 468 rules = 46k pairs, GPU already wins ~13× on Apple Silicon.
+const GPU_BATCH_WORTH_IT: usize = 40_000;
+
 /// Hamming distance from `query` to every key, choosing the faster backend automatically.
 /// Result `out[i]` is the distance to `keys[i]`, identical regardless of backend.
 pub fn query_distances(query: &Hv, keys: &[Hv]) -> Vec<u32> {
@@ -50,10 +54,181 @@ pub fn cpu_query_distances(query: &Hv, keys: &[Hv]) -> Vec<u32> {
     keys.par_iter().map(|k| query.distance(k)).collect()
 }
 
+/// Hamming distance from every query to every key in one batched dispatch.
+/// Returns a flat `M × N` matrix: `out[qi * n_keys + ki]` = distance(`queries[qi]`, `keys[ki]`).
+/// Chooses GPU when `M×N >= GPU_BATCH_WORTH_IT` and the device is available, CPU otherwise.
+pub fn batch_hamming(queries: &[Hv], keys: &[Hv]) -> Vec<u32> {
+    if queries.is_empty() || keys.is_empty() {
+        return Vec::new();
+    }
+    #[cfg(feature = "gpu")]
+    {
+        if queries.len() * keys.len() >= GPU_BATCH_WORTH_IT {
+            if let Some(d) = gpu_batch_hamming(queries, keys) {
+                return d;
+            }
+        }
+    }
+    let _ = GPU_BATCH_WORTH_IT;
+    cpu_batch_hamming(queries, keys)
+}
+
+/// CPU fallback for the batch path: parallel over queries, sequential over keys per query.
+pub fn cpu_batch_hamming(queries: &[Hv], keys: &[Hv]) -> Vec<u32> {
+    use rayon::prelude::*;
+    queries.par_iter()
+        .flat_map(|q| keys.iter().map(|k| q.distance(k)).collect::<Vec<_>>())
+        .collect()
+}
+
 /// u32 lanes per hypervector (8192 bits ÷ 32). WGSL has no 64-bit popcount, so vectors are
 /// packed as 32-bit lanes the shader counts directly.
 #[cfg(feature = "gpu")]
 const WORDS_U32: usize = crate::lint_ai::DIM / 32;
+
+/// GPU batch shader: one thread per (query, key) pair → out[qi * n_keys + ki] = hamming distance.
+/// params: (n_queries, n_keys, vec4_per_vec, _pad)
+#[cfg(feature = "gpu")]
+const BATCH_SHADER: &str = r#"
+@group(0) @binding(0) var<storage, read>       queries: array<vec4<u32>>;
+@group(0) @binding(1) var<storage, read>       keys:    array<vec4<u32>>;
+@group(0) @binding(2) var<storage, read_write> out:     array<u32>;
+@group(0) @binding(3) var<uniform>             params:  vec4<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let n_keys = params.y;
+    let w      = params.z;
+    let thread = gid.x;
+    let qi     = thread / n_keys;
+    let ki     = thread % n_keys;
+    if (qi >= params.x) { return; }
+    let qbase = qi * w;
+    let kbase = ki * w;
+    var d: u32 = 0u;
+    for (var i: u32 = 0u; i < w; i = i + 1u) {
+        let c = countOneBits(queries[qbase + i] ^ keys[kbase + i]);
+        d = d + c.x + c.y + c.z + c.w;
+    }
+    out[qi * n_keys + ki] = d;
+}
+"#;
+
+/// GPU-accelerated batch Hamming: all queries × all keys in one dispatch.
+#[cfg(feature = "gpu")]
+pub fn gpu_batch_hamming(queries: &[Hv], keys: &[Hv]) -> Option<Vec<u32>> {
+    pollster::block_on(run_batch(queries, keys))
+}
+
+#[cfg(feature = "gpu")]
+async fn run_batch(queries: &[Hv], keys: &[Hv]) -> Option<Vec<u32>> {
+    use wgpu::util::DeviceExt;
+
+    let instance = wgpu::Instance::default();
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        })
+        .await?;
+    let (device, queue) = adapter
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("lint-batch-hamming"),
+                required_features: wgpu::Features::empty(),
+                required_limits: adapter.limits(),
+                memory_hints: wgpu::MemoryHints::Performance,
+            },
+            None,
+        )
+        .await
+        .ok()?;
+
+    let n_q = queries.len() as u32;
+    let n_k = keys.len() as u32;
+    let w = (WORDS_U32 / 4) as u32; // vec4 units per vector
+    let params = [n_q, n_k, w, 0u32];
+    let total_pairs = (queries.len() * keys.len()) as u64;
+    let out_bytes = total_pairs * std::mem::size_of::<u32>() as u64;
+
+    let qbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("queries"),
+        contents: bytemuck::cast_slice(&pack(queries)),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let kbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("keys"),
+        contents: bytemuck::cast_slice(&pack(keys)),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let pbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("params"),
+        contents: bytemuck::cast_slice(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let obuf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("out"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("staging"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lint-batch-hamming"),
+        source: wgpu::ShaderSource::Wgsl(BATCH_SHADER.into()),
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("lint-batch-hamming"),
+        layout: None,
+        module: &module,
+        entry_point: "main",
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: qbuf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: kbuf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: obuf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 3, resource: pbuf.as_entire_binding() },
+        ],
+    });
+
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: None,
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        let groups = (queries.len() as u32 * n_k).div_ceil(64);
+        pass.dispatch_workgroups(groups, 1, 1);
+    }
+    encoder.copy_buffer_to_buffer(&obuf, 0, &staging, 0, out_bytes);
+    queue.submit(Some(encoder.finish()));
+
+    let slice = staging.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().ok()?.ok()?;
+    let data = slice.get_mapped_range();
+    let result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+    drop(data);
+    staging.unmap();
+    Some(result)
+}
 
 /// One query against all keys on the GPU: one thread per key computes `popcount(q XOR key)`
 /// and writes the distance. Returns `None` if no usable GPU is present so the caller falls
