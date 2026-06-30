@@ -1,21 +1,22 @@
-//! `lint_train` — self-setup for the AI linter: it **learns the rules itself** from the two
-//! knowledge sources, compiles one exact-pattern rule set per language, and caches the result so a
-//! lint run loads instead of relearning.
+//! `lint_train` — self-setup for the AI linter: learns rules from two documentation sources,
+//! builds one [`LangModel`] per language, and caches the result so a lint run loads instead of
+//! relearning. One call to [`ensure_models`] trains both engines from the same sources and returns
+//! everything the lint tool needs — no second pass, no separate training step.
 //!
-//! Knowledge enters from exactly two places — never from memory, never from a rule hardcoded in
-//! Rust, and never requiring an external indexer to be run first:
+//! The two documentation sources:
 //!
-//!   1. **The documentation from the links** — the official rule docs for each language
-//!      (clippy / ruff / eslint / staticcheck). The linter learns them *itself* by crawling the
-//!      live docs ([`crate::lint_docs`]): it reads each rule's anti-pattern, fix, and lesson. What
-//!      it learns is cached and refreshed when the toolchain version changes, so it stays current —
-//!      never stale, never dependent on someone pre-building an index. A committed `lint-index/`
-//!      snapshot, when present, is used as a fast seed; the embedded copy is the offline fallback.
-//!   2. **Files in a folder** — `corpus/`: the CS course principles (CS2420 Data Structures &
-//!      Algorithms, CS3500 Software Design). Each fenced `bad`/`good` pair becomes a pattern.
+//!   1. **Official web documentation** — the official rule docs for each language (clippy / ruff /
+//!      eslint / staticcheck / pmd). The linter crawls the live docs ([`crate::lint_docs`]) and
+//!      caches what it learns, version-keyed so it stays current. A committed `lint-index/`
+//!      snapshot seeds the offline case; the embedded copy is the final fallback.
+//!   2. **File documentation** — `corpus/` (global CS principles) and `.helpers/lint-rules/`
+//!      (project-local rules). Every `*.md` in either directory is read as documentation: headings
+//!      become rules, prose bodies become patterns OR behavioral principles depending on their
+//!      wording. Adding a file takes effect on the next lint run with no code change.
 //!
-//! Training is the slow step, so [`ensure_models`] does it once and caches it, gated on a checksum
-//! of the resolved rules + toolchain version: it relearns only when the docs or the folder change.
+//! Each source feeds BOTH engines: bad/good examples in the prose compile to pattern rules;
+//! structural wording ("one thing", "too long", "complex") activates a behavioral sense. The
+//! [`LangModel`] returned by [`ensure_models`] carries both; the lint tool runs them together.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,6 +25,19 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::lint_match::RuleSet;
+use crate::lint_practice::Principle;
+
+/// A trained model for one language: the pattern rule set (compiled from documentation bad/good
+/// examples) and the behavioral principles (extracted from documentation prose). Both engines train
+/// from the same two sources; [`ensure_models`] builds both and returns them together so the lint
+/// tool makes one call and gets everything it needs.
+pub struct LangModel {
+    /// Pattern-matching rules compiled from documentation bad/good examples.
+    pub rules: RuleSet,
+    /// Behavioral principles extracted from documentation prose. A principle activates a structural
+    /// sense (responsibility, complexity, length) by the words it uses — no code example required.
+    pub principles: Vec<Principle>,
+}
 
 /// How many doc pages to crawl when learning a language whose docs are a site (ruff/eslint publish
 /// ~1000 rule pages). High enough to read the whole rule set; the learned catalog is cached, so the
@@ -156,49 +170,144 @@ pub fn stamp_path_pub(lang: &str) -> PathBuf {
     stamp_path(lang)
 }
 
-pub fn ensure_models(langs: &[String], data_root: &Path, project_root: &Path) -> TrainReport {
+/// Train from both documentation sources and return one [`LangModel`] per language. Idempotent
+/// and checksum-gated: a language whose pattern rules and toolchain version are unchanged reloads
+/// from cache; behavioral principles are re-extracted each run (fast file reads, no compilation).
+///
+/// Source 1 — **official web documentation**: crawled or seeded from `lint-index/`; cached,
+/// version-keyed so a toolchain bump triggers a fresh crawl.
+/// Source 2 — **file documentation**: `corpus/` (global CS principles) and `.helpers/lint-rules/`
+/// (project-local rules). Both feeds BOTH engines: bad/good examples → pattern rules; structural
+/// prose → behavioral principles.
+pub fn ensure_models(
+    langs: &[String],
+    data_root: &Path,
+    project_root: &Path,
+) -> (TrainReport, HashMap<String, LangModel>) {
     let mut report = TrainReport::default();
+    let mut models = HashMap::new();
     let folder = corpus_rules(data_root);
+
+    // Behavioral principles are language-agnostic and come entirely from Source 2 (file docs).
+    // Extract once; every language model shares the same set.
+    let principles = file_doc_principles(data_root, project_root);
+
     for lang in langs {
         let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
         let (mut rules, _reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
-        // CS-principles folder rules: language-specific + cross-language ("any").
         rules.extend(
             folder.iter()
                 .filter(|(l, _)| l == lang || l == "any" || l.is_empty())
                 .map(|(_, r)| r.clone()),
         );
-        // Project-local rules — higher priority than global corpus, so appended last.
         rules.extend(project_rules(project_root, lang));
-        if rules.is_empty() {
+
+        if rules.is_empty() && principles.is_empty() {
             report.skipped.push((lang.clone(), "no rules found for this language".to_string()));
             continue;
         }
-        let stamp = stamp_of(&version, &rules);
-        if model_fresh(&patterns_path(lang), &stamp_path(lang), &stamp) {
-            report.reused.push(lang.clone());
-            continue;
+
+        // Fast path: pattern model already cached and current — load it, attach principles.
+        if !rules.is_empty() {
+            let stamp = stamp_of(&version, &rules);
+            if model_fresh(&patterns_path(lang), &stamp_path(lang), &stamp) {
+                if let Some(rule_set) = load_patterns(lang) {
+                    models.insert(lang.clone(), LangModel { rules: rule_set, principles: principles.clone() });
+                }
+                report.reused.push(lang.clone());
+                continue;
+            }
         }
+
+        // Build and cache the pattern model from Source 1 + Source 2 rules.
         let tuples: Vec<(String, String, String, String, String)> = rules
             .iter()
             .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone()))
             .collect();
-        let model = RuleSet::build(lang, &tuples);
-        if model.rule_count() == 0 {
+        let rule_set = RuleSet::build(lang, &tuples);
+
+        if rule_set.rule_count() == 0 && principles.is_empty() {
             report.skipped.push((lang.clone(), "no rule carried a distinctive pattern to match".to_string()));
             continue;
         }
-        if let Some(parent) = patterns_path(lang).parent() {
-            let _ = std::fs::create_dir_all(parent);
+
+        if rule_set.rule_count() > 0 {
+            if let Some(parent) = patterns_path(lang).parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let stamp = stamp_of(&version, &rules);
+            if std::fs::write(patterns_path(lang), rule_set.to_json()).is_ok() {
+                let _ = std::fs::write(stamp_path(lang), &stamp);
+                report.trained.push(format!("{lang} ({} rules, from {learned_from})", rule_set.rule_count()));
+            } else {
+                report.skipped.push((lang.clone(), "could not write the cached model".to_string()));
+                continue;
+            }
         }
-        if std::fs::write(patterns_path(lang), model.to_json()).is_ok() {
-            let _ = std::fs::write(stamp_path(lang), &stamp);
-            report.trained.push(format!("{lang} ({} rules, from {learned_from})", model.rule_count()));
-        } else {
-            report.skipped.push((lang.clone(), "could not write the cached model".to_string()));
+
+        models.insert(lang.clone(), LangModel { rules: rule_set, principles: principles.clone() });
+    }
+
+    (report, models)
+}
+
+/// Extract behavioral [`Principle`]s from the file documentation sources (Source 2): every `*.md`
+/// in `corpus/` (global) and every `*.md` in `.helpers/lint-rules/` (project-local). Principles
+/// are language-agnostic — a principle that says "do one thing" applies to every language the
+/// behavioral engine supports via its AST. Re-extracted each run (fast file reads; no compilation).
+fn file_doc_principles(data_root: &Path, project_root: &Path) -> Vec<Principle> {
+    let mut docs: Vec<String> = Vec::new();
+    let corpus_dir = data_root.join("corpus");
+    match std::fs::read_dir(&corpus_dir) {
+        Ok(entries) => docs.extend(
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
+                .filter_map(|e| std::fs::read_to_string(e.path()).ok()),
+        ),
+        Err(_) => docs.push(EMBEDDED_CS_PRINCIPLES.to_string()),
+    }
+    if let Ok(entries) = std::fs::read_dir(project_root.join(".helpers/lint-rules")) {
+        docs.extend(
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
+                .filter_map(|e| std::fs::read_to_string(e.path()).ok()),
+        );
+    }
+    let mut principles: Vec<Principle> = Vec::new();
+    for doc in &docs {
+        extract_principles_from_doc(doc, &mut principles);
+    }
+    let mut seen = std::collections::HashSet::new();
+    principles.retain(|p| seen.insert(p.id.clone()));
+    principles
+}
+
+/// Walk a markdown document extracting a [`Principle`] from each heading + prose body pair.
+fn extract_principles_from_doc(doc: &str, out: &mut Vec<Principle>) {
+    let mut heading: Option<&str> = None;
+    let mut body = String::new();
+    for line in doc.lines() {
+        let t = line.trim_start();
+        if t.starts_with('#') {
+            if let Some(h) = heading {
+                if let Some(p) = Principle::from_section(h, body.trim()) {
+                    out.push(p);
+                }
+            }
+            heading = Some(t.trim_start_matches('#').trim());
+            body.clear();
+        } else if heading.is_some() && !t.starts_with("```") {
+            if !body.is_empty() { body.push(' '); }
+            body.push_str(t);
         }
     }
-    report
+    if let Some(h) = heading {
+        if let Some(p) = Principle::from_section(h, body.trim()) {
+            out.push(p);
+        }
+    }
 }
 
 /// Load a language's cached compiled rule set, or `None` if absent/unreadable.
