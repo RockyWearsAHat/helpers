@@ -51,6 +51,10 @@ static EMBEDDED_LINT_MODELS: include_dir::Dir<'_> =
 /// document (prose-only; pattern rules come from committed modules and crawled official docs).
 const EMBEDDED_CS_PRINCIPLES: &str = include_str!("../../corpus/software-design.md");
 
+/// The embedded CS principles text — exposed so the lint tool can build practice rules from it
+/// without re-reading the file or duplicating the `include_str!` path.
+pub fn embedded_cs_principles() -> &'static str { EMBEDDED_CS_PRINCIPLES }
+
 /// One documented rule, normalized across all sources into the shape the engine compiles from: an id, a
 /// routing `slice` (the doc category, or severity when the source has no category), severity,
 /// English advice, the anti-pattern, its fix, and a doc URL for citation.

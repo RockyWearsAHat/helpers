@@ -14,6 +14,7 @@ pub mod lint_ai;
 pub mod lint_docs;
 pub mod lint_graph;
 pub mod lint_match;
+pub mod lint_practice;
 pub mod lint_train;
 pub mod lint_checkers;
 pub mod linter;
