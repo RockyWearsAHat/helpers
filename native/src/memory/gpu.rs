@@ -87,7 +87,8 @@ pub fn cpu_batch_hamming(queries: &[Hv], keys: &[Hv]) -> Vec<u32> {
 const WORDS_U32: usize = crate::lint_ai::DIM / 32;
 
 /// GPU batch shader: one thread per (query, key) pair → out[qi * n_keys + ki] = hamming distance.
-/// params: (n_queries, n_keys, vec4_per_vec, _pad)
+/// params: (n_queries, n_keys, vec4_per_vec, x_stride) where x_stride = gx_groups * 64.
+/// The 2D dispatch (gx, gy) avoids the 65535-per-dimension limit; thread = gid.y * x_stride + gid.x.
 #[cfg(feature = "gpu")]
 const BATCH_SHADER: &str = r#"
 @group(0) @binding(0) var<storage, read>       queries: array<vec4<u32>>;
@@ -97,11 +98,12 @@ const BATCH_SHADER: &str = r#"
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let n_keys = params.y;
-    let w      = params.z;
-    let thread = gid.x;
-    let qi     = thread / n_keys;
-    let ki     = thread % n_keys;
+    let n_keys   = params.y;
+    let w        = params.z;
+    let x_stride = params.w;
+    let thread   = gid.y * x_stride + gid.x;
+    let qi       = thread / n_keys;
+    let ki       = thread % n_keys;
     if (qi >= params.x) { return; }
     let qbase = qi * w;
     let kbase = ki * w;
@@ -148,7 +150,12 @@ async fn run_batch(queries: &[Hv], keys: &[Hv]) -> Option<Vec<u32>> {
     let n_q = queries.len() as u32;
     let n_k = keys.len() as u32;
     let w = (WORDS_U32 / 4) as u32; // vec4 units per vector
-    let params = [n_q, n_k, w, 0u32];
+    // 2D dispatch to stay within the 65535-per-dimension limit.
+    let total_groups = (n_q * n_k).div_ceil(64);
+    let gx = total_groups.min(65535);
+    let gy = total_groups.div_ceil(gx);
+    let x_stride = gx * 64; // thread stride across the x dimension (passed to shader)
+    let params = [n_q, n_k, w, x_stride];
     let total_pairs = (queries.len() * keys.len()) as u64;
     let out_bytes = total_pairs * std::mem::size_of::<u32>() as u64;
 
@@ -212,8 +219,7 @@ async fn run_batch(queries: &[Hv], keys: &[Hv]) -> Option<Vec<u32>> {
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        let groups = (queries.len() as u32 * n_k).div_ceil(64);
-        pass.dispatch_workgroups(groups, 1, 1);
+        pass.dispatch_workgroups(gx, gy, 1);
     }
     encoder.copy_buffer_to_buffer(&obuf, 0, &staging, 0, out_bytes);
     queue.submit(Some(encoder.finish()));
