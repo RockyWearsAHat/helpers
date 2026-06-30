@@ -1,7 +1,6 @@
-//! `lint_train` — self-setup for the AI linter: learns rules from two documentation sources,
-//! builds one [`LangModel`] per language, and caches the result so a lint run loads instead of
-//! relearning. One call to [`ensure_models`] trains both engines from the same sources and returns
-//! everything the lint tool needs — no second pass, no separate training step.
+//! `lint_train` — self-setup for the AI linter: reads two documentation sources, compiles one
+//! [`ConceptModel`] per language, and caches the result so a lint run loads a binary blob instead
+//! of re-compiling. One call to [`train`] does everything the lint tool needs.
 //!
 //! The two documentation sources:
 //!
@@ -10,12 +9,14 @@
 //!      a committed `lint-index/` snapshot seeds the offline case.
 //!   2. **File documentation** — `extraDocs/` (global principles, shipped with the tool) and
 //!      `.helpers/lint-rules/` (project-local rules). Every `*.md` in either directory is read as
-//!      documentation: headings + prose become behavioral principles. Adding a file takes effect on
-//!      the next lint run with no code change.
+//!      documentation: headings + prose become behavioral principles.
 //!
-//! The primary entry point for the lint tool is [`train`], which reads both sources and returns a
-//! [`TrainedModel`] carrying the activated behavioral principles. The older [`ensure_models`] path
-//! (pattern compilation + caching) remains for [`crate::tools::lint_source`] and [`crate::tools::lint_web`].
+//! Rules with bad/good examples are compiled into concept vectors via tree-sitter AST diffing
+//! (`ConceptModel::compile`). Concept vectors are stored in a compact binary format (`{lang}.concepts.bin`)
+//! with a SHA-256 stamp; nothing is re-compiled unless the rule content changes.
+//!
+//! [`ensure_models`] (pattern compilation) remains for [`crate::tools::lint_source`] and
+//! [`crate::tools::lint_web`] which use the tree-pattern engine.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -23,7 +24,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::lint_ai::LinterNet;
+use crate::lint_ai::ConceptModel;
 use crate::lint_match::RuleSet;
 use crate::lint_practice::Principle;
 
@@ -46,9 +47,9 @@ pub struct TrainedModel {
     /// Behavioral principles extracted from documentation prose. Each activates a structural sense
     /// (responsibility, complexity, length) by the words it uses — no examples required.
     pub principles: Vec<Principle>,
-    /// Per-language AI nets: one `LinterNet` per language, trained from that language's
-    /// documentation bad/good examples, calibrated against the project's own source of that language.
-    pub nets: HashMap<String, LinterNet>,
+    /// Per-language concept models: one `ConceptModel` per language, compiled from that language's
+    /// documentation bad/good examples via tree-sitter AST diffing. Zero runtime cost per rule check.
+    pub concept_models: HashMap<String, ConceptModel>,
     /// Advice strings keyed by rule id, for rendering findings: `(severity, description)`.
     pub rule_advice: HashMap<String, (String, String)>,
     /// Human-readable summary of where the model was trained from.
@@ -58,7 +59,7 @@ pub struct TrainedModel {
 /// Train from both documentation sources and return the model the lint tool runs.
 ///
 /// Source 1 — **official web documentation**: the committed/embedded `lint-index/` catalogs.
-/// Rules with bad/good examples train the AI (`LinterNet`); prose descriptions activate
+/// Rules with bad/good examples compile a `ConceptModel`; prose descriptions activate
 /// behavioral principles.
 /// Source 2 — **file documentation**: `extraDocs/` + `.helpers/lint-rules/`. Same treatment:
 /// examples → AI, prose → principles.
@@ -148,38 +149,34 @@ pub fn train(data_root: &Path, project_root: &Path) -> TrainedModel {
         sources.push(format!("web docs ({} rules across {} languages)", total_rules, lang_rules.len()));
     }
 
-    // Train per-language nets, caching to disk so subsequent runs load instantly.
-    let nets = train_ai_nets(&lang_rules, project_root, data_root);
+    // Compile per-language concept models, caching to disk so subsequent runs load instantly.
+    let concept_models = compile_concept_models(&lang_rules, &rule_advice);
 
-    TrainedModel { principles, nets, rule_advice, sources }
+    TrainedModel { principles, concept_models, rule_advice, sources }
 }
 
-/// Walk the project's source files and return their contents — the clean calibration corpus for
-/// the AI. It learns that patterns appearing here are fine, so it only fires on genuinely novel
-/// violations from the docs.
-fn clean_source(project_root: &Path) -> Vec<String> {
-    crate::index::walk::walk_repo(project_root)
-        .into_iter()
-        .filter(|f| crate::util::file_lang(&f.ext).is_some())
-        .filter_map(|f| std::fs::read_to_string(&f.abs).ok())
-        .collect()
-}
-
-/// Train (or load from cache) one `LinterNet` per language. The cache key is a SHA-256 of the
-/// rules content — if nothing changed, the saved net loads in milliseconds instead of seconds.
-fn train_ai_nets(
+/// Compile (or load from cache) one `ConceptModel` per language. The cache key is a SHA-256 of
+/// all rule content; if nothing changed the binary blob loads in microseconds.
+///
+/// After loading from cache, `rule_advice` is used to restore the id→string map so findings
+/// report rule names rather than raw hashes.
+fn compile_concept_models(
     lang_rules: &HashMap<String, Vec<(String, String, String)>>,
-    project_root: &Path,
-    data_root: &Path,
-) -> HashMap<String, LinterNet> {
-    let cache_dir = model_dir().join("ai-nets");
+    rule_advice: &HashMap<String, (String, String)>,
+) -> HashMap<String, ConceptModel> {
+    let cache_dir = model_dir();
     let _ = std::fs::create_dir_all(&cache_dir);
-    let mut nets = HashMap::new();
 
+    // Build a hash→id lookup for restoring id_map after a binary load.
+    let id_lookup: HashMap<u64, String> = rule_advice
+        .keys()
+        .map(|id| (crate::lint_ai::token_seed(id), id.clone()))
+        .collect();
+
+    let mut models = HashMap::new();
     for (lang, rules) in lang_rules {
         if rules.is_empty() { continue; }
 
-        // Cache key: hash of rule content for this language.
         let key = {
             let mut h = Sha256::new();
             for (id, bad, good) in rules {
@@ -189,55 +186,31 @@ fn train_ai_nets(
             }
             format!("{:x}", h.finalize())
         };
-        let cache_path = cache_dir.join(format!("{lang}.net.json"));
-        let stamp_path = cache_dir.join(format!("{lang}.net.stamp"));
+        let bin_path  = cache_dir.join(format!("{lang}.concepts.bin"));
+        let stamp_path = cache_dir.join(format!("{lang}.concepts.stamp"));
 
-        // Load cached net if stamp matches.
-        if stamp_path.exists() && cache_path.exists() {
+        // Load cached model if stamp matches.
+        if stamp_path.exists() && bin_path.exists() {
             if let Ok(s) = std::fs::read_to_string(&stamp_path) {
                 if s.trim() == key {
-                    if let Some(net) = load_net(&cache_path) {
-                        nets.insert(lang.clone(), net);
+                    if let Some(mut m) = ConceptModel::load(&bin_path) {
+                        m.merge_ids(&id_lookup);
+                        models.insert(lang.clone(), m);
                         continue;
                     }
                 }
             }
         }
 
-        // Train: calibrate against the project's own files of this language.
-        let clean: Vec<String> = {
-            let lang_ext_matches = |ext: &str| crate::util::file_lang(ext) == Some(lang.as_str());
-            crate::index::walk::walk_repo(project_root)
-                .into_iter()
-                .filter(|f| lang_ext_matches(&f.ext))
-                .filter_map(|f| std::fs::read_to_string(&f.abs).ok())
-                .collect()
-        };
-        // Fall back to all source if no language-specific files exist.
-        let clean = if clean.is_empty() { clean_source(project_root) } else { clean };
-        let _ = data_root; // available for future use
-        let clean_refs: Vec<&str> = clean.iter().map(|s| s.as_str()).collect();
-        let net = LinterNet::train(8, 20, rules, &clean_refs);
+        // Compile from rule triples.
+        let mut model = ConceptModel::compile(rules, lang);
+        model.merge_ids(&id_lookup);
 
-        // Persist.
-        save_net(&net, &cache_path);
+        let _ = model.save(&bin_path);
         let _ = std::fs::write(&stamp_path, &key);
-        nets.insert(lang.clone(), net);
+        models.insert(lang.clone(), model);
     }
-    nets
-}
-
-/// Serialize a `LinterNet` to its JSON cache file.
-fn save_net(net: &LinterNet, path: &Path) {
-    if let Ok(json) = serde_json::to_string(net) {
-        let _ = std::fs::write(path, json);
-    }
-}
-
-/// Load a `LinterNet` from its JSON cache file.
-fn load_net(path: &Path) -> Option<LinterNet> {
-    let s = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&s).ok()
+    models
 }
 
 /// How many doc pages to crawl when learning a language whose docs are a site (ruff/eslint publish
