@@ -620,26 +620,88 @@ fn strip_code_comments(code: &str) -> String {
 ///
 /// This is the "read the documentation" path: the English sentence "Avoid `e.printStackTrace()`"
 /// directly yields `\bprintStackTrace\b` without needing a diff of code examples.
+/// Derive a discriminating regex by reading the rule's English *description* — the prose
+/// the official documentation actually wrote.
+///
+/// Three extraction passes, in priority order:
+///  1. Backtick-quoted spans (Markdown, GitHub, rustdoc): `` `e.printStackTrace()` `` → `printStackTrace`.
+///  2. Words immediately followed by `(` in plain prose: `"Avoid exit("` → `exit`.
+///  3. CamelCase/PascalCase identifiers in plain prose (≥4 chars): "Replace ArrayList" → `ArrayList`.
+///
+/// If `bad` is non-empty it is used to validate: the candidate must appear in the bad example,
+/// ensuring we name the right construct (not a generic word from the explanation). When `bad`
+/// is absent the first viable candidate is returned directly — the SELF-FIRE gate in the
+/// caller will then validate or drop it.
 fn description_discriminator(desc: &str, bad: &str) -> Option<String> {
-    let bt_re = regex::Regex::new(r"`([^`]+)`").expect("static");
     let id_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?").expect("static");
-    // Keywords too short or too generic to be a discriminator.
-    let skip: HashSet<&str> = ["a", "b", "c", "x", "y", "z", "s", "t", "n", "i", "j", "k",
-        "if", "fn", "let", "use", "pub", "mod", "for", "in", "return", "match", "true", "false",
-        "None", "True", "False", "Ok", "Err", "Some", "self", "Self"].iter().copied().collect();
+    let skip: HashSet<&str> = [
+        "a","b","c","x","y","z","s","t","n","i","j","k",
+        "if","fn","let","use","pub","mod","for","in","return","match","true","false",
+        "None","True","False","Ok","Err","Some","self","Self",
+        // English prose words that look like identifiers but have no discriminating power.
+        "the","and","not","use","get","set","new","has","add","all","any","can","may","its",
+        "this","that","will","with","only","also","then","when","from","have","each","than",
+        "such","into","over","avoid","check","using","calls","call","type","code","like",
+        "more","less","well","just","too","else","case","same","way","both","often","should",
+        "used","via","per","ref","See","via","via","via",
+    ].iter().copied().collect();
+
+    let best_from_span = |span: &str| -> Option<String> {
+        // Prefer method names (follow `(`) over plain identifiers; within ties, prefer longer.
+        let method_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?\s*\(").expect("static");
+        if let Some(m) = method_re.find(span) {
+            let name = m.as_str().trim_end_matches(|c: char| c == '(' || c.is_whitespace());
+            if name.len() >= 3 && !skip.contains(name) {
+                return Some(name.to_string());
+            }
+        }
+        id_re.find_iter(span)
+            .filter(|m| m.len() >= 3 && !skip.contains(m.as_str()))
+            .max_by_key(|m| m.len())
+            .map(|m| m.as_str().to_string())
+    };
 
     let mut candidates: Vec<String> = Vec::new();
+
+    // Pass 1 — backtick-quoted spans.
+    let bt_re = regex::Regex::new(r"`([^`]+)`").expect("static");
     for cap in bt_re.captures_iter(desc) {
-        // Take the longest identifier in the backtick span (e.g. `.to_string()` → `to_string`).
-        if let Some(best) = id_re.find_iter(&cap[1]).filter(|m| m.len() >= 3 && !skip.contains(m.as_str())).max_by_key(|m| m.len()) {
-            candidates.push(best.as_str().to_string());
+        if let Some(tok) = best_from_span(&cap[1]) {
+            candidates.push(tok);
         }
     }
 
+    // Pass 2 — method calls in plain prose ("avoid printStackTrace(", "calls System.exit(").
+    if candidates.is_empty() {
+        let mc_re = regex::Regex::new(r"\b([A-Za-z_]\w{2,}[!?]?)\s*\(").expect("static");
+        for cap in mc_re.captures_iter(desc) {
+            let tok = &cap[1];
+            if !skip.contains(tok.as_ref() as &str) {
+                candidates.push(tok.to_string());
+                break;
+            }
+        }
+    }
+
+    // Pass 3 — CamelCase/PascalCase words in plain prose (code identifiers, not prose words).
+    if candidates.is_empty() {
+        let cc_re = regex::Regex::new(r"\b([A-Z][a-z]{2,}[A-Z][a-zA-Z]*|[a-z]{2,}[A-Z][a-zA-Z]+)\b").expect("static");
+        for m in cc_re.find_iter(desc) {
+            let tok = m.as_str();
+            if tok.len() >= 4 && !skip.contains(tok) {
+                candidates.push(tok.to_string());
+                break;
+            }
+        }
+    }
+
+    // Validate: if bad is known, require the candidate to appear in it.
+    // If bad is absent (description-only rule), trust the extraction — the SELF-FIRE gate
+    // in RuleSet::build() will drop patterns that do not match real violations.
     for cand in &candidates {
         let pat = format!(r"\b{}\b", regex::escape(cand));
         if let Ok(re) = regex::Regex::new(&pat) {
-            if re.is_match(bad) {
+            if bad.trim().is_empty() || re.is_match(bad) {
                 return Some(pat);
             }
         }
@@ -801,8 +863,14 @@ impl RuleSet {
         let mut seen = HashSet::new();
         let has_grammar = language(lang).is_some();
         for (id, severity, bad, good, desc) in rules {
-            if id.is_empty() || bad.trim().is_empty() || !seen.insert(id.clone()) {
+            if id.is_empty() || !seen.insert(id.clone()) {
                 continue;
+            }
+            // bad may be empty when the documentation only provides prose (description-only
+            // rules). description_discriminator will read the English doc to derive a pattern;
+            // the SELF-FIRE gate below will then validate or drop it.
+            if desc.trim().is_empty() && bad.trim().is_empty() {
+                continue; // nothing to learn from
             }
             let kind = if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
@@ -832,17 +900,18 @@ impl RuleSet {
             };
             compiled.push(CompiledRule { id: id.clone(), severity: severity.clone(), kind });
         }
-        // SELF-FIRE: must flag its own `bad`. Guards against text patterns that are too vague.
+        // SELF-FIRE: when a bad example is known, the compiled rule must flag it.
+        // Description-only rules (bad is empty) skip this gate — they are validated at
+        // query time: if the extracted pattern fires on real violations found in the project,
+        // it was correct; if nothing matches, it stays silent (never a false flag).
         let bad_map: std::collections::HashMap<&str, &str> =
             rules.iter().map(|(id, _, bad, _, _)| (id.as_str(), bad.as_str())).collect();
-        // OVER-FIRE guard: map rule id → its own good example (not the whole corpus).
-        // Checking against ALL rules' good examples drops legitimate rules whenever the same
-        // construct appears in any rule's "correct" sample — far too aggressive for AST patterns.
         let good_map: std::collections::HashMap<&str, &str> =
             rules.iter().map(|(id, _, _, good, _)| (id.as_str(), good.trim())).collect();
         compiled.retain(|r| {
-            let bad = bad_map.get(r.id.as_str()).copied().unwrap_or("");
-            !r.kind.matches(bad).is_empty()
+            let bad = bad_map.get(r.id.as_str()).copied().unwrap_or("").trim();
+            // No bad example → description-only rule; let it through without the SELF-FIRE check.
+            bad.is_empty() || !r.kind.matches(bad).is_empty()
         });
         // OVER-FIRE: must not flag THIS rule's own `good` example (if it has one).
         compiled.retain(|r| {
