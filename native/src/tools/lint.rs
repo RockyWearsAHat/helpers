@@ -95,9 +95,9 @@ struct FileReport {
     hits: Vec<Hit>,
 }
 
-/// Review the whole project with the tree-pattern engine: detect its languages, self-set-up
-/// (compile+cache a rule set per language from the docs links + corpus folder), read every source
-/// file, judge it, and talk back in English.
+/// Review the whole project with the concept model engine: detect its languages, compile or load
+/// one `ConceptModel` per language from the docs + corpus, walk every file's full AST, and report
+/// violations in English.
 pub fn run(args: &Value) -> ToolResult {
     let root = root_arg(args);
     if !root.exists() {
@@ -137,11 +137,11 @@ pub fn run(args: &Value) -> ToolResult {
     // 4) Run both engines against the project.
     let mut reports: Vec<FileReport> = Vec::new();
 
-    // 4a) AI forward pass: one LinterNet per language, only fires on files of that language.
+    // 4a) Concept model forward pass: one ConceptModel per language, validates full AST.
     for (lang, lang_files) in &by_language {
-        let Some(net) = model.nets.get(lang) else { continue };
+        let Some(concept_model) = model.concept_models.get(lang) else { continue };
         for (path, src) in lang_files {
-            for flag in net.judge(src) {
+            for flag in concept_model.validate(src, lang) {
                 let (severity, advice) = model.rule_advice.get(&flag.rule_id)
                     .map(|(s, a)| (s.clone(), a.clone()))
                     .unwrap_or_else(|| ("medium".to_string(), format!("violates `{}`", flag.rule_id)));
