@@ -289,63 +289,14 @@ function decodeEntities(s) {
     .replace(/&amp;/g, "&");
 }
 
-/** Clean a `<pre>` body to plain code text, or `undefined` if it is not code.
- * Strips inline ESLint config directives (the `eslint ...` block-comment headers),
- * which are documentation scaffolding, never part of the anti-pattern itself. */
-function preToCode(preBody) {
-  const txt = decodeEntities(preBody.replace(/<[^>]+>/g, ""))
-    .replace(/\/\*\s*eslint[\s\S]*?\*\//g, "")
-    .trim();
-  return txt.length >= 5 && /[A-Za-z]/.test(txt) ? txt : undefined;
-}
-
 /**
- * The code block that *triggers* a rule (the documented anti-pattern). Prefers a
- * block explicitly marked incorrect/bad (ESLint-style "incorrect code" sections);
- * falls back to the first block (ruff pages lead with the bad example). Never the
- * "correct" block — learning from good code would cause false positives.
+ * Fetch each rule's doc page and store the extracted code-block text in `exampleBad`.
+ * Only `<pre>` block contents are used — navigation, prose, and HTML chrome are excluded.
+ * This keeps the training signal code-specific: the tokens that actually appear in
+ * violating code, not the site's boilerplate. Bounded concurrency, best-effort: a rule
+ * whose page fails just keeps no text.
  */
-function badCodeBlock(html) {
-  const mark = html.search(/examples of \*\*incorrect|incorrect code|problematic|will (be|get) (flagged|reported)/i);
-  if (mark >= 0) {
-    const after = html.slice(mark).match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
-    if (after) {
-      const code = preToCode(after[1]);
-      if (code) return code;
-    }
-  }
-  const first = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
-  return first ? preToCode(first[1]) : undefined;
-}
-
-/**
- * The "fixed" code block — the snippet that *satisfies* the rule. Prefers a block
- * marked correct/good (ESLint "correct code"); falls back to the second block
- * (ruff/clippy pages lead bad-then-good). Its value is the DIFF: a fragment in the
- * bad example but absent here is the rule's precise anti-pattern signature.
- */
-function goodCodeBlock(html) {
-  // "examples of correct" must not match "examples of INcorrect" (which would
-  // re-capture the bad block); the distinct word boundary keeps them separate.
-  const mark = html.search(/examples of correct|\bcorrect code for/i);
-  if (mark >= 0) {
-    const after = html.slice(mark).match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
-    if (after) {
-      const code = preToCode(after[1]);
-      if (code) return code;
-    }
-  }
-  const blocks = [...html.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/g)];
-  return blocks.length >= 2 ? preToCode(blocks[1][1]) : undefined;
-}
-
-/**
- * Fetch each rule's doc page and attach its `exampleBad` (the triggering snippet)
- * and `exampleGood` (the fix) — the data the signature linter learns from. Bounded
- * concurrency, best-effort: a rule whose page is missing or has no code simply
- * keeps no example. Mutates `rules`.
- */
-async function attachExamples(rules, concurrency = 16) {
+async function attachPageText(rules, concurrency = 16) {
   let next = 0;
   let got = 0;
   async function worker() {
@@ -354,20 +305,23 @@ async function attachExamples(rules, concurrency = 16) {
       if (!r.source) continue;
       try {
         const html = await fetchText(r.source);
-        const bad = badCodeBlock(html);
-        if (bad) {
-          r.exampleBad = bad;
-          got++;
-          const good = goodCodeBlock(html);
-          if (good && good !== bad) r.exampleGood = good;
+        // Extract only <pre> block contents — where documentation code examples live.
+        const blocks = [];
+        const preRe = /<pre[^>]*>([\s\S]*?)<\/pre>/gi;
+        let m;
+        while ((m = preRe.exec(html)) !== null) {
+          const code = decodeEntities(m[1].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+          if (code.length >= 5) blocks.push(code);
         }
+        const text = blocks.join("\n");
+        if (text.length >= 20) { r.exampleBad = text; got++; }
       } catch {
-        /* best-effort: skip rules whose page fails to fetch */
+        /* best-effort */
       }
     }
   }
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
-  process.stderr.write(`  attached ${got}/${rules.length} examples\n`);
+  process.stderr.write(`  fetched ${got}/${rules.length} pages\n`);
 }
 
 async function buildRuff() {
@@ -394,7 +348,7 @@ async function buildRuff() {
     });
   }
   if (rules.length === 0) throw new Error("ruff: parsed 0 rules (table layout changed?)");
-  await attachExamples(rules); // learn-from-docs: each rule's triggering snippet
+  await attachPageText(rules); // learn-from-docs: each rule's triggering snippet
   return packIndex({
     tool: "ruff",
     language: "python",
@@ -475,7 +429,7 @@ async function buildEslint() {
     });
   }
   if (rules.length === 0) throw new Error("eslint: parsed 0 rules (page layout changed?)");
-  await attachExamples(rules); // learn-from-docs: each rule's "incorrect code" snippet
+  await attachPageText(rules); // learn-from-docs: each rule's "incorrect code" snippet
   return packIndex({
     tool: "eslint",
     language: "javascript",
@@ -598,6 +552,7 @@ async function buildFromCrawl({ tool, language, docsVersion, docsBase, seed }) {
     rules.push({ id, category: "correctness", severity: "medium", description: text, source: url });
   }
   if (rules.length === 0) throw new Error(`generic crawl extracted 0 rules from ${seed}`);
+  await attachPageText(rules); // full doc page text for each rule — model trains from this
   return packIndex({ tool, language, toolchainVersion: null, docsVersion: docsVersion ?? "latest", source: `crawl:${seed}`, docsBase, rules });
 }
 
