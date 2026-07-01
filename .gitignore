@@ -48,3 +48,8 @@ crawl-index/
 # Packed lint-module store — trained artifacts the ModuleRegistry republishes on demand
 # (in a real deployment this points at a shared module repo, not the source tree).
 lint-modules/
+
+# Lint rule catalogs — fetched from official docs at training time; not committed.
+# Only sources.json (URL registry) and SCHEMA.md (schema doc) are committed.
+lint-index/*.json
+!lint-index/sources.json
