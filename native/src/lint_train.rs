@@ -111,6 +111,7 @@ pub fn train(data_root: &Path, project_root: &Path) -> TrainedModel {
     principles.retain(|p| seen_p.insert(p.id.clone()));
 
     // Per-language AI rules from Source 1 (lint-index/*.json web docs).
+    // (id, description, page_text) — full page text is the training signal.
     let mut lang_rules: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
     let mut rule_advice: HashMap<String, (String, String)> = HashMap::new();
 
@@ -120,13 +121,16 @@ pub fn train(data_root: &Path, project_root: &Path) -> TrainedModel {
             if lang.is_empty() { continue; }
             for r in idx["rules"].as_array().into_iter().flatten() {
                 let id = r["id"].as_str().unwrap_or("").to_string();
-                let bad = r["exampleBad"].as_str().unwrap_or("").to_string();
-                let good = r["exampleGood"].as_str().unwrap_or("").to_string();
                 let sev = r["severity"].as_str().unwrap_or("medium").to_string();
                 let desc = r["description"].as_str().unwrap_or("").to_string();
-                if !id.is_empty() && !bad.is_empty() && !good.is_empty() {
-                    rule_advice.insert(id.clone(), (sev, desc));
-                    lang_rules.entry(lang.clone()).or_default().push((id, bad, good));
+                // page_text = code-block text from the official doc page (stripped of HTML chrome).
+                // The Hv model learns from the actual code examples in the docs, not the prose or
+                // navigation. IDF filtering in ConceptModel::compile removes tokens that appear
+                // across too many rules (stop words for this corpus), keeping only discriminative ones.
+                let page_text = r["exampleBad"].as_str().unwrap_or("").to_string();
+                if !id.is_empty() && !desc.is_empty() {
+                    rule_advice.insert(id.clone(), (sev, desc.clone()));
+                    lang_rules.entry(lang.clone()).or_default().push((id, desc, page_text));
                 }
             }
         }
@@ -134,11 +138,10 @@ pub fn train(data_root: &Path, project_root: &Path) -> TrainedModel {
     // Source 2 file docs — language tagged "any"; apply to each known language.
     for doc in &docs {
         for r in crate::linter::Knowledge::from_text("any", doc).rules {
-            if !r.bad.is_empty() && !r.good.is_empty() {
+            if !r.description.is_empty() {
                 rule_advice.insert(r.id.clone(), (r.severity.clone(), r.description.clone()));
-                // Apply cross-language rules to every language that already has a net.
                 for rules in lang_rules.values_mut() {
-                    rules.push((r.id.clone(), r.bad.clone(), r.good.clone()));
+                    rules.push((r.id.clone(), r.description.clone(), r.bad.clone()));
                 }
             }
         }
@@ -179,10 +182,11 @@ fn compile_concept_models(
 
         let key = {
             let mut h = Sha256::new();
-            for (id, bad, good) in rules {
+            h.update(TRAIN_VERSION.as_bytes());
+            for (id, desc, page_text) in rules {
                 h.update(id.as_bytes()); h.update(b"\x1f");
-                h.update(bad.as_bytes()); h.update(b"\x1f");
-                h.update(good.as_bytes()); h.update(b"\x00");
+                h.update(desc.as_bytes()); h.update(b"\x1f");
+                h.update(page_text.as_bytes()); h.update(b"\x00");
             }
             format!("{:x}", h.finalize())
         };
@@ -220,7 +224,7 @@ fn compile_concept_models(
 const MAX_CRAWL_PAGES: usize = 2000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "pattern-v1-lossless";
+const TRAIN_VERSION: &str = "hv-v6-inference-stop";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -721,10 +725,17 @@ fn lang_matches(catalog: &str, want: &str) -> bool {
     false
 }
 
-/// The raw JSON of every committed/embedded rule catalog (excluding `sources.json`).
-fn seed_catalogs(data_root: &Path) -> Vec<String> {
+/// User-local cache for lint rule catalogs fetched from official docs at training time.
+/// Catalogs are generated, not committed; this directory holds the generated artifacts.
+fn lint_index_cache_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    Path::new(&home).join(".cache/helpers/lint-index")
+}
+
+/// Read all catalog JSON files from `dir`, skipping `sources.json` and non-JSON files.
+fn load_catalog_dir(dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(data_root.join("lint-index")) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
         for entry in rd.flatten() {
             if is_catalog_name(entry.path().file_name().and_then(|n| n.to_str())) {
                 if let Ok(s) = std::fs::read_to_string(entry.path()) {
@@ -733,12 +744,42 @@ fn seed_catalogs(data_root: &Path) -> Vec<String> {
             }
         }
     }
+    out
+}
+
+/// Invoke `build-lint-index.mjs --all` to fetch fresh rule catalogs from official docs,
+/// writing results to the user cache. Returns the catalog JSON strings on success.
+fn fetch_catalogs(data_root: &Path) -> Option<Vec<String>> {
+    let script = data_root.join("scripts/build-lint-index.mjs");
+    if !script.exists() { return None; }
+    let out_dir = lint_index_cache_dir();
+    let _ = std::fs::create_dir_all(&out_dir);
+    let status = std::process::Command::new("node")
+        .arg(&script)
+        .arg("--all")
+        .arg("--out").arg(&out_dir)
+        .status()
+        .ok()?;
+    if !status.success() { return None; }
+    let catalogs = load_catalog_dir(&out_dir);
+    if catalogs.is_empty() { None } else { Some(catalogs) }
+}
+
+/// The raw JSON of every available rule catalog, in order of freshness:
+///   1. workspace `lint-index/` — present in dev checkout (gitignored, not committed);
+///   2. user cache `~/.cache/helpers/lint-index/` — auto-generated at first-run;
+///   3. auto-fetched from official docs when both are empty (zero-config first run);
+///   4. embedded fallback (empty once catalogs are removed from the repo).
+fn seed_catalogs(data_root: &Path) -> Vec<String> {
+    let mut out = load_catalog_dir(&data_root.join("lint-index"));
+    if out.is_empty() { out = load_catalog_dir(&lint_index_cache_dir()); }
+    if out.is_empty() {
+        if let Some(fetched) = fetch_catalogs(data_root) { out = fetched; }
+    }
     if out.is_empty() {
         for f in EMBEDDED_LINT_INDEX.files() {
             if is_catalog_name(f.path().file_name().and_then(|n| n.to_str())) {
-                if let Some(s) = f.contents_utf8() {
-                    out.push(s.to_string());
-                }
+                if let Some(s) = f.contents_utf8() { out.push(s.to_string()); }
             }
         }
     }
