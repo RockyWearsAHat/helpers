@@ -1,0 +1,373 @@
+{
+  "language": "rust",
+  "version": "1.95.0",
+  "_note": "Hard rust checker bank, generated + self-validated from clippy docs (each spec flags its rule's exampleBad and not its exampleGood). Version supplements live in rust@<version>.json.",
+  "checkers": [
+    {
+      "rule": "assertions_on_result_states",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.is_err\\("
+    },
+    {
+      "rule": "big_endian_bytes",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.to_be_bytes\\("
+    },
+    {
+      "rule": "bind_instead_of_map",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.or_else\\("
+    },
+    {
+      "rule": "bool_assert_comparison",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\bassert_ne!\\("
+    },
+    {
+      "rule": "bytes_count_to_len",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.bytes\\("
+    },
+    {
+      "rule": "chars_last_cmp",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.chars\\("
+    },
+    {
+      "rule": "clear_with_drain",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.drain\\("
+    },
+    {
+      "rule": "dbg_macro",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\bdbg!\\("
+    },
+    {
+      "rule": "debug_assert_with_mut_call",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\bdebug_assert_eq!\\("
+    },
+    {
+      "rule": "duration_subsec",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.subsec_nanos\\("
+    },
+    {
+      "rule": "eager_transmute",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.then_some\\("
+    },
+    {
+      "rule": "err_expect",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.err\\("
+    },
+    {
+      "rule": "expect_fun_call",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.as_str\\("
+    },
+    {
+      "rule": "explicit_deref_methods",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.deref\\("
+    },
+    {
+      "rule": "extend_with_drain",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.extend\\("
+    },
+    {
+      "rule": "filetype_is_file",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.file_type\\("
+    },
+    {
+      "rule": "filter_map_bool_then",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.then\\("
+    },
+    {
+      "rule": "filter_map_identity",
+      "severity": "medium",
+      "kind": "self_binop",
+      "ops": [
+        "==",
+        "!=",
+        "&&",
+        "||",
+        "&",
+        "|"
+      ]
+    },
+    {
+      "rule": "implicit_clone",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.to_vec\\("
+    },
+    {
+      "rule": "imprecise_flops",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.powf\\("
+    },
+    {
+      "rule": "is_digit_ascii_radix",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.is_digit\\("
+    },
+    {
+      "rule": "iter_nth",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.nth\\("
+    },
+    {
+      "rule": "iter_skip_next",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.skip\\("
+    },
+    {
+      "rule": "iterator_step_by_zero",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.step_by\\("
+    },
+    {
+      "rule": "large_include_file",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\binclude_str!\\("
+    },
+    {
+      "rule": "little_endian_bytes",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.to_le_bytes\\("
+    },
+    {
+      "rule": "manual_c_str_literals",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.cast\\("
+    },
+    {
+      "rule": "manual_hash_one",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.build_hasher\\("
+    },
+    {
+      "rule": "manual_split_once",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.next_tuple\\("
+    },
+    {
+      "rule": "map_entry",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.contains_key\\("
+    },
+    {
+      "rule": "maybe_infinite_iter",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.take_while\\("
+    },
+    {
+      "rule": "min_max",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.max\\("
+    },
+    {
+      "rule": "missing_fields_in_debug",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.finish\\("
+    },
+    {
+      "rule": "needless_option_as_deref",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.as_deref\\("
+    },
+    {
+      "rule": "needless_return",
+      "severity": "medium",
+      "kind": "tail_return"
+    },
+    {
+      "rule": "no_effect_replace",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.replacen\\("
+    },
+    {
+      "rule": "option_env_unwrap",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\boption_env!\\("
+    },
+    {
+      "rule": "or_then_unwrap",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.or\\("
+    },
+    {
+      "rule": "permissions_set_readonly_false",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.metadata\\("
+    },
+    {
+      "rule": "ptr_offset_with_cast",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.offset\\("
+    },
+    {
+      "rule": "redundant_clone",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.to_path_buf\\("
+    },
+    {
+      "rule": "reserve_after_initialization",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.reserve\\("
+    },
+    {
+      "rule": "seek_from_current",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.seek\\("
+    },
+    {
+      "rule": "single_char_add_str",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.insert_str\\("
+    },
+    {
+      "rule": "skip_while_next",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.skip_while\\("
+    },
+    {
+      "rule": "str_split_at_newline",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.trim\\("
+    },
+    {
+      "rule": "suspicious_command_arg_space",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.arg\\("
+    },
+    {
+      "rule": "to_digit_is_some",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.to_digit\\("
+    },
+    {
+      "rule": "transmute_float_to_int",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.to_bits\\("
+    },
+    {
+      "rule": "unimplemented",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\bunimplemented!\\("
+    },
+    {
+      "rule": "uninit_assumed_init",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.assume_init\\("
+    },
+    {
+      "rule": "uninit_vec",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.set_len\\("
+    },
+    {
+      "rule": "unnecessary_min_or_max",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.min\\("
+    },
+    {
+      "rule": "unnecessary_sort_by",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.sort_by\\("
+    },
+    {
+      "rule": "unreachable",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\bunreachable!\\("
+    },
+    {
+      "rule": "unused_peekable",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.peekable\\("
+    },
+    {
+      "rule": "unused_rounding",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.ceil\\("
+    },
+    {
+      "rule": "unwrap_or_default",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.or_insert_with\\("
+    },
+    {
+      "rule": "verbose_file_reads",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.read_to_end\\("
+    },
+    {
+      "rule": "waker_clone_wake",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.wake\\("
+    }
+  ]
+}

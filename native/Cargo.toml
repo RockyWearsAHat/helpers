@@ -24,13 +24,13 @@ serde = { version = "1", features = ["derive"] }
 # community-index contract) match the original JavaScript JSON.stringify output.
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
-# git-cs-grade is folded into this one binary (busybox dispatch). The grading
-# logic lives in the cs_grade library crate; we ship a single helpers-native.
-cs_grade = { path = "../cs-grade", package = "git-cs-grade" }
+rayon = "1"
 # Timestamps that match JavaScript's Date.toISOString() exactly (UTC, millis, Z).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Bounded waits so strict_lint never hangs on a slow linter subprocess.
 wait-timeout = "0.2"
+# Canonical sha256 for the packed lint-index checksum (fast-path integrity check).
+sha2 = "0.10"
 # search_web / scrape_webpage drive a real Chrome over CDP (like puppeteer, but
 # synchronous and Node-free). CDP is a local ws:// socket, so no TLS/OpenSSL —
 # keeps cross-compilation to musl/windows-gnu clean.
@@ -49,6 +49,41 @@ tree-sitter-javascript = "0.23"
 tree-sitter-typescript = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-go = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-bash = "0.23"
+# Explicit dep so we can use LanguageFn::from_raw when loading grammars dynamically.
+tree-sitter-language = "0.1"
+# Runtime loading of tree-sitter grammar .so/.dylib files for languages not compiled in.
+# Drop a grammar into ~/.cache/helpers/grammars/ and it is used immediately — no rebuild needed.
+libloading = "0.8"
+
+# GPU acceleration for the lint-moe hypervector distance batch — OPTIONAL, OFF by
+# default, so the shipped binary stays portable and cross-compiles clean to
+# musl/windows. Enable with `--features gpu`. wgpu picks Metal/Vulkan/DX12 at runtime;
+# the CPU path is the fallback when no GPU is present, so behaviour is identical.
+wgpu = { version = "22", optional = true }
+pollster = { version = "0.3", optional = true }
+bytemuck = { version = "1", optional = true }
+
+# Direct-fetch documentation crawler — OPTIONAL, OFF by default. `ureq` is a tiny blocking HTTP
+# client; with rustls (pure-Rust TLS, no OpenSSL) it cross-compiles to musl/windows as cleanly as
+# the rest of the binary, so the crawler adds no toolchain burden when the `crawl` feature is on.
+ureq = { version = "2", optional = true, default-features = false, features = ["tls", "gzip"] }
+
+[features]
+# `crawl` is ON by default: the `lint` tool learns each language's rules directly from its official
+# docs (clippy/ruff/eslint/staticcheck) on a cache-miss, so it needs the direct-fetch crawler. It
+# pulls only the tiny blocking `ureq` (TLS, no headless browser), so the binary stays portable and
+# cross-compiles clean. `--no-default-features` drops it (offline-only build that reuses caches and
+# asks the calling agent for docs). `--features gpu` adds the wgpu batch Hamming kernel.
+# `gpu` is ON by default: the memory subsystem's batch Hamming kernel (`memory/gpu.rs`) runs on the
+# GPU when a device is present, falling back to the CPU fold otherwise. wgpu picks Metal/Vulkan/DX12
+# at runtime. (The linter itself is deterministic tree-pattern matching and uses no GPU.)
+default = ["crawl", "gpu"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+crawl = ["dep:ureq"]
 
 [profile.release]
 opt-level = 3

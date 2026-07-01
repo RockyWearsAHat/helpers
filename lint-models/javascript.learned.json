@@ -1,0 +1,2085 @@
+{
+  "version": "23.9.0",
+  "learned_from": "docs",
+  "rules": [
+    {
+      "id": "no-object-constructor",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-object-constructor - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "/*eslint no-object-constructor: \"error\"*/\n\nObject();\n\nnew Object();\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "computed-property-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "computed-property-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs.",
+      "bad": "var obj = { prop: \"value\" };\nvar a = \"prop\";\nvar x = obj[a]; // computed property in object member expression\n\nvar a = \"prop\";\nvar obj = {\n  [a]: \"value\" // computed property key in object literal (ECMAScript 6)\n};\n\nvar obj = { prop: \"value\" };\nvar a = \"prop\";\nvar { [a]: x } = obj; // computed property key in object destructuring pattern (ECMAScript 6)\n123456789101112",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-multi-str",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-multi-str - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "const x = \"Line 1 \\\n         Line 2\";\n12",
+      "good": "/*eslint no-multi-str: \"error\"*/\n\nconst x = \"some very \\\nlong text\";\n1234",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "block-scoped-var",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "block-scoped-var - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "/*eslint block-scoped-var: \"error\"*/\n\nfunction doIf() {\n    if (true) {\n        var build = true;\n    }\n\n    console.log(build);\n}\n\nfunction doIfElse() {\n    if (true) {\n        var build = true;\n    } else {\n        var build = false;\n    }\n}\n\nfunction doTryCatch() {\n    try {\n        var build = 1;\n    } catch (e) {\n        var f = build;\n    }\n}\n\nfunction doFor() {\n    for (var x = 1; x < 10; x++) {\n        var y = f(x);\n    }\n    console.log(y);\n}\n\nclass C {\n    static {\n        if (something) {\n            var build = true;\n        }\n        build = false;\n    }\n}\n1234567891011121314151617181920212223242526272829303132333435363738394041",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-const-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-const-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "/*eslint no-const-assign: \"error\"*/\n\nconst a = 0;\na = 1;\n1234",
+      "good": "/*eslint no-const-assign: \"error\"*/\n\nconst a = 0;\nconsole.log(a);\n1234",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "comma-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "comma-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "var foo = 1, bar = 2;\nvar foo = 1 ,bar = 2;\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-object-spread",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-object-spread - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint prefer-object-spread: \"error\"*/\n\nObject.assign({}, foo);\n\nObject.assign({}, {foo: 'bar'});\n\nObject.assign({ foo: 'bar'}, baz);\n\nObject.assign({}, baz, { foo: 'bar' });\n\nObject.assign({}, { ...baz });\n\n// Object.assign with a single argument that is an object literal\nObject.assign({});\n\nObject.assign({ foo: bar });\n12345678910111213141516",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-extra-bind",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-extra-bind - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "const boundGetName = (function getName() {\n    return this.name;\n}).bind({ name: \"ESLint\" });\n\nconsole.log(boundGetName());      // \"ESLint\"\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-invalid-regexp",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-invalid-regexp - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "/*eslint no-invalid-regexp: \"error\"*/\n\nRegExp('[')\n\nRegExp('.', 'z')\n\nnew RegExp('\\\\')\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unused-labels",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unused-labels - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "OUTER_LOOP:\nfor (const student of students) {\n    if (checkScores(student.scores)) {\n        continue;\n    }\n    doSomething(student);\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-negated-condition",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-negated-condition - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint no-negated-condition: \"error\"*/\n\nif (!a) {\n    doSomething();\n} else {\n    doSomethingElse();\n}\n\nif (a != b) {\n    doSomething();\n} else {\n    doSomethingElse();\n}\n\nif (a !== b) {\n    doSomething();\n} else {\n    doSomethingElse();\n}\n\n!a ? c : b\n123456789101112131415161718192021",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-implied-eval",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-implied-eval - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "setTimeout(\"alert('Hi!');\", 100);\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-else-return",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-else-return - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "function foo() {\n    if (x) {\n        return y;\n    } else {\n        return z;\n    }\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-backreference",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-backreference - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. ",
+      "bad": "const regex = /^(?:(a)|\\1b)$/;\n\nregex.test(\"a\"); // true\nregex.test(\"b\"); // true!\nregex.test(\"ab\"); // false\n\nconst equivalentRegex = /^(?:(a)|b)$/;\n\nequivalentRegex.test(\"a\"); // true\nequivalentRegex.test(\"b\"); // true\nequivalentRegex.test(\"ab\"); // false\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-return-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-return-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "function doSomething() {\n    return foo = bar + 2;\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-lonely-if",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-lonely-if - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "if (foo) {\n    // ...\n} else {\n    if (bar) {\n        // ...\n    }\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-implicit-globals",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-implicit-globals - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versi",
+      "bad": "/*eslint no-implicit-globals: \"error\"*/\n\nvar foo = 1;\n\nfunction bar() {}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-setter-return",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-setter-return - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "/*eslint no-setter-return: \"error\"*/\n\nconst foo = {\n    set a(value) {\n        this.val = value;\n        return value;\n    }\n};\n\nclass Foo {\n    set a(value) {\n        this.val = value * 2;\n        return this.val;\n    }\n}\n\nconst Bar = class {\n    static set a(value) {\n        if (value < 0) {\n            this.val = 0;\n            return 0;\n        }\n        this.val = value;\n    }\n};\n\nObject.defineProperty(foo, \"bar\", {\n    set(value) {\n        if (value < 0) {\n            return false;\n        }\n        this.val = value;\n    }\n});\n12345678910111213141516171819202122232425262728293031323334",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-prototype-builtins",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-prototype-builtins - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "/*eslint no-prototype-builtins: \"error\"*/\n\nconst hasBarProperty = foo.hasOwnProperty(\"bar\");\n\nconst isPrototypeOfBar = foo.isPrototypeOf(bar);\n\nconst barIsEnumerable = foo.propertyIsEnumerable(\"bar\");\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-inner-declarations",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-inner-declarations - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "// Good\nfunction doSomething() { }\n\n// Bad\nif (test) {\n    function doSomethingElse () { }\n}\n\nfunction anotherThing() {\n    var fn;\n\n    if (test) {\n\n        // Good\n        fn = function expression() { };\n\n        // Bad\n        function declaration() { }\n    }\n}\n1234567891011121314151617181920",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-undef-init",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-undef-init - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "var foo;\n\nconsole.log(foo === undefined);     // true\n123",
+      "good": "/*eslint no-undef-init: \"error\"*/\n\nvar foo;\nlet bar;\n1234",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-script-url",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-script-url - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "/*eslint no-script-url: \"error\"*/\n\nlocation.href = \"javascript:void(0)\";\n\nlocation.href = `javascript:void(0)`;\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-restricted-globals",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-restricted-globals - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "{\n    \"rules\": {\n        \"no-restricted-globals\": [\"error\", \"event\", \"fdescribe\"]\n    }\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-implicit-coercion",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-implicit-coercion - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "const b = !!foo;\nconst b1 = ~foo.indexOf(\".\");\nconst n = +foo;\nconst n1 = -(-foo);\nconst n2 = foo - 0;\nconst n3 = 1 * foo;\nconst s = \"\" + foo;\nfoo += ``;\n12345678",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unsafe-negation",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unsafe-negation - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "/*eslint no-unsafe-negation: \"error\"*/\n\nif (!key in object) {\n    // operator precedence makes it equivalent to (!key) in object\n    // and type conversion makes it equivalent to (key ? \"false\" : \"true\") in object\n}\n\nif (!obj instanceof Ctor) {\n    // operator precedence makes it equivalent to (!obj) instanceof Ctor\n    // and it equivalent to always false since boolean values are not objects.\n}\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-self-compare",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-self-compare - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "/*eslint no-self-compare: \"error\"*/\n\nlet x = 10;\nif (x === x) {\n    x = 20;\n}\n123456",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-self-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-self-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "foo = foo;\n[bar, baz] = [bar, qiz];\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-empty-pattern",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-empty-pattern - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "// doesn't create any variables\nconst {a: {}} = foo;\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-constant-condition",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-constant-condition - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "if (false) {\n    doSomethingUnfinished();\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-confusing-arrow",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-confusing-arrow - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "// The intent is not clear\nvar x = a = 1 ? 2 : 3;\n// Did the author mean this\nvar x = function (a) {\n    return 1 ? 2 : 3;\n};\n// Or this\nvar x = a <= 1 ? 2 : 3;\n12345678",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-restricted-imports",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-restricted-imports - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "\"no-restricted-imports\": [\"error\", \"import1\", \"import2\"]\n1",
+      "good": "/*eslint no-restricted-imports: [\"error\", \"fs\"]*/\n\nexport * from 'fs';\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-regex-spaces",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-regex-spaces - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "const re = /foo   bar/;\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-eq-null",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-eq-null - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "if (foo == null) {\n  bar();\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-empty",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-empty - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10",
+      "bad": "/*eslint no-empty: \"error\"*/\n\nif (foo) {\n}\n\nwhile (foo) {\n}\n\nswitch(foo) {\n}\n\ntry {\n    doSomething();\n} catch(ex) {\n\n} finally {\n\n}\n123456789101112131415161718",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-ex-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-ex-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint no-ex-assign: \"error\"*/\n\ntry {\n    // code\n} catch (e) {\n    e = 10;\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "sort-imports",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "sort-imports - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint sort-imports: \"error\"*/\nimport {b, a, c} from 'foo.js'\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-spread",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-spread - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "const args = [1, 2, 3, 4];\nMath.max.apply(Math, args);\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-restricted-syntax",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-restricted-syntax - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "{\n    \"rules\": {\n        \"no-restricted-syntax\": [\"error\", \"FunctionExpression\", \"WithStatement\", \"BinaryExpression[operator='in']\"]\n    }\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-multi-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-multi-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "(function() {\n    const foo = bar = 0; // Did you mean `foo = bar == 0`?\n    bar = 1;             // This will not fail since `bar` is not constant.\n})();\nconsole.log(bar);        // This will output 1 since `bar` is not scoped.\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-label-var",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-label-var - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint no-label-var: \"error\"*/\n\nvar x = foo;\nfunction bar() {\nx:\n  for (;;) {\n    break x;\n  }\n}\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-global-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-global-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "/*eslint no-global-assign: \"error\"*/\n\nObject = null\nundefined = 1\n1234",
+      "good": "/*eslint no-global-assign: \"error\"*/\n\na = 1\nlet b = 1\nb = 2\n12345",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-extra-label",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-extra-label - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "A: while (a) {\n    break A;\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-continue",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-continue - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "let sum = 0,\n    i;\n\nfor(i = 0; i < 10; i++) {\n    if(i = 5) {\n        continue;\n    }\n\n    sum += i;\n}\n12345678910",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "max-lines",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "max-lines - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "/*eslint max-lines: [\"error\", 3]*/\nlet a,\n    b,\n    c;\n1234",
+      "good": "/*eslint max-lines: [\"error\", 3]*/\nlet a,\n    b, c;\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "dot-notation",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "dot-notation - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint dot-notation: \"error\"*/\n\nconst x = foo[\"bar\"];\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "use-isnan",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "use-isnan - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "/*eslint use-isnan: \"error\"*/\n\nif (foo == NaN) {\n    // ...\n}\n\nif (foo != NaN) {\n    // ...\n}\n\nif (foo == Number.NaN) {\n    // ...\n}\n\nif (foo != Number.NaN) {\n    // ...\n}\n1234567891011121314151617",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unsafe-finally",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unsafe-finally - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "// We expect this function to return 1;\n(() = {\n    try {\n        return 1; // 1 is returned but suspended until finally block ends\n    } catch(err) {\n        return 2;\n    } finally {\n        return 3; // 3 is returned before 1, which we did not expect\n    }\n})();\n\n//  3\n123456789101112",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-obj-calls",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-obj-calls - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint no-obj-calls: \"error\"*/\n\nconst math = Math();\n\nconst newMath = new Math();\n\nconst json = JSON();\n\nconst newJSON = new JSON();\n\nconst reflect = Reflect();\n\nconst newReflect = new Reflect();\n\nconst atomics = Atomics();\n\nconst newAtomics = new Atomics();\n\nconst intl = Intl();\n\nconst newIntl = new Intl();\n\nconst temporal = Temporal();\n\nconst newTemporal = new Temporal();\n12345678910111213141516171819202122232425",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-import-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-import-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "/*eslint no-import-assign: \"error\"*/\n\nimport mod, { named } from \"./mod.mjs\"\nimport * as mod_ns from \"./mod.mjs\"\n\nmod = 1          // ERROR: 'mod' is readonly.\nnamed = 2        // ERROR: 'named' is readonly.\nmod_ns.named = 3 // ERROR: The members of 'mod_ns' are readonly.\nmod_ns = {}      // ERROR: 'mod_ns' is readonly.\n// Can't extend 'mod_ns'\nObject.assign(mod_ns, { foo: \"foo\" }) // ERROR: The members of 'mod_ns' are readonly.\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-class-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-class-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "/*eslint no-class-assign: \"error\"*/\n\nclass A { }\nA = 0;\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-arrow-callback",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-arrow-callback - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "/* eslint prefer-arrow-callback: \"error\" */\n\nfoo(function(a) { return a; }); // ERROR\n// prefer: foo(a = a)\n\nfoo(function() { return this.a; }.bind(this)); // ERROR\n// prefer: foo(() = this.a)\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "one-var",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "one-var - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.",
+      "bad": "// one variable declaration per function\nfunction foo() {\n    var bar, baz;\n}\n\n// multiple variable declarations per function\nfunction foo() {\n    var bar;\n    var baz;\n}\n12345678910",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "object-shorthand",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "object-shorthand - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "{\n    \"object-shorthand\": [\"error\", \"always\", { \"avoidQuotes\": true }]\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-call",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-call - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "/*eslint no-useless-call: \"error\"*/\n\n// These are same as `foo(1, 2, 3);`\nfoo.call(undefined, 1, 2, 3);\nfoo.apply(undefined, [1, 2, 3]);\nfoo.call(null, 1, 2, 3);\nfoo.apply(null, [1, 2, 3]);\n\n// These are same as `obj.foo(1, 2, 3);`\nobj.foo.call(obj, 1, 2, 3);\nobj.foo.apply(obj, [1, 2, 3]);\n1234567891011",
+      "good": "/*eslint no-useless-call: \"error\"*/\n\na[i++].foo.call(a[i++], 1, 2, 3);\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-underscore-dangle",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-underscore-dangle - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "let _foo;\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-proto",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-proto - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10",
+      "bad": "/*eslint no-proto: \"error\"*/\n\nconst a = obj.__proto__;\n\nconst a1 = obj[\"__proto__\"];\n\nobj.__proto__ = b;\n\nobj[\"__proto__\"] = b;\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-param-reassign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-param-reassign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "/*eslint no-param-reassign: \"error\"*/\n\nconst foo = function(bar) {\n    bar = 13;\n}\n\nconst foo1 = function(bar) {\n    bar++;\n}\n\nconst foo2 = function(bar) {\n    for (bar in baz) {}\n}\n\nconst foo3 = function(bar) {\n    for (bar of baz) {}\n}\n1234567891011121314151617",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-new-func",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-new-func - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "const a = new Function(\"a\", \"b\", \"return a + b\");\nconst b = Function(\"a\", \"b\", \"return a + b\");\nconst c = Function.call(null, \"a\", \"b\", \"return a + b\");\nconst d = Function.apply(null, [\"a\", \"b\", \"return a + b\"]);\nconst x = Function.bind(null, \"a\", \"b\", \"return a + b\")();\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-new",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-new - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.5",
+      "bad": "/*eslint no-new: \"error\"*/\n\nnew Thing();\n123",
+      "good": "/*eslint no-new: \"error\"*/\n\nconst thing = new Thing();\n\nFoo();\n12345",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-invalid-this",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-invalid-this - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "/*eslint no-invalid-this: \"error\"*/\n\n\"use strict\";\n\n(function() {\n    this.a = 0;\n    baz(() = this);\n})();\n\nfunction foo() {\n    this.a = 0;\n    baz(() = this);\n}\n\nconst bar = function() {\n    this.a = 0;\n    baz(() = this);\n};\n\nfoo(function() {\n    this.a = 0;\n    baz(() = this);\n});\n\nconst obj = {\n    aaa: function() {\n        return function foo() {\n            // There is in a method `aaa`, but `foo` is not a method.\n            this.a = 0;\n            baz(() = this);\n        };\n    }\n};\n\nfoo.forEach(function() {\n    this.a = 0;\n    baz(() = this);\n});\n1234567891011121314151617181920212223242526272829303132333435363738",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-extend-native",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-extend-native - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "// seems harmless\nObject.prototype.extra = 55;\n\n// loop through some userIds\nconst users = {\n    \"123\": \"Stan\",\n    \"456\": \"David\"\n};\n\n// not what you'd expect\nfor (const id in users) {\n    console.log(id); // \"123\", \"456\", \"extra\"\n}\n12345678910111213",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-delete-var",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-delete-var - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "/*eslint no-delete-var: \"error\"*/\n\nlet x;\ndelete x;\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "max-nested-callbacks",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "max-nested-callbacks - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "foo(function () {\n    bar(function () {\n        baz(function() {\n            qux(function () {\n\n            });\n        });\n    });\n});\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "guard-for-in",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "guard-for-in - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "for (key in foo) {\n    doSomething(key);\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "comma-style",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "comma-style - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "/*eslint comma-style: [\"error\", \"last\"]*/\n\nvar foo = 1\n,\nbar = 2;\n\nvar foo = 1\n  , bar = 2;\n\nvar foo = [\"apples\"\n           , \"oranges\"];\n\nfunction baz() {\n    return {\n        \"a\": 1\n        ,\"b:\": 2\n    };\n}\n123456789101112131415161718",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "spaced-comment",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "spaced-comment - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "\"spaced-comment\": [\"error\", \"always\", { \"exceptions\": [\"-\", \"+\"] }]\n1",
+      "good": "/*eslint spaced-comment: [\"error\", \"never\"]*/\n\n/**\n* I am jsdoc\n*/\n12345",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "operator-assignment",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "operator-assignment - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versi",
+      "bad": " Shorthand | Separate\n-----------|------------\n x += y    | x = x + y\n x -= y    | x = x - y\n x *= y    | x = x * y\n x /= y    | x = x / y\n x %= y    | x = x % y\n x **= y   | x = x ** y\n x <<= y   | x = x << y\n x = y   | x = x  y\n x = y  | x = x  y\n x &= y    | x = x & y\n x ^= y    | x = x ^ y\n x |= y    | x = x | y\n1234567891011121314",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-escape",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-escape - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "let foo = \"hol\\a\"; //  foo = \"hola\"\nlet bar = `${foo}\\!`; //  bar = \"hola!\"\nlet baz = /\\:/ // same functionality with /:/\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unused-expressions",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unused-expressions - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "let i = 0;\nfunction increment() { i += 1; }\nincrement(); // return value is unused, but i changed as a side effect\n\nlet nThings = 0;\nfunction Thing() { nThings += 1; }\nnew Thing(); // constructed object is unused, but nThings changed as a side effect\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unneeded-ternary",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unneeded-ternary - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versi",
+      "bad": "// Bad\nconst isYes = answer === 1 ? true : false;\n\n// Good\nconst isYes = answer === 1;\n\n// Bad\nconst isNo = answer === 1 ? false : true;\n\n// Good\nconst isNo = answer !== 1;\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-sequences",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-sequences - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "let a = (3, 5); // a = 5\n\na = b += 5, a + b;\n\nwhile (a = next(), a && a.length);\n\n(0, eval)(\"doSomething();\");\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-redeclare",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-redeclare - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint no-redeclare: \"error\"*/\n\nvar a = 3;\nvar a = 10;\n\nclass C {\n    foo() {\n        var b = 3;\n        var b = 10;\n    }\n\n    static {\n        var c = 3;\n        var c = 10;\n    }\n}\n12345678910111213141516",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-octal-escape",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-octal-escape - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "const foo = \"Copyright \\251\";\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-magic-numbers",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-magic-numbers - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "/*eslint no-magic-numbers: \"error\"*/\n\nlet SECONDS;\n\nSECONDS = 60;\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-case-declarations",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-case-declarations - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint no-case-declarations: \"error\"*/\n\nswitch (foo) {\n    case 1:\n        let x = 1;\n        break;\n    case 2:\n        const y = 2;\n        break;\n    case 3:\n        function f() {}\n        break;\n    default:\n        class C {}\n}\n123456789101112131415",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "id-denylist",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "id-denylist - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "{\n    \"id-denylist\": [\"error\", \"data\", \"err\", \"e\", \"cb\", \"callback\"]\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "capitalized-comments",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "capitalized-comments - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/* eslint capitalized-comments: [\"error\"] */\n\n// lowercase comment\n\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unused-vars",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unused-vars - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "/*eslint no-unused-vars: \"error\"*/\n/*global some_unused_var*/\n\n// It checks variables you have defined as global\nsome_unused_var = 42;\n\nlet x;\n\n// Write-only variables are not considered as used.\nlet y = 10;\ny = 5;\n\n// A read for a modification of itself is not considered as used.\nlet z = 0;\nz = z + 1;\n\n// By default, unused arguments cause warnings.\n(function(foo) {\n    return 5;\n})();\n\n// Unused recursive functions also cause warnings.\nfunction fact(n) {\n    if (n < 2) return 1;\n    return n * fact(n - 1);\n}\n\n// When a function definition destructures an array, unused entries from the array also cause warnings.\nfunction getY([x, y]) {\n    return y;\n}\ngetY([\"a\", \"b\"]);\n1234567891011121314151617181920212223242526272829303132",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-undef",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-undef - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10",
+      "bad": "/*eslint no-undef: \"error\"*/\n\nconst foo = someFunction();\nconst bar = a + 1;\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-irregular-whitespace",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-irregular-whitespace - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. V",
+      "bad": "\\u000B - Line Tabulation (\\v) - <VT\n\\u000C - Form Feed (\\f) - <FF\n\\u0085 - Next Line - <NEL\n\\u00A0 - No-Break Space - <NBSP\n\\u1680 - Ogham Space Mark - <OGSP\n\\u180E - Mongolian Vowel Separator - <MVS\n\\u2000 - En Quad - <NQSP\n\\u2001 - Em Quad - <MQSP\n\\u2002 - En Space - <ENSP\n\\u2003 - Em Space - <EMSP\n\\u2004 - Three-Per-Em - <THPMSP - <3/MSP\n\\u2005 - Four-Per-Em - <FPMSP - <4/MSP\n\\u2006 - Six-Per-Em - <SPMSP - <6/MSP\n\\u2007 - Figure Space - <FSP\n\\u2008 - Punctuation Space - <PUNCSP\n\\u2009 - Thin Space - <THSP\n\\u200A - Hair Space - <HSP\n\\u200B - Zero Width Space - <ZWSP\n\\u2028 - Line Separator - <LS - <LSEP\n\\u2029 - Paragraph Separator - <PS - <PSEP\n\\u202F - Narrow No-Break Space - <NNBSP\n\\u205F - Medium Mathematical Space - <MMSP\n\\u3000 - Ideographic Space - <IDSP\n\\uFEFF - Zero Width No-Break Space - <BOM\n123456789101112131415161718192021222324",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-func-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-func-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "/*eslint no-func-assign: \"error\"*/\n\nfoo = bar;\nfunction foo() {}\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-duplicate-imports",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-duplicate-imports - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "import { merge } from 'module';\nimport something from 'another-module';\nimport { find } from 'module';\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-constructor-return",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-constructor-return - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "/*eslint no-constructor-return: \"error\"*/\n\nclass A {\n    constructor(a) {\n        this.a = a;\n        return a;\n    }\n}\n\nclass B {\n    constructor(f) {\n        if (!f) {\n            return 'falsy';\n        }\n    }\n}\n12345678910111213141516",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-cond-assign",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-cond-assign - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "// Check the user's job title\nif (user.jobTitle = \"manager\") {\n    // user.jobTitle is now incorrect\n}\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "space-unary-ops",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "space-unary-ops - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "// new\nvar joe = new Person();\n\n// delete\nvar obj = {\n    foo: 'bar'\n};\ndelete obj.foo;\n\n// typeof\ntypeof {} // object\n\n// void\nvoid 0 // undefined\n1234567891011121314",
+      "good": "/*eslint space-unary-ops: \"error\"*/\n\nfunction *foo() {\n    yield(0)\n}\n12345",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "object-curly-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "object-curly-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "// simple object literals\nvar obj = { foo: \"bar\" };\n\n// nested object literals\nvar obj = { foo: { zoo: \"bar\" } };\n\n// destructuring assignment (EcmaScript 6)\nvar { x, y } = y;\n\n// import/export declarations (EcmaScript 6)\nimport { foo } from \"bar\";\nexport { foo };\n123456789101112",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-extra-parens",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-extra-parens - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "<!--\n// this is a script\n// --\n\n(\"use strict\");\n\nfunction test() {\n    console.log(typeof this);\n}\n\ntest();\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "generator-star-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "generator-star-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ve",
+      "bad": "function* generator() {\n    yield \"44\";\n    yield \"55\";\n}\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "unicode-bom",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "unicode-bom - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "/*eslint unicode-bom: [\"error\", \"always\"]*/\n\nlet abc;\n123",
+      "good": "/*eslint unicode-bom: [\"error\", \"never\"]*/\n\nlet abc;\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "sort-vars",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "sort-vars - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "/*eslint sort-vars: \"error\"*/\n\nlet b, a;\n\nlet c, D, e;\n\nlet f, F;\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-rest-params",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-rest-params - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "/*eslint prefer-rest-params: \"error\"*/\n\nfunction foo() {\n    console.log(arguments);\n}\n\nfunction foo(action) {\n    const args = Array.prototype.slice.call(arguments, 1);\n    action.apply(null, args);\n}\n\nfunction foo(action) {\n    const args = [].slice.call(arguments, 1);\n    action.apply(null, args);\n}\n123456789101112131415",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-regex-literals",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-regex-literals - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "new RegExp(\"^\\\\d\\\\.$\");\n\n/^\\d\\.$/;\n\n// matches \"0.\", \"1.\", \"2.\" ... \"9.\"\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-var",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-var - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.5",
+      "bad": "var count = people.length;\nvar enoughFood = sandwiches.length = count;\n\nif (enoughFood) {\n    var count = sandwiches.length; // accidentally overriding the count variable\n    console.log(\"We have \" + count + \" sandwiches for everyone. Plenty for all!\");\n}\n\n// our count variable is no longer accurate\nconsole.log(\"We have \" + count + \" people and \" + sandwiches.length + \" sandwiches!\");\n12345678910",
+      "good": "/*eslint no-var: \"error\"*/\n\nlet x = \"y\";\nconst CONFIG = {};\n1234",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-constructor",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-constructor - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ve",
+      "bad": "class A {\n    constructor () {\n    }\n}\n\nclass B extends A {\n    constructor (value) {\n      super(value);\n    }\n}\n12345678910",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-undefined",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-undefined - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "function doSomething(data) {\n    const undefined = \"hi\";\n\n    // doesn't do what you think it does\n    if (data === undefined) {\n        // ...\n    }\n\n}\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-throw-literal",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-throw-literal - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "/*eslint no-throw-literal: \"error\"*/\n\nthrow \"error\";\n\nthrow 0;\n\nthrow undefined;\n\nthrow null;\n\nconst err = new Error();\nthrow \"an \" + err;\n// err is recast to a string literal\n\nconst er2 = new Error();\nthrow `${err2}`\n\n1234567891011121314151617",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-caller",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-caller - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "function foo() {\n    const callee = arguments.callee;\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-bitwise",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-bitwise - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "const x = y | z;\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-array-constructor",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-array-constructor - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint no-array-constructor: \"error\"*/\n\nArray();\n\nArray(0, 1, 2);\n\nnew Array(0, 1, 2);\n\nArray(...args);\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "func-style",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "func-style - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "// function declaration\nfunction doSomething() {\n    // ...\n}\n\n// arrow function expression assigned to a variable\nconst doSomethingElse = () = {\n    // ...\n};\n\n// function expression assigned to a variable\nconst doSomethingAgain = function() {\n    // ...\n};\n1234567891011121314",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "arrow-body-style",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "arrow-body-style - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "\"arrow-body-style\": [\"error\", \"always\"]\n1",
+      "good": "/*eslint arrow-body-style: [\"error\", \"always\"]*/\n\nconst foo = () = 0;\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "valid-typeof",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "valid-typeof - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint valid-typeof: \"error\"*/\n\ntypeof foo === \"strnig\"\ntypeof foo == \"undefimed\"\ntypeof bar != \"nunber\"\ntypeof bar !== \"fucntion\"\n123456",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-dupe-keys",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-dupe-keys - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "const foo = {\n    bar: \"baz\",\n    bar: \"qux\"\n};\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "getter-return",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "getter-return - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "const p = {\n    get name(){\n        return \"nicholas\";\n    }\n};\n\nObject.defineProperty(p, \"age\", {\n    get: function (){\n        return 17;\n    }\n});\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "vars-on-top",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "vars-on-top - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "/*eslint vars-on-top: \"error\"*/\n\n// Variable declaration in a nested block, and a variable declaration after other statements:\nfunction doSomething() {\n    if (true) {\n        var first = true;\n    }\n    var second;\n}\n\n// Variable declaration in for initializer:\nfunction doSomethingElse() {\n    for (var i=0; i<10; i++) {}\n}\n1234567891011121314",
+      "good": "/*eslint vars-on-top: \"error\"*/\n\nvar a;\nf();\n1234",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-exponentiation-operator",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-exponentiation-operator - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint ",
+      "bad": "/*eslint prefer-exponentiation-operator: \"error\"*/\n\nconst foo = Math.pow(2, 8);\n\nconst bar = Math.pow(a, b);\n\nlet baz = Math.pow(a + b, c + d);\n\nlet quux = Math.pow(-1, n);\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-return",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-return - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "/* eslint no-useless-return: \"error\" */\n\nconst foo = function() { return; }\n\nconst bar = function() {\n  doSomething();\n  return;\n}\n\nconst baz = function() {\n  if (condition) {\n    qux();\n    return;\n  } else {\n    quux();\n  }\n}\n\nconst item = function() {\n  switch (bar) {\n    case 1:\n      doSomething();\n    default:\n      doSomethingElse();\n      return;\n  }\n}\n\n12345678910111213141516171819202122232425262728",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-catch",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-catch - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "/*eslint no-useless-catch: \"error\"*/\n\ntry {\n  doSomethingThatMightThrow();\n} catch (e) {\n  throw e;\n}\n\ntry {\n  doSomethingThatMightThrow();\n} catch (e) {\n  throw e;\n} finally {\n  cleanUp();\n}\n123456789101112131415",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-shadow",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-shadow - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "const a = 3;\nfunction b() {\n    const a = 10;\n}\n1234",
+      "good": "const A = 2;\nenum Test {\n  A = 1,\n  B = A,\n}\n\nconsole.log(Test.B); // what should be logged?\n1234567",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-inline-comments",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-inline-comments - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "/*eslint no-inline-comments: \"error\"*/\n\nconst a = 1; // declaring a to 1\n\nfunction getRandomNumber(){\n    return 4; // chosen by fair dice roll.\n              // guaranteed to be random.\n}\n\n/* A block comment before code */ const b = 2;\n\nconst c = 3; /* A block comment after code */\n123456789101112",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-div-regex",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-div-regex - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint no-div-regex: \"error\"*/\n\nfunction bar() { return /=foo/; }\n123",
+      "good": "/*eslint no-div-regex: \"error\"*/\n\nfunction bar() { return /[=]foo/; }\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "require-atomic-updates",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "require-atomic-updates - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ve",
+      "bad": "Promise.all([getPageLength(1), getPageLength(2)]).then(pageLengths = {\n  const totalLength = pageLengths.reduce((accumulator, length) = accumulator + length, 0);\n\n  console.log('The combined length of both pages is', totalLength);\n});\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unexpected-multiline",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unexpected-multiline - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. V",
+      "bad": "/*eslint no-unexpected-multiline: \"error\"*/\n\nconst foo = bar\n(1 || 2).baz();\n\nconst hello = 'world'\n[1, 2, 3].forEach(addNumber);\n\nconst x = function() {}\n`hello`\n\nconst y = function() {}\ny\n`hello`\n\nconst z = foo\n/regex/g.test(bar)\n1234567891011121314151617",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unassigned-vars",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unassigned-vars - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "let status;\n\n// ...forgot to assign a value to status...\n\nif (status === 'ready') {\n  console.log('Ready!');\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "array-bracket-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "array-bracket-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "var arr = [ 'foo', 'bar' ];\nvar [ x, y ] = z;\n\nvar arr = ['foo', 'bar'];\nvar [x,y] = z;\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "sort-keys",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "sort-keys - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "/*eslint sort-keys: \"error\"*/\n\nconst obj1 = {a: 1, c: 3, b: 2};\nconst obj2 = {a: 1, \"c\": 3, b: 2};\n\n// Case-sensitive by default.\nconst obj3 = {a: 1, b: 2, C: 3};\n\n// Non-natural order by default.\nconst obj4 = {1: a, 2: c, 10: b};\n\n// This rule checks computed properties which have a simple name as well.\n// Simple names are names which are expressed by an Identifier node or a Literal node.\nconst S = Symbol(\"s\")\nconst obj5 = {a: 1, [\"c\"]: 3, b: 2};\nconst obj6 = {a: 1, [S]: 3, b: 2};\n12345678910111213141516",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-numeric-literals",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-numeric-literals - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. V",
+      "bad": "0b111110111 === 503;\n0o767 === 503;\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-with",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-with - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.",
+      "bad": "/*eslint no-with: \"error\"*/\n\nwith (point) {\n    r = Math.sqrt(x * x + y * y); // is r a member of point?\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-concat",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-concat - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "const foo = \"a\" + \"b\";\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-plusplus",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-plusplus - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "let i = 10;\nlet j = 20;\n\ni ++\nj\n// i = 11, j = 20\n123456",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-new-wrappers",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-new-wrappers - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "const stringObject = new String(\"Hello world\");\nconsole.log(typeof stringObject);       // \"object\"\n\nconst text = \"Hello world\";\nconsole.log(typeof text);               // \"string\"\n\nconst booleanObject = new Boolean(false);\nif (booleanObject) {    // all objects are truthy!\n    console.log(\"This executes\");\n}\n12345678910",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-lone-blocks",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-lone-blocks - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "{\n    var foo = bar();\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "max-statements",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "max-statements - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "function foo() {\n  const bar = 1; // one statement\n  const baz = 2; // two statements\n  const qux = 3; // three statements\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "logical-assignment-operators",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "logical-assignment-operators - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint do",
+      "bad": "/*eslint logical-assignment-operators: [\"error\", \"always\"]*/\n\na = a || b\na = a && b\na = a ?? b\na || (a = b)\na && (a = b)\na ?? (a = b)\na = a || b || c\na = a && b && c\na = a ?? b ?? c\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "func-names",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "func-names - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "Foo.prototype.bar = function bar() {};\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "func-name-matching",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "func-name-matching - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "/*eslint func-name-matching: \"error\"*/\n\nlet foo = function bar() {};\nfoo = function bar() {};\nconst obj = {foo: function bar() {}};\nobj.foo = function bar() {};\nobj['foo'] = function bar() {};\n({['foo']: function bar() {}});\n\nclass C {\n    foo = function bar() {};\n}\n123456789101112",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "consistent-return",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "consistent-return - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "function doSomething(condition) {\n    if (condition) {\n        return true;\n    } else {\n        return;\n    }\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-assignment",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-assignment - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "let id = \"x1234\";    // this is a \"dead store\" - this value (\"x1234\") is never read\n\nid = generateId();\n\ndoSomethingWith(id);\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "semi-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "semi-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "var a = \"b\" ;\n\nvar c = \"d\";var e = \"f\";\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-extra-semi",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-extra-semi - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "/*eslint no-extra-semi: \"error\"*/\n\nvar x = 5;;\n\nfunction foo() {\n    // code\n};\n\nclass C {\n    field;;\n\n    method() {\n        // code\n    };\n\n    static {\n        // code\n    };\n};\n12345678910111213141516171819",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "block-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "block-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "/*eslint block-spacing: \"error\"*/\n\nfunction foo() {return true;}\nif (foo) { bar = 0;}\nfunction baz() {let i = 0;\n    return i;\n}\n\nclass C {\n    static {this.bar = 0;}\n}\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "brace-style",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "brace-style - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "if (foo) {\n  bar();\n} else {\n  baz();\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-template",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-template - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "const str = \"Hello, \" + name + \"!\";\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-const",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-const - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint prefer-const: \"error\"*/\n\n// it's initialized and never reassigned.\nlet a = 3;\nconsole.log(a);\n\nlet b;\nb = 0;\nconsole.log(b);\n\nclass C {\n    static {\n        let a;\n        a = 0;\n        console.log(a);\n    }\n}\n\n// `i` is redefined (not reassigned) on each loop step.\nfor (let i in [1, 2, 3]) {\n    console.log(i);\n}\n\n// `a` is redefined (not reassigned) on each loop step.\nfor (let a of [1, 2, 3]) {\n    console.log(a);\n}\n123456789101112131415161718192021222324252627",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-void",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-void - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.",
+      "bad": "// will always return undefined\n(function(){\n    return void 0;\n})();\n\n// will return 1 in ES3 and undefined in ES5+\n(function(){\n    undefined = 1;\n    return undefined;\n})();\n\n// will throw TypeError in ES5+\n(function(){\n    'use strict';\n    undefined = 1;\n})();\n12345678910111213141516",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-rename",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-rename - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "import { foo as bar } from \"baz\";\nexport { foo as bar };\nlet { foo: bar } = baz;\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-loop-func",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-loop-func - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "for (var i = 0; i < 10; i++) {\n    funcs[i] = function() {\n        return i;\n    };\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-labels",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-labels - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "outer:\n    while (true) {\n\n        while (true) {\n            break outer;\n        }\n    }\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-empty-function",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-empty-function - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "function foo() {\n    // do nothing.\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "id-match",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "id-match - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10",
+      "bad": "{\n    \"id-match\": [\"error\", \"^[a-z]+([A-Z][a-z]+)*$\"]\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "default-param-last",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "default-param-last - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "// Correct: optional argument can be omitted\nfunction createUser(id, isAdmin = false) {}\ncreateUser(\"tabby\")\n\n// Incorrect: optional argument can **not** be omitted\nfunction createUser(isAdmin = false, id) {}\ncreateUser(undefined, \"tabby\")\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "accessor-pairs",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "accessor-pairs - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "// Bad\nconst o = {\n    set a(value) {\n        this.val = value;\n    }\n};\n\n\n// Good\nconst p = {\n    set a(value) {\n        this.val = value;\n    },\n    get a() {\n        return this.val;\n    }\n};\n\n123456789101112131415161718",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unreachable",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unreachable - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "function fn() {\n    x = 1;\n    return x;\n    x = 3; // this will never execute\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-dupe-args",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-dupe-args - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "/*eslint no-dupe-args: \"error\"*/\n\nfunction foo(a, b, a) {\n    console.log(\"value of the second a:\", a);\n}\n\nconst bar = function (a, b, a) {\n    console.log(\"value of the second a:\", a);\n};\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-control-regex",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-control-regex - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "/*eslint no-control-regex: \"error\"*/\n\nconst pattern1 = /\\x00/;\nconst pattern2 = /\\x0C/;\nconst pattern3 = /\\x1F/;\nconst pattern4 = /\\u000C/;\nconst pattern5 = /\\u{C}/u;\nconst pattern6 = new RegExp(\"\\x0C\"); // raw U+000C character in the pattern\nconst pattern7 = new RegExp(\"\\\\x0C\"); // \\x0C pattern\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "keyword-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "keyword-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "if (foo) {\n    // ...\n} else {\n    // ...\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "require-yield",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "require-yield - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "/*eslint require-yield: \"error\"*/\n\nfunction* foo() {\n  return 10;\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-warning-comments",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-warning-comments - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versi",
+      "bad": "// TODO: do something\n// FIXME: this is not a good idea\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-octal",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-octal - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10",
+      "bad": "const num = 071;      // 57\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-eval",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-eval - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.",
+      "bad": "const obj = { x: \"foo\" },\n    key = \"x\",\n    value = eval(\"obj.\" + key);\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "max-depth",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "max-depth - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "/*eslint max-depth: [\"error\", 4]*/\n\nfunction foo() {\n    for (;;) { // Nested 1 deep\n        while (true) { // Nested 2 deep\n            if (true) { // Nested 3 deep\n                if (true) { // Nested 4 deep\n                    if (true) { // Nested 5 deep\n                    }\n                }\n            }\n        }\n    }\n}\n1234567891011121314",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "init-declarations",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "init-declarations - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "let foo = 1;\nlet bar;\n\nif (foo) {\n    bar = 1;\n} else {\n    bar = 2;\n}\n12345678",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "consistent-this",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "consistent-this - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "const that = this;\njQuery('li').click(function (event) {\n    // here, \"this\" is the HTMLElement where the click event occurred\n    that.setFoo(42);\n});\n12345",
+      "good": "/*eslint consistent-this: [\"error\", \"that\"]*/\n\nlet that;\nthat = this;\n1234",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-duplicate-case",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-duplicate-case - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "/*eslint no-duplicate-case: \"error\"*/\n\nconst a = 1,\n    one = 1;\n\nswitch (a) {\n    case 1:\n        break;\n    case 2:\n        break;\n    case 1:         // duplicate test expression\n        break;\n    default:\n        break;\n}\n\nswitch (a) {\n    case one:\n        break;\n    case 2:\n        break;\n    case one:         // duplicate test expression\n        break;\n    default:\n        break;\n}\n\nswitch (a) {\n    case \"1\":\n        break;\n    case \"2\":\n        break;\n    case \"1\":         // duplicate test expression\n        break;\n    default:\n        break;\n}\n12345678910111213141516171819202122232425262728293031323334353637",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "for-direction",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "for-direction - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "/*eslint for-direction: \"error\"*/\nfor (let i = 0; i < 10; i--) {\n}\n\nfor (let i = 10; i = 0; i++) {\n}\n\nfor (let i = 0; i  10; i++) {\n    // counter i is on the left with , so i++ (increasing) is the wrong direction\n}\n\nfor (let i = 0; i  0; i++) {\n    // counter i is on the left with , so i++ (increasing) is the wrong direction\n}\n\nfor (let i = 0; 0 < i; i++) {\n    // counter i is on the right with <, so i++ (increasing) is the wrong direction\n}\n\nfor (let i = 0; 10  i; i--) {\n}\n\nconst n = -2;\nfor (let i = 0; i < 10; i += n) {\n}\n12345678910111213141516171819202122232425",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "array-callback-return",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "array-callback-return - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "// example: convert ['a', 'b', 'c'] -- {a: 0, b: 1, c: 2}\nconst indexMap = myArray.reduce(function(memo, item, index) {\n  memo[item] = index;\n}, {}); // Error: cannot set property 'b' of undefined\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "symbol-description",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "symbol-description - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "/*eslint symbol-description: \"error\"*/\n\nconst foo = Symbol();\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "require-unicode-regexp",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "require-unicode-regexp - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ve",
+      "bad": "/^[👍]$/.test(\"👍\") //→ false\n/^[👍]$/u.test(\"👍\") //→ true\n12",
+      "good": "/* eslint-disable require-unicode-regexp */\nconst regex = /^\\w+$/i;\n/* eslint-enable require-unicode-regexp */\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "preserve-caught-error",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "preserve-caught-error - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "try {\n\tawait fetch(\"https://xyz.com/resource\");\n} catch(error) {\n\t// Throw a more specific error without losing original context\n\tthrow new Error(\"Failed to fetch resource\", {\n\t\tcause: error\n\t});\n}\n12345678",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-restricted-properties",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-restricted-properties - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. ",
+      "bad": "{\n    \"rules\": {\n        \"no-restricted-properties\": [2, {\n            \"object\": \"disallowedObjectName\",\n            \"property\": \"disallowedPropertyName\"\n        }]\n    }\n}\n12345678",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-restricted-exports",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-restricted-exports - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "/*eslint no-restricted-exports: [\"error\", {\n    \"restrictedNamedExports\": [\"foo\", \"bar\", \"Baz\", \"a\", \"b\", \"c\", \"d\", \"e\", \"👍\"]\n}]*/\n\nexport const foo = 1;\n\nexport function bar() {}\n\nexport class Baz {}\n\nconst a = {};\nexport { a };\n\nfunction someFunction() {}\nexport { someFunction as b };\n\nexport { c } from \"some_module\";\n\nexport { \"d\" } from \"some_module\";\n\nexport { something as e } from \"some_module\";\n\nexport { \"👍\" } from \"some_module\";\n1234567891011121314151617181920212223",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-iterator",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-iterator - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "Foo.prototype.__iterator__ = function() {\n    return new FooIterator(this);\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-console",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-console - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "console.log(\"Made it here.\");\nconsole.error(\"That shouldn't have happened.\");\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-alert",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-alert - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10",
+      "bad": "alert(\"here!\");\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "id-length",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "id-length - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "const x = 5; // too short; difficult to understand its purpose without context\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "default-case",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "default-case - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "switch (foo) {\n    case 1:\n        doSomething();\n        break;\n\n    case 2:\n        doSomething();\n        break;\n\n    default:\n    // do nothing\n}\n123456789101112",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-sparse-arrays",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-sparse-arrays - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "const items = [,,];\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-fallthrough",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-fallthrough - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HE",
+      "bad": "switch(foo) {\n    case 1:\n        doSomething();\n\n    case 2:\n        doSomethingElse();\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "quote-props",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "quote-props - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "var object1 = {\n    property: true\n};\n\nvar object2 = {\n    \"property\": true\n};\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "comma-dangle",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "comma-dangle - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "var foo = {\n    bar: \"baz\",\n    qux: \"quux\",\n};\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-destructuring",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-destructuring - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "const $ = require('jquery');\nconst foo = $('body')[0];\nconst [bar] = $('body'); // fails with a TypeError\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "max-params",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "max-params - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "function foo (bar, baz, qux, qxx) { // four parameters, may be too many\n    doSomething();\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "grouped-accessor-pairs",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "grouped-accessor-pairs - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ve",
+      "bad": "const o = {\n    get a() {\n        return this.val;\n    },\n    set a(value) {\n        this.val = value;\n    },\n    b: 1\n};\n\nconst o1 = {\n    get a() {\n        return this.val;\n    },\n    b: 1,\n    set a(value) {\n        this.val = value;\n    }\n};\n12345678910111213141516171819",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unreachable-loop",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unreachable-loop - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versi",
+      "bad": "for (let i = 0; i < arr.length; i++) {\n    if (arr[i].name === myName) {\n        doSomething(arr[i]);\n        // break was supposed to be here\n    }\n    break;\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "require-await",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "require-await - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "async function fetchData(processDataItem) {\n    const response = await fetch(DATA_URL);\n    const data = await response.json();\n\n    return data.map(processDataItem);\n}\n123456",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-ternary",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-ternary - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "const foo = isBar ? baz : qux;\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "default-case-last",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "default-case-last - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "/*eslint default-case-last: \"error\"*/\n\nswitch (foo) {\n    default:\n        bar();\n        break;\n    case \"a\":\n        baz();\n        break;\n}\n\nswitch (foo) {\n    case 1:\n        bar();\n        break;\n    default:\n        baz();\n        break;\n    case 2:\n        quux();\n        break;\n}\n\nswitch (foo) {\n    case \"x\":\n        bar();\n        break;\n    default:\n    case \"y\":\n        baz();\n        break;\n}\n\nswitch (foo) {\n    default:\n        break;\n    case -1:\n        bar();\n        break;\n}\n\nswitch (foo) {\n  default:\n    doSomethingIfNotZero();\n  case 0:\n    doSomethingAnyway();\n}\n1234567891011121314151617181920212223242526272829303132333435363738394041424344454647",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "constructor-super",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "constructor-super - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "class A {\n    constructor() {\n        super();\n    }\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "wrap-iife",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "wrap-iife - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "// function expression could be unwrapped\nvar x = function () { return { y: 1 };}();\n\n// function declaration must be wrapped\nfunction () { /* side effects */ }(); // SyntaxError\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-nested-ternary",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-nested-ternary - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "const foo = bar ? baz : qux === quxx ? bing : bam;\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "operator-linebreak",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "operator-linebreak - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versio",
+      "bad": "var fullHeight = borderTop +\n                 innerHeight +\n                 borderBottom;\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "new-cap",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "new-cap - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.",
+      "bad": "const friend = new Person();\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "wrap-regex",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "wrap-regex - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "function a() {\n    return /foo/.test(\"bar\");\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-debugger",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-debugger - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD ",
+      "bad": "/*eslint no-debugger: \"error\"*/\n\nfunction isTruthy(x) {\n    debugger;\n    return Boolean(x);\n}\n123456",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "space-in-parens",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "space-in-parens - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "foo( 'bar' );\nvar x = ( 1 + 2 ) * 3;\n\nfoo('bar');\nvar x = (1 + 2) * 3;\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "arrow-parens",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "arrow-parens - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD",
+      "bad": "var a = 1;\nvar b = 2;\n// ...\nif (a = b) {\n console.log('bigger');\n} else {\n console.log('smaller');\n}\n// outputs 'bigger', not smaller as expected\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "space-infix-ops",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "space-infix-ops - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "var sum = 1 + 2;\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "space-after-keywords",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "space-after-keywords - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint space-after-keywords: \"error\"*/\n\nif(a) {}\n\nif (a) {} else{}\n\ndo{} while (a);\n1234567",
+      "good": "/*eslint space-after-keywords: \"error\"*/\n\nif (a) {}\n\nif (a) {} else {}\n12345",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "space-in-brackets",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "space-in-brackets - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version",
+      "bad": "foo[ 'bar' ];\nfoo['bar' ];\n\nvar arr = [ 'foo', 'bar' ];\nvar arr = ['foo', 'bar' ];\nvar arr = [ ['foo'], 'bar'];\nvar arr = [[ 'foo' ], 'bar'];\nvar arr = ['foo',\n  'bar'\n];\n\nvar obj = { 'foo': 'bar' };\nvar obj = {'foo': 'bar' };\nvar obj = { baz: {'foo': 'qux'}, bar};\nvar obj = {baz: { 'foo': 'qux' }, bar};\n123456789101112131415",
+      "good": "// When options are [\"error\", \"never\"]\n\nfoo['bar'];\nfoo[\n  'bar'\n];\nfoo[\n  'bar'];\n\nvar arr = [];\nvar arr = ['foo', 'bar', 'baz'];\nvar arr = [['foo'], 'bar', 'baz'];\nvar arr = [\n  'foo',\n  'bar',\n  'baz'\n];\n\nvar arr = [\n  'foo',\n  'bar'];\n\nvar obj = {'foo': 'bar'};\n\nvar obj = {'foo': {'bar': 'baz'}, 'qux': 'quxx'};\n\nvar obj = {\n  'foo': 'bar'\n};\nvar obj = {'foo': 'bar'\n};\nvar obj = {\n  'foo':'bar'};\n\nvar obj = {};\n1234567891011121314151617181920212223242526272829303132333435",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-nonoctal-decimal-escape",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-nonoctal-decimal-escape - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs",
+      "bad": "\"\\8\" === \"8\"; // true\n\"\\9\" === \"9\"; // true\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-empty-static-block",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-empty-static-block - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "/*eslint no-empty-static-block: \"error\"*/\n\nclass Foo {\n    static {}\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unsafe-optional-chaining",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unsafe-optional-chaining - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint doc",
+      "bad": "const obj = undefined;\n\n1 in obj?.foo;  // TypeError\nwith (obj?.foo);  // TypeError\nfor (bar of obj?.foo);  // TypeError\nbar instanceof obj?.foo;  // TypeError\nconst { bar } = obj?.foo;  // TypeError\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-template-curly-in-string",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-template-curly-in-string - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint doc",
+      "bad": "/*eslint no-template-curly-in-string: \"error\"*/\n\"Hello ${name}!\";\n'Hello ${name}!';\n\"Time: ${12 * 60 * 60 * 1000}\";\n1234",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-named-capture-group",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-named-capture-group - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs",
+      "bad": "const regex = /(?<year[0-9]{4})/;\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-this-before-super",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-this-before-super - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint no-this-before-super: \"error\"*/\n\nclass A1 extends B {\n    constructor() {\n        this.a = 0;\n        super();\n    }\n}\n\nclass A2 extends B {\n    constructor() {\n        this.foo();\n        super();\n    }\n}\n\nclass A3 extends B {\n    constructor() {\n        super.foo();\n        super();\n    }\n}\n\nclass A4 extends B {\n    constructor() {\n        super(this.foo());\n    }\n}\n12345678910111213141516171819202122232425262728",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-object-has-own",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-object-has-own - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "if (Object.prototype.hasOwnProperty.call(object, \"foo\")) {\n  console.log(\"has property foo\");\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-shadow-restricted-names",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-shadow-restricted-names - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs",
+      "bad": "const undefined = \"foo\";\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-promise-executor-return",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-promise-executor-return - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs",
+      "bad": "const myPromise = new Promise(function executor(resolve, reject) {\n    readFile('foo.txt', function(err, result) {\n        if (err) {\n            reject(err);\n        } else {\n            resolve(result);\n        }\n    });\n});\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "spaced-line-comment",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "spaced-line-comment - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versi",
+      "bad": "// When [\"never\"]\n// This is a comment with a whitespace at the beginning\n12",
+      "good": "// When [\"always\"]\n// This is a comment with a whitespace at the beginning\nvar foo = 5;\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-new-native-nonconstructor",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-new-native-nonconstructor - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint do",
+      "bad": "// throws a TypeError\nconst foo = new Symbol(\"foo\");\n\n// throws a TypeError\nconst result = new BigInt(9007199254740991);\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-compare-neg-zero",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-compare-neg-zero - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versi",
+      "bad": "/* eslint no-compare-neg-zero: \"error\" */\n\nif (x === -0) {\n    // doSomething()...\n}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-async-promise-executor",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-async-promise-executor - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs.",
+      "bad": "const result = new Promise(function executor(resolve, reject) {\n  readFile('foo.txt', function(err, result) {\n    if (err) {\n      reject(err);\n    } else {\n      resolve(result);\n    }\n  });\n});\n123456789",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "prefer-promise-reject-errors",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "prefer-promise-reject-errors - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint do",
+      "bad": "/*eslint prefer-promise-reject-errors: \"error\"*/\n\nPromise.reject(\"something bad happened\");\n\nPromise.reject(5);\n\nPromise.reject();\n\nnew Promise(function(resolve, reject) {\n  reject(\"something bad happened\");\n});\n\nnew Promise(function(resolve, reject) {\n  reject();\n});\n\n12345678910111213141516",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-use-before-define",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-use-before-define - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint no-use-before-define: \"error\"*/\n\nalert(a);\nvar a = 10;\n\nf();\nfunction f() {}\n\nfunction g() {\n    return b;\n}\nvar b = 1;\n\n{\n    alert(c);\n    let c = 1;\n}\n\n{\n    class C extends C {}\n}\n\n{\n    class C {\n        static x = \"foo\";\n        [C.x]() {}\n    }\n}\n\n{\n    const C = class {\n        static x = C;\n    }\n}\n\n{\n    const C = class {\n        static {\n            C.x = \"foo\";\n        }\n    }\n}\n\nexport { foo };\nconst foo = 1;\n123456789101112131415161718192021222324252627282930313233343536373839404142434445",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-await-in-loop",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-await-in-loop - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version ",
+      "bad": "async function foo(things) {\n  const results = [];\n  for (const thing of things) {\n    // Bad: each loop iteration is delayed until the entire asynchronous operation completes\n    results.push(await doAsyncWork(thing));\n  }\n  return results;\n}\n12345678",
+      "good": "async function printCountdown() {\n    for (let i = 0; i < 10; i++) {\n        await new Promise(resolve = setTimeout(resolve, 1000)); // sleep 1 second\n        console.log(i);\n    }\n}\n123456",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-extra-boolean-cast",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-extra-boolean-cast - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "if (!!foo) {\n    // ...\n}\n\nif (Boolean(foo)) {\n    // ...\n}\n\nif (foo) {\n    // ...\n}\n1234567891011",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-empty-character-class",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-empty-character-class - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. ",
+      "bad": "const foo = /^abc[]/;\n1",
+      "good": "/*eslint no-empty-character-class: \"error\"*/\n\nconst abcNeverMatches = new RegExp(\"^abc[]\");\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-dupe-else-if",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-dupe-else-if - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version H",
+      "bad": "if (a) {\n    foo();\n} else if (b) {\n    bar();\n} else if (c) {\n    baz();\n}\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unused-private-class-members",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unused-private-class-members - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint",
+      "bad": "/*eslint no-unused-private-class-members: \"error\"*/\n\nclass A {\n    #unusedMember = 5;\n}\n\nclass B {\n    #usedOnlyInWrite = 5;\n    method() {\n        this.#usedOnlyInWrite = 42;\n    }\n}\n\nclass C {\n    #usedOnlyToUpdateItself = 5;\n    method() {\n        this.#usedOnlyToUpdateItself++;\n    }\n}\n\nclass D {\n    #unusedMethod() {}\n}\n\nclass E {\n    get #unusedAccessor() {}\n    set #unusedAccessor(value) {}\n}\n12345678910111213141516171819202122232425262728",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-loss-of-precision",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-loss-of-precision - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint no-loss-of-precision: \"error\"*/\n\nconst a = 9007199254740993\nconst b = 5123000000000000000000000000001\nconst c = 1230000000000000000000000.0\nconst d = .1230000000000000000000000\nconst e = 0X20000000000001\nconst f = 0X2_000000000_0001;\n12345678",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "space-before-blocks",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "space-before-blocks - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Versi",
+      "bad": "/*eslint space-before-blocks: \"error\"*/\n\nif (a){\n    b();\n}\n\nfunction a(){}\n\nfor (;;){\n    b();\n}\n\ntry {} catch(a){}\n\nclass Foo{\n  constructor(){}\n}\n1234567891011121314151617",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "arrow-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "arrow-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEA",
+      "bad": "// { \"before\": true, \"after\": true }\n(a) = {}\n\n// { \"before\": false, \"after\": false }\n(a)={}\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "switch-colon-spacing",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "switch-colon-spacing - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "{\n    \"switch-colon-spacing\": [\"error\", {\"after\": true, \"before\": false}]\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-misleading-character-class",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-misleading-character-class - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint d",
+      "bad": "/^[Á]$/u.test(\"Á\"); //→ false\n/^[❇️]$/u.test(\"❇️\"); //→ false\n12",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "class-methods-use-this",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "class-methods-use-this - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ve",
+      "bad": "const array1 = [1, 2, 3];\nconst array2 = [4, 5, 6];\n\n// Using the `includes()` method on different objects gives different results:\narray1.includes(1); // true\narray2.includes(1); // false\n\n// Modifying the state of an object may change the outcome of its instance methods:\narray2.push(1);\narray2.includes(1); // true\n12345678910",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-unmodified-loop-condition",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-unmodified-loop-condition - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint do",
+      "bad": "while (node) {\n    doSomething(node);\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-dupe-class-members",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-dupe-class-members - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ver",
+      "bad": "class Foo {\n  bar() { console.log(\"hello\"); }\n  bar() { console.log(\"goodbye\"); }\n}\n\nconst foo = new Foo();\nfoo.bar(); // goodbye\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "space-before-function-paren",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "space-before-function-paren - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint doc",
+      "bad": "function withoutSpace(x) {\n    // ...\n}\n\nfunction withSpace (x) {\n    // ...\n}\n\nvar anonymousWithoutSpace = function() {};\n\nvar anonymousWithSpace = function () {};\n1234567891011",
+      "good": "{\n    \"space-before-function-paren\": [\"error\", \"always\"],\n    // or\n    \"space-before-function-paren\": [\"error\", {\n        \"anonymous\": \"always\",\n        \"named\": \"always\",\n        \"asyncArrow\": \"always\"\n    }],\n}\n123456789",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-useless-computed-key",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-useless-computed-key - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. V",
+      "bad": "const foo = {[\"a\"]: \"b\"};\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "max-lines-per-function",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "max-lines-per-function - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Ve",
+      "bad": "function() {\n    return m(\"div\", [\n        m(\"table\", {className: \"table table-striped latest-data\"}, [\n            m(\"tbody\",\n                data.map(function(db) {\n                    return m(\"tr\", {key: db.dbname}, [\n                        m(\"td\", {className: \"dbname\"}, db.dbname),\n                        m(\"td\", {className: \"query-count\"},  [\n                            m(\"span\", {className: db.lastSample.countClassName}, db.lastSample.nbQueries)\n                        ])\n                    ])\n                })\n            )\n        ])\n    ])\n}\n12345678910111213141516",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "max-classes-per-file",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "max-classes-per-file - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Vers",
+      "bad": "/*eslint max-classes-per-file: \"error\"*/\n\nclass Foo {}\nclass Bar {}\n1234",
+      "good": "/*eslint max-classes-per-file: \"error\"*/\n\nclass Foo {}\n123",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "no-constant-binary-expression",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "no-constant-binary-expression - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint d",
+      "bad": "// One might think this would evaluate as `a + (b ?? c)`:\nconst x = a + b ?? c;\n\n// But it actually evaluates as `(a + b) ?? c`. Since `a + b` can never be null,\n// the `?? c` has no effect.\n12345",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "space-return-throw-case",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "space-return-throw-case - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. V",
+      "bad": "/*eslint space-return-throw-case: \"error\"*/\n\nthrow{a:0}\n\nfunction f(){ return-a; }\n\nswitch(a){ case'a': break; }\n1234567",
+      "good": "/*eslint space-return-throw-case: \"error\"*/\n\nthrow {a: 0};\n\nfunction f(){ return -a; }\n\nswitch(a){ case 'a': break; }\n1234567",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "yoda",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "yoda - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.5.0",
+      "bad": "if (\"red\" === color) {\n    // ...\n}\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "semi",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "semi - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.5.0",
+      "bad": "var globalCounter = { }\n\n(function () {\n    var n = 0\n    globalCounter.increment = function () {\n        return ++n\n    }\n})()\n12345678",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "camelcase",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "camelcase - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v1",
+      "bad": "/*eslint camelcase: \"error\"*/\n\nimport { snake_cased } from 'mod';\n123",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "complexity",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "complexity - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v",
+      "bad": "\"complexity\": [\"error\", 2]\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "strict",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "strict - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.5",
+      "bad": "// \"strict\": \"error\"\n\nfunction foo() {\n}\n1234",
+      "good": "// \"strict\": \"error\"\n\n\"use strict\";\n\nfunction foo() {\n}\n123456",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "eqeqeq",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "eqeqeq - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.5",
+      "bad": "/*eslint eqeqeq: \"error\"*/\n\nif (x == 42) { }\n\nif (\"\" == text) { }\n\nif (obj.getStuff() != undefined) { }\n1234567",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "radix",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "radix - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.5.",
+      "bad": "const num = parseInt(\"071\");      // 57\n1",
+      "good": "const num = parseInt(\"071\", 10);  // 71\n1",
+      "source": "https://eslint.org/docs/latest/rules/"
+    },
+    {
+      "id": "curly",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "curly - ESLint - Pluggable JavaScript Linter Skip to main content Donate Team Blog Docs Store Playground Code Explorer Versions Version Switcher Selecting a version will take you to the chosen version of the ESLint docs. Version HEAD v10.5.",
+      "bad": "if (foo) foo++;\n1",
+      "good": "",
+      "source": "https://eslint.org/docs/latest/rules/"
+    }
+  ]
+}

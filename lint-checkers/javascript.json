@@ -1,0 +1,110 @@
+{
+  "language": "javascript",
+  "version": "10.5.0",
+  "_note": "Hard javascript checker bank, generated + self-validated from eslint docs (each spec flags its rule's exampleBad and not its exampleGood). Version supplements live in javascript@<version>.json.",
+  "checkers": [
+    {
+      "rule": "class-methods-use-this",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.includes\\("
+    },
+    {
+      "rule": "consistent-this",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.click\\("
+    },
+    {
+      "rule": "eqeqeq",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.getStuff\\("
+    },
+    {
+      "rule": "no-debugger",
+      "severity": "high",
+      "kind": "banned_keyword",
+      "keyword": "debugger"
+    },
+    {
+      "rule": "no-magic-numbers",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.now\\("
+    },
+    {
+      "rule": "no-new-wrappers",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.substring\\("
+    },
+    {
+      "rule": "no-process-exit",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.exit\\("
+    },
+    {
+      "rule": "no-prototype-builtins",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.hasOwnProperty\\("
+    },
+    {
+      "rule": "no-self-compare",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.min\\("
+    },
+    {
+      "rule": "no-sequences",
+      "severity": "medium",
+      "kind": "self_binop",
+      "ops": [
+        "==",
+        "!=",
+        "&&",
+        "||",
+        "&",
+        "|"
+      ]
+    },
+    {
+      "rule": "no-sync",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.existsSync\\("
+    },
+    {
+      "rule": "no-this-before-super",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.foo\\("
+    },
+    {
+      "rule": "no-with",
+      "severity": "medium",
+      "kind": "banned_keyword",
+      "keyword": "with"
+    },
+    {
+      "rule": "prefer-exponentiation-operator",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.pow\\("
+    },
+    {
+      "rule": "require-atomic-updates",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.then\\("
+    },
+    {
+      "rule": "require-await",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.json\\("
+    }
+  ]
+}

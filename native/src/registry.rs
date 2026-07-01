@@ -18,19 +18,14 @@ pub struct Tool {
 /// allowlist) is all that's needed to route it to Rust.
 pub fn all_tools() -> Vec<Tool> {
     use tools::{
-        checkpoint as cp, cs_lint as cl, knowledge as kn, project_index as pi, setup as su,
-        strict_lint as sl,
+        checkpoint as cp, knowledge as kn, lint as ln, lint_source as ls, lint_web as lw,
+        project_index as pi, setup as su,
     };
     vec![
         Tool {
             name: "checkpoint",
             schema: cp::schema,
             handler: cp::run,
-        },
-        Tool {
-            name: "strict_lint",
-            schema: sl::schema,
-            handler: sl::run,
         },
         Tool {
             name: "index_project",
@@ -53,9 +48,54 @@ pub fn all_tools() -> Vec<Tool> {
             handler: su::run,
         },
         Tool {
-            name: "cs_lint",
-            schema: cl::schema,
-            handler: cl::run,
+            name: "lint",
+            schema: ln::schema,
+            handler: ln::run,
+        },
+        Tool {
+            name: "lint_languages",
+            schema: ls::schema_languages,
+            handler: ls::run_languages,
+        },
+        Tool {
+            name: "lint_add_source",
+            schema: ls::schema_add_source,
+            handler: ls::run_add_source,
+        },
+        Tool {
+            name: "lint_learn",
+            schema: ls::schema_learn,
+            handler: ls::run_learn,
+        },
+        Tool {
+            name: "lint_submit",
+            schema: ls::schema_submit,
+            handler: ls::run_submit,
+        },
+        Tool {
+            name: "lint_rule",
+            schema: ls::schema_rule,
+            handler: ls::run_rule,
+        },
+        Tool {
+            name: "lint_config",
+            schema: ls::schema_config,
+            handler: ls::run_config,
+        },
+        Tool {
+            name: "lint_build_web",
+            schema: lw::schema_build_web,
+            handler: lw::run_build_web,
+        },
+        Tool {
+            name: "lint_probe",
+            schema: lw::schema_probe,
+            handler: lw::run_probe,
+        },
+        Tool {
+            name: "lint_trace",
+            schema: lw::schema_trace,
+            handler: lw::run_trace,
         },
         Tool {
             name: "build_knowledge_index",

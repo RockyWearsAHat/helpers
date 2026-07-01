@@ -43,8 +43,7 @@ class Helpers < Formula
   def install
     bin.install "helpers-native"
     %w[helpers git-resolve git-remerge git-fucked-the-push git-initialize git-get
-       git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env
-       git-cs-grade].each do |name|
+       git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env].each do |name|
       bin.install_symlink "helpers-native" => name
     end
   end

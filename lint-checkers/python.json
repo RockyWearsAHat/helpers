@@ -1,0 +1,439 @@
+{
+  "language": "python",
+  "version": "1.6.1",
+  "_note": "Hard python checker bank, generated + self-validated from ruff docs (each spec flags its rule's exampleBad and not its exampleGood). Version supplements live in python@<version>.json.",
+  "checkers": [
+    {
+      "rule": "A003",
+      "severity": "medium",
+      "kind": "tail_return"
+    },
+    {
+      "rule": "AIR201",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.xcom_pull\\("
+    },
+    {
+      "rule": "ASYNC210",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.urlopen\\("
+    },
+    {
+      "rule": "ASYNC220",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.popen\\("
+    },
+    {
+      "rule": "B028",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.warn\\("
+    },
+    {
+      "rule": "DTZ002",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.today\\("
+    },
+    {
+      "rule": "DTZ003",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.utcnow\\("
+    },
+    {
+      "rule": "DTZ004",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.utcfromtimestamp\\("
+    },
+    {
+      "rule": "DTZ006",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.fromtimestamp\\("
+    },
+    {
+      "rule": "DTZ007",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.strptime\\("
+    },
+    {
+      "rule": "DTZ901",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.timestamp\\("
+    },
+    {
+      "rule": "E721",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.array\\("
+    },
+    {
+      "rule": "FLY002",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.join\\("
+    },
+    {
+      "rule": "FURB129",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.readlines\\("
+    },
+    {
+      "rule": "FURB132",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.remove\\("
+    },
+    {
+      "rule": "FURB161",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.count\\("
+    },
+    {
+      "rule": "FURB162",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.rstrip\\("
+    },
+    {
+      "rule": "FURB164",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.from_float\\("
+    },
+    {
+      "rule": "FURB181",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.digest\\("
+    },
+    {
+      "rule": "FURB188",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.endswith\\("
+    },
+    {
+      "rule": "NPY002",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.seed\\("
+    },
+    {
+      "rule": "NPY003",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.alltrue\\("
+    },
+    {
+      "rule": "NPY201",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.float_\\("
+    },
+    {
+      "rule": "PD003",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.isnull\\("
+    },
+    {
+      "rule": "PD004",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.notnull\\("
+    },
+    {
+      "rule": "PD010",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.pivot\\("
+    },
+    {
+      "rule": "PD012",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.read_table\\("
+    },
+    {
+      "rule": "PD013",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.set_index\\("
+    },
+    {
+      "rule": "PD101",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.nunique\\("
+    },
+    {
+      "rule": "PLC2801",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.__gt__\\("
+    },
+    {
+      "rule": "PLR0124",
+      "severity": "medium",
+      "kind": "self_binop",
+      "ops": [
+        "==",
+        "!=",
+        "&&",
+        "||",
+        "&",
+        "|"
+      ]
+    },
+    {
+      "rule": "PLW1509",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.setpgid\\("
+    },
+    {
+      "rule": "PLW2901",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.readline\\("
+    },
+    {
+      "rule": "PT020",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.yield_fixture\\("
+    },
+    {
+      "rule": "PT024",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.asyncio\\("
+    },
+    {
+      "rule": "PTH100",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.abspath\\("
+    },
+    {
+      "rule": "PTH103",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.makedirs\\("
+    },
+    {
+      "rule": "PTH109",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.getcwd\\("
+    },
+    {
+      "rule": "PTH112",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.isdir\\("
+    },
+    {
+      "rule": "PTH113",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.isfile\\("
+    },
+    {
+      "rule": "PTH114",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.islink\\("
+    },
+    {
+      "rule": "PTH117",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.isabs\\("
+    },
+    {
+      "rule": "PTH119",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.basename\\("
+    },
+    {
+      "rule": "PTH120",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.dirname\\("
+    },
+    {
+      "rule": "PTH122",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.splitext\\("
+    },
+    {
+      "rule": "PTH124",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.local\\("
+    },
+    {
+      "rule": "PTH202",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.getsize\\("
+    },
+    {
+      "rule": "PTH203",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.getatime\\("
+    },
+    {
+      "rule": "PTH204",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.getmtime\\("
+    },
+    {
+      "rule": "PTH205",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.getctime\\("
+    },
+    {
+      "rule": "PTH208",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.listdir\\("
+    },
+    {
+      "rule": "PTH211",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.symlink\\("
+    },
+    {
+      "rule": "PYI006",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.version_info\\("
+    },
+    {
+      "rule": "PYI034",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.set_scale\\("
+    },
+    {
+      "rule": "RUF055",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.sub\\("
+    },
+    {
+      "rule": "RUF071",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.commonprefix\\("
+    },
+    {
+      "rule": "S202",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.extractall\\("
+    },
+    {
+      "rule": "S306",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.mktemp\\("
+    },
+    {
+      "rule": "S311",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.randrange\\("
+    },
+    {
+      "rule": "S323",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\._create_unverified_context\\("
+    },
+    {
+      "rule": "S324",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.md5\\("
+    },
+    {
+      "rule": "S601",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.exec_command\\("
+    },
+    {
+      "rule": "S605",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.system\\("
+    },
+    {
+      "rule": "S606",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.spawnlp\\("
+    },
+    {
+      "rule": "S611",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.annotate\\("
+    },
+    {
+      "rule": "S612",
+      "severity": "high",
+      "kind": "regex",
+      "pattern": "\\.listen\\("
+    },
+    {
+      "rule": "SIM115",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.close\\("
+    },
+    {
+      "rule": "SIM118",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.keys\\("
+    },
+    {
+      "rule": "T203",
+      "severity": "medium",
+      "kind": "regex",
+      "pattern": "\\.pprint\\("
+    },
+    {
+      "rule": "UP005",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.assertEquals\\("
+    },
+    {
+      "rule": "UP011",
+      "severity": "low",
+      "kind": "regex",
+      "pattern": "\\.lru_cache\\("
+    }
+  ]
+}

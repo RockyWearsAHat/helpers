@@ -1,30 +1,20 @@
 ---
-applyTo: "**/*.{js,mjs,ts,tsx,py,sh,bash,zsh,go,rs,java,cs,c,cpp,h,hpp}"
-description: "Lean universal design principles: clarity, modularity, validation, and maintainability."
+applyTo: "**"
+description: "Universal software design principles. Language-specific rules live in the linter — run lint after edits."
 ---
 
-# Software Design (Lean)
+# Software Design
 
-1. Prefer clear, traceable logic over clever compactness.
-2. Keep modules and functions focused; extract cohesive helpers when needed.
-3. Validate boundaries and handle errors explicitly.
-4. Preserve behavior unless change is intentional.
-5. Validate changes with diagnostics/tests before completion.
+Language-specific rules (idioms, unsafe patterns, style) are enforced by the AI linter. Run `lint` after edits; treat its output like compiler errors.
 
-Use an explicit named lock object: `private static readonly object _lock = new();`. Never `lock(this)` or `lock(typeof(...))`.
+These principles apply everywhere, regardless of language or framework:
 
-### File header
+1. **Prefer clear, traceable logic over clever compactness.** Code is read far more than written. If the next person has to trace three levels of indirection to understand what a line does, it's wrong.
 
-```csharp
-// <copyright file="FileName.cs" company="CompanyOrProject">
-// Copyright (c) YEAR Author. All rights reserved.
-// </copyright>
-// Author: Alex Waldmann
-// Date: YYYY-MM-DD
-```
+2. **Keep modules and functions focused; extract cohesive helpers when needed.** A unit that does one thing is testable, nameable, and replaceable. "And" in the description is a split signal.
 
-For course projects: use the course-provided copyright block verbatim and add `// Name:` / `// Date:` directly below it.
+3. **Validate at boundaries; trust internals.** User input, external APIs, and file I/O need explicit validation and error handling. Internal calls between units you own do not. Never swallow errors — propagate with context or fail explicitly.
 
-### Razor / Blazor
+4. **Preserve behavior unless change is intentional.** Refactoring and feature work are separate commits. A change that both fixes a bug and renames things is two changes.
 
-Directive order: `@page`, `@rendermode`, `@using`, `@inject`. `id` attribute on every interactive element. All C# logic in `@code { }` at bottom of file. Conditional CSS computed in `@{ }` block before markup, never inline ternary in `class=`.
+5. **Validate before claiming done.** Run diagnostics and tests. A clean lint and a passing test suite are the minimum bar, not a bonus.

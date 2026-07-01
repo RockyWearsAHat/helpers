@@ -4,12 +4,22 @@
 //! without spawning a process.
 
 pub mod cli;
+pub mod doc_crawler;
 pub mod embed;
 pub mod git;
 pub mod gitcli;
 pub mod index;
 pub mod knowledge;
+pub mod lint_ai;
+pub mod lint_docs;
+pub mod lint_graph;
+pub mod lint_match;
+pub mod lint_practice;
+pub mod lint_train;
+pub mod lint_checkers;
+pub mod linter;
 pub mod mcp;
+pub mod memory;
 pub mod proc;
 pub mod proto;
 pub mod registry;

@@ -114,3 +114,27 @@ pub fn round_to(x: f64, places: i32) -> f64 {
     let factor = 10f64.powi(places);
     (x * factor).round() / factor
 }
+
+/// Map a file extension to a canonical language name. The single source of truth — every
+/// other module imports this rather than maintaining its own copy.
+/// Returns `None` for unrecognized extensions; callers decide whether to skip or surface
+/// that as an error.
+pub fn file_lang(ext: &str) -> Option<&'static str> {
+    Some(match ext {
+        "rs"                          => "rust",
+        "py"                          => "python",
+        "js" | "mjs" | "cjs" | "jsx" => "javascript",
+        "ts" | "tsx"                  => "typescript",
+        "go"                          => "go",
+        "java"                        => "java",
+        "rb"                          => "ruby",
+        "c"  | "h"                    => "c",
+        "cpp" | "cc" | "cxx" | "hpp" => "cpp",
+        "sh" | "bash"                 => "bash",
+        "kt" | "kts"                  => "kotlin",
+        "swift"                       => "swift",
+        "cs"                          => "csharp",
+        "php"                         => "php",
+        _                             => return None,
+    })
+}

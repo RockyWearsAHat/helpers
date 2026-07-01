@@ -58,7 +58,6 @@ helpers enable | disable | bypass [on|off]      Master switch (live, no restart)
 helpers tool list | tool {enable,disable} <name|all> | tool reset
 helpers update [--check]       Download the latest prebuilt binary for this platform
 helpers build [--from-source]  (Re)create the helpers/git-* symlinks (or compile)
-helpers grade <path> [--json]  Objective CS project grade (full suite -- all categories)
 helpers index build|map|lookup <query>          Cheap project index
 helpers setup                  Deterministic project build-out plan
 ```
@@ -95,13 +94,15 @@ Exposed to the agent via the `helpers` MCP server (`helpers-native mcp`):
 
 The same binary is symlinked busybox-style to standalone `git-*` helpers:
 `git-resolve`, `git-remerge`, `git-checkpoint`, `git-upload`, `git-get`,
-`git-initialize`, `git-scan-for-leaked-envs`, `git-fucked-the-push`,
-`git-help-i-pushed-an-env`, and `git-cs-grade`.
+`git-initialize`, `git-scan-for-leaked-envs`, `git-fucked-the-push`, and
+`git-help-i-pushed-an-env`.
 
-## CS2420 / CS3500 grading
+## CS2420 / CS3500 quality
 
-`helpers grade <path>` grades the full suite (every category from both courses) and produces an objective `GRADE.md` with per-category scores and a prioritized path to an A+. `cs_lint` gives the exact lines
-to fix; `helpers grade` gives the rubric.
+The `lint` tool enforces the CS2420 / CS3500 principles directly: it learns them from
+`corpus/cs-principles.md` (alongside the official language rules it learns from the docs) and
+reports the exact `file:line` to fix. Followed to a T those principles ~guarantee an A+, so a
+clean `lint` is the signal — there is no separate grader.
 
 ## VS Code extension
 
@@ -121,7 +122,7 @@ cargo build --release --manifest-path native/Cargo.toml
   busybox-style: `helpers` → the control CLI, `helpers-native mcp` → the MCP server,
   `git-*` → the ported git helpers, and `helpers-native schemas|call` for tooling.
   Agent config is embedded in the binary; web tools use `headless_chrome` (CDP, no
-  Node). The `cs-grade` crate is a library dependency folded into the one binary.
+  Node).
 - **Releasing:** bump `VERSION` (single-line semver) and add
   `release-notes/v<version>.md`. On merge to `main`, CI cross-builds the binary for
   all platforms, runs a Node-free install-test on macOS/Linux/Windows, and publishes

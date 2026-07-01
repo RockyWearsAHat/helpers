@@ -34,14 +34,12 @@ class Helpers < Formula
   depends_on "rust" => :build
 
   def install
-    # The runtime is one crate (native/); cs-grade is a path dependency inside
-    # the same source tree. Builds the single helpers-native binary.
+    # The runtime is one crate (native/). Builds the single helpers-native binary.
     system "cargo", "install", *std_cargo_args(path: "native")
 
     # Expose the busybox-dispatched CLIs as symlinks to helpers-native.
     %w[helpers git-resolve git-remerge git-fucked-the-push git-initialize git-get
-       git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env
-       git-cs-grade].each do |name|
+       git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env].each do |name|
       bin.install_symlink "helpers-native" => name
     end
   end

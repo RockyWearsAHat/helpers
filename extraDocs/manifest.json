@@ -1,0 +1,38 @@
+{
+  "builtAt": "2026-06-24T05:30:08.182Z",
+  "totalRules": 2221,
+  "withBadGoodPair": 1624,
+  "languages": {
+    "rust": {
+      "rules": 749,
+      "examples": 730,
+      "pairs": 468,
+      "version": "1.95.0"
+    },
+    "javascript": {
+      "rules": 312,
+      "examples": 311,
+      "pairs": 306,
+      "version": "10.5.0"
+    },
+    "markdown": {
+      "rules": 53,
+      "examples": 44,
+      "pairs": 0,
+      "version": "agent-read"
+    },
+    "python": {
+      "rules": 947,
+      "examples": 930,
+      "pairs": 850,
+      "version": "1.6.1"
+    },
+    "go": {
+      "rules": 160,
+      "examples": 0,
+      "pairs": 0,
+      "version": "2026.1"
+    }
+  },
+  "note": "Training+grounding corpus for the code-understanding model. Each record is one official rule: description (English lesson), bad (anti-pattern), good (fix). bad→good pairs are the supervised signal; description ties to the dictionary-pretrained English understanding."
+}

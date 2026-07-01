@@ -31,7 +31,7 @@ const TOOL_GROUPS = [
   {
     key: "webSearch",
     label: "Web Search",
-    description: "Search the web via SearXNG",
+    description: "Search the web via Google (automated headless Chrome)",
     tools: ["search_web"],
   },
   {
