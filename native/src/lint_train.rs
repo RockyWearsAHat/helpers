@@ -48,7 +48,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 2000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "ast-v9-pattern-dedup";
+const TRAIN_VERSION: &str = "ast-v10-trust-order-dedup";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -205,13 +205,17 @@ pub fn ensure_models(
 
     for lang in langs {
         let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
-        let (mut rules, _reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
+        // Trust order decides who wins a shared pattern signature at dedup time
+        // (RuleSet::build keeps the FIRST rule per pattern): the project's own law first,
+        // then the corpus folder's principles, then the crawled docs.
+        let (doc_rules, _reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
+        let mut rules = project_rules(project_root, lang);
         rules.extend(
             folder.iter()
                 .filter(|(l, _)| l == lang || l == "any" || l.is_empty())
                 .map(|(_, r)| r.clone()),
         );
-        rules.extend(project_rules(project_root, lang));
+        rules.extend(doc_rules);
 
         if rules.is_empty() && principles.is_empty() {
             report.skipped.push((lang.clone(), "no rules found for this language".to_string()));
