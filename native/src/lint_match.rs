@@ -969,21 +969,19 @@ impl RuleSet {
             };
             compiled.push(CompiledRule { id: id.clone(), severity: severity.clone(), kind });
         }
-        // Dedup identical compiled patterns: noisy docs pages often yield several rule entries
-        // that compile to the same pattern (the same wiki page scraped under multiple slugs).
-        // One pattern = one rule; keep the first id.
-        let mut seen_patterns = HashSet::new();
-        compiled.retain(|r| {
-            seen_patterns.insert(serde_json::to_string(&r.kind).unwrap_or_default())
-        });
         // SELF-FIRE: when a bad example is known, the compiled rule must flag it.
         // Description-only rules (bad is empty) skip this gate — they are validated at
         // query time: if the extracted pattern fires on real violations found in the project,
         // it was correct; if nothing matches, it stays silent (never a false flag).
-        let bad_map: std::collections::HashMap<&str, &str> =
-            rules.iter().map(|(id, _, bad, _, _)| (id.as_str(), bad.as_str())).collect();
-        let good_map: std::collections::HashMap<&str, &str> =
-            rules.iter().map(|(id, _, _, good, _)| (id.as_str(), good.trim())).collect();
+        // Both gates run BEFORE pattern dedup so an invalid rule can never claim a pattern
+        // signature and knock out the valid rule that shares it (`seen` above keeps the maps
+        // first-wins for duplicate ids, matching which rule actually compiled).
+        let mut bad_map: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+        let mut good_map: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+        for (id, _, bad, good, _) in rules {
+            bad_map.entry(id.as_str()).or_insert(bad.as_str());
+            good_map.entry(id.as_str()).or_insert(good.trim());
+        }
         compiled.retain(|r| {
             let bad = bad_map.get(r.id.as_str()).copied().unwrap_or("").trim();
             // No bad example → description-only rule; let it through without the SELF-FIRE check.
@@ -993,6 +991,14 @@ impl RuleSet {
         compiled.retain(|r| {
             let good = good_map.get(r.id.as_str()).copied().unwrap_or("");
             good.is_empty() || r.kind.matches(good).is_empty()
+        });
+        // Dedup identical compiled patterns: noisy docs pages often yield several rule entries
+        // that compile to the same pattern (the same wiki page scraped under multiple slugs).
+        // One pattern = one rule; keep the first id — the caller orders rules by trust
+        // (project > corpus folder > crawled docs), so the most trusted rule wins its pattern.
+        let mut seen_patterns = HashSet::new();
+        compiled.retain(|r| {
+            seen_patterns.insert(serde_json::to_string(&r.kind).unwrap_or_default())
         });
         RuleSet { lang: lang.to_string(), rules: compiled }
     }
@@ -1094,6 +1100,21 @@ mod tests {
         let set = RuleSet::build("python", &rules);
         let hits = set.flag("labels = [\"a\", \"b\", \"c\"]\nmixed = [1, \"two\"]\nempty = []");
         assert_eq!(lines_for(&hits, "no_arrays"), vec![1, 2, 3], "no_arrays must fire on lists of any element type");
+    }
+
+    #[test]
+    fn no_arrays_with_tuple_good_example_still_fires() {
+        // A good example that is ITSELF a container (tuple) must not neutralize the rule:
+        // the bad container kind (list) is still novel relative to the good tree.
+        let rules = [rule(
+            "no_arrays",
+            "xs = [1, 2, 3]",
+            "xs = (1, 2, 3)",
+            "Do not use list literals anywhere in this project. Use tuples instead.",
+        )];
+        let set = RuleSet::build("python", &rules);
+        let hits = set.flag("scores = [90, 85, 77]\nlabels = [\"math\", \"sci\", \"art\"]\nok = (1, 2)");
+        assert_eq!(lines_for(&hits, "no_arrays"), vec![1, 2], "list rule with tuple good example must fire on lists and spare tuples");
     }
 
     #[test]
