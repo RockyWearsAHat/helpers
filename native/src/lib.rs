@@ -8,6 +8,7 @@ pub mod doc_crawler;
 pub mod embed;
 pub mod git;
 pub mod gitcli;
+pub mod hv_batch;
 pub mod index;
 pub mod knowledge;
 pub mod lint_ai;
