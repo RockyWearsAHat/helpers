@@ -1,47 +1,39 @@
 //! `lint_ai` — two systems sharing one hypervector (Hv) substrate.
 //!
-//! ## Memory subsystem (unchanged)
+//! ## Memory subsystem
 //! 8192-bit hypervectors (`Hv`) with XOR binding and Hamming-distance retrieval.
 //! Used by `memory/embed`, `memory/retriever`, `memory/store`, and the crawler.
 //!
-//! ## Rule validator: Hv-based nearest-neighbour classifier (`ConceptModel`)
+//! ## Concept confirmation gate (`ConceptModel`)
 //!
-//! Lints any language against scraped official docs + project-local rules. No
-//! hand-crafted patterns — the model learns entirely from the documentation.
+//! The linter's *firing* engine is [`crate::lint_match::RuleSet`]: each documented rule
+//! compiles to a lossless AST sub-tree pattern (or, for grammarless languages, a
+//! discriminating token regex). That engine decides *whether* a rule fires and on which
+//! line — precisely, with no statistics.
 //!
-//! ### Training (one-time, cached as `<lang>.concepts.bin`)
-//! Each rule supplies an English description, a bad-code example, and a good-code
-//! example (all sourced from the official language documentation):
+//! `ConceptModel` no longer fires anything. It is a **confirmation gate** the live lint path
+//! applies to the imprecise findings — the token-regex fallbacks used for grammarless languages
+//! and description-derived rules (precise AST matches are exact and report directly). A rule's
+//! `rule_hv` is the bundled hypervector of every token in its English description (dictionary
+//! words weighted 2×) and its documented example. When a text-fallback rule fires on a construct,
+//! [`ConceptModel::confirms`] bundles that whole construct's tokens (node level — never a single
+//! leaf) and keeps the finding only when the fired rule's fingerprint is the concept the
+//! construct is closest to. A regex that hit a token belonging more to some *other* rule is
+//! incidental and dropped.
 //!
-//!   1. Tree-sitter parses the bad and good examples; all leaf tokens are collected.
-//!   2. Set-difference: `bad_only` = tokens in bad but not good; `good_only` = vice versa.
-//!   3. The English description is mapped through `/usr/share/dict/words` — only real
-//!      English words are kept, giving the model semantic understanding of what the rule
-//!      *means* (not just what tokens it fires on).
-//!   4. `bad_hv`  = bundle(description Hvs, bad-only token Hvs)   — "what a violation looks like"
-//!      `good_hv` = bundle(good-only token Hvs)                    — "what correct code looks like"
-//!   Both are 8192-bit vectors persisted in the compact `LNC3` binary blob.
-//!
-//! ### Inference (per AST node, every file)
-//!   For each node whose kind matches a compiled rule's kind, build `node_hv` from
-//!   its leaf tokens and fire the rule when the node is meaningfully closer to the
-//!   bad fingerprint than the good one:
-//!
-//!     `Hamming(node_hv, bad_hv) + HV_FIRE_MARGIN < Hamming(node_hv, good_hv)`
-//!
-//!   `HV_FIRE_MARGIN` (181 bits) is 4 standard deviations of Hamming noise for
-//!   8192-bit Hvs — a statistical necessity, not a semantic choice.
+//! This is why there is no per-token / all-rules free-firing here anymore, and why the
+//! former enumerated inference blocklists (a DF stop set, a dictionary-word filter, the
+//! keyword whitelist) are gone from the inference path: the node-level bundle plus the
+//! nearest-concept comparison is a structural signal, not a hand-maintained word list.
 //!
 //! ### Getting started
-//! No arguments required. On first `lint` the model trains automatically from the
-//! committed `lint-index/` catalogs, caches the binary blob, and runs. Subsequent
-//! runs load the cache in microseconds. To add a language: `lint_add_source` then
-//! `lint_learn`; to add project rules: drop a `*.md` in `.helpers/lint-rules/`.
+//! No arguments required. On first `lint` the rule set trains automatically from the
+//! committed `lint-index/` catalogs and project `.helpers/lint-rules/`, then runs. To add
+//! a language: `lint_add_source` then `lint_learn`; to add project rules: drop a `*.md`
+//! in `.helpers/lint-rules/`.
 
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::collections::HashSet;
 use std::sync::OnceLock;
-use tree_sitter::{Node, Parser};
 
 // ── Hypervector substrate ─────────────────────────────────────────────────────
 
@@ -191,16 +183,14 @@ impl Bundler {
 
 impl Default for Bundler { fn default() -> Self { Bundler::new() } }
 
-// ── Hv-based rule validator (ConceptModel) ───────────────────────────────────
-
-/// How far below random distance (DIM/2) a node must sit to fire a rule.
-/// DIM/10 = 819 for DIM=8192. Conservative by design: a false negative is
-/// preferable to a false positive.
-const HV_FIRE_MARGIN: u32 = (DIM / 10) as u32;
+// ── Hv-based concept confirmation gate (ConceptModel) ────────────────────────
 
 // ── LangBrain: dictionary-grounded English understanding ─────────────────────
 
 /// English word set from `/usr/share/dict/words`. Loaded once at first use.
+/// Used only when *building* fingerprints, to give real English words extra weight so a
+/// rule's concept leans on the words that carry its meaning; never used to filter tokens
+/// at inference time.
 fn dict_words() -> &'static HashSet<String> {
     static DICT: OnceLock<HashSet<String>> = OnceLock::new();
     DICT.get_or_init(|| {
@@ -213,104 +203,42 @@ fn dict_words() -> &'static HashSet<String> {
     })
 }
 
-/// Map a text blob to an Hv by bundling every alphanumeric token's code.
-/// Dictionary words get weight from both the dict layer and this layer; code
-/// identifiers contribute via this layer only.
-pub fn text_to_hv(text: &str) -> Option<Hv> {
-    let dict = dict_words();
-    let mut b = Bundler::new();
-    for tok in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
-        let t = tok.trim().to_lowercase();
-        if t.len() < 2 || t.len() > 64 { continue; }
-        b.add(&token_hv(&t));
-        if t.len() >= 3 && dict.contains(&t) { b.add(&token_hv(&t)); }
-    }
-    if b.is_empty() { None } else { Some(b.finalize()) }
-}
-
 // ── ConceptModel ─────────────────────────────────────────────────────────────
 
-/// One compiled rule: bad and good Hv fingerprints for nearest-neighbour matching.
+/// One compiled rule's concept fingerprint for the confirmation gate.
 ///
-/// Binary layout (2064 bytes):
-/// One compiled rule: a single Hv fingerprint representing the rule's full concept,
-/// built from its English description and its complete documentation page text.
-///
-/// Binary layout `LNC4` (1032 bytes/rule):
-///   id_hash (u64) + rule_hv (WORDS × u64)
+/// `rule_hv` is the bundle of every token in the rule's English description (dictionary
+/// words weighted 2×) and its documented example — "what this rule is about", as one Hv.
 #[derive(Clone)]
 pub struct CompiledRule {
+    /// FNV hash of the rule id (the key the gate is queried by).
     pub id_hash: u64,
     /// Concept fingerprint: bundle of description dictionary tokens (semantic layer,
-    /// weighted 2×) + all alphanumeric tokens from the full documentation page.
+    /// weighted 2×) + all alphanumeric tokens from the documented example.
     pub rule_hv: Hv,
 }
 
-/// One violation reported by the model.
-pub struct Flag {
-    /// 1-based source line of the violating AST node.
-    pub line: usize,
-    /// Rule id string resolved from `ConceptModel::id_map`.
-    pub rule_id: String,
-}
-
-/// The compiled Hv-based linter. Learns from official docs; lints any language.
-///
-/// Binary format `LNC5`:
-///   magic (4 B) + n_rules (u32 LE) + n_stop (u32 LE)
-///   + [id_hash (u64) + rule_hv (WORDS × u64)] × n_rules
-///   + [token_hash (u64)] × n_stop
-///
-/// `id_map` is not persisted — restored via `merge_ids` after each load.
+/// The Hv concept gate. Built in memory each lint run from the same documented rules the
+/// [`crate::lint_match::RuleSet`] compiles; it fires nothing on its own — it only confirms
+/// or rejects the firing engine's imprecise (text-fallback) findings.
 pub struct ConceptModel {
+    /// One fingerprint per rule that carried learnable tokens.
     pub rules: Vec<CompiledRule>,
-    /// hash → rule id string. Populated by `merge_ids`.
-    pub id_map: HashMap<u64, String>,
-    /// FNV-hashed tokens too common (>5% DF) to be meaningful inference signals.
-    /// `check_node` skips any leaf token whose hash is in this set.
-    pub inference_stop: HashSet<u64>,
 }
 
 impl ConceptModel {
-    /// Compile rules into a `ConceptModel`.
+    /// Compile rules into concept fingerprints.
     ///
-    /// Each rule `(id, description, page_text)` produces one `rule_hv` via majority bundling.
-    /// Training signal = description tokens + code-block tokens from the official doc page.
-    ///
-    /// An **inference stop set** is computed from the corpus: any token appearing in more than 5%
-    /// of rules is too common to be a useful match signal at inference time (e.g. `return` appears
-    /// in 30% of ESLint rules' code examples — any code with `return` would fire all of them).
-    /// These tokens are hashed and stored in `inference_stop`; `check_node` skips them entirely.
-    /// Only rare, rule-specific tokens (`eval`, `debugger`, `async`, `with`, …) survive and drive
-    /// actual findings. Training itself is not filtered — rare tokens dominate each rule_hv
-    /// naturally because they appear many more times than background noise tokens.
+    /// Each rule `(id, description, example)` produces one `rule_hv` via majority bundling of
+    /// its tokens; dictionary words are added twice so the English meaning of the rule
+    /// dominates over incidental identifiers. Rules with no usable tokens are skipped.
     pub fn compile(rules: &[(String, String, String)], _lang: &str) -> ConceptModel {
-        // Pass 1: DF across all rules (for inference stop set only; training uses all tokens).
-        let total = rules.len();
-        let max_df_inference = ((total as f64 * 0.05).ceil() as usize).max(1);
-        let mut df: HashMap<String, usize> = HashMap::new();
-        for (_, desc, page) in rules {
-            let mut seen = HashSet::new();
-            for tok in format!("{} {}", desc, page).split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
-                let t = tok.to_lowercase();
-                if t.len() >= 2 && t.len() <= 64 && seen.insert(t.clone()) {
-                    *df.entry(t).or_default() += 1;
-                }
-            }
-        }
-        // Tokens appearing in >5% of rules are corpus stop words for inference.
-        let inference_stop: HashSet<u64> = df.iter()
-            .filter(|(_, &n)| n > max_df_inference)
-            .map(|(t, _)| token_seed(t))
-            .collect();
-
-        // Pass 2: build each rule_hv from ALL tokens (no training-time filtering).
         let dict = dict_words();
         let mut compiled = Vec::new();
-        let mut id_map = HashMap::new();
-        for (id, description, page_text) in rules {
+        let mut seen = HashSet::new();
+        for (id, description, example) in rules {
             let mut b = Bundler::new();
-            for tok in format!("{} {}", description, page_text)
+            for tok in format!("{} {}", description, example)
                 .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
             {
                 let t = tok.to_lowercase();
@@ -321,118 +249,39 @@ impl ConceptModel {
             }
             if b.is_empty() { continue; }
             let id_hash = token_seed(id);
+            if !seen.insert(id_hash) { continue; }
             compiled.push(CompiledRule { id_hash, rule_hv: b.finalize() });
-            id_map.insert(id_hash, id.clone());
         }
-        ConceptModel { rules: compiled, id_map, inference_stop }
+        ConceptModel { rules: compiled }
     }
 
-    /// Restore id strings from a hash→id lookup table (call after `load`).
-    pub fn merge_ids(&mut self, id_lookup: &HashMap<u64, String>) {
-        for (k, v) in id_lookup {
-            self.id_map.entry(*k).or_insert_with(|| v.clone());
-        }
-    }
-
-    /// Walk `src`'s full AST and return one `Flag` per unique (rule_id, line) pair.
-    pub fn validate(&self, src: &str, lang: &str) -> Vec<Flag> {
-        if self.rules.is_empty() { return Vec::new(); }
-        let Some(language) = crate::lint_match::language(lang) else { return Vec::new() };
-        let mut parser = Parser::new();
-        if parser.set_language(&language).is_err() { return Vec::new(); }
-        let Some(tree) = parser.parse(src, None) else { return Vec::new() };
-        let mut raw: Vec<Flag> = Vec::new();
-        self.check_node(tree.root_node(), src.as_bytes(), &mut raw);
-        // Deduplicate: same rule on the same line fires once.
-        let mut seen = HashSet::new();
-        raw.into_iter().filter(|f| seen.insert((f.line, f.rule_id.clone()))).collect()
-    }
-
-    /// Walk the AST leaf-by-leaf. For each leaf token that passes the two-stage filter,
-    /// check its Hv against every compiled rule and fire when the distance falls below
-    /// DIM/2 − HV_FIRE_MARGIN.
+    /// Confirm a text-fallback finding for `rule_id` against the `tokens` of the whole matched
+    /// construct (node level — the line/statement the regex fired on, never one leaf).
     ///
-    /// Stage 1 (DF-based): skip tokens in `inference_stop` — tokens too common across rules
-    ///   to be discriminative (e.g. `return` appears in 30% of ESLint rule examples).
-    ///
-    /// Stage 2 (English-word filter): skip tokens that are common English dictionary words
-    ///   but NOT language keywords — they appear as variable/function names in documentation
-    ///   examples (`hello`, `greet`, `name`, `user`) but never as violation markers in code.
-    ///   Language keywords (`eval`, `with`, `delete`, `async`, `var`, …) are exempt and checked.
-    fn check_node(&self, node: Node<'_>, src: &[u8], flags: &mut Vec<Flag>) {
-        if node.child_count() == 0 {
-            let Ok(text) = std::str::from_utf8(&src[node.byte_range()]) else { return };
-            let t = text.trim().to_lowercase();
-            if t.len() < 2 || t.len() > 64 { return; }
-            if !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') { return; }
-            let hash = token_seed(&t);
-            // Stage 1: DF-based corpus stop set (e.g. `return`, `function`, `const`).
-            if self.inference_stop.contains(&hash) { return; }
-            // Stage 2: common English words that are not language keywords are example names,
-            // not violation markers (e.g. `hello`, `greet`, `name`, `result`).
-            let kw = keywords();
-            if dict_words().contains(t.as_str()) && !kw.contains(t.as_str()) { return; }
-            let hv = token_hv(&t);
-            let line = node.start_position().row + 1;
-            for rule in &self.rules {
-                let d = hv.distance(&rule.rule_hv);
-                if d + HV_FIRE_MARGIN < (DIM as u32) / 2 {
-                    let rule_id = self.id_map.get(&rule.id_hash)
-                        .cloned()
-                        .unwrap_or_else(|| format!("{:016x}", rule.id_hash));
-                    flags.push(Flag { line, rule_id });
-                }
-            }
-        } else {
-            let mut cur = node.walk();
-            for child in node.children(&mut cur) { self.check_node(child, src, flags); }
+    /// The bundle of the construct's tokens is compared to every rule's fingerprint. The finding
+    /// is kept only when the fired rule's fingerprint is the concept the construct is closest to
+    /// (ties keep it): a construct whose tokens belong more to some *other* rule matched this
+    /// rule's regex only incidentally, so it is rejected. When the model has no fingerprint for
+    /// `rule_id`, or the construct has no usable tokens, the gate abstains and keeps the finding —
+    /// it never manufactures a rejection it cannot justify.
+    pub fn confirms(&self, rule_id: &str, tokens: &[&str]) -> bool {
+        let target = token_seed(rule_id);
+        let Some(fired) = self.rules.iter().find(|r| r.id_hash == target) else { return true };
+        let mut b = Bundler::new();
+        for t in tokens {
+            let t = t.to_lowercase();
+            if t.len() < 2 || t.len() > 64 { continue; }
+            b.add(&token_hv(&t));
         }
+        if b.is_empty() { return true; }
+        let node_hv = b.finalize();
+        let fired_d = node_hv.distance(&fired.rule_hv);
+        let nearest = self.rules.iter().map(|r| node_hv.distance(&r.rule_hv)).min().unwrap_or(fired_d);
+        fired_d <= nearest
     }
 
+    /// Number of compiled concept fingerprints.
     pub fn rule_count(&self) -> usize { self.rules.len() }
-
-    /// Persist to `LNC5` binary format:
-    ///   magic (4) + n_rules (u32 LE) + n_stop (u32 LE)
-    ///   + [id_hash (u64) + rule_hv (WORDS × u64)] × n_rules
-    ///   + [token_hash (u64)] × n_stop
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let rule_entry = 8 + WORDS * 8;
-        let stop_tokens: Vec<u64> = self.inference_stop.iter().copied().collect();
-        let mut buf = Vec::with_capacity(12 + self.rules.len() * rule_entry + stop_tokens.len() * 8);
-        buf.extend_from_slice(b"LNC5");
-        buf.extend_from_slice(&(self.rules.len() as u32).to_le_bytes());
-        buf.extend_from_slice(&(stop_tokens.len() as u32).to_le_bytes());
-        for r in &self.rules {
-            buf.extend_from_slice(&r.id_hash.to_le_bytes());
-            for w in r.rule_hv.as_words() { buf.extend_from_slice(&w.to_le_bytes()); }
-        }
-        for h in &stop_tokens { buf.extend_from_slice(&h.to_le_bytes()); }
-        std::fs::write(path, buf)
-    }
-
-    /// Load from `LNC5`. Returns `None` on format mismatch. Call `merge_ids` after.
-    pub fn load(path: &Path) -> Option<ConceptModel> {
-        let data = std::fs::read(path).ok()?;
-        if data.len() < 12 || &data[..4] != b"LNC5" { return None; }
-        let n_rules = u32::from_le_bytes(data[4..8].try_into().ok()?) as usize;
-        let n_stop = u32::from_le_bytes(data[8..12].try_into().ok()?) as usize;
-        let rule_entry = 8 + WORDS * 8;
-        if data.len() < 12 + n_rules * rule_entry + n_stop * 8 { return None; }
-        let mut rules = Vec::with_capacity(n_rules);
-        let mut pos = 12usize;
-        for _ in 0..n_rules {
-            let id_hash = u64::from_le_bytes(data[pos..pos+8].try_into().ok()?); pos += 8;
-            let mut rw = [0u64; WORDS];
-            for w in rw.iter_mut() { *w = u64::from_le_bytes(data[pos..pos+8].try_into().ok()?); pos += 8; }
-            rules.push(CompiledRule { id_hash, rule_hv: Hv::from_words(&rw) });
-        }
-        let mut inference_stop = HashSet::with_capacity(n_stop);
-        for _ in 0..n_stop {
-            inference_stop.insert(u64::from_le_bytes(data[pos..pos+8].try_into().ok()?));
-            pos += 8;
-        }
-        Some(ConceptModel { rules, id_map: HashMap::new(), inference_stop })
-    }
 }
 
 // ── Language keyword set (still used by memory/embed for token normalization) ──
@@ -520,16 +369,37 @@ mod tests {
     }
 
     #[test]
-    fn concept_model_compiles_from_page_text() {
-        // 3-tuple: (id, description, page_text). Training signal = description + full page text.
+    fn concept_model_compiles_from_example_text() {
+        // 3-tuple: (id, description, example). Signal = description + example tokens.
         let rules = vec![(
             "no-var".to_string(),
             "avoid var; prefer let or const for block scoping".to_string(),
-            "var x = 1; var count = 42; var y = true; // disallow var declarations".to_string(),
+            "var x = 1; var count = 42; var y = true;".to_string(),
         )];
         let model = ConceptModel::compile(&rules, "javascript");
-        // Just verify compilation produces a non-empty model with the correct id.
         assert_eq!(model.rule_count(), 1);
-        assert!(model.id_map.values().any(|id| id == "no-var"));
+    }
+
+    #[test]
+    fn confirms_keeps_the_nearest_concept_and_abstains_when_unknown() {
+        let rules = vec![
+            (
+                "no-eval".to_string(),
+                "avoid eval; it executes arbitrary code".to_string(),
+                "eval(userInput)".to_string(),
+            ),
+            (
+                "no-with".to_string(),
+                "avoid the with statement; it confuses scope".to_string(),
+                "with (obj) { x = 1 }".to_string(),
+            ),
+        ];
+        let model = ConceptModel::compile(&rules, "javascript");
+        // A construct that is clearly about `eval` confirms the eval rule …
+        assert!(model.confirms("no-eval", &["eval", "userInput"]));
+        // … and the same construct does NOT confirm the unrelated `with` rule.
+        assert!(!model.confirms("no-with", &["eval", "userInput"]));
+        // An unknown rule id is abstained on (kept), never a manufactured rejection.
+        assert!(model.confirms("not-a-rule", &["eval"]));
     }
 }
