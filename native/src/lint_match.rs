@@ -699,29 +699,28 @@ fn strip_code_comments(code: &str) -> String {
 /// caller will then validate or drop it.
 fn description_discriminator(desc: &str, bad: &str) -> Option<String> {
     let id_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?").expect("static");
-    let skip: HashSet<&str> = [
-        "a","b","c","x","y","z","s","t","n","i","j","k",
-        "if","fn","let","use","pub","mod","for","in","return","match","true","false",
-        "None","True","False","Ok","Err","Some","self","Self",
-        // English prose words that look like identifiers but have no discriminating power.
-        "the","and","not","use","get","set","new","has","add","all","any","can","may","its",
-        "this","that","will","with","only","also","then","when","from","have","each","than",
-        "such","into","over","avoid","check","using","calls","call","type","code","like",
-        "more","less","well","just","too","else","case","same","way","both","often","should",
-        "used","via","per","ref","See","via","via","via",
-    ].iter().copied().collect();
+    // A token is prose (not code) when it is a plain alphabetic word the OS dictionary knows —
+    // no hand-kept stopword list: the dictionary IS the vocabulary. Anything outside it —
+    // snake_case, camelCase, sigils, and words from ANY other language, human or programming —
+    // is inferred to be an identifier and can carry a rule. Method names (followed by `(`)
+    // bypass the check: the call syntax is structural evidence of code.
+    let is_prose = |tok: &str| -> bool {
+        tok.len() < 3
+            || (tok.chars().all(|c| c.is_ascii_alphabetic())
+                && crate::lint_ai::dict_words().contains(&tok.to_lowercase()))
+    };
 
     let best_from_span = |span: &str| -> Option<String> {
         // Prefer method names (follow `(`) over plain identifiers; within ties, prefer longer.
         let method_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?\s*\(").expect("static");
         if let Some(m) = method_re.find(span) {
             let name = m.as_str().trim_end_matches(|c: char| c == '(' || c.is_whitespace());
-            if name.len() >= 3 && !skip.contains(name) {
+            if name.len() >= 3 {
                 return Some(name.to_string());
             }
         }
         id_re.find_iter(span)
-            .filter(|m| m.len() >= 3 && !skip.contains(m.as_str()))
+            .filter(|m| !is_prose(m.as_str()))
             .max_by_key(|m| m.len())
             .map(|m| m.as_str().to_string())
     };
@@ -741,7 +740,7 @@ fn description_discriminator(desc: &str, bad: &str) -> Option<String> {
         let mc_re = regex::Regex::new(r"\b([A-Za-z_]\w{2,}[!?]?)\s*\(").expect("static");
         for cap in mc_re.captures_iter(desc) {
             let tok = &cap[1];
-            if !skip.contains(tok.as_ref() as &str) {
+            if !is_prose(tok) {
                 candidates.push(tok.to_string());
                 break;
             }
@@ -753,7 +752,7 @@ fn description_discriminator(desc: &str, bad: &str) -> Option<String> {
         let cc_re = regex::Regex::new(r"\b([A-Z][a-z]{2,}[A-Z][a-zA-Z]*|[a-z]{2,}[A-Z][a-zA-Z]+)\b").expect("static");
         for m in cc_re.find_iter(desc) {
             let tok = m.as_str();
-            if tok.len() >= 4 && !skip.contains(tok) {
+            if tok.len() >= 4 && !is_prose(tok) {
                 candidates.push(tok.to_string());
                 break;
             }
