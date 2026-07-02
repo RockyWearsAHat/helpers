@@ -3,8 +3,7 @@
 //! Training: [`crate::lint_train::ensure_models`] reads two documentation sources (`extraDocs/` and
 //! `.helpers/lint-rules/`) plus the official-doc catalogs and returns, per language, a
 //! [`crate::lint_train::LangModel`] — the [`crate::lint_match::RuleSet`] firing engine, the
-//! [`crate::lint_ai::ConceptModel`] confirmation gate, and the behavioral principles those docs
-//! activate. One call, checksum-cached.
+//! [`crate::lint_ai::ConceptModel`] confirmation gate. One call, checksum-cached.
 //!
 //! Analysis, per file, per language:
 //!   1. **Rule firing** — `RuleSet::flag` matches each documented rule's lossless AST pattern
@@ -15,10 +14,8 @@
 //!      `ConceptModel::confirms`, which bundles the matched construct's tokens and keeps the
 //!      finding only when the fired rule is the concept it is closest to — so a regex that hit a
 //!      token belonging to a different rule is dropped, with no hand-kept word list.
-//!   3. **Structural outliers** — [`crate::lint_practice::PracticeRules`] measures every function
-//!      against the project's own statistical norm (Tukey's fence) and flags outliers.
-//!
-//! For project-wide graph tracing see `lint_build_web`, `lint_probe`, and `lint_trace`.
+//!   3. **Self-validation** — doc rules that fire like scrape noise (>1% of all scanned lines, or
+//!      concentrated in one file) are quarantined and reported, never shown as findings.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -27,7 +24,6 @@ use serde_json::{json, Value};
 
 use crate::git::workspace_root;
 use crate::index::walk::walk_repo;
-use crate::lint_practice::PracticeRules;
 use crate::lint_train;
 use crate::proto::{text, ToolResult};
 use crate::util::file_lang;
@@ -153,8 +149,6 @@ pub fn run(args: &Value) -> ToolResult {
     let langs: Vec<String> = by_language.keys().cloned().collect();
     let (_report, models) = lint_train::ensure_models(&langs, &data, &root);
     let advice = lint_train::advice(&data, Some(root.as_path()));
-    let principles = models.values().next().map(|m| m.principles.clone()).unwrap_or_default();
-    let practice = PracticeRules::new(principles);
 
     let mut sources: Vec<String> = Vec::new();
     if !models.is_empty() {
@@ -236,15 +230,6 @@ pub fn run(args: &Value) -> ToolResult {
         push_hit(&mut reports, &path, hit);
     }
 
-    // 4) Structural outliers (per language, project-wide norm).
-    for (lang, lang_files) in &by_language {
-        for (path, finding) in practice.flag_project(lang, lang_files) {
-            let advice_text = if finding.detail.is_empty() { finding.advice.clone() }
-                else { format!("{} — {}", finding.advice, finding.detail) };
-            push_hit(&mut reports, path, Hit { line: finding.line, rule: finding.rule, severity: finding.severity, advice: advice_text });
-        }
-    }
-
     // 5) Apply per-project config: suppress ignored rules, apply severity overrides.
     for report in &mut reports {
         report.hits.retain(|h| !ignore_set.contains(h.rule.as_str()));
@@ -274,7 +259,7 @@ fn render_quarantine(quarantined: &std::collections::BTreeSet<String>) -> String
     let ids: Vec<&str> = quarantined.iter().map(String::as_str).collect();
     format!(
         "\nQuarantined {} mislearned rule(s) (fired on >1% of all scanned lines, or >10% of one \
-         file — noisy docs scrape, not real findings): {}.\nRe-learn the language (`lint_learn`) \
+         file — noisy docs scrape, not real findings): {}.\nRe-learn the language (delete its cached model; the next lint retrains) \
          to refresh them.\n",
         ids.len(),
         ids.join(", ")
@@ -439,7 +424,7 @@ fn data_root() -> PathBuf {
 pub fn schema() -> Value {
     json!({
         "name": "lint",
-        "description": "Review the whole project against its own structural norm. Trains from two documentation sources: extraDocs/ (global principles) and .helpers/lint-rules/ (project-local rules). Measures every function's responsibility, complexity, and length via AST; flags statistical outliers (Tukey's fence against the project's own distribution). Structural errors only — things the developer missed, not regex checklists.",
+        "description": "AI lint for the whole project. Trains itself from live official docs per language plus two file sources: extraDocs/ (global principles) and .helpers/lint-rules/ (project-local rules, the project's law). Fires learned AST patterns via tree-sitter, confirms imprecise matches with the Hv concept gate, and self-quarantines mislearned rules. Flag wrong/missing findings with lint_flag.",
         "inputSchema": {
             "type": "object",
             "properties": {

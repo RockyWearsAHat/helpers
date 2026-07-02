@@ -1,7 +1,7 @@
 //! `lint_train` — self-setup for the AI linter: reads two documentation sources and compiles, per
-//! language, the [`LangModel`] a lint run needs — the [`RuleSet`] firing engine, the
-//! [`ConceptModel`] confirmation gate, and the behavioral [`Principle`]s. One call to
-//! [`ensure_models`] does everything the lint tool needs.
+//! language, the [`LangModel`] a lint run needs — the [`RuleSet`] firing engine and the
+//! [`ConceptModel`] confirmation gate. One call to [`ensure_models`] does everything the lint
+//! tool needs.
 //!
 //! The two documentation sources:
 //!
@@ -10,7 +10,7 @@
 //!      a committed `lint-index/` snapshot seeds the offline case.
 //!   2. **File documentation** — `extraDocs/` (global principles, shipped with the tool) and
 //!      `.helpers/lint-rules/` (project-local rules). Every `*.md` in either directory is read as
-//!      documentation: examples become rules; headings + prose become behavioral principles.
+//!      documentation: examples become rules; prose-only headings become description-derived rules.
 //!
 //! Rules with bad/good examples compile to lossless AST patterns (or discriminating token regexes
 //! for grammarless languages) in [`RuleSet`]; the same rules' description + example tokens bundle
@@ -25,20 +25,15 @@ use sha2::{Digest, Sha256};
 
 use crate::lint_ai::ConceptModel;
 use crate::lint_match::RuleSet;
-use crate::lint_practice::Principle;
 
-/// A trained model for one language: the pattern rule set (the firing engine), the Hv concept
-/// gate (confirms imprecise text-fallback findings), and the behavioral principles (extracted
-/// from documentation prose). All three train from the same two sources; [`ensure_models`] builds
-/// them together so the lint tool makes one call and gets everything it needs.
+/// A trained model for one language: the pattern rule set (the firing engine) and the Hv concept
+/// gate (confirms imprecise text-fallback findings). Both train from the same two sources;
+/// [`ensure_models`] builds them together so the lint tool makes one call and gets everything.
 pub struct LangModel {
     /// Pattern-matching rules compiled from documentation bad/good examples — the firing engine.
     pub rules: RuleSet,
     /// Concept fingerprints for the same rules; the gate that confirms text-fallback findings.
     pub concept: ConceptModel,
-    /// Behavioral principles extracted from documentation prose. A principle activates a structural
-    /// sense (responsibility, complexity, length) by the words it uses — no code example required.
-    pub principles: Vec<Principle>,
 }
 
 /// How many doc pages to crawl when learning a language whose docs are a site (ruff/eslint publish
@@ -66,10 +61,6 @@ static EMBEDDED_LINT_MODELS: include_dir::Dir<'_> =
 /// preferred so editing it relearns on the next run). Points to the actual course principles
 /// document (prose-only; pattern rules come from committed modules and crawled official docs).
 const EMBEDDED_CS_PRINCIPLES: &str = include_str!("../../extraDocs/software-design.md");
-
-/// The embedded CS principles text — exposed so the lint tool can build practice rules from it
-/// without re-reading the file or duplicating the `include_str!` path.
-pub fn embedded_cs_principles() -> &'static str { EMBEDDED_CS_PRINCIPLES }
 
 /// One documented rule, normalized across all sources into the shape the engine compiles from: an id, a
 /// routing `slice` (the doc category, or severity when the source has no category), severity,
@@ -199,10 +190,6 @@ pub fn ensure_models(
     let mut models = HashMap::new();
     let folder = corpus_rules(data_root);
 
-    // Behavioral principles are language-agnostic and come entirely from Source 2 (file docs).
-    // Extract once; every language model shares the same set.
-    let principles = file_doc_principles(data_root, project_root);
-
     for lang in langs {
         let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
         // Trust order decides who wins a shared pattern signature at dedup time
@@ -217,7 +204,7 @@ pub fn ensure_models(
         );
         rules.extend(doc_rules);
 
-        if rules.is_empty() && principles.is_empty() {
+        if rules.is_empty() {
             report.skipped.push((lang.clone(), "no rules found for this language".to_string()));
             continue;
         }
@@ -235,7 +222,7 @@ pub fn ensure_models(
             let stamp = stamp_of(&version, &rules);
             if model_fresh(&patterns_path(lang), &stamp_path(lang), &stamp) {
                 if let Some(rule_set) = load_patterns(lang) {
-                    models.insert(lang.clone(), LangModel { rules: rule_set, concept, principles: principles.clone() });
+                    models.insert(lang.clone(), LangModel { rules: rule_set, concept });
                 }
                 report.reused.push(lang.clone());
                 continue;
@@ -249,7 +236,7 @@ pub fn ensure_models(
             .collect();
         let rule_set = RuleSet::build(lang, &tuples);
 
-        if rule_set.rule_count() == 0 && principles.is_empty() {
+        if rule_set.rule_count() == 0 {
             report.skipped.push((lang.clone(), "no rule carried a distinctive pattern to match".to_string()));
             continue;
         }
@@ -268,70 +255,12 @@ pub fn ensure_models(
             }
         }
 
-        models.insert(lang.clone(), LangModel { rules: rule_set, concept, principles: principles.clone() });
+        models.insert(lang.clone(), LangModel { rules: rule_set, concept });
     }
 
     (report, models)
 }
 
-/// Extract behavioral [`Principle`]s from the file documentation sources (Source 2): every `*.md`
-/// in `corpus/` (global) and every `*.md` in `.helpers/lint-rules/` (project-local). Principles
-/// are language-agnostic — a principle that says "do one thing" applies to every language the
-/// behavioral engine supports via its AST. Re-extracted each run (fast file reads; no compilation).
-fn file_doc_principles(data_root: &Path, project_root: &Path) -> Vec<Principle> {
-    let mut docs: Vec<String> = Vec::new();
-    let corpus_dir = data_root.join("extraDocs");
-    match std::fs::read_dir(&corpus_dir) {
-        Ok(entries) => docs.extend(
-            entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
-                .filter_map(|e| std::fs::read_to_string(e.path()).ok()),
-        ),
-        Err(_) => docs.push(EMBEDDED_CS_PRINCIPLES.to_string()),
-    }
-    if let Ok(entries) = std::fs::read_dir(project_root.join(".helpers/lint-rules")) {
-        docs.extend(
-            entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
-                .filter_map(|e| std::fs::read_to_string(e.path()).ok()),
-        );
-    }
-    let mut principles: Vec<Principle> = Vec::new();
-    for doc in &docs {
-        extract_principles_from_doc(doc, &mut principles);
-    }
-    let mut seen = std::collections::HashSet::new();
-    principles.retain(|p| seen.insert(p.id.clone()));
-    principles
-}
-
-/// Walk a markdown document extracting a [`Principle`] from each heading + prose body pair.
-fn extract_principles_from_doc(doc: &str, out: &mut Vec<Principle>) {
-    let mut heading: Option<&str> = None;
-    let mut body = String::new();
-    for line in doc.lines() {
-        let t = line.trim_start();
-        if t.starts_with('#') {
-            if let Some(h) = heading {
-                if let Some(p) = Principle::from_section(h, body.trim()) {
-                    out.push(p);
-                }
-            }
-            heading = Some(t.trim_start_matches('#').trim());
-            body.clear();
-        } else if heading.is_some() && !t.starts_with("```") {
-            if !body.is_empty() { body.push(' '); }
-            body.push_str(t);
-        }
-    }
-    if let Some(h) = heading {
-        if let Some(p) = Principle::from_section(h, body.trim()) {
-            out.push(p);
-        }
-    }
-}
 
 /// Load a language's cached compiled rule set, or `None` if absent/unreadable.
 pub fn load_patterns(lang: &str) -> Option<RuleSet> {
