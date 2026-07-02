@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "_note": "Check-MODE probe templates — the ground truth the linter tests its reading against. For every code example a crawl reads, the matching template runs the INSTALLED toolchain in a syntax/compile/deprecation check ONLY (never executes the code): a flagged example's surrounding prose feeds the BAD polarity prototype, a clean one's feeds GOOD. Pure DATA — adding a toolchain is an edit here, not code. `check` is argv with `{file}` substituted by a temp file holding the (prompt-stripped) snippet; a language with no entry, or whose tool is absent, is simply skipped. NEVER add an entry that runs a snippet (no `python file`, no `node file`, no shell) — check/compile flags only.",
+  "toolchains": [
+    { "language": "python",     "ext": "py", "strip_prompts": [">>> ", "... ", ">>>", "..."], "check": ["python3", "-W", "error", "-m", "py_compile", "{file}"] },
+    { "language": "javascript", "ext": "js", "check": ["node", "--check", "{file}"] },
+    { "language": "typescript", "ext": "js", "check": ["node", "--check", "{file}"] },
+    { "language": "go",         "ext": "go", "check": ["gofmt", "-e", "{file}"] },
+    { "language": "rust",       "ext": "rs", "check": ["rustc", "--edition", "2021", "--crate-type", "lib", "--emit=metadata", "-o", "{devnull}", "{file}"] }
+  ]
+}

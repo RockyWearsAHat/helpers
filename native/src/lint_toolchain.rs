@@ -1,0 +1,185 @@
+//! `lint_toolchain` — ground the reader's understanding against the INSTALLED toolchain.
+//!
+//! The docs make claims ("this is deprecated", "this is the correct form"); the only honest way to
+//! know which code is bad is to test it against reality. For every code example a crawl reads, this
+//! module runs the language's toolchain in **check mode only** — parse / compile / deprecation
+//! checks, never execution — and returns a [`Verdict`]. A flagged example's surrounding prose feeds
+//! the BAD polarity prototype; a clean example's feeds GOOD. That is the whole grounding loop.
+//!
+//! The check commands are DATA ([`lint-index/toolchains.json`]), so adding a toolchain is a data
+//! edit, not a code change. A language with no template, or whose tool is not installed, yields
+//! [`Verdict::Unknown`] and simply does not contribute grounding.
+
+use std::path::Path;
+use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+
+use serde::Deserialize;
+
+/// The committed check templates, embedded so an installed binary far from the checkout can still
+/// ground against a local toolchain. The on-disk copy is preferred so editing it takes effect.
+const EMBEDDED_TOOLCHAINS: &str = include_str!("../../lint-index/toolchains.json");
+
+/// What the toolchain said about one code example.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Verdict {
+    /// The toolchain accepted the snippet (parsed/compiled clean, no deprecation) — endorsement.
+    Clean,
+    /// The toolchain rejected the snippet (syntax/compile error or deprecation) — prohibition.
+    Flagged,
+    /// No template for this language, or its tool is not installed — no grounding signal.
+    Unknown,
+}
+
+/// One language's check-mode probe template, loaded from the toolchains data file.
+#[derive(Clone, Deserialize)]
+struct Toolchain {
+    language: String,
+    ext: String,
+    /// Argv with `{file}` (and optional `{devnull}`) placeholders; the first element is the binary.
+    check: Vec<String>,
+    /// Line-lead prompts (e.g. a REPL `>>> `) stripped before checking, so a doctest is judged as
+    /// the code it illustrates rather than failing as a bare prompt.
+    #[serde(default)]
+    strip_prompts: Vec<String>,
+}
+
+/// The parsed toolchains file (on-disk under `data_root` preferred, embedded fallback).
+fn toolchains(data_root: &Path) -> &'static Vec<Toolchain> {
+    static CACHE: OnceLock<Vec<Toolchain>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let raw = std::fs::read_to_string(data_root.join("lint-index/toolchains.json"))
+            .unwrap_or_else(|_| EMBEDDED_TOOLCHAINS.to_string());
+        serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .and_then(|v| serde_json::from_value(v["toolchains"].clone()).ok())
+            .unwrap_or_default()
+    })
+}
+
+/// Whether a binary is runnable, memoized so a whole crawl probes each tool's presence once.
+fn tool_present(bin: &str) -> bool {
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, bool>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(hit) = map.get(bin) {
+        return *hit;
+    }
+    // A bare spawn with no args is enough to learn whether the binary exists on PATH; we do not
+    // care about its exit status here, only that it could be launched.
+    let present = Command::new(bin)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok();
+    map.insert(bin.to_string(), present);
+    present
+}
+
+/// Remove leading REPL/shell prompts from a snippet so a doctest is checked as its underlying code.
+fn strip_prompts(code: &str, prompts: &[String]) -> String {
+    code.lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            for p in prompts {
+                if let Some(rest) = trimmed.strip_prefix(p.as_str()) {
+                    return rest.to_string();
+                }
+            }
+            line.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Check one code example against `lang`'s installed toolchain in check mode only.
+///
+/// Returns [`Verdict::Unknown`] when there is no template for the language or its tool is missing —
+/// grounding is then simply skipped. Otherwise writes the (prompt-stripped) snippet to a temp file
+/// and runs the template: a non-success exit, or a `deprecat`/`warning` mention in its output, is a
+/// [`Verdict::Flagged`] prohibition; a clean run is [`Verdict::Clean`] endorsement. Never executes
+/// the snippet — the templates are parse/compile/format checks.
+pub fn check(lang: &str, code: &str, data_root: &Path) -> Verdict {
+    let Some(tc) = toolchains(data_root).iter().find(|t| t.language == lang) else {
+        return Verdict::Unknown;
+    };
+    let Some(bin) = tc.check.first() else { return Verdict::Unknown };
+    if !tool_present(bin) {
+        return Verdict::Unknown;
+    }
+    let body = strip_prompts(code, &tc.strip_prompts);
+    if body.trim().is_empty() {
+        return Verdict::Unknown;
+    }
+    // Isolated temp file per check so concurrent probes never collide.
+    let dir = std::env::temp_dir().join(format!(
+        "helpers-check-{}-{:x}",
+        std::process::id(),
+        crate::lint_ai::token_seed(code)
+    ));
+    if std::fs::create_dir_all(&dir).is_err() {
+        return Verdict::Unknown;
+    }
+    let file = dir.join(format!("snippet.{}", tc.ext));
+    if std::fs::write(&file, &body).is_err() {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Verdict::Unknown;
+    }
+    let args: Vec<String> = tc.check[1..]
+        .iter()
+        .map(|a| a.replace("{file}", &file.to_string_lossy()).replace("{devnull}", "/dev/null"))
+        .collect();
+    let output = Command::new(bin).args(&args).current_dir(&dir).output();
+    let verdict = match output {
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_lowercase();
+            let flagged =
+                !out.status.success() || stderr.contains("deprecat") || stderr.contains("warning");
+            if flagged { Verdict::Flagged } else { Verdict::Clean }
+        }
+        Err(_) => Verdict::Unknown,
+    };
+    let _ = std::fs::remove_dir_all(&dir);
+    verdict
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn data_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+    }
+
+    #[test]
+    fn strips_repl_prompts() {
+        let out = strip_prompts(">>> x = 1\n... y = 2\nz = 3", &[">>> ".into(), "... ".into()]);
+        assert_eq!(out, "x = 1\ny = 2\nz = 3");
+    }
+
+    #[test]
+    fn embedded_templates_parse() {
+        // The data file must always be loadable; python/javascript must be covered.
+        let tcs = toolchains(&data_root());
+        assert!(tcs.iter().any(|t| t.language == "python"));
+        assert!(tcs.iter().any(|t| t.language == "javascript"));
+    }
+
+    #[test]
+    fn unknown_language_yields_unknown() {
+        assert_eq!(check("no-such-language", "print(1)", &data_root()), Verdict::Unknown);
+    }
+
+    #[test]
+    fn python_grounding_separates_clean_from_flagged() {
+        // Only asserts when python3 is installed; otherwise the check abstains (Unknown) and the
+        // test degrades gracefully — determinism does not depend on the toolchain being present.
+        if !tool_present("python3") {
+            return;
+        }
+        assert_eq!(check("python", "x = 1\ny = x + 1\n", &data_root()), Verdict::Clean);
+        // `nonlocal` at module scope is a real SyntaxError — the toolchain flags it.
+        assert_eq!(check("python", "nonlocal q\n", &data_root()), Verdict::Flagged);
+    }
+}
