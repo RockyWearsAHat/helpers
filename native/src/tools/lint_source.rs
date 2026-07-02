@@ -293,14 +293,23 @@ pub fn run_submit(args: &Value) -> ToolResult {
     let data_root = crate::tools::lint::data_root_pub();
     let repo_root = crate::git::workspace_root();
 
-    let paths: Vec<std::path::PathBuf> = ["lint-models", "lint-index/sources.json", "corpus"]
+    let mut paths: Vec<std::path::PathBuf> = ["lint-models", "lint-index/sources.json", "corpus"]
         .iter()
         .map(|p| data_root.join(p))
         .filter(|p| p.exists())
         .collect();
 
+    // Opt-in: also share the project's lint feedback log so false-positive/missed flags can
+    // improve the shared rules. Off by default because feedback may reference private file paths.
+    if args["include_feedback"].as_bool().unwrap_or(false) {
+        let fb = crate::lint_feedback::feedback_path(&repo_root);
+        if fb.exists() {
+            paths.push(fb);
+        }
+    }
+
     if paths.is_empty() {
-        return Err("lint_submit: nothing to submit — no lint-models, sources, or corpus found".into());
+        return Err("lint_submit: nothing to submit — no lint-models, sources, corpus, or feedback found".into());
     }
 
     let result = commit_and_pr(&repo_root, &paths, desc)?;
@@ -390,13 +399,18 @@ fn commit_and_pr(root: &std::path::Path, paths: &[std::path::PathBuf], desc: &st
 pub fn schema_submit() -> Value {
     json!({
         "name": "lint_submit",
-        "description": "Commit newly-trained lint-models and corpus/sources changes, push, and open a GitHub PR so others get the trained language models on git pull. Run lint_learn first to train a language.",
+        "description": "Commit newly-trained lint-models and corpus/sources changes, push, and open a GitHub PR so others get the trained language models on git pull. Run lint_learn first to train a language. \
+                        Pass include_feedback=true to also share this project's lint feedback log (.helpers/lint-feedback.jsonl) — the false-positive and missed flags recorded by lint_flag — so the shared rules can improve. Off by default since feedback may reference private paths.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "description": {
                     "type": "string",
                     "description": "Short description for the commit message and PR title. Default: 'Add trained language models from official docs'."
+                },
+                "include_feedback": {
+                    "type": "boolean",
+                    "description": "Opt-in: also stage and share .helpers/lint-feedback.jsonl (lint_flag feedback). Default false."
                 }
             },
             "required": []

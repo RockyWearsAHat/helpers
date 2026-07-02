@@ -2,6 +2,7 @@
 
 pub mod checkpoint;
 pub mod lint;
+pub mod lint_flag;
 pub mod lint_source;
 pub mod lint_web;
 pub mod knowledge;

@@ -18,8 +18,8 @@ pub struct Tool {
 /// allowlist) is all that's needed to route it to Rust.
 pub fn all_tools() -> Vec<Tool> {
     use tools::{
-        checkpoint as cp, knowledge as kn, lint as ln, lint_source as ls, lint_web as lw,
-        project_index as pi, setup as su,
+        checkpoint as cp, knowledge as kn, lint as ln, lint_flag as lf, lint_source as ls,
+        lint_web as lw, project_index as pi, setup as su,
     };
     vec![
         Tool {
@@ -51,6 +51,11 @@ pub fn all_tools() -> Vec<Tool> {
             name: "lint",
             schema: ln::schema,
             handler: ln::run,
+        },
+        Tool {
+            name: "lint_flag",
+            schema: lf::schema,
+            handler: lf::run,
         },
         Tool {
             name: "lint_languages",
