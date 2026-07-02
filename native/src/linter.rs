@@ -135,10 +135,16 @@ impl Knowledge {
                 // Prose between the heading and the first fence extends the description.
                 let t = line.trim();
                 if !t.is_empty() && r.bad.is_empty() {
-                    if !r.description.is_empty() {
-                        r.description.push(' ');
+                    if r.description == r.id {
+                        // The heading was the bare rule id (`## no_arrays [high]`) — the prose IS
+                        // the description; keep the id out of the English advice.
+                        r.description = t.to_string();
+                    } else {
+                        if !r.description.is_empty() {
+                            r.description.push(' ');
+                        }
+                        r.description.push_str(t);
                     }
-                    r.description.push_str(t);
                 }
             }
         }

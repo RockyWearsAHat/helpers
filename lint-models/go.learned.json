@@ -1,0 +1,1493 @@
+{
+  "version": "1.26.1",
+  "learned_from": "docs",
+  "rules": [
+    {
+      "id": "staticcheck_canonical_form_before_ma_1",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "canonical form before manipulating the map.When manipulating http.Header maps directly, as opposed to using the provided methods, care should be taken to stick ",
+      "bad": "h := http.Header{}\nh[\"etag\"] = []string{\"1234\"}\nh.Add(\"etag\", \"5678\")\nfmt.Println(h)\n\n// Output:\n// map[Etag:[5678] etag:[1234]]",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_a_pointer_receiver_avail_2",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "a pointer receiver?Available since2021.1SA4006 - A value assigned to a variable is never read before being overwritten. Forgotten error check or dead code?Avail",
+      "bad": "for i := 0; i < 10; j++ { ... }",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_olor_000_font_weight_700_3",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "olor:#000;font-weight:700{} switch v.(type) { case io.Reader: // ... case T: // unreachable } the second case clause can never be reached because T implements i",
+      "bad": "type T struct{}\nfunc (T) Read(b []byte) (int, error) { return 0, nil }\nfunc (T) Close() error { return nil }\n\nvar v any = T{}\n\nswitch v.(type) {\ncase io.Reader:\n    // ...\ncase io.ReadCloser:\n    // unreachable\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_slice_of_runes_before_ra_4",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "slice of runes before ranging over itYou may want to loop over the runes in a string. Instead of converting the string to a slice of runes and looping over that",
+      "bad": "for _, r := range s {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_may_want_to_loop_over_th_5",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "may want to loop over the runes in a string. Instead of converting the string to a slice of runes and looping over that, you can loop over the string itself. Th",
+      "bad": "for _, r := range []rune(s) {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_enumfirst_enumtype_1_enu_6",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "( EnumFirst EnumType = 1 EnumSecond = 2 EnumThird = 3 ) This discrepancy in types can cause various confusing behaviors and bugs.Wrong type in variable declarat",
+      "bad": "package pkg\n\nconst (\n    EnumFirst  uint8 = 1\n    EnumSecond       = 2\n)\n\nfunc fn(useFirst bool) {\n    x := EnumSecond\n    if useFirst {\n        x = EnumFirst\n    }\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_8_will_always_result_in_7",
+      "slice": "medium",
+      "severity": "medium",
+      "description": ">>= 8 will always result in 0.This check flags bit shifting operations on fixed size integer values only. That is, int, uint and uintptr are never flagged to av",
+      "bad": "// Clear any value above 32 bits if integers are more than 32 bits.\nfunc f(i int) int {\n    v := i >> 32\n    v = v << 32\n    return i-v\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_directories_such_as_tmp_8",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "directories such as /tmp or the user's home directory. However, it can be fairly easy to do by mistake, for example by mistakenly using os.TempDir instead of io",
+      "bad": "d := os.TempDir()\ndefer os.RemoveAll(d)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_in_this_category_find_co_9",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "in this category find code that is unnecessarily complex and that can be trivially simplified.S1000 - Use plain channel send or receive instead of single-case s",
+      "bad": "select {\ncase x := <-ch:\n    fmt.Println(x)\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_unnecessarily_complex_an_10",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "unnecessarily complex and that can be trivially simplified.S1000 - Use plain channel send or receive instead of single-case selectSelect statements with a singl",
+      "bad": "x := <-ch\nfmt.Println(x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_use_backticks_instead_of_11",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "use backticks instead of quotation marks and do not support any escape sequences. This means that the backslash can be used freely, without the need of escaping",
+      "bad": "regexp.Compile(\"\\\\A(\\\\w+) profile: total \\\\d+\\\\n\\\\z\")",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_of_quotation_marks_and_d_12",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "of quotation marks and do not support any escape sequences. This means that the backslash can be used freely, without the need of escaping.Since regular express",
+      "bad": "regexp.Compile(`\\A(\\w+) profile: total \\d+\\n\\z`)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_manual_trimming_with_str_13",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "manual trimming with strings.TrimPrefixInstead of using strings.HasPrefix and manual slicing, use the strings.TrimPrefix function. If the string doesn't start w",
+      "bad": "if strings.HasPrefix(str, prefix) {\n    str = str[len(prefix):]\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_slicing_use_the_strings_14",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "slicing, use the strings.TrimPrefix function. If the string doesn't start with the prefix, the original string will be returned. Using strings.TrimPrefix reduce",
+      "bad": "str = strings.TrimPrefix(str, prefix)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_many_instances_there_are_15",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "many instances, there are easier and more efficient ways of getting a value's string representation. Whenever a value's underlying type is a string already, or ",
+      "bad": "type T1 string\ntype T2 int\n\nfunc (T2) String() string { return \"Hello, world\" }\n\nvar x string\nvar y T1\nvar z T2",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_converting_the_string_to_16",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "converting the string to a slice of runes and ranging over that. Ranging directly over the string will be more performant, however, as it avoids allocating a ne",
+      "bad": "for _, r := range []rune(s) {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_of_runes_and_ranging_ove_17",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "of runes and ranging over that. Ranging directly over the string will be more performant, however, as it avoids allocating a new slice, the size of which depend",
+      "bad": "for _, r := range s {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_compiler_optimization_m_18",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "compiler optimization, m[string(buf.Bytes())] is more efficient than m[buf.String()].Available since2017.1S1031 - Omit redundant nil check around loopYou can us",
+      "bad": "if s != nil {\n    for _, x := range s {\n        ...\n    }\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_around_loopyou_can_use_r_19",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "around loopYou can use range on nil slices and maps, the loop will simply never execute. This makes an additional nil check around the loop unnecessary.Before:i",
+      "bad": "for _, x := range s {\n    ...\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_pan_style_display_flexca_20",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "pan style=display:flexcase 1, 2: ... case 3: ... default: ... }Available since2021.1QF1004 - Use strings.ReplaceAll instead of strings.Replace with n == -1Avail",
+      "bad": "math.Pow(x, 2)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_n_style_display_flex_def_21",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "n style=display:flex ... default: ... }Available since2021.1QF1004 - Use strings.ReplaceAll instead of strings.Replace with n == -1Available since2021.1QF1005 -",
+      "bad": "x * x",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_h4_id_qf1004qf1004_use_s_22",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "h4 id=QF1004QF1004 - Use strings.ReplaceAll instead of strings.Replace with n == -1Available since2021.1QF1005 - Expand call to math.PowSome uses of math.Pow ca",
+      "bad": "for {\n    if done {\n        break\n    }\n    ...\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_time_tick_in_tests_comma_23",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "time.Tick in tests, commands and endless functionsSA1016Trapping a signal that cannot be trappedSA1017Channels used with os/signal.Notify should be bufferedSA10",
+      "bad": "net.Listen",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_tests_commands_and_endle_24",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "tests, commands and endless functionsSA1016Trapping a signal that cannot be trappedSA1017Channels used with os/signal.Notify should be bufferedSA1018strings.Rep",
+      "bad": "bytes.Equal",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_functionssa1016trapping_25",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "functionsSA1016Trapping a signal that cannot be trappedSA1017Channels used with os/signal.Notify should be bufferedSA1018strings.Replace called with n == 0, whi",
+      "bad": "net.IP",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_be_trappedsa1017channels_26",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "be trappedSA1017Channels used with os/signal.Notify should be bufferedSA1018strings.Replace called with n == 0, which does nothingSA1019Using a deprecated funct",
+      "bad": "io.Writer",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_0_which_does_nothingsa10_27",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "0, which does nothingSA1019Using a deprecated function, variable, constant or fieldSA1020Using an invalid host:port pair with a net.Listen-related functionSA102",
+      "bad": "(*time.Timer).Reset",
+      "good": "sort.Slice",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_value_assigned_to_a_vari_28",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "value assigned to a variable is never read before being overwritten. Forgotten error check or dead code?SA4008The variable in the loop condition never changes, ",
+      "bad": "append",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_first_usesa4010the_resul_29",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "first useSA4010The result of append will never be observed anywhereSA4011Break statement with no effect. Did you mean to break out of an outer loop?SA4012Compar",
+      "bad": "!!b",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_bitwise_operations_such_30",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "bitwise operations, such as x ^ 0, do not do anything usefulSA4017Discarding the return values of a function without side effects, making the call pointlessSA40",
+      "bad": "x = append(y)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_0_do_not_do_anything_use_31",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "^ 0, do not do anything usefulSA4017Discarding the return values of a function without side effects, making the call pointlessSA4018Self-assignment of variables",
+      "bad": "x = y",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_functionsa4025integer_di_32",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "functionSA4025Integer division of literals that results in zeroSA4026Go constants cannot express negative zeroSA4027(*net/url.URL).Query returns a copy, modifyi",
+      "bad": "runtime.GOOS",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_of_literals_that_results_33",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "of literals that results in zeroSA4026Go constants cannot express negative zeroSA4027(*net/url.URL).Query returns a copy, modifying it doesn't change the URLSA4",
+      "bad": "runtime.GOARCH",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_express_negative_zerosa4_34",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "express negative zeroSA4027(*net/url.URL).Query returns a copy, modifying it doesn't change the URLSA4028x % 1 is always zeroSA4029Ineffective attempt at sortin",
+      "bad": "Close",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_urlsa4028x_1_is_always_z_35",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "URLSA4028x % 1 is always zeroSA4029Ineffective attempt at sorting sliceSA4030Ineffective attempt at generating random numberSA4031Checking never-nil value again",
+      "bad": "for {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_random_numbersa4031check_36",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "random numberSA4031Checking never-nil value against nilSA4032Comparing runtime.GOOS or runtime.GOARCH against impossible valueSA5Correctness issuesSA5000Assignm",
+      "bad": "for { select { ...",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_in_infinite_loops_will_n_37",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "in infinite loops will never executeSA5004for { select { ... with an empty default branch spinsSA5005The finalizer references the finalized object, preventing g",
+      "bad": "regexp.Match",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_type_assertion_is_probab_38",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "type assertion is probably not reading the right valueSA9009Ineffectual Go compiler directiveSA9010Returned function should be called in deferSsimpleS1Code simp",
+      "bad": "strings.Index",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_is_probably_not_reading_39",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "is probably not reading the right valueSA9009Ineffectual Go compiler directiveSA9010Returned function should be called in deferSsimpleS1Code simplificationsS100",
+      "bad": "strings.Contains",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_reading_the_right_values_40",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "reading the right valueSA9009Ineffectual Go compiler directiveSA9010Returned function should be called in deferSsimpleS1Code simplificationsS1000Use plain chann",
+      "bad": "bytes.Compare",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_right_valuesa9009ineffec_41",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "right valueSA9009Ineffectual Go compiler directiveSA9010Returned function should be called in deferSsimpleS1Code simplificationsS1000Use plain channel send or r",
+      "bad": "bytes.Equal",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_be_called_in_deferssimpl_42",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "be called in deferSsimpleS1Code simplificationsS1000Use plain channel send or receive instead of single-case selectS1001Replace for loop with call to copyS1002O",
+      "bad": "for { ... }",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_using_raw_string_literal_43",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "using raw string literalS1008Simplify returning boolean expressionS1009Omit redundant nil check on slices, maps, and channelsS1010Omit default slice indexS1011U",
+      "bad": "strings.TrimPrefix",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_raw_string_literals1008s_44",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "raw string literalS1008Simplify returning boolean expressionS1009Omit redundant nil check on slices, maps, and channelsS1010Omit default slice indexS1011Use a s",
+      "bad": "copy",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_boolean_expressions1009o_45",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "boolean expressionS1009Omit redundant nil check on slices, maps, and channelsS1010Omit default slice indexS1011Use a single append to concatenate two slicesS101",
+      "bad": "make",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_slicess1012replace_time_46",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "slicesS1012Replace time.Now().Sub(x) with time.Since(x)S1016Use a type conversion instead of manually copying struct fieldsS1017Replace manual trimming with str",
+      "bad": "x.Sub(time.Now())",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_with_time_since_x_s1016u_47",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "with time.Since(x)S1016Use a type conversion instead of manually copying struct fieldsS1017Replace manual trimming with strings.TrimPrefixS1018Use copy for slid",
+      "bad": "time.Until(x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_a_type_conversion_instea_48",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "a type conversion instead of manually copying struct fieldsS1017Replace manual trimming with strings.TrimPrefixS1018Use copy for sliding elementsS1019Simplify m",
+      "bad": "fmt.Sprintf(\"%s\", x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_copying_struct_fieldss10_49",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "copying struct fieldsS1017Replace manual trimming with strings.TrimPrefixS1018Use copy for sliding elementsS1019Simplify make call by omitting redundant argumen",
+      "bad": "fmt.Errorf",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_with_strings_trimprefixs_50",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "with strings.TrimPrefixS1018Use copy for sliding elementsS1019Simplify make call by omitting redundant argumentsS1020Omit redundant nil check in type assertionS",
+      "bad": "bytes.Buffer.String",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_copy_for_sliding_element_51",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "copy for sliding elementsS1019Simplify make call by omitting redundant argumentsS1020Omit redundant nil check in type assertionS1021Merge variable declaration a",
+      "bad": "bytes.Buffer.Bytes",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_by_omitting_redundant_ar_52",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "by omitting redundant argumentsS1020Omit redundant nil check in type assertionS1021Merge variable declaration and assignmentS1023Omit redundant control flowS102",
+      "bad": "sort.Ints(x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_omitting_redundant_argum_53",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "omitting redundant argumentsS1020Omit redundant nil check in type assertionS1021Merge variable declaration and assignmentS1023Omit redundant control flowS1024Re",
+      "bad": "sort.Float64s(x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_argumentss1020omit_redun_54",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "argumentsS1020Omit redundant nil check in type assertionS1021Merge variable declaration and assignmentS1023Omit redundant control flowS1024Replace x.Sub(time.No",
+      "bad": "sort.Strings(x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_type_assertions1021merge_55",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "type assertionS1021Merge variable declaration and assignmentS1023Omit redundant control flowS1024Replace x.Sub(time.Now()) with time.Until(x)S1025Don't use fmt.",
+      "bad": "delete",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_with_time_until_x_s1025d_56",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "with time.Until(x)S1025Don't use fmt.Sprintf(\"%s\", x) unnecessarilyS1028Simplify error construction with fmt.ErrorfS1029Range over the string directlyS1030Use b",
+      "bad": "net/http.CanonicalHeaderKey",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_formatted_strings1039unn_57",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "formatted stringS1039Unnecessary use of fmt.SprintS1040Type assertion to current typeSTstylecheckST1Stylistic issuesST1000Incorrect or missing package commentST",
+      "bad": "time.Duration",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_an_exported_type_should_58",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "an exported type should start with type's nameST1022The documentation of an exported variable or constant should start with variable's nameST1023Redundant type ",
+      "bad": "strings.Replace",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_type_should_start_with_t_59",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "type should start with type's nameST1022The documentation of an exported variable or constant should start with variable's nameST1023Redundant type in variable ",
+      "bad": "n == -1",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_namest1022the_documentat_60",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "nameST1022The documentation of an exported variable or constant should start with variable's nameST1023Redundant type in variable declarationQFquickfixQF1Quickf",
+      "bad": "math.Pow",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_of_an_exported_variable_61",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "of an exported variable or constant should start with variable's nameST1023Redundant type in variable declarationQFquickfixQF1QuickfixesQF1001Apply De Morgan's ",
+      "bad": "break",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_variable_declarationqfqu_62",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "variable declarationQFquickfixQF1QuickfixesQF1001Apply De Morgan's lawQF1002Convert untagged switch to tagged switchQF1003Convert if/else-if chain to tagged swi",
+      "bad": "time.Time.Equal",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_strings_replace_with_n_1_63",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "strings.Replace with n == -1QF1005Expand call to math.PowQF1006Lift if+break into loop conditionQF1007Merge conditional assignment into variable declarationQF10",
+      "bad": "fmt.Fprintf(x, ...)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_1qf1005expand_call_to_ma_64",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "-1QF1005Expand call to math.PowQF1006Lift if+break into loop conditionQF1007Merge conditional assignment into variable declarationQF1008Omit embedded fields fro",
+      "bad": "x.Write(fmt.Sprintf(...))",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_to_math_powqf1006lift_if_65",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "to math.PowQF1006Lift if+break into loop conditionQF1007Merge conditional assignment into variable declarationQF1008Omit embedded fields from selector expressio",
+      "bad": "staticcheck",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_conditional_assignment_i_66",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "conditional assignment into variable declarationQF1008Omit embedded fields from selector expressionQF1009Use time.Time.Equal instead of == operatorQF1010Convert",
+      "bad": "staticcheck",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_this_category_deal_with_67",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "this category deal with misuses of the standard library. This tends to involve incorrect function arguments or violating other invariants laid out by the standa",
+      "bad": "time.Parse",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_category_deal_with_misus_68",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "category deal with misuses of the standard library. This tends to involve incorrect function arguments or violating other invariants laid out by the standard li",
+      "bad": "time.Parse",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_tends_to_involve_incorre_69",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "tends to involve incorrect function arguments or violating other invariants laid out by the standard library's documentation.SA1000 - Invalid regular expression",
+      "bad": "Mon Jan 2 15:04:05 MST 2006",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_you_printed_it_withfmt_p_70",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "you printed it withfmt.Printf(s) it would lead to the following output:Interest rate: 5%!(NOVERB). Similarly, forming the first parameter via string concatenati",
+      "bad": "fmt.Print",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_string_concatenation_wit_71",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "string concatenation with user input should be avoided for the same reason. When printing user input, either use a variant of fmt.Print, or use the %s Printf ve",
+      "bad": "net/url.Parse",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_be_avoided_for_the_same_72",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "be avoided for the same reason. When printing user input, either use a variant of fmt.Print, or use the %s Printf verb and pass the string as an argument.Availa",
+      "bad": "http.Header",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_canonical_form_before_ma_73",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "canonical form before manipulating the map.When manipulating http.Header maps directly, as opposed to using the provided methods, care should be taken to stick ",
+      "bad": "h := http.Header{}\nh[\"etag\"] = []string{\"1234\"}\nh.Add(\"etag\", \"5678\")\nfmt.Println(h)\n\n// Output:\n// map[Etag:[5678] etag:[1234]]",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_by_a_process_specificall_74",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "by a process. Specifically, on UNIX-like systems, the syscall.SIGKILL and syscall.SIGSTOP signals are never passed to the process, but instead handled directly ",
+      "bad": "os/signal.Notify",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_on_unix_like_systems_the_75",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "on UNIX-like systems, the syscall.SIGKILL and syscall.SIGSTOP signals are never passed to the process, but instead handled directly by the kernel. It is therefo",
+      "bad": "os/signal",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_full_the_signal_will_be_76",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "full, the signal will be dropped. To avoid missing signals, the channel should be buffered and of the appropriate size. For a channel used for notification of j",
+      "bad": "strings.Replace",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_will_be_dropped_to_avoid_77",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "will be dropped. To avoid missing signals, the channel should be buffered and of the appropriate size. For a channel used for notification of just one signal va",
+      "bad": "n == 0",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_does_nothingwith_n_0_zer_78",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "does nothingWith n == 0, zero instances will be replaced. To replace all instances, use a negative number, or use strings.ReplaceAll.Available since2017.1SA1019",
+      "bad": "net.Listen",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_0_zero_instances_will_be_79",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "0, zero instances will be replaced. To replace all instances, use a negative number, or use strings.ReplaceAll.Available since2017.1SA1019 - Using a deprecated ",
+      "bad": "net.Listen",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_zero_instances_will_be_r_80",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "zero instances will be replaced. To replace all instances, use a negative number, or use strings.ReplaceAll.Available since2017.1SA1019 - Using a deprecated fun",
+      "bad": "net.ListenTCP",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_of_sort_slice_must_be_a_81",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "of sort.Slice must be a slice.Available since2020.1SA1029 - Inappropriate key in call to context.WithValueThe provided key must be comparable and should not be ",
+      "bad": "WithValue",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_provided_key_must_be_com_82",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "provided key must be comparable and should not be of type string or any other built-in type to avoid collisions between packages using context. Users of WithVal",
+      "bad": "interface{}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_not_be_of_type_string_or_83",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "not be of type string or any other built-in type to avoid collisions between packages using context. Users of WithValue should define their own types for keys.T",
+      "bad": "struct{}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_their_own_types_for_keys_84",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "their own types for keys.To avoid allocating when assigning to an interface{}, context keys often have concrete type struct{}. Alternatively, exported context k",
+      "bad": "strconv",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_as_a_form_of_signaling_t_85",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "as a form of signaling to wait on another goroutine. Many times, there are simpler ways of achieving the same effect. When that isn't the case, the code should ",
+      "bad": "//lint:ignore",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_simpler_ways_of_achievin_86",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "simpler ways of achieving the same effect. When that isn't the case, the code should be amply commented to avoid confusion. Combining such comments with a //lin",
+      "bad": "testing.T.FailNow",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_of_achieving_the_same_ef_87",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "of achieving the same effect. When that isn't the case, the code should be amply commented to avoid confusion. Combining such comments with a //lint:ignore dire",
+      "bad": "SkipNow",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_the_code_should_be_amply_88",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "the code should be amply commented to avoid confusion. Combining such comments with a //lint:ignore directive can be used to suppress this rare false positive.A",
+      "bad": "Lock",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_a_pointer_receiver_avail_89",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "a pointer receiver?Available since2021.1SA4006 - A value assigned to a variable is never read before being overwritten. Forgotten error check or dead code?Avail",
+      "bad": "for i := 0; i < 10; j++ { ... }",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_for_i_0_i_10_i_f_uncondi_90",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "for i := 0; i < 10; i++ { // f unconditionally calls panic, which means \"i\" is // never incremented. f() } }Available since2017.1SA4009 - A function argument is",
+      "bad": "append",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_i_f_unconditionally_call_91",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "i++ { // f unconditionally calls panic, which means \"i\" is // never incremented. f() } }Available since2017.1SA4009 - A function argument is overwritten before ",
+      "bad": "append",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_is_never_incremented_f_a_92",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "is // never incremented. f() } }Available since2017.1SA4009 - A function argument is overwritten before its first useAvailable since2017.1SA4010 - The result of",
+      "bad": "append",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_yle_color_000any_t_switc_93",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "yle=color:#000any = T{} switch v.(type) { case io.Reader: // ... case T: // unreachable } the second case clause can never be reached because T implements",
+      "bad": "io.Reader",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_switch_v_type_case_io_re_94",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "switch v.(type) { case io.Reader: // ... case T: // unreachable } the second case clause can never be reached because T implements io.Reader and case clauses ar",
+      "bad": "type T struct{}\nfunc (T) Read(b []byte) (int, error) { return 0, nil }\nfunc (T) Close() error { return nil }\n\nvar v any = T{}\n\nswitch v.(type) {\ncase io.Reader:\n    // ...\ncase io.ReadCloser:\n    // unreachable\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_generating_random_number_95",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "generating random numberFunctions in the math/rand package that accept upper limits, such as Intn, generate random numbers in the half-open interval [0,n). In o",
+      "bad": "rand.Intn(1)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_0_n_in_other_words_the_g_96",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "[0,n). In other words, the generated numbers will be = 0 and < n – they don't include n. rand.Intn(1) therefore doesn't generate 0 or 1, it always generates 0.A",
+      "bad": "runtime.GOOS",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_other_words_the_generate_97",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "other words, the generated numbers will be = 0 and < n – they don't include n. rand.Intn(1) therefore doesn't generate 0 or 1, it always generates 0.Available s",
+      "bad": "runtime.GOARCH",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_it_always_generates_0_av_98",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "it always generates 0.Available since2022.1SA4031 - Checking never-nil value against nilAvailable since2022.1SA4032 - Comparing runtime.GOOS or runtime.GOARCH a",
+      "bad": "Close",
+      "good": "for {}",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_block_the_scheduleravail_99",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "block the schedulerAvailable since2017.1SA5003 - Defers in infinite loops will never executeDefers are scoped to the surrounding function, not the surrounding b",
+      "bad": "for { select { ...",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_slice_of_runes_before_ra_100",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "slice of runes before ranging over itYou may want to loop over the runes in a string. Instead of converting the string to a slice of runes and looping over that",
+      "bad": "for _, r := range s {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_may_want_to_loop_over_th_101",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "may want to loop over the runes in a string. Instead of converting the string to a slice of runes and looping over that, you can loop over the string itself. Th",
+      "bad": "for _, r := range []rune(s) {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_enumfirst_enumtype_1_enu_102",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "( EnumFirst EnumType = 1 EnumSecond = 2 EnumThird = 3 ) This discrepancy in types can cause various confusing behaviors and bugs.Wrong type in variable declarat",
+      "bad": "package pkg\n\nconst (\n    EnumFirst  uint8 = 1\n    EnumSecond       = 2\n)\n\nfunc fn(useFirst bool) {\n    x := EnumSecond\n    if useFirst {\n        x = EnumFirst\n    }\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_8_will_always_result_in_103",
+      "slice": "medium",
+      "severity": "medium",
+      "description": ">>= 8 will always result in 0.This check flags bit shifting operations on fixed size integer values only. That is, int, uint and uintptr are never flagged to av",
+      "bad": "// Clear any value above 32 bits if integers are more than 32 bits.\nfunc f(i int) int {\n    v := i >> 32\n    v = v << 32\n    return i-v\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_since2020_2sa9007_deleti_104",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "since2020.2SA9007 - Deleting a directory that shouldn't be deletedIt is virtually never correct to delete system directories such as /tmp or the user's home dir",
+      "bad": "os.TempDir",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_a_directory_that_shouldn_105",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "a directory that shouldn't be deletedIt is virtually never correct to delete system directories such as /tmp or the user's home directory. However, it can be fa",
+      "bad": "ioutil.TempDir",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_system_directories_such_106",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "system directories such as /tmp or the user's home directory. However, it can be fairly easy to do by mistake, for example by mistakenly using os.TempDir instea",
+      "bad": "os.UserHomeDir",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_directories_such_as_tmp_107",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "directories such as /tmp or the user's home directory. However, it can be fairly easy to do by mistake, for example by mistakenly using os.TempDir instead of io",
+      "bad": "d := os.TempDir()\ndefer os.RemoveAll(d)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_in_this_category_find_co_108",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "in this category find code that is unnecessarily complex and that can be trivially simplified.S1000 - Use plain channel send or receive instead of single-case s",
+      "bad": "select {\ncase x := <-ch:\n    fmt.Println(x)\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_unnecessarily_complex_an_109",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "unnecessarily complex and that can be trivially simplified.S1000 - Use plain channel send or receive instead of single-case selectSelect statements with a singl",
+      "bad": "x := <-ch\nfmt.Println(x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_use_backticks_instead_of_110",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "use backticks instead of quotation marks and do not support any escape sequences. This means that the backslash can be used freely, without the need of escaping",
+      "bad": "regexp.Compile(\"\\\\A(\\\\w+) profile: total \\\\d+\\\\n\\\\z\")",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_of_quotation_marks_and_d_111",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "of quotation marks and do not support any escape sequences. This means that the backslash can be used freely, without the need of escaping.Since regular express",
+      "bad": "regexp.Compile(`\\A(\\w+) profile: total \\d+\\n\\z`)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_y_flex_field1_x_field1_f_112",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "y:flex Field1: x.Field1, Field2: x.Field2, }After:var x T1 y := T2(x)Available since2017.1S1017 - Replace manual trimming with strings.TrimPrefixInstead of usin",
+      "bad": "strings.HasPrefix",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_style_color_000_font_wei_113",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "style=color:#000;font-weight:700: x.Field1, Field2: x.Field2, }After:var x T1 y := T2(x)Available since2017.1S1017 - Replace manual trimming with strings.TrimPr",
+      "bad": "strings.TrimPrefix",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_field2_x_field2_after_va_114",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "Field2: x.Field2, }After:var x T1 y := T2(x)Available since2017.1S1017 - Replace manual trimming with strings.TrimPrefixInstead of using strings.HasPrefix and m",
+      "bad": "strings.TrimPrefix",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_manual_trimming_with_str_115",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "manual trimming with strings.TrimPrefixInstead of using strings.HasPrefix and manual slicing, use the strings.TrimPrefix function. If the string doesn't start w",
+      "bad": "if strings.HasPrefix(str, prefix) {\n    str = str[len(prefix):]\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_start_with_the_prefix_th_116",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "start with the prefix, the original string will be returned. Using strings.TrimPrefix reduces complexity, and avoids common bugs, such as off-by-one mistakes.Be",
+      "bad": "str = strings.TrimPrefix(str, prefix)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_return_statement_as_the_117",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "return statement as the final statement of the function.Switches in Go do not have automatic fallthrough, unlike languages like C. It is not necessary to have a",
+      "bad": "x.Sub(time.Now())",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_as_the_final_statement_o_118",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "as the final statement of the function.Switches in Go do not have automatic fallthrough, unlike languages like C. It is not necessary to have a break statement ",
+      "bad": "time.Until(x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_the_final_statement_of_t_119",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "the final statement of the function.Switches in Go do not have automatic fallthrough, unlike languages like C. It is not necessary to have a break statement as ",
+      "bad": "time.Until",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_do_not_have_automatic_fa_120",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "do not have automatic fallthrough, unlike languages like C. It is not necessary to have a break statement as the final statement in a case block.Available since",
+      "bad": "x.Sub(time.Now())",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_have_a_break_statement_a_121",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "have a break statement as the final statement in a case block.Available since2017.1S1024 - Replace x.Sub(time.Now()) with time.Until(x)The time.Until helper has",
+      "bad": "fmt.Sprintf(\"%s\", x)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_many_instances_there_are_122",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "many instances, there are easier and more efficient ways of getting a value's string representation. Whenever a value's underlying type is a string already, or ",
+      "bad": "type T1 string\ntype T2 int\n\nfunc (T2) String() string { return \"Hello, world\" }\n\nvar x string\nvar y T1\nvar z T2",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_converting_the_string_to_123",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "converting the string to a slice of runes and ranging over that. Ranging directly over the string will be more performant, however, as it avoids allocating a ne",
+      "bad": "for _, r := range []rune(s) {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_of_runes_and_ranging_ove_124",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "of runes and ranging over that. Ranging directly over the string will be more performant, however, as it avoids allocating a new slice, the size of which depend",
+      "bad": "for _, r := range s {}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_guage_go_data_lang_gofor_125",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "guage-go data-lang=gofor _, r := range []rune(s) {}After:for _, r := range s {}Available since2017.1S1030 - Use bytes.Buffer.String or bytes.Buffer.Bytesbytes.B",
+      "bad": "string(buf.Bytes())",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_splay_flexfor_r_range_ru_126",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "splay:flexfor _, r := range []rune(s) {}After:for _, r := range s {}Available since2017.1S1030 - Use bytes.Buffer.String or bytes.Buffer.Bytesbytes.Buffer has b",
+      "bad": "[]byte(buf.String())",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_use_bytes_buffer_string_127",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "Use bytes.Buffer.String or bytes.Buffer.Bytesbytes.Buffer has both a String and a Bytes method. It is almost never necessary to use string(buf.Bytes()) or []byt",
+      "bad": "m[string(buf.Bytes())]",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_both_a_string_and_a_byte_128",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "both a String and a Bytes method. It is almost never necessary to use string(buf.Bytes()) or []byte(buf.String()) – simply use the other method.The only excepti",
+      "bad": "m[buf.String()]",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_compiler_optimization_m_129",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "compiler optimization, m[string(buf.Bytes())] is more efficient than m[buf.String()].Available since2017.1S1031 - Omit redundant nil check around loopYou can us",
+      "bad": "if s != nil {\n    for _, x := range s {\n        ...\n    }\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_4you_can_use_range_on_ni_130",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "4You can use range on nil slices and maps, the loop will simply never execute. This makes an additional nil check around the loop unnecessary.Before:if s != nil",
+      "bad": "for _, x := range s {\n    ...\n}",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_with_a_single_case_recei_131",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "with a single case receiving from the result of time.After is a very elaborate way of sleeping that can much simpler be expressed with a simple call to time.Sle",
+      "bad": "fmt.Print(fmt.Sprintf(...))",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_receiving_from_the_resul_132",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "receiving from the result of time.After is a very elaborate way of sleeping that can much simpler be expressed with a simple call to time.Sleep.Available since2",
+      "bad": "fmt.Printf(...)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_is_a_very_elaborate_way_133",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "is a very elaborate way of sleeping that can much simpler be expressed with a simple call to time.Sleep.Available since2020.1S1038 - Unnecessarily complex way o",
+      "bad": "fmt.Sprint",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_a_very_elaborate_way_of_134",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "a very elaborate way of sleeping that can much simpler be expressed with a simple call to time.Sleep.Available since2020.1S1038 - Unnecessarily complex way of p",
+      "bad": "fmt.Sprint",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_printing_formatted_strin_135",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "printing formatted stringInstead of using fmt.Print(fmt.Sprintf(...)), one can use fmt.Printf(...).Available since2020.1S1039 - Unnecessary use of fmt.SprintCal",
+      "bad": "x.(SomeInterface)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_and_you_can_safely_delet_136",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "and you can safely delete the type assertion. If you want to check that x is not nil, consider being explicit and using an actual if x == nil comparison instead",
+      "bad": "stylecheck",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_type_assertion_if_you_wa_137",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "type assertion. If you want to check that x is not nil, consider being explicit and using an actual if x == nil comparison instead of relying on the type assert",
+      "bad": "stylecheck",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_project_s_needs_st1000_i_138",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "project's needs.ST1000 - Incorrect or missing package comment non-defaultPackages must have a package comment that is formatted according to the guidelines laid",
+      "bad": "dot_import_whitelist",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_package_foo_because_it_u_139",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "package foo because it uses bar/testutil, which imports foo. So we use the import . form to let the file pretend to be part of package foo even though it is not",
+      "bad": "import .",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_to_be_part_of_package_fo_140",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "to be part of package foo even though it is not. Except for this one case, do not use import . in your programs. It makes the programs much harder to read becau",
+      "bad": "Quux",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_ldquo_c_rdquo_in_one_met_141",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "&ldquo;c&rdquo; in one method, don't call it &ldquo;cl&rdquo; in another.Available since2019.1ST1008 - A function's error value should be its last return valueA",
+      "bad": "time.Duration",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_in_one_method_don_t_call_142",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "in one method, don't call it &ldquo;cl&rdquo; in another.Available since2019.1ST1008 - A function's error value should be its last return valueA function's erro",
+      "bad": "time.Duration",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_vastly_improve_the_reada_143",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "vastly improve the readability of your code.Available since2019.1Optionshttp_status_code_whitelistST1015 - A switch's default case should be the first or last c",
+      "bad": "if 42 == x",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_conditions_are_condition_144",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "conditions are conditions of the kind if 42 == x, where the literal is on the left side of the comparison. These are a common idiom in languages in which assign",
+      "bad": "if (x = 42)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_the_comparison_these_are_145",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "the comparison. These are a common idiom in languages in which assignment is an expression, to avoid bugs of the kind if (x = 42). In Go, which doesn't allow fo",
+      "bad": "if x == 42",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_v_class_highlightswitch_146",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "v class=highlightswitch x { case 1, 2: ... case 3: ... default: ... }Available since2021.1QF1004 - Use strings.ReplaceAll instead of",
+      "bad": "strings.Replace",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_style_background_color_f_147",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "style=background-color:#f8f8f8;-moz-tab-size:4;-o-tab-size:4;tab-size:4switch x { case 1, 2: ... case 3: ... default: ... }Available since2021.1QF1004 - Use str",
+      "bad": "n == -1",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_pan_style_display_flexsw_148",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "pan style=display:flexswitch x { case 1, 2: ... case 3: ... default: ... }Available since2021.1QF1004 - Use strings.ReplaceAll instead of strings.Replace with n",
+      "bad": "math.Pow",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_olor_204a87_font_weight_149",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "olor:#204a87;font-weight:700switch x { case 1, 2: ... case 3: ... default: ... }Available since2021.1QF1004 - Use strings.ReplaceAll instead of strings.Replace ",
+      "bad": "math.Pow",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_style_color_0000cf_font_150",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "style=color:#0000cf;font-weight:7001, 2: ... case 3: ... default: ... }Available since2021.1QF1004 - Use strings.ReplaceAll instead of strings.Replace with n ==",
+      "bad": "math.Pow(x, 2)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_andefault_available_sinc_151",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "andefault: ... }Available since2021.1QF1004 - Use strings.ReplaceAll instead of strings.Replace with n == -1Available since2021.1QF1005 - Expand call to math.Po",
+      "bad": "x * x",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_or_000_font_weight_700_a_152",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "or:#000;font-weight:700}Available since2021.1QF1004 - Use strings.ReplaceAll instead of strings.Replace with n == -1Available since2021.1QF1005 - Expand call to",
+      "bad": "break",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_someconditionavailable_s_153",
+      "slice": "medium",
+      "severity": "medium",
+      "description": ":= someConditionAvailable since2021.1QF1008 - Omit embedded fields from selector expressionAvailable since2021.1QF1009 - Use time.Time.Equal instead of == opera",
+      "bad": "fmt.Fprintf(x, ...)",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    },
+    {
+      "id": "staticcheck_omit_embedded_fields_fro_154",
+      "slice": "medium",
+      "severity": "medium",
+      "description": "Omit embedded fields from selector expressionAvailable since2021.1QF1009 - Use time.Time.Equal instead of == operatorAvailable since2021.1QF1010 - Convert slice",
+      "bad": "x.Write(fmt.Sprintf(...))",
+      "good": "",
+      "source": "https://staticcheck.dev/docs/checks/"
+    }
+  ],
+  "reference": [
+    "ls / /tmp",
+    "exec.Command(\"ls\", \"/\", \"/tmp\")",
+    "exec.Command(\"/bin/sh\", \"-c\", \"ls | grep Awesome\")",
+    "Interest rate: 5%",
+    "fmt.Printf(s)",
+    "Interest rate: 5%!(NOVERB).",
+    "strings.TrimLeft(\"42133word\", \"1234\")",
+    "if errors.Is(err, io.EOF) { ... }",
+    "if errors.Is(io.EOF, err) { /* this is wrong */ }",
+    "mu.Lock()\nmu.Unlock()",
+    "mu.Lock()\ndefer mu.Unlock()",
+    "mu.Lock()\ndefer mu.Lock()",
+    "for i := 0; i < 10; j++ { ... }",
+    "func f() {\n\tpanic(\"oops\")\n}\nfunc g() {\n\tfor i := 0; i < 10; i++ {\n\t\t// f unconditionally calls panic, which means \"i\" is\n\t\t// never incremented.\n\t\tf()\n\t}\n}",
+    "type T struct{}\nfunc (T) Read(b []byte) (int, error) { return 0, nil }\n\nvar v any = T{}\n\nswitch v.(type) {\ncase io.Reader:\n    // ...\ncase T:\n    // unreachable\n}",
+    "type T struct{}\nfunc (T) Read(b []byte) (int, error) { return 0, nil }\nfunc (T) Close() error { return nil }\n\nvar v any = T{}\n\nswitch v.(type) {\ncase io.Reader:\n    // ...\ncase io.ReadCloser:\n    // unreachable\n}",
+    "type T error\ntype V error\n\nfunc doSomething() error {\n    err, ok := doAnotherThing()\n    if ok {\n        return T(err)\n    }\n\n    return U(err)\n}",
+    "switch doSomething().(type) {\ncase T:\n    // ...\ncase V:\n    // unreachable\n}",
+    "func returnsError() error {\n    var p *MyError = nil\n    if bad() {\n        p = ErrBad\n    }\n    return p // Will always return a non-nil error.\n}",
+    "func returnsError() error {\n    if bad() {\n        return ErrBad\n    }\n    return nil\n}",
+    "if len(slice) < 0 {\n    fmt.Println(\"unreachable code\")\n}",
+    "_ = 2 / 3\nconst _ = 2 / 3\nconst _ float64 = 2 / 3\n_ = float64(2 / 3)",
+    "k := string(b)\nprintln(m[k])\nprintln(m[k])",
+    "println(m[string(b)])\nprintln(m[string(b)])",
+    "for _, r := range s {}",
+    "for _, r := range []rune(s) {}",
+    "if strings.ToLower(s1) == strings.ToLower(s2) {\n    ...\n}",
+    "io.WriteString(w, string(b))",
+    "const (\n    First byte = 1\n    Second     = 2\n)",
+    "const (\n    First byte = iota\n    Second\n)",
+    "const (\n      EnumFirst EnumType = 1\n      EnumSecond         = 2\n      EnumThird          = 3\n)",
+    "package pkg\n\nconst (\n    EnumFirst  uint8 = 1\n    EnumSecond       = 2\n)\n\nfunc fn(useFirst bool) {\n    x := EnumSecond\n    if useFirst {\n        x = EnumFirst\n    }\n}",
+    "./const.go:11:5: cannot use EnumFirst (type uint8) as type int in assignment",
+    "package main\n\nimport \"fmt\"\n\ntype Enum int\n\nfunc (e Enum) String() string {\n    return \"an enum\"\n}\n\nconst (\n    EnumFirst  Enum = 1\n    EnumSecond      = 2\n)\n\nfunc main() {\n    fmt.Println(EnumFirst)\n    fmt.Println(EnumSecond)\n}",
+    "an enum\n2",
+    "v := int8(42)\nv >>= 8",
+    "// Clear any value above 32 bits if integers are more than 32 bits.\nfunc f(i int) int {\n    v := i >> 32\n    v = v << 32\n    return i-v\n}",
+    "d := os.TempDir()\ndefer os.RemoveAll(d)",
+    "if x, ok := x.(int); ok {\n    // ...\n} else {\n    fmt.Printf(\"unexpected type %T\", x)\n}",
+    "func f() func() {\n    // Do something.\n    return func() {\n        // Do something.\n    }\n}",
+    "defer f()",
+    "defer f()()",
+    "select {\ncase x := <-ch:\n    fmt.Println(x)\n}",
+    "x := <-ch\nfmt.Println(x)",
+    "for i, x := range src {\n    dst[i] = x\n}",
+    "copy(dst, src)",
+    "if x == true {}",
+    "if strings.Index(x, y) != -1 {}",
+    "if strings.Contains(x, y) {}",
+    "if bytes.Compare(x, y) == 0 {}",
+    "if bytes.Equal(x, y) {}",
+    "for _ = range s {}\n_ = <-ch",
+    "for range s{}\n<-ch",
+    "regexp.Compile(\"\\\\A(\\\\w+) profile: total \\\\d+\\\\n\\\\z\")",
+    "regexp.Compile(`\\A(\\w+) profile: total \\d+\\n\\z`)",
+    "if <expr> {\n    return true\n}\nreturn false",
+    "return <expr>",
+    "if x != nil && len(x) != 0 {}",
+    "if len(x) != 0 {}",
+    "for _, e := range y {\n    x = append(x, e)\n}\n\nfor i := range y {\n    x = append(x, y[i])\n}\n\nfor i := range y {\n    v := y[i]\n    x = append(x, v)\n}",
+    "x = append(x, y...)\nx = append(x, y...)\nx = append(x, y...)",
+    "time.Now().Sub(x)",
+    "time.Since(x)",
+    "var x T1\ny := T2{\n    Field1: x.Field1,\n    Field2: x.Field2,\n}",
+    "var x T1\ny := T2(x)",
+    "if strings.HasPrefix(str, prefix) {\n    str = str[len(prefix):]\n}",
+    "str = strings.TrimPrefix(str, prefix)",
+    "for i := 0; i < n; i++ {\n    bs[i] = bs[offset+i]\n}",
+    "copy(bs[:n], bs[offset:])",
+    "if _, ok := i.(T); ok && i != nil {}",
+    "if _, ok := i.(T); ok {}",
+    "var x uint\nx = 1",
+    "var x uint = 1",
+    "x.Sub(time.Now())",
+    "time.Until(x)",
+    "type T1 string\ntype T2 int\n\nfunc (T2) String() string { return \"Hello, world\" }\n\nvar x string\nvar y T1\nvar z T2",
+    "fmt.Sprintf(\"%s\", x)\nfmt.Sprintf(\"%s\", y)\nfmt.Sprintf(\"%s\", z)",
+    "x\nstring(y)\nz.String()",
+    "errors.New(fmt.Sprintf(...))",
+    "fmt.Errorf(...)",
+    "if s != nil {\n    for _, x := range s {\n        ...\n    }\n}",
+    "for _, x := range s {\n    ...\n}",
+    "sort.Sort(sort.StringSlice(x))",
+    "sort.Strings(x)",
+    "if _, ok := m[\"foo\"]; ok {\n    m[\"foo\"] = append(m[\"foo\"], \"bar\")\n} else {\n    m[\"foo\"] = []string{\"bar\"}\n}",
+    "m[\"foo\"] = append(m[\"foo\"], \"bar\")",
+    "if _, ok := m2[\"k\"]; ok {\n    m2[\"k\"] += 4\n} else {\n    m2[\"k\"] = 4\n}",
+    "m[\"k\"] += 4",
+    "package foo_test\n\nimport (\n    \"bar/testutil\" // also imports \"foo\"\n    . \"foo\"\n)",
+    "import (\n    \"fmt\"\n    fumpt \"fmt\"\n    format \"fmt\"\n)",
+    "switch {\ncase x == 1 || x == 2, x == 3:\n    ...\ncase x == 4:\n    ...\ndefault:\n    ...\n}",
+    "switch x {\ncase 1, 2, 3:\n    ...\ncase 4:\n    ...\ndefault:\n    ...\n}",
+    "if x == 1 || x == 2 {\n    ...\n} else if x == 3 {\n    ...\n} else {\n    ...\n}",
+    "switch x {\ncase 1, 2:\n    ...\ncase 3:\n    ...\ndefault:\n    ...\n}",
+    "math.Pow(x, 2)",
+    "for {\n    if done {\n        break\n    }\n    ...\n}",
+    "for !done {\n    ...\n}",
+    "x := false\nif someCondition {\n    x = true\n}",
+    "x := someCondition"
+  ]
+}

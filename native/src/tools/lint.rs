@@ -1,12 +1,22 @@
 //! `lint` — the AI code reviewer.
 //!
-//! Training: [`crate::lint_train::train`] reads two documentation sources (`extraDocs/` and
-//! `.helpers/lint-rules/`) and returns a [`crate::lint_train::TrainedModel`] with the behavioral
-//! principles those docs activate. One model, one call, no compilation.
+//! Training: [`crate::lint_train::ensure_models`] reads two documentation sources (`extraDocs/` and
+//! `.helpers/lint-rules/`) plus the official-doc catalogs and returns, per language, a
+//! [`crate::lint_train::LangModel`] — the [`crate::lint_match::RuleSet`] firing engine, the
+//! [`crate::lint_ai::ConceptModel`] confirmation gate, and the behavioral principles those docs
+//! activate. One call, checksum-cached.
 //!
-//! Analysis: for each language in the project, [`crate::lint_practice::PracticeRules`] measures
-//! every function against the project's own statistical norm (Tukey's fence) and flags outliers.
-//! Structural errors — things the developer missed, not things that are "wrong" by regex.
+//! Analysis, per file, per language:
+//!   1. **Rule firing** — `RuleSet::flag` matches each documented rule's lossless AST pattern
+//!      (or, for grammarless languages, its discriminating token regex) against the file: a
+//!      finding is the rule's structure occurring, on the construct's line.
+//!   2. **Confirmation gate** — precise AST matches report directly; imprecise text-fallback
+//!      matches (grammarless languages, description-derived regexes) pass through
+//!      `ConceptModel::confirms`, which bundles the matched construct's tokens and keeps the
+//!      finding only when the fired rule is the concept it is closest to — so a regex that hit a
+//!      token belonging to a different rule is dropped, with no hand-kept word list.
+//!   3. **Structural outliers** — [`crate::lint_practice::PracticeRules`] measures every function
+//!      against the project's own statistical norm (Tukey's fence) and flags outliers.
 //!
 //! For project-wide graph tracing see `lint_build_web`, `lint_probe`, and `lint_trace`.
 
@@ -95,9 +105,19 @@ struct FileReport {
     hits: Vec<Hit>,
 }
 
-/// Review the whole project with the concept model engine: detect its languages, compile or load
-/// one `ConceptModel` per language from the docs + corpus, walk every file's full AST, and report
-/// violations in English.
+/// Extract the alphanumeric/underscore tokens of one 1-based source line — the "construct" the Hv
+/// gate confirms a text-fallback finding against. Out-of-range lines yield no tokens (gate abstains).
+fn line_tokens(src: &str, line: usize) -> Vec<String> {
+    let Some(text) = src.lines().nth(line.saturating_sub(1)) else { return Vec::new() };
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .filter(|t| t.len() >= 2)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Review the whole project: detect its languages, build one `LangModel` per language (rule set +
+/// concept gate + principles), match each file with the rule set, confirm text-fallback findings
+/// through the concept gate, add structural outliers, and report the result in English.
 pub fn run(args: &Value) -> ToolResult {
     let root = root_arg(args);
     if !root.exists() {
@@ -107,65 +127,121 @@ pub fn run(args: &Value) -> ToolResult {
     let filter = parse_lang_filter(args);
     let data = data_root();
 
-    let config = load_config(&root);
+    // Load per-project config, then merge in feedback-driven auto-suppressions: rules a developer
+    // has flagged as false positives enough times (see `crate::lint_feedback`) are folded into the
+    // same `ignore_rules` list, so they are suppressed through the normal config path below.
+    let mut config = load_config(&root);
+    let auto_suppressed = crate::lint_feedback::merge_auto_suppressed(&mut config, &root);
     let ignore_set: HashSet<&str> = config.ignore_rules.iter().map(String::as_str).collect();
 
-    // 1) Train: read extraDocs/ + .helpers/lint-rules/, extract behavioral principles.
-    let model = lint_train::train(&data, &root);
-    let practice = PracticeRules::new(model.principles);
-
-    // 2) Walk the project.
+    // 1) Walk the project and partition by language: those with a tree-sitter grammar are analyzed
+    //    with the AST engine; the rest are still analyzed via the token-regex fallback, so nothing
+    //    is dropped for lacking a grammar.
     let files = walk_repo(&root);
-
-    // 3) Partition by language: known AST languages → analyze; others → report unanalyzed.
     let mut by_language: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    let mut unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     for f in &files {
         let Some(l) = file_lang(&f.ext) else { continue };
         if filter.as_ref().is_some_and(|set| !set.contains(l)) { continue; }
         if config.languages.as_ref().is_some_and(|set| !set.iter().any(|x| x == l)) { continue; }
-        // Behavioral engine requires tree-sitter; skip languages without a grammar.
-        if crate::lint_match::language(l).is_some() {
-            if let Ok(src) = std::fs::read_to_string(&f.abs) {
-                by_language.entry(l.to_string()).or_default().push((f.rel.clone(), src));
-            }
-        } else {
-            *unanalyzed.entry(l.to_string()).or_default() += 1;
+        if let Ok(src) = std::fs::read_to_string(&f.abs) {
+            by_language.entry(l.to_string()).or_default().push((f.rel.clone(), src));
         }
     }
 
-    // 4) Run both engines against the project.
+    // 2) Train / load one model per detected language (checksum-cached), and the advice map that
+    //    carries each rule's English description and severity for rendering.
+    let langs: Vec<String> = by_language.keys().cloned().collect();
+    let (_report, models) = lint_train::ensure_models(&langs, &data, &root);
+    let advice = lint_train::advice(&data, Some(root.as_path()));
+    let principles = models.values().next().map(|m| m.principles.clone()).unwrap_or_default();
+    let practice = PracticeRules::new(principles);
+
+    let mut sources: Vec<String> = Vec::new();
+    if !models.is_empty() {
+        let total: usize = models.values().map(|m| m.rules.rule_count()).sum();
+        sources.push(format!("{total} rules across {} language(s)", models.len()));
+    }
+
     let mut reports: Vec<FileReport> = Vec::new();
+    let push_hit = |reports: &mut Vec<FileReport>, path: &str, hit: Hit| {
+        if let Some(r) = reports.iter_mut().find(|r| r.path == path) {
+            r.hits.push(hit);
+        } else {
+            reports.push(FileReport { path: path.to_string(), hits: vec![hit] });
+        }
+    };
 
-    // 4a) Concept model forward pass: one ConceptModel per language, validates full AST.
+    // 3) Rule firing + confirmation gate. Findings are staged (not reported yet) so the
+    //    self-validation pass below can measure each rule's fire rate against reality first.
+    let total_lines: usize = by_language.values().flatten().map(|(_, src)| src.lines().count()).sum();
+    let mut staged: Vec<(String, Hit, bool)> = Vec::new(); // (path, hit, unverified doc rule?)
     for (lang, lang_files) in &by_language {
-        let Some(concept_model) = model.concept_models.get(lang) else { continue };
+        let Some(model) = models.get(lang) else { continue };
+        // Rules the project itself authored are the user's explicit law for this codebase —
+        // trusted fully, never gated, however weak their compiled anchor is.
+        let trusted = lint_train::project_rule_ids(&root, lang);
         for (path, src) in lang_files {
-            for flag in concept_model.validate(src, lang) {
-                let (severity, advice) = model.rule_advice.get(&flag.rule_id)
-                    .map(|(s, a)| (s.clone(), a.clone()))
-                    .unwrap_or_else(|| ("medium".to_string(), format!("violates `{}`", flag.rule_id)));
-                let hit = Hit { line: flag.line, rule: flag.rule_id.clone(), severity, advice };
-                if let Some(r) = reports.iter_mut().find(|r| r.path == *path) {
-                    r.hits.push(hit);
-                } else {
-                    reports.push(FileReport { path: path.clone(), hits: vec![hit] });
+            for finding in model.rules.flag(src) {
+                // Precise AST matches are exact and reported directly. Imprecise matches —
+                // text-fallback regexes and container-only AST patterns (several distinct rules
+                // compile to the same bare `list`) — must clear the Hv concept gate: the matched
+                // construct's tokens must agree with the fired rule's fingerprint more than with
+                // any other rule's, so a match that belongs to a different concept is dropped —
+                // no word blocklist involved. See [`crate::lint_ai::ConceptModel::confirms`].
+                let doc_rule = !trusted.contains(&finding.rule);
+                if !finding.precise && doc_rule {
+                    let toks = line_tokens(src, finding.line);
+                    let refs: Vec<&str> = toks.iter().map(String::as_str).collect();
+                    if !model.concept.confirms(&finding.rule, &refs) { continue; }
                 }
+                let (severity, advice_text) = advice
+                    .get(&finding.rule)
+                    .map(|info| {
+                        let sev = if info.severity.is_empty() { finding.severity.clone() } else { info.severity.clone() };
+                        let adv = if info.description.is_empty() { format!("violates `{}`", finding.rule) } else { info.description.clone() };
+                        (sev, adv)
+                    })
+                    .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule)));
+                staged.push((path.clone(), Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text }, doc_rule));
             }
         }
     }
 
-    // 4b) Behavioral analysis (per language, project-wide norm): structural outliers.
+    // 3b) Self-validation against reality: a doc-learned rule that fires on more than 1% of every
+    //     line scanned (and at least 20 lines) is a mislearned pattern — noisy docs scraping, not
+    //     hundreds of real mistakes. Quarantine it wholesale and say so, instead of flooding the
+    //     report. Project-authored rules are never quarantined: a project-wide convention
+    //     violation legitimately fires everywhere.
+    let file_lines: HashMap<&str, usize> =
+        by_language.values().flatten().map(|(p, s)| (p.as_str(), s.lines().count())).collect();
+    let mut fires: HashMap<&str, usize> = HashMap::new();
+    let mut file_fires: HashMap<(&str, &str), usize> = HashMap::new();
+    for (path, hit, doc_rule) in &staged {
+        if *doc_rule {
+            *fires.entry(hit.rule.as_str()).or_default() += 1;
+            *file_fires.entry((hit.rule.as_str(), path.as_str())).or_default() += 1;
+        }
+    }
+    // Concentrated mislearning: ≥20 fires inside one file covering >10% of its lines is a pattern
+    // matching the file's fabric (every `[`, every backtick), not 20+ separate mistakes.
+    let concentrated: HashSet<&str> = file_fires.iter()
+        .filter(|((_, path), &n)| n >= 20 && n * 10 > file_lines.get(path).copied().unwrap_or(usize::MAX))
+        .map(|((rule, _), _)| *rule)
+        .collect();
+    let quarantined: std::collections::BTreeSet<String> = fires.iter()
+        .filter(|(id, &n)| (n >= 20 && n * 100 > total_lines) || concentrated.contains(*id))
+        .map(|(id, _)| id.to_string())
+        .collect();
+    for (path, hit, _) in staged.into_iter().filter(|(_, h, _)| !quarantined.contains(&h.rule)) {
+        push_hit(&mut reports, &path, hit);
+    }
+
+    // 4) Structural outliers (per language, project-wide norm).
     for (lang, lang_files) in &by_language {
         for (path, finding) in practice.flag_project(lang, lang_files) {
             let advice_text = if finding.detail.is_empty() { finding.advice.clone() }
                 else { format!("{} — {}", finding.advice, finding.detail) };
-            let hit = Hit { line: finding.line, rule: finding.rule, severity: finding.severity, advice: advice_text };
-            if let Some(r) = reports.iter_mut().find(|r| r.path == path) {
-                r.hits.push(hit);
-            } else {
-                reports.push(FileReport { path: path.to_string(), hits: vec![hit] });
-            }
+            push_hit(&mut reports, path, Hit { line: finding.line, rule: finding.rule, severity: finding.severity, advice: advice_text });
         }
     }
 
@@ -180,8 +256,56 @@ pub fn run(args: &Value) -> ToolResult {
     }
 
     let analyzed: BTreeMap<String, usize> = by_language.iter().map(|(l, fs)| (l.clone(), fs.len())).collect();
+    let unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     reports.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(vec![text(render(&root, &reports, &analyzed, &unanalyzed, &model.sources, max))])
+    let mut body = render(&root, &reports, &analyzed, &unanalyzed, &sources, max);
+    body.push_str(&render_quarantine(&quarantined));
+    body.push_str(&render_feedback(&root, &auto_suppressed));
+    Ok(vec![text(body)])
+}
+
+/// Report doc-learned rules the self-validation pass quarantined: their fire rate against the real
+/// project marks the learned pattern as noise (a badly scraped docs page), not a real convention.
+/// Empty when nothing was quarantined.
+fn render_quarantine(quarantined: &std::collections::BTreeSet<String>) -> String {
+    if quarantined.is_empty() {
+        return String::new();
+    }
+    let ids: Vec<&str> = quarantined.iter().map(String::as_str).collect();
+    format!(
+        "\nQuarantined {} mislearned rule(s) (fired on >1% of all scanned lines, or >10% of one \
+         file — noisy docs scrape, not real findings): {}.\nRe-learn the language (`lint_learn`) \
+         to refresh them.\n",
+        ids.len(),
+        ids.join(", ")
+    )
+}
+
+/// Render the feedback footer: rules auto-suppressed from false-positive flags, and missed findings
+/// still pending formalization. Empty string when there is no feedback, so clean projects stay quiet.
+fn render_feedback(root: &Path, auto_suppressed: &BTreeSet<String>) -> String {
+    let mut s = String::new();
+    if !auto_suppressed.is_empty() {
+        let rules: Vec<&str> = auto_suppressed.iter().map(String::as_str).collect();
+        s.push_str(&format!(
+            "\nAuto-suppressed from your feedback ({}+ false-positive flags each): {}.\n\
+             Re-enable with `lint_config action=unignore rule=<id>`.\n",
+            crate::lint_feedback::SUPPRESS_THRESHOLD,
+            rules.join(", ")
+        ));
+    }
+    let records = crate::lint_feedback::read_all(root);
+    let pending = crate::lint_feedback::pending_missed(&records);
+    if !pending.is_empty() {
+        s.push_str(&format!("\nPending rules ({} missed finding(s) you flagged — formalize with `lint_rule`):\n", pending.len()));
+        for r in pending {
+            let loc = r.line.map(|l| format!("{}:{}", r.file, l)).unwrap_or_else(|| r.file.clone());
+            let desc = r.description.as_deref().unwrap_or("(no description)");
+            let draft = if r.bad.is_some() && r.language.is_some() { " [draft seeded]" } else { "" };
+            s.push_str(&format!("  - {loc}: {desc}{draft}\n"));
+        }
+    }
+    s
 }
 
 // ── English report ────────────────────────────────────────────────────────────

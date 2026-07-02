@@ -380,6 +380,44 @@ fn collapse_repeated(node: Node) -> Node {
     node
 }
 
+/// Render `node`'s source with every literal leaf masked by its kind. Two same-shape doc instances
+/// that are identical under this masking differ only in literal VALUES.
+fn literal_masked_text(node: Node, src: &[u8]) -> String {
+    let kind = node.kind();
+    if is_literal_kind(kind) {
+        return kind.to_string();
+    }
+    let kids = meaningful_children(node);
+    if kids.is_empty() {
+        return node.utf8_text(src).unwrap_or("").trim().to_string();
+    }
+    kids.iter().map(|k| literal_masked_text(*k, src)).collect::<Vec<_>>().join(" ")
+}
+
+/// Whether a fix-less bad example shows several same-shape instances that differ ONLY in literal
+/// values (`"{".format(foo)` vs `" {} ".format(foo)`) — the docs are saying the VALUE is the rule
+/// (an invalid format string, a specific constant). Structure cannot represent value semantics, so
+/// the AST path must abstain rather than compile a pattern that matches every instance of the
+/// shape, valid or not. Descends the same way [`collapse_repeated`] does.
+fn value_dependent(node: Node, src: &[u8]) -> bool {
+    let kids = meaningful_children(node);
+    if kids.len() < 2 {
+        return kids.first().map(|k| value_dependent(*k, src)).unwrap_or(false);
+    }
+    let first_shape = shape_hash(kids[0]);
+    if !kids.iter().all(|k| shape_hash(*k) == first_shape) {
+        return false;
+    }
+    let m0 = literal_masked_text(kids[0], src);
+    let t0 = kids[0].utf8_text(src).unwrap_or("");
+    let masked_same = kids.iter().all(|k| literal_masked_text(*k, src) == m0);
+    let text_differs = kids.iter().any(|k| k.utf8_text(src).unwrap_or("") != t0);
+    if masked_same && text_differs {
+        return true;
+    }
+    value_dependent(kids[0], src)
+}
+
 /// Collect every node kind under `node`.
 fn collect_kinds(node: Node, out: &mut HashSet<String>) {
     out.insert(node.kind().to_string());
@@ -486,8 +524,17 @@ fn is_container_kind(kind: &str) -> bool {
 /// match a generic shape; it has no rule to match and abstains. (A pattern that does anchor but is
 /// still too broad is caught downstream by the self-test against the docs' own good examples.)
 fn has_named_anchor(pat: &Pat) -> bool {
-    let word = pat.text.as_deref().is_some_and(|t| t.chars().any(|c| c.is_ascii_alphanumeric()));
-    word || is_container_kind(&pat.kind) || pat.children.iter().any(has_named_anchor)
+    has_text_anchor(pat) || is_container_kind(&pat.kind) || pat.children.iter().any(has_named_anchor)
+}
+
+/// Whether `pat` keeps an EXACT-TEXT anchor anywhere — a retained operation name, keyword, or
+/// doc-named literal. A pattern without one is anchored only by container kinds; several distinct
+/// rules can share that identity (a no-arrays ban and a membership-test rule both reduce to a bare
+/// `list`), so such matches are imprecise and the live path arbitrates them through the Hv concept
+/// gate instead of reporting them directly.
+fn has_text_anchor(pat: &Pat) -> bool {
+    pat.text.as_deref().is_some_and(|t| t.chars().any(|c| c.is_ascii_alphanumeric()))
+        || pat.children.iter().any(has_text_anchor)
 }
 
 impl RulePattern {
@@ -513,6 +560,11 @@ impl RulePattern {
         // With a fix to diff against, isolate the smallest distinguishing construct. With no fix,
         // we cannot localize — keep the whole bad construct (its context, e.g. a `break`'s scope).
         let root = if good_shapes.is_empty() {
+            // Same-shape instances differing only in literal values ⇒ the value is the rule;
+            // structure cannot learn it — abstain (the gated description path takes over).
+            if value_dependent(bad_tree.root_node(), bad.as_bytes()) {
+                return None;
+            }
             collapse_repeated(bad_tree.root_node())
         } else {
             novel_root(bad_tree.root_node(), &good_shapes, &good_kinds, &good_children)?
@@ -523,9 +575,16 @@ impl RulePattern {
             node = node.named_child(0).unwrap();
         }
         let mut binds = HashMap::new();
-        let pat = compile(node, bad.as_bytes(), &desc.to_lowercase(), &mut binds);
+        let mut pat = compile(node, bad.as_bytes(), &desc.to_lowercase(), &mut binds);
+        // A container literal whose elements carry no anchor is the rule ITSELF — "a value of this
+        // kind in this slot" — not a container of exactly those N element kinds. Keep just the
+        // container, so `[90, 85, 77]` and `["a", "b"]` both match a no-arrays rule.
+        if is_container_kind(&pat.kind) && !pat.children.iter().any(has_named_anchor) {
+            pat.children.clear();
+        }
         // A pattern that is a lone wildcard or a single bare leaf carries no rule — abstain.
-        if pat.children.is_empty() && pat.text.is_none() {
+        // A bare container literal is the exception: the container kind IS its identity.
+        if pat.children.is_empty() && pat.text.is_none() && !is_container_kind(&pat.kind) {
             return None;
         }
         // The rule's IDENTITY is the named tokens it turns on — a method/operation name, a keyword,
@@ -540,6 +599,12 @@ impl RulePattern {
             return None;
         }
         Some(RulePattern { lang: lang.to_string(), pat })
+    }
+
+    /// Whether this pattern carries an exact-text anchor (see [`has_text_anchor`]). Container-only
+    /// patterns return false and are treated as imprecise by [`RuleSet::flag`].
+    pub(crate) fn text_anchored(&self) -> bool {
+        has_text_anchor(&self.pat)
     }
 
     /// Every 1-based line in `code` where the rule's pattern occurs (exact sub-tree match with
@@ -849,6 +914,10 @@ pub struct Finding {
     pub severity: String,
     /// 1-based source line of the match.
     pub line: usize,
+    /// True when the match is a lossless AST pattern with an exact-text anchor (reported directly);
+    /// false for token-regex fallbacks and container-only AST patterns, which the live path
+    /// confirms through the Hv concept gate first.
+    pub precise: bool,
 }
 
 impl RuleSet {
@@ -900,6 +969,13 @@ impl RuleSet {
             };
             compiled.push(CompiledRule { id: id.clone(), severity: severity.clone(), kind });
         }
+        // Dedup identical compiled patterns: noisy docs pages often yield several rule entries
+        // that compile to the same pattern (the same wiki page scraped under multiple slugs).
+        // One pattern = one rule; keep the first id.
+        let mut seen_patterns = HashSet::new();
+        compiled.retain(|r| {
+            seen_patterns.insert(serde_json::to_string(&r.kind).unwrap_or_default())
+        });
         // SELF-FIRE: when a bad example is known, the compiled rule must flag it.
         // Description-only rules (bad is empty) skip this gate — they are validated at
         // query time: if the extracted pattern fires on real violations found in the project,
@@ -927,14 +1003,21 @@ impl RuleSet {
     }
 
     /// Flag `code`: every line where a rule fires (AST match or text match), deduped per rule.
+    /// Each finding carries `precise` so the caller can confirm the imprecise ones. Imprecise:
+    /// token-regex fallbacks, and AST patterns whose only identity is a container kind — several
+    /// distinct rules can compile to the same bare container, so the concept gate must arbitrate.
     pub fn flag(&self, code: &str) -> Vec<Finding> {
         let mut out = Vec::new();
         for r in &self.rules {
+            let precise = match &r.kind {
+                MatchKind::Ast(p) => p.text_anchored(),
+                MatchKind::Text { .. } => false,
+            };
             let mut lines = r.kind.matches(code);
             lines.sort_unstable();
             lines.dedup();
             for line in lines {
-                out.push(Finding { rule: r.id.clone(), severity: r.severity.clone(), line });
+                out.push(Finding { rule: r.id.clone(), severity: r.severity.clone(), line, precise });
             }
         }
         out
@@ -948,5 +1031,140 @@ impl RuleSet {
     /// Load from cached JSON.
     pub fn from_json(s: &str) -> Option<RuleSet> {
         serde_json::from_str(s).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `(id, severity, bad, good, desc)` tuple in the shape `RuleSet::build` expects.
+    fn rule(id: &str, bad: &str, good: &str, desc: &str) -> (String, String, String, String, String) {
+        (id.into(), "high".into(), bad.into(), good.into(), desc.into())
+    }
+
+    fn lines_for<'a>(fs: &'a [Finding], id: &str) -> Vec<usize> {
+        fs.iter().filter(|f| f.rule == id).map(|f| f.line).collect()
+    }
+
+    #[test]
+    fn no_arrays_python_fires_on_verbatim_bad_line() {
+        let rules = [rule(
+            "no_arrays",
+            "scores = [90, 85, 77]",
+            "scores = {\"first\": 90, \"second\": 85}",
+            "Arrays/lists are banned in this project. Use explicit keyed structures (dict, dataclass) so every element has a name.",
+        )];
+        let set = RuleSet::build("python", &rules);
+        let hits = set.flag("scores = [90, 85, 77]");
+        assert_eq!(lines_for(&hits, "no_arrays"), vec![1], "no_arrays must fire on the verbatim bad line");
+    }
+
+    #[test]
+    fn value_dependent_rule_does_not_compile_an_overfiring_ast_pattern() {
+        // F521-class docs: two same-shape bad instances differing only in the string VALUE
+        // (an invalid vs odd format string), no good example. Structure cannot represent value
+        // semantics — the AST path must abstain so a valid `.format()` call is never flagged
+        // as a precise match.
+        let rules = [rule(
+            "F521",
+            "\"{\" . format ( foo )\n\" {} \" . format ( foo )",
+            "",
+            ".format call has invalid format string: {message}",
+        )];
+        let set = RuleSet::build("python", &rules);
+        let hits = set.flag("greeting = \"hello {}\".format(name)");
+        assert!(
+            hits.iter().all(|f| !(f.rule == "F521" && f.precise)),
+            "a value-dependent rule must never produce a precise match on a valid call: {:?}",
+            hits.iter().map(|f| (&f.rule, f.line, f.precise)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn no_arrays_generalizes_past_element_types() {
+        // The rule's bad example uses an integer list, but the rule is about the CONTAINER —
+        // a string list (or any other element type, any length) must fire too.
+        let rules = [rule(
+            "no_arrays",
+            "scores = [90, 85, 77]",
+            "scores = {\"first\": 90, \"second\": 85}",
+            "Arrays/lists are banned in this project. Use explicit keyed structures (dict, dataclass) so every element has a name.",
+        )];
+        let set = RuleSet::build("python", &rules);
+        let hits = set.flag("labels = [\"a\", \"b\", \"c\"]\nmixed = [1, \"two\"]\nempty = []");
+        assert_eq!(lines_for(&hits, "no_arrays"), vec![1, 2, 3], "no_arrays must fire on lists of any element type");
+    }
+
+    #[test]
+    fn js_array_rule_fires_on_var_items() {
+        let rules = [rule(
+            "no_arrays_js",
+            "var items = [1, 2, 3]",
+            "var items = {a: 1, b: 2, c: 3}",
+            "Arrays are banned; use keyed objects so every element has a name.",
+        )];
+        let set = RuleSet::build("javascript", &rules);
+        let hits = set.flag("var items = [1, 2, 3]");
+        assert_eq!(lines_for(&hits, "no_arrays_js"), vec![1], "JS array rule must fire on `var items = [1, 2, 3]`");
+    }
+
+    #[test]
+    fn format_call_does_not_fire_extra_named_argument_class_rules() {
+        // F522/F525/PLE0605-class rules are about specific misuse; a plain positional
+        // `"hello {}".format(name)` must NOT trip them. A UP032-style f-string upgrade MAY fire.
+        let rules = [
+            rule(
+                "F522",
+                "\"{foo}\".format(bar=1)",
+                "\"{foo}\".format(foo=1)",
+                "format called with extra named arguments that are never used",
+            ),
+            rule(
+                "PLE0605",
+                "__all__ = \"foo\"",
+                "__all__ = [\"foo\"]",
+                "invalid format for __all__, must be a tuple or list",
+            ),
+            rule(
+                "UP032",
+                "\"{}\".format(x)",
+                "f\"{x}\"",
+                "use an f-string instead of str.format",
+            ),
+        ];
+        let set = RuleSet::build("python", &rules);
+        let hits = set.flag("greeting = \"hello {}\".format(name)");
+        assert!(lines_for(&hits, "F522").is_empty(), "F522 must not fire on a plain positional .format()");
+        assert!(lines_for(&hits, "PLE0605").is_empty(), "PLE0605 must not fire on a .format() call");
+        // The legitimate f-string upgrade is allowed to fire — its shape does occur here.
+        assert!(!lines_for(&hits, "UP032").is_empty(), "UP032-style rule may still fire");
+    }
+
+    #[test]
+    fn pprint_rule_attributes_only_lines_containing_pprint() {
+        let rules = [rule(
+            "no_pprint",
+            "pprint(data)",
+            "",
+            "avoid pprint in production code; use logging",
+        )];
+        let set = RuleSet::build("python", &rules);
+        let src = "import pprint\n\ndef f(x):\n    return x\n\npprint(data)\n";
+        let hits = set.flag(src);
+        assert_eq!(lines_for(&hits, "no_pprint"), vec![6], "pprint must be attributed only to the call line (6)");
+    }
+
+    #[test]
+    fn clean_idiomatic_file_produces_no_findings() {
+        let rules = [rule(
+            "no_arrays",
+            "scores = [90, 85, 77]",
+            "scores = {\"first\": 90}",
+            "Arrays/lists are banned in this project. Use explicit keyed structures.",
+        )];
+        let set = RuleSet::build("python", &rules);
+        let src = "def greet(name):\n    return f\"hello {name}\"\n\nconfig = {\"first\": 90, \"second\": 85}\n";
+        assert!(set.flag(src).is_empty(), "clean idiomatic code must yield zero findings");
     }
 }

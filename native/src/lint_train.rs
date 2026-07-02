@@ -1,6 +1,7 @@
-//! `lint_train` — self-setup for the AI linter: reads two documentation sources, compiles one
-//! [`ConceptModel`] per language, and caches the result so a lint run loads a binary blob instead
-//! of re-compiling. One call to [`train`] does everything the lint tool needs.
+//! `lint_train` — self-setup for the AI linter: reads two documentation sources and compiles, per
+//! language, the [`LangModel`] a lint run needs — the [`RuleSet`] firing engine, the
+//! [`ConceptModel`] confirmation gate, and the behavioral [`Principle`]s. One call to
+//! [`ensure_models`] does everything the lint tool needs.
 //!
 //! The two documentation sources:
 //!
@@ -9,14 +10,12 @@
 //!      a committed `lint-index/` snapshot seeds the offline case.
 //!   2. **File documentation** — `extraDocs/` (global principles, shipped with the tool) and
 //!      `.helpers/lint-rules/` (project-local rules). Every `*.md` in either directory is read as
-//!      documentation: headings + prose become behavioral principles.
+//!      documentation: examples become rules; headings + prose become behavioral principles.
 //!
-//! Rules with bad/good examples are compiled into concept vectors via tree-sitter AST diffing
-//! (`ConceptModel::compile`). Concept vectors are stored in a compact binary format (`{lang}.concepts.bin`)
-//! with a SHA-256 stamp; nothing is re-compiled unless the rule content changes.
-//!
-//! [`ensure_models`] (pattern compilation) remains for [`crate::tools::lint_source`] and
-//! [`crate::tools::lint_web`] which use the tree-pattern engine.
+//! Rules with bad/good examples compile to lossless AST patterns (or discriminating token regexes
+//! for grammarless languages) in [`RuleSet`]; the same rules' description + example tokens bundle
+//! into concept fingerprints in [`ConceptModel`]. The pattern set is cached to disk with a SHA-256
+//! stamp; the concept gate is rebuilt in memory each run (cheap: hashing + popcount).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -28,193 +27,18 @@ use crate::lint_ai::ConceptModel;
 use crate::lint_match::RuleSet;
 use crate::lint_practice::Principle;
 
-/// A trained model for one language: the pattern rule set (compiled from documentation bad/good
-/// examples) and the behavioral principles (extracted from documentation prose). Both engines train
-/// from the same two sources; [`ensure_models`] builds both and returns them together so the lint
-/// tool makes one call and gets everything it needs.
+/// A trained model for one language: the pattern rule set (the firing engine), the Hv concept
+/// gate (confirms imprecise text-fallback findings), and the behavioral principles (extracted
+/// from documentation prose). All three train from the same two sources; [`ensure_models`] builds
+/// them together so the lint tool makes one call and gets everything it needs.
 pub struct LangModel {
-    /// Pattern-matching rules compiled from documentation bad/good examples.
+    /// Pattern-matching rules compiled from documentation bad/good examples — the firing engine.
     pub rules: RuleSet,
+    /// Concept fingerprints for the same rules; the gate that confirms text-fallback findings.
+    pub concept: ConceptModel,
     /// Behavioral principles extracted from documentation prose. A principle activates a structural
     /// sense (responsibility, complexity, length) by the words it uses — no code example required.
     pub principles: Vec<Principle>,
-}
-
-/// The trained model: behavioral principles (from prose) + per-language AI nets (from examples).
-/// One model per project. The behavioral principles are language-agnostic (structural outliers).
-/// The AI nets are per-language so Rust rules don't fire on Python files and vice versa.
-pub struct TrainedModel {
-    /// Behavioral principles extracted from documentation prose. Each activates a structural sense
-    /// (responsibility, complexity, length) by the words it uses — no examples required.
-    pub principles: Vec<Principle>,
-    /// Per-language concept models: one `ConceptModel` per language, compiled from that language's
-    /// documentation bad/good examples via tree-sitter AST diffing. Zero runtime cost per rule check.
-    pub concept_models: HashMap<String, ConceptModel>,
-    /// Advice strings keyed by rule id, for rendering findings: `(severity, description)`.
-    pub rule_advice: HashMap<String, (String, String)>,
-    /// Human-readable summary of where the model was trained from.
-    pub sources: Vec<String>,
-}
-
-/// Train from both documentation sources and return the model the lint tool runs.
-///
-/// Source 1 — **official web documentation**: the committed/embedded `lint-index/` catalogs.
-/// Rules with bad/good examples compile a `ConceptModel`; prose descriptions activate
-/// behavioral principles.
-/// Source 2 — **file documentation**: `extraDocs/` + `.helpers/lint-rules/`. Same treatment:
-/// examples → AI, prose → principles.
-///
-/// The project's own source code is used as the clean calibration corpus for the AI so it never
-/// fires on patterns this project has already chosen to use.
-pub fn train(data_root: &Path, project_root: &Path) -> TrainedModel {
-    let mut sources: Vec<String> = Vec::new();
-    let mut docs: Vec<String> = Vec::new();
-
-    // Source 2a: extraDocs/*.md
-    let extra_dir = data_root.join("extraDocs");
-    match std::fs::read_dir(&extra_dir) {
-        Ok(entries) => {
-            for e in entries.filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
-            {
-                if let Ok(text) = std::fs::read_to_string(e.path()) {
-                    sources.push(e.path().file_name().unwrap_or_default().to_string_lossy().into_owned());
-                    docs.push(text);
-                }
-            }
-        }
-        Err(_) => {
-            sources.push("embedded:software-design.md".to_string());
-            docs.push(EMBEDDED_CS_PRINCIPLES.to_string());
-        }
-    }
-
-    // Source 2b: .helpers/lint-rules/*.md
-    let rules_dir = project_root.join(".helpers/lint-rules");
-    if let Ok(entries) = std::fs::read_dir(&rules_dir) {
-        for e in entries.filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
-        {
-            if let Ok(text) = std::fs::read_to_string(e.path()) {
-                sources.push(format!(".helpers/lint-rules/{}", e.file_name().to_string_lossy()));
-                docs.push(text);
-            }
-        }
-    }
-
-    // Behavioral principles from prose in all docs.
-    let mut principles: Vec<Principle> = Vec::new();
-    for doc in &docs {
-        extract_principles_from_doc(doc, &mut principles);
-    }
-    let mut seen_p = std::collections::HashSet::new();
-    principles.retain(|p| seen_p.insert(p.id.clone()));
-
-    // Per-language AI rules from Source 1 (lint-index/*.json web docs).
-    // (id, description, page_text) — full page text is the training signal.
-    let mut lang_rules: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
-    let mut rule_advice: HashMap<String, (String, String)> = HashMap::new();
-
-    for raw in seed_catalogs(data_root) {
-        if let Ok(idx) = serde_json::from_str::<serde_json::Value>(&raw) {
-            let lang = idx["language"].as_str().unwrap_or("").to_string();
-            if lang.is_empty() { continue; }
-            for r in idx["rules"].as_array().into_iter().flatten() {
-                let id = r["id"].as_str().unwrap_or("").to_string();
-                let sev = r["severity"].as_str().unwrap_or("medium").to_string();
-                let desc = r["description"].as_str().unwrap_or("").to_string();
-                // page_text = code-block text from the official doc page (stripped of HTML chrome).
-                // The Hv model learns from the actual code examples in the docs, not the prose or
-                // navigation. IDF filtering in ConceptModel::compile removes tokens that appear
-                // across too many rules (stop words for this corpus), keeping only discriminative ones.
-                let page_text = r["exampleBad"].as_str().unwrap_or("").to_string();
-                if !id.is_empty() && !desc.is_empty() {
-                    rule_advice.insert(id.clone(), (sev, desc.clone()));
-                    lang_rules.entry(lang.clone()).or_default().push((id, desc, page_text));
-                }
-            }
-        }
-    }
-    // Source 2 file docs — language tagged "any"; apply to each known language.
-    for doc in &docs {
-        for r in crate::linter::Knowledge::from_text("any", doc).rules {
-            if !r.description.is_empty() {
-                rule_advice.insert(r.id.clone(), (r.severity.clone(), r.description.clone()));
-                for rules in lang_rules.values_mut() {
-                    rules.push((r.id.clone(), r.description.clone(), r.bad.clone()));
-                }
-            }
-        }
-    }
-
-    let total_rules: usize = lang_rules.values().map(|v| v.len()).sum();
-    if total_rules > 0 {
-        sources.push(format!("web docs ({} rules across {} languages)", total_rules, lang_rules.len()));
-    }
-
-    // Compile per-language concept models, caching to disk so subsequent runs load instantly.
-    let concept_models = compile_concept_models(&lang_rules, &rule_advice);
-
-    TrainedModel { principles, concept_models, rule_advice, sources }
-}
-
-/// Compile (or load from cache) one `ConceptModel` per language. The cache key is a SHA-256 of
-/// all rule content; if nothing changed the binary blob loads in microseconds.
-///
-/// After loading from cache, `rule_advice` is used to restore the id→string map so findings
-/// report rule names rather than raw hashes.
-fn compile_concept_models(
-    lang_rules: &HashMap<String, Vec<(String, String, String)>>,
-    rule_advice: &HashMap<String, (String, String)>,
-) -> HashMap<String, ConceptModel> {
-    let cache_dir = model_dir();
-    let _ = std::fs::create_dir_all(&cache_dir);
-
-    // Build a hash→id lookup for restoring id_map after a binary load.
-    let id_lookup: HashMap<u64, String> = rule_advice
-        .keys()
-        .map(|id| (crate::lint_ai::token_seed(id), id.clone()))
-        .collect();
-
-    let mut models = HashMap::new();
-    for (lang, rules) in lang_rules {
-        if rules.is_empty() { continue; }
-
-        let key = {
-            let mut h = Sha256::new();
-            h.update(TRAIN_VERSION.as_bytes());
-            for (id, desc, page_text) in rules {
-                h.update(id.as_bytes()); h.update(b"\x1f");
-                h.update(desc.as_bytes()); h.update(b"\x1f");
-                h.update(page_text.as_bytes()); h.update(b"\x00");
-            }
-            format!("{:x}", h.finalize())
-        };
-        let bin_path  = cache_dir.join(format!("{lang}.concepts.bin"));
-        let stamp_path = cache_dir.join(format!("{lang}.concepts.stamp"));
-
-        // Load cached model if stamp matches.
-        if stamp_path.exists() && bin_path.exists() {
-            if let Ok(s) = std::fs::read_to_string(&stamp_path) {
-                if s.trim() == key {
-                    if let Some(mut m) = ConceptModel::load(&bin_path) {
-                        m.merge_ids(&id_lookup);
-                        models.insert(lang.clone(), m);
-                        continue;
-                    }
-                }
-            }
-        }
-
-        // Compile from rule triples.
-        let mut model = ConceptModel::compile(rules, lang);
-        model.merge_ids(&id_lookup);
-
-        let _ = model.save(&bin_path);
-        let _ = std::fs::write(&stamp_path, &key);
-        models.insert(lang.clone(), model);
-    }
-    models
 }
 
 /// How many doc pages to crawl when learning a language whose docs are a site (ruff/eslint publish
@@ -224,7 +48,7 @@ fn compile_concept_models(
 const MAX_CRAWL_PAGES: usize = 2000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "hv-v6-inference-stop";
+const TRAIN_VERSION: &str = "ast-v9-pattern-dedup";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -348,6 +172,15 @@ pub fn stamp_path_pub(lang: &str) -> PathBuf {
     stamp_path(lang)
 }
 
+/// The ids of the rules the project itself authored in `.helpers/lint-rules/` for `lang`.
+///
+/// These are the user's explicit law for their own codebase, so the live path trusts them fully:
+/// they are never routed through the Hv concept gate the way learned doc rules with weak
+/// (container-only) anchors are.
+pub fn project_rule_ids(project_root: &Path, lang: &str) -> std::collections::HashSet<String> {
+    project_rules(project_root, lang).into_iter().map(|r| r.id).collect()
+}
+
 /// Train from both documentation sources and return one [`LangModel`] per language. Idempotent
 /// and checksum-gated: a language whose pattern rules and toolchain version are unchanged reloads
 /// from cache; behavioral principles are re-extracted each run (fast file reads, no compilation).
@@ -385,12 +218,20 @@ pub fn ensure_models(
             continue;
         }
 
-        // Fast path: pattern model already cached and current — load it, attach principles.
+        // Concept fingerprints for the gate — built in memory from the same resolved rules
+        // (id, description, example). Cheap (hash + popcount), so it is not cached to disk.
+        let concept_tuples: Vec<(String, String, String)> = rules
+            .iter()
+            .map(|r| (r.id.clone(), r.description.clone(), r.bad.clone()))
+            .collect();
+        let concept = ConceptModel::compile(&concept_tuples, lang);
+
+        // Fast path: pattern model already cached and current — load it, attach concept + principles.
         if !rules.is_empty() {
             let stamp = stamp_of(&version, &rules);
             if model_fresh(&patterns_path(lang), &stamp_path(lang), &stamp) {
                 if let Some(rule_set) = load_patterns(lang) {
-                    models.insert(lang.clone(), LangModel { rules: rule_set, principles: principles.clone() });
+                    models.insert(lang.clone(), LangModel { rules: rule_set, concept, principles: principles.clone() });
                 }
                 report.reused.push(lang.clone());
                 continue;
@@ -423,7 +264,7 @@ pub fn ensure_models(
             }
         }
 
-        models.insert(lang.clone(), LangModel { rules: rule_set, principles: principles.clone() });
+        models.insert(lang.clone(), LangModel { rules: rule_set, concept, principles: principles.clone() });
     }
 
     (report, models)
