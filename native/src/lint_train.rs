@@ -36,14 +36,15 @@ pub struct LangModel {
     pub concept: ConceptModel,
 }
 
-/// How many doc pages to crawl when learning a language whose docs are a site (ruff/eslint publish
-/// ~1000 rule pages). High enough to read the whole rule set; the learned catalog is cached, so the
-/// crawl cost is paid once per toolchain version.
+/// How many doc pages to crawl per source when learning a language whose docs are a site. High
+/// enough to read a broad slice of the reference (and, with the reader grounding each example against
+/// the toolchain, a rich polarity signal), bounded so the one cold crawl stays inside the tool's time
+/// budget; the learned catalog is cached, so the cost is paid once per toolchain version.
 #[cfg(feature = "crawl")]
-const MAX_CRAWL_PAGES: usize = 2000;
+const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v1-language-docs";
+const TRAIN_VERSION: &str = "docs-v2-predictive-reader-polarity";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -375,12 +376,12 @@ fn crawl_learn(data_root: &Path, lang: &str, _version: &str) -> Option<(Vec<DocR
     }
     let mut sources = crawl_sources_from_config(data_root, lang);
     if sources.is_empty() {
-        sources.extend(crate::lint_docs::discover_docs(lang));
+        sources.extend(crate::lint_docs::discover_docs(lang, data_root));
     }
     let mut rules: Vec<DocRule> = Vec::new();
     let mut reference: Vec<String> = Vec::new();
     for src in &sources {
-        let knowledge = crate::lint_docs::learn_from_url(lang, src, MAX_CRAWL_PAGES);
+        let knowledge = crate::lint_docs::learn_from_url(lang, src, MAX_CRAWL_PAGES, data_root);
         rules.extend(knowledge.rules.into_iter().map(|r| DocRule {
             slice: r.severity.clone(),
             source: src.url.clone(),

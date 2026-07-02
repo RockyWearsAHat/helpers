@@ -50,6 +50,8 @@ crawl-index/
 lint-modules/
 
 # Lint rule catalogs — fetched from official docs at training time; not committed.
-# Only sources.json (URL registry) and SCHEMA.md (schema doc) are committed.
+# Only sources.json (URL registry), toolchains.json (check-mode probe templates), and
+# SCHEMA.md (schema doc) are committed DATA.
 lint-index/*.json
 !lint-index/sources.json
+!lint-index/toolchains.json
