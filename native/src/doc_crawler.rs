@@ -235,7 +235,17 @@ pub fn extract_sections_html(html: &str) -> Vec<(String, String)> {
 /// Strip `<script>`/`<style>` blocks from HTML.
 fn drop_script_style(html: &str) -> String {
     let mut h = html.to_string();
-    for (open, close) in [("<script", "</script>"), ("<style", "</style>")] {
+    // Page chrome carries no documentation: scripts/styles are code for the BROWSER, and
+    // nav/header/footer/aside are the site's furniture ("Skip to main content", theme pickers)
+    // that would otherwise pollute every extracted description.
+    for (open, close) in [
+        ("<script", "</script>"),
+        ("<style", "</style>"),
+        ("<nav", "</nav>"),
+        ("<header", "</header>"),
+        ("<footer", "</footer>"),
+        ("<aside", "</aside>"),
+    ] {
         while let Some(s) = h.find(open) {
             if let Some(e) = h[s..].find(close) {
                 h.replace_range(s..s + e + close.len(), " ");
@@ -463,6 +473,24 @@ mod net {
     /// the highest-scoring link next. So it spends its budget on the documentation and evolves
     /// toward the meaty pages as it reads. Returns each page's extracted (prose, code) sections from
     /// whatever textual type it is.
+    /// How many pages one batch fetches concurrently. Fetch latency dominates a crawl, so a
+    /// batch cuts wall time by roughly its width; the batch is the current top of the priority
+    /// queue, so visit order stays value-first.
+    const PARALLEL_FETCHES: usize = 8;
+
+    /// `false` for links that can never be documentation pages — binary/asset endpoints and raw
+    /// metadata files. Filtering keeps the crawl budget on real pages (MDN hangs a
+    /// `contributors.txt` off every article; fetching those burns the budget on zero sections).
+    fn is_page_url(url: &str) -> bool {
+        let path = url.split(['?', '#']).next().unwrap_or(url).to_lowercase();
+        const SKIP: &[&str] = &[
+            ".txt", ".pdf", ".zip", ".gz", ".tar", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+            ".ico", ".css", ".js", ".mjs", ".json", ".xml", ".rss", ".woff", ".woff2", ".ttf",
+            ".mp4", ".webm", ".epub",
+        ];
+        !SKIP.iter().any(|e| path.ends_with(e))
+    }
+
     pub fn crawl(seeds: &[&str], max_pages: usize, delay_ms: u64) -> Vec<Page> {
         let mut seen: HashSet<String> = HashSet::new();
         let mut frontier = Frontier::new();
@@ -475,31 +503,47 @@ mod net {
             seq += 1;
         }
         let mut pages = Vec::new();
-        while let Some((_, _, url, anchor)) = heap.pop() {
-            if pages.len() >= max_pages {
-                break;
+        while !heap.is_empty() && pages.len() < max_pages {
+            // Pop the best batch and fetch it concurrently.
+            let mut batch: Vec<(String, String)> = Vec::new();
+            while batch.len() < PARALLEL_FETCHES.min(max_pages - pages.len()) {
+                let Some((_, _, url, anchor)) = heap.pop() else { break };
+                batch.push((url, anchor));
             }
-            let Some((ct, body)) = fetch(&url) else { continue };
-            let sections = extract(&ct, &body);
-            // Teach the frontier: did the link that led here pay off in content?
-            frontier.observe(&url, &anchor, sections.len() >= VALUABLE_SECTIONS);
-            // Score and enqueue new in-scope links by predicted value.
-            for (link, atext) in extract_anchors(&url, &body) {
-                if seen.len() < max_pages * 8
-                    && !seen.contains(&link)
-                    && seeds.iter().any(|s| in_scope(s, &link))
-                {
-                    seen.insert(link.clone());
-                    let score = frontier.score(&link, &atext);
-                    heap.push((score, seq, link, atext));
-                    seq += 1;
+            let fetched: Vec<Option<(String, String)>> = std::thread::scope(|scope| {
+                let handles: Vec<_> = batch
+                    .iter()
+                    .map(|(url, _)| scope.spawn(move || fetch(url)))
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap_or(None)).collect()
+            });
+            for ((url, anchor), got) in batch.into_iter().zip(fetched) {
+                if pages.len() >= max_pages {
+                    break;
                 }
+                let Some((ct, body)) = got else { continue };
+                let sections = extract(&ct, &body);
+                // Teach the frontier: did the link that led here pay off in content?
+                frontier.observe(&url, &anchor, sections.len() >= VALUABLE_SECTIONS);
+                // Score and enqueue new in-scope links by predicted value.
+                for (link, atext) in extract_anchors(&url, &body) {
+                    if seen.len() < max_pages * 8
+                        && !seen.contains(&link)
+                        && is_page_url(&link)
+                        && seeds.iter().any(|s| in_scope(s, &link))
+                    {
+                        seen.insert(link.clone());
+                        let score = frontier.score(&link, &atext);
+                        heap.push((score, seq, link, atext));
+                        seq += 1;
+                    }
+                }
+                eprintln!("crawled {} ({} sections; {} pages, {} queued)", url, sections.len(), pages.len() + 1, heap.len());
+                pages.push(Page { url, prose: extract_prose(&body), code: extract_code_blocks(&body), sections, html: body });
             }
             if delay_ms > 0 {
                 std::thread::sleep(Duration::from_millis(delay_ms));
             }
-            eprintln!("crawled {} ({} sections; {} pages, {} queued)", url, sections.len(), pages.len() + 1, heap.len());
-            pages.push(Page { url, prose: extract_prose(&body), code: extract_code_blocks(&body), sections, html: body });
         }
         pages
     }

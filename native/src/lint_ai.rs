@@ -191,7 +191,7 @@ impl Default for Bundler { fn default() -> Self { Bundler::new() } }
 /// Used only when *building* fingerprints, to give real English words extra weight so a
 /// rule's concept leans on the words that carry its meaning; never used to filter tokens
 /// at inference time.
-fn dict_words() -> &'static HashSet<String> {
+pub(crate) fn dict_words() -> &'static HashSet<String> {
     static DICT: OnceLock<HashSet<String>> = OnceLock::new();
     DICT.get_or_init(|| {
         std::fs::read_to_string("/usr/share/dict/words")

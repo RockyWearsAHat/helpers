@@ -43,7 +43,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 2000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "ast-v10-trust-order-dedup";
+const TRAIN_VERSION: &str = "docs-v1-language-docs";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -360,31 +360,28 @@ fn resolve_rules(
     (Vec::new(), Vec::new(), "nothing".to_string())
 }
 
-/// Crawl the official docs for `lang` and normalize what is learned into [`DocRule`]s plus the
-/// crawl's `reference` — every real code block the docs served, the "what's normal in this
-/// language" sample that calibrates each signal so an incidental token never becomes a violation.
-/// `None` when the language has no known docs URL or the crawler is not compiled in.
+/// Learn `lang` from its official language documentation and normalize what is read into
+/// [`DocRule`]s plus the crawl's `reference` — every real code block the docs served, the
+/// "what's normal in this language" sample. A language may have several registered documents
+/// (reference + style guide); ALL are learned and merged. A language in no registry is
+/// discovered on the fly ([`crate::lint_docs::discover_docs`]). `None` when nothing could be
+/// learned or the crawler is not compiled in.
 #[cfg(feature = "crawl")]
-fn crawl_learn(data_root: &Path, lang: &str, version: &str) -> Option<(Vec<DocRule>, Vec<String>)> {
+fn crawl_learn(data_root: &Path, lang: &str, _version: &str) -> Option<(Vec<DocRule>, Vec<String>)> {
     // Operational escape hatch: skip all network learning (air-gapped runs, and deterministic
     // tests) — the resolver then uses the committed/embedded seed instead.
     if std::env::var_os("HELPERS_LINT_OFFLINE").is_some() {
         return None;
     }
-    let src = crate::lint_docs::known_docs_url(lang, version)
-        .or_else(|| crawl_source_from_config(data_root, lang))?;
-    let knowledge = if lang == "rust" {
-        crate::lint_docs::learn_clippy(lang, version, MAX_CRAWL_PAGES)
-    } else {
-        crate::lint_docs::learn_from_url(lang, &src, MAX_CRAWL_PAGES)
-    };
-    if knowledge.rules.is_empty() {
-        return None;
+    let mut sources = crawl_sources_from_config(data_root, lang);
+    if sources.is_empty() {
+        sources.extend(crate::lint_docs::discover_docs(lang));
     }
-    let rules = knowledge
-        .rules
-        .into_iter()
-        .map(|r| DocRule {
+    let mut rules: Vec<DocRule> = Vec::new();
+    let mut reference: Vec<String> = Vec::new();
+    for src in &sources {
+        let knowledge = crate::lint_docs::learn_from_url(lang, src, MAX_CRAWL_PAGES);
+        rules.extend(knowledge.rules.into_iter().map(|r| DocRule {
             slice: r.severity.clone(),
             source: src.url.clone(),
             id: r.id,
@@ -392,45 +389,52 @@ fn crawl_learn(data_root: &Path, lang: &str, version: &str) -> Option<(Vec<DocRu
             description: r.description,
             bad: r.bad,
             good: r.good,
-        })
-        .collect();
-    Some((rules, knowledge.reference))
+        }));
+        reference.extend(knowledge.reference);
+    }
+    if rules.is_empty() {
+        return None;
+    }
+    Some((rules, reference))
 }
 
-/// Read `sources.json` from the data root (prefer on-disk, fall back to embedded) and return a
-/// [`crate::lint_docs::DocsSource`] for `lang` when the source kind supports crawling. Skips
-/// `kind:"builtin"` entries (handled by `known_docs_url`). For `kind:"crawl"` uses the `seed`
-/// field; for `kind:"agent"` uses `docsBase` as a best-effort crawl target.
+/// Every registered docs source for `lang` from `sources.json` (on-disk preferred, embedded
+/// fallback) — a language may list several official documents and all of them are learned.
+/// `kind:"crawl"` uses `seed`; `kind:"agent"` uses `docsBase` as a best-effort crawl target.
 #[cfg(feature = "crawl")]
-fn crawl_source_from_config(data_root: &Path, lang: &str) -> Option<crate::lint_docs::DocsSource> {
-    let raw = std::fs::read_to_string(data_root.join("lint-index/sources.json"))
+fn crawl_sources_from_config(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
+    let Some(raw) = std::fs::read_to_string(data_root.join("lint-index/sources.json"))
         .ok()
         .or_else(|| {
             EMBEDDED_LINT_INDEX
                 .get_file("sources.json")
                 .and_then(|f| f.contents_utf8().map(str::to_string))
-        })?;
-    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    for entry in json["sources"].as_array()?.iter() {
-        let entry_lang = entry["language"].as_str().unwrap_or("");
-        if !lang_matches(entry_lang, lang) {
+        })
+    else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return Vec::new();
+    };
+    let Some(entries) = json["sources"].as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries {
+        if !lang_matches(entry["language"].as_str().unwrap_or(""), lang) {
             continue;
         }
-        let kind = entry["kind"].as_str().unwrap_or("");
         let tool = entry["tool"].as_str().unwrap_or("").to_string();
-        match kind {
-            "crawl" => {
-                let url = entry["seed"].as_str()?.to_string();
-                return Some(crate::lint_docs::DocsSource { url, crawl: true, tool });
-            }
-            "agent" => {
-                let url = entry["docsBase"].as_str()?.to_string();
-                return Some(crate::lint_docs::DocsSource { url, crawl: true, tool });
-            }
-            _ => continue,
+        let url = match entry["kind"].as_str() {
+            Some("crawl") => entry["seed"].as_str(),
+            Some("agent") => entry["docsBase"].as_str(),
+            _ => None,
+        };
+        if let Some(url) = url {
+            out.push(crate::lint_docs::DocsSource { url: url.to_string(), crawl: true, tool });
         }
     }
-    None
+    out
 }
 
 #[cfg(not(feature = "crawl"))]
@@ -521,35 +525,14 @@ fn load_catalog_dir(dir: &Path) -> Vec<String> {
     out
 }
 
-/// Invoke `build-lint-index.mjs --all` to fetch fresh rule catalogs from official docs,
-/// writing results to the user cache. Returns the catalog JSON strings on success.
-fn fetch_catalogs(data_root: &Path) -> Option<Vec<String>> {
-    let script = data_root.join("scripts/build-lint-index.mjs");
-    if !script.exists() { return None; }
-    let out_dir = lint_index_cache_dir();
-    let _ = std::fs::create_dir_all(&out_dir);
-    let status = std::process::Command::new("node")
-        .arg(&script)
-        .arg("--all")
-        .arg("--out").arg(&out_dir)
-        .status()
-        .ok()?;
-    if !status.success() { return None; }
-    let catalogs = load_catalog_dir(&out_dir);
-    if catalogs.is_empty() { None } else { Some(catalogs) }
-}
-
 /// The raw JSON of every available rule catalog, in order of freshness:
 ///   1. workspace `lint-index/` — present in dev checkout (gitignored, not committed);
-///   2. user cache `~/.cache/helpers/lint-index/` — auto-generated at first-run;
-///   3. auto-fetched from official docs when both are empty (zero-config first run);
-///   4. embedded fallback (empty once catalogs are removed from the repo).
+///   2. user cache `~/.cache/helpers/lint-index/` — written when the native crawler learns;
+///   3. embedded fallback. All learning is the native crawler ([`crawl_learn`]); there is no
+///      external scraper to shell out to.
 fn seed_catalogs(data_root: &Path) -> Vec<String> {
     let mut out = load_catalog_dir(&data_root.join("lint-index"));
     if out.is_empty() { out = load_catalog_dir(&lint_index_cache_dir()); }
-    if out.is_empty() {
-        if let Some(fetched) = fetch_catalogs(data_root) { out = fetched; }
-    }
     if out.is_empty() {
         for f in EMBEDDED_LINT_INDEX.files() {
             if is_catalog_name(f.path().file_name().and_then(|n| n.to_str())) {

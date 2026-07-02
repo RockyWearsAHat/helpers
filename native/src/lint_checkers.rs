@@ -38,13 +38,33 @@ fn detect_version_uncached(lang: &str) -> Option<String> {
         "python" => ("python3", &["--version"]),
         "javascript" | "typescript" => ("node", &["--version"]),
         "go" => ("go", &["version"]),
-        _ => return None,
+        _ => return probe_generic_version(lang),
     };
     let out = Command::new(cmd).args(args).output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"(\d+\.\d+\.\d+)").unwrap());
     re.captures(&text).map(|c| c[1].to_string())
+}
+
+/// Generic probe for a language with no alias entry: ask `<lang> --version`, then `<lang> version`.
+/// Assembled on the fly like everything else about an unknown language; the alias map above only
+/// covers toolchains whose binary is not named after the language (rustc, python3, node).
+fn probe_generic_version(lang: &str) -> Option<String> {
+    if !lang.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None; // a language name is a bare word; anything else is not a binary to run
+    }
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"(\d+\.\d+(?:\.\d+)?)").unwrap());
+    for args in [["--version"], ["version"]] {
+        if let Ok(out) = Command::new(lang).args(args).output() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            if let Some(c) = re.captures(&text) {
+                return Some(c[1].to_string());
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

@@ -1,19 +1,15 @@
-//! `lint_docs` — learn a language's lint rules directly from its **official documentation**, given
-//! only a link. No manual scraping step, no pre-built corpus: the engine fetches the docs the
-//! maintainers publish, extracts rule candidates (an anti-pattern, its fix, and the English lesson),
-//! and returns [`Knowledge`] the [`crate::linter::LintModule`]/[`crate::linter::Reasoner`] train
-//! from. The packing fit abstains on anything it can't separate cleanly, so even a rough crawl
-//! yields a precise module.
+//! `lint_docs` — learn a language directly from its **official language documentation** (the
+//! reference, the manual, the style guide), given only a link. No manual scraping step, no
+//! pre-built rule corpus: the engine crawls the docs the language maintainers publish and reads
+//! them the way the engine trains — normative sections (deprecations, warnings, avoid/instead
+//! guidance) become rule candidates; every code example feeds the "what is normal in this
+//! language" reference corpus. Which languages exist is never hardcoded: known sources live in
+//! the `sources.json` data registry, and a language nobody registered is **discovered on the
+//! fly** ([`discover_docs`]) — web search, probe the candidates, keep the first that actually
+//! reads like documentation, cache the answer (positive or negative) per user.
 //!
-//! Two extraction paths, chosen by what the link serves:
-//!   * **Structured rules JSON** (clippy's `lints.json`) → a dedicated, high-precision parse that
-//!     keeps each lint's real id, level, and the bad/good code from its `docs` markdown.
-//!   * **Anything else** (an HTML/Markdown rules site) → generic `(prose, code)` sections from
-//!     [`crate::doc_crawler`], each labelled bad/good by the imperative/deprecation signal in its
-//!     prose. Lower precision, but the packing fit drops what doesn't ground.
-//!
-//! Only [`learn_from_url`] touches the network (behind the `crawl` feature). Everything else is a
-//! pure function over already-fetched text, so the extraction is unit-tested offline.
+//! Only [`learn_from_url`] and [`discover_docs`] touch the network (behind the `crawl` feature).
+//! Everything else is a pure function over already-fetched text, unit-tested offline.
 
 use crate::linter::{Knowledge, LearnedRule};
 
@@ -28,75 +24,6 @@ pub struct DocsSource {
     pub crawl: bool,
     /// The linter the docs belong to (e.g. `clippy`), used for the module id and provenance.
     pub tool: String,
-}
-
-/// The known per-version docs URL for `lang` — the AI's built-in knowledge of where each
-/// language's official linter publishes its rules. Covers all common languages; `sources.json`
-/// is an override and extension point for custom or less-common linters. Version-pinned where
-/// the docs support it (clippy); "latest" otherwise.
-pub fn known_docs_url(lang: &str, version: &str) -> Option<DocsSource> {
-    let (url, crawl, tool) = match lang {
-        // ── Rust ──────────────────────────────────────────────────────────────────────────────────
-        // Clippy renders every lint inline in one HTML page, fetched once and parsed by
-        // rules_from_clippy_html. Version-pinned URL; falls back to stable then master.
-        "rust" => (clippy_url_candidates(version).remove(0), false, "clippy"),
-
-        // ── Python ────────────────────────────────────────────────────────────────────────────────
-        "python" => ("https://docs.astral.sh/ruff/rules/".to_string(), true, "ruff"),
-
-        // ── JavaScript ────────────────────────────────────────────────────────────────────────────
-        "javascript" => ("https://eslint.org/docs/latest/rules/".to_string(), true, "eslint"),
-
-        // ── TypeScript ────────────────────────────────────────────────────────────────────────────
-        // TypeScript-specific rules from typescript-eslint; base JavaScript rules are included
-        // automatically via the lang_matches inheritance (TypeScript ⊇ JavaScript).
-        "typescript" => ("https://typescript-eslint.io/rules/".to_string(), true, "typescript-eslint"),
-
-        // ── Go ────────────────────────────────────────────────────────────────────────────────────
-        "go" => ("https://staticcheck.dev/docs/checks/".to_string(), true, "staticcheck"),
-
-        // ── Java ──────────────────────────────────────────────────────────────────────────────────
-        "java" => ("https://pmd.github.io/pmd/pmd_rules_java.html".to_string(), true, "pmd"),
-
-        // ── Ruby ──────────────────────────────────────────────────────────────────────────────────
-        "ruby" => ("https://docs.rubocop.org/rubocop/cops.html".to_string(), true, "rubocop"),
-
-        // ── C ─────────────────────────────────────────────────────────────────────────────────────
-        "c" => ("https://clang.llvm.org/extra/clang-tidy/checks/list.html".to_string(), true, "clang-tidy"),
-
-        // ── C++ ───────────────────────────────────────────────────────────────────────────────────
-        "cpp" => ("https://clang.llvm.org/extra/clang-tidy/checks/list.html".to_string(), true, "clang-tidy"),
-
-        // ── Bash / Shell ──────────────────────────────────────────────────────────────────────────
-        "bash" => ("https://www.shellcheck.net/wiki/Checks".to_string(), true, "shellcheck"),
-
-        // ── Swift ─────────────────────────────────────────────────────────────────────────────────
-        "swift" => ("https://realm.github.io/SwiftLint/rule-directory.html".to_string(), true, "swiftlint"),
-
-        // ── Kotlin ────────────────────────────────────────────────────────────────────────────────
-        "kotlin" => ("https://detekt.dev/docs/rules/comments".to_string(), true, "detekt"),
-
-        // ── PHP ───────────────────────────────────────────────────────────────────────────────────
-        "php" => ("https://phpstan.org/user-guide/ignoring-errors".to_string(), true, "phpstan"),
-
-        _ => return None,
-    };
-    Some(DocsSource { url, crawl, tool: tool.to_string() })
-}
-
-/// The clippy lint-list page URLs to try, in order: the exact Rust version, then `stable`, then
-/// `master`. A clean dev toolchain matches the first version-pinned page (`rust-<version>/`); an
-/// unreleased/nightly version falls back so learning still succeeds rather than 404-ing. Each page
-/// embeds the full rule set as HTML — parsed by [`rules_from_clippy_html`].
-pub fn clippy_url_candidates(version: &str) -> Vec<String> {
-    let base = "https://rust-lang.github.io/rust-clippy";
-    let mut v = Vec::new();
-    if !version.is_empty() {
-        v.push(format!("{base}/rust-{version}/"));
-    }
-    v.push(format!("{base}/stable/"));
-    v.push(format!("{base}/master/"));
-    v
 }
 
 /// Learn rules for `lang` from a documentation `source` over the network: fetch (or crawl) it and
@@ -129,13 +56,7 @@ pub fn learn_from_url(lang: &str, source: &DocsSource, max_pages: usize) -> Know
         // never grounds a rule. Learned live from the same docs, no static artifact.
         reference = collect_reference(&pages);
     } else if let Some((ct, body)) = fetch(&source.url) {
-        if ct.contains("json") {
-            rules.extend(rules_from_clippy_json(lang, &body));
-        }
-        if rules.is_empty() {
-            // Not the expected structured shape — fall back to generic section extraction.
-            rules.extend(rules_from_sections(lang, &source.tool, &extract(&ct, &body)));
-        }
+        rules.extend(rules_from_sections(lang, &source.tool, &extract(&ct, &body)));
     }
     Knowledge { rules, reference }
 }
@@ -153,7 +74,7 @@ fn collect_reference(pages: &[crate::doc_crawler::Page]) -> Vec<String> {
     let mut out = Vec::new();
     for p in pages {
         let blocks = pre_blocks(&p.html);
-        let (bad, _good) = bad_good_from_blocks(&p.html, &blocks);
+        let (bad, _good, _explicit, _ctx) = bad_good_from_blocks(&p.html, &blocks);
         for (_, c) in &blocks {
             if *c == bad {
                 continue; // the anti-pattern — not normal code
@@ -165,120 +86,6 @@ fn collect_reference(pages: &[crate::doc_crawler::Page]) -> Vec<String> {
                 }
             }
         }
-    }
-    out
-}
-
-/// For Rust, fetch the first clippy lint-list page that responds (version-pinned → stable → master)
-/// and parse its inline rules, so a missing per-version page doesn't abort learning. Handles both
-/// the current HTML page and the legacy `lints.json` shape. Network-only.
-#[cfg(feature = "crawl")]
-pub fn learn_clippy(lang: &str, version: &str, _max_pages: usize) -> Knowledge {
-    use crate::doc_crawler::fetch;
-    for url in clippy_url_candidates(version) {
-        let Some((ct, body)) = fetch(&url) else { continue };
-        let rules = if ct.contains("json") {
-            rules_from_clippy_json(lang, &body)
-        } else {
-            rules_from_clippy_html(lang, &body)
-        };
-        if !rules.is_empty() {
-            // Every code block on the lint-list page is real Rust — the "normal" corpus the fit
-            // calibrates distinctiveness against (empty for the legacy JSON shape, which has no HTML).
-            let reference = pre_blocks(&body).into_iter().map(|(_, c)| c).filter(|c| c.len() >= 8).collect();
-            return Knowledge { rules, reference };
-        }
-    }
-    Knowledge { rules: Vec::new(), reference: Vec::new() }
-}
-
-// ── extraction (pure, offline-testable) ──────────────────────────────────────
-
-/// Parse clippy's `lints.json` into rules. Each lint contributes its real id, a severity mapped
-/// from its `level`, the lesson (the "What it does" prose), the bad example (the first fenced Rust
-/// block in its `docs`), and the fix (the first block after a "Use instead" marker, if any). Lints
-/// with no example are skipped — without a bad form there is nothing to ground.
-pub fn rules_from_clippy_json(lang: &str, body: &str) -> Vec<LearnedRule> {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
-        return Vec::new();
-    };
-    // The file is either a bare array or `{ "lints": [...] }` depending on version.
-    let lints = v
-        .as_array()
-        .cloned()
-        .or_else(|| v.get("lints").and_then(|x| x.as_array()).cloned())
-        .unwrap_or_default();
-
-    let mut out = Vec::new();
-    for lint in &lints {
-        let id = lint["id"].as_str().unwrap_or("").trim().to_string();
-        if id.is_empty() {
-            continue;
-        }
-        let docs = lint["docs"].as_str().unwrap_or("");
-        let blocks = fenced_blocks(docs);
-        let Some((_, bad)) = blocks.first().cloned() else {
-            continue; // no example → cannot ground
-        };
-        // The fix is the first fenced block that starts after a "Use instead"/"Good" marker.
-        let good = good_marker_index(docs)
-            .and_then(|m| blocks.iter().find(|(pos, _)| *pos > m).map(|(_, c)| c.clone()))
-            .unwrap_or_default();
-        out.push(LearnedRule {
-            language: lang.to_string(),
-            id,
-            severity: severity_from_level(lint["level"].as_str().unwrap_or("warn")),
-            description: first_paragraph(docs),
-            bad,
-            good,
-        });
-    }
-    out
-}
-
-/// Parse clippy's lint-list HTML page into rules. Each lint is an `<article id="…">` section
-/// carrying its level (`level-deny`/`level-warn`/…), a "What it does" lesson, an example, and
-/// often a "Use instead" fix. We key on the article id (the real lint name), map the level class to
-/// severity, take the first `<pre>` as the bad example and the first `<pre>` after a "Use instead"
-/// marker as the fix. Sections with no code are skipped. This is the structured replacement for the
-/// retired `lints.json`.
-pub fn rules_from_clippy_html(lang: &str, html: &str) -> Vec<LearnedRule> {
-    const MARK: &str = "<article id=\"";
-    // Article start offsets, so each lint's segment runs up to the next article.
-    let mut starts: Vec<usize> = Vec::new();
-    let mut from = 0;
-    while let Some(rel) = html[from..].find(MARK) {
-        let pos = from + rel;
-        starts.push(pos);
-        from = pos + MARK.len();
-    }
-    let mut out = Vec::new();
-    for (n, &start) in starts.iter().enumerate() {
-        let end = starts.get(n + 1).copied().unwrap_or(html.len());
-        let seg = &html[start..end];
-        let id_start = start + MARK.len();
-        let Some(idq) = html[id_start..end].find('"') else { continue };
-        let id = html[id_start..id_start + idq].trim().to_string();
-        if id.is_empty() || !seg.contains("lint-doc") {
-            continue; // not a lint article (nav/other anchors)
-        }
-        let blocks = pre_blocks(seg);
-        let Some((_, bad)) = blocks.first().cloned() else {
-            continue; // no example → cannot ground
-        };
-        let good = seg
-            .to_lowercase()
-            .find("use instead")
-            .and_then(|m| blocks.iter().find(|(pos, _)| *pos > m).map(|(_, c)| c.clone()))
-            .unwrap_or_default();
-        out.push(LearnedRule {
-            language: lang.to_string(),
-            id,
-            severity: clippy_level_severity(seg),
-            description: clippy_what_it_does(seg),
-            bad,
-            good,
-        });
     }
     out
 }
@@ -301,36 +108,6 @@ fn pre_blocks(html: &str) -> Vec<(usize, String)> {
         from = body_start + crel + 6;
     }
     out
-}
-
-/// Map a clippy lint section's `level-*` CSS class to our severity bucket.
-fn clippy_level_severity(seg: &str) -> String {
-    if seg.contains("level-deny") || seg.contains("level-forbid") {
-        "high"
-    } else if seg.contains("level-warn") {
-        "medium"
-    } else {
-        "low"
-    }
-    .to_string()
-}
-
-/// The "What it does" lesson of a clippy lint section: the text between that heading and the next.
-fn clippy_what_it_does(seg: &str) -> String {
-    const HEADING: &str = "what it does";
-    let lower = seg.to_lowercase();
-    let Some(h) = lower.find(HEADING) else {
-        return String::new();
-    };
-    // Start just past the heading text itself (ASCII, so byte math is char-safe).
-    let after = &seg[h + HEADING.len()..];
-    // Stop at the next section heading.
-    let stop = ["why is this bad", "<h3", "</div>"]
-        .iter()
-        .filter_map(|m| after.to_lowercase().find(m))
-        .min()
-        .unwrap_or_else(|| after.len().min(600));
-    crate::doc_crawler::strip_tags(&after[..stop]).chars().take(240).collect()
 }
 
 /// Turn generic `(prose, code)` documentation sections into rule candidates by reading the
@@ -393,15 +170,24 @@ pub fn rules_from_pages(lang: &str, seed: &str, pages: &[crate::doc_crawler::Pag
             continue;
         }
         let blocks = pre_blocks(&p.html);
-        let (bad, good) = bad_good_from_blocks(&p.html, &blocks);
+        let (bad, good, explicit, label_ctx) = bad_good_from_blocks(&p.html, &blocks);
+        // Language documentation mostly shows CORRECT code. A page yields a rule only when it
+        // EXPLICITLY labels a block wrong (deprecated/incorrect/avoid … immediately governing
+        // the block); every other page still teaches — its examples feed the reference corpus,
+        // and normative prose beside code is handled per-section by `rules_from_sections`.
+        if !explicit {
+            continue;
+        }
         if bad.len() < 3 {
             continue;
         }
+        // Prefer the docs' own labeling sentence; fall back to the page lesson.
+        let description = if label_ctx.len() >= 20 { label_ctx.chars().take(240).collect() } else { page_lesson(&p.prose) };
         out.push(LearnedRule {
             language: lang.to_string(),
             id,
             severity: "medium".to_string(),
-            description: page_lesson(&p.prose),
+            description,
             bad,
             good,
         });
@@ -479,9 +265,9 @@ fn governed_polarity(ctx: &str) -> i32 {
 /// only ever a block the page positively labels as a fix — never a positional guess — so a violation
 /// is never paired with an unrelated snippet. The page asserts the pairing or we emit none of it.
 #[cfg(feature = "crawl")]
-fn bad_good_from_blocks(html: &str, blocks: &[(usize, String)]) -> (String, String) {
+fn bad_good_from_blocks(html: &str, blocks: &[(usize, String)]) -> (String, String, bool, String) {
     if blocks.is_empty() {
-        return (String::new(), String::new());
+        return (String::new(), String::new(), false, String::new());
     }
     // The governing context of each block: the page text from the previous block's start up to this
     // block (capped), where the docs put the example's label — keeping each example bound to its own
@@ -491,15 +277,35 @@ fn bad_good_from_blocks(html: &str, blocks: &[(usize, String)]) -> (String, Stri
         .enumerate()
         .map(|(i, (off, _))| {
             let prev_end = if i == 0 { 0 } else { blocks[i - 1].0 };
-            let start = (*off).saturating_sub(GOVERNING_CTX).max(prev_end);
+            let mut start = (*off).saturating_sub(GOVERNING_CTX).max(prev_end);
+            // The cap is byte arithmetic; snap forward to a char boundary so multibyte
+            // text (docs quote every human language) can never split a character.
+            while !html.is_char_boundary(start) {
+                start += 1;
+            }
             governed_polarity(&html[start..*off])
         })
         .collect();
 
-    // The violation: the first block the page calls wrong; else the lead block (a rule page opens
-    // with the code it flags).
+    // The violation: the first block the page calls wrong; else the lead block. `explicit`
+    // records which case this was — language-doc pages mostly show NORMAL code, so a rule is
+    // only minted when the page itself labels a block wrong (deprecated/incorrect/avoid …).
+    let explicit = polarity.iter().any(|&p| p < 0);
     let bad_i = polarity.iter().position(|&p| p < 0).unwrap_or(0);
     let bad = blocks[bad_i].1.clone();
+    // The words that did the labeling — the docs' own sentence about WHY this code is wrong —
+    // is the truest description a minted rule can carry.
+    let label_ctx = if explicit {
+        let (off, _) = blocks[bad_i];
+        let prev_end = if bad_i == 0 { 0 } else { blocks[bad_i - 1].0 };
+        let mut start = off.saturating_sub(GOVERNING_CTX).max(prev_end);
+        while !html.is_char_boundary(start) {
+            start += 1;
+        }
+        crate::doc_crawler::strip_tags(&html[start..off]).split_whitespace().collect::<Vec<_>>().join(" ")
+    } else {
+        String::new()
+    };
     // The fix: the first LATER block the page positively labels correct. No positive label ⇒ no fix.
     let good = blocks
         .iter()
@@ -509,7 +315,7 @@ fn bad_good_from_blocks(html: &str, blocks: &[(usize, String)]) -> (String, Stri
         .map(|((_, c), _)| c.clone())
         .filter(|g| g != &bad)
         .unwrap_or_default();
-    (bad, good)
+    (bad, good, explicit, label_ctx)
 }
 
 /// The rule's English lesson: the "what it does" prose, trimmed to a short summary. Falls back to
@@ -520,72 +326,18 @@ fn page_lesson(prose: &str) -> String {
     let start = lower.find("what it does").map(|i| i + "what it does".len()).unwrap_or(0);
     let tail = &prose[start.min(prose.len())..];
     let tail_lower = tail.to_lowercase();
-    let end = ["why is this bad", "example", "details", "references", "options"]
+    let mut end = ["why is this bad", "example", "details", "references", "options"]
         .iter()
         .filter_map(|m| tail_lower.find(m))
         .filter(|&e| e > 0)
         .min()
-        .unwrap_or(tail.len().min(240));
-    tail[..end.min(tail.len())].split_whitespace().collect::<Vec<_>>().join(" ").chars().take(240).collect()
-}
-
-/// Map a clippy lint `level` to our severity bucket: `deny`/`forbid` → high, `warn` → medium,
-/// everything else (`allow`, pedantic/nursery groups) → low.
-fn severity_from_level(level: &str) -> String {
-    match level.trim().to_lowercase().as_str() {
-        "deny" | "forbid" => "high",
-        "warn" => "medium",
-        _ => "low",
+        .unwrap_or(tail.len().min(240))
+        .min(tail.len());
+    // Byte caps may land inside a multibyte char; snap back to a boundary before slicing.
+    while !tail.is_char_boundary(end) {
+        end -= 1;
     }
-    .to_string()
-}
-
-/// Every fenced ```code``` block in a Markdown body as `(byte_offset_of_block, code)`, with the
-/// info string (the word after the opening fence) dropped. Offsets let a caller tell which block
-/// comes after a marker like "Use instead".
-fn fenced_blocks(md: &str) -> Vec<(usize, String)> {
-    let mut out = Vec::new();
-    let bytes = md.as_bytes();
-    let mut i = 0;
-    while let Some(rel) = md[i..].find("```") {
-        let open = i + rel;
-        let after = open + 3;
-        // Skip the info string up to the newline.
-        let body_start = md[after..].find('\n').map(|n| after + n + 1).unwrap_or(bytes.len());
-        let Some(crel) = md[body_start..].find("```") else { break };
-        let code = md[body_start..body_start + crel].trim().to_string();
-        if code.len() >= 3 {
-            out.push((open, code));
-        }
-        i = body_start + crel + 3;
-    }
-    out
-}
-
-/// Byte offset of the first "use instead" / "good" / "correct" marker in a docs body, if present —
-/// the boundary after which a fenced block is the documented fix rather than the anti-pattern.
-fn good_marker_index(md: &str) -> Option<usize> {
-    let lower = md.to_lowercase();
-    ["use instead", "instead:", "good:", "correct:", "do this"]
-        .iter()
-        .filter_map(|m| lower.find(m))
-        .min()
-}
-
-/// The first non-empty, non-heading paragraph of a Markdown body — the rule's English lesson.
-fn first_paragraph(md: &str) -> String {
-    for para in md.split("\n\n") {
-        let t: String = para
-            .lines()
-            .filter(|l| !l.trim_start().starts_with('#'))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
-        if t.len() >= 12 && !t.starts_with("```") {
-            return t.chars().take(240).collect();
-        }
-    }
-    String::new()
+    tail[..end].split_whitespace().collect::<Vec<_>>().join(" ").chars().take(240).collect()
 }
 
 /// Classify a section's prose: `Some(true)` = anti-pattern, `Some(false)` = recommended fix,
@@ -596,6 +348,7 @@ fn prose_signal(prose: &str) -> Option<bool> {
     const BAD: &[&str] = &[
         "avoid", "never", "don't", "do not", "deprecated", "unsound", "undefined behavior",
         "incorrect", "anti-pattern", "not recommended", "bad:", "instead of", "warning",
+        "removed in", "removed since", "obsolete", "discouraged", "legacy",
     ];
     const GOOD: &[&str] = &[
         "prefer", "use instead", "instead:", "correct", "recommended", "good:", "do this",
@@ -634,33 +387,176 @@ fn slug(s: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
+
+// ── On-the-fly language discovery ─────────────────────────────────────────────
+
+/// Minimum rule candidates a probed site must yield to be accepted as a language's documentation.
+#[cfg(feature = "crawl")]
+const MIN_DISCOVERED_RULES: usize = 5;
+
+/// Crawl budget for probing one discovery candidate (a cheap taste, not the full learn).
+#[cfg(feature = "crawl")]
+const DISCOVERY_PROBE_PAGES: usize = 20;
+
+/// The per-user learned source registry: where discovery caches what it found
+/// (`~/.cache/helpers/lint-index/sources.json`, same shape as the committed seed). A negative
+/// result is stored as `kind:"none"` so an unknown language is searched at most once per cache.
+fn learned_sources_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    std::path::Path::new(&home).join(".cache/helpers/lint-index/sources.json")
+}
+
+/// The cached discovery answer for `lang`: `Some(Some(src))` found, `Some(None)` searched and
+/// negative-cached, `None` never searched.
+pub fn learned_source(lang: &str) -> Option<Option<DocsSource>> {
+    let raw = std::fs::read_to_string(learned_sources_path()).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    for e in json["sources"].as_array()? {
+        if e["language"].as_str() != Some(lang) {
+            continue;
+        }
+        return match e["kind"].as_str() {
+            Some("none") => Some(None),
+            _ => Some(Some(DocsSource {
+                url: e["seed"].as_str().unwrap_or("").to_string(),
+                crawl: true,
+                tool: e["tool"].as_str().unwrap_or(lang).to_string(),
+            })),
+        };
+    }
+    None
+}
+
+/// Persist a discovery answer (found source, or a negative marker) into the learned registry.
+fn remember_source(lang: &str, found: Option<&DocsSource>) {
+    let path = learned_sources_path();
+    let mut json: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({ "version": 1, "sources": [] }));
+    let entry = match found {
+        Some(src) => serde_json::json!({
+            "tool": src.tool, "language": lang, "kind": "crawl", "seed": src.url, "discovered": true
+        }),
+        None => serde_json::json!({ "tool": lang, "language": lang, "kind": "none", "discovered": true }),
+    };
+    if let Some(arr) = json["sources"].as_array_mut() {
+        arr.retain(|e| e["language"].as_str() != Some(lang));
+        arr.push(entry);
+    }
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap_or_default());
+}
+
+/// Discover official documentation for a language no registry knows — assembled on the fly, no
+/// built-in language list: ask the web, probe the top candidate sites, accept the first whose
+/// crawl actually yields normative documentation (≥ [`MIN_DISCOVERED_RULES`] rule candidates),
+/// and remember the answer either way so the search runs at most once per language.
+#[cfg(feature = "crawl")]
+pub fn discover_docs(lang: &str) -> Option<DocsSource> {
+    if let Some(cached) = learned_source(lang) {
+        return cached;
+    }
+    let found = search_and_probe(lang);
+    remember_source(lang, found.as_ref());
+    found
+}
+
+/// One discovery pass: web-search the language's official docs, rank candidate URLs by how much
+/// they look like documentation, and probe the best few by actually crawling them.
+#[cfg(feature = "crawl")]
+fn search_and_probe(lang: &str) -> Option<DocsSource> {
+    use crate::doc_crawler::fetch;
+    let query = format!("{lang} programming language official documentation reference");
+    let url = format!("https://html.duckduckgo.com/html/?q={}", url_encode(&query));
+    let (_, html) = fetch(&url)?;
+    let lang_lc = lang.to_lowercase();
+    let mut seen_hosts = std::collections::HashSet::new();
+    let mut candidates: Vec<(i32, String)> = Vec::new();
+    for cand in result_urls(&html) {
+        let lc = cand.to_lowercase();
+        let Some(host) = lc.strip_prefix("https://").and_then(|r| r.split('/').next()) else {
+            continue; // http or malformed — official docs serve https
+        };
+        if host.contains("duckduckgo") || !seen_hosts.insert(host.to_string()) {
+            continue;
+        }
+        let mut score = 0;
+        if lc.contains(&lang_lc) {
+            score += 3;
+        }
+        for hint in ["doc", "reference", "manual", "spec", "lang"] {
+            if lc.contains(hint) {
+                score += 1;
+            }
+        }
+        candidates.push((score, cand));
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, url) in candidates.into_iter().take(4) {
+        let tool = url
+            .strip_prefix("https://")
+            .and_then(|r| r.split('/').next())
+            .unwrap_or(lang)
+            .trim_start_matches("www.")
+            .to_string();
+        let src = DocsSource { url: url.clone(), crawl: true, tool };
+        if learn_from_url(lang, &src, DISCOVERY_PROBE_PAGES).rules.len() >= MIN_DISCOVERED_RULES {
+            return Some(src);
+        }
+    }
+    None
+}
+
+/// Result URLs from a DuckDuckGo static-HTML results page: each result link carries the real
+/// destination percent-encoded in its `uddg=` parameter.
+#[cfg(feature = "crawl")]
+fn result_urls(html: &str) -> Vec<String> {
+    let re = regex::Regex::new(r#"uddg=([^&"]+)"#).expect("static");
+    re.captures_iter(html).filter_map(|c| url_decode(&c[1])).collect()
+}
+
+/// Percent-encode a search query (RFC 3986 unreserved kept, space → `+`).
+#[cfg(feature = "crawl")]
+fn url_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Percent-decode a URL; `None` when the encoding is malformed.
+#[cfg(feature = "crawl")]
+fn url_decode(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' => {
+                let hex = s.get(i + 1..i + 3)?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                i += 3;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // A miniature of clippy's lints.json. Built with serde_json so the embedded markdown (with its
-    // `###` headers and ```` ``` ```` fences) needs no fragile raw-string delimiter.
-    fn clippy_json() -> String {
-        let needless_docs = "### What it does\nChecks for return statements at the end of a block.\n\n### Why is this bad?\nRemoving them makes code more concise.\n\n### Example\n```rust\nfn foo() -> i32 {\n    return 1;\n}\n```\nUse instead:\n```rust\nfn foo() -> i32 {\n    1\n}\n```\n";
-        serde_json::json!([
-            { "id": "needless_return", "level": "warn", "docs": needless_docs },
-            { "id": "no_example", "level": "deny", "docs": "### What it does\nNo code block." }
-        ])
-        .to_string()
-    }
-
-    #[test]
-    fn clippy_json_yields_bad_good_pairs() {
-        let rules = rules_from_clippy_json("rust", &clippy_json());
-        // The lint with no example is dropped; the one with a pair is kept.
-        assert_eq!(rules.len(), 1);
-        let r = &rules[0];
-        assert_eq!(r.id, "needless_return");
-        assert_eq!(r.severity, "medium");
-        assert!(r.bad.contains("return 1;"), "bad example captured: {:?}", r.bad);
-        assert!(r.good.contains("    1"), "good example captured: {:?}", r.good);
-        assert!(!r.description.is_empty(), "the lesson is captured");
-    }
 
     #[test]
     fn sections_labelled_by_signal_pair_bad_then_good() {
@@ -682,7 +578,7 @@ mod tests {
         // the fix — a fabrication. Faithful behavior: bad is the first block, good is EMPTY.
         let html = "<p>incorrect:</p><pre>h := http.Header{}\nh[\"etag\"] = x</pre><pre>// Output:\n// map[Etag]</pre>";
         let blocks = pre_blocks(html);
-        let (bad, good) = bad_good_from_blocks(html, &blocks);
+        let (bad, good, _explicit, _ctx) = bad_good_from_blocks(html, &blocks);
         assert!(bad.contains("http.Header"), "bad is the lead block: {bad:?}");
         assert!(good.is_empty(), "no labeled fix ⇒ no fabricated good, got: {good:?}");
     }
@@ -693,7 +589,9 @@ mod tests {
         let html = "<p>Examples of incorrect code:</p><pre>if x == true {}</pre>\
                     <p>Examples of correct code:</p><pre>if x {}</pre>";
         let blocks = pre_blocks(html);
-        let (bad, good) = bad_good_from_blocks(html, &blocks);
+        let (bad, good, explicit, ctx) = bad_good_from_blocks(html, &blocks);
+        assert!(explicit, "an 'incorrect' label is an explicit violation marker");
+        assert!(ctx.to_lowercase().contains("incorrect"), "the labeling sentence is the description: {ctx:?}");
         assert!(bad.contains("== true"), "bad captured: {bad:?}");
         assert!(good.contains("if x {}"), "labeled fix captured: {good:?}");
     }
@@ -713,44 +611,34 @@ mod tests {
     }
 
     #[test]
-    fn known_url_is_version_pinned_for_rust() {
-        let s = known_docs_url("rust", "1.95.0").unwrap();
-        assert!(s.url.contains("rust-1.95.0"), "version-pinned page: {}", s.url);
-        assert!(!s.crawl, "the single lint-list page is fetched, not crawled");
-        assert_eq!(s.tool, "clippy");
-        assert!(known_docs_url("cobol", "0").is_none(), "unknown language → agent supplies the link");
+    fn discovery_registry_round_trips_and_negative_caches() {
+        // Discovery must remember both answers so a language is searched at most once.
+        let dir = std::env::temp_dir().join(format!("lint-docs-test-{}", std::process::id()));
+        std::env::set_var("HOME", &dir); // learned registry lives under $HOME
+        remember_source("zig", Some(&DocsSource { url: "https://ziglang.org/documentation/".into(), crawl: true, tool: "ziglang.org".into() }));
+        assert_eq!(learned_source("zig").unwrap().unwrap().url, "https://ziglang.org/documentation/");
+        remember_source("brainfuck", None);
+        assert!(learned_source("brainfuck").unwrap().is_none(), "negative answer is cached");
+        assert!(learned_source("cobol").is_none(), "never-searched language has no cached answer");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(feature = "crawl")]
     #[test]
-    fn clippy_html_section_yields_a_rule() {
-        // A miniature of the clippy lint-list page: one `<article id>` lint with a level, a lesson,
-        // an example, and a "Use instead" fix.
-        let html = concat!(
-            "<article id=\"needless_return\">",
-            "<span class=\"label lint-level level-warn\">warn</span>",
-            "<div class=\"lint-docs\"><div class=\"lint-doc-md\">",
-            "<h3>What it does</h3><p>Checks for return at the end of a block.</p>",
-            "<h3>Example</h3><pre>fn f() -> i32 { return 1; }</pre>",
-            "<p>Use instead:</p><pre>fn f() -> i32 { 1 }</pre>",
-            "</div></div></article>",
-            "<article id=\"not_a_lint\"><p>nav, no lint-doc here</p></article>",
-        );
-        let rules = rules_from_clippy_html("rust", html);
-        assert_eq!(rules.len(), 1, "only the real lint article becomes a rule");
-        let r = &rules[0];
-        assert_eq!(r.id, "needless_return");
-        assert_eq!(r.severity, "medium");
-        assert!(r.bad.contains("return 1;"), "bad example: {:?}", r.bad);
-        assert!(r.good.contains("{ 1 }"), "good example after 'Use instead': {:?}", r.good);
-        assert!(r.description.to_lowercase().contains("return at the end"), "lesson: {:?}", r.description);
+    fn multibyte_context_never_splits_a_char() {
+        // The governing-context cap is byte arithmetic; docs quote every human language, so the
+        // cap must snap to a char boundary instead of panicking inside a multibyte character.
+        let html = format!("<p>{}incorrect:</p><pre>x = 1</pre>", "文".repeat(600));
+        let blocks = pre_blocks(&html);
+        let (bad, _good, _explicit, _ctx) = bad_good_from_blocks(&html, &blocks);
+        assert!(bad.contains("x = 1"), "extraction still works around multibyte text: {bad:?}");
     }
 
+    #[cfg(feature = "crawl")]
     #[test]
-    fn clippy_candidates_fall_back_to_stable_and_master() {
-        let c = clippy_url_candidates("1.95.0");
-        assert_eq!(c.len(), 3);
-        assert!(c[0].contains("rust-1.95.0"));
-        assert!(c[1].contains("/stable/"));
-        assert!(c[2].contains("/master/"));
+    fn url_codec_round_trips() {
+        assert_eq!(url_encode("zig language docs"), "zig+language+docs");
+        assert_eq!(url_decode("https%3A%2F%2Fziglang.org%2Fdocs").unwrap(), "https://ziglang.org/docs");
+        assert!(url_decode("%zz").is_none(), "malformed escape is rejected, not garbled");
     }
 }
