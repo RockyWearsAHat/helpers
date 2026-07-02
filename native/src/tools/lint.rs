@@ -153,13 +153,18 @@ pub fn run(args: &Value) -> ToolResult {
     // 2) Train / load one model per detected language (checksum-cached), and the advice map that
     //    carries each rule's English description and severity for rendering.
     let langs: Vec<String> = by_language.keys().cloned().collect();
-    let (_report, models) = lint_train::ensure_models(&langs, &data, &root);
+    let (report, models) = lint_train::ensure_models(&langs, &data, &root);
     let advice = lint_train::advice(&data, Some(root.as_path()));
 
     let mut sources: Vec<String> = Vec::new();
     if !models.is_empty() {
         let total: usize = models.values().map(|m| m.rules.rule_count()).sum();
         sources.push(format!("{total} rules across {} language(s)", models.len()));
+    }
+    // Name the languages whose rules were (re)learned from the live official docs this run, so the
+    // report shows the reading-and-testing path actually ran — not just that rules exist.
+    if !report.crawled.is_empty() {
+        sources.push(format!("learned live from official docs: {}", report.crawled.join(", ")));
     }
 
     let mut reports: Vec<FileReport> = Vec::new();
