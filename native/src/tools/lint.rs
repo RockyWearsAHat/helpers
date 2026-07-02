@@ -136,7 +136,13 @@ pub fn run(args: &Value) -> ToolResult {
     let files = walk_repo(&root);
     let mut by_language: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     for f in &files {
-        let Some(l) = file_lang(&f.ext) else { continue };
+        // A known extension resolves to its canonical grammar name; an UNKNOWN one becomes a
+        // language named by the extension itself — no built-in language list. Such files ride
+        // the token-regex engine, project rules (`.helpers/lint-rules/<ext>.md`, `any.md`), and
+        // on-the-fly docs discovery; unreadable (non-UTF-8) files fall out at the read below.
+        let ext = f.ext.to_lowercase();
+        if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) { continue; }
+        let l = file_lang(&ext).unwrap_or(&ext);
         if filter.as_ref().is_some_and(|set| !set.contains(l)) { continue; }
         if config.languages.as_ref().is_some_and(|set| !set.iter().any(|x| x == l)) { continue; }
         if let Ok(src) = std::fs::read_to_string(&f.abs) {
