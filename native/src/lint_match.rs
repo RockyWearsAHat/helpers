@@ -748,8 +748,13 @@ fn strip_code_comments(code: &str) -> String {
 /// dictionary, so a miss is fixed by more reading, never by another extraction pass.
 #[derive(Default)]
 pub struct Grounding {
-    /// Real code examples from the language's documentation — the "what's normal" corpus.
+    /// Real code examples from the language's documentation — the "what's normal" corpus. This
+    /// is the ONLY corpus that can ground a LEARNED rule's construct: documented code is code.
     pub reference: Vec<String>,
+    /// The project's own sources. They ground and rank the PROJECT'S law (a law names constructs
+    /// that live in the code it governs) but never a learned rule — project files carry English
+    /// comments and data strings, and teaching vocabulary must not pass as code through them.
+    pub project: Vec<String>,
     /// The learned prohibition/endorsement classifier; its reader knows which words are common
     /// connective prose in this language's documentation.
     pub polarity: Option<crate::lint_read::Polarity>,
@@ -762,8 +767,11 @@ pub struct Grounding {
 /// [`Grounding`] precomputed for one `RuleSet::build` run: the reference corpus flattened to an
 /// identifier set, and the reader borrowed out of the classifier.
 struct GroundView<'a> {
-    /// Every identifier-shaped token that occurs in real reference code, lowercased.
+    /// Tokens of the documentation's real, comment-stripped code — what grounds a LEARNED rule.
     code_tokens: std::collections::HashSet<String>,
+    /// Tokens of the project's own comment-stripped sources — extra ranking evidence for the
+    /// project's law only.
+    project_tokens: std::collections::HashSet<String>,
     /// The reader whose learned frequencies say which words are common prose.
     reader: Option<&'a crate::lint_read::Reader>,
     /// The full learned classifier — decides whether a description STATES a violation at all.
@@ -771,18 +779,30 @@ struct GroundView<'a> {
 }
 
 impl<'a> GroundView<'a> {
-    /// Flatten `g`'s corpus into a token set and borrow its reader and classifier.
+    /// Flatten `g`'s corpora into token sets and borrow its reader and classifier. Comment lines
+    /// are dropped first: grounding means "occurs in CODE", and a comment is English inside a
+    /// code file — exactly the text that must not launder teaching vocabulary into constructs.
     fn of(g: &'a Grounding) -> GroundView<'a> {
-        let mut code_tokens = std::collections::HashSet::new();
-        for code in &g.reference {
-            for tok in code.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
-                if tok.len() >= 3 {
-                    code_tokens.insert(tok.to_lowercase());
+        let tokens_of = |corpus: &[String]| -> std::collections::HashSet<String> {
+            let mut out = std::collections::HashSet::new();
+            for code in corpus {
+                for line in code.lines() {
+                    let t = line.trim_start();
+                    if t.starts_with("//") || t.starts_with('#') || t.starts_with('*') || t.starts_with("/*") || t.starts_with("--") {
+                        continue;
+                    }
+                    for tok in line.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+                        if tok.len() >= 3 {
+                            out.insert(tok.to_lowercase());
+                        }
+                    }
                 }
             }
-        }
+            out
+        };
         GroundView {
-            code_tokens,
+            code_tokens: tokens_of(&g.reference),
+            project_tokens: tokens_of(&g.project),
             reader: g.polarity.as_ref().map(|p| p.reader()),
             polarity: g.polarity.as_ref(),
         }
@@ -802,7 +822,7 @@ impl<'a> GroundView<'a> {
     /// reading of each sentence is the semantics. With no ready classifier the question is
     /// unanswerable and every sentence is eligible, trusting the author's markup as before.
     fn forbidding_sentences<'d>(&self, desc: &'d str) -> Vec<&'d str> {
-        let sentences = desc.split(['.', '!', '?', '\n']).filter(|s| !s.trim().is_empty());
+        let sentences = desc.split(['.', ';', '!', '?', '\n']).filter(|s| !s.trim().is_empty());
         match self.polarity.filter(|p| p.is_ready()) {
             Some(p) => sentences.filter(|s| p.classify(s) == Some(true)).collect(),
             None => sentences.collect(),
@@ -814,80 +834,56 @@ impl<'a> GroundView<'a> {
 /// documentation actually wrote. This is how a prose-only rule ("Never call `eval` anywhere")
 /// becomes a detector with no code example.
 ///
-/// Candidates are every identifier-shaped token in the sentence; selection is by EVIDENCE,
-/// not by pass priority or a dictionary:
+/// No shape expectations: no backtick, dotted-path, call-syntax, or morphology rules — those are
+/// conventions that cannot be guaranteed forever, and each one the engine expects is a way for a
+/// valid law to become invisible. Instead there is ONE tokenization (the sentence's
+/// whitespace-delimited words, edge punctuation trimmed, so `console.log`, `8080`, and a
+/// backticked word each survive exactly as written) and selection is LEARNED evidence only:
 ///
-///   * **The document's own signals** — backtick quoting, a dotted path (`pickle.loads`), call
-///     syntax (`exit(`), or code morphology (underscores, digits, internal capitals). The author
-///     already marked these as code; no vocabulary can veto them.
-///   * **Grounded evidence** — an unmarked plain word qualifies only when it occurs in the
-///     language's real reference code AND the reader that read the docs learned it is NOT common
-///     prose. Both facts are learned; neither is authored.
+///   * words whose inner tokens the reader has absorbed as common English are connective prose
+///     and drop out — what the reading cannot account for is the construct;
+///   * among the salient words, one grounded in the language's real reference code outranks the
+///     rest; then the rarer word (fewest reads) wins; then reading order.
 ///
-/// Marked candidates outrank grounded ones; within a class the reader's salience (rarer word
-/// wins) and then length decide. When `bad` is non-empty every candidate must appear in it — the
-/// description says what is wrong and the example must exhibit it. When `bad` is absent the
-/// winner is trusted: the SELF-FIRE gate and query-time silence protect against a wrong pick.
-fn description_discriminator(desc: &str, bad: &str, ground: &GroundView) -> Option<String> {
-    // A dotted identifier path is code even when every dot segment is an English word — prose
-    // has no dotted words. Segments must be ≥2 chars so abbreviations ("e.g.") stay prose.
-    let dotted_re = regex::Regex::new(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b").expect("static");
-    let call_re = regex::Regex::new(r"\b([A-Za-z_]\w{2,}[!?]?)\s*\(").expect("static");
-    let word_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?").expect("static");
-    let bt_re = regex::Regex::new(r"`([^`]+)`").expect("static");
-    // Code morphology: a word shape prose does not produce — an underscore, a digit, or a
-    // capital letter after the first (camelCase / PascalCase / ALLCAPS acronyms excluded: an
-    // all-caps word is ordinary prose emphasis).
-    let code_shaped = |tok: &str| -> bool {
-        tok.contains('_')
-            || tok.chars().any(|c| c.is_ascii_digit())
-            || (tok.chars().any(|c| c.is_ascii_lowercase())
-                && tok.chars().skip(1).any(|c| c.is_ascii_uppercase()))
-    };
-
-    // Collect candidates in reading order: (token, author-marked-as-code?).
-    let mut candidates: Vec<(String, bool)> = Vec::new();
-    for cap in bt_re.captures_iter(desc) {
-        let span = &cap[1];
-        if let Some(m) = dotted_re.find_iter(span).find(|m| m.as_str().split('.').all(|s| s.len() >= 2)) {
-            candidates.push((m.as_str().to_string(), true));
+/// More reading sharpens the selection — the fix for a wrong pick is never a new shape rule.
+/// When `bad` is non-empty every candidate must appear in it — the description says what is
+/// wrong and the example must exhibit it. With no reader and no example there is no evidence at
+/// all, and the engine ABSTAINS rather than guessing.
+///
+/// `only_grounded` restricts candidates to words that occur in REAL code (the docs' reference
+/// corpus or the project's own sources). Learned rules require it: a rare English word in a
+/// principle's imperative clause ("don't over-engineer") is not a code construct, and a detector
+/// built from one fires on every comment that discusses the principle. The project's own law
+/// passes `false` — the rule file is evidence enough that the named thing is worth watching for.
+fn description_discriminator(desc: &str, bad: &str, ground: &GroundView, only_grounded: bool) -> Option<String> {
+    let reader = ground.reader?;
+    // (surface word, reading position, grounded?, rarity = fewest reads among inner tokens)
+    let mut candidates: Vec<(String, usize, bool, u32)> = Vec::new();
+    for (position, raw) in desc.split_whitespace().enumerate() {
+        let surface = raw.trim_matches(|c: char| !c.is_alphanumeric());
+        if surface.chars().count() < 2 {
             continue;
         }
-        for m in word_re.find_iter(span) {
-            if m.as_str().len() >= 3 {
-                candidates.push((m.as_str().to_string(), true));
-            }
+        let inner = crate::lint_read::tokens(surface);
+        if inner.is_empty() || inner.iter().all(|t| reader.is_common_word(t)) {
+            continue; // fully accounted for by reading — connective prose, not the construct
         }
-    }
-    for m in dotted_re.find_iter(desc) {
-        if m.as_str().split('.').all(|s| s.len() >= 2) {
-            candidates.push((m.as_str().to_string(), true));
+        // Documented code grounds anyone; the project's own code additionally grounds (and
+        // ranks) only when the rule is not held to `only_grounded` — i.e. the project's law.
+        let in_docs = inner.iter().any(|t| ground.code_tokens.contains(t));
+        if only_grounded && !in_docs {
+            continue;
         }
+        let grounded = in_docs || inner.iter().any(|t| ground.project_tokens.contains(t));
+        let rarity = inner.iter().map(|t| reader.read_count(t)).min().unwrap_or(0);
+        candidates.push((surface.to_string(), position, grounded, rarity));
     }
-    for cap in call_re.captures_iter(desc) {
-        candidates.push((cap[1].to_string(), true));
-    }
-    for m in word_re.find_iter(desc) {
-        let tok = m.as_str();
-        if tok.len() >= 3 {
-            candidates.push((tok.to_string(), code_shaped(tok)));
-        }
-    }
-
-    // Qualify by evidence: the author's marking, or grounded (in real code AND learned rare).
-    let is_common = |tok: &str| ground.reader.is_some_and(|r| r.is_common_word(tok));
-    candidates.retain(|(tok, marked)| {
-        *marked || (ground.code_tokens.contains(&tok.to_lowercase()) && ground.reader.is_some() && !is_common(tok))
-    });
-    // Rank: marked before grounded, reading order within — documentation names the violation
-    // before the remedy, so the earliest authored signal is the rule's subject. The sort is
-    // stable; nothing here weighs tokens.
-    candidates.sort_by_key(|(_, marked)| !*marked);
+    candidates.sort_by_key(|(_, position, grounded, rarity)| (!*grounded, *rarity, *position));
 
     // Validate: when bad is known the candidate must appear in it; when absent, trust the
     // winner — SELF-FIRE and query-time silence guard a wrong pick.
-    for (cand, _) in &candidates {
-        let pat = format!(r"\b{}\b", regex::escape(cand));
+    for (surface, ..) in &candidates {
+        let pat = format!(r"\b{}\b", regex::escape(surface));
         if let Ok(re) = regex::Regex::new(&pat) {
             if bad.trim().is_empty() || re.is_match(bad) {
                 return Some(pat);
@@ -1090,12 +1086,30 @@ impl RuleSet {
             // model reads, never a pattern it fires — that is what keeps English understanding
             // from being confused for a lintable code language.
             let desc_detector = |view: &GroundView| -> Option<String> {
-                if trusted.contains(id) {
-                    return description_discriminator(desc, bad, view);
-                }
-                view.forbidding_sentences(desc)
+                // The construct is named by the sentence that FORBIDS it — the remedy clause
+                // endorses its alternative, and rarity alone would happily select the remedy's
+                // word ("…; use the logging module instead" must never compile `logging`).
+                // Learned rules also require the construct to exist in real code
+                // (`only_grounded`); the project's own law does not.
+                let is_law = trusted.contains(id);
+                if let Some(re) = view
+                    .forbidding_sentences(desc)
                     .into_iter()
-                    .find_map(|sentence| description_discriminator(sentence, bad, view))
+                    .find_map(|sentence| description_discriminator(sentence, bad, view, !is_law))
+                {
+                    return Some(re);
+                }
+                // Law by location still compiles when the classifier abstains on every
+                // sentence: read the sentences in document order and take the first that names
+                // a construct — the same neutral order fallback document reading uses — so a
+                // remedy clause's vocabulary never outbids the violation clause it follows.
+                if !is_law {
+                    return None;
+                }
+                desc.split(['.', ';', '!', '?', '\n'])
+                    .filter(|s| !s.trim().is_empty())
+                    .find_map(|sentence| description_discriminator(sentence, bad, view, false))
+                    .or_else(|| description_discriminator(desc, bad, view, false))
             };
             let kind = if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
@@ -1164,6 +1178,13 @@ impl RuleSet {
         self.rules.len()
     }
 
+    /// The ids of the rules that actually compiled a detector — the honest answer to "which of
+    /// the laws I wrote can you enforce?". A caller compares this against what it asked for and
+    /// REPORTS the difference; law must never vanish silently.
+    pub fn rule_ids(&self) -> impl Iterator<Item = &str> {
+        self.rules.iter().map(|r| r.id.as_str())
+    }
+
     /// Flag `code`: every line where a rule fires (AST match or text match), deduped per rule.
     /// Each finding carries `precise` so the caller can confirm the imprecise ones. Imprecise:
     /// token-regex fallbacks, and AST patterns whose only identity is a container kind — several
@@ -1211,24 +1232,89 @@ mod tests {
 
     /// An empty grounding: no docs read, no reference code — only the author's own signals count.
     fn unground() -> GroundView<'static> {
-        GroundView { code_tokens: std::collections::HashSet::new(), reader: None, polarity: None }
+        GroundView {
+            code_tokens: std::collections::HashSet::new(),
+            project_tokens: std::collections::HashSet::new(),
+            reader: None,
+            polarity: None,
+        }
+    }
+
+    /// A reader that has READ ordinary instruction English — the salience baseline the
+    /// discriminator selects against. No shapes, no markup: just reading.
+    fn read_reader() -> crate::lint_read::Reader {
+        let mut r = crate::lint_read::Reader::new();
+        for _ in 0..50 {
+            r.learn_span(
+                "do not use this anywhere in the project and never call it; \
+                 read the value from the port configuration instead and parse the input explicitly; \
+                 do not ship the calls to the structured logger for the committed code; \
+                 file an issue for the comments left behind and hardcode nothing",
+            );
+        }
+        r
+    }
+
+    /// Wrap a reader into the polarity carrier the grounded path hands the discriminator.
+    fn ground_with_reader() -> crate::lint_read::Polarity {
+        let mut b = crate::lint_read::PolarityBuilder::new(read_reader());
+        b.accumulate("never do this", true);
+        b.accumulate("this is the recommended form", false);
+        b.build()
     }
 
     #[test]
-    fn backticked_english_word_is_the_construct_the_author_named() {
-        // "panic" is an ordinary English word, but the author's backticks mark it as code — no
-        // vocabulary may veto what the document explicitly named.
-        let re = description_discriminator("Never call `panic` in library code; return an error value instead.", "", &unground());
+    fn the_unread_word_is_the_construct_whatever_its_shape() {
+        // No digit rule, no backtick rule: "8080" is simply the one word the reader has never
+        // read. The same selection finds an identifier, a number, or notation not yet invented.
+        let polarity = ground_with_reader();
+        let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
+        let view = GroundView::of(&ground);
+        let re = description_discriminator("Do not hardcode port 8080 anywhere; read the port from configuration.", "", &view, false);
+        assert_eq!(re.as_deref(), Some(r"\b8080\b"));
+    }
+
+    #[test]
+    fn a_dotted_construct_stays_one_word_as_the_author_wrote_it() {
+        // "console.log" is one whitespace-delimited word; no dotted-path regex needed.
+        let polarity = ground_with_reader();
+        let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
+        let view = GroundView::of(&ground);
+        let re = description_discriminator("Do not ship console.log calls; use the structured logger.", "", &view, false);
+        assert_eq!(re.as_deref(), Some(r"\bconsole\.log\b"));
+    }
+
+    #[test]
+    fn no_reading_and_no_example_means_abstain_not_guess() {
+        // With no reader and no bad example there is no evidence to select by — the engine
+        // abstains rather than guessing a word.
+        let re = description_discriminator("Do not hardcode port 8080 anywhere.", "", &unground(), false);
+        assert_eq!(re, None);
+    }
+
+    #[test]
+    fn rule_ids_expose_what_actually_compiled() {
+        let rules = [
+            rule("no_eval", "eval(x)", "parse(x)", "Never call eval."),
+            rule("hopeless", "", "", ""),
+        ];
+        let set = RuleSet::build("python", &rules, &Grounding::default());
+        let ids: Vec<&str> = set.rule_ids().collect();
+        assert!(ids.contains(&"no_eval"));
+        assert!(!ids.contains(&"hopeless"), "an uncompiled rule is not among the ids");
+    }
+
+    #[test]
+    fn an_unread_english_word_is_selected_without_any_markup() {
+        // "panic" is an ordinary English word the test reader has never read — that alone names
+        // it, backticks or not. The backticks are edge punctuation and vanish in tokenization.
+        let polarity = ground_with_reader();
+        let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
+        let view = GroundView::of(&ground);
+        let re = description_discriminator("Never call `panic` in library code; return an error value instead.", "", &view, false);
         assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
-    }
-
-    #[test]
-    fn dotted_path_in_bare_prose_is_code_even_when_every_segment_is_a_word() {
-        let re = description_discriminator("Do not use pickle.loads on untrusted data.", "", &unground());
-        assert_eq!(re.as_deref(), Some(r"\bpickle\.loads\b"));
-        // Ungrounded plain prose derives nothing: every word is unmarked and there is no learned
-        // evidence to qualify one — the engine abstains rather than guessing.
-        assert_eq!(description_discriminator("Keep functions small, e.g. under forty lines.", "", &unground()), None);
+        let bare = description_discriminator("Never call panic in library code; return an error value instead.", "", &view, false);
+        assert_eq!(bare.as_deref(), Some(r"\bpanic\b"), "markup is optional, not a gate");
     }
 
     #[test]
@@ -1253,7 +1339,7 @@ mod tests {
             ..Default::default()
         };
         let view = GroundView::of(&ground);
-        let re = description_discriminator("Never call panic in library code; return an error value instead.", "", &view);
+        let re = description_discriminator("Never call panic in library code; return an error value instead.", "", &view, false);
         assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
     }
 
@@ -1293,8 +1379,18 @@ mod tests {
             "",
             "Never call `eval` anywhere; it is dangerous and forbidden.",
         )];
-        let set = RuleSet::build("python", &prohibition, &ground);
-        assert_eq!(set.rule_count(), 1, "a prohibition IS a statement of a violation");
+        // A learned rule's construct must also exist in real code — the docs that taught the
+        // rule showed it, so its reference corpus carries it. Without that grounding a learned
+        // prohibition abstains (only the project's own law may name the unseen).
+        let ungrounded = RuleSet::build("python", &prohibition, &ground);
+        assert_eq!(ungrounded.rule_count(), 0, "no code evidence → no learned detector");
+        let grounded = Grounding {
+            reference: vec!["value = eval(source)".into()],
+            polarity: Some(polarity()),
+            ..Default::default()
+        };
+        let set = RuleSet::build("python", &prohibition, &grounded);
+        assert_eq!(set.rule_count(), 1, "a grounded prohibition IS a statement of a violation");
         assert_eq!(lines_for(&set.flag("x = eval(s)"), "no_eval"), vec![1]);
     }
 

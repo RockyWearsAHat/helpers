@@ -186,7 +186,13 @@ pub fn run(args: &Value) -> ToolResult {
     // 2) Train / load one model per detected language (checksum-cached), and the advice map that
     //    carries each rule's English description and severity for rendering.
     let langs: Vec<String> = by_language.keys().cloned().collect();
-    let (report, models) = lint_train::ensure_models(&langs, &data, &root);
+    // The project's own sources ground construct selection: a law names constructs that live in
+    // the code it governs, so the project is a corpus that exists for ANY language, shape-free.
+    let project_code: BTreeMap<String, Vec<String>> = by_language
+        .iter()
+        .map(|(l, files)| (l.clone(), files.iter().map(|(_, src)| src.clone()).collect()))
+        .collect();
+    let (report, models) = lint_train::ensure_models(&langs, &data, &root, &project_code);
     let advice = lint_train::advice(&data, Some(root.as_path()));
 
     let mut sources: Vec<String> = Vec::new();
@@ -314,9 +320,28 @@ pub fn run(args: &Value) -> ToolResult {
     let unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     reports.sort_by(|a, b| a.path.cmp(&b.path));
     let mut body = render(&root, &reports, &analyzed, &unanalyzed, &sources, max);
+    body.push_str(&render_unenforced(&report.unenforced));
     body.push_str(&render_quarantine(&quarantined));
     body.push_str(&render_feedback(&root, &auto_suppressed));
     Ok(vec![text(body)])
+}
+
+/// Report project-authored rules no detector could be compiled for. The user's law must never
+/// vanish silently — this is the difference between integrating an AI (it says what it cannot do
+/// yet and why) and a compiler dropping input on the floor.
+fn render_unenforced(unenforced: &[(String, String)]) -> String {
+    if unenforced.is_empty() {
+        return String::new();
+    }
+    let ids: Vec<String> = unenforced.iter().map(|(lang, id)| format!("{lang}/{id}")).collect();
+    format!(
+        "\nProject law not yet enforceable ({}): {}.\nThe rule compiled no detector — its words are \
+         all ordinary English to the reader and its examples (if any) do not differ at token level. \
+         Name the construct in the rule's sentence, give a bad/good example pair that differs in \
+         tokens, or run once online so the language's grammar and docs can be learned.\n",
+        ids.len(),
+        ids.join(", ")
+    )
 }
 
 /// Report doc-learned rules the self-validation pass quarantined: their fire rate against the real

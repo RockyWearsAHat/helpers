@@ -112,8 +112,15 @@ impl Reader {
     /// frequency reached the corpus-scaled cutoff). A token the reader never read is not common —
     /// unknown words stay salient. This is the word-level view of the learned stop-list.
     pub fn is_common_word(&self, token: &str) -> bool {
+        self.read_count(token) >= self.common_cutoff()
+    }
+
+    /// How many times this reader has read `token` — 0 for a word it has never seen. The raw
+    /// evidence rarity rankings are built from (a rarer word carries more of a sentence's
+    /// identity).
+    pub fn read_count(&self, token: &str) -> u32 {
         let seed = crate::lint_ai::token_seed(&token.to_lowercase());
-        self.freq.get(&seed).copied().unwrap_or(0) >= self.common_cutoff()
+        self.freq.get(&seed).copied().unwrap_or(0)
     }
 
     /// Read a span sequentially and LEARN from it: at each token, when the memory's prediction for
