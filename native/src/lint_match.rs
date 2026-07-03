@@ -753,6 +753,10 @@ pub struct Grounding {
     /// The learned prohibition/endorsement classifier; its reader knows which words are common
     /// connective prose in this language's documentation.
     pub polarity: Option<crate::lint_read::Polarity>,
+    /// Ids of rules the PROJECT itself authored (`.helpers/lint-rules/`, root `lintPref`). Their
+    /// rule file is the label: everything a user writes there is law by location, so these are
+    /// exempt from the prohibition gate exactly as the live path exempts them from the Hv gate.
+    pub trusted: std::collections::HashSet<String>,
 }
 
 /// [`Grounding`] precomputed for one `RuleSet::build` run: the reference corpus flattened to an
@@ -762,10 +766,12 @@ struct GroundView<'a> {
     code_tokens: std::collections::HashSet<String>,
     /// The reader whose learned frequencies say which words are common prose.
     reader: Option<&'a crate::lint_read::Reader>,
+    /// The full learned classifier — decides whether a description STATES a violation at all.
+    polarity: Option<&'a crate::lint_read::Polarity>,
 }
 
 impl<'a> GroundView<'a> {
-    /// Flatten `g`'s corpus into a token set and borrow its reader.
+    /// Flatten `g`'s corpus into a token set and borrow its reader and classifier.
     fn of(g: &'a Grounding) -> GroundView<'a> {
         let mut code_tokens = std::collections::HashSet::new();
         for code in &g.reference {
@@ -775,7 +781,32 @@ impl<'a> GroundView<'a> {
                 }
             }
         }
-        GroundView { code_tokens, reader: g.polarity.as_ref().map(|p| p.reader()) }
+        GroundView {
+            code_tokens,
+            reader: g.polarity.as_ref().map(|p| p.reader()),
+            polarity: g.polarity.as_ref(),
+        }
+    }
+
+    /// The forbidding sentences of `desc` — the only places a learned rule's detector token may
+    /// come from.
+    ///
+    /// English is the comprehension substrate, not a lintable language: concept and guidance
+    /// prose is READ — it trains the reader, the polarity prototypes, and the concept
+    /// fingerprints — but only a PROHIBITION defines a violation there is anything to fire on.
+    /// And the construct must be named BY the sentence that forbids it: a principles section can
+    /// legitimately contain both a prohibition ("don't over-engineer") and backticked
+    /// illustrations of endorsed idioms — taking a marked token from an endorsing sentence
+    /// builds a detector for something the rule never forbade. Sentence boundaries are
+    /// typography, like the paragraph segmentation documents are read with; the classifier's
+    /// reading of each sentence is the semantics. With no ready classifier the question is
+    /// unanswerable and every sentence is eligible, trusting the author's markup as before.
+    fn forbidding_sentences<'d>(&self, desc: &'d str) -> Vec<&'d str> {
+        let sentences = desc.split(['.', '!', '?', '\n']).filter(|s| !s.trim().is_empty());
+        match self.polarity.filter(|p| p.is_ready()) {
+            Some(p) => sentences.filter(|s| p.classify(s) == Some(true)).collect(),
+            None => sentences.collect(),
+        }
     }
 }
 
@@ -1028,6 +1059,7 @@ impl RuleSet {
     /// `ground` is the learned evidence prose-only rules are read through ([`Grounding`]);
     /// pass `Grounding::default()` when no docs have been read for the language yet.
     pub fn build(lang: &str, rules: &[(String, String, String, String, String)], ground: &Grounding) -> RuleSet {
+        let trusted = &ground.trusted;
         let ground = GroundView::of(ground);
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
@@ -1042,11 +1074,34 @@ impl RuleSet {
             if desc.trim().is_empty() && bad.trim().is_empty() {
                 continue; // nothing to learn from
             }
+            // The entry ticket for every LEARNED rule, example-backed or not: its description
+            // must contain a sentence that forbids something. A teaching section's fenced
+            // illustrations read as "bad examples" only by document-order fallback — enforcing
+            // them turns reading material into law. Project rules are law by location and skip
+            // the reading.
+            if !trusted.contains(id) && ground.forbidding_sentences(desc).is_empty() {
+                continue;
+            }
+            // A description-derived detector exists only for prose that STATES a violation:
+            // project law states one by LOCATION (the user wrote it in a rule file — that is the
+            // label, so the whole description is eligible), learned prose by the classifier's
+            // READING — the detector token must be named by a sentence that forbids something
+            // ([`GroundView::forbidding_sentences`]). Guidance/concept prose is comprehension the
+            // model reads, never a pattern it fires — that is what keeps English understanding
+            // from being confused for a lintable code language.
+            let desc_detector = |view: &GroundView| -> Option<String> {
+                if trusted.contains(id) {
+                    return description_discriminator(desc, bad, view);
+                }
+                view.forbidding_sentences(desc)
+                    .into_iter()
+                    .find_map(|sentence| description_discriminator(sentence, bad, view))
+            };
             let kind = if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
                     // AST pattern — lossless and most precise; no regex needed.
                     MatchKind::Ast(pat)
-                } else if let Some(re) = description_discriminator(desc, bad, &ground) {
+                } else if let Some(re) = desc_detector(&ground) {
                     // English prose is the primary documentation; read it first.
                     // The description names the construct to flag: "avoid `e.printStackTrace()`".
                     MatchKind::Text { pattern: re }
@@ -1060,7 +1115,7 @@ impl RuleSet {
             } else {
                 // No grammar — text matching only. Documentation prose is the primary signal;
                 // code examples (which appear in the same docs) refine when prose is thin.
-                if let Some(re) = description_discriminator(desc, bad, &ground) {
+                if let Some(re) = desc_detector(&ground) {
                     MatchKind::Text { pattern: re }
                 } else if let Some(re) = text_discriminator(bad, good) {
                     MatchKind::Text { pattern: re }
@@ -1156,7 +1211,7 @@ mod tests {
 
     /// An empty grounding: no docs read, no reference code — only the author's own signals count.
     fn unground() -> GroundView<'static> {
-        GroundView { code_tokens: std::collections::HashSet::new(), reader: None }
+        GroundView { code_tokens: std::collections::HashSet::new(), reader: None, polarity: None }
     }
 
     #[test]
@@ -1195,10 +1250,90 @@ mod tests {
         let ground = Grounding {
             reference: vec!["func f() { panic(\"x\") }".into(), "return fmt.Errorf(\"y\")".into()],
             polarity: Some(polarity),
+            ..Default::default()
         };
         let view = GroundView::of(&ground);
         let re = description_discriminator("Never call panic in library code; return an error value instead.", "", &view);
         assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
+    }
+
+    /// A trained polarity classifier in the shape the live path carries one — built from labeled
+    /// prose exactly like the grounded path builds it.
+    fn polarity() -> crate::lint_read::Polarity {
+        crate::lint_read::Polarity::from_labeled(&[
+            ("never call this it is dangerous forbidden and unsafe", true),
+            ("do not use this deprecated broken pattern anywhere", true),
+            ("avoid this fragile obsolete style it leaks badly", true),
+            ("this brittle call is discouraged and must not ship", true),
+            ("prefer the recommended safe supported form instead", false),
+            ("always use the idiomatic clean correct approach here", false),
+            ("this canonical fix is right and well tested", false),
+            ("use this when random access is needed it scales well", false),
+        ])
+    }
+
+    #[test]
+    fn neutral_guidance_prose_compiles_no_detector_but_prohibition_does() {
+        // English understanding separates READING material from LAW: a concept/guidance span
+        // ("use X when …") teaches the model but states no violation, so it must not become a
+        // firing pattern; a prohibition names a violation and must.
+        let ground = Grounding { reference: Vec::new(), polarity: Some(polarity()), ..Default::default() };
+        let guidance = [rule(
+            "use_arraylist",
+            "",
+            "",
+            "Use `ArrayList` when random access is needed; it scales well and is the supported approach.",
+        )];
+        let set = RuleSet::build("python", &guidance, &ground);
+        assert_eq!(set.rule_count(), 0, "guidance prose is comprehension, not a detector");
+
+        let prohibition = [rule(
+            "no_eval",
+            "",
+            "",
+            "Never call `eval` anywhere; it is dangerous and forbidden.",
+        )];
+        let set = RuleSet::build("python", &prohibition, &ground);
+        assert_eq!(set.rule_count(), 1, "a prohibition IS a statement of a violation");
+        assert_eq!(lines_for(&set.flag("x = eval(s)"), "no_eval"), vec![1]);
+    }
+
+    #[test]
+    fn project_law_compiles_even_when_its_register_reads_ambiguous() {
+        // "Never call eval anywhere" is law by LOCATION (the user's rule file), yet its words
+        // ("never", "call") are ordinary reference-doc vocabulary — Rust and TypeScript both have
+        // a `never` type — so the classifier abstains. The rule file is the label: trusted ids
+        // bypass the register reading entirely.
+        let mut ground = Grounding { reference: Vec::new(), polarity: Some(polarity()), ..Default::default() };
+        let rules = [rule("no_eval", "", "", "Never call `eval` anywhere in this project; parse the input explicitly.")];
+        let gated = RuleSet::build("python", &rules, &ground);
+        ground.trusted.insert("no_eval".to_string());
+        let trusted = RuleSet::build("python", &rules, &ground);
+        assert_eq!(trusted.rule_count(), 1, "project law always compiles");
+        assert_eq!(lines_for(&trusted.flag("x = eval(s)"), "no_eval"), vec![1]);
+        // Whatever the classifier said for the untrusted twin, the trusted one must not depend on it.
+        assert!(gated.rule_count() <= trusted.rule_count());
+    }
+
+    #[test]
+    fn example_backed_rules_also_need_a_forbidding_sentence_unless_trusted() {
+        // A teaching section's fenced illustration reads as a "bad example" only by document
+        // order — without a forbidding sentence the whole rule is reading material, not law.
+        let mut ground = Grounding { reference: Vec::new(), polarity: Some(polarity()), ..Default::default() };
+        let rules = [rule(
+            "no_arrays",
+            "xs = [1, 2, 3]",
+            "xs = (1, 2, 3)",
+            "xyzzy qwerty plugh zork.",
+        )];
+        let set = RuleSet::build("qlang", &rules, &ground); // grammarless → example diff path
+        assert_eq!(set.rule_count(), 0, "neutral prose + examples = comprehension, not a detector");
+        // The project's own law is exempt by location …
+        ground.trusted.insert("no_arrays".to_string());
+        assert_eq!(RuleSet::build("qlang", &rules, &ground).rule_count(), 1);
+        // … and with no classifier at all the author's examples are trusted as before.
+        let unground = Grounding::default();
+        assert_eq!(RuleSet::build("qlang", &rules, &unground).rule_count(), 1);
     }
 
     #[test]
