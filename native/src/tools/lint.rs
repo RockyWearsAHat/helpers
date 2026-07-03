@@ -9,13 +9,20 @@
 //!   1. **Rule firing** — `RuleSet::flag` matches each documented rule's lossless AST pattern
 //!      (or, for grammarless languages, its discriminating token regex) against the file: a
 //!      finding is the rule's structure occurring, on the construct's line.
-//!   2. **Confirmation gate** — precise AST matches report directly; imprecise text-fallback
+//!   2. **Restatement guard** — an imprecise finding whose line shares half the rule's own
+//!      description words is quoting the law, not breaking it ([`restates_rule`]) — dropped
+//!      before gating, trusted project law included.
+//!   3. **Confirmation gate** — precise AST matches report directly; imprecise text-fallback
 //!      matches (grammarless languages, description-derived regexes) pass through
 //!      `ConceptModel::confirms`, which bundles the matched construct's tokens and keeps the
 //!      finding only when the fired rule is the concept it is closest to — so a regex that hit a
 //!      token belonging to a different rule is dropped, with no hand-kept word list.
-//!   3. **Self-validation** — doc rules that fire like scrape noise (>1% of all scanned lines, or
+//!   4. **Self-validation** — doc rules that fire like scrape noise (>1% of all scanned lines, or
 //!      concentrated in one file) are quarantined and reported, never shown as findings.
+//!
+//! Documentation formats (md/txt) are reading material, not code: they are linted only by rules
+//! written FOR them — `any`-language law governs code languages
+//! ([`crate::lint_train::is_document_language`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
