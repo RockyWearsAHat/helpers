@@ -134,8 +134,12 @@ pub fn run(args: &Value) -> ToolResult {
     //    with the AST engine; the rest are still analyzed via the token-regex fallback, so nothing
     //    is dropped for lacking a grammar.
     let files = walk_repo(&root);
+    // The project's own rule documents (root lintPref, .helpers/lint-rules) are instructions TO
+    // the linter, not source to be linted — never analyze the law as if it were code.
+    let law: HashSet<PathBuf> = lint_train::rule_documents(&root).into_iter().map(|(p, _)| p).collect();
     let mut by_language: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     for f in &files {
+        if law.contains(&f.abs) { continue; }
         // A known extension resolves to its canonical grammar name; an UNKNOWN one becomes a
         // language named by the extension itself — no built-in language list. Such files ride
         // the token-regex engine, project rules (`.helpers/lint-rules/<ext>.md`, `any.md`), and
@@ -184,7 +188,7 @@ pub fn run(args: &Value) -> ToolResult {
         let Some(model) = models.get(lang) else { continue };
         // Rules the project itself authored are the user's explicit law for this codebase —
         // trusted fully, never gated, however weak their compiled anchor is.
-        let trusted = lint_train::project_rule_ids(&root, lang);
+        let trusted = lint_train::project_rule_ids(&data, &root, lang);
         // Precise AST matches are exact and staged directly. Imprecise matches — text-fallback
         // regexes and container-only AST patterns (several distinct rules compile to the same bare
         // `list`) — must clear the Hv concept gate: the matched construct's tokens must agree with

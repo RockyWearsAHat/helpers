@@ -53,6 +53,13 @@ static BUNDLED: std::sync::LazyLock<HashMap<&'static str, tree_sitter::Language>
         m
     });
 
+/// True when `name` names a grammar bundled into the binary — a cheap, offline membership probe
+/// for "is this word a language, not prose?" questions (e.g. reading a fence info string). Never
+/// touches the network or the dynamic-grammar path.
+pub fn bundled_language(name: &str) -> bool {
+    BUNDLED.contains_key(name)
+}
+
 /// Per-process resolution cache. `None` means "tried and failed — don't retry".
 static GRAMMAR_CACHE: OnceLock<Mutex<HashMap<String, Option<tree_sitter::Language>>>> =
     OnceLock::new();
@@ -766,7 +773,22 @@ fn description_discriminator(desc: &str, bad: &str) -> Option<String> {
                 && crate::lint_ai::dict_words().contains(&tok.to_lowercase()))
     };
 
+    // A dotted identifier path ("pickle.loads", "console.log") is code even when every dot
+    // segment is a dictionary word — no human-language dictionary has an entry with a dot in it.
+    // Segments must be ≥2 chars so prose abbreviations ("e.g.", "i.e.") stay prose.
+    let dotted_re = regex::Regex::new(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b").expect("static");
+    let dotted_from = |span: &str| -> Option<String> {
+        dotted_re
+            .find_iter(span)
+            .map(|m| m.as_str())
+            .find(|c| c.split('.').all(|seg| seg.len() >= 2))
+            .map(str::to_string)
+    };
+
     let best_from_span = |span: &str| -> Option<String> {
+        if let Some(dotted) = dotted_from(span) {
+            return Some(dotted);
+        }
         // Prefer method names (follow `(`) over plain identifiers; within ties, prefer longer.
         let method_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?\s*\(").expect("static");
         if let Some(m) = method_re.find(span) {
@@ -788,6 +810,13 @@ fn description_discriminator(desc: &str, bad: &str) -> Option<String> {
     for cap in bt_re.captures_iter(desc) {
         if let Some(tok) = best_from_span(&cap[1]) {
             candidates.push(tok);
+        }
+    }
+
+    // Pass 2a — dotted identifier paths in plain prose ("Never use pickle.loads on…").
+    if candidates.is_empty() {
+        if let Some(dotted) = dotted_from(desc) {
+            candidates.push(dotted);
         }
     }
 

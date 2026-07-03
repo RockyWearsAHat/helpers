@@ -1,15 +1,32 @@
-//! `linter` — the documentation rule parser: the single shape lint knowledge is ingested in.
+//! `linter` — document READING: the single shape lint knowledge is ingested in.
 //!
-//! Knowledge enters the AI linter from two sources — the official docs (crawled by
-//! [`crate::lint_docs`]) and the CS-principles folder document — and both arrive here as a
-//! [`Knowledge`] bag of [`LearnedRule`]s. [`crate::lint_train`] compiles those rules into the engine's
-//! training examples; nothing else in the system cares which source a rule came from.
+//! Knowledge enters the AI linter from two places — the official docs (crawled by
+//! [`crate::lint_docs`]) and local documents (the `extraDocs/` principles folder, the project's
+//! `.helpers/lint-rules/` files, a root-level `lintPref.md`/`.txt`) — and both arrive here as a
+//! [`Knowledge`] bag of [`LearnedRule`]s. [`crate::lint_train`] compiles those rules into the
+//! engine's training examples; nothing else in the system cares which source a rule came from.
 //!
-//! [`Knowledge::from_text`] is how a plain text/markdown document (e.g. the CS2420 Data Structures
-//! & Algorithms principles or the CS3500 Software Design course docs) becomes trainable rules with
-//! no code change: a heading starts a rule, its fenced `bad`/`good` blocks are its examples.
+//! [`Knowledge::read_document`] is how ANY plain text or markdown document becomes trainable
+//! rules — **no required format**. The document is only *segmented* (paragraphs and fenced code
+//! blocks — typography, not a rule grammar); everything semantic is READ by the learned
+//! [`crate::lint_read::Polarity`] classifier:
+//!
+//!   * every prose span is a rule candidate — a heading names it when one exists, otherwise the
+//!     span's own first words do;
+//!   * whether an attached code example shows the *violation* or the *fix* is decided by
+//!     classifying the words around it (its lead-in line, its fence's info words, the rule's own
+//!     description) — prohibition ⇒ bad example, endorsement ⇒ good example — with document order
+//!     (violation shown first, fix after) as the neutral fallback;
+//!   * a span with no code at all is still a rule: the engine derives the pattern from the
+//!     English description downstream and the SELF-FIRE gate validates or drops it.
+//!
+//! So `"Never call eval anywhere; parse the input explicitly."` in a bare `lintPref.txt` is a
+//! complete, enforceable rule — headings, fences, and tags are optional enrichment the reader
+//! understands when present, never a format it expects.
 
 use serde::{Deserialize, Serialize};
+
+use crate::lint_read::Polarity;
 
 /// One documented rule learned from a doc or corpus: a language, an id, the bad/good examples, an
 /// English description, and a severity. This is the atom every layer trains from.
@@ -35,136 +52,266 @@ pub struct LearnedRule {
 pub struct Knowledge {
     /// Every rule-candidate this knowledge carries.
     pub rules: Vec<LearnedRule>,
-    /// Real code the source served alongside the rules (every code block on every crawled doc
-    /// page) — the "what's normal in this language" sample. Empty for a plain text document.
+    /// Real code the source served alongside the rules (code blocks no rule claimed) — the
+    /// "what's normal in this language" sample. Empty for a prose-only document.
     pub reference: Vec<String>,
 }
 
-impl Knowledge {
-    /// Learn from a plain **text / markdown document**. The document IS the training input —
-    /// no structured format required. Any documentation page, coding-standards wiki, or language
-    /// tutorial becomes trainable rules by simply pointing the system at it.
-    ///
-    /// The grammar has two modes:
-    ///
-    /// * **Prose-only** (the common case for real documentation): a heading starts a rule, the
-    ///   prose beneath it is the rule description. The downstream engine reads that English
-    ///   description and derives the lint pattern — no code examples needed. A sentence like
-    ///   "Avoid `e.printStackTrace()`" yields a `printStackTrace` detector automatically.
-    ///
-    /// * **With examples** (for corpus files that include them): fenced code blocks under a
-    ///   heading supply concrete bad/good examples that sharpen the derived pattern.
-    ///   `bad`/`wrong`/`avoid` ⇒ the bad example, `good`/`right`/`correct`/`fix` ⇒ the good one.
-    ///   The fence's language word (` ```rust `) sets the example language, else `default_lang`.
-    pub fn from_text(default_lang: &str, doc: &str) -> Knowledge {
-        let mut rules: Vec<LearnedRule> = Vec::new();
-        let mut cur: Option<LearnedRule> = None;
-        let mut in_fence = false;
-        let mut fence_lang = String::new();
-        let mut fence_tag = String::new();
-        let mut fence_buf = String::new();
+/// One structural piece of a document: a prose paragraph or a fenced code block. Segmentation is
+/// pure typography (blank lines, ``` fences) — it carries no rule semantics.
+enum Seg {
+    /// A paragraph of prose (consecutive non-blank lines outside fences).
+    Prose(String),
+    /// A fenced code block with its raw info string (the text after the opening ```).
+    Code { info: String, body: String },
+}
 
-        // Commit a finished fenced block to the current rule's bad/good slot.
-        fn place(rule: &mut LearnedRule, tag: &str, code: String) {
-            let is_good = matches!(tag, "good" | "right" | "correct" | "fix" | "after");
-            let is_bad = matches!(tag, "bad" | "wrong" | "avoid" | "dont" | "before");
-            if is_good || (!is_bad && !rule.bad.is_empty() && rule.good.is_empty()) {
-                rule.good = code;
-            } else {
-                rule.bad = code;
-            }
+/// Split a document into ordered prose/code segments. An unclosed trailing fence still yields its
+/// buffered code, so a truncated or broken document degrades instead of losing content.
+fn segments(doc: &str) -> Vec<Seg> {
+    let mut segs = Vec::new();
+    let mut prose = String::new();
+    let mut code = String::new();
+    let mut info = String::new();
+    let mut in_fence = false;
+    let flush_prose = |buf: &mut String, segs: &mut Vec<Seg>| {
+        if !buf.trim().is_empty() {
+            segs.push(Seg::Prose(std::mem::take(buf)));
+        } else {
+            buf.clear();
         }
-
-        for line in doc.lines() {
-            let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("```") {
-                if in_fence {
-                    // Closing fence: commit the block.
-                    if let Some(r) = cur.as_mut() {
-                        if !r.language.is_empty() && !fence_lang.is_empty() {
-                            r.language = fence_lang.clone();
-                        } else if r.language.is_empty() {
-                            r.language = if fence_lang.is_empty() { default_lang.to_string() } else { fence_lang.clone() };
-                        }
-                        place(r, &fence_tag, fence_buf.trim_end().to_string());
-                    }
-                    in_fence = false;
-                    fence_buf.clear();
-                } else {
-                    // Opening fence: parse `lang` and/or `:tag` (e.g. `rust:bad`, `bad`, `rust`).
-                    in_fence = true;
-                    let info = rest.trim();
-                    let (l, t) = info.split_once(':').unwrap_or((info, ""));
-                    fence_lang = l.trim().to_string();
-                    fence_tag = if t.is_empty() { l.trim().to_string() } else { t.trim().to_string() };
-                    // If the single word is itself a tag (untagged-language case), treat it so.
-                    if t.is_empty() && !matches!(l.trim(), "bad" | "wrong" | "avoid" | "dont" | "before" | "good" | "right" | "correct" | "fix" | "after") {
-                        fence_tag = String::new();
-                        fence_lang = l.trim().to_string();
-                    } else if t.is_empty() {
-                        fence_lang = String::new();
-                    }
-                }
-                continue;
-            }
+    };
+    for line in doc.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("```") {
             if in_fence {
-                fence_buf.push_str(line);
-                fence_buf.push('\n');
-                continue;
+                segs.push(Seg::Code { info: std::mem::take(&mut info), body: code.trim_end().to_string() });
+                code.clear();
+                in_fence = false;
+            } else {
+                flush_prose(&mut prose, &mut segs);
+                info = rest.trim().to_string();
+                in_fence = true;
             }
-            if let Some(h) = heading(trimmed) {
-                if let Some(mut r) = cur.take() {
-                    // Commit when there is either a code example OR a non-trivial description.
-                    // Prose-only rules (no bad example) are valid: the engine reads the English
-                    // description and derives the pattern; the SELF-FIRE gate validates or drops it.
-                    if r.language.is_empty() { r.language = default_lang.to_string(); }
-                    if !r.bad.is_empty() || r.description.len() > r.id.len() {
-                        rules.push(r);
-                    }
-                }
-                let (sev, title) = split_severity(h);
-                cur = Some(LearnedRule {
-                    language: String::new(),
-                    id: slug(title),
-                    severity: sev,
-                    description: title.to_string(),
-                    bad: String::new(),
-                    good: String::new(),
-                });
-            } else if let Some(r) = cur.as_mut() {
-                // Prose between the heading and the first fence extends the description.
-                let t = line.trim();
-                if !t.is_empty() && r.bad.is_empty() {
-                    if r.description == r.id {
-                        // The heading was the bare rule id (`## no_arrays [high]`) — the prose IS
-                        // the description; keep the id out of the English advice.
-                        r.description = t.to_string();
-                    } else {
-                        if !r.description.is_empty() {
-                            r.description.push(' ');
-                        }
-                        r.description.push_str(t);
-                    }
-                }
-            }
+            continue;
         }
-        if let Some(mut r) = cur.take() {
-            if r.language.is_empty() { r.language = default_lang.to_string(); }
-            if !r.bad.is_empty() || r.description.len() > r.id.len() {
-                rules.push(r);
-            }
+        if in_fence {
+            code.push_str(line);
+            code.push('\n');
+        } else if trimmed.is_empty() {
+            flush_prose(&mut prose, &mut segs);
+        } else {
+            prose.push_str(line);
+            prose.push('\n');
         }
-        Knowledge { rules, reference: Vec::new() }
+    }
+    if in_fence && !code.trim().is_empty() {
+        segs.push(Seg::Code { info, body: code.trim_end().to_string() });
+    } else {
+        flush_prose(&mut prose, &mut segs);
+    }
+    segs
+}
+
+/// Strip markdown decoration from one prose line (list bullets, blockquote marks, emphasis
+/// asterisks/underscores at the edges) so the reader sees words, not typography. A plain-text
+/// line passes through unchanged.
+fn clean_line(line: &str) -> String {
+    let mut t = line.trim();
+    for marker in ["- ", "* ", "+ ", "> "] {
+        if let Some(rest) = t.strip_prefix(marker) {
+            t = rest.trim_start();
+            break;
+        }
+    }
+    t.trim_matches(|c| c == '*' || c == '_').trim().to_string()
+}
+
+/// A paragraph's `(heading, body)` split: when its first line is a markdown ATX heading the
+/// heading text names the rule and the remaining lines are its description; otherwise there is no
+/// heading and the whole paragraph is body.
+fn split_heading(paragraph: &str) -> (Option<String>, String) {
+    let mut lines = paragraph.lines();
+    let first = lines.next().unwrap_or("").trim();
+    let stripped = first.trim_start_matches('#');
+    let body_rest: Vec<String> = lines.map(clean_line).filter(|l| !l.is_empty()).collect();
+    if stripped.len() < first.len() {
+        (Some(stripped.trim_matches('#').trim().to_string()), body_rest.join(" "))
+    } else {
+        let mut all = vec![clean_line(first)];
+        all.extend(body_rest);
+        (None, all.into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" "))
     }
 }
 
-/// A markdown ATX heading's text, or `None`.
-fn heading(line: &str) -> Option<&str> {
-    let h = line.trim_start_matches('#');
-    if h.len() < line.len() && line.starts_with('#') {
-        Some(h.trim())
-    } else {
-        None
+/// The building rule during a fold plus how it started — a heading-started rule absorbs the
+/// paragraphs that follow it; a paragraph-started rule treats the next paragraph as a NEW rule, so
+/// a bare list of English instructions yields one rule per instruction.
+struct Building {
+    rule: LearnedRule,
+    from_heading: bool,
+}
+
+impl Knowledge {
+    /// READ a plain **text / markdown document** into rules. The document IS the training input —
+    /// no structured format required (see the module doc for the full contract). `polarity` is the
+    /// learned prohibition/endorsement classifier local documents are read through
+    /// ([`crate::lint_docs::document_polarity`]); `None` degrades every semantic decision to the
+    /// document-order fallback, never to an error.
+    ///
+    /// `default_lang` is the language rules belong to when the document names none (project files
+    /// use their filename stem; `"any"` means every language). A fence info word that names the
+    /// default language or a bundled grammar sets that rule's language; every other info word is
+    /// read as prose and helps classify the block's polarity.
+    pub fn read_document(default_lang: &str, doc: &str, polarity: Option<&Polarity>) -> Knowledge {
+        let mut rules: Vec<LearnedRule> = Vec::new();
+        let mut reference: Vec<String> = Vec::new();
+        let mut cur: Option<Building> = None;
+        let mut lead = String::new();
+
+        let commit = |cur: &mut Option<Building>, rules: &mut Vec<LearnedRule>| {
+            if let Some(b) = cur.take() {
+                let mut r = b.rule;
+                if r.language.is_empty() {
+                    r.language = default_lang.to_string();
+                }
+                if !r.bad.is_empty() || r.description.split_whitespace().count() >= 3 {
+                    rules.push(r);
+                }
+            }
+        };
+        // Prohibition (true) / endorsement (false) of a snippet of surrounding words — the
+        // learned classifier's call, `None` when it abstains or no classifier is available.
+        let read_polarity = |text: &str| -> Option<bool> {
+            let t = text.trim();
+            if t.is_empty() {
+                return None;
+            }
+            polarity.and_then(|p| p.classify(t))
+        };
+
+        let segs = segments(doc);
+        for (i, seg) in segs.iter().enumerate() {
+            match seg {
+                Seg::Prose(p) => {
+                    let (heading, body) = split_heading(p);
+                    if let Some(h) = heading {
+                        commit(&mut cur, &mut rules);
+                        let (severity, title) = split_severity(&h);
+                        // A bare-id heading (`## no_eval [high]`) contributes nothing to the
+                        // English advice — the prose IS the advice; a descriptive heading's words
+                        // stay in it.
+                        let description = if slug(title) == title.trim() && !body.is_empty() {
+                            body
+                        } else {
+                            format!("{title} {body}").trim().to_string()
+                        };
+                        cur = Some(Building {
+                            rule: LearnedRule {
+                                language: String::new(),
+                                id: slug(title),
+                                severity,
+                                description,
+                                bad: String::new(),
+                                good: String::new(),
+                            },
+                            from_heading: true,
+                        });
+                        lead.clear();
+                        continue;
+                    }
+                    let clean = body;
+                    let next_is_code = matches!(segs.get(i + 1), Some(Seg::Code { .. }));
+                    // A short line right before code ("Bad:", "Instead, write:") is the block's
+                    // lead-in — words that orient the block, not a rule of their own.
+                    if next_is_code && clean.split_whitespace().count() <= 6 && cur.is_some() {
+                        lead = clean;
+                        continue;
+                    }
+                    match cur.as_mut() {
+                        // A heading-started rule absorbs its body paragraphs until code arrives.
+                        Some(b) if b.from_heading && b.rule.bad.is_empty() && b.rule.good.is_empty() => {
+                            if b.rule.description == b.rule.id {
+                                // The heading was the bare rule id — this prose IS the advice.
+                                b.rule.description = clean;
+                            } else {
+                                if !b.rule.description.is_empty() {
+                                    b.rule.description.push(' ');
+                                }
+                                b.rule.description.push_str(&clean);
+                            }
+                        }
+                        // A plain paragraph after a finished/paragraph rule is the NEXT rule.
+                        _ => {
+                            commit(&mut cur, &mut rules);
+                            let (severity, text) = split_severity(&clean);
+                            let id = slug(&text.split_whitespace().take(8).collect::<Vec<_>>().join(" "));
+                            cur = Some(Building {
+                                rule: LearnedRule {
+                                    language: String::new(),
+                                    id,
+                                    severity,
+                                    description: text.to_string(),
+                                    bad: String::new(),
+                                    good: String::new(),
+                                },
+                                from_heading: false,
+                            });
+                        }
+                    }
+                    lead.clear();
+                }
+                Seg::Code { info, body } => {
+                    let Some(b) = cur.as_mut() else {
+                        // Code no rule claims is still knowledge: the "what's normal" reference.
+                        reference.push(body.clone());
+                        lead.clear();
+                        continue;
+                    };
+                    // Split the fence info into a language hint vs orientation words: a word is a
+                    // language when it names the document's default language or a bundled grammar;
+                    // everything else is prose the classifier reads.
+                    let mut lang_hint: Option<String> = None;
+                    let mut orient_words = String::new();
+                    for tok in info.split(|c: char| !c.is_ascii_alphanumeric()).filter(|t| !t.is_empty()) {
+                        let low = tok.to_lowercase();
+                        if lang_hint.is_none() && (low == default_lang || crate::lint_match::bundled_language(&low)) {
+                            lang_hint = Some(low);
+                        } else {
+                            orient_words.push_str(tok);
+                            orient_words.push(' ');
+                        }
+                    }
+                    if let Some(l) = lang_hint {
+                        if b.rule.language.is_empty() {
+                            b.rule.language = l;
+                        }
+                    }
+                    // Decide the block's polarity by reading, most-local words first: the lead-in
+                    // + fence words, then the rule's own description; document order (violation
+                    // first, fix after) breaks the tie when everything abstains.
+                    let local = format!("{lead} {orient_words}");
+                    let is_bad = read_polarity(&local)
+                        .or_else(|| read_polarity(&b.rule.description))
+                        .unwrap_or(b.rule.bad.is_empty());
+                    let (first, second) = if is_bad {
+                        (&mut b.rule.bad, &mut b.rule.good)
+                    } else {
+                        (&mut b.rule.good, &mut b.rule.bad)
+                    };
+                    if first.is_empty() {
+                        *first = body.clone();
+                    } else if second.is_empty() {
+                        *second = body.clone();
+                    } else {
+                        reference.push(body.clone());
+                    }
+                    lead.clear();
+                }
+            }
+        }
+        commit(&mut cur, &mut rules);
+        Knowledge { rules, reference }
     }
 }
 
@@ -198,3 +345,141 @@ fn slug(title: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A small trained classifier whose vocabulary covers the orientation words documents
+    /// actually use — built from labeled prose exactly like the grounded path builds one.
+    fn polarity() -> Polarity {
+        Polarity::from_labeled(&[
+            ("bad wrong avoid never do this it is deprecated and unsafe", true),
+            ("never use this forbidden dangerous broken pattern anywhere", true),
+            ("do not call this discouraged brittle unsafe function", true),
+            ("this fragile obsolete style leaks and must not be used", true),
+            ("good correct prefer this recommended safe form instead", false),
+            ("always use the idiomatic clean supported approach here", false),
+            ("this canonical fix is right and well tested", false),
+            ("the proper maintainable way handles errors explicitly", false),
+        ])
+    }
+
+    #[test]
+    fn heading_less_plain_sentences_each_become_a_rule() {
+        let doc = "Never call eval anywhere in this project; parse the input explicitly.\n\n\
+                   Do not use list literals in configuration code; use tuples instead.\n";
+        let k = Knowledge::read_document("any", doc, None);
+        assert_eq!(k.rules.len(), 2, "one rule per instruction: {:?}", k.rules);
+        assert_eq!(k.rules[0].id, "never_call_eval_anywhere_in_this_project_parse");
+        assert!(k.rules[0].description.contains("parse the input explicitly"));
+        assert_eq!(k.rules[0].language, "any");
+        assert!(k.rules[1].description.contains("use tuples instead"));
+    }
+
+    #[test]
+    fn heading_names_the_rule_and_prose_is_the_advice() {
+        let doc = "## no_eval [high]\nNever call `eval` anywhere; parse the input explicitly.\n";
+        let k = Knowledge::read_document("python", doc, None);
+        assert_eq!(k.rules.len(), 1);
+        let r = &k.rules[0];
+        assert_eq!(r.id, "no_eval");
+        assert_eq!(r.severity, "high");
+        assert_eq!(r.description, "Never call `eval` anywhere; parse the input explicitly.");
+        assert_eq!(r.language, "python");
+    }
+
+    #[test]
+    fn descriptive_heading_keeps_its_words_in_the_advice() {
+        let doc = "## Comments Explain Why, Not What\n\nCode already says what it does.\n";
+        let k = Knowledge::read_document("any", doc, None);
+        assert_eq!(k.rules[0].id, "comments_explain_why_not_what");
+        assert!(k.rules[0].description.contains("Comments Explain Why"));
+        assert!(k.rules[0].description.contains("Code already says"));
+    }
+
+    #[test]
+    fn prohibition_prose_marks_its_code_block_as_the_violation() {
+        let doc = "Never spawn raw threads for background work.\n\n```\nthread::spawn(work)\n```\n";
+        let p = polarity();
+        let k = Knowledge::read_document("rust", doc, Some(&p));
+        assert_eq!(k.rules.len(), 1);
+        assert_eq!(k.rules[0].bad, "thread::spawn(work)");
+        assert!(k.rules[0].good.is_empty());
+    }
+
+    #[test]
+    fn endorsement_prose_marks_its_code_block_as_the_fix() {
+        let doc = "Prefer the recommended safe form for path handling, always use it.\n\n\
+                   ```\nPath::new(p).join(q)\n```\n";
+        let p = polarity();
+        let k = Knowledge::read_document("rust", doc, Some(&p));
+        assert_eq!(k.rules.len(), 1, "{:?}", k.rules);
+        assert_eq!(k.rules[0].good, "Path::new(p).join(q)", "endorsed example is the fix, not the violation");
+        assert!(k.rules[0].bad.is_empty());
+    }
+
+    #[test]
+    fn bad_then_good_lead_ins_orient_both_blocks() {
+        let doc = "## no_string_paths\nNever build paths by string concatenation, it is wrong and unsafe.\n\n\
+                   Bad:\n\n```\np = a + \"/\" + b\n```\n\nGood:\n\n```\np = join(a, b)\n```\n";
+        let p = polarity();
+        let k = Knowledge::read_document("any", doc, Some(&p));
+        assert_eq!(k.rules.len(), 1, "{:?}", k.rules);
+        assert_eq!(k.rules[0].bad, "p = a + \"/\" + b");
+        assert_eq!(k.rules[0].good, "p = join(a, b)");
+    }
+
+    #[test]
+    fn document_order_breaks_ties_without_a_classifier() {
+        let doc = "## no_arrays\nxyzzy qwerty plugh zork.\n\n```\nxs = [1]\n```\n\n```\nxs = (1,)\n```\n";
+        let k = Knowledge::read_document("any", doc, None);
+        assert_eq!(k.rules[0].bad, "xs = [1]", "first block defaults to the violation");
+        assert_eq!(k.rules[0].good, "xs = (1,)", "second block defaults to the fix");
+    }
+
+    #[test]
+    fn fence_words_resolve_to_language_or_orientation_by_reading() {
+        // `qx` matches the document's default language; `bad`/`good` classify as orientation.
+        let doc = "## no_brackets\nDo not use bracket literals, never.\n\n\
+                   ```qx:bad\nxs = [1]\n```\n\n```qx:good\nxs = tuple(1)\n```\n";
+        let p = polarity();
+        let k = Knowledge::read_document("qx", doc, Some(&p));
+        let r = &k.rules[0];
+        assert_eq!(r.language, "qx");
+        assert_eq!(r.bad, "xs = [1]");
+        assert_eq!(r.good, "xs = tuple(1)");
+    }
+
+    #[test]
+    fn bundled_grammar_name_in_a_fence_sets_the_rule_language() {
+        let doc = "## no_arrays\nNever use list literals anywhere.\n\n```python\nxs = [1, 2]\n```\n";
+        let p = polarity();
+        let k = Knowledge::read_document("any", doc, Some(&p));
+        assert_eq!(k.rules[0].language, "python");
+        assert_eq!(k.rules[0].bad, "xs = [1, 2]");
+    }
+
+    #[test]
+    fn orphan_code_is_reference_not_a_rule() {
+        let doc = "```\nlet x = 1;\n```\n";
+        let k = Knowledge::read_document("rust", doc, None);
+        assert!(k.rules.is_empty());
+        assert_eq!(k.reference, vec!["let x = 1;".to_string()]);
+    }
+
+    #[test]
+    fn broken_markdown_degrades_instead_of_crashing() {
+        let doc = "## broken [high\nunclosed severity, no fences\n``` \n,,,\n";
+        let k = Knowledge::read_document("any", doc, None);
+        assert!(!k.rules.is_empty(), "still yields the readable part");
+        assert_eq!(k.rules[0].severity, "medium", "malformed tag falls back, never panics");
+    }
+
+    #[test]
+    fn heading_started_rules_absorb_their_paragraphs_but_plain_rules_do_not_merge() {
+        let doc = "## single_responsibility\nEach unit does one thing.\n\nSplit it when it grows.\n";
+        let k = Knowledge::read_document("any", doc, None);
+        assert_eq!(k.rules.len(), 1, "paragraphs under a heading are one rule");
+        assert!(k.rules[0].description.contains("Split it when it grows"));
+    }
+}
