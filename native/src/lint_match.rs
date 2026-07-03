@@ -851,7 +851,7 @@ fn text_discriminator(bad: &str, good: &str) -> Option<String> {
     // literals are ignored — pure-value differences like 0 vs 1 are semantic, not syntactic),
     // Ruby ?/! methods, shell flags (--verbose, -v), sigiled vars ($var, @var), and operators.
     let tok_re = regex::Regex::new(
-        r"--?[A-Za-z][\w-]*|[$@]\w+|[A-Za-z_]\w*[!?]?|==|!=|<=|>=|->|=>|\.\.|::",
+        r"--?[A-Za-z][\w-]*|[$@]\w+|[A-Za-z_]\w*[!?]?|==|!=|<=|>=|->|=>|\.\.|::|[\[\]{}]",
     )
     .expect("static regex");
 
@@ -877,17 +877,23 @@ fn text_discriminator(bad: &str, good: &str) -> Option<String> {
     };
 
     // 1. Ordered pair on the same line — `.*?` allows any punctuation between tokens.
-    for win in bad_toks.windows(2) {
-        if !is_useful(win[0]) && !is_useful(win[1]) {
-            continue; // both are single-char — no discriminating power
-        }
-        if good_set.contains(win[0]) && good_set.contains(win[1]) {
-            continue;
-        }
-        let pat = format!("{}.*?{}", wpat(win[0]), wpat(win[1]));
-        if let Ok(re) = regex::Regex::new(&pat) {
-            if re.is_match(bad) && !re.is_match(good) {
-                return Some(pat);
+    // Two passes: first demand BOTH tokens be absent from the fix (pure bad ∧ ¬good — these
+    // generalize, e.g. `[.*?]` from a no-arrays rule), then relax to "not both present" so a
+    // pair anchored on one shared name can still discriminate when nothing purer exists.
+    for strict in [true, false] {
+        for win in bad_toks.windows(2) {
+            if !is_useful(win[0]) && !is_useful(win[1]) {
+                continue; // both are single-char — no discriminating power
+            }
+            let in_good = (good_set.contains(win[0]), good_set.contains(win[1]));
+            if if strict { in_good.0 || in_good.1 } else { in_good.0 && in_good.1 } {
+                continue;
+            }
+            let pat = format!("{}.*?{}", wpat(win[0]), wpat(win[1]));
+            if let Ok(re) = regex::Regex::new(&pat) {
+                if re.is_match(bad) && !re.is_match(good) {
+                    return Some(pat);
+                }
             }
         }
     }
