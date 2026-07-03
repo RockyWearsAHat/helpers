@@ -1,0 +1,20 @@
+{
+  "comment": "Prose corpora the READER learns from when the polarity bootstrap is regenerated — reading material only, never rules. Expanding what the model understands (coder slang, how programmers actually talk about good and bad code) is an entry here, never a code change.",
+  "sources": [
+    {
+      "url": "https://stackoverflow.com/questions?tab=Votes",
+      "pages": 40,
+      "note": "how working coders phrase problems, fixes, and judgments of code quality"
+    },
+    {
+      "url": "https://meta.stackexchange.com/questions?tab=Votes",
+      "pages": 15,
+      "note": "community register: informal technical argumentation"
+    },
+    {
+      "url": "https://www.urbandictionary.com/",
+      "pages": 25,
+      "note": "slang register — informal vocabulary the reader should not mistake for code"
+    }
+  ]
+}

@@ -3,16 +3,18 @@
 //! [`ConceptModel`] confirmation gate. One call to [`ensure_models`] does everything the lint
 //! tool needs.
 //!
-//! The two documentation sources:
+//! Law comes from exactly three places; everything else is READING:
 //!
-//!   1. **Official web documentation** — the official rule docs for each language (clippy / ruff /
-//!      eslint / staticcheck / pmd). The linter crawls the live docs and caches what it learns;
-//!      a committed `lint-index/` snapshot seeds the offline case.
-//!   2. **File documentation** — `extraDocs/` (global principles, shipped with the tool) and the
-//!      project's own law: every `*.md`/`*.txt` under `.helpers/lint-rules/` plus a root-level
-//!      `lintPref.md`/`lintPref.txt`. Each file is READ ([`crate::linter::Knowledge::read_document`])
-//!      — plain English, no required format: examples become rules; prose-only instructions become
-//!      description-derived rules.
+//!   1. **Official web documentation** — each language's official docs, crawled live and cached
+//!      (a committed `lint-index/` snapshot seeds the offline case).
+//!   2. **The project's own law** — every `*.md`/`*.txt` under `.helpers/lint-rules/` plus a
+//!      root-level `lintPref.md`/`lintPref.txt`, READ as plain English
+//!      ([`crate::linter::Knowledge::read_document`]) with no required format.
+//!   3. **The curated rule catalog** — `extraDocs/lint-corpus.jsonl` (real linter rules, whose
+//!      bad examples also structurally label the polarity seed).
+//!
+//! `extraDocs/` prose and the registered reading sources are TEACHING material: they train the
+//! reader and the classifier and never mint rules — enforcement never grows out of reading.
 //!
 //! Rules with bad/good examples compile to lossless AST patterns (or discriminating token regexes
 //! for grammarless languages) in [`RuleSet`]; the same rules' description + example tokens bundle
@@ -46,7 +48,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v10-grounded-shape-free-selection";
+const TRAIN_VERSION: &str = "docs-v12-context-leans";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -272,21 +274,38 @@ pub(crate) fn project_rules(data_root: &Path, project_root: &Path, lang: &str) -
 /// that ordinary teaching vocabulary means bad. Rules without a bad example ("Apply De Morgan's
 /// law") are suggestions and seed nothing. Toolchain grounding supplies the endorsement side and
 /// keeps growing both.
-pub(crate) fn corpus_prohibition_prose(data_root: &Path) -> Vec<String> {
+/// The curated catalog's labeled seed prose, `(sentence, is_prohibition)`. Both labels come from
+/// the catalog's own structure — no vocabulary:
+///
+///   * a rule that SHIPS a bad example states a violation, and its LEADING sentence names it
+///     (documentation names the violation before the remedy — the same order convention document
+///     reading uses everywhere);
+///   * the remedy TAIL of that same rule ("…; use the logging module instead") ENDORSES the
+///     alternative — labeling it good teaches the classifier the remedy register, so remedy
+///     vocabulary can never be mistaken for the construct a law forbids. Labeling whole
+///     descriptions bad taught earlier classifiers exactly that mistake, measurably.
+pub(crate) fn corpus_seed(data_root: &Path) -> Vec<(String, bool)> {
     let Ok(jsonl) = std::fs::read_to_string(data_root.join("extraDocs/lint-corpus.jsonl")) else {
         return Vec::new();
     };
-    jsonl
-        .lines()
-        .filter_map(|line| {
-            let v: serde_json::Value = serde_json::from_str(line).ok()?;
-            if v["bad"].as_str().unwrap_or("").trim().is_empty() {
-                return None;
-            }
-            let d = v["description"].as_str()?;
-            (d.split_whitespace().count() >= 3).then(|| d.to_string())
-        })
-        .collect()
+    let worth = |s: &str| s.split_whitespace().count() >= 3;
+    let mut out = Vec::new();
+    for line in jsonl.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        if v["bad"].as_str().unwrap_or("").trim().is_empty() {
+            continue;
+        }
+        let Some(d) = v["description"].as_str() else { continue };
+        let sentences = crate::lint_read::sentences(d);
+        if let Some(lead) = sentences.first().filter(|s| worth(s)) {
+            out.push((lead.to_string(), true));
+        }
+        let tail = sentences.iter().skip(1).copied().collect::<Vec<_>>().join(" ");
+        if worth(&tail) {
+            out.push((tail, false));
+        }
+    }
+    out
 }
 
 /// The model cache directory — exposed for sibling modules that persist shared learned
@@ -342,26 +361,19 @@ pub fn ensure_models(
 ) -> (TrainReport, HashMap<String, LangModel>) {
     let mut report = TrainReport::default();
     let mut models = HashMap::new();
-    let folder = corpus_rules(data_root);
 
     for lang in langs {
         let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
         // Trust order decides who wins a shared pattern signature at dedup time
         // (RuleSet::build keeps the FIRST rule per pattern): the project's own law first,
-        // then the corpus folder's principles, then the crawled docs.
+        // then the crawled docs. The corpus folder (`extraDocs/`) is TEACHING material — it
+        // trains the reader and the classifier, and contributes no rules: law comes from the
+        // project's rule files, the curated catalog, and official docs.
         let (doc_rules, reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
         let mut rules = project_rules(data_root, project_root, lang);
         // The project's own law is trusted by LOCATION: the user wrote it in a rule file, so it
         // states a violation by construction and bypasses the prohibition gate at compile time.
         let trusted: std::collections::HashSet<String> = rules.iter().map(|r| r.id.clone()).collect();
-        // `any` rules govern every CODE language; documentation formats get only rules written
-        // FOR them ([`is_document_language`]) — documents are read, not held to code law.
-        let allow_any = !is_document_language(lang);
-        rules.extend(
-            folder.iter()
-                .filter(|(l, _)| l == lang || (allow_any && (l == "any" || l.is_empty())))
-                .map(|(_, r)| r.clone()),
-        );
         rules.extend(doc_rules);
 
         if rules.is_empty() {
@@ -732,47 +744,21 @@ fn is_catalog_name(name: Option<&str>) -> bool {
     matches!(name, Some(n) if n.ends_with(".json") && n != "sources.json")
 }
 
-/// The corpus folder rules as `(language, DocRule)` — the second knowledge source. READS every
-/// `*.md`/`*.txt` file in `extraDocs/` so adding a new principles document takes effect
-/// immediately on the next lint run. Falls back to the embedded principles doc when the directory
-/// is absent.
-fn corpus_rules(data_root: &Path) -> Vec<(String, DocRule)> {
+/// The corpus folder's PROSE — teaching material the reader learns from (`extraDocs/*.md`/`.txt`,
+/// embedded principles doc as the offline fallback). Teaching trains the reader, the classifier,
+/// and the concept space; it never mints rules — enforcing a section's illustrative fences turned
+/// reading material into law, which is exactly the confusion the comprehension/enforcement split
+/// exists to prevent.
+pub(crate) fn corpus_prose(data_root: &Path) -> Vec<String> {
     let corpus_dir = data_root.join("extraDocs");
-    let docs: Vec<(String, String)> = match std::fs::read_dir(&corpus_dir) {
+    match std::fs::read_dir(&corpus_dir) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
             .filter(|e| matches!(e.path().extension().and_then(|x| x.to_str()), Some("md" | "txt")))
-            .filter_map(|e| {
-                let path = e.path();
-                let name = path.to_string_lossy().into_owned();
-                std::fs::read_to_string(&path).ok().map(|text| (name, text))
-            })
+            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
             .collect(),
-        Err(_) => vec![("embedded".to_string(), EMBEDDED_CS_PRINCIPLES.to_string())],
-    };
-    let polarity = crate::lint_docs::document_polarity(data_root);
-    docs.into_iter()
-        .flat_map(|(source, doc)| {
-            crate::linter::Knowledge::read_document("any", &doc, polarity.as_ref())
-                .rules
-                .into_iter()
-                // Prose-only rules (no bad example) are valid: pattern comes from description.
-                .map(move |r| {
-                    (
-                        r.language.clone(),
-                        DocRule {
-                            id: r.id,
-                            slice: "cs-principle".to_string(),
-                            severity: r.severity,
-                            description: r.description,
-                            bad: r.bad,
-                            good: r.good,
-                            source: source.clone(),
-                        },
-                    )
-                })
-        })
-        .collect()
+        Err(_) => vec![EMBEDDED_CS_PRINCIPLES.to_string()],
+    }
 }
 
 /// Build the rule-id → [`RuleInfo`] map for rendering findings, from the SAME sources the models
@@ -824,10 +810,6 @@ pub fn advice(data_root: &Path, project_root: Option<&Path>) -> HashMap<String, 
     // anything the linter learned itself and cached overrides both (it is more current).
     put_catalogs(&mut out, &committed_modules_dir(data_root));
     put_catalogs(&mut out, &model_dir());
-    // Folder rules (the CS principles).
-    for (_, r) in corpus_rules(data_root) {
-        put(&mut out, &r);
-    }
     // Project-local rules (`.helpers/lint-rules/`, root `lintPref`) — highest priority; their
     // descriptions override everything else so a user's custom advice appears verbatim in lint
     // output.

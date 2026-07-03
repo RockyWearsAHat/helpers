@@ -55,3 +55,5 @@ lint-modules/
 lint-index/*.json
 !lint-index/sources.json
 !lint-index/toolchains.json
+!lint-index/reading-sources.json
+!lint-index/polarity-bootstrap.json

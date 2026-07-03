@@ -1,7 +1,8 @@
 //! `lint` — the AI code reviewer.
 //!
-//! Training: [`crate::lint_train::ensure_models`] reads two documentation sources (`extraDocs/` and
-//! `.helpers/lint-rules/`) plus the official-doc catalogs and returns, per language, a
+//! Training: [`crate::lint_train::ensure_models`] compiles law from the project's rule files
+//! (`.helpers/lint-rules/`, root `lintPref`), the curated catalog, and official docs — teaching
+//! prose is read, never enforced — and returns, per language, a
 //! [`crate::lint_train::LangModel`] — the [`crate::lint_match::RuleSet`] firing engine, the
 //! [`crate::lint_ai::ConceptModel`] confirmation gate. One call, checksum-cached.
 //!
@@ -207,6 +208,9 @@ pub fn run(args: &Value) -> ToolResult {
     }
 
     let mut reports: Vec<FileReport> = Vec::new();
+    // What each project law compiled to — rendered so the author SEES the comprehension and can
+    // correct a mis-read law by rephrasing, not by debugging missing findings.
+    let mut law_watch: BTreeMap<String, String> = BTreeMap::new();
     let push_hit = |reports: &mut Vec<FileReport>, path: &str, hit: Hit| {
         if let Some(r) = reports.iter_mut().find(|r| r.path == path) {
             r.hits.push(hit);
@@ -224,6 +228,11 @@ pub fn run(args: &Value) -> ToolResult {
         // Rules the project itself authored are the user's explicit law for this codebase —
         // trusted fully, never gated, however weak their compiled anchor is.
         let trusted = lint_train::project_rule_ids(&data, &root, lang);
+        for id in &trusted {
+            if let Some(watching) = model.rules.detector_of(id) {
+                law_watch.insert(id.clone(), watching);
+            }
+        }
         // Precise AST matches are exact and staged directly. Imprecise matches — text-fallback
         // regexes and container-only AST patterns (several distinct rules compile to the same bare
         // `list`) — must clear the Hv concept gate: the matched construct's tokens must agree with
@@ -320,6 +329,12 @@ pub fn run(args: &Value) -> ToolResult {
     let unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     reports.sort_by(|a, b| a.path.cmp(&b.path));
     let mut body = render(&root, &reports, &analyzed, &unanalyzed, &sources, max);
+    if !law_watch.is_empty() {
+        body.push_str("\nYour law, as understood:\n");
+        for (id, watching) in &law_watch {
+            body.push_str(&format!("  {id} → watching for {watching}\n"));
+        }
+    }
     body.push_str(&render_unenforced(&report.unenforced));
     body.push_str(&render_quarantine(&quarantined));
     body.push_str(&render_feedback(&root, &auto_suppressed));
@@ -519,7 +534,7 @@ fn data_root() -> PathBuf {
 pub fn schema() -> Value {
     json!({
         "name": "lint",
-        "description": "AI lint for the whole project. Trains itself from live official docs per language plus two file sources: extraDocs/ (global principles) and .helpers/lint-rules/ (project-local rules, the project's law). Fires learned AST patterns via tree-sitter, confirms imprecise matches with the Hv concept gate, and self-quarantines mislearned rules. Flag wrong/missing findings with lint_flag.",
+        "description": "AI lint for the whole project. Law = the project's own rule files (.helpers/lint-rules/, root lintPref — plain English) + live official docs per language + the curated catalog; everything else it reads is comprehension, never enforcement. Fires learned AST patterns via tree-sitter, confirms imprecise matches with the Hv concept gate, reports law it could not compile, and self-quarantines mislearned rules. Flag wrong/missing findings with lint_flag.",
         "inputSchema": {
             "type": "object",
             "properties": {

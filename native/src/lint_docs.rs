@@ -84,27 +84,38 @@ pub fn read_language(lang: &str, sources: &[DocsSource], max_pages: usize, data_
         }
     }
 
+    // Teaching material enriches every reading: the shipped principles corpus is prose the
+    // reader learns from alongside the docs (never rules).
+    for doc in crate::lint_train::corpus_prose(data_root) {
+        reader.learn_span(&doc);
+    }
     // Ground: test a sample of examples against the toolchain; their prose shapes the prototypes.
     let mut builder = PolarityBuilder::new(reader);
     // Seed the semantic side from structured labels the tool already possesses: every shipped or
     // project-authored rule statement is prohibition prose (a rule IS a "don't"). Costs nobody
     // anything and grows with every rule anyone writes; grounding supplies the endorsement side.
-    for prose in crate::lint_train::corpus_prohibition_prose(data_root) {
-        builder.accumulate(&prose, true);
+    for (prose, is_bad) in crate::lint_train::corpus_seed(data_root) {
+        builder.accumulate(&prose, is_bad);
     }
-    let mut checked = 0usize;
-    for (_, _, prose, code) in &units {
-        if prose.split_whitespace().count() < 3 {
-            continue;
-        }
-        match crate::lint_toolchain::check(lang, code, data_root) {
+    // Ground in PARALLEL: each check spawns the toolchain once (an isolated temp file per
+    // probe), so the wall-clock cost is process spawns, not the 1-bit math — a serial loop here
+    // was the slowest part of learning a language. Verdicts fold into the prototypes serially
+    // afterwards, keeping the accumulation deterministic in unit order.
+    use rayon::prelude::*;
+    let probes: Vec<&(String, String, String, String)> = units
+        .iter()
+        .filter(|(_, _, prose, _)| prose.split_whitespace().count() >= 3)
+        .take(MAX_GROUND_CHECKS)
+        .collect();
+    let verdicts: Vec<crate::lint_toolchain::Verdict> = probes
+        .par_iter()
+        .map(|(_, _, _, code)| crate::lint_toolchain::check(lang, code, data_root))
+        .collect();
+    for ((_, _, prose, _), verdict) in probes.into_iter().zip(verdicts) {
+        match verdict {
             crate::lint_toolchain::Verdict::Flagged => builder.accumulate(prose, true),
             crate::lint_toolchain::Verdict::Clean => builder.accumulate(prose, false),
-            crate::lint_toolchain::Verdict::Unknown => continue,
-        }
-        checked += 1;
-        if checked >= MAX_GROUND_CHECKS {
-            break;
+            crate::lint_toolchain::Verdict::Unknown => {}
         }
     }
     let mut polarity = builder.build();
@@ -698,16 +709,44 @@ mod transfer_probe {
                 reader.learn_span(prose);
             }
         }
-        let mut builder = PolarityBuilder::new(reader);
-        for prose in crate::lint_train::corpus_prohibition_prose(&data_root) {
-            builder.accumulate(&prose, true);
+        // Extra READING (never rules): the teaching corpus and the registered prose corpora —
+        // CS principles, coder slang, how programmers actually talk
+        // (`extraDocs/`, `lint-index/reading-sources.json`). Expanding the model's register is
+        // a data edit; a source that cannot be fetched simply contributes nothing.
+        for doc in crate::lint_train::corpus_prose(&data_root) {
+            reader.learn_span(&doc);
         }
-        for (lang, pairs) in &read {
-            for (prose, code) in pairs {
-                if prose.split_whitespace().count() < 3 || code.len() < 3 {
-                    continue;
+        if let Some(raw) = crate::lint_train::lint_index_file(&data_root, "reading-sources.json") {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+                for src in json["sources"].as_array().into_iter().flatten() {
+                    let Some(url) = src["url"].as_str() else { continue };
+                    let pages = src["pages"].as_u64().unwrap_or(20) as usize;
+                    let mut learned_pages = 0usize;
+                    for p in crate::doc_crawler::crawl(&[url], pages, 50) {
+                        reader.learn_span(&p.prose);
+                        learned_pages += 1;
+                    }
+                    println!("read {learned_pages} page(s) of {url}");
                 }
-                match crate::lint_toolchain::check(lang, code, &data_root) {
+            }
+        }
+        let mut builder = PolarityBuilder::new(reader);
+        for (prose, is_bad) in crate::lint_train::corpus_seed(&data_root) {
+            builder.accumulate(&prose, is_bad);
+        }
+        // Ground every reading in parallel — the spawn cost dominates, never the Hv math.
+        use rayon::prelude::*;
+        for (lang, pairs) in &read {
+            let probes: Vec<&(String, String)> = pairs
+                .iter()
+                .filter(|(prose, code)| prose.split_whitespace().count() >= 3 && code.len() >= 3)
+                .collect();
+            let verdicts: Vec<crate::lint_toolchain::Verdict> = probes
+                .par_iter()
+                .map(|(_, code)| crate::lint_toolchain::check(lang, code, &data_root))
+                .collect();
+            for ((prose, _), verdict) in probes.into_iter().zip(verdicts) {
+                match verdict {
                     crate::lint_toolchain::Verdict::Flagged => builder.accumulate(prose, true),
                     crate::lint_toolchain::Verdict::Clean => builder.accumulate(prose, false),
                     crate::lint_toolchain::Verdict::Unknown => {}

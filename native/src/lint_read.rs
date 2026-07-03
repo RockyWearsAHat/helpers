@@ -34,25 +34,104 @@ const SURPRISE_RADIUS: u32 = (DIM / 4) as u32;
 /// but no new context is added — the memory saturates rather than growing without limit.
 const MEM_CAP: usize = 4096;
 
-/// Split text into meaningful tokens for the reader: Unicode word runs, lowercased. A run that
-/// contains any non-ASCII character also contributes each of its characters as its own token, so
-/// prose in a script without spaces (Japanese, Chinese) still shares morphemes across phrasings
-/// instead of collapsing to one opaque token.
+/// Split text into meaningful tokens for the reader: Unicode word runs, lowercased. The
+/// vocabulary is SELF-DEFINING — any string becomes a code, nothing is enumerated — and a run
+/// additionally contributes its sub-parts so an unseen compound is COMPREHENDED through parts
+/// the reader has read:
+///
+///   * a run with any non-ASCII character contributes each character (Japanese/Chinese prose
+///     shares morphemes across phrasings instead of collapsing to one opaque token);
+///   * a run with internal case or letter/digit boundaries (camelCase, PascalCase, `env2json`)
+///     contributes each part — `getUserName` is read as itself PLUS get/user/name, so a word the
+///     reader never saw still lands near the vocabulary it is built from. Case boundaries are
+///     script typography, exactly like whitespace — no vocabulary is consulted.
 pub fn tokens(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (full, parts) in read_units(text) {
+        if !full.is_empty() {
+            out.push(full);
+        }
+        out.extend(parts);
+    }
+    out
+}
+
+/// Split prose into SENTENCES: a boundary is sentence punctuation (`.;!?` or a newline) followed
+/// by whitespace or the end of the text. A `.` between letters (`string.format`, `pickle.loads`)
+/// is part of a word, not a boundary — naive splitting mutilates exactly the constructs prose
+/// laws name. Pure typography, no vocabulary.
+pub fn sentences(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    for (i, b) in bytes.iter().enumerate() {
+        let boundary = matches!(b, b'.' | b';' | b'!' | b'?')
+            && bytes.get(i + 1).is_none_or(|n| n.is_ascii_whitespace());
+        if boundary || *b == b'\n' {
+            let s = text[start..i].trim();
+            if !s.is_empty() {
+                out.push(s);
+            }
+            start = i + 1;
+        }
+    }
+    let tail = text[start..].trim();
+    if !tail.is_empty() {
+        out.push(tail);
+    }
+    out
+}
+
+/// One reading unit per word run: the run itself (lowercased; empty when under 2 chars) plus its
+/// typographic sub-parts. Parts come from script typography only — CJK characters, camelCase /
+/// acronym case boundaries, letter↔digit edges — never a vocabulary, so the decomposition works
+/// for words that do not exist yet. [`Reader`] encodes an uncommon unit as its word AND its
+/// parts, which is how an unseen compound is comprehended through vocabulary already read.
+pub fn read_units(text: &str) -> Vec<(String, Vec<String>)> {
     let mut out = Vec::new();
     for run in text.split(|c: char| !c.is_alphanumeric()) {
         if run.is_empty() {
             continue;
         }
         let lower = run.to_lowercase();
-        if lower.chars().count() >= 2 {
-            out.push(lower.clone());
-        }
+        let full = if lower.chars().count() >= 2 { lower } else { String::new() };
+        let mut parts: Vec<String> = Vec::new();
         if run.chars().any(|c| !c.is_ascii()) {
             for ch in run.chars() {
                 let mut buf = [0u8; 4];
-                out.push(ch.encode_utf8(&mut buf).to_lowercase());
+                parts.push(ch.encode_utf8(&mut buf).to_lowercase());
             }
+        } else {
+            // Case/digit boundaries: before an uppercase following a lowercase (camel), before
+            // the last uppercase of an acronym head (HTMLParser → html, parser), at digit edges.
+            let chars: Vec<char> = run.chars().collect();
+            let mut segs: Vec<String> = Vec::new();
+            let mut start = 0usize;
+            for i in 1..chars.len() {
+                let (prev, cur) = (chars[i - 1], chars[i]);
+                let camel = cur.is_ascii_uppercase() && prev.is_ascii_lowercase();
+                let acronym_end = cur.is_ascii_lowercase()
+                    && prev.is_ascii_uppercase()
+                    && i >= 2
+                    && chars[i - 2].is_ascii_uppercase();
+                let digit_edge = cur.is_ascii_digit() != prev.is_ascii_digit();
+                if camel || digit_edge {
+                    segs.push(chars[start..i].iter().collect());
+                    start = i;
+                } else if acronym_end {
+                    segs.push(chars[start..i - 1].iter().collect());
+                    start = i - 1;
+                }
+            }
+            if start > 0 {
+                segs.push(chars[start..].iter().collect());
+                parts.extend(
+                    segs.into_iter().map(|p| p.to_lowercase()).filter(|p| p.chars().count() >= 2),
+                );
+            }
+        }
+        if !full.is_empty() || !parts.is_empty() {
+            out.push((full, parts));
         }
     }
     out
@@ -85,15 +164,18 @@ pub struct Reader {
     /// are common — a corpus-derived stop-list, never a written one.
     #[serde(default)]
     freq: HashMap<u64, u32>,
-    /// Total tokens read — sets the "common" cutoff relative to corpus size.
+    /// Total tokens read — the mass the corpus head is measured against.
     #[serde(default)]
     total: u64,
+    /// Cached head cutoff ([`Reader::head_cutoff`]); recomputed lazily per loaded reader.
+    #[serde(skip)]
+    head: std::sync::OnceLock<u32>,
 }
 
 impl Reader {
     /// A reader that has read nothing yet.
     pub fn new() -> Reader {
-        Reader { mem: HashMap::new(), freq: HashMap::new(), total: 0 }
+        Reader { mem: HashMap::new(), freq: HashMap::new(), total: 0, head: std::sync::OnceLock::new() }
     }
 
     /// Number of learned context slots — how much the reader has comprehended.
@@ -101,9 +183,10 @@ impl Reader {
         self.mem.len()
     }
 
-    /// The frequency at or above which a token is treated as common (and dropped from a span's
-    /// salient set). Scales with corpus size so it means "much more frequent than average", never a
-    /// fixed magic number; floored at 3 so a tiny corpus still filters its obvious filler words.
+    /// The frequency at or above which a token is dropped from a span's salient VOTING set.
+    /// Scales with corpus size ("much more frequent than average"), floored so a tiny corpus
+    /// still filters its obvious filler. Voting and connectiveness are different questions —
+    /// see [`Reader::is_head_word`] for the latter.
     fn common_cutoff(&self) -> u32 {
         (self.total / 120).max(3) as u32
     }
@@ -113,6 +196,34 @@ impl Reader {
     /// unknown words stay salient. This is the word-level view of the learned stop-list.
     pub fn is_common_word(&self, token: &str) -> bool {
         self.read_count(token) >= self.common_cutoff()
+    }
+
+    /// The read count at which a token belongs to the corpus HEAD: the most-read words that
+    /// together account for half of everything the reader has ever read (Zipf's head — "the",
+    /// "to", "do", "use"…). Mass-based, so it stays meaningful at every corpus size. This is the
+    /// CONNECTIVE-word judgment construct SELECTION ranks with; it is deliberately stricter than
+    /// the voting filter — silencing a polar word like "deprecated" costs verdicts, but ranking
+    /// it behind a rarer construct costs nothing. Cached per loaded reader.
+    fn head_cutoff(&self) -> u32 {
+        *self.head.get_or_init(|| {
+            let mut counts: Vec<u32> = self.freq.values().copied().collect();
+            counts.sort_unstable_by(|a, b| b.cmp(a));
+            let half = self.total / 2;
+            let mut seen = 0u64;
+            for c in counts {
+                seen += c as u64;
+                if seen >= half {
+                    return c.max(2);
+                }
+            }
+            u32::MAX // nothing read yet — no word is common
+        })
+    }
+
+    /// Whether `token` sits in the corpus head ([`Reader::head_cutoff`]) — connective filler for
+    /// RANKING purposes.
+    pub fn is_head_word(&self, token: &str) -> bool {
+        self.read_count(token) >= self.head_cutoff()
     }
 
     /// How many times this reader has read `token` — 0 for a word it has never seen. The raw
@@ -153,12 +264,23 @@ impl Reader {
         let cutoff = self.common_cutoff();
         let mut salient = Vec::new();
         let mut all = Vec::new();
-        for tok in tokens(text) {
-            let seed = crate::lint_ai::token_seed(&tok);
-            let h = Hv::random(seed);
+        for (full, parts) in read_units(text) {
+            let word = if full.is_empty() { parts.first().cloned().unwrap_or_default() } else { full };
+            if word.is_empty() {
+                continue;
+            }
+            let h = Hv::random(crate::lint_ai::token_seed(&word));
             all.push(h);
-            if self.freq.get(&seed).copied().unwrap_or(0) < cutoff {
+            if self.read_count(&word) < cutoff {
                 salient.push(h);
+                // COMPREHENSION: a word the reader never read still contributes its
+                // typographic parts' codes, so `getUserName` shares structure with everything
+                // else built from get/user/name.
+                if self.read_count(&word) == 0 {
+                    for p in &parts {
+                        salient.push(Hv::random(crate::lint_ai::token_seed(p)));
+                    }
+                }
             }
         }
         if salient.is_empty() { all } else { salient }
@@ -323,6 +445,27 @@ impl Polarity {
         self.reader.encode(prose)
     }
 
+    /// The decisive lean of ONE token: `Some(true)` when it sits inside the prohibition
+    /// prototype's calibrated margin, `Some(false)` for the endorsement side, `None` when it
+    /// belongs to neither. This is the classifier's per-word view — the primitive that lets a
+    /// caller read polarity ALONG a text (which words forbid, which endorse) instead of chopping
+    /// the text into pieces and classifying the pieces.
+    pub fn token_lean(&self, token: &str) -> Option<bool> {
+        if !self.is_ready() {
+            return None;
+        }
+        let margin = *self.margin.get_or_init(|| calibrated_margin(&self.bad, &self.good));
+        let h = crate::lint_ai::token_hv(&token.to_lowercase());
+        let (db, dg) = (h.distance(&self.bad), h.distance(&self.good));
+        if db + margin <= dg {
+            Some(true)
+        } else if dg + margin <= db {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     /// The reader this classifier carries — the learned word-frequency knowledge other layers
     /// (e.g. grounded construct selection in [`crate::lint_match`]) consult.
     pub fn reader(&self) -> &Reader {
@@ -404,6 +547,33 @@ mod tests {
         assert!(t.contains(&"this".to_string()));
         // The CJK run contributes its individual characters so phrasings share morphemes.
         assert!(t.iter().any(|c| c == "避"), "CJK chars are tokenized: {t:?}");
+    }
+
+    #[test]
+    fn an_unseen_compound_is_comprehended_through_its_parts() {
+        // Self-expanding vocabulary: "getUserName" was never given to anyone — the reader
+        // deciphers it because case boundaries are typography, like whitespace.
+        let t = tokens("call getUserName here");
+        assert!(t.contains(&"getusername".to_string()), "the word itself is a token: {t:?}");
+        for part in ["get", "user", "name"] {
+            assert!(t.contains(&part.to_string()), "part {part} is read too: {t:?}");
+        }
+        // Acronym heads split off cleanly; digits are their own morpheme.
+        let t = tokens("HTMLParser env2json");
+        assert!(t.contains(&"html".to_string()) && t.contains(&"parser".to_string()), "{t:?}");
+        assert!(t.contains(&"env".to_string()) && t.contains(&"json".to_string()), "{t:?}");
+        // A plain word stays exactly one token — no decomposition invented.
+        assert_eq!(tokens("simple"), vec!["simple".to_string()]);
+        // And comprehension is measurable: a reader that has read plain prose about users and
+        // names places the unseen compound's span near a sibling compound, not near noise.
+        let mut r = Reader::new();
+        for _ in 0..10 {
+            r.learn_span("get the user name and set the user name for the account");
+        }
+        let a = r.encode("getUserName").expect("encodes");
+        let b = r.encode("setUserName").expect("encodes");
+        let noise = r.encode("zqxfluor").expect("encodes");
+        assert!(a.distance(&b) < a.distance(&noise), "shared parts pull compounds together");
     }
 
     #[test]
