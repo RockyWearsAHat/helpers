@@ -297,30 +297,39 @@ fn meaningful_children<'t>(node: Node<'t>) -> Vec<Node<'t>> {
     node.children(&mut cur).filter(|c| c.is_named() || is_operator_token(*c)).collect()
 }
 
-/// A canonical hash of a subtree's SHAPE — node kinds plus operators, in order — text-independent
-/// for names/literals but KEEPING operators (so `0..=n` and `0..n` hash differently). Used to find
-/// the part of the bad example whose shape the documented fix does NOT contain.
-fn shape_hash(node: Node) -> String {
-    let mut s = String::from(node.kind());
-    let kids = meaningful_children(node);
-    if !kids.is_empty() {
-        s.push('(');
-        for (i, k) in kids.iter().enumerate() {
-            if i > 0 {
-                s.push(' ');
+/// Canonical hashes of every subtree's SHAPE — node kinds plus operators, in order —
+/// text-independent for names/literals but KEEPING operators (so `0..=n` and `0..n` hash
+/// differently), memoized by node id in ONE bottom-up pass. The former per-node recursive string
+/// build was O(n²) and burned hours of CPU when a scraped "example" was a whole manual page.
+struct Shapes(HashMap<usize, u64>);
+
+impl Shapes {
+    /// One post-order pass: a node's shape hash folds its kind over its children's hashes.
+    fn of(root: Node) -> Shapes {
+        let mut map = HashMap::new();
+        fn fill(node: Node, map: &mut HashMap<usize, u64>) -> u64 {
+            let mut h = crate::lint_ai::token_seed(node.kind());
+            for c in meaningful_children(node) {
+                h = h.rotate_left(7) ^ fill(c, map).wrapping_mul(0x9E3779B97F4A7C15);
             }
-            s.push_str(&shape_hash(*k));
+            map.insert(node.id(), h);
+            h
         }
-        s.push(')');
+        fill(root, &mut map);
+        Shapes(map)
     }
-    s
+
+    /// The memoized shape hash of `node` (must belong to the tree this was built from).
+    fn hash(&self, node: Node) -> u64 {
+        self.0[&node.id()]
+    }
 }
 
 /// Collect the shape hash of every subtree under `node`.
-fn collect_shapes(node: Node, out: &mut HashSet<String>) {
-    out.insert(shape_hash(node));
+fn collect_shapes(node: Node, shapes: &Shapes, out: &mut HashSet<u64>) {
+    out.insert(shapes.hash(node));
     for c in meaningful_children(node) {
-        collect_shapes(c, out);
+        collect_shapes(c, shapes, out);
     }
 }
 
@@ -328,21 +337,21 @@ fn collect_shapes(node: Node, out: &mut HashSet<String>) {
 /// shape hashes. This lets the localizer recognize a construct the fix kept intact but added
 /// siblings INTO (a None-guard, an early return, a `try`/`except` wrap): such a node's own contents
 /// are unchanged, so it is incidental context, not the violation — the change is in a sibling.
-fn collect_child_shapes(node: Node, out: &mut Vec<(String, Vec<String>)>) {
+fn collect_child_shapes(node: Node, shapes: &Shapes, out: &mut Vec<(String, Vec<u64>)>) {
     let kids = meaningful_children(node);
-    let mut shapes: Vec<String> = kids.iter().map(|k| shape_hash(*k)).collect();
-    shapes.sort();
-    out.push((node.kind().to_string(), shapes));
+    let mut hashes: Vec<u64> = kids.iter().map(|k| shapes.hash(*k)).collect();
+    hashes.sort_unstable();
+    out.push((node.kind().to_string(), hashes));
     for c in kids {
-        collect_child_shapes(c, out);
+        collect_child_shapes(c, shapes, out);
     }
 }
 
 /// Whether the sorted multiset `sub` is contained in the sorted multiset `sup`.
-fn is_submultiset(sub: &[String], sup: &[String]) -> bool {
-    let mut counts: HashMap<&String, i32> = HashMap::new();
+fn is_submultiset(sub: &[u64], sup: &[u64]) -> bool {
+    let mut counts: HashMap<u64, i32> = HashMap::new();
     for s in sup {
-        *counts.entry(s).or_default() += 1;
+        *counts.entry(*s).or_default() += 1;
     }
     sub.iter().all(|s| match counts.get_mut(s) {
         Some(c) if *c > 0 => {
@@ -359,13 +368,13 @@ fn is_submultiset(sub: &[String], sup: &[String]) -> bool {
 /// (the `target=[]` default that sits beside the body the fix only wrapped in a guard). Without this,
 /// a fix that adds a guard makes the body itself look novel, and the localizer over-captures the
 /// whole unit into a pattern so literal that a stray docstring or log line defeats the match.
-fn fix_only_inserted(node: Node, good_children: &[(String, Vec<String>)]) -> bool {
+fn fix_only_inserted(node: Node, shapes: &Shapes, good_children: &[(String, Vec<u64>)]) -> bool {
     let kids = meaningful_children(node);
     if kids.is_empty() {
         return false;
     }
-    let mut want: Vec<String> = kids.iter().map(|k| shape_hash(*k)).collect();
-    want.sort();
+    let mut want: Vec<u64> = kids.iter().map(|k| shapes.hash(*k)).collect();
+    want.sort_unstable();
     good_children
         .iter()
         .any(|(kind, have)| kind == node.kind() && have.len() > want.len() && is_submultiset(&want, have))
@@ -378,20 +387,21 @@ fn fix_only_inserted(node: Node, good_children: &[(String, Vec<String>)]) -> boo
 /// for a `break` (because the break-block shape IS shared with the loop fix, descent stops above it).
 fn novel_root<'t>(
     node: Node<'t>,
-    good_shapes: &HashSet<String>,
+    shapes: &Shapes,
+    good_shapes: &HashSet<u64>,
     good_kinds: &HashSet<String>,
-    good_children: &[(String, Vec<String>)],
+    good_children: &[(String, Vec<u64>)],
 ) -> Option<Node<'t>> {
-    if good_shapes.contains(&shape_hash(node)) {
+    if good_shapes.contains(&shapes.hash(node)) {
         return None; // shape shared with the fix → incidental context, not the violation
     }
-    if fix_only_inserted(node, good_children) {
+    if fix_only_inserted(node, shapes, good_children) {
         return None; // the fix only added siblings here → this construct is not the violation
     }
     let mut cur = node.walk();
     let novel: Vec<Node> = node
         .named_children(&mut cur)
-        .filter(|c| novel_root(*c, good_shapes, good_kinds, good_children).is_some())
+        .filter(|c| novel_root(*c, shapes, good_shapes, good_kinds, good_children).is_some())
         .collect();
     // Descend into the single differing child ONLY when this node's KIND survives in the fix — i.e.
     // the construct is preserved and only its content changed (a `range_expression` `..=`→`..`). If
@@ -402,7 +412,7 @@ fn novel_root<'t>(
     // descending into its arguments. So stop at a call even if the change is in an argument.
     let atomic = matches!(node.kind(), "call" | "call_expression" | "macro_invocation");
     if novel.len() == 1 && good_kinds.contains(node.kind()) && !atomic {
-        novel_root(novel[0], good_shapes, good_kinds, good_children)
+        novel_root(novel[0], shapes, good_shapes, good_kinds, good_children)
     } else {
         Some(node)
     }
@@ -414,14 +424,14 @@ fn novel_root<'t>(
 /// not even the example's own reuse matches it. When every meaningful child of `node` shares one
 /// shape, they ARE the one violation repeated, so descend to a single representative instance. A node
 /// whose children differ in shape is left intact (we cannot localize a real difference without a fix).
-fn collapse_repeated(node: Node) -> Node {
+fn collapse_repeated<'t>(node: Node<'t>, shapes: &Shapes) -> Node<'t> {
     let kids = meaningful_children(node);
     if kids.len() < 2 {
         return node;
     }
-    let first = shape_hash(kids[0]);
-    if kids.iter().all(|k| shape_hash(*k) == first) {
-        return collapse_repeated(kids[0]);
+    let first = shapes.hash(kids[0]);
+    if kids.iter().all(|k| shapes.hash(*k) == first) {
+        return collapse_repeated(kids[0], shapes);
     }
     node
 }
@@ -445,13 +455,13 @@ fn literal_masked_text(node: Node, src: &[u8]) -> String {
 /// (an invalid format string, a specific constant). Structure cannot represent value semantics, so
 /// the AST path must abstain rather than compile a pattern that matches every instance of the
 /// shape, valid or not. Descends the same way [`collapse_repeated`] does.
-fn value_dependent(node: Node, src: &[u8]) -> bool {
+fn value_dependent(node: Node, shapes: &Shapes, src: &[u8]) -> bool {
     let kids = meaningful_children(node);
     if kids.len() < 2 {
-        return kids.first().map(|k| value_dependent(*k, src)).unwrap_or(false);
+        return kids.first().map(|k| value_dependent(*k, shapes, src)).unwrap_or(false);
     }
-    let first_shape = shape_hash(kids[0]);
-    if !kids.iter().all(|k| shape_hash(*k) == first_shape) {
+    let first_shape = shapes.hash(kids[0]);
+    if !kids.iter().all(|k| shapes.hash(*k) == first_shape) {
         return false;
     }
     let m0 = literal_masked_text(kids[0], src);
@@ -461,7 +471,7 @@ fn value_dependent(node: Node, src: &[u8]) -> bool {
     if masked_same && text_differs {
         return true;
     }
-    value_dependent(kids[0], src)
+    value_dependent(kids[0], shapes, src)
 }
 
 /// Collect every node kind under `node`.
@@ -580,6 +590,13 @@ fn has_named_anchor(pat: &Pat) -> bool {
 /// unloadable). Compile abstains on such monsters.
 const MAX_PATTERN_DEPTH: usize = 48;
 
+/// Largest documented example that can still BE a rule. A pointable anti-pattern is at most a
+/// screenful; anything bigger is a scraped sample program or a whole manual page, which no single
+/// rule describes — and which turns compilation (tree diffing, token-pair regex search) into
+/// minutes of work for zero yield. Same spirit as [`MAX_PATTERN_DEPTH`]: the cap encodes what a
+/// rule IS, not what any language looks like.
+const MAX_EXAMPLE_BYTES: usize = 8192;
+
 /// The nesting depth of a pattern (a leaf is 1).
 fn pat_depth(pat: &Pat) -> usize {
     1 + pat.children.iter().map(pat_depth).max().unwrap_or(0)
@@ -601,18 +618,25 @@ impl RulePattern {
     /// is about that value), everything else generalizes. Returns `None` when the example does not
     /// parse or carries no distinctive structure.
     pub fn compile(lang: &str, bad: &str, good: &str, desc: &str) -> Option<RulePattern> {
+        // A real anti-pattern is a construct a reader can point at; an "example" the size of a
+        // program listing is a scraped page, not a rule — abstain before spending any parse.
+        if bad.len() > MAX_EXAMPLE_BYTES {
+            return None;
+        }
         let language = language(lang)?;
         let mut parser = Parser::new();
         parser.set_language(&language).ok()?;
         let bad_tree = parser.parse(bad, None)?;
+        let bad_shapes = Shapes::of(bad_tree.root_node());
         let mut good_shapes = HashSet::new();
         let mut good_kinds = HashSet::new();
         let mut good_children = Vec::new();
-        if !good.trim().is_empty() {
+        if !good.trim().is_empty() && good.len() <= MAX_EXAMPLE_BYTES {
             if let Some(gt) = parser.parse(good, None) {
-                collect_shapes(gt.root_node(), &mut good_shapes);
+                let gs = Shapes::of(gt.root_node());
+                collect_shapes(gt.root_node(), &gs, &mut good_shapes);
                 collect_kinds(gt.root_node(), &mut good_kinds);
-                collect_child_shapes(gt.root_node(), &mut good_children);
+                collect_child_shapes(gt.root_node(), &gs, &mut good_children);
             }
         }
         // With a fix to diff against, isolate the smallest distinguishing construct. With no fix,
@@ -620,12 +644,12 @@ impl RulePattern {
         let root = if good_shapes.is_empty() {
             // Same-shape instances differing only in literal values ⇒ the value is the rule;
             // structure cannot learn it — abstain (the gated description path takes over).
-            if value_dependent(bad_tree.root_node(), bad.as_bytes()) {
+            if value_dependent(bad_tree.root_node(), &bad_shapes, bad.as_bytes()) {
                 return None;
             }
-            collapse_repeated(bad_tree.root_node())
+            collapse_repeated(bad_tree.root_node(), &bad_shapes)
         } else {
-            novel_root(bad_tree.root_node(), &good_shapes, &good_kinds, &good_children)?
+            novel_root(bad_tree.root_node(), &bad_shapes, &good_shapes, &good_kinds, &good_children)?
         };
         // Skip past trivial single-child wrappers (module / expression_statement) to the construct.
         let mut node = root;
@@ -808,25 +832,31 @@ impl<'a> GroundView<'a> {
         }
     }
 
-    /// The forbidding sentences of `desc` — the only places a learned rule's detector token may
-    /// come from.
-    ///
-    /// English is the comprehension substrate, not a lintable language: concept and guidance
-    /// prose is READ — it trains the reader, the polarity prototypes, and the concept
-    /// fingerprints — but only a PROHIBITION defines a violation there is anything to fire on.
-    /// And the construct must be named BY the sentence that forbids it: a principles section can
-    /// legitimately contain both a prohibition ("don't over-engineer") and backticked
-    /// illustrations of endorsed idioms — taking a marked token from an endorsing sentence
-    /// builds a detector for something the rule never forbade. Sentence boundaries are
-    /// typography, like the paragraph segmentation documents are read with; the classifier's
-    /// reading of each sentence is the semantics. With no ready classifier the question is
-    /// unanswerable and every sentence is eligible, trusting the author's markup as before.
-    fn forbidding_sentences<'d>(&self, desc: &'d str) -> Vec<&'d str> {
-        let sentences = desc.split(['.', ';', '!', '?', '\n']).filter(|s| !s.trim().is_empty());
-        match self.polarity.filter(|p| p.is_ready()) {
-            Some(p) => sentences.filter(|s| p.classify(s) == Some(true)).collect(),
-            None => sentences.collect(),
-        }
+    /// The polarity CONTEXT of each whitespace word of `desc`, read along the text: a word's
+    /// context is the lean of the nearest word (scanning outward through the reading sequence)
+    /// that renders a decisive per-token verdict — its own lean first. No punctuation is
+    /// consulted and nothing is chopped: "Do not leave TODO comments; file an issue instead"
+    /// places TODO two words from "not" (prohibition context) and "issue" beside
+    /// "file…instead" (remedy context) purely by learned leans and adjacency. `None` per word
+    /// when no decisive word is in reach; all-`None` when no classifier is ready.
+    fn word_contexts(&self, desc: &str) -> Vec<Option<bool>> {
+        let words: Vec<&str> = desc.split_whitespace().collect();
+        let Some(p) = self.polarity.filter(|p| p.is_ready()) else {
+            return vec![None; words.len()];
+        };
+        // Each word's OWN lean: the first decisive lean among its inner tokens.
+        let own: Vec<Option<bool>> = words
+            .iter()
+            .map(|w| crate::lint_read::tokens(w).iter().find_map(|t| p.token_lean(t)))
+            .collect();
+        (0..words.len())
+            .map(|i| {
+                (0..words.len().max(1))
+                    .flat_map(|d| [i.checked_sub(d), i.checked_add(d).filter(|j| *j < words.len())])
+                    .flatten()
+                    .find_map(|j| own[j])
+            })
+            .collect()
     }
 }
 
@@ -855,18 +885,35 @@ impl<'a> GroundView<'a> {
 /// principle's imperative clause ("don't over-engineer") is not a code construct, and a detector
 /// built from one fires on every comment that discusses the principle. The project's own law
 /// passes `false` — the rule file is evidence enough that the named thing is worth watching for.
-fn description_discriminator(desc: &str, bad: &str, ground: &GroundView, only_grounded: bool) -> Option<String> {
+/// `contexts` is each whitespace word's polarity context ([`GroundView::word_contexts`]): a
+/// candidate in a remedy context ("…; use the logging module instead") is the alternative the
+/// rule endorses, never its construct, so prohibition-context candidates outrank everything and
+/// endorsement-context candidates are dropped outright.
+fn description_discriminator(
+    desc: &str,
+    bad: &str,
+    ground: &GroundView,
+    contexts: &[Option<bool>],
+    only_grounded: bool,
+) -> Option<String> {
     let reader = ground.reader?;
-    // (surface word, reading position, grounded?, rarity = fewest reads among inner tokens)
-    let mut candidates: Vec<(String, usize, bool, u32)> = Vec::new();
+    // (surface word, reading position, forbidden-context?, grounded?, rarity = fewest reads
+    // among inner tokens). No stop-list and no frequency CUTOFF anywhere: connective prose
+    // simply ranks last by its read counts, which stays true at every corpus size — a threshold
+    // that felt right at one scale silently dies at another.
+    let mut candidates: Vec<(String, usize, bool, bool, u32)> = Vec::new();
     for (position, raw) in desc.split_whitespace().enumerate() {
         let surface = raw.trim_matches(|c: char| !c.is_alphanumeric());
         if surface.chars().count() < 2 {
             continue;
         }
+        let context = contexts.get(position).copied().flatten();
+        if context == Some(false) {
+            continue; // the remedy's vocabulary is endorsed, not forbidden
+        }
         let inner = crate::lint_read::tokens(surface);
-        if inner.is_empty() || inner.iter().all(|t| reader.is_common_word(t)) {
-            continue; // fully accounted for by reading — connective prose, not the construct
+        if inner.is_empty() {
+            continue;
         }
         // Documented code grounds anyone; the project's own code additionally grounds (and
         // ranks) only when the rule is not held to `only_grounded` — i.e. the project's law.
@@ -876,9 +923,29 @@ fn description_discriminator(desc: &str, bad: &str, ground: &GroundView, only_gr
         }
         let grounded = in_docs || inner.iter().any(|t| ground.project_tokens.contains(t));
         let rarity = inner.iter().map(|t| reader.read_count(t)).min().unwrap_or(0);
-        candidates.push((surface.to_string(), position, grounded, rarity));
+        candidates.push((surface.to_string(), position, context == Some(true), grounded, rarity));
     }
-    candidates.sort_by_key(|(_, position, grounded, rarity)| (!*grounded, *rarity, *position));
+    // Ordering: understanding first (forbidding context), then grounding, then — for words the
+    // reading can account for as connective prose (the corpus head) — last place always. Below
+    // that the two rule kinds differ: the PROJECT'S LAW reads like an instruction — the author
+    // names the violation before the remedy, so among grounded content words document order
+    // decides ("Do not use print…; use logging instead" names `print`, and no rarity score may
+    // outbid that), while an ungrounded law construct falls back to rarity (the word the
+    // reading can least account for). LEARNED doc prose carries no order promise, so rarity
+    // decides there throughout.
+    let connective = |surface: &str| {
+        crate::lint_read::tokens(surface).iter().all(|t| reader.is_head_word(t))
+    };
+    if only_grounded {
+        candidates.sort_by_key(|(surface, position, forbidden, grounded, rarity)| {
+            (!*forbidden, !*grounded, connective(surface), *rarity, *position)
+        });
+    } else {
+        candidates.sort_by_key(|(surface, position, forbidden, grounded, rarity)| {
+            let order = if *grounded { *position as u64 } else { *rarity as u64 };
+            (!*forbidden, !*grounded, connective(surface), order, *position)
+        });
+    }
 
     // Validate: when bad is known the candidate must appear in it; when absent, trust the
     // winner — SELF-FIRE and query-time silence guard a wrong pick.
@@ -906,6 +973,11 @@ fn description_discriminator(desc: &str, bad: &str, ground: &GroundView, only_gr
 /// (e.g. numeric literals, string contents) — the caller drops such rules rather than
 /// emitting a pattern that would over-fire.
 fn text_discriminator(bad: &str, good: &str) -> Option<String> {
+    // A pointable anti-pattern is at most a screenful ([`MAX_EXAMPLE_BYTES`]); the pair search
+    // below compiles a regex per candidate window, which on a scraped manual page is hours.
+    if bad.len() > MAX_EXAMPLE_BYTES || good.len() > MAX_EXAMPLE_BYTES {
+        return None;
+    }
     // Strip doc-page comments before tokenising — they pollute the discriminator.
     let bad = strip_code_comments(bad);
     let good = strip_code_comments(good);
@@ -1070,46 +1142,29 @@ impl RuleSet {
             if desc.trim().is_empty() && bad.trim().is_empty() {
                 continue; // nothing to learn from
             }
-            // The entry ticket for every LEARNED rule, example-backed or not: its description
-            // must contain a sentence that forbids something. A teaching section's fenced
+            // Read the description's polarity ALONG the text — each word's context is the
+            // nearest decisive lean, no chopping, no punctuation ([`GroundView::word_contexts`]).
+            let contexts = ground.word_contexts(desc);
+            // The entry ticket for every LEARNED rule, example-backed or not: some word of its
+            // description must sit in a forbidding context. A teaching section's fenced
             // illustrations read as "bad examples" only by document-order fallback — enforcing
             // them turns reading material into law. Project rules are law by location and skip
-            // the reading.
-            if !trusted.contains(id) && ground.forbidding_sentences(desc).is_empty() {
+            // the reading; with no ready classifier the question is unanswerable and the
+            // author's material is trusted as before.
+            let classifier_ready = ground.polarity.is_some_and(|p| p.is_ready());
+            if !trusted.contains(id) && classifier_ready && !contexts.iter().any(|c| *c == Some(true)) {
                 continue;
             }
             // A description-derived detector exists only for prose that STATES a violation:
-            // project law states one by LOCATION (the user wrote it in a rule file — that is the
-            // label, so the whole description is eligible), learned prose by the classifier's
-            // READING — the detector token must be named by a sentence that forbids something
-            // ([`GroundView::forbidding_sentences`]). Guidance/concept prose is comprehension the
-            // model reads, never a pattern it fires — that is what keeps English understanding
-            // from being confused for a lintable code language.
+            // project law states one by LOCATION (the user wrote it in a rule file — that is
+            // the label), learned prose by the classifier's reading. Within the description,
+            // prohibition-context words outrank all others and remedy-context words are never
+            // eligible ("…; use the logging module instead" must never compile `logging`) —
+            // that is what keeps English understanding from being confused for a lintable
+            // code language. Learned rules additionally require the construct to exist in
+            // real documented code (`only_grounded`); the project's own law does not.
             let desc_detector = |view: &GroundView| -> Option<String> {
-                // The construct is named by the sentence that FORBIDS it — the remedy clause
-                // endorses its alternative, and rarity alone would happily select the remedy's
-                // word ("…; use the logging module instead" must never compile `logging`).
-                // Learned rules also require the construct to exist in real code
-                // (`only_grounded`); the project's own law does not.
-                let is_law = trusted.contains(id);
-                if let Some(re) = view
-                    .forbidding_sentences(desc)
-                    .into_iter()
-                    .find_map(|sentence| description_discriminator(sentence, bad, view, !is_law))
-                {
-                    return Some(re);
-                }
-                // Law by location still compiles when the classifier abstains on every
-                // sentence: read the sentences in document order and take the first that names
-                // a construct — the same neutral order fallback document reading uses — so a
-                // remedy clause's vocabulary never outbids the violation clause it follows.
-                if !is_law {
-                    return None;
-                }
-                desc.split(['.', ';', '!', '?', '\n'])
-                    .filter(|s| !s.trim().is_empty())
-                    .find_map(|sentence| description_discriminator(sentence, bad, view, false))
-                    .or_else(|| description_discriminator(desc, bad, view, false))
+                description_discriminator(desc, bad, view, &contexts, !trusted.contains(id))
             };
             let kind = if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
@@ -1183,6 +1238,18 @@ impl RuleSet {
     /// REPORTS the difference; law must never vanish silently.
     pub fn rule_ids(&self) -> impl Iterator<Item = &str> {
         self.rules.iter().map(|r| r.id.as_str())
+    }
+
+    /// What a rule's detector actually watches for — the honest answer to "what did you
+    /// understand my law as?". A text rule shows its literal pattern; an AST rule is a
+    /// structural match compiled from the rule's own examples. `None` when the rule did not
+    /// compile. Surfacing this lets the author correct a mis-read law by rephrasing it,
+    /// instead of discovering the misunderstanding through missing findings.
+    pub fn detector_of(&self, id: &str) -> Option<String> {
+        self.rules.iter().find(|r| r.id == id).map(|r| match &r.kind {
+            MatchKind::Ast(_) => "structural pattern from your example".to_string(),
+            MatchKind::Text { pattern } => format!("`{}`", pattern.replace(r"\b", "")),
+        })
     }
 
     /// Flag `code`: every line where a rule fires (AST match or text match), deduped per rule.
@@ -1270,7 +1337,7 @@ mod tests {
         let polarity = ground_with_reader();
         let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
         let view = GroundView::of(&ground);
-        let re = description_discriminator("Do not hardcode port 8080 anywhere; read the port from configuration.", "", &view, false);
+        let re = description_discriminator("Do not hardcode port 8080 anywhere; read the port from configuration.", "", &view, &view.word_contexts("Do not hardcode port 8080 anywhere; read the port from configuration."), false);
         assert_eq!(re.as_deref(), Some(r"\b8080\b"));
     }
 
@@ -1280,7 +1347,7 @@ mod tests {
         let polarity = ground_with_reader();
         let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
         let view = GroundView::of(&ground);
-        let re = description_discriminator("Do not ship console.log calls; use the structured logger.", "", &view, false);
+        let re = description_discriminator("Do not ship console.log calls; use the structured logger.", "", &view, &view.word_contexts("Do not ship console.log calls; use the structured logger."), false);
         assert_eq!(re.as_deref(), Some(r"\bconsole\.log\b"));
     }
 
@@ -1288,7 +1355,7 @@ mod tests {
     fn no_reading_and_no_example_means_abstain_not_guess() {
         // With no reader and no bad example there is no evidence to select by — the engine
         // abstains rather than guessing a word.
-        let re = description_discriminator("Do not hardcode port 8080 anywhere.", "", &unground(), false);
+        let re = description_discriminator("Do not hardcode port 8080 anywhere.", "", &unground(), &unground().word_contexts("Do not hardcode port 8080 anywhere."), false);
         assert_eq!(re, None);
     }
 
@@ -1311,9 +1378,9 @@ mod tests {
         let polarity = ground_with_reader();
         let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
         let view = GroundView::of(&ground);
-        let re = description_discriminator("Never call `panic` in library code; return an error value instead.", "", &view, false);
+        let re = description_discriminator("Never call `panic` in library code; return an error value instead.", "", &view, &view.word_contexts("Never call `panic` in library code; return an error value instead."), false);
         assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
-        let bare = description_discriminator("Never call panic in library code; return an error value instead.", "", &view, false);
+        let bare = description_discriminator("Never call panic in library code; return an error value instead.", "", &view, &view.word_contexts("Never call panic in library code; return an error value instead."), false);
         assert_eq!(bare.as_deref(), Some(r"\bpanic\b"), "markup is optional, not a gate");
     }
 
@@ -1339,7 +1406,7 @@ mod tests {
             ..Default::default()
         };
         let view = GroundView::of(&ground);
-        let re = description_discriminator("Never call panic in library code; return an error value instead.", "", &view, false);
+        let re = description_discriminator("Never call panic in library code; return an error value instead.", "", &view, &view.word_contexts("Never call panic in library code; return an error value instead."), false);
         assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
     }
 

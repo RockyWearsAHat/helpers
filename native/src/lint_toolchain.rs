@@ -128,11 +128,14 @@ pub fn check(lang: &str, code: &str, data_root: &Path) -> Verdict {
     if body.trim().is_empty() {
         return Verdict::Unknown;
     }
-    // Isolated temp file per check so concurrent probes never collide.
+    // Isolated temp file per check so concurrent probes never collide — the sequence number
+    // keeps two parallel checks of the SAME snippet apart (checks now run on a thread pool).
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "helpers-check-{}-{:x}",
+        "helpers-check-{}-{:x}-{}",
         std::process::id(),
-        crate::lint_ai::token_seed(code)
+        crate::lint_ai::token_seed(code),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     if std::fs::create_dir_all(&dir).is_err() {
         return Verdict::Unknown;
