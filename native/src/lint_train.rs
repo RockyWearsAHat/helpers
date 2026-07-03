@@ -8,9 +8,11 @@
 //!   1. **Official web documentation** — the official rule docs for each language (clippy / ruff /
 //!      eslint / staticcheck / pmd). The linter crawls the live docs and caches what it learns;
 //!      a committed `lint-index/` snapshot seeds the offline case.
-//!   2. **File documentation** — `extraDocs/` (global principles, shipped with the tool) and
-//!      `.helpers/lint-rules/` (project-local rules). Every `*.md` in either directory is read as
-//!      documentation: examples become rules; prose-only headings become description-derived rules.
+//!   2. **File documentation** — `extraDocs/` (global principles, shipped with the tool) and the
+//!      project's own law: every `*.md`/`*.txt` under `.helpers/lint-rules/` plus a root-level
+//!      `lintPref.md`/`lintPref.txt`. Each file is READ ([`crate::linter::Knowledge::read_document`])
+//!      — plain English, no required format: examples become rules; prose-only instructions become
+//!      description-derived rules.
 //!
 //! Rules with bad/good examples compile to lossless AST patterns (or discriminating token regexes
 //! for grammarless languages) in [`RuleSet`]; the same rules' description + example tokens bundle
@@ -44,7 +46,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v4-calibrated-margin";
+const TRAIN_VERSION: &str = "docs-v5-document-reading";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -161,22 +163,61 @@ pub struct TrainReport {
 /// stale/absent catalog is relearned from the live docs when the crawler is available. Each rule is
 /// compiled to its exact tree pattern from its own bad/good example — no thresholds, no statistics —
 /// so a match is the rule's structure occurring verbatim, with scope and co-reference intact.
-/// Load a language's rules from the project's own `.helpers/lint-rules/` directory.
-///
-/// Reads `<lang>.md` (rules specific to that language) and `any.md` (rules that apply to every
-/// language). These are authored in the same markdown format as `corpus/cs-principles.md`:
-/// a `## rule-id [severity]` heading followed by a description and optional `bad`/`good` fenced
-/// blocks. Project rules are merged AFTER the global corpus, so they take priority over it.
-pub(crate) fn project_rules(project_root: &Path, lang: &str) -> Vec<DocRule> {
-    let dir = project_root.join(".helpers/lint-rules");
+/// Every document the project wrote its law in, as `(path, default language)`: all `*.md`/`*.txt`
+/// under `.helpers/lint-rules/` (the filename stem is the language its rules default to; `any`
+/// means every language) plus a root-level `lintPref.md`/`lintPref.txt` (any casing, `-`/`_`
+/// allowed), whose rules default to every language. Plain English throughout — the files are
+/// READ, never parsed against a required format.
+pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
+    let is_text = |p: &Path| matches!(p.extension().and_then(|x| x.to_str()), Some("md" | "txt"));
+    let mut docs = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(project_root.join(".helpers/lint-rules")) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if is_text(&p) {
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("any").to_lowercase();
+                docs.push((p, stem));
+            }
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(project_root) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if !is_text(&p) {
+                continue;
+            }
+            let stem: String = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect::<String>()
+                .to_lowercase();
+            if stem == "lintpref" || stem == "lintprefs" {
+                docs.push((p, "any".to_string()));
+            }
+        }
+    }
+    docs.sort();
+    docs
+}
+
+/// Load the project's own rules that govern `lang`: every rule read from [`rule_documents`] whose
+/// language is `lang` or `any`. Project rules are merged BEFORE the global corpus and the crawled
+/// docs, so they take priority over both.
+pub(crate) fn project_rules(data_root: &Path, project_root: &Path, lang: &str) -> Vec<DocRule> {
+    let polarity = crate::lint_docs::document_polarity(data_root);
     let mut out = Vec::new();
-    for filename in [format!("{lang}.md"), "any.md".to_string()] {
-        let path = dir.join(&filename);
+    for (path, default_lang) in rule_documents(project_root) {
         let Ok(doc) = std::fs::read_to_string(&path) else { continue };
         let source = path.to_string_lossy().into_owned();
-        for r in crate::linter::Knowledge::from_text(lang, &doc).rules {
+        for r in crate::linter::Knowledge::read_document(&default_lang, &doc, polarity.as_ref()).rules {
+            if r.language != lang && r.language != "any" && !r.language.is_empty() {
+                continue;
+            }
             // Prose-only rules (no bad example) are valid: the pattern is derived from the
-            // English description. Only skip when both bad and description are empty.
+            // English description.
             out.push(DocRule {
                 id: r.id,
                 slice: "project-rule".to_string(),
@@ -235,13 +276,14 @@ pub fn stamp_path_pub(lang: &str) -> PathBuf {
     stamp_path(lang)
 }
 
-/// The ids of the rules the project itself authored in `.helpers/lint-rules/` for `lang`.
+/// The ids of the rules the project itself authored (`.helpers/lint-rules/`, root `lintPref`) for
+/// `lang`.
 ///
 /// These are the user's explicit law for their own codebase, so the live path trusts them fully:
 /// they are never routed through the Hv concept gate the way learned doc rules with weak
 /// (container-only) anchors are.
-pub fn project_rule_ids(project_root: &Path, lang: &str) -> std::collections::HashSet<String> {
-    project_rules(project_root, lang).into_iter().map(|r| r.id).collect()
+pub fn project_rule_ids(data_root: &Path, project_root: &Path, lang: &str) -> std::collections::HashSet<String> {
+    project_rules(data_root, project_root, lang).into_iter().map(|r| r.id).collect()
 }
 
 /// Train from both documentation sources and return one [`LangModel`] per language. Idempotent
@@ -268,7 +310,7 @@ pub fn ensure_models(
         // (RuleSet::build keeps the FIRST rule per pattern): the project's own law first,
         // then the corpus folder's principles, then the crawled docs.
         let (doc_rules, _reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
-        let mut rules = project_rules(project_root, lang);
+        let mut rules = project_rules(data_root, project_root, lang);
         rules.extend(
             folder.iter()
                 .filter(|(l, _)| l == lang || l == "any" || l.is_empty())
@@ -610,15 +652,16 @@ fn is_catalog_name(name: Option<&str>) -> bool {
     matches!(name, Some(n) if n.ends_with(".json") && n != "sources.json")
 }
 
-/// The corpus folder rules as `(language, DocRule)` — the second knowledge source. Reads every
-/// `*.md` file in `corpus/` so adding a new principles file takes effect immediately on the next
-/// lint run. Falls back to the embedded `cs-principles.md` when the directory is absent.
+/// The corpus folder rules as `(language, DocRule)` — the second knowledge source. READS every
+/// `*.md`/`*.txt` file in `extraDocs/` so adding a new principles document takes effect
+/// immediately on the next lint run. Falls back to the embedded principles doc when the directory
+/// is absent.
 fn corpus_rules(data_root: &Path) -> Vec<(String, DocRule)> {
     let corpus_dir = data_root.join("extraDocs");
     let docs: Vec<(String, String)> = match std::fs::read_dir(&corpus_dir) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
+            .filter(|e| matches!(e.path().extension().and_then(|x| x.to_str()), Some("md" | "txt")))
             .filter_map(|e| {
                 let path = e.path();
                 let name = path.to_string_lossy().into_owned();
@@ -627,9 +670,10 @@ fn corpus_rules(data_root: &Path) -> Vec<(String, DocRule)> {
             .collect(),
         Err(_) => vec![("embedded".to_string(), EMBEDDED_CS_PRINCIPLES.to_string())],
     };
+    let polarity = crate::lint_docs::document_polarity(data_root);
     docs.into_iter()
         .flat_map(|(source, doc)| {
-            crate::linter::Knowledge::from_text("any", &doc)
+            crate::linter::Knowledge::read_document("any", &doc, polarity.as_ref())
                 .rules
                 .into_iter()
                 // Prose-only rules (no bad example) are valid: pattern comes from description.
@@ -704,29 +748,23 @@ pub fn advice(data_root: &Path, project_root: Option<&Path>) -> HashMap<String, 
     for (_, r) in corpus_rules(data_root) {
         put(&mut out, &r);
     }
-    // Project-local rules — highest priority; their descriptions override everything else
-    // so a user's custom advice appears verbatim in lint output.
+    // Project-local rules (`.helpers/lint-rules/`, root `lintPref`) — highest priority; their
+    // descriptions override everything else so a user's custom advice appears verbatim in lint
+    // output.
     if let Some(pr) = project_root {
-        let dir = pr.join(".helpers/lint-rules");
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                    continue;
-                }
-                let lang_hint = path.file_stem().and_then(|s| s.to_str()).unwrap_or("any");
-                if let Ok(doc) = std::fs::read_to_string(&path) {
-                    let src = path.to_string_lossy().into_owned();
-                    for r in crate::linter::Knowledge::from_text(lang_hint, &doc).rules {
-                        out.insert(
-                            r.id.clone(),
-                            RuleInfo {
-                                severity: r.severity,
-                                description: r.description,
-                                source: src.clone(),
-                            },
-                        );
-                    }
+        let polarity = crate::lint_docs::document_polarity(data_root);
+        for (path, default_lang) in rule_documents(pr) {
+            if let Ok(doc) = std::fs::read_to_string(&path) {
+                let src = path.to_string_lossy().into_owned();
+                for r in crate::linter::Knowledge::read_document(&default_lang, &doc, polarity.as_ref()).rules {
+                    out.insert(
+                        r.id.clone(),
+                        RuleInfo {
+                            severity: r.severity,
+                            description: r.description,
+                            source: src.clone(),
+                        },
+                    );
                 }
             }
         }
