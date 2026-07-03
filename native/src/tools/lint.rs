@@ -111,9 +111,31 @@ fn line_tokens(src: &str, line: usize) -> Vec<String> {
         .collect()
 }
 
+/// Whether a matched line RESTATES the rule's own English rather than violating it: it shares at
+/// least 3 — and at least half — of the description's distinct word tokens. Documentation that
+/// quotes or discusses the law is the model's reading material (English is the comprehension
+/// substrate, not a lintable language), so the law must never fire on its own words. Only
+/// imprecise text matches need this guard; a precise AST match is parsed code, not prose.
+fn restates_rule(line_tokens: &[String], desc: &str) -> bool {
+    let words = |s: &str| -> HashSet<String> {
+        s.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .filter(|t| t.len() >= 3)
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let desc_words = words(desc);
+    if desc_words.is_empty() {
+        return false;
+    }
+    let line_words: HashSet<String> =
+        line_tokens.iter().filter(|t| t.len() >= 3).map(|t| t.to_lowercase()).collect();
+    let shared = desc_words.intersection(&line_words).count();
+    shared >= 3 && shared * 2 >= desc_words.len()
+}
+
 /// Review the whole project: detect its languages, build one `LangModel` per language (rule set +
 /// concept gate + principles), match each file with the rule set, confirm text-fallback findings
-/// through the concept gate, add structural outliers, and report the result in English.
+/// through the concept gate, and report the result in English.
 pub fn run(args: &Value) -> ToolResult {
     let root = root_arg(args);
     if !root.exists() {
@@ -201,8 +223,17 @@ pub fn run(args: &Value) -> ToolResult {
         for (path, src) in lang_files {
             for finding in model.rules.flag(src) {
                 let doc_rule = !trusted.contains(&finding.rule);
-                if !finding.precise && doc_rule {
-                    gate_tokens.push((pending.len(), line_tokens(src, finding.line)));
+                if !finding.precise {
+                    let toks = line_tokens(src, finding.line);
+                    // Restatement guard (all imprecise findings, trusted law included): a line
+                    // that repeats the rule's own words is quoting the law, not breaking it.
+                    let desc = advice.get(&finding.rule).map(|i| i.description.as_str()).unwrap_or("");
+                    if restates_rule(&toks, desc) {
+                        continue;
+                    }
+                    if doc_rule {
+                        gate_tokens.push((pending.len(), toks));
+                    }
                 }
                 pending.push((path.clone(), finding, doc_rule));
             }
@@ -382,7 +413,7 @@ fn render(
 
     let total: usize = reports.iter().map(|f| f.hits.len()).sum();
     if total == 0 {
-        s.push_str("Verdict: CLEAN. No structural outliers detected against the project's own norm.\n");
+        s.push_str("Verdict: CLEAN. No violations of the learned rules or the project's law.\n");
     } else {
         let (mut hi, mut me, mut lo) = (0usize, 0usize, 0usize);
         for f in reports {
@@ -476,6 +507,22 @@ pub fn schema() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_quoting_the_rules_own_words_is_a_restatement_not_a_violation() {
+        let desc = "Never call `eval` anywhere in this project; parse the input explicitly.";
+        // A doc line quoting the law shares most of its words → restatement.
+        let quote = line_tokens("Never call eval anywhere in this project; parse the input explicitly.", 1);
+        assert!(restates_rule(&quote, desc));
+        // A real violation shares only the construct itself → finding stands.
+        let code = line_tokens("    value = eval(expr)", 1);
+        assert!(!restates_rule(&code, desc));
+        // A code comment that borrows a few of the rule's words is still code, not a quote.
+        let comment = line_tokens("result = eval(s)  # never use in prod", 1);
+        assert!(!restates_rule(&comment, desc));
+        // A short description cannot mark ordinary lines as restatements.
+        assert!(!restates_rule(&line_tokens("x = eval(y)", 1), "avoid `eval`"));
+    }
 
     #[test]
     fn group_hits_orders_by_severity_and_collapses() {

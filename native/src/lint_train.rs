@@ -46,7 +46,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v6-grounded-construct-selection";
+const TRAIN_VERSION: &str = "docs-v8-forbidding-sentence-gate";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -91,6 +91,11 @@ pub(crate) struct DocRule {
 struct LearnedCatalog {
     /// Toolchain version the rules were learned for (empty when undetectable).
     version: String,
+    /// [`TRAIN_VERSION`] the catalog was read under. A user-cache catalog from older reading
+    /// logic is stale and relearned; committed modules are deliberate shared seeds and are
+    /// exempt (they load whatever their version, like the snapshot).
+    #[serde(default)]
+    train_version: String,
     /// Where the rules came from (a tool name, `committed`, or `embedded`) — provenance.
     learned_from: String,
     /// Pre-extracted rules (older committed-module form). Empty for v2 memory catalogs.
@@ -106,6 +111,13 @@ struct LearnedCatalog {
 }
 
 impl LearnedCatalog {
+    /// Whether this user-cache catalog is current: read under today's [`TRAIN_VERSION`] and for
+    /// the detected `toolchain` version. A catalog failing either is relearned, so a reading-logic
+    /// change refreshes cached knowledge exactly like a toolchain bump does.
+    fn current(&self, toolchain: &str) -> bool {
+        self.train_version == TRAIN_VERSION && self.version == toolchain
+    }
+
     /// The catalog's rules and reference corpus: queried from the association memory when present
     /// (reading IS the knowledge), else the pre-extracted tuples an older module shipped.
     fn doc_rules(&self, lang: &str) -> (Vec<DocRule>, Vec<String>) {
@@ -168,6 +180,16 @@ pub struct TrainReport {
 /// means every language) plus a root-level `lintPref.md`/`lintPref.txt` (any casing, `-`/`_`
 /// allowed), whose rules default to every language. Plain English throughout — the files are
 /// READ, never parsed against a required format.
+/// Whether `lang` is a DOCUMENTATION format — the same formats [`rule_documents`] reads law and
+/// teaching material from (`md`/`txt` and their canonical names). Documents are what the linter
+/// READS; code is what it LINTS: a rule whose language is `any` governs every CODE language, but
+/// never the prose formats themselves — otherwise every design doc that discusses a rule's
+/// subject gets flagged by it. Rules written FOR a documentation format (a project `md.md`, a
+/// crawled markdown spec) still apply to it.
+pub(crate) fn is_document_language(lang: &str) -> bool {
+    matches!(lang, "md" | "markdown" | "txt" | "text")
+}
+
 pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
     let is_text = |p: &Path| matches!(p.extension().and_then(|x| x.to_str()), Some("md" | "txt"));
     let mut docs = Vec::new();
@@ -209,11 +231,13 @@ pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
 pub(crate) fn project_rules(data_root: &Path, project_root: &Path, lang: &str) -> Vec<DocRule> {
     let polarity = crate::lint_docs::document_polarity(data_root);
     let mut out = Vec::new();
+    let allow_any = !is_document_language(lang);
     for (path, default_lang) in rule_documents(project_root) {
         let Ok(doc) = std::fs::read_to_string(&path) else { continue };
         let source = path.to_string_lossy().into_owned();
         for r in crate::linter::Knowledge::read_document(&default_lang, &doc, polarity.as_ref()).rules {
-            if r.language != lang && r.language != "any" && !r.language.is_empty() {
+            let any = r.language == "any" || r.language.is_empty();
+            if !(r.language == lang || (any && allow_any)) {
                 continue;
             }
             // Prose-only rules (no bad example) are valid: the pattern is derived from the
@@ -234,24 +258,30 @@ pub(crate) fn project_rules(data_root: &Path, project_root: &Path, lang: &str) -
 
 /// Expose the stamp file path so external tools (e.g. `lint_rule`) can invalidate it,
 /// forcing a retrain on the next `lint` call without requiring a version bump.
-/// Every authored rule statement the tool ships or the project wrote — prohibition prose with no
-/// one's extra effort: a lint rule IS a statement of a violation. These seed the semantic side of
-/// the polarity classifier; toolchain grounding supplies the endorsement side and keeps growing
-/// both. Sources: `extraDocs/*.md` rules and the shipped `extraDocs/lint-corpus.jsonl`.
+/// Prohibition prose the tool can label HONESTLY, with no authored word list: a CURATED catalog
+/// rule that SHOWS a bad example structurally documents a violation, so its description states
+/// one — the label is the catalog's own shape, not anyone's vocabulary. Only the shipped
+/// `extraDocs/lint-corpus.jsonl` qualifies: it is a catalog of real linter rules. The corpus
+/// FOLDER's markdown is teaching material — its fences read as "bad examples" only by document
+/// order, so seeding its sections as prohibitions is a mislabel that taught earlier classifiers
+/// that ordinary teaching vocabulary means bad. Rules without a bad example ("Apply De Morgan's
+/// law") are suggestions and seed nothing. Toolchain grounding supplies the endorsement side and
+/// keeps growing both.
 pub(crate) fn corpus_prohibition_prose(data_root: &Path) -> Vec<String> {
-    let mut out: Vec<String> = corpus_rules(data_root)
-        .into_iter()
-        .map(|(_, r)| r.description)
-        .filter(|d| d.split_whitespace().count() >= 3)
-        .collect();
-    if let Ok(jsonl) = std::fs::read_to_string(data_root.join("extraDocs/lint-corpus.jsonl")) {
-        out.extend(jsonl.lines().filter_map(|line| {
+    let Ok(jsonl) = std::fs::read_to_string(data_root.join("extraDocs/lint-corpus.jsonl")) else {
+        return Vec::new();
+    };
+    jsonl
+        .lines()
+        .filter_map(|line| {
             let v: serde_json::Value = serde_json::from_str(line).ok()?;
+            if v["bad"].as_str().unwrap_or("").trim().is_empty() {
+                return None;
+            }
             let d = v["description"].as_str()?;
             (d.split_whitespace().count() >= 3).then(|| d.to_string())
-        }));
-    }
-    out
+        })
+        .collect()
 }
 
 /// The model cache directory — exposed for sibling modules that persist shared learned
@@ -311,9 +341,15 @@ pub fn ensure_models(
         // then the corpus folder's principles, then the crawled docs.
         let (doc_rules, reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
         let mut rules = project_rules(data_root, project_root, lang);
+        // The project's own law is trusted by LOCATION: the user wrote it in a rule file, so it
+        // states a violation by construction and bypasses the prohibition gate at compile time.
+        let trusted: std::collections::HashSet<String> = rules.iter().map(|r| r.id.clone()).collect();
+        // `any` rules govern every CODE language; documentation formats get only rules written
+        // FOR them ([`is_document_language`]) — documents are read, not held to code law.
+        let allow_any = !is_document_language(lang);
         rules.extend(
             folder.iter()
-                .filter(|(l, _)| l == lang || l == "any" || l.is_empty())
+                .filter(|(l, _)| l == lang || (allow_any && (l == "any" || l.is_empty())))
                 .map(|(_, r)| r.clone()),
         );
         rules.extend(doc_rules);
@@ -353,6 +389,7 @@ pub fn ensure_models(
         let ground = crate::lint_match::Grounding {
             reference,
             polarity: crate::lint_docs::document_polarity(data_root),
+            trusted,
         };
         let rule_set = RuleSet::build(lang, &tuples, &ground);
 
@@ -430,7 +467,7 @@ fn resolve_rules(
     let refresh = std::env::var_os("HELPERS_LINT_REFRESH").is_some();
     if !refresh {
         if let Some(cat) = load_cache(lang) {
-            if cat.version == version {
+            if cat.current(version) {
                 let (rules, reference) = cat.doc_rules(lang);
                 if !rules.is_empty() {
                     return (rules, reference, format!("cache:{}", cat.learned_from));
@@ -466,6 +503,7 @@ fn resolve_rules(
     if let Some(memory) = crawl_learn(data_root, lang, version) {
         let cat = LearnedCatalog {
             version: version.to_string(),
+            train_version: TRAIN_VERSION.to_string(),
             learned_from: "docs".to_string(),
             rules: Vec::new(),
             reference: Vec::new(),
@@ -809,6 +847,7 @@ pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, Str
     })?;
     let catalog = LearnedCatalog {
         version: version.clone(),
+        train_version: TRAIN_VERSION.to_string(),
         learned_from: "docs".to_string(),
         rules: Vec::new(),
         reference: Vec::new(),
@@ -835,6 +874,7 @@ pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, Str
             .as_ref()
             .and_then(|m| m.polarity.clone())
             .or_else(|| crate::lint_docs::document_polarity(data_root)),
+        trusted: std::collections::HashSet::new(),
     };
     let model = crate::lint_match::RuleSet::build(lang, &tuples, &ground);
     let pattern_count = model.rule_count();
@@ -930,5 +970,35 @@ fn model_fresh(model: &Path, stamp: &Path, want: &str) -> bool {
 /// Path to a language's model cache stamp (`<lang>.patterns.stamp`, beside its model).
 fn stamp_path(lang: &str) -> PathBuf {
     model_dir().join(format!("{lang}.patterns.stamp"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn any_rules_govern_code_languages_but_not_documentation_formats() {
+        assert!(!is_document_language("python"));
+        assert!(!is_document_language("qlang"), "an unknown code-like language is governed by `any`");
+        assert!(is_document_language("md"));
+        assert!(is_document_language("markdown"));
+        assert!(is_document_language("txt"));
+    }
+
+    #[test]
+    fn a_cached_catalog_from_older_reading_logic_is_stale() {
+        let cat = |train_version: &str| LearnedCatalog {
+            version: "1.0".to_string(),
+            train_version: train_version.to_string(),
+            learned_from: "docs".to_string(),
+            rules: Vec::new(),
+            reference: Vec::new(),
+            memory: None,
+        };
+        assert!(cat(TRAIN_VERSION).current("1.0"), "same reading logic + toolchain → fresh");
+        assert!(!cat("").current("1.0"), "a pre-versioning catalog must relearn");
+        assert!(!cat("docs-v1-ancient").current("1.0"), "older reading logic must relearn");
+        assert!(!cat(TRAIN_VERSION).current("2.0"), "a toolchain bump still relearns");
+    }
 }
 
