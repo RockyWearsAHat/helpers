@@ -79,6 +79,12 @@ always; never cut request scope. Work quick, think hard, talk little, act lots, 
    or massive build artifacts; if tracked, remove from the index and gitignore them.
 6. **Keep the workspace clean.** Generated files must never contaminate the repo. Minimal tokens for
    maximal results.
+7. **Documentation stays true, in one place.** Every change that makes any documentation stale —
+   module docs, READMEs, handoff notes, instruction files, contract comments — updates it **in the
+   same edit**. Up to date does NOT mean add more: it means **centralize and validate** — fold
+   duplicates into the one authoritative place, delete what no longer matches the code, and never
+   describe a thing twice when one doc can be pointed at. The test: the next agent reads the docs
+   cold and knows exactly where the project stands, without diffing them against reality.
 
 ## Code quality bar — non-negotiable
 
