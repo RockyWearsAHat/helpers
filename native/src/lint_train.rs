@@ -46,7 +46,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v8-forbidding-sentence-gate";
+const TRAIN_VERSION: &str = "docs-v10-grounded-shape-free-selection";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -166,6 +166,11 @@ pub struct TrainReport {
     pub skipped: Vec<(String, String)>,
     /// Languages whose rules were (re)learned from the live docs this run.
     pub crawled: Vec<String>,
+    /// Project-authored rules that could NOT compile a detector, as `(language, rule id)`.
+    /// The user's law must never vanish silently — the lint report surfaces these with what
+    /// to do about it (add a token-distinctive example, or run online so the language's
+    /// grammar/docs can be learned).
+    pub unenforced: Vec<(String, String)>,
 }
 
 /// Ensure a fresh, cached compiled [`RuleSet`] exists for each requested language, learning from the
@@ -325,10 +330,15 @@ pub fn project_rule_ids(data_root: &Path, project_root: &Path, lang: &str) -> st
 /// Source 2 — **file documentation**: `corpus/` (global CS principles) and `.helpers/lint-rules/`
 /// (project-local rules). Both feeds BOTH engines: bad/good examples → pattern rules; structural
 /// prose → behavioral principles.
+/// `project_code` is the project's own sources per language (`lang → file bodies`) — the
+/// grounding evidence for construct selection: a law names constructs that live in the code it
+/// governs, so the project itself is the one corpus that is ALWAYS available, in any language,
+/// with no shapes assumed. Pass an empty map when compiling rules with no project in hand.
 pub fn ensure_models(
     langs: &[String],
     data_root: &Path,
     project_root: &Path,
+    project_code: &std::collections::BTreeMap<String, Vec<String>>,
 ) -> (TrainReport, HashMap<String, LangModel>) {
     let mut report = TrainReport::default();
     let mut models = HashMap::new();
@@ -367,55 +377,81 @@ pub fn ensure_models(
             .collect();
         let concept = ConceptModel::compile(&concept_tuples, lang);
 
-        // Fast path: pattern model already cached and current — load it, attach concept + principles.
-        if !rules.is_empty() {
-            let stamp = stamp_of(&version, &rules);
-            if model_fresh(&patterns_path(lang), &stamp_path(lang), &stamp) {
-                if let Some(rule_set) = load_patterns(lang) {
-                    models.insert(lang.clone(), LangModel { rules: rule_set, concept });
+        // Grounding = the docs' reference corpus (grounds learned rules) + the project's OWN
+        // code (grounds and ranks the project's law). The compiled detectors depend on this
+        // evidence, so its fingerprint is part of the model cache stamp.
+        let ground = crate::lint_match::Grounding {
+            reference,
+            project: project_code.get(lang).cloned().unwrap_or_default(),
+            polarity: crate::lint_docs::document_polarity(data_root),
+            trusted: trusted.clone(),
+        };
+        let stamp = stamp_of(
+            &version,
+            &rules,
+            ground_fingerprint(&ground.reference) ^ ground_fingerprint(&ground.project).rotate_left(1),
+        );
+
+        // Every trusted (project-authored) id that did not survive compilation is REPORTED —
+        // the user's law never vanishes silently.
+        let note_unenforced =
+            |report: &mut TrainReport, compiled: &std::collections::HashSet<String>| {
+                for id in trusted.iter().filter(|id| !compiled.contains(*id)) {
+                    report.unenforced.push((lang.clone(), id.clone()));
                 }
-                report.reused.push(lang.clone());
-                continue;
+            };
+
+        // Fast path: pattern model already cached and current — load it, attach the concept gate.
+        if model_fresh(&patterns_path(lang), &stamp_path(lang), &stamp) {
+            if let Some(rule_set) = load_patterns(lang) {
+                let compiled: std::collections::HashSet<String> =
+                    rule_set.rule_ids().map(str::to_string).collect();
+                note_unenforced(&mut report, &compiled);
+                models.insert(lang.clone(), LangModel { rules: rule_set, concept });
             }
+            report.reused.push(lang.clone());
+            continue;
         }
 
         // Build and cache the pattern model from Source 1 + Source 2 rules. Prose-only rules are
-        // read through the language's learned grounding: its docs' reference code and the
+        // read through the language's learned grounding: real code (docs + project) and the
         // transferred polarity classifier (whose reader knows the docs' common words).
         let tuples: Vec<(String, String, String, String, String)> = rules
             .iter()
             .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone()))
             .collect();
-        let ground = crate::lint_match::Grounding {
-            reference,
-            polarity: crate::lint_docs::document_polarity(data_root),
-            trusted,
-        };
         let rule_set = RuleSet::build(lang, &tuples, &ground);
+        let compiled: std::collections::HashSet<String> =
+            rule_set.rule_ids().map(str::to_string).collect();
+        note_unenforced(&mut report, &compiled);
 
         if rule_set.rule_count() == 0 {
             report.skipped.push((lang.clone(), "no rule carried a distinctive pattern to match".to_string()));
             continue;
         }
 
-        if rule_set.rule_count() > 0 {
-            if let Some(parent) = patterns_path(lang).parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let stamp = stamp_of(&version, &rules);
-            if std::fs::write(patterns_path(lang), rule_set.to_json()).is_ok() {
-                let _ = std::fs::write(stamp_path(lang), &stamp);
-                report.trained.push(format!("{lang} ({} rules, from {learned_from})", rule_set.rule_count()));
-            } else {
-                report.skipped.push((lang.clone(), "could not write the cached model".to_string()));
-                continue;
-            }
+        if let Some(parent) = patterns_path(lang).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::write(patterns_path(lang), rule_set.to_json()).is_ok() {
+            let _ = std::fs::write(stamp_path(lang), &stamp);
+            report.trained.push(format!("{lang} ({} rules, from {learned_from})", rule_set.rule_count()));
+        } else {
+            report.skipped.push((lang.clone(), "could not write the cached model".to_string()));
+            continue;
         }
 
         models.insert(lang.clone(), LangModel { rules: rule_set, concept });
     }
 
     (report, models)
+}
+
+/// Order-independent fingerprint of the grounding corpus (docs reference + project code).
+/// Construct selection reads descriptions through this evidence, so a grounding change must
+/// retrain the cached model exactly like a rule edit does.
+fn ground_fingerprint(reference: &[String]) -> u64 {
+    reference.iter().map(|s| crate::lint_ai::token_seed(s)).fold(0u64, |acc, h| acc ^ h)
 }
 
 
@@ -862,13 +898,13 @@ pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, Str
     save_cache(lang, &catalog);
     // Compile the pattern model and cache it, grounded in what was just read: the crawl's own
     // reference code and its polarity classifier (falling back to the transferred one).
-    let stamp = stamp_of(&version, &rules);
     let tuples: Vec<(String, String, String, String, String)> = rules
         .iter()
         .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone()))
         .collect();
     let ground = crate::lint_match::Grounding {
         reference,
+        project: Vec::new(),
         polarity: catalog
             .memory
             .as_ref()
@@ -876,6 +912,7 @@ pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, Str
             .or_else(|| crate::lint_docs::document_polarity(data_root)),
         trusted: std::collections::HashSet::new(),
     };
+    let stamp = stamp_of(&version, &rules, ground_fingerprint(&ground.reference));
     let model = crate::lint_match::RuleSet::build(lang, &tuples, &ground);
     let pattern_count = model.rule_count();
     let _ = std::fs::write(patterns_path(lang), model.to_json());
@@ -938,11 +975,11 @@ fn save_cache(lang: &str, cat: &LearnedCatalog) {
     }
 }
 
-/// A stable checksum of a language's resolved rules + toolchain version — the model cache key.
-/// Order-independent (rows are sorted) and salted with [`TRAIN_VERSION`]. The description is part
-/// of the row: patterns can be derived from the English prose alone, so editing a rule's wording
-/// must retrain the model exactly like editing its examples does.
-fn stamp_of(version: &str, rules: &[DocRule]) -> String {
+/// A stable checksum of a language's resolved rules + toolchain version + grounding fingerprint —
+/// the model cache key. Order-independent (rows are sorted) and salted with [`TRAIN_VERSION`].
+/// The description is part of the row: patterns can be derived from the English prose alone, so
+/// editing a rule's wording must retrain the model exactly like editing its examples does.
+fn stamp_of(version: &str, rules: &[DocRule], ground_fp: u64) -> String {
     let mut rows: Vec<String> = rules
         .iter()
         .map(|r| format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", r.id, r.bad, r.good, r.description))
@@ -951,6 +988,7 @@ fn stamp_of(version: &str, rules: &[DocRule]) -> String {
     let mut h = Sha256::new();
     h.update(TRAIN_VERSION.as_bytes());
     h.update(version.as_bytes());
+    h.update(ground_fp.to_le_bytes());
     for r in &rows {
         h.update(r.as_bytes());
         h.update([0u8]);
