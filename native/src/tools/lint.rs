@@ -185,30 +185,47 @@ pub fn run(args: &Value) -> ToolResult {
         // Rules the project itself authored are the user's explicit law for this codebase —
         // trusted fully, never gated, however weak their compiled anchor is.
         let trusted = lint_train::project_rule_ids(&root, lang);
+        // Precise AST matches are exact and staged directly. Imprecise matches — text-fallback
+        // regexes and container-only AST patterns (several distinct rules compile to the same bare
+        // `list`) — must clear the Hv concept gate: the matched construct's tokens must agree with
+        // the fired rule's fingerprint more than with any other rule's, so a match that belongs to
+        // a different concept is dropped — no word blocklist involved. All of a language's gated
+        // findings go through ONE batched query ([`crate::lint_ai::ConceptModel::confirms_batch`]),
+        // a single popcount-grid dispatch instead of a scalar scan per finding.
+        let mut pending: Vec<(String, crate::lint_match::Finding, bool)> = Vec::new();
+        let mut gate_tokens: Vec<(usize, Vec<String>)> = Vec::new(); // (pending idx, construct tokens)
         for (path, src) in lang_files {
             for finding in model.rules.flag(src) {
-                // Precise AST matches are exact and reported directly. Imprecise matches —
-                // text-fallback regexes and container-only AST patterns (several distinct rules
-                // compile to the same bare `list`) — must clear the Hv concept gate: the matched
-                // construct's tokens must agree with the fired rule's fingerprint more than with
-                // any other rule's, so a match that belongs to a different concept is dropped —
-                // no word blocklist involved. See [`crate::lint_ai::ConceptModel::confirms`].
                 let doc_rule = !trusted.contains(&finding.rule);
                 if !finding.precise && doc_rule {
-                    let toks = line_tokens(src, finding.line);
-                    let refs: Vec<&str> = toks.iter().map(String::as_str).collect();
-                    if !model.concept.confirms(&finding.rule, &refs) { continue; }
+                    gate_tokens.push((pending.len(), line_tokens(src, finding.line)));
                 }
-                let (severity, advice_text) = advice
-                    .get(&finding.rule)
-                    .map(|info| {
-                        let sev = if info.severity.is_empty() { finding.severity.clone() } else { info.severity.clone() };
-                        let adv = if info.description.is_empty() { format!("violates `{}`", finding.rule) } else { info.description.clone() };
-                        (sev, adv)
-                    })
-                    .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule)));
-                staged.push((path.clone(), Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text }, doc_rule));
+                pending.push((path.clone(), finding, doc_rule));
             }
+        }
+        let items: Vec<(&str, Vec<&str>)> = gate_tokens
+            .iter()
+            .map(|(i, toks)| (pending[*i].1.rule.as_str(), toks.iter().map(String::as_str).collect()))
+            .collect();
+        let mut rejected: HashSet<usize> = HashSet::new();
+        for (kept, (i, _)) in model.concept.confirms_batch(&items).into_iter().zip(&gate_tokens) {
+            if !kept {
+                rejected.insert(*i);
+            }
+        }
+        for (i, (path, finding, doc_rule)) in pending.into_iter().enumerate() {
+            if rejected.contains(&i) {
+                continue;
+            }
+            let (severity, advice_text) = advice
+                .get(&finding.rule)
+                .map(|info| {
+                    let sev = if info.severity.is_empty() { finding.severity.clone() } else { info.severity.clone() };
+                    let adv = if info.description.is_empty() { format!("violates `{}`", finding.rule) } else { info.description.clone() };
+                    (sev, adv)
+                })
+                .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule)));
+            staged.push((path, Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text }, doc_rule));
         }
     }
 

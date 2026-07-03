@@ -255,29 +255,51 @@ impl ConceptModel {
         ConceptModel { rules: compiled }
     }
 
-    /// Confirm a text-fallback finding for `rule_id` against the `tokens` of the whole matched
-    /// construct (node level — the line/statement the regex fired on, never one leaf).
-    ///
-    /// The bundle of the construct's tokens is compared to every rule's fingerprint. The finding
-    /// is kept only when the fired rule's fingerprint is the concept the construct is closest to
-    /// (ties keep it): a construct whose tokens belong more to some *other* rule matched this
-    /// rule's regex only incidentally, so it is rejected. When the model has no fingerprint for
-    /// `rule_id`, or the construct has no usable tokens, the gate abstains and keeps the finding —
-    /// it never manufactures a rejection it cannot justify.
+    /// Confirm a single text-fallback finding — the 1-query case of [`ConceptModel::confirms_batch`].
     pub fn confirms(&self, rule_id: &str, tokens: &[&str]) -> bool {
-        let target = token_seed(rule_id);
-        let Some(fired) = self.rules.iter().find(|r| r.id_hash == target) else { return true };
-        let mut b = Bundler::new();
-        for t in tokens {
-            let t = t.to_lowercase();
-            if t.len() < 2 || t.len() > 64 { continue; }
-            b.add(&token_hv(&t));
+        self.confirms_batch(&[(rule_id, tokens.to_vec())])[0]
+    }
+
+    /// Confirm a batch of text-fallback findings in ONE gate query ([`crate::hv_batch::gate`]).
+    ///
+    /// Each item is `(fired rule id, tokens of the whole matched construct)` — node level, the
+    /// line/statement the regex fired on, never one leaf. Per item, the bundle of the construct's
+    /// tokens is compared to every rule's fingerprint and the finding is kept only when the fired
+    /// rule's fingerprint is the concept the construct is closest to (ties keep it): a construct
+    /// whose tokens belong more to some *other* rule matched this rule's regex only incidentally,
+    /// so it is rejected. When the model has no fingerprint for the fired rule, or the construct
+    /// has no usable tokens, the gate abstains and keeps the finding — it never manufactures a
+    /// rejection it cannot justify. Batching the whole run's findings into one call lets the
+    /// popcount grid run as a single dispatch (GPU when the workload warrants it), bit-identical
+    /// to the scalar decision.
+    pub fn confirms_batch(&self, items: &[(&str, Vec<&str>)]) -> Vec<bool> {
+        let keys: Vec<Hv> = self.rules.iter().map(|r| r.rule_hv).collect();
+        let mut verdicts = vec![true; items.len()]; // abstain = keep
+        let mut queries: Vec<Hv> = Vec::new();
+        let mut fired: Vec<usize> = Vec::new();
+        let mut batch_slots: Vec<usize> = Vec::new(); // items[i] behind each queries row
+        for (i, (rule_id, tokens)) in items.iter().enumerate() {
+            let target = token_seed(rule_id);
+            let Some(fired_idx) = self.rules.iter().position(|r| r.id_hash == target) else {
+                continue; // unknown rule → abstain
+            };
+            let mut b = Bundler::new();
+            for t in tokens {
+                let t = t.to_lowercase();
+                if t.len() < 2 || t.len() > 64 { continue; }
+                b.add(&token_hv(&t));
+            }
+            if b.is_empty() {
+                continue; // no usable tokens → abstain
+            }
+            queries.push(b.finalize());
+            fired.push(fired_idx);
+            batch_slots.push(i);
         }
-        if b.is_empty() { return true; }
-        let node_hv = b.finalize();
-        let fired_d = node_hv.distance(&fired.rule_hv);
-        let nearest = self.rules.iter().map(|r| node_hv.distance(&r.rule_hv)).min().unwrap_or(fired_d);
-        fired_d <= nearest
+        for (row, slot) in crate::hv_batch::gate(&queries, &keys, &fired).into_iter().zip(batch_slots) {
+            verdicts[slot] = row.fired_dist <= row.nearest_dist;
+        }
+        verdicts
     }
 
     /// Number of compiled concept fingerprints.
@@ -401,5 +423,24 @@ mod tests {
         assert!(!model.confirms("no-with", &["eval", "userInput"]));
         // An unknown rule id is abstained on (kept), never a manufactured rejection.
         assert!(model.confirms("not-a-rule", &["eval"]));
+    }
+
+    #[test]
+    fn batch_gate_matches_scalar_decisions() {
+        let rules = vec![
+            ("no-eval".to_string(), "avoid eval; it executes arbitrary code".to_string(), "eval(userInput)".to_string()),
+            ("no-with".to_string(), "avoid the with statement; it confuses scope".to_string(), "with (obj) { x = 1 }".to_string()),
+        ];
+        let model = ConceptModel::compile(&rules, "javascript");
+        let items: Vec<(&str, Vec<&str>)> = vec![
+            ("no-eval", vec!["eval", "userInput"]),      // right concept → keep
+            ("no-with", vec!["eval", "userInput"]),      // wrong concept → reject
+            ("not-a-rule", vec!["eval"]),                 // unknown rule → abstain (keep)
+            ("no-eval", vec![]),                          // no tokens → abstain (keep)
+        ];
+        let batch = model.confirms_batch(&items);
+        let scalar: Vec<bool> = items.iter().map(|(id, t)| model.confirms(id, t)).collect();
+        assert_eq!(batch, scalar, "one batched dispatch is bit-identical to the scalar loop");
+        assert_eq!(batch, vec![true, false, true, true]);
     }
 }
