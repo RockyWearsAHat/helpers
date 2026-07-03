@@ -326,6 +326,63 @@ fn junk_files_and_broken_inputs_never_crash_a_run() {
     );
 }
 
+// ── B7a: a root lintPref file of bare English sentences is the project's law ──
+
+/// No `.helpers/` directory, no headings, no fences, no tags — a `lintPref.md` dropped in the
+/// project root containing nothing but plain English instructions is read and enforced. This is
+/// the "hand the linter your conventions like you'd hand them to a person" contract.
+#[test]
+fn a_root_lintpref_of_plain_english_sentences_is_enforced() {
+    let p = TestProject::new("lintpref-root");
+    p.write("job.py", "def run(expr):\n    value = eval(expr)\n    return value\n");
+    p.write("safe.py", "def add(a, b):\n    return a + b\n");
+    p.write(
+        "lintPref.md",
+        "Never call `eval` anywhere in this project; parse the input explicitly.\n\n\
+         Do not use `printStackTrace` for error reporting; use the project logger instead.\n",
+    );
+
+    let verdict = p.lint(true);
+
+    let hit = flagged_in(&verdict, "job.py", "eval");
+    assert!(hit, "a bare English sentence in root lintPref.md must be enforced:\n{verdict}");
+    assert!(
+        !flagged_in(&verdict, "safe.py", "eval"),
+        "the clean file must stay clean:\n{verdict}"
+    );
+    // The advice shown is the user's own English, readable by a human or another agent.
+    let line = line_with(&verdict, "eval").expect("finding line exists");
+    assert!(
+        line.contains("parse the input explicitly"),
+        "the finding must carry the user's own advice verbatim: {line}"
+    );
+}
+
+/// The same contract holds for a `.txt` file — the format of the file is as unformatted as it
+/// gets, and the rules still apply across every language in the project.
+#[test]
+fn a_root_lintpref_txt_governs_every_language() {
+    let p = TestProject::new("lintpref-txt");
+    p.write("app.py", "import pickle\n\ndef load(b):\n    return pickle.loads(b)\n");
+    p.write("web.js", "function show(x) { console.log(x); }\n");
+    p.write(
+        "lintPref.txt",
+        "Never use pickle.loads on untrusted data anywhere in this repository.\n\n\
+         Do not ship console.log calls; use the structured logger.\n",
+    );
+
+    let verdict = p.lint(true);
+
+    assert!(
+        flagged_in(&verdict, "app.py", "pickle"),
+        "python violation of a txt instruction must be flagged:\n{verdict}"
+    );
+    assert!(
+        flagged_in(&verdict, "web.js", "console"),
+        "javascript violation of a txt instruction must be flagged:\n{verdict}"
+    );
+}
+
 // ── B7: offline + cold caches, the project's law still holds ──────────────────
 
 /// No network, no caches, brand-new machine shape: the tool still enforces the project's own
