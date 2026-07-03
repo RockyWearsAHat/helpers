@@ -17,8 +17,10 @@
 //!     classifying the words around it (its lead-in line, its fence's info words, the rule's own
 //!     description) — prohibition ⇒ bad example, endorsement ⇒ good example — with document order
 //!     (violation shown first, fix after) as the neutral fallback;
-//!   * a span with no code at all is still a rule: the engine derives the pattern from the
-//!     English description downstream and the SELF-FIRE gate validates or drops it.
+//!   * a span with no code at all is still a rule CANDIDATE: the engine derives the pattern from
+//!     the English description downstream. Project law compiles by location (the rule file is the
+//!     label); a LEARNED source's candidate must carry a forbidding sentence to compile at all
+//!     ([`crate::lint_match`]) — concept and guidance prose is read, never fired.
 //!
 //! So `"Never call eval anywhere; parse the input explicitly."` in a bare `lintPref.txt` is a
 //! complete, enforceable rule — headings, fences, and tags are optional enrichment the reader
