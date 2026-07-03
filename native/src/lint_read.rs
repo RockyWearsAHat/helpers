@@ -164,11 +164,24 @@ impl Reader {
     }
 }
 
-/// How much closer (in Hamming bits) a single token must sit to one prototype than the other to cast
-/// a polarity vote for it. Below this it is a neutral word that belongs to neither side, so it does
-/// not vote. Keeps the decision robust to query length: confidence is a fraction of decisive tokens,
-/// not an absolute distance that shrinks with fewer words.
-const TOKEN_VOTE_MARGIN: u32 = 200;
+/// How many deterministic probe codes measure a prototype pair's noise floor. Probe codes are
+/// random token hypervectors — vocabulary that belongs to neither side by construction — so the
+/// widest |d(bad) − d(good)| they show is what "no signal" looks like for THESE prototypes.
+const CALIBRATION_PROBES: u64 = 512;
+
+/// The vote margin CALIBRATED from the trained prototypes: 1.5× the widest lean shown by
+/// [`CALIBRATION_PROBES`] neutral probe codes. The probes' maximum estimates the noise floor; the
+/// 50% headroom covers the distribution tail past a finite sample (verified by the pseudo-word
+/// sweep in the tests). A tiny or imbalanced training has a wide floor and gets a wide margin; a
+/// large one tightens automatically — no hand-tuned constant, the trained model measures itself.
+fn calibrated_margin(bad: &Hv, good: &Hv) -> u32 {
+    let mut floor = 0u32;
+    for i in 0..CALIBRATION_PROBES {
+        let probe = Hv::random(0x9E3779B97F4A7C15 ^ i.wrapping_mul(0xA24BAED4963EE407));
+        floor = floor.max(probe.distance(bad).abs_diff(probe.distance(good)));
+    }
+    floor + floor / 2
+}
 
 /// Accumulator that builds a [`Polarity`] from read + toolchain-grounded examples. Prohibition prose
 /// (the context around code the toolchain flags) bundles into the bad prototype; endorsement prose
@@ -205,6 +218,7 @@ impl PolarityBuilder {
             good: self.good.finalize(),
             bad_n: self.bad.len(),
             good_n: self.good.len(),
+            margin: std::sync::OnceLock::new(),
             reader: self.reader,
         }
     }
@@ -226,6 +240,10 @@ pub struct Polarity {
     bad_n: usize,
     /// Token votes bundled into `good` — zero means the good side is untrained.
     good_n: usize,
+    /// Lazily computed calibrated vote margin (deterministic; excluded from serialization so a
+    /// loaded memory re-measures its own prototypes).
+    #[serde(skip)]
+    margin: std::sync::OnceLock<u32>,
 }
 
 impl Polarity {
@@ -251,21 +269,23 @@ impl Polarity {
 
     /// Classify prose: `Some(true)` = prohibition, `Some(false)` = endorsement, `None` = abstain
     /// (untrained, unencodable, or no decisive majority). Each salient token votes for whichever
-    /// prototype it sits closer to (by more than [`TOKEN_VOTE_MARGIN`]); the side with the strict
+    /// prototype it sits closer to by more than the CALIBRATED margin ([`calibrated_margin`] — the
+    /// trained prototypes' own measured noise floor, never a hand constant); the side with the strict
     /// majority of votes wins. Per-token voting keeps the call stable whether the prose is three words
     /// or three hundred — neutral text simply casts no votes and abstains.
     pub fn classify(&self, prose: &str) -> Option<bool> {
         if !self.is_ready() {
             return None;
         }
+        let margin = *self.margin.get_or_init(|| calibrated_margin(&self.bad, &self.good));
         let mut bad_votes = 0i32;
         let mut good_votes = 0i32;
         for h in self.reader.salient(prose) {
             let db = h.distance(&self.bad);
             let dg = h.distance(&self.good);
-            if db + TOKEN_VOTE_MARGIN <= dg {
+            if db + margin <= dg {
                 bad_votes += 1;
-            } else if dg + TOKEN_VOTE_MARGIN <= db {
+            } else if dg + margin <= db {
                 good_votes += 1;
             }
         }
@@ -417,6 +437,52 @@ mod tests {
         // Neutral, contentless prose abstains.
         assert_eq!(p.classify("the module has three sections and a table"), None, "neutral abstains");
     }
+
+    #[test]
+    fn random_vocabulary_abstains_for_any_training_size() {
+        // The abstain margin must come from the TRAINED prototypes (their measured noise floor),
+        // not a hand-tuned constant: whatever the training size or balance, prose made of tokens
+        // that belong to neither side must cast no verdict. Tiny and imbalanced trainings have a
+        // much wider noise floor than large ones — a fixed margin fails one or the other.
+        let trainings: Vec<Vec<(&str, bool)>> = vec![
+            // Tiny: one example per side.
+            vec![("never do this dangerous thing", true), ("this is the recommended form", false)],
+            // Imbalanced: many bad, two good.
+            vec![
+                ("never do this; it breaks under load", true),
+                ("this pattern is deprecated and unsafe", true),
+                ("avoid mutating shared state here", true),
+                ("this approach is fragile and error prone", true),
+                ("passing a raw handle leaks the resource", true),
+                ("this obsolete call corrupts memory", true),
+                ("this is the recommended supported approach", false),
+                ("prefer immutable data for clean clarity", false),
+            ],
+        ];
+        // Neutral sentences whose vocabulary is fully disjoint from every training example — a
+        // token the model has actually read (even once) legitimately carries lean; abstention is
+        // only owed to vocabulary that belongs to neither side.
+        let neutral = [
+            "quarterly ledger totals seventeen columns",
+            "violin quartets rehearse beside harbors",
+            "granite outcrops flank meadow trailheads",
+            "recipes fold saffron into warm butter",
+        ];
+        for (i, training) in trainings.iter().enumerate() {
+            let p = Polarity::from_labeled(training);
+            for q in &neutral {
+                assert_eq!(p.classify(q), None, "training set {i}: neutral {q:?} must abstain");
+            }
+            // Sweep a large deterministic sample of never-seen pseudo-words: a hand-picked constant
+            // margin sits somewhere in this distribution's tail and eventually miscalls one; the
+            // calibrated margin must clear the whole sweep.
+            for w in 0..400 {
+                let q = format!("zk{w}a zk{w}b zk{w}c zk{w}d zk{w}e");
+                assert_eq!(p.classify(&q), None, "training set {i}: pseudo-words {q:?} must abstain");
+            }
+        }
+    }
+
 
     #[test]
     fn untrained_polarity_abstains() {
