@@ -83,4 +83,10 @@ plain Node. Controls: `helpers daemon status`, `helpers daemon restart`, `helper
 - Every tool is deterministic and standalone (no AI), and works in any agent. The tools
   are native Rust for speed and type safety; only `search_web` / `scrape_webpage` run in
   Node (headless browser).
+- **Documentation must be kept up to date with every change** — and up to date means
+  **centralized and valid**, not longer: update the module docs / README / handoff notes your
+  change made stale in the same edit, fold duplicates into the one authoritative doc, and delete
+  anything that no longer matches the code. The next agent should read the docs cold and know
+  exactly where the project stands. (The always-on rule lives in `agent-config/CORE.md`,
+  Working discipline #7 — edit it there, never in the generated per-agent copies.)
 - See `README.md` for full per-tool docs and packaging.
