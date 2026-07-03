@@ -741,113 +741,121 @@ fn strip_code_comments(code: &str) -> String {
         .join("\n")
 }
 
-/// Derive a discriminating regex from the rule's English *description* by finding the key
-/// identifiers the doc names (backtick-quoted terms). Falls back to scanning for method-name
-/// tokens. The result must appear in `bad` to be accepted — the description says what is wrong,
-/// and the bad example must exhibit it.
-///
-/// This is the "read the documentation" path: the English sentence "Avoid `e.printStackTrace()`"
-/// directly yields `\bprintStackTrace\b` without needing a diff of code examples.
-/// Derive a discriminating regex by reading the rule's English *description* — the prose
-/// the official documentation actually wrote.
-///
-/// Three extraction passes, in priority order:
-///  1. Backtick-quoted spans (Markdown, GitHub, rustdoc): `` `e.printStackTrace()` `` → `printStackTrace`.
-///  2. Words immediately followed by `(` in plain prose: `"Avoid exit("` → `exit`.
-///  3. CamelCase/PascalCase identifiers in plain prose (≥4 chars): "Replace ArrayList" → `ArrayList`.
-///
-/// If `bad` is non-empty it is used to validate: the candidate must appear in the bad example,
-/// ensuring we name the right construct (not a generic word from the explanation). When `bad`
-/// is absent the first viable candidate is returned directly — the SELF-FIRE gate in the
-/// caller will then validate or drop it.
-fn description_discriminator(desc: &str, bad: &str) -> Option<String> {
-    let id_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?").expect("static");
-    // A token is prose (not code) when it is a plain alphabetic word the OS dictionary knows —
-    // no hand-kept stopword list: the dictionary IS the vocabulary. Anything outside it —
-    // snake_case, camelCase, sigils, and words from ANY other language, human or programming —
-    // is inferred to be an identifier and can carry a rule. Method names (followed by `(`)
-    // bypass the check: the call syntax is structural evidence of code.
-    let is_prose = |tok: &str| -> bool {
-        tok.len() < 3
-            || (tok.chars().all(|c| c.is_ascii_alphabetic())
-                && crate::lint_ai::dict_words().contains(&tok.to_lowercase()))
-    };
+/// Grounded evidence [`RuleSet::build`] reads English descriptions through: the real-code
+/// reference corpus the language's own documentation served, and the learned polarity classifier
+/// (which carries the reader and its word-frequency knowledge of the language's prose). Both are
+/// LEARNED artifacts — construct selection consults them instead of any authored word list or
+/// dictionary, so a miss is fixed by more reading, never by another extraction pass.
+#[derive(Default)]
+pub struct Grounding {
+    /// Real code examples from the language's documentation — the "what's normal" corpus.
+    pub reference: Vec<String>,
+    /// The learned prohibition/endorsement classifier; its reader knows which words are common
+    /// connective prose in this language's documentation.
+    pub polarity: Option<crate::lint_read::Polarity>,
+}
 
-    // A dotted identifier path ("pickle.loads", "console.log") is code even when every dot
-    // segment is a dictionary word — no human-language dictionary has an entry with a dot in it.
-    // Segments must be ≥2 chars so prose abbreviations ("e.g.", "i.e.") stay prose.
+/// [`Grounding`] precomputed for one `RuleSet::build` run: the reference corpus flattened to an
+/// identifier set, and the reader borrowed out of the classifier.
+struct GroundView<'a> {
+    /// Every identifier-shaped token that occurs in real reference code, lowercased.
+    code_tokens: std::collections::HashSet<String>,
+    /// The reader whose learned frequencies say which words are common prose.
+    reader: Option<&'a crate::lint_read::Reader>,
+}
+
+impl<'a> GroundView<'a> {
+    /// Flatten `g`'s corpus into a token set and borrow its reader.
+    fn of(g: &'a Grounding) -> GroundView<'a> {
+        let mut code_tokens = std::collections::HashSet::new();
+        for code in &g.reference {
+            for tok in code.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+                if tok.len() >= 3 {
+                    code_tokens.insert(tok.to_lowercase());
+                }
+            }
+        }
+        GroundView { code_tokens, reader: g.polarity.as_ref().map(|p| p.reader()) }
+    }
+}
+
+/// Derive a discriminating regex by READING the rule's English *description* — the prose the
+/// documentation actually wrote. This is how a prose-only rule ("Never call `eval` anywhere")
+/// becomes a detector with no code example.
+///
+/// Candidates are every identifier-shaped token in the sentence; selection is by EVIDENCE,
+/// not by pass priority or a dictionary:
+///
+///   * **The document's own signals** — backtick quoting, a dotted path (`pickle.loads`), call
+///     syntax (`exit(`), or code morphology (underscores, digits, internal capitals). The author
+///     already marked these as code; no vocabulary can veto them.
+///   * **Grounded evidence** — an unmarked plain word qualifies only when it occurs in the
+///     language's real reference code AND the reader that read the docs learned it is NOT common
+///     prose. Both facts are learned; neither is authored.
+///
+/// Marked candidates outrank grounded ones; within a class the reader's salience (rarer word
+/// wins) and then length decide. When `bad` is non-empty every candidate must appear in it — the
+/// description says what is wrong and the example must exhibit it. When `bad` is absent the
+/// winner is trusted: the SELF-FIRE gate and query-time silence protect against a wrong pick.
+fn description_discriminator(desc: &str, bad: &str, ground: &GroundView) -> Option<String> {
+    // A dotted identifier path is code even when every dot segment is an English word — prose
+    // has no dotted words. Segments must be ≥2 chars so abbreviations ("e.g.") stay prose.
     let dotted_re = regex::Regex::new(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b").expect("static");
-    let dotted_from = |span: &str| -> Option<String> {
-        dotted_re
-            .find_iter(span)
-            .map(|m| m.as_str())
-            .find(|c| c.split('.').all(|seg| seg.len() >= 2))
-            .map(str::to_string)
-    };
-
-    let best_from_span = |span: &str| -> Option<String> {
-        if let Some(dotted) = dotted_from(span) {
-            return Some(dotted);
-        }
-        // Prefer method names (follow `(`) over plain identifiers; within ties, prefer longer.
-        let method_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?\s*\(").expect("static");
-        if let Some(m) = method_re.find(span) {
-            let name = m.as_str().trim_end_matches(|c: char| c == '(' || c.is_whitespace());
-            if name.len() >= 3 {
-                return Some(name.to_string());
-            }
-        }
-        id_re.find_iter(span)
-            .filter(|m| !is_prose(m.as_str()))
-            .max_by_key(|m| m.len())
-            .map(|m| m.as_str().to_string())
-    };
-
-    let mut candidates: Vec<String> = Vec::new();
-
-    // Pass 1 — backtick-quoted spans.
+    let call_re = regex::Regex::new(r"\b([A-Za-z_]\w{2,}[!?]?)\s*\(").expect("static");
+    let word_re = regex::Regex::new(r"[A-Za-z_]\w*[!?]?").expect("static");
     let bt_re = regex::Regex::new(r"`([^`]+)`").expect("static");
+    // Code morphology: a word shape prose does not produce — an underscore, a digit, or a
+    // capital letter after the first (camelCase / PascalCase / ALLCAPS acronyms excluded: an
+    // all-caps word is ordinary prose emphasis).
+    let code_shaped = |tok: &str| -> bool {
+        tok.contains('_')
+            || tok.chars().any(|c| c.is_ascii_digit())
+            || (tok.chars().any(|c| c.is_ascii_lowercase())
+                && tok.chars().skip(1).any(|c| c.is_ascii_uppercase()))
+    };
+
+    // Collect candidates in reading order: (token, author-marked-as-code?).
+    let mut candidates: Vec<(String, bool)> = Vec::new();
     for cap in bt_re.captures_iter(desc) {
-        if let Some(tok) = best_from_span(&cap[1]) {
-            candidates.push(tok);
+        let span = &cap[1];
+        if let Some(m) = dotted_re.find_iter(span).find(|m| m.as_str().split('.').all(|s| s.len() >= 2)) {
+            candidates.push((m.as_str().to_string(), true));
+            continue;
         }
-    }
-
-    // Pass 2a — dotted identifier paths in plain prose ("Never use pickle.loads on…").
-    if candidates.is_empty() {
-        if let Some(dotted) = dotted_from(desc) {
-            candidates.push(dotted);
-        }
-    }
-
-    // Pass 2 — method calls in plain prose ("avoid printStackTrace(", "calls System.exit(").
-    if candidates.is_empty() {
-        let mc_re = regex::Regex::new(r"\b([A-Za-z_]\w{2,}[!?]?)\s*\(").expect("static");
-        for cap in mc_re.captures_iter(desc) {
-            let tok = &cap[1];
-            if !is_prose(tok) {
-                candidates.push(tok.to_string());
-                break;
+        for m in word_re.find_iter(span) {
+            if m.as_str().len() >= 3 {
+                candidates.push((m.as_str().to_string(), true));
             }
         }
     }
-
-    // Pass 3 — CamelCase/PascalCase words in plain prose (code identifiers, not prose words).
-    if candidates.is_empty() {
-        let cc_re = regex::Regex::new(r"\b([A-Z][a-z]{2,}[A-Z][a-zA-Z]*|[a-z]{2,}[A-Z][a-zA-Z]+)\b").expect("static");
-        for m in cc_re.find_iter(desc) {
-            let tok = m.as_str();
-            if tok.len() >= 4 && !is_prose(tok) {
-                candidates.push(tok.to_string());
-                break;
-            }
+    for m in dotted_re.find_iter(desc) {
+        if m.as_str().split('.').all(|s| s.len() >= 2) {
+            candidates.push((m.as_str().to_string(), true));
+        }
+    }
+    for cap in call_re.captures_iter(desc) {
+        candidates.push((cap[1].to_string(), true));
+    }
+    for m in word_re.find_iter(desc) {
+        let tok = m.as_str();
+        if tok.len() >= 3 {
+            candidates.push((tok.to_string(), code_shaped(tok)));
         }
     }
 
-    // Validate: if bad is known, require the candidate to appear in it.
-    // If bad is absent (description-only rule), trust the extraction — the SELF-FIRE gate
-    // in RuleSet::build() will drop patterns that do not match real violations.
-    for cand in &candidates {
+    // Qualify by evidence: the author's marking, or grounded (in real code AND learned rare).
+    let is_common = |tok: &str| ground.reader.is_some_and(|r| r.is_common_word(tok));
+    candidates.retain(|(tok, marked)| {
+        *marked || (ground.code_tokens.contains(&tok.to_lowercase()) && ground.reader.is_some() && !is_common(tok))
+    });
+    // Rank: marked before grounded, reading order within — documentation names the violation
+    // before the remedy, so the earliest authored signal is the rule's subject. The sort is
+    // stable; nothing here weighs tokens.
+    candidates.sort_by_key(|(_, marked)| !*marked);
+
+    // Validate: when bad is known the candidate must appear in it; when absent, trust the
+    // winner — SELF-FIRE and query-time silence guard a wrong pick.
+    for (cand, _) in &candidates {
         let pat = format!(r"\b{}\b", regex::escape(cand));
         if let Ok(re) = regex::Regex::new(&pat) {
             if bad.trim().is_empty() || re.is_match(bad) {
@@ -1017,7 +1025,10 @@ impl RuleSet {
     /// For any other language: discriminating token-regex patterns, derived the same way.
     /// Both paths apply the same quality gate: self-fire (must flag its own `bad`) and
     /// over-fire (must not flag any `good` in the corpus). Only rules that pass both survive.
-    pub fn build(lang: &str, rules: &[(String, String, String, String, String)]) -> RuleSet {
+    /// `ground` is the learned evidence prose-only rules are read through ([`Grounding`]);
+    /// pass `Grounding::default()` when no docs have been read for the language yet.
+    pub fn build(lang: &str, rules: &[(String, String, String, String, String)], ground: &Grounding) -> RuleSet {
+        let ground = GroundView::of(ground);
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
         let has_grammar = language(lang).is_some();
@@ -1035,7 +1046,7 @@ impl RuleSet {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
                     // AST pattern — lossless and most precise; no regex needed.
                     MatchKind::Ast(pat)
-                } else if let Some(re) = description_discriminator(desc, bad) {
+                } else if let Some(re) = description_discriminator(desc, bad, &ground) {
                     // English prose is the primary documentation; read it first.
                     // The description names the construct to flag: "avoid `e.printStackTrace()`".
                     MatchKind::Text { pattern: re }
@@ -1049,7 +1060,7 @@ impl RuleSet {
             } else {
                 // No grammar — text matching only. Documentation prose is the primary signal;
                 // code examples (which appear in the same docs) refine when prose is thin.
-                if let Some(re) = description_discriminator(desc, bad) {
+                if let Some(re) = description_discriminator(desc, bad, &ground) {
                     MatchKind::Text { pattern: re }
                 } else if let Some(re) = text_discriminator(bad, good) {
                     MatchKind::Text { pattern: re }
@@ -1143,6 +1154,53 @@ mod tests {
         fs.iter().filter(|f| f.rule == id).map(|f| f.line).collect()
     }
 
+    /// An empty grounding: no docs read, no reference code — only the author's own signals count.
+    fn unground() -> GroundView<'static> {
+        GroundView { code_tokens: std::collections::HashSet::new(), reader: None }
+    }
+
+    #[test]
+    fn backticked_english_word_is_the_construct_the_author_named() {
+        // "panic" is an ordinary English word, but the author's backticks mark it as code — no
+        // vocabulary may veto what the document explicitly named.
+        let re = description_discriminator("Never call `panic` in library code; return an error value instead.", "", &unground());
+        assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
+    }
+
+    #[test]
+    fn dotted_path_in_bare_prose_is_code_even_when_every_segment_is_a_word() {
+        let re = description_discriminator("Do not use pickle.loads on untrusted data.", "", &unground());
+        assert_eq!(re.as_deref(), Some(r"\bpickle\.loads\b"));
+        // Ungrounded plain prose derives nothing: every word is unmarked and there is no learned
+        // evidence to qualify one — the engine abstains rather than guessing.
+        assert_eq!(description_discriminator("Keep functions small, e.g. under forty lines.", "", &unground()), None);
+    }
+
+    #[test]
+    fn grounded_reading_qualifies_a_plain_word_the_docs_taught() {
+        // "Never call panic in library code" — nothing is marked. The learned evidence decides:
+        // the reader read the docs (so connective words are common) and the reference corpus
+        // contains real code where `panic` occurs. That combination — learned, not authored —
+        // names the construct.
+        let mut reader = crate::lint_read::Reader::new();
+        for _ in 0..40 {
+            reader.learn_span("never call this in library code; return an error value instead of that");
+        }
+        let polarity = {
+            let mut b = crate::lint_read::PolarityBuilder::new(reader);
+            b.accumulate("never do this", true);
+            b.accumulate("this is the recommended form", false);
+            b.build()
+        };
+        let ground = Grounding {
+            reference: vec!["func f() { panic(\"x\") }".into(), "return fmt.Errorf(\"y\")".into()],
+            polarity: Some(polarity),
+        };
+        let view = GroundView::of(&ground);
+        let re = description_discriminator("Never call panic in library code; return an error value instead.", "", &view);
+        assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
+    }
+
     #[test]
     fn no_arrays_python_fires_on_verbatim_bad_line() {
         let rules = [rule(
@@ -1151,7 +1209,7 @@ mod tests {
             "scores = {\"first\": 90, \"second\": 85}",
             "Arrays/lists are banned in this project. Use explicit keyed structures (dict, dataclass) so every element has a name.",
         )];
-        let set = RuleSet::build("python", &rules);
+        let set = RuleSet::build("python", &rules, &Grounding::default());
         let hits = set.flag("scores = [90, 85, 77]");
         assert_eq!(lines_for(&hits, "no_arrays"), vec![1], "no_arrays must fire on the verbatim bad line");
     }
@@ -1168,7 +1226,7 @@ mod tests {
             "",
             ".format call has invalid format string: {message}",
         )];
-        let set = RuleSet::build("python", &rules);
+        let set = RuleSet::build("python", &rules, &Grounding::default());
         let hits = set.flag("greeting = \"hello {}\".format(name)");
         assert!(
             hits.iter().all(|f| !(f.rule == "F521" && f.precise)),
@@ -1187,7 +1245,7 @@ mod tests {
             "scores = {\"first\": 90, \"second\": 85}",
             "Arrays/lists are banned in this project. Use explicit keyed structures (dict, dataclass) so every element has a name.",
         )];
-        let set = RuleSet::build("python", &rules);
+        let set = RuleSet::build("python", &rules, &Grounding::default());
         let hits = set.flag("labels = [\"a\", \"b\", \"c\"]\nmixed = [1, \"two\"]\nempty = []");
         assert_eq!(lines_for(&hits, "no_arrays"), vec![1, 2, 3], "no_arrays must fire on lists of any element type");
     }
@@ -1202,7 +1260,7 @@ mod tests {
             "xs = (1, 2, 3)",
             "Do not use list literals anywhere in this project. Use tuples instead.",
         )];
-        let set = RuleSet::build("python", &rules);
+        let set = RuleSet::build("python", &rules, &Grounding::default());
         let hits = set.flag("scores = [90, 85, 77]\nlabels = [\"math\", \"sci\", \"art\"]\nok = (1, 2)");
         assert_eq!(lines_for(&hits, "no_arrays"), vec![1, 2], "list rule with tuple good example must fire on lists and spare tuples");
     }
@@ -1215,7 +1273,7 @@ mod tests {
             "var items = {a: 1, b: 2, c: 3}",
             "Arrays are banned; use keyed objects so every element has a name.",
         )];
-        let set = RuleSet::build("javascript", &rules);
+        let set = RuleSet::build("javascript", &rules, &Grounding::default());
         let hits = set.flag("var items = [1, 2, 3]");
         assert_eq!(lines_for(&hits, "no_arrays_js"), vec![1], "JS array rule must fire on `var items = [1, 2, 3]`");
     }
@@ -1244,7 +1302,7 @@ mod tests {
                 "use an f-string instead of str.format",
             ),
         ];
-        let set = RuleSet::build("python", &rules);
+        let set = RuleSet::build("python", &rules, &Grounding::default());
         let hits = set.flag("greeting = \"hello {}\".format(name)");
         assert!(lines_for(&hits, "F522").is_empty(), "F522 must not fire on a plain positional .format()");
         assert!(lines_for(&hits, "PLE0605").is_empty(), "PLE0605 must not fire on a .format() call");
@@ -1260,7 +1318,7 @@ mod tests {
             "",
             "avoid pprint in production code; use logging",
         )];
-        let set = RuleSet::build("python", &rules);
+        let set = RuleSet::build("python", &rules, &Grounding::default());
         let src = "import pprint\n\ndef f(x):\n    return x\n\npprint(data)\n";
         let hits = set.flag(src);
         assert_eq!(lines_for(&hits, "no_pprint"), vec![6], "pprint must be attributed only to the call line (6)");
@@ -1277,7 +1335,7 @@ mod tests {
             rule("monster", &deep, "", "avoid this deeply nested thing"),
             rule("no_arrays", "xs = [1, 2, 3]", "xs = (1, 2, 3)", "Do not use list literals."),
         ];
-        let set = RuleSet::build("python", &rules);
+        let set = RuleSet::build("python", &rules, &Grounding::default());
         let loaded = RuleSet::from_json(&set.to_json()).expect("cached model must always load back");
         assert_eq!(loaded.rule_count(), set.rule_count(), "round trip loses nothing");
         assert!(!loaded.flag("scores = [90, 85]").is_empty(), "the healthy rule still fires after the round trip");
@@ -1291,7 +1349,7 @@ mod tests {
             "scores = {\"first\": 90}",
             "Arrays/lists are banned in this project. Use explicit keyed structures.",
         )];
-        let set = RuleSet::build("python", &rules);
+        let set = RuleSet::build("python", &rules, &Grounding::default());
         let src = "def greet(name):\n    return f\"hello {name}\"\n\nconfig = {\"first\": 90, \"second\": 85}\n";
         assert!(set.flag(src).is_empty(), "clean idiomatic code must yield zero findings");
     }

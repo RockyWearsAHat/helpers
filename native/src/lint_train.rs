@@ -46,7 +46,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v5-document-reading";
+const TRAIN_VERSION: &str = "docs-v6-grounded-construct-selection";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -309,7 +309,7 @@ pub fn ensure_models(
         // Trust order decides who wins a shared pattern signature at dedup time
         // (RuleSet::build keeps the FIRST rule per pattern): the project's own law first,
         // then the corpus folder's principles, then the crawled docs.
-        let (doc_rules, _reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
+        let (doc_rules, reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
         let mut rules = project_rules(data_root, project_root, lang);
         rules.extend(
             folder.iter()
@@ -343,12 +343,18 @@ pub fn ensure_models(
             }
         }
 
-        // Build and cache the pattern model from Source 1 + Source 2 rules.
+        // Build and cache the pattern model from Source 1 + Source 2 rules. Prose-only rules are
+        // read through the language's learned grounding: its docs' reference code and the
+        // transferred polarity classifier (whose reader knows the docs' common words).
         let tuples: Vec<(String, String, String, String, String)> = rules
             .iter()
             .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone()))
             .collect();
-        let rule_set = RuleSet::build(lang, &tuples);
+        let ground = crate::lint_match::Grounding {
+            reference,
+            polarity: crate::lint_docs::document_polarity(data_root),
+        };
+        let rule_set = RuleSet::build(lang, &tuples, &ground);
 
         if rule_set.rule_count() == 0 {
             report.skipped.push((lang.clone(), "no rule carried a distinctive pattern to match".to_string()));
@@ -808,20 +814,29 @@ pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, Str
         reference: Vec::new(),
         memory: Some(memory),
     };
-    let (rules, _reference) = catalog.doc_rules(lang);
+    let (rules, reference) = catalog.doc_rules(lang);
     if rules.is_empty() {
         return Err(format!("read docs for `{lang}` but no binding classified as a violation"));
     }
     let rule_count = rules.len();
     // Save to user cache.
     save_cache(lang, &catalog);
-    // Compile the pattern model and cache it.
+    // Compile the pattern model and cache it, grounded in what was just read: the crawl's own
+    // reference code and its polarity classifier (falling back to the transferred one).
     let stamp = stamp_of(&version, &rules);
     let tuples: Vec<(String, String, String, String, String)> = rules
         .iter()
         .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone()))
         .collect();
-    let model = crate::lint_match::RuleSet::build(lang, &tuples);
+    let ground = crate::lint_match::Grounding {
+        reference,
+        polarity: catalog
+            .memory
+            .as_ref()
+            .and_then(|m| m.polarity.clone())
+            .or_else(|| crate::lint_docs::document_polarity(data_root)),
+    };
+    let model = crate::lint_match::RuleSet::build(lang, &tuples, &ground);
     let pattern_count = model.rule_count();
     let _ = std::fs::write(patterns_path(lang), model.to_json());
     let _ = std::fs::write(stamp_path(lang), &stamp);
@@ -884,11 +899,13 @@ fn save_cache(lang: &str, cat: &LearnedCatalog) {
 }
 
 /// A stable checksum of a language's resolved rules + toolchain version — the model cache key.
-/// Order-independent (rows are sorted) and salted with [`TRAIN_VERSION`].
+/// Order-independent (rows are sorted) and salted with [`TRAIN_VERSION`]. The description is part
+/// of the row: patterns can be derived from the English prose alone, so editing a rule's wording
+/// must retrain the model exactly like editing its examples does.
 fn stamp_of(version: &str, rules: &[DocRule]) -> String {
     let mut rows: Vec<String> = rules
         .iter()
-        .map(|r| format!("{}\u{1f}{}\u{1f}{}", r.id, r.bad, r.good))
+        .map(|r| format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", r.id, r.bad, r.good, r.description))
         .collect();
     rows.sort();
     let mut h = Sha256::new();

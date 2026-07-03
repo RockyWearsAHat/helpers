@@ -108,6 +108,14 @@ impl Reader {
         (self.total / 120).max(3) as u32
     }
 
+    /// True when this reader has LEARNED that `token` is common connective prose (its read
+    /// frequency reached the corpus-scaled cutoff). A token the reader never read is not common —
+    /// unknown words stay salient. This is the word-level view of the learned stop-list.
+    pub fn is_common_word(&self, token: &str) -> bool {
+        let seed = crate::lint_ai::token_seed(&token.to_lowercase());
+        self.freq.get(&seed).copied().unwrap_or(0) >= self.common_cutoff()
+    }
+
     /// Read a span sequentially and LEARN from it: at each token, when the memory's prediction for
     /// the current context is wrong (or absent), update only that one addressed slot to expect this
     /// token. Correct predictions touch nothing. Token frequencies are tallied alongside. This is the
@@ -306,6 +314,12 @@ impl Polarity {
     /// The prose side of an association [`Binding`]. `None` when the prose carries no content token.
     pub fn prose_hv(&self, prose: &str) -> Option<Hv> {
         self.reader.encode(prose)
+    }
+
+    /// The reader this classifier carries — the learned word-frequency knowledge other layers
+    /// (e.g. grounded construct selection in [`crate::lint_match`]) consult.
+    pub fn reader(&self) -> &Reader {
+        &self.reader
     }
 }
 
