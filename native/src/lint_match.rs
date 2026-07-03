@@ -195,6 +195,45 @@ fn dynamic_grammar(lang: &str) -> Option<tree_sitter::Language> {
     ret
 }
 
+/// A structural fingerprint of `code`: node-kind path trigrams under `lang`'s grammar (grandparent →
+/// parent → node kinds) when a grammar is available, else token trigrams. This is the material for a
+/// code example's associative-memory hypervector in [`crate::lint_read`] — it captures the SHAPE of
+/// the code (which constructs nest in which), not its exact text, so structurally similar examples
+/// bind near each other. Never re-derives a rule; the firing engine still parses code itself.
+pub(crate) fn code_ngrams(lang: &str, code: &str) -> Vec<String> {
+    if let Some(language) = language(lang) {
+        let mut parser = Parser::new();
+        if parser.set_language(&language).is_ok() {
+            if let Some(tree) = parser.parse(code, None) {
+                let mut out = Vec::new();
+                collect_kind_paths(tree.root_node(), &mut Vec::new(), &mut out);
+                if !out.is_empty() {
+                    return out;
+                }
+            }
+        }
+    }
+    let toks: Vec<&str> = code
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|t| !t.is_empty())
+        .collect();
+    toks.windows(3).map(|w| w.join(" ")).collect()
+}
+
+/// Emit a `grandparent>parent>node` kind trigram for every node, threading the ancestor kind stack.
+fn collect_kind_paths(node: Node, stack: &mut Vec<String>, out: &mut Vec<String>) {
+    stack.push(node.kind().to_string());
+    let n = stack.len();
+    if n >= 3 {
+        out.push(format!("{}>{}>{}", stack[n - 3], stack[n - 2], stack[n - 1]));
+    }
+    let mut cur = node.walk();
+    for c in node.named_children(&mut cur) {
+        collect_kind_paths(c, stack, out);
+    }
+    stack.pop();
+}
+
 /// Resolve a language name to its tree-sitter grammar.
 ///
 /// **Zero code changes needed to add any language.** Resolution order:
@@ -527,6 +566,18 @@ fn has_named_anchor(pat: &Pat) -> bool {
     has_text_anchor(pat) || is_container_kind(&pat.kind) || pat.children.iter().any(has_named_anchor)
 }
 
+/// Deepest pattern nesting a compiled rule may keep. A real anti-pattern is a construct a reader can
+/// point at — a handful of levels; a pattern this deep only comes from a docs page whose "example"
+/// is a whole sample program, which is not a rule (and whose JSON form would exceed serde_json's
+/// 128-level recursion limit — each `Pat` level nests two JSON levels — making the cached model
+/// unloadable). Compile abstains on such monsters.
+const MAX_PATTERN_DEPTH: usize = 48;
+
+/// The nesting depth of a pattern (a leaf is 1).
+fn pat_depth(pat: &Pat) -> usize {
+    1 + pat.children.iter().map(pat_depth).max().unwrap_or(0)
+}
+
 /// Whether `pat` keeps an EXACT-TEXT anchor anywhere — a retained operation name, keyword, or
 /// doc-named literal. A pattern without one is anchored only by container kinds; several distinct
 /// rules can share that identity (a no-arrays ban and a membership-test rule both reduce to a bare
@@ -596,6 +647,11 @@ impl RulePattern {
         // from a single example: a rule whose essence is types or dataflow leaves no syntactic
         // anchor and is correctly not learned here.
         if !has_named_anchor(&pat) {
+            return None;
+        }
+        // A pattern deeper than any pointable construct is a docs sample program, not a rule —
+        // and it would not survive the JSON cache round-trip. Abstain.
+        if pat_depth(&pat) > MAX_PATTERN_DEPTH {
             return None;
         }
         Some(RulePattern { lang: lang.to_string(), pat })
@@ -1173,6 +1229,23 @@ mod tests {
         let src = "import pprint\n\ndef f(x):\n    return x\n\npprint(data)\n";
         let hits = set.flag(src);
         assert_eq!(lines_for(&hits, "no_pprint"), vec![6], "pprint must be attributed only to the call line (6)");
+    }
+
+    #[test]
+    fn pathological_deep_example_never_breaks_the_cache_round_trip() {
+        // A docs page whose "bad example" is a monster (deeply nested expression) must not compile
+        // into a pattern that serializes but cannot be deserialized (serde_json's 128-level
+        // recursion limit) — the exact failure that silently dropped a language's model on warm
+        // runs. Either the pattern is abstained or the round-trip must succeed.
+        let deep = format!("x = {}1{}", "foo(".repeat(200), ")".repeat(200));
+        let rules = [
+            rule("monster", &deep, "", "avoid this deeply nested thing"),
+            rule("no_arrays", "xs = [1, 2, 3]", "xs = (1, 2, 3)", "Do not use list literals."),
+        ];
+        let set = RuleSet::build("python", &rules);
+        let loaded = RuleSet::from_json(&set.to_json()).expect("cached model must always load back");
+        assert_eq!(loaded.rule_count(), set.rule_count(), "round trip loses nothing");
+        assert!(!loaded.flag("scores = [90, 85]").is_empty(), "the healthy rule still fires after the round trip");
     }
 
     #[test]

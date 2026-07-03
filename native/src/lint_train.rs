@@ -44,7 +44,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v2-predictive-reader-polarity";
+const TRAIN_VERSION: &str = "docs-v3-association-memory";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -78,21 +78,54 @@ pub(crate) struct DocRule {
     source: String,
 }
 
-/// A language's learned rule catalog, cached so the linter does not relearn every run. Keyed by the
+/// A language's learned catalog, cached so the linter does not relearn every run. Keyed by the
 /// toolchain `version` it was learned for, so a version bump triggers a fresh crawl ("stay current").
+///
+/// v2 catalogs carry the reader's association [`crate::lint_read::Memory`] — what the model actually
+/// read — and rules are QUERIED out of it at train time ([`crate::lint_docs::rules_from_memory`]).
+/// The `rules` field remains for older committed modules that shipped pre-extracted tuples; a catalog
+/// uses one or the other ([`LearnedCatalog::doc_rules`]).
 #[derive(Serialize, Deserialize)]
 struct LearnedCatalog {
     /// Toolchain version the rules were learned for (empty when undetectable).
     version: String,
     /// Where the rules came from (a tool name, `committed`, or `embedded`) — provenance.
     learned_from: String,
-    /// The normalized rules.
+    /// Pre-extracted rules (older committed-module form). Empty for v2 memory catalogs.
+    #[serde(default)]
     rules: Vec<DocRule>,
-    /// Real idiomatic code the docs served — the clean reference that calibrates each signal so
-    /// only the genuinely-distinctive part of a rule fires. Empty for the seed (it carries no
-    /// reference code).
+    /// Real idiomatic code the docs served (older form; v2 keeps it inside `memory`).
     #[serde(default)]
     reference: Vec<String>,
+    /// v2: the association memory the reader built from the docs — bindings, reference corpus, and
+    /// the toolchain-grounded polarity classifier. Rules are a query against this.
+    #[serde(default)]
+    memory: Option<crate::lint_read::Memory>,
+}
+
+impl LearnedCatalog {
+    /// The catalog's rules and reference corpus: queried from the association memory when present
+    /// (reading IS the knowledge), else the pre-extracted tuples an older module shipped.
+    fn doc_rules(&self, lang: &str) -> (Vec<DocRule>, Vec<String>) {
+        match &self.memory {
+            Some(memory) => {
+                let rules = crate::lint_docs::rules_from_memory(lang, memory)
+                    .into_iter()
+                    .map(|(r, url)| DocRule {
+                        id: r.id,
+                        slice: r.severity.clone(),
+                        severity: r.severity,
+                        description: r.description,
+                        bad: r.bad,
+                        good: r.good,
+                        source: url,
+                    })
+                    .collect();
+                (rules, memory.reference.clone())
+            }
+            None => (self.rules.clone(), self.reference.clone()),
+        }
+    }
 }
 
 /// The reportable facts about a rule the compiled pattern itself does not carry: severity, the English
@@ -311,21 +344,25 @@ fn resolve_rules(
     let refresh = std::env::var_os("HELPERS_LINT_REFRESH").is_some();
     if !refresh {
         if let Some(cat) = load_cache(lang) {
-            if cat.version == version && !cat.rules.is_empty() {
-                return (cat.rules, cat.reference, format!("cache:{}", cat.learned_from));
+            if cat.version == version {
+                let (rules, reference) = cat.doc_rules(lang);
+                if !rules.is_empty() {
+                    return (rules, reference, format!("cache:{}", cat.learned_from));
+                }
             }
         }
-        // A committed module is a high-quality seed (real bad/good pairs + reference code). It is
+        // A committed module is a high-quality seed (a read memory, or pre-extracted pairs). It is
         // used regardless of toolchain version — like the snapshot, it is a starting point that an
         // explicit `HELPERS_LINT_REFRESH` re-crawls. Preferred over the bare `lint-index/` snapshot.
         if let Some(cat) = load_committed_module(data_root, lang) {
-            if !cat.rules.is_empty() {
+            let (mod_rules, reference) = cat.doc_rules(lang);
+            if !mod_rules.is_empty() {
                 let (seed_rules, _) = seed_with_version(data_root, lang);
                 let existing: std::collections::HashSet<String> =
-                    cat.rules.iter().map(|r| r.id.clone()).collect();
-                let mut rules = cat.rules;
+                    mod_rules.iter().map(|r| r.id.clone()).collect();
+                let mut rules = mod_rules;
                 rules.extend(seed_rules.into_iter().filter(|r| !existing.contains(&r.id)));
-                return (rules, cat.reference, "committed module".to_string());
+                return (rules, reference, "committed module".to_string());
             }
         }
     }
@@ -337,20 +374,21 @@ fn resolve_rules(
     if !refresh && seed_current {
         return (seed, Vec::new(), "committed snapshot".to_string());
     }
-    // Learn it ourselves from the live docs. Cache what we learn (rules + reference), keyed by the
-    // toolchain version, so the next run is fast and only relearns on a bump.
-    if let Some((rules, reference)) = crawl_learn(data_root, lang, version) {
+    // READ it ourselves from the live docs. Cache the MEMORY we read (not pre-extracted rules),
+    // keyed by the toolchain version, so the next run queries the same reading and only re-reads on
+    // a version bump.
+    if let Some(memory) = crawl_learn(data_root, lang, version) {
+        let cat = LearnedCatalog {
+            version: version.to_string(),
+            learned_from: "docs".to_string(),
+            rules: Vec::new(),
+            reference: Vec::new(),
+            memory: Some(memory),
+        };
+        let (rules, reference) = cat.doc_rules(lang);
         if !rules.is_empty() {
             report.crawled.push(lang.to_string());
-            save_cache(
-                lang,
-                &LearnedCatalog {
-                    version: version.to_string(),
-                    learned_from: "docs".to_string(),
-                    rules: rules.clone(),
-                    reference: reference.clone(),
-                },
-            );
+            save_cache(lang, &cat);
             return (rules, reference, "live docs".to_string());
         }
     }
@@ -361,14 +399,13 @@ fn resolve_rules(
     (Vec::new(), Vec::new(), "nothing".to_string())
 }
 
-/// Learn `lang` from its official language documentation and normalize what is read into
-/// [`DocRule`]s plus the crawl's `reference` — every real code block the docs served, the
-/// "what's normal in this language" sample. A language may have several registered documents
-/// (reference + style guide); ALL are learned and merged. A language in no registry is
-/// discovered on the fly ([`crate::lint_docs::discover_docs`]). `None` when nothing could be
-/// learned or the crawler is not compiled in.
+/// READ `lang`'s official language documentation into an association [`crate::lint_read::Memory`].
+/// A language may have several registered documents (reference + style guide); ALL are read into one
+/// memory, grounded once against the installed toolchain. A language in no registry is discovered on
+/// the fly ([`crate::lint_docs::discover_docs`]). `None` when nothing could be read (offline, no
+/// sources, empty read) or the crawler is not compiled in.
 #[cfg(feature = "crawl")]
-fn crawl_learn(data_root: &Path, lang: &str, _version: &str) -> Option<(Vec<DocRule>, Vec<String>)> {
+fn crawl_learn(data_root: &Path, lang: &str, _version: &str) -> Option<crate::lint_read::Memory> {
     // Operational escape hatch: skip all network learning (air-gapped runs, and deterministic
     // tests) — the resolver then uses the committed/embedded seed instead.
     if std::env::var_os("HELPERS_LINT_OFFLINE").is_some() {
@@ -378,25 +415,11 @@ fn crawl_learn(data_root: &Path, lang: &str, _version: &str) -> Option<(Vec<DocR
     if sources.is_empty() {
         sources.extend(crate::lint_docs::discover_docs(lang, data_root));
     }
-    let mut rules: Vec<DocRule> = Vec::new();
-    let mut reference: Vec<String> = Vec::new();
-    for src in &sources {
-        let knowledge = crate::lint_docs::learn_from_url(lang, src, MAX_CRAWL_PAGES, data_root);
-        rules.extend(knowledge.rules.into_iter().map(|r| DocRule {
-            slice: r.severity.clone(),
-            source: src.url.clone(),
-            id: r.id,
-            severity: r.severity,
-            description: r.description,
-            bad: r.bad,
-            good: r.good,
-        }));
-        reference.extend(knowledge.reference);
-    }
-    if rules.is_empty() {
+    if sources.is_empty() {
         return None;
     }
-    Some((rules, reference))
+    let memory = crate::lint_docs::read_language(lang, &sources, MAX_CRAWL_PAGES, data_root);
+    (!memory.bindings.is_empty()).then_some(memory)
 }
 
 /// Every registered docs source for `lang` from `sources.json` (on-disk preferred, embedded
@@ -439,7 +462,7 @@ fn crawl_sources_from_config(data_root: &Path, lang: &str) -> Vec<crate::lint_do
 }
 
 #[cfg(not(feature = "crawl"))]
-fn crawl_learn(_data_root: &Path, _lang: &str, _version: &str) -> Option<(Vec<DocRule>, Vec<String>)> {
+fn crawl_learn(_data_root: &Path, _lang: &str, _version: &str) -> Option<crate::lint_read::Memory> {
     None
 }
 
@@ -620,36 +643,25 @@ pub fn advice(data_root: &Path, project_root: Option<&Path>) -> HashMap<String, 
             }
         }
     }
-    // Committed modules override the bare seed (they carry full descriptions + sources).
-    if let Ok(rd) = std::fs::read_dir(committed_modules_dir(data_root)) {
+    /// Fold every `<lang>.learned.json` catalog under `dir` into the advice map — the language is
+    /// the filename stem, and v2 memory catalogs are queried the same way training queries them.
+    fn put_catalogs(out: &mut HashMap<String, RuleInfo>, dir: &Path) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
         for entry in rd.flatten() {
             let p = entry.path();
-            if p.to_string_lossy().ends_with(".learned.json") {
-                if let Ok(s) = std::fs::read_to_string(&p) {
-                    if let Ok(cat) = serde_json::from_str::<LearnedCatalog>(&s) {
-                        for r in &cat.rules {
-                            put(&mut out, r);
-                        }
-                    }
-                }
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let Some(lang) = name.strip_suffix(".learned.json") else { continue };
+            let Ok(s) = std::fs::read_to_string(&p) else { continue };
+            let Ok(cat) = serde_json::from_str::<LearnedCatalog>(&s) else { continue };
+            for r in cat.doc_rules(lang).0 {
+                put(out, &r);
             }
         }
     }
-    // Anything the linter learned itself and cached overrides the seed (it is more current).
-    if let Ok(rd) = std::fs::read_dir(model_dir()) {
-        for entry in rd.flatten() {
-            let p = entry.path();
-            if p.to_string_lossy().ends_with(".learned.json") {
-                if let Ok(s) = std::fs::read_to_string(&p) {
-                    if let Ok(cat) = serde_json::from_str::<LearnedCatalog>(&s) {
-                        for r in &cat.rules {
-                            put(&mut out, r);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Committed modules override the bare seed (they carry full descriptions + sources), and
+    // anything the linter learned itself and cached overrides both (it is more current).
+    put_catalogs(&mut out, &committed_modules_dir(data_root));
+    put_catalogs(&mut out, &model_dir());
     // Folder rules (the CS principles).
     for (_, r) in corpus_rules(data_root) {
         put(&mut out, &r);
@@ -707,23 +719,24 @@ pub struct LearnResult {
 #[cfg(feature = "crawl")]
 pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, String> {
     let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
-    let (rules, reference) =
-        crawl_learn(data_root, lang, &version).ok_or_else(|| {
-            format!(
-                "no docs URL configured for `{lang}` — add one with `lint_add_source` first, \
-                 or set HELPERS_LINT_OFFLINE to use a committed module"
-            )
-        })?;
-    if rules.is_empty() {
-        return Err(format!("crawled docs for `{lang}` but found no rules with examples"));
-    }
-    let rule_count = rules.len();
+    let memory = crawl_learn(data_root, lang, &version).ok_or_else(|| {
+        format!(
+            "no docs URL configured for `{lang}` — add one with `lint_add_source` first, \
+             or set HELPERS_LINT_OFFLINE to use a committed module"
+        )
+    })?;
     let catalog = LearnedCatalog {
         version: version.clone(),
         learned_from: "docs".to_string(),
-        rules: rules.clone(),
-        reference,
+        rules: Vec::new(),
+        reference: Vec::new(),
+        memory: Some(memory),
     };
+    let (rules, _reference) = catalog.doc_rules(lang);
+    if rules.is_empty() {
+        return Err(format!("read docs for `{lang}` but no binding classified as a violation"));
+    }
+    let rule_count = rules.len();
     // Save to user cache.
     save_cache(lang, &catalog);
     // Compile the pattern model and cache it.
