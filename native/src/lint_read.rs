@@ -262,6 +262,12 @@ impl Polarity {
         b.build()
     }
 
+    /// Total grounded votes behind this classifier — how much reality-tested reading trained it.
+    /// The transfer store keeps whichever classifier carries the most.
+    pub fn votes(&self) -> usize {
+        self.bad_n + self.good_n
+    }
+
     /// True when both prototypes carry at least one example — the classifier can render a verdict.
     pub fn is_ready(&self) -> bool {
         self.bad_n > 0 && self.good_n > 0

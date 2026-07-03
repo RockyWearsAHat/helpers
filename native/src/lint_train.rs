@@ -193,6 +193,44 @@ pub(crate) fn project_rules(project_root: &Path, lang: &str) -> Vec<DocRule> {
 
 /// Expose the stamp file path so external tools (e.g. `lint_rule`) can invalidate it,
 /// forcing a retrain on the next `lint` call without requiring a version bump.
+/// Every authored rule statement the tool ships or the project wrote — prohibition prose with no
+/// one's extra effort: a lint rule IS a statement of a violation. These seed the semantic side of
+/// the polarity classifier; toolchain grounding supplies the endorsement side and keeps growing
+/// both. Sources: `extraDocs/*.md` rules and the shipped `extraDocs/lint-corpus.jsonl`.
+pub(crate) fn corpus_prohibition_prose(data_root: &Path) -> Vec<String> {
+    let mut out: Vec<String> = corpus_rules(data_root)
+        .into_iter()
+        .map(|(_, r)| r.description)
+        .filter(|d| d.split_whitespace().count() >= 3)
+        .collect();
+    if let Ok(jsonl) = std::fs::read_to_string(data_root.join("extraDocs/lint-corpus.jsonl")) {
+        out.extend(jsonl.lines().filter_map(|line| {
+            let v: serde_json::Value = serde_json::from_str(line).ok()?;
+            let d = v["description"].as_str()?;
+            (d.split_whitespace().count() >= 3).then(|| d.to_string())
+        }));
+    }
+    out
+}
+
+/// The model cache directory — exposed for sibling modules that persist shared learned
+/// artifacts beside the per-language models (e.g. the transferred polarity classifier).
+pub(crate) fn model_dir_pub() -> PathBuf {
+    model_dir()
+}
+
+/// A file from the committed/embedded `lint-index/` data (on-disk copy preferred) — the shape
+/// every shipped knowledge artifact is loaded in.
+pub(crate) fn lint_index_file(data_root: &Path, name: &str) -> Option<String> {
+    std::fs::read_to_string(data_root.join("lint-index").join(name))
+        .ok()
+        .or_else(|| {
+            EMBEDDED_LINT_INDEX
+                .get_file(name)
+                .and_then(|f| f.contents_utf8().map(str::to_string))
+        })
+}
+
 pub fn stamp_path_pub(lang: &str) -> PathBuf {
     stamp_path(lang)
 }
