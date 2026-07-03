@@ -434,7 +434,7 @@ mod tests {
 
     /// Deterministic pseudo-random Hv set for tests, seeded so runs reproduce.
     fn sample(n: usize, salt: u64) -> Vec<Hv> {
-        (0..n).map(|i| Hv::random(i as u64 * 0x9E3779B97F4A7C15 ^ salt)).collect()
+        (0..n).map(|i| Hv::random((i as u64).wrapping_mul(0x9E3779B97F4A7C15) ^ salt)).collect()
     }
 
     fn brute_gate(queries: &[Hv], keys: &[Hv], fired: &[usize]) -> Vec<GateRow> {
