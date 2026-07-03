@@ -42,6 +42,22 @@ struct Toolchain {
     /// the code it illustrates rather than failing as a bare prompt.
     #[serde(default)]
     strip_prompts: Vec<String>,
+    /// Substrings in the tool's stderr that mark a prohibition even on a success exit (rustc prints
+    /// deprecation warnings and still exits 0). Knowledge about the TOOL, so it lives in the data
+    /// file — expanding it is a data edit, never a code change. Empty → exit status alone decides.
+    #[serde(default)]
+    flag_markers: Vec<String>,
+}
+
+/// The verdict for one check run: a non-success exit is always a prohibition; on success, the
+/// toolchain's own configured `flag_markers` decide whether the output still flags the snippet.
+fn verdict_from_output(success: bool, stderr: &str, flag_markers: &[String]) -> Verdict {
+    let s = stderr.to_lowercase();
+    if !success || flag_markers.iter().any(|m| s.contains(m.as_str())) {
+        Verdict::Flagged
+    } else {
+        Verdict::Clean
+    }
 }
 
 /// The parsed toolchains file (on-disk under `data_root` preferred, embedded fallback).
@@ -132,12 +148,11 @@ pub fn check(lang: &str, code: &str, data_root: &Path) -> Verdict {
         .collect();
     let output = Command::new(bin).args(&args).current_dir(&dir).output();
     let verdict = match output {
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr).to_lowercase();
-            let flagged =
-                !out.status.success() || stderr.contains("deprecat") || stderr.contains("warning");
-            if flagged { Verdict::Flagged } else { Verdict::Clean }
-        }
+        Ok(out) => verdict_from_output(
+            out.status.success(),
+            &String::from_utf8_lossy(&out.stderr),
+            &tc.flag_markers,
+        ),
         Err(_) => Verdict::Unknown,
     };
     let _ = std::fs::remove_dir_all(&dir);
@@ -150,6 +165,29 @@ mod tests {
 
     fn data_root() -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+    }
+
+    #[test]
+    fn verdict_reads_exit_status_and_the_toolchains_own_flag_markers() {
+        let markers = vec!["deprecat".to_string(), "warning".to_string()];
+        // Non-success exit is always a prohibition, whatever the output says.
+        assert_eq!(verdict_from_output(false, "", &markers), Verdict::Flagged);
+        // Success + a marker the DATA file lists for this toolchain → prohibition (rustc prints
+        // deprecation warnings on a success exit).
+        assert_eq!(verdict_from_output(true, "warning: use of deprecated function", &markers), Verdict::Flagged);
+        // Success + no listed marker → endorsement.
+        assert_eq!(verdict_from_output(true, "note: compiled fine", &markers), Verdict::Clean);
+        // No markers configured → exit status alone decides.
+        assert_eq!(verdict_from_output(true, "warning: whatever", &[]), Verdict::Clean);
+    }
+
+    #[test]
+    fn rust_template_carries_its_flag_markers_as_data() {
+        // The markers are knowledge about the TOOL, so they live in toolchains.json — adding or
+        // fixing one is a data edit, never a code change.
+        let tc = toolchains(&data_root());
+        let rust = tc.iter().find(|t| t.language == "rust").expect("rust template");
+        assert!(rust.flag_markers.iter().any(|m| m.contains("deprecat")), "rust flags deprecation output: {:?}", rust.flag_markers);
     }
 
     #[test]
