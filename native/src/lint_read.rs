@@ -75,7 +75,11 @@ fn ctx_key(ctx: &Hv) -> u32 {
 /// makes a warm run skip re-reading. All operations are 1-bit (XOR / permute / Hamming).
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Reader {
-    /// Context address → predicted next-token code. Bounded by [`MEM_CAP`].
+    /// Context address → predicted next-token code. Bounded by [`MEM_CAP`]. Not serialized: it
+    /// steers only the LEARNING pass (which tokens surprised the reader while reading); the frozen
+    /// classifier consults `freq` alone, and skipping ~4k × 8192-bit slots keeps a cached memory
+    /// small enough to load instantly on warm runs.
+    #[serde(skip)]
     mem: HashMap<u32, Hv>,
     /// Learned token frequencies (token seed → times read). The reader's own record of which words
     /// are common — a corpus-derived stop-list, never a written one.
@@ -271,6 +275,75 @@ impl Polarity {
             std::cmp::Ordering::Equal => None,
         }
     }
+
+    /// The prose hypervector this classifier assigns to `prose` — its reader's content-token bundle.
+    /// The prose side of an association [`Binding`]. `None` when the prose carries no content token.
+    pub fn prose_hv(&self, prose: &str) -> Option<Hv> {
+        self.reader.encode(prose)
+    }
+}
+
+// ── Association memory (reading IS the knowledge) ─────────────────────────────
+
+/// One read unit: a documentation prose snippet bound to the code example it governs, plus the
+/// provenance to reconstruct a rule from it. `bind` = prose_hv ⊗ code_hv is the associative key — the
+/// hypervector that says "this explanation goes with this code shape".
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Binding {
+    /// The page the pair was read from (rule id source and citation).
+    pub url: String,
+    /// The slug (rule id) for the page/section.
+    pub slug: String,
+    /// The governing prose — the docs' own words about the code.
+    pub prose: String,
+    /// The code example the prose governs.
+    pub code: String,
+    /// prose_hv ⊗ code_hv — the bound association.
+    pub bind: Hv,
+}
+
+impl Binding {
+    /// Bind `prose` to `code` under `lang`, using `polarity`'s reader for the prose side and the
+    /// code's structural n-grams for the code side. `None` when the prose has no content token.
+    pub fn form(lang: &str, url: &str, slug: &str, prose: &str, code: &str, polarity: &Polarity) -> Option<Binding> {
+        let prose_hv = polarity.prose_hv(prose)?;
+        let code_hv = code_hv(lang, code);
+        Some(Binding {
+            url: url.to_string(),
+            slug: slug.to_string(),
+            prose: prose.to_string(),
+            code: code.to_string(),
+            bind: prose_hv.xor(&code_hv),
+        })
+    }
+}
+
+/// The structural hypervector of a code example: the majority bundle of its node-kind path trigrams
+/// (AST when a grammar exists) or token trigrams — a shape fingerprint, not its text. `Hv::zero()`
+/// for code with no extractable n-gram (so a binding is still well-defined).
+pub fn code_hv(lang: &str, code: &str) -> Hv {
+    let mut b = Bundler::new();
+    for ng in crate::lint_match::code_ngrams(lang, code) {
+        b.add(&token_hv(&ng));
+    }
+    if b.is_empty() { Hv::zero() } else { b.finalize() }
+}
+
+/// Everything the reader took away from reading a language's docs: the bound (prose, code) units, a
+/// reference corpus of real code, and the trained polarity classifier (which carries the reader).
+/// This is the serialized artifact that means "the model read the docs" — a warm run loads it and
+/// never re-crawls; expanding what is understood is more bindings (more reading), never code.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct Memory {
+    /// Every prose⊗code association read from the docs.
+    pub bindings: Vec<Binding>,
+    /// Real idiomatic code the docs served — the "what's normal" corpus that calibrates the engine.
+    #[serde(default)]
+    pub reference: Vec<String>,
+    /// The classifier read + toolchain-grounded during the crawl (carries the reader). `None` when no
+    /// toolchain grounded the language, in which case no rule can be queried out.
+    #[serde(default)]
+    pub polarity: Option<Polarity>,
 }
 
 #[cfg(test)]
@@ -350,5 +423,39 @@ mod tests {
         let p = Polarity::from_labeled(&[("never do this", true)]); // good side empty
         assert!(!p.is_ready());
         assert_eq!(p.classify("never do this"), None, "one-sided training cannot classify");
+    }
+
+    #[test]
+    fn code_hv_fingerprints_shape_not_text() {
+        // Same construct family with different identifiers/values → near fingerprints (they share
+        // the assign-a-list trigrams, differing only in leaf literal kinds); a structurally
+        // different construct → much farther. Text never enters the fingerprint.
+        let a = code_hv("python", "scores = [90, 85, 77]");
+        let b = code_hv("python", "labels = [\"math\", \"sci\"]");
+        let c = code_hv("python", "def f(x):\n    return x + 1");
+        assert!(a.distance(&b) < a.distance(&c),
+                "list-assign is nearer to list-assign than to a function def ({} vs {})",
+                a.distance(&b), a.distance(&c));
+    }
+
+    #[test]
+    fn binding_forms_and_memory_round_trips_through_json() {
+        let polarity = Polarity::from_labeled(&[
+            ("never do this dangerous thing", true),
+            ("this is the recommended clean form", false),
+        ]);
+        let b = Binding::form("python", "https://d/r/no-x", "no-x", "never do this dangerous thing", "x = [1]", &polarity)
+            .expect("content prose binds");
+        assert_eq!(b.bind, polarity.prose_hv("never do this dangerous thing").unwrap().xor(&code_hv("python", "x = [1]")),
+                   "bind is prose ⊗ code");
+        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity) };
+        let json = serde_json::to_string(&memory).expect("serializes");
+        let back: Memory = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.bindings.len(), 1);
+        assert_eq!(back.bindings[0].slug, "no-x");
+        assert_eq!(back.bindings[0].bind, memory.bindings[0].bind, "the association survives the round trip");
+        assert_eq!(back.reference, memory.reference);
+        // The classifier still works after the round trip (freq + prototypes serialized).
+        assert_eq!(back.polarity.as_ref().unwrap().classify("never do this dangerous thing"), Some(true));
     }
 }

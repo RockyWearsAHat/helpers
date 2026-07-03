@@ -14,7 +14,7 @@
 #[cfg(feature = "crawl")]
 use std::path::Path;
 
-use crate::lint_read::Polarity;
+use crate::lint_read::Memory;
 use crate::linter::{Knowledge, LearnedRule};
 
 /// A resolved documentation source for a language: the URL to learn from, whether it is a single
@@ -30,45 +30,137 @@ pub struct DocsSource {
     pub tool: String,
 }
 
-/// Learn rules for `lang` from a documentation `source` over the network: fetch (or crawl) it and
-/// extract [`LearnedRule`]s. Returns empty [`Knowledge`] if nothing could be fetched/extracted —
-/// the caller then degrades gracefully (cache, or an agent docs request). Network-only, so it is
-/// gated behind the `crawl` feature.
+/// Learn rules for `lang` from one documentation `source` over the network: READ it into a
+/// [`Memory`] and QUERY the rules out. Returns empty [`Knowledge`] if nothing could be read — the
+/// caller then degrades gracefully (cache, or an agent docs request). Network-only (`crawl` feature).
 #[cfg(feature = "crawl")]
 pub fn learn_from_url(lang: &str, source: &DocsSource, max_pages: usize, data_root: &Path) -> Knowledge {
-    use crate::doc_crawler::{crawl, extract, fetch};
-
-    let mut rules = Vec::new();
-    let mut reference = Vec::new();
-    if source.crawl {
-        let pages = crawl(&[&source.url], max_pages, 50);
-        // Read + test: build the polarity classifier by READING every page and GROUNDING a sample of
-        // its code against the installed toolchain — no keyword list, no authored corpus. The learned
-        // classifier then decides which blocks the docs treat as violations.
-        let polarity = ground_polarity(lang, data_root, &pages);
-        // Structure-aware path: most rules sites lay out ONE rule per page (ruff, eslint), so each
-        // page yields one clean bad→good pair — exactly what the fit needs to ground a rule. This is
-        // how the AI learns from the live docs: read every rule page, keep its anti-pattern and fix.
-        rules.extend(rules_from_pages(lang, &source.url, &pages, &polarity));
-        // Fallback for sites with an unusual layout (rules not one-per-page): the flattened
-        // classified sections, so we still learn something rather than nothing.
-        if rules.is_empty() {
-            let mut sections = Vec::new();
-            for p in &pages {
-                sections.extend(p.sections.clone());
-            }
-            rules.extend(rules_from_sections(lang, &source.tool, &sections, &polarity));
-        }
-        // Every code block the crawl read is a sample of real, normal code in this language — the
-        // corpus the fit calibrates "rare ⇒ distinctive" against, so a feature common in real code
-        // never grounds a rule. Learned live from the same docs, no static artifact.
-        reference = collect_reference(&pages, &polarity);
-    } else if let Some((ct, body)) = fetch(&source.url) {
-        let sections = extract(&ct, &body);
-        let polarity = ground_polarity_sections(lang, data_root, &sections);
-        rules.extend(rules_from_sections(lang, &source.tool, &sections, &polarity));
+    let memory = read_language(lang, std::slice::from_ref(source), max_pages, data_root);
+    Knowledge {
+        rules: rules_from_memory(lang, &memory).into_iter().map(|(r, _)| r).collect(),
+        reference: memory.reference,
     }
-    Knowledge { rules, reference }
+}
+
+/// READ a language's documentation into an association [`Memory`] — this is the whole learning step.
+///
+/// 1. Crawl every source (or fetch single files) and let the reader read the prose.
+/// 2. GROUND a bounded sample of code examples against the installed toolchain (check mode only):
+///    flagged examples' governing prose feeds the prohibition prototype, clean examples' the
+///    endorsement one — the docs' claims tested against reality, no authored labels anywhere.
+/// 3. BIND each (governing prose, code example) pair into the memory (prose ⊗ code, with url/slug),
+///    and keep the non-violation code blocks as the "what's normal" reference corpus.
+///
+/// The returned memory is what "the model read the docs" means; rules are a query over it
+/// ([`rules_from_memory`]), so expanding what the linter understands is more reading, never code.
+#[cfg(feature = "crawl")]
+pub fn read_language(lang: &str, sources: &[DocsSource], max_pages: usize, data_root: &Path) -> Memory {
+    use crate::doc_crawler::{crawl, extract, fetch};
+    use crate::lint_read::{Binding, PolarityBuilder, Reader};
+
+    // Every read unit, uniformly: (page url, slug, governing prose, code example).
+    let mut units: Vec<(String, String, String, String)> = Vec::new();
+    let mut reader = Reader::new();
+    let mut pages_read = 0usize;
+    for src in sources {
+        if src.crawl {
+            for p in crawl(&[&src.url], max_pages, 50) {
+                if pages_read < MAX_READ_PAGES {
+                    reader.learn_span(&p.prose);
+                    pages_read += 1;
+                }
+                let page_slug = rule_slug_under(&src.url, &p.url);
+                let blocks = pre_blocks(&p.html);
+                for (prose, code) in block_contexts(&p.html, &blocks) {
+                    let s = page_slug.clone().unwrap_or_else(|| slug(&prose));
+                    units.push((p.url.clone(), s, prose, code));
+                }
+            }
+        } else if let Some((ct, body)) = fetch(&src.url) {
+            for (prose, code) in extract(&ct, &body) {
+                reader.learn_span(&prose);
+                units.push((src.url.clone(), slug(&prose), prose, code));
+            }
+        }
+    }
+
+    // Ground: test a sample of examples against the toolchain; their prose shapes the prototypes.
+    let mut builder = PolarityBuilder::new(reader);
+    let mut checked = 0usize;
+    for (_, _, prose, code) in &units {
+        if prose.split_whitespace().count() < 3 {
+            continue;
+        }
+        match crate::lint_toolchain::check(lang, code, data_root) {
+            crate::lint_toolchain::Verdict::Flagged => builder.accumulate(prose, true),
+            crate::lint_toolchain::Verdict::Clean => builder.accumulate(prose, false),
+            crate::lint_toolchain::Verdict::Unknown => continue,
+        }
+        checked += 1;
+        if checked >= MAX_GROUND_CHECKS {
+            break;
+        }
+    }
+    let polarity = builder.build();
+
+    // Bind: every read unit becomes a prose⊗code association; non-violation code is the reference.
+    let mut bindings = Vec::new();
+    let mut reference = Vec::new();
+    let mut seen_ref = std::collections::HashSet::new();
+    for (url, s, prose, code) in units {
+        if code.len() < 3 {
+            continue;
+        }
+        let is_bad = polarity.classify(&prose) == Some(true);
+        if !is_bad && code.len() >= 8 && reference.len() < MAX_REFERENCE && seen_ref.insert(code.clone()) {
+            reference.push(code.clone());
+        }
+        if bindings.len() < MAX_BINDINGS {
+            if let Some(b) = Binding::form(lang, &url, &s, &prose, &code, &polarity) {
+                bindings.push(b);
+            }
+        }
+    }
+    Memory { bindings, reference, polarity: polarity.is_ready().then_some(polarity) }
+}
+
+/// QUERY rule candidates out of a read [`Memory`]: every binding whose prose the learned classifier
+/// calls a prohibition becomes a rule — id from the binding's slug, description the docs' own prose,
+/// bad the bound code; the fix is the next binding on the SAME page whose prose classifies as an
+/// endorsement (docs put "use instead" right after the anti-pattern; neutral output blocks between
+/// them are skipped, but another page's code is never borrowed). One rule per slug. Returns each rule
+/// with its source url for citation. Pure over the memory — offline, deterministic, testable.
+pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)> {
+    let Some(polarity) = &memory.polarity else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (i, b) in memory.bindings.iter().enumerate() {
+        if b.slug.len() < 2 || polarity.classify(&b.prose) != Some(true) {
+            continue;
+        }
+        if !seen.insert(b.slug.clone()) {
+            continue;
+        }
+        let good = memory.bindings[i + 1..]
+            .iter()
+            .take_while(|nb| nb.url == b.url)
+            .find(|nb| polarity.classify(&nb.prose) == Some(false))
+            .map(|nb| nb.code.clone())
+            .filter(|g| g != &b.code)
+            .unwrap_or_default();
+        out.push((
+            LearnedRule {
+                language: lang.to_string(),
+                id: b.slug.clone(),
+                severity: "medium".to_string(),
+                description: trim_prose(&b.prose),
+                bad: b.code.clone(),
+                good,
+            },
+            b.url.clone(),
+        ));
+    }
+    out
 }
 
 /// How many code examples to ground against the toolchain per crawl. Enough grounded prose to shape
@@ -82,67 +174,17 @@ const MAX_GROUND_CHECKS: usize = 120;
 #[cfg(feature = "crawl")]
 const MAX_READ_PAGES: usize = 200;
 
-/// Build the polarity classifier for a crawl by READING then TESTING (the correction's grounding
-/// loop): first read a broad sample of pages so the reader learns the corpus's common vocabulary, then
-/// run a bounded sample of code examples through the installed toolchain in check mode — each flagged
-/// example's governing prose feeds the prohibition prototype, each clean example's the endorsement
-/// one. No authored labels. A language with no toolchain simply yields an unready classifier (which
-/// abstains), so nothing is invented for it.
+/// Cap on stored associations per language, bounding the serialized memory.
 #[cfg(feature = "crawl")]
-fn ground_polarity(lang: &str, data_root: &Path, pages: &[crate::doc_crawler::Page]) -> Polarity {
-    use crate::lint_read::{PolarityBuilder, Reader};
-    let mut reader = Reader::new();
-    for p in pages.iter().take(MAX_READ_PAGES) {
-        reader.learn_span(&p.prose);
-    }
-    let mut builder = PolarityBuilder::new(reader);
-    let mut checked = 0usize;
-    'pages: for p in pages {
-        let blocks = pre_blocks(&p.html);
-        for (prose, code) in block_contexts(&p.html, &blocks) {
-            if prose.split_whitespace().count() < 3 {
-                continue;
-            }
-            match crate::lint_toolchain::check(lang, &code, data_root) {
-                crate::lint_toolchain::Verdict::Flagged => builder.accumulate(&prose, true),
-                crate::lint_toolchain::Verdict::Clean => builder.accumulate(&prose, false),
-                crate::lint_toolchain::Verdict::Unknown => continue,
-            }
-            checked += 1;
-            if checked >= MAX_GROUND_CHECKS {
-                break 'pages;
-            }
-        }
-    }
-    builder.build()
-}
+const MAX_BINDINGS: usize = 4000;
 
-/// Ground polarity from flat `(prose, code)` sections (the single-file source path) the same way
-/// [`ground_polarity`] does for crawled pages.
+/// Cap on the "what's normal" reference corpus, keeping whole-site crawls fast to pack.
 #[cfg(feature = "crawl")]
-fn ground_polarity_sections(lang: &str, data_root: &Path, sections: &[(String, String)]) -> Polarity {
-    use crate::lint_read::{PolarityBuilder, Reader};
-    let mut reader = Reader::new();
-    for (prose, _) in sections {
-        reader.learn_span(prose);
-    }
-    let mut builder = PolarityBuilder::new(reader);
-    for (prose, code) in sections.iter().take(MAX_GROUND_CHECKS) {
-        if prose.split_whitespace().count() < 3 {
-            continue;
-        }
-        match crate::lint_toolchain::check(lang, code, data_root) {
-            crate::lint_toolchain::Verdict::Flagged => builder.accumulate(prose, true),
-            crate::lint_toolchain::Verdict::Clean => builder.accumulate(prose, false),
-            crate::lint_toolchain::Verdict::Unknown => continue,
-        }
-    }
-    builder.build()
-}
+const MAX_REFERENCE: usize = 1500;
 
 /// The governing prose (tag-stripped) of each `<pre>` block: the [`GOVERNING_CTX`] bytes before the
-/// block, clipped to the previous block so an example's label is read from its OWN words. Shared by
-/// grounding and rule extraction so both read the same context an example sits in.
+/// block, clipped to the previous block so an example's label is read from its OWN words. This is the
+/// prose side of every binding the reader stores.
 #[cfg(feature = "crawl")]
 fn block_contexts(html: &str, blocks: &[(usize, String)]) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -153,35 +195,6 @@ fn block_contexts(html: &str, blocks: &[(usize, String)]) -> Vec<(String, String
             start += 1;
         }
         out.push((crate::doc_crawler::strip_tags(&html[start..*off]), code.clone()));
-    }
-    out
-}
-
-/// Gather a deduplicated, bounded sample of NORMAL real code the crawl read — the "what's normal in
-/// this language" corpus the fit calibrates distinctiveness against. Each page's documented
-/// anti-pattern is EXCLUDED: a rule must not see its own violation as "normal", or it would be
-/// forced to abstain on the very shape it is meant to flag. Capped so packing a whole-site crawl
-/// stays fast; tiny inline spans are dropped as too thin to be a useful negative.
-#[cfg(feature = "crawl")]
-fn collect_reference(pages: &[crate::doc_crawler::Page], polarity: &Polarity) -> Vec<String> {
-    use std::collections::HashSet;
-    const MAX_REFERENCE: usize = 1500;
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for p in pages {
-        let blocks = pre_blocks(&p.html);
-        let (bad, _good, _explicit, _ctx) = bad_good_from_blocks(&p.html, &blocks, polarity);
-        for (_, c) in &blocks {
-            if *c == bad {
-                continue; // the anti-pattern — not normal code
-            }
-            if c.len() >= 8 && seen.insert(c.clone()) {
-                out.push(c.clone());
-                if out.len() >= MAX_REFERENCE {
-                    return out;
-                }
-            }
-        }
     }
     out
 }
@@ -202,101 +215,6 @@ fn pre_blocks(html: &str) -> Vec<(usize, String)> {
             out.push((open, code));
         }
         from = body_start + crel + 6;
-    }
-    out
-}
-
-/// Turn generic `(prose, code)` documentation sections into rule candidates by reading the
-/// imperative/deprecation signal in each section's prose: a prohibitive lead-in marks its code as a
-/// bad example, a positive one marks a fix. A fix is attached ONLY when the positive section is the
-/// one IMMEDIATELY following the anti-pattern — adjacency is the page asserting "this fixes that".
-/// Pairing a bad with a far-off positive section (as a persistent `pending_bad` once did) manufactured
-/// fixes across unrelated rules; a fabricated `good` trains the engine on a lie. So the pending bad is
-/// cleared the moment the next section is not its labeled fix. Sections with no signal are ignored.
-pub fn rules_from_sections(
-    lang: &str,
-    tool: &str,
-    sections: &[(String, String)],
-    polarity: &Polarity,
-) -> Vec<LearnedRule> {
-    let mut out: Vec<LearnedRule> = Vec::new();
-    let mut pending_bad: Option<usize> = None; // index into `out` awaiting its IMMEDIATELY-following fix
-    let mut seq = 0usize;
-    for (prose, code) in sections {
-        match polarity.classify(prose) {
-            Some(true) => {
-                seq += 1;
-                out.push(LearnedRule {
-                    language: lang.to_string(),
-                    id: format!("{tool}_{}_{seq}", slug(prose)),
-                    severity: "medium".to_string(),
-                    description: trim_prose(prose),
-                    bad: code.clone(),
-                    good: String::new(),
-                });
-                pending_bad = Some(out.len() - 1);
-            }
-            // A fix only counts as this bad's fix when it directly follows it.
-            Some(false) => {
-                if let Some(i) = pending_bad.take() {
-                    out[i].good = code.clone();
-                }
-            }
-            // Any unlabeled section between a bad and a candidate fix breaks the adjacency: the next
-            // positive section is no longer THIS bad's fix, so stop waiting rather than guess.
-            None => pending_bad = None,
-        }
-    }
-    out
-}
-
-/// Extract one [`LearnedRule`] per crawled **rule page** — the structure-aware path for docs laid
-/// out one-rule-per-page (ruff, eslint). It is how the AI learns from the live site: every page
-/// that is an individual rule (exactly one path segment below the crawl `seed`) becomes a rule whose
-/// id is the URL slug, whose lesson is the page's "what it does" prose, and whose bad/good code come
-/// from the page's ordered `<pre>` blocks via [`bad_good_from_blocks`] (bad = the lead/incorrect-
-/// labeled block; good ONLY from an explicit correct-label, never positional). Pages with no code are
-/// skipped — without a bad form there is nothing to ground.
-/// This recovers the clean bad→good pair the flattened-section path loses, so the fit grounds rather
-/// than abstains.
-#[cfg(feature = "crawl")]
-pub fn rules_from_pages(
-    lang: &str,
-    seed: &str,
-    pages: &[crate::doc_crawler::Page],
-    polarity: &Polarity,
-) -> Vec<LearnedRule> {
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for p in pages {
-        let Some(id) = rule_slug_under(seed, &p.url) else {
-            continue;
-        };
-        if !seen.insert(id.clone()) {
-            continue;
-        }
-        let blocks = pre_blocks(&p.html);
-        let (bad, good, explicit, label_ctx) = bad_good_from_blocks(&p.html, &blocks, polarity);
-        // Language documentation mostly shows CORRECT code. A page yields a rule only when it
-        // EXPLICITLY labels a block wrong (deprecated/incorrect/avoid … immediately governing
-        // the block); every other page still teaches — its examples feed the reference corpus,
-        // and normative prose beside code is handled per-section by `rules_from_sections`.
-        if !explicit {
-            continue;
-        }
-        if bad.len() < 3 {
-            continue;
-        }
-        // Prefer the docs' own labeling sentence; fall back to the page lesson.
-        let description = if label_ctx.len() >= 20 { label_ctx.chars().take(240).collect() } else { page_lesson(&p.prose) };
-        out.push(LearnedRule {
-            language: lang.to_string(),
-            id,
-            severity: "medium".to_string(),
-            description,
-            bad,
-            good,
-        });
     }
     out
 }
@@ -325,105 +243,6 @@ fn rule_slug_under(seed: &str, url: &str) -> Option<String> {
 /// `class="incorrect"` wrapper, narrow enough not to bleed into the previous example's discussion.
 #[cfg(feature = "crawl")]
 const GOVERNING_CTX: usize = 320;
-
-/// Map the learned classifier's verdict on a block's governing prose to a polarity score: `-1`
-/// violation, `+1` fix, `0` the classifier abstained (no confident call). This is the one place the
-/// keyword table used to live; the decision is now the read + toolchain-grounded [`Polarity`].
-#[cfg(feature = "crawl")]
-fn classified_score(polarity: &Polarity, prose: &str) -> i32 {
-    match polarity.classify(prose) {
-        Some(true) => -1,
-        Some(false) => 1,
-        None => 0,
-    }
-}
-
-/// Pick the (bad, good) code from a rule page's ordered `<pre>` blocks by READING the page, not by
-/// position. Each block is judged by the learned [`Polarity`] classifier on the prose that governs it
-/// — the page's own words, understood by a model that learned prohibition vs endorsement from reading
-/// and toolchain grounding, not a keyword table. The anti-pattern is the first block classified a
-/// violation (or, when none is and the page is itself a rule page, its first code block — a rule page
-/// leads with the offending code); the fix is the first LATER block classified correct. A `good` is
-/// only ever a block positively classified as a fix — never a positional guess.
-#[cfg(feature = "crawl")]
-fn bad_good_from_blocks(
-    html: &str,
-    blocks: &[(usize, String)],
-    polarity: &Polarity,
-) -> (String, String, bool, String) {
-    if blocks.is_empty() {
-        return (String::new(), String::new(), false, String::new());
-    }
-    // The governing context of each block: the page text from the previous block's start up to this
-    // block (capped), where the docs put the example's label — keeping each example bound to its own
-    // prose so polarity is read from THIS rule's words, not a neighbour's.
-    let polarity_scores: Vec<i32> = blocks
-        .iter()
-        .enumerate()
-        .map(|(i, (off, _))| {
-            let prev_end = if i == 0 { 0 } else { blocks[i - 1].0 };
-            let mut start = (*off).saturating_sub(GOVERNING_CTX).max(prev_end);
-            // The cap is byte arithmetic; snap forward to a char boundary so multibyte
-            // text (docs quote every human language) can never split a character.
-            while !html.is_char_boundary(start) {
-                start += 1;
-            }
-            classified_score(polarity, &crate::doc_crawler::strip_tags(&html[start..*off]))
-        })
-        .collect();
-
-    // The violation: the first block the page calls wrong; else the lead block. `explicit`
-    // records which case this was — language-doc pages mostly show NORMAL code, so a rule is
-    // only minted when the page itself labels a block wrong (deprecated/incorrect/avoid …).
-    let explicit = polarity_scores.iter().any(|&p| p < 0);
-    let bad_i = polarity_scores.iter().position(|&p| p < 0).unwrap_or(0);
-    let bad = blocks[bad_i].1.clone();
-    // The words that did the labeling — the docs' own sentence about WHY this code is wrong —
-    // is the truest description a minted rule can carry.
-    let label_ctx = if explicit {
-        let (off, _) = blocks[bad_i];
-        let prev_end = if bad_i == 0 { 0 } else { blocks[bad_i - 1].0 };
-        let mut start = off.saturating_sub(GOVERNING_CTX).max(prev_end);
-        while !html.is_char_boundary(start) {
-            start += 1;
-        }
-        crate::doc_crawler::strip_tags(&html[start..off]).split_whitespace().collect::<Vec<_>>().join(" ")
-    } else {
-        String::new()
-    };
-    // The fix: the first LATER block the page positively labels correct. No positive label ⇒ no fix.
-    let good = blocks
-        .iter()
-        .zip(&polarity_scores)
-        .skip(bad_i + 1)
-        .find(|((_, _), &p)| p > 0)
-        .map(|((_, c), _)| c.clone())
-        .filter(|g| g != &bad)
-        .unwrap_or_default();
-    (bad, good, explicit, label_ctx)
-}
-
-/// The rule's English lesson: the "what it does" prose, trimmed to a short summary. Falls back to
-/// the page's leading prose when the heading is absent.
-#[cfg(feature = "crawl")]
-fn page_lesson(prose: &str) -> String {
-    let lower = prose.to_lowercase();
-    let start = lower.find("what it does").map(|i| i + "what it does".len()).unwrap_or(0);
-    let tail = &prose[start.min(prose.len())..];
-    let tail_lower = tail.to_lowercase();
-    let mut end = ["why is this bad", "example", "details", "references", "options"]
-        .iter()
-        .filter_map(|m| tail_lower.find(m))
-        .filter(|&e| e > 0)
-        .min()
-        .unwrap_or(tail.len().min(240))
-        .min(tail.len());
-    // Byte caps may land inside a multibyte char; snap back to a boundary before slicing.
-    while !tail.is_char_boundary(end) {
-        end -= 1;
-    }
-    tail[..end].split_whitespace().collect::<Vec<_>>().join(" ").chars().take(240).collect()
-}
 
 /// Trim section prose to a short lesson for the advice message.
 fn trim_prose(prose: &str) -> String {
@@ -619,6 +438,7 @@ fn url_decode(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lint_read::Polarity;
 
     /// A polarity classifier LEARNED from labeled prose (no keyword table) — the offline stand-in for
     /// the read + toolchain-grounded classifier the live crawl builds. Each prohibition/endorsement
@@ -652,56 +472,69 @@ mod tests {
         ])
     }
 
-    #[test]
-    fn sections_classified_pair_bad_then_good() {
-        let sections = vec![
-            ("Avoid indexing with an inclusive range to len".to_string(), "for i in 0..=xs.len() {}".to_string()),
-            ("Prefer iterating directly instead".to_string(), "for x in xs {}".to_string()),
-            ("The language has three built-in numeric widths".to_string(), "let y = 1;".to_string()),
-        ];
-        let rules = rules_from_sections("rust", "clippy", &sections, &test_polarity());
-        assert_eq!(rules.len(), 1, "only the prohibition section becomes a rule");
-        assert!(rules[0].bad.contains("0..=xs.len()"));
-        assert!(rules[0].good.contains("for x in xs"), "the next endorsement section is paired as the fix");
-    }
-
-    #[cfg(feature = "crawl")]
-    #[test]
-    fn good_is_never_fabricated_from_position() {
-        // Two code blocks, NO "correct/use instead" label. The old code grabbed the second block as
-        // the fix — a fabrication. Faithful behavior: bad is the first block, good is EMPTY.
-        let html = "<p>this is incorrect and will fail:</p><pre>h := http.Header{}\nh[\"etag\"] = x</pre><pre>// Output:\n// map[Etag]</pre>";
-        let blocks = pre_blocks(html);
-        let (bad, good, _explicit, _ctx) = bad_good_from_blocks(html, &blocks, &test_polarity());
-        assert!(bad.contains("http.Header"), "bad is the lead block: {bad:?}");
-        assert!(good.is_empty(), "no labeled fix ⇒ no fabricated good, got: {good:?}");
-    }
-
-    #[cfg(feature = "crawl")]
-    #[test]
-    fn good_is_taken_only_from_an_explicit_correct_label() {
-        let html = "<p>this code is incorrect and will fail:</p><pre>if x == true {}</pre>\
-                    <p>the correct idiomatic form:</p><pre>if x {}</pre>";
-        let blocks = pre_blocks(html);
-        let (bad, good, explicit, ctx) = bad_good_from_blocks(html, &blocks, &test_polarity());
-        assert!(explicit, "an 'incorrect' context is classified an explicit violation marker");
-        assert!(ctx.to_lowercase().contains("incorrect"), "the labeling sentence is the description: {ctx:?}");
-        assert!(bad.contains("== true"), "bad captured: {bad:?}");
-        assert!(good.contains("if x {}"), "classified fix captured: {good:?}");
+    /// Build a [`Memory`] from `(url, slug, prose, code)` read units over the test classifier —
+    /// exactly the shape the live crawl stores, minus the network.
+    fn memory_from(units: &[(&str, &str, &str, &str)]) -> Memory {
+        let polarity = test_polarity();
+        let bindings = units
+            .iter()
+            .filter_map(|(url, slug, prose, code)| {
+                crate::lint_read::Binding::form("rust", url, slug, prose, code, &polarity)
+            })
+            .collect();
+        Memory { bindings, reference: Vec::new(), polarity: Some(polarity) }
     }
 
     #[test]
-    fn sections_do_not_pair_a_fix_across_an_unrelated_section() {
-        // bad, then an UNLABELED section, then a positive one. Adjacency is broken, so the far-off
-        // positive section is NOT this bad's fix — pairing it would be a manufactured good.
-        let sections = vec![
-            ("This indexing is incorrect and unsafe".to_string(), "xs[xs.len()]".to_string()),
-            ("the following diagram shows a nested layout".to_string(), "let y = 1;".to_string()),
-            ("Prefer this correct idiomatic form instead".to_string(), "xs.last()".to_string()),
-        ];
-        let rules = rules_from_sections("go", "staticcheck", &sections, &test_polarity());
-        assert_eq!(rules.len(), 1, "only the prohibition section becomes a rule");
-        assert!(rules[0].good.is_empty(), "no adjacent fix ⇒ empty good, got: {:?}", rules[0].good);
+    fn memory_query_pairs_bad_with_the_pages_good() {
+        let memory = memory_from(&[
+            ("https://d/rules/r1", "r1", "Avoid indexing with an inclusive range to len", "for i in 0..=xs.len() {}"),
+            ("https://d/rules/r1", "r1", "Prefer iterating directly instead", "for x in xs {}"),
+            ("https://d/rules/r2", "r2", "The language has three built-in numeric widths", "let y = 1;"),
+        ]);
+        let rules = rules_from_memory("rust", &memory);
+        assert_eq!(rules.len(), 1, "only the prohibition binding becomes a rule");
+        let (rule, url) = &rules[0];
+        assert_eq!(url, "https://d/rules/r1", "the rule cites the page it was read from");
+        assert!(rule.bad.contains("0..=xs.len()"));
+        assert!(rule.good.contains("for x in xs"), "the page's endorsement binding is paired as the fix");
+        assert!(rule.description.to_lowercase().contains("avoid indexing"), "description is the docs' own prose: {:?}", rule.description);
+    }
+
+    #[test]
+    fn memory_query_abstains_without_a_grounded_classifier() {
+        // No toolchain grounded the language ⇒ no polarity ⇒ no rule is invented from the memory.
+        let mut memory = memory_from(&[("https://d/r", "r", "this code is incorrect and will fail", "x = [1]")]);
+        memory.polarity = None;
+        assert!(rules_from_memory("rust", &memory).is_empty(), "ungrounded memory yields no rules");
+    }
+
+    #[test]
+    fn good_is_never_fabricated_from_position_or_another_page() {
+        // A page whose only later block is a neutral output dump gets NO fix, and a good-classified
+        // binding on a DIFFERENT page is never borrowed as this rule's fix.
+        let memory = memory_from(&[
+            ("https://d/rules/hd", "hd", "this code is incorrect and will fail", "h := http.Header{}"),
+            ("https://d/rules/hd", "hd", "the program prints the following output", "// map[Etag]"),
+            ("https://d/rules/other", "other", "this is the correct and idiomatic form", "ok()"),
+        ]);
+        let rules = rules_from_memory("go", &memory);
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].0.good.is_empty(), "no same-page fix ⇒ empty good, got: {:?}", rules[0].0.good);
+    }
+
+    #[test]
+    fn memory_query_skips_neutral_blocks_to_reach_the_pages_fix() {
+        // Docs often put an output block between the anti-pattern and its "use instead" — the fix is
+        // still the same page's endorsement, with neutral blocks skipped, never guessed by position.
+        let memory = memory_from(&[
+            ("https://d/rules/xi", "xi", "This indexing is incorrect and unsafe", "xs[xs.len()]"),
+            ("https://d/rules/xi", "xi", "the program prints the following output", "panic!"),
+            ("https://d/rules/xi", "xi", "Prefer this correct idiomatic form instead", "xs.last()"),
+        ]);
+        let rules = rules_from_memory("go", &memory);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].0.good, "xs.last()", "the page's own fix is found past the neutral block");
     }
 
     #[test]
@@ -724,8 +557,9 @@ mod tests {
         // cap must snap to a char boundary instead of panicking inside a multibyte character.
         let html = format!("<p>{}this code is incorrect and will fail:</p><pre>x = 1</pre>", "文".repeat(600));
         let blocks = pre_blocks(&html);
-        let (bad, _good, _explicit, _ctx) = bad_good_from_blocks(&html, &blocks, &test_polarity());
-        assert!(bad.contains("x = 1"), "extraction still works around multibyte text: {bad:?}");
+        let contexts = block_contexts(&html, &blocks);
+        assert!(contexts.iter().any(|(p, c)| c.contains("x = 1") && p.contains("incorrect")),
+                "extraction still works around multibyte text: {contexts:?}");
     }
 
     #[cfg(feature = "crawl")]
