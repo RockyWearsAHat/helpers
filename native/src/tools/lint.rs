@@ -1,5 +1,8 @@
 //! `lint` — the AI code reviewer.
 //!
+//! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
+//! repo root — the single authoritative doc; update it BEFORE changing semantics here.
+//!
 //! Training: [`crate::lint_train::ensure_models`] compiles law from the project's rule files
 //! (`.helpers/lint-rules/`, root `lintPref`), the curated catalog, and official docs — teaching
 //! prose is read, never enforced — and returns, per language, a
@@ -99,6 +102,9 @@ struct Hit {
     severity: String,
     /// English advice — the rule's description from its source.
     advice: String,
+    /// Where the rule came from (doc URL or rule-file path) — every finding cites its origin,
+    /// so "did this come from documentation or from our own law?" is answered in the output.
+    source: String,
 }
 
 /// A file's place in the review.
@@ -291,16 +297,21 @@ pub fn run(args: &Value) -> ToolResult {
                 continue;
             }
             // The compiled model carries each rule's reporting facts — no catalog re-read.
-            let (severity, advice_text) = model
+            let (severity, advice_text, source) = model
                 .rules
                 .info_of(&finding.rule)
-                .map(|(sev, desc, _)| {
+                .map(|(sev, desc, src)| {
                     let sev = if sev.is_empty() { finding.severity.clone() } else { sev.to_string() };
                     let adv = if desc.is_empty() { format!("violates `{}`", finding.rule) } else { desc.to_string() };
-                    (sev, adv)
+                    // A law file inside the project cites as a relative path; docs cite their URL.
+                    let src = src
+                        .strip_prefix(&format!("{}/", root.display()))
+                        .unwrap_or(src)
+                        .to_string();
+                    (sev, adv, src)
                 })
-                .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule)));
-            staged.push((path, Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text }, doc_rule));
+                .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule), String::new()));
+            staged.push((path, Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text, source }, doc_rule));
         }
     }
 
@@ -448,25 +459,26 @@ fn severity_rank(sev: &str) -> u8 {
 /// Collapse a file's hits into readable lines: one per distinct rule, carrying the advice once and
 /// the lines it occurred on (capped), highest-severity first.
 fn group_hits(hits: &[Hit]) -> Vec<String> {
-    let mut groups: Vec<(String, String, String, Vec<usize>)> = Vec::new(); // (rule, sev, advice, lines)
+    let mut groups: Vec<(String, String, String, String, Vec<usize>)> = Vec::new(); // (rule, sev, advice, source, lines)
     for h in hits {
         let advice = if h.advice.is_empty() { format!("violates `{}`", h.rule) } else { h.advice.clone() };
         if let Some(g) = groups.iter_mut().find(|g| g.0 == h.rule) {
-            g.3.push(h.line);
+            g.4.push(h.line);
         } else {
-            groups.push((h.rule.clone(), h.severity.clone(), advice, vec![h.line]));
+            groups.push((h.rule.clone(), h.severity.clone(), advice, h.source.clone(), vec![h.line]));
         }
     }
-    groups.sort_by(|a, b| severity_rank(&a.1).cmp(&severity_rank(&b.1)).then_with(|| b.3.len().cmp(&a.3.len())));
+    groups.sort_by(|a, b| severity_rank(&a.1).cmp(&severity_rank(&b.1)).then_with(|| b.4.len().cmp(&a.4.len())));
     groups
         .into_iter()
-        .map(|(rule, sev, advice, mut lines)| {
+        .map(|(rule, sev, advice, source, mut lines)| {
             lines.sort_unstable();
             let count = lines.len();
             let shown: Vec<String> = lines.iter().take(6).map(usize::to_string).collect();
             let more = if count > 6 { format!(", +{} more", count - 6) } else { String::new() };
             let occ = if count == 1 { format!("L{}", lines[0]) } else { format!("×{count} (lines {}{more})", shown.join(", ")) };
-            format!("[{sev}] [{rule}] {advice}  {occ}")
+            let cite = if source.is_empty() { String::new() } else { format!("  ⟨{source}⟩") };
+            format!("[{sev}] [{rule}] {advice}  {occ}{cite}")
         })
         .collect()
 }
@@ -605,9 +617,9 @@ mod tests {
     #[test]
     fn group_hits_orders_by_severity_and_collapses() {
         let hits = vec![
-            Hit { line: 9, rule: "a".into(), severity: "low".into(), advice: "x".into() },
-            Hit { line: 3, rule: "b".into(), severity: "high".into(), advice: "y".into() },
-            Hit { line: 5, rule: "b".into(), severity: "high".into(), advice: "y".into() },
+            Hit { line: 9, rule: "a".into(), severity: "low".into(), advice: "x".into(), source: String::new() },
+            Hit { line: 3, rule: "b".into(), severity: "high".into(), advice: "y".into(), source: "https://d/r".into() },
+            Hit { line: 5, rule: "b".into(), severity: "high".into(), advice: "y".into(), source: "https://d/r".into() },
         ];
         let lines = group_hits(&hits);
         assert!(lines[0].contains("[high]") && lines[0].contains("×2"), "high collapses first: {lines:?}");
