@@ -145,6 +145,15 @@ fn restates_rule(line_tokens: &[String], desc: &str) -> bool {
 /// concept gate + principles), match each file with the rule set, confirm text-fallback findings
 /// through the concept gate, and report the result in English.
 pub fn run(args: &Value) -> ToolResult {
+    let t0 = std::time::Instant::now();
+    let mut stages: Vec<(&'static str, u128)> = Vec::new();
+    let mut mark = {
+        let mut last = std::time::Instant::now();
+        move |stages: &mut Vec<(&'static str, u128)>, name: &'static str| {
+            stages.push((name, last.elapsed().as_micros()));
+            last = std::time::Instant::now();
+        }
+    };
     let root = root_arg(args);
     if !root.exists() {
         return Err(format!("lint: path not found: {}", root.display()));
@@ -193,8 +202,9 @@ pub fn run(args: &Value) -> ToolResult {
         .iter()
         .map(|(l, files)| (l.clone(), files.iter().map(|(_, src)| src.clone()).collect()))
         .collect();
+    mark(&mut stages, "walk+read");
     let (report, models) = lint_train::ensure_models(&langs, &data, &root, &project_code);
-    let advice = lint_train::advice(&data, Some(root.as_path()));
+    mark(&mut stages, "train/load");
 
     let mut sources: Vec<String> = Vec::new();
     if !models.is_empty() {
@@ -242,14 +252,20 @@ pub fn run(args: &Value) -> ToolResult {
         // a single popcount-grid dispatch instead of a scalar scan per finding.
         let mut pending: Vec<(String, crate::lint_match::Finding, bool)> = Vec::new();
         let mut gate_tokens: Vec<(usize, Vec<String>)> = Vec::new(); // (pending idx, construct tokens)
-        for (path, src) in lang_files {
-            for finding in model.rules.flag(src) {
+        // Match every file in parallel — each file's firing pass is independent, and the whole
+        // project's matching is the warm run's main CPU. Findings fold back in file order so
+        // the report stays deterministic.
+        use rayon::prelude::*;
+        let per_file: Vec<Vec<crate::lint_match::Finding>> =
+            lang_files.par_iter().map(|(_, src)| model.rules.flag(src)).collect();
+        for ((path, src), findings) in lang_files.iter().zip(per_file) {
+            for finding in findings {
                 let doc_rule = !trusted.contains(&finding.rule);
                 if !finding.precise {
                     let toks = line_tokens(src, finding.line);
                     // Restatement guard (all imprecise findings, trusted law included): a line
                     // that repeats the rule's own words is quoting the law, not breaking it.
-                    let desc = advice.get(&finding.rule).map(|i| i.description.as_str()).unwrap_or("");
+                    let desc = model.rules.info_of(&finding.rule).map(|(_, d, _)| d).unwrap_or("");
                     if restates_rule(&toks, desc) {
                         continue;
                     }
@@ -274,17 +290,21 @@ pub fn run(args: &Value) -> ToolResult {
             if rejected.contains(&i) {
                 continue;
             }
-            let (severity, advice_text) = advice
-                .get(&finding.rule)
-                .map(|info| {
-                    let sev = if info.severity.is_empty() { finding.severity.clone() } else { info.severity.clone() };
-                    let adv = if info.description.is_empty() { format!("violates `{}`", finding.rule) } else { info.description.clone() };
+            // The compiled model carries each rule's reporting facts — no catalog re-read.
+            let (severity, advice_text) = model
+                .rules
+                .info_of(&finding.rule)
+                .map(|(sev, desc, _)| {
+                    let sev = if sev.is_empty() { finding.severity.clone() } else { sev.to_string() };
+                    let adv = if desc.is_empty() { format!("violates `{}`", finding.rule) } else { desc.to_string() };
                     (sev, adv)
                 })
                 .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule)));
             staged.push((path, Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text }, doc_rule));
         }
     }
+
+    mark(&mut stages, "match+gate");
 
     // 3b) Self-validation against reality: a doc-learned rule that fires on more than 1% of every
     //     line scanned (and at least 20 lines) is a mislearned pattern — noisy docs scraping, not
@@ -338,6 +358,17 @@ pub fn run(args: &Value) -> ToolResult {
     body.push_str(&render_unenforced(&report.unenforced));
     body.push_str(&render_quarantine(&quarantined));
     body.push_str(&render_feedback(&root, &auto_suppressed));
+    // Honest latency accounting on demand: where a run's time actually went, stage by stage.
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        mark(&mut stages, "render");
+        let parts: Vec<String> =
+            stages.iter().map(|(n, us)| format!("{n} {:.1}ms", *us as f64 / 1000.0)).collect();
+        body.push_str(&format!(
+            "\nTiming: {} — total {:.1}ms\n",
+            parts.join(", "),
+            t0.elapsed().as_micros() as f64 / 1000.0
+        ));
+    }
     Ok(vec![text(body)])
 }
 
