@@ -54,6 +54,7 @@ fn run_false_positive(args: &Value) -> ToolResult {
     lint_feedback::append(&root, &FeedbackRecord {
         timestamp: crate::util::now_iso(),
         action: ACTION_FALSE_POSITIVE.into(),
+        train: Some(crate::lint_train::train_version().to_string()),
         rule: Some(rule.to_string()),
         file: file.to_string(),
         line: Some(line),
@@ -105,6 +106,7 @@ fn run_missed(args: &Value) -> ToolResult {
     lint_feedback::append(&root, &FeedbackRecord {
         timestamp: crate::util::now_iso(),
         action: ACTION_MISSED.into(),
+        train: Some(crate::lint_train::train_version().to_string()),
         rule: rule.clone(),
         file: file.to_string(),
         line,

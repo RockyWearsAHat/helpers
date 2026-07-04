@@ -35,7 +35,9 @@ pub struct DocsSource {
 /// caller then degrades gracefully (cache, or an agent docs request). Network-only (`crawl` feature).
 #[cfg(feature = "crawl")]
 pub fn learn_from_url(lang: &str, source: &DocsSource, max_pages: usize, data_root: &Path) -> Knowledge {
-    let memory = read_language(lang, std::slice::from_ref(source), max_pages, data_root);
+    // Discovery probes are partial by design (few pages) — never cached, so a later full read
+    // cannot mistake a probe's slice for the whole source.
+    let memory = read_language(lang, std::slice::from_ref(source), max_pages, data_root, None);
     Knowledge {
         rules: rules_from_memory(lang, &memory).into_iter().map(|(r, _)| r).collect(),
         reference: memory.reference,
@@ -54,8 +56,13 @@ pub fn learn_from_url(lang: &str, source: &DocsSource, max_pages: usize, data_ro
 /// The returned memory is what "the model read the docs" means; rules are a query over it
 /// ([`rules_from_memory`]), so expanding what the linter understands is more reading, never code.
 #[cfg(feature = "crawl")]
-pub fn read_language(lang: &str, sources: &[DocsSource], max_pages: usize, data_root: &Path) -> Memory {
-    use crate::doc_crawler::{crawl, extract, fetch};
+pub fn read_language(
+    lang: &str,
+    sources: &[DocsSource],
+    max_pages: usize,
+    data_root: &Path,
+    cache_version: Option<&str>,
+) -> Memory {
     use crate::lint_read::{Binding, PolarityBuilder, Reader};
 
     // Every read unit, uniformly: (page url, slug, governing prose, code example).
@@ -63,23 +70,13 @@ pub fn read_language(lang: &str, sources: &[DocsSource], max_pages: usize, data_
     let mut reader = Reader::new();
     let mut pages_read = 0usize;
     for src in sources {
-        if src.crawl {
-            for p in crawl(&[&src.url], max_pages, 0) {
-                if pages_read < MAX_READ_PAGES {
-                    reader.learn_span(&p.prose);
-                    pages_read += 1;
-                }
-                let page_slug = rule_slug_under(&src.url, &p.url);
-                let blocks = pre_blocks(&p.html);
-                for (prose, code) in block_contexts(&p.html, &blocks) {
-                    let s = page_slug.clone().unwrap_or_else(|| slug(&prose));
-                    units.push((p.url.clone(), s, prose, code));
-                }
+        for page in crawled_source(src, max_pages, cache_version) {
+            if pages_read < MAX_READ_PAGES {
+                reader.learn_span(&page.prose);
+                pages_read += 1;
             }
-        } else if let Some((ct, body)) = fetch(&src.url) {
-            for (prose, code) in extract(&ct, &body) {
-                reader.learn_span(&prose);
-                units.push((src.url.clone(), slug(&prose), prose, code));
+            for (s, prose, code) in page.units {
+                units.push((page.url.clone(), s, prose, code));
             }
         }
     }
@@ -90,13 +87,9 @@ pub fn read_language(lang: &str, sources: &[DocsSource], max_pages: usize, data_
         reader.learn_span(&doc);
     }
     // Ground: test a sample of examples against the toolchain; their prose shapes the prototypes.
+    // Grounding verdicts are the ONLY labels anywhere — no curated corpus, no authored labels:
+    // the classifier is learned through understanding and tested against reality.
     let mut builder = PolarityBuilder::new(reader);
-    // Seed the semantic side from structured labels the tool already possesses: every shipped or
-    // project-authored rule statement is prohibition prose (a rule IS a "don't"). Costs nobody
-    // anything and grows with every rule anyone writes; grounding supplies the endorsement side.
-    for (prose, is_bad) in crate::lint_train::corpus_seed(data_root) {
-        builder.accumulate(&prose, is_bad);
-    }
     // Ground in PARALLEL: each check spawns the toolchain once (an isolated temp file per
     // probe), so the wall-clock cost is process spawns, not the 1-bit math — a serial loop here
     // was the slowest part of learning a language. Verdicts fold into the prototypes serially
@@ -122,12 +115,17 @@ pub fn read_language(lang: &str, sources: &[DocsSource], max_pages: usize, data_
     // Knowledge transfer: prohibition prose reads the same in every language. A language the
     // toolchain grounded contributes its classifier to the shared store; a language that CANNOT
     // be grounded (no toolchain installed — or none exists) reads through the best classifier
-    // grounded elsewhere, falling back to the committed bootstrap on a fresh machine. Zero
-    // effort either way: transfer is automatic, and it improves as more languages are read.
+    // grounded elsewhere, falling back to the committed bootstrap on a fresh machine. "Best" is
+    // most reality-tested votes — a thin seed-only build must never outrank the transferred
+    // bootstrap just by clearing the readiness bar. Zero effort either way: transfer is
+    // automatic, and it improves as more languages are read.
+    if let Some(t) = transferred_polarity(data_root) {
+        if !polarity.is_ready() || t.votes() > polarity.votes() {
+            polarity = t;
+        }
+    }
     if polarity.is_ready() {
         save_global_polarity(&polarity);
-    } else if let Some(t) = transferred_polarity(data_root) {
-        polarity = t;
     }
 
     // Bind: every read unit becomes a prose⊗code association; non-violation code is the reference.
@@ -149,6 +147,112 @@ pub fn read_language(lang: &str, sources: &[DocsSource], max_pages: usize, data_
         }
     }
     Memory { bindings, reference, polarity: polarity.is_ready().then_some(polarity) }
+}
+
+// ── Per-source crawl cache (one network read per machine per source) ──────────
+
+/// One documentation source reduced to exactly what reading consumes — per page, its URL, its
+/// readable prose, and the `(slug, governing prose, code example)` block units. Cached once per
+/// machine keyed by the toolchain version whose docs these are, so a source shared by two
+/// languages (TypeScript ⊇ JavaScript both read MDN) or re-read after a `TRAIN_VERSION` bump
+/// costs the network exactly once.
+#[cfg(feature = "crawl")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CrawledSource {
+    version: String,
+    pages: Vec<CrawledPage>,
+}
+
+/// One page of a [`CrawledSource`].
+#[cfg(feature = "crawl")]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct CrawledPage {
+    url: String,
+    prose: String,
+    units: Vec<(String, String, String)>,
+}
+
+/// The pages of one documentation source: from the per-source cache
+/// (`~/.cache/helpers/lint-index/crawls/<tool>.json`) when it covers `cache_version`, from the
+/// network otherwise (writing the cache back). `cache_version: None` (discovery probes) always
+/// reads the network and never writes. A process-wide per-tool lock makes parallel languages
+/// sharing a source line up: the first crawls, the rest replay its pages from disk.
+/// `HELPERS_LINT_REFRESH` bypasses and rewrites the cache.
+#[cfg(feature = "crawl")]
+fn crawled_source(src: &DocsSource, max_pages: usize, cache_version: Option<&str>) -> Vec<CrawledPage> {
+    use crate::doc_crawler::{crawl, extract, fetch};
+    let read_from_network = || -> Vec<CrawledPage> {
+        let mut pages = Vec::new();
+        if src.crawl {
+            for p in crawl(&[&src.url], max_pages, 0) {
+                let page_slug = rule_slug_under(&src.url, &p.url);
+                let blocks = pre_blocks(&p.html);
+                let units = block_contexts(&p.html, &blocks)
+                    .into_iter()
+                    .map(|(prose, code)| {
+                        let s = page_slug.clone().unwrap_or_else(|| slug(&prose));
+                        (s, prose, code)
+                    })
+                    .collect();
+                pages.push(CrawledPage { url: p.url, prose: p.prose, units });
+            }
+        } else if let Some((ct, body)) = fetch(&src.url) {
+            for (prose, code) in extract(&ct, &body) {
+                let unit = (slug(&prose), prose.clone(), code);
+                pages.push(CrawledPage { url: src.url.clone(), prose, units: vec![unit] });
+            }
+        }
+        pages
+    };
+    let Some(version) = cache_version else { return read_from_network() };
+    let lock = source_lock(&src.tool);
+    let _guard = lock.lock().expect("source lock poisoned");
+    let path = crawl_cache_path(&src.tool);
+    if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
+        if let Some(cached) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<CrawledSource>(&raw).ok())
+        {
+            if cached.version == version && !cached.pages.is_empty() {
+                return cached.pages;
+            }
+        }
+    }
+    let pages = read_from_network();
+    if !pages.is_empty() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let entry = CrawledSource { version: version.to_string(), pages: pages.clone() };
+        if let Ok(json) = serde_json::to_string(&entry) {
+            let _ = std::fs::write(&path, json);
+        }
+    }
+    pages
+}
+
+/// This source's crawl-cache file, its tool id sanitized to a safe file name.
+#[cfg(feature = "crawl")]
+fn crawl_cache_path(tool: &str) -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let safe: String = tool
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect();
+    std::path::Path::new(&home)
+        .join(".cache/helpers/lint-index/crawls")
+        .join(format!("{safe}.json"))
+}
+
+/// The process-wide lock for one source's crawl — parallel languages sharing a source serialize
+/// here, so exactly one of them pays the network.
+#[cfg(feature = "crawl")]
+fn source_lock(tool: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let map = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    map.lock().expect("lock map poisoned").entry(tool.to_string()).or_default().clone()
 }
 
 // ── Polarity transfer (grounded knowledge is shared across languages) ─────────
@@ -767,10 +871,8 @@ mod transfer_probe {
             }
         }
         let mut builder = PolarityBuilder::new(reader);
-        for (prose, is_bad) in crate::lint_train::corpus_seed(&data_root) {
-            builder.accumulate(&prose, is_bad);
-        }
         // Ground every reading in parallel — the spawn cost dominates, never the Hv math.
+        // Grounding verdicts are the only labels: the bootstrap is machine-generated end to end.
         use rayon::prelude::*;
         for (lang, pairs) in &read {
             let probes: Vec<&(String, String)> = pairs

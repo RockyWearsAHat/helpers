@@ -67,6 +67,12 @@ pub struct FeedbackRecord {
     /// A code snippet showing the correct form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub good: Option<String>,
+    /// The `TRAIN_VERSION` the flag was filed under. Suppression is VERSION-SCOPED: when a new
+    /// training version lands, old flags stop suppressing (they stay in the log as history) —
+    /// the junk they papered over should no longer exist, and if it does, two fresh flags
+    /// re-suppress it visibly instead of the mask silently carrying forward.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub train: Option<String>,
 }
 
 /// The feedback log path for a project root: `<root>/.helpers/lint-feedback.jsonl`.
@@ -103,10 +109,16 @@ pub fn read_all(project_root: &Path) -> Vec<FeedbackRecord> {
 }
 
 /// Rule ids that have earned auto-suppression: those with at least `threshold` distinct
-/// `(file, line)` false-positive sites. Deterministic ordering via `BTreeSet`.
+/// `(file, line)` false-positive sites **filed under the current training version** — flags
+/// from an older version are history, not active suppressions (see [`FeedbackRecord::train`]).
+/// Deterministic ordering via `BTreeSet`.
 pub fn auto_suppressed(records: &[FeedbackRecord], threshold: usize) -> BTreeSet<String> {
+    let current = crate::lint_train::train_version();
     let mut sites: BTreeMap<String, BTreeSet<(String, Option<u64>)>> = BTreeMap::new();
-    for r in records.iter().filter(|r| r.action == ACTION_FALSE_POSITIVE) {
+    for r in records
+        .iter()
+        .filter(|r| r.action == ACTION_FALSE_POSITIVE && r.train.as_deref() == Some(current))
+    {
         if let Some(rule) = r.rule.clone() {
             sites.entry(rule).or_default().insert((r.file.clone(), r.line));
         }
@@ -163,6 +175,7 @@ mod tests {
             language: None,
             bad: None,
             good: None,
+            train: Some(crate::lint_train::train_version().to_string()),
         }
     }
 
