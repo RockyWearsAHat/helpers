@@ -6,18 +6,19 @@
 //! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
 //! repo root — the single authoritative doc; update it BEFORE changing semantics here.
 //!
-//! Law comes from exactly three places; everything else is READING:
+//! Law comes from exactly two places; everything else is READING:
 //!
 //!   1. **Official web documentation** — each language's official docs, crawled live and cached
 //!      (a committed `lint-index/` snapshot seeds the offline case).
 //!   2. **The project's own law** — every `*.md`/`*.txt` under `.helpers/lint-rules/` plus a
 //!      root-level `lintPref.md`/`lintPref.txt`, READ as plain English
 //!      ([`crate::linter::Knowledge::read_document`]) with no required format.
-//!   3. **The curated rule catalog** — `extraDocs/lint-corpus.jsonl` (real linter rules, whose
-//!      bad examples also structurally label the polarity seed).
 //!
-//! `extraDocs/` prose and the registered reading sources are TEACHING material: they train the
-//! reader and the classifier and never mint rules — enforcement never grows out of reading.
+//! There is no curated rule catalog: enforcement grows purely from READING — the linter reads
+//! official docs and the project's law, understands them, and enforces what they forbid, with
+//! every reading grounded against the installed toolchain. Never authored, never hand-coded.
+//! `extraDocs/` prose and the registered reading sources are teaching material: they build the
+//! understanding that reading happens through, but only a statement of a violation becomes law.
 //!
 //! Rules with bad/good examples compile to lossless AST patterns (or discriminating token regexes
 //! for grammarless languages) in [`RuleSet`]; the same rules' description + example tokens bundle
@@ -51,7 +52,14 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v15-tag-safe-prose";
+const TRAIN_VERSION: &str = "docs-v24-project-grounding-leads-law";
+
+/// The current [`TRAIN_VERSION`] — public so feedback flags can be version-scoped
+/// ([`crate::lint_feedback`]): a suppression earned under one training version must not
+/// silently carry into the next.
+pub fn train_version() -> &'static str {
+    TRAIN_VERSION
+}
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -59,15 +67,9 @@ const TRAIN_VERSION: &str = "docs-v15-tag-safe-prose";
 static EMBEDDED_LINT_INDEX: include_dir::Dir<'_> =
     include_dir::include_dir!("$CARGO_MANIFEST_DIR/../lint-index");
 
-/// The committed per-language modules, embedded so an installed binary far from the checkout still
-/// ships every language the linter has learned (Go, and the example-rich rust/python/js catalogs).
-/// The on-disk `lint-models/` is preferred (editing/adding a module takes effect on pull).
-static EMBEDDED_LINT_MODELS: include_dir::Dir<'_> =
-    include_dir::include_dir!("$CARGO_MANIFEST_DIR/../lint-models");
-
 /// The CS principles folder document, embedded as the offline fallback (the on-disk copy is
 /// preferred so editing it relearns on the next run). Points to the actual course principles
-/// document (prose-only; pattern rules come from committed modules and crawled official docs).
+/// document (prose-only reading material; pattern rules come from crawled official docs).
 const EMBEDDED_CS_PRINCIPLES: &str = include_str!("../../extraDocs/software-design.md");
 
 /// One documented rule, normalized across all sources into the shape the engine compiles from: an id, a
@@ -253,51 +255,6 @@ pub(crate) fn project_rules(data_root: &Path, project_root: &Path, lang: &str) -
     out
 }
 
-/// Expose the stamp file path so external tools (e.g. `lint_rule`) can invalidate it,
-/// forcing a retrain on the next `lint` call without requiring a version bump.
-/// Prohibition prose the tool can label HONESTLY, with no authored word list: a CURATED catalog
-/// rule that SHOWS a bad example structurally documents a violation, so its description states
-/// one — the label is the catalog's own shape, not anyone's vocabulary. Only the shipped
-/// `extraDocs/lint-corpus.jsonl` qualifies: it is a catalog of real linter rules. The corpus
-/// FOLDER's markdown is teaching material — its fences read as "bad examples" only by document
-/// order, so seeding its sections as prohibitions is a mislabel that taught earlier classifiers
-/// that ordinary teaching vocabulary means bad. Rules without a bad example ("Apply De Morgan's
-/// law") are suggestions and seed nothing. Toolchain grounding supplies the endorsement side and
-/// keeps growing both.
-/// The curated catalog's labeled seed prose, `(sentence, is_prohibition)`. Both labels come from
-/// the catalog's own structure — no vocabulary:
-///
-///   * a rule that SHIPS a bad example states a violation, and its LEADING sentence names it
-///     (documentation names the violation before the remedy — the same order convention document
-///     reading uses everywhere);
-///   * the remedy TAIL of that same rule ("…; use the logging module instead") ENDORSES the
-///     alternative — labeling it good teaches the classifier the remedy register, so remedy
-///     vocabulary can never be mistaken for the construct a law forbids. Labeling whole
-///     descriptions bad taught earlier classifiers exactly that mistake, measurably.
-pub(crate) fn corpus_seed(data_root: &Path) -> Vec<(String, bool)> {
-    let Ok(jsonl) = std::fs::read_to_string(data_root.join("extraDocs/lint-corpus.jsonl")) else {
-        return Vec::new();
-    };
-    let worth = |s: &str| s.split_whitespace().count() >= 3;
-    let mut out = Vec::new();
-    for line in jsonl.lines() {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
-        if v["bad"].as_str().unwrap_or("").trim().is_empty() {
-            continue;
-        }
-        let Some(d) = v["description"].as_str() else { continue };
-        let sentences = crate::lint_read::sentences(d);
-        if let Some(lead) = sentences.first().filter(|s| worth(s)) {
-            out.push((lead.to_string(), true));
-        }
-        let tail = sentences.iter().skip(1).copied().collect::<Vec<_>>().join(" ");
-        if worth(&tail) {
-            out.push((tail, false));
-        }
-    }
-    out
-}
-
 /// The model cache directory — exposed for sibling modules that persist shared learned
 /// artifacts beside the per-language models (e.g. the transferred polarity classifier).
 pub(crate) fn model_dir_pub() -> PathBuf {
@@ -316,6 +273,8 @@ pub(crate) fn lint_index_file(data_root: &Path, name: &str) -> Option<String> {
         })
 }
 
+/// Expose the stamp file path so external tools (e.g. `lint_rule`) can invalidate it,
+/// forcing a retrain on the next `lint` call without requiring a version bump.
 pub fn stamp_path_pub(lang: &str) -> PathBuf {
     stamp_path(lang)
 }
@@ -349,16 +308,53 @@ pub fn ensure_models(
     project_root: &Path,
     project_code: &std::collections::BTreeMap<String, Vec<String>>,
 ) -> (TrainReport, HashMap<String, LangModel>) {
+    // Languages are independent (own toolchain, own sources, own cache files), so they train in
+    // PARALLEL — cold setup costs the slowest language, not the sum. Shared crawled sources are
+    // deduplicated by the per-source crawl cache (`lint_docs`), so two languages reading the same
+    // site never fetch it twice. Results merge in `langs` order, keeping the report deterministic.
+    let results: Vec<(TrainReport, Option<(String, LangModel)>)> = std::thread::scope(|s| {
+        let handles: Vec<_> = langs
+            .iter()
+            .map(|lang| s.spawn(move || train_language(lang, data_root, project_root, project_code)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("language training thread panicked"))
+            .collect()
+    });
     let mut report = TrainReport::default();
     let mut models = HashMap::new();
+    for (r, model) in results {
+        report.trained.extend(r.trained);
+        report.reused.extend(r.reused);
+        report.skipped.extend(r.skipped);
+        report.crawled.extend(r.crawled);
+        report.unenforced.extend(r.unenforced);
+        if let Some((lang, m)) = model {
+            models.insert(lang, m);
+        }
+    }
+    (report, models)
+}
 
-    for lang in langs {
+/// Train or load ONE language's model — the per-language body of [`ensure_models`], isolated so
+/// languages can run on their own threads. Returns the language's report slice and its model
+/// (`None` when the language is skipped).
+fn train_language(
+    lang: &str,
+    data_root: &Path,
+    project_root: &Path,
+    project_code: &std::collections::BTreeMap<String, Vec<String>>,
+) -> (TrainReport, Option<(String, LangModel)>) {
+    let mut report = TrainReport::default();
+    {
+        let lang = &lang.to_string();
         let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
         // Trust order decides who wins a shared pattern signature at dedup time
-        // (RuleSet::build keeps the FIRST rule per pattern): the project's own law first,
-        // then the crawled docs. The corpus folder (`extraDocs/`) is TEACHING material — it
-        // trains the reader and the classifier, and contributes no rules: law comes from the
-        // project's rule files, the curated catalog, and official docs.
+        // (RuleSet::build keeps the FIRST rule per pattern): the project's own law first, then
+        // the crawled docs. Everything else the linter knows, it READ — there is no curated
+        // rule catalog anywhere; correctness is learned from official docs and tested against
+        // the toolchain, never authored.
         let (doc_rules, reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
         let mut rules = project_rules(data_root, project_root, lang);
         // The project's own law is trusted by LOCATION: the user wrote it in a rule file, so it
@@ -368,7 +364,7 @@ pub fn ensure_models(
 
         if rules.is_empty() {
             report.skipped.push((lang.clone(), "no rules found for this language".to_string()));
-            continue;
+            return (report, None);
         }
 
         // Concept fingerprints for the gate — built in memory from the same resolved rules
@@ -405,14 +401,14 @@ pub fn ensure_models(
 
         // Fast path: pattern model already cached and current — load it, attach the concept gate.
         if model_fresh(&patterns_path(lang), &stamp_path(lang), &stamp) {
+            report.reused.push(lang.clone());
             if let Some(rule_set) = load_patterns(lang) {
                 let compiled: std::collections::HashSet<String> =
                     rule_set.rule_ids().map(str::to_string).collect();
                 note_unenforced(&mut report, &compiled);
-                models.insert(lang.clone(), LangModel { rules: rule_set, concept });
+                return (report, Some((lang.clone(), LangModel { rules: rule_set, concept })));
             }
-            report.reused.push(lang.clone());
-            continue;
+            return (report, None);
         }
 
         // Build and cache the pattern model from Source 1 + Source 2 rules. Prose-only rules are
@@ -429,7 +425,7 @@ pub fn ensure_models(
 
         if rule_set.rule_count() == 0 {
             report.skipped.push((lang.clone(), "no rule carried a distinctive pattern to match".to_string()));
-            continue;
+            return (report, None);
         }
 
         if let Some(parent) = patterns_path(lang).parent() {
@@ -440,13 +436,11 @@ pub fn ensure_models(
             report.trained.push(format!("{lang} ({} rules, from {learned_from})", rule_set.rule_count()));
         } else {
             report.skipped.push((lang.clone(), "could not write the cached model".to_string()));
-            continue;
+            return (report, None);
         }
 
-        models.insert(lang.clone(), LangModel { rules: rule_set, concept });
+        return (report, Some((lang.clone(), LangModel { rules: rule_set, concept })));
     }
-
-    (report, models)
 }
 
 /// Order-independent fingerprint of the grounding corpus (docs reference + project code).
@@ -483,17 +477,16 @@ fn patterns_path(lang: &str) -> PathBuf {
 
 /// Resolve a language's documented rules, in order of freshness:
 ///
-///   1. the linter's own learned cache, when it matches the detected toolchain version;
-///   2. a **committed module** (`lint-models/<lang>.learned.json`) — a catalog already crawled and
-///      checked in to the repo, so a `git pull` ships every language's rules (and the reference code
-///      that calibrates them) to everyone, working offline and instantly with no per-machine crawl.
-///      This is how a language learned once is shared: ingest a link, commit the module, others pull;
-///   3. the committed/embedded `lint-index/` snapshot, when it covers that version (fast, and carries
-///      doc categories) — so a present, current seed avoids a needless crawl;
-///   4. a **live crawl of the official docs** otherwise (stale/absent seed, or `HELPERS_LINT_REFRESH`
-///      set) — this is the AI learning the rules itself and is what keeps it current; the result is
-///      cached, version-keyed, so later runs are fast and only relearn on a version bump;
-///   5. the seed again as the offline fallback when a crawl is unavailable.
+///   1. the linter's own learned cache (`~/.cache/helpers/lint-models/`, machine-global — one
+///      learning serves every project on the system), when it matches the detected toolchain
+///      version;
+///   2. the committed/embedded `lint-index/` snapshot, when it covers that version (fast, and
+///      carries doc categories) — so a present, current seed avoids a needless crawl;
+///   3. a **live crawl of the official docs** otherwise (stale/absent seed, or
+///      `HELPERS_LINT_REFRESH` set) — this is the AI learning the rules itself and is what keeps
+///      it current; the result is cached, version-keyed, so later runs are fast and only relearn
+///      on a version bump;
+///   4. the seed again as the offline fallback when a crawl is unavailable.
 ///
 /// Records crawl activity in `report`. Returns the rules and a short provenance label.
 fn resolve_rules(
@@ -510,20 +503,6 @@ fn resolve_rules(
                 if !rules.is_empty() {
                     return (rules, reference, format!("cache:{}", cat.learned_from));
                 }
-            }
-        }
-        // A committed module is a high-quality seed (a read memory, or pre-extracted pairs). It is
-        // used regardless of toolchain version — like the snapshot, it is a starting point that an
-        // explicit `HELPERS_LINT_REFRESH` re-crawls. Preferred over the bare `lint-index/` snapshot.
-        if let Some(cat) = load_committed_module(data_root, lang) {
-            let (mod_rules, reference) = cat.doc_rules(lang);
-            if !mod_rules.is_empty() {
-                let (seed_rules, _) = seed_with_version(data_root, lang);
-                let existing: std::collections::HashSet<String> =
-                    mod_rules.iter().map(|r| r.id.clone()).collect();
-                let mut rules = mod_rules;
-                rules.extend(seed_rules.into_iter().filter(|r| !existing.contains(&r.id)));
-                return (rules, reference, "committed module".to_string());
             }
         }
     }
@@ -567,7 +546,7 @@ fn resolve_rules(
 /// the fly ([`crate::lint_docs::discover_docs`]). `None` when nothing could be read (offline, no
 /// sources, empty read) or the crawler is not compiled in.
 #[cfg(feature = "crawl")]
-fn crawl_learn(data_root: &Path, lang: &str, _version: &str) -> Option<crate::lint_read::Memory> {
+fn crawl_learn(data_root: &Path, lang: &str, version: &str) -> Option<crate::lint_read::Memory> {
     // Operational escape hatch: skip all network learning (air-gapped runs, and deterministic
     // tests) — the resolver then uses the committed/embedded seed instead.
     if std::env::var_os("HELPERS_LINT_OFFLINE").is_some() {
@@ -580,7 +559,7 @@ fn crawl_learn(data_root: &Path, lang: &str, _version: &str) -> Option<crate::li
     if sources.is_empty() {
         return None;
     }
-    let memory = crate::lint_docs::read_language(lang, &sources, MAX_CRAWL_PAGES, data_root);
+    let memory = crate::lint_docs::read_language(lang, &sources, MAX_CRAWL_PAGES, data_root, Some(version));
     (!memory.bindings.is_empty()).then_some(memory)
 }
 
@@ -753,86 +732,6 @@ pub(crate) fn corpus_prose(data_root: &Path) -> Vec<String> {
 
 // ── public training API ──────────────────────────────────────────────────────
 
-/// The result of a successful `learn_and_commit` call.
-pub struct LearnResult {
-    /// The language that was trained.
-    pub lang: String,
-    /// Number of rules learned from the docs.
-    pub rule_count: usize,
-    /// Number of those rules that compiled to a matchable tree pattern.
-    pub pattern_count: usize,
-    /// Path of the committed module that was written.
-    pub module_path: PathBuf,
-}
-
-/// Force-crawl a language's registered docs URL, compile the model, and persist it as a
-/// committed module (`<data_root>/lint-models/<lang>.learned.json`). This is how a trained
-/// language is shared: commit the module, push, open a PR — others get it on `git pull` with
-/// no per-machine crawl. Also updates the user's local pattern cache so the next `lint` run
-/// loads immediately. Returns an error when no docs URL is registered for the language or the
-/// crawl returns no rules.
-#[cfg(feature = "crawl")]
-pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, String> {
-    let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
-    let memory = crawl_learn(data_root, lang, &version).ok_or_else(|| {
-        format!(
-            "no docs URL configured for `{lang}` — add one with `lint_add_source` first, \
-             or set HELPERS_LINT_OFFLINE to use a committed module"
-        )
-    })?;
-    let catalog = LearnedCatalog {
-        version: version.clone(),
-        train_version: TRAIN_VERSION.to_string(),
-        learned_from: "docs".to_string(),
-        rules: Vec::new(),
-        reference: Vec::new(),
-        memory: Some(memory),
-    };
-    let (rules, reference) = catalog.doc_rules(lang);
-    if rules.is_empty() {
-        return Err(format!("read docs for `{lang}` but no binding classified as a violation"));
-    }
-    let rule_count = rules.len();
-    // Save to user cache.
-    save_cache(lang, &catalog);
-    // Compile the pattern model and cache it, grounded in what was just read: the crawl's own
-    // reference code and its polarity classifier (falling back to the transferred one).
-    let tuples: Vec<(String, String, String, String, String, String)> = rules
-        .iter()
-        .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
-        .collect();
-    let ground = crate::lint_match::Grounding {
-        reference,
-        project: Vec::new(),
-        polarity: catalog
-            .memory
-            .as_ref()
-            .and_then(|m| m.polarity.clone())
-            .or_else(|| crate::lint_docs::document_polarity(data_root)),
-        trusted: std::collections::HashSet::new(),
-    };
-    let stamp = stamp_of(&version, &rules, ground_fingerprint(&ground.reference));
-    let model = crate::lint_match::RuleSet::build(lang, &tuples, &ground);
-    let pattern_count = model.rule_count();
-    let _ = std::fs::write(patterns_path(lang), model.to_json());
-    let _ = std::fs::write(stamp_path(lang), &stamp);
-    // Persist as a committed module so `git pull` ships it to others.
-    let module_dir = committed_modules_dir(data_root);
-    let _ = std::fs::create_dir_all(&module_dir);
-    let module_path = module_dir.join(format!("{lang}.learned.json"));
-    let json = serde_json::to_string_pretty(&catalog).map_err(|e| e.to_string())?;
-    std::fs::write(&module_path, json).map_err(|e| format!("could not write module: {e}"))?;
-    Ok(LearnResult { lang: lang.to_string(), rule_count, pattern_count, module_path })
-}
-
-#[cfg(not(feature = "crawl"))]
-pub fn learn_and_commit(lang: &str, _data_root: &Path) -> Result<LearnResult, String> {
-    Err(format!(
-        "learn_and_commit requires the `crawl` feature; \
-         rebuild with `cargo build --features crawl` to enable doc-crawling for `{lang}`"
-    ))
-}
-
 // ── cache + checksum plumbing ────────────────────────────────────────────────
 
 /// Path to a language's learned-rule cache (`<lang>.learned.json`, beside its model).
@@ -843,25 +742,6 @@ fn cache_path(lang: &str) -> PathBuf {
 /// Load a language's cached learned catalog, or `None` if absent/unreadable.
 fn load_cache(lang: &str) -> Option<LearnedCatalog> {
     serde_json::from_str(&std::fs::read_to_string(cache_path(lang)).ok()?).ok()
-}
-
-/// The committed per-language modules directory: `lint-models/` beside `lint-index/` and `corpus/`.
-/// A module here is checked into the repo, so it ships with a `git pull` — the shared, pullable form
-/// of a language the linter has already learned.
-fn committed_modules_dir(data_root: &Path) -> PathBuf {
-    data_root.join("lint-models")
-}
-
-/// Load a committed module (`lint-models/<lang>.learned.json`) — a crawled catalog checked into the
-/// repo so every clone has the language's rules offline. Prefers the on-disk copy (so editing/adding
-/// a module takes effect on pull) and falls back to the embedded copy for a binary far from the
-/// checkout. `None` when neither is present/readable.
-fn load_committed_module(data_root: &Path, lang: &str) -> Option<LearnedCatalog> {
-    let name = format!("{lang}.learned.json");
-    let raw = std::fs::read_to_string(committed_modules_dir(data_root).join(&name))
-        .ok()
-        .or_else(|| EMBEDDED_LINT_MODELS.get_file(&name).and_then(|f| f.contents_utf8().map(str::to_string)))?;
-    serde_json::from_str(&raw).ok()
 }
 
 /// Persist a learned catalog so the next run loads instead of relearning.

@@ -612,6 +612,19 @@ const MAX_PATTERN_DEPTH: usize = 48;
 /// rule IS, not what any language looks like.
 const MAX_EXAMPLE_BYTES: usize = 8192;
 
+/// Smallest reference corpus (in lines) the REFERENCE-FIRE gate may judge from. The gate is
+/// statistical — "this detector trips on the language's own normal code" — and a handful of
+/// grounding examples or a discovery probe cannot testify to that; below this scale the gate
+/// stays out of the way.
+const REFERENCE_FIRE_MIN_LINES: usize = 500;
+
+/// Whether any node of the pattern kept an EXACT token from its example (operations, keywords,
+/// operators stay exact; variables and literals generalize to wildcards). A pattern with no
+/// anchor anywhere matches purely by shape — "any method call" — and cannot discriminate.
+fn pat_has_anchor(pat: &Pat) -> bool {
+    pat.text.is_some() || pat.children.iter().any(pat_has_anchor)
+}
+
 /// The nesting depth of a pattern (a leaf is 1).
 fn pat_depth(pat: &Pat) -> usize {
     1 + pat.children.iter().map(pat_depth).max().unwrap_or(0)
@@ -866,10 +879,25 @@ impl<'a> GroundView<'a> {
         let Some(p) = self.polarity.filter(|p| p.is_ready()) else {
             return vec![None; words.len()];
         };
-        // Each word's OWN lean: the first decisive lean among its inner tokens.
+        // Each word's OWN lean: the first decisive lean among its inner tokens. COMMON words
+        // (corpus-scaled cutoff) never project a lean: a register verb like "use" reads
+        // decisively endorsing in many languages' docs and would poison its neighbors'
+        // contexts ("Never use unsafe…" must not mark `unsafe` as remedy vocabulary) — only
+        // informative words carry context, the same reverse-frequency principle the vote
+        // weights follow. The cutoff scales with the reading, so a two-page corpus (where
+        // nothing is truly common) keeps every lean.
+        let common = |w: &&str| -> bool {
+            let toks = crate::lint_read::tokens(w);
+            !toks.is_empty() && toks.iter().all(|t| p.reader().is_common_word(t))
+        };
         let own: Vec<Option<bool>> = words
             .iter()
-            .map(|w| crate::lint_read::tokens(w).iter().find_map(|t| p.token_lean(t)))
+            .map(|w| {
+                if common(w) {
+                    return None;
+                }
+                crate::lint_read::tokens(w).iter().find_map(|t| p.token_lean(t))
+            })
             .collect();
         (0..words.len())
             .map(|i| {
@@ -923,16 +951,13 @@ fn description_discriminator(
     // among inner tokens). No stop-list and no frequency CUTOFF anywhere: connective prose
     // simply ranks last by its read counts, which stays true at every corpus size — a threshold
     // that felt right at one scale silently dies at another.
-    let mut candidates: Vec<(String, usize, bool, bool, u32)> = Vec::new();
+    let mut candidates: Vec<(String, usize, bool, bool, bool, u32)> = Vec::new();
     for (position, raw) in desc.split_whitespace().enumerate() {
         let surface = raw.trim_matches(|c: char| !c.is_alphanumeric());
         if surface.chars().count() < 2 {
             continue;
         }
         let context = contexts.get(position).copied().flatten();
-        if context == Some(false) {
-            continue; // the remedy's vocabulary is endorsed, not forbidden
-        }
         let inner = crate::lint_read::tokens(surface);
         if inner.is_empty() {
             continue;
@@ -943,36 +968,55 @@ fn description_discriminator(
         if only_grounded && !in_docs {
             continue;
         }
-        let grounded = in_docs || inner.iter().any(|t| ground.project_tokens.contains(t));
+        let in_project = inner.iter().any(|t| ground.project_tokens.contains(t));
+        let grounded = in_docs || in_project;
+        // Remedy-context vocabulary is endorsed, not forbidden — ineligible. EXCEPT for a
+        // project-law word that exists in the project's own code: the author named a word that
+        // literally lives in the code they govern, and that existence outweighs the docs
+        // register that painted it ("unsafe" reads endorsed all over the rust reference, yet
+        // "Never use unsafe blocks" plainly names it). Document order still ranks the earlier
+        // violation word above a later grounded remedy word.
+        if context == Some(false) && (only_grounded || !grounded) {
+            continue;
+        }
         let rarity = inner.iter().map(|t| reader.read_count(t)).min().unwrap_or(0);
-        candidates.push((surface.to_string(), position, context == Some(true), grounded, rarity));
+        candidates.push((surface.to_string(), position, context == Some(true), in_project, grounded, rarity));
     }
-    // Ordering: understanding first (forbidding context), then grounding, then — for words the
+    // Ordering: EXISTENCE first (grounding — a construct that never occurs in real code can
+    // never fire, and register words like "Never" read as decisively forbidding without being
+    // anyone's construct), then understanding (forbidding context), then — for words the
     // reading can account for as connective prose (the corpus head) — last place always. Below
     // that the two rule kinds differ: the PROJECT'S LAW reads like an instruction — the author
     // names the violation before the remedy, so among grounded content words document order
     // decides ("Do not use print…; use logging instead" names `print`, and no rarity score may
     // outbid that), while an ungrounded law construct falls back to rarity (the word the
     // reading can least account for). LEARNED doc prose carries no order promise, so rarity
-    // decides there throughout.
+    // decides there throughout (its candidates are all grounded already, so leading with
+    // grounding changes nothing for learned rules).
     let connective = |surface: &str| {
         crate::lint_read::tokens(surface).iter().all(|t| reader.is_head_word(t))
     };
     if only_grounded {
-        candidates.sort_by_key(|(surface, position, forbidden, grounded, rarity)| {
-            (!*forbidden, !*grounded, connective(surface), *rarity, *position)
+        candidates.sort_by_key(|(surface, position, forbidden, _in_project, grounded, rarity)| {
+            (!*grounded, !*forbidden, connective(surface), *rarity, *position)
         });
     } else {
-        candidates.sort_by_key(|(surface, position, forbidden, grounded, rarity)| {
+        // The law governs THIS project's code, so a word that exists in the project's own
+        // sources is the strongest possible construct evidence — docs-grounded register words
+        // ("never" appears in doc example identifiers) must not outrank it by document order.
+        candidates.sort_by_key(|(surface, position, forbidden, in_project, grounded, rarity)| {
             let order = if *grounded { *position as u64 } else { *rarity as u64 };
-            (!*forbidden, !*grounded, connective(surface), order, *position)
+            (!*in_project, !*grounded, !*forbidden, connective(surface), order, *position)
         });
     }
 
     // Validate: when bad is known the candidate must appear in it; when absent, trust the
-    // winner — SELF-FIRE and query-time silence guard a wrong pick.
+    // winner — SELF-FIRE and query-time silence guard a wrong pick. The pattern is
+    // case-insensitive on the lowercased surface: prose capitalizes sentence-initial words
+    // ("Unsafe blocks are banned…") but the construct in code is whatever case the code uses,
+    // and grounding already matched case-normalized tokens.
     for (surface, ..) in &candidates {
-        let pat = format!(r"\b{}\b", regex::escape(surface));
+        let pat = format!(r"(?i)\b{}\b", regex::escape(&surface.to_lowercase()));
         if let Ok(re) = regex::Regex::new(&pat) {
             if bad.trim().is_empty() || re.is_match(bad) {
                 return Some(pat);
@@ -1164,6 +1208,7 @@ impl RuleSet {
     /// pass `Grounding::default()` when no docs have been read for the language yet.
     pub fn build(lang: &str, rules: &[(String, String, String, String, String, String)], ground: &Grounding) -> RuleSet {
         let trusted = &ground.trusted;
+        let reference_corpus = &ground.reference;
         let ground = GroundView::of(ground);
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
@@ -1259,6 +1304,37 @@ impl RuleSet {
             let good = good_map.get(r.id.as_str()).copied().unwrap_or("");
             good.is_empty() || r.kind.matches(good).is_empty()
         });
+        // REFERENCE-FIRE: a violation detector must stay quiet on the language's own
+        // documented-NORMAL code. A rule whose real meaning is semantic (borrow usage, operand
+        // nullness) tree-diffs down to a ubiquitous construct — "any `&mut` parameter", the bare
+        // `null` literal — and would flag idiomatic code everywhere; running every compiled
+        // detector over the reference corpus once at compile time drops exactly those. The bar
+        // is two-tier by how much the detector's own shape vouches for it: a structured pattern
+        // (depth ≥ 2 with an exact anchor) gets quarantine's 1% bar; a degenerate one (leaf
+        // pattern, all-wildcard shape, or any single-token text regex) has only the corpus as
+        // witness and gets 0.1% — a genuinely banned construct (`goto`) is near-absent from
+        // normal examples and passes, a pervasive one (`null`) cannot mark violations and dies.
+        // Statistical, so it needs scale ([`REFERENCE_FIRE_MIN_LINES`]); project law is exempt
+        // by location. Runs before dedup for the same reason the other gates do: an
+        // over-general rule must not claim a pattern signature it cannot keep.
+        let ref_lines: usize = reference_corpus.iter().map(|e| e.lines().count()).sum();
+        if ref_lines >= REFERENCE_FIRE_MIN_LINES {
+            let probe = RuleSet { lang: lang.to_string(), rules: compiled };
+            let mut fired: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            for example in reference_corpus {
+                for f in probe.flag(example) {
+                    *fired.entry(f.rule).or_default() += 1;
+                }
+            }
+            compiled = probe.rules;
+            compiled.retain(|r| {
+                let bar = match &r.kind {
+                    MatchKind::Ast(p) if pat_depth(&p.pat) >= 2 && pat_has_anchor(&p.pat) => ref_lines / 100,
+                    _ => ref_lines / 1000,
+                };
+                trusted.contains(&r.id) || fired.get(&r.id).copied().unwrap_or(0) <= bar
+            });
+        }
         // Dedup identical compiled patterns: noisy docs pages often yield several rule entries
         // that compile to the same pattern (the same wiki page scraped under multiple slugs).
         // One pattern = one rule; keep the first id — the caller orders rules by trust
@@ -1400,7 +1476,7 @@ mod tests {
         let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
         let view = GroundView::of(&ground);
         let re = description_discriminator("Do not hardcode port 8080 anywhere; read the port from configuration.", "", &view, &view.word_contexts("Do not hardcode port 8080 anywhere; read the port from configuration."), false);
-        assert_eq!(re.as_deref(), Some(r"\b8080\b"));
+        assert_eq!(re.as_deref(), Some(r"(?i)\b8080\b"));
     }
 
     #[test]
@@ -1410,7 +1486,7 @@ mod tests {
         let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
         let view = GroundView::of(&ground);
         let re = description_discriminator("Do not ship console.log calls; use the structured logger.", "", &view, &view.word_contexts("Do not ship console.log calls; use the structured logger."), false);
-        assert_eq!(re.as_deref(), Some(r"\bconsole\.log\b"));
+        assert_eq!(re.as_deref(), Some(r"(?i)\bconsole\.log\b"));
     }
 
     #[test]
@@ -1441,9 +1517,9 @@ mod tests {
         let ground = Grounding { reference: Vec::new(), polarity: Some(polarity), ..Default::default() };
         let view = GroundView::of(&ground);
         let re = description_discriminator("Never call `panic` in library code; return an error value instead.", "", &view, &view.word_contexts("Never call `panic` in library code; return an error value instead."), false);
-        assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
+        assert_eq!(re.as_deref(), Some(r"(?i)\bpanic\b"));
         let bare = description_discriminator("Never call panic in library code; return an error value instead.", "", &view, &view.word_contexts("Never call panic in library code; return an error value instead."), false);
-        assert_eq!(bare.as_deref(), Some(r"\bpanic\b"), "markup is optional, not a gate");
+        assert_eq!(bare.as_deref(), Some(r"(?i)\bpanic\b"), "markup is optional, not a gate");
     }
 
     #[test]
@@ -1469,7 +1545,7 @@ mod tests {
         };
         let view = GroundView::of(&ground);
         let re = description_discriminator("Never call panic in library code; return an error value instead.", "", &view, &view.word_contexts("Never call panic in library code; return an error value instead."), false);
-        assert_eq!(re.as_deref(), Some(r"\bpanic\b"));
+        assert_eq!(re.as_deref(), Some(r"(?i)\bpanic\b"));
     }
 
     /// A trained polarity classifier in the shape the live path carries one — built from labeled
@@ -1546,7 +1622,7 @@ mod tests {
         // order — without a forbidding sentence the whole rule is reading material, not law.
         let mut ground = Grounding { reference: Vec::new(), polarity: Some(polarity()), ..Default::default() };
         let rules = [rule(
-            "no_arrays",
+            "q_rule",
             "xs = [1, 2, 3]",
             "xs = (1, 2, 3)",
             "xyzzy qwerty plugh zork.",
@@ -1554,24 +1630,11 @@ mod tests {
         let set = RuleSet::build("qlang", &rules, &ground); // grammarless → example diff path
         assert_eq!(set.rule_count(), 0, "neutral prose + examples = comprehension, not a detector");
         // The project's own law is exempt by location …
-        ground.trusted.insert("no_arrays".to_string());
+        ground.trusted.insert("q_rule".to_string());
         assert_eq!(RuleSet::build("qlang", &rules, &ground).rule_count(), 1);
         // … and with no classifier at all the author's examples are trusted as before.
         let unground = Grounding::default();
         assert_eq!(RuleSet::build("qlang", &rules, &unground).rule_count(), 1);
-    }
-
-    #[test]
-    fn no_arrays_python_fires_on_verbatim_bad_line() {
-        let rules = [rule(
-            "no_arrays",
-            "scores = [90, 85, 77]",
-            "scores = {\"first\": 90, \"second\": 85}",
-            "Arrays/lists are banned in this project. Use explicit keyed structures (dict, dataclass) so every element has a name.",
-        )];
-        let set = RuleSet::build("python", &rules, &Grounding::default());
-        let hits = set.flag("scores = [90, 85, 77]");
-        assert_eq!(lines_for(&hits, "no_arrays"), vec![1], "no_arrays must fire on the verbatim bad line");
     }
 
     #[test]
@@ -1596,46 +1659,46 @@ mod tests {
     }
 
     #[test]
-    fn no_arrays_generalizes_past_element_types() {
+    fn container_rule_generalizes_past_element_types() {
         // The rule's bad example uses an integer list, but the rule is about the CONTAINER —
-        // a string list (or any other element type, any length) must fire too.
+        // the verbatim bad line, a string list (any element type, any length) must fire too.
         let rules = [rule(
-            "no_arrays",
+            "q_containers",
             "scores = [90, 85, 77]",
             "scores = {\"first\": 90, \"second\": 85}",
-            "Arrays/lists are banned in this project. Use explicit keyed structures (dict, dataclass) so every element has a name.",
+            "Containers of this kind are banned in this project. Use explicit keyed structures (dict, dataclass) so every element has a name.",
         )];
         let set = RuleSet::build("python", &rules, &Grounding::default());
-        let hits = set.flag("labels = [\"a\", \"b\", \"c\"]\nmixed = [1, \"two\"]\nempty = []");
-        assert_eq!(lines_for(&hits, "no_arrays"), vec![1, 2, 3], "no_arrays must fire on lists of any element type");
+        let hits = set.flag("scores = [90, 85, 77]\nlabels = [\"a\", \"b\", \"c\"]\nmixed = [1, \"two\"]\nempty = []");
+        assert_eq!(lines_for(&hits, "q_containers"), vec![1, 2, 3, 4], "container rule must fire on the verbatim line and every element type");
     }
 
     #[test]
-    fn no_arrays_with_tuple_good_example_still_fires() {
+    fn container_good_example_does_not_neutralize_the_rule() {
         // A good example that is ITSELF a container (tuple) must not neutralize the rule:
         // the bad container kind (list) is still novel relative to the good tree.
         let rules = [rule(
-            "no_arrays",
+            "q_containers",
             "xs = [1, 2, 3]",
             "xs = (1, 2, 3)",
             "Do not use list literals anywhere in this project. Use tuples instead.",
         )];
         let set = RuleSet::build("python", &rules, &Grounding::default());
         let hits = set.flag("scores = [90, 85, 77]\nlabels = [\"math\", \"sci\", \"art\"]\nok = (1, 2)");
-        assert_eq!(lines_for(&hits, "no_arrays"), vec![1, 2], "list rule with tuple good example must fire on lists and spare tuples");
+        assert_eq!(lines_for(&hits, "q_containers"), vec![1, 2], "list rule with tuple good example must fire on lists and spare tuples");
     }
 
     #[test]
-    fn js_array_rule_fires_on_var_items() {
+    fn js_container_rule_fires_on_var_items() {
         let rules = [rule(
-            "no_arrays_js",
+            "q_containers_js",
             "var items = [1, 2, 3]",
             "var items = {a: 1, b: 2, c: 3}",
-            "Arrays are banned; use keyed objects so every element has a name.",
+            "These containers are banned; use keyed objects so every element has a name.",
         )];
         let set = RuleSet::build("javascript", &rules, &Grounding::default());
         let hits = set.flag("var items = [1, 2, 3]");
-        assert_eq!(lines_for(&hits, "no_arrays_js"), vec![1], "JS array rule must fire on `var items = [1, 2, 3]`");
+        assert_eq!(lines_for(&hits, "q_containers_js"), vec![1], "JS container rule must fire on `var items = [1, 2, 3]`");
     }
 
     #[test]
@@ -1693,7 +1756,7 @@ mod tests {
         let deep = format!("x = {}1{}", "foo(".repeat(200), ")".repeat(200));
         let rules = [
             rule("monster", &deep, "", "avoid this deeply nested thing"),
-            rule("no_arrays", "xs = [1, 2, 3]", "xs = (1, 2, 3)", "Do not use list literals."),
+            rule("healthy_rule", "xs = [1, 2, 3]", "xs = (1, 2, 3)", "Do not use list literals."),
         ];
         let set = RuleSet::build("python", &rules, &Grounding::default());
         let loaded = RuleSet::from_json(&set.to_json()).expect("cached model must always load back");
@@ -1704,10 +1767,10 @@ mod tests {
     #[test]
     fn clean_idiomatic_file_produces_no_findings() {
         let rules = [rule(
-            "no_arrays",
+            "q_containers",
             "scores = [90, 85, 77]",
             "scores = {\"first\": 90}",
-            "Arrays/lists are banned in this project. Use explicit keyed structures.",
+            "These containers are banned in this project. Use explicit keyed structures.",
         )];
         let set = RuleSet::build("python", &rules, &Grounding::default());
         let src = "def greet(name):\n    return f\"hello {name}\"\n\nconfig = {\"first\": 90, \"second\": 85}\n";

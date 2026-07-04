@@ -147,16 +147,16 @@ fn an_instruction_with_no_language_governs_every_language_in_the_project() {
     p.write("data.qlang", "let sizes = [4, 5, 6]\n");
     p.write(
         ".helpers/lint-rules/any.md",
-        "## no_arrays [high]\nDo not use array or list literals anywhere in this project. Use keyed structures instead.\n\n```bad\nxs = [1, 2, 3]\n```\n\n```good\nxs = {\"a\": 1, \"b\": 2, \"c\": 3}\n```\n",
+        "## q_no_containers [high]\nDo not use array or list literals anywhere in this project. Use keyed structures instead.\n\n```bad\nxs = [1, 2, 3]\n```\n\n```good\nxs = {\"a\": 1, \"b\": 2, \"c\": 3}\n```\n",
     );
 
     let verdict = p.lint(true);
 
     for file in ["app.py", "web.js", "data.qlang"] {
-        let section_hit = flagged_in(&verdict, file, "no_arrays");
+        let section_hit = flagged_in(&verdict, file, "q_no_containers");
         assert!(
             section_hit,
-            "any.md no_arrays must fire on {file} — one instruction governs every language:\n{verdict}"
+            "any.md q_no_containers must fire on {file} — one instruction governs every language:\n{verdict}"
         );
     }
 }
@@ -316,12 +316,12 @@ fn junk_files_and_broken_inputs_never_crash_a_run() {
     p.write("app.py", "values = [1, 2, 3]\n");
     p.write(
         ".helpers/lint-rules/python.md",
-        "## no_arrays [high]\nDo not use list literals.\n\n```python:bad\nxs = [1, 2, 3]\n```\n\n```python:good\nxs = (1, 2, 3)\n```\n",
+        "## q_no_containers [high]\nDo not use list literals.\n\n```python:bad\nxs = [1, 2, 3]\n```\n\n```python:good\nxs = (1, 2, 3)\n```\n",
     );
 
     let verdict = p.lint(true); // call() asserts clean exit + protocol JSON
     assert!(
-        verdict.contains("no_arrays"),
+        verdict.contains("q_no_containers"),
         "real work still happens amid the junk:\n{verdict}"
     );
 }
@@ -393,11 +393,11 @@ fn offline_and_cold_the_projects_law_is_still_enforced() {
     p.write("svc.py", "def handler(evt):\n    ids = [evt.a, evt.b]\n    return ids\n");
     p.write(
         ".helpers/lint-rules/python.md",
-        "## no_arrays [high]\nDo not use list literals anywhere in this project.\n\n```python:bad\nxs = [1, 2, 3]\n```\n\n```python:good\nxs = (1, 2, 3)\n```\n",
+        "## q_no_containers [high]\nDo not use list literals anywhere in this project.\n\n```python:bad\nxs = [1, 2, 3]\n```\n\n```python:good\nxs = (1, 2, 3)\n```\n",
     );
 
     let verdict = p.lint(true); // offline; .test-models/.test-home are empty = cold
 
-    let hit = flagged_in(&verdict, "svc.py", "no_arrays");
+    let hit = flagged_in(&verdict, "svc.py", "q_no_containers");
     assert!(hit, "project law is enforced offline with cold caches:\n{verdict}");
 }

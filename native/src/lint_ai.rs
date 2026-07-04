@@ -162,11 +162,19 @@ impl Bundler {
     pub fn new() -> Bundler { Bundler { counts: vec![0; DIM], n: 0 } }
 
     pub fn add(&mut self, hv: &Hv) {
+        self.add_weighted(hv, 1);
+    }
+
+    /// Bundle `hv` with `weight` votes — the weighted form majority bundling reduces to when
+    /// every vector matters equally. Callers weight by information content (a rare word's code
+    /// counts for more of the prototype than a near-stop-word's).
+    pub fn add_weighted(&mut self, hv: &Hv, weight: u32) {
+        let w = weight as i32;
         for bit in 0..DIM {
             let set = (hv.0[bit / 64] >> (bit % 64)) & 1 == 1;
-            self.counts[bit] += if set { 1 } else { -1 };
+            self.counts[bit] += if set { w } else { -w };
         }
-        self.n += 1;
+        self.n += weight as usize;
     }
 
     pub fn len(&self) -> usize { self.n }
