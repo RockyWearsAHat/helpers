@@ -365,61 +365,6 @@ pub fn extract_links(base: &str, html: &str) -> Vec<String> {
     extract_anchors(base, html).into_iter().map(|(u, _)| u).collect()
 }
 
-/// A learned crawl frontier: it builds a fingerprint of what links to GOOD documentation pages
-/// look like (their URL + anchor words), then scores unvisited links by similarity to it. The
-/// crawler visits the highest-scoring links first and the model evolves as it reads — so the walk
-/// is guided by what it has learned leads to content, not a blind queue. Cold (nothing learned
-/// yet) every link scores 0 and order falls back to discovery order.
-#[derive(Default)]
-pub struct Frontier {
-    prototype: crate::lint_ai::Bundler,
-    learned: usize,
-}
-
-/// Fingerprint a link's words (its URL path tokens + anchor text) into a hypervector.
-fn link_fingerprint(url: &str, anchor: &str) -> crate::lint_ai::Hv {
-    let path = split_url(url).map(|(_, _, p)| p).unwrap_or_default();
-    let mut b = crate::lint_ai::Bundler::new();
-    for tok in path.split(|c: char| !c.is_alphanumeric()).chain(anchor.split_whitespace()) {
-        let t = tok.to_lowercase();
-        if t.len() >= 2 {
-            b.add(&crate::lint_ai::token_hv(&t));
-        }
-    }
-    if b.is_empty() {
-        crate::lint_ai::Hv::zero()
-    } else {
-        b.finalize()
-    }
-}
-
-impl Frontier {
-    /// A fresh frontier with nothing learned.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Record the link that led to a page and whether that page was valuable (yielded content).
-    /// Valuable links teach the prototype what to chase next.
-    pub fn observe(&mut self, url: &str, anchor: &str, valuable: bool) {
-        if valuable {
-            self.prototype.add(&link_fingerprint(url, anchor));
-            self.learned += 1;
-        }
-    }
-
-    /// Predicted value of an unvisited link in `[0,1000]`: similarity of its words to the learned
-    /// "leads to good docs" prototype. `0` until something has been learned.
-    pub fn score(&self, url: &str, anchor: &str) -> i64 {
-        if self.learned == 0 {
-            return 0;
-        }
-        let proto = self.prototype.finalize();
-        let d = link_fingerprint(url, anchor).distance(&proto) as f64;
-        ((1.0 - d / crate::lint_ai::DIM as f64) * 1000.0) as i64
-    }
-}
-
 /// True if `url` belongs to the same host as `seed` and sits under its directory prefix — the
 /// "stay inside the official docs" rule that keeps the crawl on-topic and in-domain.
 pub fn in_scope(seed: &str, url: &str) -> bool {
@@ -435,7 +380,7 @@ pub fn in_scope(seed: &str, url: &str) -> bool {
 #[cfg(feature = "crawl")]
 mod net {
     use super::*;
-    use std::collections::{BinaryHeap, HashSet};
+    use std::collections::HashSet;
     use std::time::Duration;
 
     /// Fetch a URL directly over HTTP (no browser). Returns `(content_type, body)` for any TEXTUAL
@@ -463,21 +408,6 @@ mod net {
         resp.into_string().ok().map(|body| (ct, body))
     }
 
-    /// Pages with at least this many (prose, code) sections taught the frontier that the link
-    /// which led to them is worth chasing — they are documentation, not navigation/landing pages.
-    const VALUABLE_SECTIONS: usize = 2;
-
-    /// Crawl the documentation graph from `seeds`, staying in scope, up to `max_pages` — BEST-FIRST,
-    /// not blindly. A learned [`Frontier`] scores each unvisited link by how much its URL/anchor
-    /// words resemble the links that have led to real content so far, and the crawler always visits
-    /// the highest-scoring link next. So it spends its budget on the documentation and evolves
-    /// toward the meaty pages as it reads. Returns each page's extracted (prose, code) sections from
-    /// whatever textual type it is.
-    /// How many pages one batch fetches concurrently. Fetch latency dominates a crawl, so a
-    /// batch cuts wall time by roughly its width; the batch is the current top of the priority
-    /// queue, so visit order stays value-first.
-    const PARALLEL_FETCHES: usize = 8;
-
     /// `false` for links that can never be documentation pages — binary/asset endpoints and raw
     /// metadata files. Filtering keeps the crawl budget on real pages (MDN hangs a
     /// `contributors.txt` off every article; fetching those burns the budget on zero sections).
@@ -491,59 +421,97 @@ mod net {
         !SKIP.iter().any(|e| path.ends_with(e))
     }
 
-    pub fn crawl(seeds: &[&str], max_pages: usize, delay_ms: u64) -> Vec<Page> {
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut frontier = Frontier::new();
-        // Max-heap of (score, seq, url, anchor); higher score is visited first.
-        let mut heap: BinaryHeap<(i64, u64, String, String)> = BinaryHeap::new();
-        let mut seq: u64 = 0;
+    /// Every in-scope page URL a site's sitemap enumerates: try `<origin>/sitemap.xml` for each
+    /// seed origin (one nesting level of sitemap indexes), parse `<loc>` entries by scan — no XML
+    /// dependency. Missing or malformed sitemaps yield nothing and cost one request.
+    fn sitemap_urls(seeds: &[&str]) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut origins: Vec<String> = Vec::new();
         for s in seeds {
-            heap.push((i64::MAX, seq, (*s).to_string(), String::new()));
-            seen.insert((*s).to_string());
-            seq += 1;
-        }
-        let mut pages = Vec::new();
-        while !heap.is_empty() && pages.len() < max_pages {
-            // Pop the best batch and fetch it concurrently.
-            let mut batch: Vec<(String, String)> = Vec::new();
-            while batch.len() < PARALLEL_FETCHES.min(max_pages - pages.len()) {
-                let Some((_, _, url, anchor)) = heap.pop() else { break };
-                batch.push((url, anchor));
+            let origin = s.split('/').take(3).collect::<Vec<_>>().join("/");
+            if origin.starts_with("http") && !origins.contains(&origin) {
+                origins.push(origin);
             }
-            let fetched: Vec<Option<(String, String)>> = std::thread::scope(|scope| {
-                let handles: Vec<_> = batch
-                    .iter()
-                    .map(|(url, _)| scope.spawn(move || fetch(url)))
-                    .collect();
-                handles.into_iter().map(|h| h.join().unwrap_or(None)).collect()
-            });
-            for ((url, anchor), got) in batch.into_iter().zip(fetched) {
+        }
+        let locs = |xml: &str| -> Vec<String> {
+            xml.split("<loc>")
+                .skip(1)
+                .filter_map(|part| part.split("</loc>").next())
+                .map(|u| u.trim().to_string())
+                .collect()
+        };
+        for origin in origins {
+            let Some((_, body)) = fetch(&format!("{origin}/sitemap.xml")) else { continue };
+            let top = locs(&body);
+            // A sitemap INDEX lists further sitemaps; fetch those (bounded) for their pages.
+            let (maps, pages): (Vec<_>, Vec<_>) = top.into_iter().partition(|u| u.contains("sitemap") && u.ends_with(".xml"));
+            out.extend(pages);
+            for m in maps.into_iter().take(8) {
+                if let Some((_, body)) = fetch(&m) {
+                    out.extend(locs(&body));
+                }
+            }
+        }
+        // Only pages inside a seed's scope belong to this crawl.
+        out.retain(|u| seeds.iter().any(|s| in_scope(s, u)));
+        out
+    }
+
+    /// LEVEL-PARALLEL site mapping — the fetch stage of the per-language training pipeline:
+    /// the sitemap (when one exists) enumerates the site in one request, then the crawl
+    /// balloons outward one LEVEL at a time — every link of the level fetched concurrently,
+    /// pages marked visited — until the whole in-scope site is mapped or `max_pages` is hit.
+    /// No pacing: the goal is to map a documentation site in seconds, once per version, and
+    /// never again. `_delay_ms` is kept for call-site compatibility and ignored.
+    pub fn crawl(seeds: &[&str], max_pages: usize, _delay_ms: u64) -> Vec<Page> {
+        /// Concurrent connections per wave inside a level — bounded so a thousand-page level
+        /// does not spawn a thousand sockets at once.
+        const WAVE: usize = 64;
+        let mut seen: HashSet<String> = seeds.iter().map(|s| s.to_string()).collect();
+        let mut level: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
+        for url in sitemap_urls(seeds) {
+            if is_page_url(&url) && seen.insert(url.clone()) {
+                level.push(url);
+            }
+        }
+        let mut pages: Vec<Page> = Vec::new();
+        while !level.is_empty() && pages.len() < max_pages {
+            level.truncate(max_pages - pages.len());
+            let mut fetched: Vec<Option<(String, String)>> = Vec::with_capacity(level.len());
+            for wave in level.chunks(WAVE) {
+                let got: Vec<Option<(String, String)>> = std::thread::scope(|scope| {
+                    let handles: Vec<_> =
+                        wave.iter().map(|url| scope.spawn(move || fetch(url))).collect();
+                    handles.into_iter().map(|h| h.join().unwrap_or(None)).collect()
+                });
+                fetched.extend(got);
+            }
+            let mut next: Vec<String> = Vec::new();
+            for (url, got) in level.drain(..).zip(fetched) {
+                let Some((ct, body)) = got else { continue };
+                let sections = extract(&ct, &body);
+                for (link, _anchor) in extract_anchors(&url, &body) {
+                    if seen.len() < max_pages * 8
+                        && is_page_url(&link)
+                        && seeds.iter().any(|s| in_scope(s, &link))
+                        && seen.insert(link.clone())
+                    {
+                        next.push(link);
+                    }
+                }
+                pages.push(Page {
+                    url,
+                    prose: extract_prose(&body),
+                    code: extract_code_blocks(&body),
+                    sections,
+                    html: body,
+                });
                 if pages.len() >= max_pages {
                     break;
                 }
-                let Some((ct, body)) = got else { continue };
-                let sections = extract(&ct, &body);
-                // Teach the frontier: did the link that led here pay off in content?
-                frontier.observe(&url, &anchor, sections.len() >= VALUABLE_SECTIONS);
-                // Score and enqueue new in-scope links by predicted value.
-                for (link, atext) in extract_anchors(&url, &body) {
-                    if seen.len() < max_pages * 8
-                        && !seen.contains(&link)
-                        && is_page_url(&link)
-                        && seeds.iter().any(|s| in_scope(s, &link))
-                    {
-                        seen.insert(link.clone());
-                        let score = frontier.score(&link, &atext);
-                        heap.push((score, seq, link, atext));
-                        seq += 1;
-                    }
-                }
-                eprintln!("crawled {} ({} sections; {} pages, {} queued)", url, sections.len(), pages.len() + 1, heap.len());
-                pages.push(Page { url, prose: extract_prose(&body), code: extract_code_blocks(&body), sections, html: body });
             }
-            if delay_ms > 0 {
-                std::thread::sleep(Duration::from_millis(delay_ms));
-            }
+            eprintln!("level complete: {} pages mapped, {} links queued", pages.len(), next.len());
+            level = next;
         }
         pages
     }
@@ -577,18 +545,6 @@ mod tests {
         // In scope: same host, under the seed's directory. Out: other host or above the path.
         assert!(in_scope("https://doc.rust-lang.org/book/", "https://doc.rust-lang.org/book/ch02.html"));
         assert!(!in_scope("https://doc.rust-lang.org/book/", "https://crates.io/x"));
-    }
-
-    #[test]
-    fn frontier_learns_which_links_lead_to_content() {
-        let mut f = Frontier::new();
-        assert_eq!(f.score("https://d/api/Vec.html", "Vec struct"), 0, "cold frontier scores 0");
-        // Learn that /api/<Type> links with type-ish anchors led to good pages.
-        f.observe("https://d/api/HashMap.html", "HashMap struct", true);
-        f.observe("https://d/api/String.html", "String struct", true);
-        let relevant = f.score("https://d/api/BTreeMap.html", "BTreeMap struct");
-        let irrelevant = f.score("https://d/about/license.html", "license and legal");
-        assert!(relevant > irrelevant, "learned frontier ranks api/type links above unrelated ones ({relevant} vs {irrelevant})");
     }
 
     #[test]

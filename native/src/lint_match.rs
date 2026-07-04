@@ -137,8 +137,18 @@ fn find_on_disk(lang: &str) -> Option<tree_sitter::Language> {
 /// Requires `npm` and `tree-sitter` on PATH; silently returns `None` if either is missing
 /// or the grammar package doesn't exist on npm, falling through to the text-pattern path.
 fn acquire_grammar(lang: &str) -> Option<tree_sitter::Language> {
+    // Offline runs never reach for npm, and a failed acquisition is remembered ON DISK —
+    // without this, every run re-paid a network 404 per unknown extension (hundreds of ms
+    // each), which alone dwarfed the entire inference pass.
+    if std::env::var_os("HELPERS_LINT_OFFLINE").is_some() {
+        return None;
+    }
     let cache_dir = grammar_cache_dir();
     std::fs::create_dir_all(&cache_dir).ok()?;
+    let absent_marker = cache_dir.join(format!("tree-sitter-{lang}.absent"));
+    if absent_marker.exists() {
+        return None;
+    }
 
     let ext = if cfg!(target_os = "macos") { "dylib" } else { "so" };
     let out = cache_dir.join(format!("tree-sitter-{lang}.{ext}"));
@@ -159,6 +169,7 @@ fn acquire_grammar(lang: &str) -> Option<tree_sitter::Language> {
 
     if !npm_ok {
         let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::write(&absent_marker, b"npm install failed; delete this file to retry\n");
         return None;
     }
 
@@ -184,6 +195,7 @@ fn acquire_grammar(lang: &str) -> Option<tree_sitter::Language> {
         // Safety: we just compiled this grammar; its ABI is guaranteed correct.
         unsafe { load_library(&out, &fn_name) }
     } else {
+        let _ = std::fs::write(&absent_marker, b"grammar build failed; delete this file to retry\n");
         None
     }
 }
@@ -703,8 +715,15 @@ impl RulePattern {
             return Vec::new();
         }
         let Some(tree) = parser.parse(code, None) else { return Vec::new() };
+        self.matches_in(tree.root_node(), code.as_bytes())
+    }
+
+    /// [`RulePattern::matches`] against an ALREADY-PARSED tree — the whole-project pass parses
+    /// each file once and runs every rule over the same tree, instead of paying rules×files
+    /// parses (which was the dominant cost of a warm run).
+    fn matches_in(&self, root: Node, src: &[u8]) -> Vec<usize> {
         let mut hits = Vec::new();
-        find(tree.root_node(), &self.pat, code.as_bytes(), &mut hits);
+        find(root, &self.pat, src, &mut hits);
         hits
     }
 }
@@ -1064,8 +1083,13 @@ enum MatchKind {
     /// Exact generalized subtree match via tree-sitter.
     Ast(RulePattern),
     /// Regex over source lines — used when no grammar is available for the language.
-    /// Stored as a string (regex::Regex is not Serialize); compiled on first use via `flag`.
-    Text { pattern: String },
+    /// Stored as a string (regex::Regex is not Serialize); compiled ONCE on first use and
+    /// cached — recompiling per file made a whole-project pass pay ~rules×files compiles.
+    Text {
+        pattern: String,
+        #[serde(skip)]
+        compiled: std::sync::OnceLock<Option<regex::Regex>>,
+    },
 }
 
 impl MatchKind {
@@ -1073,8 +1097,10 @@ impl MatchKind {
     fn matches(&self, code: &str) -> Vec<usize> {
         match self {
             MatchKind::Ast(pat) => pat.matches(code),
-            MatchKind::Text { pattern } => {
-                let Ok(re) = regex::Regex::new(pattern) else { return vec![] };
+            MatchKind::Text { pattern, compiled } => {
+                let Some(re) = compiled.get_or_init(|| regex::Regex::new(pattern).ok()) else {
+                    return vec![];
+                };
                 code.lines()
                     .enumerate()
                     .filter(|(_, line)| re.is_match(line))
@@ -1090,6 +1116,13 @@ impl MatchKind {
 struct CompiledRule {
     id: String,
     severity: String,
+    /// The rule's English advice — carried WITH the compiled detector so rendering a finding
+    /// never re-reads the multi-megabyte learned catalogs it came from.
+    #[serde(default)]
+    description: String,
+    /// Where the rule came from (doc URL or rule-file path) — the finding's citation.
+    #[serde(default)]
+    source: String,
     kind: MatchKind,
 }
 
@@ -1126,13 +1159,13 @@ impl RuleSet {
     /// over-fire (must not flag any `good` in the corpus). Only rules that pass both survive.
     /// `ground` is the learned evidence prose-only rules are read through ([`Grounding`]);
     /// pass `Grounding::default()` when no docs have been read for the language yet.
-    pub fn build(lang: &str, rules: &[(String, String, String, String, String)], ground: &Grounding) -> RuleSet {
+    pub fn build(lang: &str, rules: &[(String, String, String, String, String, String)], ground: &Grounding) -> RuleSet {
         let trusted = &ground.trusted;
         let ground = GroundView::of(ground);
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
         let has_grammar = language(lang).is_some();
-        for (id, severity, bad, good, desc) in rules {
+        for (id, severity, bad, good, desc, source) in rules {
             if id.is_empty() || !seen.insert(id.clone()) {
                 continue;
             }
@@ -1173,11 +1206,11 @@ impl RuleSet {
                 } else if let Some(re) = desc_detector(&ground) {
                     // English prose is the primary documentation; read it first.
                     // The description names the construct to flag: "avoid `e.printStackTrace()`".
-                    MatchKind::Text { pattern: re }
+                    MatchKind::Text { pattern: re, compiled: std::sync::OnceLock::new() }
                 } else if let Some(re) = text_discriminator(bad, good) {
                     // Code-diff fallback: description had no extractable term but the bad/good
                     // examples (themselves part of the official documentation) still distinguish.
-                    MatchKind::Text { pattern: re }
+                    MatchKind::Text { pattern: re, compiled: std::sync::OnceLock::new() }
                 } else {
                     continue;
                 }
@@ -1185,14 +1218,20 @@ impl RuleSet {
                 // No grammar — text matching only. Documentation prose is the primary signal;
                 // code examples (which appear in the same docs) refine when prose is thin.
                 if let Some(re) = desc_detector(&ground) {
-                    MatchKind::Text { pattern: re }
+                    MatchKind::Text { pattern: re, compiled: std::sync::OnceLock::new() }
                 } else if let Some(re) = text_discriminator(bad, good) {
-                    MatchKind::Text { pattern: re }
+                    MatchKind::Text { pattern: re, compiled: std::sync::OnceLock::new() }
                 } else {
                     continue;
                 }
             };
-            compiled.push(CompiledRule { id: id.clone(), severity: severity.clone(), kind });
+            compiled.push(CompiledRule {
+                id: id.clone(),
+                severity: severity.clone(),
+                description: desc.clone(),
+                source: source.clone(),
+                kind,
+            });
         }
         // SELF-FIRE: when a bad example is known, the compiled rule must flag it.
         // Description-only rules (bad is empty) skip this gate — they are validated at
@@ -1203,7 +1242,7 @@ impl RuleSet {
         // first-wins for duplicate ids, matching which rule actually compiled).
         let mut bad_map: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         let mut good_map: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-        for (id, _, bad, good, _) in rules {
+        for (id, _, bad, good, _, _) in rules {
             bad_map.entry(id.as_str()).or_insert(bad.as_str());
             good_map.entry(id.as_str()).or_insert(good.trim());
         }
@@ -1240,6 +1279,15 @@ impl RuleSet {
         self.rules.iter().map(|r| r.id.as_str())
     }
 
+    /// A compiled rule's reporting facts: `(severity, description, source)`. The model is the
+    /// single source of truth for what it enforces — no catalog re-read at render time.
+    pub fn info_of(&self, id: &str) -> Option<(&str, &str, &str)> {
+        self.rules
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| (r.severity.as_str(), r.description.as_str(), r.source.as_str()))
+    }
+
     /// What a rule's detector actually watches for — the honest answer to "what did you
     /// understand my law as?". A text rule shows its literal pattern; an AST rule is a
     /// structural match compiled from the rule's own examples. `None` when the rule did not
@@ -1248,7 +1296,7 @@ impl RuleSet {
     pub fn detector_of(&self, id: &str) -> Option<String> {
         self.rules.iter().find(|r| r.id == id).map(|r| match &r.kind {
             MatchKind::Ast(_) => "structural pattern from your example".to_string(),
-            MatchKind::Text { pattern } => format!("`{}`", pattern.replace(r"\b", "")),
+            MatchKind::Text { pattern, .. } => format!("`{}`", pattern.replace(r"\b", "")),
         })
     }
 
@@ -1257,13 +1305,24 @@ impl RuleSet {
     /// token-regex fallbacks, and AST patterns whose only identity is a container kind — several
     /// distinct rules can compile to the same bare container, so the concept gate must arbitrate.
     pub fn flag(&self, code: &str) -> Vec<Finding> {
+        // Parse ONCE and run every AST rule over the same tree — a rule set is many rules but
+        // one grammar, and re-parsing per rule multiplied the whole-project pass by rule count.
+        let tree = language(&self.lang).and_then(|language| {
+            let mut parser = Parser::new();
+            parser.set_language(&language).ok()?;
+            parser.parse(code, None)
+        });
         let mut out = Vec::new();
         for r in &self.rules {
-            let precise = match &r.kind {
-                MatchKind::Ast(p) => p.text_anchored(),
-                MatchKind::Text { .. } => false,
+            let (precise, mut lines) = match &r.kind {
+                MatchKind::Ast(p) => (
+                    p.text_anchored(),
+                    tree.as_ref()
+                        .map(|t| p.matches_in(t.root_node(), code.as_bytes()))
+                        .unwrap_or_default(),
+                ),
+                MatchKind::Text { .. } => (false, r.kind.matches(code)),
             };
-            let mut lines = r.kind.matches(code);
             lines.sort_unstable();
             lines.dedup();
             for line in lines {
@@ -1289,8 +1348,8 @@ mod tests {
     use super::*;
 
     /// A `(id, severity, bad, good, desc)` tuple in the shape `RuleSet::build` expects.
-    fn rule(id: &str, bad: &str, good: &str, desc: &str) -> (String, String, String, String, String) {
-        (id.into(), "high".into(), bad.into(), good.into(), desc.into())
+    fn rule(id: &str, bad: &str, good: &str, desc: &str) -> (String, String, String, String, String, String) {
+        (id.into(), "high".into(), bad.into(), good.into(), desc.into(), "test://rule".into())
     }
 
     fn lines_for<'a>(fs: &'a [Finding], id: &str) -> Vec<usize> {

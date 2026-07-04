@@ -64,7 +64,7 @@ pub fn read_language(lang: &str, sources: &[DocsSource], max_pages: usize, data_
     let mut pages_read = 0usize;
     for src in sources {
         if src.crawl {
-            for p in crawl(&[&src.url], max_pages, 50) {
+            for p in crawl(&[&src.url], max_pages, 0) {
                 if pages_read < MAX_READ_PAGES {
                     reader.learn_span(&p.prose);
                     pages_read += 1;
@@ -192,16 +192,39 @@ pub fn document_polarity(data_root: &Path) -> Option<crate::lint_read::Polarity>
 /// grounding, shipped like every other learned artifact) carries MORE reality-tested votes. The
 /// best reading wins — a single-language local grounding must not shadow a better-read bootstrap.
 fn transferred_polarity(data_root: &Path) -> Option<crate::lint_read::Polarity> {
+    // Memoized per source-file state: the classifier is consulted once per LANGUAGE per run
+    // (project rules, grounding, advice), and re-parsing a ~0.5 MB JSON each time dominated
+    // warm-run latency. The fingerprint (mtime + size of both sources) keeps a long-lived MCP
+    // process correct when a crawl updates the global store.
+    type Cache = std::sync::Mutex<Option<(u128, Option<crate::lint_read::Polarity>)>>;
+    static CACHE: Cache = std::sync::Mutex::new(None);
+    let stat = |p: &Path| -> u128 {
+        std::fs::metadata(p)
+            .map(|m| {
+                let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+                (t.map(|d| d.as_nanos()).unwrap_or(0)) ^ ((m.len() as u128) << 64)
+            })
+            .unwrap_or(0)
+    };
+    let fp = stat(&global_polarity_path()) ^ stat(&data_root.join("lint-index/polarity-bootstrap.json")).rotate_left(1);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((have, p)) = cache.as_ref() {
+        if *have == fp {
+            return p.clone();
+        }
+    }
     let stored: Option<crate::lint_read::Polarity> = std::fs::read_to_string(global_polarity_path())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok());
     let bootstrap: Option<crate::lint_read::Polarity> =
         crate::lint_train::lint_index_file(data_root, "polarity-bootstrap.json")
             .and_then(|s| serde_json::from_str(&s).ok());
-    match (stored, bootstrap) {
+    let best = match (stored, bootstrap) {
         (Some(a), Some(b)) => Some(if a.votes() >= b.votes() { a } else { b }),
         (a, b) => a.or(b),
-    }
+    };
+    *cache = Some((fp, best.clone()));
+    best
 }
 
 /// QUERY rule candidates out of a read [`Memory`]: every binding whose prose the learned classifier
@@ -262,26 +285,38 @@ const MAX_BINDINGS: usize = 4000;
 #[cfg(feature = "crawl")]
 const MAX_REFERENCE: usize = 1500;
 
-/// The governing prose (tag-stripped) of each `<pre>` block: the [`GOVERNING_CTX`] bytes before the
-/// block, clipped to the previous block so an example's label is read from its OWN words. This is the
-/// prose side of every binding the reader stores.
-#[cfg(feature = "crawl")]
-fn block_contexts(html: &str, blocks: &[(usize, String)]) -> Vec<(String, String)> {
+/// The `(governing prose, code)` pair for every block: the prose is what the page wrote BETWEEN
+/// the previous code block and this one — sliced at tag boundaries by construction (`</pre>` to
+/// `<pre`), so no window can ever open mid-tag and leak attribute junk into what the reader
+/// learns. Only the closing words (up to [`GOVERNING_CTX`]) are kept: the sentence immediately
+/// above a block is the one that governs it.
+fn block_contexts(html: &str, blocks: &[(usize, usize, String)]) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for (i, (off, code)) in blocks.iter().enumerate() {
-        let prev_end = if i == 0 { 0 } else { blocks[i - 1].0 };
-        let mut start = off.saturating_sub(GOVERNING_CTX).max(prev_end);
-        while !html.is_char_boundary(start) {
-            start += 1;
-        }
-        out.push((crate::doc_crawler::strip_tags(&html[start..*off]), code.clone()));
+    for (i, (open, _, code)) in blocks.iter().enumerate() {
+        let prev_end = if i == 0 { 0 } else { blocks[i - 1].1 };
+        let prose = crate::doc_crawler::strip_tags(&html[prev_end..*open]);
+        let tail_start = prose
+            .char_indices()
+            .rev()
+            .scan(0usize, |seen, (idx, _)| {
+                *seen += 1;
+                Some((idx, *seen))
+            })
+            .find(|(_, seen)| *seen >= GOVERNING_CTX)
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+        let tail = match prose[tail_start..].find(char::is_whitespace) {
+            Some(ws) => prose[tail_start + ws..].trim().to_string(),
+            None => prose[tail_start..].trim().to_string(),
+        };
+        out.push((tail, code.clone()));
     }
     out
 }
 
 /// `<pre>…</pre>` blocks of an HTML fragment as `(byte_offset, code_text)`, tags stripped. Offsets
 /// let the caller tell which block follows a "Use instead" marker.
-fn pre_blocks(html: &str) -> Vec<(usize, String)> {
+fn pre_blocks(html: &str) -> Vec<(usize, usize, String)> {
     use crate::doc_crawler::strip_code;
     let mut out = Vec::new();
     let mut from = 0;
@@ -290,11 +325,12 @@ fn pre_blocks(html: &str) -> Vec<(usize, String)> {
         let Some(gt) = html[open..].find('>') else { break };
         let body_start = open + gt + 1;
         let Some(crel) = html[body_start..].find("</pre>") else { break };
+        let end = body_start + crel + 6;
         let code = strip_code(&html[body_start..body_start + crel]);
         if code.len() >= 3 {
-            out.push((open, code));
+            out.push((open, end, code));
         }
-        from = body_start + crel + 6;
+        from = end;
     }
     out
 }
