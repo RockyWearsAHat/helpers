@@ -1,5 +1,8 @@
 //! `lint_read` — a 1-bit sequential predictive coder that LEARNS a language by *reading* its docs.
 //!
+//! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
+//! repo root — the single authoritative doc; update it BEFORE changing semantics here.
+//!
 //! The linter's brief is that expanding what it understands must never require a code change — only
 //! more reading. So there is no authored keyword list and no hand-labeled example corpus here. As the
 //! crawler streams a document, [`Reader`] walks its tokens in order and does predictive coding with

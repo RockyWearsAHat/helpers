@@ -15,6 +15,9 @@
 //! absent from the documented fix is the violation; shape shared with the fix is incidental context.
 //! Operations/keywords/operators are kept exact; variables become bound wildcards; literals become
 //! typed wildcards. Matching is then deterministic and exact — no statistics, no float.
+//!
+//! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
+//! repo root — the single authoritative doc; update it BEFORE changing semantics here.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

@@ -3,6 +3,9 @@
 //! [`ConceptModel`] confirmation gate. One call to [`ensure_models`] does everything the lint
 //! tool needs.
 //!
+//! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
+//! repo root — the single authoritative doc; update it BEFORE changing semantics here.
+//!
 //! Law comes from exactly three places; everything else is READING:
 //!
 //!   1. **Official web documentation** — each language's official docs, crawled live and cached
