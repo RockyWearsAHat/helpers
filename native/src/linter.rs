@@ -148,10 +148,13 @@ fn split_heading(paragraph: &str) -> (Option<String>, String) {
 
 /// The building rule during a fold plus how it started — a heading-started rule absorbs the
 /// paragraphs that follow it; a paragraph-started rule treats the next paragraph as a NEW rule, so
-/// a bare list of English instructions yields one rule per instruction.
+/// a bare list of English instructions yields one rule per instruction. Code blocks collect with
+/// their most-local words (`(local words, body)`) and are oriented bad/good when the rule commits,
+/// so a labeled pair can be compared against itself instead of each label read absolutely.
 struct Building {
     rule: LearnedRule,
     from_heading: bool,
+    blocks: Vec<(String, String)>,
 }
 
 impl Knowledge {
@@ -171,17 +174,6 @@ impl Knowledge {
         let mut cur: Option<Building> = None;
         let mut lead = String::new();
 
-        let commit = |cur: &mut Option<Building>, rules: &mut Vec<LearnedRule>| {
-            if let Some(b) = cur.take() {
-                let mut r = b.rule;
-                if r.language.is_empty() {
-                    r.language = default_lang.to_string();
-                }
-                if !r.bad.is_empty() || r.description.split_whitespace().count() >= 3 {
-                    rules.push(r);
-                }
-            }
-        };
         // Prohibition (true) / endorsement (false) of a snippet of surrounding words — the
         // learned classifier's call, `None` when it abstains or no classifier is available.
         let read_polarity = |text: &str| -> Option<bool> {
@@ -191,6 +183,52 @@ impl Knowledge {
             }
             polarity.and_then(|p| p.classify(t))
         };
+        // Commit the building rule, orienting its collected code blocks. ONE block is read
+        // absolutely (its local words → the description → violation by default). A PAIR keeps
+        // document order (violation first, fix after — how rules are written) unless there is
+        // POSITIVE evidence to swap: the trailing block's local words decisively classify
+        // prohibition and the leading block's do not. Only decisive, margin-gated prohibition
+        // may override the order convention, so classifier drift on label vocabulary degrades
+        // to the convention — never to swapped examples (a drifted classifier once read the
+        // fence word `bad` as endorsement and inverted a rule). Blocks past the pair are
+        // reference knowledge.
+        let commit = |cur: &mut Option<Building>, rules: &mut Vec<LearnedRule>, reference: &mut Vec<String>| {
+            if let Some(b) = cur.take() {
+                let mut r = b.rule;
+                let blocks = b.blocks;
+                match blocks.len() {
+                    0 => {}
+                    1 => {
+                        let (local, body) = &blocks[0];
+                        let is_bad = read_polarity(local)
+                            .or_else(|| read_polarity(&r.description))
+                            .unwrap_or(true);
+                        if is_bad {
+                            r.bad = body.clone();
+                        } else {
+                            r.good = body.clone();
+                        }
+                    }
+                    _ => {
+                        let swapped = blocks.len() == 2
+                            && read_polarity(&blocks[1].0) == Some(true)
+                            && read_polarity(&blocks[0].0) != Some(true);
+                        let (bad_i, good_i) = if swapped { (1, 0) } else { (0, 1) };
+                        r.bad = blocks[bad_i].1.clone();
+                        r.good = blocks[good_i].1.clone();
+                        for (_, body) in blocks.iter().skip(2) {
+                            reference.push(body.clone());
+                        }
+                    }
+                }
+                if r.language.is_empty() {
+                    r.language = default_lang.to_string();
+                }
+                if !r.bad.is_empty() || r.description.split_whitespace().count() >= 3 {
+                    rules.push(r);
+                }
+            }
+        };
 
         let segs = segments(doc);
         for (i, seg) in segs.iter().enumerate() {
@@ -198,7 +236,7 @@ impl Knowledge {
                 Seg::Prose(p) => {
                     let (heading, body) = split_heading(p);
                     if let Some(h) = heading {
-                        commit(&mut cur, &mut rules);
+                        commit(&mut cur, &mut rules, &mut reference);
                         let (severity, title) = split_severity(&h);
                         // A bare-id heading (`## no_eval [high]`) contributes nothing to the
                         // English advice — the prose IS the advice; a descriptive heading's words
@@ -218,6 +256,7 @@ impl Knowledge {
                                 good: String::new(),
                             },
                             from_heading: true,
+                            blocks: Vec::new(),
                         });
                         lead.clear();
                         continue;
@@ -232,7 +271,7 @@ impl Knowledge {
                     }
                     match cur.as_mut() {
                         // A heading-started rule absorbs its body paragraphs until code arrives.
-                        Some(b) if b.from_heading && b.rule.bad.is_empty() && b.rule.good.is_empty() => {
+                        Some(b) if b.from_heading && b.blocks.is_empty() => {
                             if b.rule.description == b.rule.id {
                                 // The heading was the bare rule id — this prose IS the advice.
                                 b.rule.description = clean;
@@ -245,7 +284,7 @@ impl Knowledge {
                         }
                         // A plain paragraph after a finished/paragraph rule is the NEXT rule.
                         _ => {
-                            commit(&mut cur, &mut rules);
+                            commit(&mut cur, &mut rules, &mut reference);
                             let (severity, text) = split_severity(&clean);
                             let id = slug(&text.split_whitespace().take(8).collect::<Vec<_>>().join(" "));
                             cur = Some(Building {
@@ -258,6 +297,7 @@ impl Knowledge {
                                     good: String::new(),
                                 },
                                 from_heading: false,
+                                blocks: Vec::new(),
                             });
                         }
                     }
@@ -289,30 +329,15 @@ impl Knowledge {
                             b.rule.language = l;
                         }
                     }
-                    // Decide the block's polarity by reading, most-local words first: the lead-in
-                    // + fence words, then the rule's own description; document order (violation
-                    // first, fix after) breaks the tie when everything abstains.
-                    let local = format!("{lead} {orient_words}");
-                    let is_bad = read_polarity(&local)
-                        .or_else(|| read_polarity(&b.rule.description))
-                        .unwrap_or(b.rule.bad.is_empty());
-                    let (first, second) = if is_bad {
-                        (&mut b.rule.bad, &mut b.rule.good)
-                    } else {
-                        (&mut b.rule.good, &mut b.rule.bad)
-                    };
-                    if first.is_empty() {
-                        *first = body.clone();
-                    } else if second.is_empty() {
-                        *second = body.clone();
-                    } else {
-                        reference.push(body.clone());
-                    }
+                    // The block joins its rule with its most-local words (lead-in + fence words);
+                    // orientation is resolved when the rule COMMITS, so a labeled pair is compared
+                    // against itself instead of each label being read absolutely.
+                    b.blocks.push((format!("{lead} {orient_words}"), body.clone()));
                     lead.clear();
                 }
             }
         }
-        commit(&mut cur, &mut rules);
+        commit(&mut cur, &mut rules, &mut reference);
         Knowledge { rules, reference }
     }
 }
@@ -433,7 +458,7 @@ mod tests {
 
     #[test]
     fn document_order_breaks_ties_without_a_classifier() {
-        let doc = "## no_arrays\nxyzzy qwerty plugh zork.\n\n```\nxs = [1]\n```\n\n```\nxs = (1,)\n```\n";
+        let doc = "## q_no_containers\nxyzzy qwerty plugh zork.\n\n```\nxs = [1]\n```\n\n```\nxs = (1,)\n```\n";
         let k = Knowledge::read_document("any", doc, None);
         assert_eq!(k.rules[0].bad, "xs = [1]", "first block defaults to the violation");
         assert_eq!(k.rules[0].good, "xs = (1,)", "second block defaults to the fix");
@@ -454,7 +479,7 @@ mod tests {
 
     #[test]
     fn bundled_grammar_name_in_a_fence_sets_the_rule_language() {
-        let doc = "## no_arrays\nNever use list literals anywhere.\n\n```python\nxs = [1, 2]\n```\n";
+        let doc = "## q_no_containers\nNever use list literals anywhere.\n\n```python\nxs = [1, 2]\n```\n";
         let p = polarity();
         let k = Knowledge::read_document("any", doc, Some(&p));
         assert_eq!(k.rules[0].language, "python");

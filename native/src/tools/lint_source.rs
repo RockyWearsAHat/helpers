@@ -21,7 +21,7 @@ pub fn run_submit(args: &Value) -> ToolResult {
     let data_root = crate::tools::lint::data_root_pub();
     let repo_root = crate::git::workspace_root();
 
-    let mut paths: Vec<std::path::PathBuf> = ["lint-models", "lint-index/sources.json", "corpus"]
+    let mut paths: Vec<std::path::PathBuf> = ["lint-index/sources.json", "corpus"]
         .iter()
         .map(|p| data_root.join(p))
         .filter(|p| p.exists())
@@ -37,7 +37,7 @@ pub fn run_submit(args: &Value) -> ToolResult {
     }
 
     if paths.is_empty() {
-        return Err("lint_submit: nothing to submit — no lint-models, sources, corpus, or feedback found".into());
+        return Err("lint_submit: nothing to submit — no sources, corpus, or feedback changes found".into());
     }
 
     let result = commit_and_pr(&repo_root, &paths, desc)?;
@@ -127,7 +127,7 @@ fn commit_and_pr(root: &std::path::Path, paths: &[std::path::PathBuf], desc: &st
 pub fn schema_submit() -> Value {
     json!({
         "name": "lint_submit",
-        "description": "Commit newly-trained lint-models and corpus/sources changes, push, and open a GitHub PR so others get the trained language models on git pull. Run lint_learn first to train a language. \
+        "description": "Commit corpus/sources registry changes, push, and open a GitHub PR so others learn the same docs. Trained models stay in the machine-global cache (~/.cache/helpers/lint-models), never in the repo. \
                         Pass include_feedback=true to also share this project's lint feedback log (.helpers/lint-feedback.jsonl) — the false-positive and missed flags recorded by lint_flag — so the shared rules can improve. Off by default since feedback may reference private paths.",
         "inputSchema": {
             "type": "object",

@@ -264,6 +264,26 @@ impl Reader {
     /// distinctive word is never dropped merely for being locally predictable. If every token was
     /// common, falls back to all tokens so a span is never empty. Non-mutating.
     pub(crate) fn salient(&self, text: &str) -> Vec<Hv> {
+        self.salient_weighted(text).into_iter().map(|(h, _)| h).collect()
+    }
+
+    /// A word's meaning weight in BITS — Shannon self-information from the learned frequencies
+    /// (`−log₂` of the word's read probability, integer). The reverse-logarithmic curve: the most
+    /// common words weigh almost nothing, the band below them is valued, and rare words carry the
+    /// actual meaning. An unread word carries maximum surprise. Never zero — a token that earns a
+    /// vote at all keeps at least one bit.
+    pub(crate) fn info_bits(&self, word: &str) -> u32 {
+        if self.total == 0 {
+            return 1;
+        }
+        let count = u64::from(self.read_count(word).max(1));
+        (self.total / count).max(2).ilog2()
+    }
+
+    /// [`Reader::salient`] with each code's information weight — the salient set for weighted
+    /// voting and weighted bundling. The stop-list still drops the ultra-common outright; the
+    /// weights grade everything that survives.
+    pub(crate) fn salient_weighted(&self, text: &str) -> Vec<(Hv, u32)> {
         let cutoff = self.common_cutoff();
         let mut salient = Vec::new();
         let mut all = Vec::new();
@@ -273,15 +293,15 @@ impl Reader {
                 continue;
             }
             let h = Hv::random(crate::lint_ai::token_seed(&word));
-            all.push(h);
+            all.push((h, self.info_bits(&word)));
             if self.read_count(&word) < cutoff {
-                salient.push(h);
+                salient.push((h, self.info_bits(&word)));
                 // COMPREHENSION: a word the reader never read still contributes its
                 // typographic parts' codes, so `getUserName` shares structure with everything
                 // else built from get/user/name.
                 if self.read_count(&word) == 0 {
                     for p in &parts {
-                        salient.push(Hv::random(crate::lint_ai::token_seed(p)));
+                        salient.push((Hv::random(crate::lint_ai::token_seed(p)), self.info_bits(p)));
                     }
                 }
             }
@@ -289,16 +309,17 @@ impl Reader {
         if salient.is_empty() { all } else { salient }
     }
 
-    /// Encode a span into one hypervector: the majority bundle of its salient token codes (a
-    /// bag-of-distinctive-words centroid). `None` for an empty span.
+    /// Encode a span into one hypervector: the information-weighted majority bundle of its salient
+    /// token codes (a bag-of-distinctive-words centroid where rarer words pull harder). `None` for
+    /// an empty span.
     pub fn encode(&self, text: &str) -> Option<Hv> {
-        let toks = self.salient(text);
+        let toks = self.salient_weighted(text);
         if toks.is_empty() {
             return None;
         }
         let mut b = Bundler::new();
-        for h in &toks {
-            b.add(h);
+        for (h, w) in &toks {
+            b.add_weighted(h, *w);
         }
         Some(b.finalize())
     }
@@ -342,12 +363,13 @@ impl PolarityBuilder {
     /// Fold one grounded example into the prototypes: every salient token of `prose` votes into the
     /// prohibition prototype (the toolchain flagged its code) or the endorsement one (it accepted it).
     /// Voting per token — not per sentence — keeps a distinctive word's signal from being washed out
-    /// by two layers of majority, so the prototypes are true bag-of-words centroids.
+    /// by two layers of majority, and each vote weighs the token's information content
+    /// ([`Reader::info_bits`]) so the prototypes are centroids of MEANING, not of register filler.
     pub fn accumulate(&mut self, prose: &str, is_bad: bool) {
-        let toks = self.reader.salient(prose);
+        let toks = self.reader.salient_weighted(prose);
         let target = if is_bad { &mut self.bad } else { &mut self.good };
-        for h in &toks {
-            target.add(h);
+        for (h, w) in &toks {
+            target.add_weighted(h, *w);
         }
     }
 
@@ -416,23 +438,25 @@ impl Polarity {
     /// Classify prose: `Some(true)` = prohibition, `Some(false)` = endorsement, `None` = abstain
     /// (untrained, unencodable, or no decisive majority). Each salient token votes for whichever
     /// prototype it sits closer to by more than the CALIBRATED margin ([`calibrated_margin`] — the
-    /// trained prototypes' own measured noise floor, never a hand constant); the side with the strict
-    /// majority of votes wins. Per-token voting keeps the call stable whether the prose is three words
-    /// or three hundred — neutral text simply casts no votes and abstains.
+    /// trained prototypes' own measured noise floor, never a hand constant), and its vote weighs
+    /// its information content ([`Reader::info_bits`]): common register words barely count, rare
+    /// words decide — so neutral manual prose cannot become law off filler vocabulary. The side
+    /// with the strictly heavier vote wins. Per-token voting keeps the call stable whether the
+    /// prose is three words or three hundred — neutral text simply casts no votes and abstains.
     pub fn classify(&self, prose: &str) -> Option<bool> {
         if !self.is_ready() {
             return None;
         }
         let margin = *self.margin.get_or_init(|| calibrated_margin(&self.bad, &self.good));
-        let mut bad_votes = 0i32;
-        let mut good_votes = 0i32;
-        for h in self.reader.salient(prose) {
+        let mut bad_votes = 0u64;
+        let mut good_votes = 0u64;
+        for (h, w) in self.reader.salient_weighted(prose) {
             let db = h.distance(&self.bad);
             let dg = h.distance(&self.good);
             if db + margin <= dg {
-                bad_votes += 1;
+                bad_votes += u64::from(w);
             } else if dg + margin <= db {
-                good_votes += 1;
+                good_votes += u64::from(w);
             }
         }
         match bad_votes.cmp(&good_votes) {
