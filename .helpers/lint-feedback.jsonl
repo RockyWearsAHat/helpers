@@ -1,0 +1,2 @@
+{"timestamp":"2026-07-04T00:25:44.147Z","action":"false_positive","rule":"for_example_is_how_to_ch","file":"Helpers-Installer.sh","line":10,"reason":"bash-manual guidance sentence, not a rule"}
+{"timestamp":"2026-07-04T00:25:44.153Z","action":"false_positive","rule":"for_example_is_how_to_ch","file":"Helpers-Installer.sh","line":20,"reason":"bash-manual guidance sentence, not a rule"}

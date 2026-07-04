@@ -48,7 +48,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 700;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v12-context-leans";
+const TRAIN_VERSION: &str = "docs-v15-tag-safe-prose";
 
 /// The committed rule catalogs, embedded so an installed binary far from the checkout still has a
 /// documentation seed to learn from offline. The live crawl (when reachable) and the on-disk
@@ -142,19 +142,6 @@ impl LearnedCatalog {
             None => (self.rules.clone(), self.reference.clone()),
         }
     }
-}
-
-/// The reportable facts about a rule the compiled pattern itself does not carry: severity, the English
-/// advice (its description), and the doc URL it was sourced from. Looked up by rule id when
-/// rendering a finding, so the verdict can explain itself and cite its source.
-#[derive(Clone, Debug, Default)]
-pub struct RuleInfo {
-    /// Severity bucket (`high`/`medium`/`low`).
-    pub severity: String,
-    /// English description — the advice a reader or fixing agent acts on.
-    pub description: String,
-    /// Direct URL to the rule's official documentation (empty for folder rules).
-    pub source: String,
 }
 
 /// What [`ensure_models`] did this run — so the tool can report self-setup honestly.
@@ -428,9 +415,9 @@ pub fn ensure_models(
         // Build and cache the pattern model from Source 1 + Source 2 rules. Prose-only rules are
         // read through the language's learned grounding: real code (docs + project) and the
         // transferred polarity classifier (whose reader knows the docs' common words).
-        let tuples: Vec<(String, String, String, String, String)> = rules
+        let tuples: Vec<(String, String, String, String, String, String)> = rules
             .iter()
-            .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone()))
+            .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
             .collect();
         let rule_set = RuleSet::build(lang, &tuples, &ground);
         let compiled: std::collections::HashSet<String> =
@@ -761,79 +748,6 @@ pub(crate) fn corpus_prose(data_root: &Path) -> Vec<String> {
     }
 }
 
-/// Build the rule-id → [`RuleInfo`] map for rendering findings, from the SAME sources the models
-/// learned from (cached learned catalogs + committed seed + corpus folder + project rules), so every
-/// finding's advice and citation trace back to a doc link or a rule file and nothing else.
-/// Read-only — never crawls (that already happened during [`ensure_models`]).
-pub fn advice(data_root: &Path, project_root: Option<&Path>) -> HashMap<String, RuleInfo> {
-    /// Record a rule's reportable facts, later sources overriding earlier (more-current) ones.
-    fn put(out: &mut HashMap<String, RuleInfo>, r: &DocRule) {
-        out.insert(
-            r.id.clone(),
-            RuleInfo { severity: r.severity.clone(), description: r.description.clone(), source: r.source.clone() },
-        );
-    }
-    let mut out: HashMap<String, RuleInfo> = HashMap::new();
-    // Committed/embedded seed (all languages).
-    for raw in seed_catalogs(data_root) {
-        if let Ok(idx) = serde_json::from_str::<serde_json::Value>(&raw) {
-            for r in idx["rules"].as_array().into_iter().flatten() {
-                if let Some(id) = r["id"].as_str() {
-                    out.insert(
-                        id.to_string(),
-                        RuleInfo {
-                            severity: r["severity"].as_str().unwrap_or("medium").to_string(),
-                            description: r["description"].as_str().unwrap_or("").to_string(),
-                            source: r["source"].as_str().unwrap_or("").to_string(),
-                        },
-                    );
-                }
-            }
-        }
-    }
-    /// Fold every `<lang>.learned.json` catalog under `dir` into the advice map — the language is
-    /// the filename stem, and v2 memory catalogs are queried the same way training queries them.
-    fn put_catalogs(out: &mut HashMap<String, RuleInfo>, dir: &Path) {
-        let Ok(rd) = std::fs::read_dir(dir) else { return };
-        for entry in rd.flatten() {
-            let p = entry.path();
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let Some(lang) = name.strip_suffix(".learned.json") else { continue };
-            let Ok(s) = std::fs::read_to_string(&p) else { continue };
-            let Ok(cat) = serde_json::from_str::<LearnedCatalog>(&s) else { continue };
-            for r in cat.doc_rules(lang).0 {
-                put(out, &r);
-            }
-        }
-    }
-    // Committed modules override the bare seed (they carry full descriptions + sources), and
-    // anything the linter learned itself and cached overrides both (it is more current).
-    put_catalogs(&mut out, &committed_modules_dir(data_root));
-    put_catalogs(&mut out, &model_dir());
-    // Project-local rules (`.helpers/lint-rules/`, root `lintPref`) — highest priority; their
-    // descriptions override everything else so a user's custom advice appears verbatim in lint
-    // output.
-    if let Some(pr) = project_root {
-        let polarity = crate::lint_docs::document_polarity(data_root);
-        for (path, default_lang) in rule_documents(pr) {
-            if let Ok(doc) = std::fs::read_to_string(&path) {
-                let src = path.to_string_lossy().into_owned();
-                for r in crate::linter::Knowledge::read_document(&default_lang, &doc, polarity.as_ref()).rules {
-                    out.insert(
-                        r.id.clone(),
-                        RuleInfo {
-                            severity: r.severity,
-                            description: r.description,
-                            source: src.clone(),
-                        },
-                    );
-                }
-            }
-        }
-    }
-    out
-}
-
 // ── public training API ──────────────────────────────────────────────────────
 
 /// The result of a successful `learn_and_commit` call.
@@ -880,9 +794,9 @@ pub fn learn_and_commit(lang: &str, data_root: &Path) -> Result<LearnResult, Str
     save_cache(lang, &catalog);
     // Compile the pattern model and cache it, grounded in what was just read: the crawl's own
     // reference code and its polarity classifier (falling back to the transferred one).
-    let tuples: Vec<(String, String, String, String, String)> = rules
+    let tuples: Vec<(String, String, String, String, String, String)> = rules
         .iter()
-        .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone()))
+        .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
         .collect();
     let ground = crate::lint_match::Grounding {
         reference,
