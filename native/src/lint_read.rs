@@ -186,6 +186,19 @@ impl Reader {
         self.mem.len()
     }
 
+    /// Total tokens this reader has read — the corpus mass its frequency judgments stand on.
+    pub fn total_read(&self) -> u64 {
+        self.total
+    }
+
+    /// Drop the frequency tail below `n` reads — data compaction for a COMMITTED substrate
+    /// (single reads are scan noise and hapax typos, not knowledge). `total` stays untouched:
+    /// it is the mass that was READ, and the head/information judgments must keep standing on
+    /// the real corpus size.
+    pub fn retain_read_at_least(&mut self, n: u32) {
+        self.freq.retain(|_, c| *c >= n);
+    }
+
     /// The frequency at or above which a token is dropped from a span's salient VOTING set.
     /// Scales with corpus size ("much more frequent than average"), floored so a tiny corpus
     /// still filters its obvious filler. Voting and connectiveness are different questions —

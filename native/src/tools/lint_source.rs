@@ -478,6 +478,9 @@ pub fn run_config(args: &Value) -> ToolResult {
             let started = std::time::Instant::now();
             // The ONE setup verb: network acquisition is allowed here and nowhere else.
             crate::lint_train::allow_network_setup();
+            // Common language first (LINTER.md): the substrate reads the machine's own
+            // dictionary before any documentation trains — purely local, once per machine.
+            let english = crate::lint_english::ensure_built();
             let data = crate::tools::lint::data_root_pub();
             let mut langs = crate::lint_train::registered_languages(&data);
             // The current project's own languages train too — an unknown language is
@@ -520,6 +523,9 @@ pub fn run_config(args: &Value) -> ToolResult {
                 started.elapsed().as_secs_f64(),
                 lines.join("\n")
             );
+            if let Some(e) = english {
+                body.push_str(&format!("\n{e}\n"));
+            }
             if !report.pulled.is_empty() {
                 body.push_str(&format!(
                     "\nDownloaded from the model registry: {}.\n",

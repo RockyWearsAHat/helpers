@@ -847,6 +847,7 @@ dependencies = [
  "ignore",
  "include_dir",
  "libloading",
+ "miniz_oxide",
  "pollster",
  "rand_core 0.6.4",
  "rayon",
