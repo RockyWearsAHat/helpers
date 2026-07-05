@@ -1,0 +1,4 @@
+{
+  "_note": "Ed25519 public keys allowed to sign the consumed lint-models registry index. DATA, but a security anchor: an index signed by no key here does not exist for consumers. Add a key only through the monitored maintainer process.",
+  "registry": ["bacd9ec5d9f942b9511aa368833b888f8a4ece0e1fa06a8ae4fa02d4ab35c8b2"]
+}

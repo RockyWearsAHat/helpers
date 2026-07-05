@@ -44,15 +44,34 @@ pub struct LangModel {
     pub concept: ConceptModel,
 }
 
-/// How many doc pages to crawl per source when learning a language whose docs are a site. High
-/// enough to read a broad slice of the reference (and, with the reader grounding each example against
-/// the toolchain, a rich polarity signal), bounded so the one cold crawl stays inside the tool's time
-/// budget; the learned catalog is cached, so the cost is paid once per toolchain version.
+/// Pages to crawl per source — a runaway safety valve (a mis-scoped seed must not eat a whole
+/// wiki), never a working limit: the WHOLE in-scope docs tree is crawled and read (LINTER.md,
+/// "Map"). The learned catalog is cached and registry-shared, so the cost is paid once per
+/// machine per toolchain version.
 #[cfg(feature = "crawl")]
-const MAX_CRAWL_PAGES: usize = 700;
+const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v24-project-grounding-leads-law";
+const TRAIN_VERSION: &str = "docs-v39-signed-modules";
+
+/// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
+/// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
+/// run never sets it, so linting is replay-only by construction (LINTER.md, "Lint never
+/// touches the network"). `HELPERS_LINT_OFFLINE` keeps setup off the real network in the
+/// hermetic contract tests.
+static NETWORK_SETUP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Enter setup mode: network acquisition is allowed for the rest of this process.
+pub fn allow_network_setup() {
+    NETWORK_SETUP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether this process may touch the network for acquisition — setup mode, minus the
+/// hermetic test switch.
+pub(crate) fn network_allowed() -> bool {
+    NETWORK_SETUP.load(std::sync::atomic::Ordering::Relaxed)
+        && std::env::var_os("HELPERS_LINT_OFFLINE").is_none()
+}
 
 /// The current [`TRAIN_VERSION`] — public so feedback flags can be version-scoped
 /// ([`crate::lint_feedback`]): a suppression earned under one training version must not
@@ -103,6 +122,12 @@ struct LearnedCatalog {
     /// exempt (they load whatever their version, like the snapshot).
     #[serde(default)]
     train_version: String,
+    /// Fingerprint of the SOURCE SET the catalog was read from (sorted seed URLs, hashed).
+    /// Adding or changing a docs source re-reads the language instead of reusing a catalog
+    /// that never saw the new source — locally and through the registry alike. Serialized
+    /// early so the prefix probe and the registry publisher read it without a full parse.
+    #[serde(default)]
+    sources_fp: String,
     /// Where the rules came from (a tool name, `committed`, or `embedded`) — provenance.
     learned_from: String,
     /// Pre-extracted rules (older committed-module form). Empty for v2 memory catalogs.
@@ -121,8 +146,10 @@ impl LearnedCatalog {
     /// Whether this user-cache catalog is current: read under today's [`TRAIN_VERSION`] and for
     /// the detected `toolchain` version. A catalog failing either is relearned, so a reading-logic
     /// change refreshes cached knowledge exactly like a toolchain bump does.
-    fn current(&self, toolchain: &str) -> bool {
-        self.train_version == TRAIN_VERSION && self.version == toolchain
+    fn current(&self, toolchain: &str, sources_fp: &str) -> bool {
+        self.train_version == TRAIN_VERSION
+            && self.version == toolchain
+            && self.sources_fp == sources_fp
     }
 
     /// The catalog's rules and reference corpus: queried from the association memory when present
@@ -165,6 +192,16 @@ pub struct TrainReport {
     /// to do about it (add a token-distinctive example, or run online so the language's
     /// grammar/docs can be learned).
     pub unenforced: Vec<(String, String)>,
+    /// Languages whose official docs resolved to NOTHING this run (offline with a cold page
+    /// cache, or no sources known) — enforcing project law only. Knowledge, like law, never
+    /// vanishes silently: the report names them, and the next online run retries.
+    pub unlearned: Vec<String>,
+    /// Languages whose learned catalog was downloaded from the GitHub model registry this run.
+    pub pulled: Vec<String>,
+    /// A network request failed at the TRANSPORT level this run (or the hermetic
+    /// `HELPERS_LINT_OFFLINE` switch simulated it): whatever is `unlearned` stayed that way
+    /// because the wire was down, so the report asks to reconnect instead of to rephrase.
+    pub net_down: bool,
 }
 
 /// Ensure a fresh, cached compiled [`RuleSet`] exists for each requested language, learning from the
@@ -186,7 +223,7 @@ pub struct TrainReport {
 /// subject gets flagged by it. Rules written FOR a documentation format (a project `md.md`, a
 /// crawled markdown spec) still apply to it.
 pub(crate) fn is_document_language(lang: &str) -> bool {
-    matches!(lang, "md" | "markdown" | "txt" | "text")
+    crate::lint_match::prose_lang(lang)
 }
 
 pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
@@ -197,6 +234,10 @@ pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
             let p = e.path();
             if is_text(&p) {
                 let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("any").to_lowercase();
+                // `js.md` means JavaScript: extension aliases resolve through the same map the
+                // file walker detects languages with, or the law governs nothing (ledger #16).
+                let stem =
+                    crate::util::file_lang(&stem).map(str::to_string).unwrap_or(stem);
                 docs.push((p, stem));
             }
         }
@@ -228,22 +269,65 @@ pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
 /// language is `lang` or `any`. Project rules are merged BEFORE the global corpus and the crawled
 /// docs, so they take priority over both.
 pub(crate) fn project_rules(data_root: &Path, project_root: &Path, lang: &str) -> Vec<DocRule> {
+    rules_in_documents(&rule_documents(project_root), data_root, lang, "project-rule")
+}
+
+/// The machine-global CS-principles rule documents: `<data_root>/corpus/*.{md,txt}`. A stem
+/// naming a language (aliases resolve like rule-file stems do) scopes the file; any other stem
+/// (`cs-principles`) means every code language. These are DATA — the CS2420/CS3500 canon lives
+/// in files, never in code — and they are GATED like learned rules (prohibition-sentence entry,
+/// grounding, self/reference-fire, quarantine): global principles must earn each firing; they
+/// are not the user's own law.
+fn corpus_documents(data_root: &Path) -> Vec<(PathBuf, String)> {
+    let mut docs = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(data_root.join("corpus")) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if !matches!(p.extension().and_then(|x| x.to_str()), Some("md" | "txt")) {
+                continue;
+            }
+            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("any").to_lowercase();
+            let lang = crate::util::file_lang(&stem)
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    if crate::lint_match::bundled_language(&stem) { stem } else { "any".into() }
+                });
+            docs.push((p, lang));
+        }
+    }
+    docs.sort();
+    docs
+}
+
+/// The corpus folder's rules that govern `lang` — see [`corpus_documents`].
+pub(crate) fn corpus_rules(data_root: &Path, lang: &str) -> Vec<DocRule> {
+    rules_in_documents(&corpus_documents(data_root), data_root, lang, "corpus-rule")
+}
+
+/// Read rule documents through the ONE document reader and keep the rules that govern `lang`
+/// (`lang` itself, or `any` for code languages). `slice` labels the rules' origin tier.
+/// Prose-only rules (no bad example) are valid: the pattern is derived from the English
+/// description.
+fn rules_in_documents(
+    docs: &[(PathBuf, String)],
+    data_root: &Path,
+    lang: &str,
+    slice: &str,
+) -> Vec<DocRule> {
     let polarity = crate::lint_docs::document_polarity(data_root);
     let mut out = Vec::new();
     let allow_any = !is_document_language(lang);
-    for (path, default_lang) in rule_documents(project_root) {
-        let Ok(doc) = std::fs::read_to_string(&path) else { continue };
+    for (path, default_lang) in docs {
+        let Ok(doc) = std::fs::read_to_string(path) else { continue };
         let source = path.to_string_lossy().into_owned();
-        for r in crate::linter::Knowledge::read_document(&default_lang, &doc, polarity.as_ref()).rules {
+        for r in crate::linter::Knowledge::read_document(default_lang, &doc, polarity.as_ref()).rules {
             let any = r.language == "any" || r.language.is_empty();
             if !(r.language == lang || (any && allow_any)) {
                 continue;
             }
-            // Prose-only rules (no bad example) are valid: the pattern is derived from the
-            // English description.
             out.push(DocRule {
                 id: r.id,
-                slice: "project-rule".to_string(),
+                slice: slice.to_string(),
                 severity: r.severity,
                 description: r.description,
                 bad: r.bad,
@@ -273,12 +357,6 @@ pub(crate) fn lint_index_file(data_root: &Path, name: &str) -> Option<String> {
         })
 }
 
-/// Expose the stamp file path so external tools (e.g. `lint_rule`) can invalidate it,
-/// forcing a retrain on the next `lint` call without requiring a version bump.
-pub fn stamp_path_pub(lang: &str) -> PathBuf {
-    stamp_path(lang)
-}
-
 /// The ids of the rules the project itself authored (`.helpers/lint-rules/`, root `lintPref`) for
 /// `lang`.
 ///
@@ -306,7 +384,7 @@ pub fn ensure_models(
     langs: &[String],
     data_root: &Path,
     project_root: &Path,
-    project_code: &std::collections::BTreeMap<String, Vec<String>>,
+    project_code: &std::collections::BTreeMap<String, Vec<(String, String)>>,
 ) -> (TrainReport, HashMap<String, LangModel>) {
     // Languages are independent (own toolchain, own sources, own cache files), so they train in
     // PARALLEL — cold setup costs the slowest language, not the sum. Shared crawled sources are
@@ -315,7 +393,16 @@ pub fn ensure_models(
     let results: Vec<(TrainReport, Option<(String, LangModel)>)> = std::thread::scope(|s| {
         let handles: Vec<_> = langs
             .iter()
-            .map(|lang| s.spawn(move || train_language(lang, data_root, project_root, project_code)))
+            .map(|lang| {
+                s.spawn(move || {
+                    let t0 = std::time::Instant::now();
+                    let out = train_language(lang, data_root, project_root, project_code);
+                    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+                        eprintln!("[lint-train] {lang}: {:.1}ms", t0.elapsed().as_secs_f64() * 1e3);
+                    }
+                    out
+                })
+            })
             .collect();
         handles
             .into_iter()
@@ -330,131 +417,265 @@ pub fn ensure_models(
         report.skipped.extend(r.skipped);
         report.crawled.extend(r.crawled);
         report.unenforced.extend(r.unenforced);
+        report.unlearned.extend(r.unlearned);
+        report.pulled.extend(r.pulled);
         if let Some((lang, m)) = model {
             models.insert(lang, m);
         }
     }
+    // Meaningful only in setup mode (a lint run is replay-only and never networks): the
+    // hermetic offline switch and a real transport failure report identically — the wire was
+    // down, so whatever stayed unlearned needs a reconnect.
+    report.net_down = (NETWORK_SETUP.load(std::sync::atomic::Ordering::Relaxed)
+        && std::env::var_os("HELPERS_LINT_OFFLINE").is_some())
+        || crate::doc_crawler::network_down();
     (report, models)
 }
 
 /// Train or load ONE language's model — the per-language body of [`ensure_models`], isolated so
 /// languages can run on their own threads. Returns the language's report slice and its model
 /// (`None` when the language is skipped).
+///
+/// The model is `overlay ⊕ module` (LINTER.md, "Save"): the shared AI MODULE (doc-trained,
+/// project-independent, registry-shareable) merged under the PROJECT OVERLAY (the project's
+/// law + the machine corpus principles, compiled locally). Documentation is purely training
+/// input — the module carries only the compiled result and its provenance timestamp.
 fn train_language(
     lang: &str,
     data_root: &Path,
     project_root: &Path,
-    project_code: &std::collections::BTreeMap<String, Vec<String>>,
+    project_code: &std::collections::BTreeMap<String, Vec<(String, String)>>,
 ) -> (TrainReport, Option<(String, LangModel)>) {
     let mut report = TrainReport::default();
-    {
-        let lang = &lang.to_string();
-        let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
-        // Trust order decides who wins a shared pattern signature at dedup time
-        // (RuleSet::build keeps the FIRST rule per pattern): the project's own law first, then
-        // the crawled docs. Everything else the linter knows, it READ — there is no curated
-        // rule catalog anywhere; correctness is learned from official docs and tested against
-        // the toolchain, never authored.
-        let (doc_rules, reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
-        let mut rules = project_rules(data_root, project_root, lang);
-        // The project's own law is trusted by LOCATION: the user wrote it in a rule file, so it
-        // states a violation by construction and bypasses the prohibition gate at compile time.
-        let trusted: std::collections::HashSet<String> = rules.iter().map(|r| r.id.clone()).collect();
-        rules.extend(doc_rules);
+    let lang = &lang.to_string();
+    let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
+    let sources_fp = sources_fingerprint(data_root, lang);
 
-        if rules.is_empty() {
-            report.skipped.push((lang.clone(), "no rules found for this language".to_string()));
-            return (report, None);
-        }
-
-        // Concept fingerprints for the gate — built in memory from the same resolved rules
-        // (id, description, example). Cheap (hash + popcount), so it is not cached to disk.
-        let concept_tuples: Vec<(String, String, String)> = rules
-            .iter()
-            .map(|r| (r.id.clone(), r.description.clone(), r.bad.clone()))
-            .collect();
-        let concept = ConceptModel::compile(&concept_tuples, lang);
-
-        // Grounding = the docs' reference corpus (grounds learned rules) + the project's OWN
-        // code (grounds and ranks the project's law). The compiled detectors depend on this
-        // evidence, so its fingerprint is part of the model cache stamp.
-        let ground = crate::lint_match::Grounding {
-            reference,
-            project: project_code.get(lang).cloned().unwrap_or_default(),
-            polarity: crate::lint_docs::document_polarity(data_root),
-            trusted: trusted.clone(),
-        };
-        let stamp = stamp_of(
-            &version,
-            &rules,
-            ground_fingerprint(&ground.reference) ^ ground_fingerprint(&ground.project).rotate_left(1),
-        );
-
-        // Every trusted (project-authored) id that did not survive compilation is REPORTED —
-        // the user's law never vanishes silently.
-        let note_unenforced =
-            |report: &mut TrainReport, compiled: &std::collections::HashSet<String>| {
-                for id in trusted.iter().filter(|id| !compiled.contains(*id)) {
-                    report.unenforced.push((lang.clone(), id.clone()));
+    // ── 1) The AI MODULE: fresh on disk → registry → read the docs → none (law-only). ──
+    let mut module = load_module(lang)
+        .filter(|m| m.version == version && m.train_version == TRAIN_VERSION && m.sources_fp == sources_fp);
+    if network_allowed() {
+        // 100% VERIFIED CURRENT: past the verification window, every inventoried page is
+        // conditionally revalidated against the live site; only real movement retrains —
+        // an all-304 sweep just restarts the window (LINTER.md, "Save").
+        if let Some(m) = &mut module {
+            if unix_now().saturating_sub(m.verified_at.max(m.trained_at)) > MODULE_MAX_AGE {
+                if crate::lint_docs::refresh_language_pages(data_root, lang, &version) {
+                    module = None;
+                } else {
+                    m.verified_at = unix_now();
+                    save_module(lang, m);
                 }
-            };
-
-        // Fast path: pattern model already cached and current — load it, attach the concept gate.
-        if model_fresh(&patterns_path(lang), &stamp_path(lang), &stamp) {
-            report.reused.push(lang.clone());
-            if let Some(rule_set) = load_patterns(lang) {
-                let compiled: std::collections::HashSet<String> =
-                    rule_set.rule_ids().map(str::to_string).collect();
-                note_unenforced(&mut report, &compiled);
-                return (report, Some((lang.clone(), LangModel { rules: rule_set, concept })));
             }
-            return (report, None);
         }
-
-        // Build and cache the pattern model from Source 1 + Source 2 rules. Prose-only rules are
-        // read through the language's learned grounding: real code (docs + project) and the
-        // transferred polarity classifier (whose reader knows the docs' common words).
-        let tuples: Vec<(String, String, String, String, String, String)> = rules
-            .iter()
-            .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
-            .collect();
-        let rule_set = RuleSet::build(lang, &tuples, &ground);
-        let compiled: std::collections::HashSet<String> =
-            rule_set.rule_ids().map(str::to_string).collect();
-        note_unenforced(&mut report, &compiled);
-
-        if rule_set.rule_count() == 0 {
-            report.skipped.push((lang.clone(), "no rule carried a distinctive pattern to match".to_string()));
-            return (report, None);
+        if module.is_none() {
+            if let Some(m) = registry_fetch(data_root, lang, &version, &sources_fp) {
+                save_module(lang, &m);
+                report.pulled.push(lang.clone());
+                module = Some(m);
+            }
         }
-
-        if let Some(parent) = patterns_path(lang).parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if std::fs::write(patterns_path(lang), rule_set.to_json()).is_ok() {
-            let _ = std::fs::write(stamp_path(lang), &stamp);
-            report.trained.push(format!("{lang} ({} rules, from {learned_from})", rule_set.rule_count()));
+    }
+    let mut freshly_trained = false;
+    if module.is_none() {
+        let (doc_rules, reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
+        if learned_from == "nothing" {
+            report.unlearned.push(lang.clone());
         } else {
-            report.skipped.push((lang.clone(), "could not write the cached model".to_string()));
-            return (report, None);
+            let tuples: Vec<(String, String, String, String, String, String)> = doc_rules
+                .iter()
+                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
+                .collect();
+            let concept_tuples: Vec<(String, String, String)> =
+                doc_rules.iter().map(|r| (r.id.clone(), r.description.clone(), r.bad.clone())).collect();
+            let ground = crate::lint_match::Grounding {
+                reference,
+                project: Vec::new(),
+                polarity: crate::lint_docs::document_polarity(data_root),
+                trusted: std::collections::HashSet::new(),
+            };
+            let m = Module {
+                version: version.clone(),
+                train_version: TRAIN_VERSION.to_string(),
+                sources_fp: sources_fp.clone(),
+                trained_at: unix_now(),
+                verified_at: unix_now(),
+                learned_from: learned_from.clone(),
+                rules: RuleSet::build(lang, &tuples, &ground),
+                concept: ConceptModel::compile(&concept_tuples, lang),
+            };
+            save_module(lang, &m);
+            report.trained.push(format!("{lang} ({} rules, from {learned_from})", m.rules.rule_count()));
+            freshly_trained = true;
+            module = Some(m);
         }
+    }
+    if module.is_some() && !freshly_trained && !report.pulled.contains(lang) {
+        report.reused.push(lang.clone());
+    }
 
-        return (report, Some((lang.clone(), LangModel { rules: rule_set, concept })));
+    // ── 2) The PROJECT OVERLAY: law + machine corpus, compiled against the project itself. ──
+    let law_rules = project_rules(data_root, project_root, lang);
+    let mut local_rules = law_rules;
+    local_rules.extend(corpus_rules(data_root, lang));
+    let trusted: std::collections::HashSet<String> =
+        local_rules.iter().map(|r| r.id.clone()).collect();
+    let project_fp = project_code
+        .get(lang)
+        .map(|files| {
+            files.iter().map(|(_, src)| crate::lint_ai::token_seed(src)).fold(0u64, |acc, h| acc ^ h)
+        })
+        .unwrap_or(0);
+    let module_id = module
+        .as_ref()
+        .map(|m| format!("{}@{}@{}@{}", m.version, m.sources_fp, m.train_version, m.trained_at))
+        .unwrap_or_default();
+    let stamp = overlay_stamp_of(lang, data_root, &version, &local_rules, project_fp, &module_id);
+    let overlay = match load_overlay(lang, project_fp).filter(|o| o.stamp == stamp) {
+        Some(o) => o,
+        None => {
+            // Law grounds in the project's own code first (its primary universe), then in
+            // whatever reading memory THIS machine has — a machine that only pulled the
+            // module compiles law without a docs corpus, by design: documentation is never
+            // shipped, and the evidence hierarchy leads with project grounding anyway.
+            let reference = load_cache(lang).map(|c| c.doc_rules(lang).1).unwrap_or_default();
+            let ground = crate::lint_match::Grounding {
+                reference,
+                project: project_code
+                    .get(lang)
+                    .map(|files| files.iter().map(|(_, src)| src.clone()).collect())
+                    .unwrap_or_default(),
+                polarity: crate::lint_docs::document_polarity(data_root),
+                trusted: trusted.clone(),
+            };
+            let tuples: Vec<(String, String, String, String, String, String)> = local_rules
+                .iter()
+                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
+                .collect();
+            let concept_tuples: Vec<(String, String, String)> =
+                local_rules.iter().map(|r| (r.id.clone(), r.description.clone(), r.bad.clone())).collect();
+            let rules = RuleSet::build(lang, &tuples, &ground);
+            let compiled: std::collections::HashSet<String> =
+                rules.rule_ids().map(str::to_string).collect();
+            let o = Overlay {
+                stamp,
+                unenforced: trusted.iter().filter(|id| !compiled.contains(*id)).cloned().collect(),
+                concept: ConceptModel::compile(&concept_tuples, lang),
+                rules,
+            };
+            save_overlay(lang, project_fp, &o);
+            o
+        }
+    };
+    // The user's law never vanishes silently — unenforced ids persist with the overlay so
+    // warm runs keep reporting them.
+    for id in &overlay.unenforced {
+        report.unenforced.push((lang.clone(), id.clone()));
+    }
+
+    // ── 3) overlay ⊕ module (overlay first — trust order). ──
+    let (module_rules, module_concept) = match module {
+        Some(m) => (m.rules, m.concept),
+        None => (RuleSet::empty(lang), ConceptModel { rules: Vec::new() }),
+    };
+    let rules = RuleSet::merged(overlay.rules, module_rules);
+    let concept = ConceptModel::merged(overlay.concept, module_concept);
+    if rules.rule_count() == 0 {
+        report.skipped.push((lang.clone(), "no rules found for this language".to_string()));
+        return (report, None);
+    }
+    (report, Some((lang.clone(), LangModel { rules, concept })))
+}
+
+/// Now, in unix seconds — module provenance timestamps.
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// How old a module may grow before setup probes the live sources' `Last-Modified` — the
+/// "always ensured up to date" window. A probe, never a re-read: the docs must actually have
+/// moved.
+const MODULE_MAX_AGE: u64 = 24 * 60 * 60;
+
+/// The shareable, runnable AI MODULE for one language: the compiled doc-rule pattern engine,
+/// its hypervector concept gate, and provenance (`toolchain @ sources @ TRAIN_VERSION @
+/// trained_at`). This — and only this — is what the registry shares: no documentation in any
+/// form (LINTER.md, "Save"). Small header fields serialize first so a prefix probe reads
+/// provenance without parsing the engines.
+#[derive(Serialize, Deserialize)]
+struct Module {
+    version: String,
+    train_version: String,
+    sources_fp: String,
+    trained_at: u64,
+    /// Last time the full page inventory was VERIFIED current against the live sites (every
+    /// page conditionally revalidated, nothing moved). Verification restarts the window
+    /// without retraining.
+    #[serde(default)]
+    verified_at: u64,
+    learned_from: String,
+    rules: RuleSet,
+    concept: ConceptModel,
+}
+
+/// The per-project overlay: the project's law + machine corpus principles compiled locally,
+/// with the ids that could not compile (reported every run — law never vanishes silently).
+#[derive(Serialize, Deserialize)]
+struct Overlay {
+    stamp: String,
+    unenforced: Vec<String>,
+    concept: ConceptModel,
+    rules: RuleSet,
+}
+
+fn module_path(lang: &str) -> PathBuf {
+    model_dir().join(format!("{lang}.module.json"))
+}
+
+fn overlay_path(lang: &str, project_fp: u64) -> PathBuf {
+    model_dir().join(format!("{lang}.overlay-{project_fp:016x}.json"))
+}
+
+fn load_module(lang: &str) -> Option<Module> {
+    serde_json::from_str(&std::fs::read_to_string(module_path(lang)).ok()?).ok()
+}
+
+fn save_module(lang: &str, module: &Module) {
+    if let Some(parent) = module_path(lang).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(module) {
+        let _ = std::fs::write(module_path(lang), json);
     }
 }
 
-/// Order-independent fingerprint of the grounding corpus (docs reference + project code).
-/// Construct selection reads descriptions through this evidence, so a grounding change must
-/// retrain the cached model exactly like a rule edit does.
-fn ground_fingerprint(reference: &[String]) -> u64 {
-    reference.iter().map(|s| crate::lint_ai::token_seed(s)).fold(0u64, |acc, h| acc ^ h)
+fn load_overlay(lang: &str, project_fp: u64) -> Option<Overlay> {
+    serde_json::from_str(&std::fs::read_to_string(overlay_path(lang, project_fp)).ok()?).ok()
+}
+
+fn save_overlay(lang: &str, project_fp: u64, overlay: &Overlay) {
+    if let Ok(json) = serde_json::to_string(overlay) {
+        let _ = std::fs::write(overlay_path(lang, project_fp), json);
+    }
+}
+
+/// Drop a language's AI module (and any overlays) so the next setup re-acquires it — the
+/// invalidation `add_source` uses when a new docs URL lands.
+pub fn invalidate_module(lang: &str) {
+    let _ = std::fs::remove_file(module_path(lang));
+    if let Ok(entries) = std::fs::read_dir(model_dir()) {
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().starts_with(&format!("{lang}.overlay-")) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
 }
 
 
-/// Load a language's cached compiled rule set, or `None` if absent/unreadable.
-pub fn load_patterns(lang: &str) -> Option<RuleSet> {
-    RuleSet::from_json(&std::fs::read_to_string(patterns_path(lang)).ok()?)
-}
 
 /// Directory where trained per-language models live: a committed `lint-models/` in the repo (so a
 /// `git pull` ships every language's compiled patterns) is preferred, then the user cache. One-time
@@ -466,11 +687,6 @@ fn model_dir() -> PathBuf {
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     Path::new(&home).join(".cache/helpers/lint-models")
-}
-
-/// Path to a language's cached compiled patterns (`<lang>.patterns.json`, beside the cache root).
-fn patterns_path(lang: &str) -> PathBuf {
-    model_dir().join(format!("{lang}.patterns.json"))
 }
 
 // ── rule resolution: the AI learns its own rules, cached and version-current ──
@@ -496,9 +712,10 @@ fn resolve_rules(
     report: &mut TrainReport,
 ) -> (Vec<DocRule>, Vec<String>, String) {
     let refresh = std::env::var_os("HELPERS_LINT_REFRESH").is_some();
+    let sources_fp = sources_fingerprint(data_root, lang);
     if !refresh {
         if let Some(cat) = load_cache(lang) {
-            if cat.current(version) {
+            if cat.current(version, &sources_fp) {
                 let (rules, reference) = cat.doc_rules(lang);
                 if !rules.is_empty() {
                     return (rules, reference, format!("cache:{}", cat.learned_from));
@@ -521,17 +738,19 @@ fn resolve_rules(
         let cat = LearnedCatalog {
             version: version.to_string(),
             train_version: TRAIN_VERSION.to_string(),
+            sources_fp: sources_fp.clone(),
             learned_from: "docs".to_string(),
             rules: Vec::new(),
             reference: Vec::new(),
             memory: Some(memory),
         };
         let (rules, reference) = cat.doc_rules(lang);
-        if !rules.is_empty() {
-            report.crawled.push(lang.to_string());
-            save_cache(lang, &cat);
-            return (rules, reference, "live docs".to_string());
-        }
+        // Reading IS the module (LINTER.md): a descriptive spec that yields ZERO prohibition
+        // rules still delivers the reference corpus and comprehension — the language is set
+        // up, not "unlearned". Only a source that could not be READ falls through.
+        report.crawled.push(lang.to_string());
+        save_cache(lang, &cat);
+        return (rules, reference, "live docs".to_string());
     }
     // Offline or crawl-disabled: fall back to the snapshot (stale is better than nothing).
     if !seed.is_empty() {
@@ -541,31 +760,41 @@ fn resolve_rules(
 }
 
 /// READ `lang`'s official language documentation into an association [`crate::lint_read::Memory`].
-/// A language may have several registered documents (reference + style guide); ALL are read into one
-/// memory, grounded once against the installed toolchain. A language in no registry is discovered on
-/// the fly ([`crate::lint_docs::discover_docs`]). `None` when nothing could be read (offline, no
-/// sources, empty read) or the crawler is not compiled in.
+/// A language may have several registered documents (reference + style guide + its own linter's
+/// rule docs); ALL are read into one memory, grounded once against the installed toolchain.
+/// Sources come from the registry and the `add_source` store — never a web search. `None` when
+/// nothing could be read (no network, no sources, empty read) or the crawler is not compiled in.
 #[cfg(feature = "crawl")]
 fn crawl_learn(data_root: &Path, lang: &str, version: &str) -> Option<crate::lint_read::Memory> {
-    // Operational escape hatch: skip all network learning (air-gapped runs, and deterministic
-    // tests) — the resolver then uses the committed/embedded seed instead.
-    if std::env::var_os("HELPERS_LINT_OFFLINE").is_some() {
-        return None;
-    }
+    // `HELPERS_LINT_OFFLINE` gates the NETWORK, not the learning: registered sources still
+    // replay from the machine-global page cache (a `TRAIN_VERSION` bump re-reads from disk).
+    // A cold cache with no network reads nothing and the caller reports the language as not
+    // yet learned. Sources are the registered registry plus whatever a user or agent handed
+    // over via `add_source` — there is no web search: an unknown language is ASKED for.
     let mut sources = crawl_sources_from_config(data_root, lang);
     if sources.is_empty() {
-        sources.extend(crate::lint_docs::discover_docs(lang, data_root));
+        sources.extend(crate::lint_docs::learned_source(lang));
     }
     if sources.is_empty() {
         return None;
     }
     let memory = crate::lint_docs::read_language(lang, &sources, MAX_CRAWL_PAGES, data_root, Some(version));
-    (!memory.bindings.is_empty()).then_some(memory)
+    // A read succeeded when it produced ANY knowledge — prose⊗code bindings or reference
+    // code. Requiring bindings alone threw away descriptive specs whose examples all read as
+    // normal code (JSON), reporting a read language as unlearned.
+    (!memory.bindings.is_empty() || !memory.reference.is_empty()).then_some(memory)
 }
 
 /// Every registered docs source for `lang` from `sources.json` (on-disk preferred, embedded
 /// fallback) — a language may list several official documents and all of them are learned.
 /// `kind:"crawl"` uses `seed`; `kind:"agent"` uses `docsBase` as a best-effort crawl target.
+/// Public accessor for [`crawl_sources_from_config`] — the freshness probe in
+/// [`crate::lint_docs::sources_changed_since`] walks the same registered source set.
+#[cfg(feature = "crawl")]
+pub(crate) fn registered_docs_sources(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
+    crawl_sources_from_config(data_root, lang)
+}
+
 #[cfg(feature = "crawl")]
 fn crawl_sources_from_config(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
     let Some(raw) = std::fs::read_to_string(data_root.join("lint-index/sources.json"))
@@ -735,13 +964,214 @@ pub(crate) fn corpus_prose(data_root: &Path) -> Vec<String> {
 // ── cache + checksum plumbing ────────────────────────────────────────────────
 
 /// Path to a language's learned-rule cache (`<lang>.learned.json`, beside its model).
+/// Pull `lang`'s learned catalog from the GitHub model registry, when one is published for the
+/// EXACT toolchain version and [`TRAIN_VERSION`] — anything else is "not available" and the
+/// caller trains from docs instead (or asks). The registry base URL is DATA: the top-level
+/// `registry` key of `sources.json`; no key, no registry. The registry serves `index.json`
+/// (`[{language, toolchain, train_version, file}]`) beside the catalog files themselves.
+/// Offline (hermetic switch) or transport failure returns `None` — the failure latches
+/// [`crate::doc_crawler::NET_DOWN`] inside `fetch` and the run stays honest, never broken.
+#[cfg(feature = "crawl")]
+fn registry_fetch(data_root: &Path, lang: &str, version: &str, sources_fp: &str) -> Option<Module> {
+    if !network_allowed() || crate::doc_crawler::network_down() {
+        return None;
+    }
+    let base = registry_url(data_root)?;
+    let index = registry_index(&base, data_root)?;
+    let entry = index.as_array()?.iter().find(|e| {
+        e["language"].as_str() == Some(lang)
+            && e["train_version"].as_str() == Some(TRAIN_VERSION)
+            && e["toolchain"].as_str() == Some(version)
+            && e["sources"].as_str() == Some(sources_fp)
+    })?;
+    let file = entry["module"].as_str().or_else(|| entry["file"].as_str())?;
+    let expected_hash = entry["sha256"].as_str()?;
+    let (_, body) = crate::doc_crawler::fetch(&format!("{base}/{file}"))?;
+    // The signed index pins each module's exact bytes: a hash mismatch means tampering or
+    // corruption, and unverified bits must never reach the loaded engine.
+    if crate::lint_sign::sha256_hex(body.as_bytes()) != expected_hash {
+        return None;
+    }
+    let module: Module = serde_json::from_str(&body).ok()?;
+    (module.train_version == TRAIN_VERSION
+        && module.version == version
+        && module.sources_fp == sources_fp)
+        .then_some(module)
+}
+
+#[cfg(not(feature = "crawl"))]
+fn registry_fetch(_data_root: &Path, _lang: &str, _version: &str, _sources_fp: &str) -> Option<Module> {
+    None
+}
+
+/// The registry's `index.json`, fetched AT MOST once per run (process-wide `OnceLock` — every
+/// language shares one answer) and disk-cached for a day (`registry-index.json` beside the
+/// discovery cache). Without this, every warm run on a repo full of unlearnable
+/// pseudo-languages (json, yml, …) paid one network round-trip per language, breaking the
+/// "assume offline" default. `HELPERS_LINT_REFRESH` bypasses the day.
+#[cfg(feature = "crawl")]
+fn registry_index(base: &str, data_root: &Path) -> Option<serde_json::Value> {
+    static INDEX: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let cache = lint_index_cache_dir().join("registry-index.json");
+            let day = std::time::Duration::from_secs(24 * 60 * 60);
+            let fresh = std::env::var_os("HELPERS_LINT_REFRESH").is_none()
+                && std::fs::metadata(&cache)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age < day);
+            if fresh {
+                // The disk cache holds an index that already verified once; still bound to
+                // the trusted keys below on every use.
+                if let Some((body, sig)) = std::fs::read_to_string(&cache)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    .and_then(|v| {
+                        Some((v["index"].as_str()?.to_string(), v["signature"].as_str()?.to_string()))
+                    })
+                {
+                    if let Some(v) = verify_index(&body, &sig, data_root) {
+                        return Some(v);
+                    }
+                }
+            }
+            let (_, body) = crate::doc_crawler::fetch(&format!("{base}/index.json"))?;
+            let (_, sig) = crate::doc_crawler::fetch(&format!("{base}/index.sig"))?;
+            let sig = sig.trim().to_string();
+            let v = verify_index(&body, &sig, data_root)?;
+            let _ = std::fs::create_dir_all(lint_index_cache_dir());
+            let _ = std::fs::write(
+                &cache,
+                serde_json::json!({ "index": body, "signature": sig }).to_string(),
+            );
+            Some(v)
+        })
+        .clone()
+}
+
+/// An index is real only when a TRUSTED key signed exactly these bytes — otherwise the
+/// registry does not exist for this run and the machine reads the documentation itself.
+#[cfg(feature = "crawl")]
+fn verify_index(body: &str, signature: &str, data_root: &Path) -> Option<serde_json::Value> {
+    trusted_registry_keys(data_root)
+        .iter()
+        .any(|key| crate::lint_sign::verify(body.as_bytes(), signature, key))
+        .then(|| serde_json::from_str(body).ok())?
+}
+
+/// Fingerprint of `lang`'s resolved documentation source set: the sorted seed URLs (registry
+/// file plus the `add_source` store), hashed. The learned-catalog cache key's third leg.
+fn sources_fingerprint(data_root: &Path, lang: &str) -> String {
+    let mut urls: Vec<String> = Vec::new();
+    #[cfg(feature = "crawl")]
+    {
+        urls.extend(crawl_sources_from_config(data_root, lang).into_iter().map(|s| s.url));
+    }
+    let _ = data_root;
+    urls.extend(crate::lint_docs::learned_source(lang).map(|s| s.url));
+    urls.sort();
+    urls.dedup();
+    format!("{:016x}", crate::lint_ai::token_seed(&urls.join("\u{1f}")))
+}
+
+/// The Ed25519 public keys allowed to sign the consumed registry index —
+/// `lint-index/trusted-keys.json` (on-disk preferred, embedded fallback). Data, but a security
+/// anchor: an index signed by no trusted key means the registry does not exist for this run.
+pub(crate) fn trusted_registry_keys(data_root: &Path) -> Vec<String> {
+    let raw = std::fs::read_to_string(data_root.join("lint-index/trusted-keys.json")).ok().or_else(|| {
+        EMBEDDED_LINT_INDEX.get_file("trusted-keys.json").and_then(|f| f.contents_utf8().map(str::to_string))
+    });
+    let Some(raw) = raw else { return Vec::new() };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) else { return Vec::new() };
+    json["registry"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|k| k.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// The GitHub model registry's base URL — the `registry` key of `sources.json` (on-disk
+/// preferred, embedded fallback). Pure data; absent means no registry.
+fn registry_url(data_root: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(data_root.join("lint-index/sources.json")).ok().or_else(|| {
+        EMBEDDED_LINT_INDEX.get_file("sources.json").and_then(|f| f.contents_utf8().map(str::to_string))
+    })?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    json["registry"].as_str().map(|u| u.trim_end_matches('/').to_string())
+}
+
+/// Every language named in the sources registry (on-disk preferred, embedded fallback) plus
+/// every language a URL was handed over for (`add_source`) — the full set `lint_config
+/// action=train` batch-trains so the whole machine is live for every known language at once.
+pub fn registered_languages(data_root: &Path) -> Vec<String> {
+    let mut langs: Vec<String> = Vec::new();
+    let mut push = |l: &str| {
+        let l = l.to_lowercase();
+        if !l.is_empty() && !langs.iter().any(|x| x == &l) {
+            langs.push(l);
+        }
+    };
+    if let Some(raw) = std::fs::read_to_string(data_root.join("lint-index/sources.json")).ok().or_else(|| {
+        EMBEDDED_LINT_INDEX.get_file("sources.json").and_then(|f| f.contents_utf8().map(str::to_string))
+    }) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+            for e in json["sources"].as_array().into_iter().flatten() {
+                if let Some(l) = e["language"].as_str() {
+                    push(l);
+                }
+            }
+        }
+    }
+    // Added sources remembered per machine (~/.cache): kind "crawl" entries only — a legacy
+    // negative marker (kind "none") is not a language to train.
+    if let Ok(raw) = std::fs::read_to_string(crate::lint_docs::learned_sources_path_pub()) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+            for e in json["sources"].as_array().into_iter().flatten() {
+                if e["kind"].as_str() == Some("crawl") {
+                    if let Some(l) = e["language"].as_str() {
+                        push(l);
+                    }
+                }
+            }
+        }
+    }
+    langs.sort();
+    langs
+}
+
+/// Whether ANY documentation source is known for `lang` — registered in the registry file or
+/// handed over via `add_source`. The training report uses it to ask precisely: a language
+/// without a source needs a URL, not another train run.
+pub fn has_docs_source(data_root: &Path, lang: &str) -> bool {
+    #[cfg(feature = "crawl")]
+    {
+        if !crawl_sources_from_config(data_root, lang).is_empty() {
+            return true;
+        }
+    }
+    let _ = data_root;
+    crate::lint_docs::learned_source(lang).is_some()
+}
+
 fn cache_path(lang: &str) -> PathBuf {
     model_dir().join(format!("{lang}.learned.json"))
 }
 
-/// Load a language's cached learned catalog, or `None` if absent/unreadable.
+/// Load a language's cached learned catalog, or `None` if absent/unreadable/stale.
+///
+/// Staleness is probed on the raw PREFIX before the full parse: the catalog is multi-megabyte,
+/// and `version`/`train_version` serialize first (struct order, compact JSON), so a catalog
+/// from older reading logic is rejected for the cost of a `read` — deserializing 13 MB just to
+/// discover `current()` is false was a full third of every warm run after a `TRAIN_VERSION`
+/// bump. Callers still call [`LearnedCatalog::current`] for the toolchain-version half.
 fn load_cache(lang: &str) -> Option<LearnedCatalog> {
-    serde_json::from_str(&std::fs::read_to_string(cache_path(lang)).ok()?).ok()
+    let raw = std::fs::read_to_string(cache_path(lang)).ok()?;
+    let head = raw.get(..512).unwrap_or(&raw);
+    if !head.contains(&format!("\"train_version\":\"{TRAIN_VERSION}\"")) {
+        return None;
+    }
+    serde_json::from_str(&raw).ok()
 }
 
 /// Persist a learned catalog so the next run loads instead of relearning.
@@ -758,16 +1188,37 @@ fn save_cache(lang: &str, cat: &LearnedCatalog) {
 /// the model cache key. Order-independent (rows are sorted) and salted with [`TRAIN_VERSION`].
 /// The description is part of the row: patterns can be derived from the English prose alone, so
 /// editing a rule's wording must retrain the model exactly like editing its examples does.
-fn stamp_of(version: &str, rules: &[DocRule], ground_fp: u64) -> String {
-    let mut rows: Vec<String> = rules
+/// Cache stamp from FILE STATE, not parsed content: the multi-megabyte learned catalog is
+/// covered by its `(mtime, len)` fingerprint (any recrawl rewrites the file), the on-disk seed
+/// catalogs and the polarity classifiers by theirs, the project's law by its full (small) rows,
+/// and the project's grounding corpus by its token fingerprint. A warm run therefore proves
+/// freshness without deserializing anything — that parse was the dominant cost of every warm
+/// lint. The embedded fallback catalogs are fixed per binary and covered by `TRAIN_VERSION`.
+fn overlay_stamp_of(lang: &str, data_root: &Path, version: &str, law: &[DocRule], project_fp: u64, module_id: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(TRAIN_VERSION.as_bytes());
+    h.update(version.as_bytes());
+    h.update(module_id.as_bytes());
+    h.update(project_fp.to_le_bytes());
+    h.update(file_state(&cache_path(lang)).to_le_bytes());
+    h.update(file_state(&crate::lint_docs::global_polarity_path()).to_le_bytes());
+    for dir in [data_root.join("lint-index"), lint_index_cache_dir()] {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let mut states: Vec<u128> = entries
+            .flatten()
+            .filter(|e| e.file_name().to_str().is_some_and(|n| n.ends_with(".json")))
+            .map(|e| file_state(&e.path()))
+            .collect();
+        states.sort_unstable();
+        for s in states {
+            h.update(s.to_le_bytes());
+        }
+    }
+    let mut rows: Vec<String> = law
         .iter()
         .map(|r| format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", r.id, r.bad, r.good, r.description))
         .collect();
     rows.sort();
-    let mut h = Sha256::new();
-    h.update(TRAIN_VERSION.as_bytes());
-    h.update(version.as_bytes());
-    h.update(ground_fp.to_le_bytes());
     for r in &rows {
         h.update(r.as_bytes());
         h.update([0u8]);
@@ -779,14 +1230,15 @@ fn stamp_of(version: &str, rules: &[DocRule], ground_fp: u64) -> String {
     s
 }
 
-/// A model is fresh when both it and a matching stamp file exist on disk.
-fn model_fresh(model: &Path, stamp: &Path, want: &str) -> bool {
-    model.exists() && std::fs::read_to_string(stamp).map(|s| s.trim() == want).unwrap_or(false)
-}
-
-/// Path to a language's model cache stamp (`<lang>.patterns.stamp`, beside its model).
-fn stamp_path(lang: &str) -> PathBuf {
-    model_dir().join(format!("{lang}.patterns.stamp"))
+/// A file's `(mtime, len)` folded into one value; `0` when absent. The stamp's cheap witness
+/// that a learned artifact changed on disk.
+fn file_state(p: &Path) -> u128 {
+    std::fs::metadata(p)
+        .map(|m| {
+            let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+            t.map(|d| d.as_nanos()).unwrap_or(0) ^ ((m.len() as u128) << 64)
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -803,19 +1255,24 @@ mod tests {
     }
 
     #[test]
-    fn a_cached_catalog_from_older_reading_logic_is_stale() {
+    fn a_cached_catalog_from_older_reading_logic_or_other_sources_is_stale() {
         let cat = |train_version: &str| LearnedCatalog {
             version: "1.0".to_string(),
             train_version: train_version.to_string(),
+            sources_fp: "abc123".to_string(),
             learned_from: "docs".to_string(),
             rules: Vec::new(),
             reference: Vec::new(),
             memory: None,
         };
-        assert!(cat(TRAIN_VERSION).current("1.0"), "same reading logic + toolchain → fresh");
-        assert!(!cat("").current("1.0"), "a pre-versioning catalog must relearn");
-        assert!(!cat("docs-v1-ancient").current("1.0"), "older reading logic must relearn");
-        assert!(!cat(TRAIN_VERSION).current("2.0"), "a toolchain bump still relearns");
+        assert!(cat(TRAIN_VERSION).current("1.0", "abc123"), "same logic + toolchain + sources → fresh");
+        assert!(!cat("").current("1.0", "abc123"), "a pre-versioning catalog must relearn");
+        assert!(!cat("docs-v1-ancient").current("1.0", "abc123"), "older reading logic must relearn");
+        assert!(!cat(TRAIN_VERSION).current("2.0", "abc123"), "a toolchain bump still relearns");
+        assert!(
+            !cat(TRAIN_VERSION).current("1.0", "other"),
+            "an added or changed docs source must relearn — a catalog that never saw the new source is stale"
+        );
     }
 }
 

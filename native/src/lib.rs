@@ -16,6 +16,7 @@ pub mod lint_docs;
 pub mod lint_feedback;
 pub mod lint_match;
 pub mod lint_read;
+pub mod lint_sign;
 pub mod lint_toolchain;
 pub mod lint_train;
 pub mod lint_checkers;
