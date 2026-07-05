@@ -1,0 +1,25 @@
+{
+  "ignore_rules": [
+    "query_parameters_from_a",
+    "constraint_is_to_limit_t",
+    "will_be_displayed_inside",
+    "reference_is_invalid_no",
+    "declared_to_be_of_type_e",
+    "prolog_and_document_type",
+    "lint-option_as_ref_deref",
+    "with_destructuring_the_l",
+    "our_path_above_could_be",
+    "the_ignore_attribute_att",
+    "in_one_of_the_following",
+    "color_scheme_for_the_ele",
+    "applied_to_the_element_r",
+    "limiting_the_size_of_a_file_before_its_upload",
+    "dt-xmldecl",
+    "indtd",
+    "sec-entexpand",
+    "matching_a_custom_state_in_a_custom_elements_shadow_dom",
+    "decoding_query_parameters_from_a_url",
+    "r-items-enum-discriminant-coercion-fieldless"
+  ],
+  "severity_overrides": {}
+}

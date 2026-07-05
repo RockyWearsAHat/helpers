@@ -1,22 +1,145 @@
 {
   "version": 3,
   "_note": "Shared seed of the language→docs registry — pure DATA, no language list in code. Every entry points at OFFICIAL LANGUAGE DOCUMENTATION (reference/manual/style guide), not linter rule catalogs: the AI reads the language's own docs — normative sections (deprecations, warnings, avoid/instead guidance) become rules, every code example feeds the what-is-normal reference corpus. A language may have several entries; all are learned and merged. Languages NOT listed are DISCOVERED on the fly (web search → crawl-validate) and cached per user in ~/.cache/helpers/lint-index/sources.json; share a discovered entry by committing it here (lint_submit).",
+  "registry": "https://raw.githubusercontent.com/RockyWearsAHat/helpers/lint-models",
   "sources": [
-    { "tool": "rust-reference",      "language": "rust",       "kind": "crawl", "seed": "https://doc.rust-lang.org/reference/" },
-    { "tool": "rust-api-guidelines", "language": "rust",       "kind": "crawl", "seed": "https://rust-lang.github.io/api-guidelines/" },
-    { "tool": "python-docs",         "language": "python",     "kind": "crawl", "seed": "https://docs.python.org/3/reference/" },
-    { "tool": "pep8",                "language": "python",     "kind": "crawl", "seed": "https://peps.python.org/pep-0008/" },
-    { "tool": "mdn-js",              "language": "javascript", "kind": "crawl", "seed": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide" },
-    { "tool": "ts-handbook",         "language": "typescript", "kind": "crawl", "seed": "https://www.typescriptlang.org/docs/handbook/" },
-    { "tool": "effective-go",        "language": "go",         "kind": "crawl", "seed": "https://go.dev/doc/effective_go" },
-    { "tool": "java-tutorial",       "language": "java",       "kind": "crawl", "seed": "https://docs.oracle.com/javase/tutorial/java/" },
-    { "tool": "ruby-docs",           "language": "ruby",       "kind": "crawl", "seed": "https://docs.ruby-lang.org/en/master/" },
-    { "tool": "cppreference-c",      "language": "c",          "kind": "crawl", "seed": "https://en.cppreference.com/w/c" },
-    { "tool": "cppreference",        "language": "cpp",        "kind": "crawl", "seed": "https://en.cppreference.com/w/cpp" },
-    { "tool": "bash-manual",         "language": "bash",       "kind": "crawl", "seed": "https://www.gnu.org/software/bash/manual/bash.html" },
-    { "tool": "swift-book",          "language": "swift",      "kind": "crawl", "seed": "https://docs.swift.org/swift-book/documentation/the-swift-programming-language/" },
-    { "tool": "kotlin-docs",         "language": "kotlin",     "kind": "crawl", "seed": "https://kotlinlang.org/docs/coding-conventions.html" },
-    { "tool": "php-manual",          "language": "php",        "kind": "crawl", "seed": "https://www.php.net/manual/en/langref.php" },
-    { "tool": "commonmark",          "language": "markdown",   "kind": "crawl", "seed": "https://spec.commonmark.org/" }
+    {
+      "tool": "rust-reference",
+      "language": "rust",
+      "kind": "crawl",
+      "seed": "https://doc.rust-lang.org/reference/"
+    },
+    {
+      "tool": "rust-api-guidelines",
+      "language": "rust",
+      "kind": "crawl",
+      "seed": "https://rust-lang.github.io/api-guidelines/"
+    },
+    {
+      "tool": "python-docs",
+      "language": "python",
+      "kind": "crawl",
+      "seed": "https://docs.python.org/3/reference/"
+    },
+    {
+      "tool": "pep8",
+      "language": "python",
+      "kind": "crawl",
+      "seed": "https://peps.python.org/pep-0008/"
+    },
+    {
+      "tool": "mdn-js",
+      "language": "javascript",
+      "kind": "crawl",
+      "seed": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/"
+    },
+    {
+      "tool": "ts-handbook",
+      "language": "typescript",
+      "kind": "crawl",
+      "seed": "https://www.typescriptlang.org/docs/handbook/"
+    },
+    {
+      "tool": "effective-go",
+      "language": "go",
+      "kind": "crawl",
+      "seed": "https://go.dev/doc/effective_go"
+    },
+    {
+      "tool": "java-tutorial",
+      "language": "java",
+      "kind": "crawl",
+      "seed": "https://docs.oracle.com/javase/tutorial/java/"
+    },
+    {
+      "tool": "ruby-docs",
+      "language": "ruby",
+      "kind": "crawl",
+      "seed": "https://docs.ruby-lang.org/en/master/"
+    },
+    {
+      "tool": "cppreference-c",
+      "language": "c",
+      "kind": "crawl",
+      "seed": "https://en.cppreference.com/c"
+    },
+    {
+      "tool": "cppreference",
+      "language": "cpp",
+      "kind": "crawl",
+      "seed": "https://en.cppreference.com/cpp"
+    },
+    {
+      "tool": "bash-manual",
+      "language": "bash",
+      "kind": "crawl",
+      "seed": "https://www.gnu.org/software/bash/manual/bash.html"
+    },
+    {
+      "tool": "swift-book",
+      "language": "swift",
+      "kind": "crawl",
+      "seed": "https://www.swift.org/documentation/api-design-guidelines/"
+    },
+    {
+      "tool": "kotlin-docs",
+      "language": "kotlin",
+      "kind": "crawl",
+      "seed": "https://kotlinlang.org/spec/introduction.html"
+    },
+    {
+      "tool": "php-manual",
+      "language": "php",
+      "kind": "crawl",
+      "seed": "https://www.php.net/manual/en/langref.php"
+    },
+    {
+      "tool": "commonmark",
+      "language": "markdown",
+      "kind": "crawl",
+      "seed": "https://spec.commonmark.org/0.31.2/"
+    },
+    {
+      "tool": "mdn-css",
+      "language": "css",
+      "kind": "crawl",
+      "seed": "https://developer.mozilla.org/en-US/docs/Web/CSS/"
+    },
+    {
+      "tool": "mdn-html",
+      "language": "html",
+      "kind": "crawl",
+      "seed": "https://developer.mozilla.org/en-US/docs/Web/HTML/"
+    },
+    {
+      "tool": "json-org",
+      "language": "json",
+      "kind": "crawl",
+      "seed": "https://www.json.org/json-en.html"
+    },
+    {
+      "tool": "mdn-svg",
+      "language": "svg",
+      "kind": "crawl",
+      "seed": "https://developer.mozilla.org/en-US/docs/Web/SVG/"
+    },
+    {
+      "tool": "toml-spec",
+      "language": "toml",
+      "kind": "crawl",
+      "seed": "https://toml.io/en/v1.0.0/"
+    },
+    {
+      "tool": "w3c-xml",
+      "language": "xml",
+      "kind": "crawl",
+      "seed": "https://www.w3.org/TR/xml/"
+    },
+    {
+      "tool": "yaml-spec",
+      "language": "yml",
+      "kind": "crawl",
+      "seed": "https://yaml.org/spec/1.2.2/"
+    }
   ]
 }

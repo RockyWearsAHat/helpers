@@ -257,16 +257,6 @@ impl Reader {
         }
     }
 
-    /// The codes of a span's **content** tokens — every token minus the ones the reader has learned
-    /// are common (its frequency-derived stop-list). A learned filter, never a written word list: read
-    /// more and the stop-list adapts. The context predictor ([`Reader::learn_span`]) builds the
-    /// comprehension memory used elsewhere, but polarity leans on the frequency filter so a
-    /// distinctive word is never dropped merely for being locally predictable. If every token was
-    /// common, falls back to all tokens so a span is never empty. Non-mutating.
-    pub(crate) fn salient(&self, text: &str) -> Vec<Hv> {
-        self.salient_weighted(text).into_iter().map(|(h, _)| h).collect()
-    }
-
     /// A word's meaning weight in BITS — Shannon self-information from the learned frequencies
     /// (`−log₂` of the word's read probability, integer). The reverse-logarithmic curve: the most
     /// common words weigh almost nothing, the band below them is valued, and rare words carry the

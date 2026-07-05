@@ -96,13 +96,21 @@ impl Hv {
 }
 
 mod hv_serde {
+    //! Hypervector wire format: one fixed-width hex string (`WORDS × 16` chars). A learned
+    //! model is mostly hypervectors, so this decides cache size and parse speed — the JSON
+    //! number-array of 128 u64s cost ~30% more bytes and far more parse work (measured on the
+    //! multi-MB concept models every warm run loads). Reading still accepts the legacy array
+    //! form, so existing caches and published registry catalogs stay valid.
     use super::WORDS;
-    use serde::{Deserializer, Serializer, de::SeqAccess, de::Visitor, ser::SerializeSeq};
+    use serde::{Deserializer, Serializer, de::SeqAccess, de::Visitor};
 
     pub fn serialize<S: Serializer>(arr: &[u64; WORDS], s: S) -> Result<S::Ok, S::Error> {
-        let mut seq = s.serialize_seq(Some(WORDS))?;
-        for v in arr.iter() { seq.serialize_element(v)?; }
-        seq.end()
+        use std::fmt::Write as _;
+        let mut out = String::with_capacity(WORDS * 16);
+        for v in arr.iter() {
+            let _ = write!(out, "{v:016x}");
+        }
+        s.serialize_str(&out)
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u64; WORDS], D::Error> {
@@ -110,7 +118,15 @@ mod hv_serde {
         impl<'de> Visitor<'de> for Vis {
             type Value = [u64; WORDS];
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "an array of {WORDS} u64 values")
+                write!(f, "a {}-char hex string or an array of {WORDS} u64 values", WORDS * 16)
+            }
+            fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Self::Value, E> {
+                let mut arr = [0u64; WORDS];
+                for (slot, chunk) in arr.iter_mut().zip(s.as_bytes().chunks(16)) {
+                    let hex = std::str::from_utf8(chunk).map_err(E::custom)?;
+                    *slot = u64::from_str_radix(hex, 16).map_err(E::custom)?;
+                }
+                Ok(arr)
             }
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
                 let mut arr = [0u64; WORDS];
@@ -118,7 +134,7 @@ mod hv_serde {
                 Ok(arr)
             }
         }
-        d.deserialize_seq(Vis)
+        d.deserialize_any(Vis)
     }
 }
 
@@ -217,7 +233,7 @@ pub(crate) fn dict_words() -> &'static HashSet<String> {
 ///
 /// `rule_hv` is the bundle of every token in the rule's English description (dictionary
 /// words weighted 2×) and its documented example — "what this rule is about", as one Hv.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompiledRule {
     /// FNV hash of the rule id (the key the gate is queried by).
     pub id_hash: u64,
@@ -226,9 +242,11 @@ pub struct CompiledRule {
     pub rule_hv: Hv,
 }
 
-/// The Hv concept gate. Built in memory each lint run from the same documented rules the
-/// [`crate::lint_match::RuleSet`] compiles; it fires nothing on its own — it only confirms
-/// or rejects the firing engine's imprecise (text-fallback) findings.
+/// The Hv concept gate. Compiled from the same documented rules the
+/// [`crate::lint_match::RuleSet`] compiles and cached beside the pattern model (same stamp);
+/// it fires nothing on its own — it only confirms or rejects the firing engine's imprecise
+/// (text-fallback) findings.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct ConceptModel {
     /// One fingerprint per rule that carried learnable tokens.
     pub rules: Vec<CompiledRule>,
@@ -312,6 +330,19 @@ impl ConceptModel {
 
     /// Number of compiled concept fingerprints.
     pub fn rule_count(&self) -> usize { self.rules.len() }
+
+    /// Merge two gates, `first` outranking `second` (same trust-order first-wins as
+    /// [`crate::lint_match::RuleSet::merged`]): one fingerprint per rule id.
+    pub fn merged(first: ConceptModel, second: ConceptModel) -> ConceptModel {
+        let mut seen = std::collections::HashSet::new();
+        let mut rules = Vec::new();
+        for r in first.rules.into_iter().chain(second.rules) {
+            if seen.insert(r.id_hash) {
+                rules.push(r);
+            }
+        }
+        ConceptModel { rules }
+    }
 }
 
 // ── Language keyword set (still used by memory/embed for token normalization) ──

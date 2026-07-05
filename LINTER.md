@@ -30,9 +30,11 @@ The substrate is a 1-bit hyperdimensional AI, not an LLM and not a rule program:
   voting. This is what stops neutral manual prose ("Interactive shells permit trapping
   signals…") from classifying as law off the back of common register words.
 
-Measured (Apple Silicon, `cargo run --release --example reader_bench`): reading ≈ 2.5M
-tokens/s; training 2,221 labeled sentences ≈ 0.07s; classification ≈ 220k sentences/s. The AI
-is never the slow part.
+Measured (Apple Silicon, `cargo run --release --example reader_bench`, over the shipped
+`extraDocs/*.md` teaching prose): reading ≈ 2.3M tokens/s; polarity training ≈ 80k labeled
+sentences/s; classification ≈ 390k sentences/s. `hv_bench`: the batched GPU Hamming grid
+overtakes the CPU fold at ≈3M query×key pairs (auto-dispatched; correctness identical either
+side). The AI is never the slow part.
 
 ## What is learned vs what is programmed
 
@@ -59,21 +61,57 @@ nothing in the codebase can know them; the "Your law, as understood" block plus 
 citation on every finding make provenance visible at runtime; `TRAIN_VERSION` invalidates all
 caches whenever reading logic changes, so nothing stale can masquerade as learning.
 
-## Sources of law (exactly two) and sources of reading
+**Tests are generative, not hand-fed** — the same principle as the training data: a suite that
+needs a new hand-written test per bug is as unmaintainable as a rule catalog that needs a new
+entry per rule. Correctness is asserted as *invariants over tables* (construct shapes × law
+phrasings × grounding styles × string/comment traps in `lint_match/tests.rs`; a planted
+law×violation matrix asserted by exact issue count against the built binary in
+`ai_linter_behaviors.rs::planted_violations_are_flagged_exactly_no_more_no_less` — the
+zero-FP/zero-FN contract, executable). A new bug class becomes a table row, never a test
+function; every ledger dimension stays pinned by the cartesian product.
+
+## Sources of law (exactly three) and sources of reading
 
 **Enforcement grows purely from reading.** There is no curated rule catalog anywhere — the
 former `extraDocs/lint-corpus.jsonl` (hand-maintained linter rules) is deleted; correctness is
 learned by reading official documentation and grounded against the installed toolchain, never
-authored. The polarity classifier's only labels are toolchain verdicts on real code.
+authored. The polarity classifier's only labels are toolchain verdicts on real code. The
+architecture holds the entropy; every source below is DATA — adding a rule, a principle, or a
+language is a file edit, never a code change.
 
 | Law | Trust |
 |---|---|
 | Project rule files: `.helpers/lint-rules/*.{md,txt}`, root `lintPref.{md,txt}` | Absolute ("law by location"): never polarity-gated, never Hv-gated, never quarantined |
-| Official language documentation (crawled; registered in `lint-index/sources.json` or discovered on the fly; normative style guides — PEP8, api-guidelines, effective_go — are where the practice rules live) | Gated: prohibition reading + grounding + self-fire + reference-fire + Hv gate + quarantine |
+| The corpus folder: `<data_root>/corpus/*.{md,txt}` — machine-global CS-principles rule documents (CS2420/CS3500 canon), read through the same document reader as project law (stem = language, `any` = every code language) | Law by location at COMPILE time (a heading-per-rule document is deliberate — ledger #13's tutorial-narration risk does not exist, and measured: the entry gate rejected 3 of 4 curated principles and reference-fire killed the fourth on the docs' own bad-form examples). At RUN time it is NOT the project's own law: quarantinable, imprecise matches Hv-gated, 2-flag suppressible — its blast radius is every project on the machine, so the runtime nets stay |
+
+A rule file's stem is the language it governs, and extension aliases resolve through the same
+map the file walker uses (`js.md` ⇒ javascript, `py.md` ⇒ python — ledger #16). A law file whose
+language matches no file in the project is REPORTED as inert ("governs 'x' — no x files"), never
+silently skipped.
+| Official language documentation (crawled; registered in `lint-index/sources.json` or handed over via `add_source` — the system never searches the web for docs; normative style guides — PEP8, api-guidelines, effective_go — are where the practice rules live) | Gated: prohibition reading + grounding + self-fire + reference-fire + Hv gate + quarantine |
 
 **Reading only (never rules):** `extraDocs/*.md` teaching prose, `lint-index/reading-sources.json`
 corpora (Stack Overflow, Urban Dictionary — coder register), and all doc prose around examples.
 Enforcing teaching material was a repeated noise source (see ledger) and is structurally off.
+
+**The bar is parity with the built linters, from the LANGUAGE'S OWN documentation.** The
+target is what ESLint flags for JavaScript and clippy for Rust — derived independently, by
+reading the language's live official pages (MDN JavaScript, the Rust reference and
+api-guidelines, docs.python.org + PEP8), never by ingesting another linter's rule list.
+Sources are ACTUAL PAGE DOCUMENTATION: live official sites, crawled — not hand-written, not
+gathered snapshots (linter-docs sources were tried and removed by directive: reading a
+linter's catalog is derivative, and its "incorrect" examples are valid syntax that inverts
+parse-grounding — see open problems). What the language's docs deprecate, warn about, and
+forbid becomes the rule set — potentially ahead of the built linters, because the docs move
+first. Then the project's plain-English law lands on top, through the very same reading. What
+containment matching cannot carry (dataflow: unused variables, absence rules) stays in open
+problems, not in silent false-negative territory.
+
+**Setup guarantees the documentation is CURRENT.** The crawl page cache is re-validated at
+setup time: when `action=train` runs (network allowed), any source whose cached pages are
+older than a day is re-crawled before modules build — a project is never set up against stale
+documentation, and lint runs stay replay-only against what setup ensured. `HELPERS_LINT_REFRESH`
+forces it regardless of age.
 
 ## The per-language training pipeline
 
@@ -85,10 +123,25 @@ Enforcing teaching material was a repeated noise source (see ledger) and is stru
    two languages (TypeScript ⊇ JavaScript both read MDN) hits the network once — the second
    reader replays the cached pages at memory speed; a process-wide once-map prevents two
    parallel languages from double-crawling the same source. `HELPERS_LINT_REFRESH` recrawls.
+   A language's sources are read **round-robin interleaved**, so the bounded-memory caps
+   (`MAX_BINDINGS`, `MAX_REFERENCE`, grounding samples) are source-FAIR: no source can starve
+   another by being read first (measured: MDN filled all 4,000 binding slots and ESLint's 300
+   rule pages bound NOTHING — read and silently discarded). The learned catalog is keyed by
+   toolchain version + `TRAIN_VERSION` + a **sources fingerprint** (the resolved source URLs),
+   and registry entries carry the same fingerprint — adding or changing a docs source re-reads
+   the language everywhere instead of reusing a catalog that never saw the new source.
 1. **Map**: try `<origin>/sitemap.xml` (one request can enumerate the site), then balloon
    outward by levels — every link of a level fetched concurrently (64-wide waves), visited-set
    dedup, until the in-scope site is mapped. No pacing. Measured: the 123-page Rust reference +
-   api-guidelines → **2.7s for the entire pipeline**.
+   api-guidelines → **2.7s for the entire pipeline**. **The WHOLE in-scope site is crawled and
+   every page's prose is read** — the caps (`MAX_CRAWL_PAGES`, `MAX_BINDINGS`,
+   `MAX_REFERENCE`, `MAX_GROUND_CHECKS`) are runaway safety valves sized far above any real
+   documentation site, never working limits that silently truncate knowledge (measured before
+   this held: MDN's JavaScript tree is thousands of pages and a 700-page cap + 200-page read
+   budget left most of it unread, making rule counts swing with crawl order). Scope is the seed's
+   docs TREE, boundary-safe: a directory-like seed path scopes to itself (`…/c` covers `/c`
+   and `/c/…`, never `/cpp`); a file seed (`…/bash.html`) scopes to its folder — the safety
+   valves exist for exactly the day a seed mis-scopes.
 2. **Read**: the Reader learns the prose; `(governing prose, code example)` pairs are sliced at
    *tag boundaries* (between `</pre>` and the next `<pre`) — never at byte offsets.
 3. **Ground**: a bounded sample of examples is checked against the installed toolchain
@@ -97,13 +150,135 @@ Enforcing teaching material was a repeated noise source (see ledger) and is stru
 4. **Bind**: prose⊗code hypervector bindings + the reference corpus ("what is normal here").
 5. **Compile** (`RuleSet::build`): examples → lossless generalized AST patterns via
    `bad ∧ ¬good` tree-diff (operations exact, operands bound wildcards, literals typed
-   wildcards) or discriminating token regexes; prose-only rules → a detector derived by the
-   evidence hierarchy below.
-6. **Save**: version-keyed user cache (`~/.cache/helpers/lint-models/`) — **machine-global,
-   shared by every project on the system**; a language learned once is never relearned for
-   another project. Nothing model-shaped is ever written into a project folder or committed
-   to the repo (the former `lint-models/` committed-module path is deleted). *Always checked,
-   retrained only when the toolchain version or `TRAIN_VERSION` changed.*
+   wildcards) or a discriminating token sequence (a single distinctive token, or an ordered
+   same-line pair); prose-only rules → a detector derived by the evidence hierarchy below.
+   **There is no regex engine and no shape catalog anywhere in the matcher**: a text detector
+   IS its tokens, the tokens come from the reader's ONE tokenizer (`lint_read` word runs —
+   ledger #2/#11: every token set the engine compares tokenizes the same way; the old
+   example-diff tokenizer's enumerated operators/sigils/flags are deleted), and firing is
+   whole-token containment on the lowercased surface (ledger #15) — a token edge that is a
+   word character must not touch a word character. A `bad ∧ ¬good` difference that is pure
+   punctuation or a bare numeric value yields no watchable word and the compile abstains —
+   values and operators are semantics, and the AST diff is the path that carries them. One
+   containment function serves the compile gates and the live fire, so the two can never
+   disagree about what a detector means. An example that is still the whole translation unit after
+   wrapper-skipping is a **sample program, not a rule** — a rule is a construct a reader can
+   point at, never a whole file — and compile abstains (tutorial hello-worlds once minted
+   `first_statement_in_a_go`, which fired on any hello-world; ledger #13).
+6. **Save — the artifact is an AI MODULE, and documentation is never saved as an artifact.**
+   Training distills documentation into runnable bits (`~/.cache/helpers/lint-models/`,
+   machine-global):
+   - `<lang>.module.json` — **the AI module**: the compiled doc-rule `RuleSet` (pattern
+     engine) + `ConceptModel` (hypervector concept gate) + provenance
+     (`toolchain @ sources @ TRAIN_VERSION @ trained_at`). Loaded every run; this — and ONLY
+     this — is what the registry shares. Project-independent by construction (doc rules
+     only); no prose, no examples, no corpus: the trained result and the timestamp that
+     proves it current.
+   - `<lang>.overlay-<project>.json` — the PROJECT overlay: the project's law + the machine
+     corpus principles, compiled locally against the project's own code (the law's primary
+     grounding universe), this machine's reading memory when it has one, and the transferred
+     polarity classifier; stamped by law rows + project fingerprint + module identity. At
+     load time `overlay ⊕ module` merge (overlay first — trust order), and that merged
+     engine lints.
+   - `<lang>.learned.json` — the local reading memory (bindings + reference corpus +
+     grounded polarity): the substrate this machine keeps learning with, and the richer
+     grounding its own overlays compile against. **Never shared, never in any repo** — like
+     the page cache, it is point-in-time reading, not the module.
+   Freshness is a probe, not a payload: at setup, a module older than a day checks the live
+   sources' `Last-Modified` and re-reads only when the documentation actually moved (no
+   header ⇒ conservative re-read). Nothing model-shaped is ever written into a project
+   folder or committed to a repo. *The module retrains only when the toolchain version, the
+   source set, `TRAIN_VERSION`, or the documentation itself changed; the overlay recompiles
+   only when the law, the project, or the module changed.*
+
+**Lint never touches the network; setup does — no flags, ever.** A lint run is REPLAY-ONLY by
+construction: caches, the committed seed, and cached crawl pages (a `TRAIN_VERSION` bump still
+re-reads them from disk) — it runs on whatever is set up and ASKS, by name, for what is not.
+All acquisition lives in the SETUP verbs, where being online is assumed and a network failure
+is reported plainly (it never caches a negative answer and never breaks the run). Setup
+acquires per language, in this order: (1) the **GitHub model registry** — published AI
+MODULES keyed by `language @ toolchain-version @ sources @ TRAIN_VERSION`: the compiled
+runnable artifact plus its `trained_at` timestamp — a couple MB, **never documentation in any
+form** (no page snapshots, no example corpus: doc text only ever goes stale, and one cheap
+`Last-Modified` probe at setup proves currency better than any stored copy). The reading
+memory stays on the machine that read, as the substrate it keeps learning with. A pulled
+module is loaded as-is; only the project overlay compiles locally. The registry URL is DATA (the `registry` key of `lint-index/sources.json`);
+`lint_submit models=true` distills and publishes this machine's modules; the registry INDEX is
+fetched once per run and disk-cached for a day; `HELPERS_LINT_REFRESH` bypasses. (2) the
+committed sources snapshot; (3) crawling official docs — registered in `sources.json` or
+handed over via `add_source` — into the LOCAL page cache, freshness-checked at setup (below). **There is no web search**: this is a linter,
+not a search engine — a language with no known documentation is asked for, and the user (far
+more often, the agent acting for them) answers with a URL. In code the mode is one process
+latch (`lint_train::allow_network_setup`), set only by the setup verbs; `HELPERS_LINT_OFFLINE`
+survives only as the hermetic switch the contract tests use to keep setup off the real
+network; no user or agent ever needs to set it.
+
+**The sharing channel assumes every user is the attacker.** A shared module reaches other
+machines' running AI, so the threat model is not a man in the middle — it is the submitter:
+anyone can run this program, extract their own signing key, patch their own binary, and sign
+anything. Every control follows from that:
+
+- **Users can never submit artifacts — only reviewable INPUTS.** A compiled module is
+  unreviewable (malice hides in two megabytes of hypervectors), so nothing compiled ever
+  crosses the boundary inward. The submission channel (`lint_submit`, opt-in per invocation)
+  carries exactly two typed, human-reviewable things: documentation source entries
+  (`sources.json` additions — a URL a reviewer can open) and rule-level feedback counts
+  (`{rule id → false-positive count, missed count}` — bare numbers, schema-validated,
+  size-capped; never paths, never code, never tracking). Submissions arrive as a PR — the
+  monitored channel — signed by the submitter's machine key for ATTRIBUTION and revocation,
+  never for trust.
+- **Modules are built only by trusted infrastructure.** The registry maintainer's machine
+  reads the reviewed sources with its own pipeline and publishes what IT trained
+  (`lint_submit promote=true`): the consumed `lint-models` branch carries an index SIGNED by
+  the registry key with the SHA-256 of every module pinned. No user-built bytes ever reach it
+  — a malicious "module" cannot enter the channel because the channel does not accept
+  modules, only URLs its owner re-reads independently.
+- **Consumers verify or fall through.** `registry_fetch` loads an index only when its
+  signature verifies against `lint-index/trusted-keys.json` (data, committed) and a module
+  only when its bytes hash to the signed entry; any mismatch and the registry does not exist
+  for that run — the machine reads the documentation itself. Unsigned, tampered, or
+  self-promoted content is structurally inert: nobody's consumer trusts its key.
+- **Defense in depth at load:** even maintainer-signed modules pass size caps and description
+  sanitation (advice strings are shown to agents — the prompt-injection surface), plus the
+  runtime nets (quarantine, Hv gate, 2-flag feedback) that treat every non-project rule as
+  suspect.
+- **Honest statement of the guarantee:** the chain ensures nothing reaches a consumer except
+  content the maintainer's own pipeline built from reviewed inputs, unmodified since signing.
+  The remaining trust decision — "is this URL really the official documentation?" — is
+  exactly the human-sized question the PR review exists to answer.
+
+**Online to set up, offline to run — and exactly two setup verbs.** Every report and reply
+states the contract in those words. `lint_config action=add_source lang=<x> url=<official
+docs>` registers a documentation source — a data write into the machine's added-sources store
+(it invalidates the language's model stamp), offline-safe, trains nothing by itself.
+`lint_config action=train` acquires and trains every language the machine knows about — the
+registry, everything previously added, AND the current project's own languages — in parallel,
+reporting each language's outcome; models are
+machine-global, so after one batch every repo on the machine lints every language instantly.
+There is no instant hand-teach tool and no lint-time learning: sources are added, training
+runs, lint replays — one seam, no shortcuts to confuse provenance.
+
+**A language it cannot learn is ASKED for at runtime.** The lint report names every language
+that is not set up and asks for its documentation link: `add_source` the URL, then `train`.
+Every format qualifies — json, svg, a config dialect — because every format has documentation
+somewhere, and the asker (usually the agent) knows where. This is the self-assembly seam: the
+engine mints one expert module per language, entirely from documentation it is handed or
+pulls — at setup time.
+
+**Knowledge survives offline and version bumps.** The crawl page cache (step 0) is the entropy
+store and is keyed by TOOLCHAIN version only; `HELPERS_LINT_OFFLINE` means *no network*, never
+*no learning* — a `TRAIN_VERSION` bump re-READS the cached pages from disk at memory speed
+(setup-mode network is gated by the process latch). **Reading IS the module**: a source that
+was read mints the language's module even when ZERO prohibition rules compile out of it — a
+descriptive spec (JSON, CommonMark) still yields the reference corpus that grounds law
+selection, the reader's comprehension, and a set-up language; "not yet set up" means *could
+not read anything*, never *read it and found nothing to ban*. A model whose docs resolved to
+NOTHING (unreachable, empty, or no source) is marked so beside its stamp and is retried on
+the next setup run instead of masquerading as fresh; the run report names every such language
+(prose formats — md/txt, man sections — are not listed: they are reading material with no
+doc-learning path) — knowledge, like law, never vanishes silently.
+Measured before this held: two offline runs after a version bump silently gutted every model
+on the machine to law-only (17 compiled instances where rust alone should carry hundreds).
 
 ## The evidence hierarchy (construct selection for prose rules)
 
@@ -111,34 +286,68 @@ A prose law's detector token is chosen from the sentence's whitespace-delimited 
 punctuation trimmed — `console.log`, `8080`, `lock(this)` survive verbatim). Candidates are
 ranked, best first, by:
 
-1. **Grounding** — occurs in real code: the language's documented (comment-stripped) examples
-   ground anyone; the *project's own sources* additionally ground the project's law only
-   (comments/data strings must not launder teaching vocabulary). Existence leads: a word that
-   never occurs in code can never fire, and prohibition register words ("Never") read as
-   decisively forbidding without being anyone's construct — grounding is what keeps them from
-   hijacking selection.
-2. **Forbidding context** — the word's polarity context along the reading (nearest decisive
-   lean); remedy-context words are *ineligible* ("…; use the logging module instead" can never
-   compile `logging`).
-3. **Not connective** — corpus-head words (Zipf top-half mass; scale-free) rank last.
-4. **Order/rarity** — project law: document order among grounded content words (the author
-   names the violation before the remedy); learned rules: rarity (fewest reads).
+For the **project's law** (ranked, best first):
 
-Entry gates: a **learned** rule (example-backed or not) compiles only if its description
-carries a forbidding sentence, and a prose-derived detector must be grounded in documented
-code. Every learned detector (AST or text) must also pass the **reference-fire gate**: it is
+0. **Not the remedy** — a word in remedy context PAST the first sentence ranks below
+   everything, wherever it grounded: "…; use `fetch` with an AbortController" once compiled
+   `fetch` because `fetch-depth:` in a workflow file grounded it in the project — existence
+   must never promote the endorsed alternative over the named violation. Demotion, never a
+   drop: a preventive law still needs *some* watchable word. It applies only past the first
+   sentence (the author names the violation before the remedy — the document-order
+   convention, #6a), so docs register that paints the construct's own word as endorsement
+   ("dbg! is a useful macro…") cannot demote it inside the naming sentence.
+1. **The author's marking** — a word the law wrote in backticks IN THE NAMING SENTENCE is the
+   named construct (authors backtick their remedies too, so later sentences' marks don't
+   count). Optional evidence, never a gate (#2 banned shape *requirements*: an unmarked law
+   still compiles through the ranks below) — but when the author did mark, no corpus
+   statistics may outvote them ("project", a real identifier in this repo's code, once
+   outranked the backticked `XMLHttpRequest` on existence).
+2. **Not connective** — the unread word is the construct: a word the reading can account for
+   as common prose (corpus-head, Zipf top-half mass; scale-free) can never outrank one it
+   cannot; register words ("Never") reading as decisively forbidding (#15) are head words.
+3. **Grounding** — occurs in real code as a WHOLE identifier run (sub-word parts are
+   comprehension, not existence — #14): the *project's own sources* first (a law names
+   constructs that live in the code it governs), then the language's documented
+   (comment-stripped, string-masked) examples. For the project's law, existence is judged in
+   TWO universes: the code surface first, and — for a non-connective, UNMARKED word only — the
+   project's raw text (comment bodies, string interiors). A word that exists only inside
+   comments/strings ("TODO", a port `":8080"`) still grounds, and the compiled detector then
+   FIRES in that raw universe too: a law fires in the text universe it grounded in (#12,
+   generalized — #12 stays intact for code-grounded words, whose detectors never enter
+   strings/comments). Two exclusions keep the raw universe honest: head words never ground
+   through it (comments are English; "never" lives in every repo's comments — #14/#15 hold),
+   and a BACKTICKED word never does — backticks are inline code markup, the author saying
+   "this is a code construct" (`` `todo!` ``), so its law stays preventive on the code surface
+   instead of firing on every comment that discusses the construct (measured on this repo:
+   13 findings on doc comments the moment marked laws could go raw). A comment-marker law
+   (TODO, FIXME) is written unmarked; a code-construct law is backticked — the author's own
+   typography is the evidence, never a shape rule about the word itself.
+4. **Context tier** — forbidding > neutral, by the word's polarity context along the reading
+   (nearest decisive lean).
+5. **Order/rarity** — document order among grounded content words; rarity (fewest reads) for
+   ungrounded words.
+
+For **learned** doc rules: grounding in documented code is an entry *requirement* (not a
+rank), remedy-context words are ineligible outright ("…; use the logging module instead" can
+never compile `logging`), then forbidding context, not-connective, rarity.
+
+Entry gates: a **learned** rule (example-backed or not) compiles only if some SENTENCE of its
+description **classifies as a prohibition** under the information-weighted span classifier —
+the sentence is the verdict unit (ledger #6: never the mixed span; ledger #13: never a single
+word — one mis-leaning token in a tutorial paragraph must not admit the paragraph). A
+prose-derived detector must additionally be grounded in documented code. Every learned detector (AST or text) must also pass the **reference-fire gate**: it is
 run against the language's reference corpus (the docs' own *normal* code) at compile time,
 and a detector that fires on more than 1% of that normal code's lines is over-general — the
 rule's real meaning is semantic (borrow usage, macro context) and tree shape cannot carry
 it — so it abstains. The bar is two-tier, by how much the detector's own shape can vouch for
 it: a **structured** AST pattern (depth ≥ 2 with at least one exact token kept from the
 example) gets the 1% bar; a **degenerate** detector — a single-leaf pattern (a bare `null`
-literal), an all-wildcard shape (any method call), or any single-token text regex — carries
+literal), an all-wildcard shape (any method call), or any single-token text detector — carries
 no discriminating structure, so the reference corpus is the only witness left and the bar is
 0.1%. A construct the docs genuinely ban (`goto`) is near-absent from the docs' own normal
 examples and passes; a construct normal code uses constantly (`null`, `trap`) cannot be a
 violation marker and dies. The gate is statistical and only activates when the corpus is
-large enough to testify (≥500 lines); grounding-scale corpora and discovery probes skip it.
+large enough to testify (≥500 lines); grounding-scale corpora skip it.
 Measured live: without it, semantically-meant rules (clippy's `needless_pass_by_ref_mut` —
 its diff reduces to "any `&mut` parameter") and error-page leaf patterns (MDN's "operand
 can't be null" — its diff reduces to the `null` literal) produced 1,432 and then 204
@@ -150,16 +359,35 @@ enforceable…") — law never vanishes silently.
 
 fire → guard → gate → quarantine → config/feedback → report.
 
-- **Fire**: each file parsed once; all AST rules run over the same tree; text regexes compiled
-  once. Whole-repo (1,462 files) match+gate ≈ 6ms with light models, ≈ 330ms with all language
-  models; total warm run < 1s (`HELPERS_LINT_TRACE=1` prints the stage split).
+- **Fire**: each file is parsed once and its tree walked ONCE, and that single walk yields
+  everything the run needs from the tree: AST patterns are indexed by the one node kind their
+  root can match, so each node tries only its own candidates (never one full-tree walk per
+  rule), and the same walk collects the English-bearing spans (string/comment/heredoc/char
+  nodes) that blank into the code surface for token detectors — the mask is a byproduct of
+  the walk, never a second parse. Token detectors then fire by whole-token containment per
+  line in their grounded universe (code surface / raw); no regex engine runs anywhere.
+  Languages fire in parallel (the stage costs the slowest language, not the sum), files
+  within a language in parallel, and results fold back in language-then-file order so the
+  report stays deterministic. Whole-repo (1,464 files) warm run ≈ 0.17s with all language
+  models: walk+read ≈ 12ms (parallel reads), train/load ≈ 76ms (file-state stamp — freshness
+  is proven without parsing the multi-MB learned catalogs; the concept gate is cached beside
+  the pattern model), match+gate ≈ 82ms (`HELPERS_LINT_TRACE=1` prints the stage split and a
+  per-language `[lint-match]` line). Text detectors match each line's **code surface** (comments dropped, string
+  interiors blanked — the same function grounding reads through; ledger #12); prose files
+  (md/txt) match raw lines, and a project-law detector whose construct grounded ONLY in the
+  raw universe (see the evidence hierarchy) matches raw lines as well — the report says so
+  beside the pattern.
 - **Restatement guard**: a line sharing ≥3 and ≥half of the rule's own words is quoting the
   law, not breaking it.
-- **Hv concept gate**: imprecise (regex / container-only) findings are kept only if the fired
+- **Hv concept gate**: imprecise (token / container-only) findings are kept only if the fired
   rule's fingerprint is the nearest concept to the matched construct — one batched
   popcount-grid dispatch per language.
-- **Quarantine**: a doc rule firing like scrape noise (>1% of all lines, or ≥20 hits covering
-  >10% of one file) is quarantined and reported.
+- **Quarantine**: a doc rule firing like scrape noise (≥20 hits and >1% of the lines of the
+  RULE'S OWN LANGUAGE — >0.1% for a *degenerate* detector, the same two-tier the
+  reference-fire gate uses, because a small reference corpus cannot witness a token that is
+  rare in doc examples but pervasive in real projects — or ≥20 hits covering >10% of one file)
+  is quarantined and reported. The denominator is per-language: a rust rule's noise must not
+  be diluted to invisibility by a thousand markdown files it never ran against.
 - **Docs are reading material**: md/txt files are linted only by rules written *for* them;
   `any`-language law governs code languages.
 - **Feedback** (runtime shaping): `lint_flag` false-positives auto-suppress a rule per project
@@ -215,7 +443,43 @@ fire → guard → gate → quarantine → config/feedback → report.
    catalog is deleted entirely; enforcement grows purely from reading, labels come only from
    toolchain grounding, and the reference-fire gate kills shape-degenerate detectors at
    compile time.*
-11. **Register vocabulary hijacking construct selection** (weighted contexts made "Never"
+11. **Two tokenizers disagreed on snake_case** (grounding corpora were tokenized by an ad-hoc
+   splitter that kept `secret_token` whole, while the description's candidate words tokenize
+   through the reader — which splits at `_` into `secret`/`token`; the set intersection was
+   empty, so **no snake_case identifier could ever ground a law**, and "Never hardcode
+   `secret_token`…" silently compiled `hardcode` — a word in no one's code — instead of the
+   named construct: a silent false negative in the dominant naming style of Python/Rust/C) →
+   *grounding corpora tokenize through `lint_read::tokens` — the reader's one tokenizer —
+   by construction; ledger #2's "one tokenizer" invariant applies to every token set the
+   selector compares, not just the description side.*
+12. **Text detectors fired inside strings and comments** (a law watching `secret_token` flagged
+   the remedy line `os.environ["SECRET_TOKEN"]`; grounding already treated string/comment
+   interiors as English-not-code, so the detector fired in a universe the law never grounded
+   against) → *one `code_surface` function — whole-line comments dropped, string interiors
+   blanked, trailing `//`/`#` comments cut, a quote with no same-line mate is typography (Rust
+   `'a`) not a string — is shared by grounding AND text-rule firing: a law fires only in the
+   text universe it grounded in. Prose files (md/txt) are exempt — their text IS the governed
+   material. AST rules hold this by construction (a string node is never an identifier).*
+13. **One mis-leaning word admitted a whole tutorial paragraph as law** (the entry gate asked
+   only "does ANY word sit in forbidding context?", so go.dev tutorial narration and MDN
+   error-page remedy prose — "can be fixed via js" — minted rules whose detectors fired on
+   hello-world code: `first_statement_in_a_go` watched the very construct the sentence
+   prescribes) → *the entry verdict is rendered per SENTENCE by the information-weighted span
+   classifier — a learned rule compiles only when some sentence of its description classifies
+   as a prohibition; the sentence is the verdict unit, never the mixed span (#6), never a
+   single word.*
+14. **Multi-line strings and prose "languages" grounded register words as code** (line-based
+   masking cannot see that the middle line of a Rust multi-line help string, a bash heredoc
+   body, or a man page's entire text is English — so "never" grounded as project code in
+   every language and, with existence leading the law hierarchy, EVERY instance of
+   `no_xmlhttprequest` compiled `(?i)\bnever\b`; a repo doc's `# Title` heading also minted a
+   trusted law watching `rust`) → *masking is AST-exact for grammared languages (string /
+   comment / heredoc / char node spans blanked from the parse tree — the same tree firing
+   uses), the line masker stays only as the grammarless fallback; man sections (numeric
+   extensions) are prose, never code-law targets; a heading with no body prose and no code
+   blocks is a title, not a law; and the law hierarchy leads with not-connective (see the
+   evidence hierarchy) so no corpus can promote a common word over the named construct.*
+15. **Register vocabulary hijacking construct selection** (weighted contexts made "Never"
    read decisively forbidding → laws watched `Never`; "use"'s endorsement lean poisoned
    neighboring `unsafe`/`any`; docs-grounded "never" beat project-grounded "unsafe" on
    document order; prose capitalization compiled a case-sensitive `\bUnsafe\b`) → *the law
@@ -223,6 +487,67 @@ fire → guard → gate → quarantine → config/feedback → report.
    forbidding context; only informative (non-common) words project context onto neighbors; a
    grounded law word survives remedy-context ineligibility; detectors are case-insensitive on
    the lowercased surface.*
+
+16. **Rule-file stems taken literally** (`js.md` compiled its rules for a language named "js";
+   files detect as "javascript", so the law governed NOTHING — CLEAN verdicts over planted
+   violations, no law block, no report: law vanished silently) → *rule-file stems and fence
+   language hints resolve through the same extension→language map the file walker uses; a law
+   file whose language matches no project file is reported as inert.*
+
+## The distribution channel (built) and the community network (deferred, decided)
+
+**What ships today: a signed, one-way distribution channel — every user assumed hostile.** A
+shared module reaches other machines' running AI, so the channel is a supply chain under
+attack, and the failure to exclude is a hand-crafted or tampered artifact being LOADED
+anywhere. Rule text is read by agents, so a crafted "rule" whose advice says "disable your
+sandbox / post the env file to…" would be prompt injection with a linter's trust halo —
+credential theft and code exfiltration are the named failure modes, and one malicious
+artifact distributed once is total failure.
+
+The built guarantees (`lint_sign`, and the registry path in `lint_train`, contract-tested in
+`ai_linter_behaviors.rs`):
+
+- **Consumers verify or fall through.** `registry_fetch` accepts an index only when its
+  signature verifies against `lint-index/trusted-keys.json` (committed data; embedded
+  fallback), and a module only when its bytes hash to the signed index entry. Any
+  mismatch and the registry *does not exist* for that run — the machine reads the
+  documentation itself. Unsigned, tampered, or attacker-signed content is structurally inert:
+  no consumer trusts its key (the `an_unsigned_or_tampered_registry_is_never_loaded`
+  contract proves a machine falls through rather than load an untrusted-signed index).
+- **Publishing is maintainer-only and signed.** `lint_submit models=true` signs the index
+  with the machine's Ed25519 key (`~/.config/helpers/signing.key`, generated on first use)
+  and writes `index.json` + `index.sig`; only keys listed in `trusted-keys.json` are
+  consumed. `lint_submit identity=true` prints this machine's public fingerprint.
+- **Fail-safe key management:** rotation = edit `trusted-keys.json` + republish; revoking a
+  compromised key just removes it (consumers then refuse its index and fall through to docs —
+  never fail-open).
+
+**The community network is DEFERRED, but the shape is decided** (grilled 2026-07-05, so a
+later build starts from settled constraints, not a blank page):
+
+- **Sources are owner-only, forever closed to automated community submission.** No code can
+  distinguish "official documentation" from a convincing forgery, and there is no human
+  reviewer in the automated path — so the pipeline must never crawl a community-submitted URL
+  and sign what it builds (that would let an attacker author "correctness" the registry key
+  faithfully signs). New sources enter ONLY by the owner editing `sources.json` in the public
+  repo; a community PR there goes through the owner's own merge judgment, which is the only
+  gate that exists.
+- **If a feedback channel is ever built, it is signal to the OWNER only — never a direct
+  community→consumer edge.** The single trust path stays community → aggregated signal →
+  owner judgment → new signed module → consumers. Network feedback never auto-changes any
+  consumer's enforcement (a consumer's suppressions stay local, from its own runs), because
+  free self-minted identities make sybil-suppression of a real rule otherwise trivial. The
+  payload, when built, is bare bounded integers (`{rule id → fp, missed}`) — no text, no
+  paths, no code: nothing for injection to ride on.
+- **The residual, stated plainly:** even a clean owner-built module quotes documentation prose
+  to agents; the system bounds it (load-time length caps + control-character stripping on
+  advice, `⟨source⟩` citation on every finding) but cannot prove prose harmless — an agent
+  that obeys imperative text inside lint advice is a failure of the agent's own hygiene.
+
+The seam is clean: `lint_sign` (crypto), the signed registry (distribution), and the existing
+local `lint_feedback` log are the whole foundation a network needs. Adding it later is a new
+submission tool + an owner aggregation step — no rearchitecting. Each control lands TDD-first
+with an attacker contract, exactly as the two registry contracts already do.
 
 ## Open problems (honest)
 
@@ -232,37 +557,73 @@ fire → guard → gate → quarantine → config/feedback → report.
   "use"-class noise in probes but regressed fence orientation and contract tests when rushed.
   Land it with: grounded-only tallies, orientation reading words→sentences→order, and a
   regenerated bootstrap — and update this file first.
-- **Two kinds of law the linter cannot watch yet — and says so.**
-  (1) A law about pure punctuation: "do not compare types with `==`". The linter watches
-  *words*, and `==` has no letters or digits, so there is nothing it can watch for. (2) A law
-  whose construct only ever appears inside a quoted string: "never hardcode port 8080" where
-  the code says `Listen(":8080")`. The linter checks that a law's word really appears in the
-  project's code before watching it, and it deliberately skips the insides of strings and
-  comments during that check (otherwise English text in strings would count as "code").
-  So `8080`-inside-quotes doesn't count, and the law compiles against a different word or
-  reports as not-yet-enforceable. In both cases the output tells you what it is actually
-  watching ("Your law, as understood") instead of silently guessing.
+- **Error-page remedy prose trains the bad prototype** (measured live, the driver of the
+  residual junk class): an MDN error page's example FAILS the toolchain, so the prose around
+  it feeds the *bad* prototype — but that prose is remedy language ("can be fixed by
+  wrapping…"), so fix-register vocabulary ("fixed", "wrap", "avoid the error") learns a
+  prohibition lean, and remedy fragments then pass the sentence gate as law
+  (`can_be_fixed_via_js`, `avoid_the_error_wrap_eac`). The defense-in-depth (sentence gate,
+  sample-program abstention, reference-fire, quarantine, 2-flag feedback) reduced this from
+  storms to single rules that the loop suppresses (demonstrated on this repo: 762 → 343 rules,
+  then convergence to CLEAN with every suppression a verified FP) — the root fix is the
+  side-count design above, whose grounded-only tallies must separate "prose beside failing
+  code" from "prose stating the failure".
+- **A law whose violation is an ABSENCE cannot compile.** "Never use a bare `except:`", "no
+  empty catch blocks": containment matching cannot assert emptiness (an empty-block pattern
+  matches every block — over-fire kills it, correctly), and `bad ∧ ¬good` cannot express a
+  missing token. Keep such rules out of `corpus/` until the engine learns absence shapes;
+  `HELPERS_LINT_TRACE=1` names the gate that dropped them (`[lint-build]` lines).
+- **A prose law about pure punctuation can compile a junk word, not a report.** "Do not
+  compare types with `==`": the linter watches *words*, and `==` has no letters or digits, so
+  there is nothing it can watch for — the description path can fall back to some other word of
+  the sentence ("compare"), which typically never occurs in code: a silent false negative
+  dressed as a detector. "Your law, as understood" makes the misread visible, and a bad/good
+  example fence fixes it fully when a grammar exists (the AST diff carries operators fine —
+  `type(a) == type(b)` compiles losslessly). The EXAMPLE-DIFF path already behaves honestly:
+  a `bad ∧ ¬good` difference that is pure punctuation or a bare numeric value yields no
+  watchable word, the compile abstains, and project law is reported "not yet enforceable"
+  (contract-tested on a grammarless language). The remaining step is the same honesty for the
+  description path: detect that the naming sentence's only candidate constructs are non-word
+  symbols and report instead of compiling the junk word.
+  (String/comment-only constructs — "never hardcode port 8080" with `Listen(":8080")` — were
+  this list's second entry; solved by raw-universe grounding, see the evidence hierarchy.)
 - **Per-language law instances can diverge.** An `any`-language law compiles once per
   language against that language's corpus, so picks differ (ruby's instance of a "port 8080"
   law once compiled `from`); "Your law, as understood" currently shows one instance — show
   the divergent ones so the author sees which language misread.
-- **Tutorial prose still mints an occasional junk rule** (go.dev tutorial narration became
-  `that_the_set_of_albums_w`); the weighted forbidding gate, reference-fire, quarantine, and
-  the 2-flag feedback loop are the defense-in-depth — the residue is single rules caught by
-  the loop, not storms.
+- **Tutorial prose can still mint a junk rule when a sentence genuinely reads as law**
+  ("Executable commands must always use package main" IS prescriptive English); the
+  sentence-level prohibition gate (ledger #13), reference-fire, quarantine, and the 2-flag
+  feedback loop are the defense-in-depth — the residue is single rules caught by the loop,
+  not storms.
 - **Doc-rule recall.** Reference manuals are descriptive; normative style guides (PEP8,
-  api-guidelines, effective_go) yield the real rules. More registered sources per language is
-  a data edit in `sources.json`.
+  api-guidelines, effective_go) and the built linters' own rule docs yield the real rules.
+  More registered sources per language is a data edit in `sources.json`.
+- **Parse-grounding mislabels LINTER documentation** (measured; the blocker for full ESLint
+  parity): the polarity classifier's labels come from toolchain verdicts, and a lint rule's
+  "incorrect" example is usually VALID SYNTAX — `var x = 1` parses clean — so the prose above
+  it ("Examples of incorrect code for this rule") feeds the ENDORSEMENT prototype: the
+  grounding actively teaches the opposite of what the page says. Compile-error docs (MDN error
+  pages, reference manuals) ground correctly; lint-rule docs need labels the parse check
+  cannot give. Only 8 of ESLint's ~290 rules survived to detectors for exactly this reason
+  (clippy fares far better: its docs' bad examples often genuinely fail `rustc`). The fix
+  belongs to the side-count/asymmetric-grounding design (a Flagged verdict is strong evidence;
+  a Clean verdict says "parses", not "endorsed") — design it in this file first, per ledger #7
+  discipline; do not special-case linter-doc vocabulary.
 - **Latent-sequence reasoning ("brain waves").** Inference is already Hv-native end to end;
   a rolling-context classifier (prototypes over context space, not bag space) is the designed
   next step for clause understanding without any typography.
 
 ## Operational notes
 
-- Stage timing: `HELPERS_LINT_TRACE=1`. Offline: `HELPERS_LINT_OFFLINE=1`. Force re-learn:
-  `HELPERS_LINT_REFRESH=1`. Model cache override: `HELPERS_LINT_MODELS`.
-- Caches live in `~/.cache/helpers/`; deleting them is always safe (cold relearn is seconds
-  per language, online).
+- Stage timing: `HELPERS_LINT_TRACE=1`. Force re-learn: `HELPERS_LINT_REFRESH=1`. Model cache
+  override: `HELPERS_LINT_MODELS`. `HELPERS_LINT_OFFLINE=1` simulates a dead network (hermetic
+  contract tests only — no user or agent ever needs it; see "No connectivity flags").
+- Setup verbs: `lint_config action=add_source lang=<x> url=<docs>` (register, offline-safe),
+  `lint_config action=train` (train everything, needs internet for anything missing). Publish
+  this machine's catalogs to the registry: `lint_submit models=true`.
+- Caches live in `~/.cache/helpers/`; deleting them is always safe (cold reacquire is a
+  registry download or seconds of crawling per language, online).
 - The polarity bootstrap (`lint-index/polarity-bootstrap.json`) is machine-generated:
   `cargo test --release --lib generate_polarity_bootstrap -- --ignored` — regenerate whenever
   the tokenizer, salience, or seed labeling changes (train/inference consistency).

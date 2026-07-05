@@ -4,7 +4,7 @@
 //!
 //!   * a language it has never seen is lintable with nothing but a plain-English rule file;
 //!   * an instruction with no language named is law across every language in the project;
-//!   * teaching it a new real language is a DATA edit (a docs URL), never a code change;
+//!   * a new real language is set up with a DATA edit (a docs URL), never a code change;
 //!   * it never crashes on the junk real repos contain;
 //!   * offline and cold it still enforces the project's law.
 //!
@@ -135,19 +135,120 @@ fn unseen_language_is_lintable_with_a_plain_english_rule_alone() {
     );
 }
 
+// ── B1b: the FP/FN contract, executable ────────────────────────────────────────
+
+/// A generated law×construct matrix is planted in one project: for every construct a violating
+/// file AND a trap file (the construct inside every quote style, inside comments, quoted from
+/// the law itself, and embedded in larger identifiers). One offline run must flag EXACTLY the
+/// violation set — the verdict's own issue count is asserted, so any extra finding is a false
+/// positive and any missing one a false negative. Coverage grows by adding a matrix row, never
+/// another test (construct shapes: plain word, snake_case, dotted, bare numeric).
+#[test]
+fn planted_violations_are_flagged_exactly_no_more_no_less() {
+    let p = TestProject::new("ground-truth");
+    const MATRIX: &[(&str, &str, &str)] = &[
+        // (rule id, construct as the law writes it, the violating line)
+        ("no_zap", "zap", "zap(input)"),
+        ("no_secret_token", "secret_token", "secret_token = load()"),
+        ("no_console_log", "console.log", "console.log(x)"),
+        ("no_port_9099", "9099", "listen(9099)"),
+    ];
+    let mut law = String::new();
+    for (id, written, _) in MATRIX {
+        law.push_str(&format!(
+            "## {id} [high]\nNever use `{written}` anywhere in this project; use the approved helper instead.\n\n"
+        ));
+    }
+    p.write(".helpers/lint-rules/vlang.md", &law);
+    for (id, written, bad_line) in MATRIX {
+        p.write(&format!("src/bad_{id}.vlang"), &format!("unit start:\n    {bad_line}\n"));
+        p.write(
+            &format!("src/clean_{id}.vlang"),
+            &format!(
+                "# Never use `{written}` anywhere in this project; use the approved helper instead.\n\
+                 note = \"{written} is banned in this repo\"\n\
+                 memo = '{written} again'\n\
+                 shim_zapper = 1\n"
+            ),
+        );
+    }
+
+    let verdict = p.lint(true);
+
+    for (id, _, _) in MATRIX {
+        assert!(
+            flagged_in(&verdict, &format!("bad_{id}.vlang"), id),
+            "false negative: {id} must fire in bad_{id}.vlang:\n{verdict}"
+        );
+        assert!(
+            !flagged_in(&verdict, &format!("clean_{id}.vlang"), id),
+            "false positive: {id} fired on strings/comments in clean_{id}.vlang:\n{verdict}"
+        );
+    }
+    let want = format!("Verdict: {} issue(s)", MATRIX.len());
+    assert!(
+        verdict.contains(&want),
+        "exactly one finding per planted violation and nothing else ({want}):\n{verdict}"
+    );
+}
+
+/// The planted matrix's alias + universe dimensions (LINTER.md ledger #16 + evidence
+/// hierarchy), end to end: the law file is named by extension alias (`js.md`) and must govern
+/// its canonical language (javascript), and each row plants its violation in a different text
+/// universe — code, a comment, a string interior. Exact-count contract like the matrix above;
+/// a new alias or universe bug becomes a row, never a test function.
+#[test]
+fn alias_named_law_files_and_comment_or_string_constructs_are_enforced() {
+    // (rule id, the law, the violating line — one per universe)
+    const MATRIX: &[(&str, &str, &str)] = &[
+        ("no_eval", "Never use `eval` in JavaScript code.", "eval(\"x\");"),
+        ("no_todo", "Never leave TODO markers in committed code.", "// TODO: refactor this"),
+        ("no_port_8080", "Never hardcode port 8080 anywhere.", "const conn = connect(\":8080\");"),
+    ];
+    let p = TestProject::new("alias-and-universe");
+    let law: String =
+        MATRIX.iter().map(|(id, law, _)| format!("## {id} [high]\n{law}\n\n")).collect();
+    p.write(".helpers/lint-rules/js.md", &law);
+    let bad: String = MATRIX.iter().map(|(_, _, line)| format!("{line}\n")).collect();
+    p.write("src/app.js", &bad);
+    // The clean file avoids the laws' own nouns ("port"): a project-grounded word wins
+    // selection by document order, so `cfg.port` here would legitimately pull the 8080 law
+    // onto `port` (an author pins that case by backticking the construct).
+    p.write("src/clean.js", "parse(\"x\");\nconst conn = connect(cfg.address);\n");
+
+    let verdict = p.lint(true);
+
+    for (id, _, _) in MATRIX {
+        assert!(
+            flagged_in(&verdict, "src/app.js", id),
+            "false negative: {id} must fire in src/app.js (alias stem + grounding universe):\n{verdict}"
+        );
+    }
+    assert!(
+        !verdict.lines().any(|l| l.contains("clean.js")),
+        "clean.js plants nothing and must stay clean:\n{verdict}"
+    );
+    let want = format!("Verdict: {} issue(s)", MATRIX.len());
+    assert!(verdict.contains(&want), "exactly one finding per planted violation ({want}):\n{verdict}");
+}
+
 // ── B2: one instruction, every language ───────────────────────────────────────
 
 /// An `any.md` rule that names no language is the project's law for EVERY language present —
-/// grammar languages (python, javascript) and grammarless made-up ones alike.
+/// grammar languages (python, javascript) and grammarless made-up ones alike. And a law whose
+/// examples differ only in punctuation (no watchable word) is REPORTED as not yet enforceable
+/// for a grammarless language — never silently skipped, never a junk detector (LINTER.md,
+/// open problems: values and operators are semantics; the AST diff is the path that carries
+/// them, and qlang has no grammar).
 #[test]
 fn an_instruction_with_no_language_governs_every_language_in_the_project() {
     let p = TestProject::new("any-lang");
-    p.write("app.py", "def main():\n    scores = [90, 85, 77]\n    return scores\n");
-    p.write("web.js", "const nums = [1, 2, 3];\nconsole.log(nums);\n");
-    p.write("data.qlang", "let sizes = [4, 5, 6]\n");
+    p.write("app.py", "def main():\n    scores = mutcell(90, 85, 77)\n    return scores\n");
+    p.write("web.js", "const nums = mutcell(1, 2, 3);\nconsole.log(nums);\n");
+    p.write("data.qlang", "let sizes = mutcell(4, 5, 6)\n");
     p.write(
         ".helpers/lint-rules/any.md",
-        "## q_no_containers [high]\nDo not use array or list literals anywhere in this project. Use keyed structures instead.\n\n```bad\nxs = [1, 2, 3]\n```\n\n```good\nxs = {\"a\": 1, \"b\": 2, \"c\": 3}\n```\n",
+        "## q_no_containers [high]\nDo not use mutcell containers anywhere in this project. Use keyed structures instead.\n\n```bad\nxs = mutcell(1, 2, 3)\n```\n\n```good\nxs = fixcell(1, 2, 3)\n```\n\n## q_no_arrays [high]\nxyzzy qwerty plugh zork.\n\n```bad\nxs = [1, 2, 3]\n```\n\n```good\nxs = {\"a\": 1, \"b\": 2, \"c\": 3}\n```\n",
     );
 
     let verdict = p.lint(true);
@@ -159,6 +260,11 @@ fn an_instruction_with_no_language_governs_every_language_in_the_project() {
             "any.md q_no_containers must fire on {file} — one instruction governs every language:\n{verdict}"
         );
     }
+    assert!(
+        verdict.contains("not yet enforceable") && verdict.contains("q_no_arrays"),
+        "a punctuation-only law must be reported as not yet enforceable for the grammarless \
+         language, never silently skipped:\n{verdict}"
+    );
 }
 
 // ── B3: prose-only instruction ─────────────────────────────────────────────────
@@ -226,9 +332,9 @@ fn serve_flowlang_docs() -> String {
     format!("http://127.0.0.1:{port}/")
 }
 
-/// Registering a docs URL for a brand-new language — one JSON entry, pure data — makes the
-/// linter learn that language from its documentation and enforce what the docs deprecate.
-/// No code change, no rule files, no config beyond the URL.
+/// Registering a docs URL for a brand-new language — one JSON entry, pure data — makes one
+/// TRAINING run learn that language from its documentation, and the OFFLINE lint that follows
+/// enforces what the docs deprecate. No code change, no rule files, no config beyond the URL.
 #[test]
 fn a_new_language_is_taught_with_one_docs_url_data_entry() {
     let url = serve_flowlang_docs();
@@ -241,7 +347,17 @@ fn a_new_language_is_taught_with_one_docs_url_data_entry() {
         ),
     );
 
-    let verdict = p.lint(false); // online: it must actually read the served docs
+    let trained = p.call(
+        "lint_config",
+        &format!(r#"{{"root":{:?},"action":"train"}}"#, p.root.to_string_lossy()),
+        false, // setup is the online step: it must actually read the served docs
+    );
+    assert!(
+        trained.contains("flowlang"),
+        "training must report the data-registered language:\n{trained}"
+    );
+
+    let verdict = p.lint(true); // linting is offline: it replays the trained module
 
     assert!(
         verdict.to_lowercase().contains("flowlang"),
@@ -258,6 +374,247 @@ fn a_new_language_is_taught_with_one_docs_url_data_entry() {
     );
 }
 
+/// A language whose AI MODULE is PUBLISHED in the model registry is downloaded and loaded
+/// AS-IS instead of re-trained — the acquisition order's "pull from GitHub first" step,
+/// against a localhost registry serving a fictional language nothing in the codebase can
+/// know. The published artifact is the compiled runnable module (pattern engine + concept
+/// gate + provenance) — never documentation.
+#[test]
+fn a_published_model_is_downloaded_from_the_registry_instead_of_recrawled() {
+    let tv = helpers_native::lint_train::train_version();
+    // The project registers no sources for zetalang, so the local source-set fingerprint is
+    // the hash of the empty set — the published entry must carry the same one to match.
+    let fp = format!("{:016x}", helpers_native::lint_ai::token_seed(""));
+    // Compile the module exactly as training would: the same public engines.
+    let rules = helpers_native::lint_match::RuleSet::build(
+        "zetalang",
+        &[(
+            "no_zorkle".to_string(),
+            "high".to_string(),
+            "zorkle cleanup".to_string(),
+            "loop {{ step() }}".replace("{{", "{").replace("}}", "}"),
+            "Never use the zorkle statement anywhere; it is deprecated and will be removed.".to_string(),
+            "https://registry.example/zetalang/statements".to_string(),
+        )],
+        &helpers_native::lint_match::Grounding {
+            reference: vec!["loop { step() }".to_string(), "emit(\"done\")".to_string()],
+            ..Default::default()
+        },
+    );
+    assert!(rules.rule_count() > 0, "the fixture module must actually compile a detector");
+    let concept = helpers_native::lint_ai::ConceptModel::compile(
+        &[("no_zorkle".to_string(), "Never use the zorkle statement anywhere".to_string(), "zorkle cleanup".to_string())],
+        "zetalang",
+    );
+    let module = format!(
+        r#"{{"version":"","train_version":"{tv}","sources_fp":"{fp}","trained_at":1,"learned_from":"registry-test","rules":{},"concept":{}}}"#,
+        rules.to_json(),
+        serde_json::to_string(&concept).expect("concept serializes"),
+    );
+    let sha = helpers_native::lint_sign::sha256_hex(module.as_bytes());
+    let index = format!(
+        r#"[{{"language":"zetalang","toolchain":"","train_version":"{tv}","sources":"{fp}","sha256":"{sha}","module":"zetalang@any.module.json"}}]"#
+    );
+    // The consumed registry is only real when a TRUSTED key signed it: mint a registry
+    // identity, sign the exact index bytes, and trust the public half in the project's data.
+    let (registry_priv, registry_pub) = helpers_native::lint_sign::generate_keypair();
+    let signature = helpers_native::lint_sign::sign_with(index.as_bytes(), &registry_priv)
+        .expect("registry key signs");
+    let url = serve_json_registry(index, signature, module);
+
+    let p = TestProject::new("registry-pull");
+    p.write("main.zetalang", "begin:\n    zorkle cleanup\n    emit(\"done\")\n");
+    p.write(
+        "lint-index/sources.json",
+        &format!(r#"{{"version": 3, "registry": "{url}", "sources": []}}"#),
+    );
+    p.write(
+        "lint-index/trusted-keys.json",
+        &format!(r#"{{"registry": ["{registry_pub}"]}}"#),
+    );
+
+    let trained = p.call(
+        "lint_config",
+        &format!(r#"{{"root":{:?},"action":"train"}}"#, p.root.to_string_lossy()),
+        false, // setup is the online step: it must actually download from the registry
+    );
+    assert!(
+        trained.contains("Downloaded from the model registry"),
+        "training must say the module came from the registry:\n{trained}"
+    );
+
+    let verdict = p.lint(true); // linting is offline: it loads the pulled module as-is
+    let zorkle_flagged = verdict
+        .lines()
+        .skip_while(|l| !l.contains("main.zetalang"))
+        .take_while(|l| !l.trim().is_empty())
+        .any(|l| l.to_lowercase().contains("zorkle") || l.contains("L2"));
+    assert!(
+        zorkle_flagged,
+        "what the published module forbids (zorkle) must be flagged from the download alone:\n{verdict}"
+    );
+}
+
+/// An attacker who can write to the registry branch — or sit on the wire — still cannot make
+/// a consumer LOAD anything: an index whose signature no trusted key made simply does not
+/// exist, and the machine falls through to reading the docs itself (here: zetalang has no
+/// docs, so it honestly reports "not set up" instead of loading the planted module).
+#[test]
+fn an_unsigned_or_tampered_registry_is_never_loaded() {
+    let tv = helpers_native::lint_train::train_version();
+    let fp = format!("{:016x}", helpers_native::lint_ai::token_seed(""));
+    let module = format!(
+        r#"{{"version":"","train_version":"{tv}","sources_fp":"{fp}","trained_at":1,"learned_from":"attacker","rules":{{"lang":"zetalang","rules":[]}},"concept":{{"rules":[]}}}}"#
+    );
+    let sha = helpers_native::lint_sign::sha256_hex(module.as_bytes());
+    let index = format!(
+        r#"[{{"language":"zetalang","toolchain":"","train_version":"{tv}","sources":"{fp}","sha256":"{sha}","module":"zetalang@any.module.json"}}]"#
+    );
+    // Signed by the ATTACKER's key — which no consumer trusts.
+    let (attacker_priv, _attacker_pub) = helpers_native::lint_sign::generate_keypair();
+    let signature = helpers_native::lint_sign::sign_with(index.as_bytes(), &attacker_priv)
+        .expect("attacker signs happily");
+    let (_, victim_trusted_pub) = helpers_native::lint_sign::generate_keypair();
+    let url = serve_json_registry(index, signature, module);
+
+    let p = TestProject::new("registry-tamper");
+    p.write("main.zetalang", "begin:\n    zorkle cleanup\n    emit(\"done\")\n");
+    p.write(
+        "lint-index/sources.json",
+        &format!(r#"{{"version": 3, "registry": "{url}", "sources": []}}"#),
+    );
+    p.write(
+        "lint-index/trusted-keys.json",
+        &format!(r#"{{"registry": ["{victim_trusted_pub}"]}}"#),
+    );
+
+    let trained = p.call(
+        "lint_config",
+        &format!(r#"{{"root":{:?},"action":"train"}}"#, p.root.to_string_lossy()),
+        false,
+    );
+    assert!(
+        !trained.contains("Downloaded from the model registry"),
+        "a registry signed by an untrusted key must not exist for this machine:\n{trained}"
+    );
+    assert!(
+        trained.contains("zetalang"),
+        "the language is still reported honestly (needs docs), never silently loaded:\n{trained}"
+    );
+}
+
+/// A tiny HTTP server for the registry contract: `/index.json`, `/index.sig`, and exactly one
+/// module file.
+fn serve_json_registry(index: String, signature: String, module: String) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind localhost");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let body = if req.starts_with("GET /index.json") {
+                &index
+            } else if req.starts_with("GET /index.sig") {
+                &signature
+            } else {
+                &module
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+    format!("http://127.0.0.1:{port}")
+}
+
+/// Batch training runs the pipeline for every registered language and reports each outcome
+/// honestly — with the network down (hermetic switch), every language is named as not learned
+/// and the reply asks to reconnect, never pretends, never fails.
+#[test]
+fn batch_training_reports_every_registered_language_honestly() {
+    let p = TestProject::new("batch-train");
+    p.write(
+        "lint-index/sources.json",
+        r#"{"version": 3, "sources": [{"tool": "q9docs", "language": "qlang9", "kind": "crawl", "seed": "https://qlang9.example/docs/"}]}"#,
+    );
+
+    let ack = p.call(
+        "lint_config",
+        &format!(r#"{{"root":{:?},"action":"train"}}"#, p.root.to_string_lossy()),
+        true, // hermetic: the network is down
+    );
+
+    assert!(
+        ack.contains("qlang9") && ack.to_lowercase().contains("not learned"),
+        "every registered language's outcome is reported:\n{ack}"
+    );
+    assert!(
+        ack.to_lowercase().contains("reconnect"),
+        "a dead network must ask to reconnect, not pretend or fail:\n{ack}"
+    );
+}
+
+/// The self-assembly loop end to end, with exactly two setup verbs: an unknown language makes
+/// the run ASK for the addition at runtime; `add_source` registers the docs (offline-safe,
+/// trains nothing); `train` (online) learns the module; the next OFFLINE run enforces what the
+/// docs deprecate — online to set up, offline to run. The docs are a localhost-served
+/// fictional language — nothing in the codebase can know it.
+#[test]
+fn an_unknown_language_is_set_up_by_adding_its_docs_source_then_training() {
+    let url = serve_flowlang_docs();
+    let p = TestProject::new("add-source-on-ask");
+    p.write("main.flowlang", "start:\n    goto cleanup\n    emit(\"done\")\n");
+    // Pin an EMPTY sources registry: `action=train` must train exactly the language this test
+    // adds — never fall back to the embedded registry and crawl the real internet.
+    p.write("lint-index/sources.json", r#"{"version": 3, "sources": []}"#);
+
+    let before = p.lint(true); // linting never sets up: the run must ask for the addition
+    assert!(
+        before.contains("flowlang") && before.contains("action=train"),
+        "the report must name the unknown language and point at the setup verb:\n{before}"
+    );
+
+    let registered = p.call(
+        "lint_config",
+        &format!(
+            r#"{{"root":{:?},"action":"add_source","lang":"flowlang","url":"{url}"}}"#,
+            p.root.to_string_lossy()
+        ),
+        true, // registering a source is a data write — offline-safe by design
+    );
+    assert!(
+        registered.contains("flowlang") && registered.contains("train"),
+        "add_source must confirm and point at the training verb:\n{registered}"
+    );
+
+    let trained = p.call(
+        "lint_config",
+        &format!(r#"{{"root":{:?},"action":"train"}}"#, p.root.to_string_lossy()),
+        false, // training reads the served docs — setup is the online step
+    );
+    assert!(
+        trained.contains("flowlang") && trained.contains("rule"),
+        "training must report the new language's module:\n{trained}"
+    );
+
+    let after = p.lint(true); // offline again: the trained module is cached
+    let goto_flagged = after
+        .lines()
+        .skip_while(|l| !l.contains("main.flowlang"))
+        .take_while(|l| !l.trim().is_empty())
+        .any(|l| l.to_lowercase().contains("goto") || l.contains("L2"));
+    assert!(
+        goto_flagged,
+        "what the added docs deprecate (goto) must be flagged, offline, after setup:\n{after}"
+    );
+}
+
 // ── B5: wrong findings are trained away by flagging, not by config editing ────
 
 /// Flag the same rule as a false positive at two sites → the next run suppresses it and says so.
@@ -268,17 +625,20 @@ fn flagging_a_false_positive_twice_suppresses_the_rule_on_the_next_run() {
     p.write("app.qx", "widget = make([1, 2, 3])\nlabel = make([4, 5])\n");
     p.write(
         ".helpers/lint-rules/qx.md",
-        "## no_brackets [high]\nDo not use bracket literals in qx.\n\n```qx:bad\nxs = [1, 2, 3]\n```\n\n```qx:good\nxs = tuple(1, 2, 3)\n```\n",
+        "## no_make [high]\nNever call `make` in qx; use build instead.\n",
     );
 
     let before = p.lint(true);
-    assert!(before.contains("no_brackets"), "rule fires before any feedback:\n{before}");
+    assert!(
+        flagged_in(&before, "app.qx", "no_make"),
+        "rule fires before any feedback:\n{before}"
+    );
 
     for line in [1, 2] {
         let ack = p.call(
             "lint_flag",
             &format!(
-                r#"{{"root":{:?},"action":"false_positive","rule":"no_brackets","file":"app.qx","line":{line},"reason":"make() takes a spec list; this is idiomatic qx"}}"#,
+                r#"{{"root":{:?},"action":"false_positive","rule":"no_make","file":"app.qx","line":{line},"reason":"make() is idiomatic qx"}}"#,
                 p.root.to_string_lossy()
             ),
             true,
@@ -288,7 +648,7 @@ fn flagging_a_false_positive_twice_suppresses_the_rule_on_the_next_run() {
 
     let after = p.lint(true);
     assert!(
-        !flagged_in(&after, "app.qx", "no_brackets"),
+        !flagged_in(&after, "app.qx", "no_make"),
         "after two distinct false-positive flags the rule must be suppressed:\n{after}"
     );
     assert!(

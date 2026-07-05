@@ -154,6 +154,10 @@ fn split_heading(paragraph: &str) -> (Option<String>, String) {
 struct Building {
     rule: LearnedRule,
     from_heading: bool,
+    /// True while the rule's description is ONLY its heading's own words: a heading that never
+    /// gains body prose or a code block is a document TITLE, not a law (`# Rust law for this
+    /// repo` once minted a trusted rule watching `rust` — LINTER.md ledger #14).
+    heading_only: bool,
     blocks: Vec<(String, String)>,
 }
 
@@ -194,6 +198,7 @@ impl Knowledge {
         // reference knowledge.
         let commit = |cur: &mut Option<Building>, rules: &mut Vec<LearnedRule>, reference: &mut Vec<String>| {
             if let Some(b) = cur.take() {
+                let heading_only = b.heading_only;
                 let mut r = b.rule;
                 let blocks = b.blocks;
                 match blocks.len() {
@@ -224,7 +229,9 @@ impl Knowledge {
                 if r.language.is_empty() {
                     r.language = default_lang.to_string();
                 }
-                if !r.bad.is_empty() || r.description.split_whitespace().count() >= 3 {
+                // A heading that never gained body prose or a code block is a TITLE, not a law.
+                let title_only = heading_only && blocks.is_empty();
+                if !title_only && (!r.bad.is_empty() || r.description.split_whitespace().count() >= 3) {
                     rules.push(r);
                 }
             }
@@ -238,6 +245,7 @@ impl Knowledge {
                     if let Some(h) = heading {
                         commit(&mut cur, &mut rules, &mut reference);
                         let (severity, title) = split_severity(&h);
+                        let body_was_empty = body.is_empty();
                         // A bare-id heading (`## no_eval [high]`) contributes nothing to the
                         // English advice — the prose IS the advice; a descriptive heading's words
                         // stay in it.
@@ -256,6 +264,7 @@ impl Knowledge {
                                 good: String::new(),
                             },
                             from_heading: true,
+                            heading_only: body_was_empty,
                             blocks: Vec::new(),
                         });
                         lead.clear();
@@ -272,6 +281,7 @@ impl Knowledge {
                     match cur.as_mut() {
                         // A heading-started rule absorbs its body paragraphs until code arrives.
                         Some(b) if b.from_heading && b.blocks.is_empty() => {
+                            b.heading_only = false;
                             if b.rule.description == b.rule.id {
                                 // The heading was the bare rule id — this prose IS the advice.
                                 b.rule.description = clean;
@@ -297,6 +307,7 @@ impl Knowledge {
                                     good: String::new(),
                                 },
                                 from_heading: false,
+                                heading_only: false,
                                 blocks: Vec::new(),
                             });
                         }
@@ -316,7 +327,10 @@ impl Knowledge {
                     let mut lang_hint: Option<String> = None;
                     let mut orient_words = String::new();
                     for tok in info.split(|c: char| !c.is_ascii_alphanumeric()).filter(|t| !t.is_empty()) {
+                        // A fence hint aliases like a filename stem does: ```js names javascript
+                        // (ledger #16 — the walker and the law must agree on language names).
                         let low = tok.to_lowercase();
+                        let low = crate::util::file_lang(&low).map(str::to_string).unwrap_or(low);
                         if lang_hint.is_none() && (low == default_lang || crate::lint_match::bundled_language(&low)) {
                             lang_hint = Some(low);
                         } else {

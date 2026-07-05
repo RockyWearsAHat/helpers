@@ -9,17 +9,20 @@ use std::time::Instant;
 use helpers_native::lint_read::{PolarityBuilder, Reader};
 
 fn main() {
-    // A realistic reading corpus: the shipped rule catalog's English (~2k rule sentences),
-    // repeated to a ~5 MB body of prose.
-    let jsonl = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../extraDocs/lint-corpus.jsonl"),
-    )
-    .expect("corpus present");
-    let sentences: Vec<String> = jsonl
-        .lines()
-        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-        .filter_map(|v| v["description"].as_str().map(str::to_string))
-        .collect();
+    // A realistic reading corpus: the shipped teaching prose (`extraDocs/*.md` — the same
+    // material the linter itself reads), split to sentences and repeated to a ~5 MB body.
+    // (The former `lint-corpus.jsonl` rule catalog is deleted; enforcement grows from reading.)
+    let docs_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../extraDocs");
+    let mut prose = String::new();
+    for entry in std::fs::read_dir(&docs_dir).expect("corpus present").flatten() {
+        if entry.path().extension().is_some_and(|e| e == "md") {
+            prose.push_str(&std::fs::read_to_string(entry.path()).unwrap_or_default());
+            prose.push('\n');
+        }
+    }
+    assert!(!prose.is_empty(), "corpus present");
+    let sentences: Vec<String> =
+        helpers_native::lint_read::sentences(&prose).iter().map(|s| s.to_string()).collect();
     let mut body = String::new();
     while body.len() < 5_000_000 {
         for s in &sentences {

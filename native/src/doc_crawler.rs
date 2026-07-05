@@ -12,6 +12,17 @@
 //! unit-tested offline. Only [`fetch`]/[`crawl`] touch the network, behind the `crawl` feature, so
 //! the default binary stays browser-free and dependency-light.
 
+/// Latched TRUE the first time a network request fails at the TRANSPORT level this run —
+/// the wire is down, not "this page had nothing". Callers use [`network_down`] to keep
+/// linting from caches, skip further network attempts, avoid caching negative discovery
+/// answers, and report honestly (LINTER.md, "No connectivity flags").
+pub static NET_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether any network request this run failed at the transport level (see [`NET_DOWN`]).
+pub fn network_down() -> bool {
+    NET_DOWN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// One crawled page reduced to what training needs.
 #[derive(Debug, Clone)]
 pub struct Page {
@@ -28,6 +39,9 @@ pub struct Page {
     /// rule page's ordered `<pre>` blocks + incorrect/correct markers) instead of the lossy
     /// flattened sections. Held only for the lifetime of the returned crawl.
     pub html: String,
+    /// The server's `Last-Modified` for this page (unix seconds), when sent — the per-page
+    /// freshness anchor the verification sweep revalidates against.
+    pub modified: Option<u64>,
 }
 
 /// Decode the handful of HTML entities that actually appear in docs prose/code.
@@ -365,13 +379,27 @@ pub fn extract_links(base: &str, html: &str) -> Vec<String> {
     extract_anchors(base, html).into_iter().map(|(u, _)| u).collect()
 }
 
-/// True if `url` belongs to the same host as `seed` and sits under its directory prefix — the
+/// True if `url` belongs to the same host as `seed` and sits inside its docs tree — the
 /// "stay inside the official docs" rule that keeps the crawl on-topic and in-domain.
+///
+/// The tree is the seed path itself when its last segment is a directory-like name, and the
+/// seed's parent directory when it names a file (`…/bash.html` scopes to its folder). The
+/// match is boundary-safe: `/c` covers `/c` and `/c/…`, never `/cpp` — a prefix comparison
+/// without the boundary once put cppreference's entire site in one language's scope.
 pub fn in_scope(seed: &str, url: &str) -> bool {
     match (split_url(seed), split_url(url)) {
         (Some((_, sh, sp)), Some((_, uh, up))) => {
-            let prefix = sp.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-            uh == sh && up.starts_with(prefix)
+            if uh != sh {
+                return false;
+            }
+            let sp = sp.trim_end_matches('/');
+            let last = sp.rsplit_once('/').map(|(_, f)| f).unwrap_or(sp);
+            let tree = if last.contains('.') {
+                sp.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
+            } else {
+                sp
+            };
+            up.trim_end_matches('/') == tree || up.starts_with(&format!("{tree}/"))
         }
         _ => false,
     }
@@ -388,11 +416,36 @@ mod net {
     /// fonts, archives) or network errors. We keep everything textual a docs site serves; what to
     /// do with it is decided later by content type, not discarded up front.
     pub fn fetch(url: &str) -> Option<(String, String)> {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(Duration::from_secs(15))
-            .user_agent("helpers-doc-crawler/1.0 (+direct-fetch)")
-            .build();
-        let resp = agent.get(url).call().ok()?;
+        fetch_meta(url).map(|(ct, body, _)| (ct, body))
+    }
+
+    /// [`fetch`] plus the response's `Last-Modified` (unix seconds) — the per-page freshness
+    /// anchor the verification sweep stores and revalidates against.
+    pub fn fetch_meta(url: &str) -> Option<(String, String, Option<u64>)> {
+        // ONE pooled agent for the whole process: ureq keeps connections alive per host, so a
+        // whole-site crawl pays TCP+TLS once per host per lane instead of once per page — a
+        // fresh agent per request made the handshake the crawl's dominant wall time.
+        static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+        let agent = AGENT.get_or_init(|| {
+            ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(10))
+                .max_idle_connections_per_host(256)
+                .user_agent("helpers-doc-crawler/1.0 (+direct-fetch)")
+                .build()
+        });
+        let resp = match agent.get(url).call() {
+            Ok(resp) => resp,
+            // The site ANSWERED (an HTTP status): the network is fine, this URL just has
+            // nothing for us.
+            Err(ureq::Error::Status(..)) => return None,
+            // TRANSPORT failure: the network itself is unreachable. Latch it — the run keeps
+            // linting from caches, callers stop caching negative answers, and the report asks
+            // to reconnect instead of failing (LINTER.md, "No connectivity flags").
+            Err(ureq::Error::Transport(_)) => {
+                super::NET_DOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+                return None;
+            }
+        };
         let ct = resp.content_type().to_string();
         let binary = ct.starts_with("image/")
             || ct.starts_with("font/")
@@ -405,7 +458,101 @@ mod net {
         if binary {
             return None;
         }
-        resp.into_string().ok().map(|body| (ct, body))
+        let modified = resp.header("last-modified").and_then(parse_http_date);
+        resp.into_string().ok().map(|body| (ct, body, modified))
+    }
+
+    /// Conditional fetch: `If-Modified-Since` when `since` is known. `NotModified` proves the
+    /// page current for free; `Gone` means the page left the site; `Changed` carries the fresh
+    /// body. This is how 100% of an inventory is VERIFIED against the live site without
+    /// refetching what did not move.
+    pub enum Revalidation {
+        NotModified,
+        Gone,
+        Changed(String, String, Option<u64>),
+        Unreachable,
+    }
+
+    pub fn fetch_conditional(url: &str, since: Option<u64>) -> Revalidation {
+        static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+        let agent = AGENT.get_or_init(|| {
+            ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(10))
+                .max_idle_connections_per_host(256)
+                .user_agent("helpers-doc-crawler/1.0 (+revalidate)")
+                .build()
+        });
+        let mut req = agent.get(url);
+        if let Some(since) = since {
+            req = req.set("If-Modified-Since", &format_http_date(since));
+        }
+        match req.call() {
+            Ok(resp) => {
+                let modified = resp.header("last-modified").and_then(parse_http_date);
+                match resp.into_string() {
+                    Ok(body) => Revalidation::Changed(String::new(), body, modified),
+                    Err(_) => Revalidation::Unreachable,
+                }
+            }
+            Err(ureq::Error::Status(304, _)) => Revalidation::NotModified,
+            Err(ureq::Error::Status(404 | 410, _)) => Revalidation::Gone,
+            Err(ureq::Error::Status(..)) => Revalidation::Unreachable,
+            Err(ureq::Error::Transport(_)) => {
+                super::NET_DOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+                Revalidation::Unreachable
+            }
+        }
+    }
+
+    /// Unix seconds to RFC 1123 — the inverse of [`parse_http_date`], for `If-Modified-Since`.
+    fn format_http_date(secs: u64) -> String {
+        let days_total = (secs / 86400) as i64;
+        let (h, m, sec) = ((secs / 3600) % 24, (secs / 60) % 60, secs % 60);
+        // civil_from_days (Howard Hinnant), then day-of-week from the epoch (Thu = day 0).
+        let z = days_total + 719468;
+        let era = if z >= 0 { z } else { z - 146096 } / 146097;
+        let doe = z - era * 146097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = if month <= 2 { y + 1 } else { y };
+        let dow = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][(days_total.rem_euclid(7)) as usize];
+        let mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            [(month - 1) as usize];
+        format!("{dow}, {d:02} {mon} {year} {h:02}:{m:02}:{sec:02} GMT")
+    }
+
+    /// RFC 1123 (`Tue, 03 Jun 2025 11:05:30 GMT`) to unix seconds. Minimal by design — the
+    /// one format HTTP requires; anything else reads as `None` (assume changed).
+    fn parse_http_date(s: &str) -> Option<u64> {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        // ["Tue,", "03", "Jun", "2025", "11:05:30", "GMT"]
+        if parts.len() < 6 {
+            return None;
+        }
+        let day: i64 = parts[1].parse().ok()?;
+        let month = 1 + ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            .iter()
+            .position(|m| *m == parts[2])? as i64;
+        let year: i64 = parts[3].parse().ok()?;
+        let mut hms = parts[4].split(':');
+        let (h, m, sec): (i64, i64, i64) = (
+            hms.next()?.parse().ok()?,
+            hms.next()?.parse().ok()?,
+            hms.next()?.parse().ok()?,
+        );
+        // Days since the unix epoch (Howard Hinnant's days_from_civil).
+        let y = if month <= 2 { year - 1 } else { year };
+        let era = if y >= 0 { y } else { y - 399 } / 400;
+        let yoe = y - era * 400;
+        let mp = (month + 9) % 12;
+        let doy = (153 * mp + 2) / 5 + day - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        let days = era * 146097 + doe - 719468;
+        u64::try_from(days * 86400 + h * 3600 + m * 60 + sec).ok()
     }
 
     /// `false` for links that can never be documentation pages — binary/asset endpoints and raw
@@ -466,7 +613,7 @@ mod net {
     pub fn crawl(seeds: &[&str], max_pages: usize, _delay_ms: u64) -> Vec<Page> {
         /// Concurrent connections per wave inside a level — bounded so a thousand-page level
         /// does not spawn a thousand sockets at once.
-        const WAVE: usize = 64;
+        const WAVE: usize = 192;
         let mut seen: HashSet<String> = seeds.iter().map(|s| s.to_string()).collect();
         let mut level: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
         for url in sitemap_urls(seeds) {
@@ -477,18 +624,18 @@ mod net {
         let mut pages: Vec<Page> = Vec::new();
         while !level.is_empty() && pages.len() < max_pages {
             level.truncate(max_pages - pages.len());
-            let mut fetched: Vec<Option<(String, String)>> = Vec::with_capacity(level.len());
+            let mut fetched: Vec<Option<(String, String, Option<u64>)>> = Vec::with_capacity(level.len());
             for wave in level.chunks(WAVE) {
-                let got: Vec<Option<(String, String)>> = std::thread::scope(|scope| {
+                let got: Vec<Option<(String, String, Option<u64>)>> = std::thread::scope(|scope| {
                     let handles: Vec<_> =
-                        wave.iter().map(|url| scope.spawn(move || fetch(url))).collect();
+                        wave.iter().map(|url| scope.spawn(move || fetch_meta(url))).collect();
                     handles.into_iter().map(|h| h.join().unwrap_or(None)).collect()
                 });
                 fetched.extend(got);
             }
             let mut next: Vec<String> = Vec::new();
             for (url, got) in level.drain(..).zip(fetched) {
-                let Some((ct, body)) = got else { continue };
+                let Some((ct, body, modified)) = got else { continue };
                 let sections = extract(&ct, &body);
                 for (link, _anchor) in extract_anchors(&url, &body) {
                     if seen.len() < max_pages * 8
@@ -505,6 +652,7 @@ mod net {
                     code: extract_code_blocks(&body),
                     sections,
                     html: body,
+                    modified,
                 });
                 if pages.len() >= max_pages {
                     break;
@@ -518,7 +666,7 @@ mod net {
 }
 
 #[cfg(feature = "crawl")]
-pub use net::{crawl, fetch};
+pub use net::{crawl, fetch, fetch_conditional, Revalidation};
 
 #[cfg(test)]
 mod tests {
@@ -542,9 +690,15 @@ mod tests {
         assert_eq!(resolve(base, "ch02.html").unwrap(), "https://doc.rust-lang.org/book/ch02.html");
         assert_eq!(resolve(base, "/std/index.html").unwrap(), "https://doc.rust-lang.org/std/index.html");
         assert_eq!(resolve(base, "https://other.com/x").unwrap(), "https://other.com/x");
-        // In scope: same host, under the seed's directory. Out: other host or above the path.
+        // In scope: same host, inside the seed's docs tree. Out: other host, above the path,
+        // or a sibling that merely shares the seed as a string prefix (`/c` vs `/cpp`).
         assert!(in_scope("https://doc.rust-lang.org/book/", "https://doc.rust-lang.org/book/ch02.html"));
         assert!(!in_scope("https://doc.rust-lang.org/book/", "https://crates.io/x"));
+        assert!(in_scope("https://en.cppreference.com/c", "https://en.cppreference.com/c/language"));
+        assert!(in_scope("https://en.cppreference.com/c", "https://en.cppreference.com/c"));
+        assert!(!in_scope("https://en.cppreference.com/c", "https://en.cppreference.com/cpp/language"));
+        assert!(in_scope("https://gnu.org/bash/manual/bash.html", "https://gnu.org/bash/manual/x.html"));
+        assert!(!in_scope("https://doc.rust-lang.org/book/", "https://doc.rust-lang.org/std/index.html"));
     }
 
     #[test]

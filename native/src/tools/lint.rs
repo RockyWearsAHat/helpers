@@ -182,34 +182,52 @@ pub fn run(args: &Value) -> ToolResult {
     // The project's own rule documents (root lintPref, .helpers/lint-rules) are instructions TO
     // the linter, not source to be linted — never analyze the law as if it were code.
     let law: HashSet<PathBuf> = lint_train::rule_documents(&root).into_iter().map(|(p, _)| p).collect();
+    // Select the lintable files first (cheap), then read them ALL in parallel — the read pass
+    // is pure I/O over independent files and was the warm run's single largest stage when
+    // sequential. Order is preserved through the indexed collect, so the grouping (and every
+    // report downstream) stays deterministic.
+    let selected: Vec<(String, &crate::index::walk::WalkedFile)> = files
+        .iter()
+        .filter(|f| !law.contains(&f.abs))
+        .filter_map(|f| {
+            // A known extension resolves to its canonical grammar name; an UNKNOWN one becomes a
+            // language named by the extension itself — no built-in language list. Such files ride
+            // the token-regex engine, project rules (`.helpers/lint-rules/<ext>.md`, `any.md`),
+            // and on-the-fly docs discovery; unreadable (non-UTF-8) files fall out at the read.
+            let ext = f.ext.to_lowercase();
+            if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+                return None;
+            }
+            let l = file_lang(&ext).map(str::to_string).unwrap_or(ext);
+            if filter.as_ref().is_some_and(|set| !set.contains(l.as_str())) {
+                return None;
+            }
+            if config.languages.as_ref().is_some_and(|set| !set.contains(&l)) {
+                return None;
+            }
+            Some((l, f))
+        })
+        .collect();
+    use rayon::prelude::*;
+    let bodies: Vec<Option<String>> = selected
+        .par_iter()
+        .map(|(_, f)| std::fs::read_to_string(&f.abs).ok())
+        .collect();
     let mut by_language: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    for f in &files {
-        if law.contains(&f.abs) { continue; }
-        // A known extension resolves to its canonical grammar name; an UNKNOWN one becomes a
-        // language named by the extension itself — no built-in language list. Such files ride
-        // the token-regex engine, project rules (`.helpers/lint-rules/<ext>.md`, `any.md`), and
-        // on-the-fly docs discovery; unreadable (non-UTF-8) files fall out at the read below.
-        let ext = f.ext.to_lowercase();
-        if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) { continue; }
-        let l = file_lang(&ext).unwrap_or(&ext);
-        if filter.as_ref().is_some_and(|set| !set.contains(l)) { continue; }
-        if config.languages.as_ref().is_some_and(|set| !set.iter().any(|x| x == l)) { continue; }
-        if let Ok(src) = std::fs::read_to_string(&f.abs) {
-            by_language.entry(l.to_string()).or_default().push((f.rel.clone(), src));
+    for ((l, f), body) in selected.into_iter().zip(bodies) {
+        if let Some(src) = body {
+            by_language.entry(l).or_default().push((f.rel.clone(), src));
         }
     }
 
     // 2) Train / load one model per detected language (checksum-cached), and the advice map that
-    //    carries each rule's English description and severity for rendering.
+    //    carries each rule's English description and severity for rendering. The file map itself
+    //    is the grounding corpus (`lang → (path, body)`): a law names constructs that live in the
+    //    code it governs, so the project grounds construct selection for ANY language, shape-free
+    //    — passed by reference, never duplicated.
     let langs: Vec<String> = by_language.keys().cloned().collect();
-    // The project's own sources ground construct selection: a law names constructs that live in
-    // the code it governs, so the project is a corpus that exists for ANY language, shape-free.
-    let project_code: BTreeMap<String, Vec<String>> = by_language
-        .iter()
-        .map(|(l, files)| (l.clone(), files.iter().map(|(_, src)| src.clone()).collect()))
-        .collect();
     mark(&mut stages, "walk+read");
-    let (report, models) = lint_train::ensure_models(&langs, &data, &root, &project_code);
+    let (report, models) = lint_train::ensure_models(&langs, &data, &root, &by_language);
     mark(&mut stages, "train/load");
 
     let mut sources: Vec<String> = Vec::new();
@@ -221,6 +239,9 @@ pub fn run(args: &Value) -> ToolResult {
     // report shows the reading-and-testing path actually ran — not just that rules exist.
     if !report.crawled.is_empty() {
         sources.push(format!("learned live from official docs: {}", report.crawled.join(", ")));
+    }
+    if !report.pulled.is_empty() {
+        sources.push(format!("downloaded from the model registry: {}", report.pulled.join(", ")));
     }
 
     let mut reports: Vec<FileReport> = Vec::new();
@@ -237,84 +258,126 @@ pub fn run(args: &Value) -> ToolResult {
 
     // 3) Rule firing + confirmation gate. Findings are staged (not reported yet) so the
     //    self-validation pass below can measure each rule's fire rate against reality first.
-    let total_lines: usize = by_language.values().flatten().map(|(_, src)| src.lines().count()).sum();
-    let mut staged: Vec<(String, Hit, bool)> = Vec::new(); // (path, hit, unverified doc rule?)
-    for (lang, lang_files) in &by_language {
-        let Some(model) = models.get(lang) else { continue };
-        // Rules the project itself authored are the user's explicit law for this codebase —
-        // trusted fully, never gated, however weak their compiled anchor is.
-        let trusted = lint_train::project_rule_ids(&data, &root, lang);
-        for id in &trusted {
-            if let Some(watching) = model.rules.detector_of(id) {
-                law_watch.insert(id.clone(), watching);
-            }
-        }
-        // Precise AST matches are exact and staged directly. Imprecise matches — text-fallback
-        // regexes and container-only AST patterns (several distinct rules compile to the same bare
-        // `list`) — must clear the Hv concept gate: the matched construct's tokens must agree with
-        // the fired rule's fingerprint more than with any other rule's, so a match that belongs to
-        // a different concept is dropped — no word blocklist involved. All of a language's gated
-        // findings go through ONE batched query ([`crate::lint_ai::ConceptModel::confirms_batch`]),
-        // a single popcount-grid dispatch instead of a scalar scan per finding.
-        let mut pending: Vec<(String, crate::lint_match::Finding, bool)> = Vec::new();
-        let mut gate_tokens: Vec<(usize, Vec<String>)> = Vec::new(); // (pending idx, construct tokens)
-        // Match every file in parallel — each file's firing pass is independent, and the whole
-        // project's matching is the warm run's main CPU. Findings fold back in file order so
-        // the report stays deterministic.
+    //    Every fire-rate denominator derives from ONE parallel line count per file.
+    let file_lines: HashMap<&str, usize> = {
         use rayon::prelude::*;
-        let per_file: Vec<Vec<crate::lint_match::Finding>> =
-            lang_files.par_iter().map(|(_, src)| model.rules.flag(src)).collect();
-        for ((path, src), findings) in lang_files.iter().zip(per_file) {
-            for finding in findings {
-                let doc_rule = !trusted.contains(&finding.rule);
-                if !finding.precise {
-                    let toks = line_tokens(src, finding.line);
-                    // Restatement guard (all imprecise findings, trusted law included): a line
-                    // that repeats the rule's own words is quoting the law, not breaking it.
-                    let desc = model.rules.info_of(&finding.rule).map(|(_, d, _)| d).unwrap_or("");
-                    if restates_rule(&toks, desc) {
-                        continue;
-                    }
-                    if doc_rule {
-                        gate_tokens.push((pending.len(), toks));
+        let files: Vec<(&str, &str)> =
+            by_language.values().flatten().map(|(p, s)| (p.as_str(), s.as_str())).collect();
+        files.par_iter().map(|(p, s)| (*p, s.lines().count())).collect()
+    };
+    let total_lines: usize = file_lines.values().sum();
+    // Languages fire in PARALLEL — each language's pass (trusted-law lookup, matching, concept
+    // gate) is independent, so the stage costs the slowest language, not the sum. Results fold
+    // back in language order, and each language's findings stay in file order, so the report
+    // is deterministic. Within a language, files also match in parallel (rayon nests fine).
+    struct LangPass {
+        staged: Vec<(String, Hit, bool)>, // (path, hit, unverified doc rule?)
+        law_watch: Vec<(String, String)>,
+        trace: String,
+    }
+    let passes: Vec<LangPass> = {
+        use rayon::prelude::*;
+        let entries: Vec<(&String, &Vec<(String, String)>)> = by_language.iter().collect();
+        entries
+            .par_iter()
+            .filter_map(|(lang, lang_files)| {
+                let model = models.get(*lang)?;
+                let t0 = std::time::Instant::now();
+                // Rules the project itself authored are the user's explicit law for this
+                // codebase — trusted fully, never gated, however weak their compiled anchor is.
+                let trusted = lint_train::project_rule_ids(&data, &root, lang);
+                let law_watch: Vec<(String, String)> = trusted
+                    .iter()
+                    .filter_map(|id| model.rules.detector_of(id).map(|w| (id.clone(), w)))
+                    .collect();
+                // Precise AST matches are exact and staged directly. Imprecise matches —
+                // text-fallback regexes and container-only AST patterns (several distinct rules
+                // compile to the same bare `list`) — must clear the Hv concept gate: the matched
+                // construct's tokens must agree with the fired rule's fingerprint more than with
+                // any other rule's, so a match that belongs to a different concept is dropped —
+                // no word blocklist involved. All of a language's gated findings go through ONE
+                // batched query ([`crate::lint_ai::ConceptModel::confirms_batch`]), a single
+                // popcount-grid dispatch instead of a scalar scan per finding.
+                let mut pending: Vec<(String, crate::lint_match::Finding, bool)> = Vec::new();
+                let mut gate_tokens: Vec<(usize, Vec<String>)> = Vec::new(); // (pending idx, construct tokens)
+                let per_file: Vec<Vec<crate::lint_match::Finding>> =
+                    lang_files.par_iter().map(|(_, src)| model.rules.flag(src)).collect();
+                for ((path, src), findings) in lang_files.iter().zip(per_file) {
+                    for finding in findings {
+                        let doc_rule = !trusted.contains(&finding.rule);
+                        if !finding.precise {
+                            let toks = line_tokens(src, finding.line);
+                            // Restatement guard (all imprecise findings, trusted law included):
+                            // a line repeating the rule's own words is quoting the law, not
+                            // breaking it.
+                            let desc =
+                                model.rules.info_of(&finding.rule).map(|(_, d, _)| d).unwrap_or("");
+                            if restates_rule(&toks, desc) {
+                                continue;
+                            }
+                            if doc_rule {
+                                gate_tokens.push((pending.len(), toks));
+                            }
+                        }
+                        pending.push((path.clone(), finding, doc_rule));
                     }
                 }
-                pending.push((path.clone(), finding, doc_rule));
-            }
+                let items: Vec<(&str, Vec<&str>)> = gate_tokens
+                    .iter()
+                    .map(|(i, toks)| {
+                        (pending[*i].1.rule.as_str(), toks.iter().map(String::as_str).collect())
+                    })
+                    .collect();
+                let mut rejected: HashSet<usize> = HashSet::new();
+                for (kept, (i, _)) in
+                    model.concept.confirms_batch(&items).into_iter().zip(&gate_tokens)
+                {
+                    if !kept {
+                        rejected.insert(*i);
+                    }
+                }
+                let mut staged: Vec<(String, Hit, bool)> = Vec::new();
+                for (i, (path, finding, doc_rule)) in pending.into_iter().enumerate() {
+                    if rejected.contains(&i) {
+                        continue;
+                    }
+                    // The compiled model carries each rule's reporting facts — no catalog re-read.
+                    let (severity, advice_text, source) = model
+                        .rules
+                        .info_of(&finding.rule)
+                        .map(|(sev, desc, src)| {
+                            let sev = if sev.is_empty() { finding.severity.clone() } else { sev.to_string() };
+                            let adv = if desc.is_empty() { format!("violates `{}`", finding.rule) } else { desc.to_string() };
+                            // A law file inside the project cites as a relative path; docs cite their URL.
+                            let src = src
+                                .strip_prefix(&format!("{}/", root.display()))
+                                .unwrap_or(src)
+                                .to_string();
+                            (sev, adv, src)
+                        })
+                        .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule), String::new()));
+                    staged.push((path, Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text, source }, doc_rule));
+                }
+                let trace = format!(
+                    "[lint-match] {lang}: {} files, {} rules, {} finding(s), {:.1}ms",
+                    lang_files.len(),
+                    model.rules.rule_count(),
+                    staged.len(),
+                    t0.elapsed().as_secs_f64() * 1e3
+                );
+                Some(LangPass { staged, law_watch, trace })
+            })
+            .collect()
+    };
+    let mut staged: Vec<(String, Hit, bool)> = Vec::new();
+    let trace_on = std::env::var_os("HELPERS_LINT_TRACE").is_some();
+    for pass in passes {
+        if trace_on {
+            eprintln!("{}", pass.trace);
         }
-        let items: Vec<(&str, Vec<&str>)> = gate_tokens
-            .iter()
-            .map(|(i, toks)| (pending[*i].1.rule.as_str(), toks.iter().map(String::as_str).collect()))
-            .collect();
-        let mut rejected: HashSet<usize> = HashSet::new();
-        for (kept, (i, _)) in model.concept.confirms_batch(&items).into_iter().zip(&gate_tokens) {
-            if !kept {
-                rejected.insert(*i);
-            }
-        }
-        for (i, (path, finding, doc_rule)) in pending.into_iter().enumerate() {
-            if rejected.contains(&i) {
-                continue;
-            }
-            // The compiled model carries each rule's reporting facts — no catalog re-read.
-            let (severity, advice_text, source) = model
-                .rules
-                .info_of(&finding.rule)
-                .map(|(sev, desc, src)| {
-                    let sev = if sev.is_empty() { finding.severity.clone() } else { sev.to_string() };
-                    let adv = if desc.is_empty() { format!("violates `{}`", finding.rule) } else { desc.to_string() };
-                    // A law file inside the project cites as a relative path; docs cite their URL.
-                    let src = src
-                        .strip_prefix(&format!("{}/", root.display()))
-                        .unwrap_or(src)
-                        .to_string();
-                    (sev, adv, src)
-                })
-                .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule), String::new()));
-            staged.push((path, Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text, source }, doc_rule));
-        }
+        staged.extend(pass.staged);
+        law_watch.extend(pass.law_watch);
     }
-
     mark(&mut stages, "match+gate");
 
     // 3b) Self-validation against reality: a doc-learned rule that fires on more than 1% of every
@@ -322,13 +385,25 @@ pub fn run(args: &Value) -> ToolResult {
     //     hundreds of real mistakes. Quarantine it wholesale and say so, instead of flooding the
     //     report. Project-authored rules are never quarantined: a project-wide convention
     //     violation legitimately fires everywhere.
-    let file_lines: HashMap<&str, usize> =
-        by_language.values().flatten().map(|(p, s)| (p.as_str(), s.lines().count())).collect();
-    let mut fires: HashMap<&str, usize> = HashMap::new();
+    // Fire rates are judged against the LINES OF THE RULE'S OWN LANGUAGE, not the whole
+    // project: a rust rule's noise must not be diluted to invisibility by a thousand markdown
+    // files that it never even ran against.
+    let path_lang: HashMap<&str, &str> = by_language
+        .iter()
+        .flat_map(|(l, files)| files.iter().map(move |(p, _)| (p.as_str(), l.as_str())))
+        .collect();
+    let lang_lines: HashMap<&str, usize> = by_language
+        .iter()
+        .map(|(l, files)| {
+            (l.as_str(), files.iter().map(|(p, _)| file_lines[p.as_str()]).sum())
+        })
+        .collect();
+    let mut fires: HashMap<(&str, &str), usize> = HashMap::new(); // (rule, lang) → hits
     let mut file_fires: HashMap<(&str, &str), usize> = HashMap::new();
     for (path, hit, doc_rule) in &staged {
         if *doc_rule {
-            *fires.entry(hit.rule.as_str()).or_default() += 1;
+            let lang = path_lang.get(path.as_str()).copied().unwrap_or("");
+            *fires.entry((hit.rule.as_str(), lang)).or_default() += 1;
             *file_fires.entry((hit.rule.as_str(), path.as_str())).or_default() += 1;
         }
     }
@@ -338,9 +413,20 @@ pub fn run(args: &Value) -> ToolResult {
         .filter(|((_, path), &n)| n >= 20 && n * 10 > file_lines.get(path).copied().unwrap_or(usize::MAX))
         .map(|((rule, _), _)| *rule)
         .collect();
+    // Two-tier by detector structure, mirroring the compile-time reference-fire bar: a
+    // detector whose own shape can vouch for it gets 1%; a DEGENERATE one (single token, bare
+    // leaf) has only fire statistics as witness and gets 0.1% — the reference corpus can be
+    // too small to testify about a token that is rare in doc examples but pervasive in real
+    // projects (`path` passed compile on 8 corpus lines, then fired 305× here).
+    let degenerate =
+        |id: &str| models.values().any(|m| m.rules.degenerate_detector(id));
     let quarantined: std::collections::BTreeSet<String> = fires.iter()
-        .filter(|(id, &n)| (n >= 20 && n * 100 > total_lines) || concentrated.contains(*id))
-        .map(|(id, _)| id.to_string())
+        .filter(|((id, lang), &n)| {
+            let lines = lang_lines.get(*lang).copied().unwrap_or(total_lines);
+            let per_mille = if degenerate(id) { 1000 } else { 100 };
+            (n >= 20 && n * per_mille > lines) || concentrated.contains(*id)
+        })
+        .map(|((id, _), _)| id.to_string())
         .collect();
     for (path, hit, _) in staged.into_iter().filter(|(_, h, _)| !quarantined.contains(&h.rule)) {
         push_hit(&mut reports, &path, hit);
@@ -356,6 +442,10 @@ pub fn run(args: &Value) -> ToolResult {
         }
     }
 
+    // A file whose every finding was suppressed above has nothing to report: drop it, or the
+    // verdict counts it and the body prints a bare path with no findings under it.
+    reports.retain(|r| !r.hits.is_empty());
+
     let analyzed: BTreeMap<String, usize> = by_language.iter().map(|(l, fs)| (l.clone(), fs.len())).collect();
     let unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     reports.sort_by(|a, b| a.path.cmp(&b.path));
@@ -367,6 +457,46 @@ pub fn run(args: &Value) -> ToolResult {
         }
     }
     body.push_str(&render_unenforced(&report.unenforced));
+    // Law files whose language matches no analyzed file are INERT — reported, never skipped
+    // silently (ledger #16): a typo'd stem must surface here, not as a CLEAN verdict.
+    let inert: Vec<String> = lint_train::rule_documents(&root)
+        .into_iter()
+        .filter(|(_, lang)| lang != "any" && !by_language.contains_key(lang.as_str()))
+        .map(|(p, lang)| {
+            let rel = p.strip_prefix(&root).unwrap_or(&p).display().to_string();
+            format!("{rel} (governs '{lang}')")
+        })
+        .collect();
+    if !inert.is_empty() {
+        body.push_str(&format!(
+            "\nInert law file(s) — the language they govern matches no analyzed file, so their \
+             rules did not run: {}.\n",
+            inert.join(", ")
+        ));
+    }
+    // Knowledge never vanishes silently: name every language whose docs resolved to nothing
+    // this run (offline with a cold page cache, or no sources known) — project law still
+    // applies there, and the next online run retries the docs.
+    // Prose languages (md/txt, man sections) are reading material with no doc-learning path —
+    // "run once online to learn" would be a false promise for them, so they are not listed.
+    let unlearned: std::collections::BTreeSet<&str> = report
+        .unlearned
+        .iter()
+        .map(String::as_str)
+        .filter(|l| !crate::lint_match::prose_lang(l))
+        .collect();
+    if !unlearned.is_empty() {
+        let names = unlearned.into_iter().collect::<Vec<_>>().join(", ");
+        // A lint run is replay-only — it never sets anything up, it ASKS for the documentation
+        // (LINTER.md, "Lint never touches the network"): the user — far more often the agent
+        // acting for them — answers with a URL. One message, two verbs, nothing else.
+        body.push_str(&format!(
+            "\nNot yet set up (project law still enforced there): {names}. Everything else \
+             was fully checked. Hand me each unknown language's official documentation \
+             (`lint_config action=add_source lang=<language> url=<docs URL>`), then run \
+             `lint_config action=train` — setup needs internet, linting never does.\n"
+        ));
+    }
     body.push_str(&render_quarantine(&quarantined));
     body.push_str(&render_feedback(&root, &auto_suppressed));
     // Honest latency accounting on demand: where a run's time actually went, stage by stage.
@@ -549,6 +679,35 @@ fn render(
 
 /// Public for sibling tools that need the same data root.
 pub(crate) fn data_root_pub() -> PathBuf { data_root() }
+
+/// The languages of the project's own files — the same extension→language resolution the lint
+/// walk uses (unknown extensions are languages named by the extension; law documents are not
+/// source). `lint_config action=train` unions these with the registry so the current project
+/// is always covered by one training run.
+pub(crate) fn project_languages(root: &Path) -> Vec<String> {
+    let law: HashSet<PathBuf> =
+        lint_train::rule_documents(root).into_iter().map(|(p, _)| p).collect();
+    let mut langs: Vec<String> = Vec::new();
+    for f in walk_repo(root) {
+        if law.contains(&f.abs) {
+            continue;
+        }
+        let ext = f.ext.to_lowercase();
+        if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        let lang = file_lang(&ext).map(str::to_string).unwrap_or(ext);
+        // Prose formats are reading material, never doc-trained modules — asking for "man
+        // page documentation" would be noise, not setup.
+        if crate::lint_match::prose_lang(&lang) {
+            continue;
+        }
+        if !langs.contains(&lang) {
+            langs.push(lang);
+        }
+    }
+    langs
+}
 
 /// Locate the directory that holds the linter's knowledge sources (`extraDocs/`, `lint-index/`).
 /// Prefers the resolved workspace root (the dev checkout); otherwise walks up from the executable.
