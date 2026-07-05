@@ -137,7 +137,7 @@
     },
     {
       "tool": "yaml-spec",
-      "language": "yml",
+      "language": "yaml",
       "kind": "crawl",
       "seed": "https://yaml.org/spec/1.2.2/"
     }

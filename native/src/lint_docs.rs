@@ -89,6 +89,7 @@ pub fn read_language(
         prose_queues.push(src_prose);
     }
     let mut pages_read = 0usize;
+    let mut dotted: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
     let mut prose_cursors: Vec<std::vec::IntoIter<String>> =
         prose_queues.into_iter().map(Vec::into_iter).collect();
     'reading: loop {
@@ -98,8 +99,12 @@ pub fn read_language(
                 break 'reading;
             }
             if let Some(prose) = cursor.next() {
-                reader.learn_span(&prose);
-                pages_read += 1;
+                if !prose.trim().is_empty() {
+                    reader.learn_span(&prose);
+                    crate::lint_read::tally_dotted_tokens(&prose, &mut dotted);
+                    crate::lint_read::tally_name_aliases(lang, &prose, &mut dotted);
+                    pages_read += 1;
+                }
                 emitted = true;
             }
         }
@@ -125,11 +130,22 @@ pub fn read_language(
         }
     }
 
+    // File-extension claims: filenames live in the docs' own commands and examples too
+    // (`kotlinc hello.kt`), so unit code feeds the tally alongside the prose.
+    for (_, _, _, code) in &units {
+        crate::lint_read::tally_dotted_tokens(code, &mut dotted);
+    }
     // Teaching material enriches every reading: the shipped principles corpus is prose the
     // reader learns from alongside the docs (never rules).
     for doc in crate::lint_train::corpus_prose(data_root) {
         reader.learn_span(&doc);
     }
+    // The claims are the tally as read: call typography already excluded invocations, and a
+    // corpus-head filter is deliberately ABSENT — a language's docs say its own extension's
+    // name in prose constantly ("js" in MDN, "php" in the manual), so commonness is exactly
+    // the wrong reason to drop a claim; cross-language junk loses at RESOLUTION instead
+    // (primary rule, counts, the prose guard).
+    let extensions: std::collections::BTreeMap<String, u32> = dotted;
     // Ground: test a sample of examples against the toolchain; their prose shapes the prototypes.
     // Grounding verdicts are the ONLY labels anywhere — no curated corpus, no authored labels:
     // the classifier is learned through understanding and tested against reality.
@@ -190,7 +206,7 @@ pub fn read_language(
             }
         }
     }
-    Memory { bindings, reference, polarity: polarity.is_ready().then_some(polarity) }
+    Memory { bindings, reference, polarity: polarity.is_ready().then_some(polarity), pages_read, extensions }
 }
 
 // ── Per-source crawl cache (one network read per machine per source) ──────────
@@ -862,7 +878,7 @@ mod tests {
                 crate::lint_read::Binding::form("rust", url, slug, prose, code, &polarity)
             })
             .collect();
-        Memory { bindings, reference: Vec::new(), polarity: Some(polarity) }
+        Memory { bindings, reference: Vec::new(), polarity: Some(polarity), pages_read: units.len(), extensions: Default::default() }
     }
 
     #[test]
@@ -973,6 +989,55 @@ mod transfer_probe {
             Some(true),
             "a neutral title must not classify as a prohibition"
         );
+    }
+
+    /// DEV TOOL — regenerates `lint-index/extensions-bootstrap.json` from this machine's crawl
+    /// page caches: for every registered source, the same reading (prose learned by a
+    /// [`Reader`]) and the same typographic tally the live pipeline uses, head-filtered per
+    /// language — learned data end to end, committed so cold machines are wired before their
+    /// first training run (LINTER.md, "File types are learned by reading"). Run after reading
+    /// or tally changes: `cargo test --release generate_extensions_bootstrap -- --ignored`
+    #[test]
+    #[ignore = "dev tool: regenerates the committed extensions bootstrap from cached crawls"]
+    fn generate_extensions_bootstrap() {
+        let data_root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        let raw = crate::lint_train::lint_index_file(&data_root, "sources.json")
+            .expect("sources.json exists");
+        let json: serde_json::Value = serde_json::from_str(&raw).expect("sources.json parses");
+        // One tally per LANGUAGE (a language may register several sources).
+        let mut per_lang: std::collections::BTreeMap<String, std::collections::BTreeMap<String, u32>> =
+            std::collections::BTreeMap::new();
+        for src in json["sources"].as_array().into_iter().flatten() {
+            let (Some(tool), Some(lang)) = (src["tool"].as_str(), src["language"].as_str())
+            else {
+                continue;
+            };
+            let Ok(raw) = std::fs::read_to_string(crawl_cache_path(tool)) else { continue };
+            let Ok(cached) = serde_json::from_str::<CrawledSource>(&raw) else { continue };
+            let tally = per_lang.entry(lang.to_string()).or_default();
+            for page in &cached.pages {
+                crate::lint_read::tally_dotted_tokens(&page.prose, tally);
+                crate::lint_read::tally_name_aliases(lang, &page.prose, tally);
+                for (_, _, code) in &page.units {
+                    crate::lint_read::tally_dotted_tokens(code, tally);
+                }
+            }
+        }
+        assert!(!per_lang.is_empty(), "no crawl caches found — run `lint_config action=train` first");
+        let claims: std::collections::BTreeMap<String, std::collections::BTreeMap<String, u32>> =
+            per_lang;
+        for (lang, exts) in &claims {
+            let mut top: Vec<(&String, &u32)> = exts.iter().collect();
+            top.sort_by(|a, b| b.1.cmp(a.1));
+            let show: Vec<String> =
+                top.iter().take(5).map(|(e, c)| format!(".{e}×{c}")).collect();
+            println!("{lang}: {}", show.join(" "));
+        }
+        let out = data_root.join("lint-index/extensions-bootstrap.json");
+        std::fs::write(&out, serde_json::to_string_pretty(&claims).expect("serializes"))
+            .expect("bootstrap written");
+        println!("wrote {}", out.display());
     }
 
     /// DEV TOOL — regenerates `lint-index/polarity-bootstrap.json` from what this machine has

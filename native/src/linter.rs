@@ -330,7 +330,7 @@ impl Knowledge {
                         // A fence hint aliases like a filename stem does: ```js names javascript
                         // (ledger #16 — the walker and the law must agree on language names).
                         let low = tok.to_lowercase();
-                        let low = crate::util::file_lang(&low).map(str::to_string).unwrap_or(low);
+                        let low = crate::lint_train::resolve_language(&low);
                         if lang_hint.is_none() && (low == default_lang || crate::lint_match::bundled_language(&low)) {
                             lang_hint = Some(low);
                         } else {

@@ -37,7 +37,7 @@ use crate::git::workspace_root;
 use crate::index::walk::walk_repo;
 use crate::lint_train;
 use crate::proto::{text, ToolResult};
-use crate::util::file_lang;
+use crate::lint_train::resolve_language;
 
 /// Per-project linter preferences loaded from `.helpers/lint.json`.
 ///
@@ -75,7 +75,8 @@ fn root_arg(args: &Value) -> PathBuf {
 
 /// Optional language filter from the `modules` arg. Absent / empty / `all` ⇒ every language.
 ///
-/// Extension-like aliases ("ts", "py") are resolved via `file_lang` to their canonical name.
+/// Extension-like aliases ("ts", "py") resolve through the learned extension claims
+/// (`lint_train::resolve_language`) to their canonical name.
 /// Canonical names ("typescript", "python") and unknown names pass through unchanged — an
 /// unknown language produces no files in the output rather than being silently discarded,
 /// which surfaces the typo instead of hiding it.
@@ -86,7 +87,7 @@ fn parse_lang_filter(args: &Value) -> Option<BTreeSet<String>> {
         let s = tok.trim().to_ascii_lowercase();
         match s.as_str() {
             "all" | "" => return None,
-            other => { set.insert(file_lang(other).unwrap_or(other).to_string()); }
+            other => { set.insert(resolve_language(other)); }
         }
     }
     if set.is_empty() { None } else { Some(set) }
@@ -198,7 +199,7 @@ pub fn run(args: &Value) -> ToolResult {
             if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
                 return None;
             }
-            let l = file_lang(&ext).map(str::to_string).unwrap_or(ext);
+            let l = resolve_language(&ext);
             if filter.as_ref().is_some_and(|set| !set.contains(l.as_str())) {
                 return None;
             }
@@ -696,7 +697,7 @@ pub(crate) fn project_languages(root: &Path) -> Vec<String> {
         if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
             continue;
         }
-        let lang = file_lang(&ext).map(str::to_string).unwrap_or(ext);
+        let lang = resolve_language(&ext);
         // Prose formats are reading material, never doc-trained modules — asking for "man
         // page documentation" would be noise, not setup.
         if crate::lint_match::prose_lang(&lang) {
