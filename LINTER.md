@@ -183,13 +183,57 @@ forces it regardless of age.
    - `<lang>.learned.json` — the local reading memory (bindings + reference corpus +
      grounded polarity): the substrate this machine keeps learning with, and the richer
      grounding its own overlays compile against. **Never shared, never in any repo** — like
-     the page cache, it is point-in-time reading, not the module.
+     the page cache, it is point-in-time reading, not the module. A read SUCCEEDED when any
+     page's prose was read — bindings and reference code are riches, never the bar: a spec
+     site with no code blocks at all (json.org presents its grammar as diagrams) still
+     trains the reader and mints the module (`Memory.pages_read` is the witness; measured:
+     gating on bindings∨reference reported json "docs not learned" off a clean 1-page read).
    Freshness is a probe, not a payload: at setup, a module older than a day checks the live
    sources' `Last-Modified` and re-reads only when the documentation actually moved (no
    header ⇒ conservative re-read). Nothing model-shaped is ever written into a project
    folder or committed to a repo. *The module retrains only when the toolchain version, the
    source set, `TRAIN_VERSION`, or the documentation itself changed; the overlay recompiles
    only when the law, the project, or the module changed.*
+
+**File types are learned by reading — there is no extension→language table in code.** A
+language's own documentation names the files it lives in (`main.rs`, "use the `.py`
+extension", `kotlinc hello.kt`), so the association is knowledge, not configuration. Two
+typographic readings collect a language's **extension claims** while its docs stream (no
+vocabulary, no extension list anywhere):
+
+- **dotted tokens** — `.` + a short alphanumeric run containing a letter, closing its word; a
+  run a call opener follows is an invocation, never a filename (`console.log(x)` teaches
+  nothing). No commonness filter: a language's docs say their own extension's name in prose
+  constantly ("js" all over MDN), so head-wordness is exactly the wrong reason to drop a claim
+  (measured: it deleted `.js`/`.php` where they belong and kept `.tostring`).
+- **the docs' own name definition** — the parenthetical "JavaScript (JS)" / "TypeScript (TS)"
+  is documentation introducing its own short name; the abbreviation (strictly shorter, closing
+  the parens itself) claims maximal strength. This is what keeps `.js` javascript even though
+  the TS handbook *mentions* `.js` more than MDN's whole JavaScript tree (103 vs 11 dot-led —
+  measured; every pure count hands `.js` to typescript).
+
+Claims live in the module and fold into one machine-global map (`<models>/extensions.json`) at
+save. An extension resolves by, in order: the language whose claim is PRIMARY (its own
+top-counted claim — `.json` is json.org's primary 8 mentions and beats typescript's 446
+tsconfig mentions); then NAME TYPOGRAPHY — the extension begins the language's name ("rs" →
+rust), elides it ("yml" → yaml: first-letter-anchored subsequence, the classic vowel-dropping
+abbreviation; candidacy even with zero claims), or ends it when backed by a real claim ("sh" →
+bash, whose one-page manual names `.sh` once while ruby's docs mention shell scripts
+constantly; claim-backed only, or every `.in` file would be kotlin's by its tail); then the
+highest count; then lexicographic. A document extension is never claimed by a code language
+(`open("file.txt")` examples cannot make `.txt` python — prose stays reading material; `.txt`
+does resolve to markdown, whose spec claims plain text as its own). An extension nothing
+claims IS the language name (`.go`, `.css` — and any unknown, which the run then asks for).
+Law-file stems resolve through the SAME map (ledger #16). Cold machines are wired from
+`lint-index/extensions-bootstrap.json` — machine-generated learned data, like the polarity
+bootstrap: regenerate with
+`cargo test --release --lib generate_extensions_bootstrap -- --ignored`, commit the diff
+(`committed_bootstrap_resolves_the_canonical_extensions` pins every canonical wiring), and the
+machine map overrides it per language as reading continues. Measured before this held: `.md`
+files resolved to a language named "md" while the module trained from CommonMark was named
+"markdown" — every machine's markdown module was inert, silently, forever; same for `.yaml`
+vs the registry's old "yml" name (the language is registered as "yaml" now — the docs' own
+name).
 
 **Lint never touches the network; setup does — no flags, ever.** A lint run is REPLAY-ONLY by
 construction: caches, the committed seed, and cached crawl pages (a `TRAIN_VERSION` bump still
@@ -389,7 +433,12 @@ fire → guard → gate → quarantine → config/feedback → report.
   is quarantined and reported. The denominator is per-language: a rust rule's noise must not
   be diluted to invisibility by a thousand markdown files it never ran against.
 - **Docs are reading material**: md/txt files are linted only by rules written *for* them;
-  `any`-language law governs code languages.
+  `any`-language law governs code languages. LEARNED rules never fire on a prose language at
+  all — a prose file is 100% the English universe ledger #12 excludes (a CommonMark-learned
+  `div`+`id` detector fired 200+ times on this repo's own docs the moment the markdown module
+  first actually loaded: raw text has no code surface to discipline a token detector), so a
+  prose language's module contributes its reading (reference corpus, comprehension) and only
+  the project's own law (or corpus law written for prose) may flag its files.
 - **Feedback** (runtime shaping): `lint_flag` false-positives auto-suppress a rule per project
   after 2 distinct sites (reversible); missed-findings surface as pending rules. This is the
   designed interaction loop — the linter is shaped to the project while it runs.

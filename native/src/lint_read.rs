@@ -551,6 +551,98 @@ pub struct Memory {
     /// toolchain grounded the language, in which case no rule can be queried out.
     #[serde(default)]
     pub polarity: Option<Polarity>,
+    /// How many documentation pages' prose the reader actually read — the witness that a read
+    /// HAPPENED. A prose-only spec site (no code blocks anywhere) yields zero bindings and zero
+    /// reference, yet the language was read and is set up (LINTER.md, "reading IS the module").
+    #[serde(default)]
+    pub pages_read: usize,
+    /// The language's file-extension claims, learned from its own documentation (LINTER.md,
+    /// "File types are learned by reading"): dot-led tokens tallied while reading, corpus-head
+    /// words dropped. `{extension → mention count}`; empty when the docs never name a file.
+    #[serde(default)]
+    pub extensions: std::collections::BTreeMap<String, u32>,
+}
+
+/// Read a language's self-defined abbreviations out of its own prose: the parenthetical
+/// definition "JavaScript (JS)" / "TypeScript (TS)" is how documentation introduces its own
+/// short name, and that short name is how the world names the language's files. A found
+/// abbreviation claims maximal strength (`u32::MAX`) in `tally` — the language's own docs
+/// defining their own name outrank any mention count (LINTER.md, "File types are learned by
+/// reading"). Pure typography over the registered name: no abbreviation list anywhere.
+pub fn tally_name_aliases(lang: &str, text: &str, tally: &mut std::collections::BTreeMap<String, u32>) {
+    let lower = text.to_lowercase();
+    let name = lang.to_lowercase();
+    let bytes = lower.as_bytes();
+    let mut from = 0usize;
+    while let Some(pos) = lower[from..].find(&name) {
+        let start = from + pos;
+        let end = start + name.len();
+        from = end;
+        let word_start = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+        let word_end = end >= bytes.len() || !bytes[end].is_ascii_alphanumeric();
+        if !word_start || !word_end {
+            continue;
+        }
+        // Optional whitespace, then a parenthesized short run: `(js)`, `(YAML™)`.
+        let mut i = end;
+        while i < bytes.len() && bytes[i] == b' ' {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] != b'(' {
+            continue;
+        }
+        let abbr_start = i + 1;
+        let mut abbr_end = abbr_start;
+        while abbr_end < bytes.len() && bytes[abbr_end].is_ascii_alphanumeric() {
+            abbr_end += 1;
+        }
+        let abbr = &lower[abbr_start..abbr_end];
+        // A definition, not a parenthetical remark: the run closes the parens itself
+        // ("(JS)", never "(around four years)") and an abbreviation ABBREVIATES — it is
+        // strictly shorter than the name (which also makes single-letter names like "c"
+        // alias-free: they resolve as themselves).
+        if bytes.get(abbr_end) == Some(&b')')
+            && abbr.len() >= 2
+            && abbr.len() < name.len()
+            && abbr.bytes().any(|b| b.is_ascii_alphabetic())
+        {
+            tally.insert(abbr.to_string(), u32::MAX);
+        }
+    }
+}
+
+/// Tally every dot-led token of `text` into `tally` — the typographic half of learning a
+/// language's file extensions from its docs (LINTER.md, "File types are learned by reading").
+/// A claim candidate is `.` + a 1..=8-char alphanumeric run containing at least one letter,
+/// closing its word (`main.rs`, ".py", `hello.kt -d hello.jar`). A run a call opener follows
+/// is an invocation, never a filename (`console.log(x)`, `.println(...)`); version numbers
+/// (".0") and longer runs never qualify. Pure typography: no vocabulary, no extension list.
+pub fn tally_dotted_tokens(text: &str, tally: &mut std::collections::BTreeMap<String, u32>) {
+    let bytes = text.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'.' {
+            let start = i + 1;
+            let mut end = start;
+            while end < bytes.len() && bytes[end].is_ascii_alphanumeric() {
+                end += 1;
+            }
+            let run = &text[start..end];
+            let closes_word = end >= bytes.len() || !matches!(bytes[end], b'.' | b'_');
+            let called = bytes.get(end).is_some_and(|b| matches!(b, b'(' | b'<' | b'{' | b'['));
+            if (1..=8).contains(&run.len())
+                && run.bytes().any(|b| b.is_ascii_alphabetic())
+                && closes_word
+                && !called
+            {
+                let n = tally.entry(run.to_ascii_lowercase()).or_default();
+                *n = n.saturating_add(1);
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -728,7 +820,7 @@ mod tests {
             .expect("content prose binds");
         assert_eq!(b.bind, polarity.prose_hv("never do this dangerous thing").unwrap().xor(&code_hv("python", "x = [1]")),
                    "bind is prose ⊗ code");
-        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity) };
+        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity), pages_read: 1, extensions: Default::default() };
         let json = serde_json::to_string(&memory).expect("serializes");
         let back: Memory = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back.bindings.len(), 1);

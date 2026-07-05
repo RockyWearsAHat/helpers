@@ -232,6 +232,74 @@ fn alias_named_law_files_and_comment_or_string_constructs_are_enforced() {
     assert!(verdict.contains(&want), "exactly one finding per planted violation ({want}):\n{verdict}");
 }
 
+/// The whole language surface, one row per language: for EVERY language the walker can name
+/// (canonical names through the learned extension claims, data languages by extension), a project
+/// law naming an invented construct must fire on the file that uses it and stay silent on the
+/// clean file — exact issue count, so a false positive or negative in ANY language's
+/// parse→mask→fire path fails the run. A new language is a new row, never a new test.
+#[test]
+fn every_language_the_walker_names_enforces_project_law() {
+    // (canonical language, file extension). The construct is `zapcall<lang>` — invented, so
+    // nothing pre-trained can know it; the law file stem is the canonical language name.
+    const LANGS: &[(&str, &str)] = &[
+        ("rust", "rs"),
+        ("python", "py"),
+        ("javascript", "js"),
+        ("typescript", "ts"),
+        ("go", "go"),
+        ("java", "java"),
+        ("ruby", "rb"),
+        ("c", "c"),
+        ("cpp", "cpp"),
+        ("bash", "sh"),
+        ("kotlin", "kt"),
+        ("swift", "swift"),
+        // csharp has no registered docs, so ".cs" is honestly the language named "cs" —
+        // the ask-for-docs seam, not a hardcoded alias (the old file_lang table's csharp
+        // wiring was knowledge the system never actually had).
+        ("cs", "cs"),
+        ("php", "php"),
+        ("zig", "zig"),
+        ("json", "json"),
+        ("css", "css"),
+        ("html", "html"),
+        ("svg", "svg"),
+        ("toml", "toml"),
+        ("xml", "xml"),
+        ("yaml", "yml"),
+        ("markdown", "md"),
+    ];
+    let p = TestProject::new("every-language");
+    for (lang, ext) in LANGS {
+        p.write(
+            &format!(".helpers/lint-rules/{lang}.md"),
+            &format!(
+                "## zap_{lang} [high]\nNever use zapcall{lang} anywhere in this project; use the approved helper instead.\n"
+            ),
+        );
+        p.write(&format!("src/bad_{lang}.{ext}"), &format!("zapcall{lang}(1)\n"));
+        p.write(&format!("src/clean_{lang}.{ext}"), "helper(1)\n");
+    }
+
+    let verdict = p.lint(true);
+
+    for (lang, _) in LANGS {
+        assert!(
+            flagged_in(&verdict, &format!("bad_{lang}."), &format!("zap_{lang}")),
+            "false negative: {lang}'s law must fire in bad_{lang}:\n{verdict}"
+        );
+        assert!(
+            !flagged_in(&verdict, &format!("clean_{lang}."), &format!("zap_{lang}")),
+            "false positive: {lang}'s law fired on the clean file:\n{verdict}"
+        );
+    }
+    let want = format!("Verdict: {} issue(s)", LANGS.len());
+    assert!(
+        verdict.contains(&want),
+        "exactly one finding per language and nothing else ({want}):\n{verdict}"
+    );
+}
+
 // ── B2: one instruction, every language ───────────────────────────────────────
 
 /// An `any.md` rule that names no language is the project's law for EVERY language present —
@@ -371,6 +439,78 @@ fn a_new_language_is_taught_with_one_docs_url_data_entry() {
     assert!(
         goto_flagged,
         "what the docs deprecate (goto) must be flagged from the data entry alone:\n{verdict}"
+    );
+}
+
+/// Serve a documentation site that is ALL PROSE — not one code block anywhere (json.org's
+/// shape: the grammar is diagrams). Reading it is still a successful read.
+fn serve_prose_only_docs() -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind localhost");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let _ = String::from_utf8_lossy(&buf[..n]);
+            let body = "<html><body><h1>proselang</h1>\
+                 <p>proselang is a lightweight data-interchange format. It is easy for humans \
+                 to read and write, and easy for machines to parse and generate. A value can \
+                 be an object, an array, a number, or a string. Whitespace between tokens is \
+                 insignificant.</p>\
+                 </body></html>";
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+    format!("http://127.0.0.1:{port}/")
+}
+
+/// Reading IS the module (LINTER.md): a docs site with prose but ZERO code examples still
+/// sets the language up — the trained module may hold no prohibition rules, but "not yet set
+/// up" means COULD NOT READ ANYTHING, never "read it and found nothing to ban". Measured
+/// before this held: json.org (its grammar is diagrams, no code blocks) reported
+/// "docs not learned" off a clean 1-page read.
+#[test]
+fn a_prose_only_docs_site_still_sets_the_language_up() {
+    let url = serve_prose_only_docs();
+    let p = TestProject::new("prose-only-docs");
+    p.write("data.proselang", "record start\n    field a = 1\nend\n");
+    p.write(
+        "lint-index/sources.json",
+        &format!(
+            r#"{{"version": 3, "sources": [{{"tool": "prosedocs", "language": "proselang", "kind": "crawl", "seed": "{url}"}}]}}"#
+        ),
+    );
+
+    let trained = p.call(
+        "lint_config",
+        &format!(r#"{{"root":{:?},"action":"train"}}"#, p.root.to_string_lossy()),
+        false, // setup is the online step: it must actually read the served prose
+    );
+    let line = trained
+        .lines()
+        .find(|l| l.contains("proselang"))
+        .unwrap_or_else(|| panic!("training must report the language:\n{trained}"));
+    assert!(
+        line.contains("rule(s)"),
+        "a prose-only read mints the module (zero rules is fine): {line}\n{trained}"
+    );
+    assert!(
+        !line.contains("not learned"),
+        "a language that WAS read must never report 'docs not learned': {line}\n{trained}"
+    );
+
+    let verdict = p.lint(true); // offline replay of whatever setup ensured
+    let asked = line_with(&verdict, "Not yet set up").unwrap_or("");
+    assert!(
+        !asked.contains("proselang"),
+        "a set-up language must not be asked for again at lint time: {asked}\n{verdict}"
     );
 }
 
