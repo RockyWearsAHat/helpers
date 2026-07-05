@@ -52,7 +52,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v39-signed-modules";
+const TRAIN_VERSION: &str = "docs-v41-learned-extensions";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -236,8 +236,7 @@ pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
                 let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("any").to_lowercase();
                 // `js.md` means JavaScript: extension aliases resolve through the same map the
                 // file walker detects languages with, or the law governs nothing (ledger #16).
-                let stem =
-                    crate::util::file_lang(&stem).map(str::to_string).unwrap_or(stem);
+                let stem = resolve_language(&stem);
                 docs.push((p, stem));
             }
         }
@@ -287,11 +286,12 @@ fn corpus_documents(data_root: &Path) -> Vec<(PathBuf, String)> {
                 continue;
             }
             let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("any").to_lowercase();
-            let lang = crate::util::file_lang(&stem)
-                .map(str::to_string)
-                .unwrap_or_else(|| {
-                    if crate::lint_match::bundled_language(&stem) { stem } else { "any".into() }
-                });
+            let resolved = resolve_language(&stem);
+            let lang = if resolved != stem || crate::lint_match::bundled_language(&stem) {
+                resolved
+            } else {
+                "any".into()
+            };
             docs.push((p, lang));
         }
     }
@@ -478,7 +478,8 @@ fn train_language(
     }
     let mut freshly_trained = false;
     if module.is_none() {
-        let (doc_rules, reference, learned_from) = resolve_rules(data_root, lang, &version, &mut report);
+        let (doc_rules, reference, extensions, learned_from) =
+            resolve_rules(data_root, lang, &version, &mut report);
         if learned_from == "nothing" {
             report.unlearned.push(lang.clone());
         } else {
@@ -501,6 +502,7 @@ fn train_language(
                 trained_at: unix_now(),
                 verified_at: unix_now(),
                 learned_from: learned_from.clone(),
+                extensions,
                 rules: RuleSet::build(lang, &tuples, &ground),
                 concept: ConceptModel::compile(&concept_tuples, lang),
             };
@@ -574,9 +576,12 @@ fn train_language(
     }
 
     // ── 3) overlay ⊕ module (overlay first — trust order). ──
+    // A prose language's module contributes READING only (LINTER.md, "Docs are reading
+    // material"): its files are raw English end to end — the universe ledger #12 excludes —
+    // so learned detectors never fire there; only the project's own law governs them.
     let (module_rules, module_concept) = match module {
-        Some(m) => (m.rules, m.concept),
-        None => (RuleSet::empty(lang), ConceptModel { rules: Vec::new() }),
+        Some(m) if !crate::lint_match::prose_lang(lang) => (m.rules, m.concept),
+        _ => (RuleSet::empty(lang), ConceptModel { rules: Vec::new() }),
     };
     let rules = RuleSet::merged(overlay.rules, module_rules);
     let concept = ConceptModel::merged(overlay.concept, module_concept);
@@ -617,6 +622,10 @@ struct Module {
     #[serde(default)]
     verified_at: u64,
     learned_from: String,
+    /// The language's learned file-extension claims (LINTER.md, "File types are learned by
+    /// reading") — folded into the machine-global extension map at save.
+    #[serde(default)]
+    extensions: std::collections::BTreeMap<String, u32>,
     rules: RuleSet,
     concept: ConceptModel,
 }
@@ -650,6 +659,154 @@ fn save_module(lang: &str, module: &Module) {
     if let Ok(json) = serde_json::to_string(module) {
         let _ = std::fs::write(module_path(lang), json);
     }
+    fold_extension_claims(lang, &module.extensions);
+}
+
+// ── File types are learned by reading (LINTER.md) ─────────────────────────────────────────
+//
+// The machine-global extension map: `{language → {extension → mention count}}`, folded from
+// every saved module. Resolution and law-stem aliasing both read it; the committed bootstrap
+// (`lint-index/extensions-bootstrap.json`, machine-generated learned data) wires cold
+// machines; an extension nothing claims IS the language name. No extension→language table
+// exists in code.
+
+/// A language's file-extension claims: `{extension → mention count}` learned from its docs.
+pub(crate) type ExtClaims = std::collections::BTreeMap<String, u32>;
+
+/// Where the machine-global extension map lives — beside the modules it is folded from.
+fn extension_map_path() -> PathBuf {
+    model_dir().join("extensions.json")
+}
+
+/// Merge one language's learned claims into the machine-global extension map. An empty claim
+/// set still writes the language's entry, so "read the docs, saw no filenames" is recorded
+/// rather than re-derived.
+fn fold_extension_claims(lang: &str, claims: &ExtClaims) {
+    let path = extension_map_path();
+    let mut map: std::collections::BTreeMap<String, ExtClaims> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    map.insert(lang.to_string(), claims.clone());
+    if let Ok(json) = serde_json::to_string(&map) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+/// The full claims universe: the committed learned bootstrap under the machine map (a
+/// machine's own reading overrides the shipped reading, per language). Cached per process by
+/// the machine map's mtime — resolution runs once per project file, and a training run that
+/// refolds the map mid-process (the MCP server is long-lived) invalidates it naturally.
+fn extension_claims_universe() -> std::sync::Arc<std::collections::BTreeMap<String, ExtClaims>> {
+    type Universe = std::collections::BTreeMap<String, ExtClaims>;
+    type CacheKey = (PathBuf, Option<std::time::SystemTime>);
+    static CACHE: std::sync::Mutex<Option<(CacheKey, std::sync::Arc<Universe>)>> =
+        std::sync::Mutex::new(None);
+    let path = extension_map_path();
+    let key = (path.clone(), std::fs::metadata(&path).and_then(|m| m.modified()).ok());
+    let mut cache = CACHE.lock().expect("extension map cache lock");
+    if let Some((cached_key, universe)) = cache.as_ref() {
+        if *cached_key == key {
+            return universe.clone();
+        }
+    }
+    let mut map: Universe = EMBEDDED_LINT_INDEX
+        .get_file("extensions-bootstrap.json")
+        .and_then(|f| f.contents_utf8())
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .unwrap_or_default();
+    if let Some(machine) =
+        std::fs::read_to_string(&path).ok().and_then(|raw| serde_json::from_str::<Universe>(&raw).ok())
+    {
+        map.extend(machine);
+    }
+    let universe = std::sync::Arc::new(map);
+    *cache = Some((key, universe.clone()));
+    universe
+}
+
+/// Resolve a file extension (or a law-file stem — ledger #16: same map, by construction) to
+/// its canonical language name, from the learned claims:
+///
+///   1. among claiming languages, one for which this extension is the PRIMARY claim (its own
+///      top-counted extension) wins — the TS handbook mentions `.js` often, but `.ts` is its
+///      primary, so javascript keeps `.js`;
+///   2. else the highest mention count, ties broken lexicographically (determinism);
+///   3. a document extension is never claimed by a code language (`open("file.txt")` examples
+///      cannot make `.txt` python — prose stays reading material);
+///   4. an extension nothing claims IS the language name — unknown languages surface by name
+///      and the run asks for their docs.
+pub fn resolve_language(name_or_ext: &str) -> String {
+    resolve_in(&extension_claims_universe(), name_or_ext)
+}
+
+/// [`resolve_language`] over an explicit claims universe — the pure core, unit-testable
+/// against the committed bootstrap.
+fn resolve_in(universe: &std::collections::BTreeMap<String, ExtClaims>, name_or_ext: &str) -> String {
+    let ext = name_or_ext.to_lowercase();
+    // "any" is the law system's own word (a rule file governing every language), never an
+    // extension — ruby's docs claim ".any" (`.any?`) and must not swallow it.
+    if ext == "any" {
+        return ext;
+    }
+    // Already a known language name (a claims entry exists under it) — canonical as-is.
+    if universe.contains_key(&ext) {
+        return ext;
+    }
+    let mut best: Option<(&str, (bool, bool, u32))> = None; // lang → (primary, affix, count)
+    for (lang, claims) in universe.iter() {
+        // A language is a candidate through a real claim, or through its own NAME: an
+        // extension that begins the name ("rs" → rust) or elides it ("yml" → yaml — a
+        // first-letter-anchored subsequence, the classic vowel-dropping abbreviation) is
+        // candidate typography even when the docs never wrote the extension out.
+        // A claim owns nothing when it is noise beside the language's own primary claim
+        // (<1% of it — the reference-fire idea): the PHP manual's few `.cs` mentions must
+        // not swallow an extension no registered language owns.
+        let top = claims.values().copied().max().unwrap_or(0);
+        let claim = claims
+            .get(&ext)
+            .copied()
+            .filter(|&c| c.saturating_mul(100) >= top);
+        let prefix = lang.starts_with(&ext);
+        let elision = ext.len() >= 2
+            && ext.len() < lang.len()
+            && lang.starts_with(&ext[..1])
+            && is_subsequence(&ext, lang);
+        // Claimless candidacy needs a PROPER elision — interior letters dropped ("yml" from
+        // "yaml"), never a bare prefix: "cs" must not be swallowed by "css" when nothing
+        // named csharp is registered; an unclaimed prefix stays an unknown language that the
+        // run asks about.
+        if claim.is_none() && !(elision && !prefix) {
+            continue;
+        }
+        if crate::lint_match::prose_lang(&ext) && !crate::lint_match::prose_lang(lang) {
+            continue;
+        }
+        let count = claim.unwrap_or(0);
+        let primary = claim.is_some() && claims.values().all(|&c| c <= count);
+        // Name typography ("rs" starts "rust", "sh" ends "bash", "yml" elides "yaml")
+        // outranks raw mention counts: ruby's docs mention `.sh` scripts more than bash's
+        // one-page manual ever names itself. A suffix counts only backed by a real claim —
+        // otherwise every `.in` file would resolve to kotlin by its tail.
+        let affix = prefix || elision || (claim.is_some() && lang.ends_with(&ext));
+        let score = (primary, affix, count);
+        let better = match &best {
+            None => true,
+            Some((b_lang, b_score)) => {
+                score > *b_score || (score == *b_score && lang.as_str() < *b_lang)
+            }
+        };
+        if better {
+            best = Some((lang.as_str(), score));
+        }
+    }
+    best.map(|(lang, _)| lang.to_string()).unwrap_or(ext)
+}
+
+/// Whether `needle`'s characters appear in `hay` in order — the elision test ("yml" ⊂ "yaml").
+fn is_subsequence(needle: &str, hay: &str) -> bool {
+    let mut it = hay.chars();
+    needle.chars().all(|c| it.by_ref().any(|h| h == c))
 }
 
 fn load_overlay(lang: &str, project_fp: u64) -> Option<Overlay> {
@@ -710,7 +867,7 @@ fn resolve_rules(
     lang: &str,
     version: &str,
     report: &mut TrainReport,
-) -> (Vec<DocRule>, Vec<String>, String) {
+) -> (Vec<DocRule>, Vec<String>, ExtClaims, String) {
     let refresh = std::env::var_os("HELPERS_LINT_REFRESH").is_some();
     let sources_fp = sources_fingerprint(data_root, lang);
     if !refresh {
@@ -718,7 +875,8 @@ fn resolve_rules(
             if cat.current(version, &sources_fp) {
                 let (rules, reference) = cat.doc_rules(lang);
                 if !rules.is_empty() {
-                    return (rules, reference, format!("cache:{}", cat.learned_from));
+                    let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
+                    return (rules, reference, exts, format!("cache:{}", cat.learned_from));
                 }
             }
         }
@@ -729,7 +887,7 @@ fn resolve_rules(
     // no reference code (its caps lean on the rules' own good examples).
     let seed_current = !seed.is_empty() && (version.is_empty() || seed_version.is_empty() || seed_version == version);
     if !refresh && seed_current {
-        return (seed, Vec::new(), "committed snapshot".to_string());
+        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string());
     }
     // READ it ourselves from the live docs. Cache the MEMORY we read (not pre-extracted rules),
     // keyed by the toolchain version, so the next run queries the same reading and only re-reads on
@@ -749,14 +907,15 @@ fn resolve_rules(
         // rules still delivers the reference corpus and comprehension — the language is set
         // up, not "unlearned". Only a source that could not be READ falls through.
         report.crawled.push(lang.to_string());
+        let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
         save_cache(lang, &cat);
-        return (rules, reference, "live docs".to_string());
+        return (rules, reference, exts, "live docs".to_string());
     }
     // Offline or crawl-disabled: fall back to the snapshot (stale is better than nothing).
     if !seed.is_empty() {
-        return (seed, Vec::new(), "committed snapshot".to_string());
+        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string());
     }
-    (Vec::new(), Vec::new(), "nothing".to_string())
+    (Vec::new(), Vec::new(), ExtClaims::new(), "nothing".to_string())
 }
 
 /// READ `lang`'s official language documentation into an association [`crate::lint_read::Memory`].
@@ -779,10 +938,12 @@ fn crawl_learn(data_root: &Path, lang: &str, version: &str) -> Option<crate::lin
         return None;
     }
     let memory = crate::lint_docs::read_language(lang, &sources, MAX_CRAWL_PAGES, data_root, Some(version));
-    // A read succeeded when it produced ANY knowledge — prose⊗code bindings or reference
-    // code. Requiring bindings alone threw away descriptive specs whose examples all read as
-    // normal code (JSON), reporting a read language as unlearned.
-    (!memory.bindings.is_empty() || !memory.reference.is_empty()).then_some(memory)
+    // A read succeeded when ANY page's prose was read (LINTER.md, "reading IS the module") —
+    // bindings and reference code are riches, never the bar. Requiring bindings∨reference
+    // threw away prose-only spec sites with no code blocks at all (json.org presents its
+    // grammar as diagrams), reporting a cleanly-read language as "docs not learned".
+    (memory.pages_read > 0 || !memory.bindings.is_empty() || !memory.reference.is_empty())
+        .then_some(memory)
 }
 
 /// Every registered docs source for `lang` from `sources.json` (on-disk preferred, embedded
@@ -1243,6 +1404,53 @@ fn file_state(p: &Path) -> u128 {
 
 #[cfg(test)]
 mod tests {
+
+    /// The committed extensions bootstrap must wire every registered language's canonical
+    /// extension to it — the learned replacement for the deleted `file_lang` table, asserted
+    /// as data so a regenerated bootstrap that breaks a wiring fails here, not in the field.
+    #[test]
+    fn committed_bootstrap_resolves_the_canonical_extensions() {
+        let raw = EMBEDDED_LINT_INDEX
+            .get_file("extensions-bootstrap.json")
+            .and_then(|f| f.contents_utf8())
+            .expect("extensions-bootstrap.json is committed and embedded");
+        let universe: std::collections::BTreeMap<String, ExtClaims> =
+            serde_json::from_str(raw).expect("bootstrap parses");
+        for (ext, lang) in [
+            ("rs", "rust"),
+            ("py", "python"),
+            ("js", "javascript"),
+            ("ts", "typescript"),
+            ("go", "go"),
+            ("java", "java"),
+            ("rb", "ruby"),
+            ("sh", "bash"),
+            ("kt", "kotlin"),
+            ("php", "php"),
+            ("md", "markdown"),
+            ("yaml", "yaml"),
+            ("yml", "yaml"),
+            ("json", "json"),
+            ("css", "css"),
+            ("html", "html"),
+            ("xml", "xml"),
+            ("toml", "toml"),
+            ("svg", "svg"),
+            ("zig", "zig"),
+            ("c", "c"),
+            // CommonMark's own spec claims .txt (markdown IS plain text there) — both are
+            // prose languages with identical runtime handling, so the learned answer stands.
+            ("txt", "markdown"),
+            ("swift", "swift"),
+        ] {
+            assert_eq!(
+                resolve_in(&universe, ext),
+                lang,
+                "the learned claims must resolve .{ext} to {lang}"
+            );
+        }
+    }
+
     use super::*;
 
     #[test]

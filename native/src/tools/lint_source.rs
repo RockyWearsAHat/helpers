@@ -499,9 +499,13 @@ pub fn run_config(args: &Value) -> ToolResult {
             );
             let mut lines: Vec<String> = Vec::new();
             for lang in &langs {
+                let read_ok = !report.unlearned.contains(lang);
                 let state = match models.get(lang) {
-                    Some(m) if !report.unlearned.contains(lang) => {
-                        format!("{} rule(s)", m.rules.rule_count())
+                    Some(m) if read_ok => format!("{} rule(s)", m.rules.rule_count()),
+                    // Read and set up, zero prohibitions compiled — a descriptive spec is a
+                    // successful read (LINTER.md, "reading IS the module"), never "not learned".
+                    None if read_ok && report.skipped.iter().any(|(l, _)| l == lang) => {
+                        "0 rule(s) — docs read; nothing to enforce yet".to_string()
                     }
                     _ if !crate::lint_train::has_docs_source(&data, lang) => {
                         "needs a docs URL — `lint_config action=add_source`".to_string()
@@ -539,7 +543,7 @@ pub fn run_config(args: &Value) -> ToolResult {
                 .ok_or("lint_config: `lang` required for action=add_source")?
                 .to_lowercase();
             // Aliases resolve exactly like rule-file stems and fence hints (ledger #16).
-            let lang = crate::util::file_lang(&lang_arg).unwrap_or(&lang_arg).to_string();
+            let lang = crate::lint_train::resolve_language(&lang_arg);
             let url = args["url"].as_str()
                 .ok_or("lint_config: `url` required for action=add_source")?;
             crate::lint_docs::add_docs_source(&lang, url);
