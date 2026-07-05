@@ -4,12 +4,14 @@
 //! them the way the engine trains — normative sections (deprecations, warnings, avoid/instead
 //! guidance) become rule candidates; every code example feeds the "what is normal in this
 //! language" reference corpus. Which languages exist is never hardcoded: known sources live in
-//! the `sources.json` data registry, and a language nobody registered is **discovered on the
-//! fly** ([`discover_docs`]) — web search, probe the candidates, keep the first that actually
-//! reads like documentation, cache the answer (positive or negative) per user.
+//! the `sources.json` data registry plus the per-machine added-sources store
+//! ([`add_docs_source`]); a language nobody registered is ASKED for at runtime — never
+//! web-searched. Setup re-validates page caches older than [`CRAWL_MAX_AGE`] against the live
+//! site, so modules always build from current documentation.
 //!
-//! Only [`learn_from_url`] and [`discover_docs`] touch the network (behind the `crawl` feature).
-//! Everything else is a pure function over already-fetched text, unit-tested offline.
+//! Only [`learn_from_url`] and [`read_language`] touch the network (behind the `crawl`
+//! feature, and only in setup mode). Everything else is a pure function over already-fetched
+//! text, unit-tested offline.
 
 #[cfg(feature = "crawl")]
 use std::path::Path;
@@ -65,18 +67,60 @@ pub fn read_language(
 ) -> Memory {
     use crate::lint_read::{Binding, PolarityBuilder, Reader};
 
-    // Every read unit, uniformly: (page url, slug, governing prose, code example).
-    let mut units: Vec<(String, String, String, String)> = Vec::new();
+    // Every read unit, uniformly: (page url, slug, governing prose, code example). Units are
+    // INTERLEAVED round-robin across the language's sources so the bounded-memory caps
+    // (`MAX_BINDINGS`, `MAX_REFERENCE`, the grounding sample) are source-FAIR: a big source
+    // read first must not starve a richer one (measured: MDN filled all 4,000 binding slots
+    // and ESLint's 300 rule pages bound NOTHING — read and silently discarded). Page prose
+    // feeds the reader the same way, one page per source per turn.
     let mut reader = Reader::new();
-    let mut pages_read = 0usize;
+    let mut per_source: Vec<Vec<(String, String, String, String)>> = Vec::new();
+    let mut prose_queues: Vec<Vec<String>> = Vec::new();
     for src in sources {
+        let mut src_units = Vec::new();
+        let mut src_prose = Vec::new();
         for page in crawled_source(src, max_pages, cache_version) {
-            if pages_read < MAX_READ_PAGES {
-                reader.learn_span(&page.prose);
-                pages_read += 1;
-            }
+            src_prose.push(page.prose);
             for (s, prose, code) in page.units {
-                units.push((page.url.clone(), s, prose, code));
+                src_units.push((page.url.clone(), s, prose, code));
+            }
+        }
+        per_source.push(src_units);
+        prose_queues.push(src_prose);
+    }
+    let mut pages_read = 0usize;
+    let mut prose_cursors: Vec<std::vec::IntoIter<String>> =
+        prose_queues.into_iter().map(Vec::into_iter).collect();
+    'reading: loop {
+        let mut emitted = false;
+        for cursor in &mut prose_cursors {
+            if pages_read >= MAX_READ_PAGES {
+                break 'reading;
+            }
+            if let Some(prose) = cursor.next() {
+                reader.learn_span(&prose);
+                pages_read += 1;
+                emitted = true;
+            }
+        }
+        if !emitted {
+            break;
+        }
+    }
+    let mut units: Vec<(String, String, String, String)> = Vec::new();
+    {
+        let mut cursors: Vec<std::vec::IntoIter<_>> =
+            per_source.into_iter().map(Vec::into_iter).collect();
+        loop {
+            let mut emitted = false;
+            for cursor in &mut cursors {
+                if let Some(unit) = cursor.next() {
+                    units.push(unit);
+                    emitted = true;
+                }
+            }
+            if !emitted {
+                break;
             }
         }
     }
@@ -160,7 +204,27 @@ pub fn read_language(
 #[derive(serde::Serialize, serde::Deserialize)]
 struct CrawledSource {
     version: String,
+    /// Unix seconds of the crawl — setup re-validates against the live pages when this is
+    /// older than [`CRAWL_MAX_AGE`] (LINTER.md, "Setup guarantees the documentation is
+    /// CURRENT"). Legacy caches default to 0 and re-crawl on the next setup.
+    #[serde(default)]
+    crawled_at: u64,
     pages: Vec<CrawledPage>,
+}
+
+/// How old a source's page cache may be before SETUP re-crawls it — a project is never set up
+/// against documentation staler than this. Applies only when the network is allowed (train);
+/// replay-only lint runs use whatever setup ensured.
+#[cfg(feature = "crawl")]
+const CRAWL_MAX_AGE: u64 = 24 * 60 * 60;
+
+/// Now, in unix seconds.
+#[cfg(feature = "crawl")]
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// One page of a [`CrawledSource`].
@@ -170,6 +234,40 @@ struct CrawledPage {
     url: String,
     prose: String,
     units: Vec<(String, String, String)>,
+    /// The server's `Last-Modified` at fetch time — the per-page anchor the verification
+    /// sweep revalidates with (`If-Modified-Since` → 304 proves the page current for free).
+    #[serde(default)]
+    modified: Option<u64>,
+    /// Fingerprint of the extracted content — change detection for servers that send no
+    /// `Last-Modified` (a refetched body that extracts identically is NOT a change).
+    #[serde(default)]
+    fp: u64,
+}
+
+/// One extracted page: prose + units + freshness anchors, shared by the crawl path and the
+/// verification sweep so both always extract identically.
+#[cfg(feature = "crawl")]
+fn extract_crawled_page(seed_url: &str, url: &str, prose: String, html: &str, modified: Option<u64>) -> CrawledPage {
+    let page_slug = rule_slug_under(seed_url, url);
+    let blocks = pre_blocks(html);
+    let units: Vec<(String, String, String)> = block_contexts(html, &blocks)
+        .into_iter()
+        .zip(blocks.iter())
+        .map(|((prose, code), (open, _, _))| {
+            let s = page_slug
+                .clone()
+                .or_else(|| anchor_slug_before(html, *open))
+                .unwrap_or_else(|| slug(&prose));
+            (s, prose, code)
+        })
+        .collect();
+    let mut h = crate::lint_ai::token_seed(&prose);
+    for (a, b, c) in &units {
+        h ^= crate::lint_ai::token_seed(a)
+            ^ crate::lint_ai::token_seed(b).rotate_left(1)
+            ^ crate::lint_ai::token_seed(c).rotate_left(2);
+    }
+    CrawledPage { url: url.to_string(), prose, units, modified, fp: h }
 }
 
 /// The pages of one documentation source: from the per-source cache
@@ -181,25 +279,26 @@ struct CrawledPage {
 #[cfg(feature = "crawl")]
 fn crawled_source(src: &DocsSource, max_pages: usize, cache_version: Option<&str>) -> Vec<CrawledPage> {
     use crate::doc_crawler::{crawl, extract, fetch};
+    // OFFLINE means no network, never no learning: the disk cache below still replays. A
+    // cold cache offline yields nothing — the caller reports the language as not-yet-learned
+    // and the next online run fills it.
+    let offline = !crate::lint_train::network_allowed();
     let read_from_network = || -> Vec<CrawledPage> {
+        if offline {
+            return Vec::new();
+        }
         let mut pages = Vec::new();
         if src.crawl {
             for p in crawl(&[&src.url], max_pages, 0) {
-                let page_slug = rule_slug_under(&src.url, &p.url);
-                let blocks = pre_blocks(&p.html);
-                let units = block_contexts(&p.html, &blocks)
-                    .into_iter()
-                    .map(|(prose, code)| {
-                        let s = page_slug.clone().unwrap_or_else(|| slug(&prose));
-                        (s, prose, code)
-                    })
-                    .collect();
-                pages.push(CrawledPage { url: p.url, prose: p.prose, units });
+                // Unit identity, best evidence first: a per-rule page's URL slug; else the
+                // nearest preceding `id="…"` anchor (single-page rule docs put each rule in
+                // its own anchored section — HTML typography); else the prose itself.
+                pages.push(extract_crawled_page(&src.url, &p.url, p.prose, &p.html, p.modified));
             }
         } else if let Some((ct, body)) = fetch(&src.url) {
             for (prose, code) in extract(&ct, &body) {
                 let unit = (slug(&prose), prose.clone(), code);
-                pages.push(CrawledPage { url: src.url.clone(), prose, units: vec![unit] });
+                pages.push(CrawledPage { url: src.url.clone(), prose, units: vec![unit], modified: None, fp: 0 });
             }
         }
         pages
@@ -208,27 +307,40 @@ fn crawled_source(src: &DocsSource, max_pages: usize, cache_version: Option<&str
     let lock = source_lock(&src.tool);
     let _guard = lock.lock().expect("source lock poisoned");
     let path = crawl_cache_path(&src.tool);
-    if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
-        if let Some(cached) = std::fs::read_to_string(&path)
+    let cached = if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
+        std::fs::read_to_string(&path)
             .ok()
             .and_then(|raw| serde_json::from_str::<CrawledSource>(&raw).ok())
-        {
-            if cached.version == version && !cached.pages.is_empty() {
-                return cached.pages;
-            }
-        }
+            .filter(|c| c.version == version && !c.pages.is_empty())
+    } else {
+        None
+    };
+    if let Some(cached) = cached {
+        // Freshness is owned by the verification sweep ([`refresh_language_pages`], run at
+        // setup before modules build) — a version-matched cache is what setup ensured.
+        return cached.pages;
     }
     let pages = read_from_network();
     if !pages.is_empty() {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let entry = CrawledSource { version: version.to_string(), pages: pages.clone() };
-        if let Ok(json) = serde_json::to_string(&entry) {
-            let _ = std::fs::write(&path, json);
-        }
+        write_crawl_cache(&path, version, &pages);
     }
     pages
+}
+
+/// Persist a source's crawled pages with the crawl timestamp (see [`CrawledSource`]).
+#[cfg(feature = "crawl")]
+fn write_crawl_cache(path: &std::path::Path, version: &str, pages: &[CrawledPage]) {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let entry = CrawledSource {
+        version: version.to_string(),
+        crawled_at: unix_now(),
+        pages: pages.to_vec(),
+    };
+    if let Ok(json) = serde_json::to_string(&entry) {
+        let _ = std::fs::write(path, json);
+    }
 }
 
 /// This source's crawl-cache file, its tool id sanitized to a safe file name.
@@ -258,8 +370,10 @@ fn source_lock(tool: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
 // ── Polarity transfer (grounded knowledge is shared across languages) ─────────
 
 /// Where the best grounded classifier lives for cross-language transfer
-/// (`<model cache>/polarity.global.json`).
-fn global_polarity_path() -> std::path::PathBuf {
+/// (`<model cache>/polarity.global.json`). `pub(crate)` so the model cache stamp
+/// ([`crate::lint_train`]) can fingerprint the classifier's file state — the classifier shapes
+/// construct selection, so a better-read classifier must retrain compiled detectors.
+pub(crate) fn global_polarity_path() -> std::path::PathBuf {
     crate::lint_train::model_dir_pub().join("polarity.global.json")
 }
 
@@ -350,7 +464,10 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
         }
         let good = memory.bindings[i + 1..]
             .iter()
-            .take_while(|nb| nb.url == b.url)
+            // The fix must come from the SAME section as the violation: on a single-page rule
+            // document every rule shares the URL, and pairing across anchors once handed one
+            // lint's "Use instead" block to the next lint as its good example.
+            .take_while(|nb| nb.url == b.url && nb.slug == b.slug)
             .find(|nb| polarity.classify(&nb.prose) == Some(false))
             .map(|nb| nb.code.clone())
             .filter(|g| g != &b.code)
@@ -370,24 +487,26 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
     out
 }
 
-/// How many code examples to ground against the toolchain per crawl. Enough grounded prose to shape
-/// stable polarity prototypes, capped so the check-mode probes stay a small fraction of crawl time.
+/// Grounding probes per crawl — a runaway safety valve, not a working limit (LINTER.md: the
+/// whole in-scope site is read). Probes run in parallel; 500 covers every real docs site's
+/// example diversity while keeping check-mode spawns bounded.
 #[cfg(feature = "crawl")]
-const MAX_GROUND_CHECKS: usize = 120;
+const MAX_GROUND_CHECKS: usize = 500;
 
-/// How many pages the reader reads to learn the corpus's common-word stop-list before grounding. A
-/// broad but bounded sample — the stop-list converges quickly, so reading every page would only add
-/// CPU without changing which words count as common.
+/// Pages of prose the reader learns from — a runaway safety valve sized far above any real
+/// documentation site (reading is millions of tokens per second; every crawled page is read).
 #[cfg(feature = "crawl")]
-const MAX_READ_PAGES: usize = 200;
+const MAX_READ_PAGES: usize = 50_000;
 
-/// Cap on stored associations per language, bounding the serialized memory.
+/// Stored associations per language — a runaway safety valve bounding the serialized memory
+/// (~2-3 KB per binding), sized so every real docs site's examples all bind.
 #[cfg(feature = "crawl")]
-const MAX_BINDINGS: usize = 4000;
+const MAX_BINDINGS: usize = 25_000;
 
-/// Cap on the "what's normal" reference corpus, keeping whole-site crawls fast to pack.
+/// The "what's normal" reference corpus — a runaway safety valve; the reference-fire and
+/// quarantine gates only get MORE accurate as this grows.
 #[cfg(feature = "crawl")]
-const MAX_REFERENCE: usize = 1500;
+const MAX_REFERENCE: usize = 10_000;
 
 /// The `(governing prose, code)` pair for every block: the prose is what the page wrote BETWEEN
 /// the previous code block and this one — sliced at tag boundaries by construction (`</pre>` to
@@ -458,6 +577,22 @@ fn rule_slug_under(seed: &str, url: &str) -> Option<String> {
     (slug.len() >= 2).then_some(slug)
 }
 
+/// The nearest `id="…"` anchor BEFORE byte `pos` — the section a code block belongs to on a
+/// single-page rule document (clippy's lint list anchors every rule's `<article>` with the
+/// rule's own name). Pure HTML typography: an attribute the page's author wrote, never a
+/// vocabulary. Sanitized like every slug; `None` when no anchor precedes the block.
+fn anchor_slug_before(html: &str, pos: usize) -> Option<String> {
+    let head = html.get(..pos)?;
+    let at = head.rfind("id=\"")?;
+    let raw = head[at + 4..].split('"').next()?;
+    let s: String = raw
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect();
+    (s.len() >= 2).then_some(s)
+}
+
 /// How much page text immediately before a code block counts as the prose that GOVERNS it — the
 /// label/heading a docs page puts right above its example. Wide enough to catch a short heading or a
 /// `class="incorrect"` wrapper, narrow enough not to bleed into the previous example's discussion.
@@ -489,58 +624,52 @@ fn slug(s: &str) -> String {
 }
 
 
-// ── On-the-fly language discovery ─────────────────────────────────────────────
+// ── The added-sources store (`add_source` writes it, training reads it) ───────
 
-/// Minimum rule candidates a probed site must yield to be accepted as a language's documentation.
-#[cfg(feature = "crawl")]
-const MIN_DISCOVERED_RULES: usize = 5;
+/// Public path accessor for the added-sources store — [`crate::lint_train`] reads it to
+/// enumerate every language a URL was handed over for (batch training).
+pub fn learned_sources_path_pub() -> std::path::PathBuf {
+    learned_sources_path()
+}
 
-/// Crawl budget for probing one discovery candidate (a cheap taste, not the full learn).
-#[cfg(feature = "crawl")]
-const DISCOVERY_PROBE_PAGES: usize = 20;
-
-/// The per-user learned source registry: where discovery caches what it found
-/// (`~/.cache/helpers/lint-index/sources.json`, same shape as the committed seed). A negative
-/// result is stored as `kind:"none"` so an unknown language is searched at most once per cache.
 fn learned_sources_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     std::path::Path::new(&home).join(".cache/helpers/lint-index/sources.json")
 }
 
-/// The cached discovery answer for `lang`: `Some(Some(src))` found, `Some(None)` searched and
-/// negative-cached, `None` never searched.
-pub fn learned_source(lang: &str) -> Option<Option<DocsSource>> {
+/// The added documentation source for `lang`, when a URL was handed over (`add_source`).
+/// Legacy `kind:"none"` entries — negative markers from the deleted web-discovery era — read
+/// as "no source": the resolution for an unknown language is to ASK, never to search.
+pub fn learned_source(lang: &str) -> Option<DocsSource> {
     let raw = std::fs::read_to_string(learned_sources_path()).ok()?;
     let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
     for e in json["sources"].as_array()? {
         if e["language"].as_str() != Some(lang) {
             continue;
         }
-        return match e["kind"].as_str() {
-            Some("none") => Some(None),
-            _ => Some(Some(DocsSource {
-                url: e["seed"].as_str().unwrap_or("").to_string(),
-                crawl: true,
-                tool: e["tool"].as_str().unwrap_or(lang).to_string(),
-            })),
-        };
+        if e["kind"].as_str() == Some("none") {
+            return None;
+        }
+        return Some(DocsSource {
+            url: e["seed"].as_str().unwrap_or("").to_string(),
+            crawl: true,
+            tool: e["tool"].as_str().unwrap_or(lang).to_string(),
+        });
     }
     None
 }
 
-/// Persist a discovery answer (found source, or a negative marker) into the learned registry.
-fn remember_source(lang: &str, found: Option<&DocsSource>) {
+/// Persist a handed-over source into the added-sources store (one entry per language; a new
+/// URL replaces the old, and any legacy negative marker with it).
+fn remember_source(lang: &str, src: &DocsSource) {
     let path = learned_sources_path();
     let mut json: serde_json::Value = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_else(|| serde_json::json!({ "version": 1, "sources": [] }));
-    let entry = match found {
-        Some(src) => serde_json::json!({
-            "tool": src.tool, "language": lang, "kind": "crawl", "seed": src.url, "discovered": true
-        }),
-        None => serde_json::json!({ "tool": lang, "language": lang, "kind": "none", "discovered": true }),
-    };
+    let entry = serde_json::json!({
+        "tool": src.tool, "language": lang, "kind": "crawl", "seed": src.url
+    });
     if let Some(arr) = json["sources"].as_array_mut() {
         arr.retain(|e| e["language"].as_str() != Some(lang));
         arr.push(entry);
@@ -551,108 +680,139 @@ fn remember_source(lang: &str, found: Option<&DocsSource>) {
     let _ = std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap_or_default());
 }
 
-/// Discover official documentation for a language no registry knows — assembled on the fly, no
-/// built-in language list: ask the web, probe the top candidate sites, accept the first whose
-/// crawl actually yields normative documentation (≥ [`MIN_DISCOVERED_RULES`] rule candidates),
-/// and remember the answer either way so the search runs at most once per language.
+/// VERIFY 100% of `lang`'s page inventory against the live sites and refresh what moved —
+/// the setup-time guarantee that modules always train on the most recent documentation
+/// (LINTER.md, "Save"). Every known page gets one conditional request (`If-Modified-Since` →
+/// 304 proves it current; no header → the refetched body's extraction fingerprint decides);
+/// changed pages re-extract and their links discover NEW pages (an unchanged page's links are
+/// already in the inventory, so coverage stays complete without refetching bodies); 404/410
+/// drops a page; a transport error keeps the cached page (an outage never erases knowledge).
+/// Returns whether anything actually changed; the refreshed inventory is written back either
+/// way (the sweep timestamp restarts the verification window).
 #[cfg(feature = "crawl")]
-pub fn discover_docs(lang: &str, data_root: &Path) -> Option<DocsSource> {
-    if let Some(cached) = learned_source(lang) {
-        return cached;
+pub fn refresh_language_pages(data_root: &Path, lang: &str, version: &str) -> bool {
+    let mut sources = crate::lint_train::registered_docs_sources(data_root, lang);
+    if sources.is_empty() {
+        sources.extend(learned_source(lang));
     }
-    let found = search_and_probe(lang, data_root);
-    remember_source(lang, found.as_ref());
-    found
-}
-
-/// One discovery pass: web-search the language's official docs, rank candidate URLs by how much
-/// they look like documentation, and probe the best few by actually crawling them.
-#[cfg(feature = "crawl")]
-fn search_and_probe(lang: &str, data_root: &Path) -> Option<DocsSource> {
-    use crate::doc_crawler::fetch;
-    let query = format!("{lang} programming language official documentation reference");
-    let url = format!("https://html.duckduckgo.com/html/?q={}", url_encode(&query));
-    let (_, html) = fetch(&url)?;
-    let lang_lc = lang.to_lowercase();
-    let mut seen_hosts = std::collections::HashSet::new();
-    let mut candidates: Vec<(i32, String)> = Vec::new();
-    for cand in result_urls(&html) {
-        let lc = cand.to_lowercase();
-        let Some(host) = lc.strip_prefix("https://").and_then(|r| r.split('/').next()) else {
-            continue; // http or malformed — official docs serve https
-        };
-        if host.contains("duckduckgo") || !seen_hosts.insert(host.to_string()) {
+    let mut changed_any = false;
+    for src in &sources {
+        let lock = source_lock(&src.tool);
+        let _guard = lock.lock().expect("source lock poisoned");
+        let path = crawl_cache_path(&src.tool);
+        let Some(cached) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<CrawledSource>(&raw).ok())
+            .filter(|c| c.version == version && !c.pages.is_empty())
+        else {
+            // Cold or version-mismatched: the module rebuild will crawl it whole.
+            changed_any = true;
             continue;
+        };
+        if unix_now().saturating_sub(cached.crawled_at) < CRAWL_MAX_AGE {
+            continue; // verified recently enough
         }
-        let mut score = 0;
-        if lc.contains(&lang_lc) {
-            score += 3;
-        }
-        for hint in ["doc", "reference", "manual", "spec", "lang"] {
-            if lc.contains(hint) {
-                score += 1;
-            }
-        }
-        candidates.push((score, cand));
+        let (pages, changed) = verify_inventory(src, cached.pages);
+        write_crawl_cache(&path, version, &pages);
+        changed_any |= changed;
     }
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
-    for (_, url) in candidates.into_iter().take(4) {
-        let tool = url
-            .strip_prefix("https://")
-            .and_then(|r| r.split('/').next())
-            .unwrap_or(lang)
-            .trim_start_matches("www.")
-            .to_string();
-        let src = DocsSource { url: url.clone(), crawl: true, tool };
-        if learn_from_url(lang, &src, DISCOVERY_PROBE_PAGES, data_root).rules.len() >= MIN_DISCOVERED_RULES {
-            return Some(src);
-        }
-    }
-    None
+    changed_any
 }
 
-/// Result URLs from a DuckDuckGo static-HTML results page: each result link carries the real
-/// destination percent-encoded in its `uddg=` parameter.
-#[cfg(feature = "crawl")]
-fn result_urls(html: &str) -> Vec<String> {
-    let re = regex::Regex::new(r#"uddg=([^&"]+)"#).expect("static");
-    re.captures_iter(html).filter_map(|c| url_decode(&c[1])).collect()
+#[cfg(not(feature = "crawl"))]
+pub fn refresh_language_pages(_data_root: &Path, _lang: &str, _version: &str) -> bool {
+    false
 }
 
-/// Percent-encode a search query (RFC 3986 unreserved kept, space → `+`).
+/// One source's verification sweep: conditional-revalidate every inventoried page in
+/// parallel waves, re-extract what changed, expand to newly-linked in-scope pages, drop what
+/// the site removed.
 #[cfg(feature = "crawl")]
-fn url_encode(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            b' ' => out.push('+'),
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
+fn verify_inventory(src: &DocsSource, cached: Vec<CrawledPage>) -> (Vec<CrawledPage>, bool) {
+    use crate::doc_crawler::{extract_anchors, extract_prose, fetch_conditional, in_scope, Revalidation};
+    const WAVE: usize = 192;
+    let known: std::collections::HashMap<String, CrawledPage> =
+        cached.into_iter().map(|p| (p.url.clone(), p)).collect();
+    let mut seen: std::collections::HashSet<String> = known.keys().cloned().collect();
+    let mut worklist: Vec<String> = known.keys().cloned().collect();
+    if seen.insert(src.url.clone()) {
+        worklist.push(src.url.clone());
     }
-    out
+    let mut out: Vec<CrawledPage> = Vec::new();
+    let mut changed = false;
+    while !worklist.is_empty() && seen.len() < 40_000 {
+        let batch: Vec<String> = std::mem::take(&mut worklist);
+        let mut next: Vec<String> = Vec::new();
+        for wave in batch.chunks(WAVE) {
+            let results: Vec<(String, Revalidation)> = std::thread::scope(|scope| {
+                let handles: Vec<_> = wave
+                    .iter()
+                    .map(|url| {
+                        let since = known.get(url).and_then(|p| p.modified);
+                        scope.spawn(move || fetch_conditional(url, since))
+                    })
+                    .collect();
+                wave.iter()
+                    .cloned()
+                    .zip(handles.into_iter().map(|h| {
+                        h.join().unwrap_or(Revalidation::Unreachable)
+                    }))
+                    .collect()
+            });
+            for (url, outcome) in results {
+                match outcome {
+                    Revalidation::NotModified => {
+                        if let Some(p) = known.get(&url) {
+                            out.push(p.clone());
+                        }
+                    }
+                    Revalidation::Gone => {
+                        if known.contains_key(&url) {
+                            changed = true;
+                        }
+                    }
+                    Revalidation::Unreachable => {
+                        if let Some(p) = known.get(&url) {
+                            out.push(p.clone());
+                        }
+                    }
+                    Revalidation::Changed(_, body, modified) => {
+                        let fresh = extract_crawled_page(&src.url, &url, extract_prose(&body), &body, modified);
+                        // A refetch that extracts identically is not a change (servers
+                        // without Last-Modified answer 200 every time).
+                        if known.get(&url).map(|p| p.fp) != Some(fresh.fp) {
+                            changed = true;
+                        }
+                        for (link, _) in extract_anchors(&url, &body) {
+                            if in_scope(&src.url, &link) && seen.insert(link.clone()) {
+                                next.push(link);
+                            }
+                        }
+                        out.push(fresh);
+                    }
+                }
+            }
+        }
+        worklist = next;
+    }
+    (out, changed)
 }
 
-/// Percent-decode a URL; `None` when the encoding is malformed.
-#[cfg(feature = "crawl")]
-fn url_decode(s: &str) -> Option<String> {
-    let bytes = s.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'%' => {
-                let hex = s.get(i + 1..i + 3)?;
-                out.push(u8::from_str_radix(hex, 16).ok()?);
-                i += 3;
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8(out).ok()
+/// Register `url` as `lang`'s official documentation (LINTER.md, "Online to set up, offline
+/// to run"). A data write into the discovery cache, overwriting any failed discovery's
+/// negative marker, so every later train/lint resolves the language's docs to this URL.
+/// Offline-safe; the caller invalidates the language's model stamp and TRAINING learns it.
+pub fn add_docs_source(lang: &str, url: &str) -> DocsSource {
+    let tool = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or(lang)
+        .trim_start_matches("www.")
+        .to_string();
+    let src = DocsSource { url: url.to_string(), crawl: true, tool };
+    remember_source(lang, &src);
+    src
 }
 
 #[cfg(test)]
@@ -758,15 +918,24 @@ mod tests {
     }
 
     #[test]
-    fn discovery_registry_round_trips_and_negative_caches() {
-        // Discovery must remember both answers so a language is searched at most once.
+    fn added_sources_round_trip_and_legacy_negative_markers_read_as_absent() {
         let dir = std::env::temp_dir().join(format!("lint-docs-test-{}", std::process::id()));
-        std::env::set_var("HOME", &dir); // learned registry lives under $HOME
-        remember_source("zig", Some(&DocsSource { url: "https://ziglang.org/documentation/".into(), crawl: true, tool: "ziglang.org".into() }));
-        assert_eq!(learned_source("zig").unwrap().unwrap().url, "https://ziglang.org/documentation/");
-        remember_source("brainfuck", None);
-        assert!(learned_source("brainfuck").unwrap().is_none(), "negative answer is cached");
-        assert!(learned_source("cobol").is_none(), "never-searched language has no cached answer");
+        std::env::set_var("HOME", &dir); // the added-sources store lives under $HOME
+        add_docs_source("zig", "https://ziglang.org/documentation/");
+        assert_eq!(learned_source("zig").unwrap().url, "https://ziglang.org/documentation/");
+        // A legacy negative marker (from the deleted web-discovery era) means "no source" —
+        // and a handed-over URL replaces it.
+        let store = learned_sources_path();
+        let mut json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&store).unwrap()).unwrap();
+        json["sources"].as_array_mut().unwrap().push(serde_json::json!({
+            "tool": "brainfuck", "language": "brainfuck", "kind": "none"
+        }));
+        std::fs::write(&store, json.to_string()).unwrap();
+        assert!(learned_source("brainfuck").is_none(), "legacy negative marker reads as absent");
+        add_docs_source("brainfuck", "https://example.org/bf-docs/");
+        assert_eq!(learned_source("brainfuck").unwrap().url, "https://example.org/bf-docs/");
+        assert!(learned_source("cobol").is_none(), "a language nobody added has no source");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -782,13 +951,6 @@ mod tests {
                 "extraction still works around multibyte text: {contexts:?}");
     }
 
-    #[cfg(feature = "crawl")]
-    #[test]
-    fn url_codec_round_trips() {
-        assert_eq!(url_encode("zig language docs"), "zig+language+docs");
-        assert_eq!(url_decode("https%3A%2F%2Fziglang.org%2Fdocs").unwrap(), "https://ziglang.org/docs");
-        assert!(url_decode("%zz").is_none(), "malformed escape is rejected, not garbled");
-    }
 }
 
 #[cfg(test)]

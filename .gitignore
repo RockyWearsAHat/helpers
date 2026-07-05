@@ -57,3 +57,4 @@ lint-index/*.json
 !lint-index/toolchains.json
 !lint-index/reading-sources.json
 !lint-index/polarity-bootstrap.json
+!lint-index/trusted-keys.json

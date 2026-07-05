@@ -31,6 +31,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 wait-timeout = "0.2"
 # Canonical sha256 for the packed lint-index checksum (fast-path integrity check).
 sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
 # search_web / scrape_webpage drive a real Chrome over CDP (like puppeteer, but
 # synchronous and Node-free). CDP is a local ws:// socket, so no TLS/OpenSSL —
 # keeps cross-compilation to musl/windows-gnu clean.
