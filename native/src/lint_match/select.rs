@@ -313,8 +313,32 @@ pub(super) fn description_discriminator(
     only_grounded: bool,
 ) -> Option<(String, bool)> {
     let reader = ground.reader?;
+    // "Not common language" (LINTER.md evidence hierarchy #2, ledger #17): a word is
+    // connective when common language accounts for it — the dictionary-read LangBrain knows
+    // it, or it sits in the docs corpus head. The docs head alone measurably cannot carry
+    // this judgment ("never" at 165 reads sat far under a 691-read head cutoff, so register
+    // words hijacked selection from the named construct).
+    let english = crate::lint_english::brain();
+    // "Not common language" (LINTER.md evidence hierarchy #4, ledger #17): common language
+    // accounts for a word when the dictionary-read LangBrain knows it or it sits in the docs
+    // corpus head. English is asked about the WHOLE word: a compound identifier
+    // (`secret_token`, `document.write`) reads as several English tokens, but the compound
+    // itself is code typography no dictionary defines — its parts being common must not
+    // demote it. The docs head alone measurably cannot carry this judgment ("never" at 165
+    // reads sat far under a 691-read head cutoff, so register words hijacked selection).
     let connective = |surface: &str| {
-        crate::lint_read::tokens(surface).iter().all(|t| reader.is_head_word(t))
+        let inner = crate::lint_read::tokens(surface);
+        (inner.len() == 1 && english.is_some_and(|e| e.knows(&inner[0])))
+            || (!inner.is_empty() && inner.iter().all(|t| reader.is_head_word(t)))
+    };
+    // The dictionary judgment is an existence TIE-BREAK, never a veto on preventive laws: a
+    // construct can itself be an English word and ground nowhere (`panic` in a clean repo),
+    // so among UNGROUNDED words only the docs-corpus head demotes and the sentence's own
+    // polarity context stays the deciding evidence (the register residual there is the
+    // per-token polarity open problem, LINTER.md).
+    let head_only = |surface: &str| {
+        let inner = crate::lint_read::tokens(surface);
+        !inner.is_empty() && inner.iter().all(|t| reader.is_head_word(t))
     };
     // (surface word, reading position, context tier, in-project?, grounded?, rarity = fewest
     // reads among inner tokens, raw-universe-only?). No stop-list and no frequency CUTOFF
@@ -403,11 +427,17 @@ pub(super) fn description_discriminator(
         });
     } else {
         // LINTER.md, "The evidence hierarchy": not-the-remedy, the author's marking,
-        // not-connective, existence (project then docs, whole runs), forbidding context,
-        // then document order (grounded) / rarity (ungrounded).
+        // project-code existence, not-common-language, docs existence, forbidding context,
+        // then document order (grounded) / rarity (ungrounded). Existence leads the English
+        // judgment because a law's construct may itself be an English word (`panic`, `var`) —
+        // living in the project's CODE is what proves it is meant as code; the register
+        // hijackers ("never", "import") that once rode existence (#15/#17) now tie there and
+        // die on common-language knowledge, and English words can no longer ground through
+        // the raw text universe at all.
         candidates.sort_by_key(|(surface, position, tier, marked, in_project, grounded, rarity, _raw)| {
             let order = if *grounded { *position as u64 } else { *rarity as u64 };
-            (*tier == 2, !*marked, connective(surface), !*in_project, !*grounded, *tier, order, *position)
+            let common = if *grounded { connective(surface) } else { head_only(surface) };
+            (*tier == 2, !*marked, !*in_project, !*grounded, common, *tier, order, *position)
         });
     }
 

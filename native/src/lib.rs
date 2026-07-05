@@ -13,6 +13,7 @@ pub mod index;
 pub mod knowledge;
 pub mod lint_ai;
 pub mod lint_docs;
+pub mod lint_english;
 pub mod lint_feedback;
 pub mod lint_match;
 pub mod lint_read;

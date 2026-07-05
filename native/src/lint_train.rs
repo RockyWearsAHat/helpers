@@ -52,7 +52,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v41-learned-extensions";
+const TRAIN_VERSION: &str = "docs-v42-common-language-first";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -343,6 +343,13 @@ fn rules_in_documents(
 /// artifacts beside the per-language models (e.g. the transferred polarity classifier).
 pub(crate) fn model_dir_pub() -> PathBuf {
     model_dir()
+}
+
+/// An embedded `lint-index/` artifact alone — for substrate loads that have no project
+/// `data_root` in hand (the common-language brain is consulted from deep inside construct
+/// selection, where plumbing a root through every caller would couple the matcher to setup).
+pub(crate) fn embedded_lint_index_file(name: &str) -> Option<String> {
+    EMBEDDED_LINT_INDEX.get_file(name).and_then(|f| f.contents_utf8().map(str::to_string))
 }
 
 /// A file from the committed/embedded `lint-index/` data (on-disk copy preferred) — the shape

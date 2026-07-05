@@ -7,10 +7,16 @@
 
 ## Thesis
 
-**English is read; code is linted.** The system builds a baseline understanding of English by
-reading (that understanding is the substrate), then learns each code language *through* that
-understanding by reading its documentation, and finally enforces only things that state a
-violation. Comprehension and enforcement are different acts: teaching material, concept prose,
+**English is read; code is linted — and common language is learned FIRST.** The system builds a
+baseline understanding of English by reading (that understanding is the substrate), then learns
+each code language *through* that understanding by reading its documentation, and finally
+enforces only things that state a violation. The baseline is not optional and not implicit: a
+reader fed only technical documentation believes "never" and "import" are rare words (measured:
+165 and 402 reads in a 637k-token docs-fed reader whose Zipf head cutoff was 691 — both
+escaped every commonness judgment), so before any docs are read, the substrate reads the
+machine's own dictionary (see "Common language first" below). Nothing downstream can be smarter
+than this baseline: construct selection, polarity, and salience all ask what the reading can
+account for, and the answer is only meaningful if common English was read first. Comprehension and enforcement are different acts: teaching material, concept prose,
 and remedy clauses are *read* — they train the reader and the classifier — but never fire.
 
 The substrate is a 1-bit hyperdimensional AI, not an LLM and not a rule program:
@@ -42,7 +48,8 @@ This boundary is the answer to "is it an AI or a program?" — kept honest by in
 
 **Learned (data; changes by reading, never by code edit):**
 vocabulary and its frequencies (self-defining: any string hashes to a code; nothing is
-enumerated); the polarity prototypes; every rule (read from docs/law files); every compiled
+enumerated); the common-language brain (dictionary-read frequencies + the set of words the
+dictionary defines); the polarity prototypes; every rule (read from docs/law files); every compiled
 detector (derived from the rule's own words/examples); the grounding corpora (docs' example
 code, the project's own sources); the concept fingerprints; the feedback suppressions.
 
@@ -324,7 +331,35 @@ doc-learning path) — knowledge, like law, never vanishes silently.
 Measured before this held: two offline runs after a version bump silently gutted every model
 on the machine to law-only (17 compiled instances where rust alone should carry hundreds).
 
-## The evidence hierarchy (construct selection for prose rules)
+## Common language first — the LangBrain
+
+**A rule written in natural English can only be understood by something that understands
+natural English.** Before any documentation is read, the substrate learns common language from
+the machine's own dictionary — on macOS the installed New Oxford American Dictionary
+(`Body.data` under the system dictionary assets: 781 zlib chunks, ~225MB of definition XML,
+~5.4M prose tokens, ~90k defined words; parsed offline, never network). Two things are learned,
+both pure data:
+
+- **The common-language frequency curve** — the reader reads every definition's prose, so its
+  frequencies reflect real English ("the" 225k, "use" 3.9k, "never" 740, "import" 31) instead
+  of documentation register. This is the curve information weighting and rarity rankings should
+  have been standing on all along.
+- **The defined-word set (headwords)** — the vocabulary English itself accounts for. This is
+  the English-knowledge judgment construct selection uses: a word the dictionary DEFINES is
+  common language, whatever its count ("import" at 31 reads is exactly as English as "never" at
+  740 — a frequency floor would misjudge both, and `eval` at 4 incidental reads proves any
+  floor wrong in the other direction). A word the dictionary does not define (`telnetlib`,
+  `xmlhttprequest`, `dbg`, `todo`) is not English — it is the thing the sentence is ABOUT.
+
+The artifact is `english.global.json` (machine-global, beside the models): the dictionary-fed
+reader plus the headword set. It is built once per machine at SETUP time (`action=train`) from
+the local dictionary; lint runs only ever load it. Machines without a parseable dictionary load
+the committed bootstrap `lint-index/english-bootstrap.json` — machine-generated learned data,
+same covenant as the polarity and extensions bootstraps: regenerate with
+`cargo test --release --lib generate_english_bootstrap -- --ignored` and commit the diff. The
+LangBrain is a substrate, not a rule source: it never fires, never gates a project law's
+EXISTENCE, and adding meaning on top of it (definitions as bindings — word ⊗ its definition,
+the designed "rules MEAN something" step) extends this section rather than adding a mechanism.
 
 A prose law's detector token is chosen from the sentence's whitespace-delimited words (edge
 punctuation trimmed — `console.log`, `8080`, `lock(this)` survive verbatim). Candidates are
@@ -346,29 +381,48 @@ For the **project's law** (ranked, best first):
    still compiles through the ranks below) — but when the author did mark, no corpus
    statistics may outvote them ("project", a real identifier in this repo's code, once
    outranked the backticked `XMLHttpRequest` on existence).
-2. **Not connective** — the unread word is the construct: a word the reading can account for
-   as common prose (corpus-head, Zipf top-half mass; scale-free) can never outrank one it
-   cannot; register words ("Never") reading as decisively forbidding (#15) are head words.
-3. **Grounding** — occurs in real code as a WHOLE identifier run (sub-word parts are
-   comprehension, not existence — #14): the *project's own sources* first (a law names
-   constructs that live in the code it governs), then the language's documented
-   (comment-stripped, string-masked) examples. For the project's law, existence is judged in
-   TWO universes: the code surface first, and — for a non-connective, UNMARKED word only — the
-   project's raw text (comment bodies, string interiors). A word that exists only inside
-   comments/strings ("TODO", a port `":8080"`) still grounds, and the compiled detector then
-   FIRES in that raw universe too: a law fires in the text universe it grounded in (#12,
-   generalized — #12 stays intact for code-grounded words, whose detectors never enter
-   strings/comments). Two exclusions keep the raw universe honest: head words never ground
-   through it (comments are English; "never" lives in every repo's comments — #14/#15 hold),
-   and a BACKTICKED word never does — backticks are inline code markup, the author saying
-   "this is a code construct" (`` `todo!` ``), so its law stays preventive on the code surface
-   instead of firing on every comment that discusses the construct (measured on this repo:
-   13 findings on doc comments the moment marked laws could go raw). A comment-marker law
-   (TODO, FIXME) is written unmarked; a code-construct law is backticked — the author's own
+2. **Project existence** — occurs in the project's own sources as a WHOLE identifier run
+   (sub-word parts are comprehension, not existence — #14): a law names constructs that live
+   in the code it governs, and living in the CODE is what proves a word is meant as code even
+   when it is also an English word (`panic`, `var` — the common-language judgment below would
+   wrongly demote them if it ranked first). Existence is judged in TWO universes: the code
+   surface first, and — for a non-English, UNMARKED word only — the project's raw text
+   (comment bodies, string interiors). A word that exists only inside comments/strings
+   ("TODO", a port `":8080"`) still grounds, and the compiled detector then FIRES in that raw
+   universe too: a law fires in the text universe it grounded in (#12, generalized — #12
+   stays intact for code-grounded words, whose detectors never enter strings/comments). Two
+   exclusions keep the raw universe honest: common-language words never ground through it
+   (comments are English; "never" lives in every repo's comments — #14/#15/#17 hold), and a
+   BACKTICKED word never does — backticks are inline code markup, the author saying "this is
+   a code construct" (`` `todo!` ``), so its law stays preventive on the code surface instead
+   of firing on every comment that discusses the construct (measured on this repo: 13
+   findings on doc comments the moment marked laws could go raw). A comment-marker law (TODO,
+   FIXME) is written unmarked; a code-construct law is backticked — the author's own
    typography is the evidence, never a shape rule about the word itself.
-4. **Context tier** — forbidding > neutral, by the word's polarity context along the reading
+3. **Docs existence** — occurs as a whole identifier run in the language's documented
+   (comment-stripped, string-masked) examples: a construct that is also an English word
+   (`panic`) may live only in the docs' reference code, and that existence still outranks the
+   English demotion below. Project and docs existence OR together here — a project-grounded
+   construct never loses this rank.
+4. **Not common language** — among words with equal existence, the one English cannot account
+   for is the construct: a word the common-language brain knows (a dictionary headword —
+   "never", "import", "module", "print") or that sits in the docs corpus head (Zipf top-half
+   mass) can never outrank one neither can account for (`telnetlib`, `xmlhttprequest`). This
+   is what kills the register hijackers that ride existence — "import" grounds in every
+   import line right beside `telnetlib`, and they tie there; English knowledge breaks the tie
+   toward the construct. The dictionary judgment is an existence TIE-BREAK, never a veto on
+   preventive laws: a construct can itself be an English word and ground nowhere (`panic` in
+   a clean repo), so among UNGROUNDED words only the docs-corpus head demotes and the
+   sentence's own polarity context (rank 5) stays the deciding evidence — the register
+   residual there belongs to the per-token polarity open problem. English is asked about the WHOLE whitespace word: a compound
+   identifier (`secret_token`, `document.write`) reads as several English tokens, but the
+   compound itself is code typography no dictionary defines — its parts being common never
+   demote it (#11's tokenizer split stays a reading aid, not a judgment unit). The judgment
+   is learned by reading the dictionary, never enumerated (#17); register words ("Never")
+   reading as decisively forbidding (#15) are dictionary words like any other.
+5. **Context tier** — forbidding > neutral, by the word's polarity context along the reading
    (nearest decisive lean).
-5. **Order/rarity** — document order among grounded content words; rarity (fewest reads) for
+6. **Order/rarity** — document order among grounded content words; rarity (fewest reads) for
    ungrounded words.
 
 For **learned** doc rules: grounding in documented code is an entry *requirement* (not a
@@ -543,6 +597,18 @@ fire → guard → gate → quarantine → config/feedback → report.
    language hints resolve through the same extension→language map the file walker uses; a law
    file whose language matches no project file is reported as inert.*
 
+17. **The substrate never learned common English, so commonness judgments answered from
+   ignorance** (validated live on never-seen law phrasings: the docs-fed reader's Zipf head
+   cutoff sat at 691 reads while "import" had 402 and "never" 165, so neither was ever demoted
+   as connective — "Do not import the telnetlib module…" compiled `import`, and with "never"
+   in any string of the project, `never`: a false positive on an innocent string plus a false
+   negative on the actual `import telnetlib` line. Every extractor patch inherits the same
+   lie — the defect was the missing baseline, not the ranking) → *common language first: the
+   machine's own dictionary is read into the LangBrain before any docs, and the selection
+   judgment is "does English account for this word" (dictionary headword or docs-corpus head),
+   learned by reading, never a hand-tuned threshold — a binary frequency cutoff at any scale
+   was the exact failure `select.rs` warned itself about.*
+
 ## The distribution channel (built) and the community network (deferred, decided)
 
 **What ships today: a signed, one-way distribution channel — every user assumed hostile.** A
@@ -676,3 +742,8 @@ with an attacker contract, exactly as the two registry contracts already do.
 - The polarity bootstrap (`lint-index/polarity-bootstrap.json`) is machine-generated:
   `cargo test --release --lib generate_polarity_bootstrap -- --ignored` — regenerate whenever
   the tokenizer, salience, or seed labeling changes (train/inference consistency).
+- The English bootstrap (`lint-index/english-bootstrap.json`) is machine-generated from the
+  local dictionary: `cargo test --release --lib generate_english_bootstrap -- --ignored` —
+  regenerate whenever the tokenizer or the dictionary parser changes. Machines with a local
+  dictionary rebuild `english.global.json` themselves at setup; the bootstrap only covers
+  machines without one.
