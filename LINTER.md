@@ -630,8 +630,22 @@ the replay has one tier per witness:
   write that happens purely through a shared `mmap` with no `write`/`msync` posts no
   vnote — agents and editors write files via `write`+`rename`, and the stat tier still
   catches it on the next miss.
-- **The stat tier (change, cold starts, fallback — milliseconds).** Mtimes are updated by
-  the kernel synchronously with the write itself, so a stat sweep can never miss an edit. The
+- **The incremental tier (an armed daemon WITH changes — the lint is the change).** The
+  drain does not just say "dirty": it names exactly which vnodes fired. When every fired
+  path lies inside the project tree (no law/config/model/aux event) and the daemon holds
+  the previous run's state (files, decoded verdicts, loaded models, rendered footers),
+  the run touches ONLY the change: fired directories rescan with one bulk syscall
+  (additions/removals), fired files restat and re-lint through the cached models — the
+  1-bit core's actual work, microseconds per file — verdicts update in place, run-level
+  shaping recomputes from cached counts, and the body re-renders with the cached
+  training footers (models, law, and aux are provably untouched — no events). Re-arm
+  reopens only what fired (arm-before-read per file: reopen, then read, so a racing edit
+  pends on the new vnode); a final drain must be quiet to commit, and a churning tree
+  simply returns results without committing. Any fired path OUTSIDE the tree, a missing
+  state cache, or an incomplete watch set falls to the stat tier below.
+- **The stat tier (cold starts, aux changes, fallback — milliseconds).** Mtimes are
+  updated by the kernel synchronously with the write itself, so a stat sweep can never
+  miss an edit. The
 sweep is microseconds because the walk fuses everything into batched syscalls: on macOS one
 `getattrlistbulk` call returns name, type, mtime, and size for a whole directory's entries
 at once (no per-file `stat`), directories fan out on the shared rayon pool, and ignore

@@ -95,11 +95,20 @@ pub fn aux_witness(root: &Path, data: &Path) -> Witness {
     })
 }
 
-/// The walk's half of the witness: the sorted file set and every file's state, so an edit,
-/// an addition, a removal, or a rename anywhere in the tree changes the fold.
+/// One file's contribution to the walk fold — ORDER-INDEPENDENT (XOR of per-file terms),
+/// so the incremental tier patches a changed file in O(1): `fold ^= old_term ^ new_term`.
+/// The term mixes the path seed multiplicatively into the state so two files swapping
+/// states can never cancel.
+pub fn file_term(rel: &str, state: u128) -> u128 {
+    let k = (crate::lint_ai::token_seed(rel) as u128) | 1;
+    state.wrapping_mul(k) ^ k.rotate_left(64)
+}
+
+/// The walk's half of the witness: the file set and every file's state, so an edit, an
+/// addition, a removal, or a rename anywhere in the tree changes the fold.
 pub fn walk_witness(files: &[WalkedFile]) -> Witness {
     files.iter().fold(Witness { fold: 1, newest: 0 }, |acc, f| Witness {
-        fold: acc.fold.rotate_left(9) ^ f.state ^ (crate::lint_ai::token_seed(&f.rel) as u128),
+        fold: acc.fold ^ file_term(&f.rel, f.state),
         newest: acc.newest.max(f.mtime),
     })
 }
