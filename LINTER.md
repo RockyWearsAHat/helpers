@@ -979,21 +979,26 @@ with an attacker contract, exactly as the two registry contracts already do.
   belongs to the side-count/asymmetric-grounding design (a Flagged verdict is strong evidence;
   a Clean verdict says "parses", not "endorsed") — design it in this file first, per ledger #7
   discipline; do not special-case linter-doc vocabulary.
-- **Governance is association, not adjacency (learned page understanding).** The extraction
-  windows have accumulated three heuristics answering one question — which prose governs
-  which code (`GOVERNING_CTX` tail, the 40-word lead-in, the heading cut) — and stacked
-  hand rules are the tell that the mechanism is wrong. The author's own typography stays
-  DATA (`<pre>`/fences mark code, anchors name sections — grounding needs exact code bytes,
-  and a learned segmenter that is 95% right poisons 5% of the toolchain labels the whole
-  classifier rests on), but OUR windows should dissolve into comprehension: the Reader
-  already forms `prose_hv ⊗ code_hv` bindings, so a block's governing prose is the page's
-  SENTENCES whose prose-Hv binds strongest to the block's code-Hv — association decides,
-  byte distance only breaks ties ("Binding.bind stored but not similarity-queried" is this
-  gap). One step further, the reader's own prediction-error spikes are a LEARNED section
-  boundary (topic shift = surprise) — no heading tag consulted at all, which folds this
-  into the latent-sequence design below. Until then the heading cut above is explicitly
-  interim mechanism: typography-only, no vocabulary, and replaced by association when this
-  lands (spec-first, with the diversity contract as its acceptance gate).
+- **The page should be READ, not split (learned markup comprehension).** The extraction
+  windows have accumulated stacked hand heuristics answering one question — which prose
+  governs which code (`GOVERNING_CTX` tail, the 40-word lead-in, the heading cut) — and
+  stacked hand rules are the tell that the mechanism is wrong. The direction: feed the
+  page in AS-IS and let the reader learn markup the way it learned English — tags are
+  just tokens (ubiquitous, so they weigh nothing as meaning, but the sequential coder can
+  learn their ROLE: what follows `<pre` reads in code register, what follows a heading
+  shifts topic), in ADDITION to English understanding, never replacing it. Under that
+  reading, today's programmed decisions become judgments of comprehension: code-vs-prose
+  is register the reader can already measure, section boundaries are prediction-error
+  spikes (topic shift = surprise — the latent-sequence design below), and "which prose
+  governs this example" is what the reading says it is. Reality keeps it honest the same
+  way it grounds polarity: a span the toolchain parses IS code (a verdict is a
+  segmentation label too), and author marks (fences, `<pre>`, anchors) remain
+  CORROBORATING signals the reader gets for free — one more thing it read, not a
+  mechanism it depends on. Every current window heuristic, the heading cut included, is
+  interim mechanism to be dissolved by this; the diversity contract is the acceptance
+  gate, and the failure to design against is circularity (judging governance with
+  associations that were themselves formed by the old windows — the substrate must
+  re-read raw pages, not launder windowed bindings).
 - **Latent-sequence reasoning ("brain waves").** Inference is already Hv-native end to end;
   a rolling-context classifier (prototypes over context space, not bag space) is the designed
   next step for clause understanding without any typography.
