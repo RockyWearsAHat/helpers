@@ -1104,3 +1104,202 @@ fn offline_and_cold_the_projects_law_is_still_enforced() {
     let hit = flagged_in(&verdict, "svc.py", "q_no_containers");
     assert!(hit, "project law is enforced offline with cold caches:\n{verdict}");
 }
+
+// ── B-diverse: every reading stage, one real-world page SHAPE each ─────────────
+
+/// Serve a documentation site for the invented "vexlang" where每 page is a SHAPE the crawler
+/// meets in the wild. Each page exists to exercise one BIT of the reading process; the
+/// end-to-end assertions in [`a_diverse_real_shaped_site_exercises_every_reading_stage`]
+/// name the bit they pin.
+fn serve_diverse_vexlang_site() -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind localhost");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let body: &str = if req.starts_with("GET /zapcall") {
+                // MDN-reference SHAPE: site chrome that is NOT inside <nav>/<footer> tags
+                // (plain divs with ids, css-ish text), then an anchored prohibition section
+                // with a bad/good example pair.
+                "<html><body>\
+                 <div id=\"menu_click_menu--vex\">VEX reference .button{align-items:center;border:1px solid}</div>\
+                 <div id=\"breadcrumb_click--2\">Reference</div>\
+                 <h1>zapcall()</h1>\
+                 <p>The zapcall function sends a payload to the zap bus and returns its ticket. \
+                 It is part of the classic bus interface and appears throughout older programs. \
+                 The sections below describe its behavior and the supported alternatives in detail.</p>\
+                 <h2 id=\"never_use_zapcall\">Never use zapcall!</h2>\
+                 <p>Never use the zapcall statement anywhere; it is deprecated and will be removed.</p>\
+                 <pre>zapcall(payload)</pre>\
+                 <p>Use a structured call instead; this is the correct form:</p>\
+                 <pre>safecall(payload)</pre>\
+                 <div id=\"footer--link\">Site map</div>\
+                 </body></html>"
+            } else if req.starts_with("GET /docs/rules/all") {
+                // Single-page multi-rule SHAPE (clippy's lint list): each rule in its own
+                // anchored article; a rule's fix must pair within ITS anchor, never steal
+                // the next rule's.
+                "<html><body><h1>vexlang lints</h1>\
+                 <article id=\"lint-no_flob\"><h2>no_flob</h2>\
+                 <p>Never use the flob statement anywhere; it is deprecated and will be removed.</p>\
+                 <pre>flob left</pre>\
+                 <p>Use a structured form instead; this is the correct form:</p>\
+                 <pre>flib left</pre></article>\
+                 <article id=\"lint-no_wibble\"><h2>no_wibble</h2>\
+                 <p>Never use the wibble statement anywhere; it is deprecated and will be removed.</p>\
+                 <pre>wibble both</pre>\
+                 <p>Use a structured form instead; this is the correct form:</p>\
+                 <pre>wend both</pre></article>\
+                 </body></html>"
+            } else if req.starts_with("GET /errors/bad-literal") {
+                // Error-page SHAPE: prohibition register whose bad/good examples differ ONLY
+                // in punctuation — the compile must abstain (values and operators are
+                // semantics), never mint a token detector that fires on normal use.
+                "<html><body><h1>SyntaxError: vex literal</h1>\
+                 <p>Never write a trailing separator in a vex literal; the string cannot be parsed and the program is rejected.</p>\
+                 <pre>parsevex(\"[1,2,]\")</pre>\
+                 <p>Use the plain form instead; this is the correct form:</p>\
+                 <pre>parsevex(\"[1,2]\")</pre>\
+                 </body></html>"
+            } else if req.starts_with("GET /wobble") {
+                // Deprecated-marker SHAPE.
+                "<html><body><h1>The wobble form</h1>\
+                 <p>Deprecated: never use the wobble form in new code; it is deprecated and will be removed.</p>\
+                 <pre>wobble mode</pre>\
+                 <p>Use the bobble form instead; this is the correct form:</p>\
+                 <pre>bobble mode</pre>\
+                 </body></html>"
+            } else if req.starts_with("GET /flare") {
+                // BLOCKLESS prohibition SHAPE (the MDN-eval warning): heading + prose,
+                // zero <pre>. Pinned structurally invisible until the per-token side-count
+                // classifier lands (LINTER.md, \"A blockless section cannot teach law yet\").
+                "<html><body><h1>flare()</h1>\
+                 <h2 id=\"never_use_flare\">Never use flare!</h2>\
+                 <p>Never use the flare statement anywhere; it is dangerous and will be removed.</p>\
+                 </body></html>"
+            } else if req.starts_with("GET /getting-started") {
+                // Tutorial SHAPE: neutral prose around a whole sample program — a sample
+                // program is not a rule (ledger #13) and must mint nothing that fires.
+                "<html><body><h1>Getting started</h1>\
+                 <p>A first vexlang program prints a greeting and finishes cleanly.</p>\
+                 <pre>begin\n  greet(\"world\")\n  finish\nend</pre>\
+                 <p>Run it with the vex runner and read the output.</p>\
+                 </body></html>"
+            } else if req.starts_with("GET /intl") {
+                // Multibyte SHAPE: CJK and emoji chrome around a neutral example — crawl
+                // and unit forming must stay char-boundary safe.
+                "<html><body><h1>国際化 🌍</h1>\
+                 <p>言語の設定は端末に従います。The steady element keeps its state.</p>\
+                 <pre>steady on</pre>\
+                 </body></html>"
+            } else {
+                "<html><body><h1>vexlang documentation</h1>\
+                 <div id=\"menu_click_menu--all\">All pages</div>\
+                 <p>The reference for the vex language.</p>\
+                 <a href=\"/zapcall.html\">zapcall</a> \
+                 <a href=\"/docs/rules/all.html\">lints</a> \
+                 <a href=\"/errors/bad-literal.html\">errors</a> \
+                 <a href=\"/wobble.html\">wobble</a> \
+                 <a href=\"/flare.html\">flare</a> \
+                 <a href=\"/getting-started.html\">start</a> \
+                 <a href=\"/intl.html\">intl</a>\
+                 </body></html>"
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+    format!("http://127.0.0.1:{port}/")
+}
+
+/// The DIVERSITY contract: one invented language whose documentation exhibits, page by page,
+/// every real-world shape the reading pipeline must handle — and each assertion names the
+/// process BIT it pins. When this passes together with the planted-violation matrix, the
+/// pipeline's stages are each proven on a diverse input, not on one lucky rule.
+#[test]
+fn a_diverse_real_shaped_site_exercises_every_reading_stage() {
+    let url = serve_diverse_vexlang_site();
+    let p = TestProject::new("diverse-shapes");
+    p.write(
+        "bad.vex",
+        "zapcall(payload)\nflob left\nwibble both\nwobble mode\nflare now\nparsevex(\"[1,2,]\")\n",
+    );
+    p.write(
+        "clean.vex",
+        "safecall(payload)\nflib left\nwend both\nbobble mode\nparsevex(\"[1,2]\")\ngreet(\"world\")\nsteady on\n",
+    );
+    p.write(
+        "lint-index/sources.json",
+        &format!(
+            r#"{{"version": 3, "sources": [{{"tool": "vexdocs", "language": "vex", "kind": "crawl", "seed": "{url}"}}]}}"#
+        ),
+    );
+
+    // Train online against the localhost site (the one network step)…
+    let ack = p.call("lint_config", r#"{"action":"train"}"#, false);
+    assert!(
+        line_with(&ack, "vex:").is_some_and(|l| l.contains("rule(s)")),
+        "STAGE crawl+read+mint: the site trains a vex module:\n{ack}"
+    );
+    // …then everything below is the offline live path.
+    let verdict = p.lint(true);
+
+    // STAGE reference-shape extraction (chrome + anchored section): the prohibition minted
+    // and fires on the exact line, citing the docs' own words.
+    assert!(
+        flagged_in(&verdict, "bad.vex", "zapcall") && verdict.contains("Never use the zapcall statement"),
+        "MDN-reference shape must mint the zapcall rule and fire it on bad.vex:\n{verdict}"
+    );
+    // STAGE anchor slugs (multi-rule page): BOTH rules mint under their own anchors and fire.
+    assert!(
+        flagged_in(&verdict, "bad.vex", "flob"),
+        "clippy shape: no_flob fires on its line:\n{verdict}"
+    );
+    assert!(
+        flagged_in(&verdict, "bad.vex", "wibble"),
+        "clippy shape: no_wibble fires on its line (its fix must not be stolen by no_flob):\n{verdict}"
+    );
+    // STAGE deprecated-marker shape.
+    assert!(
+        flagged_in(&verdict, "bad.vex", "wobble"),
+        "deprecated-marker shape: the wobble rule fires:\n{verdict}"
+    );
+    // STAGE punctuation-only diff (error page): the compile ABSTAINS — parsevex must be
+    // flagged in NEITHER file (a token detector here would fire on every normal call).
+    assert!(
+        !flagged_in(&verdict, "bad.vex", "parsevex") && !flagged_in(&verdict, "clean.vex", "parsevex"),
+        "error-page shape: a punctuation-only diff compiles no detector:\n{verdict}"
+    );
+    // STAGE blockless prohibition (the MDN-eval shape): pinned structurally INVISIBLE until
+    // the per-token side-count classifier lands (LINTER.md, "A blockless section cannot
+    // teach law yet") — this row flips to a fire assertion when it does.
+    assert!(
+        !flagged_in(&verdict, "bad.vex", "flare"),
+        "blockless shape is pinned invisible today; if this fires, the pin (and LINTER.md) must move together:\n{verdict}"
+    );
+    // STAGE zero false positives across every shape at once: the clean file uses every
+    // GOOD form, the error-page feature legitimately, the tutorial's own construct, and
+    // the multibyte page's element — none of it may be flagged.
+    assert!(
+        !verdict
+            .lines()
+            .skip_while(|l| !l.contains("clean.vex"))
+            .take_while(|l| !l.trim().is_empty())
+            .any(|l| l.trim_start().starts_with('[')),
+        "clean.vex must be CLEAN across all shapes:\n{verdict}"
+    );
+    // STAGE chrome hygiene: nothing minted from menus/footers/css-ish text ever fires, and
+    // no fired advice carries markup junk.
+    assert!(
+        !verdict.contains("menu_click") && !verdict.contains("footer--") && !verdict.contains("align-items"),
+        "site chrome must never surface in findings:\n{verdict}"
+    );
+}
