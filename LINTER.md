@@ -190,19 +190,19 @@ forces it regardless of age.
 6. **Save — the artifact is an AI MODULE, and documentation is never saved as an artifact.**
    Training distills documentation into runnable bits (`~/.cache/helpers/lint-models/`,
    machine-global):
-   - `<lang>.module.json` — **the AI module**: the compiled doc-rule `RuleSet` (pattern
+   - `<lang>.module.bin` — **the AI module**: the compiled doc-rule `RuleSet` (pattern
      engine) + `ConceptModel` (hypervector concept gate) + provenance
      (`toolchain @ sources @ TRAIN_VERSION @ trained_at`). Loaded every run; this — and ONLY
      this — is what the registry shares. Project-independent by construction (doc rules
      only); no prose, no examples, no corpus: the trained result and the timestamp that
      proves it current.
-   - `<lang>.overlay-<project>.json` — the PROJECT overlay: the project's law + the machine
+   - `<lang>.overlay-<project>.bin` — the PROJECT overlay: the project's law + the machine
      corpus principles, compiled locally against the project's own code (the law's primary
      grounding universe), this machine's reading memory when it has one, and the transferred
      polarity classifier; stamped by law rows + project fingerprint + module identity. At
      load time `overlay ⊕ module` merge (overlay first — trust order), and that merged
      engine lints.
-   - `<lang>.learned.json` — the local reading memory (bindings + reference corpus +
+   - `<lang>.learned.bin` — the local reading memory (bindings + reference corpus +
      grounded polarity): the substrate this machine keeps learning with, and the richer
      grounding its own overlays compile against. **Never shared, never in any repo** — like
      the page cache, it is point-in-time reading, not the module. A read SUCCEEDED when any
@@ -216,6 +216,33 @@ forces it regardless of age.
    folder or committed to a repo. *The module retrains only when the toolchain version, the
    source set, `TRAIN_VERSION`, or the documentation itself changed; the overlay recompiles
    only when the law, the project, or the module changed.*
+
+   **Every machine-cache artifact is one binary container (`HLM1`), decoded in microseconds.**
+   A trained model is mostly hypervectors — already uniform random bits — so the format stores
+   them as they are and compresses only what has entropy to give: after a fixed header (magic
+   `HLM1`, format version, artifact kind, then the provenance stamp as one length-prefixed
+   UTF-8 string — readable by a prefix probe without touching the payload) come two streams.
+   The RAW stream holds every hypervector and every integer array (sorted token seeds,
+   frequency counts) verbatim, little-endian, in encode order — decoding is a bounds check and
+   a bulk copy, and a frozen reader's frequency table stays a sorted array consulted by binary
+   search (a write spills it to a map; lint never writes). The DATA stream holds structure and
+   text (varint lengths/counts, UTF-8 strings) and is DEFLATE-compressed (`miniz_oxide`, the
+   dep the dictionary reader already uses) — rule prose and reference corpora compress several
+   ×, hypervectors would not. JSON survives in exactly two places, both deliberate: artifacts
+   COMMITTED to the repo (bootstraps — reviewable inputs, diffed in PRs) and the signed
+   registry `index.json` (reviewable, signed as text); a legacy `.json` cache artifact is
+   migrated on first load (decode JSON → save `.bin` → delete) and the registry loader sniffs
+   the magic, so old machines and old registry entries keep working. Because a fresh machine
+   never re-reads a stale file, the SETUP verb also sweeps the cache (`sweep_legacy_cache`):
+   legacy module/learned JSON is migrated or dropped (the crawl page cache regenerates any
+   reading), JSON overlays and dead pre-module families (`*.patterns.json`, an old
+   `index.json`) are deleted — exactly one copy of every artifact lives on disk. The same
+   keying rules apply unchanged — the container is a wire format, never a cache key.
+   Measured (Apple Silicon, 2026-07-05, this machine's full cache of 48 trained languages):
+   artifacts shrink 2.0–2.5× (the JSON-era 405 MB cache → 175 MB), a module decodes in
+   1–360 µs (cpp 146 µs, typescript 360 µs — vs multi-ms JSON parses), the 11 MB English
+   brain loads in ~0.6 ms, and the largest learned catalog (cpp: 63 MB JSON → 25 MB) decodes
+   in ~34 ms on the setup path, which is the only path that reads it.
 
 **File types are learned by reading — there is no extension→language table in code.** A
 language's own documentation names the files it lives in (`main.rs`, "use the `.py`
@@ -414,7 +441,7 @@ both pure data:
   floor wrong in the other direction). A word the dictionary does not define (`telnetlib`,
   `xmlhttprequest`, `dbg`, `todo`) is not English — it is the thing the sentence is ABOUT.
 
-The artifact is `english.global.json` (machine-global, beside the models): the dictionary-fed
+The artifact is `english.global.bin` (machine-global, beside the models): the dictionary-fed
 reader plus the headword set. It is built once per machine at SETUP time (`action=train`) from
 the local dictionary; lint runs only ever load it. Machines without a parseable dictionary load
 the committed bootstrap `lint-index/english-bootstrap.json` — machine-generated learned data,
@@ -708,6 +735,18 @@ fire → guard → gate → quarantine → config/feedback → report.
    itself, first-letter-anchored, in order ("js" ⊆ javascript; "repl" ⊄ python) — the same
    elision typography the resolver already trusts, applied at the claim's birth.*
 
+21. **Incidental attribute-access claims made junk fence labels resolve as languages** (dotted
+   tokens like `result.output` in real documentation minted low-count extension claims for
+   `output` across eight languages; the moment one language's corpus was small enough for the
+   claim to clear the 1%-of-primary noise gate, `output` RESOLVED — and the block-hint gate
+   (#18) then routed "output"-labeled example blocks out as foreign, silently discarding real
+   examples exactly as #18's junk-label clause forbids) → *resolution is GRADED by how it
+   resolved: a language's own identity, a PRIMARY claim, or name typography is label-grade —
+   trustable by the hint gate — while an incidental count-claim is file-grade: it may resolve
+   a file on disk (a file's claim is corroborated by the project that contains it) but never
+   validates a fence label. Labels name languages by name or canonical extension; canonical
+   extensions are always primaries or typography.*
+
 ## The distribution channel (built) and the community network (deferred, decided)
 
 **What ships today: a signed, one-way distribution channel — every user assumed hostile.** A
@@ -837,12 +876,13 @@ with an attacker contract, exactly as the two registry contracts already do.
   `lint_config action=train` (train everything, needs internet for anything missing). Publish
   this machine's catalogs to the registry: `lint_submit models=true`.
 - Caches live in `~/.cache/helpers/`; deleting them is always safe (cold reacquire is a
-  registry download or seconds of crawling per language, online).
+  registry download or seconds of crawling per language, online). Model-cache artifacts are
+  `HLM1` binary containers (see "Save"); `helpers-native` decodes them — they are not for eyes.
 - The polarity bootstrap (`lint-index/polarity-bootstrap.json`) is machine-generated:
   `cargo test --release --lib generate_polarity_bootstrap -- --ignored` — regenerate whenever
   the tokenizer, salience, or seed labeling changes (train/inference consistency).
 - The English bootstrap (`lint-index/english-bootstrap.json`) is machine-generated from the
   local dictionary: `cargo test --release --lib generate_english_bootstrap -- --ignored` —
   regenerate whenever the tokenizer or the dictionary parser changes. Machines with a local
-  dictionary rebuild `english.global.json` themselves at setup; the bootstrap only covers
+  dictionary rebuild `english.global.bin` themselves at setup; the bootstrap only covers
   machines without one.

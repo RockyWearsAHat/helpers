@@ -345,6 +345,36 @@ impl ConceptModel {
     }
 }
 
+// ── HLM1 binary codecs (LINTER.md, "Save") ────────────────────────────────────
+
+impl crate::lint_codec::Bin for Hv {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.hv(self);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<Hv> {
+        d.hv()
+    }
+}
+
+impl crate::lint_codec::Bin for CompiledRule {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.fixed_u64(self.id_hash);
+        e.hv(&self.rule_hv);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<CompiledRule> {
+        Some(CompiledRule { id_hash: d.fixed_u64()?, rule_hv: d.hv()? })
+    }
+}
+
+impl crate::lint_codec::Bin for ConceptModel {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        self.rules.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<ConceptModel> {
+        Some(ConceptModel { rules: Vec::dec(d)? })
+    }
+}
+
 // ── Language keyword set (still used by memory/embed for token normalization) ──
 
 /// Keywords and well-known built-ins that the memory subsystem's token normalizer preserves.

@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::lint_ai::ConceptModel;
+use crate::lint_codec::Bin;
 use crate::lint_match::RuleSet;
 
 /// A trained model for one language: the pattern rule set (the firing engine) and the Hv concept
@@ -649,25 +650,94 @@ struct Overlay {
     rules: RuleSet,
 }
 
+impl Bin for Module {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.version);
+        e.str(&self.train_version);
+        e.str(&self.sources_fp);
+        e.u(self.trained_at);
+        e.u(self.verified_at);
+        e.str(&self.learned_from);
+        self.extensions.enc(e);
+        self.rules.enc(e);
+        self.concept.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<Module> {
+        Some(Module {
+            version: d.str()?,
+            train_version: d.str()?,
+            sources_fp: d.str()?,
+            trained_at: d.u()?,
+            verified_at: d.u()?,
+            learned_from: d.str()?,
+            extensions: Bin::dec(d)?,
+            rules: Bin::dec(d)?,
+            concept: Bin::dec(d)?,
+        })
+    }
+}
+
+impl Module {
+    /// The container's probe-readable provenance — what the registry publisher and staleness
+    /// checks read from the file prefix: `train_version ␟ toolchain version ␟ sources_fp`.
+    fn probe_stamp(&self) -> String {
+        format!("{}\u{1f}{}\u{1f}{}", self.train_version, self.version, self.sources_fp)
+    }
+}
+
+impl Bin for Overlay {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.stamp);
+        self.unenforced.enc(e);
+        self.concept.enc(e);
+        self.rules.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<Overlay> {
+        Some(Overlay { stamp: d.str()?, unenforced: Vec::dec(d)?, concept: Bin::dec(d)?, rules: Bin::dec(d)? })
+    }
+}
+
+/// Decode one `HLM1` artifact file of the expected kind. `None` on absence, wrong kind, or any
+/// malformed byte — every caller treats that as "artifact not there".
+fn load_bin<T: Bin>(path: &Path, kind: u8) -> Option<T> {
+    let bytes = std::fs::read(path).ok()?;
+    let (_, mut d) = crate::lint_codec::Dec::open(&bytes, kind)?;
+    T::dec(&mut d)
+}
+
+/// Encode one `HLM1` artifact file, creating the directory and deleting the legacy `.json`
+/// twin so migrated machines keep exactly one copy (LINTER.md, "Save").
+fn save_bin<T: Bin>(path: &Path, kind: u8, stamp: &str, value: &T) {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut e = crate::lint_codec::Enc::new();
+    value.enc(&mut e);
+    let _ = std::fs::write(path, e.finish(kind, stamp));
+    let _ = std::fs::remove_file(path.with_extension("json"));
+}
+
 fn module_path(lang: &str) -> PathBuf {
-    model_dir().join(format!("{lang}.module.json"))
+    model_dir().join(format!("{lang}.module.bin"))
 }
 
 fn overlay_path(lang: &str, project_fp: u64) -> PathBuf {
-    model_dir().join(format!("{lang}.overlay-{project_fp:016x}.json"))
+    model_dir().join(format!("{lang}.overlay-{project_fp:016x}.bin"))
 }
 
 fn load_module(lang: &str) -> Option<Module> {
-    serde_json::from_str(&std::fs::read_to_string(module_path(lang)).ok()?).ok()
+    if let Some(m) = load_bin::<Module>(&module_path(lang), crate::lint_codec::kind::MODULE) {
+        return Some(m);
+    }
+    // Legacy JSON module: migrate on sight — decode once, save the container, drop the JSON.
+    let module: Module =
+        serde_json::from_str(&std::fs::read_to_string(module_path(lang).with_extension("json")).ok()?).ok()?;
+    save_module(lang, &module);
+    Some(module)
 }
 
 fn save_module(lang: &str, module: &Module) {
-    if let Some(parent) = module_path(lang).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(json) = serde_json::to_string(module) {
-        let _ = std::fs::write(module_path(lang), json);
-    }
+    save_bin(&module_path(lang), crate::lint_codec::kind::MODULE, &module.probe_stamp(), module);
     fold_extension_claims(lang, &module.extensions);
 }
 
@@ -760,7 +830,12 @@ pub fn hint_language(hint: &str) -> Option<String> {
         return None;
     }
     let universe = extension_claims_universe();
-    let resolved = resolve_in(&universe, &h);
+    let (resolved, label_grade) = resolve_in_graded(&universe, &h);
+    // Ledger #21: an incidental count-claim may route a FILE, never validate a LABEL — a
+    // junk fence word that happens to appear after dots in some language's prose is no hint.
+    if !label_grade {
+        return None;
+    }
     (resolved != h || universe.contains_key(&h)).then_some(resolved)
 }
 
@@ -775,15 +850,23 @@ pub fn foreign_example(lang: &str, hint: &str) -> bool {
 /// [`resolve_language`] over an explicit claims universe — the pure core, unit-testable
 /// against the committed bootstrap.
 fn resolve_in(universe: &std::collections::BTreeMap<String, ExtClaims>, name_or_ext: &str) -> String {
+    resolve_in_graded(universe, name_or_ext).0
+}
+
+/// [`resolve_in`] plus the resolution's GRADE (ledger #21): `true` when it resolved through
+/// the language's own identity, a PRIMARY claim, or name typography — label-grade, trustable
+/// by the fence-hint gate — and `false` when an incidental mention count alone carried it:
+/// file-grade, good enough to route a file on disk, never to validate a label.
+fn resolve_in_graded(universe: &std::collections::BTreeMap<String, ExtClaims>, name_or_ext: &str) -> (String, bool) {
     let ext = name_or_ext.to_lowercase();
     // "any" is the law system's own word (a rule file governing every language), never an
     // extension — ruby's docs claim ".any" (`.any?`) and must not swallow it.
     if ext == "any" {
-        return ext;
+        return (ext, true);
     }
     // Already a known language name (a claims entry exists under it) — canonical as-is.
     if universe.contains_key(&ext) {
-        return ext;
+        return (ext, true);
     }
     let mut best: Option<(&str, (bool, bool, u32))> = None; // lang → (primary, affix, count)
     for (lang, claims) in universe.iter() {
@@ -832,7 +915,10 @@ fn resolve_in(universe: &std::collections::BTreeMap<String, ExtClaims>, name_or_
             best = Some((lang.as_str(), score));
         }
     }
-    best.map(|(lang, _)| lang.to_string()).unwrap_or(ext)
+    match best {
+        Some((lang, (primary, affix, _))) => (lang.to_string(), primary || affix),
+        None => (ext, false),
+    }
 }
 
 /// Whether `needle`'s characters appear in `hay` in order — the elision test ("yml" ⊂ "yaml").
@@ -842,19 +928,20 @@ fn is_subsequence(needle: &str, hay: &str) -> bool {
 }
 
 fn load_overlay(lang: &str, project_fp: u64) -> Option<Overlay> {
-    serde_json::from_str(&std::fs::read_to_string(overlay_path(lang, project_fp)).ok()?).ok()
+    // No JSON fallback: an overlay is cheap to recompile and its stamp would miss anyway
+    // whenever its module migrated (the module identity is part of the stamp).
+    load_bin(&overlay_path(lang, project_fp), crate::lint_codec::kind::OVERLAY)
 }
 
 fn save_overlay(lang: &str, project_fp: u64, overlay: &Overlay) {
-    if let Ok(json) = serde_json::to_string(overlay) {
-        let _ = std::fs::write(overlay_path(lang, project_fp), json);
-    }
+    save_bin(&overlay_path(lang, project_fp), crate::lint_codec::kind::OVERLAY, &overlay.stamp, overlay);
 }
 
 /// Drop a language's AI module (and any overlays) so the next setup re-acquires it — the
 /// invalidation `add_source` uses when a new docs URL lands.
 pub fn invalidate_module(lang: &str) {
     let _ = std::fs::remove_file(module_path(lang));
+    let _ = std::fs::remove_file(module_path(lang).with_extension("json"));
     if let Ok(entries) = std::fs::read_dir(model_dir()) {
         for e in entries.flatten() {
             if e.file_name().to_string_lossy().starts_with(&format!("{lang}.overlay-")) {
@@ -1364,11 +1451,59 @@ pub(crate) fn corpus_prose(data_root: &Path) -> Vec<String> {
     }
 }
 
+// ── HLM1 binary codecs (LINTER.md, "Save") — field order is wire order. ──────
+
+impl Bin for DocRule {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.id);
+        e.str(&self.slice);
+        e.str(&self.severity);
+        e.str(&self.description);
+        e.str(&self.bad);
+        e.str(&self.good);
+        e.str(&self.source);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<DocRule> {
+        Some(DocRule {
+            id: d.str()?,
+            slice: d.str()?,
+            severity: d.str()?,
+            description: d.str()?,
+            bad: d.str()?,
+            good: d.str()?,
+            source: d.str()?,
+        })
+    }
+}
+
+impl Bin for LearnedCatalog {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.version);
+        e.str(&self.train_version);
+        e.str(&self.sources_fp);
+        e.str(&self.learned_from);
+        self.rules.enc(e);
+        self.reference.enc(e);
+        self.memory.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<LearnedCatalog> {
+        Some(LearnedCatalog {
+            version: d.str()?,
+            train_version: d.str()?,
+            sources_fp: d.str()?,
+            learned_from: d.str()?,
+            rules: Vec::dec(d)?,
+            reference: Vec::dec(d)?,
+            memory: Option::dec(d)?,
+        })
+    }
+}
+
 // ── public training API ──────────────────────────────────────────────────────
 
 // ── cache + checksum plumbing ────────────────────────────────────────────────
 
-/// Path to a language's learned-rule cache (`<lang>.learned.json`, beside its model).
+/// Path to a language's learned-rule cache (`<lang>.learned.bin`, beside its model).
 /// Pull `lang`'s learned catalog from the GitHub model registry, when one is published for the
 /// EXACT toolchain version and [`TRAIN_VERSION`] — anything else is "not available" and the
 /// caller trains from docs instead (or asks). The registry base URL is DATA: the top-level
@@ -1376,6 +1511,11 @@ pub(crate) fn corpus_prose(data_root: &Path) -> Vec<String> {
 /// (`[{language, toolchain, train_version, file}]`) beside the catalog files themselves.
 /// Offline (hermetic switch) or transport failure returns `None` — the failure latches
 /// [`crate::doc_crawler::NET_DOWN`] inside `fetch` and the run stays honest, never broken.
+/// Ceiling on a fetched registry module (defense in depth: the signed index pins real sizes
+/// far below this — a mis-pointed URL must not balloon memory).
+#[cfg(feature = "crawl")]
+const MAX_REGISTRY_MODULE_BYTES: u64 = 64 << 20;
+
 #[cfg(feature = "crawl")]
 fn registry_fetch(data_root: &Path, lang: &str, version: &str, sources_fp: &str) -> Option<Module> {
     if !network_allowed() || crate::doc_crawler::network_down() {
@@ -1391,13 +1531,19 @@ fn registry_fetch(data_root: &Path, lang: &str, version: &str, sources_fp: &str)
     })?;
     let file = entry["module"].as_str().or_else(|| entry["file"].as_str())?;
     let expected_hash = entry["sha256"].as_str()?;
-    let (_, body) = crate::doc_crawler::fetch(&format!("{base}/{file}"))?;
+    let bytes = crate::doc_crawler::fetch_bytes(&format!("{base}/{file}"), MAX_REGISTRY_MODULE_BYTES)?;
     // The signed index pins each module's exact bytes: a hash mismatch means tampering or
     // corruption, and unverified bits must never reach the loaded engine.
-    if crate::lint_sign::sha256_hex(body.as_bytes()) != expected_hash {
+    if crate::lint_sign::sha256_hex(&bytes) != expected_hash {
         return None;
     }
-    let module: Module = serde_json::from_str(&body).ok()?;
+    // Current registries serve `HLM1` containers; legacy entries are JSON — the magic decides.
+    let module: Module = if bytes.starts_with(&crate::lint_codec::MAGIC) {
+        let (_, mut d) = crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::MODULE)?;
+        Module::dec(&mut d)?
+    } else {
+        serde_json::from_str(std::str::from_utf8(&bytes).ok()?).ok()?
+    };
     (module.train_version == TRAIN_VERSION
         && module.version == version
         && module.sources_fp == sources_fp)
@@ -1560,7 +1706,7 @@ pub fn has_docs_source(data_root: &Path, lang: &str) -> bool {
 }
 
 fn cache_path(lang: &str) -> PathBuf {
-    model_dir().join(format!("{lang}.learned.json"))
+    model_dir().join(format!("{lang}.learned.bin"))
 }
 
 /// Load a language's cached learned catalog, or `None` if absent/unreadable/stale.
@@ -1571,22 +1717,117 @@ fn cache_path(lang: &str) -> PathBuf {
 /// discover `current()` is false was a full third of every warm run after a `TRAIN_VERSION`
 /// bump. Callers still call [`LearnedCatalog::current`] for the toolchain-version half.
 fn load_cache(lang: &str) -> Option<LearnedCatalog> {
-    let raw = std::fs::read_to_string(cache_path(lang)).ok()?;
+    if let Ok(bytes) = std::fs::read(cache_path(lang)) {
+        // The container stamp leads with the training version: a stale catalog is rejected
+        // for the cost of the header parse, before any inflation.
+        let header = crate::lint_codec::probe(&bytes)?;
+        if header.stamp.split('\u{1f}').next() != Some(TRAIN_VERSION) {
+            return None;
+        }
+        let (_, mut d) = crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::LEARNED)?;
+        return LearnedCatalog::dec(&mut d);
+    }
+    // Legacy JSON catalog: same prefix discipline, then migrate on sight.
+    let raw = std::fs::read_to_string(cache_path(lang).with_extension("json")).ok()?;
     let head = raw.get(..512).unwrap_or(&raw);
     if !head.contains(&format!("\"train_version\":\"{TRAIN_VERSION}\"")) {
         return None;
     }
-    serde_json::from_str(&raw).ok()
+    let cat: LearnedCatalog = serde_json::from_str(&raw).ok()?;
+    save_cache(lang, &cat);
+    Some(cat)
 }
 
 /// Persist a learned catalog so the next run loads instead of relearning.
 fn save_cache(lang: &str, cat: &LearnedCatalog) {
-    if let Some(parent) = cache_path(lang).parent() {
-        let _ = std::fs::create_dir_all(parent);
+    let stamp = format!("{}\u{1f}{}\u{1f}{}", cat.train_version, cat.version, cat.sources_fp);
+    save_bin(&cache_path(lang), crate::lint_codec::kind::LEARNED, &stamp, cat);
+}
+
+/// Every learned catalog on this machine as `(language, (prose, code) binding pairs)` — the
+/// dev bootstrap generators' input. Reads `HLM1` containers and legacy JSON alike; staleness
+/// is irrelevant here (the generator re-grounds every pair against the toolchain itself).
+#[cfg_attr(not(test), allow(dead_code))] // consumed by the dev bootstrap generator (test-gated)
+pub(crate) fn all_learned_binding_pairs() -> Vec<(String, Vec<(String, String)>)> {
+    let mut read = Vec::new();
+    let Ok(entries) = std::fs::read_dir(model_dir()) else { return read };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let cat: Option<LearnedCatalog> = if name.ends_with(".learned.bin") {
+            std::fs::read(entry.path())
+                .ok()
+                .and_then(|b| crate::lint_codec::Dec::open(&b, crate::lint_codec::kind::LEARNED))
+                .and_then(|(_, mut d)| LearnedCatalog::dec(&mut d))
+        } else if name.ends_with(".learned.json") {
+            std::fs::read_to_string(entry.path()).ok().and_then(|raw| serde_json::from_str(&raw).ok())
+        } else {
+            None
+        };
+        let Some(lang) = name.split(".learned.").next().map(str::to_string) else { continue };
+        let Some(memory) = cat.and_then(|c| c.memory) else { continue };
+        let pairs: Vec<(String, String)> =
+            memory.bindings.iter().map(|b| (b.prose.clone(), b.code.clone())).collect();
+        read.push((lang, pairs));
     }
-    if let Ok(json) = serde_json::to_string(cat) {
-        let _ = std::fs::write(cache_path(lang), json);
+    // A migrating machine can hold both container and legacy JSON for one language — the
+    // container (sorted first: "bin" < "json" is irrelevant after the split, so sort then
+    // drop same-language repeats) must count once.
+    read.sort();
+    read.dedup_by(|a, b| a.0 == b.0);
+    read
+}
+
+/// SETUP-TIME sweep of the model cache: migrate or delete every legacy artifact the load
+/// paths would otherwise never touch again — a fresh machine never re-reads a stale file, so
+/// without this the JSON era would sit on disk forever (LINTER.md, "Save": exactly one copy).
+/// Owned file families only; returns how many files were migrated away or deleted. Lint runs
+/// never call this — setup mutates, lint replays.
+pub fn sweep_legacy_cache(data_root: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(model_dir()) else { return 0 };
+    let registered = registered_languages(data_root);
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let module_lang = name.strip_suffix(".module.json").map(str::to_string);
+        let learned_lang = name.strip_suffix(".learned.json").map(str::to_string);
+        let gone = if name.ends_with(".json") && name.contains(".overlay-") {
+            // Overlays recompile on demand; a legacy JSON overlay has no reader anymore.
+            std::fs::remove_file(&path).is_ok()
+        } else if name.ends_with(".patterns.json") || name.ends_with(".patterns.stamp") || name == "index.json" {
+            // File families from pre-module eras — no code reads them.
+            std::fs::remove_file(&path).is_ok()
+        } else if let Some(lang) = module_lang {
+            // A registered language's module migrates (the load path saves the container and
+            // deletes the JSON); an unregistered language's is dead — its successor name
+            // retrains from the shared page cache, never from this file.
+            if registered.contains(&lang) {
+                let _ = load_module(&lang);
+            }
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+            !path.exists()
+        } else if let Some(lang) = learned_lang {
+            if registered.contains(&lang) {
+                let _ = load_cache(&lang);
+            }
+            // A stale or unregistered catalog is point-in-time reading the crawl page cache
+            // can always regenerate — the file is dead either way.
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+            !path.exists()
+        } else if name == "polarity.global.json" {
+            crate::lint_docs::migrate_global_polarity()
+        } else {
+            false
+        };
+        if gone {
+            removed += 1;
+        }
     }
+    removed
 }
 
 /// A stable checksum of a language's resolved rules + toolchain version + grounding fingerprint —
@@ -1648,6 +1889,178 @@ fn file_state(p: &Path) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// Encode → decode → compare as serde JSON values: semantic equality over every field,
+    /// hypervectors included, without hand-writing `PartialEq` across the model types.
+    fn assert_round_trip<T: crate::lint_codec::Bin + serde::Serialize>(value: &T, kind: u8, what: &str) -> T {
+        let mut e = crate::lint_codec::Enc::new();
+        value.enc(&mut e);
+        let bytes = e.finish(kind, "stamp");
+        let (_, mut d) = crate::lint_codec::Dec::open(&bytes, kind).expect("container opens");
+        let decoded = T::dec(&mut d).unwrap_or_else(|| panic!("{what} decodes"));
+        assert_eq!(
+            serde_json::to_value(value).expect("fixture serializes"),
+            serde_json::to_value(&decoded).expect("decoded serializes"),
+            "{what} must survive its HLM1 round trip with every field intact"
+        );
+        decoded
+    }
+
+    /// One fixture per artifact struct, round-tripped through its `HLM1` container — the
+    /// "100% verified" contract for the wire format itself (LINTER.md, "Save"). The module
+    /// fixture carries a real compiled detector, a real concept gate, and a trained polarity
+    /// classifier so every stream (raw hypervectors, integer arrays, deflated text) is hit.
+    #[test]
+    fn hlm1_round_trips_every_artifact_struct() {
+        use crate::lint_codec::kind;
+        let rules = crate::lint_match::RuleSet::build(
+            "zetalang",
+            &[(
+                "no_zorkle".to_string(),
+                "high".to_string(),
+                "zorkle cleanup".to_string(),
+                "loop { step() }".to_string(),
+                "Never use the zorkle statement anywhere; it is deprecated.".to_string(),
+                "https://registry.example/zetalang".to_string(),
+            )],
+            &crate::lint_match::Grounding {
+                reference: vec!["loop { step() }".to_string(), "emit(\"done\")".to_string()],
+                ..Default::default()
+            },
+        );
+        assert!(rules.rule_count() > 0, "fixture must compile a detector");
+        let concept = crate::lint_ai::ConceptModel::compile(
+            &[("no_zorkle".to_string(), "Never use zorkle".to_string(), "zorkle cleanup".to_string())],
+            "zetalang",
+        );
+        let polarity = crate::lint_read::Polarity::from_labeled(&[
+            ("never use the zorkle statement", true),
+            ("the emit call is idiomatic and encouraged", false),
+        ]);
+        let module = Module {
+            version: "1.2.3".to_string(),
+            train_version: TRAIN_VERSION.to_string(),
+            sources_fp: "abcd".to_string(),
+            trained_at: 7,
+            verified_at: 9,
+            learned_from: "docs".to_string(),
+            extensions: [("zl".to_string(), 3u32)].into_iter().collect(),
+            rules,
+            concept,
+        };
+        assert_round_trip(&module, kind::MODULE, "Module");
+
+        let overlay = Overlay {
+            stamp: "sha256:feed".to_string(),
+            unenforced: vec!["law_x".to_string()],
+            concept: crate::lint_ai::ConceptModel::compile(&[], "zetalang"),
+            rules: crate::lint_match::RuleSet::build("zetalang", &[], &Default::default()),
+        };
+        assert_round_trip(&overlay, kind::OVERLAY, "Overlay");
+
+        let catalog = LearnedCatalog {
+            version: "1.2.3".to_string(),
+            train_version: TRAIN_VERSION.to_string(),
+            sources_fp: "abcd".to_string(),
+            learned_from: "docs".to_string(),
+            rules: vec![DocRule {
+                id: "no_zorkle".to_string(),
+                slice: "statements".to_string(),
+                severity: "high".to_string(),
+                description: "Never use zorkle — naïve ✓ utf8".to_string(),
+                bad: "zorkle".to_string(),
+                good: "emit()".to_string(),
+                source: "https://registry.example".to_string(),
+            }],
+            reference: vec!["emit(\"done\")".to_string()],
+            memory: Some(crate::lint_read::Memory {
+                bindings: Vec::new(),
+                reference: vec!["loop { step() }".to_string()],
+                polarity: Some(polarity),
+                pages_read: 4,
+                flagged: [1u64, u64::MAX].into_iter().collect(),
+                extensions: [("zl".to_string(), 2u32)].into_iter().collect(),
+            }),
+        };
+        assert_round_trip(&catalog, kind::LEARNED, "LearnedCatalog");
+    }
+
+    /// DEV VERIFICATION — sweeps every legacy JSON artifact still in this machine's model
+    /// cache through the container and asserts semantic equality, artifact by artifact:
+    /// `cargo test --release --lib hlm1_sweeps_machine_cache -- --ignored --nocapture`.
+    /// Run BEFORE migrating a machine; it proves the codec against every real trained model,
+    /// not just fixtures.
+    #[test]
+    #[ignore = "dev verification: needs a machine cache with legacy JSON artifacts"]
+    fn hlm1_sweeps_machine_cache() {
+        use crate::lint_codec::kind;
+        let dir = model_dir();
+        let mut checked = 0usize;
+        for entry in std::fs::read_dir(&dir).expect("model cache exists").flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(raw) = std::fs::read_to_string(entry.path()) else { continue };
+            if name.ends_with(".module.json") {
+                let m: Module = serde_json::from_str(&raw).expect("module JSON parses");
+                assert_round_trip(&m, kind::MODULE, &name);
+            } else if name.ends_with(".learned.json") {
+                let c: LearnedCatalog = serde_json::from_str(&raw).expect("catalog JSON parses");
+                assert_round_trip(&c, kind::LEARNED, &name);
+            } else if name == "english.global.json" {
+                let e: crate::lint_english::English = serde_json::from_str(&raw).expect("english JSON parses");
+                assert_round_trip(&e, kind::ENGLISH, &name);
+            } else if name == "polarity.global.json" {
+                let p: crate::lint_read::Polarity = serde_json::from_str(&raw).expect("polarity JSON parses");
+                assert_round_trip(&p, kind::POLARITY, &name);
+            } else {
+                continue;
+            }
+            checked += 1;
+            println!("verified {name}");
+        }
+        println!("verified {checked} artifacts under {}", dir.display());
+    }
+
+    /// DEV BENCH — decode latency and size of every artifact on this machine, container vs
+    /// legacy JSON: `cargo test --release --lib hlm1_bench_decode -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "dev bench: needs a machine cache with real artifacts"]
+    fn hlm1_bench_decode() {
+        use crate::lint_codec::{kind, Bin as _, Dec, Enc};
+        fn bench<T: crate::lint_codec::Bin>(name: &str, kind: u8, json: &str, value: &T) {
+            let mut e = Enc::new();
+            value.enc(&mut e);
+            let bytes = e.finish(kind, "stamp");
+            let start = std::time::Instant::now();
+            let iters = 20u32;
+            for _ in 0..iters {
+                let (_, mut d) = Dec::open(&bytes, kind).expect("opens");
+                assert!(T::dec(&mut d).is_some());
+            }
+            let bin_us = start.elapsed().as_micros() / u128::from(iters);
+            println!(
+                "{name}: json {} KB -> bin {} KB ({:.1}x), decode {} µs",
+                json.len() / 1024,
+                bytes.len() / 1024,
+                json.len() as f64 / bytes.len() as f64,
+                bin_us,
+            );
+        }
+        for entry in std::fs::read_dir(model_dir()).expect("model cache").flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(raw) = std::fs::read_to_string(entry.path()) else { continue };
+            if name.ends_with(".module.json") {
+                let m: Module = serde_json::from_str(&raw).expect("parses");
+                bench(&name, kind::MODULE, &raw, &m);
+            } else if name.ends_with(".learned.json") {
+                let c: LearnedCatalog = serde_json::from_str(&raw).expect("parses");
+                bench(&name, kind::LEARNED, &raw, &c);
+            } else if name == "english.global.json" {
+                let e: crate::lint_english::English = serde_json::from_str(&raw).expect("parses");
+                bench(&name, kind::ENGLISH, &raw, &e);
+            }
+        }
+    }
 
     /// Ledger #18's gate, as a table: a hint that resolves to a KNOWN different language is
     /// foreign; the training language's own aliases are not; junk fence labels are no hint at

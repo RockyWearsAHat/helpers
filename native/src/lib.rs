@@ -21,6 +21,7 @@ pub mod lint_sign;
 pub mod lint_toolchain;
 pub mod lint_train;
 pub mod lint_checkers;
+pub mod lint_codec;
 pub mod linter;
 pub mod mcp;
 pub mod memory;
