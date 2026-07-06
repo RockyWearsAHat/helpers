@@ -683,16 +683,36 @@ fn batch_training_reports_every_registered_language_honestly() {
         "lint-index/sources.json",
         r#"{"version": 3, "sources": [{"tool": "q9docs", "language": "qlang9", "kind": "crawl", "seed": "https://qlang9.example/docs/"}]}"#,
     );
+    // A file so the DEFAULT (project-scoped) train has something in scope.
+    p.write("main.py", "x = 1\n");
 
-    let ack = p.call(
+    // Default scope is MODULAR: the project has no qlang9 files, so qlang9's module is not
+    // paid for — and the report says it was left untouched.
+    let scoped = p.call(
         "lint_config",
         &format!(r#"{{"root":{:?},"action":"train"}}"#, p.root.to_string_lossy()),
         true, // hermetic: the network is down
     );
-
     assert!(
-        ack.contains("qlang9") && ack.to_lowercase().contains("not learned"),
-        "every registered language's outcome is reported:\n{ack}"
+        !scoped.lines().any(|l| l.trim_start().starts_with("qlang9:")),
+        "a registered language the project does not use must not train by default:\n{scoped}"
+    );
+    assert!(
+        scoped.to_lowercase().contains("scoped to this project"),
+        "the report must say unused registered languages were left untouched:\n{scoped}"
+    );
+
+    // The machine-wide batch (`all=true`) still reports every registered language honestly.
+    let ack = p.call(
+        "lint_config",
+        &format!(r#"{{"root":{:?},"action":"train","all":true}}"#, p.root.to_string_lossy()),
+        true, // hermetic: the network is down
+    );
+    assert!(
+        ack.contains("qlang9")
+            && (ack.to_lowercase().contains("not learned")
+                || ack.to_lowercase().contains("not answering")),
+        "every registered language's outcome is reported in the batch:\n{ack}"
     );
     assert!(
         ack.to_lowercase().contains("reconnect"),

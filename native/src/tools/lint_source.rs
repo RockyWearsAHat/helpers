@@ -482,18 +482,29 @@ pub fn run_config(args: &Value) -> ToolResult {
             // dictionary before any documentation trains — purely local, once per machine.
             let english = crate::lint_english::ensure_built();
             let data = crate::tools::lint::data_root_pub();
-            let mut langs = crate::lint_train::registered_languages(&data);
-            // The current project's own languages train too — an unknown language is
-            // discovered by web search here, never during a lint run.
+            // MODULAR SCOPE (LINTER.md, "Online to set up"): a project pays only for the
+            // modules it needs. Default = the current project's own languages (plus an
+            // explicit `lang=`); the machine-wide batch of every registered language runs
+            // only on `all=true`. A registered language no project here uses costs nothing.
+            let all = args["all"].as_bool().unwrap_or(false);
+            let registered = crate::lint_train::registered_languages(&data);
+            let mut langs: Vec<String> = if all { registered.clone() } else { Vec::new() };
             for lang in crate::tools::lint::project_languages(&root) {
                 if !langs.contains(&lang) {
                     langs.push(lang);
                 }
             }
+            if let Some(l) = args["lang"].as_str() {
+                let l = crate::lint_train::resolve_language(l);
+                if !langs.contains(&l) {
+                    langs.push(l);
+                }
+            }
             langs.sort();
             if langs.is_empty() {
-                return Err("lint_config: nothing to train — no languages registered and none in the project".into());
+                return Err("lint_config: nothing to train — the project has no detectable languages; pass lang=<x> for one language or all=true for every registered language".into());
             }
+            let skipped_count = registered.iter().filter(|l| !langs.contains(l)).count();
             let (report, models) = crate::lint_train::ensure_models(
                 &langs,
                 &data,
@@ -513,7 +524,31 @@ pub fn run_config(args: &Value) -> ToolResult {
                     _ if !crate::lint_train::has_docs_source(&data, lang) => {
                         "needs a docs URL — `lint_config action=add_source`".to_string()
                     }
-                    _ => "docs not learned".to_string(),
+                    // A NEEDED language failed: retry the probe, make sure it is a real
+                    // error, then ask for input instead of a shrug (LINTER.md, "Online to
+                    // set up") — the answer is a new link or "this documentation isn't
+                    // usable", never a silent retry loop.
+                    // Hermetic/offline setup cannot probe — report plainly (the reconnect
+                    // line below carries the ask).
+                    _ if !crate::lint_train::network_allowed() => "docs not learned".to_string(),
+                    _ => {
+                        let urls = crate::lint_train::source_urls(&data, lang);
+                        let dead: Vec<&String> = urls
+                            .iter()
+                            .filter(|u| !crate::doc_crawler::origin_reachable(u))
+                            .collect();
+                        if !dead.is_empty() {
+                            format!(
+                                "docs site not answering ({}) — probed twice; if it works in your browser, hand me a different link: `lint_config action=add_source lang={lang} url=<docs>`",
+                                dead.iter().map(|u| u.as_str()).collect::<Vec<_>>().join(", ")
+                            )
+                        } else {
+                            format!(
+                                "docs link answers but nothing readable was learned from it ({}) — the documentation there isn't usable; register a better link: `lint_config action=add_source lang={lang} url=<docs>`",
+                                urls.join(", ")
+                            )
+                        }
+                    }
                 };
                 lines.push(format!("  {lang}: {state}"));
             }
@@ -523,6 +558,11 @@ pub fn run_config(args: &Value) -> ToolResult {
                 started.elapsed().as_secs_f64(),
                 lines.join("\n")
             );
+            if skipped_count > 0 {
+                body.push_str(&format!(
+                    "\nScoped to this project: {skipped_count} registered language(s) not used here were left untouched (their machine modules stay as they are; `all=true` runs the machine-wide batch).\n",
+                ));
+            }
             if let Some(e) = english {
                 body.push_str(&format!("\n{e}\n"));
             }
@@ -594,8 +634,9 @@ pub fn schema_config() -> Value {
                 "rule":      { "type": "string", "description": "Rule id (for ignore/unignore/severity)." },
                 "severity":  { "type": "string", "enum": ["high","medium","low"], "description": "New severity (for action=severity)." },
                 "languages": { "type": "array",  "items": {"type": "string"}, "description": "Languages to lint (for set_languages). Pass [] to clear the filter." },
-                "lang":      { "type": "string", "description": "Language the docs cover (for action=add_source). Extension aliases resolve (js ⇒ javascript)." },
+                "lang":      { "type": "string", "description": "Language the docs cover (for action=add_source), or a single extra language to train (for action=train). Extension aliases resolve (js ⇒ javascript)." },
                 "url":       { "type": "string", "description": "The language's official documentation URL (for action=add_source)." },
+                "all":       { "type": "boolean", "description": "action=train: train every registered language (machine-wide batch) instead of only this project's languages." },
                 "root":      { "type": "string", "description": "Project root. Defaults to the workspace root." }
             },
             "required": ["action"]
