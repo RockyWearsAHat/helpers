@@ -75,9 +75,11 @@ pub fn run() -> std::process::ExitCode {
 
         match method {
             "initialize" => {
-                if let Some(roots) = workspace_from_initialize(&msg) {
+                let roots = workspace_from_initialize(&msg);
+                if let Some(roots) = &roots {
                     std::env::set_var("HELPERS_WORKSPACE_ROOTS", roots);
                 }
+                prewarm_lint(roots.as_deref());
                 send_result(
                     &mut out,
                     id,
@@ -160,6 +162,38 @@ pub fn run() -> std::process::ExitCode {
 
 /// Extract a filesystem workspace root from an `initialize` message — a
 /// VS Code-style `rootUri`/`rootPath`, or the first MCP `roots` entry — and
+/// Warm the lint replay tiers for every workspace root the client announced, on detached
+/// threads, BEFORE the first request needs them (LINTER.md, "The kqueue tier"): everything
+/// is already on disk, so the daemon arms its watch sets and commits the memos itself —
+/// the first user lint lands on the microsecond path instead of paying the arm + sweep.
+/// Silent by design: a failure here costs nothing but the warmth.
+fn prewarm_lint(roots_json: Option<&str>) {
+    // No announced roots ⇒ warm the daemon's own resolved workspace (the server is
+    // launched inside the project it serves).
+    let roots: Vec<String> = roots_json
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        .and_then(|v| match v {
+            serde_json::Value::Array(a) => Some(
+                a.into_iter().filter_map(|r| r.as_str().map(str::to_string)).collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| vec![crate::git::workspace_root().display().to_string()]);
+    for root in roots {
+        std::thread::spawn(move || {
+            let t0 = std::time::Instant::now();
+            let _ = crate::tools::lint::run(&json!({ "root": root }));
+            if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+                eprintln!(
+                    "[lint-prewarm] {root} warmed in {:.1}ms",
+                    t0.elapsed().as_secs_f64() * 1e3
+                );
+            }
+        });
+    }
+}
+
 /// encode it as the JSON array `$HELPERS_WORKSPACE_ROOTS` expects.
 fn workspace_from_initialize(msg: &Value) -> Option<String> {
     let params = msg.get("params")?;
@@ -173,6 +207,13 @@ fn workspace_from_initialize(msg: &Value) -> Option<String> {
                 .and_then(|c| c.get("roots"))
                 .and_then(|r| r.get("0"))
                 .and_then(|r| r.get("uri"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            params
+                .get("workspaceFolders")
+                .and_then(|f| f.get(0))
+                .and_then(|f| f.get("uri"))
                 .and_then(Value::as_str)
         });
     let path = uri?.strip_prefix("file://").unwrap_or(uri?).to_string();

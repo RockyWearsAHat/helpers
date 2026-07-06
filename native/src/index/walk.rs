@@ -458,7 +458,7 @@ fn names_fold(entries: &[ScanEntry]) -> u128 {
 /// Scan one directory: keep its files, recurse into its subdirectories on the rayon pool,
 /// and fold the results upward — no shared collector, deterministic after the caller's
 /// final sort.
-fn walk_dir(dir: &Path, root: &Path, chain: Option<Arc<IgnoreNode>>) -> Vec<WalkedFile> {
+fn walk_dir(dir: &Path, root: &Path, chain: Option<Arc<IgnoreNode>>) -> (Vec<WalkedFile>, Vec<PathBuf>) {
     let entries = scan_dir(dir);
     // The scan already knows whether this directory carries rule files (and their states) —
     // extending the chain costs no extra syscall.
@@ -523,20 +523,31 @@ fn walk_dir(dir: &Path, root: &Path, chain: Option<Arc<IgnoreNode>>) -> Vec<Walk
         }
     }
     use rayon::prelude::*;
-    let nested: Vec<Vec<WalkedFile>> =
+    let nested: Vec<(Vec<WalkedFile>, Vec<PathBuf>)> =
         subdirs.par_iter().map(|d| walk_dir(d, root, chain.clone())).collect();
-    for mut v in nested {
+    let mut dirs: Vec<PathBuf> = subdirs;
+    for (mut v, mut d) in nested {
         files.append(&mut v);
+        dirs.append(&mut d);
     }
-    files
+    (files, dirs)
 }
 
 /// Walk `root`, honoring `.gitignore`/`.ignore` law, returning indexable files sorted by
 /// path — each already carrying its `(mtime, len)` state from the same scan.
 pub fn walk_repo(root: &Path) -> Vec<WalkedFile> {
-    let mut out = walk_dir(root, root, root_chain(root));
-    out.sort_by(|a, b| a.rel.cmp(&b.rel));
-    out
+    walk_repo_full(root).0
+}
+
+/// [`walk_repo`] plus every kept DIRECTORY the walk visited (the root included) — the
+/// kqueue tier's watch set needs the dirs so a file created in any of them posts an event
+/// (LINTER.md, "The kqueue tier").
+pub fn walk_repo_full(root: &Path) -> (Vec<WalkedFile>, Vec<PathBuf>) {
+    let (mut files, mut dirs) = walk_dir(root, root, root_chain(root));
+    files.sort_by(|a, b| a.rel.cmp(&b.rel));
+    dirs.push(root.to_path_buf());
+    dirs.sort();
+    (files, dirs)
 }
 
 #[cfg(test)]

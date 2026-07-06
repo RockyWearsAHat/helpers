@@ -601,14 +601,37 @@ enforceable…") — law never vanishes silently.
 
 fire → guard → gate → quarantine → config/feedback → report.
 
-**An unchanged project replays the whole report (microseconds), warm or cold.** The finished
-report body is a pure function of its inputs, so one WITNESS — a fold of every input's
-`(mtime, len)` state — decides between "return the stored body" and "run the pipeline". The
-witness is verified by STATTING, never by events or daemons: file-system events were tried
-and measured unsound (macOS fseventsd ingests kernel events on a ~10ms cadence, and neither
+**An unchanged project replays the whole report — microseconds in the daemon, milliseconds
+cold.** The finished report body is a pure function of its inputs, so a WITNESS decides
+between "return the stored body" and "run the pipeline". Witnesses must be KERNEL-
+SYNCHRONOUS with the mutating syscall — daemon-mediated events were tried and measured
+unsound (macOS fseventsd ingests kernel events on a ~10ms cadence, and neither
 `FSEventStreamFlushSync` nor `FSEventsGetCurrentEventId` can see an edit made microseconds
-before the check — an edit-then-lint replayed a stale CLEAN), while mtimes are updated by
-the kernel synchronously with the write itself, so a stat sweep can never miss an edit. The
+before the check — an edit-then-lint replayed a stale CLEAN). Two witnesses qualify, and
+the replay has one tier per witness:
+- **The kqueue tier (steady state, microseconds).** The daemon holds an `EVFILT_VNODE`
+  watch (an `O_EVTONLY` fd) on every walked file, every directory, and the auxiliary
+  inputs; the knote is enqueued INSIDE `write`/`rename`/`unlink` themselves, so a
+  `kevent(timeout=0)` poll after an edit always sees it — no daemon sits in the path.
+  A lint call is then one kevent drain + a memo lookup: zero events since the memo's
+  generation ⇒ the stored body IS the answer, in single-digit microseconds of engine
+  time. The daemon PREWARMS this tier at `initialize` (a detached lint of every announced
+  workspace root, falling back to its own resolved workspace) — everything is already on
+  disk, so the FIRST user call lands on the microsecond path too, not on an arming bill.
+  The racy gate counts only USER-editable inputs: machine-written artifacts (modules,
+  overlays) participate in the witness fold but never extend the racy window — counting
+  them let a run's own overlay save hold its own memo hostage (measured). Any event, an incomplete watch set (fd budget, open failure), a fresh process, or
+  a non-macOS platform falls to the stat tier — the failure mode is always the slower
+  sound path, never a stale answer. Events are exact, so this tier needs no mtime racy
+  window. The watch set arms right BEFORE the sweep that computes the memo (arm-before-
+  scan: an edit racing the sweep lands as a pending event and dirties the memo it raced);
+  derived caches (`lint-verdicts/`, `lint-replay/`) are excluded exactly as they are from
+  the stat witness, so a run never invalidates itself. Known residual, documented: a
+  write that happens purely through a shared `mmap` with no `write`/`msync` posts no
+  vnote — agents and editors write files via `write`+`rename`, and the stat tier still
+  catches it on the next miss.
+- **The stat tier (change, cold starts, fallback — milliseconds).** Mtimes are updated by
+  the kernel synchronously with the write itself, so a stat sweep can never miss an edit. The
 sweep is microseconds because the walk fuses everything into batched syscalls: on macOS one
 `getattrlistbulk` call returns name, type, mtime, and size for a whole directory's entries
 at once (no per-file `stat`), directories fan out on the shared rayon pool, and ignore

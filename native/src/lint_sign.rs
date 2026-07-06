@@ -102,6 +102,7 @@ mod tests {
     #[test]
     fn signatures_verify_and_tampering_is_detected() {
         let dir = std::env::temp_dir().join(format!("lint-sign-test-{}", std::process::id()));
+        let _env = crate::test_env_lock();
         std::env::set_var("HOME", &dir);
         let payload = b"module manifest bytes";
         let sig = sign(payload).expect("signs");

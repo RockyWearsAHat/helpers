@@ -324,11 +324,27 @@ pub fn run(args: &Value) -> ToolResult {
     let data = data_root();
     let memo_key = format!("max={max}|langs={filter:?}");
 
+    // The kqueue tier (LINTER.md): when the kernel reports every watched input quiet since
+    // the memo was committed, the stored body IS the answer — one kevent drain, no walk,
+    // no stat, microseconds. Any doubt falls through to the stat tier below.
+    if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
+        if let Some(body) = crate::lint_kq::replay(&root, &memo_key) {
+            if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+                let us = t0.elapsed().as_micros();
+                eprintln!("[lint-kq] whole-project replay in {us}µs");
+                return Ok(vec![text(format!(
+                    "{body}\nTiming: kqueue whole-project replay — total {us}µs\n"
+                ))]);
+            }
+            return Ok(vec![text(body)]);
+        }
+    }
+
     // 1) Walk the project and partition by language: those with a tree-sitter grammar are analyzed
     //    with the AST engine; the rest are still analyzed via the token-regex fallback, so nothing
     //    is dropped for lacking a grammar.
     let t_walk = std::time::Instant::now();
-    let files = walk_repo(&root);
+    let (files, walked_dirs) = crate::index::walk::walk_repo_full(&root);
     if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
         eprintln!("[lint-walk] walk_repo {:.1}ms, {} files", t_walk.elapsed().as_secs_f64() * 1e3, files.len());
     }
@@ -342,6 +358,9 @@ pub fn run(args: &Value) -> ToolResult {
     let witness = crate::lint_replay::combine(walk_fold, crate::lint_replay::aux_witness(&root, &data));
     if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
         if let Some(body) = crate::lint_replay::replay(&root, &memo_key, witness) {
+            // A stat-tier hit still arms the kqueue tier, so the NEXT call takes the
+            // microsecond path — this is how a fresh daemon converges.
+            kq_arm_and_commit(&root, &data, &files, &walked_dirs, &witness, walk_fold.fold, &memo_key, &body);
             if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
                 let us = t0.elapsed().as_micros();
                 eprintln!("[lint-replay] whole-project replay in {us}µs");
@@ -891,12 +910,10 @@ pub fn run(args: &Value) -> ToolResult {
     // auxiliary fold is recomputed because the run's own training writes land in the model
     // dir. The trace footer below is per-run and appended after, so a replay never shows a
     // stale timing line.
-    crate::lint_replay::store(
-        &root,
-        &memo_key,
-        crate::lint_replay::combine(walk_fold, crate::lint_replay::aux_witness(&root, &data)),
-        &body,
-    );
+    let final_witness =
+        crate::lint_replay::combine(walk_fold, crate::lint_replay::aux_witness(&root, &data));
+    crate::lint_replay::store(&root, &memo_key, final_witness, &body);
+    kq_arm_and_commit(&root, &data, &files, &walked_dirs, &final_witness, walk_fold.fold, &memo_key, &body);
     // Honest latency accounting on demand: where a run's time actually went, stage by stage.
     if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
         mark(&mut stages, "render");
@@ -1071,6 +1088,120 @@ fn render(
         s.push_str(&format!("\nTrained from: {}.\n", sources.join(", ")));
     }
     s
+}
+
+/// Arm the kqueue tier and commit `body` under the soundness protocol (LINTER.md, "The
+/// kqueue tier"): racy-window gate, ARM first, RE-SWEEP and require the walk fold
+/// unchanged (an edit racing the arming lands in the fold difference or as a pending
+/// event), require a quiet drain, then commit. Runs after every answer — full runs AND
+/// stat-tier replays — so the steady state converges to the microsecond path.
+#[allow(clippy::too_many_arguments)]
+fn kq_arm_and_commit(
+    root: &Path,
+    data: &Path,
+    files: &[crate::index::walk::WalkedFile],
+    walked_dirs: &[PathBuf],
+    witness: &crate::lint_replay::Witness,
+    walk_fold: u128,
+    memo_key: &str,
+    body: &str,
+) {
+    let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
+    if !crate::lint_replay::replay_safe(witness) {
+        if trace {
+            let culprit = files
+                .iter()
+                .find(|f| f.mtime == witness.newest)
+                .map(|f| f.rel.clone())
+                .or_else(|| {
+                    let mut hit = None;
+                    for d in [
+                        root.join(".helpers"),
+                        root.join(".helpers/lint-rules"),
+                        data.join("corpus"),
+                        data.join("lint-index"),
+                        lint_train::model_dir_pub(),
+                    ] {
+                        for e in crate::index::walk::scan_dir(&d) {
+                            if e.mtime == witness.newest {
+                                hit = Some(format!("{}/{}", d.display(), e.name));
+                            }
+                        }
+                    }
+                    hit
+                });
+            eprintln!(
+                "[lint-kq] no commit: inside the racy window (newest input: {culprit:?})"
+            );
+        }
+        return;
+    }
+    let watch = kq_watch_set(root, data, files, walked_dirs);
+    if !crate::lint_kq::arm(root, &watch) {
+        if trace {
+            eprintln!("[lint-kq] no commit: watch set incomplete ({} paths)", watch.len());
+        }
+        return;
+    }
+    let refreshed = crate::lint_replay::walk_witness(&crate::index::walk::walk_repo(root));
+    if refreshed.fold != walk_fold {
+        if trace {
+            eprintln!("[lint-kq] no commit: tree changed during arming");
+        }
+        return;
+    }
+    if !crate::lint_kq::confirm_quiet(root) {
+        if trace {
+            eprintln!("[lint-kq] no commit: events during arming");
+        }
+        return;
+    }
+    crate::lint_kq::commit(root, memo_key, body);
+    if trace {
+        eprintln!("[lint-kq] committed ({} watched paths)", watch.len());
+    }
+}
+
+/// The kqueue tier's complete watch set: every walked file and directory, plus every
+/// auxiliary input the witness folds — law and config under `.helpers/`, the corpus, both
+/// lint-index directories (the project data one and the machine one where `add_source`
+/// writes), and the model dir's top level. Derived caches (`lint-verdicts/`,
+/// `lint-replay/`) are excluded exactly as they are from the stat witness, so a run never
+/// invalidates its own memo (LINTER.md, "The kqueue tier").
+fn kq_watch_set(
+    root: &Path,
+    data: &Path,
+    files: &[crate::index::walk::WalkedFile],
+    dirs: &[PathBuf],
+) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = files.iter().map(|f| f.abs.clone()).collect();
+    v.extend(dirs.iter().cloned());
+    let mut dir_and_entries = |d: PathBuf| {
+        if !d.is_dir() {
+            return;
+        }
+        if let Ok(rd) = std::fs::read_dir(&d) {
+            for e in rd.flatten() {
+                let name = e.file_name();
+                if name == "lint-verdicts" || name == "lint-replay" {
+                    continue;
+                }
+                v.push(e.path());
+            }
+        }
+        v.push(d);
+    };
+    dir_and_entries(root.join(".helpers"));
+    dir_and_entries(root.join(".helpers/lint-rules"));
+    dir_and_entries(data.join("corpus"));
+    dir_and_entries(data.join("lint-index"));
+    if let Some(machine_index) = crate::lint_docs::learned_sources_path_pub().parent() {
+        dir_and_entries(machine_index.to_path_buf());
+    }
+    dir_and_entries(lint_train::model_dir_pub());
+    v.sort();
+    v.dedup();
+    v
 }
 
 // ── runtime resource resolution ──────────────────────────────────────────────
