@@ -317,12 +317,19 @@ anything. Every control follows from that:
 states the contract in those words. `lint_config action=add_source lang=<x> url=<official
 docs>` registers a documentation source — a data write into the machine's added-sources store
 (it invalidates the language's model stamp), offline-safe, trains nothing by itself.
-`lint_config action=train` acquires and trains every language the machine knows about — the
-registry, everything previously added, AND the current project's own languages — in parallel,
-reporting each language's outcome; models are
-machine-global, so after one batch every repo on the machine lints every language instantly.
-There is no instant hand-teach tool and no lint-time learning: sources are added, training
-runs, lint replays — one seam, no shortcuts to confuse provenance.
+`lint_config action=train` is MODULAR: by default it acquires and trains only the CURRENT
+PROJECT'S languages (plus an explicit `lang=`), in parallel — a project never pays for a
+module it does not use, and a registered language whose site is down costs repos that don't
+use it nothing. `all=true` runs the machine-wide batch (every registered language); models
+are machine-global either way, and a module retrains only when actually stale (toolchain
+version, source set, `TRAIN_VERSION`, or the documentation itself moved — the stamps above).
+**A needed language that fails to learn is classified, not shrugged at:** its origins are
+probed twice (retry — a one-off handshake hiccup is not a dead site), and the report then
+asks for input with the exact command: "docs site not answering (url) — hand me a different
+link" when the origin is dead, "docs link answers but nothing readable was learned" when the
+site responds but the documentation is unusable. There is no instant hand-teach tool and no
+lint-time learning: sources are added, training runs, lint replays — one seam, no shortcuts
+to confuse provenance.
 
 **A language it cannot learn is ASKED for at runtime.** The lint report names every language
 that is not set up and asks for its documentation link: `add_source` the URL, then `train`.
