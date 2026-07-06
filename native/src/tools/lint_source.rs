@@ -516,7 +516,7 @@ pub fn run_config(args: &Value) -> ToolResult {
                 &langs,
                 &data,
                 &root,
-                &std::collections::BTreeMap::new(),
+                &crate::lint_train::NoProject,
             );
             // Exactly one copy on disk (LINTER.md, "Save"): migrate or drop whatever the
             // JSON era left that no load path will ever touch again.

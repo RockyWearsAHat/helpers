@@ -148,6 +148,169 @@ fn restates_rule(line_tokens: &[String], desc: &str) -> bool {
     shared >= 3 && shared * 2 >= desc_words.len()
 }
 
+// ── The verdict replay cache (LINTER.md, "Warm runs replay per-file verdicts") ──────────────
+
+/// One file's cached verdict: the `(mtime, len)` state it was computed under, its content
+/// seed and line count (grounding-fingerprint and quarantine inputs — reusable without a
+/// read), the merged-model identity, and the post-gate findings `(rule, line, doc_rule)`.
+/// A file whose language has no model caches with `model_id = 0` and no findings, so its
+/// seed still replays; the first model for that language misses the id and re-lints.
+struct CachedVerdict {
+    state: u128,
+    seed: u64,
+    lines: u64,
+    model_id: u64,
+    findings: Vec<(String, u64, bool)>,
+}
+
+/// The per-project verdict store — an `HLM1` container beside the models, keyed by the
+/// project root's path hash. Machine-global, never in the repo, always safe to delete.
+fn verdict_cache_path(root: &Path) -> PathBuf {
+    lint_train::model_dir_pub()
+        .join("lint-verdicts")
+        .join(format!("{:016x}.bin", crate::lint_ai::token_seed(&root.display().to_string())))
+}
+
+/// Load the project's verdicts; a container from another `TRAIN_VERSION` (its stamp) is
+/// empty — verdicts are engine products and expire with the engine's reading logic.
+fn load_verdicts(root: &Path) -> BTreeMap<String, CachedVerdict> {
+    let Ok(bytes) = std::fs::read(verdict_cache_path(root)) else { return BTreeMap::new() };
+    let Some((stamp, mut d)) = crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::VERDICT)
+    else {
+        return BTreeMap::new();
+    };
+    if stamp != lint_train::train_version() {
+        return BTreeMap::new();
+    }
+    // Rule ids repeat across files, so they live once in a table and findings index into it.
+    let decode = |d: &mut crate::lint_codec::Dec| -> Option<BTreeMap<String, CachedVerdict>> {
+        let table_len = d.u()? as usize;
+        let mut table: Vec<String> = Vec::with_capacity(table_len.min(1 << 16));
+        for _ in 0..table_len {
+            table.push(d.str()?);
+        }
+        let files = d.u()? as usize;
+        let mut out = BTreeMap::new();
+        for _ in 0..files {
+            let rel = d.str()?;
+            let state = (u128::from(d.fixed_u64()?) << 64) | u128::from(d.fixed_u64()?);
+            let seed = d.fixed_u64()?;
+            let lines = d.u()?;
+            let model_id = d.fixed_u64()?;
+            let n = d.u()? as usize;
+            let mut findings = Vec::with_capacity(n.min(1 << 12));
+            for _ in 0..n {
+                let rule = table.get(d.u()? as usize)?.clone();
+                findings.push((rule, d.u()?, d.boolean()?));
+            }
+            out.insert(rel, CachedVerdict { state, seed, lines, model_id, findings });
+        }
+        Some(out)
+    };
+    decode(&mut d).unwrap_or_default()
+}
+
+/// Persist the project's verdicts (rule table + per-file entries).
+fn save_verdicts(root: &Path, verdicts: &BTreeMap<String, CachedVerdict>) {
+    let mut table: Vec<String> = Vec::new();
+    let mut index: HashMap<&str, u64> = HashMap::new();
+    for v in verdicts.values() {
+        for (rule, _, _) in &v.findings {
+            if !index.contains_key(rule.as_str()) {
+                index.insert(rule.as_str(), table.len() as u64);
+                table.push(rule.clone());
+            }
+        }
+    }
+    let mut e = crate::lint_codec::Enc::new();
+    e.u(table.len() as u64);
+    for rule in &table {
+        e.str(rule);
+    }
+    e.u(verdicts.len() as u64);
+    for (rel, v) in verdicts {
+        e.str(rel);
+        e.fixed_u64((v.state >> 64) as u64);
+        e.fixed_u64(v.state as u64);
+        e.fixed_u64(v.seed);
+        e.u(v.lines);
+        e.fixed_u64(v.model_id);
+        e.u(v.findings.len() as u64);
+        for (rule, line, doc) in &v.findings {
+            e.u(index[rule.as_str()]);
+            e.u(*line);
+            e.boolean(*doc);
+        }
+    }
+    let path = verdict_cache_path(root);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, e.finish(crate::lint_codec::kind::VERDICT, lint_train::train_version()));
+}
+
+/// A walked, selected file: its language, repo-relative path, absolute path, and `(mtime,
+/// len)` state — everything the replay decision needs without reading the file.
+struct FileMeta {
+    rel: String,
+    abs: PathBuf,
+    state: u128,
+}
+
+/// `(mtime, len)` folded into one value — the same cheap change witness the model stamps use.
+fn meta_state(p: &Path) -> u128 {
+    std::fs::metadata(p)
+        .map(|m| {
+            let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+            t.map(|d| d.as_nanos()).unwrap_or(0) ^ ((m.len() as u128) << 64)
+        })
+        .unwrap_or(0)
+}
+
+/// The lazily-read project code behind [`lint_train::ProjectSource`]: fingerprints reuse
+/// cached content seeds; full sources read from disk only when an overlay recompiles.
+struct LazyProject<'a> {
+    by_language: &'a BTreeMap<String, Vec<FileMeta>>,
+    /// Complete after wave 1 (every selected file has a seed — cached or freshly read), so
+    /// fingerprints are pure lock-free reads across the parallel training threads.
+    seeds: &'a HashMap<String, u64>,
+    contents: &'a std::sync::Mutex<HashMap<String, std::sync::Arc<String>>>,
+}
+
+impl LazyProject<'_> {
+    /// The file's content, from the run's store or freshly read (memoized). `None` = unreadable.
+    fn content(&self, meta: &FileMeta) -> Option<std::sync::Arc<String>> {
+        if let Some(src) = self.contents.lock().unwrap_or_else(|e| e.into_inner()).get(&meta.rel) {
+            return Some(src.clone());
+        }
+        let src = std::sync::Arc::new(std::fs::read_to_string(&meta.abs).ok()?);
+        self.contents
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(meta.rel.clone(), src.clone());
+        Some(src)
+    }
+
+    /// The file's content seed — wave 1 seeded every selected file, so this is a plain read.
+    fn seed(&self, meta: &FileMeta) -> u64 {
+        self.seeds.get(&meta.rel).copied().unwrap_or(0)
+    }
+}
+
+impl lint_train::ProjectSource for LazyProject<'_> {
+    fn fingerprint(&self, lang: &str) -> u64 {
+        let Some(metas) = self.by_language.get(lang) else { return 0 };
+        metas.iter().map(|m| self.seed(m)).fold(0u64, |acc, h| acc ^ h)
+    }
+    fn sources(&self, lang: &str) -> Vec<(String, String)> {
+        let Some(metas) = self.by_language.get(lang) else { return Vec::new() };
+        metas
+            .iter()
+            .filter_map(|m| self.content(m).map(|src| (m.rel.clone(), src.as_str().to_string())))
+            .collect()
+    }
+}
+
 /// Review the whole project: detect its languages, build one `LangModel` per language (rule set +
 /// concept gate + principles), match each file with the rule set, confirm text-fallback findings
 /// through the concept gate, and report the result in English.
@@ -161,6 +324,7 @@ pub fn run(args: &Value) -> ToolResult {
             last = std::time::Instant::now();
         }
     };
+    let t_sub = std::time::Instant::now();
     let root = root_arg(args);
     if !root.exists() {
         return Err(format!("lint: path not found: {}", root.display()));
@@ -174,12 +338,19 @@ pub fn run(args: &Value) -> ToolResult {
     // same `ignore_rules` list, so they are suppressed through the normal config path below.
     let mut config = load_config(&root);
     let auto_suppressed = crate::lint_feedback::merge_auto_suppressed(&mut config, &root);
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-walk] config+feedback {:.1}ms", t_sub.elapsed().as_secs_f64() * 1e3);
+    }
     let ignore_set: HashSet<&str> = config.ignore_rules.iter().map(String::as_str).collect();
 
     // 1) Walk the project and partition by language: those with a tree-sitter grammar are analyzed
     //    with the AST engine; the rest are still analyzed via the token-regex fallback, so nothing
     //    is dropped for lacking a grammar.
+    let t_walk = std::time::Instant::now();
     let files = walk_repo(&root);
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-walk] walk_repo {:.1}ms, {} files", t_walk.elapsed().as_secs_f64() * 1e3, files.len());
+    }
     // The project's own rule documents (root lintPref, .helpers/lint-rules) are instructions TO
     // the linter, not source to be linted — never analyze the law as if it were code.
     let law: HashSet<PathBuf> = lint_train::rule_documents(&root).into_iter().map(|(p, _)| p).collect();
@@ -210,25 +381,65 @@ pub fn run(args: &Value) -> ToolResult {
         })
         .collect();
     use rayon::prelude::*;
-    let bodies: Vec<Option<String>> = selected
-        .par_iter()
-        .map(|(_, f)| std::fs::read_to_string(&f.abs).ok())
+    // STAT, don't read (LINTER.md, "Warm runs replay per-file verdicts"): the replay decision
+    // needs only each file's `(mtime, len)` state. Contents are read in waves — changed files
+    // now (their seeds feed the grounding fingerprint), model-invalidated files after the
+    // models load, and a recompiling overlay's grounding universe on demand.
+    let stats: Vec<u128> = selected.par_iter().map(|(_, f)| meta_state(&f.abs)).collect();
+    let mut by_language: BTreeMap<String, Vec<FileMeta>> = BTreeMap::new();
+    for ((l, f), state) in selected.into_iter().zip(stats) {
+        by_language
+            .entry(l)
+            .or_default()
+            .push(FileMeta { rel: f.rel.clone(), abs: f.abs.clone(), state });
+    }
+    let t_v = std::time::Instant::now();
+    let verdicts = load_verdicts(&root);
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-walk] stat+select done, load_verdicts {:.1}ms ({} entries)", t_v.elapsed().as_secs_f64() * 1e3, verdicts.len());
+    }
+    let mut seeds: HashMap<String, u64> = by_language
+        .values()
+        .flatten()
+        .filter_map(|m| {
+            let v = verdicts.get(&m.rel)?;
+            (v.state == m.state).then(|| (m.rel.clone(), v.seed))
+        })
         .collect();
-    let mut by_language: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    for ((l, f), body) in selected.into_iter().zip(bodies) {
-        if let Some(src) = body {
-            by_language.entry(l).or_default().push((f.rel.clone(), src));
+    let contents: std::sync::Mutex<HashMap<String, std::sync::Arc<String>>> =
+        std::sync::Mutex::new(HashMap::new());
+    {
+        // Wave 1: every state-changed (or never-seen) file — read in parallel, seed for the
+        // grounding fingerprints below. After this block every selected file has a seed.
+        let changed: Vec<&FileMeta> =
+            by_language.values().flatten().filter(|m| !seeds.contains_key(&m.rel)).collect();
+        let read: Vec<(String, Option<String>)> = changed
+            .par_iter()
+            .map(|m| (m.rel.clone(), std::fs::read_to_string(&m.abs).ok()))
+            .collect();
+        if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+            eprintln!("[lint-walk] wave1 read {} changed file(s)", read.len());
+        }
+        let mut store = contents.lock().unwrap_or_else(|e| e.into_inner());
+        for (rel, body) in read {
+            if let Some(src) = body {
+                seeds.insert(rel.clone(), crate::lint_ai::token_seed(&src));
+                store.insert(rel, std::sync::Arc::new(src));
+            } else {
+                seeds.insert(rel, 0);
+            }
         }
     }
+    let project = LazyProject { by_language: &by_language, seeds: &seeds, contents: &contents };
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-walk] to-project total {:.1}ms", t_sub.elapsed().as_secs_f64() * 1e3);
+    }
 
-    // 2) Train / load one model per detected language (checksum-cached), and the advice map that
-    //    carries each rule's English description and severity for rendering. The file map itself
-    //    is the grounding corpus (`lang → (path, body)`): a law names constructs that live in the
-    //    code it governs, so the project grounds construct selection for ANY language, shape-free
-    //    — passed by reference, never duplicated.
+    // 2) Train / load one model per detected language (checksum-cached). The project reaches
+    //    training as a LAZY source: fingerprints from seeds, full grounding text on demand.
     let langs: Vec<String> = by_language.keys().cloned().collect();
     mark(&mut stages, "walk+read");
-    let (report, models) = lint_train::ensure_models(&langs, &data, &root, &by_language);
+    let (report, models) = lint_train::ensure_models(&langs, &data, &root, &project);
     mark(&mut stages, "train/load");
 
     let mut sources: Vec<String> = Vec::new();
@@ -259,13 +470,48 @@ pub fn run(args: &Value) -> ToolResult {
 
     // 3) Rule firing + confirmation gate. Findings are staged (not reported yet) so the
     //    self-validation pass below can measure each rule's fire rate against reality first.
-    //    Every fire-rate denominator derives from ONE parallel line count per file.
-    let file_lines: HashMap<&str, usize> = {
-        use rayon::prelude::*;
-        let files: Vec<(&str, &str)> =
-            by_language.values().flatten().map(|(p, s)| (p.as_str(), s.as_str())).collect();
-        files.par_iter().map(|(p, s)| (*p, s.lines().count())).collect()
-    };
+    //    Wave 2: a file whose state matched but whose language's MODEL changed must re-lint —
+    //    read those now so every language pass below has its fresh files' contents in hand.
+    {
+        let verdicts = &verdicts;
+        let need: Vec<&FileMeta> = by_language
+            .iter()
+            .flat_map(|(lang, metas)| {
+                let model_id = models.get(lang).map(|m| m.id).unwrap_or(0);
+                metas.iter().filter(move |m| {
+                    !matches!(verdicts.get(&m.rel), Some(v) if v.state == m.state && v.model_id == model_id)
+                })
+            })
+            .collect();
+        let store = contents.lock().unwrap_or_else(|e| e.into_inner());
+        let missing: Vec<&FileMeta> =
+            need.into_iter().filter(|m| !store.contains_key(&m.rel)).collect();
+        drop(store);
+        let read: Vec<(String, Option<String>)> = missing
+            .par_iter()
+            .map(|m| (m.rel.clone(), std::fs::read_to_string(&m.abs).ok()))
+            .collect();
+        let mut store = contents.lock().unwrap_or_else(|e| e.into_inner());
+        for (rel, body) in read {
+            if let Some(src) = body {
+                store.insert(rel, std::sync::Arc::new(src));
+            }
+        }
+    }
+    let contents = contents.into_inner().unwrap_or_else(|e| e.into_inner());
+    // Every fire-rate denominator derives from one line count per file — replayed from the
+    // verdict cache for unchanged files, counted from the fresh read otherwise.
+    let file_lines: HashMap<&str, usize> = by_language
+        .values()
+        .flatten()
+        .map(|m| {
+            let lines = match contents.get(&m.rel) {
+                Some(src) => src.lines().count(),
+                None => verdicts.get(&m.rel).map(|v| v.lines as usize).unwrap_or(0),
+            };
+            (m.rel.as_str(), lines)
+        })
+        .collect();
     let total_lines: usize = file_lines.values().sum();
     // Languages fire in PARALLEL — each language's pass (trusted-law lookup, matching, concept
     // gate) is independent, so the stage costs the slowest language, not the sum. Results fold
@@ -275,80 +521,33 @@ pub fn run(args: &Value) -> ToolResult {
         staged: Vec<(String, Hit, bool)>, // (path, hit, unverified doc rule?)
         law_watch: Vec<(String, String)>,
         trace: String,
+        /// Fresh files' new verdict-cache entries (LINTER.md, "Warm runs replay per-file verdicts").
+        updates: Vec<(String, CachedVerdict)>,
     }
     let passes: Vec<LangPass> = {
         use rayon::prelude::*;
-        let entries: Vec<(&String, &Vec<(String, String)>)> = by_language.iter().collect();
+        let entries: Vec<(&String, &Vec<FileMeta>)> = by_language.iter().collect();
         entries
             .par_iter()
-            .filter_map(|(lang, lang_files)| {
-                let model = models.get(*lang)?;
+            .map(|(lang, metas)| {
                 let t0 = std::time::Instant::now();
-                // Rules the project itself authored are the user's explicit law for this
-                // codebase — trusted fully, never gated, however weak their compiled anchor is.
-                let trusted = lint_train::project_rule_ids(&data, &root, lang);
-                let law_watch: Vec<(String, String)> = trusted
-                    .iter()
-                    .filter_map(|id| model.rules.detector_of(id).map(|w| (id.clone(), w)))
-                    .collect();
-                // Precise AST matches are exact and staged directly. Imprecise matches —
-                // text-fallback regexes and container-only AST patterns (several distinct rules
-                // compile to the same bare `list`) — must clear the Hv concept gate: the matched
-                // construct's tokens must agree with the fired rule's fingerprint more than with
-                // any other rule's, so a match that belongs to a different concept is dropped —
-                // no word blocklist involved. All of a language's gated findings go through ONE
-                // batched query ([`crate::lint_ai::ConceptModel::confirms_batch`]), a single
-                // popcount-grid dispatch instead of a scalar scan per finding.
-                let mut pending: Vec<(String, crate::lint_match::Finding, bool)> = Vec::new();
-                let mut gate_tokens: Vec<(usize, Vec<String>)> = Vec::new(); // (pending idx, construct tokens)
-                let per_file: Vec<Vec<crate::lint_match::Finding>> =
-                    lang_files.par_iter().map(|(_, src)| model.rules.flag(src)).collect();
-                for ((path, src), findings) in lang_files.iter().zip(per_file) {
-                    for finding in findings {
-                        let doc_rule = !trusted.contains(&finding.rule);
-                        if !finding.precise {
-                            let toks = line_tokens(src, finding.line);
-                            // Restatement guard (all imprecise findings, trusted law included):
-                            // a line repeating the rule's own words is quoting the law, not
-                            // breaking it.
-                            let desc =
-                                model.rules.info_of(&finding.rule).map(|(_, d, _)| d).unwrap_or("");
-                            if restates_rule(&toks, desc) {
-                                continue;
-                            }
-                            if doc_rule {
-                                gate_tokens.push((pending.len(), toks));
-                            }
-                        }
-                        pending.push((path.clone(), finding, doc_rule));
-                    }
-                }
-                let items: Vec<(&str, Vec<&str>)> = gate_tokens
-                    .iter()
-                    .map(|(i, toks)| {
-                        (pending[*i].1.rule.as_str(), toks.iter().map(String::as_str).collect())
-                    })
-                    .collect();
-                let mut rejected: HashSet<usize> = HashSet::new();
-                for (kept, (i, _)) in
-                    model.concept.confirms_batch(&items).into_iter().zip(&gate_tokens)
-                {
-                    if !kept {
-                        rejected.insert(*i);
-                    }
-                }
+                let model = models.get(*lang);
+                let model_id = model.map(|m| m.id).unwrap_or(0);
+                // Replay or re-lint, per file: an unchanged file under an unchanged model
+                // replays its cached verdict — no read, no parse, no gate.
+                let (fresh, replayed): (Vec<&FileMeta>, Vec<&FileMeta>) = metas.iter().partition(|m| {
+                    !matches!(verdicts.get(&m.rel), Some(v) if v.state == m.state && v.model_id == model_id)
+                });
+                let mut updates: Vec<(String, CachedVerdict)> = Vec::new();
                 let mut staged: Vec<(String, Hit, bool)> = Vec::new();
-                for (i, (path, finding, doc_rule)) in pending.into_iter().enumerate() {
-                    if rejected.contains(&i) {
-                        continue;
-                    }
-                    // The compiled model carries each rule's reporting facts — no catalog re-read.
+                // The finding-to-Hit rendering facts come from the compiled model either way.
+                let hit_of = |model: &lint_train::LangModel, rule: &str, line: usize| -> (Hit, String) {
                     let (severity, advice_text, source) = model
                         .rules
-                        .info_of(&finding.rule)
+                        .info_of(rule)
                         .map(|(sev, desc, src)| {
-                            let sev = if sev.is_empty() { finding.severity.clone() } else { sev.to_string() };
-                            let adv = if desc.is_empty() { format!("violates `{}`", finding.rule) } else { desc.to_string() };
+                            let sev = if sev.is_empty() { "medium".to_string() } else { sev.to_string() };
+                            let adv = if desc.is_empty() { format!("violates `{rule}`") } else { desc.to_string() };
                             // A law file inside the project cites as a relative path; docs cite their URL.
                             let src = src
                                 .strip_prefix(&format!("{}/", root.display()))
@@ -356,28 +555,165 @@ pub fn run(args: &Value) -> ToolResult {
                                 .to_string();
                             (sev, adv, src)
                         })
-                        .unwrap_or_else(|| (finding.severity.clone(), format!("violates `{}`", finding.rule), String::new()));
-                    staged.push((path, Hit { line: finding.line, rule: finding.rule, severity, advice: advice_text, source }, doc_rule));
-                }
+                        .unwrap_or_else(|| ("medium".to_string(), format!("violates `{rule}`"), String::new()));
+                    (Hit { line, rule: rule.to_string(), severity: severity.clone(), advice: advice_text, source }, severity)
+                };
+                let (law_watch, rule_count) = match model {
+                    Some(model) => {
+                        // Rules the project itself authored are the user's explicit law for this
+                        // codebase — trusted fully, never gated, however weak their compiled anchor is.
+                        let trusted = lint_train::project_rule_ids(&data, &root, lang);
+                        let law_watch: Vec<(String, String)> = trusted
+                            .iter()
+                            .filter_map(|id| model.rules.detector_of(id).map(|w| (id.clone(), w)))
+                            .collect();
+                        // Precise AST matches are exact and staged directly. Imprecise matches —
+                        // text-fallback token detectors and container-only AST patterns — must
+                        // clear the Hv concept gate: the matched construct's tokens must agree
+                        // with the fired rule's fingerprint more than with any other rule's. All
+                        // of a language's gated findings go through ONE batched query
+                        // ([`crate::lint_ai::ConceptModel::confirms_batch`]) — a single
+                        // popcount-grid dispatch instead of a scalar scan per finding.
+                        let mut pending: Vec<(String, crate::lint_match::Finding, bool)> = Vec::new();
+                        let mut gate_tokens: Vec<(usize, Vec<String>)> = Vec::new();
+                        let with_src: Vec<(&FileMeta, std::sync::Arc<String>)> = fresh
+                            .iter()
+                            .filter_map(|m| contents.get(&m.rel).map(|src| (*m, src.clone())))
+                            .collect();
+                        let per_file: Vec<Vec<crate::lint_match::Finding>> =
+                            with_src.par_iter().map(|(_, src)| model.rules.flag(src)).collect();
+                        let mut fresh_findings: HashMap<&str, Vec<(String, u64, bool)>> =
+                            with_src.iter().map(|(m, _)| (m.rel.as_str(), Vec::new())).collect();
+                        for ((meta, src), findings) in with_src.iter().zip(per_file) {
+                            for finding in findings {
+                                let doc_rule = !trusted.contains(&finding.rule);
+                                if !finding.precise {
+                                    let toks = line_tokens(src, finding.line);
+                                    // Restatement guard (all imprecise findings, trusted law
+                                    // included): a line repeating the rule's own words is
+                                    // quoting the law, not breaking it.
+                                    let desc = model
+                                        .rules
+                                        .info_of(&finding.rule)
+                                        .map(|(_, d, _)| d)
+                                        .unwrap_or("");
+                                    if restates_rule(&toks, desc) {
+                                        continue;
+                                    }
+                                    if doc_rule {
+                                        gate_tokens.push((pending.len(), toks));
+                                    }
+                                }
+                                pending.push((meta.rel.clone(), finding, doc_rule));
+                            }
+                        }
+                        let items: Vec<(&str, Vec<&str>)> = gate_tokens
+                            .iter()
+                            .map(|(i, toks)| {
+                                (pending[*i].1.rule.as_str(), toks.iter().map(String::as_str).collect())
+                            })
+                            .collect();
+                        let mut rejected: HashSet<usize> = HashSet::new();
+                        for (kept, (i, _)) in
+                            model.concept.confirms_batch(&items).into_iter().zip(&gate_tokens)
+                        {
+                            if !kept {
+                                rejected.insert(*i);
+                            }
+                        }
+                        for (i, (path, finding, doc_rule)) in pending.into_iter().enumerate() {
+                            if rejected.contains(&i) {
+                                continue;
+                            }
+                            if let Some(list) = fresh_findings.get_mut(path.as_str()) {
+                                list.push((finding.rule.clone(), finding.line as u64, doc_rule));
+                            }
+                            let (hit, _) = hit_of(model, &finding.rule, finding.line);
+                            staged.push((path, hit, doc_rule));
+                        }
+                        // Replays: the cached post-gate findings, rendered through the same model.
+                        for meta in &replayed {
+                            if let Some(v) = verdicts.get(&meta.rel) {
+                                for (rule, line, doc_rule) in &v.findings {
+                                    let (hit, _) = hit_of(model, rule, *line as usize);
+                                    staged.push((meta.rel.clone(), hit, *doc_rule));
+                                }
+                            }
+                        }
+                        // Every fresh file earns a verdict entry — findings or none — so the
+                        // next run replays it. Unreadable files record state with no findings.
+                        for (meta, src) in &with_src {
+                            let findings = fresh_findings.remove(meta.rel.as_str()).unwrap_or_default();
+                            updates.push((
+                                meta.rel.clone(),
+                                CachedVerdict {
+                                    state: meta.state,
+                                    seed: seeds.get(&meta.rel).copied().unwrap_or(0),
+                                    lines: src.lines().count() as u64,
+                                    model_id,
+                                    findings,
+                                },
+                            ));
+                        }
+                        (law_watch, model.rules.rule_count())
+                    }
+                    None => {
+                        // No model for this language — nothing fires, but each fresh file still
+                        // caches its state and seed so warm fingerprints never re-read it.
+                        for meta in &fresh {
+                            let (seed, lines) = match contents.get(&meta.rel) {
+                                Some(src) => (
+                                    seeds.get(&meta.rel).copied().unwrap_or(0),
+                                    src.lines().count() as u64,
+                                ),
+                                None => (seeds.get(&meta.rel).copied().unwrap_or(0), 0),
+                            };
+                            updates.push((
+                                meta.rel.clone(),
+                                CachedVerdict { state: meta.state, seed, lines, model_id: 0, findings: Vec::new() },
+                            ));
+                        }
+                        (Vec::new(), 0)
+                    }
+                };
                 let trace = format!(
-                    "[lint-match] {lang}: {} files, {} rules, {} finding(s), {:.1}ms",
-                    lang_files.len(),
-                    model.rules.rule_count(),
+                    "[lint-match] {lang}: {} files ({} fresh), {} rules, {} finding(s), {:.1}ms",
+                    metas.len(),
+                    fresh.len(),
+                    rule_count,
                     staged.len(),
                     t0.elapsed().as_secs_f64() * 1e3
                 );
-                Some(LangPass { staged, law_watch, trace })
+                LangPass { staged, law_watch, trace, updates }
             })
             .collect()
     };
     let mut staged: Vec<(String, Hit, bool)> = Vec::new();
     let trace_on = std::env::var_os("HELPERS_LINT_TRACE").is_some();
+    let mut fresh_updates: Vec<(String, CachedVerdict)> = Vec::new();
     for pass in passes {
         if trace_on {
             eprintln!("{}", pass.trace);
         }
         staged.extend(pass.staged);
         law_watch.extend(pass.law_watch);
+        fresh_updates.extend(pass.updates);
+    }
+    // Persist the replay cache: prune files gone from the walk, fold in fresh verdicts, write
+    // only when something actually changed.
+    {
+        let walked: HashSet<&str> =
+            by_language.values().flatten().map(|m| m.rel.as_str()).collect();
+        let mut next = verdicts;
+        let before = next.len();
+        next.retain(|rel, _| walked.contains(rel.as_str()));
+        let dirty = next.len() != before || !fresh_updates.is_empty();
+        for (rel, v) in fresh_updates {
+            next.insert(rel, v);
+        }
+        if dirty {
+            save_verdicts(&root, &next);
+        }
     }
     mark(&mut stages, "match+gate");
 
@@ -391,12 +727,12 @@ pub fn run(args: &Value) -> ToolResult {
     // files that it never even ran against.
     let path_lang: HashMap<&str, &str> = by_language
         .iter()
-        .flat_map(|(l, files)| files.iter().map(move |(p, _)| (p.as_str(), l.as_str())))
+        .flat_map(|(l, metas)| metas.iter().map(move |m| (m.rel.as_str(), l.as_str())))
         .collect();
     let lang_lines: HashMap<&str, usize> = by_language
         .iter()
-        .map(|(l, files)| {
-            (l.as_str(), files.iter().map(|(p, _)| file_lines[p.as_str()]).sum())
+        .map(|(l, metas)| {
+            (l.as_str(), metas.iter().map(|m| file_lines[m.rel.as_str()]).sum())
         })
         .collect();
     let mut fires: HashMap<(&str, &str), usize> = HashMap::new(); // (rule, lang) → hits
