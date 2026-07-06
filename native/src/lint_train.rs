@@ -991,6 +991,17 @@ pub(crate) fn registered_docs_sources(data_root: &Path, lang: &str) -> Vec<crate
 }
 
 #[cfg(feature = "crawl")]
+/// The documentation URLs registered for `lang` (registry + added sources) — what the setup
+/// report probes when a NEEDED language failed to learn, to tell "site not answering" apart
+/// from "link answers but has nothing readable" (LINTER.md, "Online to set up").
+pub(crate) fn source_urls(data_root: &Path, lang: &str) -> Vec<String> {
+    let mut sources = crawl_sources_from_config(data_root, lang);
+    if sources.is_empty() {
+        sources.extend(crate::lint_docs::learned_source(lang));
+    }
+    sources.into_iter().map(|s| s.url).collect()
+}
+
 fn crawl_sources_from_config(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
     let Some(raw) = std::fs::read_to_string(data_root.join("lint-index/sources.json"))
         .ok()

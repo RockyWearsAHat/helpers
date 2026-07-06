@@ -536,6 +536,22 @@ mod net {
         }
     }
 
+    /// Public reachability verdict for a documentation URL — the setup report's classifier
+    /// (LINTER.md, "Online to set up"): `true` when the origin answers at all. Probes twice
+    /// before saying no (retry — a one-off handshake hiccup is not a dead site); the per-run
+    /// breaker remembers the verdict so nothing else pays for it again.
+    pub fn origin_reachable(url: &str) -> bool {
+        if origin_probe(url) {
+            return true;
+        }
+        // Second opinion: clear only this origin's failure count so the retry actually
+        // probes instead of reading the breaker back.
+        if let Ok(mut m) = origin_state().lock() {
+            m.remove(&origin_of(url));
+        }
+        origin_probe(url)
+    }
+
     /// Whether `url`'s origin answers AT ALL, decided in seconds: a HEAD with a short
     /// deadline (any HTTP status counts — 405 to HEAD is an answer). Skipped when the
     /// breaker already knows the origin either way. Feeds the breaker so every later fetch
@@ -851,7 +867,13 @@ mod net {
 }
 
 #[cfg(feature = "crawl")]
-pub use net::{crawl, fetch, fetch_conditional, Revalidation};
+pub use net::{crawl, fetch, fetch_conditional, origin_reachable, Revalidation};
+
+/// Crawler disabled at compile time: reachability cannot be judged, so never claim a site dead.
+#[cfg(not(feature = "crawl"))]
+pub fn origin_reachable(_url: &str) -> bool {
+    true
+}
 
 #[cfg(test)]
 mod tests {
