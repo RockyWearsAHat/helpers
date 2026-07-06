@@ -150,7 +150,18 @@ forces it regardless of age.
    and `/c/…`, never `/cpp`); a file seed (`…/bash.html`) scopes to its folder — the safety
    valves exist for exactly the day a seed mis-scopes.
 2. **Read**: the Reader learns the prose; `(governing prose, code example)` pairs are sliced at
-   *tag boundaries* (between `</pre>` and the next `<pre`) — never at byte offsets.
+   *tag boundaries* (between `</pre>` and the next `<pre`) — never at byte offsets. **A site is
+   never assumed to document one language** (ledger #18): a page's TREE names the language a
+   source is registered for (the seed scopes the crawl), but the page's own code blocks declare
+   their individual languages — `class="brush: js"`, `language-css`, the fence info string —
+   and that declaration is honored. Each block's hint resolves through the same
+   extension→language map law-file stems use (#16); a block hinted for a DIFFERENT known
+   language is READ as prose context but never bound, never grounded, and never enters this
+   language's reference corpus — an MDN JavaScript page's HTML example belongs to html, and
+   binding it into javascript minted rules that fired cross-language (an MDN `input/password`
+   HTML-page rule firing on `.mjs` files — measured). A hint that resolves to nothing known is
+   no hint at all: junk fence labels ("output", "plain") must not silently discard real
+   examples. Blocks with no hint attribute to the page's language, as before.
 3. **Ground**: a bounded sample of examples is checked against the installed toolchain
    (parse/compile check only, never executed, parallel): flagged → prose feeds the bad
    prototype, clean → good. Docs' claims tested against reality.
@@ -168,7 +179,11 @@ forces it regardless of age.
    punctuation or a bare numeric value yields no watchable word and the compile abstains —
    values and operators are semantics, and the AST diff is the path that carries them. One
    containment function serves the compile gates and the live fire, so the two can never
-   disagree about what a detector means. An example that is still the whole translation unit after
+   disagree about what a detector means. An example-diff text detector must additionally be
+   TRACEABLE (#19): its example was reality-FLAGGED by the toolchain, or the law's own words
+   name at least one kept token (the anchor; an ordered pair's partner token only narrows
+   firing, so it need not be named) — identifiers a Clean-parsing example happens to use are
+   not evidence of anything. An example that is still the whole translation unit after
    wrapper-skipping is a **sample program, not a rule** — a rule is a construct a reader can
    point at, never a whole file — and compile abstains (tutorial hello-worlds once minted
    `first_statement_in_a_go`, which fired on any hello-world; ledger #13).
@@ -608,6 +623,32 @@ fire → guard → gate → quarantine → config/feedback → report.
    judgment is "does English account for this word" (dictionary headword or docs-corpus head),
    learned by reading, never a hand-tuned threshold — a binary frequency cutoff at any scale
    was the exact failure `select.rs` warned itself about.*
+
+18. **Polyglot documentation bound foreign examples into a language's model** (MDN's JavaScript
+   tree embeds HTML/CSS example blocks; extraction dropped every block's own language label
+   ("the optional info string after the fence is dropped"), so HTML examples became javascript
+   bindings — 11 HTML-shaped bindings measured in the js reading memory — and, worse, an HTML
+   example on a JS page FAILS `node --check` grounding, feeding its neutral prose to the BAD
+   prototype: mislabeled polarity from mere language mixing. An MDN HTML-page rule fired on
+   `.mjs` files) → *the docs' own block hint (`brush:`/`language-*` classes, fence info) is
+   extracted and resolved through the extension→language map (#16); a foreign-hinted block is
+   prose-only for the training language. The hint gate trusts only hints resolving to a KNOWN
+   language — junk labels are not hints. Sites are polyglot by default; only the seed TREE is
+   per-language.*
+
+19. **Untraceable example tokens fired on innocent code that resembled the docs' examples** (nim,
+   trained ungrounded from one link: descriptive tutorial prose slipped the sentence gate under
+   the transferred classifier, the example diff fell back to a literal token pair, and the pair
+   was `proc greet` — the tutorial's OWN function name. Every user who writes a greeter gets
+   flagged by a "rule" whose watched words appear nowhere in its own description and were never
+   reality-tested) → *provenance: an example-diff TEXT detector compiles only when the
+   toolchain actually FLAGGED its example (the reality label travels with the memory) or the
+   law's own words name a kept token — whole-token, through the one matcher; the anchor
+   suffices, because a pair's partner token only narrows firing on the anchored line. A
+   Clean-parsing or ungroundable example's identifiers are just code the docs showed. Applies
+   whenever a classifier is rendering verdicts; with no classifier the author's material is
+   trusted, as at the entry gate. The AST path is untouched (structured patterns carry their
+   own discrimination and the reference-fire gate).*
 
 ## The distribution channel (built) and the community network (deferred, decided)
 
