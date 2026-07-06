@@ -569,6 +569,12 @@ pub struct Memory {
     /// reference, yet the language was read and is set up (LINTER.md, "reading IS the module").
     #[serde(default)]
     pub pages_read: usize,
+    /// Token seeds of the example codes the TOOLCHAIN actually flagged during grounding — the
+    /// reality-tested labels. A compiled detector may keep literal example tokens only when its
+    /// example is in here or the law's own words name them (LINTER.md, ledger #19): a
+    /// Clean-parsing example's identifiers are just code the docs showed, never evidence.
+    #[serde(default)]
+    pub flagged: std::collections::HashSet<u64>,
     /// The language's file-extension claims, learned from its own documentation (LINTER.md,
     /// "File types are learned by reading"): dot-led tokens tallied while reading, corpus-head
     /// words dropped. `{extension → mention count}`; empty when the docs never name a file.
@@ -833,7 +839,7 @@ mod tests {
             .expect("content prose binds");
         assert_eq!(b.bind, polarity.prose_hv("never do this dangerous thing").unwrap().xor(&code_hv("python", "x = [1]")),
                    "bind is prose ⊗ code");
-        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity), pages_read: 1, extensions: Default::default() };
+        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity), pages_read: 1, extensions: Default::default(), flagged: Default::default() };
         let json = serde_json::to_string(&memory).expect("serializes");
         let back: Memory = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back.bindings.len(), 1);

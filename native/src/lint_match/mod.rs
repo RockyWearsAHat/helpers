@@ -191,7 +191,22 @@ impl RuleSet {
     pub fn build(lang: &str, rules: &[(String, String, String, String, String, String)], ground: &Grounding) -> RuleSet {
         let trusted = &ground.trusted;
         let reference_corpus = &ground.reference;
+        let reality_flagged = ground.flagged.clone();
         let ground = GroundView::of(lang, ground);
+        // Ledger #19 — provenance for example-diff tokens: a text detector's literal tokens
+        // are evidence only when the toolchain actually FLAGGED the example, or the law's own
+        // words name them. A Clean-parsing (or ungroundable) example's identifiers are just
+        // code the docs showed — `proc greet` once compiled from nim tutorial narration and
+        // fired on every greeter a user ever wrote.
+        let traceable = |desc: &str, bad: &str, tokens: &[String]| -> bool {
+            reality_flagged.contains(&crate::lint_ai::token_seed(bad))
+                // ANY kept token named by the law anchors the detector: an ordered pair's
+                // partner token only NARROWS firing (both tokens must share a line), so an
+                // unnamed partner cannot broaden a named construct — but a detector with no
+                // named token at all is untraceable (`goto cleanup` keeps its pair through
+                // "goto"; nim's `proc greet` names neither and dies).
+                || tokens.iter().any(|t| select::tokens_fire_text(desc, std::slice::from_ref(t)))
+        };
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
         let has_grammar = language(lang).is_some();
@@ -259,6 +274,10 @@ impl RuleSet {
                 } else if let Some(tokens) = text_discriminator(bad, good) {
                     // Code-diff fallback: description had no extractable term but the bad/good
                     // examples (themselves part of the official documentation) still distinguish.
+                    if !trusted.contains(id) && classifier_ready && !traceable(desc, bad, &tokens) {
+                        dropped(id, "untraceable example tokens (never reality-flagged; not named by the law's words)");
+                        continue;
+                    }
                     MatchKind::Tokens { tokens, raw: false }
                 } else {
                     dropped(id, "no detector (AST abstained; no groundable word; no token diff)");
@@ -270,6 +289,10 @@ impl RuleSet {
                 if let Some((token, raw)) = desc_detector(&ground) {
                     MatchKind::Tokens { tokens: vec![token], raw }
                 } else if let Some(tokens) = text_discriminator(bad, good) {
+                    if !trusted.contains(id) && classifier_ready && !traceable(desc, bad, &tokens) {
+                        dropped(id, "untraceable example tokens (never reality-flagged; not named by the law's words)");
+                        continue;
+                    }
                     MatchKind::Tokens { tokens, raw: false }
                 } else {
                     dropped(id, "no detector (no groundable word; no token diff)");

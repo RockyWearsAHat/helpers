@@ -81,7 +81,14 @@ pub fn read_language(
         let mut src_prose = Vec::new();
         for page in crawled_source(src, max_pages, cache_version) {
             src_prose.push(page.prose);
-            for (s, prose, code) in page.units {
+            for (s, prose, code, hint) in page.units {
+                // Ledger #18: a block the page itself labels as a DIFFERENT known language
+                // (an MDN JavaScript page's `brush: html` example) is prose-only here — it
+                // never binds, never grounds a polarity label, never enters this language's
+                // reference corpus. Its page's prose was already read above.
+                if crate::lint_train::foreign_example(lang, &hint) {
+                    continue;
+                }
                 src_units.push((page.url.clone(), s, prose, code));
             }
         }
@@ -164,9 +171,16 @@ pub fn read_language(
         .par_iter()
         .map(|(_, _, _, code)| crate::lint_toolchain::check(lang, code, data_root))
         .collect();
-    for ((_, _, prose, _), verdict) in probes.into_iter().zip(verdicts) {
+    let mut flagged: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    for ((_, _, prose, code), verdict) in probes.into_iter().zip(verdicts) {
         match verdict {
-            crate::lint_toolchain::Verdict::Flagged => builder.accumulate(prose, true),
+            crate::lint_toolchain::Verdict::Flagged => {
+                builder.accumulate(prose, true);
+                // The reality-tested label itself (ledger #19): compile may keep this
+                // example's literal tokens because the toolchain, not register drift,
+                // called it a violation.
+                flagged.insert(crate::lint_ai::token_seed(code));
+            }
             crate::lint_toolchain::Verdict::Clean => builder.accumulate(prose, false),
             crate::lint_toolchain::Verdict::Unknown => {}
         }
@@ -206,7 +220,7 @@ pub fn read_language(
             }
         }
     }
-    Memory { bindings, reference, polarity: polarity.is_ready().then_some(polarity), pages_read, extensions }
+    Memory { bindings, reference, polarity: polarity.is_ready().then_some(polarity), pages_read, extensions, flagged }
 }
 
 // ── Per-source crawl cache (one network read per machine per source) ──────────
@@ -249,7 +263,11 @@ fn unix_now() -> u64 {
 struct CrawledPage {
     url: String,
     prose: String,
-    units: Vec<(String, String, String)>,
+    /// `(slug, governing prose, code, language hint)` — the hint is the block's OWN declared
+    /// language (ledger #18; "" = undeclared ⇒ the page's language). The arity change from the
+    /// hintless shape is deliberate cache poison: an old cache fails to parse and recrawls, so
+    /// no hintless page can masquerade as attributed.
+    units: Vec<(String, String, String, String)>,
     /// The server's `Last-Modified` at fetch time — the per-page anchor the verification
     /// sweep revalidates with (`If-Modified-Since` → 304 proves the page current for free).
     #[serde(default)]
@@ -266,7 +284,7 @@ struct CrawledPage {
 fn extract_crawled_page(seed_url: &str, url: &str, prose: String, html: &str, modified: Option<u64>) -> CrawledPage {
     let page_slug = rule_slug_under(seed_url, url);
     let blocks = pre_blocks(html);
-    let units: Vec<(String, String, String)> = block_contexts(html, &blocks)
+    let units: Vec<(String, String, String, String)> = block_contexts(html, &blocks)
         .into_iter()
         .zip(blocks.iter())
         .map(|((prose, code), (open, _, _))| {
@@ -274,14 +292,16 @@ fn extract_crawled_page(seed_url: &str, url: &str, prose: String, html: &str, mo
                 .clone()
                 .or_else(|| anchor_slug_before(html, *open))
                 .unwrap_or_else(|| slug(&prose));
-            (s, prose, code)
+            let hint = crate::doc_crawler::block_lang_hint(html, *open);
+            (s, prose, code, hint)
         })
         .collect();
     let mut h = crate::lint_ai::token_seed(&prose);
-    for (a, b, c) in &units {
+    for (a, b, c, d) in &units {
         h ^= crate::lint_ai::token_seed(a)
             ^ crate::lint_ai::token_seed(b).rotate_left(1)
-            ^ crate::lint_ai::token_seed(c).rotate_left(2);
+            ^ crate::lint_ai::token_seed(c).rotate_left(2)
+            ^ crate::lint_ai::token_seed(d).rotate_left(3);
     }
     CrawledPage { url: url.to_string(), prose, units, modified, fp: h }
 }
@@ -294,7 +314,7 @@ fn extract_crawled_page(seed_url: &str, url: &str, prose: String, html: &str, mo
 /// `HELPERS_LINT_REFRESH` bypasses and rewrites the cache.
 #[cfg(feature = "crawl")]
 fn crawled_source(src: &DocsSource, max_pages: usize, cache_version: Option<&str>) -> Vec<CrawledPage> {
-    use crate::doc_crawler::{crawl, extract, fetch};
+    use crate::doc_crawler::{crawl, fetch};
     // OFFLINE means no network, never no learning: the disk cache below still replays. A
     // cold cache offline yields nothing — the caller reports the language as not-yet-learned
     // and the next online run fills it.
@@ -312,8 +332,8 @@ fn crawled_source(src: &DocsSource, max_pages: usize, cache_version: Option<&str
                 pages.push(extract_crawled_page(&src.url, &p.url, p.prose, &p.html, p.modified));
             }
         } else if let Some((ct, body)) = fetch(&src.url) {
-            for (prose, code) in extract(&ct, &body) {
-                let unit = (slug(&prose), prose.clone(), code);
+            for (prose, code, hint) in crate::doc_crawler::extract_hinted(&ct, &body) {
+                let unit = (slug(&prose), prose.clone(), code, hint);
                 pages.push(CrawledPage { url: src.url.clone(), prose, units: vec![unit], modified: None, fp: 0 });
             }
         }
@@ -878,7 +898,7 @@ mod tests {
                 crate::lint_read::Binding::form("rust", url, slug, prose, code, &polarity)
             })
             .collect();
-        Memory { bindings, reference: Vec::new(), polarity: Some(polarity), pages_read: units.len(), extensions: Default::default() }
+        Memory { bindings, reference: Vec::new(), polarity: Some(polarity), pages_read: units.len(), extensions: Default::default(), flagged: Default::default() }
     }
 
     #[test]
@@ -1019,7 +1039,7 @@ mod transfer_probe {
             for page in &cached.pages {
                 crate::lint_read::tally_dotted_tokens(&page.prose, tally);
                 crate::lint_read::tally_name_aliases(lang, &page.prose, tally);
-                for (_, _, code) in &page.units {
+                for (_, _, code, _) in &page.units {
                     crate::lint_read::tally_dotted_tokens(code, tally);
                 }
             }
