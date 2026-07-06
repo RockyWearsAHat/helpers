@@ -482,6 +482,9 @@ pub fn run_config(args: &Value) -> ToolResult {
             // dictionary before any documentation trains — purely local, once per machine.
             let english = crate::lint_english::ensure_built();
             let data = crate::tools::lint::data_root_pub();
+            // The language manifest always shows the full picture (backfilled, never
+            // overwriting the user's entries) — LINTER.md, "The language manifest".
+            crate::lint_train::manifest_sync(&data);
             // MODULAR SCOPE (LINTER.md, "Online to set up"): a project pays only for the
             // modules it needs. Default = the current project's own languages (plus an
             // explicit `lang=`); the machine-wide batch of every registered language runs
@@ -566,6 +569,10 @@ pub fn run_config(args: &Value) -> ToolResult {
             if let Some(e) = english {
                 body.push_str(&format!("\n{e}\n"));
             }
+            body.push_str(&format!(
+                "\nLanguage manifest: {} — edit it to customize where any language's instructions come from.\n",
+                crate::lint_train::manifest_path().display()
+            ));
             if !report.pulled.is_empty() {
                 body.push_str(&format!(
                     "\nDownloaded from the model registry: {}.\n",

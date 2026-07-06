@@ -313,6 +313,20 @@ anything. Every control follows from that:
   The remaining trust decision — "is this URL really the official documentation?" — is
   exactly the human-sized question the PR review exists to answer.
 
+**The language manifest — one file says where every language's instructions come from.**
+`~/.config/helpers/languages.json` maps each language to the documentation URLs it is trained
+from: `{ "languages": { "rust": ["https://doc.rust-lang.org/reference/", …], … } }`. It is the
+USER'S file: setup backfills it from the committed registry (a language present in
+`lint-index/sources.json` but absent from the manifest is copied in, so the file always shows
+the full picture), the user edits it to customize — an edited entry OVERRIDES the registry, an
+entry emptied to `[]` disables the language's docs (the run then asks, exactly as for an
+unknown language), and `add_source` writes into it. Resolution order is manifest → registry →
+ask; when a manifest entry matches the registry byte-for-byte the registry's own source
+identities are kept so page caches survive. Every stamp that guards freshness (the sources
+fingerprint, the module's `Last-Modified` sweep) reads the SAME resolution, so editing the
+manifest retrains exactly the languages whose sources actually changed — up-to-dateness is
+checked against what the file says, never against a hidden store.
+
 **Online to set up, offline to run — and exactly two setup verbs.** Every report and reply
 states the contract in those words. `lint_config action=add_source lang=<x> url=<official
 docs>` registers a documentation source — a data write into the machine's added-sources store

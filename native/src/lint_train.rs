@@ -964,10 +964,7 @@ fn crawl_learn(data_root: &Path, lang: &str, version: &str) -> Option<crate::lin
     // A cold cache with no network reads nothing and the caller reports the language as not
     // yet learned. Sources are the registered registry plus whatever a user or agent handed
     // over via `add_source` — there is no web search: an unknown language is ASKED for.
-    let mut sources = crawl_sources_from_config(data_root, lang);
-    if sources.is_empty() {
-        sources.extend(crate::lint_docs::learned_source(lang));
-    }
+    let sources = resolved_sources(data_root, lang);
     if sources.is_empty() {
         return None;
     }
@@ -987,19 +984,117 @@ fn crawl_learn(data_root: &Path, lang: &str, version: &str) -> Option<crate::lin
 /// [`crate::lint_docs::sources_changed_since`] walks the same registered source set.
 #[cfg(feature = "crawl")]
 pub(crate) fn registered_docs_sources(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
-    crawl_sources_from_config(data_root, lang)
+    resolved_sources(data_root, lang)
 }
 
-#[cfg(feature = "crawl")]
-/// The documentation URLs registered for `lang` (registry + added sources) — what the setup
-/// report probes when a NEEDED language failed to learn, to tell "site not answering" apart
-/// from "link answers but has nothing readable" (LINTER.md, "Online to set up").
+/// The documentation URLs resolved for `lang` — what the setup report probes when a NEEDED
+/// language failed to learn, to tell "site not answering" apart from "link answers but has
+/// nothing readable" (LINTER.md, "Online to set up").
 pub(crate) fn source_urls(data_root: &Path, lang: &str) -> Vec<String> {
-    let mut sources = crawl_sources_from_config(data_root, lang);
-    if sources.is_empty() {
-        sources.extend(crate::lint_docs::learned_source(lang));
+    resolved_sources(data_root, lang).into_iter().map(|s| s.url).collect()
+}
+
+// ── The language manifest (LINTER.md, "The language manifest") ────────────────
+//
+// One user-owned file — `~/.config/helpers/languages.json` — says where every language's
+// instructions come from. Setup backfills it from the committed registry; the user's edits
+// override; `[]` disables (the run then asks). Every source resolution reads it FIRST.
+
+/// Where the manifest lives (under `$HOME`, so hermetic tests redirect it with everything else).
+pub fn manifest_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    std::path::Path::new(&home).join(".config/helpers/languages.json")
+}
+
+/// The manifest's `languages` map as written (language → doc URLs; `[]` = disabled).
+fn manifest_map() -> std::collections::BTreeMap<String, Vec<String>> {
+    std::fs::read_to_string(manifest_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|json| serde_json::from_value(json["languages"].clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Write the manifest back, pretty-printed for hand editing, with its contract in `_note`.
+fn manifest_write(map: &std::collections::BTreeMap<String, Vec<String>>) {
+    let path = manifest_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
     }
-    sources.into_iter().map(|s| s.url).collect()
+    let doc = serde_json::json!({
+        "_note": "Where each language's lint instructions come from (LINTER.md, 'The language manifest'). Yours to edit: change a language's URLs to retrain it from those docs at the next setup; set [] to disable its docs (the linter will ask); a language you delete is re-added from the committed registry. `lint_config action=add_source` writes here.",
+        "languages": map,
+    });
+    if let Ok(json) = serde_json::to_string_pretty(&doc) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+/// Record `urls` as `lang`'s documentation in the manifest — the `add_source` write path.
+pub(crate) fn manifest_set(lang: &str, urls: Vec<String>) {
+    let mut map = manifest_map();
+    map.insert(lang.to_lowercase(), urls);
+    manifest_write(&map);
+}
+
+/// Backfill the manifest with every registry/added-store language it does not name yet, so
+/// the file always shows the full picture. Existing entries (the user's word) are never
+/// touched.
+pub(crate) fn manifest_sync(data_root: &Path) {
+    let mut map = manifest_map();
+    let mut changed = false;
+    for lang in registered_languages(data_root) {
+        if !map.contains_key(&lang) {
+            let mut urls: Vec<String> =
+                crawl_sources_from_config(data_root, &lang).into_iter().map(|s| s.url).collect();
+            if urls.is_empty() {
+                urls.extend(crate::lint_docs::learned_source(&lang).map(|s| s.url));
+            }
+            map.insert(lang, urls);
+            changed = true;
+        }
+    }
+    if changed || !manifest_path().exists() {
+        manifest_write(&map);
+    }
+}
+
+/// A stable per-URL source identity for manifest-provided docs — host plus a short hash of
+/// the full URL, so the crawl page cache stays keyed consistently across runs and two sources
+/// on one host stay distinct.
+fn manifest_tool(url: &str) -> String {
+    let host = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or("docs")
+        .trim_start_matches("www.");
+    format!("{host}-{:08x}", crate::lint_ai::token_seed(url) as u32)
+}
+
+/// The single source-resolution seam (LINTER.md, "The language manifest"): every consumer —
+/// training, fingerprints, freshness probes, "needs a docs URL" asks — reads THIS, so the
+/// manifest, the registry, and the staleness stamps can never disagree about where a
+/// language's docs live. A manifest entry equal to the registry's URL set returns the
+/// registry's own source identities so existing page caches keep serving.
+pub(crate) fn resolved_sources(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
+    let registry = crawl_sources_from_config(data_root, lang);
+    if let Some(urls) = manifest_map().get(&lang.to_lowercase()) {
+        let reg_urls: std::collections::BTreeSet<&str> =
+            registry.iter().map(|s| s.url.as_str()).collect();
+        let man_urls: std::collections::BTreeSet<&str> = urls.iter().map(|u| u.as_str()).collect();
+        if man_urls == reg_urls {
+            return registry;
+        }
+        return urls
+            .iter()
+            .map(|u| crate::lint_docs::DocsSource { url: u.clone(), crawl: true, tool: manifest_tool(u) })
+            .collect();
+    }
+    if !registry.is_empty() {
+        return registry;
+    }
+    crate::lint_docs::learned_source(lang).into_iter().collect()
 }
 
 fn crawl_sources_from_config(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
@@ -1270,13 +1365,8 @@ fn verify_index(body: &str, signature: &str, data_root: &Path) -> Option<serde_j
 /// Fingerprint of `lang`'s resolved documentation source set: the sorted seed URLs (registry
 /// file plus the `add_source` store), hashed. The learned-catalog cache key's third leg.
 fn sources_fingerprint(data_root: &Path, lang: &str) -> String {
-    let mut urls: Vec<String> = Vec::new();
-    #[cfg(feature = "crawl")]
-    {
-        urls.extend(crawl_sources_from_config(data_root, lang).into_iter().map(|s| s.url));
-    }
-    let _ = data_root;
-    urls.extend(crate::lint_docs::learned_source(lang).map(|s| s.url));
+    let mut urls: Vec<String> =
+        resolved_sources(data_root, lang).into_iter().map(|s| s.url).collect();
     urls.sort();
     urls.dedup();
     format!("{:016x}", crate::lint_ai::token_seed(&urls.join("\u{1f}")))
@@ -1329,6 +1419,12 @@ pub fn registered_languages(data_root: &Path) -> Vec<String> {
             }
         }
     }
+    // The manifest's own languages (the user may have added one by hand; `[]` = disabled).
+    for (lang, urls) in manifest_map() {
+        if !urls.is_empty() {
+            push(&lang);
+        }
+    }
     // Added sources remembered per machine (~/.cache): kind "crawl" entries only — a legacy
     // negative marker (kind "none") is not a language to train.
     if let Ok(raw) = std::fs::read_to_string(crate::lint_docs::learned_sources_path_pub()) {
@@ -1350,14 +1446,7 @@ pub fn registered_languages(data_root: &Path) -> Vec<String> {
 /// handed over via `add_source`. The training report uses it to ask precisely: a language
 /// without a source needs a URL, not another train run.
 pub fn has_docs_source(data_root: &Path, lang: &str) -> bool {
-    #[cfg(feature = "crawl")]
-    {
-        if !crawl_sources_from_config(data_root, lang).is_empty() {
-            return true;
-        }
-    }
-    let _ = data_root;
-    crate::lint_docs::learned_source(lang).is_some()
+    !resolved_sources(data_root, lang).is_empty()
 }
 
 fn cache_path(lang: &str) -> PathBuf {
