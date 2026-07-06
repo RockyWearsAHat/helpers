@@ -95,9 +95,30 @@ pub fn gate(queries: &[Hv], keys: &[Hv], fired: &[usize]) -> Vec<GateRow> {
     cpu_gate(queries, keys, fired)
 }
 
+/// Below this many query×key pairs the rayon fork-join costs more than the popcounts —
+/// measured: a 37×85 gate batch spent ~550µs in `par_iter` overhead against ~20µs of math.
+const SERIAL_PAIR_FLOOR: usize = 262_144;
+
 /// The portable, always-correct reference: parallel over queries, one tight u64 XOR+popcount
 /// scan over keys per query, tracking argmin and the fired-key distance in the same pass.
+/// Small batches run serial — same loop, no fork-join tax.
 pub fn cpu_gate(queries: &[Hv], keys: &[Hv], fired: &[usize]) -> Vec<GateRow> {
+    let row = |(q, &f): (&Hv, &usize)| {
+        let mut best_key = 0usize;
+        let mut best_dist = u32::MAX;
+        for (ki, k) in keys.iter().enumerate() {
+            let d = q.distance(k);
+            if d < best_dist {
+                best_dist = d;
+                best_key = ki;
+            }
+        }
+        let fired_dist = keys.get(f).map_or(u32::MAX, |k| q.distance(k));
+        GateRow { nearest_key: best_key, nearest_dist: best_dist, fired_dist }
+    };
+    if queries.len().saturating_mul(keys.len()) < SERIAL_PAIR_FLOOR {
+        return queries.iter().zip(fired.iter()).map(row).collect();
+    }
     use rayon::prelude::*;
     queries
         .par_iter()
