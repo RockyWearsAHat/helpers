@@ -534,7 +534,7 @@ pub fn run(args: &Value) -> ToolResult {
         }
     }
     let feedback_footer = render_feedback(&root, &auto_suppressed);
-    let (mut body, fresh_updates, _quarantined) = fire_shape_render(
+    let (mut body, fresh_updates, _quarantined, law_watch_block) = fire_shape_render(
         &root,
         &data,
         max,
@@ -583,6 +583,30 @@ pub fn run(args: &Value) -> ToolResult {
                 walk_w: crate::lint_replay::walk_witness(&files),
                 aux_w: aux_now,
                 bodies: HashMap::from([(memo_key.clone(), body.clone())]),
+                rel_lang: by_language
+                    .iter()
+                    .flat_map(|(l, ms)| ms.iter().map(move |m| (m.rel.clone(), l.clone())))
+                    .collect(),
+                info: models
+                    .iter()
+                    .map(|(lang, m)| {
+                        let per: HashMap<String, (String, String, String)> = m
+                            .rules
+                            .rule_ids()
+                            .filter_map(|id| {
+                                m.rules.info_of(id).map(|(sev, desc, src)| {
+                                    (id.to_string(), (sev.to_string(), desc.to_string(), src.to_string()))
+                                })
+                            })
+                            .collect();
+                        (lang.clone(), per)
+                    })
+                    .collect(),
+                trusted: by_language
+                    .keys()
+                    .map(|lang| (lang.clone(), lint_train::project_rule_ids(&data, &root, lang)))
+                    .collect(),
+                law_watch_block,
             },
         );
     }
@@ -795,6 +819,16 @@ struct DaemonState {
     aux_w: crate::lint_replay::Witness,
     /// Rendered bodies per memo key — the zero-change incremental answer.
     bodies: HashMap<String, String>,
+    /// rel → language for every SELECTED file (default filter) — analyzed counts and the
+    /// quarantine denominators come from this, no re-selection.
+    rel_lang: HashMap<String, String>,
+    /// lang → rule → (severity, advice, source): O(1) finding rendering (the full run's
+    /// `info_of` linear scans charged ~0.5ms per call across a few hundred findings).
+    info: HashMap<String, HashMap<String, (String, String, String)>>,
+    /// lang → the project's own rule ids (trusted law — never gated).
+    trusted: HashMap<String, HashSet<String>>,
+    /// The rendered "Your law, as understood" block, cached with the models it reflects.
+    law_watch_block: String,
 }
 
 /// Per-root daemon state (long-lived process only; a one-shot `call` populates and exits).
@@ -855,7 +889,7 @@ fn fire_shape_render(
     sources: &[String],
     run_footer: &str,
     feedback_footer: &str,
-) -> (String, Vec<(String, CachedVerdict)>, std::collections::BTreeSet<String>) {
+) -> (String, Vec<(String, CachedVerdict)>, std::collections::BTreeSet<String>, String) {
     use rayon::prelude::*;
     let mut reports: Vec<FileReport> = Vec::new();
     // What each project law compiled to — rendered so the author SEES the comprehension and can
@@ -1175,18 +1209,20 @@ fn fire_shape_render(
     let unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     reports.sort_by(|a, b| a.path.cmp(&b.path));
     let mut body = render(root, &reports, &analyzed, &unanalyzed, &sources, max);
+    let mut law_watch_block = String::new();
     if !law_watch.is_empty() {
-        body.push_str("\nYour law, as understood:\n");
+        law_watch_block.push_str("\nYour law, as understood:\n");
         for (id, watching) in &law_watch {
-            body.push_str(&format!("  {id} → watching for {watching}\n"));
+            law_watch_block.push_str(&format!("  {id} → watching for {watching}\n"));
         }
     }
+    body.push_str(&law_watch_block);
 
     body.push_str(run_footer);
     body.push_str(&render_quarantine(&quarantined));
     body.push_str(feedback_footer);
 
-    (body, fresh_updates, quarantined)
+    (body, fresh_updates, quarantined, law_watch_block)
 }
 
 /// Arm the kqueue tier and commit `body` under the soundness protocol (LINTER.md, "The
@@ -1269,13 +1305,12 @@ fn kq_arm_and_commit(
 /// repopulates the cache — takes over. Every fallback is the slower sound path.
 fn incremental_run(
     root: &Path,
-    data: &Path,
+    _data: &Path,
     max: usize,
     filter: &Option<BTreeSet<String>>,
     memo_key: &str,
 ) -> Option<String> {
-    use rayon::prelude::*;
-    let t0 = std::time::Instant::now();
+        let t0 = std::time::Instant::now();
     let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
     let fired = crate::lint_kq::fired_paths(root)?;
     let mut mark_last = std::time::Instant::now();
@@ -1309,6 +1344,7 @@ fn incremental_run(
         }
     }
     let mut changed_any = false;
+    let mut changed_idx: Vec<usize> = Vec::new();
     for dir in &rescan {
         if !dir_set.contains(dir) {
             return None; // a fired path under an unknown dir — structure changed
@@ -1358,6 +1394,7 @@ fn incremental_run(
             st.walk_w.fold ^= crate::lint_replay::file_term(&f.rel, f.state);
             st.walk_w.newest = st.walk_w.newest.max(mtime);
             changed_any = true;
+            changed_idx.push(i);
         }
     }
     mark("rescan");
@@ -1374,63 +1411,52 @@ fn incremental_run(
         }
         return Some(body);
     }
-    // Selection + wave read for changed files — the shared helpers, over memory.
-    let by_language = select_by_language(&st.files, &st.law_abs, &st.config, filter);
-    mark("select");
-    let mut seeds: HashMap<String, u64> = by_language
-        .values()
-        .flatten()
-        .filter_map(|m| {
-            let v = st.verdicts.get(&m.rel)?;
-            (v.state == m.state).then(|| (m.rel.clone(), v.seed))
-        })
-        .collect();
-    let contents: std::sync::Mutex<HashMap<String, std::sync::Arc<String>>> =
-        std::sync::Mutex::new(HashMap::new());
-    let changed: Vec<&FileMeta> =
-        by_language.values().flatten().filter(|m| !seeds.contains_key(&m.rel)).collect();
-    let n_changed = changed.len();
-    {
-        let read: Vec<(String, Option<String>)> = changed
-            .par_iter()
-            .map(|m| (m.rel.clone(), std::fs::read_to_string(&m.abs).ok()))
-            .collect();
-        let mut store = contents.lock().unwrap_or_else(|e| e.into_inner());
-        for (rel, body) in read {
-            if let Some(src) = body {
-                seeds.insert(rel.clone(), crate::lint_ai::token_seed(&src));
-                store.insert(rel, std::sync::Arc::new(src));
-            } else {
-                seeds.insert(rel, 0);
-            }
+    // Single-file passes for exactly the CHANGED files; everything else renders straight
+    // from the verdict cache — the verdicts ARE the staged findings (LINTER.md, "The
+    // incremental tier").
+    let n_changed = changed_idx.len();
+    let mut dirty = false;
+    for i in changed_idx {
+        let (rel, abs, state) = {
+            let f = &st.files[i];
+            (f.rel.clone(), f.abs.clone(), f.state)
+        };
+        let Some(lang) = st.rel_lang.get(&rel).cloned() else { continue }; // unselected
+        if filter.as_ref().is_some_and(|set| !set.contains(&lang)) {
+            continue;
         }
+        let Ok(src) = std::fs::read_to_string(&abs) else {
+            st.verdicts.insert(
+                rel,
+                CachedVerdict { state, seed: 0, lines: 0, model_id: 0, findings: Vec::new() },
+            );
+            dirty = true;
+            continue;
+        };
+        let seed = crate::lint_ai::token_seed(&src);
+        let lines = src.lines().count() as u64;
+        let empty_info = HashMap::new();
+        let empty_trust = HashSet::new();
+        let (model_id, findings) = match st.models.get(&lang) {
+            Some(model) => (
+                model.id,
+                lint_file_findings(
+                    model,
+                    st.trusted.get(&lang).unwrap_or(&empty_trust),
+                    st.info.get(&lang).unwrap_or(&empty_info),
+                    &src,
+                ),
+            ),
+            None => (0, Vec::new()),
+        };
+        st.verdicts.insert(rel, CachedVerdict { state, seed, lines, model_id, findings });
+        dirty = true;
     }
-    mark("read");
-    let (body, updates, _quarantined) = fire_shape_render(
-        root,
-        data,
-        max,
-        &by_language,
-        &st.verdicts,
-        &st.models,
-        contents,
-        &seeds,
-        &st.config,
-        &st.ignore_set,
-        &st.sources,
-        &st.run_footer,
-        &st.feedback_footer,
-    );
-    mark("fire+render");
-    // Fold the fresh verdicts into the cache, prune to the selected set, persist off the
-    // hot path (verdicts are re-derivable; a torn write decodes as absent and re-lints).
-    let walked: HashSet<String> =
-        by_language.values().flatten().map(|m| m.rel.clone()).collect();
-    st.verdicts.retain(|rel, _| walked.contains(rel.as_str()));
-    let dirty = !updates.is_empty();
-    for (rel, v) in updates {
-        st.verdicts.insert(rel, v);
-    }
+    mark("relint");
+    let quarantined = quarantine_from_state(st, filter);
+    let body = render_from_state(root, st, max, filter, &quarantined);
+    mark("render");
+    let witness = crate::lint_replay::combine(st.walk_w, st.aux_w);
     if dirty {
         let root2 = root.to_path_buf();
         let verd = st.verdicts.clone();
@@ -1441,8 +1467,6 @@ fn incremental_run(
             crate::lint_replay::store(&root2, &key, witness, &body2);
         });
     }
-    // Re-arm what fired and commit under the same gates (the rescans above read state
-    // AFTER the drain; anything later pends on the still-armed or reopened fds).
     st.bodies.insert(memo_key.to_string(), body.clone());
     mark("persist");
     // Membership is unchanged on this path by construction — reopen only what fired.
@@ -1459,6 +1483,148 @@ fn incremental_run(
         );
     }
     Some(body)
+}
+
+
+/// Lint ONE file through the full per-file discipline — flag, restatement guard, Hv gate —
+/// mirroring the language pass exactly, for the incremental tier's changed files. Returns
+/// the post-gate findings in staging order.
+fn lint_file_findings(
+    model: &lint_train::LangModel,
+    trusted: &HashSet<String>,
+    info: &HashMap<String, (String, String, String)>,
+    src: &str,
+) -> Vec<(String, u64, bool)> {
+    let mut pending: Vec<(crate::lint_match::Finding, bool)> = Vec::new();
+    let mut gate_tokens: Vec<(usize, Vec<String>)> = Vec::new();
+    for finding in model.rules.flag(src) {
+        let doc_rule = !trusted.contains(&finding.rule);
+        if !finding.precise {
+            let toks = line_tokens(src, finding.line);
+            let desc = info.get(&finding.rule).map(|(_, d, _)| d.as_str()).unwrap_or("");
+            if restates_rule(&toks, desc) {
+                continue;
+            }
+            if doc_rule {
+                gate_tokens.push((pending.len(), toks));
+            }
+        }
+        pending.push((finding, doc_rule));
+    }
+    let items: Vec<(&str, Vec<&str>)> = gate_tokens
+        .iter()
+        .map(|(i, toks)| (pending[*i].0.rule.as_str(), toks.iter().map(String::as_str).collect()))
+        .collect();
+    let mut rejected: HashSet<usize> = HashSet::new();
+    for (kept, (i, _)) in model.concept.confirms_batch(&items).into_iter().zip(&gate_tokens) {
+        if !kept {
+            rejected.insert(*i);
+        }
+    }
+    pending
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !rejected.contains(i))
+        .map(|(_, (f, doc))| (f.rule, f.line as u64, doc))
+        .collect()
+}
+
+/// The self-validation quarantine, computed straight from the verdict cache — identical
+/// thresholds to the full run's pass (per-language denominators, degenerate two-tier,
+/// concentration), because the verdicts ARE the staged findings.
+fn quarantine_from_state(
+    st: &DaemonState,
+    filter: &Option<BTreeSet<String>>,
+) -> std::collections::BTreeSet<String> {
+    let mut fires: HashMap<(&str, &str), usize> = HashMap::new();
+    let mut file_fires: HashMap<(&str, &str), usize> = HashMap::new();
+    let mut lang_lines: HashMap<&str, usize> = HashMap::new();
+    let mut total_lines = 0usize;
+    for (rel, v) in &st.verdicts {
+        let Some(lang) = st.rel_lang.get(rel) else { continue };
+        if filter.as_ref().is_some_and(|set| !set.contains(lang)) {
+            continue;
+        }
+        *lang_lines.entry(lang.as_str()).or_default() += v.lines as usize;
+        total_lines += v.lines as usize;
+        for (rule, _, doc) in &v.findings {
+            if *doc {
+                *fires.entry((rule.as_str(), lang.as_str())).or_default() += 1;
+                *file_fires.entry((rule.as_str(), rel.as_str())).or_default() += 1;
+            }
+        }
+    }
+    let concentrated: HashSet<&str> = file_fires
+        .iter()
+        .filter(|((_, rel), &n)| {
+            n >= 20
+                && n * 10
+                    > st.verdicts.get(**&rel).map(|v| v.lines as usize).unwrap_or(usize::MAX)
+        })
+        .map(|((rule, _), _)| *rule)
+        .collect();
+    let degenerate =
+        |id: &str| st.models.values().any(|m| m.rules.degenerate_detector(id));
+    fires
+        .iter()
+        .filter(|((id, lang), &n)| {
+            let lines = lang_lines.get(*lang).copied().unwrap_or(total_lines);
+            let (floor, per_mille) = if degenerate(id) { (50, 1000) } else { (20, 100) };
+            (n >= floor && n * per_mille > lines) || concentrated.contains(*id)
+        })
+        .map(|((id, _), _)| id.to_string())
+        .collect()
+}
+
+/// Render the report straight from the verdict cache + the state's cached blocks — the
+/// same sections in the same order as the full run's body, so the two tiers are
+/// indistinguishable to the reader.
+fn render_from_state(
+    root: &Path,
+    st: &DaemonState,
+    max: usize,
+    filter: &Option<BTreeSet<String>>,
+    quarantined: &std::collections::BTreeSet<String>,
+) -> String {
+    let mut reports: Vec<FileReport> = Vec::new();
+    for (rel, v) in &st.verdicts {
+        let Some(lang) = st.rel_lang.get(rel) else { continue };
+        if filter.as_ref().is_some_and(|set| !set.contains(lang)) {
+            continue;
+        }
+        let empty = HashMap::new();
+        let info = st.info.get(lang).unwrap_or(&empty);
+        let hits: Vec<Hit> = v
+            .findings
+            .iter()
+            .filter(|(rule, _, _)| !quarantined.contains(rule) && !st.ignore_set.contains(rule.as_str()))
+            .map(|(rule, line, _)| {
+                let (sev, adv, src) = info.get(rule).cloned().unwrap_or_else(|| {
+                    ("medium".to_string(), format!("violates `{rule}`"), String::new())
+                });
+                let sev = st.config.severity_overrides.get(rule).cloned().unwrap_or(if sev.is_empty() { "medium".into() } else { sev });
+                let adv = if adv.is_empty() { format!("violates `{rule}`") } else { adv };
+                let src = src.strip_prefix(&format!("{}/", root.display())).unwrap_or(&src).to_string();
+                Hit { line: *line as usize, rule: rule.clone(), severity: sev, advice: adv, source: src }
+            })
+            .collect();
+        if !hits.is_empty() {
+            reports.push(FileReport { path: rel.clone(), hits });
+        }
+    }
+    let mut analyzed: BTreeMap<String, usize> = BTreeMap::new();
+    for lang in st.rel_lang.values() {
+        if filter.as_ref().is_some_and(|set| !set.contains(lang)) {
+            continue;
+        }
+        *analyzed.entry(lang.clone()).or_default() += 1;
+    }
+    let mut body = render(root, &reports, &analyzed, &BTreeMap::new(), &st.sources, max);
+    body.push_str(&st.law_watch_block);
+    body.push_str(&st.run_footer);
+    body.push_str(&render_quarantine(quarantined));
+    body.push_str(&st.feedback_footer);
+    body
 }
 
 /// The kqueue tier's complete watch set: every walked file and directory, plus every
@@ -1542,6 +1708,25 @@ pub(crate) fn project_languages(root: &Path) -> Vec<String> {
 /// Prefers the resolved workspace root (the dev checkout); otherwise walks up from the executable.
 /// Always returns a path — missing files fall back to the embedded copies in [`crate::lint_train`].
 fn data_root() -> PathBuf {
+    // Memoized per HELPERS_WORKSPACE_ROOTS value: the discovery below stats several
+    // directories, and the daemon paid it on every call before even reaching the
+    // microsecond tier.
+    type Cache = std::sync::Mutex<HashMap<String, PathBuf>>;
+    static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
+    let key = std::env::var("HELPERS_WORKSPACE_ROOTS").unwrap_or_default();
+    if let Some(hit) = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return hit.clone();
+    }
+    let out = data_root_uncached();
+    CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, out.clone());
+    out
+}
+
+fn data_root_uncached() -> PathBuf {
     let ws = workspace_root();
     if ws.join("extraDocs").exists() || ws.join("lint-index").exists() {
         return ws;
