@@ -652,6 +652,43 @@ mod net {
         resp.into_string().ok().map(|body| (ct, body, modified))
     }
 
+    /// Fetch a URL's raw BYTES — the registry module path (`HLM1` containers are binary; the
+    /// textual [`fetch`] would mangle them). Same breaker, same pooled agent, same transport
+    /// latching as [`fetch_meta`]; capped at `max` bytes so a mis-pointed URL cannot balloon
+    /// memory (the signed index pins real module sizes far below any sane cap).
+    pub fn fetch_bytes(url: &str, max: u64) -> Option<Vec<u8>> {
+        if origin_is_dead(url) {
+            return None;
+        }
+        static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+        let agent = AGENT.get_or_init(|| {
+            ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(5))
+                .timeout(Duration::from_secs(30))
+                .user_agent("helpers-doc-crawler/1.0 (+registry)")
+                .build()
+        });
+        let resp = match agent.get(url).call() {
+            Ok(resp) => {
+                origin_answered(url);
+                resp
+            }
+            Err(ureq::Error::Status(..)) => {
+                origin_answered(url);
+                return None;
+            }
+            Err(ureq::Error::Transport(_)) => {
+                super::NET_DOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+                origin_failed(url);
+                return None;
+            }
+        };
+        let mut body = Vec::new();
+        use std::io::Read as _;
+        resp.into_reader().take(max).read_to_end(&mut body).ok()?;
+        Some(body)
+    }
+
     /// Conditional fetch: `If-Modified-Since` when `since` is known. `NotModified` proves the
     /// page current for free; `Gone` means the page left the site; `Changed` carries the fresh
     /// body. This is how 100% of an inventory is VERIFIED against the live site without
@@ -867,7 +904,7 @@ mod net {
 }
 
 #[cfg(feature = "crawl")]
-pub use net::{crawl, fetch, fetch_conditional, origin_reachable, Revalidation};
+pub use net::{crawl, fetch, fetch_bytes, fetch_conditional, origin_reachable, Revalidation};
 
 /// Crawler disabled at compile time: reachability cannot be judged, so never claim a site dead.
 #[cfg(not(feature = "crawl"))]

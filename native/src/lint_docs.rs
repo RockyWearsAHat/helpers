@@ -548,30 +548,63 @@ fn source_lock(tool: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
 // ── Polarity transfer (grounded knowledge is shared across languages) ─────────
 
 /// Where the best grounded classifier lives for cross-language transfer
-/// (`<model cache>/polarity.global.json`). `pub(crate)` so the model cache stamp
+/// (`<model cache>/polarity.global.bin`, an `HLM1` container). `pub(crate)` so the model cache stamp
 /// ([`crate::lint_train`]) can fingerprint the classifier's file state — the classifier shapes
 /// construct selection, so a better-read classifier must retrain compiled detectors.
 pub(crate) fn global_polarity_path() -> std::path::PathBuf {
-    crate::lint_train::model_dir_pub().join("polarity.global.json")
+    crate::lint_train::model_dir_pub().join("polarity.global.bin")
+}
+
+/// Read a polarity classifier from an `HLM1` container at `path`, falling through to that
+/// path's legacy `.json` twin (pre-container machines) — read-only: migration happens on the
+/// next [`save_global_polarity`], which always writes the container.
+fn load_polarity_store(path: &std::path::Path) -> Option<crate::lint_read::Polarity> {
+    use crate::lint_codec::Bin as _;
+    if let Some(p) = std::fs::read(path)
+        .ok()
+        .and_then(|b| crate::lint_codec::Dec::open(&b, crate::lint_codec::kind::POLARITY))
+        .and_then(|(_, mut d)| crate::lint_read::Polarity::dec(&mut d))
+    {
+        return Some(p);
+    }
+    serde_json::from_str(&std::fs::read_to_string(path.with_extension("json")).ok()?).ok()
+}
+
+/// One-time migration of a legacy JSON polarity store into its container — the setup
+/// sweep's hook ([`crate::lint_train::sweep_legacy_cache`]); the load path stays read-only.
+pub(crate) fn migrate_global_polarity() -> bool {
+    use crate::lint_codec::Bin as _;
+    let path = global_polarity_path();
+    let legacy = path.with_extension("json");
+    if !legacy.exists() {
+        return false;
+    }
+    if let Some(p) = load_polarity_store(&path) {
+        let mut e = crate::lint_codec::Enc::new();
+        p.enc(&mut e);
+        if std::fs::write(&path, e.finish(crate::lint_codec::kind::POLARITY, &p.votes().to_string())).is_ok() {
+            let _ = std::fs::remove_file(&legacy);
+        }
+    }
+    !legacy.exists()
 }
 
 /// Keep `p` in the shared store when it is better grounded (more reality-tested votes) than what
 /// is already there — the store only ever improves.
 fn save_global_polarity(p: &crate::lint_read::Polarity) {
     let path = global_polarity_path();
-    let existing_votes = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<crate::lint_read::Polarity>(&s).ok())
-        .map_or(0, |e| e.votes());
+    let existing_votes = load_polarity_store(&path).map_or(0, |e| e.votes());
     if p.votes() <= existing_votes {
         return;
     }
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(json) = serde_json::to_string(p) {
-        let _ = std::fs::write(&path, json);
-    }
+    use crate::lint_codec::Bin as _;
+    let mut e = crate::lint_codec::Enc::new();
+    p.enc(&mut e);
+    let _ = std::fs::write(&path, e.finish(crate::lint_codec::kind::POLARITY, &p.votes().to_string()));
+    let _ = std::fs::remove_file(path.with_extension("json"));
 }
 
 /// The classifier LOCAL documents (project rule files, root `lintPref`, the principles corpus)
@@ -602,16 +635,16 @@ fn transferred_polarity(data_root: &Path) -> Option<crate::lint_read::Polarity> 
             })
             .unwrap_or(0)
     };
-    let fp = stat(&global_polarity_path()) ^ stat(&data_root.join("lint-index/polarity-bootstrap.json")).rotate_left(1);
+    let fp = stat(&global_polarity_path())
+        ^ stat(&global_polarity_path().with_extension("json")).rotate_left(2)
+        ^ stat(&data_root.join("lint-index/polarity-bootstrap.json")).rotate_left(1);
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((have, p)) = cache.as_ref() {
         if *have == fp {
             return p.clone();
         }
     }
-    let stored: Option<crate::lint_read::Polarity> = std::fs::read_to_string(global_polarity_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok());
+    let stored: Option<crate::lint_read::Polarity> = load_polarity_store(&global_polarity_path());
     let bootstrap: Option<crate::lint_read::Polarity> =
         crate::lint_train::lint_index_file(data_root, "polarity-bootstrap.json")
             .and_then(|s| serde_json::from_str(&s).ok());
@@ -1215,7 +1248,7 @@ mod transfer_probe {
     }
 
     /// DEV TOOL — regenerates `lint-index/polarity-bootstrap.json` from what this machine has
-    /// already read: EVERY cached `*.learned.json` carrying a v2 memory contributes its bindings,
+    /// already read: EVERY cached learned catalog carrying a v2 memory contributes its bindings,
     /// each re-grounded against its own language's toolchain, plus the honestly-labeled corpus
     /// prose (rules that ship a bad example). Machine-generated end to end; run after
     /// learning-path changes: `cargo test --release generate_polarity_bootstrap -- --ignored`
@@ -1226,22 +1259,8 @@ mod transfer_probe {
         let data_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
 
         // Every cached v2 memory this machine has read: (language, bindings).
-        let mut read: Vec<(String, Vec<(String, String)>)> = Vec::new();
         let dir = crate::lint_train::model_dir_pub();
-        for entry in std::fs::read_dir(&dir).expect("model cache exists (run a lint first)").flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let Some(lang) = name.strip_suffix(".learned.json") else { continue };
-            let Ok(raw) = std::fs::read_to_string(entry.path()) else { continue };
-            let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
-            let Some(bindings) = json["memory"]["bindings"].as_array() else { continue };
-            let pairs: Vec<(String, String)> = bindings
-                .iter()
-                .map(|b| {
-                    (b["prose"].as_str().unwrap_or("").to_string(), b["code"].as_str().unwrap_or("").to_string())
-                })
-                .collect();
-            read.push((lang.to_string(), pairs));
-        }
+        let read: Vec<(String, Vec<(String, String)>)> = crate::lint_train::all_learned_binding_pairs();
         assert!(!read.is_empty(), "no cached v2 memory found under {} — run a lint first", dir.display());
 
         let mut reader = Reader::new();

@@ -8,15 +8,16 @@
 //! [`crate::lint_read::Reader`]) and the DEFINED-WORD set — the vocabulary English itself
 //! accounts for, which is the English-knowledge judgment construct selection ranks with.
 //!
-//! The artifact (`english.global.json`, machine-global beside the models) is built once at
+//! The artifact (`english.global.bin`, an `HLM1` container beside the models) is built once at
 //! SETUP time ([`ensure_built`]) and only ever LOADED on the lint path ([`brain`]); machines
 //! without a parseable dictionary fall through to the committed bootstrap
 //! (`lint-index/english-bootstrap.json` — machine-generated learned data, regenerated with
 //! `cargo test --release --lib generate_english_bootstrap -- --ignored`).
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::path::PathBuf;
+
+use crate::lint_codec::{Bin, SeedSet};
 
 /// The serialized common-language brain: the dictionary-fed reader (frequencies of real
 /// English) plus the set of words the dictionary DEFINES (headword token seeds). A word in
@@ -27,8 +28,8 @@ pub struct English {
     /// The reader after reading every definition's prose — real English frequencies.
     pub reader: crate::lint_read::Reader,
     /// Token seeds of every word the dictionary defines (its headwords, tokenized through the
-    /// reader's one tokenizer).
-    pub defined: HashSet<u64>,
+    /// reader's one tokenizer). Frozen sorted array when loaded; see [`SeedSet`].
+    pub defined: SeedSet,
     /// mtime^len fingerprint of the dictionary body this was read from — rebuild only when the
     /// dictionary itself changed.
     #[serde(default)]
@@ -40,14 +41,58 @@ impl English {
     /// prose reads it as common English (scale-free head of the dictionary corpus — catches
     /// inflections and function words that head no entry of their own).
     pub fn knows(&self, token: &str) -> bool {
-        self.defined.contains(&crate::lint_ai::token_seed(&token.to_lowercase()))
+        self.defined.contains(crate::lint_ai::token_seed(&token.to_lowercase()))
             || self.reader.is_head_word(token)
+    }
+}
+
+/// HLM1 wire form (LINTER.md, "Save"): the reader's frequency arrays and the headword set
+/// ride the RAW stream, so loading the ~470k-entry substrate is a header parse plus bulk
+/// copies — the frozen reader answers lookups by binary search, no map is ever built.
+impl Bin for English {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        self.reader.enc(e);
+        self.defined.enc(e);
+        e.fixed_u64(self.source_fp);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<English> {
+        Some(English { reader: Bin::dec(d)?, defined: Bin::dec(d)?, source_fp: d.fixed_u64()? })
     }
 }
 
 /// Where the machine's built brain lives, beside the shared polarity store.
 fn store_path() -> PathBuf {
-    crate::lint_train::model_dir_pub().join("english.global.json")
+    crate::lint_train::model_dir_pub().join("english.global.bin")
+}
+
+/// Load the machine's built brain: the `HLM1` store first, else a legacy JSON store — which is
+/// migrated to the container on sight (save `.bin`, delete `.json`) so the next load is a bulk
+/// copy (LINTER.md, "Save").
+fn load_store() -> Option<English> {
+    if let Some(e) = std::fs::read(store_path())
+        .ok()
+        .and_then(|b| crate::lint_codec::Dec::open(&b, crate::lint_codec::kind::ENGLISH))
+        .and_then(|(_, mut d)| English::dec(&mut d))
+    {
+        return Some(e);
+    }
+    let legacy = store_path().with_extension("json");
+    let english: English = serde_json::from_str(&std::fs::read_to_string(&legacy).ok()?).ok()?;
+    save_store(&english);
+    let _ = std::fs::remove_file(&legacy);
+    Some(english)
+}
+
+/// Persist the brain as its `HLM1` container (stamp = the dictionary fingerprint, so a prefix
+/// probe can answer staleness without decoding 470k entries).
+fn save_store(english: &English) {
+    if let Some(dir) = store_path().parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let mut e = crate::lint_codec::Enc::new();
+    english.enc(&mut e);
+    let bytes = e.finish(crate::lint_codec::kind::ENGLISH, &format!("{:016x}", english.source_fp));
+    let _ = std::fs::write(store_path(), bytes);
 }
 
 /// The loaded common-language brain: the machine's built store first, else the committed
@@ -58,10 +103,7 @@ pub fn brain() -> Option<&'static English> {
     static BRAIN: std::sync::OnceLock<Option<English>> = std::sync::OnceLock::new();
     BRAIN
         .get_or_init(|| {
-            let stored = std::fs::read_to_string(store_path())
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok());
-            stored.or_else(|| {
+            load_store().or_else(|| {
                 crate::lint_train::embedded_lint_index_file("english-bootstrap.json")
                     .and_then(|s| serde_json::from_str(&s).ok())
             })
@@ -76,10 +118,7 @@ pub fn brain() -> Option<&'static English> {
 /// committed bootstrap then serves).
 pub fn ensure_built() -> Option<String> {
     let (path, fp) = dictionary_body()?;
-    let current: Option<English> = std::fs::read_to_string(store_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok());
-    if current.is_some_and(|e| e.source_fp == fp && !e.defined.is_empty()) {
+    if load_store().is_some_and(|e| e.source_fp == fp && !e.defined.is_empty()) {
         return Some("common language: current".to_string());
     }
     let english = read_dictionary(&path, fp)?;
@@ -89,12 +128,7 @@ pub fn ensure_built() -> Option<String> {
         english.reader.total_read(),
         path.file_name().and_then(|n| n.to_str()).unwrap_or("dictionary"),
     );
-    if let Some(dir) = store_path().parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(json) = serde_json::to_string(&english) {
-        let _ = std::fs::write(store_path(), json);
-    }
+    save_store(&english);
     Some(report)
 }
 
