@@ -608,6 +608,63 @@ fn a_prose_only_docs_site_still_sets_the_language_up() {
     );
 }
 
+/// A legacy JSON module cache MIGRATES on first touch (LINTER.md, "Save"): the offline run
+/// loads it, saves the `HLM1` container beside it, deletes the JSON — and the loaded engine
+/// behaves identically: the planted violation still fires from the migrated module alone.
+#[test]
+fn a_legacy_json_module_cache_migrates_to_the_container_and_still_fires() {
+    let tv = helpers_native::lint_train::train_version();
+    let fp = format!("{:016x}", helpers_native::lint_ai::token_seed(""));
+    let rules = helpers_native::lint_match::RuleSet::build(
+        "zetalang",
+        &[(
+            "no_zorkle".to_string(),
+            "high".to_string(),
+            "zorkle cleanup".to_string(),
+            "loop {{ step() }}".replace("{{", "{").replace("}}", "}"),
+            "Never use the zorkle statement anywhere; it is deprecated and will be removed.".to_string(),
+            "https://registry.example/zetalang/statements".to_string(),
+        )],
+        &helpers_native::lint_match::Grounding {
+            reference: vec!["loop { step() }".to_string(), "emit(\"done\")".to_string()],
+            ..Default::default()
+        },
+    );
+    assert!(rules.rule_count() > 0, "the fixture module must actually compile a detector");
+    let concept = helpers_native::lint_ai::ConceptModel::compile(
+        &[("no_zorkle".to_string(), "Never use the zorkle statement anywhere".to_string(), "zorkle cleanup".to_string())],
+        "zetalang",
+    );
+    let module_json = format!(
+        r#"{{"version":"","train_version":"{tv}","sources_fp":"{fp}","trained_at":1,"learned_from":"legacy-test","rules":{},"concept":{}}}"#,
+        rules.to_json(),
+        serde_json::to_string(&concept).expect("concept serializes"),
+    );
+
+    let p = TestProject::new("module-migration");
+    p.write("main.zetalang", "begin:\n    zorkle cleanup\n    emit(\"done\")\n");
+    p.write(".test-models/zetalang.module.json", &module_json);
+
+    let verdict = p.lint(true); // offline: the legacy cache is the only possible source
+    let zorkle_flagged = verdict
+        .lines()
+        .skip_while(|l| !l.contains("main.zetalang"))
+        .take_while(|l| !l.trim().is_empty())
+        .any(|l| l.to_lowercase().contains("zorkle") || l.contains("L2"));
+    assert!(
+        zorkle_flagged,
+        "the migrated module must keep flagging what the JSON module flagged:\n{verdict}"
+    );
+    assert!(
+        p.root.join(".test-models/zetalang.module.bin").exists(),
+        "migration must save the HLM1 container"
+    );
+    assert!(
+        !p.root.join(".test-models/zetalang.module.json").exists(),
+        "migration must delete the legacy JSON so the machine keeps exactly one copy"
+    );
+}
+
 /// A language whose AI MODULE is PUBLISHED in the model registry is downloaded and loaded
 /// AS-IS instead of re-trained — the acquisition order's "pull from GitHub first" step,
 /// against a localhost registry serving a fictional language nothing in the codebase can

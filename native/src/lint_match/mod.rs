@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use tree_sitter::Parser;
 
+
 mod grammar;
 mod select;
 mod tree;
@@ -611,6 +612,63 @@ impl RuleSet {
     /// Load from cached JSON.
     pub fn from_json(s: &str) -> Option<RuleSet> {
         serde_json::from_str(s).ok()
+    }
+}
+
+// ── HLM1 binary codecs (LINTER.md, "Save") ────────────────────────────────────
+//
+// Field order is wire order. The lazy firing index (`batch`) is derived, never serialized —
+// exactly the `#[serde(skip)]` contract, kept by construction here.
+
+impl crate::lint_codec::Bin for MatchKind {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        match self {
+            MatchKind::Ast(pat) => {
+                e.u(0);
+                pat.enc(e);
+            }
+            MatchKind::Tokens { tokens, raw } => {
+                e.u(1);
+                tokens.enc(e);
+                e.boolean(*raw);
+            }
+        }
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<MatchKind> {
+        match d.u()? {
+            0 => Some(MatchKind::Ast(tree::RulePattern::dec(d)?)),
+            1 => Some(MatchKind::Tokens { tokens: Vec::dec(d)?, raw: d.boolean()? }),
+            _ => None,
+        }
+    }
+}
+
+impl crate::lint_codec::Bin for CompiledRule {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.id);
+        e.str(&self.severity);
+        e.str(&self.description);
+        e.str(&self.source);
+        self.kind.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<CompiledRule> {
+        Some(CompiledRule {
+            id: d.str()?,
+            severity: d.str()?,
+            description: d.str()?,
+            source: d.str()?,
+            kind: MatchKind::dec(d)?,
+        })
+    }
+}
+
+impl crate::lint_codec::Bin for RuleSet {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.lang);
+        self.rules.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<RuleSet> {
+        Some(RuleSet { lang: d.str()?, rules: Vec::dec(d)?, batch: Default::default() })
     }
 }
 

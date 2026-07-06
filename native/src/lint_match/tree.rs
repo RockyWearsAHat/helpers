@@ -506,6 +506,35 @@ impl RulePattern {
     }
 }
 
+// ── HLM1 binary codec (LINTER.md, "Save") — the pattern tree is pure structure/text. ──
+
+impl crate::lint_codec::Bin for Pat {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.kind);
+        self.text.enc(e);
+        self.bind.enc(e);
+        self.children.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<Pat> {
+        Some(Pat {
+            kind: d.str()?,
+            text: Option::dec(d)?,
+            bind: Option::dec(d)?,
+            children: Vec::dec(d)?,
+        })
+    }
+}
+
+impl crate::lint_codec::Bin for RulePattern {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.lang);
+        self.pat.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<RulePattern> {
+        Some(RulePattern { lang: d.str()?, pat: Pat::dec(d)? })
+    }
+}
+
 /// Try the pattern at `node` and recurse into children, collecting match lines.
 fn find(node: Node, pat: &Pat, src: &[u8], hits: &mut Vec<usize>) {
     let mut binds: HashMap<u32, String> = HashMap::new();

@@ -140,6 +140,18 @@ pub fn read_units(text: &str) -> Vec<(String, Vec<String>)> {
     out
 }
 
+/// Serialize a `HashSet<u64>` as a SORTED array — deterministic JSON for committed
+/// bootstraps (clean diffs) and for value-level artifact comparison in tests. Deserialization
+/// is untouched (an array reads into a set whatever its order).
+pub(crate) fn sorted_u64_set<S: serde::Serializer>(
+    set: &std::collections::HashSet<u64>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let mut sorted: Vec<u64> = set.iter().copied().collect();
+    sorted.sort_unstable();
+    serde::Serialize::serialize(&sorted, s)
+}
+
 /// A stable u32 address for a context hypervector — the slot the predictor reads and writes. Similar
 /// contexts need not collide (this is a hash, not an LSH), which keeps the predictor conservative:
 /// it only ever claims to "know" a token in a context it has literally seen before.
@@ -150,6 +162,105 @@ fn ctx_key(ctx: &Hv) -> u32 {
         h = h.wrapping_mul(0x100000001B3);
     }
     (h ^ (h >> 32)) as u32
+}
+
+/// Token-frequency storage with exactly ONE live representation: a HOT map while a reader is
+/// learning, or a FROZEN sorted-array pair when loaded from a binary artifact — decoding is a
+/// bulk copy off the `HLM1` RAW stream and lookups binary-search (LINTER.md, "Save"). The
+/// first write thaws the arrays into the map; lint runs never write, so a loaded substrate
+/// stays frozen for its whole life and the 400k-entry English brain loads in microseconds.
+#[derive(Clone, Default)]
+struct FreqTable {
+    /// Sorted token seeds (frozen representation; empty while `hot` is live).
+    keys: Vec<u64>,
+    /// Read counts parallel to `keys`.
+    counts: Vec<u32>,
+    /// The learning representation (empty while the frozen arrays are live).
+    hot: HashMap<u64, u32>,
+}
+
+impl FreqTable {
+    /// Adopt decoded arrays as the frozen representation; sorts them if the artifact was not
+    /// already sorted (it always is — [`FreqTable::sorted_pairs`] writes it that way).
+    fn frozen(keys: Vec<u64>, counts: Vec<u32>) -> Option<FreqTable> {
+        if keys.len() != counts.len() {
+            return None;
+        }
+        if keys.windows(2).all(|w| w[0] < w[1]) {
+            return Some(FreqTable { keys, counts, hot: HashMap::new() });
+        }
+        let mut pairs: Vec<(u64, u32)> = keys.into_iter().zip(counts).collect();
+        pairs.sort_unstable_by_key(|(k, _)| *k);
+        pairs.dedup_by_key(|(k, _)| *k);
+        let (keys, counts) = pairs.into_iter().unzip();
+        Some(FreqTable { keys, counts, hot: HashMap::new() })
+    }
+
+    /// The table as sorted parallel arrays — the encode-side view, whatever the representation.
+    fn sorted_pairs(&self) -> (Vec<u64>, Vec<u32>) {
+        if self.hot.is_empty() {
+            return (self.keys.clone(), self.counts.clone());
+        }
+        let mut pairs: Vec<(u64, u32)> = self.hot.iter().map(|(k, v)| (*k, *v)).collect();
+        pairs.sort_unstable_by_key(|(k, _)| *k);
+        pairs.into_iter().unzip()
+    }
+
+    fn get(&self, seed: u64) -> u32 {
+        if !self.hot.is_empty() {
+            return self.hot.get(&seed).copied().unwrap_or(0);
+        }
+        self.keys.binary_search(&seed).map(|i| self.counts[i]).unwrap_or(0)
+    }
+
+    /// Add one read to `seed`'s count — thaws a frozen table first (learning path only).
+    fn bump(&mut self, seed: u64) {
+        if !self.keys.is_empty() {
+            self.hot = self.keys.drain(..).zip(self.counts.drain(..)).collect();
+        }
+        *self.hot.entry(seed).or_default() += 1;
+    }
+
+    /// Drop entries read fewer than `n` times, in whichever representation is live.
+    fn retain_read_at_least(&mut self, n: u32) {
+        if self.hot.is_empty() {
+            let kept: Vec<(u64, u32)> = self
+                .keys
+                .iter()
+                .zip(&self.counts)
+                .filter(|(_, c)| **c >= n)
+                .map(|(k, c)| (*k, *c))
+                .collect();
+            (self.keys, self.counts) = kept.into_iter().unzip();
+            return;
+        }
+        self.hot.retain(|_, c| *c >= n);
+    }
+
+    /// Every read count, unordered — the head-cutoff mass calculation's input.
+    fn count_values(&self) -> Vec<u32> {
+        if self.hot.is_empty() {
+            return self.counts.clone();
+        }
+        self.hot.values().copied().collect()
+    }
+}
+
+/// JSON view (committed bootstraps, legacy caches): the table is a plain `{seed: count}` map
+/// in both directions, exactly what the former `HashMap<u64, u32>` field serialized as.
+impl Serialize for FreqTable {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        if self.hot.is_empty() {
+            return s.collect_map(self.keys.iter().zip(self.counts.iter()));
+        }
+        s.collect_map(self.hot.iter())
+    }
+}
+
+impl<'de> Deserialize<'de> for FreqTable {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<FreqTable, D::Error> {
+        Ok(FreqTable { hot: HashMap::deserialize(d)?, ..FreqTable::default() })
+    }
 }
 
 /// The reader's learned comprehension of a corpus: an associative memory from local context to the
@@ -166,7 +277,7 @@ pub struct Reader {
     /// Learned token frequencies (token seed → times read). The reader's own record of which words
     /// are common — a corpus-derived stop-list, never a written one.
     #[serde(default)]
-    freq: HashMap<u64, u32>,
+    freq: FreqTable,
     /// Total tokens read — the mass the corpus head is measured against.
     #[serde(default)]
     total: u64,
@@ -178,7 +289,7 @@ pub struct Reader {
 impl Reader {
     /// A reader that has read nothing yet.
     pub fn new() -> Reader {
-        Reader { mem: HashMap::new(), freq: HashMap::new(), total: 0, head: std::sync::OnceLock::new() }
+        Reader { mem: HashMap::new(), freq: FreqTable::default(), total: 0, head: std::sync::OnceLock::new() }
     }
 
     /// Number of learned context slots — how much the reader has comprehended.
@@ -196,7 +307,7 @@ impl Reader {
     /// it is the mass that was READ, and the head/information judgments must keep standing on
     /// the real corpus size.
     pub fn retain_read_at_least(&mut self, n: u32) {
-        self.freq.retain(|_, c| *c >= n);
+        self.freq.retain_read_at_least(n);
     }
 
     /// The frequency at or above which a token is dropped from a span's salient VOTING set.
@@ -222,7 +333,7 @@ impl Reader {
     /// it behind a rarer construct costs nothing. Cached per loaded reader.
     fn head_cutoff(&self) -> u32 {
         *self.head.get_or_init(|| {
-            let mut counts: Vec<u32> = self.freq.values().copied().collect();
+            let mut counts: Vec<u32> = self.freq.count_values();
             counts.sort_unstable_by(|a, b| b.cmp(a));
             let half = self.total / 2;
             let mut seen = 0u64;
@@ -247,7 +358,7 @@ impl Reader {
     /// identity).
     pub fn read_count(&self, token: &str) -> u32 {
         let seed = crate::lint_ai::token_seed(&token.to_lowercase());
-        self.freq.get(&seed).copied().unwrap_or(0)
+        self.freq.get(seed)
     }
 
     /// Read a span sequentially and LEARN from it: at each token, when the memory's prediction for
@@ -258,7 +369,7 @@ impl Reader {
         let mut ctx = Hv::zero();
         for tok in tokens(text) {
             let seed = crate::lint_ai::token_seed(&tok);
-            *self.freq.entry(seed).or_default() += 1;
+            self.freq.bump(seed);
             self.total += 1;
             let h = token_hv(&tok);
             let key = ctx_key(&ctx);
@@ -573,7 +684,7 @@ pub struct Memory {
     /// reality-tested labels. A compiled detector may keep literal example tokens only when its
     /// example is in here or the law's own words name them (LINTER.md, ledger #19): a
     /// Clean-parsing example's identifiers are just code the docs showed, never evidence.
-    #[serde(default)]
+    #[serde(default, serialize_with = "sorted_u64_set")]
     pub flagged: std::collections::HashSet<u64>,
     /// The language's file-extension claims, learned from its own documentation (LINTER.md,
     /// "File types are learned by reading"): dot-led tokens tallied while reading, corpus-head
@@ -680,9 +791,110 @@ pub fn tally_dotted_tokens(text: &str, tally: &mut std::collections::BTreeMap<St
     }
 }
 
+// ── HLM1 binary codecs (LINTER.md, "Save") ────────────────────────────────────
+//
+// Field order IS the wire order; hypervectors and the frequency arrays ride the RAW stream
+// (bulk-copy decode), text rides the deflated DATA stream. A decoded reader's frequency table
+// stays FROZEN — sorted arrays consulted by binary search — until something learns through it.
+
+impl crate::lint_codec::Bin for Reader {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        let (keys, counts) = self.freq.sorted_pairs();
+        e.raw_u64s(&keys);
+        e.raw_u32s(&counts);
+        e.u(self.total);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<Reader> {
+        let freq = FreqTable::frozen(d.raw_u64s()?, d.raw_u32s()?)?;
+        let total = d.u()?;
+        Some(Reader { mem: HashMap::new(), freq, total, head: std::sync::OnceLock::new() })
+    }
+}
+
+impl crate::lint_codec::Bin for Polarity {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        self.reader.enc(e);
+        e.hv(&self.bad);
+        e.hv(&self.good);
+        e.u(self.bad_n as u64);
+        e.u(self.good_n as u64);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<Polarity> {
+        Some(Polarity {
+            reader: Reader::dec(d)?,
+            bad: d.hv()?,
+            good: d.hv()?,
+            bad_n: d.u()? as usize,
+            good_n: d.u()? as usize,
+            margin: std::sync::OnceLock::new(),
+        })
+    }
+}
+
+impl crate::lint_codec::Bin for Binding {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.url);
+        e.str(&self.slug);
+        e.str(&self.prose);
+        e.str(&self.code);
+        e.hv(&self.bind);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<Binding> {
+        Some(Binding { url: d.str()?, slug: d.str()?, prose: d.str()?, code: d.str()?, bind: d.hv()? })
+    }
+}
+
+impl crate::lint_codec::Bin for Memory {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        self.bindings.enc(e);
+        self.reference.enc(e);
+        self.polarity.enc(e);
+        e.u(self.pages_read as u64);
+        self.flagged.enc(e);
+        self.extensions.enc(e);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<Memory> {
+        Some(Memory {
+            bindings: Vec::dec(d)?,
+            reference: Vec::dec(d)?,
+            polarity: Option::dec(d)?,
+            pages_read: d.u()? as usize,
+            flagged: crate::lint_codec::Bin::dec(d)?,
+            extensions: crate::lint_codec::Bin::dec(d)?,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A decoded reader is FROZEN — sorted arrays, binary-search lookups — and must answer
+    /// exactly like the map it was encoded from: same counts, same head judgment, same
+    /// info bits. The first write thaws it and learning continues without losing a count.
+    #[test]
+    fn frozen_reader_answers_like_the_map_and_thaws_on_write() {
+        use crate::lint_codec::{kind, Bin as _, Dec, Enc};
+        let mut original = Reader::new();
+        original.learn_span("the the the quick quick fox reads documentation carefully");
+        let mut e = Enc::new();
+        original.enc(&mut e);
+        let bytes = e.finish(kind::ENGLISH, "reader");
+        let (_, mut d) = Dec::open(&bytes, kind::ENGLISH).expect("opens");
+        let mut frozen = Reader::dec(&mut d).expect("decodes");
+
+        assert_eq!(frozen.total_read(), original.total_read());
+        for word in ["the", "quick", "fox", "documentation", "unseen"] {
+            assert_eq!(frozen.read_count(word), original.read_count(word), "count of {word:?}");
+            assert_eq!(frozen.info_bits(word), original.info_bits(word), "info bits of {word:?}");
+            assert_eq!(frozen.is_head_word(word), original.is_head_word(word), "head judgment of {word:?}");
+        }
+
+        // Writing thaws: counts merge, nothing is lost.
+        frozen.learn_span("fox fox");
+        assert_eq!(frozen.read_count("fox"), original.read_count("fox") + 2);
+        assert_eq!(frozen.read_count("the"), original.read_count("the"));
+    }
 
     #[test]
     fn tokenizes_words_and_cjk_characters() {

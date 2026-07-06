@@ -161,23 +161,22 @@ fn publish_models(repo_root: &std::path::Path) -> Result<String, String> {
     for entry in std::fs::read_dir(&dir).map_err(|e| format!("lint_submit: {e}"))?.flatten() {
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
-        let Some(lang) = name.strip_suffix(".module.json") else { continue };
-        // Provenance serializes first: probe the header instead of parsing the engines.
-        let Ok(raw) = std::fs::read_to_string(&path) else { continue };
-        let head = raw.get(..512).unwrap_or(&raw);
-        if !head.contains(&format!("\"train_version\":\"{}\"", crate::lint_train::train_version())) {
+        let Some(lang) = name.strip_suffix(".module.bin") else { continue };
+        // The container stamp IS the provenance: probe the header instead of decoding engines.
+        let Ok(raw) = std::fs::read(&path) else { continue };
+        let Some(header) = crate::lint_codec::probe(&raw) else { continue };
+        let mut fields = header.stamp.split('\u{1f}');
+        let (train_version, version, sources_fp) = (
+            fields.next().unwrap_or("").to_string(),
+            fields.next().unwrap_or("").to_string(),
+            fields.next().unwrap_or("").to_string(),
+        );
+        if train_version != crate::lint_train::train_version() {
             continue;
         }
-        let field = |key: &str| -> String {
-            head.split(&format!("\"{key}\":\""))
-                .nth(1)
-                .and_then(|r| r.split('"').next())
-                .unwrap_or("")
-                .to_string()
-        };
         let blob = git(&["hash-object", "-w", path.to_str().unwrap_or_default()])?;
-        let sha256 = crate::lint_sign::sha256_hex(raw.as_bytes());
-        published.push((lang.to_string(), field("version"), field("sources_fp"), blob, sha256));
+        let sha256 = crate::lint_sign::sha256_hex(&raw);
+        published.push((lang.to_string(), version, sources_fp, blob, sha256));
     }
     if published.is_empty() {
         return Err("lint_submit: no current AI modules in the machine cache — run `lint_config action=train` first".into());
@@ -187,7 +186,7 @@ fn publish_models(repo_root: &std::path::Path) -> Result<String, String> {
     // index.json + one file per module, named for humans and keyed by the index for machines.
     let file_of = |lang: &str, toolchain: &str| -> String {
         let v: String = toolchain.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '-' }).collect();
-        format!("{lang}@{}.module.json", if v.is_empty() { "any".to_string() } else { v })
+        format!("{lang}@{}.module.bin", if v.is_empty() { "any".to_string() } else { v })
     };
     let mut index: Vec<serde_json::Value> = published.iter().map(|(lang, toolchain, sources_fp, _, sha256)| json!({
         "language": lang,
@@ -519,7 +518,13 @@ pub fn run_config(args: &Value) -> ToolResult {
                 &root,
                 &std::collections::BTreeMap::new(),
             );
+            // Exactly one copy on disk (LINTER.md, "Save"): migrate or drop whatever the
+            // JSON era left that no load path will ever touch again.
+            let swept = crate::lint_train::sweep_legacy_cache(&data);
             let mut lines: Vec<String> = Vec::new();
+            if swept > 0 {
+                lines.push(format!("cache: migrated or removed {swept} legacy JSON artifact(s)"));
+            }
             for lang in &langs {
                 let read_ok = !report.unlearned.contains(lang);
                 let state = match models.get(lang) {
