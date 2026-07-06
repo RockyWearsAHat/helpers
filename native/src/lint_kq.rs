@@ -44,6 +44,32 @@ pub fn commit(root: &Path, key: &str, body: &str) {
     macos::commit(root, key, body)
 }
 
+/// Reopen ONLY the fired vnodes against their unchanged paths (the incremental tier's
+/// re-arm: membership is unchanged by construction — adds/removes fall back to the full
+/// arm). Returns quiet-and-complete after the reopen, i.e. safe to commit.
+#[cfg(target_os = "macos")]
+pub fn rearm_fired(root: &Path) -> bool {
+    macos::rearm_fired(root)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn rearm_fired(_root: &Path) -> bool {
+    false
+}
+
+/// The paths whose vnodes fired since the last arm (drained now, kernel-synchronous), for
+/// the INCREMENTAL tier (LINTER.md): `None` when there is no complete watch set to vouch —
+/// only an armed daemon may treat "not fired" as "provably unchanged".
+#[cfg(target_os = "macos")]
+pub fn fired_paths(root: &Path) -> Option<Vec<PathBuf>> {
+    macos::fired_paths(root)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn fired_paths(_root: &Path) -> Option<Vec<PathBuf>> {
+    None
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn replay(_root: &Path, _key: &str) -> Option<String> {
     None
@@ -279,6 +305,46 @@ mod macos {
                 p.memos.insert(key.to_string(), body.to_string());
             }
         }
+    }
+
+    pub fn rearm_fired(root: &Path) -> bool {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        let Some(p) = reg.get_mut(root) else { return false };
+        if !p.complete {
+            return false;
+        }
+        drain(p);
+        let fired: Vec<usize> = p.fired.drain().collect();
+        let mut ok = true;
+        for slot in fired {
+            let Some(path) = p.slab.get(slot).cloned() else { continue };
+            if let Some((fd, _)) = p.watched.remove(&path) {
+                unsafe { close(fd) };
+            }
+            match watch_one(p.kq, &path, slot) {
+                Some(fd) => {
+                    p.watched.insert(path, (fd, slot));
+                }
+                None => ok = false, // vanished — membership changed, full arm owns it
+            }
+        }
+        p.complete = ok;
+        if ok && drain(p) == 0 {
+            p.dirty = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn fired_paths(root: &Path) -> Option<Vec<PathBuf>> {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        let p = reg.get_mut(root)?;
+        if !p.complete {
+            return None;
+        }
+        drain(p);
+        Some(p.fired.iter().filter_map(|slot| p.slab.get(*slot).cloned()).collect())
     }
 
     pub fn replay(root: &Path, key: &str) -> Option<String> {
