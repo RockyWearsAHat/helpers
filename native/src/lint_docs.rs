@@ -848,6 +848,9 @@ pub fn add_docs_source(lang: &str, url: &str) -> DocsSource {
         .to_string();
     let src = DocsSource { url: url.to_string(), crawl: true, tool };
     remember_source(lang, &src);
+    // The manifest is the user-facing record (LINTER.md, "The language manifest") — the
+    // legacy store above stays only as migration input for older machines.
+    crate::lint_train::manifest_set(lang, vec![url.to_string()]);
     src
 }
 
