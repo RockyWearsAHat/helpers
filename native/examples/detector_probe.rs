@@ -14,6 +14,15 @@ fn main() {
         &helpers_native::lint_train::NoProject,
     );
     let model = models.get(&lang).expect("model");
+    if ids.is_empty() {
+        // No ids ⇒ the full inventory: every compiled rule and what it watches.
+        let mut all: Vec<&str> = model.rules.rule_ids().collect();
+        all.sort();
+        for id in all {
+            println!("{id}: {:?}", model.rules.detector_of(id));
+        }
+        return;
+    }
     for id in ids {
         println!(
             "{id}: detector={:?} degenerate={}",

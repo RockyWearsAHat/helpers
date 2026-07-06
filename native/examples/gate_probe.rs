@@ -1,10 +1,14 @@
-//! Probes the REAL trained javascript model's pipeline for `var leaky = 2;` — where does
-//! the finding die? Run from a tiny project dir: `cargo run --release --example gate_probe -- <root> <data_root>`.
+//! Probes the REAL trained model's pipeline for one file — raw fires, then the gate's
+//! verdict and concept ranking per imprecise finding, so "where did the finding die?" (or
+//! "why did this fire?") is answered against the exact artifacts a lint run would use.
+//! Run: `cargo run --release --example gate_probe -- <root> <data_root> [file] [lang]`.
 
 fn main() {
     let root = std::path::PathBuf::from(std::env::args().nth(1).expect("root"));
     let data = std::path::PathBuf::from(std::env::args().nth(2).expect("data_root"));
-    let src = std::fs::read_to_string(root.join("app.js")).expect("app.js");
+    let file = std::env::args().nth(3).unwrap_or_else(|| "app.js".into());
+    let lang_arg = std::env::args().nth(4).unwrap_or_else(|| "javascript".into());
+    let src = std::fs::read_to_string(root.join(&file)).expect("fixture file");
 
     struct Src(String);
     impl helpers_native::lint_train::ProjectSource for Src {
@@ -16,13 +20,13 @@ fn main() {
         }
     }
     let (report, models) = helpers_native::lint_train::ensure_models(
-        &["javascript".to_string()],
+        &[lang_arg.clone()],
         &data,
         &root,
         &Src(src.clone()),
     );
     println!("trained={:?} reused={:?} unenforced={:?}", report.trained, report.reused, report.unenforced);
-    let model = models.get("javascript").expect("js model");
+    let model = models.get(&lang_arg).expect("model");
     println!("rules={} detector={:?}", model.rules.rule_count(), model.rules.detector_of("no_var_declaration"));
     let findings = model.rules.flag(&src);
     println!(
