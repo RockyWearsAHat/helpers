@@ -33,6 +33,9 @@ pub mod kind {
     pub const POLARITY: u8 = 5;
     /// Per-project verdict replay cache (LINTER.md, "Warm runs replay per-file verdicts").
     pub const VERDICT: u8 = 6;
+    /// Per-project whole-report replay container (LINTER.md, "An unchanged project replays
+    /// the whole report").
+    pub const REPLAY: u8 = 7;
 }
 
 /// Hard ceiling on a declared inflated DATA stream (defense in depth at load — a crafted

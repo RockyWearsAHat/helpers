@@ -170,6 +170,12 @@ forces it regardless of age.
    `bad ∧ ¬good` tree-diff (operations exact, operands bound wildcards, literals typed
    wildcards) or a discriminating token sequence (a single distinctive token, or an ordered
    same-line pair); prose-only rules → a detector derived by the evidence hierarchy below.
+   Sequence selection prefers the most GENERAL detector that still discriminates: a pure
+   `bad ∧ ¬good` pair (both tokens absent from the fix) first, then a single distinctive
+   token, and only last a relaxed pair anchored on one token the fix shares — measured: with
+   the relaxed pair tried before the single token, `no_var_declaration` (bad `var count = 1;`
+   good `let count = 1;`) compiled to `var … count`, which fires on the example's own
+   identifier and misses every real `var` line without a `count` beside it.
    **There is no regex engine and no shape catalog anywhere in the matcher**: a text detector
    IS its tokens, the tokens come from the reader's ONE tokenizer (`lint_read` word runs —
    ledger #2/#11: every token set the engine compares tokenizes the same way; the old
@@ -543,9 +549,40 @@ findings on this repo; with it the same models keep only real ones. Project law 
 (its file is the label) and, when unenforceable, is **reported** ("Project law not yet
 enforceable…") — law never vanishes silently.
 
-## The live path (per run, milliseconds)
+## The live path (per run, milliseconds cold-warm; microseconds when nothing changed)
 
 fire → guard → gate → quarantine → config/feedback → report.
+
+**An unchanged project replays the whole report (microseconds), warm or cold.** The finished
+report body is a pure function of its inputs, so one WITNESS — a fold of every input's
+`(mtime, len)` state — decides between "return the stored body" and "run the pipeline". The
+witness is verified by STATTING, never by events or daemons: file-system events were tried
+and measured unsound (macOS fseventsd ingests kernel events on a ~10ms cadence, and neither
+`FSEventStreamFlushSync` nor `FSEventsGetCurrentEventId` can see an edit made microseconds
+before the check — an edit-then-lint replayed a stale CLEAN), while mtimes are updated by
+the kernel synchronously with the write itself, so a stat sweep can never miss an edit. The
+sweep is microseconds because the walk fuses everything into batched syscalls: on macOS one
+`getattrlistbulk` call returns name, type, mtime, and size for a whole directory's entries
+at once (no per-file `stat`), directories fan out on the shared rayon pool, and ignore
+rules match against a per-directory chain of compiled matchers. The witness folds: the walk
+(file set + every file's state — deletions change the fold), the law listing and its
+documents' states (`.helpers/lint-rules`, root `lintPref` via the walk), `corpus/` and
+`lint-index/` (top level), the model dir (modules, overlays, `extensions.json`,
+`toolchains.json`), `.helpers/lint.json`, the feedback file, and `TRAIN_VERSION`; the memo
+key carries the args (`max`, language filter). Derived caches are EXCLUDED from the fold so
+the memo never invalidates itself: `lint-verdicts/` and `lint-replay/` are engine products
+of inputs already folded. The body+witness pairs persist in an `HLM1` container
+(`lint-replay/<project>.bin` beside the verdicts), so a fresh process replays as fast as
+the daemon — warm and cold differ only by `exec`. A witness mismatch falls through to the
+per-file verdict replay below and the fresh body is stored with a witness recomputed after
+the run's own model writes. `(mtime, len)` alone cannot see a same-length edit landing in
+the same mtime tick as the stored state (git's "racy index" problem), so every store also
+records whether its newest input mtime cleared a 2s racy window of the store moment: a racy
+store is kept but refuses to replay, and the next full run — same inputs, later moment —
+re-stores it replayable. The replay changes no verdict — same engine, same output — so it
+does not bump `TRAIN_VERSION`; the one residual (documented, self-healing): a module
+retrained by ANOTHER process in the milliseconds a run is in flight is masked until any
+input changes.
 
 **Warm runs replay per-file verdicts.** Firing, the restatement guard, and the Hv gate are all
 deterministic per FILE given the merged model, so their product is cached per file and a warm
@@ -576,13 +613,16 @@ run, not once per language.
   line in their grounded universe (code surface / raw); no regex engine runs anywhere.
   Languages fire in parallel (the stage costs the slowest language, not the sum), files
   within a language in parallel, and results fold back in language-then-file order so the
-  report stays deterministic. Whole-repo (1,469 files) warm run ≈ 20ms with all language
-  models (was ≈ 212ms before verdict replay — measured 2026-07-06): walk+read ≈ 15ms
-  (parallel walk + stats; contents read only for changed files), train/load ≈ 3ms
-  (toolchain-version machine cache — no spawns; one shared document read; memoized source
-  resolution; file-state stamps), match+gate ≈ 1ms (replay; fresh files pay the real parse)
+  report stays deterministic. Whole-repo (~1,475 files), measured 2026-07-06 in the daemon:
+  an UNCHANGED project answers in ≈ 1.8–2.8ms end to end — the batched-syscall walk verifies
+  every file's state (~2ms; the sweep IS the correctness proof) and the whole-report replay
+  returns the stored body; a changed project pays the per-file replay pipeline, ≈ 7ms warm
+  (was ≈ 212ms before verdict replay, ≈ 20ms before the fused walk / decision cache /
+  per-extension resolution): train/load ≈ 1–4ms (toolchain-version machine cache — no
+  spawns; one shared document read, prewarmed before the language fan-out; dir-state
+  memoized listings), match+gate ≈ 1ms (replay; fresh files pay the real parse)
   (`HELPERS_LINT_TRACE=1` prints the stage split, per-language `[lint-train]`/`[lint-match]`
-  lines, and the walk sub-stages). Text detectors match each line's **code surface** (comments dropped, string
+  lines, and the walk sub-stages; `[lint-replay]` marks a whole-report replay). Text detectors match each line's **code surface** (comments dropped, string
   interiors blanked — the same function grounding reads through; ledger #12); prose files
   (md/txt) match raw lines, and a project-law detector whose construct grounded ONLY in the
   raw universe (see the evidence hierarchy) matches raw lines as well — the report says so
@@ -591,13 +631,27 @@ run, not once per language.
   law, not breaking it.
 - **Hv concept gate**: imprecise (token / container-only) findings are kept only if the fired
   rule's fingerprint is the nearest concept to the matched construct — one batched
-  popcount-grid dispatch per language.
+  popcount-grid dispatch per language. **Concepts exist only for rules that can FIRE**: a
+  rule that compiled no detector can never be confirmed, so its fingerprint could only
+  serve to veto other rules' true findings — measured (`var leaky = 2;` in a two-line
+  project): a detector-less concept sat at distance 3468 from the construct while the fired
+  `no_var_declaration` sat at 3607, and the gate rejected its own rule's true hit, which
+  the identical construct with a docs-known identifier (`var count = 2;`) survived. Both
+  the module's and the overlay's `ConceptModel` compile from the rules the `RuleSet`
+  actually kept; among firing concepts the fired rule's own token mass keeps true hits
+  nearest, and no blanket noise-band abstention is needed (tried and reverted: abstaining
+  whenever the nearest concept sat in the random-distance band let every low-count scrape
+  rule through the gate).
 - **Quarantine**: a doc rule firing like scrape noise (≥20 hits and >1% of the lines of the
-  RULE'S OWN LANGUAGE — >0.1% for a *degenerate* detector, the same two-tier the
+  RULE'S OWN LANGUAGE — for a *degenerate* detector ≥50 hits and >0.1%, the same two-tier the
   reference-fire gate uses, because a small reference corpus cannot witness a token that is
   rare in doc examples but pervasive in real projects — or ≥20 hits covering >10% of one file)
-  is quarantined and reported. The denominator is per-language: a rust rule's noise must not
-  be diluted to invisibility by a thousand markdown files it never ran against.
+  is quarantined and reported. The degenerate tier's floor is 50, not 20: its incident class
+  fires in the hundreds (`path`, 305×) while a legitimately much-violated single-token
+  convention fires in the twenties (`no_var_declaration`, 20+ real `var` declarations on one
+  repo), and a floor of 20 quarantined the true rule exactly when it was most violated. The
+  denominator is per-language: a rust rule's noise must not be diluted to invisibility by a
+  thousand markdown files it never ran against.
 - **Docs are reading material**: md/txt files are linted only by rules written *for* them;
   `any`-language law governs code languages. LEARNED rules never fire on a prose language at
   all — a prose file is 100% the English universe ledger #12 excludes (a CommonMark-learned

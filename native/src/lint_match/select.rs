@@ -555,11 +555,24 @@ pub(super) fn text_discriminator(bad: &str, good: &str) -> Option<Vec<String>> {
         tokens_fire_text(bad, tokens) && !tokens_fire_text(good, tokens)
     };
 
-    // 1. Ordered pair on the same line — any punctuation may sit between the tokens.
-    // Two passes: first demand BOTH tokens be absent from the fix (pure bad ∧ ¬good — these
-    // generalize), then relax to "not both present" so a pair anchored on one shared name can
-    // still discriminate when nothing purer exists.
+    // Most GENERAL detector that still discriminates, in order (LINTER.md, "Compile"):
+    // 1. a pure bad ∧ ¬good ordered pair (both tokens absent from the fix — generalizes);
+    // 2. a single distinctive token;
+    // 3. only last, a relaxed pair anchored on one token the fix shares — trying this
+    //    before the single token once compiled `no_var_declaration` to `var … count`,
+    //    a detector welded to the example's own identifier that missed every real `var`.
+    // Pairs allow any punctuation between the tokens on one line.
     for strict in [true, false] {
+        if !strict {
+            for tok in &bad_toks {
+                if good_set.contains(tok.as_str()) {
+                    continue;
+                }
+                if discriminates(std::slice::from_ref(tok)) {
+                    return Some(vec![tok.clone()]);
+                }
+            }
+        }
         for win in bad_toks.windows(2) {
             let in_good = (good_set.contains(win[0].as_str()), good_set.contains(win[1].as_str()));
             if if strict { in_good.0 || in_good.1 } else { in_good.0 && in_good.1 } {
@@ -568,16 +581,6 @@ pub(super) fn text_discriminator(bad: &str, good: &str) -> Option<Vec<String>> {
             if discriminates(win) {
                 return Some(win.to_vec());
             }
-        }
-    }
-
-    // 2. Single distinctive token.
-    for tok in &bad_toks {
-        if good_set.contains(tok.as_str()) {
-            continue;
-        }
-        if discriminates(std::slice::from_ref(tok)) {
-            return Some(vec![tok.clone()]);
         }
     }
 

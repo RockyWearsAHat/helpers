@@ -57,7 +57,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v45-abbreviations-abbreviate";
+const TRAIN_VERSION: &str = "docs-v49-firing-concepts-only";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -231,7 +231,47 @@ pub(crate) fn is_document_language(lang: &str) -> bool {
     crate::lint_match::prose_lang(lang)
 }
 
+/// Memoize a document LISTING behind its directories' `(mtime, len)` states plus the
+/// extension map's (stems resolve through the learned claims). A listing changes only when
+/// an entry is added, removed, or renamed — each of which touches its directory's mtime —
+/// while content edits are caught downstream by every document's own file state, so a
+/// witness hit is always sound. Kills the per-language re-listing: seventeen parallel
+/// passes each re-read the same two directories per run.
+fn memoized_listing(
+    key: &str,
+    witnesses: &[&Path],
+    compute: impl FnOnce() -> Vec<(PathBuf, String)>,
+) -> Vec<(PathBuf, String)> {
+    type Table = std::collections::HashMap<String, (u128, std::sync::Arc<Vec<(PathBuf, String)>>)>;
+    static MEMO: std::sync::Mutex<Option<Table>> = std::sync::Mutex::new(None);
+    let state = witnesses
+        .iter()
+        .map(|p| file_state(p))
+        .chain(std::iter::once(file_state(&extension_map_path())))
+        .fold(0u128, |acc, st| acc.rotate_left(11) ^ st);
+    // Computed inside the lock deliberately, like the document read below: the first
+    // parallel wave must produce one listing, not seventeen racing ones.
+    let mut memo = MEMO.lock().unwrap_or_else(|e| e.into_inner());
+    let table = memo.get_or_insert_with(Default::default);
+    if let Some((have, hit)) = table.get(key) {
+        if *have == state {
+            return hit.as_ref().clone();
+        }
+    }
+    let out = std::sync::Arc::new(compute());
+    table.insert(key.to_string(), (state, out.clone()));
+    out.as_ref().clone()
+}
+
 pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
+    memoized_listing(
+        &format!("law\u{1f}{}", project_root.display()),
+        &[&project_root.join(".helpers/lint-rules"), project_root],
+        || rule_documents_uncached(project_root),
+    )
+}
+
+fn rule_documents_uncached(project_root: &Path) -> Vec<(PathBuf, String)> {
     let is_text = |p: &Path| matches!(p.extension().and_then(|x| x.to_str()), Some("md" | "txt"));
     let mut docs = Vec::new();
     if let Ok(entries) = std::fs::read_dir(project_root.join(".helpers/lint-rules")) {
@@ -283,6 +323,14 @@ pub(crate) fn project_rules(data_root: &Path, project_root: &Path, lang: &str) -
 /// grounding, self/reference-fire, quarantine): global principles must earn each firing; they
 /// are not the user's own law.
 fn corpus_documents(data_root: &Path) -> Vec<(PathBuf, String)> {
+    memoized_listing(
+        &format!("corpus\u{1f}{}", data_root.display()),
+        &[&data_root.join("corpus")],
+        || corpus_documents_uncached(data_root),
+    )
+}
+
+fn corpus_documents_uncached(data_root: &Path) -> Vec<(PathBuf, String)> {
     let mut docs = Vec::new();
     if let Ok(entries) = std::fs::read_dir(data_root.join("corpus")) {
         for e in entries.flatten() {
@@ -461,6 +509,12 @@ pub fn ensure_models(
     // deduplicated by the per-source crawl cache (`lint_docs`), so two languages reading the same
     // site never fetch it twice. Results merge in `langs` order, keeping the report deterministic.
     let t_spawn = std::time::Instant::now();
+    // Warm the SHARED reads once on the calling thread before the fan-out: the law and corpus
+    // documents are language-agnostic and memoized behind one lock, so cold memos inside the
+    // parallel wave would convoy every language on the first reader (measured: each of 17
+    // languages reported the one ~1.5ms read as its own "law" time).
+    let _ = read_rule_documents(&rule_documents(project_root), data_root);
+    let _ = read_rule_documents(&corpus_documents(data_root), data_root);
     let results: Vec<(TrainReport, Option<(String, LangModel)>)> = {
         use rayon::prelude::*;
         langs
@@ -567,8 +621,6 @@ fn train_language(
                 .iter()
                 .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
                 .collect();
-            let concept_tuples: Vec<(String, String, String)> =
-                doc_rules.iter().map(|r| (r.id.clone(), r.description.clone(), r.bad.clone())).collect();
             let ground = crate::lint_match::Grounding {
                 reference,
                 project: Vec::new(),
@@ -576,6 +628,17 @@ fn train_language(
                 trusted: std::collections::HashSet::new(),
                 flagged,
             };
+            let rules = RuleSet::build(lang, &tuples, &ground);
+            // Concepts exist only for rules that can FIRE (LINTER.md, "Hv concept gate"):
+            // a rule that compiled no detector can never be confirmed, and its fingerprint
+            // would only serve to veto other rules' true findings — measured: a
+            // detector-less concept outranked `no_var_declaration` on its own construct.
+            let compiled: std::collections::HashSet<&str> = rules.rule_ids().collect();
+            let concept_tuples: Vec<(String, String, String)> = doc_rules
+                .iter()
+                .filter(|r| compiled.contains(r.id.as_str()))
+                .map(|r| (r.id.clone(), r.description.clone(), r.bad.clone()))
+                .collect();
             let m = Module {
                 version: version.clone(),
                 train_version: TRAIN_VERSION.to_string(),
@@ -584,8 +647,8 @@ fn train_language(
                 verified_at: unix_now(),
                 learned_from: learned_from.clone(),
                 extensions,
-                rules: RuleSet::build(lang, &tuples, &ground),
                 concept: ConceptModel::compile(&concept_tuples, lang),
+                rules,
             };
             save_module(lang, &m);
             report.trained.push(format!("{lang} ({} rules, from {learned_from})", m.rules.rule_count()));
@@ -632,11 +695,15 @@ fn train_language(
                 .iter()
                 .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
                 .collect();
-            let concept_tuples: Vec<(String, String, String)> =
-                local_rules.iter().map(|r| (r.id.clone(), r.description.clone(), r.bad.clone())).collect();
             let rules = RuleSet::build(lang, &tuples, &ground);
             let compiled: std::collections::HashSet<String> =
                 rules.rule_ids().map(str::to_string).collect();
+            // Concepts only for rules that can fire — same argument as the module path.
+            let concept_tuples: Vec<(String, String, String)> = local_rules
+                .iter()
+                .filter(|r| compiled.contains(&r.id))
+                .map(|r| (r.id.clone(), r.description.clone(), r.bad.clone()))
+                .collect();
             let o = Overlay {
                 stamp,
                 unenforced: trusted.iter().filter(|id| !compiled.contains(*id)).cloned().collect(),

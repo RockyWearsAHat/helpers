@@ -495,6 +495,42 @@ mod tests {
     }
 
     #[test]
+    fn an_unseen_identifier_cannot_reject_a_true_finding() {
+        // `var leaky = 2;` in a tiny project: "leaky" appears in no rule's reading, so its
+        // random code drags the two-token bundle far from everything — but among concepts
+        // of rules that can actually fire (LINTER.md, "Hv concept gate": detector-less
+        // rules compile no fingerprint), the fired rule's own `var` mass must keep it the
+        // nearest concept, whatever identifier sits beside it.
+        let rules = vec![
+            (
+                "no_var_declaration".to_string(),
+                "Never declare variables with var. Declare with const, or let when reassignment is needed.".to_string(),
+                "var count = 1;".to_string(),
+            ),
+            (
+                "no-eval".to_string(),
+                "avoid eval; it executes arbitrary code".to_string(),
+                "eval(userInput)".to_string(),
+            ),
+            (
+                "no-with".to_string(),
+                "avoid the with statement; it confuses scope".to_string(),
+                "with (obj) { x = 1 }".to_string(),
+            ),
+        ];
+        let model = ConceptModel::compile(&rules, "javascript");
+        for ident in ["leaky", "zzqxv", "frobnicator", "blorp"] {
+            assert!(
+                model.confirms("no_var_declaration", &["var", ident]),
+                "unseen identifier {ident:?} must not reject a construct the detector matched"
+            );
+        }
+        // Evidence-based rejection still stands: a construct whose tokens a DIFFERENT
+        // concept fully accounts for is rejected, noise floor or not.
+        assert!(!model.confirms("no-with", &["eval", "userInput"]));
+    }
+
+    #[test]
     fn batch_gate_matches_scalar_decisions() {
         let rules = vec![
             ("no-eval".to_string(), "avoid eval; it executes arbitrary code".to_string(), "eval(userInput)".to_string()),

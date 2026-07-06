@@ -257,16 +257,6 @@ struct FileMeta {
     state: u128,
 }
 
-/// `(mtime, len)` folded into one value — the same cheap change witness the model stamps use.
-fn meta_state(p: &Path) -> u128 {
-    std::fs::metadata(p)
-        .map(|m| {
-            let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
-            t.map(|d| d.as_nanos()).unwrap_or(0) ^ ((m.len() as u128) << 64)
-        })
-        .unwrap_or(0)
-}
-
 /// The lazily-read project code behind [`lint_train::ProjectSource`]: fingerprints reuse
 /// cached content seeds; full sources read from disk only when an overlay recompiles.
 struct LazyProject<'a> {
@@ -332,16 +322,7 @@ pub fn run(args: &Value) -> ToolResult {
     let max = args.get("max").and_then(Value::as_u64).unwrap_or(80).clamp(1, 500) as usize;
     let filter = parse_lang_filter(args);
     let data = data_root();
-
-    // Load per-project config, then merge in feedback-driven auto-suppressions: rules a developer
-    // has flagged as false positives enough times (see `crate::lint_feedback`) are folded into the
-    // same `ignore_rules` list, so they are suppressed through the normal config path below.
-    let mut config = load_config(&root);
-    let auto_suppressed = crate::lint_feedback::merge_auto_suppressed(&mut config, &root);
-    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
-        eprintln!("[lint-walk] config+feedback {:.1}ms", t_sub.elapsed().as_secs_f64() * 1e3);
-    }
-    let ignore_set: HashSet<&str> = config.ignore_rules.iter().map(String::as_str).collect();
+    let memo_key = format!("max={max}|langs={filter:?}");
 
     // 1) Walk the project and partition by language: those with a tree-sitter grammar are analyzed
     //    with the AST engine; the rest are still analyzed via the token-regex fallback, so nothing
@@ -351,52 +332,92 @@ pub fn run(args: &Value) -> ToolResult {
     if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
         eprintln!("[lint-walk] walk_repo {:.1}ms, {} files", t_walk.elapsed().as_secs_f64() * 1e3, files.len());
     }
+    // Whole-project replay (LINTER.md, "An unchanged project replays the whole report"):
+    // the walk just verified every file's state by statting — kernel-synchronous, so an
+    // edit made the instant before this call is already in the fold — and the auxiliary
+    // fold covers every input outside the tree. Equal witness ⇒ the stored body IS this
+    // run's body: no models, no verdicts, no selection. A `HELPERS_LINT_REFRESH` run must
+    // re-read the world, so it never replays (it still stores).
+    let walk_fold = crate::lint_replay::walk_witness(&files);
+    let witness = crate::lint_replay::combine(walk_fold, crate::lint_replay::aux_witness(&root, &data));
+    if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
+        if let Some(body) = crate::lint_replay::replay(&root, &memo_key, witness) {
+            if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+                let us = t0.elapsed().as_micros();
+                eprintln!("[lint-replay] whole-project replay in {us}µs");
+                return Ok(vec![text(format!(
+                    "{body}\nTiming: whole-project replay — total {us}µs\n"
+                ))]);
+            }
+            return Ok(vec![text(body)]);
+        }
+    }
+    // Load per-project config, then merge in feedback-driven auto-suppressions: rules a developer
+    // has flagged as false positives enough times (see `crate::lint_feedback`) are folded into the
+    // same `ignore_rules` list, so they are suppressed through the normal config path below. Loaded
+    // AFTER the replay check — both files' states are already in the witness, so a replayed run
+    // never needs their contents.
+    let mut config = load_config(&root);
+    let auto_suppressed = crate::lint_feedback::merge_auto_suppressed(&mut config, &root);
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-walk] config+feedback {:.1}ms", t_sub.elapsed().as_secs_f64() * 1e3);
+    }
+    let ignore_set: HashSet<&str> = config.ignore_rules.iter().map(String::as_str).collect();
+
     // The project's own rule documents (root lintPref, .helpers/lint-rules) are instructions TO
     // the linter, not source to be linted — never analyze the law as if it were code.
+    let t_law = std::time::Instant::now();
     let law: HashSet<PathBuf> = lint_train::rule_documents(&root).into_iter().map(|(p, _)| p).collect();
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-walk] law set {:.1}ms", t_law.elapsed().as_secs_f64() * 1e3);
+    }
     // Select the lintable files first (cheap), then read them ALL in parallel — the read pass
     // is pure I/O over independent files and was the warm run's single largest stage when
     // sequential. Order is preserved through the indexed collect, so the grouping (and every
     // report downstream) stays deterministic.
-    let selected: Vec<(String, &crate::index::walk::WalkedFile)> = files
-        .iter()
-        .filter(|f| !law.contains(&f.abs))
-        .filter_map(|f| {
-            // A known extension resolves to its canonical grammar name; an UNKNOWN one becomes a
-            // language named by the extension itself — no built-in language list. Such files ride
-            // the token-regex engine, project rules (`.helpers/lint-rules/<ext>.md`, `any.md`),
-            // and on-the-fly docs discovery; unreadable (non-UTF-8) files fall out at the read.
-            let ext = f.ext.to_lowercase();
-            if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
-                return None;
-            }
-            let l = resolve_language(&ext);
-            if filter.as_ref().is_some_and(|set| !set.contains(l.as_str())) {
-                return None;
-            }
-            if config.languages.as_ref().is_some_and(|set| !set.contains(&l)) {
-                return None;
-            }
-            Some((l, f))
-        })
-        .collect();
+    // A known extension resolves to its canonical grammar name; an UNKNOWN one becomes a
+    // language named by the extension itself — no built-in language list. Such files ride
+    // the token-regex engine, project rules (`.helpers/lint-rules/<ext>.md`, `any.md`),
+    // and on-the-fly docs discovery; unreadable (non-UTF-8) files fall out at the read.
+    // Resolution runs once per DISTINCT extension, not once per file: the resolver's
+    // freshness witness stats the extension map, and paying that stat per walked file was
+    // a measured multi-ms slice of every run.
+    let mut lang_of_ext: HashMap<&str, String> = HashMap::new();
+    let mut selected: Vec<(String, &crate::index::walk::WalkedFile)> = Vec::new();
+    for f in files.iter().filter(|f| !law.contains(&f.abs)) {
+        let ext = f.ext.as_str();
+        if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        let l = lang_of_ext.entry(ext).or_insert_with(|| resolve_language(ext));
+        if filter.as_ref().is_some_and(|set| !set.contains(l.as_str())) {
+            continue;
+        }
+        if config.languages.as_ref().is_some_and(|set| !set.contains(l)) {
+            continue;
+        }
+        selected.push((l.clone(), f));
+    }
     use rayon::prelude::*;
-    // STAT, don't read (LINTER.md, "Warm runs replay per-file verdicts"): the replay decision
-    // needs only each file's `(mtime, len)` state. Contents are read in waves — changed files
+    // STAT came fused with the walk (LINTER.md, "Warm runs replay per-file verdicts"): the
+    // replay decision needs only each file's `(mtime, len)` state, and the walk already
+    // carries it — no second pass over the tree. Contents are read in waves — changed files
     // now (their seeds feed the grounding fingerprint), model-invalidated files after the
     // models load, and a recompiling overlay's grounding universe on demand.
-    let stats: Vec<u128> = selected.par_iter().map(|(_, f)| meta_state(&f.abs)).collect();
     let mut by_language: BTreeMap<String, Vec<FileMeta>> = BTreeMap::new();
-    for ((l, f), state) in selected.into_iter().zip(stats) {
+    for (l, f) in selected {
         by_language
             .entry(l)
             .or_default()
-            .push(FileMeta { rel: f.rel.clone(), abs: f.abs.clone(), state });
+            .push(FileMeta { rel: f.rel.clone(), abs: f.abs.clone(), state: f.state });
+    }
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-walk] select+group {:.1}ms", t_law.elapsed().as_secs_f64() * 1e3);
     }
     let t_v = std::time::Instant::now();
     let verdicts = load_verdicts(&root);
     if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
-        eprintln!("[lint-walk] stat+select done, load_verdicts {:.1}ms ({} entries)", t_v.elapsed().as_secs_f64() * 1e3, verdicts.len());
+        eprintln!("[lint-walk] load_verdicts {:.1}ms ({} entries)", t_v.elapsed().as_secs_f64() * 1e3, verdicts.len());
     }
     let mut seeds: HashMap<String, u64> = by_language
         .values()
@@ -754,14 +775,18 @@ pub fn run(args: &Value) -> ToolResult {
     // detector whose own shape can vouch for it gets 1%; a DEGENERATE one (single token, bare
     // leaf) has only fire statistics as witness and gets 0.1% — the reference corpus can be
     // too small to testify about a token that is rare in doc examples but pervasive in real
-    // projects (`path` passed compile on 8 corpus lines, then fired 305× here).
+    // projects (`path` passed compile on 8 corpus lines, then fired 305× here). The
+    // degenerate tier's FLOOR is 50 fires, not 20: its incident class fires in the hundreds
+    // (`path`, 305×), while a legitimately much-violated single-token convention fires in
+    // the twenties (`no_var_declaration`, 20+ real `var` declarations on one repo) — a
+    // floor of 20 quarantined the true rule exactly when it was most violated.
     let degenerate =
         |id: &str| models.values().any(|m| m.rules.degenerate_detector(id));
     let quarantined: std::collections::BTreeSet<String> = fires.iter()
         .filter(|((id, lang), &n)| {
             let lines = lang_lines.get(*lang).copied().unwrap_or(total_lines);
-            let per_mille = if degenerate(id) { 1000 } else { 100 };
-            (n >= 20 && n * per_mille > lines) || concentrated.contains(*id)
+            let (floor, per_mille) = if degenerate(id) { (50, 1000) } else { (20, 100) };
+            (n >= floor && n * per_mille > lines) || concentrated.contains(*id)
         })
         .map(|((id, _), _)| id.to_string())
         .collect();
@@ -836,6 +861,17 @@ pub fn run(args: &Value) -> ToolResult {
     }
     body.push_str(&render_quarantine(&quarantined));
     body.push_str(&render_feedback(&root, &auto_suppressed));
+    // Store the finished body for the whole-project replay. The walk fold is the PRE-run
+    // one (a file edited mid-run differs from it next time — a conservative miss); the
+    // auxiliary fold is recomputed because the run's own training writes land in the model
+    // dir. The trace footer below is per-run and appended after, so a replay never shows a
+    // stale timing line.
+    crate::lint_replay::store(
+        &root,
+        &memo_key,
+        crate::lint_replay::combine(walk_fold, crate::lint_replay::aux_witness(&root, &data)),
+        &body,
+    );
     // Honest latency accounting on demand: where a run's time actually went, stage by stage.
     if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
         mark(&mut stages, "render");
@@ -1025,15 +1061,16 @@ pub(crate) fn project_languages(root: &Path) -> Vec<String> {
     let law: HashSet<PathBuf> =
         lint_train::rule_documents(root).into_iter().map(|(p, _)| p).collect();
     let mut langs: Vec<String> = Vec::new();
+    let mut lang_of_ext: HashMap<String, String> = HashMap::new();
     for f in walk_repo(root) {
         if law.contains(&f.abs) {
             continue;
         }
-        let ext = f.ext.to_lowercase();
+        let ext = f.ext;
         if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
             continue;
         }
-        let lang = resolve_language(&ext);
+        let lang = lang_of_ext.entry(ext.clone()).or_insert_with(|| resolve_language(&ext)).clone();
         // Prose formats are reading material, never doc-trained modules — asking for "man
         // page documentation" would be noise, not setup.
         if crate::lint_match::prose_lang(&lang) {
