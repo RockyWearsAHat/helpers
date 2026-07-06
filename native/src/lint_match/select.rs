@@ -162,7 +162,7 @@ pub struct Grounding {
     pub project: Vec<String>,
     /// The learned prohibition/endorsement classifier; its reader knows which words are common
     /// connective prose in this language's documentation.
-    pub polarity: Option<crate::lint_read::Polarity>,
+    pub polarity: Option<std::sync::Arc<crate::lint_read::Polarity>>,
     /// Ids of rules the PROJECT itself authored (`.helpers/lint-rules/`, root `lintPref`). Their
     /// rule file is the label: everything a user writes there is law by location, so these are
     /// exempt from the prohibition gate exactly as the live path exempts them from the Hv gate.
@@ -228,8 +228,8 @@ impl<'a> GroundView<'a> {
             code_tokens: tokens_of(&g.reference),
             project_tokens: tokens_of(&g.project),
             project_raw_tokens: raw_tokens_of(&g.project),
-            reader: g.polarity.as_ref().map(|p| p.reader()),
-            polarity: g.polarity.as_ref(),
+            reader: g.polarity.as_deref().map(|p| p.reader()),
+            polarity: g.polarity.as_deref(),
         }
     }
 

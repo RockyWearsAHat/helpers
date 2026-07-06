@@ -608,6 +608,38 @@ fn a_prose_only_docs_site_still_sets_the_language_up() {
     );
 }
 
+/// Warm runs REPLAY per-file verdicts (LINTER.md, "The live path"): the second run of an
+/// unchanged project reports identical findings out of the verdict cache, and editing a file
+/// re-lints exactly that file — the moved violation is found at its new line.
+#[test]
+fn warm_runs_replay_verdicts_and_edits_relint() {
+    let p = TestProject::new("verdict-replay");
+    p.write("lintPref.md", "Never use `zorkle` anywhere in this project.\n");
+    p.write("main.qfile", "begin\n    zorkle cleanup\n    emit(\"done\")\n");
+    let first = p.lint(true);
+    assert!(
+        flagged_in(&first, "main.qfile", "L2"),
+        "the planted violation must be flagged on the first (cold) run:\n{first}"
+    );
+    let cache_dir = p.root.join(".test-models/lint-verdicts");
+    assert!(
+        std::fs::read_dir(&cache_dir).is_ok_and(|mut d| d.next().is_some()),
+        "the verdict cache must exist after a run"
+    );
+    let second = p.lint(true);
+    assert!(
+        flagged_in(&second, "main.qfile", "L2"),
+        "an unchanged project must replay the same verdict:\n{second}"
+    );
+    // Edit: the violation moves down a line — the replay must not serve the stale line.
+    p.write("main.qfile", "begin\n    emit(\"start\")\n    zorkle cleanup\n    emit(\"done\")\n");
+    let third = p.lint(true);
+    assert!(
+        flagged_in(&third, "main.qfile", "L3") && !flagged_in(&third, "main.qfile", "L2"),
+        "an edited file must re-lint and find the violation at its NEW line:\n{third}"
+    );
+}
+
 /// A legacy JSON module cache MIGRATES on first touch (LINTER.md, "Save"): the offline run
 /// loads it, saves the `HLM1` container beside it, deletes the JSON — and the loaded engine
 /// behaves identically: the planted violation still fires from the migrated module alone.

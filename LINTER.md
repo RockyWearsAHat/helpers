@@ -547,6 +547,26 @@ enforceable…") — law never vanishes silently.
 
 fire → guard → gate → quarantine → config/feedback → report.
 
+**Warm runs replay per-file verdicts.** Firing, the restatement guard, and the Hv gate are all
+deterministic per FILE given the merged model, so their product is cached per file and a warm
+run never re-derives it: the verdict cache (`lint-verdicts/<project>.bin` beside the models —
+an `HLM1` container, machine-global, never in the repo, always safe to delete) maps each file
+to its `(mtime, len)` state, its content seed, its line count, and the post-gate findings
+`(rule, line, doc_rule)`, keyed by the model identity (module provenance ⊕ overlay stamp ⊕
+`TRAIN_VERSION`). A warm run STATS every file, replays verdicts for unchanged ones — no read,
+no parse, no gate — reads and lints only what actually changed, and then applies the
+RUN-LEVEL shaping to the union exactly as before: quarantine rates over per-language line
+totals, feedback suppressions, severity overrides, and rendering stay whole-run, because they
+are functions of the run, not of a file. Grounding fingerprints reuse the cached content
+seeds, so the project fingerprint no longer needs every file read either; the full contents
+are read lazily — only when an overlay actually recompiles (its grounding universe) or a file
+is stale. Everything cheap-but-repeated is memoized per process or per machine by the same
+discipline that killed ledger #8: toolchain versions live in `toolchains.json` beside the
+models, keyed by the resolved binary's `(path, mtime, len)` (absence keyed by a PATH
+fingerprint), so a warm run spawns no processes; extension resolution memoizes per universe
+generation; the lint-index directory states behind the overlay stamp are computed once per
+run, not once per language.
+
 - **Fire**: each file is parsed once and its tree walked ONCE, and that single walk yields
   everything the run needs from the tree: AST patterns are indexed by the one node kind their
   root can match, so each node tries only its own candidates (never one full-tree walk per
@@ -556,11 +576,13 @@ fire → guard → gate → quarantine → config/feedback → report.
   line in their grounded universe (code surface / raw); no regex engine runs anywhere.
   Languages fire in parallel (the stage costs the slowest language, not the sum), files
   within a language in parallel, and results fold back in language-then-file order so the
-  report stays deterministic. Whole-repo (1,464 files) warm run ≈ 0.17s with all language
-  models: walk+read ≈ 12ms (parallel reads), train/load ≈ 76ms (file-state stamp — freshness
-  is proven without parsing the multi-MB learned catalogs; the concept gate is cached beside
-  the pattern model), match+gate ≈ 82ms (`HELPERS_LINT_TRACE=1` prints the stage split and a
-  per-language `[lint-match]` line). Text detectors match each line's **code surface** (comments dropped, string
+  report stays deterministic. Whole-repo (1,469 files) warm run ≈ 20ms with all language
+  models (was ≈ 212ms before verdict replay — measured 2026-07-06): walk+read ≈ 15ms
+  (parallel walk + stats; contents read only for changed files), train/load ≈ 3ms
+  (toolchain-version machine cache — no spawns; one shared document read; memoized source
+  resolution; file-state stamps), match+gate ≈ 1ms (replay; fresh files pay the real parse)
+  (`HELPERS_LINT_TRACE=1` prints the stage split, per-language `[lint-train]`/`[lint-match]`
+  lines, and the walk sub-stages). Text detectors match each line's **code surface** (comments dropped, string
   interiors blanked — the same function grounding reads through; ledger #12); prose files
   (md/txt) match raw lines, and a project-law detector whose construct grounded ONLY in the
   raw universe (see the evidence hierarchy) matches raw lines as well — the report says so
