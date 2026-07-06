@@ -859,6 +859,31 @@ pub fn run(args: &Value) -> ToolResult {
              `lint_config action=train` — setup needs internet, linting never does.\n"
         ));
     }
+    // Outdated knowledge still enforces (LINTER.md, "Lint never learns from the network"):
+    // stale modules ran as-is; the bounded validation pass tries the one cheap fix (a
+    // registry pull, never a crawl), and the footer stays honest either way. The footer
+    // is memoized with the body — the witness covers the model dir, so a healed module
+    // changes the witness and the next run re-renders without it.
+    if !report.outdated.is_empty() {
+        let mut outdated = report.outdated.clone();
+        outdated.sort();
+        outdated.dedup();
+        let names = outdated.join(", ");
+        if lint_train::heal_outdated_modules(&outdated, &data, std::time::Duration::from_millis(900)) {
+            body.push_str(&format!(
+                "\nOut of date at the start of this run (still enforced with the last known \
+                 rules): {names}. Current modules were fetched during the run — the next \
+                 lint is fully current.\n"
+            ));
+        } else {
+            body.push_str(&format!(
+                "\nValidation not completed — results may be out of date for: {names}. The \
+                 last known rules were still enforced. Please check your connection and \
+                 connect to the internet soon (or run `lint_config action=train`) to ensure \
+                 up-to-date linting of all languages and validate the latest rules.\n"
+            ));
+        }
+    }
     body.push_str(&render_quarantine(&quarantined));
     body.push_str(&render_feedback(&root, &auto_suppressed));
     // Store the finished body for the whole-project replay. The walk fold is the PRE-run

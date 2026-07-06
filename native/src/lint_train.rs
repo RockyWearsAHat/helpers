@@ -203,6 +203,10 @@ pub struct TrainReport {
     pub unlearned: Vec<String>,
     /// Languages whose learned catalog was downloaded from the GitHub model registry this run.
     pub pulled: Vec<String>,
+    /// Languages a replay-only run served from a STALE module (engine/toolchain/sources
+    /// stamp mismatch) — outdated knowledge still enforces (LINTER.md, "Lint never learns
+    /// from the network"), and the report owes the user the out-of-date footer.
+    pub outdated: Vec<String>,
     /// A network request failed at the TRANSPORT level this run (or the hermetic
     /// `HELPERS_LINT_OFFLINE` switch simulated it): whatever is `unlearned` stayed that way
     /// because the wire was down, so the report asks to reconnect instead of to rephrase.
@@ -542,6 +546,7 @@ pub fn ensure_models(
         report.unenforced.extend(r.unenforced);
         report.unlearned.extend(r.unlearned);
         report.pulled.extend(r.pulled);
+        report.outdated.extend(r.outdated);
         if let Some((lang, m)) = model {
             models.insert(lang, m);
         }
@@ -586,8 +591,12 @@ fn train_language(
     mark(&mut splits, "sources_fp");
 
     // ── 1) The AI MODULE: fresh on disk → registry → read the docs → none (law-only). ──
-    let mut module = load_module(lang)
-        .filter(|m| m.version == version && m.train_version == TRAIN_VERSION && m.sources_fp == sources_fp);
+    let on_disk = load_module(lang);
+    let is_current = |m: &Module| {
+        m.version == version && m.train_version == TRAIN_VERSION && m.sources_fp == sources_fp
+    };
+    let stale = on_disk.as_ref().is_some_and(|m| !is_current(m));
+    let mut module = on_disk.filter(is_current);
     if network_allowed() {
         // 100% VERIFIED CURRENT: past the verification window, every inventoried page is
         // conditionally revalidated against the live site; only real movement retrains —
@@ -609,6 +618,15 @@ fn train_language(
                 module = Some(m);
             }
         }
+    } else if module.is_none() && stale {
+        // OUTDATED KNOWLEDGE STILL ENFORCES (LINTER.md, "Lint never learns from the
+        // network"): a replay-only run uses the stale module AS-IS — old reading beats no
+        // reading — reports the language as out of date, and the bounded validation pass
+        // (tools/lint.rs) tries the one cheap fix. Rebuilding from cached pages is real
+        // work (seconds per language) and belongs to setup or the background healer,
+        // never inline in a lint.
+        module = load_module(lang);
+        report.outdated.push(lang.clone());
     }
     let mut freshly_trained = false;
     if module.is_none() {
@@ -895,8 +913,37 @@ fn save_module(lang: &str, module: &Module) {
 pub(crate) type ExtClaims = std::collections::BTreeMap<String, u32>;
 
 /// Where the machine-global extension map lives — beside the modules it is folded from.
+/// `HLM1` binary like every machine artifact (LINTER.md, "The live path": nothing on the
+/// hot path parses JSON); the `.json` spelling survives only as a legacy read fallback.
 fn extension_map_path() -> PathBuf {
-    model_dir().join("extensions.json")
+    model_dir().join("extensions.bin")
+}
+
+/// Read the machine map: the binary artifact, else the legacy JSON (migrated on the next
+/// fold). Empty when neither exists.
+fn read_extension_map(path: &Path) -> std::collections::BTreeMap<String, ExtClaims> {
+    if let Some(map) = std::fs::read(path).ok().and_then(|bytes| {
+        let (_, mut d) = crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::EXTMAP)?;
+        let langs = d.u()? as usize;
+        let mut map = std::collections::BTreeMap::new();
+        for _ in 0..langs {
+            let lang = d.str()?;
+            let n = d.u()? as usize;
+            let mut claims = ExtClaims::new();
+            for _ in 0..n {
+                let ext = d.str()?;
+                claims.insert(ext, d.u()? as u32);
+            }
+            map.insert(lang, claims);
+        }
+        Some(map)
+    }) {
+        return map;
+    }
+    std::fs::read_to_string(path.with_extension("json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
 }
 
 /// Merge one language's learned claims into the machine-global extension map. An empty claim
@@ -904,13 +951,20 @@ fn extension_map_path() -> PathBuf {
 /// rather than re-derived.
 fn fold_extension_claims(lang: &str, claims: &ExtClaims) {
     let path = extension_map_path();
-    let mut map: std::collections::BTreeMap<String, ExtClaims> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default();
+    let mut map = read_extension_map(&path);
     map.insert(lang.to_string(), claims.clone());
-    if let Ok(json) = serde_json::to_string(&map) {
-        let _ = std::fs::write(path, json);
+    let mut e = crate::lint_codec::Enc::new();
+    e.u(map.len() as u64);
+    for (lang, claims) in &map {
+        e.str(lang);
+        e.u(claims.len() as u64);
+        for (ext, count) in claims {
+            e.str(ext);
+            e.u(u64::from(*count));
+        }
+    }
+    if std::fs::write(&path, e.finish(crate::lint_codec::kind::EXTMAP, TRAIN_VERSION)).is_ok() {
+        let _ = std::fs::remove_file(path.with_extension("json"));
     }
 }
 
@@ -931,16 +985,19 @@ fn extension_claims_universe() -> std::sync::Arc<std::collections::BTreeMap<Stri
             return universe.clone();
         }
     }
-    let mut map: Universe = EMBEDDED_LINT_INDEX
-        .get_file("extensions-bootstrap.json")
-        .and_then(|f| f.contents_utf8())
-        .and_then(|raw| serde_json::from_str(raw).ok())
-        .unwrap_or_default();
-    if let Some(machine) =
-        std::fs::read_to_string(&path).ok().and_then(|raw| serde_json::from_str::<Universe>(&raw).ok())
-    {
-        map.extend(machine);
-    }
+    // The committed bootstrap is CONSTANT for the process lifetime (embedded, reviewable
+    // JSON by law) — parse it exactly once, not once per machine-map generation: its parse
+    // was the measured multi-ms slice of every cold resolution.
+    static BOOTSTRAP: std::sync::OnceLock<Universe> = std::sync::OnceLock::new();
+    let bootstrap = BOOTSTRAP.get_or_init(|| {
+        EMBEDDED_LINT_INDEX
+            .get_file("extensions-bootstrap.json")
+            .and_then(|f| f.contents_utf8())
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .unwrap_or_default()
+    });
+    let mut map = bootstrap.clone();
+    map.extend(read_extension_map(&path));
     let universe = std::sync::Arc::new(map);
     *cache = Some((key, universe.clone()));
     universe
@@ -1739,6 +1796,38 @@ fn registry_fetch(data_root: &Path, lang: &str, version: &str, sources_fp: &str)
     if !network_allowed() || crate::doc_crawler::network_down() {
         return None;
     }
+    registry_fetch_inner(data_root, lang, version, sources_fp)
+}
+
+/// [`registry_fetch`] WITHOUT the setup latch — the bounded validation pass's entry
+/// (LINTER.md, "Lint may VALIDATE, never learn"): a replay-only run that served outdated
+/// knowledge may pull the current module, and nothing else. The hermetic offline switch
+/// and the transport-down latch still apply.
+#[cfg(feature = "crawl")]
+fn registry_fetch_validation(
+    data_root: &Path,
+    lang: &str,
+    version: &str,
+    sources_fp: &str,
+) -> Option<Module> {
+    if std::env::var_os("HELPERS_LINT_OFFLINE").is_some() || crate::doc_crawler::network_down() {
+        return None;
+    }
+    registry_fetch_inner(data_root, lang, version, sources_fp)
+}
+
+#[cfg(not(feature = "crawl"))]
+fn registry_fetch_validation(
+    _data_root: &Path,
+    _lang: &str,
+    _version: &str,
+    _sources_fp: &str,
+) -> Option<Module> {
+    None
+}
+
+#[cfg(feature = "crawl")]
+fn registry_fetch_inner(data_root: &Path, lang: &str, version: &str, sources_fp: &str) -> Option<Module> {
     let base = registry_url(data_root)?;
     let index = registry_index(&base, data_root)?;
     let entry = index.as_array()?.iter().find(|e| {
@@ -1771,6 +1860,47 @@ fn registry_fetch(data_root: &Path, lang: &str, version: &str, sources_fp: &str)
 #[cfg(not(feature = "crawl"))]
 fn registry_fetch(_data_root: &Path, _lang: &str, _version: &str, _sources_fp: &str) -> Option<Module> {
     None
+}
+
+/// The bounded validation pass (LINTER.md, "Lint may VALIDATE, never learn"): for every
+/// language a replay-only run served from a stale module, try the one cheap fix — a
+/// registry pull of the current module — on a background thread, waiting at most `budget`.
+/// Returns whether EVERY such language came current within the budget. The thread keeps
+/// working past the budget in a long-lived process, so the next lint benefits either way;
+/// a one-shot process that exits first simply leaves the footer's advice standing. One
+/// attempt per language per process — a dead registry must not be re-probed every lint.
+pub fn heal_outdated_modules(
+    langs: &[String],
+    data_root: &Path,
+    budget: std::time::Duration,
+) -> bool {
+    static ATTEMPTED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    let fresh: Vec<String> = {
+        let mut seen = ATTEMPTED
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        langs.iter().filter(|l| seen.insert((*l).clone())).cloned().collect()
+    };
+    if fresh.is_empty() {
+        return false; // already attempted this process — the footer keeps standing
+    }
+    let data = data_root.to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut all = true;
+        for lang in &fresh {
+            let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
+            let fp = sources_fingerprint(&data, lang);
+            match registry_fetch_validation(&data, lang, &version, &fp) {
+                Some(m) => save_module(lang, &m),
+                None => all = false,
+            }
+        }
+        let _ = tx.send(all);
+    });
+    rx.recv_timeout(budget).unwrap_or(false)
 }
 
 /// The registry's `index.json`, fetched AT MOST once per run (process-wide `OnceLock` — every
@@ -2396,6 +2526,81 @@ mod tests {
         assert!(is_document_language("md"));
         assert!(is_document_language("markdown"));
         assert!(is_document_language("txt"));
+    }
+
+    #[test]
+    fn the_extension_map_round_trips_binary_and_migrates_legacy_json() {
+        let dir = std::env::temp_dir().join(format!("ext-map-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("extensions.bin");
+        // Legacy JSON reads as a fallback…
+        std::fs::write(
+            path.with_extension("json"),
+            r#"{"vexlang":{"vex":7,"vx":2}}"#,
+        )
+        .unwrap();
+        let legacy = read_extension_map(&path);
+        assert_eq!(legacy["vexlang"]["vex"], 7, "legacy JSON must stay readable");
+        // …and the binary form round-trips exactly.
+        let mut e = crate::lint_codec::Enc::new();
+        e.u(1);
+        e.str("vexlang");
+        e.u(2);
+        e.str("vex");
+        e.u(7);
+        e.str("vx");
+        e.u(2);
+        std::fs::write(&path, e.finish(crate::lint_codec::kind::EXTMAP, TRAIN_VERSION)).unwrap();
+        let bin = read_extension_map(&path);
+        assert_eq!(bin, legacy, "binary and legacy forms decode identically");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stale_module_still_enforces_offline_and_is_reported_outdated() {
+        // LINTER.md, "Lint never learns from the network": a replay-only run must serve a
+        // stale module AS-IS (old reading beats no reading) and name the language in
+        // `TrainReport::outdated`, never degrade it to "not set up".
+        let dir = std::env::temp_dir().join(format!("stale-module-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("HELPERS_LINT_MODELS", &dir);
+        let lang = "stalelang";
+        let ground = crate::lint_match::Grounding::default();
+        let rules = RuleSet::build(
+            lang,
+            &[(
+                "no_zap".into(),
+                "high".into(),
+                "zap left".into(),
+                "zip left".into(),
+                "Never use the zap statement anywhere; it is deprecated and will be removed.".into(),
+                "https://d/zap".into(),
+            )],
+            &ground,
+        );
+        assert!(rules.rule_count() > 0, "fixture rule compiles");
+        let stale = Module {
+            version: String::new(),
+            train_version: "docs-v0-ancient".into(), // NOT the current TRAIN_VERSION
+            sources_fp: sources_fingerprint(&dir, lang),
+            trained_at: 1,
+            verified_at: 1,
+            learned_from: "docs".into(),
+            extensions: Default::default(),
+            concept: ConceptModel { rules: Vec::new() },
+            rules,
+        };
+        save_module(lang, &stale);
+        let (report, models) =
+            ensure_models(&[lang.to_string()], &dir, &dir, &NoProject);
+        std::env::remove_var("HELPERS_LINT_MODELS");
+        assert!(
+            report.outdated.contains(&lang.to_string()),
+            "stale module must be reported outdated: {report:?}"
+        );
+        let model = models.get(lang).expect("stale module still loads and enforces");
+        assert!(model.rules.rule_count() > 0, "the stale rules still fire");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
