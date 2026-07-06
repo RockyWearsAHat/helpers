@@ -24,11 +24,21 @@ pub fn replay(root: &Path, key: &str) -> Option<String> {
     macos::replay(root, key)
 }
 
+#[cfg(target_os = "linux")]
+pub fn replay(root: &Path, key: &str) -> Option<String> {
+    linux::replay(root, key)
+}
+
 /// (Re)arm the watch set for `root` over exactly `paths`. Returns whether EVERY path is
 /// watched (an incomplete set disables the tier until a later arm succeeds).
 #[cfg(target_os = "macos")]
 pub fn arm(root: &Path, paths: &[PathBuf]) -> bool {
     macos::arm(root, paths)
+}
+
+#[cfg(target_os = "linux")]
+pub fn arm(root: &Path, paths: &[PathBuf]) -> bool {
+    linux::arm(root, paths)
 }
 
 /// Whether the watch set is armed, complete, and has seen no event since the last drain —
@@ -38,10 +48,20 @@ pub fn confirm_quiet(root: &Path) -> bool {
     macos::confirm_quiet(root)
 }
 
+#[cfg(target_os = "linux")]
+pub fn confirm_quiet(root: &Path) -> bool {
+    linux::confirm_quiet(root)
+}
+
 /// Memoize `body` for `(root, key)` against the current quiet generation.
 #[cfg(target_os = "macos")]
 pub fn commit(root: &Path, key: &str, body: &str) {
     macos::commit(root, key, body)
+}
+
+#[cfg(target_os = "linux")]
+pub fn commit(root: &Path, key: &str, body: &str) {
+    linux::commit(root, key, body)
 }
 
 /// Reopen ONLY the fired vnodes against their unchanged paths (the incremental tier's
@@ -52,7 +72,12 @@ pub fn rearm_fired(root: &Path) -> bool {
     macos::rearm_fired(root)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+pub fn rearm_fired(root: &Path) -> bool {
+    linux::rearm_fired(root)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn rearm_fired(_root: &Path) -> bool {
     false
 }
@@ -65,24 +90,29 @@ pub fn fired_paths(root: &Path) -> Option<Vec<PathBuf>> {
     macos::fired_paths(root)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+pub fn fired_paths(root: &Path) -> Option<Vec<PathBuf>> {
+    linux::fired_paths(root)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn fired_paths(_root: &Path) -> Option<Vec<PathBuf>> {
     None
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn replay(_root: &Path, _key: &str) -> Option<String> {
     None
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn arm(_root: &Path, _paths: &[PathBuf]) -> bool {
     false
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn confirm_quiet(_root: &Path) -> bool {
     false
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn commit(_root: &Path, _key: &str, _body: &str) {}
 
 #[cfg(target_os = "macos")]
@@ -414,6 +444,208 @@ mod macos {
             std::fs::write(dir.join("new.rs"), "fn b() {}").unwrap();
             assert_eq!(replay(&dir, "k"), None, "a create in a watched dir is an event");
             let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+}
+
+/// The Linux event tier: inotify. Directory watches cover their direct children (event
+/// records carry the child name), so the whole tree costs one watch descriptor per
+/// directory — no fd-per-file. inotify events are generated inline in the VFS ops, the
+/// same kernel-synchronous property the kqueue tier rests on; a queue overflow
+/// (`IN_Q_OVERFLOW`) or a watched directory vanishing marks the set incomplete and the
+/// stat tier rules until the next full arm. Same protocol, same memos, same fallbacks.
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::collections::{HashMap, HashSet};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    extern "C" {
+        fn inotify_init1(flags: i32) -> i32;
+        fn inotify_add_watch(fd: i32, path: *const u8, mask: u32) -> i32;
+        fn inotify_rm_watch(fd: i32, wd: i32) -> i32;
+        fn read(fd: i32, buf: *mut u8, count: usize) -> isize;
+    }
+
+    const IN_NONBLOCK: i32 = 0x800;
+    const IN_CLOEXEC: i32 = 0x8_0000;
+    const IN_MODIFY: u32 = 0x2;
+    const IN_CLOSE_WRITE: u32 = 0x8;
+    const IN_MOVED_FROM: u32 = 0x40;
+    const IN_MOVED_TO: u32 = 0x80;
+    const IN_CREATE: u32 = 0x100;
+    const IN_DELETE: u32 = 0x200;
+    const IN_DELETE_SELF: u32 = 0x400;
+    const IN_MOVE_SELF: u32 = 0x800;
+    const IN_Q_OVERFLOW: u32 = 0x4000;
+    const IN_IGNORED: u32 = 0x8000;
+    const IN_ONLYDIR: u32 = 0x0100_0000;
+    /// Content-true triggers, matching the kqueue tier's NOTE set (no ATTRIB: a bare
+    /// touch changes no finding).
+    const MASK: u32 = IN_MODIFY
+        | IN_CLOSE_WRITE
+        | IN_MOVED_FROM
+        | IN_MOVED_TO
+        | IN_CREATE
+        | IN_DELETE
+        | IN_DELETE_SELF
+        | IN_MOVE_SELF;
+
+    struct Project {
+        fd: i32,
+        /// Watch descriptor → the directory it names.
+        dirs: HashMap<i32, PathBuf>,
+        /// Directory → its watch descriptor (the arm diff's view).
+        by_path: HashMap<PathBuf, i32>,
+        fired: HashSet<PathBuf>,
+        complete: bool,
+        dirty: bool,
+        memos: HashMap<String, String>,
+    }
+
+    fn registry() -> &'static Mutex<HashMap<PathBuf, Project>> {
+        static REGISTRY: std::sync::OnceLock<Mutex<HashMap<PathBuf, Project>>> =
+            std::sync::OnceLock::new();
+        REGISTRY.get_or_init(Default::default)
+    }
+
+    /// Drain the queue (non-blocking reads). Records fired paths; overflow or a watched
+    /// directory vanishing flips `complete` — the stat tier rules from then on.
+    fn drain(p: &mut Project) -> usize {
+        let mut total = 0usize;
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = unsafe { read(p.fd, buf.as_mut_ptr(), buf.len()) };
+            if n <= 0 {
+                break;
+            }
+            let mut off = 0usize;
+            while off + 16 <= n as usize {
+                let wd = i32::from_ne_bytes(buf[off..off + 4].try_into().unwrap());
+                let mask = u32::from_ne_bytes(buf[off + 4..off + 8].try_into().unwrap());
+                let len = u32::from_ne_bytes(buf[off + 12..off + 16].try_into().unwrap()) as usize;
+                let name_bytes = &buf[off + 16..(off + 16 + len).min(n as usize)];
+                let name = name_bytes.split(|b| *b == 0).next().unwrap_or(&[]);
+                if mask & IN_Q_OVERFLOW != 0 {
+                    p.complete = false;
+                } else if mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_IGNORED) != 0 {
+                    p.complete = false; // a watched dir itself changed — membership moved
+                } else if let Some(dir) = p.dirs.get(&wd) {
+                    let path = if name.is_empty() {
+                        dir.clone()
+                    } else {
+                        dir.join(std::ffi::OsStr::from_bytes(name))
+                    };
+                    p.fired.insert(path);
+                }
+                total += 1;
+                off += 16 + len;
+            }
+        }
+        if total > 0 {
+            p.dirty = true;
+            p.memos.clear();
+        }
+        total
+    }
+
+    pub fn arm(root: &Path, paths: &[PathBuf]) -> bool {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        let p = reg.entry(root.to_path_buf()).or_insert_with(|| Project {
+            fd: unsafe { inotify_init1(IN_NONBLOCK | IN_CLOEXEC) },
+            dirs: HashMap::new(),
+            by_path: HashMap::new(),
+            fired: HashSet::new(),
+            complete: false,
+            dirty: false,
+            memos: HashMap::new(),
+        });
+        if p.fd < 0 {
+            return false;
+        }
+        drain(p);
+        // Watch the DIRECTORIES of the input set (IN_ONLYDIR rejects files — their parent
+        // dirs are always in the set by construction).
+        let desired: HashSet<&PathBuf> = paths.iter().collect();
+        let stale: Vec<PathBuf> =
+            p.by_path.keys().filter(|k| !desired.contains(*k)).cloned().collect();
+        for path in stale {
+            if let Some(wd) = p.by_path.remove(&path) {
+                unsafe { inotify_rm_watch(p.fd, wd) };
+                p.dirs.remove(&wd);
+            }
+        }
+        let mut complete = true;
+        for path in paths {
+            if p.by_path.contains_key(path) {
+                continue;
+            }
+            let mut cpath = path.as_os_str().as_bytes().to_vec();
+            cpath.push(0);
+            let wd = unsafe { inotify_add_watch(p.fd, cpath.as_ptr(), MASK | IN_ONLYDIR) };
+            if wd >= 0 {
+                p.dirs.insert(wd, path.clone());
+                p.by_path.insert(path.clone(), wd);
+            } else if path.is_dir() {
+                complete = false; // a real directory refused a watch (limits) — stat tier
+            }
+        }
+        p.complete = complete;
+        p.dirty = false;
+        p.fired.clear();
+        complete
+    }
+
+    pub fn confirm_quiet(root: &Path) -> bool {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        let Some(p) = reg.get_mut(root) else { return false };
+        p.complete && drain(p) == 0 && !p.dirty
+    }
+
+    pub fn commit(root: &Path, key: &str, body: &str) {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(p) = reg.get_mut(root) {
+            if p.complete && !p.dirty {
+                p.memos.insert(key.to_string(), body.to_string());
+            }
+        }
+    }
+
+    pub fn replay(root: &Path, key: &str) -> Option<String> {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        let p = reg.get_mut(root)?;
+        if !p.complete || drain(p) > 0 || p.dirty {
+            return None;
+        }
+        p.memos.get(key).cloned()
+    }
+
+    pub fn fired_paths(root: &Path) -> Option<Vec<PathBuf>> {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        let p = reg.get_mut(root)?;
+        if !p.complete {
+            return None;
+        }
+        drain(p);
+        Some(p.fired.iter().cloned().collect())
+    }
+
+    /// inotify watch descriptors persist across events — nothing to reopen. Quiet check
+    /// plus clearing the fired set is the whole re-arm.
+    pub fn rearm_fired(root: &Path) -> bool {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        let Some(p) = reg.get_mut(root) else { return false };
+        if !p.complete {
+            return false;
+        }
+        drain(p);
+        p.fired.clear();
+        if drain(p) == 0 {
+            p.dirty = false;
+            true
+        } else {
+            false
         }
     }
 }

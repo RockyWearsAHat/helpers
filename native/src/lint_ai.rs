@@ -207,6 +207,52 @@ impl Bundler {
 
 impl Default for Bundler { fn default() -> Self { Bundler::new() } }
 
+/// UNWEIGHTED majority bundle over word-wise bit-sliced counters — bit-identical to
+/// `Bundler::add`×k + `finalize` (ties at even k fall to 0, same as `count > 0` there),
+/// with no per-bit loop: adds ripple through ⌈log₂(k+1)⌉ carry planes and the threshold
+/// compare is a word-wise subtractor. Measured: the per-bit `Bundler` charged ~8µs per
+/// add; this is ~0.2µs — the gate's query building was the batch's real cost, not the
+/// popcounts. `None` when `vecs` is empty (mirrors the empty-bundle abstain).
+pub fn majority_bundle(vecs: &[&Hv]) -> Option<Hv> {
+    if vecs.is_empty() {
+        return None;
+    }
+    let k = vecs.len();
+    let planes_n = usize::BITS as usize - k.leading_zeros() as usize; // ⌈log₂(k+1)⌉
+    let mut planes = vec![[0u64; WORDS]; planes_n];
+    for v in vecs {
+        for w in 0..WORDS {
+            // Bit-sliced increment: add 1 (the vector's bit) with ripple carry.
+            let mut carry = v.0[w];
+            for plane in planes.iter_mut() {
+                let t = plane[w] & carry;
+                plane[w] ^= carry;
+                carry = t;
+                if carry == 0 {
+                    break;
+                }
+            }
+        }
+    }
+    // Majority: bit set iff count ≥ T with T = k/2 + 1 (strictly more than half — the
+    // exact `counts > 0` rule of the ±1 Bundler). Word-wise subtract: borrow of (s − T);
+    // s ≥ T ⇔ no final borrow.
+    let t_const = k / 2 + 1;
+    let mut out = [0u64; WORDS];
+    for w in 0..WORDS {
+        let mut borrow = 0u64;
+        for (i, plane) in planes.iter().enumerate() {
+            let tb = if (t_const >> i) & 1 == 1 { u64::MAX } else { 0 };
+            let s = plane[w];
+            // full subtractor: borrow_out = (!s & (tb | borrow)) | (tb & borrow)
+            let new_borrow = (!s & (tb | borrow)) | (tb & borrow);
+            borrow = new_borrow;
+        }
+        out[w] = !borrow; // no borrow ⇒ s ≥ T ⇒ majority bit set
+    }
+    Some(Hv(out))
+}
+
 // ── Hv-based concept confirmation gate (ConceptModel) ────────────────────────
 
 // ── LangBrain: dictionary-grounded English understanding ─────────────────────
@@ -309,16 +355,18 @@ impl ConceptModel {
             let Some(fired_idx) = self.rules.iter().position(|r| r.id_hash == target) else {
                 continue; // unknown rule → abstain
             };
-            let mut b = Bundler::new();
-            for t in tokens {
-                let t = t.to_lowercase();
-                if t.len() < 2 || t.len() > 64 { continue; }
-                b.add(&token_hv(&t));
-            }
-            if b.is_empty() {
+            let hvs: Vec<Hv> = tokens
+                .iter()
+                .filter_map(|t| {
+                    let t = t.to_lowercase();
+                    (t.len() >= 2 && t.len() <= 64).then(|| token_hv(&t))
+                })
+                .collect();
+            let refs: Vec<&Hv> = hvs.iter().collect();
+            let Some(q) = majority_bundle(&refs) else {
                 continue; // no usable tokens → abstain
-            }
-            queries.push(b.finalize());
+            };
+            queries.push(q);
             fired.push(fired_idx);
             batch_slots.push(i);
         }
@@ -499,6 +547,25 @@ mod tests {
         assert!(!model.confirms("no-with", &["eval", "userInput"]));
         // An unknown rule id is abstained on (kept), never a manufactured rejection.
         assert!(model.confirms("not-a-rule", &["eval"]));
+    }
+
+    #[test]
+    fn majority_bundle_is_bit_identical_to_the_bundler() {
+        // The fast path must be a pure representation change: for every k (odd, even, 1,
+        // large) the word-wise bit-sliced result equals Bundler::add×k + finalize exactly,
+        // ties included.
+        for k in [1usize, 2, 3, 4, 5, 8, 13, 40] {
+            let vecs: Vec<Hv> = (0..k).map(|i| token_hv(&format!("tok{i}"))).collect();
+            let mut b = Bundler::new();
+            for v in &vecs {
+                b.add(v);
+            }
+            let slow = b.finalize();
+            let refs: Vec<&Hv> = vecs.iter().collect();
+            let fast = majority_bundle(&refs).expect("non-empty");
+            assert_eq!(slow.distance(&fast), 0, "k={k}: bit-sliced majority diverged");
+        }
+        assert!(majority_bundle(&[]).is_none(), "empty bundle abstains");
     }
 
     #[test]
