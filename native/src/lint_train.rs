@@ -43,6 +43,10 @@ pub struct LangModel {
     pub rules: RuleSet,
     /// Concept fingerprints for the same rules; the gate that confirms text-fallback findings.
     pub concept: ConceptModel,
+    /// Identity of the merged engine — module provenance ⊕ overlay stamp, hashed. The verdict
+    /// replay cache keys per-file findings on it (LINTER.md, "Warm runs replay per-file
+    /// verdicts"): any retrain, law edit, or project change lands in one of the two stamps.
+    pub id: u64,
 }
 
 /// Pages to crawl per source — a runaway safety valve (a mis-scoped seed must not eat a whole
@@ -315,28 +319,61 @@ fn rules_in_documents(
     lang: &str,
     slice: &str,
 ) -> Vec<DocRule> {
+    let all = read_rule_documents(docs, data_root);
+    let allow_any = !is_document_language(lang);
+    let mut out = Vec::new();
+    for (source, r) in all.iter() {
+        let any = r.language == "any" || r.language.is_empty();
+        if !(r.language == lang || (any && allow_any)) {
+            continue;
+        }
+        out.push(DocRule {
+            id: r.id.clone(),
+            slice: slice.to_string(),
+            severity: r.severity.clone(),
+            description: r.description.clone(),
+            bad: r.bad.clone(),
+            good: r.good.clone(),
+            source: source.clone(),
+        });
+    }
+    out
+}
+
+/// Every rule the given documents carry, read ONCE through the one document reader —
+/// lang-AGNOSTIC (each rule already carries its language from its doc's stem and fences) and
+/// memoized per doc-set state: seventeen languages once re-read identical documents per run,
+/// and the read (sentence classification through the polarity classifier) was the training
+/// stage's remaining cost. Computed INSIDE the lock deliberately: the first parallel wave
+/// must produce ONE read, not seventeen racing ones.
+fn read_rule_documents(
+    docs: &[(PathBuf, String)],
+    data_root: &Path,
+) -> std::sync::Arc<Vec<(String, crate::linter::LearnedRule)>> {
+    type Table = std::collections::HashMap<String, std::sync::Arc<Vec<(String, crate::linter::LearnedRule)>>>;
+    static MEMO: std::sync::Mutex<Option<Table>> = std::sync::Mutex::new(None);
+    let state = docs
+        .iter()
+        .map(|(p, _)| file_state(p))
+        .fold(0u128, |acc, st| acc.rotate_left(11) ^ st);
+    let names: Vec<&str> = docs.iter().filter_map(|(p, _)| p.to_str()).collect();
+    let key = format!("{state:x}\u{1f}{}", names.join("\u{1f}"));
+    let mut memo = MEMO.lock().unwrap_or_else(|e| e.into_inner());
+    let table = memo.get_or_insert_with(Default::default);
+    if let Some(hit) = table.get(&key) {
+        return hit.clone();
+    }
     let polarity = crate::lint_docs::document_polarity(data_root);
     let mut out = Vec::new();
-    let allow_any = !is_document_language(lang);
     for (path, default_lang) in docs {
         let Ok(doc) = std::fs::read_to_string(path) else { continue };
         let source = path.to_string_lossy().into_owned();
-        for r in crate::linter::Knowledge::read_document(default_lang, &doc, polarity.as_ref()).rules {
-            let any = r.language == "any" || r.language.is_empty();
-            if !(r.language == lang || (any && allow_any)) {
-                continue;
-            }
-            out.push(DocRule {
-                id: r.id,
-                slice: slice.to_string(),
-                severity: r.severity,
-                description: r.description,
-                bad: r.bad,
-                good: r.good,
-                source: source.clone(),
-            });
+        for r in crate::linter::Knowledge::read_document(default_lang, &doc, polarity.as_deref()).rules {
+            out.push((source.clone(), r));
         }
     }
+    let out = std::sync::Arc::new(out);
+    table.insert(key, out.clone());
     out
 }
 
@@ -388,35 +425,59 @@ pub fn project_rule_ids(data_root: &Path, project_root: &Path, lang: &str) -> st
 /// grounding evidence for construct selection: a law names constructs that live in the code it
 /// governs, so the project itself is the one corpus that is ALWAYS available, in any language,
 /// with no shapes assumed. Pass an empty map when compiling rules with no project in hand.
+/// The project's code as grounding input, served LAZILY (LINTER.md, "Warm runs replay
+/// per-file verdicts"): fingerprints come from cached content seeds — no file reads — and the
+/// full sources are pulled only on the rare path that actually needs them (an overlay
+/// recompiling against its grounding universe).
+pub trait ProjectSource: Sync {
+    /// XOR of the language's file content seeds — the grounding fingerprint that keys the
+    /// overlay to the project's code.
+    fn fingerprint(&self, lang: &str) -> u64;
+    /// The language's full sources `(rel path, contents)` — the overlay's grounding universe.
+    fn sources(&self, lang: &str) -> Vec<(String, String)>;
+}
+
+/// A run with no project grounding (the machine-wide train batch): fingerprint zero,
+/// no sources — law still compiles, through docs grounding and the evidence hierarchy.
+pub struct NoProject;
+
+impl ProjectSource for NoProject {
+    fn fingerprint(&self, _lang: &str) -> u64 {
+        0
+    }
+    fn sources(&self, _lang: &str) -> Vec<(String, String)> {
+        Vec::new()
+    }
+}
+
 pub fn ensure_models(
     langs: &[String],
     data_root: &Path,
     project_root: &Path,
-    project_code: &std::collections::BTreeMap<String, Vec<(String, String)>>,
+    project_code: &dyn ProjectSource,
 ) -> (TrainReport, HashMap<String, LangModel>) {
     // Languages are independent (own toolchain, own sources, own cache files), so they train in
     // PARALLEL — cold setup costs the slowest language, not the sum. Shared crawled sources are
     // deduplicated by the per-source crawl cache (`lint_docs`), so two languages reading the same
     // site never fetch it twice. Results merge in `langs` order, keeping the report deterministic.
-    let results: Vec<(TrainReport, Option<(String, LangModel)>)> = std::thread::scope(|s| {
-        let handles: Vec<_> = langs
-            .iter()
+    let t_spawn = std::time::Instant::now();
+    let results: Vec<(TrainReport, Option<(String, LangModel)>)> = {
+        use rayon::prelude::*;
+        langs
+            .par_iter()
             .map(|lang| {
-                s.spawn(move || {
-                    let t0 = std::time::Instant::now();
-                    let out = train_language(lang, data_root, project_root, project_code);
-                    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
-                        eprintln!("[lint-train] {lang}: {:.1}ms", t0.elapsed().as_secs_f64() * 1e3);
-                    }
-                    out
-                })
+                let t0 = std::time::Instant::now();
+                let out = train_language(lang, data_root, project_root, project_code);
+                if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+                    eprintln!("[lint-train] {lang}: {:.1}ms", t0.elapsed().as_secs_f64() * 1e3);
+                }
+                out
             })
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| h.join().expect("language training thread panicked"))
             .collect()
-    });
+    };
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-train] scope total {:.1}ms", t_spawn.elapsed().as_secs_f64() * 1e3);
+    }
     let mut report = TrainReport::default();
     let mut models = HashMap::new();
     for (r, model) in results {
@@ -452,12 +513,23 @@ fn train_language(
     lang: &str,
     data_root: &Path,
     project_root: &Path,
-    project_code: &std::collections::BTreeMap<String, Vec<(String, String)>>,
+    project_code: &dyn ProjectSource,
 ) -> (TrainReport, Option<(String, LangModel)>) {
     let mut report = TrainReport::default();
     let lang = &lang.to_string();
+    // Honest sub-stage accounting under HELPERS_LINT_TRACE — where a language's load time goes.
+    let trace_on = std::env::var_os("HELPERS_LINT_TRACE").is_some();
+    let mut splits: Vec<(&'static str, u128)> = Vec::new();
+    let mut last = std::time::Instant::now();
+    let mut mark = |splits: &mut Vec<(&'static str, u128)>, name: &'static str| {
+        let now = std::time::Instant::now();
+        splits.push((name, (now - last).as_micros()));
+        last = now;
+    };
     let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
+    mark(&mut splits, "version");
     let sources_fp = sources_fingerprint(data_root, lang);
+    mark(&mut splits, "sources_fp");
 
     // ── 1) The AI MODULE: fresh on disk → registry → read the docs → none (law-only). ──
     let mut module = load_module(lang)
@@ -524,24 +596,23 @@ fn train_language(
     if module.is_some() && !freshly_trained && !report.pulled.contains(lang) {
         report.reused.push(lang.clone());
     }
+    mark(&mut splits, "module");
 
     // ── 2) The PROJECT OVERLAY: law + machine corpus, compiled against the project itself. ──
     let law_rules = project_rules(data_root, project_root, lang);
+    mark(&mut splits, "law");
     let mut local_rules = law_rules;
     local_rules.extend(corpus_rules(data_root, lang));
+    mark(&mut splits, "corpus");
     let trusted: std::collections::HashSet<String> =
         local_rules.iter().map(|r| r.id.clone()).collect();
-    let project_fp = project_code
-        .get(lang)
-        .map(|files| {
-            files.iter().map(|(_, src)| crate::lint_ai::token_seed(src)).fold(0u64, |acc, h| acc ^ h)
-        })
-        .unwrap_or(0);
+    let project_fp = project_code.fingerprint(lang);
     let module_id = module
         .as_ref()
         .map(|m| format!("{}@{}@{}@{}", m.version, m.sources_fp, m.train_version, m.trained_at))
         .unwrap_or_default();
     let stamp = overlay_stamp_of(lang, data_root, &version, &local_rules, project_fp, &module_id);
+    mark(&mut splits, "stamp");
     let overlay = match load_overlay(lang, project_fp).filter(|o| o.stamp == stamp) {
         Some(o) => o,
         None => {
@@ -552,10 +623,7 @@ fn train_language(
             let reference = load_cache(lang).map(|c| c.doc_rules(lang).1).unwrap_or_default();
             let ground = crate::lint_match::Grounding {
                 reference,
-                project: project_code
-                    .get(lang)
-                    .map(|files| files.iter().map(|(_, src)| src.clone()).collect())
-                    .unwrap_or_default(),
+                project: project_code.sources(lang).into_iter().map(|(_, src)| src).collect(),
                 polarity: crate::lint_docs::document_polarity(data_root),
                 trusted: trusted.clone(),
                 flagged: Default::default(),
@@ -593,13 +661,20 @@ fn train_language(
         Some(m) if !crate::lint_match::prose_lang(lang) => (m.rules, m.concept),
         _ => (RuleSet::empty(lang), ConceptModel { rules: Vec::new() }),
     };
+    let model_id = crate::lint_ai::token_seed(&format!("{module_id}\u{1f}{}", overlay.stamp));
     let rules = RuleSet::merged(overlay.rules, module_rules);
     let concept = ConceptModel::merged(overlay.concept, module_concept);
+    mark(&mut splits, "overlay+merge");
+    if trace_on {
+        let parts: Vec<String> =
+            splits.iter().map(|(n, us)| format!("{n} {:.1}ms", *us as f64 / 1000.0)).collect();
+        eprintln!("[lint-train {lang}] {}", parts.join(", "));
+    }
     if rules.rule_count() == 0 {
         report.skipped.push((lang.clone(), "no rules found for this language".to_string()));
         return (report, None);
     }
-    (report, Some((lang.clone(), LangModel { rules, concept })))
+    (report, Some((lang.clone(), LangModel { rules, concept, id: model_id })))
 }
 
 /// Now, in unix seconds — module provenance timestamps.
@@ -816,7 +891,7 @@ fn extension_claims_universe() -> std::sync::Arc<std::collections::BTreeMap<Stri
 ///   4. an extension nothing claims IS the language name — unknown languages surface by name
 ///      and the run asks for their docs.
 pub fn resolve_language(name_or_ext: &str) -> String {
-    resolve_in(&extension_claims_universe(), name_or_ext)
+    resolve_graded_memo(&extension_claims_universe(), name_or_ext).0
 }
 
 /// The KNOWN language a docs code-block hint declares, or `None` when the label resolves to
@@ -830,7 +905,7 @@ pub fn hint_language(hint: &str) -> Option<String> {
         return None;
     }
     let universe = extension_claims_universe();
-    let (resolved, label_grade) = resolve_in_graded(&universe, &h);
+    let (resolved, label_grade) = resolve_graded_memo(&universe, &h);
     // Ledger #21: an incidental count-claim may route a FILE, never validate a LABEL — a
     // junk fence word that happens to appear after dots in some language's prose is no hint.
     if !label_grade {
@@ -849,8 +924,40 @@ pub fn foreign_example(lang: &str, hint: &str) -> bool {
 
 /// [`resolve_language`] over an explicit claims universe — the pure core, unit-testable
 /// against the committed bootstrap.
+#[cfg_attr(not(test), allow(dead_code))] // the bootstrap contract tests' explicit-universe entry
 fn resolve_in(universe: &std::collections::BTreeMap<String, ExtClaims>, name_or_ext: &str) -> String {
+    // Pure — no memo: tests hand this explicit universes the memo's generation cannot see.
     resolve_in_graded(universe, name_or_ext).0
+}
+
+/// [`resolve_in_graded`] memoized per universe GENERATION — the extension map's `(path,
+/// mtime)` key, the same witness [`extension_claims_universe`] caches by, so identical key
+/// means identical universe. The resolver is called once per walked file, and its linear
+/// scan over every language's claims was a measurable slice of the walk stage.
+fn resolve_graded_memo(
+    universe: &std::collections::BTreeMap<String, ExtClaims>,
+    name_or_ext: &str,
+) -> (String, bool) {
+    type Generation = (PathBuf, Option<std::time::SystemTime>);
+    type Memo =
+        std::sync::Mutex<Option<(Generation, std::collections::HashMap<String, (String, bool)>)>>;
+    static MEMO: Memo = std::sync::Mutex::new(None);
+    let path = extension_map_path();
+    let generation = (path.clone(), std::fs::metadata(&path).and_then(|m| m.modified()).ok());
+    let mut memo = MEMO.lock().unwrap_or_else(|e| e.into_inner());
+    let table = match memo.as_mut() {
+        Some((have, table)) if *have == generation => table,
+        _ => {
+            *memo = Some((generation, std::collections::HashMap::new()));
+            &mut memo.as_mut().expect("just set").1
+        }
+    };
+    if let Some(hit) = table.get(name_or_ext) {
+        return hit.clone();
+    }
+    let answer = resolve_in_graded(universe, name_or_ext);
+    table.insert(name_or_ext.to_string(), answer.clone());
+    answer
 }
 
 /// [`resolve_in`] plus the resolution's GRADE (ledger #21): `true` when it resolved through
@@ -883,9 +990,11 @@ fn resolve_in_graded(universe: &std::collections::BTreeMap<String, ExtClaims>, n
             .copied()
             .filter(|&c| c.saturating_mul(100) >= top);
         let prefix = lang.starts_with(&ext);
+        // First-letter anchoring compares CHARS: a docs fence hint can open with a multibyte
+        // character, and a byte slice there panicked the whole training batch.
         let elision = ext.len() >= 2
             && ext.len() < lang.len()
-            && lang.starts_with(&ext[..1])
+            && ext.chars().next() == lang.chars().next()
             && is_subsequence(&ext, lang);
         // Claimless candidacy needs a PROPER elision — interior letters dropped ("yml" from
         // "yaml"), never a bare prefix: "cs" must not be swallowed by "css" when nothing
@@ -1001,7 +1110,11 @@ fn resolve_rules(
             }
         }
     }
+    let t_seed = std::time::Instant::now();
     let (seed, seed_version) = seed_with_version(data_root, lang);
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-resolve {lang}] seed {:.1}ms", t_seed.elapsed().as_secs_f64() * 1e3);
+    }
     // A present seed that covers the detected version (or when no version is detectable / the seed
     // is unpinned) is used directly — no reason to crawl docs we already mirror. The seed carries
     // no reference code (its caps lean on the rules' own good examples).
@@ -1012,7 +1125,12 @@ fn resolve_rules(
     // READ it ourselves from the live docs. Cache the MEMORY we read (not pre-extracted rules),
     // keyed by the toolchain version, so the next run queries the same reading and only re-reads on
     // a version bump.
-    if let Some(memory) = crawl_learn(data_root, lang, version) {
+    let t_crawl = std::time::Instant::now();
+    let crawled = crawl_learn(data_root, lang, version);
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!("[lint-resolve {lang}] crawl_learn {:.1}ms", t_crawl.elapsed().as_secs_f64() * 1e3);
+    }
+    if let Some(memory) = crawled {
         let cat = LearnedCatalog {
             version: version.to_string(),
             train_version: TRAIN_VERSION.to_string(),
@@ -1252,6 +1370,31 @@ fn manifest_tool(url: &str) -> String {
 /// language's docs live. A manifest entry equal to the registry's URL set returns the
 /// registry's own source identities so existing page caches keep serving.
 pub(crate) fn resolved_sources(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
+    // Memoized per (lang, input file states): three files are read and parsed per call, and a
+    // warm run makes two calls per language for identical answers.
+    type Memo = std::sync::Mutex<
+        Option<std::collections::HashMap<String, Vec<crate::lint_docs::DocsSource>>>,
+    >;
+    static MEMO: Memo = std::sync::Mutex::new(None);
+    let state = file_state(&data_root.join("lint-index/sources.json"))
+        .rotate_left(1)
+        ^ file_state(&manifest_path()).rotate_left(2)
+        ^ file_state(&crate::lint_docs::learned_sources_path_pub()).rotate_left(3);
+    let key = format!("{}\u{1f}{lang}\u{1f}{state:x}", data_root.display());
+    {
+        let mut memo = MEMO.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(hit) = memo.get_or_insert_with(Default::default).get(&key) {
+            return hit.clone();
+        }
+    }
+    let answer = resolved_sources_uncached(data_root, lang);
+    let mut memo = MEMO.lock().unwrap_or_else(|e| e.into_inner());
+    memo.get_or_insert_with(Default::default).insert(key, answer.clone());
+    answer
+}
+
+/// [`resolved_sources`] proper — the manifest → registry → added-sources resolution.
+fn resolved_sources_uncached(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
     let registry = crawl_sources_from_config(data_root, lang);
     let mut out = match manifest_map().get(&lang.to_lowercase()) {
         // `[]` is the user disabling this language's docs OUTRIGHT — sites included; the run
@@ -1429,9 +1572,17 @@ fn seed_catalogs(data_root: &Path) -> Vec<String> {
     out
 }
 
-/// A `lint-index` entry is a rule catalog if it is a `*.json` and not the source registry.
+/// A `lint-index` entry is a rule catalog if it is a `*.json` and not one of our OTHER data
+/// families that live beside it: the source registry, the trusted-key anchor, the reading
+/// corpus list, and the machine-generated bootstraps (parsing the multi-megabyte English
+/// bootstrap as a candidate catalog cost every run of a seed-tier language ~19 ms — for a
+/// file that can never match).
 fn is_catalog_name(name: Option<&str>) -> bool {
-    matches!(name, Some(n) if n.ends_with(".json") && n != "sources.json")
+    matches!(name, Some(n) if n.ends_with(".json")
+        && n != "sources.json"
+        && n != "trusted-keys.json"
+        && n != "reading-sources.json"
+        && !n.ends_with("-bootstrap.json"))
 }
 
 /// The corpus folder's PROSE — teaching material the reader learns from (`extraDocs/*.md`/`.txt`,
@@ -1848,17 +1999,8 @@ fn overlay_stamp_of(lang: &str, data_root: &Path, version: &str, law: &[DocRule]
     h.update(project_fp.to_le_bytes());
     h.update(file_state(&cache_path(lang)).to_le_bytes());
     h.update(file_state(&crate::lint_docs::global_polarity_path()).to_le_bytes());
-    for dir in [data_root.join("lint-index"), lint_index_cache_dir()] {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-        let mut states: Vec<u128> = entries
-            .flatten()
-            .filter(|e| e.file_name().to_str().is_some_and(|n| n.ends_with(".json")))
-            .map(|e| file_state(&e.path()))
-            .collect();
-        states.sort_unstable();
-        for s in states {
-            h.update(s.to_le_bytes());
-        }
+    for s in lint_index_states(data_root).iter() {
+        h.update(s.to_le_bytes());
     }
     let mut rows: Vec<String> = law
         .iter()
@@ -1874,6 +2016,49 @@ fn overlay_stamp_of(lang: &str, data_root: &Path, version: &str, law: &[DocRule]
         s.push_str(&format!("{b:02x}"));
     }
     s
+}
+
+/// The sorted `(mtime, len)` states of every JSON data file under the two lint-index
+/// directories — the overlay stamp's shared input. Computed ONCE per data root and memoized
+/// (fingerprinted by the directories' own mtimes so a long-lived process stays correct):
+/// every language's stamp reads the same directories, and re-walking them per language was a
+/// measurable slice of every warm run.
+fn lint_index_states(data_root: &Path) -> std::sync::Arc<Vec<u128>> {
+    type Cache = std::sync::Mutex<Option<((PathBuf, u128), std::sync::Arc<Vec<u128>>)>>;
+    static CACHE: Cache = std::sync::Mutex::new(None);
+    let dirs = [data_root.join("lint-index"), lint_index_cache_dir()];
+    let dir_mtimes: u128 = dirs
+        .iter()
+        .map(|d| {
+            std::fs::metadata(d)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|t| t.as_nanos())
+                .unwrap_or(0)
+        })
+        .fold(0u128, |acc, t| acc.rotate_left(9) ^ t);
+    let key = (data_root.to_path_buf(), dir_mtimes);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((have, states)) = cache.as_ref() {
+        if *have == key {
+            return states.clone();
+        }
+    }
+    let mut states: Vec<u128> = Vec::new();
+    for dir in &dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        states.extend(
+            entries
+                .flatten()
+                .filter(|e| e.file_name().to_str().is_some_and(|n| n.ends_with(".json")))
+                .map(|e| file_state(&e.path())),
+        );
+    }
+    states.sort_unstable();
+    let states = std::sync::Arc::new(states);
+    *cache = Some((key, states.clone()));
+    states
 }
 
 /// A file's `(mtime, len)` folded into one value; `0` when absent. The stamp's cheap witness
@@ -2068,6 +2253,7 @@ mod tests {
     #[test]
     fn foreign_example_gate_trusts_only_known_language_hints() {
         for (lang, hint, want) in [
+            ("javascript", "日本語", false), // multibyte label: no hint, and NEVER a panic
             ("javascript", "html", true),   // MDN js page's html block
             ("javascript", "css", true),    // …or css block
             ("javascript", "bash", true),   // …or a curl example

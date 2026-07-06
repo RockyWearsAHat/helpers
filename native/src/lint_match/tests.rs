@@ -92,7 +92,7 @@ fn every_named_construct_shape_wins_selection_in_every_phrasing() {
                 let ground = Grounding {
                     project: if grounding == "project" { corpus.clone() } else { Vec::new() },
                     reference: if grounding == "reference" { corpus } else { Vec::new() },
-                    polarity: Some(ground_with_reader()),
+                    polarity: Some(std::sync::Arc::new(ground_with_reader())),
                     ..Default::default()
                 };
                 let view = GroundView::of("qqlang", &ground);
@@ -171,7 +171,7 @@ fn a_law_fires_on_code_and_never_on_strings_comments_or_substrings() {
     let rules = [rule("no_zap", "", "", "Never call zap in committed code; use the structured logger instead.")];
     let mut ground = Grounding {
         project: vec!["zap(1)".into()],
-        polarity: Some(ground_with_reader()),
+        polarity: Some(std::sync::Arc::new(ground_with_reader())),
         ..Default::default()
     };
     ground.trusted.insert("no_zap".into());
@@ -210,7 +210,7 @@ fn the_firing_universe_follows_grounding_and_the_authors_marking() {
     for (id, law, project, must_fire, must_not) in UNIVERSE_ROWS {
         let mut ground = Grounding {
             project: vec![project.to_string()],
-            polarity: Some(ground_with_reader()),
+            polarity: Some(std::sync::Arc::new(ground_with_reader())),
             ..Default::default()
         };
         ground.trusted.insert(id.to_string());
@@ -269,7 +269,7 @@ fn neutral_guidance_prose_compiles_no_detector_but_prohibition_does() {
     // English understanding separates READING material from LAW: a concept/guidance span
     // ("use X when …") teaches the model but states no violation, so it must not become a
     // firing pattern; a prohibition names a violation and must.
-    let ground = Grounding { reference: Vec::new(), polarity: Some(polarity()), ..Default::default() };
+    let ground = Grounding { reference: Vec::new(), polarity: Some(std::sync::Arc::new(polarity())), ..Default::default() };
     let guidance = [rule(
         "use_arraylist",
         "",
@@ -292,7 +292,7 @@ fn neutral_guidance_prose_compiles_no_detector_but_prohibition_does() {
     assert_eq!(ungrounded.rule_count(), 0, "no code evidence → no learned detector");
     let grounded = Grounding {
         reference: vec!["value = eval(source)".into()],
-        polarity: Some(polarity()),
+        polarity: Some(std::sync::Arc::new(polarity())),
         ..Default::default()
     };
     let set = RuleSet::build("python", &prohibition, &grounded);
@@ -306,7 +306,7 @@ fn project_law_compiles_even_when_its_register_reads_ambiguous() {
     // ("never", "call") are ordinary reference-doc vocabulary — Rust and TypeScript both have
     // a `never` type — so the classifier abstains. The rule file is the label: trusted ids
     // bypass the register reading entirely.
-    let mut ground = Grounding { reference: Vec::new(), polarity: Some(polarity()), ..Default::default() };
+    let mut ground = Grounding { reference: Vec::new(), polarity: Some(std::sync::Arc::new(polarity())), ..Default::default() };
     let rules = [rule("no_eval", "", "", "Never call `eval` anywhere in this project; parse the input explicitly.")];
     let gated = RuleSet::build("python", &rules, &ground);
     ground.trusted.insert("no_eval".to_string());
@@ -321,7 +321,7 @@ fn project_law_compiles_even_when_its_register_reads_ambiguous() {
 fn example_backed_rules_also_need_a_forbidding_sentence_unless_trusted() {
     // A teaching section's fenced illustration reads as a "bad example" only by document
     // order — without a forbidding sentence the whole rule is reading material, not law.
-    let mut ground = Grounding { reference: Vec::new(), polarity: Some(polarity()), ..Default::default() };
+    let mut ground = Grounding { reference: Vec::new(), polarity: Some(std::sync::Arc::new(polarity())), ..Default::default() };
     let rules = [rule(
         "q_rule",
         "xs = mutcell(1, 2, 3)",
