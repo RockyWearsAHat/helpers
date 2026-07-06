@@ -390,6 +390,29 @@ fn container_good_example_does_not_neutralize_the_rule() {
 }
 
 #[test]
+fn example_identifier_never_welds_into_the_detector_when_a_single_token_discriminates() {
+    // no_var_declaration-class docs: bad and good differ ONLY in the keyword (`var` vs
+    // `let`); the identifier (`count`) is shared. The relaxed pair pass, tried before the
+    // single token, once compiled `var … count` — welded to the example's own identifier —
+    // and every real `var` line without a `count` beside it went unflagged (LINTER.md,
+    // "Compile": most general detector that still discriminates).
+    let rules = [rule(
+        "no_var_declaration",
+        "var count = 1;",
+        "let count = 1;",
+        "Never declare variables with var. Its function-wide hoisting leaks bindings and hides scoping bugs. Declare with const, or let when reassignment is needed.",
+    )];
+    let set = RuleSet::build("javascript", &rules, &Grounding::default());
+    let hits = set.flag("const a = 1;\nvar leaky = 2;\nlet fine = 3;\nvar count = 4;\n");
+    assert_eq!(
+        lines_for(&hits, "no_var_declaration"),
+        vec![2, 4],
+        "the rule must fire on every var declaration, not only ones reusing the example's identifier: detector {:?}",
+        set.detector_of("no_var_declaration")
+    );
+}
+
+#[test]
 fn js_container_rule_fires_on_var_items() {
     let rules = [rule(
         "q_containers_js",
