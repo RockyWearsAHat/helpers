@@ -13,6 +13,11 @@ fn main() {
     let model = models.get("javascript").expect("model");
     // Warm one flag (lazy grammar init), then measure.
     let _ = model.rules.flag(&src);
+    let tiny = "var a = 1;\nlet b = 2;\n";
+    let _ = model.rules.flag(tiny);
+    let t = std::time::Instant::now();
+    for _ in 0..20 { let _ = model.rules.flag(tiny); }
+    println!("tiny flag: {:.0}µs/call ({} bytes)", t.elapsed().as_micros() as f64 / 20.0, tiny.len());
     for round in 0..3 {
         let t = std::time::Instant::now();
         let findings = model.rules.flag(&src);
