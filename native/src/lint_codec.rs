@@ -36,6 +36,8 @@ pub mod kind {
     /// Per-project whole-report replay container (LINTER.md, "An unchanged project replays
     /// the whole report").
     pub const REPLAY: u8 = 7;
+    /// The machine-global extension map (learned claims folded from every saved module).
+    pub const EXTMAP: u8 = 8;
 }
 
 /// Hard ceiling on a declared inflated DATA stream (defense in depth at load — a crafted

@@ -325,9 +325,23 @@ files resolved to a language named "md" while the module trained from CommonMark
 vs the registry's old "yml" name (the language is registered as "yaml" now — the docs' own
 name).
 
-**Lint never touches the network; setup does — no flags, ever.** A lint run is REPLAY-ONLY by
-construction: caches, the committed seed, and cached crawl pages (a `TRAIN_VERSION` bump still
-re-reads them from disk) — it runs on whatever is set up and ASKS, by name, for what is not.
+**Lint never learns from the network; setup does — no flags, ever.** A lint run is
+REPLAY-ONLY for knowledge: caches, the committed seed, and cached crawl pages (a
+`TRAIN_VERSION` bump still re-reads them from disk) — it runs on whatever is set up and
+ASKS, by name, for what is not. Two staleness rules keep results flowing while staying
+honest (user directive: files on disk are knowledge — read and run, never silently degrade):
+- **Outdated knowledge still enforces.** A module whose stamp is stale (an engine
+  version bump, a toolchain change, a sources edit) is loaded and used AS-IS when it still
+  decodes — old reading beats no reading — and the report names every such language in an
+  out-of-date footer instead of pretending the language is not set up. A module that no
+  longer decodes is genuinely unusable and falls back to the ask, as before.
+- **Lint may VALIDATE, never learn.** When (and only when) outdated modules were used, the
+  run spends a bounded moment (~1s budget) attempting the one cheap fix — a registry pull
+  of the current module (a couple MB of compiled artifact; never a crawl, never a page,
+  never a search). Finished in time ⇒ the next run is current and no footer prints.
+  Not finished ⇒ the results still return immediately with the footer: "validation not
+  completed — results may be out of date; connect to the internet soon so every linted
+  language is current." Crawling and all real acquisition stay in the SETUP verbs.
 All acquisition lives in the SETUP verbs, where being online is assumed and a network failure
 is reported plainly (it never caches a negative answer and never breaks the run). Setup
 acquires per language, in this order: (1) the **GitHub model registry** — published AI
@@ -636,7 +650,11 @@ discipline that killed ledger #8: toolchain versions live in `toolchains.json` b
 models, keyed by the resolved binary's `(path, mtime, len)` (absence keyed by a PATH
 fingerprint), so a warm run spawns no processes; extension resolution memoizes per universe
 generation; the lint-index directory states behind the overlay stamp are computed once per
-run, not once per language.
+run, not once per language. Nothing on the hot path parses JSON: the machine extension map
+is an `HLM1` binary (`extensions.bin`, kind 8; legacy `.json` reads once and migrates on
+the next fold), and the embedded extensions bootstrap — committed reviewable JSON by law —
+parses exactly once per process, not once per map generation (its parse was a measured
+multi-ms slice of every cold resolution).
 
 - **Fire**: each file is parsed once and its tree walked ONCE, and that single walk yields
   everything the run needs from the tree: AST patterns are indexed by the one node kind their
