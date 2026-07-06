@@ -21,6 +21,7 @@ pub mod lint_sign;
 pub mod lint_toolchain;
 pub mod lint_train;
 pub mod lint_replay;
+pub mod lint_kq;
 pub mod lint_checkers;
 pub mod lint_codec;
 pub mod linter;
@@ -32,3 +33,13 @@ pub mod registry;
 pub mod tfidf;
 pub mod tools;
 pub mod util;
+
+/// Serializes tests that mutate PROCESS environment (`HOME`, `HELPERS_LINT_MODELS`): the
+/// harness runs test modules in parallel threads, and an env mutation mid-flight corrupts
+/// any concurrent test resolving paths through the same variable (measured: a models
+/// redirect made the signing round-trip flake).
+#[cfg(test)]
+pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
