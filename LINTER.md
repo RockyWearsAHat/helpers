@@ -609,9 +609,14 @@ unsound (macOS fseventsd ingests kernel events on a ~10ms cadence, and neither
 `FSEventStreamFlushSync` nor `FSEventsGetCurrentEventId` can see an edit made microseconds
 before the check — an edit-then-lint replayed a stale CLEAN). Two witnesses qualify, and
 the replay has one tier per witness:
-- **The kqueue tier (steady state, microseconds).** The daemon holds an `EVFILT_VNODE`
-  watch (an `O_EVTONLY` fd) on every walked file, every directory, and the auxiliary
-  inputs; the knote is enqueued INSIDE `write`/`rename`/`unlink` themselves, so a
+- **The event tier (steady state, microseconds — kqueue on macOS, inotify on Linux).**
+  On macOS the daemon holds an `EVFILT_VNODE` watch (an `O_EVTONLY` fd) on every walked
+  file, every directory, and the auxiliary inputs; on Linux one inotify watch per
+  DIRECTORY covers its children (event records carry the child name — no fd-per-file),
+  with the same masks minus ATTRIB, the same memos, and the same protocol; a queue
+  overflow or a watched directory vanishing flips the set incomplete. Platforms without
+  an implementation (Windows today — `ReadDirectoryChangesW` is the named port) simply
+  run the stat tier: correct at milliseconds, never stale. the knote is enqueued INSIDE `write`/`rename`/`unlink` themselves, so a
   `kevent(timeout=0)` poll after an edit always sees it — no daemon sits in the path.
   A lint call is then one kevent drain + a memo lookup: zero events since the memo's
   generation ⇒ the stored body IS the answer, in single-digit microseconds of engine
