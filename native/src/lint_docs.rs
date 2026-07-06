@@ -535,7 +535,7 @@ fn crawled_source(
 /// Units-format marker folded into every cached version — bump when the unit FORMER
 /// changes shape or coverage (cached pages cannot re-form units without the HTML).
 #[cfg(feature = "crawl")]
-const UNITS_FORMAT: &str = "u1-block-units";
+const UNITS_FORMAT: &str = "u3-heading-bounded";
 
 /// Persist a source's crawled pages with the crawl timestamp (see [`CrawledSource`]).
 #[cfg(feature = "crawl")]
@@ -772,7 +772,18 @@ fn block_contexts(html: &str, blocks: &[(usize, usize, String)]) -> Vec<(String,
     let mut out = Vec::new();
     for (i, (open, _, code)) in blocks.iter().enumerate() {
         let prev_end = if i == 0 { 0 } else { blocks[i - 1].1 };
-        let prose = crate::doc_crawler::strip_tags(&html[prev_end..*open]);
+        // A HEADING is a hard boundary (LINTER.md, "Read"): the prose that governs a block
+        // never crosses into the previous section — without this cut a section's window
+        // swallowed the neutral intro above it and the mixed span classified as nothing.
+        // Slicing AT the '<' of the heading tag keeps the cut tag-safe by construction.
+        let window = &html[prev_end..*open];
+        let section_start = ["<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<H1", "<H2", "<H3"]
+            .iter()
+            .filter_map(|h| window.rfind(h))
+            .max()
+            .map(|pos| prev_end + pos)
+            .unwrap_or(prev_end);
+        let prose = crate::doc_crawler::strip_tags(&html[section_start..*open]);
         let tail_start = prose
             .char_indices()
             .rev()

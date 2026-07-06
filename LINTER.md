@@ -150,7 +150,12 @@ forces it regardless of age.
    and `/c/…`, never `/cpp`); a file seed (`…/bash.html`) scopes to its folder — the safety
    valves exist for exactly the day a seed mis-scopes.
 2. **Read**: the Reader learns the prose; `(governing prose, code example)` pairs are sliced at
-   *tag boundaries* (between `</pre>` and the next `<pre`) — never at byte offsets. **A
+   *tag boundaries* (between `</pre>` and the next `<pre`) — never at byte offsets — and a
+   HEADING is a hard boundary: the prose that governs a block never crosses into the
+   previous section (`<h1>`–`<h6>`, pure typography). Measured on the diversity contract's
+   MDN-reference shape: without the heading cut, a section's prohibition window swallowed
+   the tail of the neutral intro above it, the mixed span classified as nothing, and the
+   rule never minted — the same dilution real reference pages produce. **A
    blockless section cannot teach law yet** (built, measured, reverted — 2026-07-06):
    units exist only per `<pre>` block, so a section that states a prohibition in plain
    prose with no example block forms no unit and cannot mint — MDN's "Never use direct
@@ -974,6 +979,21 @@ with an attacker contract, exactly as the two registry contracts already do.
   belongs to the side-count/asymmetric-grounding design (a Flagged verdict is strong evidence;
   a Clean verdict says "parses", not "endorsed") — design it in this file first, per ledger #7
   discipline; do not special-case linter-doc vocabulary.
+- **Governance is association, not adjacency (learned page understanding).** The extraction
+  windows have accumulated three heuristics answering one question — which prose governs
+  which code (`GOVERNING_CTX` tail, the 40-word lead-in, the heading cut) — and stacked
+  hand rules are the tell that the mechanism is wrong. The author's own typography stays
+  DATA (`<pre>`/fences mark code, anchors name sections — grounding needs exact code bytes,
+  and a learned segmenter that is 95% right poisons 5% of the toolchain labels the whole
+  classifier rests on), but OUR windows should dissolve into comprehension: the Reader
+  already forms `prose_hv ⊗ code_hv` bindings, so a block's governing prose is the page's
+  SENTENCES whose prose-Hv binds strongest to the block's code-Hv — association decides,
+  byte distance only breaks ties ("Binding.bind stored but not similarity-queried" is this
+  gap). One step further, the reader's own prediction-error spikes are a LEARNED section
+  boundary (topic shift = surprise) — no heading tag consulted at all, which folds this
+  into the latent-sequence design below. Until then the heading cut above is explicitly
+  interim mechanism: typography-only, no vocabulary, and replaced by association when this
+  lands (spec-first, with the diversity contract as its acceptance gate).
 - **Latent-sequence reasoning ("brain waves").** Inference is already Hv-native end to end;
   a rolling-context classifier (prototypes over context space, not bag space) is the designed
   next step for clause understanding without any typography.
