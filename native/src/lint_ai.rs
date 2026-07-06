@@ -322,8 +322,15 @@ impl ConceptModel {
             fired.push(fired_idx);
             batch_slots.push(i);
         }
+        // A tie is STATISTICAL (LINTER.md, "Hv concept gate"): one line can violate the
+        // fired rule while legitimately containing another rule's territory (`var doubled =
+        // eval(…)` put the eval concepts 85 bits nearer and winner-take-all killed a true
+        // finding), so the fired rule loses only when the nearest concept beats it by more
+        // than 3σ of the code geometry's distance noise — within that band the distances
+        // are indistinguishable and the finding is kept.
+        let tie_band = (3.0 * (DIM as f64).sqrt() / 2.0) as u32;
         for (row, slot) in crate::hv_batch::gate(&queries, &keys, &fired).into_iter().zip(batch_slots) {
-            verdicts[slot] = row.fired_dist <= row.nearest_dist;
+            verdicts[slot] = row.fired_dist <= row.nearest_dist.saturating_add(tie_band);
         }
         verdicts
     }
@@ -528,6 +535,36 @@ mod tests {
         // Evidence-based rejection still stands: a construct whose tokens a DIFFERENT
         // concept fully accounts for is rejected, noise floor or not.
         assert!(!model.confirms("no-with", &["eval", "userInput"]));
+    }
+
+    #[test]
+    fn a_line_violating_one_rule_while_mentioning_anothers_territory_still_flags() {
+        // `var doubled = eval("total * 2")`: the construct contains the eval concept's
+        // territory, which can sit a few dozen bits nearer than the fired var rule — a
+        // statistical tie, not evidence of an incidental hit. The fired rule must lose
+        // only past the 3σ tie band (LINTER.md, "Hv concept gate").
+        let rules = vec![
+            (
+                "no_var_declaration".to_string(),
+                "Never declare variables with var. Declare with const, or let when reassignment is needed.".to_string(),
+                "var count = 1;".to_string(),
+            ),
+            (
+                "no_eval".to_string(),
+                "Never call eval. It executes arbitrary strings as code. Parse the input explicitly instead.".to_string(),
+                "const result = eval(expression);".to_string(),
+            ),
+        ];
+        let model = ConceptModel::compile(&rules, "javascript");
+        let line = ["var", "doubled", "eval", "total"];
+        assert!(
+            model.confirms("no_var_declaration", &line),
+            "the var half of a double violation must survive the gate"
+        );
+        assert!(
+            model.confirms("no_eval", &line),
+            "the eval half of a double violation must survive the gate"
+        );
     }
 
     #[test]
