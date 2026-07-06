@@ -52,7 +52,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v42-common-language-first";
+const TRAIN_VERSION: &str = "docs-v44-traceable-detectors";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -485,7 +485,7 @@ fn train_language(
     }
     let mut freshly_trained = false;
     if module.is_none() {
-        let (doc_rules, reference, extensions, learned_from) =
+        let (doc_rules, reference, extensions, learned_from, flagged) =
             resolve_rules(data_root, lang, &version, &mut report);
         if learned_from == "nothing" {
             report.unlearned.push(lang.clone());
@@ -501,6 +501,7 @@ fn train_language(
                 project: Vec::new(),
                 polarity: crate::lint_docs::document_polarity(data_root),
                 trusted: std::collections::HashSet::new(),
+                flagged,
             };
             let m = Module {
                 version: version.clone(),
@@ -556,6 +557,7 @@ fn train_language(
                     .unwrap_or_default(),
                 polarity: crate::lint_docs::document_polarity(data_root),
                 trusted: trusted.clone(),
+                flagged: Default::default(),
             };
             let tuples: Vec<(String, String, String, String, String, String)> = local_rules
                 .iter()
@@ -747,6 +749,29 @@ pub fn resolve_language(name_or_ext: &str) -> String {
     resolve_in(&extension_claims_universe(), name_or_ext)
 }
 
+/// The KNOWN language a docs code-block hint declares, or `None` when the label resolves to
+/// nothing this machine knows (LINTER.md, ledger #18): junk fence labels ("output", "plain")
+/// are not hints, and treating them as languages would silently discard real examples. A label
+/// is knowledge when resolution transformed it (an alias/typography match — "js" ⇒ javascript)
+/// or the resolved name itself holds a claims entry.
+pub fn hint_language(hint: &str) -> Option<String> {
+    let h = hint.trim().to_lowercase();
+    if h.is_empty() || h == "any" {
+        return None;
+    }
+    let universe = extension_claims_universe();
+    let resolved = resolve_in(&universe, &h);
+    (resolved != h || universe.contains_key(&h)).then_some(resolved)
+}
+
+/// Whether a code block hinted `hint` belongs to a DIFFERENT known language than the one
+/// training — the gate that keeps a polyglot page's foreign examples (an MDN JavaScript page's
+/// HTML block) out of this language's bindings, grounding, and reference corpus. The block's
+/// prose is still read; only its claim to be THIS language's code is refused.
+pub fn foreign_example(lang: &str, hint: &str) -> bool {
+    hint_language(hint).is_some_and(|h| h != lang)
+}
+
 /// [`resolve_language`] over an explicit claims universe — the pure core, unit-testable
 /// against the committed bootstrap.
 fn resolve_in(universe: &std::collections::BTreeMap<String, ExtClaims>, name_or_ext: &str) -> String {
@@ -874,7 +899,7 @@ fn resolve_rules(
     lang: &str,
     version: &str,
     report: &mut TrainReport,
-) -> (Vec<DocRule>, Vec<String>, ExtClaims, String) {
+) -> (Vec<DocRule>, Vec<String>, ExtClaims, String, std::collections::HashSet<u64>) {
     let refresh = std::env::var_os("HELPERS_LINT_REFRESH").is_some();
     let sources_fp = sources_fingerprint(data_root, lang);
     if !refresh {
@@ -883,7 +908,8 @@ fn resolve_rules(
                 let (rules, reference) = cat.doc_rules(lang);
                 if !rules.is_empty() {
                     let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
-                    return (rules, reference, exts, format!("cache:{}", cat.learned_from));
+                    let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
+                    return (rules, reference, exts, format!("cache:{}", cat.learned_from), flagged);
                 }
             }
         }
@@ -894,7 +920,7 @@ fn resolve_rules(
     // no reference code (its caps lean on the rules' own good examples).
     let seed_current = !seed.is_empty() && (version.is_empty() || seed_version.is_empty() || seed_version == version);
     if !refresh && seed_current {
-        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string());
+        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default());
     }
     // READ it ourselves from the live docs. Cache the MEMORY we read (not pre-extracted rules),
     // keyed by the toolchain version, so the next run queries the same reading and only re-reads on
@@ -915,14 +941,15 @@ fn resolve_rules(
         // up, not "unlearned". Only a source that could not be READ falls through.
         report.crawled.push(lang.to_string());
         let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
+        let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
         save_cache(lang, &cat);
-        return (rules, reference, exts, "live docs".to_string());
+        return (rules, reference, exts, "live docs".to_string(), flagged);
     }
     // Offline or crawl-disabled: fall back to the snapshot (stale is better than nothing).
     if !seed.is_empty() {
-        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string());
+        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default());
     }
-    (Vec::new(), Vec::new(), ExtClaims::new(), "nothing".to_string())
+    (Vec::new(), Vec::new(), ExtClaims::new(), "nothing".to_string(), Default::default())
 }
 
 /// READ `lang`'s official language documentation into an association [`crate::lint_read::Memory`].
@@ -1411,6 +1438,32 @@ fn file_state(p: &Path) -> u128 {
 
 #[cfg(test)]
 mod tests {
+
+    /// Ledger #18's gate, as a table: a hint that resolves to a KNOWN different language is
+    /// foreign; the training language's own aliases are not; junk fence labels are no hint at
+    /// all (excluding on them would silently discard real examples).
+    #[test]
+    fn foreign_example_gate_trusts_only_known_language_hints() {
+        for (lang, hint, want) in [
+            ("javascript", "html", true),   // MDN js page's html block
+            ("javascript", "css", true),    // …or css block
+            ("javascript", "bash", true),   // …or a curl example
+            ("javascript", "js", false),    // its own alias
+            ("javascript", "javascript", false),
+            ("html", "html", false),
+            ("html", "js", true),
+            ("rust", "rust", false),
+            ("javascript", "", false),      // undeclared ⇒ the page's language
+            ("javascript", "output", false), // junk label ⇒ no hint
+            ("javascript", "plain", false),
+        ] {
+            assert_eq!(
+                super::foreign_example(lang, hint),
+                want,
+                "foreign_example({lang:?}, {hint:?})"
+            );
+        }
+    }
 
     /// The committed extensions bootstrap must wire every registered language's canonical
     /// extension to it — the learned replacement for the deleted `file_lang` table, asserted

@@ -139,40 +139,114 @@ pub fn extract_code_blocks(html: &str) -> Vec<String> {
 /// text too, so the right extractor is chosen by the server's content type. Binary types never
 /// reach here (rejected at fetch). This is what lets the crawler pull *everything* a site serves.
 pub fn extract(content_type: &str, body: &str) -> Vec<(String, String)> {
+    extract_hinted(content_type, body).into_iter().map(|(p, c, _)| (p, c)).collect()
+}
+
+/// [`extract`] carrying each block's own LANGUAGE HINT as a third field — what the page itself
+/// declared this block to be (fence info string, `brush:`/`language-*` classes), "" when the
+/// block declares nothing. Sites are polyglot by default (LINTER.md, ledger #18): the hint is
+/// how a reader avoids binding an MDN JavaScript page's HTML example into javascript. The raw
+/// declared token is returned verbatim (lowercased); resolving it to a KNOWN language is the
+/// caller's judgment ([`crate::lint_train::hint_language`]) — extraction only reports what the
+/// author wrote.
+pub fn extract_hinted(content_type: &str, body: &str) -> Vec<(String, String, String)> {
     let ct = content_type.to_lowercase();
     if ct.contains("json") {
-        extract_sections_json(body)
+        extract_sections_json_hinted(body)
     } else if ct.contains("html") || ct.contains("xml") || body.contains("</") {
-        extract_sections_html(body)
+        extract_sections_html_hinted(body)
     } else {
         // Markdown / reStructuredText / plain text — fenced code blocks with their lead-in prose.
-        extract_sections_text(body)
+        extract_sections_text_hinted(body)
     }
 }
 
 /// Sections from a Markdown/plain-text body: each fenced ```code``` block paired with the prose
-/// just before it. No language assumptions — the optional info string after the fence is dropped.
-pub fn extract_sections_text(text: &str) -> Vec<(String, String)> {
+/// just before it and the fence's own info-string language label (the docs' declaration of what
+/// the block is — kept as the hint, never as an assumption).
+pub fn extract_sections_text_hinted(text: &str) -> Vec<(String, String, String)> {
     let parts: Vec<&str> = text.split("```").collect();
     let mut out = Vec::new();
     let mut i = 1;
     while i < parts.len() {
         let block = parts[i];
-        // Drop the fence info string (the first line after ```), keep the code body.
-        let code = block.split_once('\n').map(|(_, c)| c).unwrap_or(block).trim();
+        // The fence info string (the first line after ```) is the block's language label; the
+        // body below it is the code.
+        let (info, code) = block.split_once('\n').unwrap_or(("", block));
+        let hint: String = info
+            .trim()
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '+' || *c == '#')
+            .collect::<String>()
+            .to_lowercase();
+        let code = code.trim();
         let local: String = words_tail(parts[i - 1], 40);
         if code.len() >= 3 && local.len() >= 8 {
-            out.push((local, code.to_string()));
+            out.push((local, code.to_string(), hint));
         }
         i += 2; // parts alternate prose / code / prose / code …
     }
     out
 }
 
+/// Back-compat pair view of [`extract_sections_text_hinted`].
+pub fn extract_sections_text(text: &str) -> Vec<(String, String)> {
+    extract_sections_text_hinted(text).into_iter().map(|(p, c, _)| (p, c)).collect()
+}
+
+/// The language a code block DECLARES for itself, or "" — pure HTML typography the page's own
+/// generator wrote: `class="brush: js"` (MDN), `class="language-css"` / `lang-rust`
+/// (Prism/highlight.js and most static generators) on the `<pre …>` open tag at `open`, or on a
+/// `<code …>` tag immediately inside it (Node.js docs, Docusaurus). No vocabulary: the token is
+/// whatever the author labeled, verbatim.
+pub fn block_lang_hint(html: &str, open: usize) -> String {
+    let Some(gt) = html[open..].find('>') else { return String::new() };
+    let mut tag = html[open..open + gt].to_ascii_lowercase();
+    let inner = html[open + gt + 1..].trim_start();
+    if inner.starts_with("<code") {
+        if let Some(cgt) = inner.find('>') {
+            tag.push(' ');
+            tag.push_str(&inner[..cgt].to_ascii_lowercase());
+        }
+    }
+    lang_label_in_tag(&tag)
+}
+
+/// The first language label inside an open tag's text: the token after `brush:` or after a
+/// `language-`/`lang-` class prefix. Alphanumeric plus `+`/`#` so `c++`/`c#` survive.
+fn lang_label_in_tag(tag: &str) -> String {
+    let token_at = |rest: &str| -> String {
+        rest.trim_start()
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '+' || *c == '#')
+            .collect()
+    };
+    if let Some(i) = tag.find("brush:") {
+        let tok = token_at(&tag[i + "brush:".len()..]);
+        if !tok.is_empty() {
+            return tok;
+        }
+    }
+    for marker in ["language-", " lang-", "\"lang-"] {
+        if let Some(i) = tag.find(marker) {
+            let tok = token_at(&tag[i + marker.len()..]);
+            if !tok.is_empty() {
+                return tok;
+            }
+        }
+    }
+    String::new()
+}
+
 /// Sections from a JSON body: walk to every string leaf and run the text/HTML extractor on it, so
 /// a rules file whose fields embed Markdown or HTML examples (e.g. clippy's `lints.json` `docs`)
 /// yields its (prose, code) pairs — no knowledge of the schema's field names required.
 pub fn extract_sections_json(body: &str) -> Vec<(String, String)> {
+    extract_sections_json_hinted(body).into_iter().map(|(p, c, _)| (p, c)).collect()
+}
+
+/// [`extract_sections_json`] carrying each embedded block's own language hint.
+pub fn extract_sections_json_hinted(body: &str) -> Vec<(String, String, String)> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
         return Vec::new();
     };
@@ -181,9 +255,9 @@ pub fn extract_sections_json(body: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for s in strings {
         if s.contains("```") {
-            out.extend(extract_sections_text(&s));
+            out.extend(extract_sections_text_hinted(&s));
         } else if s.contains("</") {
-            out.extend(extract_sections_html(&s));
+            out.extend(extract_sections_html_hinted(&s));
         }
     }
     out
@@ -221,6 +295,11 @@ fn words_tail(s: &str, n: usize) -> String {
 /// page pairing instead lets one ubiquitous construct (a doctest `assert_eq!`) co-occur with every
 /// concept on the page and blur the signal. The local window keeps each (prose, code) record tight.
 pub fn extract_sections_html(html: &str) -> Vec<(String, String)> {
+    extract_sections_html_hinted(html).into_iter().map(|(p, c, _)| (p, c)).collect()
+}
+
+/// [`extract_sections_html`] carrying each block's own language hint ([`block_lang_hint`]).
+pub fn extract_sections_html_hinted(html: &str) -> Vec<(String, String, String)> {
     let h = drop_script_style(html);
     let mut out = Vec::new();
     for (open, close) in [("<pre", "</pre>"), ("<code", "</code>")] {
@@ -238,7 +317,7 @@ pub fn extract_sections_html(html: &str) -> Vec<(String, String)> {
             let ctx_start = floor_char_boundary(&h, start.saturating_sub(1500));
             let local = words_tail(&strip_tags(&h[ctx_start..start]), 40);
             if code.len() >= 3 && local.len() >= 8 {
-                out.push((local, code));
+                out.push((local, code, block_lang_hint(&h, start)));
             }
             search_from = body_start + end_rel + close.len();
         }
@@ -421,28 +500,123 @@ mod net {
 
     /// [`fetch`] plus the response's `Last-Modified` (unix seconds) — the per-page freshness
     /// anchor the verification sweep stores and revalidates against.
+    /// Circuit-breaker state per origin, process-local: (has ever answered, transport failures).
+    fn origin_state() -> &'static std::sync::Mutex<std::collections::HashMap<String, (bool, u32)>> {
+        static STATE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, (bool, u32)>>> =
+            std::sync::OnceLock::new();
+        STATE.get_or_init(Default::default)
+    }
+
+    /// `scheme://host` of a URL — the breaker's unit (a dead HOST is dead for every path).
+    fn origin_of(url: &str) -> String {
+        let end = url.find("://").map(|i| i + 3).unwrap_or(0);
+        let host_end = url[end..].find('/').map(|i| end + i).unwrap_or(url.len());
+        url[..host_end].to_string()
+    }
+
+    /// True when this origin transport-failed without ever answering this process.
+    fn origin_is_dead(url: &str) -> bool {
+        origin_state()
+            .lock()
+            .map(|m| m.get(&origin_of(url)).is_some_and(|(ok, fails)| !ok && *fails >= 1))
+            .unwrap_or(false)
+    }
+
+    /// Record that this origin answered (any HTTP status — the wire works).
+    fn origin_answered(url: &str) {
+        if let Ok(mut m) = origin_state().lock() {
+            m.entry(origin_of(url)).or_insert((false, 0)).0 = true;
+        }
+    }
+
+    /// Record a transport failure against this origin.
+    fn origin_failed(url: &str) {
+        if let Ok(mut m) = origin_state().lock() {
+            m.entry(origin_of(url)).or_insert((false, 0)).1 += 1;
+        }
+    }
+
+    /// Whether `url`'s origin answers AT ALL, decided in seconds: a HEAD with a short
+    /// deadline (any HTTP status counts — 405 to HEAD is an answer). Skipped when the
+    /// breaker already knows the origin either way. Feeds the breaker so every later fetch
+    /// of a dead origin is instant.
+    fn origin_probe(url: &str) -> bool {
+        {
+            let state = origin_state().lock().ok();
+            if let Some(m) = state.as_ref() {
+                if let Some((ok, fails)) = m.get(&origin_of(url)) {
+                    if *ok {
+                        return true;
+                    }
+                    if *fails >= 1 {
+                        return false;
+                    }
+                }
+            }
+        }
+        static PROBE: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+        let agent = PROBE.get_or_init(|| {
+            ureq::AgentBuilder::new()
+                // ureq's overall `timeout` does NOT bound the CONNECT phase (its separate
+                // default is 30s) — a host that accepts nothing held every probe for that
+                // long. Both phases get the short deadline here.
+                .timeout_connect(Duration::from_secs(3))
+                .timeout(Duration::from_secs(3))
+                .user_agent("helpers-doc-crawler/1.0 (+direct-fetch)")
+                .build()
+        });
+        match agent.head(url).call() {
+            Ok(_) | Err(ureq::Error::Status(..)) => {
+                origin_answered(url);
+                true
+            }
+            Err(ureq::Error::Transport(_)) => {
+                super::NET_DOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+                origin_failed(url);
+                false
+            }
+        }
+    }
+
     pub fn fetch_meta(url: &str) -> Option<(String, String, Option<u64>)> {
+        // Per-run circuit breaker: an origin that transport-failed before EVER answering is
+        // dead for this process — stop paying its timeout on every subsequent page (measured:
+        // two unresponsive sites held a 0.4s all-languages train at 60s of pure waiting). A
+        // one-off timeout on an origin that HAS answered never trips it, and nothing is
+        // cached across runs — the next setup run probes the site fresh (LINTER.md: a
+        // network failure is reported plainly, never cached as a negative answer).
+        if origin_is_dead(url) {
+            return None;
+        }
         // ONE pooled agent for the whole process: ureq keeps connections alive per host, so a
         // whole-site crawl pays TCP+TLS once per host per lane instead of once per page — a
         // fresh agent per request made the handshake the crawl's dominant wall time.
         static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
         let agent = AGENT.get_or_init(|| {
             ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(5))
                 .timeout(Duration::from_secs(10))
                 .max_idle_connections_per_host(256)
                 .user_agent("helpers-doc-crawler/1.0 (+direct-fetch)")
                 .build()
         });
         let resp = match agent.get(url).call() {
-            Ok(resp) => resp,
+            Ok(resp) => {
+                origin_answered(url);
+                resp
+            }
             // The site ANSWERED (an HTTP status): the network is fine, this URL just has
             // nothing for us.
-            Err(ureq::Error::Status(..)) => return None,
+            Err(ureq::Error::Status(..)) => {
+                origin_answered(url);
+                return None;
+            }
             // TRANSPORT failure: the network itself is unreachable. Latch it — the run keeps
             // linting from caches, callers stop caching negative answers, and the report asks
             // to reconnect instead of failing (LINTER.md, "No connectivity flags").
             Err(ureq::Error::Transport(_)) => {
                 super::NET_DOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+                origin_failed(url);
                 return None;
             }
         };
@@ -614,6 +788,17 @@ mod net {
         /// Concurrent connections per wave inside a level — bounded so a thousand-page level
         /// does not spawn a thousand sockets at once.
         const WAVE: usize = 192;
+        // Pre-flight: probe each seed's origin with a SHORT deadline before mapping. A
+        // stalling host (alive TCP, no bytes — bot mitigation, dying server) otherwise costs
+        // a full fetch timeout per phase (measured: one such site held an all-languages
+        // 0.4s setup at 30s); a healthy origin answers this in milliseconds. The probe's
+        // verdict feeds the same per-run breaker `fetch_meta` consults — nothing is cached
+        // across runs.
+        let seeds: Vec<&str> = seeds.iter().copied().filter(|s| origin_probe(s)).collect();
+        if seeds.is_empty() {
+            return Vec::new();
+        }
+        let seeds = seeds.as_slice();
         let mut seen: HashSet<String> = seeds.iter().map(|s| s.to_string()).collect();
         let mut level: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
         for url in sitemap_urls(seeds) {
@@ -738,5 +923,32 @@ mod tests {
         assert!(links.iter().any(|l| l.ends_with("/docs/a.html")));
         assert!(links.iter().any(|l| l.ends_with("/b.html")));
         assert!(!links.iter().any(|l| l.contains("mailto")), "mailto dropped");
+    }
+
+    /// Ledger #18, as a table: every markup style real generators use declares its block's
+    /// language, and extraction reports exactly that token — or "" when nothing is declared.
+    #[test]
+    fn block_language_hints_are_read_from_every_real_markup_style() {
+        let cases: &[(&str, &str)] = &[
+            (r#"<pre class="brush: html">&lt;div&gt;&lt;/div&gt;</pre>"#, "html"),      // MDN legacy
+            (r#"<pre class="brush: js example-bad">var x;</pre>"#, "js"),               // MDN + marker
+            (r#"<pre class="language-css">a { color: red }</pre>"#, "css"),             // Prism
+            (r#"<pre><code class="language-js">require("x")</code></pre>"#, "js"),      // Node docs
+            (r#"<pre class="lang-rust">let x = 1;</pre>"#, "rust"),                     // highlight.js
+            (r#"<pre>plain block, no declaration</pre>"#, ""),                          // undeclared
+        ];
+        for (html, want) in cases {
+            let open = html.find("<pre").expect("fixture has a pre");
+            assert_eq!(
+                block_lang_hint(html, open),
+                *want,
+                "hint of {html:?}"
+            );
+        }
+        // Fenced text: the info string is the declaration.
+        let md = "Some governing prose sits here.\n```css\na { color: red }\n```\n";
+        let secs = extract_sections_text_hinted(md);
+        assert_eq!(secs.len(), 1);
+        assert_eq!(secs[0].2, "css", "fence info string is the hint");
     }
 }

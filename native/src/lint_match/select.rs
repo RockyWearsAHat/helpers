@@ -167,6 +167,11 @@ pub struct Grounding {
     /// rule file is the label: everything a user writes there is law by location, so these are
     /// exempt from the prohibition gate exactly as the live path exempts them from the Hv gate.
     pub trusted: std::collections::HashSet<String>,
+    /// Token seeds of the example codes the toolchain FLAGGED during grounding — the
+    /// reality-tested labels (LINTER.md, ledger #19). The example-diff compile path may keep
+    /// literal example tokens only for an example in here (or when the law's own words name
+    /// them): a Clean-parsing example's identifiers are just code the docs showed.
+    pub flagged: std::collections::HashSet<u64>,
 }
 
 /// [`Grounding`] precomputed for one `RuleSet::build` run: the reference corpus flattened to an
