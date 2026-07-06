@@ -617,13 +617,29 @@ pub fn tally_name_aliases(lang: &str, text: &str, tally: &mut std::collections::
         }
         let abbr = &lower[abbr_start..abbr_end];
         // A definition, not a parenthetical remark: the run closes the parens itself
-        // ("(JS)", never "(around four years)") and an abbreviation ABBREVIATES — it is
-        // strictly shorter than the name (which also makes single-letter names like "c"
-        // alias-free: they resolve as themselves).
+        // ("(JS)", never "(around four years)"), it is strictly shorter than the name, and —
+        // ledger #20 — an abbreviation ABBREVIATES: its letters come FROM the name, first
+        // letter anchored, in order ("js" ⊆ javascript, "ts" ⊆ typescript). Real docs write
+        // "Python (REPL)", "Kotlin (J2K)", "Erlang (BEAM)" — true parentheticals that are
+        // NOT the language's short name, and at maximal strength one such line dethroned
+        // `.py` from python machine-wide.
+        let abbreviates = abbr.len() >= 2
+            && abbr.starts_with(&name[..1])
+            && {
+                let mut rest = name.as_bytes();
+                abbr.bytes().all(|b| {
+                    if let Some(i) = rest.iter().position(|&n| n == b) {
+                        rest = &rest[i + 1..];
+                        true
+                    } else {
+                        false
+                    }
+                })
+            };
         if bytes.get(abbr_end) == Some(&b')')
-            && abbr.len() >= 2
             && abbr.len() < name.len()
             && abbr.bytes().any(|b| b.is_ascii_alphabetic())
+            && abbreviates
         {
             tally.insert(abbr.to_string(), u32::MAX);
         }

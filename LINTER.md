@@ -230,7 +230,8 @@ vocabulary, no extension list anywhere):
   (measured: it deleted `.js`/`.php` where they belong and kept `.tostring`).
 - **the docs' own name definition** — the parenthetical "JavaScript (JS)" / "TypeScript (TS)"
   is documentation introducing its own short name; the abbreviation (strictly shorter, closing
-  the parens itself) claims maximal strength. This is what keeps `.js` javascript even though
+  the parens itself, and ABBREVIATING — its letters drawn from the name, first-letter-anchored,
+  in order; ledger #20) claims maximal strength. This is what keeps `.js` javascript even though
   the TS handbook *mentions* `.js` more than MDN's whole JavaScript tree (103 vs 11 dot-led —
   measured; every pure count hands `.js` to typescript).
 
@@ -312,6 +313,32 @@ anything. Every control follows from that:
   content the maintainer's own pipeline built from reviewed inputs, unmodified since signing.
   The remaining trust decision — "is this URL really the official documentation?" — is
   exactly the human-sized question the PR review exists to answer.
+
+**A site is a source — hand the WEBSITE, get a module per language it teaches.** A source may
+be registered for one language (a seed scoped to that language's tree) or as a SITE
+(`kind:"site"` in the registry; the `sites` list of the manifest): the whole site is mapped
+once into the shared page cache, every PAGE is attributed to the language it documents, and
+one module trains per language discovered — nobody feeds per-language subdomain URLs unless
+they want to pin one. Attribution is the same learned resolution everything else uses
+(ledger #16/#18's resolver — claims + name typography, never a vocabulary), asked at three
+levels, first answer wins:
+
+1. **The page's own declarations** — the majority language among its code blocks' hints
+   (`brush: js`, `language-css`, fence info): documentation labels its own examples.
+2. **URL typography** — a path segment that resolves to a known language (`…/docs/Web/CSS/…`,
+   `…/w/cpp/…`): sites file their languages the way projects file their sources.
+3. **The host's own name** — a host label resolving through name typography (`docs.python.org`
+   ⇒ python, `kotlinlang.org` ⇒ kotlin, `go.dev` ⇒ go): a single-language site says its
+   language in its name.
+
+A page attributing to nothing is reading material for every language the site teaches — prose
+comprehension, never rules. Within an attributed page the block-hint gate (#18) still routes
+each foreign-labeled example out, so an MDN JavaScript page's CSS block stays CSS wherever the
+page landed. Unhinted blocks inherit their page's attribution — which is also what keeps a
+PER-LANGUAGE source honest: its pages attribute to it or to nothing, and a page that
+positively attributes ELSEWHERE is routed out rather than bound. Discovery feeds the same
+self-assembly seam: languages a site teaches join the trained set exactly as if each had been
+registered by hand, and the manifest backfills to show them.
 
 **The language manifest — one file says where every language's instructions come from.**
 `~/.config/helpers/languages.json` maps each language to the documentation URLs it is trained
@@ -670,6 +697,16 @@ fire → guard → gate → quarantine → config/feedback → report.
    whenever a classifier is rendering verdicts; with no classifier the author's material is
    trusted, as at the entry gate. The AST path is untouched (structured patterns carry their
    own discrimination and the reference-fire gate).*
+
+20. **A genuine parenthetical dethroned a language's own extension machine-wide** (the docs'
+   name-definition rule grants maximal claim strength, and real prose writes "Python (REPL)",
+   "Kotlin (J2K)", "Erlang (BEAM)", none of which is the language's short name — python's
+   primary claim became `repl` at MAX, its real `py` claim fell out of the primary band, the
+   bare-prefix guard blocked typography candidacy, and `.py` resolved to MARKDOWN off
+   markdown's incidental `py` mentions: every python file on the machine silently linted as
+   prose) → *an abbreviation ABBREVIATES: the parenthetical's letters must come from the name
+   itself, first-letter-anchored, in order ("js" ⊆ javascript; "repl" ⊄ python) — the same
+   elision typography the resolver already trusts, applied at the claim's birth.*
 
 ## The distribution channel (built) and the community network (deferred, decided)
 
