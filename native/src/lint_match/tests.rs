@@ -390,6 +390,30 @@ fn container_good_example_does_not_neutralize_the_rule() {
 }
 
 #[test]
+fn a_leaf_diff_keeps_its_context_so_the_remedy_never_fires() {
+    // no_mutable_default_argument-class docs: bad and good differ only in the default
+    // VALUE (`[]` vs `None`) — a childless novel subtree. Rooting the pattern at the bare
+    // leaf compiled "any empty list literal" and flagged the rule's own remedy
+    // (`items = []` inside the None-guard); the root must stay at the default_parameter.
+    let rules = [rule(
+        "no_mutable_default_argument",
+        "def append_item(item, items=[]):\n    items.append(item)\n    return items",
+        "def append_item(item, items=None):\n    if items is None:\n        items = []\n    items.append(item)\n    return items",
+        "Never use a mutable default argument. The one shared default instance leaks state across calls.",
+    )];
+    let set = RuleSet::build("python", &rules, &Grounding::default());
+    let hits = set.flag(
+        "def f(x, xs=[]):\n    return xs\n\n\ndef g(x, xs=None):\n    if xs is None:\n        xs = []\n    return xs\n",
+    );
+    assert_eq!(
+        lines_for(&hits, "no_mutable_default_argument"),
+        vec![1],
+        "must fire on the mutable default and never on the remedy assignment: detector {:?}",
+        set.detector_of("no_mutable_default_argument")
+    );
+}
+
+#[test]
 fn example_identifier_never_welds_into_the_detector_when_a_single_token_discriminates() {
     // no_var_declaration-class docs: bad and good differ ONLY in the keyword (`var` vs
     // `let`); the identifier (`count`) is shared. The relaxed pair pass, tried before the

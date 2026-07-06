@@ -169,7 +169,12 @@ fn novel_root<'t>(
     // A call is atomic — its callee IS the rule's identity (`range`, `re.sub`); never strip it by
     // descending into its arguments. So stop at a call even if the change is in an argument.
     let atomic = matches!(node.kind(), "call" | "call_expression" | "macro_invocation");
-    if novel.len() == 1 && good_kinds.contains(node.kind()) && !atomic {
+    // A CHILDLESS novel child never becomes the root (LINTER.md, "Compile"): a bare leaf
+    // is a degenerate pattern by definition, and stripping its context is what turned
+    // `items=[]`-as-default-parameter into "any empty list literal" — this node is the
+    // smallest construct that still says WHERE the leaf lives.
+    let leaf_child = novel.len() == 1 && meaningful_children(novel[0]).is_empty();
+    if novel.len() == 1 && good_kinds.contains(node.kind()) && !atomic && !leaf_child {
         novel_root(novel[0], shapes, good_shapes, good_kinds, good_children)
     } else {
         Some(node)

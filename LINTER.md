@@ -150,7 +150,29 @@ forces it regardless of age.
    and `/c/…`, never `/cpp`); a file seed (`…/bash.html`) scopes to its folder — the safety
    valves exist for exactly the day a seed mis-scopes.
 2. **Read**: the Reader learns the prose; `(governing prose, code example)` pairs are sliced at
-   *tag boundaries* (between `</pre>` and the next `<pre`) — never at byte offsets. **A site is
+   *tag boundaries* (between `</pre>` and the next `<pre`) — never at byte offsets. **A
+   blockless section cannot teach law yet** (built, measured, reverted — 2026-07-06):
+   units exist only per `<pre>` block, so a section that states a prohibition in plain
+   prose with no example block forms no unit and cannot mint — MDN's "Never use direct
+   eval()!" (a heading, prose, bullets, zero `<pre>`) is structurally invisible, and its
+   prose is tail-truncated into the NEXT block's window, cutting exactly the sentence that
+   states the law. LEAD units (slug + head-kept section prose + no code, minting prose-only
+   rules through the description path) were implemented and measured against the current
+   span classifier, which cannot read that section either way: the whole span classifies
+   ENDORSEMENT ("malicious … attacks" prose), the bare "Never use direct eval()" sentence
+   ABSTAINS ("never"/"use" carry near-zero information weight), while error-register
+   reference sections ("cannot be parsed…") classify prohibition as spans AND sentences —
+   so lead units minted 8–14 junk prose-only rules (54–105 findings on one repo) and zero
+   true ones. Both variants reverted; a regenerated bootstrap likewise failed its own
+   contract test (canonical "Never use goto…" → abstain) and was reverted — MORE reading
+   under the current accumulation makes the classifier worse, not better, because
+   clean-parsing pages' warning prose feeds the endorsement prototype. Re-land lead units
+   TOGETHER WITH the per-token side-count classifier (open problems; asymmetric grounding —
+   Flagged is evidence, Clean only means "parses"), never before it. What remains landed:
+   unit-former changes poison the crawl cache by
+   format marker (`UNITS_FORMAT` folded into the cached version): cached pages store formed
+   units, not HTML, so a former change re-crawls rather than silently keeping old units.
+   **A site is
    never assumed to document one language** (ledger #18): a page's TREE names the language a
    source is registered for (the seed scopes the crawl), but the page's own code blocks declare
    their individual languages — `class="brush: js"`, `language-css`, the fence info string —
@@ -170,6 +192,13 @@ forces it regardless of age.
    `bad ∧ ¬good` tree-diff (operations exact, operands bound wildcards, literals typed
    wildcards) or a discriminating token sequence (a single distinctive token, or an ordered
    same-line pair); prose-only rules → a detector derived by the evidence hierarchy below.
+   The tree-diff's descent to the smallest novel subtree stops one level above a CHILDLESS
+   node: a bare leaf as pattern root is degenerate by definition (the same classification
+   the reference-fire and quarantine tiers use), and stripping the leaf's context is what
+   turned `items=[]`-as-default-parameter into "any empty list literal" — the compiled
+   pattern flagged the rule's own remedy (`items = []` inside the None-guard). A novel
+   subtree that still has children keeps rooting the pattern itself (`scores = [90, 85,
+   77]`'s list still generalizes across contexts).
    Sequence selection prefers the most GENERAL detector that still discriminates: a pure
    `bad ∧ ¬good` pair (both tokens absent from the fix) first, then a single distinctive
    token, and only last a relaxed pair anchored on one token the fix shares — measured: with
@@ -641,7 +670,13 @@ run, not once per language.
   actually kept; among firing concepts the fired rule's own token mass keeps true hits
   nearest, and no blanket noise-band abstention is needed (tried and reverted: abstaining
   whenever the nearest concept sat in the random-distance band let every low-count scrape
-  rule through the gate).
+  rule through the gate). **A tie is statistical, not exact**: one line can violate one
+  rule while legitimately containing another rule's territory — `var doubled =
+  eval("total * 2")` put the eval concepts 85 bits nearer than the fired
+  `no_var_declaration` and winner-take-all killed a true finding — so the fired rule loses
+  only when the nearest concept beats it by more than 3σ of the code geometry's distance
+  noise (σ = `√DIM/2`; within that band the two distances are indistinguishable and the
+  finding is kept, the same "ties keep it" the gate always had).
 - **Quarantine**: a doc rule firing like scrape noise (≥20 hits and >1% of the lines of the
   RULE'S OWN LANGUAGE — for a *degenerate* detector ≥50 hits and >0.1%, the same two-tier the
   reference-fire gate uses, because a small reference corpus cannot witness a token that is

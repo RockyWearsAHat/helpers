@@ -174,7 +174,8 @@ pub fn read_language(
     use rayon::prelude::*;
     let probes: Vec<&(String, String, String, String)> = units
         .iter()
-        .filter(|(_, _, prose, _)| prose.split_whitespace().count() >= 3)
+        // Lead units carry no code — there is nothing for the toolchain to test.
+        .filter(|(_, _, prose, code)| code.len() >= 3 && prose.split_whitespace().count() >= 3)
         .take(MAX_GROUND_CHECKS)
         .collect();
     let verdicts: Vec<crate::lint_toolchain::Verdict> = probes
@@ -441,6 +442,10 @@ fn extract_crawled_page(
             (s, prose, code, hint)
         })
         .collect();
+    // Blockless sections form NO units for now (LINTER.md, "A blockless section cannot
+    // teach law yet"): lead units were built and measured — under the current classifier
+    // they minted only error-register junk while the true prohibition they were built for
+    // still failed its span. They re-land with the per-token side-count classifier.
     let lang = attribute_page(url, &units, extra_langs);
     let mut h = crate::lint_ai::token_seed(&prose) ^ crate::lint_ai::token_seed(&lang).rotate_left(4);
     for (a, b, c, d) in &units {
@@ -499,6 +504,11 @@ fn crawled_source(
         cache_version
     };
     let Some(version) = cache_version else { return read_from_network() };
+    // The units-format marker rides the cached version (LINTER.md, "A blockless section
+    // still teaches law"): cached pages store FORMED units, not HTML, so a unit-former
+    // change cannot re-form them offline — poisoning the version re-crawls instead of
+    // silently keeping old units.
+    let version = format!("{version}@{UNITS_FORMAT}");
     let lock = source_lock(&src.tool);
     let _guard = lock.lock().expect("source lock poisoned");
     let path = crawl_cache_path(&src.tool);
@@ -517,10 +527,15 @@ fn crawled_source(
     }
     let pages = read_from_network();
     if !pages.is_empty() {
-        write_crawl_cache(&path, version, &pages);
+        write_crawl_cache(&path, &version, &pages);
     }
     pages
 }
+
+/// Units-format marker folded into every cached version — bump when the unit FORMER
+/// changes shape or coverage (cached pages cannot re-form units without the HTML).
+#[cfg(feature = "crawl")]
+const UNITS_FORMAT: &str = "u1-block-units";
 
 /// Persist a source's crawled pages with the crawl timestamp (see [`CrawledSource`]).
 #[cfg(feature = "crawl")]
@@ -677,12 +692,20 @@ fn transferred_polarity(data_root: &Path) -> Option<std::sync::Arc<crate::lint_r
     best
 }
 
-/// QUERY rule candidates out of a read [`Memory`]: every binding whose prose the learned classifier
-/// calls a prohibition becomes a rule — id from the binding's slug, description the docs' own prose,
-/// bad the bound code; the fix is the next binding on the SAME page whose prose classifies as an
-/// endorsement (docs put "use instead" right after the anti-pattern; neutral output blocks between
-/// them are skipped, but another page's code is never borrowed). One rule per slug. Returns each rule
-/// with its source url for citation. Pure over the memory — offline, deterministic, testable.
+/// QUERY rule candidates out of a read [`Memory`]: every binding whose WHOLE prose the learned
+/// classifier calls a prohibition becomes a rule — id from the binding's slug, description the
+/// docs' own prose, bad the bound code; the fix is the next binding on the SAME page whose prose
+/// classifies as an endorsement (docs put "use instead" right after the anti-pattern; neutral
+/// output blocks between them are skipped, but another page's code is never borrowed). One rule
+/// per slug. Returns each rule with its source url for citation. Pure over the memory — offline,
+/// deterministic, testable.
+///
+/// The mint gate is deliberately STRICTER than the compile entry gate (whole span vs some
+/// sentence): a sentence-level mint was tried and measured — MDN reference/error sections whose
+/// one "cannot be parsed"-register sentence classifies prohibition minted 14 junk rules (105
+/// findings on one repo) while the eval warning still failed its span. The whole-span gate is
+/// the dam; widening it to sentences is gated on the per-token side-count classifier (LINTER.md,
+/// open problems).
 pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)> {
     let Some(polarity) = &memory.polarity else { return Vec::new() };
     let mut out = Vec::new();
@@ -809,6 +832,15 @@ fn rule_slug_under(seed: &str, url: &str) -> Option<String> {
     (slug.len() >= 2).then_some(slug)
 }
 
+/// Sanitize a raw `id="…"` value into a rule-id slug — the one spelling every anchor-derived
+/// id goes through.
+fn sanitize_anchor(raw: &str) -> String {
+    raw.to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect()
+}
+
 /// The nearest `id="…"` anchor BEFORE byte `pos` — the section a code block belongs to on a
 /// single-page rule document (clippy's lint list anchors every rule's `<article>` with the
 /// rule's own name). Pure HTML typography: an attribute the page's author wrote, never a
@@ -817,13 +849,10 @@ fn anchor_slug_before(html: &str, pos: usize) -> Option<String> {
     let head = html.get(..pos)?;
     let at = head.rfind("id=\"")?;
     let raw = head[at + 4..].split('"').next()?;
-    let s: String = raw
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
-        .collect();
+    let s = sanitize_anchor(raw);
     (s.len() >= 2).then_some(s)
 }
+
 
 /// How much page text immediately before a code block counts as the prose that GOVERNS it — the
 /// label/heading a docs page puts right above its example. Wide enough to catch a short heading or a
@@ -923,6 +952,8 @@ fn remember_source(lang: &str, src: &DocsSource) {
 /// way (the sweep timestamp restarts the verification window).
 #[cfg(feature = "crawl")]
 pub fn refresh_language_pages(data_root: &Path, lang: &str, version: &str) -> bool {
+    // The sweep validates the same composed version the crawl cache is written under.
+    let version: &str = &format!("{version}@{UNITS_FORMAT}");
     let mut sources = crate::lint_train::registered_docs_sources(data_root, lang);
     if sources.is_empty() {
         sources.extend(learned_source(lang));
@@ -1123,6 +1154,37 @@ mod tests {
         assert!(rule.bad.contains("0..=xs.len()"));
         assert!(rule.good.contains("for x in xs"), "the page's endorsement binding is paired as the fix");
         assert!(rule.description.to_lowercase().contains("avoid indexing"), "description is the docs' own prose: {:?}", rule.description);
+    }
+
+    #[test]
+    #[cfg(feature = "crawl")]
+    fn a_blockless_section_forms_no_unit_until_the_classifier_can_read_it() {
+        // MDN's "Never use direct eval()!" shape: a heading anchor, prose and bullets, zero
+        // <pre>. LEAD units for such sections were built and MEASURED (LINTER.md, "A
+        // blockless section cannot teach law yet"): under the span classifier they minted
+        // only error-register junk while the prohibition they were built for still failed
+        // its span — so blockless sections deliberately form no unit until the per-token
+        // side-count classifier lands. This pins the decision.
+        let html = r#"
+            <h2 id="using_flurb">Using flurb</h2>
+            <p>The flurb function combines values.</p>
+            <pre>flurb(a, b);</pre>
+            <h2 id="never_use_zap">Never use zap!</h2>
+            <p>Never use a global mutable variable here. zap() is dangerous and simply wrong.</p>
+        "#;
+        let page = extract_crawled_page(
+            "https://d/docs",
+            "https://d/docs/zap",
+            crate::doc_crawler::extract_prose(html),
+            html,
+            None,
+            &Default::default(),
+        );
+        assert!(
+            page.units.iter().all(|(_, _, code, _)| code.len() >= 3),
+            "every unit carries a code block: {:?}",
+            page.units.iter().map(|(s, _, c, _)| (s.clone(), c.len())).collect::<Vec<_>>()
+        );
     }
 
     #[test]
