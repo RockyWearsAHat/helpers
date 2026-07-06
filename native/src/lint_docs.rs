@@ -76,17 +76,27 @@ pub fn read_language(
     let mut reader = Reader::new();
     let mut per_source: Vec<Vec<(String, String, String, String)>> = Vec::new();
     let mut prose_queues: Vec<Vec<String>> = Vec::new();
+    // Languages this run knows by NAME — the training language plus everything registered —
+    // so page attribution can recognize a path segment naming a language no claims cover
+    // yet (a brand-new language's own docs site).
+    let mut extra_langs: std::collections::HashSet<String> =
+        crate::lint_train::registered_languages(data_root).into_iter().collect();
+    extra_langs.insert(lang.to_lowercase());
     for src in sources {
         let mut src_units = Vec::new();
         let mut src_prose = Vec::new();
-        for page in crawled_source(src, max_pages, cache_version) {
+        for page in crawled_source(src, max_pages, cache_version, &extra_langs) {
             src_prose.push(page.prose);
             for (s, prose, code, hint) in page.units {
-                // Ledger #18: a block the page itself labels as a DIFFERENT known language
-                // (an MDN JavaScript page's `brush: html` example) is prose-only here — it
-                // never binds, never grounds a polarity label, never enters this language's
-                // reference corpus. Its page's prose was already read above.
-                if crate::lint_train::foreign_example(lang, &hint) {
+                // Ledger #18 + "A site is a source": a block's own label wins; an unlabeled
+                // block inherits its PAGE's attribution. A block that lands on a DIFFERENT
+                // known language (an MDN JavaScript page's `brush: html` example; a css-
+                // attributed page's unlabeled blocks while training javascript) is
+                // prose-only here — it never binds, never grounds a polarity label, never
+                // enters this language's reference corpus. The page's prose was already
+                // read above.
+                let effective = if hint.is_empty() { page.lang.clone() } else { hint };
+                if crate::lint_train::foreign_example(lang, &effective) {
                     continue;
                 }
                 src_units.push((page.url.clone(), s, prose, code));
@@ -223,6 +233,56 @@ pub fn read_language(
     Memory { bindings, reference, polarity: polarity.is_ready().then_some(polarity), pages_read, extensions, flagged }
 }
 
+/// Ensure a SITE source's page cache exists (crawling when allowed) and return the languages
+/// its pages attribute to — the discovery step of "A site is a source" (LINTER.md). Replay-
+/// only when the cache is current; offline+cold yields nothing, honestly.
+#[cfg(feature = "crawl")]
+pub(crate) fn ensure_site_cache(
+    src: &DocsSource,
+    max_pages: usize,
+    extra_langs: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    let mut langs: std::collections::BTreeSet<String> = Default::default();
+    for page in crawled_source(src, max_pages, Some(crate::lint_train::train_version()), extra_langs) {
+        if !page.lang.is_empty() {
+            langs.insert(page.lang);
+        }
+    }
+    langs.into_iter().collect()
+}
+
+/// The languages a site source's CACHED pages attribute to — the offline read
+/// [`crate::lint_train::resolved_sources`] and language enumeration consult. Memoized per
+/// (tool, file state): the caches are multi-MB and this is asked once per language per run.
+pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String> {
+    type Cache = std::sync::Mutex<std::collections::HashMap<String, (u128, std::collections::HashSet<String>)>>;
+    static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
+    let path = crawl_cache_path(tool);
+    let stat = std::fs::metadata(&path)
+        .map(|m| {
+            let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+            (t.map(|d| d.as_nanos()).unwrap_or(0)) ^ ((m.len() as u128) << 64)
+        })
+        .unwrap_or(0);
+    let cache = CACHE.get_or_init(Default::default);
+    if let Ok(m) = cache.lock() {
+        if let Some((have, langs)) = m.get(tool) {
+            if *have == stat {
+                return langs.clone();
+            }
+        }
+    }
+    let langs: std::collections::HashSet<String> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<CrawledSource>(&raw).ok())
+        .map(|c| c.pages.into_iter().map(|p| p.lang).filter(|l| !l.is_empty()).collect())
+        .unwrap_or_default();
+    if let Ok(mut m) = cache.lock() {
+        m.insert(tool.to_string(), (stat, langs.clone()));
+    }
+    langs
+}
+
 // ── Per-source crawl cache (one network read per machine per source) ──────────
 
 /// One documentation source reduced to exactly what reading consumes — per page, its URL, its
@@ -268,6 +328,11 @@ struct CrawledPage {
     /// hintless shape is deliberate cache poison: an old cache fails to parse and recrawls, so
     /// no hintless page can masquerade as attributed.
     units: Vec<(String, String, String, String)>,
+    /// The LANGUAGE this page documents (LINTER.md, "A site is a source"): block-hint
+    /// majority, else URL typography (path segment / host label through the one resolver),
+    /// else "" — reading material for everyone, law for no one. Unhinted blocks inherit it.
+    #[serde(default)]
+    lang: String,
     /// The server's `Last-Modified` at fetch time — the per-page anchor the verification
     /// sweep revalidates with (`If-Modified-Since` → 304 proves the page current for free).
     #[serde(default)]
@@ -281,7 +346,70 @@ struct CrawledPage {
 /// One extracted page: prose + units + freshness anchors, shared by the crawl path and the
 /// verification sweep so both always extract identically.
 #[cfg(feature = "crawl")]
-fn extract_crawled_page(seed_url: &str, url: &str, prose: String, html: &str, modified: Option<u64>) -> CrawledPage {
+/// The language `url`'s page documents, resolved as LINTER.md's "A site is a source" orders:
+/// the majority language among the page's own block hints, else the first URL path segment
+/// that resolves to a known language (or names one in `extra_langs` — languages this run
+/// already knows by name, e.g. the project's own), else a host label. "" when nothing
+/// answers.
+fn attribute_page(
+    url: &str,
+    units: &[(String, String, String, String)],
+    extra_langs: &std::collections::HashSet<String>,
+) -> String {
+    let known = |token: &str| -> Option<String> {
+        let t = token.to_lowercase();
+        if extra_langs.contains(&t) {
+            return Some(t);
+        }
+        crate::lint_train::hint_language(&t)
+    };
+    let mut votes: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    let mut hinted = 0u32;
+    for (_, _, _, hint) in units {
+        if hint.is_empty() {
+            continue;
+        }
+        if let Some(l) = known(hint) {
+            hinted += 1;
+            *votes.entry(l).or_default() += 1;
+        }
+    }
+    if let Some((lang, n)) = votes.iter().max_by_key(|(_, n)| **n) {
+        if *n * 2 > hinted {
+            return lang.clone();
+        }
+    }
+    let path = url.split("://").nth(1).unwrap_or(url);
+    let mut segs = path.split('/');
+    let host = segs.next().unwrap_or("");
+    for seg in segs {
+        let seg = seg.split(['?', '#', '.']).next().unwrap_or("");
+        if seg.chars().count() >= 2 {
+            if let Some(l) = known(seg) {
+                return l;
+            }
+        }
+    }
+    // Host labels split on '.' AND '-' — sites name their language both ways
+    // (`docs.python.org`, `elm-lang.org`), and a hyphen is word typography, not meaning.
+    for label in host.split(['.', '-']) {
+        if label.chars().count() >= 2 {
+            if let Some(l) = known(label) {
+                return l;
+            }
+        }
+    }
+    String::new()
+}
+
+fn extract_crawled_page(
+    seed_url: &str,
+    url: &str,
+    prose: String,
+    html: &str,
+    modified: Option<u64>,
+    extra_langs: &std::collections::HashSet<String>,
+) -> CrawledPage {
     let page_slug = rule_slug_under(seed_url, url);
     let blocks = pre_blocks(html);
     let units: Vec<(String, String, String, String)> = block_contexts(html, &blocks)
@@ -296,14 +424,15 @@ fn extract_crawled_page(seed_url: &str, url: &str, prose: String, html: &str, mo
             (s, prose, code, hint)
         })
         .collect();
-    let mut h = crate::lint_ai::token_seed(&prose);
+    let lang = attribute_page(url, &units, extra_langs);
+    let mut h = crate::lint_ai::token_seed(&prose) ^ crate::lint_ai::token_seed(&lang).rotate_left(4);
     for (a, b, c, d) in &units {
         h ^= crate::lint_ai::token_seed(a)
             ^ crate::lint_ai::token_seed(b).rotate_left(1)
             ^ crate::lint_ai::token_seed(c).rotate_left(2)
             ^ crate::lint_ai::token_seed(d).rotate_left(3);
     }
-    CrawledPage { url: url.to_string(), prose, units, modified, fp: h }
+    CrawledPage { url: url.to_string(), prose, units, modified, fp: h, lang }
 }
 
 /// The pages of one documentation source: from the per-source cache
@@ -313,7 +442,12 @@ fn extract_crawled_page(seed_url: &str, url: &str, prose: String, html: &str, mo
 /// sharing a source line up: the first crawls, the rest replay its pages from disk.
 /// `HELPERS_LINT_REFRESH` bypasses and rewrites the cache.
 #[cfg(feature = "crawl")]
-fn crawled_source(src: &DocsSource, max_pages: usize, cache_version: Option<&str>) -> Vec<CrawledPage> {
+fn crawled_source(
+    src: &DocsSource,
+    max_pages: usize,
+    cache_version: Option<&str>,
+    extra_langs: &std::collections::HashSet<String>,
+) -> Vec<CrawledPage> {
     use crate::doc_crawler::{crawl, fetch};
     // OFFLINE means no network, never no learning: the disk cache below still replays. A
     // cold cache offline yields nothing — the caller reports the language as not-yet-learned
@@ -329,15 +463,23 @@ fn crawled_source(src: &DocsSource, max_pages: usize, cache_version: Option<&str
                 // Unit identity, best evidence first: a per-rule page's URL slug; else the
                 // nearest preceding `id="…"` anchor (single-page rule docs put each rule in
                 // its own anchored section — HTML typography); else the prose itself.
-                pages.push(extract_crawled_page(&src.url, &p.url, p.prose, &p.html, p.modified));
+                pages.push(extract_crawled_page(&src.url, &p.url, p.prose, &p.html, p.modified, extra_langs));
             }
         } else if let Some((ct, body)) = fetch(&src.url) {
             for (prose, code, hint) in crate::doc_crawler::extract_hinted(&ct, &body) {
                 let unit = (slug(&prose), prose.clone(), code, hint);
-                pages.push(CrawledPage { url: src.url.clone(), prose, units: vec![unit], modified: None, fp: 0 });
+                let lang = attribute_page(&src.url, std::slice::from_ref(&unit), extra_langs);
+                pages.push(CrawledPage { url: src.url.clone(), prose, units: vec![unit], modified: None, fp: 0, lang });
             }
         }
         pages
+    };
+    // Site caches (tool "site-…") are language-independent: keyed by TRAIN_VERSION, never a
+    // toolchain version, so every language trained from the site replays ONE crawl.
+    let cache_version = if src.tool.starts_with("site-") {
+        Some(crate::lint_train::train_version())
+    } else {
+        cache_version
     };
     let Some(version) = cache_version else { return read_from_network() };
     let lock = source_lock(&src.tool);
@@ -731,6 +873,11 @@ pub fn refresh_language_pages(data_root: &Path, lang: &str, version: &str) -> bo
     if sources.is_empty() {
         sources.extend(learned_source(lang));
     }
+    // Attribution candidates for re-extracted pages — the same name universe the original
+    // crawl used.
+    let mut extra_langs: std::collections::HashSet<String> =
+        crate::lint_train::registered_languages(data_root).into_iter().collect();
+    extra_langs.insert(lang.to_lowercase());
     let mut changed_any = false;
     for src in &sources {
         let lock = source_lock(&src.tool);
@@ -748,7 +895,7 @@ pub fn refresh_language_pages(data_root: &Path, lang: &str, version: &str) -> bo
         if unix_now().saturating_sub(cached.crawled_at) < CRAWL_MAX_AGE {
             continue; // verified recently enough
         }
-        let (pages, changed) = verify_inventory(src, cached.pages);
+        let (pages, changed) = verify_inventory(src, cached.pages, &extra_langs);
         write_crawl_cache(&path, version, &pages);
         changed_any |= changed;
     }
@@ -764,7 +911,11 @@ pub fn refresh_language_pages(_data_root: &Path, _lang: &str, _version: &str) ->
 /// parallel waves, re-extract what changed, expand to newly-linked in-scope pages, drop what
 /// the site removed.
 #[cfg(feature = "crawl")]
-fn verify_inventory(src: &DocsSource, cached: Vec<CrawledPage>) -> (Vec<CrawledPage>, bool) {
+fn verify_inventory(
+    src: &DocsSource,
+    cached: Vec<CrawledPage>,
+    extra_langs: &std::collections::HashSet<String>,
+) -> (Vec<CrawledPage>, bool) {
     use crate::doc_crawler::{extract_anchors, extract_prose, fetch_conditional, in_scope, Revalidation};
     const WAVE: usize = 192;
     let known: std::collections::HashMap<String, CrawledPage> =
@@ -813,7 +964,7 @@ fn verify_inventory(src: &DocsSource, cached: Vec<CrawledPage>) -> (Vec<CrawledP
                         }
                     }
                     Revalidation::Changed(_, body, modified) => {
-                        let fresh = extract_crawled_page(&src.url, &url, extract_prose(&body), &body, modified);
+                        let fresh = extract_crawled_page(&src.url, &url, extract_prose(&body), &body, modified, extra_langs);
                         // A refetch that extracts identically is not a change (servers
                         // without Last-Modified answer 200 every time).
                         if known.get(&url).map(|p| p.fp) != Some(fresh.fp) {

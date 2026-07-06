@@ -400,6 +400,100 @@ fn serve_flowlang_docs() -> String {
     format!("http://127.0.0.1:{port}/")
 }
 
+/// A localhost WEBSITE documenting TWO invented languages, each under its own path segment —
+/// the "A site is a source" fixture: nothing in the codebase can know either language, and the
+/// only registration is the SITE.
+fn serve_two_language_site() -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind localhost");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let body = if req.starts_with("GET /docs/flowlang/") {
+                "<html><body><h1>flowlang statements</h1>\
+                 <p>Never use the goto statement anywhere; it is deprecated and will be removed.</p>\
+                 <pre>goto cleanup</pre>\
+                 <p>Use a structured loop instead; this is the correct form:</p>\
+                 <pre>loop { step() }</pre>\
+                 </body></html>"
+            } else if req.starts_with("GET /docs/glowlang/") {
+                "<html><body><h1>glowlang elements</h1>\
+                 <p>Never use the blink element anywhere; it is deprecated and will be removed.</p>\
+                 <pre>blink fast</pre>\
+                 <p>Use a steady element instead; this is the correct form:</p>\
+                 <pre>steady on</pre>\
+                 </body></html>"
+            } else {
+                "<html><body><h1>the languages of this site</h1>\
+                 <p>Documentation for two little languages.</p>\
+                 <a href=\"/docs/flowlang/statements.html\">flowlang</a>\
+                 <a href=\"/docs/glowlang/elements.html\">glowlang</a>\
+                 </body></html>"
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+    format!("http://127.0.0.1:{port}/")
+}
+
+/// "A site is a source": ONE site registration — no per-language URLs anywhere — and the
+/// system maps the site, attributes each page to the language it documents (path-segment
+/// typography here), mints a module PER language, and the offline lint that follows enforces
+/// each language's own rules on its own files with no cross-fire.
+#[test]
+fn one_site_registration_yields_a_module_per_language_it_teaches() {
+    let url = serve_two_language_site();
+    let p = TestProject::new("site-source");
+    p.write("main.flowlang", "start:\n    goto cleanup\n    emit(\"done\")\n");
+    p.write("main.glowlang", "scene:\n    blink fast\n    hold(\"done\")\n");
+    p.write(
+        "lint-index/sources.json",
+        &format!(r#"{{"version": 3, "sources": [{{"tool": "twolang-site", "language": "site", "kind": "site", "seed": "{url}"}}]}}"#),
+    );
+
+    // TRAIN (network allowed, localhost only): the site is crawled once, its languages
+    // discovered and trained.
+    let ack = p.call(
+        "lint_config",
+        &format!(r#"{{"root":{:?},"action":"train"}}"#, p.root.to_string_lossy()),
+        false,
+    );
+    assert!(
+        ack.contains("teaches: flowlang, glowlang"),
+        "the site's languages are discovered and reported:\n{ack}"
+    );
+    assert!(
+        line_with(&ack, "flowlang:").is_some_and(|l| l.contains("rule(s)"))
+            && line_with(&ack, "glowlang:").is_some_and(|l| l.contains("rule(s)")),
+        "both discovered languages train to modules:\n{ack}"
+    );
+
+    // OFFLINE lint: each language's own docs-derived law fires on its own file — and never
+    // on the other's.
+    let verdict = p.lint(true);
+    assert!(
+        flagged_in(&verdict, "main.flowlang", "goto"),
+        "flowlang's own rule fires on flowlang code:\n{verdict}"
+    );
+    assert!(
+        flagged_in(&verdict, "main.glowlang", "blink"),
+        "glowlang's own rule fires on glowlang code:\n{verdict}"
+    );
+    assert!(
+        !flagged_in(&verdict, "main.glowlang", "goto") && !flagged_in(&verdict, "main.flowlang", "blink"),
+        "no cross-language fire between the site's languages:\n{verdict}"
+    );
+}
+
 /// Registering a docs URL for a brand-new language — one JSON entry, pure data — makes one
 /// TRAINING run learn that language from its documentation, and the OFFLINE lint that follows
 /// enforces what the docs deprecate. No code change, no rule files, no config beyond the URL.
