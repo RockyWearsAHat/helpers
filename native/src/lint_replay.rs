@@ -73,7 +73,16 @@ pub fn aux_witness(root: &Path, data: &Path) -> Witness {
         file_fold(&crate::lint_feedback::feedback_path(root)),
         dir_fold(&data.join("corpus"), &[]),
         dir_fold(&data.join("lint-index"), &[]),
-        dir_fold(&model_dir, &["lint-verdicts", "lint-replay"]),
+        // The model dir participates in the FOLD (a retrain must invalidate) but not in
+        // the racy NEWEST: the racy window guards USER-editable inputs whose mtime
+        // granularity could hide a same-length edit, while these are machine-written
+        // whole artifacts — counting them made every run that saved an overlay hold its
+        // own memo hostage for the window (measured: a fresh `rust.overlay-*.bin` kept
+        // benches on the slow path forever).
+        Witness {
+            fold: dir_fold(&model_dir, &["lint-verdicts", "lint-replay"]).fold,
+            newest: 0,
+        },
         Witness {
             fold: crate::lint_ai::token_seed(crate::lint_train::train_version()) as u128,
             newest: 0,
@@ -99,6 +108,13 @@ pub fn walk_witness(files: &[WalkedFile]) -> Witness {
 /// under. Distinct rotation keeps `(a, b)` and `(b, a)` from colliding.
 pub fn combine(walk: Witness, aux: Witness) -> Witness {
     Witness { fold: walk.fold.rotate_left(29) ^ aux.fold, newest: walk.newest.max(aux.newest) }
+}
+
+/// Whether a witness is past its racy window RIGHT NOW — shared by this module's store and
+/// the kqueue tier's commit gate (an edit inside the window can share the stored mtime
+/// tick at the same length, invisible to any `(mtime, len)` fold).
+pub fn replay_safe(witness: &Witness) -> bool {
+    witness.newest.saturating_add(RACY_WINDOW_NANOS) < now_nanos()
 }
 
 /// UNIX now in nanoseconds — the store moment the racy window is measured against.

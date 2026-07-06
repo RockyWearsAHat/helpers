@@ -1237,6 +1237,7 @@ mod tests {
     #[test]
     fn added_sources_round_trip_and_legacy_negative_markers_read_as_absent() {
         let dir = std::env::temp_dir().join(format!("lint-docs-test-{}", std::process::id()));
+        let _env = crate::test_env_lock();
         std::env::set_var("HOME", &dir); // the added-sources store lives under $HOME
         add_docs_source("zig", "https://ziglang.org/documentation/");
         assert_eq!(learned_source("zig").unwrap().url, "https://ziglang.org/documentation/");

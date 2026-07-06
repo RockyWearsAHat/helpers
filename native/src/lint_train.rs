@@ -2563,6 +2563,7 @@ mod tests {
         // `TrainReport::outdated`, never degrade it to "not set up".
         let dir = std::env::temp_dir().join(format!("stale-module-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        let _env = crate::test_env_lock();
         std::env::set_var("HELPERS_LINT_MODELS", &dir);
         let lang = "stalelang";
         let ground = crate::lint_match::Grounding::default();

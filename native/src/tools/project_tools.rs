@@ -336,11 +336,10 @@ mod tests {
 
     // Both tests mutate the process-global HELPERS_WORKSPACE_ROOTS; serialize them so
     // they don't race under cargo's parallel test runner.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn register_list_dispatch_unregister_cycle() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::test_env_lock();
         let tmp = std::env::temp_dir().join(format!("helpers-pt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -379,7 +378,7 @@ mod tests {
 
     #[test]
     fn register_refuses_to_write_into_helpers_install_repo() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::test_env_lock();
         // Point the workspace at the Helpers install repo itself (the repo holding
         // the running binary). Registering there must fail loudly rather than
         // contaminate Helpers's own manifest — the bug this guard prevents.
