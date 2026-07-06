@@ -52,7 +52,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v44-traceable-detectors";
+const TRAIN_VERSION: &str = "docs-v45-abbreviations-abbreviate";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -1015,19 +1015,100 @@ fn manifest_map() -> std::collections::BTreeMap<String, Vec<String>> {
         .unwrap_or_default()
 }
 
+/// The manifest's `sites` list — whole WEBSITES to learn from ("A site is a source"): each is
+/// crawled once and every language its pages attribute to gets a module. User-owned, like the
+/// language entries.
+fn manifest_sites() -> Vec<String> {
+    std::fs::read_to_string(manifest_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|json| serde_json::from_value(json["sites"].clone()).ok())
+        .unwrap_or_default()
+}
+
 /// Write the manifest back, pretty-printed for hand editing, with its contract in `_note`.
+/// The user's `sites` list rides through untouched.
 fn manifest_write(map: &std::collections::BTreeMap<String, Vec<String>>) {
     let path = manifest_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     let doc = serde_json::json!({
-        "_note": "Where each language's lint instructions come from (LINTER.md, 'The language manifest'). Yours to edit: change a language's URLs to retrain it from those docs at the next setup; set [] to disable its docs (the linter will ask); a language you delete is re-added from the committed registry. `lint_config action=add_source` writes here.",
+        "_note": "Where each language's lint instructions come from (LINTER.md, 'The language manifest'). Yours to edit: change a language's URLs to retrain it from those docs at the next setup; set [] to disable its docs (the linter will ask); a language you delete is re-added from the committed registry. `sites` lists whole websites to learn from — every language a site's pages document gets a module. `lint_config action=add_source` writes here.",
         "languages": map,
+        "sites": manifest_sites(),
     });
     if let Ok(json) = serde_json::to_string_pretty(&doc) {
         let _ = std::fs::write(path, json);
     }
+}
+
+/// Every SITE source this machine learns from: registry `kind:"site"` entries plus the
+/// manifest's `sites` list. The tool id is `site-<host>` — the marker that keys its page
+/// cache by TRAIN_VERSION (language-independent) instead of any toolchain.
+pub(crate) fn site_sources(data_root: &Path) -> Vec<crate::lint_docs::DocsSource> {
+    let mut out: Vec<crate::lint_docs::DocsSource> = Vec::new();
+    let mut push = |url: &str| {
+        let host = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+            .and_then(|rest| rest.split('/').next())
+            .unwrap_or("site")
+            .trim_start_matches("www.");
+        let tool = format!("site-{host}");
+        if !out.iter().any(|s| s.url == url) {
+            out.push(crate::lint_docs::DocsSource { url: url.to_string(), crawl: true, tool });
+        }
+    };
+    if let Some(raw) = std::fs::read_to_string(data_root.join("lint-index/sources.json")).ok().or_else(|| {
+        EMBEDDED_LINT_INDEX.get_file("sources.json").and_then(|f| f.contents_utf8().map(str::to_string))
+    }) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+            for e in json["sources"].as_array().into_iter().flatten() {
+                if e["kind"].as_str() == Some("site") {
+                    if let Some(u) = e["seed"].as_str() {
+                        push(u);
+                    }
+                }
+            }
+        }
+    }
+    for u in manifest_sites() {
+        push(&u);
+    }
+    out
+}
+
+/// SETUP step for site sources: make sure each site's page cache exists (crawling once when
+/// the network is allowed) and report the languages it teaches. Returns one report line per
+/// site.
+#[cfg(feature = "crawl")]
+pub(crate) fn prepare_sites(data_root: &Path, project_langs: &[String]) -> Vec<String> {
+    let sites = site_sources(data_root);
+    if sites.is_empty() {
+        return Vec::new();
+    }
+    let mut extra: std::collections::HashSet<String> =
+        registered_languages(data_root).into_iter().collect();
+    extra.extend(project_langs.iter().map(|l| l.to_lowercase()));
+    let mut lines = Vec::new();
+    for src in sites {
+        let langs = crate::lint_docs::ensure_site_cache(&src, MAX_CRAWL_PAGES, &extra);
+        if langs.is_empty() {
+            lines.push(format!(
+                "site {} → no language recognized yet (pages read as prose only)",
+                src.url
+            ));
+        } else {
+            lines.push(format!("site {} → teaches: {}", src.url, langs.join(", ")));
+        }
+    }
+    lines
+}
+
+#[cfg(not(feature = "crawl"))]
+pub(crate) fn prepare_sites(_data_root: &Path, _project_langs: &[String]) -> Vec<String> {
+    Vec::new()
 }
 
 /// Record `urls` as `lang`'s documentation in the manifest — the `add_source` write path.
@@ -1049,6 +1130,12 @@ pub(crate) fn manifest_sync(data_root: &Path) {
                 crawl_sources_from_config(data_root, &lang).into_iter().map(|s| s.url).collect();
             if urls.is_empty() {
                 urls.extend(crate::lint_docs::learned_source(&lang).map(|s| s.url));
+            }
+            // A language taught only by a SITE has no per-language URL; an empty entry
+            // would read as the user disabling it. Its provenance is the manifest's own
+            // `sites` list — leave the key absent.
+            if urls.is_empty() {
+                continue;
             }
             map.insert(lang, urls);
             changed = true;
@@ -1079,20 +1166,37 @@ fn manifest_tool(url: &str) -> String {
 /// registry's own source identities so existing page caches keep serving.
 pub(crate) fn resolved_sources(data_root: &Path, lang: &str) -> Vec<crate::lint_docs::DocsSource> {
     let registry = crawl_sources_from_config(data_root, lang);
-    if let Some(urls) = manifest_map().get(&lang.to_lowercase()) {
-        let reg_urls: std::collections::BTreeSet<&str> =
-            registry.iter().map(|s| s.url.as_str()).collect();
-        let man_urls: std::collections::BTreeSet<&str> = urls.iter().map(|u| u.as_str()).collect();
-        if man_urls == reg_urls {
-            return registry;
+    let mut out = match manifest_map().get(&lang.to_lowercase()) {
+        // `[]` is the user disabling this language's docs OUTRIGHT — sites included; the run
+        // asks instead.
+        Some(urls) if urls.is_empty() => return Vec::new(),
+        Some(urls) => {
+            let reg_urls: std::collections::BTreeSet<&str> =
+                registry.iter().map(|s| s.url.as_str()).collect();
+            let man_urls: std::collections::BTreeSet<&str> =
+                urls.iter().map(|u| u.as_str()).collect();
+            if man_urls == reg_urls {
+                registry
+            } else {
+                urls.iter()
+                    .map(|u| crate::lint_docs::DocsSource {
+                        url: u.clone(),
+                        crawl: true,
+                        tool: manifest_tool(u),
+                    })
+                    .collect()
+            }
         }
-        return urls
-            .iter()
-            .map(|u| crate::lint_docs::DocsSource { url: u.clone(), crawl: true, tool: manifest_tool(u) })
-            .collect();
+        None => registry,
+    };
+    // Site sources whose cached pages teach this language join in ("A site is a source").
+    for site in site_sources(data_root) {
+        if crate::lint_docs::cached_site_langs(&site.tool).contains(&lang.to_lowercase()) {
+            out.push(site);
+        }
     }
-    if !registry.is_empty() {
-        return registry;
+    if !out.is_empty() {
+        return out;
     }
     crate::lint_docs::learned_source(lang).into_iter().collect()
 }
@@ -1417,6 +1521,12 @@ pub fn registered_languages(data_root: &Path) -> Vec<String> {
                     push(l);
                 }
             }
+        }
+    }
+    // Languages the machine's SITE caches teach ("A site is a source" discovery).
+    for site in site_sources(data_root) {
+        for l in crate::lint_docs::cached_site_langs(&site.tool) {
+            push(&l);
         }
     }
     // The manifest's own languages (the user may have added one by hand; `[]` = disabled).

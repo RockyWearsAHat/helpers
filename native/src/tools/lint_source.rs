@@ -485,6 +485,11 @@ pub fn run_config(args: &Value) -> ToolResult {
             // The language manifest always shows the full picture (backfilled, never
             // overwriting the user's entries) — LINTER.md, "The language manifest".
             crate::lint_train::manifest_sync(&data);
+            // SITE sources first ("A site is a source"): crawl any site cache that is
+            // missing, discover the languages each site teaches, and report them — the
+            // discovered languages then train like any registered language.
+            let project_langs = crate::tools::lint::project_languages(&root);
+            let site_lines = crate::lint_train::prepare_sites(&data, &project_langs);
             // MODULAR SCOPE (LINTER.md, "Online to set up"): a project pays only for the
             // modules it needs. Default = the current project's own languages (plus an
             // explicit `lang=`); the machine-wide batch of every registered language runs
@@ -492,7 +497,7 @@ pub fn run_config(args: &Value) -> ToolResult {
             let all = args["all"].as_bool().unwrap_or(false);
             let registered = crate::lint_train::registered_languages(&data);
             let mut langs: Vec<String> = if all { registered.clone() } else { Vec::new() };
-            for lang in crate::tools::lint::project_languages(&root) {
+            for lang in project_langs {
                 if !langs.contains(&lang) {
                     langs.push(lang);
                 }
@@ -568,6 +573,9 @@ pub fn run_config(args: &Value) -> ToolResult {
             }
             if let Some(e) = english {
                 body.push_str(&format!("\n{e}\n"));
+            }
+            if !site_lines.is_empty() {
+                body.push_str(&format!("\n{}\n", site_lines.join("\n")));
             }
             body.push_str(&format!(
                 "\nLanguage manifest: {} — edit it to customize where any language's instructions come from.\n",
