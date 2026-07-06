@@ -18,6 +18,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::Match;
 
 /// A file found during the walk.
+#[derive(Clone)]
 pub struct WalkedFile {
     /// Repo-relative path with forward slashes.
     pub rel: String,
