@@ -737,11 +737,12 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
             continue;
         }
         // MINT is stricter than classify (module doc): prototype similarity alone is
-        // reading material, never law — the span must carry WORD-level evidence of
-        // prohibition (a negation-operator or a decisive tallied reading). Measured on
-        // live eslint.org: "Examples of CORRECT code…" sat one salient word from the
-        // incorrect-register prototype and minted without this bar.
-        if polarity.negation_bits(&b.prose) == 0
+        // reading material, never law — the span must carry OPERATIVE evidence of
+        // prohibition: a negation operator COMMANDING a sentence ("Never use X"), or a
+        // decisive tallied reading. Incidental negation inside a statement ("does not
+        // work on WebAssembly") describes, and description never mints (measured: 59
+        // descriptive python rules rode incidental "not" through a mere presence bar).
+        if !polarity.has_operative_negation(&b.prose)
             && polarity.classify_tallied(&b.prose) != Some(true)
         {
             continue;
