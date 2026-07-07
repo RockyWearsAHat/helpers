@@ -22,47 +22,41 @@ use crate::lint_ai::{Bundler, Hv, DIM};
 /// space is far smaller than a word model's; this bounds the persisted artifact.
 const MEM_CAP: usize = 1 << 20;
 
-/// Two predicted/actual character codes closer than this (Hamming) count as a correct
-/// prediction — the reader only rewrites a slot on a real miss. A quarter of the space is the
-/// same conservative radius the word reader used.
-const SURPRISE_RADIUS: u32 = (DIM / 4) as u32;
-
 /// The character-level predictive reader. All operations are 1-bit (XOR / rotate / Hamming);
 /// deterministic, no floats in the learned state.
 #[derive(Clone, Default)]
 pub struct CharReader {
-    /// Context address → predicted next-character code. Bounded by [`MEM_CAP`]. PERSISTED — a
-    /// loaded reader reads pages by this memory.
-    mem: HashMap<u32, Hv>,
+    /// Context address → predicted next CHARACTER. Bounded by [`MEM_CAP`]. PERSISTED — a loaded
+    /// reader reads pages by this memory. The prediction is a single scalar (last seen in this
+    /// context), not a hypervector: `char_hv` is a pure function, so storing the char and
+    /// recomputing keeps every slot 4 bytes instead of 1 KiB — a real brain stays megabytes.
+    mem: HashMap<u32, char>,
     /// Total characters read — the mass surprise averages are measured against.
     total: u64,
 }
 
-/// HLM1 wire form: the prediction memory rides the streams — its context addresses on the RAW
-/// u32 array, its predicted-char hypervectors on the RAW hv stream, in a deterministic
-/// key-sorted order so the artifact is reproducible. This memory is PERSISTED (unlike the word
-/// reader's), because a loaded brain must read pages back.
+/// HLM1 wire form: the prediction memory rides the RAW stream as two u32 arrays (context
+/// addresses, predicted scalars) in a deterministic key-sorted order so the artifact is
+/// reproducible. PERSISTED (unlike the word reader's), because a loaded brain must read pages
+/// back.
 impl crate::lint_codec::Bin for CharReader {
     fn enc(&self, e: &mut crate::lint_codec::Enc) {
-        let mut entries: Vec<(&u32, &Hv)> = self.mem.iter().collect();
+        let mut entries: Vec<(&u32, &char)> = self.mem.iter().collect();
         entries.sort_by_key(|(k, _)| **k);
         e.fixed_u64(self.total);
         e.raw_u32s(&entries.iter().map(|(k, _)| **k).collect::<Vec<_>>());
-        e.u(entries.len() as u64);
-        for (_, hv) in &entries {
-            e.hv(hv);
-        }
+        e.raw_u32s(&entries.iter().map(|(_, c)| **c as u32).collect::<Vec<_>>());
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<CharReader> {
         let total = d.fixed_u64()?;
         let keys = d.raw_u32s()?;
-        let n = d.u()? as usize;
-        if n != keys.len() {
+        let chars = d.raw_u32s()?;
+        if keys.len() != chars.len() {
             return None;
         }
-        let mut mem = HashMap::with_capacity(n);
-        for k in keys {
-            mem.insert(k, d.hv()?);
+        let mut mem = HashMap::with_capacity(keys.len());
+        for (k, c) in keys.into_iter().zip(chars) {
+            mem.insert(k, char::from_u32(c)?);
         }
         Some(CharReader { mem, total })
     }
@@ -128,11 +122,10 @@ impl CharReader {
     pub fn learn(&mut self, text: &str) {
         let chars: Vec<char> = text.chars().collect();
         for i in 0..chars.len() {
-            let h = char_hv(chars[i]);
             let key = ctx_key(&context(&chars, i));
-            let miss = self.mem.get(&key).is_none_or(|p| p.distance(&h) > SURPRISE_RADIUS);
+            let miss = self.mem.get(&key) != Some(&chars[i]);
             if miss && (self.mem.len() < MEM_CAP || self.mem.contains_key(&key)) {
-                self.mem.insert(key, h);
+                self.mem.insert(key, chars[i]); // last seen in this context wins
             }
             self.total += 1;
         }
@@ -149,10 +142,11 @@ impl CharReader {
         }
         let mut sum = 0u64;
         for i in 0..chars.len() {
-            let h = char_hv(chars[i]);
             let key = ctx_key(&context(&chars, i));
-            // No prediction in this context = maximally surprising (half the space).
-            let d = self.mem.get(&key).map_or((DIM / 2) as u32, |p| p.distance(&h));
+            // A predicted character that MATCHES is 0 surprise; a miss or an unseen context is
+            // maximally surprising (half the space) — the per-character bits, averaged into the
+            // span's English-ness.
+            let d = if self.mem.get(&key) == Some(&chars[i]) { 0 } else { (DIM / 2) as u32 };
             sum += u64::from(d);
         }
         (sum / chars.len() as u64) as u32
@@ -231,6 +225,81 @@ pub fn train_curriculum<'a>(corpora: impl IntoIterator<Item = &'a str>) -> CharR
     r
 }
 
+/// The web languages the brain reads AFTER English, in curriculum order (owner directive): the
+/// page's own delivery language first (html), then how it is styled and scripted (css, js), so
+/// that by the time it reads any documentation it already understands the website it arrives
+/// in. Data, not a hardcoded truth about the world — these are the languages a documentation
+/// PAGE is built from.
+const WEB_CURRICULUM: [&str; 3] = ["html", "css", "javascript"];
+
+/// SETUP verb (curriculum): build this machine's character brain if missing or its inputs
+/// changed, cumulatively — the whole dictionary (English base), then every raw page of the web
+/// curriculum in order. Purely reads what setup already cached/crawled; saves `char.global.bin`.
+/// Returns a one-line report, or `None` when there is no dictionary and no cached web pages to
+/// learn from. Online only through the shared crawl cache (same latch as every setup read).
+#[cfg(feature = "crawl")]
+pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
+    // Freshness: the brain is keyed by the dictionary fingerprint folded with each web
+    // language's raw-page fingerprint. Unchanged inputs ⇒ the saved brain is current.
+    let english = crate::lint_english::dictionary_prose(None);
+    let mut web: Vec<(String, Vec<(String, String)>)> = Vec::new();
+    let mut fp = crate::lint_ai::token_seed(english.as_deref().unwrap_or(""));
+    for lang in WEB_CURRICULUM {
+        let (pages, lang_fp) = crate::lint_docs::raw_pages(data_root, lang);
+        fp ^= lang_fp.rotate_left(7);
+        web.push((lang.to_string(), pages));
+    }
+    if english.is_none() && web.iter().all(|(_, p)| p.is_empty()) {
+        return None;
+    }
+    // Freshness reads the fingerprint sidecar and the file directly (not the memoized
+    // `brain()`, which caches its cold-load result for the process): unchanged inputs replay.
+    if brain_fp() == Some(fp) && store_path().exists() {
+        return Some("character brain: current".to_string());
+    }
+    let mut r = CharReader::new();
+    let mut order: Vec<String> = Vec::new();
+    if let Some(prose) = &english {
+        let before = r.total;
+        r.learn(prose);
+        order.push(format!("english {}c", r.total - before));
+    }
+    for (lang, pages) in &web {
+        let before = r.total;
+        for (_, body) in pages {
+            r.learn(body);
+        }
+        if r.total > before {
+            order.push(format!("{lang} {}c", r.total - before));
+        }
+    }
+    save(&r);
+    save_brain_fp(fp);
+    Some(format!(
+        "character brain: read {} chars, {} contexts — curriculum: {}",
+        r.total_read(),
+        r.learned(),
+        order.join(" → "),
+    ))
+}
+
+#[cfg(not(feature = "crawl"))]
+pub fn ensure_brain(_data_root: &std::path::Path) -> Option<String> {
+    None
+}
+
+/// The input fingerprint the saved brain was trained under (a sidecar beside the brain), so an
+/// unchanged curriculum replays instead of retraining.
+fn fp_path() -> std::path::PathBuf {
+    store_path().with_extension("fp")
+}
+fn brain_fp() -> Option<u64> {
+    std::fs::read_to_string(fp_path()).ok()?.trim().parse().ok()
+}
+fn save_brain_fp(fp: u64) {
+    let _ = std::fs::write(fp_path(), fp.to_string());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,6 +333,35 @@ mod tests {
             r.surprise("season"),
             r.surprise("z9$_qx=[]"),
         );
+    }
+
+    /// END-TO-END setup: `ensure_brain` reads this machine's dictionary (English base — no web
+    /// sources registered in the temp root, so the curriculum is English alone here), trains,
+    /// saves `char.global.bin`, and on a second call REPLAYS ("current") instead of retraining.
+    /// Proves the whole setup verb runs on real data. Ignored (needs the local dictionary).
+    #[test]
+    #[ignore = "reads the local dictionary; exercises the ensure_brain setup verb end to end"]
+    fn ensure_brain_trains_saves_and_replays() {
+        use crate::lint_codec::{Dec, Bin};
+        let dir = std::env::temp_dir().join(format!("char-brain-e2e-{}", std::process::id()));
+        let _env = crate::test_env_lock();
+        std::env::set_var("HELPERS_LINT_MODELS", &dir);
+        std::env::set_var("HELPERS_LINT_OFFLINE", "1"); // no web crawl — dictionary only
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let first = super::ensure_brain(data).expect("a dictionary exists to train from");
+        eprintln!("{first}");
+        assert!(first.contains("read") && first.contains("english"), "trained report: {first}");
+        // The saved brain decodes and has really read.
+        let bytes = std::fs::read(super::store_path()).expect("brain saved");
+        let (_, mut d) = Dec::open(&bytes, crate::lint_codec::kind::CHARBRAIN).expect("opens");
+        let loaded = CharReader::dec(&mut d).expect("decodes");
+        assert!(loaded.total_read() > 1_000_000, "read the dictionary: {} chars", loaded.total_read());
+        // Second call replays.
+        let second = super::ensure_brain(data).expect("still trainable");
+        assert_eq!(second, "character brain: current", "unchanged inputs replay: {second}");
+        std::env::remove_var("HELPERS_LINT_OFFLINE");
+        std::env::remove_var("HELPERS_LINT_MODELS");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The persisted brain round-trips exactly — a loaded brain reads pages identically to the
