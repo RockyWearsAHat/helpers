@@ -353,6 +353,12 @@ impl Reader {
         self.read_count(token) >= self.head_cutoff()
     }
 
+    /// [`is_head_word`] by token seed — for callers that only carry seeds (the dictionary
+    /// meaning network stores definitions as seed lists).
+    pub fn is_head_seed(&self, seed: u64) -> bool {
+        self.freq.get(seed) >= self.head_cutoff()
+    }
+
     /// How many times this reader has read `token` — 0 for a word it has never seen. The raw
     /// evidence rarity rankings are built from (a rarer word carries more of a sentence's
     /// identity).
@@ -465,13 +471,23 @@ pub struct PolarityBuilder {
     reader: Reader,
     bad: Bundler,
     good: Bundler,
+    /// Per-token side tallies (token seed → summed info-bit weight under a BAD label,
+    /// under clean EXPOSURE — good labels and plain clean-grounded reality together) — the
+    /// evidence layer of the side-count design (LINTER.md, "The side-count evidence
+    /// layer"). Honest grounding labels are the only labels; exposure is the denominator.
+    tallies: std::collections::HashMap<u64, (u32, u32)>,
 }
 
 impl PolarityBuilder {
     /// Start from a reader that has already read the corpus (so its learned stop-list applies to the
     /// prose it encodes).
     pub fn new(reader: Reader) -> PolarityBuilder {
-        PolarityBuilder { reader, bad: Bundler::new(), good: Bundler::new() }
+        PolarityBuilder {
+            reader,
+            bad: Bundler::new(),
+            good: Bundler::new(),
+            tallies: std::collections::HashMap::new(),
+        }
     }
 
     /// Fold one grounded example into the prototypes: every salient token of `prose` votes into the
@@ -480,15 +496,47 @@ impl PolarityBuilder {
     /// by two layers of majority, and each vote weighs the token's information content
     /// ([`Reader::info_bits`]) so the prototypes are centroids of MEANING, not of register filler.
     pub fn accumulate(&mut self, prose: &str, is_bad: bool) {
-        let toks = self.reader.salient_weighted(prose);
         let target = if is_bad { &mut self.bad } else { &mut self.good };
-        for (h, w) in &toks {
-            target.add_weighted(h, *w);
+        for (h, w) in self.reader.salient_weighted(prose) {
+            target.add_weighted(&h, w);
+        }
+        self.tally(prose, is_bad);
+    }
+
+    /// Tally one grounded prose span WITHOUT training the prototypes — the EXPOSURE side of
+    /// the side-count design (LINTER.md): a clean verdict is not an endorsement label, but
+    /// it IS reality the word stood next to, and without it every ubiquitous word would
+    /// lean bad by default ("not" appears in 6% flagged prose → neutral; "deprecated" in
+    /// 75% → prohibition vocabulary). Callers feed every clean-grounded unit through here.
+    pub fn tally_exposure(&mut self, prose: &str) {
+        self.tally(prose, false);
+    }
+
+    /// Tallies cover EVERY read token, common words included (LINTER.md, "The side-count
+    /// evidence layer"): English carries prohibition in its most ubiquitous words — the
+    /// negation primitives — and reality must be allowed to polarize them. Commonness
+    /// discounts the recorded WEIGHT (info bits), never the existence of the evidence.
+    fn tally(&mut self, prose: &str, is_bad: bool) {
+        for (full, parts) in read_units(prose) {
+            let word = if full.is_empty() { parts.first().cloned().unwrap_or_default() } else { full };
+            if word.is_empty() {
+                continue;
+            }
+            let w = self.reader.info_bits(&word).max(1);
+            let t = self.tallies.entry(crate::lint_ai::token_seed(&word)).or_insert((0, 0));
+            if is_bad {
+                t.0 = t.0.saturating_add(w);
+            } else {
+                t.1 = t.1.saturating_add(w);
+            }
         }
     }
 
     /// Freeze the prototypes and the reader into a [`Polarity`] classifier.
     pub fn build(self) -> Polarity {
+        let mut tallies: Vec<(u64, u32, u32)> =
+            self.tallies.into_iter().map(|(k, (f, c))| (k, f, c)).collect();
+        tallies.sort_unstable_by_key(|(k, _, _)| *k);
         Polarity {
             bad: self.bad.finalize(),
             good: self.good.finalize(),
@@ -496,6 +544,7 @@ impl PolarityBuilder {
             good_n: self.good.len(),
             margin: std::sync::OnceLock::new(),
             reader: self.reader,
+            tallies,
         }
     }
 }
@@ -520,6 +569,22 @@ pub struct Polarity {
     /// loaded memory re-measures its own prototypes).
     #[serde(skip)]
     margin: std::sync::OnceLock<u32>,
+    /// Frozen per-token side tallies `(token seed, bad-label weight, clean-exposure
+    /// weight)`, sorted by seed — the side-count evidence layer. Empty on legacy JSON
+    /// artifacts (they abstain to the prototypes).
+    #[serde(default)]
+    tallies: Vec<(u64, u32, u32)>,
+}
+
+impl Reader {
+    /// The shared EMPTY reader — a machine that has read nothing yet. Every word reads as
+    /// unread (count 0, no corpus head), so callers that rank by reading knowledge degrade
+    /// to English knowledge + existence + document order: the self-bootstrap floor a cold
+    /// machine's project law compiles through (LINTER.md, "Honest grounding labels").
+    pub fn empty() -> &'static Reader {
+        static EMPTY: std::sync::OnceLock<Reader> = std::sync::OnceLock::new();
+        EMPTY.get_or_init(Reader::new)
+    }
 }
 
 impl Polarity {
@@ -544,22 +609,171 @@ impl Polarity {
         self.bad_n + self.good_n
     }
 
+    /// The side-count evidence for one token: summed info-bit weight under bad labels vs
+    /// under good labels. `(0, 0)` for a token the grounding never met.
+    pub fn tally_of(&self, word: &str) -> (u32, u32) {
+        self.tally_of_seed(crate::lint_ai::token_seed(&word.to_lowercase()))
+    }
+
+    /// [`tally_of`] by token seed — the form the dictionary hop reads with.
+    fn tally_of_seed(&self, seed: u64) -> (u32, u32) {
+        match self.tallies.binary_search_by_key(&seed, |(k, _, _)| *k) {
+            Ok(i) => (self.tallies[i].1, self.tallies[i].2),
+            Err(_) => (0, 0),
+        }
+    }
+
+    /// The token's side-count LEAN, mildly asymmetric by design (LINTER.md, "The side-count
+    /// evidence layer"): a bad label is reality's own verdict (the toolchain flagged the
+    /// code), so a bad lean needs a 2:1 majority; a good label is structural inference (the
+    /// fix-sibling convention, which some pages break), so a good lean needs 4:1. With under
+    /// 4 bits of direct evidence the word is read through its own DICTIONARY DEFINITION —
+    /// one hop through the LangBrain's meaning network ("forbid" = "order NOT to do"
+    /// inherits the grounded lean of "not"), so reality's verdicts on a few thousand pages
+    /// polarize the whole English vocabulary. No decisive majority anywhere → abstain.
+    pub fn tally_lean(&self, word: &str) -> Option<bool> {
+        let seed = crate::lint_ai::token_seed(&word.to_lowercase());
+        let (f, c) = self.tally_of_seed(seed);
+        if f + c >= 4 {
+            return lean_of(f, c);
+        }
+        let english = crate::lint_english::brain()?;
+        let def = english.definition_of(seed)?;
+        // The hop inherits PROHIBITION only, and only from decisive CONTENT words: words
+        // English itself reads as common (pronouns, articles — "it", "of", "a") pick up
+        // accidental one-sided tallies from every labeled span and must never donate a
+        // lean ("fold" = "bend ... over on ITself" says nothing about prohibition).
+        // Negation inheritance is not this hop's job — the discovered negation cluster
+        // ([`crate::lint_english::English::is_negation`], the cold floor) carries it.
+        // Endorsement never crosses the hop — only reality can endorse.
+        let mut df = 0u32;
+        for s in def {
+            if english.reader.is_head_seed(*s) {
+                continue;
+            }
+            let (a, b) = self.tally_of_seed(*s);
+            if a + b >= 4 && lean_of(a, b) == Some(true) {
+                df = df.saturating_add(a);
+            }
+        }
+        // The same ≥8-bit bar the span layer uses: one genuinely informative donor plus
+        // change — a single tiny-corpus co-sighting (~7 bits) is not inherited meaning.
+        (df >= 8).then_some(true)
+    }
+
+    /// Classify a span by SIDE-COUNT evidence alone: information-weighted votes from
+    /// tokens with a decisive lean; prohibition needs the bad side to carry twice the
+    /// good side's bits and at least 8 bits outright (one genuinely informative leaning
+    /// word plus change). `None` when the tallies cannot decide — the caller falls back
+    /// to the span prototypes.
+    pub fn classify_tallied(&self, prose: &str) -> Option<bool> {
+        if self.tallies.is_empty() {
+            return None;
+        }
+        let mut bad_bits = 0u64;
+        let mut good_bits = 0u64;
+        for (full, parts) in read_units(prose) {
+            let word = if full.is_empty() { parts.first().cloned().unwrap_or_default() } else { full };
+            if word.is_empty() {
+                continue;
+            }
+            match self.tally_lean(&word) {
+                Some(true) => bad_bits += u64::from(self.info_bits(&word)),
+                Some(false) => good_bits += u64::from(self.info_bits(&word)),
+                None => {}
+            }
+        }
+        if bad_bits >= 8 && bad_bits >= good_bits * 2 {
+            Some(true)
+        } else if good_bits >= 8 && good_bits >= bad_bits * 2 {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    /// The reader's info-bits for a word — exposed for the side-count layer.
+    fn info_bits(&self, word: &str) -> u32 {
+        self.reader.info_bits(word)
+    }
+
+    /// The COLD FLOOR: classify overt prohibition through the dictionary's discovered
+    /// negation cluster alone (LINTER.md, "The cold floor") — the reading an UNREADY
+    /// classifier still renders. A span is a prohibition when its negation-clustered words
+    /// carry ≥8 info bits; everything else abstains, and endorsement is never rendered
+    /// here — only reality can endorse.
+    fn classify_negation(&self, prose: &str) -> Option<bool> {
+        // One REAL negation word is the floor: prohibition sentences typically carry
+        // exactly one ("Never use X"), and a genuine reading of it is worth ~4+ bits.
+        (self.negation_bits(prose) >= 4).then_some(true)
+    }
+
+    /// The information weight of `prose`'s negation-clustered words — the cold floor's raw
+    /// reading, exposed so callers can compare SPANS relatively (a fix block must read
+    /// decisively less negated than its violation; absolute cluster membership alone cannot
+    /// tell "Never use X" from "use the plain form" — "plain" is dictionary-defined via
+    /// litotes, "not decorated").
+    pub fn negation_bits(&self, prose: &str) -> u64 {
+        let Some(english) = crate::lint_english::brain() else { return 0 };
+        let mut bits = 0u64;
+        for (full, parts) in read_units(prose) {
+            let word = if full.is_empty() { parts.first().cloned().unwrap_or_default() } else { full };
+            if word.is_empty() {
+                continue;
+            }
+            if english.is_negation(crate::lint_ai::token_seed(&word)) {
+                bits += u64::from(self.info_bits(&word).max(1));
+            }
+        }
+        bits
+    }
+}
+
+/// The side-count ratio bars (LINTER.md, "The side-count evidence layer"): bad needs 2:1
+/// (reality's own verdict), good needs 4:1 (structural inference), anything else abstains.
+fn lean_of(f: u32, c: u32) -> Option<bool> {
+    if f >= c.saturating_mul(2) {
+        Some(true)
+    } else if c >= f.saturating_mul(4) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+impl Polarity {
+
     /// True when both prototypes carry at least one example — the classifier can render a verdict.
     pub fn is_ready(&self) -> bool {
         self.bad_n > 0 && self.good_n > 0
     }
 
     /// Classify prose: `Some(true)` = prohibition, `Some(false)` = endorsement, `None` = abstain
-    /// (untrained, unencodable, or no decisive majority). Each salient token votes for whichever
-    /// prototype it sits closer to by more than the CALIBRATED margin ([`calibrated_margin`] — the
-    /// trained prototypes' own measured noise floor, never a hand constant), and its vote weighs
-    /// its information content ([`Reader::info_bits`]): common register words barely count, rare
-    /// words decide — so neutral manual prose cannot become law off filler vocabulary. The side
-    /// with the strictly heavier vote wins. Per-token voting keeps the call stable whether the
-    /// prose is three words or three hundred — neutral text simply casts no votes and abstains.
+    /// (untrained, unencodable, or no decisive majority). The reading is **words → sentences**
+    /// (LINTER.md, "The side-count evidence layer"): the per-token side-count tallies vote first
+    /// — each word's own grounded history — and only when they cannot decide do the span
+    /// prototypes vote. Prototype votes go to whichever prototype the token sits closer to by
+    /// more than the CALIBRATED margin ([`calibrated_margin`] — the trained prototypes' own
+    /// measured noise floor, never a hand constant), and every vote in both layers weighs the
+    /// token's information content ([`Reader::info_bits`]): common register words barely count,
+    /// rare words decide — so neutral manual prose cannot become law off filler vocabulary. The
+    /// side with the strictly heavier vote wins; callers keep document order as their own final
+    /// fallback. Per-token voting keeps the call stable whether the prose is three words or
+    /// three hundred — neutral text simply casts no votes and abstains.
     pub fn classify(&self, prose: &str) -> Option<bool> {
         if !self.is_ready() {
-            return None;
+            // Unready ≠ unread: a language whose docs never pair violations with fixes
+            // (reference manuals) trains no good PROTOTYPE, but its grounded tallies are
+            // rich — and they, not the crude negation floor, are the evidence. The floor
+            // (LINTER.md, "The side-count evidence layer") decides only when the tallies
+            // cannot: truly cold reading. Prohibition only — reality alone can endorse.
+            if let Some(v) = self.classify_tallied(prose) {
+                return Some(v);
+            }
+            return self.classify_negation(prose);
+        }
+        if let Some(v) = self.classify_tallied(prose) {
+            return Some(v);
         }
         let margin = *self.margin.get_or_init(|| calibrated_margin(&self.bad, &self.good));
         let mut bad_votes = 0u64;
@@ -594,6 +808,11 @@ impl Polarity {
     pub fn token_lean(&self, token: &str) -> Option<bool> {
         if !self.is_ready() {
             return None;
+        }
+        // Words before geometry: the token's own grounded side-count history is direct
+        // evidence; prototype distance is the fallback when the tallies never met it.
+        if let Some(v) = self.tally_lean(token) {
+            return Some(v);
         }
         let margin = *self.margin.get_or_init(|| calibrated_margin(&self.bad, &self.good));
         let h = crate::lint_ai::token_hv(&token.to_lowercase());
@@ -818,15 +1037,30 @@ impl crate::lint_codec::Bin for Polarity {
         e.hv(&self.good);
         e.u(self.bad_n as u64);
         e.u(self.good_n as u64);
+        // Side-count tallies ride the RAW stream as three parallel arrays (seed-sorted).
+        e.raw_u64s(&self.tallies.iter().map(|(k, _, _)| *k).collect::<Vec<_>>());
+        e.raw_u32s(&self.tallies.iter().map(|(_, f, _)| *f).collect::<Vec<_>>());
+        e.raw_u32s(&self.tallies.iter().map(|(_, _, c)| *c).collect::<Vec<_>>());
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<Polarity> {
+        let reader = Reader::dec(d)?;
+        let (bad, good) = (d.hv()?, d.hv()?);
+        let (bad_n, good_n) = (d.u()? as usize, d.u()? as usize);
+        // Format 2 always writes the three parallel arrays; format-1 artifacts never reach
+        // this decoder (the container FORMAT byte rejects them at `open`).
+        let (keys, f, c) = (d.raw_u64s()?, d.raw_u32s()?, d.raw_u32s()?);
+        if keys.len() != f.len() || f.len() != c.len() {
+            return None;
+        }
+        let tallies = keys.into_iter().zip(f).zip(c).map(|((k, f), c)| (k, f, c)).collect();
         Some(Polarity {
-            reader: Reader::dec(d)?,
-            bad: d.hv()?,
-            good: d.hv()?,
-            bad_n: d.u()? as usize,
-            good_n: d.u()? as usize,
+            reader,
+            bad,
+            good,
+            bad_n,
+            good_n,
             margin: std::sync::OnceLock::new(),
+            tallies,
         })
     }
 }
@@ -1038,10 +1272,28 @@ mod tests {
 
 
     #[test]
-    fn untrained_polarity_abstains() {
-        let p = Polarity::from_labeled(&[("never do this", true)]); // good side empty
+    fn untrained_polarity_reads_negation_and_nothing_else() {
+        // One-sided training leaves the PROTOTYPES unusable — but the dictionary's negation
+        // cluster still reads overt prohibition (LINTER.md, "The cold floor"): that is what
+        // lets a fresh machine mint "Never use X" laws from an ungroundable language's docs.
+        // Good side empty; enough one-sided READING for information weights to mean
+        // anything (a three-token universe cannot weigh any word).
+        let p = Polarity::from_labeled(&[
+            ("colorful widgets everywhere on the mantle beside the brass clock", true),
+            ("porcelain vases line the hallway shelves under warm afternoon light", true),
+            ("the garden path curves gently past rosemary beds toward the gate", true),
+        ]);
         assert!(!p.is_ready());
-        assert_eq!(p.classify("never do this"), None, "one-sided training cannot classify");
+        assert_eq!(
+            p.classify("never do this"),
+            Some(true),
+            "overt negation reads as prohibition through the dictionary alone"
+        );
+        assert_eq!(
+            p.classify("the module has three sections"),
+            None,
+            "without negation an unready classifier abstains"
+        );
     }
 
     #[test]

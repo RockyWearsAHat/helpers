@@ -30,11 +30,28 @@ pub struct English {
     /// Token seeds of every word the dictionary defines (its headwords, tokenized through the
     /// reader's one tokenizer). Frozen sorted array when loaded; see [`SeedSet`].
     pub defined: SeedSet,
+    /// Definitions as bindings (LINTER.md, "Common language first"): each SINGLE-WORD
+    /// headword's seed → the content-word seeds of its own definition (first
+    /// [`MAX_DEFINITION_WORDS`], self excluded), sorted by headword seed. This is the meaning
+    /// network the side-count polarity layer diffuses leans through — a word grounding never
+    /// met inherits polarity from the words that define it.
+    #[serde(default)]
+    pub definitions: Vec<(u64, Vec<u64>)>,
+    /// The language's DISCOVERED negation primitives (LINTER.md, "The cold floor"): token
+    /// seeds that appear in negative-morphology definitions ("invalid" = "not valid") far
+    /// above their background definition rate. Sorted; discovered statistically at
+    /// dictionary-read time — never enumerated, so any language's dictionary yields its own.
+    #[serde(default)]
+    pub negators: Vec<u64>,
     /// mtime^len fingerprint of the dictionary body this was read from — rebuild only when the
     /// dictionary itself changed.
     #[serde(default)]
     pub source_fp: u64,
 }
+
+/// Definition content-word cap: the leading words of a dictionary definition carry its sense
+/// (dictionaries front-load the genus); the tail is example phrases and cross-references.
+const MAX_DEFINITION_WORDS: usize = 12;
 
 impl English {
     /// Whether common language accounts for `token`: the dictionary defines it, or definition
@@ -43,6 +60,34 @@ impl English {
     pub fn knows(&self, token: &str) -> bool {
         self.defined.contains(crate::lint_ai::token_seed(&token.to_lowercase()))
             || self.reader.is_head_word(token)
+    }
+
+    /// The definition content-word seeds of the headword with `seed` — the one dictionary hop
+    /// polarity diffusion reads through. `None` for a word the dictionary gave no usable
+    /// definition (multi-word headword, or no entry).
+    pub fn definition_of(&self, seed: u64) -> Option<&[u64]> {
+        self.definitions
+            .binary_search_by_key(&seed, |(k, _)| *k)
+            .ok()
+            .map(|i| self.definitions[i].1.as_slice())
+    }
+
+    /// Whether `seed` is a NEGATION OPERATOR (LINTER.md, "The cold floor"): a discovered
+    /// negator, or a word whose definition is negation COMPOUNDED — it contains a negator
+    /// AND another word that is itself negator-defined ("never" = "at NO time … NOT ever").
+    /// One negator alone is not enough: litotes runs through dictionaries ("plain" = "NOT
+    /// decorated") and a property negated once is a description, not a prohibition operator.
+    /// This is the judgment an unready polarity classifier reads overt prohibition with.
+    pub fn is_negation(&self, seed: u64) -> bool {
+        if self.negators.binary_search(&seed).is_ok() {
+            return true;
+        }
+        let Some(def) = self.definition_of(seed) else { return false };
+        let is_negator = |s: &u64| self.negators.binary_search(s).is_ok();
+        let negator_defined = |s: &u64| {
+            self.definition_of(*s).is_some_and(|d| d.iter().any(is_negator))
+        };
+        def.iter().any(is_negator) && def.iter().filter(|s| !is_negator(s)).any(|s| negator_defined(s))
     }
 }
 
@@ -54,9 +99,32 @@ impl Bin for English {
         self.reader.enc(e);
         self.defined.enc(e);
         e.fixed_u64(self.source_fp);
+        // Definitions ride the RAW stream flattened: headword seeds, per-head lengths, then
+        // every definition's seeds back to back (decode rebuilds the slices by length).
+        e.raw_u64s(&self.definitions.iter().map(|(k, _)| *k).collect::<Vec<_>>());
+        e.raw_u32s(&self.definitions.iter().map(|(_, v)| v.len() as u32).collect::<Vec<_>>());
+        e.raw_u64s(&self.definitions.iter().flat_map(|(_, v)| v.iter().copied()).collect::<Vec<_>>());
+        e.raw_u64s(&self.negators);
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<English> {
-        Some(English { reader: Bin::dec(d)?, defined: Bin::dec(d)?, source_fp: d.fixed_u64()? })
+        let reader = Bin::dec(d)?;
+        let defined = Bin::dec(d)?;
+        let source_fp = d.fixed_u64()?;
+        let heads = d.raw_u64s()?;
+        let lens = d.raw_u32s()?;
+        let flat = d.raw_u64s()?;
+        if heads.len() != lens.len() || lens.iter().map(|l| *l as usize).sum::<usize>() != flat.len() {
+            return None;
+        }
+        let mut definitions = Vec::with_capacity(heads.len());
+        let mut at = 0usize;
+        for (head, len) in heads.into_iter().zip(lens) {
+            let next = at + len as usize;
+            definitions.push((head, flat[at..next].to_vec()));
+            at = next;
+        }
+        let negators = d.raw_u64s()?;
+        Some(English { reader, defined, definitions, negators, source_fp })
     }
 }
 
@@ -185,6 +253,15 @@ fn read_dictionary(path: &std::path::Path, source_fp: u64) -> Option<English> {
     // of a foreign layout must not poison the brain with garbage tokens.
     let mut pos = 0x60usize;
     let mut chunks = 0usize;
+    // Negator discovery (LINTER.md, "The cold floor"): count every definition token's
+    // appearances overall and inside NEGATIVE-MORPHOLOGY entries (headword = prefix + a word
+    // of its own definition, "invalid" = "not valid"). The language's negation primitive is
+    // whatever token rides those entries far above its background rate — discovered, never
+    // enumerated.
+    let mut def_count: std::collections::HashMap<u64, u32> = Default::default();
+    let mut neg_count: std::collections::HashMap<u64, u32> = Default::default();
+    let mut neg_entries = 0u32;
+    let mut def_entries = 0u32;
     while pos + 12 < data.len() {
         let outer = u32::from_le_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
         if outer < 8 || pos + 4 + outer > data.len() {
@@ -195,15 +272,102 @@ fn read_dictionary(path: &std::path::Path, source_fp: u64) -> Option<English> {
             break;
         };
         let xml = String::from_utf8_lossy(&xml_bytes);
-        let (prose, titles) = strip_entry_xml(&xml);
+        // One chunk holds MANY `<d:entry>` elements; a headword's definition is its OWN
+        // entry's prose — entry-boundary slicing is the same tag-boundary law the crawler
+        // follows (never byte offsets, never one blob for a hundred entries).
+        for piece in xml.split("<d:entry").skip(1) {
+        // The entry tag's own attributes carry the headword; its body carries the prose.
+        let Some(gt) = piece.find('>') else { continue };
+        let entry_title =
+            piece[..gt].split("d:title=\"").nth(1).and_then(|a| a.split('"').next()).map(str::to_string);
+        let (prose, mut titles) = strip_entry_xml(&piece[gt + 1..]);
+        if let Some(t) = entry_title {
+            titles.insert(0, t);
+        }
         english.reader.learn_span(&prose);
+        // Definitions as bindings: a SINGLE-WORD headword keeps its definition's leading
+        // content-word seeds (multi-word titles are phrases — their parts are entries of
+        // their own). First title of the entry owns the prose; sub-titles share it.
+        for title in &titles {
+            let toks = crate::lint_read::tokens(title);
+            let [head] = toks.as_slice() else { continue };
+            let head_seed = crate::lint_ai::token_seed(head);
+            let mut def: Vec<u64> = Vec::new();
+            let mut def_words: Vec<String> = Vec::new();
+            // The DEFINITION is the text before the entry's first example separator
+            // (" : " — the dictionary's own typography): example sentences quote arbitrary
+            // usage ("do not use the phone — write instead") and must never leak their
+            // vocabulary into the headword's meaning.
+            let def_src = prose.split(" : ").next().unwrap_or(prose.as_str());
+            for tok in crate::lint_read::tokens(def_src) {
+                // Words only: entry prose also carries pronunciation (which tokenizes to
+                // char shrapnel) and sense numbers — neither is definition MEANING. Any
+                // language's letters pass; length is in characters, not bytes.
+                if tok.chars().count() < 2 || !tok.chars().all(char::is_alphabetic) {
+                    continue;
+                }
+                let s = crate::lint_ai::token_seed(&tok);
+                if s != head_seed && !def.contains(&s) {
+                    def.push(s);
+                    def_words.push(tok);
+                    if def.len() >= MAX_DEFINITION_WORDS {
+                        break;
+                    }
+                }
+            }
+            if def.is_empty() {
+                continue;
+            }
+            // Negative morphology: the headword is a BOUND prefix (1–2 chars — longer
+            // "prefixes" are compound first-elements like "bread"+"box") over one of its own
+            // definition words ("in"+"valid", "un"+"safe"), and the definition states the
+            // negation as NEGATOR-then-root ("not valid") — so the word immediately BEFORE
+            // the root is the negator candidate. Counted, never assumed: the lift test below
+            // keeps only candidates that ride these entries far above their background rate.
+            def_entries += 1;
+            for s in &def {
+                *def_count.entry(*s).or_insert(0) += 1;
+            }
+            let root_at = def_words.iter().position(|root| {
+                root.chars().count() >= 3
+                    && head.len() > root.len()
+                    && head.len() <= root.len() + 2
+                    && head.ends_with(root.as_str())
+            });
+            if let Some(at) = root_at {
+                neg_entries += 1;
+                if at > 0 {
+                    *neg_count.entry(def[at - 1]).or_insert(0) += 1;
+                }
+            }
+            english.definitions.push((head_seed, def));
+        }
         for title in titles {
             for tok in crate::lint_read::tokens(&title) {
                 english.defined.insert(crate::lint_ai::token_seed(&tok));
             }
         }
+        }
         chunks += 1;
         pos += 4 + outer;
+    }
+    // Sorted by headword seed for the binary-search hop; the FIRST entry of a duplicated
+    // headword wins (dictionaries put the primary sense first).
+    english.definitions.sort_by_key(|(k, _)| *k);
+    english.definitions.dedup_by(|a, b| a.0 == b.0);
+    // A negator rides negative-morphology definitions at ≥3× its background rate with real
+    // support — scale-free (rates, not counts), so any dictionary size and any language's
+    // prefix system yields its own primitives.
+    if neg_entries >= 50 && def_entries > 0 {
+        let base = f64::from(neg_entries) / f64::from(def_entries);
+        for (seed, n) in &neg_count {
+            let total = def_count.get(seed).copied().unwrap_or(*n).max(*n);
+            let rate = f64::from(*n) / f64::from(total);
+            if *n >= 100 && rate >= 3.0 * base {
+                english.negators.push(*seed);
+            }
+        }
+        english.negators.sort_unstable();
     }
     (chunks > 0 && !english.defined.is_empty()).then_some(english)
 }
@@ -216,17 +380,39 @@ fn strip_entry_xml(xml: &str) -> (String, Vec<String>) {
     let mut prose = String::with_capacity(xml.len() / 4);
     let mut titles = Vec::new();
     let mut rest = xml;
+    // Headword/pronunciation spans are the entry's TYPOGRAPHY, not its meaning — their text
+    // (syllabified headwords, respellings) would sit in front of every definition and poison
+    // the leading content words the bindings keep. The format marks them; skip their whole
+    // subtree by span depth.
+    let mut skip_depth = 0usize;
     while let Some(open) = rest.find('<') {
-        prose.push_str(&rest[..open]);
-        prose.push(' ');
+        if skip_depth == 0 {
+            prose.push_str(&rest[..open]);
+            prose.push(' ');
+        }
         let Some(close) = rest[open..].find('>') else { break };
         let tag = &rest[open + 1..open + close];
         if let Some(t) = tag.split("d:title=\"").nth(1).and_then(|a| a.split('"').next()) {
             titles.push(t.to_string());
         }
+        let opens_span = tag.starts_with("span");
+        let closes_span = tag.starts_with("/span");
+        if skip_depth > 0 {
+            if opens_span {
+                skip_depth += 1;
+            } else if closes_span {
+                skip_depth -= 1;
+            }
+        } else if opens_span
+            && (tag.contains("class=\"prx") || tag.contains("class=\"syl_txt") || tag.contains("class=\"hw"))
+        {
+            skip_depth = 1;
+        }
         rest = &rest[open + close + 1..];
     }
-    prose.push_str(rest);
+    if skip_depth == 0 {
+        prose.push_str(rest);
+    }
     let prose = prose.replace('&', " ");
     (prose, titles)
 }

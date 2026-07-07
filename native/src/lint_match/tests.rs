@@ -96,7 +96,7 @@ fn every_named_construct_shape_wins_selection_in_every_phrasing() {
                     ..Default::default()
                 };
                 let view = GroundView::of("qqlang", &ground);
-                let got = description_discriminator(&desc, "", &view, &view.word_contexts(&desc), false);
+                let got = description_discriminator(&desc, "", "", &view, &view.word_contexts(&desc), false);
                 let construct = written.trim_matches('`').to_lowercase();
                 assert_eq!(
                     got.as_ref().map(|(p, _)| p.as_str()),
@@ -136,7 +136,7 @@ fn no_reading_and_no_example_means_abstain_not_guess() {
     // With no reader and no bad example there is no evidence to select by — the engine
     // abstains rather than guessing a word.
     let desc = "Do not hardcode port 8080 anywhere.";
-    let re = description_discriminator(desc, "", &unground(), &unground().word_contexts(desc), false);
+    let re = description_discriminator(desc, "", "", &unground(), &unground().word_contexts(desc), false);
     assert_eq!(re, None);
 }
 

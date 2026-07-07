@@ -35,6 +35,70 @@ The substrate is a 1-bit hyperdimensional AI, not an LLM and not a rule program:
   curve learned from reading, applied identically when accumulating the prototypes and when
   voting. This is what stops neutral manual prose ("Interactive shells permit trapping
   signals…") from classifying as law off the back of common register words.
+- **Honest grounding labels** (landed 2026-07-06 — the correction that makes reading raw
+  pages sufficient): the asymmetry between the two verdicts lives in the LABELS, never in
+  classify-time thresholds. A **Flagged** verdict is reality saying "broken" — that unit's
+  prose labels **bad**, as before. A **Clean** verdict only says "parses", never "endorsed"
+  — so by itself it labels **nothing**. Clean prose earns a **good** label only when
+  structure adds evidence: a clean block that is the SIBLING of a flagged block in the same
+  section is the documented FIX (violation first, fix after — the same convention fence
+  orientation trusts), and its prose is genuinely endorsement register. Every other clean
+  unit stays unlabeled: reference corpus, reading material, never polarity food. This
+  un-teaches all three measured mislabel classes at the ROOT: a lint-rule doc's "incorrect"
+  example usually PARSES (`var x = 1`), and under honest labels that prose now trains
+  nothing instead of training the endorsement prototype (the classifier stops learning the
+  opposite of what the page says); neutral tutorial prose no longer floods the good
+  prototype (why the previous bootstrap regeneration got WORSE with more reading — that
+  failure mode is gone by construction, and the good prototype becomes genuinely remedy/
+  endorsement register); and remedy vocabulary earns good weight from fix-position prose to
+  balance the bad weight it earns beside failing code. Recall on pages reality cannot flag
+  (lint docs whose bad examples parse) comes back through the second pass that already
+  exists: an unlabeled unit's `is_bad` at bind time is the classifier's READING of its
+  prose — vocabulary learned from reality elsewhere decides, not the unit's own parse
+  verdict.
+- The **side-count evidence layer** (per-token polarity, landed 2026-07-06): alongside the
+  prototypes, training tallies for every salient token the info-bit weight it carried under
+  each honest label — `(labeled bad, labeled good)`. The tally is the word's own
+  grounded history, so classification reads **words → sentences → order**:
+  1. **Words.** Tokens with a decisive tallied lean vote first. A tally's two sides are
+     BAD-LABEL weight vs CLEAN-EXPOSURE weight: every clean-grounded unit tallies as
+     exposure (reality the word stood next to — NOT an endorsement label; without the
+     denominator every ubiquitous word would lean bad by default: "not" beside 6% flagged
+     prose is neutral register, "deprecated" beside 75% is prohibition vocabulary). A bad
+     lean needs the bad side at 2:1 over exposure; a "reads clean" lean needs exposure at
+     4:1. Under 4 bits of total evidence a token abstains. Tallies cover EVERY read token, common
+     words included — deliberately: English carries prohibition in its most ubiquitous
+     words (the negation primitives "not", "cannot", "never"), and a salience filter here
+     would silence exactly the vocabulary reality polarizes fastest (error pages:
+     "cannot be parsed", "is not allowed"). Commonness discounts a token's VOTE (its
+     info-bit weight), never the existence of its evidence. A span verdict from tallies
+     needs ≥8 leaning bits and a 2:1 side majority — one genuinely informative leaning
+     word plus change, so feather-weight filler can never decide a span alone.
+     **The dictionary diffuses the leans** (definitions as bindings, landed 2026-07-06):
+     the LangBrain keeps each headword's definition content-words, and a token the
+     grounding never met inherits its lean from its own definition's tallies ("forbid" =
+     "order NOT to do" inherits the grounded lean of "not"). Reality polarizes the
+     negation primitives; the dictionary carries that polarity across the whole English
+     vocabulary — learned end to end, no seed list, no committed classifier.
+  2. **Sentences.** When the tallies cannot decide, the span prototypes vote exactly as
+     before (calibrated margin, information-weighted).
+  3. **Order.** Callers keep their document-order conventions as the final fallback —
+     fence orientation's positive-evidence-only swap (ledger #6a) is unchanged, and a
+     drifted or legacy artifact (no tallies serialized) degrades to prototypes, then order.
+  **The cold floor — negation read from the dictionary alone.** A classifier that has never
+  grounded anything (a fresh machine reading an ungroundable language) still reads overt
+  prohibition, because the dictionary exposes its own negation primitive: entries with
+  negative morphology define a headword as a NEGATOR plus a word of the headword's own
+  surface ("invalid" = "not valid", "unsafe" = "not safe"), so the token that keeps
+  appearing in exactly those definitions — far above its background rate — is the
+  language's negation word, discovered statistically at dictionary-read time (any
+  language's dictionary, any prefix system; nothing enumerated). A word is negation-
+  clustered when it is a discovered negator or its own definition contains one ("never" =
+  "not ever"). An UNREADY classifier classifies a span prohibition when its negation-
+  clustered words carry ≥4 info bits — one REAL negation word, the shape prohibition
+  sentences actually take ("Never use X") — and everything else abstains. Endorsement has
+  no cold floor — only reality can endorse — so pair orientation stays with document order
+  until grounding exists.
 
 Measured (Apple Silicon, `cargo run --release --example reader_bench`, over the shipped
 `extraDocs/*.md` teaching prose): reading ≈ 2.3M tokens/s; polarity training ≈ 80k labeled
@@ -190,8 +254,11 @@ forces it regardless of age.
    no hint at all: junk fence labels ("output", "plain") must not silently discard real
    examples. Blocks with no hint attribute to the page's language, as before.
 3. **Ground**: a bounded sample of examples is checked against the installed toolchain
-   (parse/compile check only, never executed, parallel): flagged → prose feeds the bad
-   prototype, clean → good. Docs' claims tested against reality.
+   (parse/compile check only, never executed, parallel), labeled HONESTLY (substrate
+   section): flagged → prose feeds the bad prototype and tallies; clean feeds the good
+   side only as a fix-sibling of a flagged block in its section; all other clean prose is
+   unlabeled. Docs' claims tested against reality — and where reality is silent, nothing
+   is invented.
 4. **Bind**: prose⊗code hypervector bindings + the reference corpus ("what is normal here").
 5. **Compile** (`RuleSet::build`): examples → lossless generalized AST patterns via
    `bad ∧ ¬good` tree-diff (operations exact, operands bound wildcards, literals typed
@@ -315,8 +382,7 @@ highest count; then lexicographic. A document extension is never claimed by a co
 does resolve to markdown, whose spec claims plain text as its own). An extension nothing
 claims IS the language name (`.go`, `.css` — and any unknown, which the run then asks for).
 Law-file stems resolve through the SAME map (ledger #16). Cold machines are wired from
-`lint-index/extensions-bootstrap.json` — machine-generated learned data, like the polarity
-bootstrap: regenerate with
+`lint-index/extensions-bootstrap.json` — machine-generated learned data: regenerate with
 `cargo test --release --lib generate_extensions_bootstrap -- --ignored`, commit the diff
 (`committed_bootstrap_resolves_the_canonical_extensions` pins every canonical wiring), and the
 machine map overrides it per language as reading continues. Measured before this held: `.md`
@@ -494,12 +560,25 @@ both pure data:
   740 — a frequency floor would misjudge both, and `eval` at 4 incidental reads proves any
   floor wrong in the other direction). A word the dictionary does not define (`telnetlib`,
   `xmlhttprequest`, `dbg`, `todo`) is not English — it is the thing the sentence is ABOUT.
+- **Definitions as bindings** (landed 2026-07-06) — each single-word headword keeps the
+  content words of its own definition (capped, tokenized by the one tokenizer). This is the
+  meaning network the side-count polarity layer diffuses through: a word the grounding never
+  tallied inherits its lean from its definition's tallies (see "The side-count evidence
+  layer"). The dictionary is data read at setup, the leans are reality's, and the hop is one
+  binary search — no curated word list anywhere.
+- **The substrate is NOT locked to English** (owner directive, 2026-07-06). Nothing in the
+  mechanism knows English: the brain reads whatever dictionary the machine has, the tallies
+  polarize whatever negation words that language's grounded doc pages actually use, and the
+  definition hop diffuses those leans through that dictionary. English is the default
+  TRAINING CORPUS — most coding-language sites are written in it — never an assumption in
+  code. A machine with a French dictionary reading French docs would learn French
+  prohibition the same way, end to end.
 
 The artifact is `english.global.bin` (machine-global, beside the models): the dictionary-fed
 reader plus the headword set. It is built once per machine at SETUP time (`action=train`) from
 the local dictionary; lint runs only ever load it. Machines without a parseable dictionary load
 the committed bootstrap `lint-index/english-bootstrap.json` — machine-generated learned data,
-same covenant as the polarity and extensions bootstraps: regenerate with
+same covenant as the extensions bootstrap: regenerate with
 `cargo test --release --lib generate_english_bootstrap -- --ignored` and commit the diff. The
 LangBrain is a substrate, not a rule source: it never fires, never gates a project law's
 EXISTENCE, and adding meaning on top of it (definitions as bindings — word ⊗ its definition,
@@ -797,9 +876,11 @@ multi-ms slice of every cold resolution).
    to the convention, never to swapped examples.*
 7. **Ubiquitous-verb register leans** ("use" decisively bad ⇒ a bash-manual guidance sentence
    minted a firing rule) → caught in production by the feedback loop (2 flags → suppressed);
-   root fix is per-token **side counts** from grounded labels — designed, prototyped, and
-   **reverted** (see open problems) after it destabilized fence orientation; do not re-land it
-   without updating this file with the full design first.
+   root fix is per-token **side counts** from grounded labels — designed, prototyped,
+   reverted once (it destabilized fence orientation when rushed), then **re-landed
+   2026-07-06** together with honest grounding labels (substrate section above):
+   Flagged→bad, fix-sibling→good, all other clean prose unlabeled; words→sentences→order
+   reading; orientation's document-order convention untouched.
 8. **O(n²) shape hashing + per-rule reparse + per-file regex compile + per-language 0.5MB JSON
    parse + npm probe per unknown extension** (hours of CPU; two processes at 100% for
    135 CPU-minutes) → *memoize by construction: one shape pass, one parse per file, one regex
@@ -922,6 +1003,24 @@ multi-ms slice of every cold resolution).
    a file on disk (a file's claim is corroborated by the project that contains it) but never
    validates a fence label. Labels name languages by name or canonical extension; canonical
    extensions are always primaries or typography.*
+22. **The governing window silently ate the FIRST WORD of every prose** (the tail cap's
+   word-boundary snap ran even when nothing was cut, so "**Never** use the goto statement…"
+   trained, bound, and classified as "use the goto statement…" — for prohibitions the
+   operative negation itself; masked for months because the beheaded span still classified
+   through register vocabulary) → *snap to a word boundary only when the cap actually cut;
+   found the same night the heading's own text was discovered WELDED to the section's first
+   sentence ("StatementsNever use…"), hiding the negation from the reader — the heading is
+   the boundary, the governing prose is the section BODY after its closing tag. Both are
+   exactly the class of silent comprehension damage the READ-not-split direction exists to
+   dissolve.*
+23. **Dictionary example sentences and litotes poisoned the meaning network** (definitions
+   captured per CHUNK first — a hundred headwords sharing one entry's prose — then per entry
+   still absorbed usage examples: "instead" learned negation from "do NOT use the phone —
+   write instead", and "plain" from its literal definition "NOT decorated") → *definitions
+   align per `<d:entry>`; the definition is the text before the dictionary's own example
+   separator; and the cold floor reads only negation OPERATORS — words whose definitions are
+   negation COMPOUNDED ("never" = "at NO time … NOT ever"), one negated property being a
+   description, not an operator.*
 
 ## The distribution channel (built) and the community network (deferred, decided)
 
@@ -980,12 +1079,12 @@ with an attacker contract, exactly as the two registry contracts already do.
 
 ## Open problems (honest)
 
-- **Per-token polarity evidence.** Span prototypes cannot say what one word means; the
-  side-count design (tally which label each token appeared under — labels now come only from
-  toolchain grounding verdicts, the curated seed is gone; lean = 2:1 majority) fixed
-  "use"-class noise in probes but regressed fence orientation and contract tests when rushed.
-  Land it with: grounded-only tallies, orientation reading words→sentences→order, and a
-  regenerated bootstrap — and update this file first.
+- **Per-token polarity evidence — LANDED 2026-07-06** (side-count evidence layer, substrate
+  section): grounded-only tallies, words→sentences→order, asymmetric leans, and NO committed
+  classifier — the polarity bootstrap and its generator are deleted; the classifier
+  self-bootstraps from English plus grounded reading. What remains open here: the tallies
+  are per-token bags — they cannot read scope ("never use X **except** when Y") or negation
+  order; that belongs to the latent-sequence design below.
 - **Error-page remedy prose trains the bad prototype** (measured live, the driver of the
   residual junk class): an MDN error page's example FAILS the toolchain, so the prose around
   it feeds the *bad* prototype — but that prose is remedy language ("can be fixed by
@@ -994,9 +1093,11 @@ with an attacker contract, exactly as the two registry contracts already do.
   (`can_be_fixed_via_js`, `avoid_the_error_wrap_eac`). The defense-in-depth (sentence gate,
   sample-program abstention, reference-fire, quarantine, 2-flag feedback) reduced this from
   storms to single rules that the loop suppresses (demonstrated on this repo: 762 → 343 rules,
-  then convergence to CLEAN with every suppression a verified FP) — the root fix is the
-  side-count design above, whose grounded-only tallies must separate "prose beside failing
-  code" from "prose stating the failure".
+  then convergence to CLEAN with every suppression a verified FP) — root fix LANDED
+  2026-07-06 (honest labels + side-count layer, substrate section): fix-position prose now
+  earns GOOD weight from clean siblings, so remedy vocabulary tallies mixed and abstains
+  instead of learning a prohibition lean. Measurement gate: retrain must show the
+  remedy-fragment junk class gone, not just suppressed.
 - **A law whose violation is an ABSENCE cannot compile.** "Never use a bare `except:`", "no
   empty catch blocks": containment matching cannot assert emptiness (an empty-block pattern
   matches every block — over-fire kills it, correctly), and `bad ∧ ¬good` cannot express a
@@ -1035,11 +1136,27 @@ with an attacker contract, exactly as the two registry contracts already do.
   grounding actively teaches the opposite of what the page says. Compile-error docs (MDN error
   pages, reference manuals) ground correctly; lint-rule docs need labels the parse check
   cannot give. Only 8 of ESLint's ~290 rules survived to detectors for exactly this reason
-  (clippy fares far better: its docs' bad examples often genuinely fail `rustc`). The fix
-  belongs to the side-count/asymmetric-grounding design (a Flagged verdict is strong evidence;
-  a Clean verdict says "parses", not "endorsed") — design it in this file first, per ledger #7
-  discipline; do not special-case linter-doc vocabulary.
-- **The page should be READ, not split (learned markup comprehension).** The extraction
+  (clippy fares far better: its docs' bad examples often genuinely fail `rustc`). Root fix
+  LANDED 2026-07-06 (honest labels, substrate section): a clean-parsing "incorrect" example
+  now trains NOTHING instead of endorsement, and its unit's `is_bad` at bind time is the
+  classifier's reading of the prose through vocabulary learned from reality elsewhere — no
+  linter-doc special-casing. Measurement gate: ESLint recall must rise well above 8/290 on
+  retrain with no junk storm.
+- **The page should be READ, not split — ACTIVE DESIGN (owner directive 2026-07-06), staged:**
+  the raw page becomes one token stream the reader ingests whole — tags are vocabulary
+  (`pre`, `h2` tokenize like words; ubiquity strips them of meaning-weight, the sequential
+  coder learns their ROLE), English and markup understanding live in one brain, and
+  grounding verdicts double as segmentation labels. Stage order is a correctness
+  dependency, not caution: the segmenter trains on grounded labels, so the label pipeline
+  must be honest FIRST (stage 1 — honest labels, the dictionary meaning network,
+  self-discovered negation: landed today, and it caught the window code eating the first
+  word of every governing sentence — a defect a learned segmenter would have laundered
+  into its weights). Stage 2: the crawl cache stores RAW page text, not pre-formed units,
+  so the reader can re-read pages as full streams. Stage 3: train the sequential layer
+  with verdicts as segmentation labels and DELETE the window code (`block_contexts`, the
+  heading cut, the governing-context tail) behind the diversity-contract acceptance gate.
+  The original problem statement follows.
+- **(superseded statement)** The extraction
   windows have accumulated stacked hand heuristics answering one question — which prose
   governs which code (`GOVERNING_CTX` tail, the 40-word lead-in, the heading cut) — and
   stacked hand rules are the tell that the mechanism is wrong. The direction: feed the
@@ -1059,6 +1176,16 @@ with an attacker contract, exactly as the two registry contracts already do.
   gate, and the failure to design against is circularity (judging governance with
   associations that were themselves formed by the old windows — the substrate must
   re-read raw pages, not launder windowed bindings).
+- **Fragment examples false-flag and their descriptive prose trains bad — the one junk
+  channel left after honest labels (measured 2026-07-06 on this repo: ~400 findings, all
+  from reference-manual pages whose snippets are FRAGMENTS — `#[expect(…)]` alone, use-path
+  fragments — that fail `rustc --crate-type lib` as written).** Reality is answering a
+  different question ("does this compile as a standalone file?") than the one grounding
+  asks ("is this code the docs' example of wrongness?"). Designed fix, data not code: each
+  toolchain entry grows an optional WRAP template (toolchains.json is registered data, like
+  sources.json) — a Flagged snippet is retried wrapped; wrapped-clean means FRAGMENT, which
+  tallies as exposure, never as a bad label. Until it lands, the 2-flag feedback loop is the
+  dam, exactly as it was for the pre-honest-labels junk classes.
 - **Latent-sequence reasoning ("brain waves").** Inference is already Hv-native end to end;
   a rolling-context classifier (prototypes over context space, not bag space) is the designed
   next step for clause understanding without any typography.
@@ -1074,9 +1201,10 @@ with an attacker contract, exactly as the two registry contracts already do.
 - Caches live in `~/.cache/helpers/`; deleting them is always safe (cold reacquire is a
   registry download or seconds of crawling per language, online). Model-cache artifacts are
   `HLM1` binary containers (see "Save"); `helpers-native` decodes them — they are not for eyes.
-- The polarity bootstrap (`lint-index/polarity-bootstrap.json`) is machine-generated:
-  `cargo test --release --lib generate_polarity_bootstrap -- --ignored` — regenerate whenever
-  the tokenizer, salience, or seed labeling changes (train/inference consistency).
+- There is NO polarity bootstrap artifact (deleted 2026-07-06, owner directive): the
+  classifier self-bootstraps from English knowledge plus grounded web reading, and travels
+  only as the machine-global store (`polarity.global.bin`) and inside per-language registry
+  modules. A fresh machine's first grounded training run creates it; nothing is committed.
 - The English bootstrap (`lint-index/english-bootstrap.json`) is machine-generated from the
   local dictionary: `cargo test --release --lib generate_english_bootstrap -- --ignored` —
   regenerate whenever the tokenizer or the dictionary parser changes. Machines with a local

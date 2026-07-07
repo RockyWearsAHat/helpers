@@ -536,7 +536,6 @@ pub fn run(args: &Value) -> ToolResult {
     let feedback_footer = render_feedback(&root, &auto_suppressed);
     let (mut body, fresh_updates, _quarantined, law_watch_block) = fire_shape_render(
         &root,
-        &data,
         max,
         &by_language,
         &verdicts,
@@ -604,7 +603,7 @@ pub fn run(args: &Value) -> ToolResult {
                     .collect(),
                 trusted: by_language
                     .keys()
-                    .map(|lang| (lang.clone(), lint_train::project_rule_ids(&data, &root, lang)))
+                    .map(|lang| (lang.clone(), lint_train::project_rule_ids(&root, lang)))
                     .collect(),
                 law_watch_block,
             },
@@ -923,7 +922,6 @@ fn select_by_language(
 #[allow(clippy::too_many_arguments)]
 fn fire_shape_render(
     root: &Path,
-    data: &Path,
     max: usize,
     by_language: &BTreeMap<String, Vec<FileMeta>>,
     verdicts: &BTreeMap<String, CachedVerdict>,
@@ -1043,7 +1041,7 @@ fn fire_shape_render(
                     Some(model) => {
                         // Rules the project itself authored are the user's explicit law for this
                         // codebase — trusted fully, never gated, however weak their compiled anchor is.
-                        let trusted = lint_train::project_rule_ids(data, root, lang);
+                        let trusted = lint_train::project_rule_ids(root, lang);
                         let law_watch: Vec<(String, String)> = trusted
                             .iter()
                             .filter_map(|id| model.rules.detector_of(id).map(|w| (id.clone(), w)))
