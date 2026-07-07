@@ -57,7 +57,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v53b-tallies-before-floor";
+const TRAIN_VERSION: &str = "docs-v54-own-grounding-outranks-transfer";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -2233,6 +2233,68 @@ fn file_state(p: &Path) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    /// DEV TOOL — print a cached module's compiled rules and its learned memory's verdicts,
+    /// grouped by source page: the "what did the reading actually extract?" probe live-docs
+    /// validation reads. `PROBE_LANG=<lang> cargo test --release --lib probe_module_rules
+    /// -- --ignored --nocapture` (honors `HELPERS_LINT_MODELS`).
+    #[test]
+    #[ignore = "dev tool: inspect a trained module's rules per source page"]
+    fn probe_module_rules() {
+        let lang = std::env::var("PROBE_LANG").expect("PROBE_LANG");
+        let bytes = std::fs::read(super::module_path(&lang)).expect("module file");
+        let (stamp, mut d) =
+            crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::MODULE).expect("container");
+        let module = <super::Module as crate::lint_codec::Bin>::dec(&mut d).expect("decodes");
+        println!("stamp={stamp}");
+        println!("{}", serde_json::to_string(&module.rules).expect("serializes"));
+        // The learned memory behind the module: classifier state, per-word tallies
+        // (`PROBE_WORDS=a,b,c`), and each binding's classify verdict — the live-docs
+        // quality view ("which prose minted, and why").
+        let lb = std::fs::read(super::cache_path(&lang)).expect("learned file");
+        let (_, mut ld) =
+            crate::lint_codec::Dec::open(&lb, crate::lint_codec::kind::LEARNED).expect("open");
+        let cat = <super::LearnedCatalog as crate::lint_codec::Bin>::dec(&mut ld).expect("dec");
+        let Some(mem) = &cat.memory else { return };
+        let Some(pol) = &mem.polarity else { return };
+        eprintln!(
+            "memory: bindings={} reference={} flagged={} ready={} votes={}",
+            mem.bindings.len(),
+            mem.reference.len(),
+            mem.flagged.len(),
+            pol.is_ready(),
+            pol.votes()
+        );
+        if let Ok(words) = std::env::var("PROBE_WORDS") {
+            for w in words.split(',') {
+                eprintln!("tally {w:?}: {:?} lean={:?}", pol.tally_of(w), pol.tally_lean(w));
+            }
+        }
+        let mut minted = 0usize;
+        for b in &mem.bindings {
+            if pol.classify(&b.prose) == Some(true) {
+                minted += 1;
+                if minted <= 10 {
+                    eprintln!("MINT {:?}", &b.prose[..b.prose.len().min(90)]);
+                }
+            }
+        }
+        eprintln!("bindings classifying prohibition: {minted}/{}", mem.bindings.len());
+        // Verdict distribution over a fresh grounding sample (PROBE_GROUND=n).
+        if let Ok(n) = std::env::var("PROBE_GROUND") {
+            let n: usize = n.parse().unwrap_or(0);
+            let data_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+            let (mut f, mut c, mut u) = (0, 0, 0);
+            for b in mem.bindings.iter().take(n) {
+                match crate::lint_toolchain::check(&lang, &b.code, data_root) {
+                    crate::lint_toolchain::Verdict::Flagged => f += 1,
+                    crate::lint_toolchain::Verdict::Clean => c += 1,
+                    crate::lint_toolchain::Verdict::Unknown => u += 1,
+                }
+            }
+            eprintln!("fresh grounding over first {n}: flagged={f} clean={c} unknown={u}");
+        }
+    }
+
 
 
 
