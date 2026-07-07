@@ -21,7 +21,10 @@ use crate::lint_ai::Hv;
 /// Container magic — "Helpers Lint Model", format family 1.
 pub const MAGIC: [u8; 4] = *b"HLM1";
 /// Bumped on any layout change; a reader never guesses across versions.
-pub const FORMAT: u8 = 1;
+/// 2: [`Polarity`](crate::lint_read::Polarity) carries side-count tallies (LINTER.md,
+/// "The side-count evidence layer") — format-1 artifacts fail `open` cleanly and cold-
+/// reacquire, never misread.
+pub const FORMAT: u8 = 2;
 
 /// Artifact kinds — one per machine-cache file family, so a file can never decode as the
 /// wrong struct even if renamed.
