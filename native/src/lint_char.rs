@@ -38,6 +38,36 @@ pub struct CharReader {
     total: u64,
 }
 
+/// HLM1 wire form: the prediction memory rides the streams — its context addresses on the RAW
+/// u32 array, its predicted-char hypervectors on the RAW hv stream, in a deterministic
+/// key-sorted order so the artifact is reproducible. This memory is PERSISTED (unlike the word
+/// reader's), because a loaded brain must read pages back.
+impl crate::lint_codec::Bin for CharReader {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        let mut entries: Vec<(&u32, &Hv)> = self.mem.iter().collect();
+        entries.sort_by_key(|(k, _)| **k);
+        e.fixed_u64(self.total);
+        e.raw_u32s(&entries.iter().map(|(k, _)| **k).collect::<Vec<_>>());
+        e.u(entries.len() as u64);
+        for (_, hv) in &entries {
+            e.hv(hv);
+        }
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<CharReader> {
+        let total = d.fixed_u64()?;
+        let keys = d.raw_u32s()?;
+        let n = d.u()? as usize;
+        if n != keys.len() {
+            return None;
+        }
+        let mut mem = HashMap::with_capacity(n);
+        for k in keys {
+            mem.insert(k, d.hv()?);
+        }
+        Some(CharReader { mem, total })
+    }
+}
+
 /// The fixed basis: one hypervector per Unicode scalar. No vocabulary is stored — the code is a
 /// pure function of the character, so any scalar (any language, any symbol) is encodable, and
 /// the "basis" is the character set itself.
@@ -153,6 +183,54 @@ fn rotate_by(hv: &Hv, k: usize) -> Hv {
     v
 }
 
+// ── The cumulative global brain (setup trains it; lint loads it) ──────────────
+
+/// Where the machine's character brain lives, beside the models.
+fn store_path() -> std::path::PathBuf {
+    crate::lint_train::model_dir_pub().join("char.global.bin")
+}
+
+/// Load the machine's character brain (`HLM1`), or `None` when it has not been trained yet.
+/// Memoized for the process — the lint path only ever loads.
+pub fn brain() -> Option<&'static CharReader> {
+    use crate::lint_codec::{Bin, Dec};
+    static BRAIN: std::sync::OnceLock<Option<CharReader>> = std::sync::OnceLock::new();
+    BRAIN
+        .get_or_init(|| {
+            std::fs::read(store_path())
+                .ok()
+                .and_then(|b| Dec::open(&b, crate::lint_codec::kind::CHARBRAIN))
+                .and_then(|(_, mut d)| CharReader::dec(&mut d))
+        })
+        .as_ref()
+}
+
+/// Persist a character brain as its `HLM1` container (stamp = characters read, a cheap prefix
+/// probe of how much it has learned).
+pub fn save(reader: &CharReader) {
+    use crate::lint_codec::{Bin, Enc};
+    if let Some(dir) = store_path().parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let mut e = Enc::new();
+    reader.enc(&mut e);
+    let bytes = e.finish(crate::lint_codec::kind::CHARBRAIN, &reader.total.to_string());
+    let _ = std::fs::write(store_path(), bytes);
+}
+
+/// Train the brain CUMULATIVELY over a curriculum, in order (owner directive 2026-07-07):
+/// English first (the general base), then each web language layered on — one brain that
+/// retains what it read and gains what is new. Returns the trained reader; the caller saves it.
+/// Each corpus is a raw character stream (dictionary prose, then whole raw pages of html, css,
+/// js documentation); the reader reads them all into one memory.
+pub fn train_curriculum<'a>(corpora: impl IntoIterator<Item = &'a str>) -> CharReader {
+    let mut r = CharReader::new();
+    for corpus in corpora {
+        r.learn(corpus);
+    }
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +264,26 @@ mod tests {
             r.surprise("season"),
             r.surprise("z9$_qx=[]"),
         );
+    }
+
+    /// The persisted brain round-trips exactly — a loaded brain reads pages identically to the
+    /// one that trained (the property that lets segmentation stand on a saved reader).
+    #[test]
+    fn brain_round_trips_through_hlm1() {
+        use crate::lint_codec::{Bin, Dec, Enc};
+        let mut r = CharReader::new();
+        for _ in 0..20 {
+            r.learn("the reader predicts the next character in a common english word. ");
+        }
+        let probe = "the reader predicts a common word";
+        let before = r.surprise(probe);
+        let mut e = Enc::new();
+        r.enc(&mut e);
+        let bytes = e.finish(crate::lint_codec::kind::CHARBRAIN, "t");
+        let (_, mut d) = Dec::open(&bytes, crate::lint_codec::kind::CHARBRAIN).expect("opens");
+        let loaded = CharReader::dec(&mut d).expect("decodes");
+        assert_eq!(loaded.total_read(), r.total_read());
+        assert_eq!(loaded.surprise(probe), before, "a loaded brain reads identically");
     }
 
     /// The CURRICULUM property (owner directive 2026-07-07): one brain, trained cumulatively —
