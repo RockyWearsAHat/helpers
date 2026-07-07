@@ -188,35 +188,64 @@ mod tests {
         );
     }
 
-    /// THE GATE for the character-level rewrite (owner directive): read this machine's dictionary
-    /// ENTIRELY at character level, then show the surprise signal separates English from code
-    /// well enough to replace the word-level `english.knows`. Ignored (needs the local
-    /// dictionary); run: `cargo test --release --lib char_dictionary_gate -- --ignored --nocapture`
+    /// The CURRICULUM property (owner directive 2026-07-07): one brain, trained cumulatively —
+    /// reading HTML must RETAIN the English it already learned while GAINING HTML. Because
+    /// learning only adds context→prediction slots, prior knowledge is never overwritten; new
+    /// structure layers on top. This is what lets the brain read English → HTML → CSS → JS and
+    /// then read any documentation directly.
     #[test]
-    #[ignore = "reads the local dictionary; the go/no-go gate for the rewrite"]
-    fn char_dictionary_gate() {
+    fn reading_html_retains_english_and_gains_html() {
+        let english = "the quick brown fox jumps over the lazy dog. a function returns a \
+            value to the caller. common english words share common letter sequences. she \
+            sells sea shells by the sea shore every single summer season without fail. ";
+        let html = "<div class=\"box\"><p>the value</p></div><span id=\"x\">text</span>\
+            <ul><li>one</li><li>two</li></ul><a href=\"/page\">link</a><h2>Title</h2>";
+        let mut r = CharReader::new();
+        for _ in 0..40 {
+            r.learn(english);
+        }
+        let e0 = r.surprise("a common function returns the value to the caller");
+        let h0 = r.surprise("<div class=\"row\"><p>hello</p></div>");
+        // Now layer HTML on top — English is never re-read.
+        for _ in 0..40 {
+            r.learn(html);
+        }
+        let e1 = r.surprise("a common function returns the value to the caller");
+        let h1 = r.surprise("<div class=\"row\"><p>hello</p></div>");
+        // RETAINS: English surprise barely moves (knowledge is not overwritten).
+        assert!(e1 <= e0 + e0 / 8, "English retained: was {e0}, now {e1}");
+        // GAINS: HTML surprise drops materially (new structure learned).
+        assert!(h1 + h1 / 4 < h0, "HTML learned: was {h0}, now {h1}");
+    }
+
+    /// THE CURRICULUM, on real data (owner directive 2026-07-07): reading is uniform character
+    /// prediction, English is the general base, and each language is the SAME method continued
+    /// from there. Code is surprising only UNTIL the reader reads it — so the property to prove
+    /// is not a permanent English/code split but that training on a language DROPS its surprise
+    /// while English is RETAINED. Ignored (needs the local dictionary); run:
+    /// `cargo test --release --lib char_curriculum_on_real_dictionary -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads the local dictionary; demonstrates the cumulative curriculum on real data"]
+    fn char_curriculum_on_real_dictionary() {
         let prose = crate::lint_english::dictionary_prose_sample()
             .expect("this machine has a readable dictionary");
         let mut r = CharReader::new();
-        r.learn(&prose);
-        eprintln!("read {} chars, {} context slots", r.total_read(), r.learned());
-        let english = [
-            "the value is returned to the caller",
-            "never use the deprecated function",
-            "import the module before you use it",
-            "a common word has common letters",
-        ];
-        let code = [
-            "xmlhttprequest.open(url, true)",
-            "telnetlib.Telnet(host, 23)",
-            "let x = eval(items[0]) ?? cfg._k;",
-            "goto cleanup_z9; free(ptr);",
-        ];
-        let avg = |xs: &[&str]| -> u32 {
-            (xs.iter().map(|s| u64::from(r.surprise(s))).sum::<u64>() / xs.len() as u64) as u32
-        };
-        let (pe, pc) = (avg(&english), avg(&code));
-        eprintln!("english surprise ~{pe} bits  |  code surprise ~{pc} bits");
-        assert!(pc > pe + pe / 4, "code ({pc}) must read clearly more surprising than English ({pe})");
+        r.learn(&prose); // the general base: English
+        eprintln!("English base: {} chars, {} slots", r.total_read(), r.learned());
+        let english = "the value is returned to the caller when the function is done";
+        let code_sample = "let x = arr[0]; for (const k of items) { obj[k] = fn(k) ?? 0; } \
+            function step(a, b) { return a === b ? a : b; } const y = eval(cfg._k);";
+        let e_before = r.surprise(english);
+        let c_before = r.surprise("const z = arr[1] ?? fn(items[0]);");
+        eprintln!("before code: english ~{e_before}  code ~{c_before}");
+        // Continue the SAME training on code — the specific layered onto the general.
+        for _ in 0..200 {
+            r.learn(code_sample);
+        }
+        let e_after = r.surprise(english);
+        let c_after = r.surprise("const z = arr[1] ?? fn(items[0]);");
+        eprintln!("after code:  english ~{e_after}  code ~{c_after}");
+        assert!(c_after + c_after / 8 < c_before, "the language was learned: code {c_before} -> {c_after}");
+        assert!(e_after <= e_before + e_before / 8, "English retained: {e_before} -> {e_after}");
     }
 }
