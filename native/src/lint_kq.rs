@@ -90,6 +90,25 @@ pub fn fired_paths(root: &Path) -> Option<Vec<PathBuf>> {
     macos::fired_paths(root)
 }
 
+/// Block until the project's watch set fires (or `timeout_ms` passes) — the eager pump's
+/// wait. Returns whether an event arrived. The kernel queue is a shared consumer: events
+/// this wait absorbs are recorded under the same lock every drain uses.
+#[cfg(target_os = "macos")]
+pub fn wait_event(root: &Path, timeout_ms: u64) -> bool {
+    macos::wait_event(root, timeout_ms)
+}
+
+#[cfg(target_os = "linux")]
+pub fn wait_event(root: &Path, timeout_ms: u64) -> bool {
+    linux::wait_event(root, timeout_ms)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn wait_event(_root: &Path, timeout_ms: u64) -> bool {
+    std::thread::sleep(std::time::Duration::from_millis(timeout_ms));
+    false
+}
+
 #[cfg(target_os = "linux")]
 pub fn fired_paths(root: &Path) -> Option<Vec<PathBuf>> {
     linux::fired_paths(root)
@@ -295,11 +314,17 @@ mod macos {
             }
         }
         // Reopen fired paths — their fd may reference a renamed-over or deleted vnode.
+        // (The open-new-before-close-old overlap below, in the shared open loop, is what
+        // keeps a racing edit from vanishing with the old fd's pending knote.)
         let fired: Vec<usize> = p.fired.drain().collect();
         for slot in fired {
             let Some(path) = p.slab.get(slot).cloned() else { continue };
+            let fresh = watch_one(p.kq, &path, slot);
             if let Some((fd, _)) = p.watched.remove(&path) {
                 unsafe { close(fd) };
+            }
+            if let Some(fd) = fresh {
+                p.watched.insert(path, (fd, slot));
             }
         }
         // Open everything not currently watched.
@@ -348,10 +373,15 @@ mod macos {
         let mut ok = true;
         for slot in fired {
             let Some(path) = p.slab.get(slot).cloned() else { continue };
+            // Open the NEW watch BEFORE closing the old: the same vnode posts to both
+            // registrations during the overlap, so an edit racing the reopen is never
+            // lost — closing first deleted the old fd's pending knote (a measured-class
+            // soundness hole, fixed by ordering alone).
+            let fresh = watch_one(p.kq, &path, slot);
             if let Some((fd, _)) = p.watched.remove(&path) {
                 unsafe { close(fd) };
             }
-            match watch_one(p.kq, &path, slot) {
+            match fresh {
                 Some(fd) => {
                     p.watched.insert(path, (fd, slot));
                 }
@@ -375,6 +405,43 @@ mod macos {
         }
         drain(p);
         Some(p.fired.iter().filter_map(|slot| p.slab.get(*slot).cloned()).collect())
+    }
+
+    pub fn wait_event(root: &Path, timeout_ms: u64) -> bool {
+        // Snapshot the queue fd WITHOUT holding the lock across the blocking wait.
+        let kq = {
+            let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+            match reg.get(root) {
+                Some(p) if p.kq >= 0 => p.kq,
+                _ => {
+                    // Not armed yet (the pump can start before the first arm) — retry
+                    // soon, never sleep the whole timeout blind.
+                    drop(reg);
+                    std::thread::sleep(std::time::Duration::from_millis(timeout_ms.min(100)));
+                    return false;
+                }
+            }
+        };
+        let ts = Timespec {
+            tv_sec: (timeout_ms / 1000) as isize,
+            tv_nsec: ((timeout_ms % 1000) * 1_000_000) as isize,
+        };
+        let mut buf: [Kevent; 8] = unsafe { std::mem::zeroed() };
+        let n = unsafe { kevent(kq, std::ptr::null(), 0, buf.as_mut_ptr(), 8, &ts) };
+        if n <= 0 {
+            return false;
+        }
+        // Record what THIS consumer absorbed under the shared lock, then let the caller
+        // drain the rest.
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(p) = reg.get_mut(root) {
+            for e in buf.iter().take(n as usize) {
+                p.fired.insert(e.udata as usize);
+            }
+            p.dirty = true;
+            p.memos.clear();
+        }
+        true
     }
 
     pub fn replay(root: &Path, key: &str) -> Option<String> {
@@ -629,6 +696,42 @@ mod linux {
         }
         drain(p);
         Some(p.fired.iter().cloned().collect())
+    }
+
+    extern "C" {
+        fn poll(fds: *mut PollFd, nfds: u64, timeout: i32) -> i32;
+    }
+
+    #[repr(C)]
+    struct PollFd {
+        fd: i32,
+        events: i16,
+        revents: i16,
+    }
+
+    pub fn wait_event(root: &Path, timeout_ms: u64) -> bool {
+        let fd = {
+            let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+            match reg.get(root) {
+                Some(p) if p.fd >= 0 => p.fd,
+                _ => {
+                    drop(reg);
+                    std::thread::sleep(std::time::Duration::from_millis(timeout_ms.min(100)));
+                    return false;
+                }
+            }
+        };
+        let mut pfd = PollFd { fd, events: 0x1 /* POLLIN */, revents: 0 };
+        let n = unsafe { poll(&mut pfd, 1, timeout_ms.min(i32::MAX as u64) as i32) };
+        if n <= 0 {
+            return false;
+        }
+        // Data is ready; the caller's next drain (under the lock) consumes and records it.
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(p) = reg.get_mut(root) {
+            drain(p);
+        }
+        true
     }
 
     /// inotify watch descriptors persist across events — nothing to reopen. Quiet check

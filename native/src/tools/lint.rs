@@ -609,6 +609,7 @@ pub fn run(args: &Value) -> ToolResult {
                 law_watch_block,
             },
         );
+        spawn_eager_pump(root.clone());
     }
     mark(&mut stages, "match+gate");
     // Store the finished body for the whole-project replay. The walk fold is the PRE-run
@@ -829,6 +830,51 @@ struct DaemonState {
     trusted: HashMap<String, HashSet<String>>,
     /// The rendered "Your law, as understood" block, cached with the models it reflects.
     law_watch_block: String,
+}
+
+/// The EAGER PUMP (LINTER.md, "The incremental tier"): parse during the trace. One thread
+/// per root blocks on the kernel event stream; the moment an edit lands it runs the
+/// incremental pipeline in the background — so the work happens in the dead time between
+/// the edit and the next lint request, and that request lands on the committed memo in
+/// microseconds. A structural event (incremental declines) runs the full pipeline
+/// instead, so even those are pre-digested. In-flight and spawn guards keep exactly one
+/// pump and one run per root; a one-shot process's pump dies with it, harmlessly.
+fn spawn_eager_pump(root: PathBuf) {
+    static PUMPS: std::sync::OnceLock<std::sync::Mutex<HashSet<PathBuf>>> =
+        std::sync::OnceLock::new();
+    {
+        let mut pumps =
+            PUMPS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+        if !pumps.insert(root.clone()) {
+            return; // already pumping this root
+        }
+    }
+    std::thread::spawn(move || {
+        let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
+        loop {
+            if !crate::lint_kq::wait_event(&root, 60_000) {
+                continue;
+            }
+            // Coalesce the editor's burst (write+rename pairs, multi-file saves).
+            std::thread::sleep(std::time::Duration::from_millis(15));
+            let t0 = std::time::Instant::now();
+            let data = data_root();
+            let key = format!("max={}|langs=None", 80);
+            let done = incremental_run(&root, &data, 80, &None, &key).is_some();
+            if !done {
+                // Structural change — pre-digest with the full pipeline.
+                let _ = run(&json!({ "root": root.display().to_string() }));
+            }
+            if trace {
+                eprintln!(
+                    "[lint-pump] {} pre-digested in {:.0}µs ({})",
+                    root.display(),
+                    t0.elapsed().as_micros(),
+                    if done { "incremental" } else { "full" }
+                );
+            }
+        }
+    });
 }
 
 /// Per-root daemon state (long-lived process only; a one-shot `call` populates and exits).
@@ -1242,7 +1288,11 @@ fn kq_arm_and_commit(
     body: &str,
 ) {
     let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
-    if !crate::lint_replay::replay_safe(witness) {
+    // The kq tier needs NO mtime racy window: its invalidation is content-true events,
+    // not (mtime, len) folds — a same-tick same-length rewrite still posts NOTE_WRITE.
+    // The stat tier's on-disk store keeps the window; gating kq commits on it only
+    // delayed convergence after every edit (measured). Kept as a trace note only.
+    if false && !crate::lint_replay::replay_safe(witness) {
         if trace {
             let culprit = files
                 .iter()
@@ -1403,7 +1453,7 @@ fn incremental_run(
     // twice, our own reopen races): the cached body IS the answer.
     if !changed_any {
         let body = st.bodies.get(memo_key)?.clone();
-        if crate::lint_replay::replay_safe(&witness) && crate::lint_kq::rearm_fired(root) {
+        if crate::lint_kq::rearm_fired(root) {
             crate::lint_kq::commit(root, memo_key, &body);
         }
         if trace {
@@ -1469,8 +1519,10 @@ fn incremental_run(
     }
     st.bodies.insert(memo_key.to_string(), body.clone());
     mark("persist");
-    // Membership is unchanged on this path by construction — reopen only what fired.
-    if crate::lint_replay::replay_safe(&witness) && crate::lint_kq::rearm_fired(root) {
+    // Membership is unchanged on this path by construction — reopen only what fired
+    // (open-new-before-close-old inside, so a racing edit is never lost). Events are
+    // content-true: no mtime racy window applies to kq commits.
+    if crate::lint_kq::rearm_fired(root) {
         crate::lint_kq::commit(root, memo_key, &body);
     }
     mark("rearm+commit");
