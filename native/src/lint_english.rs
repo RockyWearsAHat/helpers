@@ -189,9 +189,10 @@ pub fn ensure_built() -> Option<String> {
     if load_store().is_some_and(|e| e.source_fp == fp && !e.defined.is_empty()) {
         return Some("common language: current".to_string());
     }
-    let english = read_dictionary(&path, fp)?;
+    let (english, chunks) = read_dictionary(&path, fp)?;
     let report = format!(
-        "common language: read {} defined words, {} tokens from {}",
+        "common language: read ENTIRE dictionary — {} chunks, {} defined words, {} tokens from {}",
+        chunks,
         english.defined.len(),
         english.reader.total_read(),
         path.file_name().and_then(|n| n.to_str()).unwrap_or("dictionary"),
@@ -241,10 +242,46 @@ fn dictionary_body() -> Option<(PathBuf, u64)> {
     Some((path, mtime ^ (len << 20)))
 }
 
-/// Read one Apple dictionary body into a brain: walk its zlib chunks, strip each entry's XML
-/// down to definition prose the reader learns from, and collect every `d:title` headword's
-/// tokens as the defined-word set.
-fn read_dictionary(path: &std::path::Path, source_fp: u64) -> Option<English> {
+/// A sample of the machine dictionary's raw definition PROSE, as one character stream — the
+/// character-level reader's training corpus ([`crate::lint_char`]). Bounded to the leading
+/// chunks so the validation gate stays fast; the production build reads all of them. `None`
+/// when no dictionary is parseable here.
+pub fn dictionary_prose_sample() -> Option<String> {
+    let (path, _) = dictionary_body()?;
+    let data = std::fs::read(path).ok()?;
+    let mut out = String::new();
+    let mut pos = 0x60usize;
+    let mut chunks = 0usize;
+    while pos + 12 < data.len() && chunks < 200 {
+        let outer = u32::from_le_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
+        if outer < 8 || pos + 4 + outer > data.len() {
+            break;
+        }
+        let Ok(xml_bytes) =
+            miniz_oxide::inflate::decompress_to_vec_zlib(&data[pos + 12..pos + 4 + outer])
+        else {
+            break;
+        };
+        let xml = String::from_utf8_lossy(&xml_bytes);
+        for piece in xml.split("<d:entry").skip(1) {
+            let Some(gt) = piece.find('>') else { continue };
+            let (prose, _) = strip_entry_xml(&piece[gt + 1..]);
+            out.push_str(&prose);
+            out.push(' ');
+        }
+        chunks += 1;
+        pos += 4 + outer;
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// Read one Apple dictionary body into a brain ENTIRELY, witnessed (LINTER.md, "Common
+/// language first"): walk its zlib chunks, strip each entry's XML down to definition prose the
+/// reader learns from, and collect every `d:title` headword's tokens as the defined-word set.
+/// Returns the brain plus the chunk count for the setup report; `None` when the walk did NOT
+/// consume the whole body (tail not zero padding) — a partial read is refused, never saved,
+/// because half a frequency curve is a silently wrong baseline for every judgment downstream.
+fn read_dictionary(path: &std::path::Path, source_fp: u64) -> Option<(English, usize)> {
     let data = std::fs::read(path).ok()?;
     let mut english = English { source_fp, ..Default::default() };
     // Chunk heap layout (verified against the shipped New Oxford American body):
@@ -369,7 +406,12 @@ fn read_dictionary(path: &std::path::Path, source_fp: u64) -> Option<English> {
         }
         english.negators.sort_unstable();
     }
-    (chunks > 0 && !english.defined.is_empty()).then_some(english)
+    // The ENTIRETY witness (LINTER.md): the walk ended either at the file's end or at the
+    // start of its zero padding — anything else means a chunk mid-file failed to decode and
+    // the dictionary was only PARTIALLY read. A partial brain is refused: the committed
+    // bootstrap (a complete brain) serves until the dictionary reads whole again.
+    let whole = data[pos.min(data.len())..].iter().all(|b| *b == 0);
+    (whole && chunks > 0 && !english.defined.is_empty()).then_some((english, chunks))
 }
 
 /// Reduce dictionary entry XML to (definition prose, headword titles): tags drop, `d:title`
@@ -432,7 +474,7 @@ mod tests {
         // The bootstrap is a portable substrate, not a machine snapshot: fingerprint zero so
         // any machine that CAN read its own dictionary always rebuilds over it, and the
         // frequency tail (single reads — scan noise, hapax typos) is dropped as pure size.
-        let mut english = read_dictionary(&path, 0).expect("dictionary parses");
+        let (mut english, _chunks) = read_dictionary(&path, 0).expect("dictionary parses");
         english.reader.retain_read_at_least(2);
         let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../lint-index/english-bootstrap.json");
