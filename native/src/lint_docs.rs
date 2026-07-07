@@ -183,7 +183,19 @@ pub fn read_language(
         .map(|(_, _, _, code)| crate::lint_toolchain::check(lang, code, data_root))
         .collect();
     let mut flagged: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    for ((_, _, prose, code), verdict) in probes.into_iter().zip(verdicts) {
+    // Honest labels (LINTER.md, "Honest grounding labels"): Flagged is reality's own verdict
+    // and labels bad; Clean only says "parses", so it labels good ONLY as the fix-sibling of
+    // a flagged block in its own section (violation first, fix after — the documented
+    // convention). Every other clean unit trains nothing: it stays reference material, so
+    // neutral tutorial prose can no longer flood the endorsement prototype and a lint doc's
+    // clean-parsing "incorrect" example no longer teaches the opposite of its page.
+    let flagged_sections: std::collections::HashSet<(&str, &str)> = probes
+        .iter()
+        .zip(&verdicts)
+        .filter(|(_, v)| matches!(v, crate::lint_toolchain::Verdict::Flagged))
+        .map(|((url, s, _, _), _)| (url.as_str(), s.as_str()))
+        .collect();
+    for ((url, s, prose, code), verdict) in probes.iter().zip(&verdicts) {
         match verdict {
             crate::lint_toolchain::Verdict::Flagged => {
                 builder.accumulate(prose, true);
@@ -192,7 +204,17 @@ pub fn read_language(
                 // called it a violation.
                 flagged.insert(crate::lint_ai::token_seed(code));
             }
-            crate::lint_toolchain::Verdict::Clean => builder.accumulate(prose, false),
+            crate::lint_toolchain::Verdict::Clean => {
+                if flagged_sections.contains(&(url.as_str(), s.as_str())) {
+                    // The fix-sibling convention: this clean block is the documented fix,
+                    // so its prose is genuine endorsement register — prototype food.
+                    builder.accumulate(prose, false);
+                } else {
+                    // Every other clean unit is EXPOSURE only (LINTER.md): reality the
+                    // words stood next to, never an endorsement label.
+                    builder.tally_exposure(prose);
+                }
+            }
             crate::lint_toolchain::Verdict::Unknown => {}
         }
     }
@@ -200,11 +222,11 @@ pub fn read_language(
     // Knowledge transfer: prohibition prose reads the same in every language. A language the
     // toolchain grounded contributes its classifier to the shared store; a language that CANNOT
     // be grounded (no toolchain installed — or none exists) reads through the best classifier
-    // grounded elsewhere, falling back to the committed bootstrap on a fresh machine. "Best" is
-    // most reality-tested votes — a thin seed-only build must never outrank the transferred
-    // bootstrap just by clearing the readiness bar. Zero effort either way: transfer is
-    // automatic, and it improves as more languages are read.
-    if let Some(t) = transferred_polarity(data_root) {
+    // grounded elsewhere. There is no committed classifier: a fresh machine self-bootstraps
+    // from its dictionary's meaning network plus its own grounded reading (or a registry
+    // module that already did). "Best" is most reality-tested votes. Zero effort either way:
+    // transfer is automatic, and it improves as more languages are read.
+    if let Some(t) = transferred_polarity() {
         if !polarity.is_ready() || t.votes() > polarity.votes() {
             polarity = t.as_ref().clone(); // cold crawl path — one clone, kept and retrained
         }
@@ -231,7 +253,11 @@ pub fn read_language(
             }
         }
     }
-    Memory { bindings, reference, polarity: polarity.is_ready().then_some(polarity), pages_read, extensions, flagged }
+    // An UNREADY classifier is still kept once it has READ: its reader's frequencies feed
+    // the dictionary-negation cold floor (LINTER.md, "The cold floor"), which is how an
+    // ungroundable language on a fresh machine mints its first overt prohibitions.
+    let keep = polarity.is_ready() || polarity.reader().total_read() > 0;
+    Memory { bindings, reference, polarity: keep.then_some(polarity), pages_read, extensions, flagged }
 }
 
 /// Ensure a SITE source's page cache exists (crawling when allowed) and return the languages
@@ -535,7 +561,7 @@ fn crawled_source(
 /// Units-format marker folded into every cached version — bump when the unit FORMER
 /// changes shape or coverage (cached pages cannot re-form units without the HTML).
 #[cfg(feature = "crawl")]
-const UNITS_FORMAT: &str = "u3-heading-bounded";
+const UNITS_FORMAT: &str = "u4-intact-lead-heading-excluded";
 
 /// Persist a source's crawled pages with the crawl timestamp (see [`CrawledSource`]).
 #[cfg(feature = "crawl")]
@@ -640,23 +666,25 @@ fn save_global_polarity(p: &crate::lint_read::Polarity) {
 }
 
 /// The classifier LOCAL documents (project rule files, root `lintPref`, the principles corpus)
-/// are read through — the same transferred/global/bootstrap polarity an ungroundable language
-/// reads through during a crawl. Local documents carry no toolchain grounding of their own, so
-/// they borrow the best classifier available; `None` only when even the embedded bootstrap is
-/// unreadable.
-pub fn document_polarity(data_root: &Path) -> Option<std::sync::Arc<crate::lint_read::Polarity>> {
-    transferred_polarity(data_root)
+/// are read through — the same transferred/global polarity an ungroundable language reads
+/// through during a crawl. Local documents carry no toolchain grounding of their own, so they
+/// borrow the best classifier available; `None` on a machine that has not yet grounded any
+/// reading (and holds no registry module that did).
+pub fn document_polarity() -> Option<std::sync::Arc<crate::lint_read::Polarity>> {
+    transferred_polarity()
 }
 
-/// The classifier an ungroundable language reads through: whichever of the machine's shared store
-/// and the committed bootstrap (`lint-index/polarity-bootstrap.json` — itself machine-generated by
-/// grounding, shipped like every other learned artifact) carries MORE reality-tested votes. The
-/// best reading wins — a single-language local grounding must not shadow a better-read bootstrap.
-fn transferred_polarity(data_root: &Path) -> Option<std::sync::Arc<crate::lint_read::Polarity>> {
+/// The classifier an ungroundable language reads through: the machine's shared store — the
+/// self-bootstrapped product of the dictionary's meaning network plus grounded web reading
+/// (LINTER.md, "Honest grounding labels"). There is NO committed classifier artifact: the
+/// system starts from the dictionary and the docs, grounds its own labels against
+/// toolchains, and shares the best-read classifier through this store and through
+/// per-language registry modules.
+fn transferred_polarity() -> Option<std::sync::Arc<crate::lint_read::Polarity>> {
     // Memoized per source-file state: the classifier is consulted once per LANGUAGE per run
-    // (project rules, grounding, advice), and re-parsing a ~0.5 MB JSON each time dominated
-    // warm-run latency. The fingerprint (mtime + size of both sources) keeps a long-lived MCP
-    // process correct when a crawl updates the global store.
+    // (project rules, grounding, advice), and re-parsing the store each time dominated
+    // warm-run latency. The fingerprint (mtime + size) keeps a long-lived MCP process
+    // correct when a crawl updates the global store.
     type Cache =
         std::sync::Mutex<Option<(u128, Option<std::sync::Arc<crate::lint_read::Polarity>>)>>;
     static CACHE: Cache = std::sync::Mutex::new(None);
@@ -669,25 +697,17 @@ fn transferred_polarity(data_root: &Path) -> Option<std::sync::Arc<crate::lint_r
             .unwrap_or(0)
     };
     let fp = stat(&global_polarity_path())
-        ^ stat(&global_polarity_path().with_extension("json")).rotate_left(2)
-        ^ stat(&data_root.join("lint-index/polarity-bootstrap.json")).rotate_left(1);
+        ^ stat(&global_polarity_path().with_extension("json")).rotate_left(2);
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((have, p)) = cache.as_ref() {
         if *have == fp {
             return p.clone();
         }
     }
-    let stored: Option<crate::lint_read::Polarity> = load_polarity_store(&global_polarity_path());
-    let bootstrap: Option<crate::lint_read::Polarity> =
-        crate::lint_train::lint_index_file(data_root, "polarity-bootstrap.json")
-            .and_then(|s| serde_json::from_str(&s).ok());
-    let best = match (stored, bootstrap) {
-        (Some(a), Some(b)) => Some(if a.votes() >= b.votes() { a } else { b }),
-        (a, b) => a.or(b),
-    }
-    // Shared, not cloned: the classifier carries the reader's frequency arrays, and cloning
-    // it per language per run serialized every training thread on this memo's lock.
-    .map(std::sync::Arc::new);
+    let best = load_polarity_store(&global_polarity_path())
+        // Shared, not cloned: the classifier carries the reader's frequency arrays, and
+        // cloning it per language per run serialized every training thread on this lock.
+        .map(std::sync::Arc::new);
     *cache = Some((fp, best.clone()));
     best
 }
@@ -725,6 +745,29 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
             .take_while(|nb| nb.url == b.url && nb.slug == b.slug)
             .find(|nb| polarity.classify(&nb.prose) == Some(false))
             .map(|nb| nb.code.clone())
+            // words → sentences → ORDER (LINTER.md): endorsement needs grounding only
+            // reality can give, so an UNREADY classifier cannot find the fix by reading —
+            // there, the section's IMMEDIATELY next non-violation block is the fix by the
+            // document-order convention (violation first, fix after). A ready classifier
+            // never guesses by position (neutral output dumps are skipped, never paired).
+            .or_else(|| {
+                if polarity.is_ready() {
+                    return None;
+                }
+                memory.bindings[i + 1..]
+                    .first()
+                    // Same PAGE is the cold pairing scope (an anchorless page's slugs are
+                    // prose-derived, never equal), and the reading is RELATIVE: the fix must
+                    // read at most half as negated as the violation — a neighboring rule's
+                    // own "Never …" block reads comparably negated and is excluded, while
+                    // litotes vocabulary in a genuine fix ("the plain form") is not.
+                    .filter(|nb| {
+                        nb.url == b.url
+                            && polarity.negation_bits(&nb.prose) * 2
+                                <= polarity.negation_bits(&b.prose)
+                    })
+                    .map(|nb| nb.code.clone())
+            })
             .filter(|g| g != &b.code)
             .unwrap_or_default();
         out.push((
@@ -783,7 +826,17 @@ fn block_contexts(html: &str, blocks: &[(usize, usize, String)]) -> Vec<(String,
             .max()
             .map(|pos| prev_end + pos)
             .unwrap_or(prev_end);
-        let prose = crate::doc_crawler::strip_tags(&html[section_start..*open]);
+        // The heading is the BOUNDARY, not the prose: its own words belong to the slug, and
+        // tag-stripping would weld them onto the section's first sentence
+        // ("StatementsNever use…"), hiding the very negation the law states. The governing
+        // prose is the section BODY — everything after the heading's closing tag.
+        let body_start = html[section_start..*open]
+            .find("</h")
+            .and_then(|c| {
+                html[section_start + c..*open].find('>').map(|g| section_start + c + g + 1)
+            })
+            .unwrap_or(section_start);
+        let prose = crate::doc_crawler::strip_tags(&html[body_start..*open]);
         let tail_start = prose
             .char_indices()
             .rev()
@@ -794,9 +847,16 @@ fn block_contexts(html: &str, blocks: &[(usize, usize, String)]) -> Vec<(String,
             .find(|(_, seen)| *seen >= GOVERNING_CTX)
             .map(|(idx, _)| idx)
             .unwrap_or(0);
-        let tail = match prose[tail_start..].find(char::is_whitespace) {
-            Some(ws) => prose[tail_start + ws..].trim().to_string(),
-            None => prose[tail_start..].trim().to_string(),
+        // Advance to a word boundary ONLY when the cap actually cut (tail_start > 0):
+        // skipping unconditionally ate the FIRST WORD of every governing prose — for doc
+        // prohibitions that word is "Never"/"Avoid" itself (the operative negation).
+        let tail = if tail_start == 0 {
+            prose.trim().to_string()
+        } else {
+            match prose[tail_start..].find(char::is_whitespace) {
+                Some(ws) => prose[tail_start + ws..].trim().to_string(),
+                None => prose[tail_start..].trim().to_string(),
+            }
         };
         out.push((tail, code.clone()));
     }
@@ -1275,12 +1335,20 @@ mod tests {
 mod transfer_probe {
     use super::*;
 
-    /// The committed bootstrap classifier must render verdicts on plain normative prose it has
-    /// never seen — that is the whole point of transfer to ungroundable languages.
+    /// SELF-BOOTSTRAP contract: a classifier built from NOTHING but honestly-labeled reading
+    /// (no committed artifact, no curated seed) must render verdicts on plain normative prose
+    /// it has never seen — that is the whole point of transfer to ungroundable languages. The
+    /// live equivalent (the machine's own store after grounded web reading) is exercised by
+    /// training; this is the hermetic floor.
     #[test]
-    fn bootstrap_classifier_reads_unseen_normative_prose() {
-        let data_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
-        let p = transferred_polarity(&data_root).expect("bootstrap loads");
+    fn self_bootstrapped_classifier_reads_unseen_normative_prose() {
+        let p = crate::lint_read::Polarity::from_labeled(&[
+            ("this call is deprecated and fails with a syntax error", true),
+            ("the following example throws and must not be used", true),
+            ("wrong: this form is invalid and raises an exception", true),
+            ("instead, prefer the supported form shown in the fix", false),
+            ("the corrected example passes and is the recommended pattern", false),
+        ]);
         assert_eq!(
             p.classify("Never use the goto statement anywhere; it is deprecated and will be removed."),
             Some(true),
@@ -1342,77 +1410,4 @@ mod transfer_probe {
         println!("wrote {}", out.display());
     }
 
-    /// DEV TOOL — regenerates `lint-index/polarity-bootstrap.json` from what this machine has
-    /// already read: EVERY cached learned catalog carrying a v2 memory contributes its bindings,
-    /// each re-grounded against its own language's toolchain, plus the honestly-labeled corpus
-    /// prose (rules that ship a bad example). Machine-generated end to end; run after
-    /// learning-path changes: `cargo test --release generate_polarity_bootstrap -- --ignored`
-    #[test]
-    #[ignore = "dev tool: regenerates the committed bootstrap from cached reading"]
-    fn generate_polarity_bootstrap() {
-        use crate::lint_read::{PolarityBuilder, Reader};
-        let data_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
-
-        // Every cached v2 memory this machine has read: (language, bindings).
-        let dir = crate::lint_train::model_dir_pub();
-        let read: Vec<(String, Vec<(String, String)>)> = crate::lint_train::all_learned_binding_pairs();
-        assert!(!read.is_empty(), "no cached v2 memory found under {} — run a lint first", dir.display());
-
-        let mut reader = Reader::new();
-        for (_, pairs) in &read {
-            for (prose, _) in pairs {
-                reader.learn_span(prose);
-            }
-        }
-        // Extra READING (never rules): the teaching corpus and the registered prose corpora —
-        // CS principles, coder slang, how programmers actually talk
-        // (`extraDocs/`, `lint-index/reading-sources.json`). Expanding the model's register is
-        // a data edit; a source that cannot be fetched simply contributes nothing.
-        for doc in crate::lint_train::corpus_prose(&data_root) {
-            reader.learn_span(&doc);
-        }
-        if let Some(raw) = crate::lint_train::lint_index_file(&data_root, "reading-sources.json") {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
-                for src in json["sources"].as_array().into_iter().flatten() {
-                    let Some(url) = src["url"].as_str() else { continue };
-                    let pages = src["pages"].as_u64().unwrap_or(20) as usize;
-                    let mut learned_pages = 0usize;
-                    for p in crate::doc_crawler::crawl(&[url], pages, 50) {
-                        reader.learn_span(&p.prose);
-                        learned_pages += 1;
-                    }
-                    println!("read {learned_pages} page(s) of {url}");
-                }
-            }
-        }
-        let mut builder = PolarityBuilder::new(reader);
-        // Ground every reading in parallel — the spawn cost dominates, never the Hv math.
-        // Grounding verdicts are the only labels: the bootstrap is machine-generated end to end.
-        use rayon::prelude::*;
-        for (lang, pairs) in &read {
-            let probes: Vec<&(String, String)> = pairs
-                .iter()
-                .filter(|(prose, code)| prose.split_whitespace().count() >= 3 && code.len() >= 3)
-                .collect();
-            let verdicts: Vec<crate::lint_toolchain::Verdict> = probes
-                .par_iter()
-                .map(|(_, code)| crate::lint_toolchain::check(lang, code, &data_root))
-                .collect();
-            for ((prose, _), verdict) in probes.into_iter().zip(verdicts) {
-                match verdict {
-                    crate::lint_toolchain::Verdict::Flagged => builder.accumulate(prose, true),
-                    crate::lint_toolchain::Verdict::Clean => builder.accumulate(prose, false),
-                    crate::lint_toolchain::Verdict::Unknown => {}
-                }
-            }
-        }
-        let polarity = builder.build();
-        assert!(polarity.is_ready(), "generation needs both prototype sides");
-        std::fs::write(
-            data_root.join("lint-index/polarity-bootstrap.json"),
-            serde_json::to_string(&polarity).expect("serializes"),
-        )
-        .expect("bootstrap written");
-        println!("bootstrap regenerated: {} votes", polarity.votes());
-    }
 }

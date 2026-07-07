@@ -262,7 +262,7 @@ impl RuleSet {
             // code language. Learned rules additionally require the construct to exist in
             // real documented code (`only_grounded`); the project's own law does not.
             let desc_detector = |view: &GroundView| -> Option<(String, bool)> {
-                description_discriminator(desc, bad, view, &contexts, !trusted.contains(id))
+                description_discriminator(desc, bad, good, view, &contexts, !trusted.contains(id))
             };
             let kind = if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {

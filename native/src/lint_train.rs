@@ -57,7 +57,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v51-heading-bounded-windows";
+const TRAIN_VERSION: &str = "docs-v53b-tallies-before-floor";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -316,8 +316,8 @@ fn rule_documents_uncached(project_root: &Path) -> Vec<(PathBuf, String)> {
 /// Load the project's own rules that govern `lang`: every rule read from [`rule_documents`] whose
 /// language is `lang` or `any`. Project rules are merged BEFORE the global corpus and the crawled
 /// docs, so they take priority over both.
-pub(crate) fn project_rules(data_root: &Path, project_root: &Path, lang: &str) -> Vec<DocRule> {
-    rules_in_documents(&rule_documents(project_root), data_root, lang, "project-rule")
+pub(crate) fn project_rules(project_root: &Path, lang: &str) -> Vec<DocRule> {
+    rules_in_documents(&rule_documents(project_root), lang, "project-rule")
 }
 
 /// The machine-global CS-principles rule documents: `<data_root>/corpus/*.{md,txt}`. A stem
@@ -358,20 +358,15 @@ fn corpus_documents_uncached(data_root: &Path) -> Vec<(PathBuf, String)> {
 
 /// The corpus folder's rules that govern `lang` — see [`corpus_documents`].
 pub(crate) fn corpus_rules(data_root: &Path, lang: &str) -> Vec<DocRule> {
-    rules_in_documents(&corpus_documents(data_root), data_root, lang, "corpus-rule")
+    rules_in_documents(&corpus_documents(data_root), lang, "corpus-rule")
 }
 
 /// Read rule documents through the ONE document reader and keep the rules that govern `lang`
 /// (`lang` itself, or `any` for code languages). `slice` labels the rules' origin tier.
 /// Prose-only rules (no bad example) are valid: the pattern is derived from the English
 /// description.
-fn rules_in_documents(
-    docs: &[(PathBuf, String)],
-    data_root: &Path,
-    lang: &str,
-    slice: &str,
-) -> Vec<DocRule> {
-    let all = read_rule_documents(docs, data_root);
+fn rules_in_documents(docs: &[(PathBuf, String)], lang: &str, slice: &str) -> Vec<DocRule> {
+    let all = read_rule_documents(docs);
     let allow_any = !is_document_language(lang);
     let mut out = Vec::new();
     for (source, r) in all.iter() {
@@ -400,7 +395,6 @@ fn rules_in_documents(
 /// must produce ONE read, not seventeen racing ones.
 fn read_rule_documents(
     docs: &[(PathBuf, String)],
-    data_root: &Path,
 ) -> std::sync::Arc<Vec<(String, crate::linter::LearnedRule)>> {
     type Table = std::collections::HashMap<String, std::sync::Arc<Vec<(String, crate::linter::LearnedRule)>>>;
     static MEMO: std::sync::Mutex<Option<Table>> = std::sync::Mutex::new(None);
@@ -415,7 +409,7 @@ fn read_rule_documents(
     if let Some(hit) = table.get(&key) {
         return hit.clone();
     }
-    let polarity = crate::lint_docs::document_polarity(data_root);
+    let polarity = crate::lint_docs::document_polarity();
     let mut out = Vec::new();
     for (path, default_lang) in docs {
         let Ok(doc) = std::fs::read_to_string(path) else { continue };
@@ -444,6 +438,7 @@ pub(crate) fn embedded_lint_index_file(name: &str) -> Option<String> {
 
 /// A file from the committed/embedded `lint-index/` data (on-disk copy preferred) — the shape
 /// every shipped knowledge artifact is loaded in.
+#[cfg_attr(not(test), allow(dead_code))] // consumed by the dev extensions-bootstrap generator
 pub(crate) fn lint_index_file(data_root: &Path, name: &str) -> Option<String> {
     std::fs::read_to_string(data_root.join("lint-index").join(name))
         .ok()
@@ -460,8 +455,8 @@ pub(crate) fn lint_index_file(data_root: &Path, name: &str) -> Option<String> {
 /// These are the user's explicit law for their own codebase, so the live path trusts them fully:
 /// they are never routed through the Hv concept gate the way learned doc rules with weak
 /// (container-only) anchors are.
-pub fn project_rule_ids(data_root: &Path, project_root: &Path, lang: &str) -> std::collections::HashSet<String> {
-    project_rules(data_root, project_root, lang).into_iter().map(|r| r.id).collect()
+pub fn project_rule_ids(project_root: &Path, lang: &str) -> std::collections::HashSet<String> {
+    project_rules(project_root, lang).into_iter().map(|r| r.id).collect()
 }
 
 /// Train from both documentation sources and return one [`LangModel`] per language. Idempotent
@@ -517,8 +512,8 @@ pub fn ensure_models(
     // documents are language-agnostic and memoized behind one lock, so cold memos inside the
     // parallel wave would convoy every language on the first reader (measured: each of 17
     // languages reported the one ~1.5ms read as its own "law" time).
-    let _ = read_rule_documents(&rule_documents(project_root), data_root);
-    let _ = read_rule_documents(&corpus_documents(data_root), data_root);
+    let _ = read_rule_documents(&rule_documents(project_root));
+    let _ = read_rule_documents(&corpus_documents(data_root));
     let results: Vec<(TrainReport, Option<(String, LangModel)>)> = {
         use rayon::prelude::*;
         langs
@@ -642,7 +637,7 @@ fn train_language(
             let ground = crate::lint_match::Grounding {
                 reference,
                 project: Vec::new(),
-                polarity: crate::lint_docs::document_polarity(data_root),
+                polarity: crate::lint_docs::document_polarity(),
                 trusted: std::collections::HashSet::new(),
                 flagged,
             };
@@ -680,7 +675,7 @@ fn train_language(
     mark(&mut splits, "module");
 
     // ── 2) The PROJECT OVERLAY: law + machine corpus, compiled against the project itself. ──
-    let law_rules = project_rules(data_root, project_root, lang);
+    let law_rules = project_rules(project_root, lang);
     mark(&mut splits, "law");
     let mut local_rules = law_rules;
     local_rules.extend(corpus_rules(data_root, lang));
@@ -705,7 +700,7 @@ fn train_language(
             let ground = crate::lint_match::Grounding {
                 reference,
                 project: project_code.sources(lang).into_iter().map(|(_, src)| src).collect(),
-                polarity: crate::lint_docs::document_polarity(data_root),
+                polarity: crate::lint_docs::document_polarity(),
                 trusted: trusted.clone(),
                 flagged: Default::default(),
             };
@@ -2092,39 +2087,6 @@ fn save_cache(lang: &str, cat: &LearnedCatalog) {
     save_bin(&cache_path(lang), crate::lint_codec::kind::LEARNED, &stamp, cat);
 }
 
-/// Every learned catalog on this machine as `(language, (prose, code) binding pairs)` — the
-/// dev bootstrap generators' input. Reads `HLM1` containers and legacy JSON alike; staleness
-/// is irrelevant here (the generator re-grounds every pair against the toolchain itself).
-#[cfg_attr(not(test), allow(dead_code))] // consumed by the dev bootstrap generator (test-gated)
-pub(crate) fn all_learned_binding_pairs() -> Vec<(String, Vec<(String, String)>)> {
-    let mut read = Vec::new();
-    let Ok(entries) = std::fs::read_dir(model_dir()) else { return read };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let cat: Option<LearnedCatalog> = if name.ends_with(".learned.bin") {
-            std::fs::read(entry.path())
-                .ok()
-                .and_then(|b| crate::lint_codec::Dec::open(&b, crate::lint_codec::kind::LEARNED))
-                .and_then(|(_, mut d)| LearnedCatalog::dec(&mut d))
-        } else if name.ends_with(".learned.json") {
-            std::fs::read_to_string(entry.path()).ok().and_then(|raw| serde_json::from_str(&raw).ok())
-        } else {
-            None
-        };
-        let Some(lang) = name.split(".learned.").next().map(str::to_string) else { continue };
-        let Some(memory) = cat.and_then(|c| c.memory) else { continue };
-        let pairs: Vec<(String, String)> =
-            memory.bindings.iter().map(|b| (b.prose.clone(), b.code.clone())).collect();
-        read.push((lang, pairs));
-    }
-    // A migrating machine can hold both container and legacy JSON for one language — the
-    // container (sorted first: "bin" < "json" is irrelevant after the split, so sort then
-    // drop same-language repeats) must count once.
-    read.sort();
-    read.dedup_by(|a, b| a.0 == b.0);
-    read
-}
-
 /// SETUP-TIME sweep of the model cache: migrate or delete every legacy artifact the load
 /// paths would otherwise never touch again — a fresh machine never re-reads a stale file, so
 /// without this the JSON era would sit on disk forever (LINTER.md, "Save": exactly one copy).
@@ -2271,6 +2233,10 @@ fn file_state(p: &Path) -> u128 {
 
 #[cfg(test)]
 mod tests {
+
+
+
+
     use super::*;
 
     /// Encode → decode → compare as serde JSON values: semantic equality over every field,

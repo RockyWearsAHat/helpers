@@ -228,7 +228,14 @@ impl<'a> GroundView<'a> {
             code_tokens: tokens_of(&g.reference),
             project_tokens: tokens_of(&g.project),
             project_raw_tokens: raw_tokens_of(&g.project),
-            reader: g.polarity.as_deref().map(|p| p.reader()),
+            // A machine that has read nothing still READS: the empty reader ranks every word
+            // as unread, so selection degrades to English knowledge + existence + document
+            // order — the self-bootstrap floor (LINTER.md, "Honest grounding labels"). Only
+            // the polarity CONTEXT tier needs a trained classifier.
+            reader: Some(match g.polarity.as_deref() {
+                Some(p) => p.reader(),
+                None => crate::lint_read::Reader::empty(),
+            }),
             polarity: g.polarity.as_deref(),
         }
     }
@@ -293,8 +300,9 @@ impl<'a> GroundView<'a> {
 ///
 /// More reading sharpens the selection — the fix for a wrong pick is never a new shape rule.
 /// When `bad` is non-empty every candidate must appear in it — the description says what is
-/// wrong and the example must exhibit it. With no reader and no example there is no evidence at
-/// all, and the engine ABSTAINS rather than guessing.
+/// wrong and the example must exhibit it. A machine that has read nothing selects through the
+/// EMPTY reader ([`crate::lint_read::Reader::empty`]): English knowledge + existence + order
+/// still carry a project law's construct — the self-bootstrap floor.
 ///
 /// `only_grounded` restricts candidates to words that occur in REAL code (the docs' reference
 /// corpus or the project's own sources). Learned rules require it: a rare English word in a
@@ -313,6 +321,7 @@ impl<'a> GroundView<'a> {
 pub(super) fn description_discriminator(
     desc: &str,
     bad: &str,
+    good: &str,
     ground: &GroundView,
     contexts: &[Option<bool>],
     only_grounded: bool,
@@ -454,6 +463,14 @@ pub(super) fn description_discriminator(
     for (surface, _, _, _, _, _, _, raw_only) in &candidates {
         let token = surface.to_lowercase();
         if bad.trim().is_empty() || tokens_fire_text(bad, std::slice::from_ref(&token)) {
+            // bad ∧ ¬good holds for the DESCRIPTION path too: a candidate that also fires
+            // on the rule's own fix is self-contradictory — the docs' correct form contains
+            // it ("vex" from "a vex literal" firing on every `parsevex(...)` call), so it
+            // cannot be what the violation consists of. Scale-free, per rule, no corpus
+            // threshold — the rule's own examples are the evidence.
+            if !good.trim().is_empty() && tokens_fire_text(good, std::slice::from_ref(&token)) {
+                continue;
+            }
             return Some((token, *raw_only));
         }
     }
