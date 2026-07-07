@@ -633,6 +633,15 @@ impl Polarity {
     /// polarize the whole English vocabulary. No decisive majority anywhere → abstain.
     pub fn tally_lean(&self, word: &str) -> Option<bool> {
         let seed = crate::lint_ai::token_seed(&word.to_lowercase());
+        // Dictionary negation is KNOWLEDGE, not statistics: exposure beside parsing code
+        // cannot un-negate a word — a parse verdict cannot see style wrongness, so
+        // "incorrect" beside a thousand clean-parsing `var x = 1` examples still states
+        // wrongness (in-correct = not correct, the brain's own discovery). Negation
+        // OPERATORS lean prohibition warm or cold; their info-bit weight still decides
+        // how much any one of them moves a span.
+        if crate::lint_english::brain().is_some_and(|e| e.is_negation(seed)) {
+            return Some(true);
+        }
         let (f, c) = self.tally_of_seed(seed);
         if f + c >= 4 {
             return lean_of(f, c);
