@@ -736,6 +736,16 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
         if b.slug.len() < 2 || polarity.classify(&b.prose) != Some(true) {
             continue;
         }
+        // MINT is stricter than classify (module doc): prototype similarity alone is
+        // reading material, never law — the span must carry WORD-level evidence of
+        // prohibition (a negation-operator or a decisive tallied reading). Measured on
+        // live eslint.org: "Examples of CORRECT code…" sat one salient word from the
+        // incorrect-register prototype and minted without this bar.
+        if polarity.negation_bits(&b.prose) == 0
+            && polarity.classify_tallied(&b.prose) != Some(true)
+        {
+            continue;
+        }
         if !seen.insert(b.slug.clone()) {
             continue;
         }
@@ -745,7 +755,16 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
             // document every rule shares the URL, and pairing across anchors once handed one
             // lint's "Use instead" block to the next lint as its good example.
             .take_while(|nb| nb.url == b.url && nb.slug == b.slug)
-            .find(|nb| polarity.classify(&nb.prose) == Some(false))
+            .find(|nb| {
+                polarity.classify(&nb.prose) == Some(false)
+                    // Relative reading (ledger #6a, for pages): a sibling that classifies
+                    // prohibition on register similarity but carries at most HALF the
+                    // violation's negation is the documented fix ("Examples of correct
+                    // code…" right after "Examples of incorrect code…").
+                    || (polarity.classify(&nb.prose) == Some(true)
+                        && polarity.negation_bits(&nb.prose) * 2
+                            <= polarity.negation_bits(&b.prose))
+            })
             .map(|nb| nb.code.clone())
             // words → sentences → ORDER (LINTER.md): endorsement needs grounding only
             // reality can give, so an UNREADY classifier cannot find the fix by reading —

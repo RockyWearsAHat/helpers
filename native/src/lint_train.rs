@@ -57,7 +57,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v56-dictionary-negation-warm";
+const TRAIN_VERSION: &str = "docs-v57b-word-evidence-mint";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -2279,6 +2279,24 @@ mod tests {
             }
         }
         eprintln!("bindings classifying prohibition: {minted}/{}", mem.bindings.len());
+        // Per-domain binding/mint counts — the crawl-coverage view.
+        {
+            let mut by: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
+            for b in &mem.bindings {
+                let dom = b.url.split('/').nth(2).unwrap_or("?").to_string();
+                let e = by.entry(dom).or_insert((0, 0));
+                e.0 += 1;
+                if pol.classify(&b.prose) == Some(true) {
+                    e.1 += 1;
+                }
+            }
+            let pages: std::collections::HashSet<&str> =
+                mem.bindings.iter().map(|b| b.url.as_str()).collect();
+            eprintln!("distinct pages: {}", pages.len());
+            for (d, (n, m)) in by {
+                eprintln!("domain {d}: bindings={n} minting={m}");
+            }
+        }
         // Sample of NON-minting bindings from each source (PROBE_MISS=n).
         if let Ok(n) = std::env::var("PROBE_MISS") {
             let n: usize = n.parse().unwrap_or(0);
