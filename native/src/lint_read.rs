@@ -475,7 +475,16 @@ pub struct PolarityBuilder {
     /// under clean EXPOSURE — good labels and plain clean-grounded reality together) — the
     /// evidence layer of the side-count design (LINTER.md, "The side-count evidence
     /// layer"). Honest grounding labels are the only labels; exposure is the denominator.
-    tallies: std::collections::HashMap<u64, (u32, u32)>,
+    tallies: std::collections::HashMap<u64, (u32, u32, u32)>,
+}
+
+/// Which side of the evidence a tallied span lands on: a reality-flagged label, a
+/// fix-sibling endorsement label, or plain clean exposure (the denominator).
+#[derive(Clone, Copy)]
+enum TallySide {
+    Bad,
+    Good,
+    Exposure,
 }
 
 impl PolarityBuilder {
@@ -500,7 +509,7 @@ impl PolarityBuilder {
         for (h, w) in self.reader.salient_weighted(prose) {
             target.add_weighted(&h, w);
         }
-        self.tally(prose, is_bad);
+        self.tally(prose, if is_bad { TallySide::Bad } else { TallySide::Good });
     }
 
     /// Tally one grounded prose span WITHOUT training the prototypes — the EXPOSURE side of
@@ -509,34 +518,34 @@ impl PolarityBuilder {
     /// lean bad by default ("not" appears in 6% flagged prose → neutral; "deprecated" in
     /// 75% → prohibition vocabulary). Callers feed every clean-grounded unit through here.
     pub fn tally_exposure(&mut self, prose: &str) {
-        self.tally(prose, false);
+        self.tally(prose, TallySide::Exposure);
     }
 
     /// Tallies cover EVERY read token, common words included (LINTER.md, "The side-count
     /// evidence layer"): English carries prohibition in its most ubiquitous words — the
     /// negation primitives — and reality must be allowed to polarize them. Commonness
     /// discounts the recorded WEIGHT (info bits), never the existence of the evidence.
-    fn tally(&mut self, prose: &str, is_bad: bool) {
+    fn tally(&mut self, prose: &str, side: TallySide) {
         for (full, parts) in read_units(prose) {
             let word = if full.is_empty() { parts.first().cloned().unwrap_or_default() } else { full };
             if word.is_empty() {
                 continue;
             }
             let w = self.reader.info_bits(&word).max(1);
-            let t = self.tallies.entry(crate::lint_ai::token_seed(&word)).or_insert((0, 0));
-            if is_bad {
-                t.0 = t.0.saturating_add(w);
-            } else {
-                t.1 = t.1.saturating_add(w);
+            let t = self.tallies.entry(crate::lint_ai::token_seed(&word)).or_insert((0, 0, 0));
+            match side {
+                TallySide::Bad => t.0 = t.0.saturating_add(w),
+                TallySide::Good => t.1 = t.1.saturating_add(w),
+                TallySide::Exposure => t.2 = t.2.saturating_add(w),
             }
         }
     }
 
     /// Freeze the prototypes and the reader into a [`Polarity`] classifier.
     pub fn build(self) -> Polarity {
-        let mut tallies: Vec<(u64, u32, u32)> =
-            self.tallies.into_iter().map(|(k, (f, c))| (k, f, c)).collect();
-        tallies.sort_unstable_by_key(|(k, _, _)| *k);
+        let mut tallies: Vec<(u64, u32, u32, u32)> =
+            self.tallies.into_iter().map(|(k, (f, g, e))| (k, f, g, e)).collect();
+        tallies.sort_unstable_by_key(|(k, _, _, _)| *k);
         Polarity {
             bad: self.bad.finalize(),
             good: self.good.finalize(),
@@ -569,11 +578,12 @@ pub struct Polarity {
     /// loaded memory re-measures its own prototypes).
     #[serde(skip)]
     margin: std::sync::OnceLock<u32>,
-    /// Frozen per-token side tallies `(token seed, bad-label weight, clean-exposure
-    /// weight)`, sorted by seed — the side-count evidence layer. Empty on legacy JSON
-    /// artifacts (they abstain to the prototypes).
+    /// Frozen per-token side tallies `(token seed, bad-label weight, good-label weight,
+    /// clean-exposure weight)`, sorted by seed — the side-count evidence layer. Exposure
+    /// NEUTRALIZES a word (it is the denominator) but is never an endorsement: only real
+    /// good labels may counter-vote a span. Empty on legacy JSON artifacts.
     #[serde(default)]
-    tallies: Vec<(u64, u32, u32)>,
+    tallies: Vec<(u64, u32, u32, u32)>,
 }
 
 impl Reader {
@@ -611,15 +621,15 @@ impl Polarity {
 
     /// The side-count evidence for one token: summed info-bit weight under bad labels vs
     /// under good labels. `(0, 0)` for a token the grounding never met.
-    pub fn tally_of(&self, word: &str) -> (u32, u32) {
+    pub fn tally_of(&self, word: &str) -> (u32, u32, u32) {
         self.tally_of_seed(crate::lint_ai::token_seed(&word.to_lowercase()))
     }
 
     /// [`tally_of`] by token seed — the form the dictionary hop reads with.
-    fn tally_of_seed(&self, seed: u64) -> (u32, u32) {
-        match self.tallies.binary_search_by_key(&seed, |(k, _, _)| *k) {
-            Ok(i) => (self.tallies[i].1, self.tallies[i].2),
-            Err(_) => (0, 0),
+    fn tally_of_seed(&self, seed: u64) -> (u32, u32, u32) {
+        match self.tallies.binary_search_by_key(&seed, |(k, _, _, _)| *k) {
+            Ok(i) => (self.tallies[i].1, self.tallies[i].2, self.tallies[i].3),
+            Err(_) => (0, 0, 0),
         }
     }
 
@@ -642,9 +652,9 @@ impl Polarity {
         if crate::lint_english::brain().is_some_and(|e| e.is_negation(seed)) {
             return Some(true);
         }
-        let (f, c) = self.tally_of_seed(seed);
-        if f + c >= 4 {
-            return lean_of(f, c);
+        let (f, g, e) = self.tally_of_seed(seed);
+        if f + g + e >= 4 {
+            return lean_of(f, g, e);
         }
         let english = crate::lint_english::brain()?;
         let def = english.definition_of(seed)?;
@@ -660,8 +670,8 @@ impl Polarity {
             if english.reader.is_head_seed(*s) {
                 continue;
             }
-            let (a, b) = self.tally_of_seed(*s);
-            if a + b >= 4 && lean_of(a, b) == Some(true) {
+            let (a, b, x) = self.tally_of_seed(*s);
+            if a + b + x >= 4 && lean_of(a, b, x) == Some(true) {
                 df = df.saturating_add(a);
             }
         }
@@ -738,12 +748,16 @@ impl Polarity {
     }
 }
 
-/// The side-count ratio bars (LINTER.md, "The side-count evidence layer"): bad needs 2:1
-/// (reality's own verdict), good needs 4:1 (structural inference), anything else abstains.
-fn lean_of(f: u32, c: u32) -> Option<bool> {
-    if f >= c.saturating_mul(2) {
+/// The side-count ratio bars (LINTER.md, "The side-count evidence layer"): a bad lean must
+/// beat the word's ENTIRE non-bad reality 2:1 (labels and exposure alike — reality's own
+/// verdict earns trust); a good lean comes only from real fix-position labels at 4:1
+/// (structural inference). Exposure alone can NEUTRALIZE (deny a bad lean) but never
+/// endorses — a word seen beside a thousand parsing examples has proven nothing about
+/// style, so it abstains rather than counter-voting prohibition out of a span.
+fn lean_of(f: u32, g: u32, e: u32) -> Option<bool> {
+    if f >= (g + e).saturating_mul(2) {
         Some(true)
-    } else if c >= f.saturating_mul(4) {
+    } else if g >= f.saturating_mul(4) && g >= 2 {
         Some(false)
     } else {
         None
@@ -1053,22 +1067,29 @@ impl crate::lint_codec::Bin for Polarity {
         e.hv(&self.good);
         e.u(self.bad_n as u64);
         e.u(self.good_n as u64);
-        // Side-count tallies ride the RAW stream as three parallel arrays (seed-sorted).
-        e.raw_u64s(&self.tallies.iter().map(|(k, _, _)| *k).collect::<Vec<_>>());
-        e.raw_u32s(&self.tallies.iter().map(|(_, f, _)| *f).collect::<Vec<_>>());
-        e.raw_u32s(&self.tallies.iter().map(|(_, _, c)| *c).collect::<Vec<_>>());
+        // Side-count tallies ride the RAW stream as four parallel arrays (seed-sorted).
+        e.raw_u64s(&self.tallies.iter().map(|(k, _, _, _)| *k).collect::<Vec<_>>());
+        e.raw_u32s(&self.tallies.iter().map(|(_, f, _, _)| *f).collect::<Vec<_>>());
+        e.raw_u32s(&self.tallies.iter().map(|(_, _, g, _)| *g).collect::<Vec<_>>());
+        e.raw_u32s(&self.tallies.iter().map(|(_, _, _, x)| *x).collect::<Vec<_>>());
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<Polarity> {
         let reader = Reader::dec(d)?;
         let (bad, good) = (d.hv()?, d.hv()?);
         let (bad_n, good_n) = (d.u()? as usize, d.u()? as usize);
-        // Format 2 always writes the three parallel arrays; format-1 artifacts never reach
+        // Format 3 always writes the four parallel arrays; older artifacts never reach
         // this decoder (the container FORMAT byte rejects them at `open`).
-        let (keys, f, c) = (d.raw_u64s()?, d.raw_u32s()?, d.raw_u32s()?);
-        if keys.len() != f.len() || f.len() != c.len() {
+        let (keys, f, g, x) = (d.raw_u64s()?, d.raw_u32s()?, d.raw_u32s()?, d.raw_u32s()?);
+        if keys.len() != f.len() || f.len() != g.len() || g.len() != x.len() {
             return None;
         }
-        let tallies = keys.into_iter().zip(f).zip(c).map(|((k, f), c)| (k, f, c)).collect();
+        let tallies = keys
+            .into_iter()
+            .zip(f)
+            .zip(g)
+            .zip(x)
+            .map(|(((k, f), g), x)| (k, f, g, x))
+            .collect();
         Some(Polarity {
             reader,
             bad,
