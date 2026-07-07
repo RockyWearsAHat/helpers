@@ -31,11 +31,19 @@
   },
   {
    "language": "typescript",
-   "ext": "js",
+   "ext": "ts",
    "check": [
-    "node",
-    "--check",
+    "deno",
+    "check",
+    "--quiet",
     "{file}"
+   ],
+   "context_markers": [
+    "cannot find name",
+    "cannot find module",
+    "is not defined",
+    "cannot use import statement",
+    "cannot be used outside a module"
    ]
   },
   {
@@ -45,6 +53,10 @@
     "gofmt",
     "-e",
     "{file}"
+   ],
+   "wraps": [
+    "package main\n\nfunc main() {\n{code}\n}\n",
+    "package main\n\n{code}\n"
    ]
   },
   {
@@ -63,7 +75,6 @@
     "deprecat",
     "warning"
    ],
-   "wrap": "#![allow(unused)]\nfn main() {\n{code}\n}\n",
    "context_markers": [
     "cannot find",
     "unresolved import",
@@ -72,6 +83,9 @@
     "requires `main`",
     "consider adding a `main`",
     "use of undeclared"
+   ],
+   "wraps": [
+    "#![allow(unused)]\nfn main() {\n{code}\n}\n"
    ]
   }
  ]
