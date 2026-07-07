@@ -47,13 +47,15 @@ struct Toolchain {
     /// file — expanding it is a data edit, never a code change. Empty → exit status alone decides.
     #[serde(default)]
     flag_markers: Vec<String>,
-    /// Fragment harness: a `{code}` template retried when the snippet fails as written
-    /// (LINTER.md, open problems — fragment examples). Documentation quotes FRAGMENTS
-    /// (`#[expect(…)]` on a bare line); a snippet that passes once wrapped was never a
-    /// demonstrated violation — the verdict becomes Unknown, not Flagged. Tool knowledge,
-    /// so it is DATA. Empty → no retry.
+    /// Fragment harness: `{code}` templates retried IN ORDER when the snippet fails as
+    /// written (LINTER.md, open problems — fragment examples). Documentation quotes
+    /// FRAGMENTS (`#[expect(…)]` on a bare line; go statements without a `package`
+    /// clause), and different fragment shapes need different scaffolds (go: statement
+    /// wrap vs top-level-declaration wrap). A snippet that passes under ANY wrap is
+    /// valid code shown without scaffolding — CLEAN exposure. Tool knowledge, so it is
+    /// DATA. Empty → no retry.
     #[serde(default)]
-    wrap: String,
+    wraps: Vec<String>,
     /// Substrings in a FAILING run's stderr that mean "missing surrounding context", not
     /// "demonstrated violation" (rustc's `cannot find`/`unresolved import` on a snippet
     /// that references names its page defined elsewhere). Such failures judge the
@@ -179,23 +181,27 @@ pub fn check(lang: &str, code: &str, data_root: &Path) -> Verdict {
         }
         Err(_) => Verdict::Unknown,
     };
-    // A failing FRAGMENT retried under the toolchain's wrap harness: a snippet that PASSES
-    // wrapped was valid code shown without scaffolding — that is reality's "parses", i.e.
-    // CLEAN exposure (never Flagged, and not Unknown either: zero clean verdicts would
-    // leave the language's tallies bad-saturated). A wrapped failure that names missing
-    // context stays Unknown; anything else keeps the Flagged verdict.
-    if verdict == Verdict::Flagged && !tc.wrap.is_empty() {
-        let wrapped = tc.wrap.replace("{code}", &body);
-        if std::fs::write(&file, &wrapped).is_ok() {
-            if let Ok(out) = Command::new(bin).args(&args).current_dir(&dir).output() {
-                let stderr = String::from_utf8_lossy(&out.stderr).to_lowercase();
-                let clean_wrapped = out.status.success()
-                    && !tc.flag_markers.iter().any(|m| stderr.contains(m.as_str()));
-                if clean_wrapped {
-                    verdict = Verdict::Clean;
-                } else if tc.context_markers.iter().any(|m| stderr.contains(m.as_str())) {
-                    verdict = Verdict::Unknown;
-                }
+    // A failing FRAGMENT retried under the toolchain's wrap harnesses: a snippet that
+    // PASSES under any wrap was valid code shown without scaffolding — that is reality's
+    // "parses", i.e. CLEAN exposure (never Flagged, and not Unknown either: zero clean
+    // verdicts would leave the language's tallies bad-saturated). A wrapped failure that
+    // names missing context downgrades to Unknown; anything else keeps Flagged.
+    if verdict == Verdict::Flagged {
+        for wrap in &tc.wraps {
+            let wrapped = wrap.replace("{code}", &body);
+            if std::fs::write(&file, &wrapped).is_err() {
+                break;
+            }
+            let Ok(out) = Command::new(bin).args(&args).current_dir(&dir).output() else {
+                break;
+            };
+            let stderr = String::from_utf8_lossy(&out.stderr).to_lowercase();
+            if out.status.success() && !tc.flag_markers.iter().any(|m| stderr.contains(m.as_str())) {
+                verdict = Verdict::Clean;
+                break;
+            }
+            if tc.context_markers.iter().any(|m| stderr.contains(m.as_str())) {
+                verdict = Verdict::Unknown;
             }
         }
     }
