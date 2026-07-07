@@ -748,6 +748,13 @@ impl Polarity {
         self.bad_n > 0 && self.good_n > 0
     }
 
+    /// Whether this classifier carries ANY of its own grounded evidence — prototype votes or
+    /// side-count tallies. A language whose own reading produced evidence never reads through
+    /// the transfer store: reality about THIS language outranks reality about others.
+    pub fn has_evidence(&self) -> bool {
+        self.votes() > 0 || !self.tallies.is_empty()
+    }
+
     /// Classify prose: `Some(true)` = prohibition, `Some(false)` = endorsement, `None` = abstain
     /// (untrained, unencodable, or no decisive majority). The reading is **words → sentences**
     /// (LINTER.md, "The side-count evidence layer"): the per-token side-count tallies vote first
