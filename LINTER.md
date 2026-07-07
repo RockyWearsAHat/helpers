@@ -5,6 +5,60 @@
 > semantic change lands without updating this file first** — every regression this system has
 > had came from editing behavior without a written model of it.
 
+## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
+
+> Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
+> onto; the word-token substrate below it is what ships on `main` until the migration lands. The
+> two are kept side by side deliberately — the rewrite replaces the ATOM everything stands on, so
+> nothing below is edited until each downstream piece actually moves.
+
+**The atom is a UTF-8 character, and reading is uniform.** There is no token vocabulary, no
+word-frequency table, and no cap — the reader (`lint_char::CharReader`) is an order-4 character
+predictor: at each position it predicts the next scalar from the last four, and the PREDICTION
+ERROR (surprise) is the one signal everything downstream stands on. "Does English account for
+this?" becomes "does the reader predict this character run with low surprise." A slot stores the
+predicted CHARACTER, not its hypervector (`char_hv` is a pure function), so a real brain is
+megabytes, and the prediction memory is PERSISTED — a loaded brain reads pages back, the
+capability whose absence had forced hand-parsing.
+
+**Learning is cumulative — one brain, retain-and-grow, not English-vs-code separation.** Reading
+is the same method wherever it starts; English is the general solution and each language is that
+same integration continued from there, adding its specifics. Surprise is therefore TRANSIENT: code
+reads surprising only UNTIL the reader has read that language, and after it does, that code is
+calm — which is the point, not a failure. Measured: reading new material RETAINS prior knowledge
+(English held within ε) while DROPPING surprise on the new (code 3847→3227 on the real dictionary
+base). The mis-framing to avoid is treating surprise as a permanent classifier.
+
+**The curriculum, in order:** the whole dictionary (English base) → the WEB DELIVERY LAYER
+(`html → css → js`) folded into the machine-global base (`char.global.bin`), so that by the time
+the brain reads any documentation it already understands the website it arrives in — then every
+OTHER language is read NOVEL against that base. Because the base does not know language X, X's code
+is the high-surprise region of its own doc page: the reader reads the whole raw page (tags and
+prose are low-surprise, known), and the code example falls out as the surprise spike — segmentation
+with no parser, no `Gap`, no tag list. Known subtlety to validate on real data: prose-shaped code
+(`goto cleanup`, `import telnetlib`) is English-looking and less surprising than symbol-laden code;
+the `<pre>`-context the brain learned during the html curriculum is the corroborating signal there.
+
+**Storage and distribution — machine-global, DELTA modules, never a project copy** (owner
+directive, the disk-space covenant). Per-language artifacts are the SAME machine-global,
+registry-distributed, never-in-the-repo modules the word substrate already uses (see "Save" and
+"The distribution channel"). The one addition the char substrate REQUIRES: a language module
+stores only the contexts it ADDS beyond the base — the delta — never a copy of the English+web
+base, or every module re-ships the base and disk explodes. Resolution order is unchanged: a
+project names its languages → use the machine module in place → else pull the registry module →
+else ask for the docs URL, train instantly, and SAVE the module to the computer (not the project)
+for reuse. Project law (`lintPref.{md,txt}`) and the machine CS-principles corpus (pure-English
+rules) are read through the same brain and compiled into the project OVERLAY, exactly as today.
+
+**Landed so far** (validated, committed on the branch): the `CharReader` core (real-dictionary
+gate — English ~2570 vs code ~3772 bits before the model learns the code); the cumulative
+retain-and-grow property; `HLM1` persistence (round-trips exactly); and the setup verb
+`lint_char::ensure_brain` running the real curriculum (read 38.5M dictionary chars → 290k contexts,
+fingerprint-gated replay). **Remaining:** the surprise-segmenter that reads a language's docs novel
+against the base; per-language delta modules; migrating rule extraction, construct selection, and
+polarity to read through the brain (this deletes `lint_markup.rs` and word-level `english.knows`);
+and the full retrain.
+
 ## Thesis
 
 **English is read; code is linted — and common language is learned FIRST.** The system builds a
@@ -213,10 +267,13 @@ forces it regardless of age.
    docs TREE, boundary-safe: a directory-like seed path scopes to itself (`…/c` covers `/c`
    and `/c/…`, never `/cpp`); a file seed (`…/bash.html`) scopes to its folder — the safety
    valves exist for exactly the day a seed mis-scopes.
-2. **Read**: the Reader learns the prose; `(governing prose, code example)` pairs are sliced at
-   *tag boundaries* (between `</pre>` and the next `<pre`) — never at byte offsets — and a
-   HEADING is a hard boundary: the prose that governs a block never crosses into the
-   previous section (`<h1>`–`<h6>`, pure typography). Measured on the diversity contract's
+2. **Read**: the raw page is fed to the reader as one token stream (`<…>` runs are single
+   markup tokens — typography, never consulted by name), and `(governing prose, code example)`
+   pairs are the READING's own segmentation ("Markup second" above): code spans are
+   low-English-density register runs judged with the English brain against the W3-calibrated
+   split, governing prose is the prose run above a code span, and a title-shaped gap (short,
+   unpunctuated) is a hard boundary — the prose that governs a block never crosses into the
+   previous section. Measured on the diversity contract's
    MDN-reference shape: without the heading cut, a section's prohibition window swallowed
    the tail of the neutral intro above it, the mixed span classified as nothing, and the
    rule never minted — the same dilution real reference pages produce. **A
@@ -574,6 +631,15 @@ both pure data:
   code. A machine with a French dictionary reading French docs would learn French
   prohibition the same way, end to end.
 
+**The dictionary is read ENTIRELY, and the read is WITNESSED** (owner directive 2026-07-07):
+the chunk walk must consume the whole body — after the last decoded chunk, the remaining bytes
+must be the file's zero padding. A walk that stops early (a malformed chunk mid-file, a layout
+drift after an OS update) is a PARTIAL read, and a partial read is REFUSED, never saved: half a
+frequency curve is a silently wrong baseline for every judgment downstream, and the committed
+bootstrap (a complete brain) outranks a fresh incomplete one. The setup report states the
+witness ("read entire dictionary — N chunks, N words, N tokens"); measured on this machine:
+781/781 chunks, the 291 KB tail pure zero padding.
+
 The artifact is `english.global.bin` (machine-global, beside the models): the dictionary-fed
 reader plus the headword set. It is built once per machine at SETUP time (`action=train`) from
 the local dictionary; lint runs only ever load it. Machines without a parseable dictionary load
@@ -583,6 +649,65 @@ same covenant as the extensions bootstrap: regenerate with
 LangBrain is a substrate, not a rule source: it never fires, never gates a project law's
 EXISTENCE, and adding meaning on top of it (definitions as bindings — word ⊗ its definition,
 the designed "rules MEAN something" step) extends this section rather than adding a mechanism.
+
+## Markup second — the MarkupBrain (HTML read from its own documentation)
+
+**Documentation is served as HTML, so the thing that reads documentation must understand HTML —
+and it learns HTML the same way it learned English: by reading the docs that define it** (owner
+directive 2026-07-07: dictionary ENTIRELY → HTML from the W3 docs → only then language pages,
+read exactly as served, never through hand-coded parse expectations). The curriculum order is a
+hard dependency chain, not a preference: the MarkupBrain's judgments are made WITH the English
+brain (below), so English must exist first; the unit former's judgments are made with the
+MarkupBrain, so markup must exist before any language documentation is read. Language training
+REFUSES — reported, by name, never silently degraded — when either substrate is missing.
+
+**No tag is ever consulted by name — the page is one token stream and the judgments are the
+reading's.** The only programmed piece is typography, from the already-allowed list: a `<…>`
+run is ONE MARKUP TOKEN (HTML's word-boundary rule, the same class of mechanism as "whitespace
+separates words"), and sentence punctuation is what it always was. Which tag a markup token is
+never matters to comprehension; there is no code-carrier list, no boundary list, no element
+vocabulary consulted anywhere. What the reading itself decides:
+
+- **Code vs prose is a REGISTER judgment, made with the English brain.** The text between
+  markup tokens (a GAP) reads as English or it doesn't: the fraction of its word tokens the
+  dictionary accounts for is its English density. Prose gaps read high; code reads low. This
+  is why English must exist first — "how much of this is English" is only answerable by
+  something that knows English. Adjacent code-register gaps separated ONLY by markup tokens
+  are one code span (syntax highlighters shred examples into `<span>`s; the register survives
+  the shredding), and the span's text is exactly the served characters with the markup tokens
+  dropped — code preserved verbatim for grounding, no tag names involved.
+- **The split point is LEARNED from the W3 reading, not tuned.** At setup, after the English
+  brain and before any language trains, the substrate reads the html language's own registered
+  documentation raw — the W3-endorsed WHATWG HTML standard plus MDN's HTML tree, `sources.json`
+  rows like any other. That corpus contains both registers by nature, so the density
+  distribution over its gaps is bimodal, and the valley between the modes is the calibrated
+  prose/code split this machine reads every page with. No html reading ⇒ no calibration ⇒
+  language documentation REFUSES to be read (asked for by name, never silently hand-parsed).
+- **A boundary is a TITLE-SHAPED gap**: short and unpunctuated (no sentence-ending typography),
+  set off by markup tokens — headings, captions, nav labels, whatever the site's markup dialect.
+  Governing prose never crosses one, and the title's own words never weld onto the section's
+  first sentence (ledger #22's class, dissolved rather than special-cased). The shape's word
+  ceiling is learned from the same W3 reading (the gap-length distribution's short mode).
+- **Author marks stay corroborating provenance, never comprehension**: an `id="…"` anchor
+  inside a markup token still names the section (rule ids), a `language-*`/`brush:` class still
+  declares a block's own language (ledger #18's gate) — attributes the author wrote, read as
+  marks, deciding nothing about what is code or where sections lie.
+
+The artifact is `markup.global.bin` (machine-global, `HLM1`, beside the models): the html-fed
+reader (tags learned as vocabulary by exposure — ubiquity strips them of meaning-weight, the
+reading keeps their role) plus the calibration (density split, title-gap ceiling). Built at
+SETUP after the English brain and before any language trains; machines without a readable html
+cache load the committed bootstrap `lint-index/markup-bootstrap.json` — machine-generated
+learned data, same covenant as the English and extensions bootstraps (regenerate with
+`cargo test --release --lib generate_markup_bootstrap -- --ignored`, commit the diff).
+
+**Pages are cached RAW, exactly as served** (stage 2+3 of the READ-not-split design): the crawl
+cache stores each page's body verbatim in an `HLM1` container (DATA-stream deflate — HTML
+compresses several ×), and units are FORMED AT READ TIME by the register reading above. The
+enumerated `<pre` / `<h1>`–`<h6>` tag lists are DELETED from the unit former. A cached raw page
+can always be re-read by a smarter reader — a former change never needs the network again. The
+governing-window tail cap stays interim mechanism, to be dissolved by the sequential layer
+(open problems).
 
 A prose law's detector token is chosen from the sentence's whitespace-delimited words (edge
 punctuation trimmed — `console.log`, `8080`, `lock(this)` survive verbatim). Candidates are
@@ -1149,12 +1274,15 @@ with an attacker contract, exactly as the two registry contracts already do.
   grounding verdicts double as segmentation labels. Stage order is a correctness
   dependency, not caution: the segmenter trains on grounded labels, so the label pipeline
   must be honest FIRST (stage 1 — honest labels, the dictionary meaning network,
-  self-discovered negation: landed today, and it caught the window code eating the first
+  self-discovered negation: landed 2026-07-06, and it caught the window code eating the first
   word of every governing sentence — a defect a learned segmenter would have laundered
-  into its weights). Stage 2: the crawl cache stores RAW page text, not pre-formed units,
-  so the reader can re-read pages as full streams. Stage 3: train the sequential layer
-  with verdicts as segmentation labels and DELETE the window code (`block_contexts`, the
-  heading cut, the governing-context tail) behind the diversity-contract acceptance gate.
+  into its weights). Stages 2+3 core — LANDED 2026-07-07 (see "Markup second"): the crawl
+  cache stores RAW pages exactly as served, the MarkupBrain reads the W3 HTML docs whole
+  (tags as vocabulary) and calibrates the register split, and the unit former's enumerated
+  tag lists are DELETED — segmentation is the reading's own register/boundary judgment.
+  Remaining (open): the sequential layer proper — verdicts as segmentation labels refining
+  the register runs, and the governing-context tail cap dissolved behind the
+  diversity-contract acceptance gate.
   The original problem statement follows.
 - **(superseded statement)** The extraction
   windows have accumulated stacked hand heuristics answering one question — which prose
