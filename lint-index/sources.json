@@ -1,523 +1,529 @@
 {
-  "version": 3,
-  "_note": "Shared seed of the language\u2192docs registry \u2014 pure DATA, no language list in code. Every entry points at OFFICIAL LANGUAGE DOCUMENTATION (reference/manual/style guide), not linter rule catalogs: the AI reads the language's own docs \u2014 normative sections (deprecations, warnings, avoid/instead guidance) become rules, every code example feeds the what-is-normal reference corpus. A language may have several entries; all are learned and merged. Languages NOT listed are DISCOVERED on the fly (web search \u2192 crawl-validate) and cached per user in ~/.cache/helpers/lint-index/sources.json; share a discovered entry by committing it here (lint_submit).",
-  "registry": "https://raw.githubusercontent.com/RockyWearsAHat/helpers/lint-models",
-  "sources": [
-    {
-      "tool": "rust-reference",
-      "language": "rust",
-      "kind": "crawl",
-      "seed": "https://doc.rust-lang.org/reference/"
-    },
-    {
-      "tool": "rust-api-guidelines",
-      "language": "rust",
-      "kind": "crawl",
-      "seed": "https://rust-lang.github.io/api-guidelines/"
-    },
-    {
-      "tool": "python-docs",
-      "language": "python",
-      "kind": "crawl",
-      "seed": "https://docs.python.org/3/reference/"
-    },
-    {
-      "tool": "pep8",
-      "language": "python",
-      "kind": "crawl",
-      "seed": "https://peps.python.org/pep-0008/"
-    },
-    {
-      "tool": "mdn-js",
-      "language": "javascript",
-      "kind": "crawl",
-      "seed": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/"
-    },
-    {
-      "tool": "ts-handbook",
-      "language": "typescript",
-      "kind": "crawl",
-      "seed": "https://www.typescriptlang.org/docs/handbook/"
-    },
-    {
-      "tool": "effective-go",
-      "language": "go",
-      "kind": "crawl",
-      "seed": "https://go.dev/doc/effective_go"
-    },
-    {
-      "tool": "java-tutorial",
-      "language": "java",
-      "kind": "crawl",
-      "seed": "https://docs.oracle.com/javase/tutorial/java/"
-    },
-    {
-      "tool": "ruby-docs",
-      "language": "ruby",
-      "kind": "crawl",
-      "seed": "https://docs.ruby-lang.org/en/master/"
-    },
-    {
-      "tool": "cppreference-c",
-      "language": "c",
-      "kind": "crawl",
-      "seed": "https://en.cppreference.com/c"
-    },
-    {
-      "tool": "cppreference",
-      "language": "cpp",
-      "kind": "crawl",
-      "seed": "https://en.cppreference.com/cpp"
-    },
-    {
-      "tool": "bash-manual",
-      "language": "bash",
-      "kind": "crawl",
-      "seed": "https://www.gnu.org/software/bash/manual/bash.html"
-    },
-    {
-      "tool": "swift-book",
-      "language": "swift",
-      "kind": "crawl",
-      "seed": "https://www.swift.org/documentation/api-design-guidelines/"
-    },
-    {
-      "tool": "kotlin-docs",
-      "language": "kotlin",
-      "kind": "crawl",
-      "seed": "https://kotlinlang.org/spec/introduction.html"
-    },
-    {
-      "tool": "php-manual",
-      "language": "php",
-      "kind": "crawl",
-      "seed": "https://www.php.net/manual/en/langref.php"
-    },
-    {
-      "tool": "commonmark",
-      "language": "markdown",
-      "kind": "crawl",
-      "seed": "https://spec.commonmark.org/0.31.2/"
-    },
-    {
-      "tool": "mdn-css",
-      "language": "css",
-      "kind": "crawl",
-      "seed": "https://developer.mozilla.org/en-US/docs/Web/CSS/"
-    },
-    {
-      "tool": "mdn-html",
-      "language": "html",
-      "kind": "crawl",
-      "seed": "https://developer.mozilla.org/en-US/docs/Web/HTML/"
-    },
-    {
-      "tool": "json-org",
-      "language": "json",
-      "kind": "crawl",
-      "seed": "https://www.json.org/json-en.html"
-    },
-    {
-      "tool": "mdn-svg",
-      "language": "svg",
-      "kind": "crawl",
-      "seed": "https://developer.mozilla.org/en-US/docs/Web/SVG/"
-    },
-    {
-      "tool": "toml-spec",
-      "language": "toml",
-      "kind": "crawl",
-      "seed": "https://toml.io/en/v1.0.0/"
-    },
-    {
-      "tool": "w3c-xml",
-      "language": "xml",
-      "kind": "crawl",
-      "seed": "https://www.w3.org/TR/xml/"
-    },
-    {
-      "tool": "yaml-spec",
-      "language": "yaml",
-      "kind": "crawl",
-      "seed": "https://yaml.org/spec/1.2.2/"
-    },
-    {
-      "tool": "csharp-conventions",
-      "language": "csharp",
-      "kind": "crawl",
-      "seed": "https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions"
-    },
-    {
-      "tool": "effective-dart",
-      "language": "dart",
-      "kind": "crawl",
-      "seed": "https://dart.dev/effective-dart"
-    },
-    {
-      "tool": "scala-style",
-      "language": "scala",
-      "kind": "crawl",
-      "seed": "https://docs.scala-lang.org/style/"
-    },
-    {
-      "tool": "lua-manual",
-      "language": "lua",
-      "kind": "crawl",
-      "seed": "https://www.lua.org/manual/5.4/"
-    },
-    {
-      "tool": "r-lang-def",
-      "language": "r",
-      "kind": "crawl",
-      "seed": "https://cran.r-project.org/doc/manuals/r-release/R-lang.html"
-    },
-    {
-      "tool": "julia-manual",
-      "language": "julia",
-      "kind": "crawl",
-      "seed": "https://docs.julialang.org/en/v1/manual/"
-    },
-    {
-      "tool": "elixir-anti-patterns",
-      "language": "elixir",
-      "kind": "crawl",
-      "seed": "https://hexdocs.pm/elixir/main/code-anti-patterns.html"
-    },
-    {
-      "tool": "erlang-reference",
-      "language": "erlang",
-      "kind": "crawl",
-      "seed": "https://www.erlang.org/doc/system/reference_manual.html"
-    },
-    {
-      "tool": "clojure-reader",
-      "language": "clojure",
-      "kind": "crawl",
-      "seed": "https://clojure.org/reference/reader"
-    },
-    {
-      "tool": "haskell-2010",
-      "language": "haskell",
-      "kind": "crawl",
-      "seed": "https://www.haskell.org/onlinereport/haskell2010/"
-    },
-    {
-      "tool": "powershell-guidelines",
-      "language": "powershell",
-      "kind": "crawl",
-      "seed": "https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/strongly-encouraged-development-guidelines"
-    },
-    {
-      "tool": "sql-style",
-      "language": "sql",
-      "kind": "crawl",
-      "seed": "https://www.sqlstyle.guide/"
-    },
-    {
-      "tool": "dockerfile-reference",
-      "language": "dockerfile",
-      "kind": "crawl",
-      "seed": "https://docs.docker.com/reference/dockerfile/"
-    },
-    {
-      "tool": "gnu-make",
-      "language": "makefile",
-      "kind": "crawl",
-      "seed": "https://www.gnu.org/software/make/manual/make.html"
-    },
-    {
-      "tool": "cmake-language",
-      "language": "cmake",
-      "kind": "crawl",
-      "seed": "https://cmake.org/cmake/help/latest/manual/cmake-language.7.html"
-    },
-    {
-      "tool": "groovy-docs",
-      "language": "groovy",
-      "kind": "crawl",
-      "seed": "https://docs.groovy-lang.org/latest/html/documentation/"
-    },
-    {
-      "tool": "vue-style-guide",
-      "language": "vue",
-      "kind": "crawl",
-      "seed": "https://vuejs.org/style-guide/"
-    },
-    {
-      "tool": "svelte-docs",
-      "language": "svelte",
-      "kind": "crawl",
-      "seed": "https://svelte.dev/docs/svelte/overview"
-    },
-    {
-      "tool": "sass-docs",
-      "language": "scss",
-      "kind": "crawl",
-      "seed": "https://sass-lang.com/documentation/"
-    },
-    {
-      "tool": "graphql-spec",
-      "language": "graphql",
-      "kind": "crawl",
-      "seed": "https://spec.graphql.org/October2021/"
-    },
-    {
-      "tool": "protobuf-guides",
-      "language": "proto",
-      "kind": "crawl",
-      "seed": "https://protobuf.dev/programming-guides/"
-    },
-    {
-      "tool": "terraform-style",
-      "language": "terraform",
-      "kind": "crawl",
-      "seed": "https://developer.hashicorp.com/terraform/language/style"
-    },
-    {
-      "tool": "go-spec",
-      "language": "go",
-      "kind": "crawl",
-      "seed": "https://go.dev/ref/spec"
-    },
-    {
-      "tool": "go-code-review-comments",
-      "language": "go",
-      "kind": "crawl",
-      "seed": "https://go.dev/wiki/CodeReviewComments"
-    },
-    {
-      "tool": "cpp-core-guidelines",
-      "language": "cpp",
-      "kind": "crawl",
-      "seed": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines"
-    },
-    {
-      "tool": "swift-book",
-      "language": "swift",
-      "kind": "crawl",
-      "seed": "https://docs.swift.org/swift-book/documentation/the-swift-programming-language/"
-    },
-    {
-      "tool": "kotlin-conventions",
-      "language": "kotlin",
-      "kind": "crawl",
-      "seed": "https://kotlinlang.org/docs/coding-conventions.html"
-    },
-    {
-      "tool": "python-library",
-      "language": "python",
-      "kind": "crawl",
-      "seed": "https://docs.python.org/3/library/"
-    },
-    {
-      "tool": "docker-best-practices",
-      "language": "dockerfile",
-      "kind": "crawl",
-      "seed": "https://docs.docker.com/build/building/best-practices/"
-    },
-    {
-      "tool": "perldoc",
-      "language": "perl",
-      "kind": "crawl",
-      "seed": "https://perldoc.perl.org/perlstyle"
-    },
-    {
-      "tool": "ocaml-manual",
-      "language": "ocaml",
-      "kind": "crawl",
-      "seed": "https://ocaml.org/manual/5.3/index.html"
-    },
-    {
-      "tool": "elm-guide",
-      "language": "elm",
-      "kind": "crawl",
-      "seed": "https://guide.elm-lang.org/"
-    },
-    {
-      "tool": "crystal-reference",
-      "language": "crystal",
-      "kind": "crawl",
-      "seed": "https://crystal-lang.org/reference/"
-    },
-    {
-      "tool": "dlang-spec",
-      "language": "d",
-      "kind": "crawl",
-      "seed": "https://dlang.org/spec/spec.html"
-    },
-    {
-      "tool": "fsharp-style",
-      "language": "fsharp",
-      "kind": "crawl",
-      "seed": "https://learn.microsoft.com/en-us/dotnet/fsharp/style-guide/"
-    },
-    {
-      "tool": "apple-objc",
-      "language": "objectivec",
-      "kind": "crawl",
-      "seed": "https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ProgrammingWithObjectiveC/"
-    },
-    {
-      "tool": "fortran-learn",
-      "language": "fortran",
-      "kind": "crawl",
-      "seed": "https://fortran-lang.org/learn/"
-    },
-    {
-      "tool": "ada-arm",
-      "language": "ada",
-      "kind": "crawl",
-      "seed": "https://ada-lang.io/docs/arm"
-    },
-    {
-      "tool": "gnucobol-guide",
-      "language": "cobol",
-      "kind": "crawl",
-      "seed": "https://gnucobol.sourceforge.io/HTML/gnucobpg.html"
-    },
-    {
-      "tool": "freepascal-ref",
-      "language": "pascal",
-      "kind": "crawl",
-      "seed": "https://www.freepascal.org/docs-html/ref/ref.html"
-    },
-    {
-      "tool": "raku-docs",
-      "language": "raku",
-      "kind": "crawl",
-      "seed": "https://docs.raku.org/language.html"
-    },
-    {
-      "tool": "racket-guide",
-      "language": "racket",
-      "kind": "crawl",
-      "seed": "https://docs.racket-lang.org/guide/"
-    },
-    {
-      "tool": "nix-manual",
-      "language": "nix",
-      "kind": "crawl",
-      "seed": "https://nixos.org/manual/nix/stable/"
-    },
-    {
-      "tool": "solidity-docs",
-      "language": "solidity",
-      "kind": "crawl",
-      "seed": "https://docs.soliditylang.org/en/latest/"
-    },
-    {
-      "tool": "zsh-manual",
-      "language": "zsh",
-      "kind": "crawl",
-      "seed": "https://zsh.sourceforge.io/Doc/Release/zsh_toc.html"
-    },
-    {
-      "tool": "fish-docs",
-      "language": "fish",
-      "kind": "crawl",
-      "seed": "https://fishshell.com/docs/current/"
-    },
-    {
-      "tool": "elisp-manual",
-      "language": "elisp",
-      "kind": "crawl",
-      "seed": "https://www.gnu.org/software/emacs/manual/html_node/elisp/"
-    },
-    {
-      "tool": "tcl-man",
-      "language": "tcl",
-      "kind": "crawl",
-      "seed": "https://www.tcl-lang.org/man/tcl9.0/TclCmd/contents.htm"
-    },
-    {
-      "tool": "gawk-manual",
-      "language": "awk",
-      "kind": "crawl",
-      "seed": "https://www.gnu.org/software/gawk/manual/html_node/"
-    },
-    {
-      "tool": "haxe-manual",
-      "language": "haxe",
-      "kind": "crawl",
-      "seed": "https://haxe.org/manual/introduction.html"
-    },
-    {
-      "tool": "vala-docs",
-      "language": "vala",
-      "kind": "crawl",
-      "seed": "https://docs.vala.dev/"
-    },
-    {
-      "tool": "odin-overview",
-      "language": "odin",
-      "kind": "crawl",
-      "seed": "https://odin-lang.org/docs/overview/"
-    },
-    {
-      "tool": "hare-docs",
-      "language": "hare",
-      "kind": "crawl",
-      "seed": "https://harelang.org/documentation/"
-    },
-    {
-      "tool": "gleam-tour",
-      "language": "gleam",
-      "kind": "crawl",
-      "seed": "https://tour.gleam.run/everything/"
-    },
-    {
-      "tool": "janet-docs",
-      "language": "janet",
-      "kind": "crawl",
-      "seed": "https://janet-lang.org/docs/index.html"
-    },
-    {
-      "tool": "rescript-manual",
-      "language": "rescript",
-      "kind": "crawl",
-      "seed": "https://rescript-lang.org/docs/manual/latest/introduction"
-    },
-    {
-      "tool": "purescript-book",
-      "language": "purescript",
-      "kind": "crawl",
-      "seed": "https://book.purescript.org/"
-    },
-    {
-      "tool": "coffeescript-docs",
-      "language": "coffeescript",
-      "kind": "crawl",
-      "seed": "https://coffeescript.org/"
-    },
-    {
-      "tool": "jsonnet-tutorial",
-      "language": "jsonnet",
-      "kind": "crawl",
-      "seed": "https://jsonnet.org/learning/tutorial.html"
-    },
-    {
-      "tool": "cue-docs",
-      "language": "cue",
-      "kind": "crawl",
-      "seed": "https://cuelang.org/docs/"
-    },
-    {
-      "tool": "dhall-docs",
-      "language": "dhall",
-      "kind": "crawl",
-      "seed": "https://docs.dhall-lang.org/"
-    },
-    {
-      "tool": "latexrefman",
-      "language": "latex",
-      "kind": "crawl",
-      "seed": "https://latexref.xyz/"
-    },
-    {
-      "tool": "nasm-manual",
-      "language": "asm",
-      "kind": "crawl",
-      "seed": "https://www.nasm.us/xdoc/2.16.03/html/"
-    }
-  ]
+ "version": 3,
+ "_note": "Shared seed of the language\u2192docs registry \u2014 pure DATA, no language list in code. Every entry points at OFFICIAL LANGUAGE DOCUMENTATION (reference/manual/style guide), not linter rule catalogs: the AI reads the language's own docs \u2014 normative sections (deprecations, warnings, avoid/instead guidance) become rules, every code example feeds the what-is-normal reference corpus. A language may have several entries; all are learned and merged. Languages NOT listed are DISCOVERED on the fly (web search \u2192 crawl-validate) and cached per user in ~/.cache/helpers/lint-index/sources.json; share a discovered entry by committing it here (lint_submit).",
+ "registry": "https://raw.githubusercontent.com/RockyWearsAHat/helpers/lint-models",
+ "sources": [
+  {
+   "tool": "rust-reference",
+   "language": "rust",
+   "kind": "crawl",
+   "seed": "https://doc.rust-lang.org/reference/"
+  },
+  {
+   "tool": "rust-api-guidelines",
+   "language": "rust",
+   "kind": "crawl",
+   "seed": "https://rust-lang.github.io/api-guidelines/"
+  },
+  {
+   "tool": "python-docs",
+   "language": "python",
+   "kind": "crawl",
+   "seed": "https://docs.python.org/3/reference/"
+  },
+  {
+   "tool": "pep8",
+   "language": "python",
+   "kind": "crawl",
+   "seed": "https://peps.python.org/pep-0008/"
+  },
+  {
+   "tool": "mdn-js",
+   "language": "javascript",
+   "kind": "crawl",
+   "seed": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/"
+  },
+  {
+   "tool": "ts-handbook",
+   "language": "typescript",
+   "kind": "crawl",
+   "seed": "https://www.typescriptlang.org/docs/handbook/"
+  },
+  {
+   "tool": "effective-go",
+   "language": "go",
+   "kind": "crawl",
+   "seed": "https://go.dev/doc/effective_go"
+  },
+  {
+   "tool": "java-tutorial",
+   "language": "java",
+   "kind": "crawl",
+   "seed": "https://docs.oracle.com/javase/tutorial/java/"
+  },
+  {
+   "tool": "ruby-docs",
+   "language": "ruby",
+   "kind": "crawl",
+   "seed": "https://docs.ruby-lang.org/en/master/"
+  },
+  {
+   "tool": "cppreference-c",
+   "language": "c",
+   "kind": "crawl",
+   "seed": "https://en.cppreference.com/c"
+  },
+  {
+   "tool": "cppreference",
+   "language": "cpp",
+   "kind": "crawl",
+   "seed": "https://en.cppreference.com/cpp"
+  },
+  {
+   "tool": "bash-manual",
+   "language": "bash",
+   "kind": "crawl",
+   "seed": "https://www.gnu.org/software/bash/manual/bash.html"
+  },
+  {
+   "tool": "swift-book",
+   "language": "swift",
+   "kind": "crawl",
+   "seed": "https://www.swift.org/documentation/api-design-guidelines/"
+  },
+  {
+   "tool": "kotlin-docs",
+   "language": "kotlin",
+   "kind": "crawl",
+   "seed": "https://kotlinlang.org/spec/introduction.html"
+  },
+  {
+   "tool": "php-manual",
+   "language": "php",
+   "kind": "crawl",
+   "seed": "https://www.php.net/manual/en/langref.php"
+  },
+  {
+   "tool": "commonmark",
+   "language": "markdown",
+   "kind": "crawl",
+   "seed": "https://spec.commonmark.org/0.31.2/"
+  },
+  {
+   "tool": "mdn-css",
+   "language": "css",
+   "kind": "crawl",
+   "seed": "https://developer.mozilla.org/en-US/docs/Web/CSS/"
+  },
+  {
+   "tool": "mdn-html",
+   "language": "html",
+   "kind": "crawl",
+   "seed": "https://developer.mozilla.org/en-US/docs/Web/HTML/"
+  },
+  {
+   "tool": "json-org",
+   "language": "json",
+   "kind": "crawl",
+   "seed": "https://www.json.org/json-en.html"
+  },
+  {
+   "tool": "mdn-svg",
+   "language": "svg",
+   "kind": "crawl",
+   "seed": "https://developer.mozilla.org/en-US/docs/Web/SVG/"
+  },
+  {
+   "tool": "toml-spec",
+   "language": "toml",
+   "kind": "crawl",
+   "seed": "https://toml.io/en/v1.0.0/"
+  },
+  {
+   "tool": "w3c-xml",
+   "language": "xml",
+   "kind": "crawl",
+   "seed": "https://www.w3.org/TR/xml/"
+  },
+  {
+   "tool": "yaml-spec",
+   "language": "yaml",
+   "kind": "crawl",
+   "seed": "https://yaml.org/spec/1.2.2/"
+  },
+  {
+   "tool": "csharp-conventions",
+   "language": "csharp",
+   "kind": "crawl",
+   "seed": "https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions"
+  },
+  {
+   "tool": "effective-dart",
+   "language": "dart",
+   "kind": "crawl",
+   "seed": "https://dart.dev/effective-dart"
+  },
+  {
+   "tool": "scala-style",
+   "language": "scala",
+   "kind": "crawl",
+   "seed": "https://docs.scala-lang.org/style/"
+  },
+  {
+   "tool": "lua-manual",
+   "language": "lua",
+   "kind": "crawl",
+   "seed": "https://www.lua.org/manual/5.4/"
+  },
+  {
+   "tool": "r-lang-def",
+   "language": "r",
+   "kind": "crawl",
+   "seed": "https://cran.r-project.org/doc/manuals/r-release/R-lang.html"
+  },
+  {
+   "tool": "julia-manual",
+   "language": "julia",
+   "kind": "crawl",
+   "seed": "https://docs.julialang.org/en/v1/manual/"
+  },
+  {
+   "tool": "elixir-anti-patterns",
+   "language": "elixir",
+   "kind": "crawl",
+   "seed": "https://hexdocs.pm/elixir/main/code-anti-patterns.html"
+  },
+  {
+   "tool": "erlang-reference",
+   "language": "erlang",
+   "kind": "crawl",
+   "seed": "https://www.erlang.org/doc/system/reference_manual.html"
+  },
+  {
+   "tool": "clojure-reader",
+   "language": "clojure",
+   "kind": "crawl",
+   "seed": "https://clojure.org/reference/reader"
+  },
+  {
+   "tool": "haskell-2010",
+   "language": "haskell",
+   "kind": "crawl",
+   "seed": "https://www.haskell.org/onlinereport/haskell2010/"
+  },
+  {
+   "tool": "powershell-guidelines",
+   "language": "powershell",
+   "kind": "crawl",
+   "seed": "https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/strongly-encouraged-development-guidelines"
+  },
+  {
+   "tool": "sql-style",
+   "language": "sql",
+   "kind": "crawl",
+   "seed": "https://www.sqlstyle.guide/"
+  },
+  {
+   "tool": "dockerfile-reference",
+   "language": "dockerfile",
+   "kind": "crawl",
+   "seed": "https://docs.docker.com/reference/dockerfile/"
+  },
+  {
+   "tool": "gnu-make",
+   "language": "makefile",
+   "kind": "crawl",
+   "seed": "https://www.gnu.org/software/make/manual/make.html"
+  },
+  {
+   "tool": "cmake-language",
+   "language": "cmake",
+   "kind": "crawl",
+   "seed": "https://cmake.org/cmake/help/latest/manual/cmake-language.7.html"
+  },
+  {
+   "tool": "groovy-docs",
+   "language": "groovy",
+   "kind": "crawl",
+   "seed": "https://docs.groovy-lang.org/latest/html/documentation/"
+  },
+  {
+   "tool": "vue-style-guide",
+   "language": "vue",
+   "kind": "crawl",
+   "seed": "https://vuejs.org/style-guide/"
+  },
+  {
+   "tool": "svelte-docs",
+   "language": "svelte",
+   "kind": "crawl",
+   "seed": "https://svelte.dev/docs/svelte/overview"
+  },
+  {
+   "tool": "sass-docs",
+   "language": "scss",
+   "kind": "crawl",
+   "seed": "https://sass-lang.com/documentation/"
+  },
+  {
+   "tool": "graphql-spec",
+   "language": "graphql",
+   "kind": "crawl",
+   "seed": "https://spec.graphql.org/October2021/"
+  },
+  {
+   "tool": "protobuf-guides",
+   "language": "proto",
+   "kind": "crawl",
+   "seed": "https://protobuf.dev/programming-guides/"
+  },
+  {
+   "tool": "terraform-style",
+   "language": "terraform",
+   "kind": "crawl",
+   "seed": "https://developer.hashicorp.com/terraform/language/style"
+  },
+  {
+   "tool": "go-spec",
+   "language": "go",
+   "kind": "crawl",
+   "seed": "https://go.dev/ref/spec"
+  },
+  {
+   "tool": "go-code-review-comments",
+   "language": "go",
+   "kind": "crawl",
+   "seed": "https://go.dev/wiki/CodeReviewComments"
+  },
+  {
+   "tool": "cpp-core-guidelines",
+   "language": "cpp",
+   "kind": "crawl",
+   "seed": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines"
+  },
+  {
+   "tool": "swift-book",
+   "language": "swift",
+   "kind": "crawl",
+   "seed": "https://docs.swift.org/swift-book/documentation/the-swift-programming-language/"
+  },
+  {
+   "tool": "kotlin-conventions",
+   "language": "kotlin",
+   "kind": "crawl",
+   "seed": "https://kotlinlang.org/docs/coding-conventions.html"
+  },
+  {
+   "tool": "python-library",
+   "language": "python",
+   "kind": "crawl",
+   "seed": "https://docs.python.org/3/library/"
+  },
+  {
+   "tool": "docker-best-practices",
+   "language": "dockerfile",
+   "kind": "crawl",
+   "seed": "https://docs.docker.com/build/building/best-practices/"
+  },
+  {
+   "tool": "perldoc",
+   "language": "perl",
+   "kind": "crawl",
+   "seed": "https://perldoc.perl.org/perlstyle"
+  },
+  {
+   "tool": "ocaml-manual",
+   "language": "ocaml",
+   "kind": "crawl",
+   "seed": "https://ocaml.org/manual/5.3/index.html"
+  },
+  {
+   "tool": "elm-guide",
+   "language": "elm",
+   "kind": "crawl",
+   "seed": "https://guide.elm-lang.org/"
+  },
+  {
+   "tool": "crystal-reference",
+   "language": "crystal",
+   "kind": "crawl",
+   "seed": "https://crystal-lang.org/reference/"
+  },
+  {
+   "tool": "dlang-spec",
+   "language": "d",
+   "kind": "crawl",
+   "seed": "https://dlang.org/spec/spec.html"
+  },
+  {
+   "tool": "fsharp-style",
+   "language": "fsharp",
+   "kind": "crawl",
+   "seed": "https://learn.microsoft.com/en-us/dotnet/fsharp/style-guide/"
+  },
+  {
+   "tool": "apple-objc",
+   "language": "objectivec",
+   "kind": "crawl",
+   "seed": "https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ProgrammingWithObjectiveC/"
+  },
+  {
+   "tool": "fortran-learn",
+   "language": "fortran",
+   "kind": "crawl",
+   "seed": "https://fortran-lang.org/learn/"
+  },
+  {
+   "tool": "ada-arm",
+   "language": "ada",
+   "kind": "crawl",
+   "seed": "https://ada-lang.io/docs/arm"
+  },
+  {
+   "tool": "gnucobol-guide",
+   "language": "cobol",
+   "kind": "crawl",
+   "seed": "https://gnucobol.sourceforge.io/HTML/gnucobpg.html"
+  },
+  {
+   "tool": "freepascal-ref",
+   "language": "pascal",
+   "kind": "crawl",
+   "seed": "https://www.freepascal.org/docs-html/ref/ref.html"
+  },
+  {
+   "tool": "raku-docs",
+   "language": "raku",
+   "kind": "crawl",
+   "seed": "https://docs.raku.org/language.html"
+  },
+  {
+   "tool": "racket-guide",
+   "language": "racket",
+   "kind": "crawl",
+   "seed": "https://docs.racket-lang.org/guide/"
+  },
+  {
+   "tool": "nix-manual",
+   "language": "nix",
+   "kind": "crawl",
+   "seed": "https://nixos.org/manual/nix/stable/"
+  },
+  {
+   "tool": "solidity-docs",
+   "language": "solidity",
+   "kind": "crawl",
+   "seed": "https://docs.soliditylang.org/en/latest/"
+  },
+  {
+   "tool": "zsh-manual",
+   "language": "zsh",
+   "kind": "crawl",
+   "seed": "https://zsh.sourceforge.io/Doc/Release/zsh_toc.html"
+  },
+  {
+   "tool": "fish-docs",
+   "language": "fish",
+   "kind": "crawl",
+   "seed": "https://fishshell.com/docs/current/"
+  },
+  {
+   "tool": "elisp-manual",
+   "language": "elisp",
+   "kind": "crawl",
+   "seed": "https://www.gnu.org/software/emacs/manual/html_node/elisp/"
+  },
+  {
+   "tool": "tcl-man",
+   "language": "tcl",
+   "kind": "crawl",
+   "seed": "https://www.tcl-lang.org/man/tcl9.0/TclCmd/contents.htm"
+  },
+  {
+   "tool": "gawk-manual",
+   "language": "awk",
+   "kind": "crawl",
+   "seed": "https://www.gnu.org/software/gawk/manual/html_node/"
+  },
+  {
+   "tool": "haxe-manual",
+   "language": "haxe",
+   "kind": "crawl",
+   "seed": "https://haxe.org/manual/introduction.html"
+  },
+  {
+   "tool": "vala-docs",
+   "language": "vala",
+   "kind": "crawl",
+   "seed": "https://docs.vala.dev/"
+  },
+  {
+   "tool": "odin-overview",
+   "language": "odin",
+   "kind": "crawl",
+   "seed": "https://odin-lang.org/docs/overview/"
+  },
+  {
+   "tool": "hare-docs",
+   "language": "hare",
+   "kind": "crawl",
+   "seed": "https://harelang.org/documentation/"
+  },
+  {
+   "tool": "gleam-tour",
+   "language": "gleam",
+   "kind": "crawl",
+   "seed": "https://tour.gleam.run/everything/"
+  },
+  {
+   "tool": "janet-docs",
+   "language": "janet",
+   "kind": "crawl",
+   "seed": "https://janet-lang.org/docs/index.html"
+  },
+  {
+   "tool": "rescript-manual",
+   "language": "rescript",
+   "kind": "crawl",
+   "seed": "https://rescript-lang.org/docs/manual/latest/introduction"
+  },
+  {
+   "tool": "purescript-book",
+   "language": "purescript",
+   "kind": "crawl",
+   "seed": "https://book.purescript.org/"
+  },
+  {
+   "tool": "coffeescript-docs",
+   "language": "coffeescript",
+   "kind": "crawl",
+   "seed": "https://coffeescript.org/"
+  },
+  {
+   "tool": "jsonnet-tutorial",
+   "language": "jsonnet",
+   "kind": "crawl",
+   "seed": "https://jsonnet.org/learning/tutorial.html"
+  },
+  {
+   "tool": "cue-docs",
+   "language": "cue",
+   "kind": "crawl",
+   "seed": "https://cuelang.org/docs/"
+  },
+  {
+   "tool": "dhall-docs",
+   "language": "dhall",
+   "kind": "crawl",
+   "seed": "https://docs.dhall-lang.org/"
+  },
+  {
+   "tool": "latexrefman",
+   "language": "latex",
+   "kind": "crawl",
+   "seed": "https://latexref.xyz/"
+  },
+  {
+   "tool": "nasm-manual",
+   "language": "asm",
+   "kind": "crawl",
+   "seed": "https://www.nasm.us/xdoc/2.16.03/html/"
+  },
+  {
+   "tool": "eslint-rules",
+   "language": "javascript",
+   "kind": "crawl",
+   "seed": "https://eslint.org/docs/latest/rules/"
+  }
+ ]
 }

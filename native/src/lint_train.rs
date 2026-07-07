@@ -57,7 +57,7 @@ pub struct LangModel {
 const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v54-own-grounding-outranks-transfer";
+const TRAIN_VERSION: &str = "docs-v56-dictionary-negation-warm";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -2279,6 +2279,13 @@ mod tests {
             }
         }
         eprintln!("bindings classifying prohibition: {minted}/{}", mem.bindings.len());
+        // Sample of NON-minting bindings from each source (PROBE_MISS=n).
+        if let Ok(n) = std::env::var("PROBE_MISS") {
+            let n: usize = n.parse().unwrap_or(0);
+            for b in mem.bindings.iter().filter(|b| b.url.contains("eslint")).take(n) {
+                eprintln!("MISS {:?} -> {:?}", &b.prose[..b.prose.len().min(110)], pol.classify(&b.prose));
+            }
+        }
         // Verdict distribution over a fresh grounding sample (PROBE_GROUND=n).
         if let Ok(n) = std::env::var("PROBE_GROUND") {
             let n: usize = n.parse().unwrap_or(0);
