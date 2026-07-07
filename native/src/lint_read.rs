@@ -722,9 +722,34 @@ impl Polarity {
     /// carry ≥8 info bits; everything else abstains, and endorsement is never rendered
     /// here — only reality can endorse.
     fn classify_negation(&self, prose: &str) -> Option<bool> {
-        // One REAL negation word is the floor: prohibition sentences typically carry
-        // exactly one ("Never use X"), and a genuine reading of it is worth ~4+ bits.
-        (self.negation_bits(prose) >= 4).then_some(true)
+        self.has_operative_negation(prose).then_some(true)
+    }
+
+    /// Whether `prose` carries OPERATIVE negation — a negation operator COMMANDING a
+    /// sentence rather than sitting inside one (LINTER.md, "The cold floor"). The reading
+    /// is order plus the author's own typography: prohibitions are imperative and lead
+    /// with their negation ("Never use X", "Do not call Y"), so the operator must stand
+    /// within the first two words of a sentence the author marked as a sentence (an
+    /// uppercase or caseless first letter — a lowercase start is a window fragment, not a
+    /// sentence). "This module does not work on WebAssembly" states a property; its
+    /// negation commands nothing and must not read as law.
+    pub fn has_operative_negation(&self, prose: &str) -> bool {
+        let Some(english) = crate::lint_english::brain() else { return false };
+        sentences(prose).iter().any(|sent| {
+            let mut words = sent.split_whitespace();
+            let Some(first) = words.next() else { return false };
+            let sentence_marked = first
+                .chars()
+                .find(|c| c.is_alphanumeric())
+                .is_some_and(|c| c.is_uppercase() || !c.is_alphabetic());
+            if !sentence_marked && first.chars().any(|c| c.is_lowercase()) {
+                return false;
+            }
+            [Some(first), words.next()].into_iter().flatten().any(|w| {
+                let t = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+                !t.is_empty() && english.is_negation(crate::lint_ai::token_seed(&t))
+            })
+        })
     }
 
     /// The information weight of `prose`'s negation-clustered words — the cold floor's raw
@@ -1315,16 +1340,29 @@ mod tests {
         // lets a fresh machine mint "Never use X" laws from an ungroundable language's docs.
         // Good side empty; enough one-sided READING for information weights to mean
         // anything (a three-token universe cannot weigh any word).
+        // Vocabulary deliberately DISJOINT from the probes below: one-sided training with
+        // no exposure counter makes every shared word decisively bad, which is a fixture
+        // artifact, not the contract under test.
         let p = Polarity::from_labeled(&[
-            ("colorful widgets everywhere on the mantle beside the brass clock", true),
-            ("porcelain vases line the hallway shelves under warm afternoon light", true),
-            ("the garden path curves gently past rosemary beds toward the gate", true),
+            ("colorful widgets shimmer beside brass clocks", true),
+            ("porcelain vases line hallway shelves under warm afternoon light", true),
+            ("garden paths curve gently past rosemary beds toward wooden gates", true),
         ]);
         assert!(!p.is_ready());
         assert_eq!(
-            p.classify("never do this"),
+            p.classify("Never do this."),
             Some(true),
-            "overt negation reads as prohibition through the dictionary alone"
+            "operative negation (commanding its sentence) reads as prohibition through the dictionary alone"
+        );
+        assert_eq!(
+            p.classify("This module does not work on WebAssembly."),
+            None,
+            "incidental negation inside a statement DESCRIBES — it must not read as law"
+        );
+        assert_eq!(
+            p.classify("never do this"),
+            None,
+            "a lowercase start is a window fragment, not an author-marked sentence"
         );
         assert_eq!(
             p.classify("the module has three sections"),
