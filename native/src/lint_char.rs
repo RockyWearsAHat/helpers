@@ -17,23 +17,49 @@ use std::collections::HashMap;
 
 use crate::lint_ai::{Bundler, Hv, DIM};
 
-/// Prediction memory capacity — how many context→next-char associations the reader keeps. A
-/// character model's useful context is the last handful of scalars, so the reachable context
-/// space is far smaller than a word model's; this bounds the persisted artifact.
-const MEM_CAP: usize = 1 << 20;
+/// Prediction memory capacity — a runaway safety valve, NOT a working limit (owner directive:
+/// the brain must REMEMBER IT ALL). The whole dictionary plus the crawled web produces several
+/// million distinct backoff contexts; this is sized far above that so the curriculum is never
+/// truncated mid-read (measured: 1<<20 filled partway through the dictionary and the web layer
+/// learned nothing).
+const MEM_CAP: usize = 8 << 20;
+
+/// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
+/// smooth a surprising letter inside a known word, narrow enough to catch a short example.
+const SEG_WINDOW: usize = 16;
+
+/// How many characters of calm prose immediately above a code run count as its governing
+/// context — the sentence right above the example (interim, dissolves into the sequential read).
+const SEG_GOVERN: usize = 320;
+
+/// The longest CALM stretch a code run absorbs — an English-looking fragment inside an
+/// identifier (`frobni·cate`) is calm but short; real prose between two examples is longer.
+const CODE_GAP: usize = 12;
 
 /// The character-level predictive reader. All operations are 1-bit (XOR / rotate / Hamming);
 /// deterministic, no floats in the learned state.
 #[derive(Clone, Default)]
 pub struct CharReader {
-    /// Context address → predicted next CHARACTER. Bounded by [`MEM_CAP`]. PERSISTED — a loaded
-    /// reader reads pages by this memory. The prediction is a single scalar (last seen in this
-    /// context), not a hypervector: `char_hv` is a pure function, so storing the char and
-    /// recomputing keeps every slot 4 bytes instead of 1 KiB — a real brain stays megabytes.
-    mem: HashMap<u32, char>,
+    /// Context address → the SET of next characters seen in that context (capped at
+    /// [`SET_CAP`]). Bounded by [`MEM_CAP`]. PERSISTED — a loaded reader reads pages by this
+    /// memory. A character is PREDICTED when it is a plausible continuation (in the set), not
+    /// only the single last one — English contexts have many valid next characters, so a set is
+    /// what makes ordinary prose read calm while novel code (unseen continuations) stays
+    /// surprising. Storing chars (not hypervectors) keeps a real brain in the megabytes.
+    mem: HashMap<u32, Vec<char>>,
     /// Total characters read — the mass surprise averages are measured against.
     total: u64,
 }
+
+/// The most distinct continuations kept per context. A handful captures a context's real
+/// branching; an unbounded set would let a short, busy context predict almost anything (every
+/// char becomes "plausible") and read code as calm.
+const SET_CAP: usize = 12;
+
+/// The shortest backoff context that may decide a prediction. Order 1 (a single preceding
+/// character) has so many continuations it predicts nearly everything — too permissive — so
+/// backoff stops here: a prediction must rest on real context.
+const MIN_ORDER: usize = 2;
 
 /// HLM1 wire form: the prediction memory rides the RAW stream as two u32 arrays (context
 /// addresses, predicted scalars) in a deterministic key-sorted order so the artifact is
@@ -41,22 +67,36 @@ pub struct CharReader {
 /// back.
 impl crate::lint_codec::Bin for CharReader {
     fn enc(&self, e: &mut crate::lint_codec::Enc) {
-        let mut entries: Vec<(&u32, &char)> = self.mem.iter().collect();
+        let mut entries: Vec<(&u32, &Vec<char>)> = self.mem.iter().collect();
         entries.sort_by_key(|(k, _)| **k);
         e.fixed_u64(self.total);
+        // Keys and per-key set lengths on the RAW stream; the flattened continuation chars
+        // follow, decoded back into sets by length.
         e.raw_u32s(&entries.iter().map(|(k, _)| **k).collect::<Vec<_>>());
-        e.raw_u32s(&entries.iter().map(|(_, c)| **c as u32).collect::<Vec<_>>());
+        e.raw_u32s(&entries.iter().map(|(_, s)| s.len() as u32).collect::<Vec<_>>());
+        e.raw_u32s(
+            &entries.iter().flat_map(|(_, s)| s.iter().map(|c| *c as u32)).collect::<Vec<_>>(),
+        );
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<CharReader> {
         let total = d.fixed_u64()?;
         let keys = d.raw_u32s()?;
-        let chars = d.raw_u32s()?;
-        if keys.len() != chars.len() {
+        let lens = d.raw_u32s()?;
+        let flat = d.raw_u32s()?;
+        if keys.len() != lens.len()
+            || lens.iter().map(|l| *l as usize).sum::<usize>() != flat.len()
+        {
             return None;
         }
         let mut mem = HashMap::with_capacity(keys.len());
-        for (k, c) in keys.into_iter().zip(chars) {
-            mem.insert(k, char::from_u32(c)?);
+        let mut at = 0usize;
+        for (k, len) in keys.into_iter().zip(lens) {
+            let mut set = Vec::with_capacity(len as usize);
+            for c in &flat[at..at + len as usize] {
+                set.push(char::from_u32(*c)?);
+            }
+            at += len as usize;
+            mem.insert(k, set);
         }
         Some(CharReader { mem, total })
     }
@@ -82,23 +122,24 @@ fn ctx_key(ctx: &Hv) -> u32 {
     (h ^ (h >> 32)) as u32
 }
 
-/// How many preceding characters form the prediction context — a fixed-order model (the last
-/// [`ORDER`] characters predict the next). Bounded so the context GENERALIZES: "th" predicts
-/// "e" wherever it occurs, not only after an exact prefix the reader saw before. A rolling
-/// hash of the whole history never generalizes and every unseen prefix reads as maximal
-/// surprise — measured, and the reason the first cut barely separated English from code.
-const ORDER: usize = 4;
+/// The longest prediction context, in preceding characters. The model is a BACKOFF n-gram: it
+/// predicts from the longest context it has actually seen, falling back to shorter ones. This
+/// is what makes prose CALM — common English sub-sequences ("th", "ing", "tion") are always
+/// seen, so ordinary prose predicts even when its exact 4-gram is novel — while unfamiliar code
+/// misses at every order and stays surprising. A single fixed order made even English mispredict
+/// ~63% of characters (measured), which no absolute threshold can separate from code.
+const ORDER: usize = 5;
 
-/// The context address for the characters preceding position `i` in `chars` — the XOR of the
-/// last [`ORDER`] character codes, each bound to its distance back by rotation (so order
-/// matters and a shorter available history still addresses a slot).
-fn context(chars: &[char], i: usize) -> Hv {
+/// The address for the `order` characters preceding position `i` — the XOR of those character
+/// codes, each bound to its distance back by rotation (order matters), mixed with the order
+/// itself so contexts of different lengths never collide in one memory.
+fn context_key(chars: &[char], i: usize, order: usize) -> u32 {
     let mut ctx = Hv::zero();
-    let start = i.saturating_sub(ORDER);
+    let start = i.saturating_sub(order);
     for (dist, c) in chars[start..i].iter().rev().enumerate() {
         ctx = ctx.xor(&rotate_by(&char_hv(*c), dist + 1));
     }
-    ctx
+    ctx_key(&ctx) ^ (order as u32).wrapping_mul(0x9E3779B1)
 }
 
 impl CharReader {
@@ -122,13 +163,38 @@ impl CharReader {
     pub fn learn(&mut self, text: &str) {
         let chars: Vec<char> = text.chars().collect();
         for i in 0..chars.len() {
-            let key = ctx_key(&context(&chars, i));
-            let miss = self.mem.get(&key) != Some(&chars[i]);
-            if miss && (self.mem.len() < MEM_CAP || self.mem.contains_key(&key)) {
-                self.mem.insert(key, chars[i]); // last seen in this context wins
+            // Record the continuation into the set at every order (MIN_ORDER..=ORDER), so
+            // backoff always has a shorter, better-populated context to fall back on.
+            for order in MIN_ORDER..=ORDER {
+                let key = context_key(&chars, i, order);
+                let full = self.mem.len() >= MEM_CAP;
+                match self.mem.get_mut(&key) {
+                    Some(set) => {
+                        if !set.contains(&chars[i]) && set.len() < SET_CAP {
+                            set.push(chars[i]);
+                        }
+                    }
+                    None if !full => {
+                        self.mem.insert(key, vec![chars[i]]);
+                    }
+                    None => {}
+                }
             }
             self.total += 1;
         }
+    }
+
+    /// Whether the backoff model PREDICTED `chars[i]`: the LONGEST seen context decides, and the
+    /// character is predicted when it is a plausible continuation there (in the set). Prose the
+    /// reader has the sub-sequences for is predicted (calm); novel code, unseen at every order
+    /// down to [`MIN_ORDER`], is not (surprise).
+    fn predicted(&self, chars: &[char], i: usize) -> bool {
+        for order in (MIN_ORDER..=ORDER).rev() {
+            if let Some(set) = self.mem.get(&context_key(chars, i, order)) {
+                return set.contains(&chars[i]);
+            }
+        }
+        false
     }
 
     /// The SURPRISE of reading `text` under the learned model, in mean bits of prediction error
@@ -142,14 +208,94 @@ impl CharReader {
         }
         let mut sum = 0u64;
         for i in 0..chars.len() {
-            let key = ctx_key(&context(&chars, i));
-            // A predicted character that MATCHES is 0 surprise; a miss or an unseen context is
-            // maximally surprising (half the space) — the per-character bits, averaged into the
-            // span's English-ness.
-            let d = if self.mem.get(&key) == Some(&chars[i]) { 0 } else { (DIM / 2) as u32 };
+            // A predicted character (longest seen context) is 0 surprise; a miss at every order
+            // is maximally surprising (half the space) — averaged into the span's English-ness.
+            let d = if self.predicted(&chars, i) { 0 } else { (DIM / 2) as u32 };
             sum += u64::from(d);
         }
         (sum / chars.len() as u64) as u32
+    }
+
+    /// Per-character prediction outcome under the learned model: `true` where the base
+    /// PREDICTED the character (calm — known English/markup), `false` where it missed (a
+    /// surprise — novel code). The raw signal segmentation reads.
+    fn predictions(&self, chars: &[char]) -> Vec<bool> {
+        (0..chars.len()).map(|i| self.predicted(chars, i)).collect()
+    }
+
+    /// SEGMENT a raw documentation page into `(governing prose, code example)` units by
+    /// reading it NOVEL against this base (owner directive 2026-07-07): the brain knows English
+    /// and the web delivery layer, so a page's prose and markup read CALM while an example in a
+    /// language the base has not learned reads as a SURPRISE SPIKE — the code is the run the
+    /// reader could not predict, and the prose that governs it is the calm text just above.
+    /// No parser, no tag list; the reading is the segmentation. Markup tokens inside a code run
+    /// are stripped (they are calm islands the brain knows), leaving the code as served.
+    pub fn segment(&self, page: &str) -> Vec<(String, String)> {
+        let idx: Vec<(usize, char)> = page.char_indices().collect();
+        let chars: Vec<char> = idx.iter().map(|(_, c)| *c).collect();
+        if chars.is_empty() {
+            return Vec::new();
+        }
+        let predicted = self.predictions(&chars);
+        // A character reads as CODE when its neighborhood is mostly mispredicted — a windowed
+        // vote smooths single surprising letters in prose and single calm letters in code.
+        let half = SEG_WINDOW / 2;
+        let mut code_char: Vec<bool> = (0..chars.len())
+            .map(|i| {
+                let lo = i.saturating_sub(half);
+                let hi = (i + half + 1).min(chars.len());
+                let missed = (lo..hi).filter(|&j| !predicted[j]).count();
+                missed * 2 > (hi - lo) // majority mispredicted
+            })
+            .collect();
+        // Close short CALM gaps inside code: an identifier carries English-looking fragments
+        // (`frobni-cate`, `-tion`, `-able`) the brain reads calm, which would split one example
+        // into several. A calm stretch shorter than [`CODE_GAP`] flanked by code stays code.
+        let mut i = 0usize;
+        while i < code_char.len() {
+            if code_char[i] {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < code_char.len() && !code_char[i] {
+                i += 1;
+            }
+            let before_code = start > 0 && code_char[start - 1];
+            let after_code = i < code_char.len() && code_char[i];
+            if before_code && after_code && i - start <= CODE_GAP {
+                for c in &mut code_char[start..i] {
+                    *c = true;
+                }
+            }
+        }
+        // Maximal code runs → one unit each, prose = the calm text since the previous run.
+        let byte_end = |i: usize| idx.get(i + 1).map_or(page.len(), |(b, _)| *b);
+        let mut units = Vec::new();
+        let mut prev_end = 0usize;
+        let mut i = 0usize;
+        while i < chars.len() {
+            if !code_char[i] {
+                i += 1;
+                continue;
+            }
+            let start_b = idx[i].0;
+            let mut j = i;
+            while j + 1 < chars.len() && code_char[j + 1] {
+                j += 1;
+            }
+            let end_b = byte_end(j);
+            let code = crate::doc_crawler::strip_code(&page[start_b..end_b]);
+            if code.trim().len() >= 3 {
+                let prose = crate::doc_crawler::strip_tags(&page[prev_end..start_b]);
+                let prose = prose.chars().rev().take(SEG_GOVERN).collect::<Vec<_>>();
+                let prose: String = prose.into_iter().rev().collect();
+                units.push((prose.trim().to_string(), code));
+            }
+            prev_end = end_b;
+            i = j + 1;
+        }
+        units
     }
 
     /// Encode a span into ONE hypervector self-encoded from its characters: the position-bound
@@ -333,6 +479,46 @@ mod tests {
             r.surprise("season"),
             r.surprise("z9$_qx=[]"),
         );
+    }
+
+    /// The payoff, on the REAL curriculum (no hand-fed corpora — owner directive): read the
+    /// whole dictionary (English), then CRAWL the web standards (W3/WHATWG + MDN html) to learn
+    /// the delivery layer, then segment a page whose example is in a language the brain never
+    /// read — the novel code is the run it cannot predict, and no parser runs. Ignored (reads
+    /// the local dictionary and crawls). Run:
+    /// `cargo test --release --lib base_segments_novel_code -- --ignored --nocapture`
+    #[cfg(feature = "crawl")]
+    #[test]
+    #[ignore = "reads the local dictionary and CRAWLS W3/MDN; the real end-to-end segmentation gate"]
+    fn base_segments_novel_code_out_of_a_raw_page_by_surprise() {
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let prose = crate::lint_english::dictionary_prose(None).expect("a readable dictionary");
+        let mut r = CharReader::new();
+        r.learn(&prose); // English base — the whole dictionary
+        eprintln!("english base: {} chars, {} contexts", r.total_read(), r.learned());
+        // Learn the web by CRAWLING the standards — bounded for the gate, real pages.
+        for lang in ["html", "css"] {
+            let mut n = 0usize;
+            for src in crate::lint_train::registered_docs_sources(data, lang) {
+                for p in crate::doc_crawler::crawl(&[&src.url], 300, 0) {
+                    r.learn(&p.html);
+                    n += 1;
+                }
+            }
+            eprintln!("web: read {n} {lang} pages → {} contexts", r.learned());
+        }
+        // A page in the delivery layer the brain knows, with an example in a language it never
+        // read — its identifiers and operators are the surprise the reader segments out.
+        let page = "<h1>Statements</h1>\
+            <p>Never use the goto statement; prefer a structured loop instead.</p>\
+            <pre>@zblorp$ qux := frobnicate(&items[0x1F], ~cfg._k) |&gt; wibble;;</pre>\
+            <p>the value is returned to the caller when the work is complete</p>";
+        let units = r.segment(page);
+        eprintln!("segments: {units:#?}");
+        assert_eq!(units.len(), 1, "one code example segments out: {units:?}");
+        let (prose, code) = &units[0];
+        assert!(code.contains("frobnicate"), "the novel code is the surprise run: {code:?}");
+        assert!(prose.to_lowercase().contains("goto"), "the calm prose above governs it: {prose:?}");
     }
 
     /// END-TO-END setup: `ensure_brain` reads this machine's dictionary (English base — no web
