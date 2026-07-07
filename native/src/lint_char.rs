@@ -110,18 +110,6 @@ pub fn char_hv(c: char) -> Hv {
     Hv::random((c as u64).wrapping_mul(0x9E3779B97F4A7C15) ^ 0xC0FFEE)
 }
 
-/// A stable u32 address for a context — the slot the predictor reads and writes (same hash the
-/// word reader used; conservative, not an LSH, so the reader only "knows" a continuation in a
-/// context it has literally seen).
-fn ctx_key(ctx: &Hv) -> u32 {
-    let mut h = 0xCBF29CE484222325u64;
-    for w in ctx.as_words() {
-        h = h.rotate_left(5) ^ *w;
-        h = h.wrapping_mul(0x100000001B3);
-    }
-    (h ^ (h >> 32)) as u32
-}
-
 /// The longest prediction context, in preceding characters. The model is a BACKOFF n-gram: it
 /// predicts from the longest context it has actually seen, falling back to shorter ones. This
 /// is what makes prose CALM — common English sub-sequences ("th", "ing", "tion") are always
@@ -130,16 +118,19 @@ fn ctx_key(ctx: &Hv) -> u32 {
 /// ~63% of characters (measured), which no absolute threshold can separate from code.
 const ORDER: usize = 5;
 
-/// The address for the `order` characters preceding position `i` — the XOR of those character
-/// codes, each bound to its distance back by rotation (order matters), mixed with the order
-/// itself so contexts of different lengths never collide in one memory.
+/// The address for the `order` characters preceding position `i` — an FNV hash of those
+/// character CODES, mixed with the order so contexts of different lengths never collide. The
+/// context is just "the last k characters"; hashing the codes directly is the whole job. (The
+/// hypervector machinery is for `encode`'s span vectors, never the predictor — building an
+/// 8192-bit vector per context made training minutes instead of seconds.)
 fn context_key(chars: &[char], i: usize, order: usize) -> u32 {
-    let mut ctx = Hv::zero();
     let start = i.saturating_sub(order);
-    for (dist, c) in chars[start..i].iter().rev().enumerate() {
-        ctx = ctx.xor(&rotate_by(&char_hv(*c), dist + 1));
+    let mut h = 0xCBF29CE484222325u64;
+    for c in &chars[start..i] {
+        h ^= *c as u64;
+        h = h.wrapping_mul(0x100000001B3);
     }
-    ctx_key(&ctx) ^ (order as u32).wrapping_mul(0x9E3779B1)
+    ((h ^ (h >> 32)) as u32) ^ (order as u32).wrapping_mul(0x9E3779B1)
 }
 
 impl CharReader {
