@@ -242,17 +242,23 @@ fn dictionary_body() -> Option<(PathBuf, u64)> {
     Some((path, mtime ^ (len << 20)))
 }
 
-/// A sample of the machine dictionary's raw definition PROSE, as one character stream — the
-/// character-level reader's training corpus ([`crate::lint_char`]). Bounded to the leading
-/// chunks so the validation gate stays fast; the production build reads all of them. `None`
-/// when no dictionary is parseable here.
+/// A sample of the machine dictionary's raw definition PROSE — the leading chunks, for the
+/// fast validation gate. `None` when no dictionary is parseable here.
 pub fn dictionary_prose_sample() -> Option<String> {
+    dictionary_prose(Some(200))
+}
+
+/// The machine dictionary's raw definition PROSE, as one character stream — the character-level
+/// reader's English base ([`crate::lint_char`]). `max_chunks` bounds the read (`None` = the
+/// whole dictionary, the production curriculum). `None` return when no dictionary is parseable.
+pub fn dictionary_prose(max_chunks: Option<usize>) -> Option<String> {
     let (path, _) = dictionary_body()?;
     let data = std::fs::read(path).ok()?;
     let mut out = String::new();
     let mut pos = 0x60usize;
     let mut chunks = 0usize;
-    while pos + 12 < data.len() && chunks < 200 {
+    let cap = max_chunks.unwrap_or(usize::MAX);
+    while pos + 12 < data.len() && chunks < cap {
         let outer = u32::from_le_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
         if outer < 8 || pos + 4 + outer > data.len() {
             break;
