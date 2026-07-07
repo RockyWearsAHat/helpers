@@ -219,15 +219,17 @@ pub fn read_language(
         }
     }
     let mut polarity = builder.build();
-    // Knowledge transfer: prohibition prose reads the same in every language. A language the
-    // toolchain grounded contributes its classifier to the shared store; a language that CANNOT
-    // be grounded (no toolchain installed — or none exists) reads through the best classifier
-    // grounded elsewhere. There is no committed classifier: a fresh machine self-bootstraps
-    // from its dictionary's meaning network plus its own grounded reading (or a registry
-    // module that already did). "Best" is most reality-tested votes. Zero effort either way:
-    // transfer is automatic, and it improves as more languages are read.
-    if let Some(t) = transferred_polarity() {
-        if !polarity.is_ready() || t.votes() > polarity.votes() {
+    // Knowledge transfer: prohibition prose reads the same in every language — but a
+    // language's OWN grounding outranks it absolutely: transfer is only for a language that
+    // CANNOT be grounded (no toolchain installed — or none exists) and whose reading
+    // therefore produced no evidence at all. Vote counts never decide (measured: rust
+    // reference fragments false-flagging under a bare-file check once out-voted MDN's own
+    // healthy 8-flagged/112-clean grounding and every tutorial sentence minted as law).
+    // There is no committed classifier: a fresh machine self-bootstraps from its
+    // dictionary's meaning network plus its own grounded reading (or a registry module that
+    // already did).
+    if !polarity.has_evidence() {
+        if let Some(t) = transferred_polarity() {
             polarity = t.as_ref().clone(); // cold crawl path — one clone, kept and retrained
         }
     }
