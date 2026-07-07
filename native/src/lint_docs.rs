@@ -73,9 +73,26 @@ pub fn read_language(
     // read first must not starve a richer one (measured: MDN filled all 4,000 binding slots
     // and ESLint's 300 rule pages bound NOTHING — read and silently discarded). Page prose
     // feeds the reader the same way, one page per source per turn.
+    // The curriculum gate (LINTER.md, "Markup second"): without the dictionary and the W3
+    // reading there is nothing that can READ a served page — the language refuses to train
+    // (the caller reports it as not learned, asking by name), and no hand parser ever steps
+    // in. Both substrates load from committed bootstraps on machines that never built them.
+    let (Some(english), Some(markup)) =
+        (crate::lint_english::brain(), crate::lint_markup::brain())
+    else {
+        if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+            eprintln!(
+                "[lint-docs] {lang}: substrates missing (dictionary/markup) — raw pages refuse to be read"
+            );
+        }
+        return Memory::default();
+    };
     let mut reader = Reader::new();
     let mut per_source: Vec<Vec<(String, String, String, String)>> = Vec::new();
-    let mut prose_queues: Vec<Vec<String>> = Vec::new();
+    // Per page: (raw body, extracted prose) — the reader reads the page RAW (tags as
+    // vocabulary, LINTER.md "Markup second"); typographic tallies read the prose, where a
+    // dotted token is a filename claim and not an `href` artifact.
+    let mut prose_queues: Vec<Vec<(String, String)>> = Vec::new();
     // Languages this run knows by NAME — the training language plus everything registered —
     // so page attribution can recognize a path segment naming a language no claims cover
     // yet (a brand-new language's own docs site).
@@ -85,9 +102,12 @@ pub fn read_language(
     for src in sources {
         let mut src_units = Vec::new();
         let mut src_prose = Vec::new();
-        for page in crawled_source(src, max_pages, cache_version, &extra_langs) {
-            src_prose.push(page.prose);
-            for (s, prose, code, hint) in page.units {
+        for page in crawled_source(src, max_pages, cache_version) {
+            let (prose, units) = read_crawled_page(&src.url, &page.url, &page.body, english, markup);
+            let hints: Vec<String> = units.iter().map(|(_, _, _, h)| h.clone()).collect();
+            let page_lang = attribute_page(&page.url, &hints, &extra_langs);
+            src_prose.push((page.body, prose));
+            for (s, prose, code, hint) in units {
                 // Ledger #18 + "A site is a source": a block's own label wins; an unlabeled
                 // block inherits its PAGE's attribution. A block that lands on a DIFFERENT
                 // known language (an MDN JavaScript page's `brush: html` example; a css-
@@ -95,7 +115,7 @@ pub fn read_language(
                 // prose-only here — it never binds, never grounds a polarity label, never
                 // enters this language's reference corpus. The page's prose was already
                 // read above.
-                let effective = if hint.is_empty() { page.lang.clone() } else { hint };
+                let effective = if hint.is_empty() { page_lang.clone() } else { hint };
                 if crate::lint_train::foreign_example(lang, &effective) {
                     continue;
                 }
@@ -107,7 +127,7 @@ pub fn read_language(
     }
     let mut pages_read = 0usize;
     let mut dotted: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
-    let mut prose_cursors: Vec<std::vec::IntoIter<String>> =
+    let mut prose_cursors: Vec<std::vec::IntoIter<(String, String)>> =
         prose_queues.into_iter().map(Vec::into_iter).collect();
     'reading: loop {
         let mut emitted = false;
@@ -115,9 +135,12 @@ pub fn read_language(
             if pages_read >= MAX_READ_PAGES {
                 break 'reading;
             }
-            if let Some(prose) = cursor.next() {
+            if let Some((raw, prose)) = cursor.next() {
                 if !prose.trim().is_empty() {
-                    reader.learn_span(&prose);
+                    // The page is fed to the reader AS SERVED — one token stream, markup
+                    // included; ubiquity strips the markup of meaning-weight while the
+                    // reading keeps its role (LINTER.md, "Markup second").
+                    reader.learn_span(&raw);
                     crate::lint_read::tally_dotted_tokens(&prose, &mut dotted);
                     crate::lint_read::tally_name_aliases(lang, &prose, &mut dotted);
                     pages_read += 1;
@@ -271,28 +294,67 @@ pub(crate) fn ensure_site_cache(
     max_pages: usize,
     extra_langs: &std::collections::HashSet<String>,
 ) -> Vec<String> {
+    let (Some(english), Some(markup)) =
+        (crate::lint_english::brain(), crate::lint_markup::brain())
+    else {
+        return Vec::new(); // the curriculum gate: nothing can read pages yet
+    };
     let mut langs: std::collections::BTreeSet<String> = Default::default();
-    for page in crawled_source(src, max_pages, Some(crate::lint_train::train_version()), extra_langs) {
-        if !page.lang.is_empty() {
-            langs.insert(page.lang);
+    for page in crawled_source(src, max_pages, Some(crate::lint_train::train_version())) {
+        let (_, units) = read_crawled_page(&src.url, &page.url, &page.body, english, markup);
+        let hints: Vec<String> = units.into_iter().map(|(_, _, _, h)| h).collect();
+        let lang = attribute_page(&page.url, &hints, extra_langs);
+        if !lang.is_empty() {
+            langs.insert(lang);
         }
     }
-    langs.into_iter().collect()
+    let langs: Vec<String> = langs.into_iter().collect();
+    // Persist the AUTHORITATIVE attribution: discovery is the only place that sees the full
+    // language universe (registered + this project's own invented languages), so `attribute_page`
+    // can resolve a `/flowlang/` path segment here. [`cached_site_langs`] then just reads this
+    // sidecar instead of re-attributing blind (LINTER.md, "A site is a source").
+    write_site_langs_sidecar(&src.tool, &langs);
+    langs
+}
+
+/// Write the site-langs sidecar (`<tool>.langs.json`, keyed by the crawl file's state) — the
+/// persisted answer [`cached_site_langs`] reads.
+#[cfg(feature = "crawl")]
+fn write_site_langs_sidecar(tool: &str, langs: &[String]) {
+    let path = crawl_cache_path(tool);
+    let sidecar = path.with_extension("langs.json");
+    let set: std::collections::HashSet<&String> = langs.iter().collect();
+    if let Ok(json) = serde_json::to_string(&(format!("{:x}", crawl_file_stat(&path)), &set)) {
+        let _ = std::fs::write(&sidecar, json);
+    }
+}
+
+/// A crawl-cache file's `(mtime, len)` state, the sidecar key.
+#[cfg(feature = "crawl")]
+fn crawl_file_stat(path: &std::path::Path) -> u128 {
+    std::fs::metadata(path)
+        .map(|m| {
+            let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+            (t.map(|d| d.as_nanos()).unwrap_or(0)) ^ ((m.len() as u128) << 64)
+        })
+        .unwrap_or(0)
 }
 
 /// The languages a site source's CACHED pages attribute to — the offline read
 /// [`crate::lint_train::resolved_sources`] and language enumeration consult. Memoized per
 /// (tool, file state): the caches are multi-MB and this is asked once per language per run.
+#[cfg(not(feature = "crawl"))]
+pub(crate) fn cached_site_langs(_tool: &str) -> std::collections::HashSet<String> {
+    Default::default() // no crawler build: raw page caches are the crawler's artifact
+}
+
+/// See the non-crawl stub above for the contract.
+#[cfg(feature = "crawl")]
 pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String> {
     type Cache = std::sync::Mutex<std::collections::HashMap<String, (u128, std::collections::HashSet<String>)>>;
     static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
     let path = crawl_cache_path(tool);
-    let stat = std::fs::metadata(&path)
-        .map(|m| {
-            let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
-            (t.map(|d| d.as_nanos()).unwrap_or(0)) ^ ((m.len() as u128) << 64)
-        })
-        .unwrap_or(0);
+    let stat = crawl_file_stat(&path);
     let cache = CACHE.get_or_init(Default::default);
     if let Ok(m) = cache.lock() {
         if let Some((have, langs)) = m.get(tool) {
@@ -312,11 +374,27 @@ pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String>
     let langs: std::collections::HashSet<String> = match sidecar_hit {
         Some(langs) => langs,
         None => {
-            let langs: std::collections::HashSet<String> = std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|raw| serde_json::from_str::<CrawledSource>(&raw).ok())
-                .map(|c| c.pages.into_iter().map(|p| p.lang).filter(|l| !l.is_empty()).collect())
-                .unwrap_or_default();
+            // Attribution is a READ-time judgment now (raw cache): derive it through the
+            // substrates. Missing substrates yield nothing — the setup path (which builds
+            // them first) is what writes the authoritative sidecar.
+            let langs: std::collections::HashSet<String> = match (
+                read_crawl_cache(&path),
+                crate::lint_english::brain(),
+                crate::lint_markup::brain(),
+            ) {
+                (Some(c), Some(english), Some(markup)) => c
+                    .pages
+                    .iter()
+                    .filter_map(|p| {
+                        let (_, units) = read_crawled_page("", &p.url, &p.body, english, markup);
+                        let hints: Vec<String> =
+                            units.into_iter().map(|(_, _, _, h)| h).collect();
+                        let l = attribute_page(&p.url, &hints, &Default::default());
+                        (!l.is_empty()).then_some(l)
+                    })
+                    .collect(),
+                _ => Default::default(),
+            };
             if let Ok(json) = serde_json::to_string(&(format!("{stat:x}"), &langs)) {
                 let _ = std::fs::write(&sidecar, json);
             }
@@ -331,21 +409,52 @@ pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String>
 
 // ── Per-source crawl cache (one network read per machine per source) ──────────
 
-/// One documentation source reduced to exactly what reading consumes — per page, its URL, its
-/// readable prose, and the `(slug, governing prose, code example)` block units. Cached once per
-/// machine keyed by the toolchain version whose docs these are, so a source shared by two
-/// languages (TypeScript ⊇ JavaScript both read MDN) or re-read after a `TRAIN_VERSION` bump
-/// costs the network exactly once.
+/// One documentation source cached RAW — per page, its URL and its body EXACTLY AS SERVED
+/// (LINTER.md, "Pages are cached RAW"): units are formed at READ time by the MarkupBrain's
+/// register reading, so a smarter reader re-reads the same cache without the network. Cached
+/// once per machine keyed by the toolchain version whose docs these are, so a source shared by
+/// two languages (TypeScript ⊇ JavaScript both read MDN) or re-read after a `TRAIN_VERSION`
+/// bump costs the network exactly once. Stored as an `HLM1` container (kind CRAWL,
+/// DATA-stream deflate — HTML compresses several ×).
 #[cfg(feature = "crawl")]
-#[derive(serde::Serialize, serde::Deserialize)]
 struct CrawledSource {
     version: String,
     /// Unix seconds of the crawl — setup re-validates against the live pages when this is
     /// older than [`CRAWL_MAX_AGE`] (LINTER.md, "Setup guarantees the documentation is
-    /// CURRENT"). Legacy caches default to 0 and re-crawl on the next setup.
-    #[serde(default)]
+    /// CURRENT").
     crawled_at: u64,
     pages: Vec<CrawledPage>,
+}
+
+#[cfg(feature = "crawl")]
+impl crate::lint_codec::Bin for CrawledSource {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.version);
+        e.fixed_u64(self.crawled_at);
+        e.u(self.pages.len() as u64);
+        for p in &self.pages {
+            e.str(&p.url);
+            e.str(&p.body);
+            e.boolean(p.modified.is_some());
+            e.fixed_u64(p.modified.unwrap_or(0));
+            e.fixed_u64(p.fp);
+        }
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<CrawledSource> {
+        let version = d.str()?;
+        let crawled_at = d.fixed_u64()?;
+        let n = d.u()? as usize;
+        let mut pages = Vec::with_capacity(n.min(65_536));
+        for _ in 0..n {
+            let url = d.str()?;
+            let body = d.str()?;
+            let has_modified = d.boolean()?;
+            let modified = d.fixed_u64()?;
+            let fp = d.fixed_u64()?;
+            pages.push(CrawledPage { url, body, modified: has_modified.then_some(modified), fp });
+        }
+        Some(CrawledSource { version, crawled_at, pages })
+    }
 }
 
 /// How old a source's page cache may be before SETUP re-crawls it — a project is never set up
@@ -363,35 +472,23 @@ fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
-/// One page of a [`CrawledSource`].
+/// One page of a [`CrawledSource`]: the body exactly as served plus its freshness anchors.
+/// Everything comprehension-shaped (prose, units, attribution) is derived at READ time by the
+/// substrates — a cached raw page can always be re-read by a smarter reader.
 #[cfg(feature = "crawl")]
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 struct CrawledPage {
     url: String,
-    prose: String,
-    /// `(slug, governing prose, code, language hint)` — the hint is the block's OWN declared
-    /// language (ledger #18; "" = undeclared ⇒ the page's language). The arity change from the
-    /// hintless shape is deliberate cache poison: an old cache fails to parse and recrawls, so
-    /// no hintless page can masquerade as attributed.
-    units: Vec<(String, String, String, String)>,
-    /// The LANGUAGE this page documents (LINTER.md, "A site is a source"): block-hint
-    /// majority, else URL typography (path segment / host label through the one resolver),
-    /// else "" — reading material for everyone, law for no one. Unhinted blocks inherit it.
-    #[serde(default)]
-    lang: String,
+    /// The page body EXACTLY as the server sent it.
+    body: String,
     /// The server's `Last-Modified` at fetch time — the per-page anchor the verification
     /// sweep revalidates with (`If-Modified-Since` → 304 proves the page current for free).
-    #[serde(default)]
     modified: Option<u64>,
-    /// Fingerprint of the extracted content — change detection for servers that send no
-    /// `Last-Modified` (a refetched body that extracts identically is NOT a change).
-    #[serde(default)]
+    /// Fingerprint of the page's extracted prose — change detection for servers that send no
+    /// `Last-Modified` (a refetched body whose reading is identical is NOT a change).
     fp: u64,
 }
 
-/// One extracted page: prose + units + freshness anchors, shared by the crawl path and the
-/// verification sweep so both always extract identically.
-#[cfg(feature = "crawl")]
 /// The language `url`'s page documents, resolved as LINTER.md's "A site is a source" orders:
 /// the majority language among the page's own block hints, else the first URL path segment
 /// that resolves to a known language (or names one in `extra_langs` — languages this run
@@ -399,7 +496,7 @@ struct CrawledPage {
 /// answers.
 fn attribute_page(
     url: &str,
-    units: &[(String, String, String, String)],
+    unit_hints: &[String],
     extra_langs: &std::collections::HashSet<String>,
 ) -> String {
     let known = |token: &str| -> Option<String> {
@@ -411,7 +508,7 @@ fn attribute_page(
     };
     let mut votes: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
     let mut hinted = 0u32;
-    for (_, _, _, hint) in units {
+    for hint in unit_hints {
         if hint.is_empty() {
             continue;
         }
@@ -448,41 +545,44 @@ fn attribute_page(
     String::new()
 }
 
-fn extract_crawled_page(
+/// READ one cached raw page into `(page prose, units)` — units as
+/// `(slug, governing prose, code, language hint)`. This is the whole read-time unit former
+/// (LINTER.md, "Markup second"): fetch furniture is dropped, then the MarkupBrain's register
+/// reading segments the body — code is what reads as not-English against the W3-calibrated
+/// split, boundaries are title-shaped gaps, and no tag name is consulted. Slugs come from
+/// author marks (a per-rule URL slug, the nearest `id="…"` anchor) with the prose itself as
+/// the last resort, exactly as before. Blockless sections still form NO units (LINTER.md,
+/// "A blockless section cannot teach law yet").
+#[cfg(feature = "crawl")]
+fn read_crawled_page(
     seed_url: &str,
     url: &str,
-    prose: String,
-    html: &str,
-    modified: Option<u64>,
-    extra_langs: &std::collections::HashSet<String>,
-) -> CrawledPage {
+    body: &str,
+    english: &crate::lint_english::English,
+    markup: &crate::lint_markup::Markup,
+) -> (String, Vec<(String, String, String, String)>) {
+    // Non-HTML documentation (Markdown, JSON rule data, plain text) keeps its own reading:
+    // fences and JSON string leaves are the author's typography, not markup register.
+    if !body.contains("</") {
+        let units = crate::doc_crawler::extract_hinted("", body)
+            .into_iter()
+            .map(|(prose, code, hint)| (slug(&prose), prose, code, hint))
+            .collect();
+        return (body.to_string(), units);
+    }
     let page_slug = rule_slug_under(seed_url, url);
-    let blocks = pre_blocks(html);
-    let units: Vec<(String, String, String, String)> = block_contexts(html, &blocks)
+    let dropped = crate::doc_crawler::drop_script_style(body);
+    let units = crate::lint_markup::read_page(&dropped, english, markup)
         .into_iter()
-        .zip(blocks.iter())
-        .map(|((prose, code), (open, _, _))| {
+        .map(|u| {
             let s = page_slug
                 .clone()
-                .or_else(|| anchor_slug_before(html, *open))
-                .unwrap_or_else(|| slug(&prose));
-            let hint = crate::doc_crawler::block_lang_hint(html, *open);
-            (s, prose, code, hint)
+                .or_else(|| anchor_slug_before(&dropped, u.at))
+                .unwrap_or_else(|| slug(&u.prose));
+            (s, u.prose, u.code, u.hint)
         })
         .collect();
-    // Blockless sections form NO units for now (LINTER.md, "A blockless section cannot
-    // teach law yet"): lead units were built and measured — under the current classifier
-    // they minted only error-register junk while the true prohibition they were built for
-    // still failed its span. They re-land with the per-token side-count classifier.
-    let lang = attribute_page(url, &units, extra_langs);
-    let mut h = crate::lint_ai::token_seed(&prose) ^ crate::lint_ai::token_seed(&lang).rotate_left(4);
-    for (a, b, c, d) in &units {
-        h ^= crate::lint_ai::token_seed(a)
-            ^ crate::lint_ai::token_seed(b).rotate_left(1)
-            ^ crate::lint_ai::token_seed(c).rotate_left(2)
-            ^ crate::lint_ai::token_seed(d).rotate_left(3);
-    }
-    CrawledPage { url: url.to_string(), prose, units, modified, fp: h, lang }
+    (crate::doc_crawler::extract_prose(body), units)
 }
 
 /// The pages of one documentation source: from the per-source cache
@@ -496,7 +596,6 @@ fn crawled_source(
     src: &DocsSource,
     max_pages: usize,
     cache_version: Option<&str>,
-    extra_langs: &std::collections::HashSet<String>,
 ) -> Vec<CrawledPage> {
     use crate::doc_crawler::{crawl, fetch};
     // OFFLINE means no network, never no learning: the disk cache below still replays. A
@@ -510,41 +609,38 @@ fn crawled_source(
         let mut pages = Vec::new();
         if src.crawl {
             for p in crawl(&[&src.url], max_pages, 0) {
-                // Unit identity, best evidence first: a per-rule page's URL slug; else the
-                // nearest preceding `id="…"` anchor (single-page rule docs put each rule in
-                // its own anchored section — HTML typography); else the prose itself.
-                pages.push(extract_crawled_page(&src.url, &p.url, p.prose, &p.html, p.modified, extra_langs));
+                pages.push(CrawledPage {
+                    url: p.url,
+                    fp: crate::lint_ai::token_seed(&p.prose),
+                    body: p.html,
+                    modified: p.modified,
+                });
             }
-        } else if let Some((ct, body)) = fetch(&src.url) {
-            for (prose, code, hint) in crate::doc_crawler::extract_hinted(&ct, &body) {
-                let unit = (slug(&prose), prose.clone(), code, hint);
-                let lang = attribute_page(&src.url, std::slice::from_ref(&unit), extra_langs);
-                pages.push(CrawledPage { url: src.url.clone(), prose, units: vec![unit], modified: None, fp: 0, lang });
-            }
+        } else if let Some((_, body)) = fetch(&src.url) {
+            pages.push(CrawledPage {
+                url: src.url.clone(),
+                fp: crate::lint_ai::token_seed(&crate::doc_crawler::extract_prose(&body)),
+                body,
+                modified: None,
+            });
         }
         pages
     };
     // Site caches (tool "site-…") are language-independent: keyed by TRAIN_VERSION, never a
-    // toolchain version, so every language trained from the site replays ONE crawl.
+    // toolchain version, so every language trained from the site replays ONE crawl. The
+    // cache stores RAW pages, so a unit-former change never needs a recrawl — re-reading
+    // the same bytes with a smarter reader is the design (LINTER.md, "Pages are cached RAW").
     let cache_version = if src.tool.starts_with("site-") {
         Some(crate::lint_train::train_version())
     } else {
         cache_version
     };
     let Some(version) = cache_version else { return read_from_network() };
-    // The units-format marker rides the cached version (LINTER.md, "A blockless section
-    // still teaches law"): cached pages store FORMED units, not HTML, so a unit-former
-    // change cannot re-form them offline — poisoning the version re-crawls instead of
-    // silently keeping old units.
-    let version = format!("{version}@{UNITS_FORMAT}");
     let lock = source_lock(&src.tool);
     let _guard = lock.lock().expect("source lock poisoned");
     let path = crawl_cache_path(&src.tool);
     let cached = if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<CrawledSource>(&raw).ok())
-            .filter(|c| c.version == version && !c.pages.is_empty())
+        read_crawl_cache(&path).filter(|c| c.version == version && !c.pages.is_empty())
     } else {
         None
     };
@@ -555,19 +651,26 @@ fn crawled_source(
     }
     let pages = read_from_network();
     if !pages.is_empty() {
-        write_crawl_cache(&path, &version, &pages);
+        write_crawl_cache(&path, version, &pages);
     }
     pages
 }
 
-/// Units-format marker folded into every cached version — bump when the unit FORMER
-/// changes shape or coverage (cached pages cannot re-form units without the HTML).
+/// Read a source's raw-page cache from its `HLM1` container (see [`CrawledSource`]).
 #[cfg(feature = "crawl")]
-const UNITS_FORMAT: &str = "u4-intact-lead-heading-excluded";
+fn read_crawl_cache(path: &std::path::Path) -> Option<CrawledSource> {
+    use crate::lint_codec::Bin as _;
+    std::fs::read(path)
+        .ok()
+        .and_then(|b| crate::lint_codec::Dec::open(&b, crate::lint_codec::kind::CRAWL))
+        .and_then(|(_, mut d)| CrawledSource::dec(&mut d))
+}
 
-/// Persist a source's crawled pages with the crawl timestamp (see [`CrawledSource`]).
+/// Persist a source's crawled raw pages with the crawl timestamp (see [`CrawledSource`]);
+/// removes the JSON-era twin so exactly one copy lives on disk (LINTER.md, "Save").
 #[cfg(feature = "crawl")]
 fn write_crawl_cache(path: &std::path::Path, version: &str, pages: &[CrawledPage]) {
+    use crate::lint_codec::Bin as _;
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -576,9 +679,10 @@ fn write_crawl_cache(path: &std::path::Path, version: &str, pages: &[CrawledPage
         crawled_at: unix_now(),
         pages: pages.to_vec(),
     };
-    if let Ok(json) = serde_json::to_string(&entry) {
-        let _ = std::fs::write(path, json);
-    }
+    let mut e = crate::lint_codec::Enc::new();
+    entry.enc(&mut e);
+    let _ = std::fs::write(path, e.finish(crate::lint_codec::kind::CRAWL, version));
+    let _ = std::fs::remove_file(path.with_extension("json"));
 }
 
 /// This source's crawl-cache file, its tool id sanitized to a safe file name.
@@ -591,7 +695,7 @@ fn crawl_cache_path(tool: &str) -> std::path::PathBuf {
         .collect();
     std::path::Path::new(&home)
         .join(".cache/helpers/lint-index/crawls")
-        .join(format!("{safe}.json"))
+        .join(format!("{safe}.bin"))
 }
 
 /// The process-wide lock for one source's crawl — parallel languages sharing a source serialize
@@ -603,6 +707,43 @@ fn source_lock(tool: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
     let map = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
     map.lock().expect("lock map poisoned").entry(tool.to_string()).or_default().clone()
+}
+
+/// The RAW html documentation pages this machine holds, plus a fold of their reading
+/// fingerprints — the MarkupBrain's input (LINTER.md, "Markup second"). html's own registered
+/// sources are the corpus, read through the SAME per-source crawl cache html-the-language
+/// trains from (keyed by html's toolchain version), so the network is paid once between the
+/// two. Crawls only when the setup latch allows; otherwise replays whatever is cached.
+#[cfg(feature = "crawl")]
+pub(crate) fn html_raw_pages(data_root: &Path) -> (Vec<(String, String)>, u64) {
+    raw_pages(data_root, "html")
+}
+
+/// The RAW documentation pages this machine holds for `lang`, plus a fold of their reading
+/// fingerprints — the character brain's curriculum input ([`crate::lint_char`]) and the
+/// MarkupBrain's html input. Reads the language's registered sources through the same per-source
+/// crawl cache; crawls when the setup latch allows, else replays whatever is cached.
+#[cfg(feature = "crawl")]
+pub(crate) fn raw_pages(data_root: &Path, lang: &str) -> (Vec<(String, String)>, u64) {
+    let mut sources = crate::lint_train::registered_docs_sources(data_root, lang);
+    if sources.is_empty() {
+        sources.extend(learned_source(lang));
+    }
+    let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
+    let mut pages = Vec::new();
+    let mut fp = 0u64;
+    for src in &sources {
+        for page in crawled_source(src, crate::lint_train::MAX_CRAWL_PAGES, Some(&version)) {
+            fp ^= page.fp.rotate_left(pages.len() as u32 & 63);
+            pages.push((page.url, page.body));
+        }
+    }
+    (pages, fp)
+}
+
+#[cfg(not(feature = "crawl"))]
+pub(crate) fn raw_pages(_data_root: &Path, _lang: &str) -> (Vec<(String, String)>, u64) {
+    (Vec::new(), 0)
 }
 
 // ── Polarity transfer (grounded knowledge is shared across languages) ─────────
@@ -828,84 +969,6 @@ const MAX_BINDINGS: usize = 25_000;
 #[cfg(feature = "crawl")]
 const MAX_REFERENCE: usize = 10_000;
 
-/// The `(governing prose, code)` pair for every block: the prose is what the page wrote BETWEEN
-/// the previous code block and this one — sliced at tag boundaries by construction (`</pre>` to
-/// `<pre`), so no window can ever open mid-tag and leak attribute junk into what the reader
-/// learns. Only the closing words (up to [`GOVERNING_CTX`]) are kept: the sentence immediately
-/// above a block is the one that governs it.
-fn block_contexts(html: &str, blocks: &[(usize, usize, String)]) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for (i, (open, _, code)) in blocks.iter().enumerate() {
-        let prev_end = if i == 0 { 0 } else { blocks[i - 1].1 };
-        // A HEADING is a hard boundary (LINTER.md, "Read"): the prose that governs a block
-        // never crosses into the previous section — without this cut a section's window
-        // swallowed the neutral intro above it and the mixed span classified as nothing.
-        // Slicing AT the '<' of the heading tag keeps the cut tag-safe by construction.
-        let window = &html[prev_end..*open];
-        let section_start = ["<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<H1", "<H2", "<H3"]
-            .iter()
-            .filter_map(|h| window.rfind(h))
-            .max()
-            .map(|pos| prev_end + pos)
-            .unwrap_or(prev_end);
-        // The heading is the BOUNDARY, not the prose: its own words belong to the slug, and
-        // tag-stripping would weld them onto the section's first sentence
-        // ("StatementsNever use…"), hiding the very negation the law states. The governing
-        // prose is the section BODY — everything after the heading's closing tag.
-        let body_start = html[section_start..*open]
-            .find("</h")
-            .and_then(|c| {
-                html[section_start + c..*open].find('>').map(|g| section_start + c + g + 1)
-            })
-            .unwrap_or(section_start);
-        let prose = crate::doc_crawler::strip_tags(&html[body_start..*open]);
-        let tail_start = prose
-            .char_indices()
-            .rev()
-            .scan(0usize, |seen, (idx, _)| {
-                *seen += 1;
-                Some((idx, *seen))
-            })
-            .find(|(_, seen)| *seen >= GOVERNING_CTX)
-            .map(|(idx, _)| idx)
-            .unwrap_or(0);
-        // Advance to a word boundary ONLY when the cap actually cut (tail_start > 0):
-        // skipping unconditionally ate the FIRST WORD of every governing prose — for doc
-        // prohibitions that word is "Never"/"Avoid" itself (the operative negation).
-        let tail = if tail_start == 0 {
-            prose.trim().to_string()
-        } else {
-            match prose[tail_start..].find(char::is_whitespace) {
-                Some(ws) => prose[tail_start + ws..].trim().to_string(),
-                None => prose[tail_start..].trim().to_string(),
-            }
-        };
-        out.push((tail, code.clone()));
-    }
-    out
-}
-
-/// `<pre>…</pre>` blocks of an HTML fragment as `(byte_offset, code_text)`, tags stripped. Offsets
-/// let the caller tell which block follows a "Use instead" marker.
-fn pre_blocks(html: &str) -> Vec<(usize, usize, String)> {
-    use crate::doc_crawler::strip_code;
-    let mut out = Vec::new();
-    let mut from = 0;
-    while let Some(rel) = html[from..].find("<pre") {
-        let open = from + rel;
-        let Some(gt) = html[open..].find('>') else { break };
-        let body_start = open + gt + 1;
-        let Some(crel) = html[body_start..].find("</pre>") else { break };
-        let end = body_start + crel + 6;
-        let code = strip_code(&html[body_start..body_start + crel]);
-        if code.len() >= 3 {
-            out.push((open, end, code));
-        }
-        from = end;
-    }
-    out
-}
-
 /// The rule id for a page that sits exactly one path segment below `seed` (a per-rule page like
 /// `…/ruff/rules/<name>/` or `…/eslint/rules/<name>`), or `None` for the index itself or anything
 /// deeper/elsewhere. The id is the slug, lowercased and sanitized to `[a-z0-9_-]`.
@@ -946,12 +1009,6 @@ fn anchor_slug_before(html: &str, pos: usize) -> Option<String> {
     (s.len() >= 2).then_some(s)
 }
 
-
-/// How much page text immediately before a code block counts as the prose that GOVERNS it — the
-/// label/heading a docs page puts right above its example. Wide enough to catch a short heading or a
-/// `class="incorrect"` wrapper, narrow enough not to bleed into the previous example's discussion.
-#[cfg(feature = "crawl")]
-const GOVERNING_CTX: usize = 320;
 
 /// Trim section prose to a short lesson for the advice message.
 fn trim_prose(prose: &str) -> String {
@@ -1045,8 +1102,6 @@ fn remember_source(lang: &str, src: &DocsSource) {
 /// way (the sweep timestamp restarts the verification window).
 #[cfg(feature = "crawl")]
 pub fn refresh_language_pages(data_root: &Path, lang: &str, version: &str) -> bool {
-    // The sweep validates the same composed version the crawl cache is written under.
-    let version: &str = &format!("{version}@{UNITS_FORMAT}");
     let mut sources = crate::lint_train::registered_docs_sources(data_root, lang);
     if sources.is_empty() {
         sources.extend(learned_source(lang));
@@ -1061,10 +1116,8 @@ pub fn refresh_language_pages(data_root: &Path, lang: &str, version: &str) -> bo
         let lock = source_lock(&src.tool);
         let _guard = lock.lock().expect("source lock poisoned");
         let path = crawl_cache_path(&src.tool);
-        let Some(cached) = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<CrawledSource>(&raw).ok())
-            .filter(|c| c.version == version && !c.pages.is_empty())
+        let Some(cached) =
+            read_crawl_cache(&path).filter(|c| c.version == version && !c.pages.is_empty())
         else {
             // Cold or version-mismatched: the module rebuild will crawl it whole.
             changed_any = true;
@@ -1073,7 +1126,7 @@ pub fn refresh_language_pages(data_root: &Path, lang: &str, version: &str) -> bo
         if unix_now().saturating_sub(cached.crawled_at) < CRAWL_MAX_AGE {
             continue; // verified recently enough
         }
-        let (pages, changed) = verify_inventory(src, cached.pages, &extra_langs);
+        let (pages, changed) = verify_inventory(src, cached.pages);
         write_crawl_cache(&path, version, &pages);
         changed_any |= changed;
     }
@@ -1086,14 +1139,10 @@ pub fn refresh_language_pages(_data_root: &Path, _lang: &str, _version: &str) ->
 }
 
 /// One source's verification sweep: conditional-revalidate every inventoried page in
-/// parallel waves, re-extract what changed, expand to newly-linked in-scope pages, drop what
+/// parallel waves, re-fetch what changed, expand to newly-linked in-scope pages, drop what
 /// the site removed.
 #[cfg(feature = "crawl")]
-fn verify_inventory(
-    src: &DocsSource,
-    cached: Vec<CrawledPage>,
-    extra_langs: &std::collections::HashSet<String>,
-) -> (Vec<CrawledPage>, bool) {
+fn verify_inventory(src: &DocsSource, cached: Vec<CrawledPage>) -> (Vec<CrawledPage>, bool) {
     use crate::doc_crawler::{extract_anchors, extract_prose, fetch_conditional, in_scope, Revalidation};
     const WAVE: usize = 192;
     let known: std::collections::HashMap<String, CrawledPage> =
@@ -1142,13 +1191,18 @@ fn verify_inventory(
                         }
                     }
                     Revalidation::Changed(_, body, modified) => {
-                        let fresh = extract_crawled_page(&src.url, &url, extract_prose(&body), &body, modified, extra_langs);
-                        // A refetch that extracts identically is not a change (servers
+                        let fresh = CrawledPage {
+                            url: url.clone(),
+                            fp: crate::lint_ai::token_seed(&extract_prose(&body)),
+                            modified,
+                            body,
+                        };
+                        // A refetch that READS identically is not a change (servers
                         // without Last-Modified answer 200 every time).
                         if known.get(&url).map(|p| p.fp) != Some(fresh.fp) {
                             changed = true;
                         }
-                        for (link, _) in extract_anchors(&url, &body) {
+                        for (link, _) in extract_anchors(&url, &fresh.body) {
                             if in_scope(&src.url, &link) && seen.insert(link.clone()) {
                                 next.push(link);
                             }
@@ -1249,34 +1303,61 @@ mod tests {
         assert!(rule.description.to_lowercase().contains("avoid indexing"), "description is the docs' own prose: {:?}", rule.description);
     }
 
+    /// A calibrated MarkupBrain for offline tests — the values sit in the band the W3
+    /// reading lands in; these tests exercise the read-time unit former, not calibration.
+    #[cfg(feature = "crawl")]
+    fn test_markup() -> crate::lint_markup::Markup {
+        crate::lint_markup::Markup {
+            split_pm: 600,
+            title_ceiling: 8,
+            pages_read: 1,
+            ..Default::default()
+        }
+    }
+
+    #[cfg(feature = "crawl")]
+    fn test_english() -> crate::lint_english::English {
+        serde_json::from_str(
+            &crate::lint_train::embedded_lint_index_file("english-bootstrap.json")
+                .expect("bootstrap committed"),
+        )
+        .expect("bootstrap parses")
+    }
+
     #[test]
     #[cfg(feature = "crawl")]
     fn a_blockless_section_forms_no_unit_until_the_classifier_can_read_it() {
         // MDN's "Never use direct eval()!" shape: a heading anchor, prose and bullets, zero
-        // <pre>. LEAD units for such sections were built and MEASURED (LINTER.md, "A
+        // code register. LEAD units for such sections were built and MEASURED (LINTER.md, "A
         // blockless section cannot teach law yet"): under the span classifier they minted
         // only error-register junk while the prohibition they were built for still failed
         // its span — so blockless sections deliberately form no unit until the per-token
-        // side-count classifier lands. This pins the decision.
+        // side-count classifier lands. This pins the decision through the RAW reading.
         let html = r#"
             <h2 id="using_flurb">Using flurb</h2>
-            <p>The flurb function combines values.</p>
+            <p>The flurb function combines values into one result for the caller.</p>
             <pre>flurb(a, b);</pre>
             <h2 id="never_use_zap">Never use zap!</h2>
             <p>Never use a global mutable variable here. zap() is dangerous and simply wrong.</p>
         "#;
-        let page = extract_crawled_page(
+        let (_, units) = read_crawled_page(
             "https://d/docs",
             "https://d/docs/zap",
-            crate::doc_crawler::extract_prose(html),
             html,
-            None,
-            &Default::default(),
+            &test_english(),
+            &test_markup(),
         );
         assert!(
-            page.units.iter().all(|(_, _, code, _)| code.len() >= 3),
+            units.iter().all(|(_, _, code, _)| code.len() >= 3),
             "every unit carries a code block: {:?}",
-            page.units.iter().map(|(s, _, c, _)| (s.clone(), c.len())).collect::<Vec<_>>()
+            units.iter().map(|(s, _, c, _)| (s.clone(), c.len())).collect::<Vec<_>>()
+        );
+        assert!(
+            units.iter().any(|(_, prose, code, _)| {
+                code.contains("flurb(a, b);") && prose.contains("combines values")
+            }),
+            "the real example is read with its own section's prose: {:?}",
+            units.iter().map(|(_, p, c, _)| (p.clone(), c.clone())).collect::<Vec<_>>()
         );
     }
 
@@ -1344,11 +1425,17 @@ mod tests {
     fn multibyte_context_never_splits_a_char() {
         // The governing-context cap is byte arithmetic; docs quote every human language, so the
         // cap must snap to a char boundary instead of panicking inside a multibyte character.
-        let html = format!("<p>{}this code is incorrect and will fail:</p><pre>x = 1</pre>", "文".repeat(600));
-        let blocks = pre_blocks(&html);
-        let contexts = block_contexts(&html, &blocks);
-        assert!(contexts.iter().any(|(p, c)| c.contains("x = 1") && p.contains("incorrect")),
-                "extraction still works around multibyte text: {contexts:?}");
+        let html = format!(
+            "<p>{}this code is incorrect and will fail:</p><pre>x = 1</pre>",
+            "文".repeat(600)
+        );
+        let (_, units) =
+            read_crawled_page("https://d", "https://d/p", &html, &test_english(), &test_markup());
+        assert!(
+            units.iter().any(|(_, p, c, _)| c.contains("x = 1") && p.contains("incorrect")),
+            "extraction still works around multibyte text: {:?}",
+            units.iter().map(|(_, p, c, _)| (p.clone(), c.clone())).collect::<Vec<_>>()
+        );
     }
 
 }
@@ -1405,13 +1492,21 @@ mod transfer_probe {
             else {
                 continue;
             };
-            let Ok(raw) = std::fs::read_to_string(crawl_cache_path(tool)) else { continue };
-            let Ok(cached) = serde_json::from_str::<CrawledSource>(&raw) else { continue };
+            let Some(cached) = read_crawl_cache(&crawl_cache_path(tool)) else { continue };
+            // Raw cache: units and prose are derived at read time through the substrates
+            // (LINTER.md, "Pages are cached RAW"). The extension tally reads the SAME prose
+            // and unit code the live pipeline reads.
+            let (Some(english), Some(markup)) =
+                (crate::lint_english::brain(), crate::lint_markup::brain())
+            else {
+                continue;
+            };
             let tally = per_lang.entry(lang.to_string()).or_default();
             for page in &cached.pages {
-                crate::lint_read::tally_dotted_tokens(&page.prose, tally);
-                crate::lint_read::tally_name_aliases(lang, &page.prose, tally);
-                for (_, _, code, _) in &page.units {
+                let (prose, units) = read_crawled_page("", &page.url, &page.body, english, markup);
+                crate::lint_read::tally_dotted_tokens(&prose, tally);
+                crate::lint_read::tally_name_aliases(lang, &prose, tally);
+                for (_, _, code, _) in &units {
                     crate::lint_read::tally_dotted_tokens(code, tally);
                 }
             }
