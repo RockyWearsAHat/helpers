@@ -77,14 +77,30 @@ else ask for the docs URL, train instantly, and SAVE the module to the computer 
 for reuse. Project law (`lintPref.{md,txt}`) and the machine CS-principles corpus (pure-English
 rules) are read through the same brain and compiled into the project OVERLAY, exactly as today.
 
+**The dictionary meaning network — the comprehension backbone (landing now,
+`lint_char::MeaningNetwork`).** As the brain reads the dictionary it BINDS each single-word
+headword to the MEANING of its own definition: the definition's leading content words are each
+`encode`d (the char-level spelling centroid, `CharReader::encode`) and majority-bundled into one
+meaning hypervector keyed by the headword's token seed. Storage is bounded and delta-honest — only
+the headword→definition-word list rides `char.global.bin` (the words themselves, capped per entry,
+deflated in the DATA stream — a few MB beside the ~33MB context memory, never one 1KB Hv per
+headword), and the meaning vector is REBOUND on query, so the artifact never carries 78k×1KB. The
+graph is a pure query: `meaning_of(word)` rebinds the stored definition into its meaning Hv, and
+`related(a, b)` is the Hamming proximity of two words' meanings — words whose definitions share
+vocabulary land near each other. Prohibition/negation meaning EMERGES from this alone: negation
+words bind to the shared negative structure their dictionary definitions are written in, so a later
+increment asks "does this prose bind to prohibition-meaning" as one distance query — never a hand
+list of negation words (a firing offense here). Reading more material only ADDS entries; prior
+bindings are never overwritten (retain-and-grow).
+
 **Landed so far** (validated, committed on the branch): the `CharReader` core with direct
 char-code context addressing (n-gram backoff, no per-char hypervector — training the full
 dictionary + crawled web is seconds, not minutes); cumulative retain-and-grow; `HLM1` persistence
 (round-trips exactly); the setup verb `lint_char::ensure_brain` running the real curriculum
 (dictionary → crawled W3/MDN web); and surprise validated as a GAUGE only (English ~11% of max vs
 novel code ~73% before the language is read). **Remaining — the actual work:** the associative
-KNOWLEDGE GRAPH (bind construct⊗governing-prose⊗meaning; the dictionary meaning network as the
-comprehension backbone; "brain-waves" latent-sequence reasoning for real prose understanding);
+KNOWLEDGE GRAPH (bind construct⊗governing-prose⊗meaning; the dictionary meaning network above is
+its comprehension backbone; "brain-waves" latent-sequence reasoning for real prose understanding);
 language MODULES as subgraphs (delta-stored, machine-global, never a project copy); rules read off
 the graph; migrating construct selection and polarity onto it; deleting `lint_markup.rs` and
 word-level `english.knows`; and the full retrain. Understanding is the product — surprise only ever

@@ -24,6 +24,12 @@ use crate::lint_ai::{Bundler, Hv, DIM};
 /// learned nothing).
 const MEM_CAP: usize = 8 << 20;
 
+/// Revision of the brain's LEARNED CONTENT (distinct from the container format byte): bumped when
+/// the curriculum or the meaning-network binding scheme changes. It is folded into the freshness
+/// fingerprint, so every stale `char.global.bin` rebuilds instead of decoding a layout it
+/// predates. 1: the dictionary meaning network ([`MeaningNetwork`]) rides the artifact.
+const BRAIN_REV: u64 = 1;
+
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
 const SEG_WINDOW: usize = 16;
@@ -49,6 +55,11 @@ pub struct CharReader {
     mem: HashMap<u32, Vec<char>>,
     /// Total characters read — the mass surprise averages are measured against.
     total: u64,
+    /// The dictionary MEANING NETWORK bound during the same read (LINTER.md, "The dictionary
+    /// meaning network"): each headword wired to the words of its definition, the comprehension
+    /// backbone `meaning_of`/`related` query. PERSISTED with the reader — a loaded brain answers
+    /// what a word MEANS, not only how it is spelled.
+    meanings: MeaningNetwork,
 }
 
 /// The most distinct continuations kept per context. A handful captures a context's real
@@ -77,6 +88,8 @@ impl crate::lint_codec::Bin for CharReader {
         e.raw_u32s(
             &entries.iter().flat_map(|(_, s)| s.iter().map(|c| *c as u32)).collect::<Vec<_>>(),
         );
+        // The meaning network rides the same artifact, after the prediction memory.
+        self.meanings.enc(e);
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<CharReader> {
         let total = d.fixed_u64()?;
@@ -98,7 +111,8 @@ impl crate::lint_codec::Bin for CharReader {
             at += len as usize;
             mem.insert(k, set);
         }
-        Some(CharReader { mem, total })
+        let meanings = crate::lint_codec::Bin::dec(d)?;
+        Some(CharReader { mem, total, meanings })
     }
 }
 
@@ -135,7 +149,7 @@ fn context_key(chars: &[char], i: usize, order: usize) -> u32 {
 
 impl CharReader {
     pub fn new() -> CharReader {
-        CharReader { mem: HashMap::new(), total: 0 }
+        CharReader { mem: HashMap::new(), total: 0, meanings: MeaningNetwork::new() }
     }
 
     /// Characters read so far.
@@ -294,14 +308,173 @@ impl CharReader {
     /// phrase — maps deterministically; strings that share spelling share geometry. This is the
     /// representation polarity and concept matching stand on.
     pub fn encode(&self, text: &str) -> Option<Hv> {
-        let mut b = Bundler::new();
-        let mut any = false;
-        for (i, c) in text.chars().enumerate() {
-            // Position-bound so order matters (`ab` ≠ `ba`); rotation is the positional role.
-            b.add(&rotate_by(&char_hv(c), i));
-            any = true;
+        word_vector(text)
+    }
+
+    /// The MEANING of `word` from the dictionary meaning network the brain read — see
+    /// [`MeaningNetwork::meaning_of`].
+    pub fn meaning_of(&self, word: &str) -> Option<Hv> {
+        self.meanings.meaning_of(word)
+    }
+
+    /// The proximity of two words' meanings — see [`MeaningNetwork::related`].
+    pub fn related(&self, a: &str, b: &str) -> u32 {
+        self.meanings.related(a, b)
+    }
+
+    /// The dictionary meaning network the brain read (headword→definition bindings).
+    pub fn meanings(&self) -> &MeaningNetwork {
+        &self.meanings
+    }
+}
+
+/// The char-level vector of a string (its spelling centroid): each character's [`char_hv`]
+/// rotated by its position and majority-bundled, so order matters (`ab` ≠ `ba`) and strings that
+/// share spelling share geometry. PURE — no learned state — which is why the meaning network can
+/// rebind a word's meaning identically on every machine. `None` for the empty string.
+fn word_vector(text: &str) -> Option<Hv> {
+    let mut b = Bundler::new();
+    let mut any = false;
+    for (i, c) in text.chars().enumerate() {
+        // Position-bound so order matters (`ab` ≠ `ba`); rotation is the positional role.
+        b.add(&rotate_by(&char_hv(c), i));
+        any = true;
+    }
+    any.then(|| b.finalize())
+}
+
+// ── The dictionary meaning network (LINTER.md, "The dictionary meaning network") ──
+
+/// Definition content-word cap per headword — the leading words of a dictionary definition carry
+/// its sense (dictionaries front-load the genus); the tail is examples and cross-references. The
+/// same bound the word substrate keeps ([`crate::lint_english`]), so the two meaning views agree.
+pub const MAX_MEANING_WORDS: usize = 12;
+
+/// The dictionary MEANING NETWORK: each single-word headword bound to the words of its own
+/// definition, so a word's MEANING can be rebound on demand and two words compared by how much
+/// their definitions overlap. This is the comprehension backbone the char substrate reads
+/// prohibition off of — negation meaning EMERGES from the dictionary's own definitions (negation
+/// words are written in shared negative vocabulary, so their meanings cluster), never a hand list
+/// of negation words.
+///
+/// Storage is bounded and delta-honest: only the compact headword→definition-word list rides the
+/// artifact (deflated strings, capped at [`MAX_MEANING_WORDS`] per entry — a few MB, not one 1KB
+/// hypervector per headword), and the meaning vector is REBOUND from those words on query.
+#[derive(Clone, Default)]
+pub struct MeaningNetwork {
+    /// Headword token seed → its definition's leading content words. Sorted by seed once
+    /// [`seal`](Self::seal)ed, so [`meaning_of`](Self::meaning_of) answers by binary search.
+    defs: Vec<(u64, Vec<String>)>,
+}
+
+impl MeaningNetwork {
+    /// An empty network.
+    pub fn new() -> MeaningNetwork {
+        MeaningNetwork { defs: Vec::new() }
+    }
+
+    /// BIND a headword to the words of its definition (retain-and-grow: appended, canonicalized
+    /// at [`seal`](Self::seal); a headword's FIRST/primary sense wins). Words are lowercased and
+    /// filtered to alphabetic runs of ≥2 characters, capped at [`MAX_MEANING_WORDS`]. An empty
+    /// definition binds nothing.
+    pub fn bind(&mut self, headword: &str, def_words: &[&str]) {
+        let words: Vec<String> = def_words
+            .iter()
+            .map(|w| w.to_lowercase())
+            .filter(|w| w.chars().count() >= 2 && w.chars().all(char::is_alphabetic))
+            .take(MAX_MEANING_WORDS)
+            .collect();
+        if words.is_empty() {
+            return;
         }
-        any.then(|| b.finalize())
+        self.defs.push((crate::lint_ai::token_seed(&headword.to_lowercase()), words));
+    }
+
+    /// FINISH building: sort by headword seed and keep the FIRST sense of any duplicated headword,
+    /// so queries answer by binary search. Idempotent; retain-and-grow binds more material and
+    /// seals again without disturbing prior bindings (the sort is stable, first-inserted wins).
+    pub fn seal(&mut self) {
+        self.defs.sort_by_key(|(k, _)| *k);
+        self.defs.dedup_by(|a, b| a.0 == b.0);
+    }
+
+    /// How many headwords carry a bound meaning.
+    pub fn len(&self) -> usize {
+        self.defs.len()
+    }
+
+    /// Whether the network bound nothing.
+    pub fn is_empty(&self) -> bool {
+        self.defs.is_empty()
+    }
+
+    /// The definition words bound to `word`, or `None` when the dictionary bound none (a
+    /// construct, a multi-word phrase, an unread word). Requires a [`sealed`](Self::seal) network.
+    fn definition(&self, word: &str) -> Option<&[String]> {
+        let seed = crate::lint_ai::token_seed(&word.to_lowercase());
+        self.defs.binary_search_by_key(&seed, |(k, _)| *k).ok().map(|i| self.defs[i].1.as_slice())
+    }
+
+    /// The MEANING of `word`: its definition's content words each [`encode`](CharReader::encode)d
+    /// (the char-level spelling centroid) and majority-bundled into one hypervector. PURE and
+    /// STABLE — the same word always rebinds the same vector, so a round-tripped network answers
+    /// identically. `None` when no definition is bound.
+    pub fn meaning_of(&self, word: &str) -> Option<Hv> {
+        let words = self.definition(word)?;
+        let mut b = Bundler::new();
+        for w in words {
+            if let Some(v) = word_vector(w) {
+                b.add(&v);
+            }
+        }
+        (!b.is_empty()).then(|| b.finalize())
+    }
+
+    /// The Hamming PROXIMITY of two words' meanings (0 = identical, ~[`DIM`]/2 = unrelated):
+    /// small when their definitions share vocabulary. Returns [`DIM`] (maximally far) when either
+    /// word has no bound meaning, so an unknown word reads as "unrelated" without a special case.
+    /// This is the pure graph query a later increment reads prohibition-meaning off of — "does
+    /// this prose bind to prohibition-meaning" is `related(word, a-known-prohibition-word)`.
+    pub fn related(&self, a: &str, b: &str) -> u32 {
+        match (self.meaning_of(a), self.meaning_of(b)) {
+            (Some(x), Some(y)) => x.distance(&y),
+            _ => DIM as u32,
+        }
+    }
+}
+
+/// HLM1 wire form: the headword seeds and per-head word counts ride the RAW stream; the
+/// definition words themselves go on the DATA stream (deflated — common words repeat across
+/// entries, so they compress hard). Encoded in canonical sorted/deduped order so the artifact is
+/// reproducible and a decoded network is already [`sealed`](MeaningNetwork::seal).
+impl crate::lint_codec::Bin for MeaningNetwork {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        let mut entries = self.defs.clone();
+        entries.sort_by_key(|(k, _)| *k);
+        entries.dedup_by(|a, b| a.0 == b.0);
+        e.raw_u64s(&entries.iter().map(|(k, _)| *k).collect::<Vec<_>>());
+        e.raw_u32s(&entries.iter().map(|(_, w)| w.len() as u32).collect::<Vec<_>>());
+        for (_, words) in &entries {
+            for w in words {
+                e.str(w);
+            }
+        }
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<MeaningNetwork> {
+        let keys = d.raw_u64s()?;
+        let lens = d.raw_u32s()?;
+        if keys.len() != lens.len() {
+            return None;
+        }
+        let mut defs = Vec::with_capacity(keys.len());
+        for (k, len) in keys.into_iter().zip(lens) {
+            let mut words = Vec::with_capacity(len as usize);
+            for _ in 0..len {
+                words.push(d.str()?);
+            }
+            defs.push((k, words));
+        }
+        Some(MeaningNetwork { defs })
     }
 }
 
@@ -434,7 +607,9 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     // language's raw-page fingerprint. Unchanged inputs ⇒ the saved brain is current.
     let english = crate::lint_english::dictionary_prose(None);
     let mut web: Vec<(String, Vec<(String, String)>)> = Vec::new();
-    let mut fp = crate::lint_ai::token_seed(english.as_deref().unwrap_or(""));
+    // BRAIN_REV seeds the fingerprint so a binding-scheme change alone forces every brain to
+    // rebuild, even when the dictionary and web inputs are byte-for-byte unchanged.
+    let mut fp = crate::lint_ai::token_seed(english.as_deref().unwrap_or("")) ^ BRAIN_REV.rotate_left(29);
     for lang in WEB_CURRICULUM {
         let (pages, lang_fp) = crate::lint_docs::raw_pages(data_root, lang);
         fp ^= lang_fp.rotate_left(7);
@@ -454,6 +629,16 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         let before = r.total;
         r.learn(prose);
         order.push(format!("english {}c", r.total - before));
+    }
+    // Bind the dictionary's headword→definition meaning network from the SAME dictionary
+    // (LINTER.md, "The dictionary meaning network") — the char substrate's comprehension graph.
+    if let Some(defs) = crate::lint_english::dictionary_definitions(None, MAX_MEANING_WORDS) {
+        for (head, words) in &defs {
+            let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+            r.meanings.bind(head, &refs);
+        }
+        r.meanings.seal();
+        order.push(format!("meanings {}w", r.meanings.len()));
     }
     for (lang, pages) in &web {
         let before = r.total;
@@ -587,6 +772,17 @@ mod tests {
         let (_, mut d) = Dec::open(&bytes, crate::lint_codec::kind::CHARBRAIN).expect("opens");
         let loaded = CharReader::dec(&mut d).expect("decodes");
         assert!(loaded.total_read() > 1_000_000, "read the dictionary: {} chars", loaded.total_read());
+        // The meaning network rode the artifact and answers on real data.
+        assert!(loaded.meanings().len() > 10_000, "bound the dictionary: {} meanings", loaded.meanings().len());
+        // Report the meaning network's BYTE COST — the whole brain vs the brain with the network
+        // stripped, so the artifact-size delta is visible on real data.
+        let mut bare = loaded.clone();
+        bare.meanings = MeaningNetwork::new();
+        let bare_bytes = { let mut e = crate::lint_codec::Enc::new(); bare.enc(&mut e); e.finish(crate::lint_codec::kind::CHARBRAIN, "t").len() };
+        eprintln!(
+            "char.global.bin {} bytes; meaning network adds {} bytes over {} meanings ({} without it)",
+            bytes.len(), bytes.len().saturating_sub(bare_bytes), loaded.meanings().len(), bare_bytes,
+        );
         // Second call replays.
         let second = super::ensure_brain(data).expect("still trainable");
         assert_eq!(second, "character brain: current", "unchanged inputs replay: {second}");
@@ -722,5 +918,103 @@ mod tests {
         eprintln!("after code:  english ~{e_after}  code ~{c_after}");
         assert!(c_after + c_after / 8 < c_before, "the language was learned: code {c_before} -> {c_after}");
         assert!(e_after <= e_before + e_before / 8, "English retained: {e_before} -> {e_after}");
+    }
+
+    // ── The dictionary meaning network ────────────────────────────────────────
+
+    /// A tiny fixture dictionary (hermetic — no machine dictionary, no network): negation
+    /// headwords written in SHARED negative vocabulary, neutral headwords in their own. The
+    /// cluster the tests below assert is a property of THESE definitions alone — the product code
+    /// ([`MeaningNetwork`]) names no negation word anywhere, so nothing is smuggled in by a list.
+    fn negation_fixture() -> MeaningNetwork {
+        let mut m = MeaningNetwork::new();
+        m.bind("never", &["not", "negation", "negative"]);
+        m.bind("no", &["negation", "negative", "refusal"]);
+        m.bind("not", &["negation", "negative", "deny"]);
+        m.bind("avoid", &["negation", "negative", "prevent"]);
+        m.bind("banana", &["yellow", "curved", "tropical", "fruit"]);
+        m.bind("table", &["furniture", "flat", "surface", "legs"]);
+        m.seal();
+        m
+    }
+
+    /// (a) A word's meaning retrieves, is pure/stable, and survives the HLM1 round trip carried
+    /// inside the whole brain — the property a loaded `char.global.bin` stands on.
+    #[test]
+    fn meaning_retrieves_and_survives_the_hlm1_round_trip() {
+        use crate::lint_codec::{Bin, Dec, Enc};
+        let mut r = CharReader::new();
+        r.meanings = negation_fixture();
+        let before = r.meaning_of("never").expect("never has a bound meaning");
+        assert_eq!(r.meaning_of("never").unwrap().distance(&before), 0, "meaning is pure/stable");
+        assert!(r.meaning_of("frobnicate").is_none(), "an unbound word has no meaning");
+        let mut e = Enc::new();
+        r.enc(&mut e);
+        let bytes = e.finish(crate::lint_codec::kind::CHARBRAIN, "t");
+        let (_, mut d) = Dec::open(&bytes, crate::lint_codec::kind::CHARBRAIN).expect("opens");
+        let loaded = CharReader::dec(&mut d).expect("decodes");
+        assert_eq!(
+            loaded.meaning_of("never").expect("survives the round trip").distance(&before),
+            0,
+            "a loaded network rebinds the identical meaning"
+        );
+        assert_eq!(loaded.meanings().len(), r.meanings().len(), "every binding survives");
+    }
+
+    /// (b) Words whose definitions share vocabulary measure CLOSER than unrelated ones; an
+    /// unknown word reads as maximally far without a special case.
+    #[test]
+    fn shared_definitions_measure_closer_than_unrelated_ones() {
+        let m = negation_fixture();
+        let shared = m.related("never", "no");
+        let unrelated = m.related("never", "banana");
+        assert!(shared < unrelated, "shared meaning ({shared}) must beat unrelated ({unrelated})");
+        assert_eq!(m.related("never", "zzzznope"), DIM as u32, "an unknown word is maximally far");
+    }
+
+    /// (c) Retain-and-grow: binding MORE material adds headwords and never overwrites a prior
+    /// binding — a repeated headword keeps its first/primary sense.
+    #[test]
+    fn binding_more_material_retains_the_network() {
+        let mut m = negation_fixture();
+        let before = m.meaning_of("never").expect("bound");
+        let n = m.len();
+        m.bind("orange", &["round", "citrus", "fruit"]);
+        m.bind("never", &["completely", "different", "sense"]); // duplicate — first sense wins
+        m.seal();
+        assert!(m.len() > n, "new headwords were gained: {} -> {}", n, m.len());
+        assert_eq!(
+            m.meaning_of("never").unwrap().distance(&before),
+            0,
+            "the original 'never' meaning is retained, not overwritten"
+        );
+        assert!(m.meaning_of("orange").is_some(), "the newly read word is queryable");
+    }
+
+    /// (d) The negation cluster EMERGES from the dictionary's own definitions: never/no/not/avoid
+    /// measure mutually closer than any of them to the neutral words — with NO negation word
+    /// named in product code (only in the test fixture). This is the covenant's payoff — a later
+    /// increment reads prohibition-meaning as `related(word, prohibition-word)`, never a list.
+    #[test]
+    fn negation_words_cluster_without_any_negation_list_in_product_code() {
+        let m = negation_fixture();
+        let neg = ["never", "no", "not", "avoid"];
+        let neutral = ["banana", "table"];
+        let mut worst_intra = 0u32;
+        for i in 0..neg.len() {
+            for j in (i + 1)..neg.len() {
+                worst_intra = worst_intra.max(m.related(neg[i], neg[j]));
+            }
+        }
+        let mut best_cross = u32::MAX;
+        for a in neg {
+            for b in neutral {
+                best_cross = best_cross.min(m.related(a, b));
+            }
+        }
+        assert!(
+            worst_intra < best_cross,
+            "negation words must cluster: worst intra {worst_intra} < best cross {best_cross}"
+        );
     }
 }
