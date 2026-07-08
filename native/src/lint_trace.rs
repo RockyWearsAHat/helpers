@@ -25,8 +25,11 @@ use crate::lint_ai::DIM;
 use tree_sitter::Node;
 
 /// A node predicate's recogniser: reads one node (and source bytes) and answers whether the
-/// property holds.
-type PredFn = for<'a, 'b> fn(Node<'a>, &'b [u8]) -> bool;
+/// property holds. It is also handed the predicate's own meaning descriptor `words`, so a
+/// construct-recognising predicate (an `unwrap` call, a secret-named binding, a shell exec) draws
+/// the tokens it looks for from THAT SINGLE declared vocabulary — never a second, hidden enumerated
+/// list. Pure-structural predicates ignore it.
+type PredFn = for<'a, 'b, 'c> fn(Node<'a>, &'b [u8], &'c [&'c str]) -> bool;
 
 /// A relation's pair generator: yields the `(a, b)` node pairs standing in the relation.
 type RelFn = for<'a, 'b> fn(Node<'a>, &'b [u8]) -> Vec<(Node<'a>, Node<'a>)>;
@@ -40,6 +43,13 @@ struct Predicate {
     name: &'static str,
     /// The meaning descriptor — the words a sentence concept aligns to to select this predicate.
     words: &'static [&'static str],
+    /// Whether this property is a COMPLETE defect on its own (a magic number, an over-long body, an
+    /// unwrap) versus a ROLE/qualifier that only means something in a relation ("a statement", "a
+    /// return", "public", "documented"). A unary (relation-less) rule fires on self-bad predicates
+    /// only, so an incidental role concept the sentence also names ("…in the CODE", "never WRITE …")
+    /// cannot silently AND itself onto the defect and make it un-fireable. A property of the
+    /// primitive, not of any principle.
+    self_bad: bool,
     /// Recognise the property on one node (source bytes for text/line inspection).
     test: PredFn,
 }
@@ -61,27 +71,62 @@ const PREDICATES: &[Predicate] = &[
     Predicate {
         name: "statement",
         words: &["statement", "code", "instruction", "expression", "logic", "block", "line"],
+        self_bad: false,
         test: is_statement,
     },
     Predicate {
         name: "control_exit",
         words: &["return", "exit", "leave", "stop", "halt", "terminate", "break"],
+        self_bad: false,
         test: is_control_exit,
     },
     Predicate {
         name: "public_item",
         words: &["public", "exposed", "expose", "exported", "function", "type", "interface"],
+        self_bad: false,
         test: is_public_item,
     },
     Predicate {
         name: "documented",
         words: &["documentation", "comment", "documented", "describe", "description"],
+        self_bad: false,
         test: is_documented,
     },
     Predicate {
         name: "single_letter_name",
         words: &["name", "letter", "variable", "identifier", "single", "character"],
+        self_bad: true,
         test: is_single_letter_name,
+    },
+    Predicate {
+        name: "unwrap_call",
+        words: &["unwrap", "expect", "fallible", "result", "panic"],
+        self_bad: true,
+        test: is_unwrap_call,
+    },
+    Predicate {
+        name: "magic_number",
+        words: &["number", "literal", "numeric", "constant", "magic", "value"],
+        self_bad: true,
+        test: is_magic_number,
+    },
+    Predicate {
+        name: "long_body",
+        words: &["enormous", "large", "long", "many", "statements", "responsibilities"],
+        self_bad: true,
+        test: is_long_body,
+    },
+    Predicate {
+        name: "hardcoded_secret",
+        words: &["secret", "password", "credential", "key", "token"],
+        self_bad: true,
+        test: is_hardcoded_secret,
+    },
+    Predicate {
+        name: "shell_injection",
+        words: &["shell", "command", "execute", "injection", "inject"],
+        self_bad: true,
+        test: is_shell_injection,
     },
 ];
 
@@ -171,7 +216,7 @@ const ENDPOINT_TIE: f64 = 0.05;
 /// genuine synonym is far nearer to its primitive's vocabulary than to any other's; a filler word
 /// sits at the noise floor to every primitive, so no primitive is decisively nearest and it
 /// abstains. This is what lets non-matching words fall away without a hand-picked cutoff.
-const BIND_MARGIN: f64 = 0.85;
+const BIND_MARGIN: f64 = 0.60;
 
 impl<'a> Bridge<'a> {
     /// Read a principle through this understanding.
@@ -179,23 +224,16 @@ impl<'a> Bridge<'a> {
         Bridge { meanings, english }
     }
 
-    /// Whether `word` is a NEGATOR in the polarity sense — it commands or expresses absence. Either
-    /// a prohibition operator ([`English::is_negation`], the compounded test), OR a word whose own
-    /// dictionary definition USES a negator ("without" = "not accompanied by"; one hop through the
-    /// definition, discovered — never a word list). This looser sense is what flips a predicate's
-    /// polarity and marks a word as an operator rather than a concept; the strict compounded test
-    /// stays the prohibition gate's, so litotes cannot mint a rule.
+    /// Whether `word` is a NEGATION OPERATOR — a commanding negator ("never", "no", "not"), by the
+    /// compounded [`English::is_negation`] test. Such a word commands the rule rather than naming a
+    /// concept, so it is excluded from alignment. The COMPOUNDED test is deliberate: a looser
+    /// "definition contains a negator" hop wrongly swept in absence-DEFINED content words ("secret"
+    /// = "NOT known", "meaningless" = "having NO meaning") and excluded them as concepts. The cost
+    /// is that a negation PREPOSITION whose dictionary definition never reaches a base negator
+    /// ("without" = "in the absence of") is not caught — the honest inner-negation gap reported for
+    /// undocumented-public (see LINTER.md).
     fn is_negator(&self, word: &str) -> bool {
-        let seed = crate::lint_ai::token_seed(word);
-        if self.english.is_negation(seed) {
-            return true;
-        }
-        // One hop through the WHOLE-dictionary meaning network (the bootstrap English carries only
-        // a subset of definitions): a word whose definition uses a base negator is itself a
-        // negator in the polarity sense.
-        self.meanings.definition_words(word).is_some_and(|def| {
-            def.iter().any(|w| self.english.is_negation(crate::lint_ai::token_seed(w)))
-        })
+        self.english.is_negation(crate::lint_ai::token_seed(word))
     }
 
     /// The min meaning distance from `concept` to any of a primitive's descriptor `words` — the
@@ -338,13 +376,17 @@ impl<'a> Bridge<'a> {
         Some(Plan::Relational { rel, a_pred, b_pred })
     }
 
-    /// Compose a UNARY plan: a node satisfying every aligned predicate (a self-bad shape). Abstains
-    /// when no predicate aligned.
+    /// Compose a UNARY plan: a node exhibiting a SELF-BAD defect. Only self-bad predicates
+    /// (a magic number, an unwrap, an over-long body) compose here — a role/qualifier concept the
+    /// sentence incidentally names ("…in the code", "never write …") is dropped, so it cannot AND
+    /// itself onto the defect and make the conjunction un-fireable. Abstains when no self-bad
+    /// predicate aligned (a principle that only named roles has nothing this vocabulary can enforce
+    /// on its own).
     fn compose_unary(&self, predicates: &[&BoundConcept]) -> Option<Plan> {
         let mut preds: Vec<usize> = Vec::new();
         for p in predicates {
             if let Primitive::Pred(i) = p.primitive {
-                if !preds.contains(&i) {
+                if PREDICATES[i].self_bad && !preds.contains(&i) {
                     preds.push(i);
                 }
             }
@@ -358,6 +400,16 @@ impl<'a> Bridge<'a> {
         let Some(plan) = self.understand(description) else { return Vec::new() };
         run_plan(&plan, lang, code)
     }
+}
+
+/// UNDERSTAND a principle through the MACHINE'S LOADED BRAINS — the live entry the lint walk binds a
+/// corpus principle with (`lint_match`). Reads the char brain's separating meaning network and the
+/// English brain; `None` when a brain is unavailable or the principle abstains (no rule). Zero
+/// per-principle logic: whatever prose the corpus holds is read through the one generic mechanism.
+pub fn understand(description: &str) -> Option<Plan> {
+    let char_brain = crate::lint_char::brain()?;
+    let english = crate::lint_english::brain()?;
+    Bridge::new(char_brain.meanings(), english).understand(description)
 }
 
 /// Split a sentence into `(position, lowercased-word)` tokens, punctuation trimmed — the position
@@ -388,13 +440,14 @@ pub fn run_plan(plan: &Plan, lang: &str, code: &str) -> Vec<usize> {
     let mut hits: Vec<usize> = Vec::new();
     match plan {
         Plan::Unary(preds) => walk(root, &mut |node| {
-            if preds.iter().all(|i| (PREDICATES[*i].test)(node, src)) {
+            if preds.iter().all(|i| (PREDICATES[*i].test)(node, src, PREDICATES[*i].words)) {
                 hits.push(row(node));
             }
         }),
         Plan::Relational { rel, a_pred, b_pred } => {
+            let (ap, bp) = (&PREDICATES[*a_pred], &PREDICATES[*b_pred]);
             for (a, b) in (RELATIONS[*rel].pairs)(root, src) {
-                if (PREDICATES[*a_pred].test)(a, src) && (PREDICATES[*b_pred].test)(b, src) {
+                if (ap.test)(a, src, ap.words) && (bp.test)(b, src, bp.words) {
                     hits.push(row(a));
                 }
             }
@@ -425,7 +478,7 @@ fn walk<'a>(node: Node<'a>, f: &mut impl FnMut(Node<'a>)) {
 
 /// A node is a STATEMENT — a named, non-comment code node. The general grain a positional relation
 /// flags and a duplicate compares.
-fn is_statement(node: Node, _src: &[u8]) -> bool {
+fn is_statement(node: Node, _src: &[u8], _words: &[&str]) -> bool {
     node.is_named() && !node.kind().contains("comment")
 }
 
@@ -433,7 +486,7 @@ fn is_statement(node: Node, _src: &[u8]) -> bool {
 /// continue, throw, or raise), read from the node KIND (the blessed generic probe), directly or as
 /// the inner expression of an expression statement. Not a source-token list: these are AST
 /// control-flow node kinds, universal across the grammars that model control flow.
-fn is_control_exit(node: Node, _src: &[u8]) -> bool {
+fn is_control_exit(node: Node, _src: &[u8], _words: &[&str]) -> bool {
     fn kind_is_exit(kind: &str) -> bool {
         ["return", "break", "continue", "throw", "raise"].iter().any(|k| kind.contains(k))
     }
@@ -446,7 +499,7 @@ fn is_control_exit(node: Node, _src: &[u8]) -> bool {
 
 /// A node is a PUBLIC ITEM — a function/type/module item carrying a visibility modifier. Read from
 /// the node kind plus the presence of a `visibility_modifier` child (structural, grammar-driven).
-fn is_public_item(node: Node, _src: &[u8]) -> bool {
+fn is_public_item(node: Node, _src: &[u8], _words: &[&str]) -> bool {
     let is_item = matches!(
         node.kind(),
         "function_item"
@@ -473,7 +526,7 @@ fn is_public_item(node: Node, _src: &[u8]) -> bool {
 /// A node is a SINGLE-LETTER NAME binding — a `let` binding or parameter whose name is one
 /// alphabetic character (`x`, `n`). Read from the binding pattern's text; `_` and multi-letter
 /// names never match.
-fn is_single_letter_name(node: Node, src: &[u8]) -> bool {
+fn is_single_letter_name(node: Node, src: &[u8], _words: &[&str]) -> bool {
     if !matches!(node.kind(), "let_declaration" | "parameter") {
         return false;
     }
@@ -484,7 +537,7 @@ fn is_single_letter_name(node: Node, src: &[u8]) -> bool {
 
 /// A node is DOCUMENTED — a doc comment opens the line immediately above it (skipping attribute
 /// lines). Read from the source text so it is grammar-independent.
-fn is_documented(node: Node, src: &[u8]) -> bool {
+fn is_documented(node: Node, src: &[u8], _words: &[&str]) -> bool {
     let Ok(text) = std::str::from_utf8(src) else { return false };
     let lines: Vec<&str> = text.lines().collect();
     let mut i = node.start_position().row;
@@ -497,6 +550,108 @@ fn is_documented(node: Node, src: &[u8]) -> bool {
         return prev.starts_with("///") || prev.starts_with("//!") || prev.starts_with("/**");
     }
     false
+}
+
+/// A node UNWRAPS A FALLIBLE VALUE — a method call whose method name carries one of this
+/// predicate's own descriptor words (`unwrap`, `expect`): `x.unwrap()`, `y.expect(..)`. The tokens
+/// it recognises are exactly the meaning descriptor, so there is no separate hidden list.
+fn is_unwrap_call(node: Node, src: &[u8], words: &[&str]) -> bool {
+    if node.kind() != "call_expression" {
+        return false;
+    }
+    let Some(func) = node.child_by_field_name("function") else { return false };
+    if func.kind() != "field_expression" {
+        return false;
+    }
+    let Some(field) = func.child_by_field_name("field") else { return false };
+    let name = field.utf8_text(src).unwrap_or("");
+    words.iter().any(|w| name.contains(w))
+}
+
+/// The small, self-explanatory numeric values that are never "magic" (a size hyperparameter, not
+/// policy — the shape of a magic number, not which principle asks about it).
+fn small_magnitude(raw: &str) -> bool {
+    let digits: String = raw.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+    matches!(digits.as_str(), "0" | "1" | "2" | "")
+        || digits.parse::<f64>().map(|v| v <= 2.0).unwrap_or(false)
+}
+
+/// A node is a MAGIC NUMBER — a numeric literal that is neither small nor already named (not inside
+/// a `const`/`static` initializer, an array length, or an attribute). Reads node kinds and the
+/// literal's own text; no descriptor tokens needed.
+fn is_magic_number(node: Node, src: &[u8], _words: &[&str]) -> bool {
+    if !matches!(node.kind(), "integer_literal" | "float_literal") {
+        return false;
+    }
+    if small_magnitude(node.utf8_text(src).unwrap_or("")) {
+        return false;
+    }
+    let mut cur = node.parent();
+    while let Some(p) = cur {
+        if matches!(p.kind(), "const_item" | "static_item" | "attribute_item" | "attribute" | "array_type") {
+            return false; // already named / structural — not a bare magic number
+        }
+        if matches!(p.kind(), "function_item" | "block") {
+            break; // reached the enclosing body without a naming context
+        }
+        cur = p.parent();
+    }
+    true
+}
+
+/// The statement count above which a function body has outgrown one responsibility. A size
+/// hyperparameter (the shape of an over-long body), not policy about which principle enforces it.
+const LONG_BODY_STATEMENTS: usize = 25;
+
+/// A node is a LONG BODY — a function whose body block holds more than [`LONG_BODY_STATEMENTS`]
+/// statements. Pure structure; no descriptor tokens needed.
+fn is_long_body(node: Node, _src: &[u8], _words: &[&str]) -> bool {
+    if !matches!(node.kind(), "function_item" | "function_signature_item") {
+        return false;
+    }
+    let Some(body) = node.child_by_field_name("body") else { return false };
+    let mut cursor = body.walk();
+    let statements = body
+        .children(&mut cursor)
+        .filter(|c| c.is_named() && !c.kind().contains("comment"))
+        .count();
+    statements > LONG_BODY_STATEMENTS
+}
+
+/// A node is a HARDCODED SECRET — a `let`/`const`/`static` binding whose NAME carries one of this
+/// predicate's descriptor words (`secret`, `password`, `key`, `token`, `credential`) and whose
+/// value is a non-trivial string literal. The recognised name words ARE the meaning descriptor —
+/// one declared vocabulary, not a hidden list.
+fn is_hardcoded_secret(node: Node, src: &[u8], words: &[&str]) -> bool {
+    if !matches!(node.kind(), "let_declaration" | "static_item" | "const_item") {
+        return false;
+    }
+    let name = node
+        .child_by_field_name("pattern")
+        .or_else(|| node.child_by_field_name("name"))
+        .map(|p| p.utf8_text(src).unwrap_or("").to_lowercase())
+        .unwrap_or_default();
+    if !words.iter().any(|w| name.contains(w)) {
+        return false;
+    }
+    let Some(val) = node.child_by_field_name("value") else { return false };
+    val.kind() == "string_literal" && val.utf8_text(src).unwrap_or("").trim_matches('"').len() >= 8
+}
+
+/// A node is a SHELL INJECTION — the outermost call in a chain that both names a shell execution
+/// (its text carries a descriptor word such as `command`/`shell`/`exec`) and builds an argument by
+/// interpolation (`format!`). The shell-naming vocabulary is the meaning descriptor itself.
+fn is_shell_injection(node: Node, src: &[u8], words: &[&str]) -> bool {
+    if node.kind() != "call_expression" {
+        return false;
+    }
+    if node.parent().is_some_and(|p| matches!(p.kind(), "field_expression" | "call_expression")) {
+        return false; // only examine the whole chain once, at its outermost call
+    }
+    let chain = node.utf8_text(src).unwrap_or("").to_lowercase();
+    let names_shell = words.iter().any(|w| chain.contains(w));
+    let interpolates = chain.contains("format!") || chain.contains("format !");
+    names_shell && interpolates
 }
 
 // ── The generic structural relations ────────────────────────────────────────────
@@ -647,5 +802,96 @@ mod tests {
             "a prohibition with no aligning primitive abstains rather than misfiring"
         );
         eprintln!("ABSTAIN: non-prohibition and unmapped-prohibition both produced no rule.");
+    }
+
+    /// The five primitives added in Step 4 each FIRE on their bad shape and stay clean on good
+    /// code — through the same understand()/enforce() path, real corpus prose. Ignored (dictionary).
+    #[test]
+    #[ignore = "reads the local dictionary; Step-4 new-primitive firing check"]
+    fn new_primitives_fire() {
+        let meanings = understanding();
+        let english = crate::lint_english::brain().expect("English brain");
+        let b = Bridge::new(&meanings, &english);
+        let cases: [(&str, &str, &str); 5] = [
+            (
+                "Never unwrap or expect the result of a fallible call.",
+                "fn f() { let v: i32 = \"1\".parse().unwrap(); }",
+                "fn f() -> Result<i32, ()> { \"1\".parse().map_err(|_| ()) }",
+            ),
+            (
+                "Never bury an unexplained magic number literal in the code.",
+                "fn f() -> i32 { let d = 86400; d }",
+                "const DAY: i32 = 86400;\nfn f() -> i32 { DAY }",
+            ),
+            (
+                "Never hardcode a secret in the source.",
+                "fn f() { let api_key = \"sk-9f8a7b6c5d4e3f2a\"; }",
+                "fn f() { let api_key = std::env::var(\"API_KEY\").unwrap_or_default(); }",
+            ),
+            (
+                "Never interpolate untrusted input into a shell command string.",
+                "fn f(u: &str) { std::process::Command::new(\"sh\").arg(format!(\"echo {u}\")); }",
+                "fn f(u: &str) { std::process::Command::new(\"echo\").arg(u); }",
+            ),
+            (
+                "Never write an enormous function that does too many things.",
+                &format!("fn big() {{\n{}}}\n", "    let _ = 1;\n".repeat(30)),
+                "fn small() { let a = 1; let b = 2; let _ = a + b; }",
+            ),
+        ];
+        for (prose, bad, good) in cases {
+            let bad_hits = b.enforce(prose, "rust", bad);
+            let good_hits = b.enforce(prose, "rust", good);
+            eprintln!("{:.40} -> bad {bad_hits:?} good {good_hits:?}", prose);
+            assert!(!bad_hits.is_empty(), "must flag the bad shape: {prose}");
+            assert!(good_hits.is_empty(), "must be clean on good: {prose} -> {good_hits:?}");
+        }
+    }
+
+    /// COVERAGE MAP (owner directive, Step 4): read EVERY principle in the real corpus and report
+    /// which the bridge enforces (with the plan it composed) and which ABSTAIN — honesty on
+    /// coverage is the deliverable. Ignored (reads the local dictionary + the repo corpus). Run:
+    /// `cargo test --release --lib coverage_map -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads the local dictionary + repo corpus; the Step-4 coverage map"]
+    fn coverage_map() {
+        let meanings = understanding();
+        let english = crate::lint_english::brain().expect("English brain");
+        let bridge = Bridge::new(&meanings, &english);
+        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("corpus/principles.md");
+        let text = std::fs::read_to_string(&corpus).expect("corpus principles");
+        let (mut enforced, mut abstained) = (0u32, 0u32);
+        let mut id = String::new();
+        let mut prose = String::new();
+        let mut flush = |id: &str, prose: &str, enforced: &mut u32, abstained: &mut u32| {
+            if id.is_empty() || prose.trim().is_empty() {
+                return;
+            }
+            match bridge.understand(prose) {
+                Some(plan) => {
+                    *enforced += 1;
+                    eprintln!("  ENFORCE  {id:28} -> {}", plan.describe());
+                }
+                None => {
+                    *abstained += 1;
+                    eprintln!("  abstain  {id:28} -> (no aligning primitive)");
+                }
+            }
+        };
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("## ") {
+                flush(&id, &prose, &mut enforced, &mut abstained);
+                id = rest.split_whitespace().next().unwrap_or("").to_string();
+                prose.clear();
+            } else if !id.is_empty() {
+                prose.push_str(line);
+                prose.push(' ');
+            }
+        }
+        flush(&id, &prose, &mut enforced, &mut abstained);
+        eprintln!("COVERAGE: {enforced} enforced, {abstained} abstained");
     }
 }
