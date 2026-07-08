@@ -289,16 +289,14 @@ pub fn extract_sections_html(html: &str) -> Vec<(String, String)> {
 
 /// [`extract_sections_html`] carrying each block's own language hint ([`block_lang_hint`]).
 pub fn extract_sections_html_hinted(html: &str) -> Vec<(String, String, String)> {
-    // The AI reads the markup (LINTER.md, "Markup second"): segmentation is the MarkupBrain's
-    // register judgment over the raw body — no tag list here. Without the substrates nothing
-    // can read HTML, and nothing pretends to.
-    let (Some(english), Some(markup)) =
-        (crate::lint_english::brain(), crate::lint_markup::brain())
-    else {
+    // The AI reads the page (LINTER.md, "Reading a page is UNDERSTANDING"): units are the char
+    // brain's meaning judgment plus its learned structural roles over the raw body — no tag list
+    // here. Without a trained brain nothing can read HTML, and nothing pretends to.
+    let Some(brain) = crate::lint_char::brain() else {
         return Vec::new();
     };
     let body = drop_script_style(html);
-    crate::lint_markup::read_page(&body, english, markup)
+    crate::lint_graph::read_page(&body, brain)
         .into_iter()
         .filter(|u| u.prose.len() >= 8)
         .map(|u| (u.prose, u.code, u.hint))
@@ -939,12 +937,19 @@ mod tests {
 
     #[test]
     fn context_window_across_multibyte_char_does_not_panic() {
-        // A `<pre>` preceded by prose containing a multi-byte char positioned so the 1500-byte
-        // look-back window starts inside that char — the real ruff-docs crash. Must not panic.
+        // A `<pre>` preceded by prose containing a multi-byte char positioned so the governing
+        // look-back window starts inside that char — the real ruff-docs crash. Read through a
+        // fixture char brain (hermetic — no machine brain) whose only role is `pre` a code
+        // carrier; the reader must not panic and must extract the code.
+        let mut brain = crate::lint_char::CharReader::new();
+        brain.set_structure(crate::lint_char::StructureRoles::from_learned(
+            vec![(crate::lint_ai::token_seed("pre"), 1)],
+            0,
+        ));
         let prose = format!("{}🛠 fast linter", "x".repeat(1490));
-        let html = format!("<p>{prose}</p><pre>code here</pre>");
-        let secs = extract_sections_html(&html);
-        assert!(secs.iter().any(|(_, c)| c.contains("code here")), "code extracted: {secs:?}");
+        let body = format!("<p>{prose}</p><pre>code here</pre>");
+        let units = crate::lint_graph::read_page(&body, &brain);
+        assert!(units.iter().any(|u| u.code.contains("code here")), "code extracted: {units:?}");
     }
 
     #[test]

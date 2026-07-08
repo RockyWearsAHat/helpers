@@ -93,6 +93,25 @@ increment asks "does this prose bind to prohibition-meaning" as one distance que
 list of negation words (a firing offense here). Reading more material only ADDS entries; prior
 bindings are never overwritten (retain-and-grow).
 
+**Reading a page is UNDERSTANDING, not tag-matching (Phase 2 — `lint_graph::read_page`).** A raw
+documentation page is scanned by the only typography the covenant grants — a `<…>` run is ONE
+markup token, whitespace splits words, sentence terminals close sentences — and every text run is
+then judged by MEANING: a word is English when the dictionary meaning network binds it
+(`CharReader::meaning_of`), and a run is PROSE when the MAJORITY of its words so resolve, CONSTRUCT
+material when they do not (a comparative majority, never an absolute density threshold). Meaning
+alone cannot part a section TITLE from a CODE example when both are two unbound words
+(`<h1>flowlang statements</h1>` vs `<pre>goto cleanup</pre>`), so the brain also learns, BY EXPOSURE
+over the web curriculum, the register that follows each markup token — an association keyed by the
+element's own characters (never a tag name written in code): elements whose contained text read as
+code become code carriers, the short title-shaped ones become section headings. At read time that
+learned association decides FIRST — a code carrier's contents are the example even when its words
+are ordinary English (`blink fast`), and a heading opens a section and never welds its own words
+into the governing prose (ledger #22); where no element testifies, the meaning majority decides. A
+code example is the maximal run of code-carrier and whole-construct gaps stitched back through a
+highlighter's shredding; the prose that governs it is the sentences since the last heading, and the
+author's `language-*`/`brush:` mark rides along as the block's hint. The curriculum gate holds: no
+trained brain ⇒ no units, never a hand parse.
+
 **Landed so far** (validated, committed on the branch): the `CharReader` core with direct
 char-code context addressing (n-gram backoff, no per-char hypervector — training the full
 dictionary + crawled web is seconds, not minutes); cumulative retain-and-grow; `HLM1` persistence
@@ -102,8 +121,11 @@ novel code ~73% before the language is read). **Remaining — the actual work:**
 KNOWLEDGE GRAPH (bind construct⊗governing-prose⊗meaning; the dictionary meaning network above is
 its comprehension backbone; "brain-waves" latent-sequence reasoning for real prose understanding);
 language MODULES as subgraphs (delta-stored, machine-global, never a project copy); rules read off
-the graph; migrating construct selection and polarity onto it; deleting `lint_markup.rs` and
-word-level `english.knows`; and the full retrain. Understanding is the product — surprise only ever
+the graph; migrating construct selection and polarity onto it; and the full retrain. The read path
+has MOVED — `lint_graph::read_page` (above) now forms the units both consumers
+(`doc_crawler::extract_sections_html_hinted`, `lint_docs::read_crawled_page`) read, on the char
+brain's meaning network and learned structural roles; `lint_markup.rs` is frozen and Phase 3
+deletes it (with word-level `english.knows`). Understanding is the product — surprise only ever
 measures whether it is forming.
 
 ## Thesis
