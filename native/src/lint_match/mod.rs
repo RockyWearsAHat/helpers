@@ -103,6 +103,12 @@ enum MatchKind {
         #[serde(default)]
         raw: bool,
     },
+    /// A structural AST PROBE (LINTER.md, "Rules from understanding — the probe bridge"): the
+    /// rule fires wherever a coded predicate recognises a defect SHAPE (dead code, an unwrap, a
+    /// magic number …). Which probe — and thus which principle is enforced — was decided by
+    /// READING the corpus prose and understanding it ([`crate::lint_probe::understand`]); the
+    /// stored string is the probe's stable name.
+    Probe(String),
 }
 
 impl MatchKind {
@@ -110,8 +116,9 @@ impl MatchKind {
     /// file's CODE SURFACE ([`code_surface_file`] — string interiors and comments blanked)
     /// for code languages, and the raw text for prose files: a law grounds only against real
     /// code, so its detector must fire in the same universe (LINTER.md ledger #12/#14). AST
-    /// patterns parse the raw source — a string node is never an identifier.
-    fn matches(&self, code: &str) -> Vec<usize> {
+    /// patterns parse the raw source — a string node is never an identifier. A [`MatchKind::Probe`]
+    /// needs `lang` to parse, so every caller threads it through.
+    fn matches(&self, lang: &str, code: &str) -> Vec<usize> {
         match self {
             MatchKind::Ast(pat) => pat.matches(code),
             MatchKind::Tokens { tokens, .. } => code
@@ -120,6 +127,9 @@ impl MatchKind {
                 .filter(|(_, line)| select::tokens_fire_line(line, tokens))
                 .map(|(i, _)| i + 1)
                 .collect(),
+            MatchKind::Probe(name) => crate::lint_probe::ProbeKind::from_name(name)
+                .map(|k| k.detect(lang, code))
+                .unwrap_or_default(),
         }
     }
 }
@@ -164,6 +174,8 @@ struct Batch {
     surface: Vec<usize>,
     /// Raw-universe token detectors (project law whose construct lives in comments/strings).
     raw: Vec<usize>,
+    /// Structural probe rules — each fires by walking the parsed tree ([`MatchKind::Probe`]).
+    probes: Vec<usize>,
 }
 
 /// One flagged violation: the rule it violates, that rule's severity, and the 1-based source line.
@@ -264,7 +276,26 @@ impl RuleSet {
             let desc_detector = |view: &GroundView| -> Option<(String, bool)> {
                 description_discriminator(desc, bad, good, view, &contexts, !trusted.contains(id))
             };
-            let kind = if has_grammar {
+            // UNDERSTANDING first (LINTER.md, "Rules from understanding — the probe bridge"): a
+            // machine-global CS-principles doc (`corpus/*.md`) that describes a defect class in
+            // prose, with no in-language example, is bound to the STRUCTURAL PROBE whose concept
+            // its prose means. This is where reading a principle turns into a check: no probe
+            // binds ⇒ there is nothing structural to enforce, and a general principle must not
+            // fall back to a token detector on its English words (that was the net-negative noise
+            // — a rule watching `command`, a document title firing as law).
+            let is_corpus_principle = source.contains("/corpus/") && bad.trim().is_empty();
+            let bound_probe = if is_corpus_principle {
+                crate::lint_probe::understand(desc)
+            } else {
+                None
+            };
+            if is_corpus_principle && bound_probe.is_none() {
+                dropped(id, "corpus principle: no probe recognises this prose (nothing structural to enforce)");
+                continue;
+            }
+            let kind = if let Some(probe) = bound_probe {
+                MatchKind::Probe(probe.name().to_string())
+            } else if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
                     // AST pattern — lossless and most precise.
                     MatchKind::Ast(pat)
@@ -340,7 +371,7 @@ impl RuleSet {
         compiled.retain(|r| {
             let bad = bad_map.get(r.id.as_str()).copied().unwrap_or("").trim();
             // No bad example → description-only rule; let it through without the SELF-FIRE check.
-            let keep = bad.is_empty() || !r.kind.matches(&text_input(r, bad)).is_empty();
+            let keep = bad.is_empty() || !r.kind.matches(lang, &text_input(r, bad)).is_empty();
             if !keep {
                 dropped(&r.id, "self-fire (detector misses the rule's own bad example)");
             }
@@ -349,7 +380,7 @@ impl RuleSet {
         // OVER-FIRE: must not flag THIS rule's own `good` example (if it has one).
         compiled.retain(|r| {
             let good = good_map.get(r.id.as_str()).copied().unwrap_or("");
-            let keep = good.is_empty() || r.kind.matches(&text_input(r, good)).is_empty();
+            let keep = good.is_empty() || r.kind.matches(lang, &text_input(r, good)).is_empty();
             if !keep {
                 dropped(&r.id, "over-fire (detector flags the rule's own good example)");
             }
@@ -436,7 +467,18 @@ impl RuleSet {
                 tokens.join(" … ")
             ),
             MatchKind::Tokens { tokens, .. } => format!("`{}`", tokens.join(" … ")),
+            MatchKind::Probe(name) => format!("a structural probe understood from the principle ({name})"),
         })
+    }
+
+    /// Whether `id` compiled to a structural [`MatchKind::Probe`] — the caller skips building a
+    /// concept fingerprint for it (a probe is precise and reports directly; a description-only
+    /// concept would only risk vetoing OTHER rules' true findings, LINTER.md "Hv concept gate").
+    pub fn is_probe(&self, id: &str) -> bool {
+        self.rules
+            .iter()
+            .find(|r| r.id == id)
+            .is_some_and(|r| matches!(r.kind, MatchKind::Probe(_)))
     }
 
     /// Whether `id`'s detector carries no discriminating structure of its own — a single-token
@@ -449,6 +491,9 @@ impl RuleSet {
         self.rules.iter().find(|r| r.id == id).is_some_and(|r| match &r.kind {
             MatchKind::Ast(p) => !p.structured(),
             MatchKind::Tokens { tokens, .. } => tokens.len() < 2,
+            // A probe is a structured predicate, not a bare token — it earns the lenient
+            // quarantine tier (1%), so a lightly-violated principle is still reported.
+            MatchKind::Probe(_) => false,
         })
     }
 
@@ -494,12 +539,25 @@ impl RuleSet {
             };
             self.fire_tokens(&batch.surface, &surface, &mut lines_per_rule);
         }
+        // Structural probes: each walks the tree itself (LINTER.md, "the probe bridge"). They
+        // judge the AST directly, so they run over the raw source, not the blanked surface.
+        for &i in &batch.probes {
+            if let MatchKind::Probe(name) = &self.rules[i].kind {
+                if let Some(kind) = crate::lint_probe::ProbeKind::from_name(name) {
+                    lines_per_rule[i].extend(kind.detect(&self.lang, code));
+                }
+            }
+        }
         let mut out = Vec::new();
         for (i, r) in self.rules.iter().enumerate() {
             let lines = &mut lines_per_rule[i];
             lines.sort_unstable();
             lines.dedup();
-            let precise = matches!(&r.kind, MatchKind::Ast(p) if p.text_anchored());
+            // Probes judge the tree structurally — as exact as a text-anchored AST match — so
+            // they report directly rather than through the concept gate, while staying
+            // quarantinable like any non-project rule (their id is not project law).
+            let precise = matches!(&r.kind, MatchKind::Ast(p) if p.text_anchored())
+                || matches!(&r.kind, MatchKind::Probe(_));
             for &line in lines.iter() {
                 out.push(Finding { rule: r.id.clone(), severity: r.severity.clone(), line, precise });
             }
@@ -514,6 +572,7 @@ impl RuleSet {
             let mut ast_by_kind: HashMap<String, Vec<usize>> = HashMap::new();
             let mut surface: Vec<usize> = Vec::new();
             let mut raw: Vec<usize> = Vec::new();
+            let mut probes: Vec<usize> = Vec::new();
             for (i, r) in self.rules.iter().enumerate() {
                 match &r.kind {
                     MatchKind::Ast(p) => {
@@ -521,9 +580,10 @@ impl RuleSet {
                     }
                     MatchKind::Tokens { raw: true, .. } => raw.push(i),
                     MatchKind::Tokens { .. } => surface.push(i),
+                    MatchKind::Probe(_) => probes.push(i),
                 }
             }
-            Batch { ast_by_kind, surface, raw }
+            Batch { ast_by_kind, surface, raw, probes }
         })
     }
 
@@ -632,12 +692,17 @@ impl crate::lint_codec::Bin for MatchKind {
                 tokens.enc(e);
                 e.boolean(*raw);
             }
+            MatchKind::Probe(name) => {
+                e.u(2);
+                e.str(name);
+            }
         }
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<MatchKind> {
         match d.u()? {
             0 => Some(MatchKind::Ast(tree::RulePattern::dec(d)?)),
             1 => Some(MatchKind::Tokens { tokens: Vec::dec(d)?, raw: d.boolean()? }),
+            2 => Some(MatchKind::Probe(d.str()?)),
             _ => None,
         }
     }

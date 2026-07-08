@@ -714,7 +714,7 @@ fn train_language(
             // Concepts only for rules that can fire — same argument as the module path.
             let concept_tuples: Vec<(String, String, String)> = local_rules
                 .iter()
-                .filter(|r| compiled.contains(&r.id))
+                .filter(|r| compiled.contains(&r.id) && !rules.is_probe(&r.id))
                 .map(|r| (r.id.clone(), r.description.clone(), r.bad.clone()))
                 .collect();
             let o = Overlay {

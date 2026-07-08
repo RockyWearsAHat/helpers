@@ -168,6 +168,85 @@ the char brain is threaded into both paths AND their hermetic tests carry a mean
 selection). This is the same migration as "construct selection and polarity onto the graph." Understanding
 is the product — surprise only ever measures whether it is forming.
 
+## Rules from understanding — the probe bridge (`lint_probe.rs`)
+
+**The north star made concrete: read a principle in prose, enforce it — no rule string, no
+exemplar of bad code required.** The linter must catch code that is bad by CS principles even when
+nobody wrote a pattern for it (dead code, a swallowed error, a god function, a magic number, a
+hardcoded secret, a shell injection). Containment matching and AST-diff patterns cannot express
+those — they need a construct to point at, and a *principle* points at a SHAPE. The bridge that
+closes the gap has two halves, and the boundary between them is the whole design:
+
+- **Programmed machinery — the STRUCTURAL PROBE** (`lint_probe::ProbeKind`). A probe is a pure
+  predicate over the tree-sitter tree: "a statement after a `return`", "`.unwrap()`/`.expect()` on
+  a fallible call", "a function body of more than N statements", "a `pub` item with no doc comment
+  above it", "a numeric literal that is neither small nor in a `const`/`static`", "a single-letter
+  value binding", "a secret-shaped string literal in a key/token/password-named binding",
+  "`format!` handed to a shell argument", "two function bodies with the same structural shape".
+  These are the tree-walking primitives the owner blessed us to code — they carry NO policy, only
+  the ability to RECOGNISE a shape, and each is pinned by its own unit test (`lint_probe::tests`).
+- **Learned policy — the BINDING** (`lint_probe::understand`). WHICH probes are live, and the
+  advice each finding carries, come entirely from READING the machine-global principles corpus
+  (`<data_root>/corpus/*.md` — prose, one `##` heading per principle, `any`-scoped). A principle's
+  description is understood in the 1-bit HDC substrate and bound to the probe whose CONCEPT it
+  means. Delete the corpus and every probe goes dark: the checks are learned, only the recognition
+  is programmed. The corpus is DATA, gated exactly like other corpus rules (LINTER.md, "Sources of
+  law"): trusted at compile time (law by location), quarantinable at run time.
+
+**How the binding is computed (and why it is not keyword matching).** Each probe carries a
+`concept` — a natural-English phrase naming the shape it detects ("unreachable dead code written
+after a return statement"). Both the principle's description and each probe's concept are reduced
+to their salient words (alphabetic runs ≥4 letters), each word encoded to its pure SPELLING
+CENTROID in the HDC space (`lint_char::spell_vector` — the representation `encode`'s own contract
+names as "what concept matching stands on"), and the description is bound to the probe of highest
+concept COVERAGE: the fraction of the probe's concept words that some description word accounts for
+(nearer than a noise-floor-derived Hamming bar). Coverage is asymmetric on purpose — it measures
+how much of what the probe is ABOUT the prose actually says, so a probe's distinctive vocabulary
+(`swallow`, `unwrap`, `secret`) drives the match and the words two concepts share (`error`,
+`result`) cannot decide between them. A binding is accepted only when coverage clears half the
+concept AND beats the runner-up by a clear margin; both bars are derived from the shape of the
+match, never from any listed word, so unrelated corpus prose (a different rule, a document title)
+binds to nothing. Measured: every principle in `corpus/principles.md` binds to its own probe with
+a decisive margin; `var`-declaration and type-equality prose (real corpus rules for other
+languages) and the document title bind to no probe.
+
+**Why the SPELLING centroid, not the dictionary meaning.** The dictionary meaning network is the
+comprehension backbone the reader stands on, but its `related()`/`meaning_of` proximity is measured
+NOT to separate here — through it every probe concept scored ~1.0 for every principle (the same
+non-separation LINTER.md records for disapproval-vs-neutral vocabulary). The spelling centroid
+DOES separate (shared stems land close, unrelated words at the noise floor) and is deterministic
+and machine-independent, so it is what the binding stands on this cycle. Because it matches shared
+stems rather than synonyms, the corpus prose and the probe concept must share vocabulary — which
+they naturally do, both describing the same defect. **NEXT STEP** (not a wall): binding a
+principle to a probe by dictionary SYNONYM — so a description worded entirely in synonyms still
+finds its probe — waits on a meaning metric that separates, the same open problem the side-count
+classifier addresses for polarity; the machinery is ready for it (swap the per-word encoder).
+
+**Compilation and firing.** In `RuleSet::build`, a corpus principle (source under `/corpus/`, no
+in-language example) is routed to `understand` FIRST; a bound principle compiles to
+`MatchKind::Probe(name)`, an unbound one compiles to NOTHING (a general principle must never fall
+back to a token detector on its English words — that was the net-negative noise, a rule watching
+`command`, a title firing as law). A probe fires in the ONE tree walk `RuleSet::flag` already pays,
+judging each node as it goes; its findings are `precise` (structurally exact, reported directly,
+never routed through the concept gate — a description-only concept would only risk vetoing other
+rules) yet remain quarantinable like any non-project rule, so a probe that floods a real repo
+(magic numbers, single-letter names are everywhere) is held to the 1% fire-rate bar and suppressed
+there while still firing on a project that violates it a handful of times. Probes are exempt from
+the example-based self/over/reference-fire gates (their example, if any, is in another language;
+their unit tests are the validation). `TRAIN_VERSION` bumps when a probe's semantics change; the
+corpus is read fresh each run (fast file read), so adding a principle needs no retrain.
+
+**Landed (validated, committed):** the ten probes above with unit tests; the coverage binding with
+its calibration test (every principle binds, unrelated prose binds to nothing); the
+`corpus/principles.md` canon; and the hermetic acceptance test
+(`native/tests/understanding_defects.rs`) that lints a genuinely terrible and a genuinely excellent
+Rust file through the real binary and asserts every understanding-class defect is flagged on the
+terrible file and the excellent file is CLEAN. Measured on that file: dead code, swallowed error,
+unwrap, god function, undocumented pub (×4), magic number (×2), single-letter name (×3), hardcoded
+secret, and shell injection all fire; the clean file yields zero findings. DRY (duplicated-code)
+and shell-injection probes are built and unit-tested; duplicated-code needs a duplication planted
+to fire (the acceptance file has none) and is the sharpening target next.
+
 ## Thesis
 
 **English is read; code is linted — and common language is learned FIRST.** The system builds a

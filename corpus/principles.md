@@ -1,12 +1,5 @@
 # CS principles — the enforceable canon, described in prose (machine-global corpus)
 
-> These are language-agnostic software principles (the CS2420/CS3500 canon), written as plain
-> English a reader UNDERSTANDS — not as rule strings and not as code patterns. Each principle
-> describes a defect class; the linter reads the description, understands it through the
-> dictionary meaning network, and binds it to the structural probe whose meaning matches. What is
-> enforced, and its advice, is exactly what these paragraphs say — delete one and its check goes
-> dark. Every stem here is `any`, so the principles govern every code language.
-
 ## dead_code_after_return [medium]
 Never write code after a return statement. A statement that follows a return is unreachable dead
 code: control has already left the function, so the code can never execute. Remove the unreachable
