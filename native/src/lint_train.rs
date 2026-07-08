@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v67-understanding-trace-bridge";
+pub(crate) const TRAIN_VERSION: &str = "docs-v68-trace-bridge-plurality";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -1999,7 +1999,36 @@ fn sources_fingerprint(data_root: &Path, lang: &str) -> String {
         resolved_sources(data_root, lang).into_iter().map(|s| s.url).collect();
     urls.sort();
     urls.dedup();
-    format!("{:016x}", crate::lint_ai::token_seed(&urls.join("\u{1f}")))
+    // Fold the machine-global corpus CONTENT into the fingerprint: the corpus principles compile
+    // into every language's module (understanding→trace bridge / probe fallback), so editing a
+    // principle — or adding a new one — must rebuild the module and enforce with ZERO code change
+    // (LINTER.md, "the understanding→trace bridge"). Hashing content (not just the file listing)
+    // is what catches an in-place edit to an existing corpus file.
+    let fp = crate::lint_ai::token_seed(&urls.join("\u{1f}")) ^ corpus_content_fp(data_root);
+    format!("{fp:016x}")
+}
+
+/// A content fingerprint of the machine-global corpus folder (`corpus/*.{md,txt}`), read FRESH from
+/// disk (not the listing memo, which is keyed by directory mtime and would miss an in-place content
+/// edit). Deterministic in sorted path order so the fingerprint is reproducible.
+fn corpus_content_fp(data_root: &Path) -> u64 {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(data_root.join("corpus"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().and_then(|x| x.to_str()).is_some_and(|x| x == "md" || x == "txt")
+        })
+        .collect();
+    files.sort();
+    let mut h = 0u64;
+    for p in files {
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            h = h.rotate_left(17) ^ crate::lint_ai::token_seed(&text);
+        }
+    }
+    h
 }
 
 /// The Ed25519 public keys allowed to sign the consumed registry index —
