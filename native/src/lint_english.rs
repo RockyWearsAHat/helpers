@@ -69,6 +69,15 @@ impl English {
             || self.reader.is_head_word(token)
     }
 
+    /// Whether `token` is a COMMON English word — one in the scale-free head of the dictionary
+    /// corpus (`use`, `match`, `return`), as opposed to merely a defined-but-rare word (`zap`,
+    /// `var`). This is the sharper judgment the mint gate needs: a construct a rule points at is
+    /// a word English cannot commonly account for, so a single-token detector on a ubiquitous
+    /// word is a leaked reference keyword, not a banned construct.
+    pub fn is_common(&self, token: &str) -> bool {
+        self.reader.is_head_word(token)
+    }
+
     /// The definition content-word seeds of the headword with `seed` — the one dictionary hop
     /// polarity diffusion reads through. `None` for a word the dictionary gave no usable
     /// definition (multi-word headword, or no entry).
