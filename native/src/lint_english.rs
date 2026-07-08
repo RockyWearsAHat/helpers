@@ -340,11 +340,13 @@ pub fn dictionary_prose(max_chunks: Option<usize>) -> Option<String> {
 
 /// The dictionary's headword→definition bindings as raw words — the source the character
 /// substrate's meaning network ([`crate::lint_char::MeaningNetwork`]) binds each headword to
-/// (LINTER.md, "The dictionary meaning network"). Each SINGLE-WORD headword yields the leading
-/// content words of its definition (the text before the entry's first " : " example separator;
-/// alphabetic, ≥2 characters, the headword itself excluded, capped at `max_words`); multi-word
-/// headwords are phrases whose parts are entries of their own. `max_chunks` bounds the read
-/// (`None` = the whole dictionary). `None` when no dictionary is parseable here.
+/// (LINTER.md, "The dictionary meaning network"). EVERY headword the dictionary defines yields the
+/// leading content words of its definition — single words AND multi-word headwords (`give up`,
+/// `null pointer` are constructs too, joined into one space-separated key). The definition is the
+/// text before the entry's first " : " example separator; words are alphabetic, ≥2 characters, the
+/// headword's own tokens excluded, capped at `max_words`. `max_chunks` bounds the read (`None` =
+/// the whole dictionary, the production curriculum — no artificial cap). `None` when no dictionary
+/// is parseable here.
 pub fn dictionary_definitions(
     max_chunks: Option<usize>,
     max_words: usize,
@@ -370,13 +372,19 @@ pub fn dictionary_definitions(
             let def_src = prose.split(" : ").next().unwrap_or(prose.as_str());
             for title in &titles {
                 let toks = crate::lint_read::tokens(title);
-                let [head] = toks.as_slice() else { continue };
+                if toks.is_empty() {
+                    continue;
+                }
+                // The headword IS the whole title (multi-word phrases included), keyed by its own
+                // token seed; its component tokens are excluded from the definition words so a
+                // headword never leaks its own spelling into its meaning.
+                let head = toks.join(" ");
                 let mut words: Vec<String> = Vec::new();
                 for tok in crate::lint_read::tokens(def_src) {
                     if tok.chars().count() < 2 || !tok.chars().all(char::is_alphabetic) {
                         continue;
                     }
-                    if &tok != head && !words.contains(&tok) {
+                    if !toks.contains(&tok) && !words.contains(&tok) {
                         words.push(tok);
                         if words.len() >= max_words {
                             break;
@@ -384,7 +392,7 @@ pub fn dictionary_definitions(
                     }
                 }
                 if !words.is_empty() {
-                    out.push((head.clone(), words));
+                    out.push((head, words));
                 }
             }
         }
