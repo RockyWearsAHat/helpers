@@ -73,6 +73,11 @@ pub fn all_tools() -> Vec<Tool> {
             handler: ls::run_config,
         },
         Tool {
+            name: "lint_query",
+            schema: tools::lint_query::schema,
+            handler: tools::lint_query::run,
+        },
+        Tool {
             name: "build_knowledge_index",
             schema: kn::schema_build_index,
             handler: kn::run_build_index,

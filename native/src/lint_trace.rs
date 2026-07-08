@@ -186,6 +186,39 @@ impl Plan {
     }
 }
 
+/// One salient concept's alignment, as the `explain` query reports it: the nearest primitive and
+/// the distances behind the decision. `aligned` is `Some(name)` only when the concept bound (its
+/// nearest was decisively closer than the runner-up); a filler word has `aligned: None` even though
+/// a `nearest` primitive is always named.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct ConceptAlign {
+    pub word: String,
+    pub nearest: String,
+    pub distance: u32,
+    pub runner_up: u32,
+    pub ratio: f64,
+    pub aligned: Option<String>,
+}
+
+/// The full step trace of understanding applied to one principle — the honest, structured answer
+/// the `lint_query explain` interrogation returns. Shows exactly why understanding did or did not
+/// shape a rule.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct Explanation {
+    /// The first sentence understanding read (a principle is stated once).
+    pub sentence: String,
+    /// Did the meaning-based prohibition gate fire?
+    pub prohibition: bool,
+    /// Negation OPERATORS found and set aside (they command; they are not concepts).
+    pub operators: Vec<String>,
+    /// Every salient concept and where it aligned.
+    pub concepts: Vec<ConceptAlign>,
+    /// The rule understanding shaped, when it did.
+    pub plan: Option<Plan>,
+    /// Why no rule was shaped, when none was.
+    pub abstain: Option<String>,
+}
+
 /// The understanding the bridge reads a principle through: the separating dictionary meaning
 /// network (for concept→primitive alignment) and the English brain (for the prohibition gate and
 /// the discovered negators that set predicate polarity). Both are the loaded global brains in
@@ -244,10 +277,18 @@ impl<'a> Bridge<'a> {
         words.iter().map(|w| self.meanings.related(concept, w)).min().unwrap_or(DIM as u32)
     }
 
-    /// ALIGN one concept to the generic primitive it is DECISIVELY nearest to, or `None` when no
-    /// primitive is a clear winner (the comparative margin — a filler word, or a word torn between
-    /// two primitives, abstains here). This is the whole "understanding picks the trace" step.
-    fn align(&self, concept: &str) -> Option<Primitive> {
+    /// The name of a primitive (predicate or relation) — for readable query output.
+    fn primitive_name(p: Primitive) -> &'static str {
+        match p {
+            Primitive::Pred(i) => PREDICATES[i].name,
+            Primitive::Rel(i) => RELATIONS[i].name,
+        }
+    }
+
+    /// Score `concept` against EVERY primitive and return the nearest, the winner distance, and the
+    /// runner-up distance — the raw material both alignment and the `explain` query read. Sorted
+    /// ascending by distance (0 = an exact descriptor-word match).
+    fn align_scored(&self, concept: &str) -> (Primitive, u32, u32) {
         let mut scored: Vec<(Primitive, u32)> = Vec::new();
         for (i, p) in PREDICATES.iter().enumerate() {
             scored.push((Primitive::Pred(i), self.score(concept, p.words)));
@@ -258,26 +299,30 @@ impl<'a> Bridge<'a> {
         scored.sort_by_key(|(_, d)| *d);
         let (best_prim, best) = scored[0];
         let runner_up = scored.get(1).map(|(_, d)| *d).unwrap_or(DIM as u32);
-        // Decisively nearest: best is at least (1 - BIND_MARGIN) closer than the runner-up. Exact
-        // matches (best == 0) always clear this; noise-floor ties never do.
-        if (best as f64) <= (runner_up as f64) * BIND_MARGIN {
-            Some(best_prim)
-        } else {
-            None
-        }
+        (best_prim, best, runner_up)
     }
 
-    /// UNDERSTAND a principle's prose: the composition its concepts compose to, or `None` when the
-    /// sentence states no prohibition, or its concepts do not align to a usable set of primitives
-    /// (ABSTAIN). No per-principle branch — the plan falls out of which generic primitives the
-    /// meaning aligned to and one composition rule.
+    /// UNDERSTANDING SHAPES A RULE: read a principle's prose and produce the composition
+    /// understanding shapes from it, or `None` when the sentence states no prohibition or its
+    /// concepts do not align to a usable set of primitives (ABSTAIN). The rule is what understanding
+    /// PRODUCES here; the machinery is the same [`explain`](Self::explain) step trace, minus the
+    /// bookkeeping. No per-principle branch.
     pub fn understand(&self, description: &str) -> Option<Plan> {
-        // Only a stated prohibition mints a rule (the existing meaning-based gate — never a word
-        // list). A neutral sentence names concepts too, but commands nothing.
-        let sentence = crate::lint_read::sentences(description).into_iter().next()?;
-        if !self.english.sentence_states_prohibition(sentence) {
-            return None;
-        }
+        self.explain(description).plan
+    }
+
+    /// The step-by-step trace of understanding APPLIED to `description` — the debugger behind the
+    /// `lint_query explain` interrogation. Records the prohibition-gate result, every salient
+    /// concept and the primitive it aligned to (with distance/margin), the plan understanding
+    /// shaped, or the precise reason it abstained. `understand` is this with only the plan kept.
+    pub fn explain(&self, description: &str) -> Explanation {
+        let mut ex = Explanation::default();
+        let Some(sentence) = crate::lint_read::sentences(description).into_iter().next() else {
+            ex.abstain = Some("empty input (no sentence)".to_string());
+            return ex;
+        };
+        ex.sentence = sentence.to_string();
+        ex.prohibition = self.english.sentence_states_prohibition(sentence);
         let tokens = tokenize(sentence);
         let mut bound: Vec<BoundConcept> = Vec::new();
         for (pos, tok) in &tokens {
@@ -285,33 +330,73 @@ impl<'a> Bridge<'a> {
                 continue;
             }
             // A negator ("never", "without") is an OPERATOR — it commands the rule or sets a
-            // predicate's polarity — never a concept naming a primitive. Excluding all of them
-            // keeps a word like "without" from spuriously aligning to a relation.
+            // predicate's polarity — never a concept naming a primitive.
             if self.is_negator(tok) {
+                ex.operators.push(tok.clone());
                 continue;
             }
-            if let Some(primitive) = self.align(tok) {
-                if std::env::var_os("HELPERS_TRACE_DEBUG").is_some() {
-                    let pname = match primitive {
-                        Primitive::Pred(i) => PREDICATES[i].name,
-                        Primitive::Rel(i) => RELATIONS[i].name,
-                    };
-                    eprintln!("[bind] {tok}@{pos} -> {pname}");
-                }
-                bound.push(BoundConcept { word: tok.clone(), position: *pos, primitive });
+            let (prim, best, runner_up) = self.align_scored(tok);
+            let ratio = best as f64 / runner_up.max(1) as f64;
+            let aligned = (ratio <= BIND_MARGIN).then(|| Self::primitive_name(prim).to_string());
+            if aligned.is_some() {
+                bound.push(BoundConcept { word: tok.clone(), position: *pos, primitive: prim });
             }
+            ex.concepts.push(ConceptAlign {
+                word: tok.clone(),
+                nearest: Self::primitive_name(prim).to_string(),
+                distance: best,
+                runner_up,
+                ratio: (ratio * 1000.0).round() / 1000.0,
+                aligned,
+            });
         }
-
+        if !ex.prohibition {
+            ex.abstain = Some("states no prohibition — the meaning-based gate did not fire".to_string());
+            return ex;
+        }
         let relations: Vec<&BoundConcept> =
             bound.iter().filter(|b| matches!(b.primitive, Primitive::Rel(_))).collect();
         let predicates: Vec<&BoundConcept> =
             bound.iter().filter(|b| matches!(b.primitive, Primitive::Pred(_))).collect();
-
-        if let Some(rel_concept) = relations.first() {
+        let plan = if let Some(rel_concept) = relations.first() {
             let Primitive::Rel(rel) = rel_concept.primitive else { unreachable!() };
-            return self.compose_relational(rel, rel_concept.position, &predicates);
+            self.compose_relational(rel, rel_concept.position, &predicates)
+        } else {
+            self.compose_unary(&predicates)
+        };
+        match plan {
+            Some(p) => ex.plan = Some(p),
+            None => {
+                ex.abstain = Some(self.abstain_reason(&relations, &predicates));
+            }
         }
-        self.compose_unary(&predicates)
+        ex
+    }
+
+    /// Why composition produced no rule — the precise application-failure reason the `explain` query
+    /// reports (never a vague "abstained").
+    fn abstain_reason(&self, relations: &[&BoundConcept], predicates: &[&BoundConcept]) -> String {
+        if relations.is_empty() && predicates.is_empty() {
+            return "no salient concept aligned to any primitive".to_string();
+        }
+        if let Some(rel) = relations.first() {
+            return format!(
+                "relation `{}` aligned but no role predicate did (a relation needs two endpoints)",
+                Self::primitive_name(rel.primitive)
+            );
+        }
+        let self_bad_present = predicates.iter().any(|b| {
+            matches!(b.primitive, Primitive::Pred(i) if PREDICATES[i].self_bad)
+        });
+        if !self_bad_present {
+            let names: Vec<&str> =
+                predicates.iter().map(|b| Self::primitive_name(b.primitive)).collect();
+            return format!(
+                "only role/qualifier concepts aligned ({}), none a self-contained defect",
+                names.join(", ")
+            );
+        }
+        "no rule shaped".to_string()
     }
 
     /// Compose a RELATIONAL plan: assign the two role predicates to the relation's endpoints. The
@@ -417,6 +502,30 @@ pub fn understand(description: &str) -> Option<Plan> {
     let char_brain = crate::lint_char::brain()?;
     let english = crate::lint_english::brain()?;
     Bridge::new(char_brain.meanings(), english).understand(description)
+}
+
+/// EXPLAIN understanding applied to `description` through the machine's loaded brains — the step
+/// trace the `lint_query explain` interrogation returns. `None` when a brain is unavailable.
+pub fn explain(description: &str) -> Option<Explanation> {
+    let char_brain = crate::lint_char::brain()?;
+    let english = crate::lint_english::brain()?;
+    Some(Bridge::new(char_brain.meanings(), english).explain(description))
+}
+
+/// The distance from `word` to EVERY generic primitive (min over the primitive's descriptor words),
+/// sorted nearest-first — what the `lint_query define` interrogation reports as "nearest concepts
+/// in the meaning space". `None` when a brain is unavailable.
+pub fn concept_alignment(word: &str) -> Option<Vec<(String, u32)>> {
+    let char_brain = crate::lint_char::brain()?;
+    let english = crate::lint_english::brain()?;
+    let bridge = Bridge::new(char_brain.meanings(), english);
+    let mut out: Vec<(String, u32)> = PREDICATES
+        .iter()
+        .map(|p| (p.name.to_string(), bridge.score(word, p.words)))
+        .chain(RELATIONS.iter().map(|r| (r.name.to_string(), bridge.score(word, r.words))))
+        .collect();
+    out.sort_by_key(|(_, d)| *d);
+    Some(out)
 }
 
 /// Split a sentence into `(position, lowercased-word)` tokens, punctuation trimmed — the position
