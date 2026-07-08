@@ -314,6 +314,60 @@ fn rotate_by(hv: &Hv, k: usize) -> Hv {
     v
 }
 
+// ── Rules from UNDERSTANDING (owner directive: never a surprise threshold) ────
+
+/// Read a language's documentation PROSE and produce rules from UNDERSTANDING. Each sentence is
+/// understood through the dictionary's meaning network ([`crate::lint_english`], distilled from
+/// the same dictionary this brain read at character level): a sentence whose MEANING is a
+/// prohibition — it carries a word the dictionary DEFINES by negation ("never", "avoid",
+/// "deprecated") — names a CONSTRUCT, the word the sentence is about that English cannot account
+/// for, and that pairing is a rule. No surprise, no threshold: comprehension decides, and a rule
+/// is a construct the docs' own words forbid.
+pub fn rules_from_understanding(lang: &str, prose: &str) -> Vec<crate::linter::LearnedRule> {
+    let Some(eng) = crate::lint_english::brain() else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for sentence in crate::lint_read::sentences(prose) {
+        let words: Vec<String> = sentence
+            .split_whitespace()
+            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+            .filter(|w| w.len() >= 2)
+            .collect();
+        // UNDERSTANDING — is this sentence's meaning a prohibition? It carries a word whose
+        // dictionary definition is negation (discovered from the dictionary, never a keyword
+        // list): "never" = "at no time", "deprecated" defined against use.
+        let prohibition = words
+            .iter()
+            .any(|w| eng.is_negation(crate::lint_ai::token_seed(&w.to_lowercase())));
+        if !prohibition {
+            continue;
+        }
+        // The CONSTRUCT — the word the sentence is ABOUT that English cannot account for: a
+        // dictionary non-word that is code-shaped (carries a letter). The most distinctive
+        // (longest) such word is the named construct ("goto" among ordinary English).
+        let Some(construct) = words
+            .iter()
+            .filter(|w| !eng.knows(w) && w.chars().any(|c| c.is_alphabetic()))
+            .max_by_key(|w| w.len())
+        else {
+            continue;
+        };
+        let id = construct.to_lowercase();
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        out.push(crate::linter::LearnedRule {
+            language: lang.to_string(),
+            id,
+            severity: "medium".to_string(),
+            description: sentence.trim().to_string(),
+            bad: construct.clone(),
+            good: String::new(),
+        });
+    }
+    out
+}
+
 // ── The cumulative global brain (setup trains it; lint loads it) ──────────────
 
 /// Where the machine's character brain lives, beside the models.
@@ -539,6 +593,54 @@ mod tests {
         std::env::remove_var("HELPERS_LINT_OFFLINE");
         std::env::remove_var("HELPERS_LINT_MODELS");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// END-TO-END, understanding-driven (owner directive): documentation PROSE → the dictionary
+    /// meaning network understands the prohibition and names the construct → a rule → it FIRES
+    /// on real code. No surprise anywhere. Hermetic — the dictionary understanding loads from
+    /// the committed english bootstrap.
+    #[test]
+    fn understanding_extracts_a_rule_that_fires_on_real_code() {
+        let prose = "Never use the goto statement anywhere; it is deprecated and will be removed. \
+                     Prefer a structured loop instead.";
+        let rules = super::rules_from_understanding("flowlang", prose);
+        assert!(
+            rules.iter().any(|r| r.bad == "goto"),
+            "understanding names the forbidden construct: {:?}",
+            rules.iter().map(|r| (r.bad.clone(), r.description.clone())).collect::<Vec<_>>()
+        );
+        // Compile through the REAL matcher and fire on REAL code — the whole path.
+        let tuples: Vec<(String, String, String, String, String, String)> = rules
+            .iter()
+            .map(|r| {
+                (
+                    r.id.clone(),
+                    r.severity.clone(),
+                    r.bad.clone(),
+                    r.good.clone(),
+                    r.description.clone(),
+                    "doc".to_string(),
+                )
+            })
+            .collect();
+        let rs = crate::lint_match::RuleSet::build(
+            "flowlang",
+            &tuples,
+            &crate::lint_match::Grounding::default(),
+        );
+        let findings = rs.flag("start:\n    goto cleanup\n    emit(\"done\")\n");
+        assert!(
+            findings.iter().any(|f| f.rule == "goto" && f.line == 2),
+            "the understood rule fires on the goto line: {:?}",
+            findings.iter().map(|f| (f.rule.clone(), f.line)).collect::<Vec<_>>()
+        );
+        // And it does NOT fire on clean code with no goto.
+        let clean = rs.flag("start:\n    emit(\"done\")\n");
+        assert!(
+            clean.is_empty(),
+            "no false positive on clean code: {:?}",
+            clean.iter().map(|f| f.rule.clone()).collect::<Vec<_>>()
+        );
     }
 
     /// The persisted brain round-trips exactly — a loaded brain reads pages identically to the
