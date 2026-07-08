@@ -33,7 +33,10 @@ const MEM_CAP: usize = 8 << 20;
 /// 4: the learned title-shape ceiling rides [`StructureRoles`] beside the roles.
 /// 5: the meaning network binds the WHOLE dictionary — multi-word headwords included, all senses
 /// folded ([`MeaningNetwork`], owner directive 2026-07-07) — so every stale brain rebinds it.
-const BRAIN_REV: u64 = 5;
+/// 6: the web curriculum is read DEDUPED ([`novel_blocks`], owner directive 2026-07-08) — repeated
+/// crawl chrome is learned once, not 20 000×, so the corpus is representative and the read is
+/// seconds; every stale brain rebuilds on the smaller, correct corpus.
+const BRAIN_REV: u64 = 6;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -335,6 +338,14 @@ impl CharReader {
         self.meanings.meaning_of(word)
     }
 
+    /// Whether the dictionary meaning network accounts for `word` — the cheap existence query, no
+    /// hypervector rebuilt (see [`MeaningNetwork::has`]). Equivalent to `meaning_of(word).is_some()`
+    /// but a binary search instead of bundling a dozen 8192-bit vectors; this is what the per-word
+    /// English judgment ([`crate::lint_graph::word_is_english`]) calls over the whole corpus.
+    pub fn has_meaning(&self, word: &str) -> bool {
+        self.meanings.has(word)
+    }
+
     /// The proximity of two words' meanings — see [`MeaningNetwork::related`].
     pub fn related(&self, a: &str, b: &str) -> u32 {
         self.meanings.related(a, b)
@@ -514,6 +525,17 @@ impl MeaningNetwork {
     fn definition(&self, word: &str) -> Option<&[String]> {
         let seed = crate::lint_ai::token_seed(&word.to_lowercase());
         self.defs.binary_search_by_key(&seed, |(k, _)| *k).ok().map(|i| self.defs[i].1.as_slice())
+    }
+
+    /// Whether `word` has a bound meaning — the cheap EXISTENCE query (a binary search over the
+    /// sealed seeds), with none of the per-word hypervector rebinding [`meaning_of`](Self::meaning_of)
+    /// does. Exactly equivalent to `meaning_of(word).is_some()` (a bound definition is never empty —
+    /// [`bind`](Self::bind) drops empty ones — so its meaning vector is always non-empty), so a
+    /// caller that only asks "does English account for this word" pays a compare, not a bundle of a
+    /// dozen 8192-bit vectors. This is the hot query the structure-role learner and construct
+    /// selection ask per word over the whole corpus.
+    pub fn has(&self, word: &str) -> bool {
+        self.definition(word).is_some()
     }
 
     /// The MEANING of `word`: its definition's content words each [`encode`](CharReader::encode)d
@@ -798,11 +820,63 @@ pub fn train_curriculum<'a>(corpora: impl IntoIterator<Item = &'a str>) -> CharR
 /// PAGE is built from.
 const WEB_CURRICULUM: [&str; 3] = ["html", "css", "javascript"];
 
+/// Corpus dedup block size (characters). A crawled page is split into blocks at newlines (a block
+/// longer than this is further chunked, so minified single-line pages still dedup), and a block
+/// whose exact text was already learned THIS build is skipped. Repeated page chrome — the nav
+/// sidebar and footer duplicated across a 20 000-page crawl — is thus learned ONCE; unique prose,
+/// code, and tag structure are all kept verbatim. Raw HTML is preserved (owner guardrail: the
+/// structure-role learner needs real markup in context); only the DUPLICATION dies. This is a
+/// correctness fix as much as a speed one: re-reading identical chrome 20 000× teaches an order-5
+/// predictor nothing after the first exposures and only skews the frequency curve.
+const DEDUP_BLOCK: usize = 512;
+
+/// Novel-content ceiling per crawl source (characters) — a runaway safety valve, NOT a working
+/// limit. Representative raw HTML of a language (its tags, real prose, real code) fits easily; this
+/// exists only so a pathological source of genuinely-unique boilerplate cannot re-inflate the
+/// corpus the dedup just shrank. The dictionary base is exempt (it is unique content by nature).
+const LANG_CORPUS_CAP: usize = 24 << 20;
+
+/// The NOVEL raw-HTML of `body` under `seen`: its blocks (newline-delimited, long blocks chunked
+/// at [`DEDUP_BLOCK`]) that have not been learned this build, concatenated in order and bounded by
+/// `budget` (decremented as content is kept). Blank blocks are dropped; duplicated chrome collapses
+/// to its first occurrence while unique content and tag structure are retained verbatim. Keeping
+/// blocks in place (not stripping tags) preserves the markup-in-context the structure-role learner
+/// reads (owner guardrail).
+fn novel_blocks(
+    body: &str,
+    seen: &mut std::collections::HashSet<u64>,
+    budget: &mut usize,
+) -> String {
+    let mut out = String::new();
+    for line in body.split_inclusive('\n') {
+        let mut rest = line;
+        while !rest.is_empty() {
+            if *budget == 0 {
+                return out;
+            }
+            // Chunk overlong blocks on a char boundary so a minified single-line page still dedups.
+            let end = rest.char_indices().nth(DEDUP_BLOCK).map_or(rest.len(), |(i, _)| i);
+            let (block, tail) = rest.split_at(end);
+            rest = tail;
+            if block.trim().is_empty() {
+                continue;
+            }
+            if seen.insert(crate::lint_ai::token_seed(block)) {
+                out.push_str(block);
+                *budget = budget.saturating_sub(block.chars().count());
+            }
+        }
+    }
+    out
+}
+
 /// SETUP verb (curriculum): build this machine's character brain if missing or its inputs
 /// changed, cumulatively — the whole dictionary (English base), then every raw page of the web
-/// curriculum in order. Purely reads what setup already cached/crawled; saves `char.global.bin`.
-/// Returns a one-line report, or `None` when there is no dictionary and no cached web pages to
-/// learn from. Online only through the shared crawl cache (same latch as every setup read).
+/// curriculum in order, DEDUPED to representative content ([`novel_blocks`]: repeated crawl chrome
+/// is learned once, not 20 000×). Purely reads what setup already cached/crawled; saves
+/// `char.global.bin`. Returns a one-line report, or `None` when there is no dictionary and no
+/// cached web pages to learn from. Online only through the shared crawl cache (same latch as every
+/// setup read).
 #[cfg(feature = "crawl")]
 pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     // Freshness: the brain is keyed by the dictionary fingerprint folded with each web
@@ -825,6 +899,14 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     if brain_fp() == Some(fp) && store_path().exists() {
         return Some("character brain: current".to_string());
     }
+    let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
+    let mut clock = std::time::Instant::now();
+    let mut lap = |clock: &mut std::time::Instant, name: &str| {
+        if trace {
+            eprintln!("[char-brain] {name}: {:.1}ms", clock.elapsed().as_secs_f64() * 1e3);
+        }
+        *clock = std::time::Instant::now();
+    };
     let mut r = CharReader::new();
     let mut order: Vec<String> = Vec::new();
     if let Some(prose) = &english {
@@ -832,6 +914,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         r.learn(prose);
         order.push(format!("english {}c", r.total - before));
     }
+    lap(&mut clock, "english-learn");
     // Bind the dictionary's headword→definition meaning network from the SAME dictionary
     // (LINTER.md, "The dictionary meaning network") — the char substrate's comprehension graph.
     if let Some(defs) = crate::lint_english::dictionary_definitions(None, MAX_MEANING_WORDS) {
@@ -842,22 +925,37 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         r.meanings.seal();
         order.push(format!("meanings {}w", r.meanings.len()));
     }
+    lap(&mut clock, "meanings-bind");
+    // Read the web curriculum DEDUPED: a global block set collapses the chrome repeated across a
+    // crawl to its first occurrence, so the reader sees each language's real structure and content
+    // once instead of thousands of near-identical copies. The deduped raw-HTML pages are kept for
+    // the structure-role learner (it needs markup in context, and identical chrome adds no
+    // discriminating instances anyway).
+    let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut web_bodies: Vec<String> = Vec::new();
     for (lang, pages) in &web {
         let before = r.total;
+        let mut budget = LANG_CORPUS_CAP;
         for (_, body) in pages {
-            r.learn(body);
+            let novel = novel_blocks(body, &mut seen, &mut budget);
+            if novel.is_empty() {
+                continue;
+            }
+            r.learn(&novel);
+            web_bodies.push(novel);
         }
         if r.total > before {
             order.push(format!("{lang} {}c", r.total - before));
         }
     }
+    lap(&mut clock, "web-dedup+learn");
     // Learn the page STRUCTURE by exposure (LINTER.md, "Reading a page is UNDERSTANDING"): over
-    // the same web curriculum, which register followed each markup token — code carriers vs
-    // section headings — read with the meaning network just sealed. This is what lets the reader
+    // the same (deduped) web curriculum, which register followed each markup token — code carriers
+    // vs section headings — read with the meaning network just sealed. This is what lets the reader
     // tell a title from an example when their words are equally unbound.
-    let bodies: Vec<&str> =
-        web.iter().flat_map(|(_, pages)| pages.iter().map(|(_, b)| b.as_str())).collect();
+    let bodies: Vec<&str> = web_bodies.iter().map(String::as_str).collect();
     r.set_structure(crate::lint_graph::learn_structure_roles(&r, &bodies));
+    lap(&mut clock, "structure-roles");
     // No web to read (offline or localhost-only) ⇒ hydrate roles from the committed bootstrap, so
     // the saved brain reads pages by role even where the curriculum could not crawl the web.
     r.ensure_structure();
@@ -866,6 +964,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     }
     save(&r);
     save_brain_fp(fp);
+    lap(&mut clock, "save");
     Some(format!(
         "character brain: read {} chars, {} contexts — curriculum: {}",
         r.total_read(),
