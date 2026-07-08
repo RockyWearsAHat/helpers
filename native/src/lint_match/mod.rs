@@ -109,6 +109,12 @@ enum MatchKind {
     /// READING the corpus prose and understanding it ([`crate::lint_probe::understand`]); the
     /// stored string is the probe's stable name.
     Probe(String),
+    /// The UNDERSTANDING→TRACE bridge (LINTER.md, "the understanding→trace bridge"): the corpus
+    /// principle's prose was read by [`crate::lint_trace`] into a composition of GENERIC tracing
+    /// primitives (a [`crate::lint_trace::Plan`]) — the rule IS the understanding, no per-principle
+    /// detector. The plan fires by walking the parsed tree. This is the primary path for corpus
+    /// principles; [`MatchKind::Probe`] is the committed fallback for prose the bridge abstains on.
+    Trace(crate::lint_trace::Plan),
 }
 
 impl MatchKind {
@@ -130,6 +136,7 @@ impl MatchKind {
             MatchKind::Probe(name) => crate::lint_probe::ProbeKind::from_name(name)
                 .map(|k| k.detect(lang, code))
                 .unwrap_or_default(),
+            MatchKind::Trace(plan) => crate::lint_trace::run_plan(plan, lang, code),
         }
     }
 }
@@ -336,16 +343,23 @@ impl RuleSet {
             // fall back to a token detector on its English words (that was the net-negative noise
             // — a rule watching `command`, a document title firing as law).
             let is_corpus_principle = source.contains("/corpus/") && bad.trim().is_empty();
-            let bound_probe = if is_corpus_principle {
+            // UNDERSTANDING→TRACE first (the rule IS the understanding): read the principle's prose
+            // into a composition of generic primitives ([`crate::lint_trace`]). Only when the bridge
+            // ABSTAINS does the committed per-principle probe fallback get a turn (run alongside
+            // until the live anti-cheat passes; LINTER.md).
+            let bound_trace = if is_corpus_principle { crate::lint_trace::understand(desc) } else { None };
+            let bound_probe = if is_corpus_principle && bound_trace.is_none() {
                 crate::lint_probe::understand(desc)
             } else {
                 None
             };
-            if is_corpus_principle && bound_probe.is_none() {
-                dropped(id, "corpus principle: no probe recognises this prose (nothing structural to enforce)");
+            if is_corpus_principle && bound_trace.is_none() && bound_probe.is_none() {
+                dropped(id, "corpus principle: neither the trace bridge nor a probe recognises this prose (nothing structural to enforce)");
                 continue;
             }
-            let kind = if let Some(probe) = bound_probe {
+            let kind = if let Some(plan) = bound_trace {
+                MatchKind::Trace(plan)
+            } else if let Some(probe) = bound_probe {
                 MatchKind::Probe(probe.name().to_string())
             } else if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
@@ -531,6 +545,7 @@ impl RuleSet {
             ),
             MatchKind::Tokens { tokens, .. } => format!("`{}`", tokens.join(" … ")),
             MatchKind::Probe(name) => format!("a structural probe understood from the principle ({name})"),
+            MatchKind::Trace(plan) => format!("understanding traced from the principle ({})", plan.describe()),
         })
     }
 
@@ -541,7 +556,7 @@ impl RuleSet {
         self.rules
             .iter()
             .find(|r| r.id == id)
-            .is_some_and(|r| matches!(r.kind, MatchKind::Probe(_)))
+            .is_some_and(|r| matches!(r.kind, MatchKind::Probe(_) | MatchKind::Trace(_)))
     }
 
     /// Whether `id`'s detector carries no discriminating structure of its own — a single-token
@@ -554,9 +569,9 @@ impl RuleSet {
         self.rules.iter().find(|r| r.id == id).is_some_and(|r| match &r.kind {
             MatchKind::Ast(p) => !p.structured(),
             MatchKind::Tokens { tokens, .. } => tokens.len() < 2,
-            // A probe is a structured predicate, not a bare token — it earns the lenient
+            // A probe/trace is a structured predicate, not a bare token — it earns the lenient
             // quarantine tier (1%), so a lightly-violated principle is still reported.
-            MatchKind::Probe(_) => false,
+            MatchKind::Probe(_) | MatchKind::Trace(_) => false,
         })
     }
 
@@ -605,10 +620,16 @@ impl RuleSet {
         // Structural probes: each walks the tree itself (LINTER.md, "the probe bridge"). They
         // judge the AST directly, so they run over the raw source, not the blanked surface.
         for &i in &batch.probes {
-            if let MatchKind::Probe(name) = &self.rules[i].kind {
-                if let Some(kind) = crate::lint_probe::ProbeKind::from_name(name) {
-                    lines_per_rule[i].extend(kind.detect(&self.lang, code));
+            match &self.rules[i].kind {
+                MatchKind::Probe(name) => {
+                    if let Some(kind) = crate::lint_probe::ProbeKind::from_name(name) {
+                        lines_per_rule[i].extend(kind.detect(&self.lang, code));
+                    }
                 }
+                MatchKind::Trace(plan) => {
+                    lines_per_rule[i].extend(crate::lint_trace::run_plan(plan, &self.lang, code));
+                }
+                _ => {}
             }
         }
         let mut out = Vec::new();
@@ -620,7 +641,7 @@ impl RuleSet {
             // they report directly rather than through the concept gate, while staying
             // quarantinable like any non-project rule (their id is not project law).
             let precise = matches!(&r.kind, MatchKind::Ast(p) if p.text_anchored())
-                || matches!(&r.kind, MatchKind::Probe(_));
+                || matches!(&r.kind, MatchKind::Probe(_) | MatchKind::Trace(_));
             for &line in lines.iter() {
                 out.push(Finding { rule: r.id.clone(), severity: r.severity.clone(), line, precise });
             }
@@ -643,7 +664,7 @@ impl RuleSet {
                     }
                     MatchKind::Tokens { raw: true, .. } => raw.push(i),
                     MatchKind::Tokens { .. } => surface.push(i),
-                    MatchKind::Probe(_) => probes.push(i),
+                    MatchKind::Probe(_) | MatchKind::Trace(_) => probes.push(i),
                 }
             }
             Batch { ast_by_kind, surface, raw, probes }
@@ -759,6 +780,12 @@ impl crate::lint_codec::Bin for MatchKind {
                 e.u(2);
                 e.str(name);
             }
+            // The trace plan is a handful of primitive indices — serialized as JSON on the string
+            // stream (tiny; no dedicated wire form warranted).
+            MatchKind::Trace(plan) => {
+                e.u(3);
+                e.str(&serde_json::to_string(plan).unwrap_or_default());
+            }
         }
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<MatchKind> {
@@ -766,6 +793,7 @@ impl crate::lint_codec::Bin for MatchKind {
             0 => Some(MatchKind::Ast(tree::RulePattern::dec(d)?)),
             1 => Some(MatchKind::Tokens { tokens: Vec::dec(d)?, raw: d.boolean()? }),
             2 => Some(MatchKind::Probe(d.str()?)),
+            3 => serde_json::from_str(&d.str()?).ok().map(MatchKind::Trace),
             _ => None,
         }
     }

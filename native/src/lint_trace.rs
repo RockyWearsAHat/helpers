@@ -158,7 +158,7 @@ enum Primitive {
 /// The composition a principle compiles to — the general shape of a violation query, derived from
 /// which primitives the sentence's concepts aligned to. NOT a per-principle object: it is just the
 /// small set of bound primitive indices and their roles.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Plan {
     /// A single node satisfying every listed predicate — a self-bad shape ("a single-letter
     /// variable name"). (Inner-negation polarity — "public WITHOUT documentation" — is a Step-4

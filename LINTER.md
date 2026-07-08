@@ -263,22 +263,34 @@ ZERO code change. `lint_trace` is that bridge, and it stands on the now-SEPARATI
   When the concepts do NOT align to a usable set, the bridge ABSTAINS (no rule) — silent-and-correct
   over loud-and-wrong.
 
-**Proven end to end (`lint_trace::tests::bridge_enforces_three_shapes`, three differently-shaped
-principles, their real corpus prose, one mechanism, zero per-principle code):** dead-code-after-return
-(`relational(follows_in_block: A=statement B=control_exit)`, flags the dead statements, clean on good
-code); non-descriptive-name (`unary(single_letter_name)`, flags the single-letter binding); DRY
-(`relational(duplicate_subtree)`, flags both duplicated bodies). Two abstain cases hold (a
-non-prohibition, and a prohibition whose concepts map to no primitive).
+**Wired into the LIVE walk (`lint_match`).** A corpus principle compiles trace-FIRST:
+`RuleSet::build` reads its prose through `lint_trace::understand` (the loaded char brain's separating
+meaning network + the English brain) into a `Plan`, stored as `MatchKind::Trace` and fired by
+`run_plan` in the one-pass tree walk — precise, quarantinable like a probe. Only when the bridge
+ABSTAINS does the committed per-principle `lint_probe` fallback get a turn (run ALONGSIDE until the
+orchestrator's live anti-cheat passes; then `lint_probe` is deleted).
 
-**Known Step-4 extension (reported, not forced):** inner-negation polarity ("public WITHOUT a
-documentation comment" → flag public items that are NOT documented) is not yet robust — the
-dictionary's meaning network clusters the preposition "without" with POSITIONAL prepositions
-("after"), and its definition chain ("in the absence of") never reaches a base negator, so "without"
-is neither excluded as an operator nor detected as a negator. Undocumented-public therefore mis-shapes
-and is held out; the fix (POS-aware definition reading, or a negation anchor on the sentence's own
-operator) lands in Step 4. Not yet wired into the lint walk, not scaled to all principles, and
-`lint_probe` is not yet removed — that is Step 4, after the orchestrator verifies this checkpoint
-(including a never-before-seen corpus sentence enforcing with zero code change).
+**Generic vocabulary (all reusable, none per-principle).** Predicates: `statement`, `control_exit`,
+`public_item`, `documented`, `single_letter_name`, `unwrap_call`, `magic_number`, `long_body`,
+`hardcoded_secret`, `shell_injection`. Relations: `follows_in_block`, `duplicate_subtree`. A
+predicate marked `self_bad` is a complete defect on its own (a magic number, an unwrap); a unary rule
+composes from those only, so an incidental role concept the sentence also names ("…in the CODE",
+"never WRITE …") cannot AND itself onto the defect. A construct-recognising predicate draws the
+tokens it looks for from its OWN meaning descriptor — one declared vocabulary, no hidden list. The
+comparative bind margin is relative (ratio 0.60 vs the runner-up), never an absolute distance:
+genuine descriptor matches bind at ratio ~0, spurious ones (~0.75–0.82) are dropped.
+
+**COVERAGE MAP (real corpus, `lint_trace::tests::coverage_map`; live-validated via `call lint`).**
+Enforced through the bridge (8): dead_code_after_return `relational(follows_in_block)`,
+unwrap_on_fallible `unary(unwrap_call)`, god_function `unary(long_body)`, magic_number, non_descriptive_name,
+hardcoded_secret, shell_injection, duplicated_code `relational(duplicate_subtree)`. ABSTAIN honestly
+(2): **swallowed_error** (no predicate built — the probe fallback still enforces it) and
+**undocumented_public_item** (inner-negation of "without" is not robustly detectable: the meaning
+network clusters that preposition with positional ones and its definition chain "in the absence of"
+never reaches a base negator; a definitional-hop attempt was reverted because it wrongly excluded
+absence-DEFINED content words like "secret" = "NOT known" — so the compounded operator test stands
+and undoc abstains cleanly, enforced meanwhile by the probe fallback). Adding a primitive later is
+generic, not per-principle. `lint_probe` remains the committed fallback until the anti-cheat passes.
 
 **Compilation and firing.** In `RuleSet::build`, a corpus principle (source under `/corpus/`, no
 in-language example) is routed to `understand` FIRST; a bound principle compiles to
