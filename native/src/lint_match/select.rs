@@ -340,6 +340,10 @@ pub(super) fn description_discriminator(
     // itself is code typography no dictionary defines — its parts being common must not
     // demote it. The docs head alone measurably cannot carry this judgment ("never" at 165
     // reads sat far under a 691-read head cutoff, so register words hijacked selection).
+    // MIGRATION (LINTER.md, "retiring word-level `english.knows`"): the single-token `e.knows`
+    // tie-break becomes `lint_graph::word_is_english(char_brain, …)` once the char brain reaches
+    // SELECTION and this path's tests carry a meaning-bound brain — LEFT until then so selection
+    // stays pinned.
     let connective = |surface: &str| {
         let inner = crate::lint_read::tokens(surface);
         (inner.len() == 1 && english.is_some_and(|e| e.knows(&inner[0])))

@@ -403,8 +403,8 @@ pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String>
 // ── Per-source crawl cache (one network read per machine per source) ──────────
 
 /// One documentation source cached RAW — per page, its URL and its body EXACTLY AS SERVED
-/// (LINTER.md, "Pages are cached RAW"): units are formed at READ time by the MarkupBrain's
-/// register reading, so a smarter reader re-reads the same cache without the network. Cached
+/// (LINTER.md, "Pages are cached RAW"): units are formed at READ time by the char substrate's
+/// page reading, so a smarter reader re-reads the same cache without the network. Cached
 /// once per machine keyed by the toolchain version whose docs these are, so a source shared by
 /// two languages (TypeScript ⊇ JavaScript both read MDN) or re-read after a `TRAIN_VERSION`
 /// bump costs the network exactly once. Stored as an `HLM1` container (kind CRAWL,
@@ -540,9 +540,10 @@ fn attribute_page(
 
 /// READ one cached raw page into `(page prose, units)` — units as
 /// `(slug, governing prose, code, language hint)`. This is the whole read-time unit former
-/// (LINTER.md, "Markup second"): fetch furniture is dropped, then the MarkupBrain's register
-/// reading segments the body — code is what reads as not-English against the W3-calibrated
-/// split, boundaries are title-shaped gaps, and no tag name is consulted. Slugs come from
+/// (LINTER.md, "Reading a page is UNDERSTANDING"): fetch furniture is dropped, then the char
+/// substrate's page reading ([`crate::lint_graph::read_page`]) forms units — code is what the
+/// meaning network and learned structural roles read as construct, boundaries are heading roles
+/// and title-shaped gaps, and no tag name is ever consulted. Slugs come from
 /// author marks (a per-rule URL slug, the nearest `id="…"` anchor) with the prose itself as
 /// the last resort, exactly as before. Blockless sections still form NO units (LINTER.md,
 /// "A blockless section cannot teach law yet").
@@ -701,20 +702,10 @@ fn source_lock(tool: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     map.lock().expect("lock map poisoned").entry(tool.to_string()).or_default().clone()
 }
 
-/// The RAW html documentation pages this machine holds, plus a fold of their reading
-/// fingerprints — the MarkupBrain's input (LINTER.md, "Markup second"). html's own registered
-/// sources are the corpus, read through the SAME per-source crawl cache html-the-language
-/// trains from (keyed by html's toolchain version), so the network is paid once between the
-/// two. Crawls only when the setup latch allows; otherwise replays whatever is cached.
-#[cfg(feature = "crawl")]
-pub(crate) fn html_raw_pages(data_root: &Path) -> (Vec<(String, String)>, u64) {
-    raw_pages(data_root, "html")
-}
-
 /// The RAW documentation pages this machine holds for `lang`, plus a fold of their reading
-/// fingerprints — the character brain's curriculum input ([`crate::lint_char`]) and the
-/// MarkupBrain's html input. Reads the language's registered sources through the same per-source
-/// crawl cache; crawls when the setup latch allows, else replays whatever is cached.
+/// fingerprints — the character brain's curriculum input ([`crate::lint_char`], the web delivery
+/// layer html→css→js among them). Reads the language's registered sources through the same
+/// per-source crawl cache; crawls when the setup latch allows, else replays whatever is cached.
 #[cfg(feature = "crawl")]
 pub(crate) fn raw_pages(data_root: &Path, lang: &str) -> (Vec<(String, String)>, u64) {
     let mut sources = crate::lint_train::registered_docs_sources(data_root, lang);

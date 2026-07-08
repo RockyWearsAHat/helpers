@@ -1,5 +1,6 @@
 //! Reading a documentation page as UNDERSTANDING (LINTER.md, "Reading a page is UNDERSTANDING") —
-//! the char-substrate unit former that replaces `lint_markup::read_page` on the read path.
+//! the char-substrate unit former, the sole reader on the read path (it superseded and replaced
+//! the deleted word-substrate MarkupBrain).
 //!
 //! **No tag is ever consulted by name.** The only programmed piece is typography from the spec's
 //! allowed list: a `<…>` run is ONE MARKUP TOKEN (HTML's word-boundary rule, the same class as
@@ -28,7 +29,7 @@ use crate::lint_char::{CharReader, StructureRoles};
 /// One read unit of a page: the code span's byte offset in the scanned body (for author-mark
 /// anchors), the prose that governs it, the code exactly as served (markup tokens dropped,
 /// entities decoded, lines preserved), and the block's own declared language label ("" when the
-/// author declared nothing). The downstream contract inherited from `lint_markup::PageUnit`.
+/// author declared nothing). The downstream contract both page consumers read.
 #[derive(Debug)]
 pub struct PageUnit {
     pub at: usize,
