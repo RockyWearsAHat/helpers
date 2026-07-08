@@ -27,8 +27,11 @@ const MEM_CAP: usize = 8 << 20;
 /// Revision of the brain's LEARNED CONTENT (distinct from the container format byte): bumped when
 /// the curriculum or the meaning-network binding scheme changes. It is folded into the freshness
 /// fingerprint, so every stale `char.global.bin` rebuilds instead of decoding a layout it
-/// predates. 1: the dictionary meaning network ([`MeaningNetwork`]) rides the artifact.
-const BRAIN_REV: u64 = 1;
+/// predates. 1: the dictionary meaning network ([`MeaningNetwork`]) rides the artifact. 2: the
+/// learned structural roles ([`StructureRoles`], the page-reading register association) ride it.
+/// 3: roles read word English-ness through morphology ([`crate::lint_graph::word_is_english`]).
+/// 4: the learned title-shape ceiling rides [`StructureRoles`] beside the roles.
+const BRAIN_REV: u64 = 4;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -60,6 +63,11 @@ pub struct CharReader {
     /// backbone `meaning_of`/`related` query. PERSISTED with the reader — a loaded brain answers
     /// what a word MEANS, not only how it is spelled.
     meanings: MeaningNetwork,
+    /// The learned STRUCTURAL ROLES (LINTER.md, "Reading a page is UNDERSTANDING"): the register
+    /// the brain saw follow each markup token across the web curriculum, an association keyed by
+    /// the element's own characters. This is what parts a section title from a code example when
+    /// meaning alone cannot. PERSISTED with the reader — a loaded brain reads pages by it.
+    structure: StructureRoles,
 }
 
 /// The most distinct continuations kept per context. A handful captures a context's real
@@ -88,8 +96,10 @@ impl crate::lint_codec::Bin for CharReader {
         e.raw_u32s(
             &entries.iter().flat_map(|(_, s)| s.iter().map(|c| *c as u32)).collect::<Vec<_>>(),
         );
-        // The meaning network rides the same artifact, after the prediction memory.
+        // The meaning network rides the same artifact, after the prediction memory; the learned
+        // structural roles follow it.
         self.meanings.enc(e);
+        self.structure.enc(e);
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<CharReader> {
         let total = d.fixed_u64()?;
@@ -112,7 +122,8 @@ impl crate::lint_codec::Bin for CharReader {
             mem.insert(k, set);
         }
         let meanings = crate::lint_codec::Bin::dec(d)?;
-        Some(CharReader { mem, total, meanings })
+        let structure = crate::lint_codec::Bin::dec(d)?;
+        Some(CharReader { mem, total, meanings, structure })
     }
 }
 
@@ -149,7 +160,12 @@ fn context_key(chars: &[char], i: usize, order: usize) -> u32 {
 
 impl CharReader {
     pub fn new() -> CharReader {
-        CharReader { mem: HashMap::new(), total: 0, meanings: MeaningNetwork::new() }
+        CharReader {
+            mem: HashMap::new(),
+            total: 0,
+            meanings: MeaningNetwork::new(),
+            structure: StructureRoles::new(),
+        }
     }
 
     /// Characters read so far.
@@ -326,6 +342,68 @@ impl CharReader {
     pub fn meanings(&self) -> &MeaningNetwork {
         &self.meanings
     }
+
+    /// The meaning network, mutably — setup binds the dictionary through it, and offline tests
+    /// build a small fixture network. The lint path never mutates it.
+    pub fn meanings_mut(&mut self) -> &mut MeaningNetwork {
+        &mut self.meanings
+    }
+
+    /// The LEARNED register role of the markup element whose name hashes to `seed`
+    /// (see [`StructureRoles::role_of`]): `Some(true)` a code carrier (its contents are code
+    /// however English their words), `Some(false)` a section heading (a boundary), `None` an
+    /// element the reading found no decisive role for. The page reader ([`crate::lint_graph`])
+    /// asks this before it asks meaning.
+    pub fn structure_role(&self, seed: u64) -> Option<bool> {
+        self.structure.role_of(seed)
+    }
+
+    /// Install the structural roles learned by exposure over the web curriculum
+    /// ([`crate::lint_graph::learn_structure_roles`]) — setup only; the lint path never learns.
+    pub fn set_structure(&mut self, roles: StructureRoles) {
+        self.structure = roles;
+    }
+
+    /// How many markup elements carry a learned register role — the read witness for setup.
+    pub fn roles_learned(&self) -> usize {
+        self.structure.len()
+    }
+
+    /// The learned page structure — the committed structure bootstrap is generated from this (a
+    /// machine that read the whole web curriculum), and hydrated back on a machine that could not
+    /// (the same fallback the english and markup substrates keep).
+    pub fn structure(&self) -> &StructureRoles {
+        &self.structure
+    }
+
+    /// The learned title-shape ceiling in words — the section-heading shape fallback the reader
+    /// uses when a heading element earned no role of its own.
+    pub fn title_ceiling(&self) -> u32 {
+        self.structure.title_ceiling()
+    }
+
+    /// Ensure the reader can read a page's structure: if the curriculum read no web pages (an
+    /// offline or localhost-only machine, so no roles were learned), hydrate the roles from the
+    /// committed bootstrap — the meaning network is still the brain's own local dictionary read.
+    /// Setup and the load path both call this, so a role-less brain never reaches the reader.
+    pub fn ensure_structure(&mut self) {
+        if self.structure.is_empty() {
+            if let Some(roles) = structure_bootstrap() {
+                self.structure = roles;
+            }
+        }
+    }
+}
+
+/// The committed structural-roles bootstrap (`lint-index/char-structure-bootstrap.json`) — the
+/// learned register roles, machine-generated by [`generate_char_structure_bootstrap`] on a machine
+/// that read the whole web curriculum, so a machine that cannot crawl the web still reads pages by
+/// role. Small learned data (a few dozen `seed → ±1` votes), the same committed-fallback pattern
+/// the english and markup substrates keep. `None` when the artifact is absent.
+fn structure_bootstrap() -> Option<StructureRoles> {
+    let text = crate::lint_train::embedded_lint_index_file("char-structure-bootstrap.json")?;
+    let roles: StructureRoles = serde_json::from_str(&text).ok()?;
+    (!roles.is_empty()).then_some(roles)
 }
 
 /// The char-level vector of a string (its spelling centroid): each character's [`char_hv`]
@@ -478,6 +556,94 @@ impl crate::lint_codec::Bin for MeaningNetwork {
     }
 }
 
+// ── Learned structural roles (LINTER.md, "Reading a page is UNDERSTANDING") ────
+
+/// The register the brain saw follow each markup token across the web curriculum — a code
+/// carrier (`+1`, its contained text read as code) or a section heading (`-1`, short
+/// title-shaped text). Keyed by the element name's token seed (its own characters — the same
+/// typography the scanner tokenizes with, never a tag name enumerated in product code). This is
+/// the association the page reader queries to tell `<pre>goto cleanup</pre>` (code) from
+/// `<h1>flowlang statements</h1>` (heading) when their words are equally unbound. Learned once at
+/// setup ([`crate::lint_graph::learn_structure_roles`]); the lint path only ever reads it.
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct StructureRoles {
+    /// Element-name seed → learned role (`+1` code carrier, `-1` heading). Sorted by seed so
+    /// [`role_of`](Self::role_of) answers by binary search.
+    roles: Vec<(u64, i8)>,
+    /// The learned title-shape ceiling: the upper word count of a section heading, from the web
+    /// curriculum's own headings — the shape fallback the reader bounds a section with when its
+    /// heading element earned no role (many pages' `<h1>` is a one-off page title, so headings
+    /// are not always learned by name). 0 when nothing was learned.
+    #[serde(default)]
+    title_ceiling: u32,
+}
+
+impl StructureRoles {
+    /// An empty role set — a brain that has learned no page structure yet reads by meaning alone.
+    pub fn new() -> StructureRoles {
+        StructureRoles { roles: Vec::new(), title_ceiling: 0 }
+    }
+
+    /// Build from `(seed, role)` votes (`+1` code carrier, `-1` heading) and the learned title
+    /// ceiling, sorted for binary search. The one constructor the setup learner uses; the lint
+    /// path never mutates roles.
+    pub fn from_learned(mut roles: Vec<(u64, i8)>, title_ceiling: u32) -> StructureRoles {
+        roles.sort_by_key(|(k, _)| *k);
+        roles.dedup_by_key(|(k, _)| *k);
+        StructureRoles { roles, title_ceiling }
+    }
+
+    /// The learned role of the element whose name hashes to `seed`: `Some(true)` a code carrier,
+    /// `Some(false)` a heading, `None` an element the reading found no decisive role for.
+    pub fn role_of(&self, seed: u64) -> Option<bool> {
+        self.roles.binary_search_by_key(&seed, |(k, _)| *k).ok().map(|i| self.roles[i].1 > 0)
+    }
+
+    /// The learned votes as `(seed, role)` pairs — how the committed structure bootstrap is
+    /// generated and how a role set is inspected.
+    pub fn votes(&self) -> &[(u64, i8)] {
+        &self.roles
+    }
+
+    /// The learned title-shape ceiling in words (0 = none learned) — the section-heading shape
+    /// fallback the reader uses when a heading element earned no role.
+    pub fn title_ceiling(&self) -> u32 {
+        self.title_ceiling
+    }
+
+    /// How many elements carry a role.
+    pub fn len(&self) -> usize {
+        self.roles.len()
+    }
+
+    /// Whether no page structure was learned at all (no roles and no title shape).
+    pub fn is_empty(&self) -> bool {
+        self.roles.is_empty() && self.title_ceiling == 0
+    }
+}
+
+/// HLM1 wire form: the element seeds and their signed roles ride the RAW stream as two parallel
+/// arrays in canonical sorted order, then the title ceiling, so the artifact is reproducible.
+impl crate::lint_codec::Bin for StructureRoles {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        let mut roles = self.roles.clone();
+        roles.sort_by_key(|(k, _)| *k);
+        e.raw_u64s(&roles.iter().map(|(k, _)| *k).collect::<Vec<_>>());
+        e.raw_u64s(&roles.iter().map(|(_, r)| *r as u64).collect::<Vec<_>>());
+        e.fixed_u64(u64::from(self.title_ceiling));
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<StructureRoles> {
+        let keys = d.raw_u64s()?;
+        let vals = d.raw_u64s()?;
+        if keys.len() != vals.len() {
+            return None;
+        }
+        let roles = keys.into_iter().zip(vals.into_iter().map(|r| r as i8)).collect();
+        let title_ceiling = d.fixed_u64()? as u32;
+        Some(StructureRoles { roles, title_ceiling })
+    }
+}
+
 /// Rotate an Hv left by `k` bits (positional binding) — `k` capped to the dimension.
 fn rotate_by(hv: &Hv, k: usize) -> Hv {
     let mut v = *hv;
@@ -548,19 +714,30 @@ fn store_path() -> std::path::PathBuf {
     crate::lint_train::model_dir_pub().join("char.global.bin")
 }
 
-/// Load the machine's character brain (`HLM1`), or `None` when it has not been trained yet.
-/// Memoized for the process — the lint path only ever loads.
+/// Load the machine's character brain (`HLM1`), or `None` when it has not been trained yet. The
+/// SUCCESSFUL load is memoized for the process; a MISS is not — during setup the same process
+/// writes the brain after a consumer first asked for it (site discovery reads pages right after
+/// `ensure_brain` saves), so caching an early `None` would blind every later read. Once loaded,
+/// every call returns the same cached reader; the lint path only ever loads.
 pub fn brain() -> Option<&'static CharReader> {
     use crate::lint_codec::{Bin, Dec};
-    static BRAIN: std::sync::OnceLock<Option<CharReader>> = std::sync::OnceLock::new();
-    BRAIN
-        .get_or_init(|| {
-            std::fs::read(store_path())
-                .ok()
-                .and_then(|b| Dec::open(&b, crate::lint_codec::kind::CHARBRAIN))
-                .and_then(|(_, mut d)| CharReader::dec(&mut d))
-        })
-        .as_ref()
+    static BRAIN: std::sync::OnceLock<CharReader> = std::sync::OnceLock::new();
+    if let Some(b) = BRAIN.get() {
+        return Some(b);
+    }
+    let loaded = std::fs::read(store_path())
+        .ok()
+        .and_then(|b| Dec::open(&b, crate::lint_codec::kind::CHARBRAIN))
+        .and_then(|(_, mut d)| CharReader::dec(&mut d))
+        .map(|mut r| {
+            // A brain trained where the web could not be crawled learned no roles; hydrate them
+            // from the committed bootstrap so the reader still works.
+            r.ensure_structure();
+            r
+        })?;
+    // Set only on success (ignore a losing race — the winner's reader is equivalent).
+    let _ = BRAIN.set(loaded);
+    BRAIN.get()
 }
 
 /// Persist a character brain as its `HLM1` container (stamp = characters read, a cheap prefix
@@ -648,6 +825,19 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         if r.total > before {
             order.push(format!("{lang} {}c", r.total - before));
         }
+    }
+    // Learn the page STRUCTURE by exposure (LINTER.md, "Reading a page is UNDERSTANDING"): over
+    // the same web curriculum, which register followed each markup token — code carriers vs
+    // section headings — read with the meaning network just sealed. This is what lets the reader
+    // tell a title from an example when their words are equally unbound.
+    let bodies: Vec<&str> =
+        web.iter().flat_map(|(_, pages)| pages.iter().map(|(_, b)| b.as_str())).collect();
+    r.set_structure(crate::lint_graph::learn_structure_roles(&r, &bodies));
+    // No web to read (offline or localhost-only) ⇒ hydrate roles from the committed bootstrap, so
+    // the saved brain reads pages by role even where the curriculum could not crawl the web.
+    r.ensure_structure();
+    if r.roles_learned() > 0 {
+        order.push(format!("roles {}", r.roles_learned()));
     }
     save(&r);
     save_brain_fp(fp);
@@ -918,6 +1108,40 @@ mod tests {
         eprintln!("after code:  english ~{e_after}  code ~{c_after}");
         assert!(c_after + c_after / 8 < c_before, "the language was learned: code {c_before} -> {c_after}");
         assert!(e_after <= e_before + e_before / 8, "English retained: {e_before} -> {e_after}");
+    }
+
+    /// DEV TOOL — writes `lint-index/char-structure-bootstrap.json` from THIS machine's char
+    /// brain (which must have read the whole web curriculum, so its roles are real), so machines
+    /// that can only reach localhost still read pages by role. Asserts the learned roles are
+    /// sensible — a code carrier and section headings — then commits them. Online prerequisite is
+    /// a trained machine brain; run after a full `lint_config action=train`:
+    /// `cargo test --release --lib --features crawl generate_char_structure_bootstrap -- --ignored --nocapture`
+    #[cfg(feature = "crawl")]
+    #[test]
+    #[ignore = "dev tool: writes the committed structure-roles bootstrap from the machine brain"]
+    fn generate_char_structure_bootstrap() {
+        let brain = super::brain().expect("a trained machine char brain (run lint_config train)");
+        let structure = brain.structure().clone();
+        assert!(
+            !structure.is_empty(),
+            "the machine brain must have learned page structure from the web curriculum"
+        );
+        // Sanity: the discrimination depends on a code carrier and a section-heading shape.
+        let role = |name: &str| structure.role_of(crate::lint_ai::token_seed(name));
+        assert_eq!(role("pre"), Some(true), "`pre` must read as a code carrier");
+        assert!(structure.title_ceiling() > 0, "a title-shape ceiling must be learned");
+        let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("lint-index/char-structure-bootstrap.json");
+        std::fs::write(&out, serde_json::to_string(&structure).expect("serializes"))
+            .expect("bootstrap written");
+        eprintln!(
+            "wrote {} — {} roles, title ceiling {}",
+            out.display(),
+            structure.len(),
+            structure.title_ceiling()
+        );
     }
 
     // ── The dictionary meaning network ────────────────────────────────────────

@@ -73,16 +73,14 @@ pub fn read_language(
     // read first must not starve a richer one (measured: MDN filled all 4,000 binding slots
     // and ESLint's 300 rule pages bound NOTHING — read and silently discarded). Page prose
     // feeds the reader the same way, one page per source per turn.
-    // The curriculum gate (LINTER.md, "Markup second"): without the dictionary and the W3
-    // reading there is nothing that can READ a served page — the language refuses to train
-    // (the caller reports it as not learned, asking by name), and no hand parser ever steps
-    // in. Both substrates load from committed bootstraps on machines that never built them.
-    let (Some(english), Some(markup)) =
-        (crate::lint_english::brain(), crate::lint_markup::brain())
-    else {
+    // The curriculum gate (LINTER.md, "Reading a page is UNDERSTANDING"): without the trained
+    // character brain there is nothing that can READ a served page — the language refuses to
+    // train (the caller reports it as not learned, asking by name), and no hand parser ever
+    // steps in.
+    let Some(brain) = crate::lint_char::brain() else {
         if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
             eprintln!(
-                "[lint-docs] {lang}: substrates missing (dictionary/markup) — raw pages refuse to be read"
+                "[lint-docs] {lang}: character brain missing — raw pages refuse to be read"
             );
         }
         return Memory::default();
@@ -103,7 +101,7 @@ pub fn read_language(
         let mut src_units = Vec::new();
         let mut src_prose = Vec::new();
         for page in crawled_source(src, max_pages, cache_version) {
-            let (prose, units) = read_crawled_page(&src.url, &page.url, &page.body, english, markup);
+            let (prose, units) = read_crawled_page(&src.url, &page.url, &page.body, brain);
             let hints: Vec<String> = units.iter().map(|(_, _, _, h)| h.clone()).collect();
             let page_lang = attribute_page(&page.url, &hints, &extra_langs);
             src_prose.push((page.body, prose));
@@ -294,14 +292,12 @@ pub(crate) fn ensure_site_cache(
     max_pages: usize,
     extra_langs: &std::collections::HashSet<String>,
 ) -> Vec<String> {
-    let (Some(english), Some(markup)) =
-        (crate::lint_english::brain(), crate::lint_markup::brain())
-    else {
+    let Some(brain) = crate::lint_char::brain() else {
         return Vec::new(); // the curriculum gate: nothing can read pages yet
     };
     let mut langs: std::collections::BTreeSet<String> = Default::default();
     for page in crawled_source(src, max_pages, Some(crate::lint_train::train_version())) {
-        let (_, units) = read_crawled_page(&src.url, &page.url, &page.body, english, markup);
+        let (_, units) = read_crawled_page(&src.url, &page.url, &page.body, brain);
         let hints: Vec<String> = units.into_iter().map(|(_, _, _, h)| h).collect();
         let lang = attribute_page(&page.url, &hints, extra_langs);
         if !lang.is_empty() {
@@ -375,18 +371,15 @@ pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String>
         Some(langs) => langs,
         None => {
             // Attribution is a READ-time judgment now (raw cache): derive it through the
-            // substrates. Missing substrates yield nothing — the setup path (which builds
-            // them first) is what writes the authoritative sidecar.
-            let langs: std::collections::HashSet<String> = match (
-                read_crawl_cache(&path),
-                crate::lint_english::brain(),
-                crate::lint_markup::brain(),
-            ) {
-                (Some(c), Some(english), Some(markup)) => c
+            // character brain. A missing brain yields nothing — the setup path (which trains
+            // it first) is what writes the authoritative sidecar.
+            let langs: std::collections::HashSet<String> =
+                match (read_crawl_cache(&path), crate::lint_char::brain()) {
+                (Some(c), Some(brain)) => c
                     .pages
                     .iter()
                     .filter_map(|p| {
-                        let (_, units) = read_crawled_page("", &p.url, &p.body, english, markup);
+                        let (_, units) = read_crawled_page("", &p.url, &p.body, brain);
                         let hints: Vec<String> =
                             units.into_iter().map(|(_, _, _, h)| h).collect();
                         let l = attribute_page(&p.url, &hints, &Default::default());
@@ -558,8 +551,7 @@ fn read_crawled_page(
     seed_url: &str,
     url: &str,
     body: &str,
-    english: &crate::lint_english::English,
-    markup: &crate::lint_markup::Markup,
+    brain: &crate::lint_char::CharReader,
 ) -> (String, Vec<(String, String, String, String)>) {
     // Non-HTML documentation (Markdown, JSON rule data, plain text) keeps its own reading:
     // fences and JSON string leaves are the author's typography, not markup register.
@@ -572,7 +564,7 @@ fn read_crawled_page(
     }
     let page_slug = rule_slug_under(seed_url, url);
     let dropped = crate::doc_crawler::drop_script_style(body);
-    let units = crate::lint_markup::read_page(&dropped, english, markup)
+    let units = crate::lint_graph::read_page(&dropped, brain)
         .into_iter()
         .map(|u| {
             let s = page_slug
@@ -1303,25 +1295,29 @@ mod tests {
         assert!(rule.description.to_lowercase().contains("avoid indexing"), "description is the docs' own prose: {:?}", rule.description);
     }
 
-    /// A calibrated MarkupBrain for offline tests — the values sit in the band the W3
-    /// reading lands in; these tests exercise the read-time unit former, not calibration.
+    /// A small offline char brain for the read-time tests: it binds the English words the
+    /// fixtures' prose is built from (so the meaning majority is real) and carries hand-set
+    /// register roles for the element names they use (`pre` a code carrier, `h2` a heading) —
+    /// the product code names no tag; only this fixture does.
     #[cfg(feature = "crawl")]
-    fn test_markup() -> crate::lint_markup::Markup {
-        crate::lint_markup::Markup {
-            split_pm: 600,
-            title_ceiling: 8,
-            pages_read: 1,
-            ..Default::default()
+    fn test_brain() -> crate::lint_char::CharReader {
+        let mut r = crate::lint_char::CharReader::new();
+        let english = [
+            "the", "function", "combines", "values", "into", "one", "result", "for", "caller",
+            "never", "use", "a", "global", "mutable", "variable", "here", "is", "dangerous", "and",
+            "simply", "wrong", "using", "this", "code", "incorrect", "will", "fail", "following",
+            "example", "prints", "output", "program",
+        ];
+        for w in english {
+            r.meanings_mut().bind(w, &["thing"]);
         }
-    }
-
-    #[cfg(feature = "crawl")]
-    fn test_english() -> crate::lint_english::English {
-        serde_json::from_str(
-            &crate::lint_train::embedded_lint_index_file("english-bootstrap.json")
-                .expect("bootstrap committed"),
-        )
-        .expect("bootstrap parses")
+        r.meanings_mut().seal();
+        let votes = vec![
+            (crate::lint_ai::token_seed("pre"), 1),
+            (crate::lint_ai::token_seed("h2"), -1),
+        ];
+        r.set_structure(crate::lint_char::StructureRoles::from_learned(votes, 8));
+        r
     }
 
     #[test]
@@ -1344,8 +1340,7 @@ mod tests {
             "https://d/docs",
             "https://d/docs/zap",
             html,
-            &test_english(),
-            &test_markup(),
+            &test_brain(),
         );
         assert!(
             units.iter().all(|(_, _, code, _)| code.len() >= 3),
@@ -1429,8 +1424,7 @@ mod tests {
             "<p>{}this code is incorrect and will fail:</p><pre>x = 1</pre>",
             "文".repeat(600)
         );
-        let (_, units) =
-            read_crawled_page("https://d", "https://d/p", &html, &test_english(), &test_markup());
+        let (_, units) = read_crawled_page("https://d", "https://d/p", &html, &test_brain());
         assert!(
             units.iter().any(|(_, p, c, _)| c.contains("x = 1") && p.contains("incorrect")),
             "extraction still works around multibyte text: {:?}",
@@ -1496,14 +1490,12 @@ mod transfer_probe {
             // Raw cache: units and prose are derived at read time through the substrates
             // (LINTER.md, "Pages are cached RAW"). The extension tally reads the SAME prose
             // and unit code the live pipeline reads.
-            let (Some(english), Some(markup)) =
-                (crate::lint_english::brain(), crate::lint_markup::brain())
-            else {
+            let Some(brain) = crate::lint_char::brain() else {
                 continue;
             };
             let tally = per_lang.entry(lang.to_string()).or_default();
             for page in &cached.pages {
-                let (prose, units) = read_crawled_page("", &page.url, &page.body, english, markup);
+                let (prose, units) = read_crawled_page("", &page.url, &page.body, brain);
                 crate::lint_read::tally_dotted_tokens(&prose, tally);
                 crate::lint_read::tally_name_aliases(lang, &prose, tally);
                 for (_, _, code, _) in &units {
