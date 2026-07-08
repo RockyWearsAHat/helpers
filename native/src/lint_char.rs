@@ -684,6 +684,9 @@ pub fn rules_from_understanding(lang: &str, prose: &str) -> Vec<crate::linter::L
         // The CONSTRUCT — the word the sentence is ABOUT that English cannot account for: a
         // dictionary non-word that is code-shaped (carries a letter). The most distinctive
         // (longest) such word is the named construct ("goto" among ordinary English).
+        // MIGRATION (LINTER.md, "retiring word-level `english.knows`"): `!eng.knows` becomes
+        // `!lint_graph::word_is_english(char_brain, w)` once the char brain is threaded here and
+        // this test carries a meaning-bound brain — LEFT until then so understanding stays intact.
         let Some(construct) = words
             .iter()
             .filter(|w| !eng.knows(w) && w.chars().any(|c| c.is_alphabetic()))
