@@ -434,6 +434,13 @@ fn word_vector(text: &str) -> Option<Hv> {
     any.then(|| b.finalize())
 }
 
+/// The pure spelling centroid of `word` ([`word_vector`]) — exposed so the concept binding
+/// ([`crate::lint_probe`]) has an always-available HDC encoder when no dictionary brain is
+/// loaded. `None` for the empty string.
+pub fn spell_vector(word: &str) -> Option<Hv> {
+    word_vector(word)
+}
+
 // ── The dictionary meaning network (LINTER.md, "The dictionary meaning network") ──
 
 /// Definition content-word cap per headword — the leading words of a dictionary definition carry
