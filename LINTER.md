@@ -227,10 +227,58 @@ non-separation LINTER.md records for disapproval-vs-neutral vocabulary). The spe
 DOES separate (shared stems land close, unrelated words at the noise floor) and is deterministic
 and machine-independent, so it is what the binding stands on this cycle. Because it matches shared
 stems rather than synonyms, the corpus prose and the probe concept must share vocabulary — which
-they naturally do, both describing the same defect. **NEXT STEP** (not a wall): binding a
-principle to a probe by dictionary SYNONYM — so a description worded entirely in synonyms still
-finds its probe — waits on a meaning metric that separates, the same open problem the side-count
-classifier addresses for polarity; the machinery is ready for it (swap the per-word encoder).
+they naturally do, both describing the same defect. This whole `lint_probe` path is now SUPERSEDED
+by the understanding→trace bridge below (`lint_trace`), and kept only as the committed fallback
+until that path passes every gate.
+
+## The understanding→trace bridge — the rule IS the understanding (`lint_trace.rs`)
+
+**Owner directive 2026-07-08 — replacing the per-principle probes.** `lint_probe` was rejected as
+ten HARDCODED per-principle detectors with a spelling match merely SELECTING which coded predicate
+to attach; DRY was "built" by hand-coding a DRY detector. The correct architecture has NO compiled
+detector per principle: a rule is an understood principle applied, live, to traced project facts,
+and adding a principle (a corpus sentence), a language, or new code produces new enforcement with
+ZERO code change. `lint_trace` is that bridge, and it stands on the now-SEPARATING meaning network
+(`related()`, `BRAIN_REV` 7) — the blocker the spelling shortcut existed to route around is gone.
+
+- **Generic tracing primitives (`PREDICATES`, `RELATIONS`).** A small, GENERAL vocabulary of senses
+  over the tree-sitter AST, each carrying a MEANING DESCRIPTOR (ordinary words). Node PREDICATES —
+  `statement`, `control_exit`, `public_item`, `documented`, `single_letter_name` — recognise a
+  property of one node (reading node kinds / text / structure, the blessed generic probe). Structural
+  RELATIONS — `follows_in_block`, `duplicate_subtree` — yield ordered `(a, b)` node pairs and declare
+  each endpoint's meaning descriptor. These are reusable across principles; there is NO per-principle
+  entry, and new principles compose from the same set.
+- **The bridge (`Bridge::understand` → `Plan`).** A principle is gated as a prohibition
+  (`English::sentence_states_prohibition`, meaning-based — never a word list). Its salient concepts
+  each ALIGN to the primitive they are DECISIVELY nearest to, by `related()` in the fixed meaning
+  space — a comparative nearest-neighbor with a relative margin (`BIND_MARGIN`), never an absolute
+  distance threshold: a filler word sits at the noise floor to every primitive and so binds none.
+  Discovered negators (`is_negation`, plus a one-hop definitional check) are OPERATORS, excluded from
+  alignment. The aligned primitives compose by ONE general rule: an aligned relation with two role
+  predicates → `{ a : a_pred(a) ∧ ∃b. rel(a,b) ∧ b_pred(b) }`; with no relation → a node satisfying
+  every aligned predicate. Role DIRECTION is meaning-driven — each role concept goes to the endpoint
+  descriptor it is nearer to — and falls to a sentence-structure tiebreak (endpoint B = the relation's
+  object, the nearest role after the relation word) only when the endpoints are meaning-symmetric for
+  those roles (a positional relation's "later"/"earlier" carry no bias for "statement"/"return").
+  When the concepts do NOT align to a usable set, the bridge ABSTAINS (no rule) — silent-and-correct
+  over loud-and-wrong.
+
+**Proven end to end (`lint_trace::tests::bridge_enforces_three_shapes`, three differently-shaped
+principles, their real corpus prose, one mechanism, zero per-principle code):** dead-code-after-return
+(`relational(follows_in_block: A=statement B=control_exit)`, flags the dead statements, clean on good
+code); non-descriptive-name (`unary(single_letter_name)`, flags the single-letter binding); DRY
+(`relational(duplicate_subtree)`, flags both duplicated bodies). Two abstain cases hold (a
+non-prohibition, and a prohibition whose concepts map to no primitive).
+
+**Known Step-4 extension (reported, not forced):** inner-negation polarity ("public WITHOUT a
+documentation comment" → flag public items that are NOT documented) is not yet robust — the
+dictionary's meaning network clusters the preposition "without" with POSITIONAL prepositions
+("after"), and its definition chain ("in the absence of") never reaches a base negator, so "without"
+is neither excluded as an operator nor detected as a negator. Undocumented-public therefore mis-shapes
+and is held out; the fix (POS-aware definition reading, or a negation anchor on the sentence's own
+operator) lands in Step 4. Not yet wired into the lint walk, not scaled to all principles, and
+`lint_probe` is not yet removed — that is Step 4, after the orchestrator verifies this checkpoint
+(including a never-before-seen corpus sentence enforcing with zero code change).
 
 **Compilation and firing.** In `RuleSet::build`, a corpus principle (source under `/corpus/`, no
 in-language example) is routed to `understand` FIRST; a bound principle compiles to

@@ -582,6 +582,15 @@ impl MeaningNetwork {
         self.defs.binary_search_by_key(&seed, |(k, _)| *k).ok().map(|i| self.defs[i].1.as_slice())
     }
 
+    /// The definition content words bound to `word` (the meaning's own vocabulary), or `None` when
+    /// the dictionary bound none. Exposed so a caller can read a word's meaning-definition for a
+    /// single-hop test — e.g. the understanding→trace bridge asking whether a word's definition
+    /// USES a negator ("without" = "not accompanied by"), discovered, never a word list. Requires a
+    /// [`sealed`](Self::seal) network.
+    pub fn definition_words(&self, word: &str) -> Option<&[String]> {
+        self.definition(word)
+    }
+
     /// Whether `word` has a bound meaning — the cheap EXISTENCE query (a binary search over the
     /// sealed seeds), with none of the per-word hypervector rebinding [`meaning_of`](Self::meaning_of)
     /// does. Exactly equivalent to `meaning_of(word).is_some()` (a bound definition is never empty —
