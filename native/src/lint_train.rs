@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v66-entry-gate-cold-floor";
+pub(crate) const TRAIN_VERSION: &str = "docs-v67-understanding-trace-bridge";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
