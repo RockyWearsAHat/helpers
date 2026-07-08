@@ -250,3 +250,61 @@ pub(crate) fn language(lang: &str) -> Option<tree_sitter::Language> {
     BUNDLED.get(lang).cloned().or_else(|| dynamic_grammar(lang))
 }
 
+/// The grammatical ROLE the language's OWN tree-sitter grammar gives `token`, read from the
+/// grammar itself (never an enumerated keyword list): `"keyword"` for an anonymous literal token
+/// (`use`, `as`, `fn`), `"primitive_type"` for a built-in type the grammar lexes as such
+/// (`usize`, `u32`), or `None` for a nameable identifier a rule could legitimately point at
+/// (`goto`, `panic`, a user construct). Used by the mint gate to reject a single-token detector
+/// that is really part of the language's syntax and fires on nearly every file.
+pub(crate) fn token_role(lang: &str, token: &str) -> Option<&'static str> {
+    let ts = language(lang)?;
+    // A keyword/operator is an ANONYMOUS (literal) token in the grammar — the grammar knows its
+    // exact spelling. `id_for_node_kind(named=false)` resolves it iff it exists as such.
+    let kw_id = ts.id_for_node_kind(token, false);
+    if kw_id != 0 && (kw_id as usize) < ts.node_kind_count() {
+        return Some("keyword");
+    }
+    // A built-in/primitive type is lexed by the grammar (not a literal token), so parse the token
+    // in a TYPE position and see whether the node covering it is a primitive type rather than a
+    // user type name. Several neutral templates cover the common grammar families.
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&ts).is_err() {
+        return None;
+    }
+    for template in ["type __probe = TOK;", "let __probe: TOK = x;", "TOK __probe;"] {
+        let src = template.replace("TOK", token);
+        let Some(tree) = parser.parse(&src, None) else { continue };
+        if let Some(node) = deepest_named_covering(tree.root_node(), &src, token) {
+            let kind = node.kind();
+            if kind.contains("primitive") || kind == "primitive_type" {
+                return Some("primitive_type");
+            }
+        }
+    }
+    None
+}
+
+/// The deepest NAMED node whose text is exactly `token`, or `None` — the grammar's classification
+/// of the token at that position.
+fn deepest_named_covering<'a>(
+    root: tree_sitter::Node<'a>,
+    src: &str,
+    token: &str,
+) -> Option<tree_sitter::Node<'a>> {
+    let mut found: Option<tree_sitter::Node> = None;
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.is_named() && n.utf8_text(src.as_bytes()).map(|t| t == token).unwrap_or(false) {
+            // Prefer the DEEPEST such node (a primitive_type leaf over a wrapping type node).
+            if found.map(|f| n.start_byte() >= f.start_byte()).unwrap_or(true) {
+                found = Some(n);
+            }
+        }
+        let mut cursor = n.walk();
+        for child in n.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    found
+}
+

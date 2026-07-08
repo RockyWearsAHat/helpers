@@ -222,21 +222,74 @@ fn terrible_file_is_flagged_for_every_understanding_class_defect() {
     assert!(flagged_in(&v, "terrible.rs", "secret"), "hardcoded secret:\n{v}");
 }
 
+/// A second idiomatic clean file, using exactly the constructs that trip a naive probe or a
+/// leaked reference-doc token detector: `usize`, `const`, `as`, `HashMap`, a `pub struct`/`impl`
+/// with documented items, `return Err(...)`, `?`-free explicit `Result`. It must be CLEAN.
+const IDIOMATIC: &str = r#"//! Inventory management utilities.
+
+use std::collections::HashMap;
+
+/// Maximum number of items a single order may contain.
+const MAX_ITEMS_PER_ORDER: usize = 100;
+
+/// A customer order with its line items keyed by SKU.
+pub struct Order {
+    items: HashMap<String, u32>,
+}
+
+impl Order {
+    /// Creates an empty order.
+    pub fn new() -> Self {
+        Order { items: HashMap::new() }
+    }
+
+    /// Adds `quantity` of `sku` to the order, returning an error when the
+    /// order would exceed [`MAX_ITEMS_PER_ORDER`].
+    pub fn add(&mut self, sku: String, quantity: u32) -> Result<(), String> {
+        let running_total: u32 = self.items.values().sum::<u32>() + quantity;
+        if running_total as usize > MAX_ITEMS_PER_ORDER {
+            return Err(format!("order exceeds {MAX_ITEMS_PER_ORDER} items"));
+        }
+        *self.items.entry(sku).or_insert(0) += quantity;
+        Ok(())
+    }
+}
+"#;
+
+/// The section of the verdict under `file` (its findings), empty when the file is clean.
+fn findings_under(verdict: &str, file: &str) -> String {
+    verdict
+        .lines()
+        .skip_while(|l| !l.contains(file))
+        .skip(1)
+        .take_while(|l| !l.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The EXCELLENT file has ZERO findings — no false positives from any probe.
 #[test]
 fn excellent_file_has_no_findings() {
     let p = project("excellent");
     p.write("excellent.rs", EXCELLENT);
     let v = p.lint();
-    let excellent_section: String = v
-        .lines()
-        .skip_while(|l| !l.contains("excellent.rs"))
-        .skip(1)
-        .take_while(|l| !l.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let section = findings_under(&v, "excellent.rs");
     assert!(
-        excellent_section.trim().is_empty(),
-        "the clean file must produce zero findings, got:\n{excellent_section}\n---full---\n{v}"
+        section.trim().is_empty(),
+        "the clean file must produce zero findings, got:\n{section}\n---full---\n{v}"
+    );
+}
+
+/// Idiomatic Rust that leans on `usize`/`const`/`as`/`HashMap` must be CLEAN — neither the probes
+/// nor any leaked reference-doc token detector may fire on ordinary keywords and type names.
+#[test]
+fn idiomatic_rust_file_has_no_findings() {
+    let p = project("idiomatic");
+    p.write("inventory.rs", IDIOMATIC);
+    let v = p.lint();
+    let section = findings_under(&v, "inventory.rs");
+    assert!(
+        section.trim().is_empty(),
+        "idiomatic usize/const/as/HashMap code must be clean, got:\n{section}\n---full---\n{v}"
     );
 }
