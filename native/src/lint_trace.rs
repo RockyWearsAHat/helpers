@@ -106,7 +106,7 @@ const PREDICATES: &[Predicate] = &[
     },
     Predicate {
         name: "magic_number",
-        words: &["number", "literal", "numeric", "constant", "magic", "value"],
+        words: &["number", "literal", "numeric", "constant", "magic"],
         self_bad: true,
         test: is_magic_number,
     },
@@ -376,22 +376,29 @@ impl<'a> Bridge<'a> {
         Some(Plan::Relational { rel, a_pred, b_pred })
     }
 
-    /// Compose a UNARY plan: a node exhibiting a SELF-BAD defect. Only self-bad predicates
-    /// (a magic number, an unwrap, an over-long body) compose here — a role/qualifier concept the
-    /// sentence incidentally names ("…in the code", "never write …") is dropped, so it cannot AND
-    /// itself onto the defect and make the conjunction un-fireable. Abstains when no self-bad
-    /// predicate aligned (a principle that only named roles has nothing this vocabulary can enforce
-    /// on its own).
+    /// Compose a UNARY plan: the SELF-BAD defect the sentence is about. Only self-bad predicates
+    /// (a magic number, an unwrap, an over-long body) are eligible — a role/qualifier concept the
+    /// sentence incidentally names ("…in the code", "never write …") is dropped. Among the eligible,
+    /// the defect is the one the MOST concepts vote for (plurality): a principle names ONE defect,
+    /// and ANDing a second self-bad predicate an incidental word aligned to ("unwrap on a VALUE that
+    /// might fail" grazing the numeric-value sense) would make the conjunction un-fireable, since a
+    /// node is rarely two defects at once. Ties keep the tied set. Abstains when no self-bad
+    /// predicate aligned.
     fn compose_unary(&self, predicates: &[&BoundConcept]) -> Option<Plan> {
-        let mut preds: Vec<usize> = Vec::new();
+        let mut votes: Vec<(usize, usize)> = Vec::new(); // (predicate index, concept count)
         for p in predicates {
             if let Primitive::Pred(i) = p.primitive {
-                if PREDICATES[i].self_bad && !preds.contains(&i) {
-                    preds.push(i);
+                if PREDICATES[i].self_bad {
+                    match votes.iter_mut().find(|(j, _)| *j == i) {
+                        Some(v) => v.1 += 1,
+                        None => votes.push((i, 1)),
+                    }
                 }
             }
         }
-        (!preds.is_empty()).then_some(Plan::Unary(preds))
+        let top = votes.iter().map(|(_, n)| *n).max()?;
+        let winners: Vec<usize> = votes.iter().filter(|(_, n)| *n == top).map(|(i, _)| *i).collect();
+        Some(Plan::Unary(winners))
     }
 
     /// ENFORCE a principle on `code` of language `lang`: the 1-based lines its plan flags. Empty
@@ -895,3 +902,4 @@ mod tests {
         eprintln!("COVERAGE: {enforced} enforced, {abstained} abstained");
     }
 }
+
