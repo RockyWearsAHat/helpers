@@ -734,22 +734,7 @@ impl Polarity {
     /// sentence). "This module does not work on WebAssembly" states a property; its
     /// negation commands nothing and must not read as law.
     pub fn has_operative_negation(&self, prose: &str) -> bool {
-        let Some(english) = crate::lint_english::brain() else { return false };
-        sentences(prose).iter().any(|sent| {
-            let mut words = sent.split_whitespace();
-            let Some(first) = words.next() else { return false };
-            let sentence_marked = first
-                .chars()
-                .find(|c| c.is_alphanumeric())
-                .is_some_and(|c| c.is_uppercase() || !c.is_alphabetic());
-            if !sentence_marked && first.chars().any(|c| c.is_lowercase()) {
-                return false;
-            }
-            [Some(first), words.next()].into_iter().flatten().any(|w| {
-                let t = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-                !t.is_empty() && english.is_negation(crate::lint_ai::token_seed(&t))
-            })
-        })
+        crate::lint_english::brain().is_some_and(|english| english.states_prohibition(prose))
     }
 
     /// The information weight of `prose`'s negation-clustered words — the cold floor's raw
