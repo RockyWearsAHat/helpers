@@ -21,23 +21,50 @@ predicted CHARACTER, not its hypervector (`char_hv` is a pure function), so a re
 megabytes, and the prediction memory is PERSISTED — a loaded brain reads pages back, the
 capability whose absence had forced hand-parsing.
 
-**Learning is cumulative — one brain, retain-and-grow, not English-vs-code separation.** Reading
-is the same method wherever it starts; English is the general solution and each language is that
-same integration continued from there, adding its specifics. Surprise is therefore TRANSIENT: code
-reads surprising only UNTIL the reader has read that language, and after it does, that code is
-calm — which is the point, not a failure. Measured: reading new material RETAINS prior knowledge
-(English held within ε) while DROPPING surprise on the new (code 3847→3227 on the real dictionary
-base). The mis-framing to avoid is treating surprise as a permanent classifier.
+**Learning is cumulative — one brain, retain-and-grow.** Reading is the same method wherever it
+starts; English is the general solution and each language is that same integration continued from
+there, adding its specifics. Reading new material RETAINS prior knowledge (measured: English held
+within ε) while extending it.
+
+**Surprise is a GAUGE, never the engine (owner directive 2026-07-07 — the correction that matters
+most).** The goal is UNDERSTANDING, driven toward 100% by the training pipeline; a lint error
+emerges from understanding and from nothing else. Surprise (prediction error) is at most a
+*measurement* that understanding is forming — useful to validate the pipeline (it falls as the
+brain learns), and legitimately the signal that a construct is NOVEL *while a language is first
+being read*. It is NOT a classifier: after training it is ~0 on everything, and even before, it
+inverts exactly where it matters — reserved words the brain already knows read calm, and
+English-named identifiers (`build`, `clone`) read calm, so "calm ⇒ prose" is wrong in both
+directions. Any mechanism that DECIDES something by thresholding surprise is counting the beads'
+frame instead of stringing beads. The real substrate is the **knowledge graph**: the associations
+the reader binds as it reads — a word to its dictionary meaning, a construct to the English that
+governs it, a rule to the prohibition it states — held and computed in the 1-bit HDC space (bind/
+bundle/unbind), which a computer holds by the million. Interpretation is a QUERY over that graph
+(what does `goto` connect to → "statement, never, prohibition"), not a number. Segmentation as a
+separate surprise-thresholded step is deleted from the design: the reader reads the whole page as
+learning and the language MODULE (its subgraph — constructs wired to their governing prose and to
+prohibition-meaning) is what the rules are read off of.
+
+**The whole system, stated plainly (owner vision, the north star).** This is not "a linter with an
+AI in it" — it is a genuinely code-understanding AI onto which linting is thrown, because something
+that understands code this deeply checks language rules for free. It fuses LLM-grade language
+understanding, 1-bit HDC associative memory, predictive coding, and programmatic checks into one
+system that handles ANY language AND arbitrary English rules a user writes (`lintPref`, the
+CS-principles corpus). Its reach is meant to exceed syntax: it flags *bad* code from understanding
+— CS principles, DRY, dead code, and architectural/security invariants like least-privilege (an
+endpoint that mutates account state MUST be authenticated; if the handler shows no auth/repository
+guard, that is an error the AI understands, not a pattern it matched). Understanding is the product;
+the linter is the surface. Built right, it is the last linter anyone writes. Everything below and
+the migration ahead serve that end — comprehension first, enforcement as a consequence.
 
 **The curriculum, in order:** the whole dictionary (English base) → the WEB DELIVERY LAYER
 (`html → css → js`) folded into the machine-global base (`char.global.bin`), so that by the time
 the brain reads any documentation it already understands the website it arrives in — then every
-OTHER language is read NOVEL against that base. Because the base does not know language X, X's code
-is the high-surprise region of its own doc page: the reader reads the whole raw page (tags and
-prose are low-surprise, known), and the code example falls out as the surprise spike — segmentation
-with no parser, no `Gap`, no tag list. Known subtlety to validate on real data: prose-shaped code
-(`goto cleanup`, `import telnetlib`) is English-looking and less surprising than symbol-laden code;
-the `<pre>`-context the brain learned during the html curriculum is the corroborating signal there.
+OTHER language is read against that base, its constructs and their governing prose bound into that
+language's subgraph. The reader reads the whole raw page as learning; it does not threshold
+anything. What a language's rules are read off of is the GRAPH — a construct wired to prohibition-
+meaning (via the dictionary's negation words) is a rule — not a surprise spike. (An earlier cut
+segmented by surprise and is retained only as a validation gauge, never as the mechanism; see
+"Surprise is a GAUGE".)
 
 **Storage and distribution — machine-global, DELTA modules, never a project copy** (owner
 directive, the disk-space covenant). Per-language artifacts are the SAME machine-global,
@@ -50,14 +77,18 @@ else ask for the docs URL, train instantly, and SAVE the module to the computer 
 for reuse. Project law (`lintPref.{md,txt}`) and the machine CS-principles corpus (pure-English
 rules) are read through the same brain and compiled into the project OVERLAY, exactly as today.
 
-**Landed so far** (validated, committed on the branch): the `CharReader` core (real-dictionary
-gate — English ~2570 vs code ~3772 bits before the model learns the code); the cumulative
-retain-and-grow property; `HLM1` persistence (round-trips exactly); and the setup verb
-`lint_char::ensure_brain` running the real curriculum (read 38.5M dictionary chars → 290k contexts,
-fingerprint-gated replay). **Remaining:** the surprise-segmenter that reads a language's docs novel
-against the base; per-language delta modules; migrating rule extraction, construct selection, and
-polarity to read through the brain (this deletes `lint_markup.rs` and word-level `english.knows`);
-and the full retrain.
+**Landed so far** (validated, committed on the branch): the `CharReader` core with direct
+char-code context addressing (n-gram backoff, no per-char hypervector — training the full
+dictionary + crawled web is seconds, not minutes); cumulative retain-and-grow; `HLM1` persistence
+(round-trips exactly); the setup verb `lint_char::ensure_brain` running the real curriculum
+(dictionary → crawled W3/MDN web); and surprise validated as a GAUGE only (English ~11% of max vs
+novel code ~73% before the language is read). **Remaining — the actual work:** the associative
+KNOWLEDGE GRAPH (bind construct⊗governing-prose⊗meaning; the dictionary meaning network as the
+comprehension backbone; "brain-waves" latent-sequence reasoning for real prose understanding);
+language MODULES as subgraphs (delta-stored, machine-global, never a project copy); rules read off
+the graph; migrating construct selection and polarity onto it; deleting `lint_markup.rs` and
+word-level `english.knows`; and the full retrain. Understanding is the product — surprise only ever
+measures whether it is forming.
 
 ## Thesis
 
