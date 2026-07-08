@@ -917,6 +917,13 @@ fn overlay_path(lang: &str, project_fp: u64) -> PathBuf {
     model_dir().join(format!("{lang}.overlay-{project_fp:016x}.bin"))
 }
 
+/// The compiled machine-global [`RuleSet`] cached for `lang`, or `None` when the language has no
+/// trained module — the read the `lint_query rules` interrogation enumerates. Loads the cached
+/// module; never trains (a query must not mutate machine state).
+pub fn cached_ruleset(lang: &str) -> Option<crate::lint_match::RuleSet> {
+    load_module(lang).map(|m| m.rules)
+}
+
 fn load_module(lang: &str) -> Option<Module> {
     if let Some(m) = load_bin::<Module>(&module_path(lang), crate::lint_codec::kind::MODULE) {
         return Some(m);

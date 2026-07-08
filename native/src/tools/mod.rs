@@ -3,6 +3,7 @@
 pub mod checkpoint;
 pub mod lint;
 pub mod lint_flag;
+pub mod lint_query;
 pub mod lint_source;
 pub mod knowledge;
 pub mod project_index;
