@@ -515,6 +515,25 @@ impl RuleSet {
         self.rules.len()
     }
 
+    /// A queryable summary of every compiled rule — `(id, severity, description, detector)` — for
+    /// the `lint_query rules` interrogation. `detector` names the understanding/detector behind the
+    /// rule: for a corpus principle, the plan understanding SHAPED (`understanding → …`); otherwise
+    /// the pattern/token/probe it compiled to.
+    pub fn rule_details(&self) -> Vec<(String, String, String, String)> {
+        self.rules
+            .iter()
+            .map(|r| {
+                let detector = match &r.kind {
+                    MatchKind::Trace(plan) => format!("understanding → {}", plan.describe()),
+                    MatchKind::Probe(name) => format!("probe fallback ({name})"),
+                    MatchKind::Ast(_) => "AST pattern".to_string(),
+                    MatchKind::Tokens { tokens, .. } => format!("tokens `{}`", tokens.join(" … ")),
+                };
+                (r.id.clone(), r.severity.clone(), r.description.clone(), detector)
+            })
+            .collect()
+    }
+
     /// The ids of the rules that actually compiled a detector — the honest answer to "which of
     /// the laws I wrote can you enforce?". A caller compares this against what it asked for and
     /// REPORTS the difference; law must never vanish silently.
