@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v63-mint-gate-understanding-not-register";
+pub(crate) const TRAIN_VERSION: &str = "docs-v64-probe-bridge-english-keyword-gate";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -267,49 +267,86 @@ fn memoized_listing(
     out.as_ref().clone()
 }
 
+/// The directories law is read from when linting `project_root`: the root itself and every
+/// ancestor up to and INCLUDING the enclosing repository root (the first ancestor holding a
+/// `.git`). Linting a SUBDIRECTORY of a project must still see the project's `.helpers/lint-rules`
+/// and root `lintPref` — before this, `rule_documents` read only the exact lint root, so law
+/// silently vanished the moment an agent linted a subfolder. The walk stops at the repo boundary
+/// (never climbing into unrelated parents or `$HOME`); a root with no `.git` scans only itself.
+fn law_search_dirs(project_root: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![project_root.to_path_buf()];
+    let mut cur = project_root;
+    loop {
+        if cur.join(".git").exists() {
+            break; // the repo root is the outermost project boundary (inclusive)
+        }
+        match cur.parent() {
+            Some(parent) if parent != cur => {
+                dirs.push(parent.to_path_buf());
+                cur = parent;
+            }
+            _ => break,
+        }
+    }
+    dirs
+}
+
 pub(crate) fn rule_documents(project_root: &Path) -> Vec<(PathBuf, String)> {
+    let dirs = law_search_dirs(project_root);
+    // Witness every scanned directory and its `.helpers/lint-rules` — the listing changes only
+    // when a law file is added, removed, or renamed, each of which touches one of these dirs'
+    // mtime (content edits are caught downstream by each document's own file state).
+    let mut witnesses: Vec<PathBuf> = Vec::with_capacity(dirs.len() * 2);
+    for d in &dirs {
+        witnesses.push(d.join(".helpers/lint-rules"));
+        witnesses.push(d.clone());
+    }
+    let witness_refs: Vec<&Path> = witnesses.iter().map(PathBuf::as_path).collect();
     memoized_listing(
         &format!("law\u{1f}{}", project_root.display()),
-        &[&project_root.join(".helpers/lint-rules"), project_root],
-        || rule_documents_uncached(project_root),
+        &witness_refs,
+        || rule_documents_uncached(&dirs),
     )
 }
 
-fn rule_documents_uncached(project_root: &Path) -> Vec<(PathBuf, String)> {
+fn rule_documents_uncached(dirs: &[PathBuf]) -> Vec<(PathBuf, String)> {
     let is_text = |p: &Path| matches!(p.extension().and_then(|x| x.to_str()), Some("md" | "txt"));
     let mut docs = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(project_root.join(".helpers/lint-rules")) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if is_text(&p) {
-                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("any").to_lowercase();
-                // `js.md` means JavaScript: extension aliases resolve through the same map the
-                // file walker detects languages with, or the law governs nothing (ledger #16).
-                let stem = resolve_language(&stem);
-                docs.push((p, stem));
+    for dir in dirs {
+        if let Ok(entries) = std::fs::read_dir(dir.join(".helpers/lint-rules")) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if is_text(&p) {
+                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("any").to_lowercase();
+                    // `js.md` means JavaScript: extension aliases resolve through the same map the
+                    // file walker detects languages with, or the law governs nothing (ledger #16).
+                    let stem = resolve_language(&stem);
+                    docs.push((p, stem));
+                }
             }
         }
-    }
-    if let Ok(entries) = std::fs::read_dir(project_root) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if !is_text(&p) {
-                continue;
-            }
-            let stem: String = p
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric())
-                .collect::<String>()
-                .to_lowercase();
-            if stem == "lintpref" || stem == "lintprefs" {
-                docs.push((p, "any".to_string()));
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if !is_text(&p) {
+                    continue;
+                }
+                let stem: String = p
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .collect::<String>()
+                    .to_lowercase();
+                if stem == "lintpref" || stem == "lintprefs" {
+                    docs.push((p, "any".to_string()));
+                }
             }
         }
     }
     docs.sort();
+    docs.dedup();
     docs
 }
 
@@ -2238,6 +2275,42 @@ fn file_state(p: &Path) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    /// Law is found from a SUBDIRECTORY: a project's `.helpers/lint-rules` and root `lintPref`
+    /// govern a lint run rooted deep inside the project, and the walk stops at the repo root.
+    #[test]
+    fn law_is_found_walking_up_to_the_repo_root() {
+        let base = std::env::temp_dir().join(format!("law-walk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.join("repo");
+        let deep = repo.join("crates").join("inner").join("src");
+        std::fs::create_dir_all(&deep).expect("deep dir");
+        std::fs::create_dir_all(repo.join(".git")).expect(".git marks the repo root");
+        std::fs::create_dir_all(repo.join(".helpers/lint-rules")).expect("law dir");
+        std::fs::write(repo.join(".helpers/lint-rules/any.md"), "## no_foo\nNever use foo.\n")
+            .expect("law file");
+        std::fs::write(repo.join("lintPref.md"), "Never use bar anywhere.\n").expect("lintpref");
+        // A sibling ABOVE the repo root must never be swept in.
+        std::fs::create_dir_all(base.join(".helpers/lint-rules")).expect("outside dir");
+        std::fs::write(base.join(".helpers/lint-rules/any.md"), "## outside\nNever use outside.\n")
+            .expect("outside law");
+
+        let found = super::rule_documents(&deep);
+        let paths: Vec<String> = found.iter().map(|(p, _)| p.display().to_string()).collect();
+        assert!(
+            paths.iter().any(|p| p.ends_with("repo/.helpers/lint-rules/any.md")),
+            "project law must be found from a subdir: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.ends_with("repo/lintPref.md")),
+            "root lintPref must be found from a subdir: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.contains("outside")),
+            "the walk must stop at the repo root, not climb into unrelated parents: {paths:?}"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     /// DEV TOOL — print a cached module's compiled rules and its learned memory's verdicts,
     /// grouped by source page: the "what did the reading actually extract?" probe live-docs
     /// validation reads. `PROBE_LANG=<lang> cargo test --release --lib probe_module_rules
