@@ -908,7 +908,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     }
     let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
     let mut clock = std::time::Instant::now();
-    let mut lap = |clock: &mut std::time::Instant, name: &str| {
+    let lap = |clock: &mut std::time::Instant, name: &str| {
         if trace {
             eprintln!("[char-brain] {name}: {:.1}ms", clock.elapsed().as_secs_f64() * 1e3);
         }

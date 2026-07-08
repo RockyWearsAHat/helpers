@@ -339,6 +339,37 @@ fn example_backed_rules_also_need_a_forbidding_sentence_unless_trusted() {
 }
 
 #[test]
+fn over_general_single_token_from_a_reference_section_is_dropped() {
+    // The junk-doc-rule FP class (LINTER.md "Entry gates"): a descriptive REFERENCE section that
+    // states no prohibition — and, in the real hole, is read with no ready classifier — can leak a
+    // single-token detector on a token that is UBIQUITOUS in the language's own normal code (a
+    // `usize`/`use` keyword or type). That is over-general and must be dropped: it fires on normal
+    // code everywhere and marks no violation. The signal is the LANGUAGE'S OWN reference corpus,
+    // never an enumerated keyword list.
+    let reference: Vec<String> =
+        std::iter::repeat("let a = widget(x);\nlet b = widget(y);\nlet c = plain(z);".to_string())
+            .take(4)
+            .collect();
+    let ground = Grounding { reference, ..Default::default() };
+    let leaked = [rule("ref_section", "row = widget(1)", "row = gadget(1)", "xyzzy qwerty plugh zork.")];
+    let set = RuleSet::build("qlang", &leaked, &ground);
+    assert_eq!(
+        set.rule_count(),
+        0,
+        "a ubiquitous reference token must not become a detector: {:?}",
+        set.detector_of("ref_section")
+    );
+    // A RARE construct with the very same neutral prose SURVIVES — the gate targets ubiquity in
+    // the corpus, not every token (`goto` is near-absent from normal code and is a real rule).
+    let rare = [rule("rare_rule", "row = zblorp(1)", "row = gadget(1)", "xyzzy qwerty plugh zork.")];
+    assert_eq!(
+        RuleSet::build("qlang", &rare, &ground).rule_count(),
+        1,
+        "a rare token is a pointable construct and must survive"
+    );
+}
+
+#[test]
 fn value_dependent_rule_does_not_compile_an_overfiring_ast_pattern() {
     // F521-class docs: two same-shape bad instances differing only in the string VALUE
     // (an invalid vs odd format string), no good example. Structure cannot represent value

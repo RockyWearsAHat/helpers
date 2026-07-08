@@ -220,18 +220,57 @@ impl RuleSet {
                 // "goto"; nim's `proc greet` names neither and dies).
                 || tokens.iter().any(|t| select::tokens_fire_text(desc, std::slice::from_ref(t)))
         };
-        // A single-token example-diff detector whose sole token is a COMMON ENGLISH WORD is a
-        // descriptive reference section that leaked into a firing rule, not a real prohibition:
-        // the construct a rule points at is the word English CANNOT account for (`goto`, `unwrap`),
-        // never a keyword the dictionary defines (`use`, `match`, `return`). This is the same
-        // "English cannot account for the construct" principle the description path already
-        // applies (`only_grounded`) — the example-diff path did not, and a Rust-reference `use`
-        // syntax section compiled `["use"]`, firing on every import (LINTER.md ledger; the
-        // reference-fire gate misses it whenever the corpus is under its statistical floor). The
-        // guard is for LEARNED rules only; project law is trusted by location.
-        let english_keyword = |tokens: &[String]| -> bool {
-            tokens.len() == 1
-                && crate::lint_english::brain().is_some_and(|e| e.is_common(&tokens[0]))
+        // OVER-GENERAL SINGLE-TOKEN GUARD (LINTER.md, "Entry gates"; the junk-doc-rule FP class).
+        // A descriptive REFERENCE section that states no prohibition can still leak a firing
+        // single-token detector on an ordinary language keyword or built-in type — a Rust
+        // paths.html syntax section compiled `["usize"]` and fired on every `usize`, exactly as a
+        // `use`-declaration section compiled `["use"]`. The construct a rule points at is the word
+        // the language does NOT use everywhere (`goto`, `panic!`); a token that is either common
+        // English (`use`, `match`) OR ubiquitous in the LANGUAGE'S OWN normal code (`usize`, `as`,
+        // `HashMap`) is over-general and cannot mark a violation. Both signals are LEARNED — the
+        // dictionary's commonness curve and the language's own reference corpus — never an
+        // enumerated keyword list (a covenant offense). Learned rules only; project law is trusted.
+        let reference_lines: Vec<&str> =
+            reference_corpus.iter().flat_map(|e| e.lines()).map(str::trim).filter(|l| !l.is_empty()).collect();
+        // Is `token` over-general on its own evidence — a word the LANGUAGE uses everywhere?
+        // `good` is the rule's good example: a real bad∧good CONTRAST (the good form lacks the
+        // token) is what tells a legitimately-banned keyword (`var`, contrasted against `let`)
+        // apart from a syntax keyword/type a reference section merely mentions (`use`, `usize`,
+        // with no good counterpart). Signals, all LEARNED — never an enumerated keyword list:
+        //   * common English (`use`, `match`);
+        //   * ubiquitous in the language's own reference code;
+        //   * the grammar's OWN classification as a keyword/operator or built-in primitive type,
+        //     UNLESS a good example contrasts it (then the keyword really is the banned construct).
+        let over_general_token = |token: &str, good: &str| -> bool {
+            if crate::lint_english::brain().is_some_and(|e| e.is_common(token)) {
+                return true;
+            }
+            let denom = reference_lines.len();
+            if denom >= 8 {
+                let needle = [token.to_string()];
+                let hits = reference_lines.iter().filter(|l| select::tokens_fire_line(l, &needle)).count();
+                if hits * 100 >= denom * 12 {
+                    return true;
+                }
+            }
+            match grammar::token_role(lang, token) {
+                // A built-in PRIMITIVE TYPE (`usize`, `u32`, `bool`) is essential syntax present
+                // in nearly every file and is never a bannable single-token construct — a
+                // reference section that mentions it (paths.html's `usize`) must never fire.
+                Some("primitive_type") => true,
+                // A KEYWORD (`var`, `use`) is over-general UNLESS a good example contrasts it: a
+                // real bad∧good pair (`var count` vs `let count`) proves the keyword itself is the
+                // banned construct, while a reference mention with no counterpart (`use` syntax)
+                // is not.
+                Some("keyword") => {
+                    !(!good.trim().is_empty()
+                        && !select::tokens_fire_text(good, std::slice::from_ref(&token.to_string())))
+                }
+                _ => false,
+            }
+        };
+        let over_general = |tokens: &[String], good: &str| -> bool {
+            tokens.len() == 1 && over_general_token(&tokens[0], good)
         };
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
@@ -323,10 +362,6 @@ impl RuleSet {
                         dropped(id, "untraceable example tokens (never reality-flagged; not named by the law's words)");
                         continue;
                     }
-                    if !trusted.contains(id) && english_keyword(&tokens) {
-                        dropped(id, "single English-word token (a reference keyword like `use`, not a construct a rule points at)");
-                        continue;
-                    }
                     MatchKind::Tokens { tokens, raw: false }
                 } else {
                     dropped(id, "no detector (AST abstained; no groundable word; no token diff)");
@@ -342,16 +377,23 @@ impl RuleSet {
                         dropped(id, "untraceable example tokens (never reality-flagged; not named by the law's words)");
                         continue;
                     }
-                    if !trusted.contains(id) && english_keyword(&tokens) {
-                        dropped(id, "single English-word token (a reference keyword like `use`, not a construct a rule points at)");
-                        continue;
-                    }
                     MatchKind::Tokens { tokens, raw: false }
                 } else {
                     dropped(id, "no detector (no groundable word; no token diff)");
                     continue;
                 }
             };
+            // The over-general single-token guard runs on the FINAL detector, whichever path
+            // produced it (description or example diff): a learned rule whose whole detector is a
+            // ubiquitous keyword/type fires on normal code everywhere and marks no violation.
+            if !trusted.contains(id) {
+                if let MatchKind::Tokens { tokens, .. } = &kind {
+                    if over_general(tokens, good) {
+                        dropped(id, "over-general single token (a ubiquitous language keyword/type, not a construct a rule points at)");
+                        continue;
+                    }
+                }
+            }
             compiled.push(CompiledRule {
                 id: id.clone(),
                 severity: severity.clone(),
