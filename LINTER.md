@@ -81,8 +81,14 @@ rules) are read through the same brain and compiled into the project OVERLAY, ex
 `lint_char::MeaningNetwork`).** As the brain reads the dictionary it BINDS EVERY headword the
 dictionary defines to the MEANING of its own definition — single words AND multi-word headwords
 (`give up`, `null pointer` are constructs too, keyed by their own token seed). The definition's
-leading content words are each `encode`d (the char-level spelling centroid, `CharReader::encode`)
-and majority-bundled into one meaning hypervector keyed by the headword's token seed. There is NO
+leading content words are each given their clean orthogonal code (`lint_ai::token_hv`) and
+majority-bundled into one meaning hypervector keyed by the headword's token seed, **each word
+weighted by its INVERSE DOCUMENT FREQUENCY** over the whole dictionary (`MeaningNetwork::weight_of`)
+so the distinctive words carry the sense and the filler every definition shares is suppressed, plus
+a one-hop TRANSITIVE EXPANSION through each distinctive word's own definition (spreading activation)
+so two concepts that share no exact definition word still overlap through their second-order
+vocabulary. (Clean codes, not the spelling centroid: meaning is SET OVERLAP of shared distinctive
+words, and spelling geometry only biased that — short common-letter words formed spurious hubs.) There is NO
 caller cap: the whole machine dictionary is bound (owner directive 2026-07-07 — "use the whole
 dictionary, make it work fully"). The measured funnel on the shipped New Oxford American body:
 **107,945 entries → 103,142 with a parseable definition → 69,691 bound before (the single-word
@@ -104,16 +110,20 @@ the mint gate, so `TRAIN_VERSION` is UNCHANGED (only `BRAIN_REV` bumps, rebuildi
 the sole runtime consumer, `lint_graph::word_is_english`, queries SINGLE words by `meaning_of(...)`
 existence — the additions are multi-word phrases never queried as single tokens, and sense-folding
 changes meaning VECTORS, not which single-word headwords exist, so page reading is bit-for-bit the
-same. Prohibition/negation meaning EMERGES from the definitions alone,
-but the SHAPE of the query matters: `related()` Hamming proximity was MEASURED and does NOT
-separate disapproval from neutral reference vocabulary (`incorrect`/`unsafe` sit as near the
-prohibition anchors as `array`/`element` do — any distance threshold is both a magic constant and
-non-separating). What DOES separate, cleanly and with zero neutral false positives, is
-definition-COMPOUNDING: a word is negation when its own definition contains a discovered negator
-AND another negator-defined word (`English::is_negation`) — this is what the learned-rule entry
-gate reads prohibition off of (see "Entry gates"), never `related()`, never a hand list of
-negation words (a firing offense here). Reading more material only ADDS entries; prior bindings
-are never overwritten (retain-and-grow).
+same. Prohibition/negation meaning EMERGES from the definitions alone.
+**`related()` now SEPARATES concepts (owner directive 2026-07-08, `BRAIN_REV` 7).** The earlier
+unweighted spelling-centroid meaning was MEASURED not to separate — every probe concept scored
+~1.0 for every principle, near-synonym nearest-neighbor accuracy at chance (~0.29). The inverse-
+document-frequency weighting + clean codes + distinctive one-hop expansion above fixed that: on the
+whole dictionary, over near-synonym groups, nearest-neighbor accuracy is **0.75 (18/24)** and the
+mean rank of a word's nearest true synonym is **2.29 against a chance of ~6** (`meaning_separation_gate`).
+This is what makes the understanding→trace bridge's meaning alignment reliable, and it is a
+comparative nearest-neighbor query, never a distance threshold (which would be a magic constant).
+The learned-rule entry gate still reads prohibition off definition-COMPOUNDING (a word is negation
+when its own definition contains a discovered negator AND another negator-defined word,
+`English::is_negation`; see "Entry gates"), never a hand list of negation words (a firing offense
+here). Reading more material only ADDS entries; prior bindings are never overwritten
+(retain-and-grow); the document-frequency table rides `char.global.bin` beside the definitions.
 
 **Reading a page is UNDERSTANDING, not tag-matching (Phase 2 — `lint_graph::read_page`).** A raw
 documentation page is scanned by the only typography the covenant grants — a `<…>` run is ONE

@@ -36,7 +36,11 @@ const MEM_CAP: usize = 8 << 20;
 /// 6: the web curriculum is read DEDUPED ([`novel_blocks`], owner directive 2026-07-08) — repeated
 /// crawl chrome is learned once, not 20 000×, so the corpus is representative and the read is
 /// seconds; every stale brain rebuilds on the smaller, correct corpus.
-const BRAIN_REV: u64 = 6;
+/// 7: the meaning network weights each definition word by INVERSE DOCUMENT FREQUENCY
+/// ([`MeaningNetwork::weight_of`], owner directive 2026-07-08) so `related()` SEPARATES concepts —
+/// the distinctive words carry the sense; the document-frequency table rides the artifact, so
+/// every stale brain rebuilds to gain it.
+const BRAIN_REV: u64 = 7;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -443,6 +447,20 @@ pub fn spell_vector(word: &str) -> Option<Hv> {
 
 // ── The dictionary meaning network (LINTER.md, "The dictionary meaning network") ──
 
+/// How much the FIRST hop (a word's own definition) outweighs the transitively-expanded
+/// neighborhood in [`MeaningNetwork::meaning_of`]. The expansion pulls in ~12× more words than the
+/// direct definition, so without this the neighborhood would drown the word's own sense; scaling
+/// the direct words up keeps a word anchored to what its definition literally says while the
+/// second-order vocabulary only tips near-concepts together.
+const HOP1_SCALE: u32 = 2;
+
+/// The inverse-frequency weight a word must clear to be FOLLOWED in transitive expansion
+/// ([`MeaningNetwork::meaning_of`]). Generic filler ("used", "make", "way") weighs near the floor
+/// and is not expanded through — following it would spray a huge generic neighborhood and turn
+/// every concept into a hub. Only distinctive words (roughly, present in a small fraction of
+/// definitions) carry their neighborhood forward. Derived from the weight scale, not a word list.
+const EXPAND_FLOOR: u32 = 24;
+
 /// Definition content-word cap per headword — the leading words of a dictionary definition carry
 /// its sense (dictionaries front-load the genus); the tail is examples and cross-references. The
 /// same bound the word substrate keeps ([`crate::lint_english`]), so the two meaning views agree.
@@ -463,12 +481,19 @@ pub struct MeaningNetwork {
     /// Headword token seed → its definition's leading content words. Sorted by seed once
     /// [`seal`](Self::seal)ed, so [`meaning_of`](Self::meaning_of) answers by binary search.
     defs: Vec<(u64, Vec<String>)>,
+    /// Definition-word token seed → its DOCUMENT FREQUENCY (how many headword definitions contain
+    /// it), computed at [`seal`](Self::seal). This is the corpus statistic the meaning binding
+    /// weights by: a word in almost every definition ("used", "make", "person") carries little
+    /// sense and is nearly suppressed; a rare distinctive word ("credential", "unreachable")
+    /// dominates its headword's meaning. Sorted by seed for binary-search lookup, and PERSISTED so
+    /// a loaded brain rebinds the identical inverse-frequency-weighted meaning. Empty until sealed.
+    df: Vec<(u64, u32)>,
 }
 
 impl MeaningNetwork {
     /// An empty network.
     pub fn new() -> MeaningNetwork {
-        MeaningNetwork { defs: Vec::new() }
+        MeaningNetwork { defs: Vec::new(), df: Vec::new() }
     }
 
     /// BIND a headword to the words of its definition (retain-and-grow: appended, folded at
@@ -515,6 +540,29 @@ impl MeaningNetwork {
             }
         }
         self.defs = folded;
+        self.compute_df();
+    }
+
+    /// Compute each definition-word's DOCUMENT FREQUENCY over the folded definitions — how many
+    /// headwords use it — and store it sorted by seed for binary-search lookup. This is the corpus
+    /// statistic [`weight_of`](Self::weight_of) turns into an inverse-frequency weight, so the
+    /// meaning binding leans on distinctive words and all but ignores the vocabulary every
+    /// definition shares. Recomputed from scratch (idempotent) whenever the definitions change.
+    fn compute_df(&mut self) {
+        let mut df: HashMap<u64, u32> = HashMap::new();
+        for (_, words) in &self.defs {
+            // Count each distinct word ONCE per definition (document frequency, not term count).
+            let mut seen = std::collections::HashSet::new();
+            for w in words {
+                let seed = crate::lint_ai::token_seed(w);
+                if seen.insert(seed) {
+                    *df.entry(seed).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut df: Vec<(u64, u32)> = df.into_iter().collect();
+        df.sort_by_key(|(k, _)| *k);
+        self.df = df;
     }
 
     /// How many headwords carry a bound meaning.
@@ -545,16 +593,59 @@ impl MeaningNetwork {
         self.definition(word).is_some()
     }
 
+    /// The inverse-frequency WEIGHT of a definition word (its vote count in a meaning bundle):
+    /// derived from the word's document frequency (see [`df`](Self::df)) as
+    /// `round(ln(N / df) · scale)`, floored at 1. A word in almost every definition weighs ~1 (it
+    /// tells the reader nothing about which headword it belongs to); a rare, distinctive word
+    /// weighs tens of times more and so dominates the headword's meaning. This is what separates
+    /// concepts — two words measure close only when they SHARE DISTINCTIVE vocabulary, not the
+    /// filler every definition carries. A word absent from the frequency table (an unsealed network
+    /// or a novel word) weighs 1.
+    fn weight_of(&self, word: &str) -> u32 {
+        const SCALE: f64 = 8.0;
+        let n = self.defs.len().max(1) as f64;
+        let seed = crate::lint_ai::token_seed(word);
+        let df = self.df.binary_search_by_key(&seed, |(k, _)| *k).ok().map(|i| self.df[i].1).unwrap_or(1);
+        let idf = (n / f64::from(df.max(1))).ln().max(0.0);
+        ((idf * SCALE).round() as u32).max(1)
+    }
+
     /// The MEANING of `word`: its definition's content words each [`encode`](CharReader::encode)d
-    /// (the char-level spelling centroid) and majority-bundled into one hypervector. PURE and
-    /// STABLE — the same word always rebinds the same vector, so a round-tripped network answers
-    /// identically. `None` when no definition is bound.
+    /// (the char-level spelling centroid) and majority-bundled into one hypervector, each word
+    /// weighted by its INVERSE DOCUMENT FREQUENCY ([`weight_of`](Self::weight_of)) so the
+    /// distinctive words carry the sense and the filler every definition shares is suppressed. PURE
+    /// and STABLE — the same word always rebinds the same vector (the weights ride the sealed
+    /// network), so a round-tripped network answers identically. `None` when no definition is bound.
     pub fn meaning_of(&self, word: &str) -> Option<Hv> {
         let words = self.definition(word)?;
         let mut b = Bundler::new();
         for w in words {
-            if let Some(v) = word_vector(w) {
-                b.add(&v);
+            // The atom for a definition word is its CLEAN orthogonal code
+            // ([`crate::lint_ai::token_hv`]), not its spelling centroid: meaning is SET OVERLAP of
+            // the distinctive words two definitions share, and spelling geometry only biases that
+            // (short, common-letter words form spurious hubs close to everything). A clean random
+            // code per word makes two meanings close exactly when they share vocabulary.
+            let w1 = self.weight_of(w);
+            b.add_weighted(&crate::lint_ai::token_hv(w), w1 * HOP1_SCALE);
+            // ONE-HOP TRANSITIVE EXPANSION (spreading activation): also fold in the DISTINCTIVE
+            // definition words of THIS definition word. Two concepts whose immediate definitions
+            // share no exact word ("duplicate" vs "copy") still overlap through their shared
+            // SECOND-ORDER vocabulary, so semantic neighbors cluster instead of sitting at the
+            // orthogonal floor. Only distinctive second-order words are followed (weight above
+            // [`EXPAND_FLOOR`]) and only from a distinctive first-order word: expanding through
+            // filler ("used", "make") sprays a generic neighborhood that would make every concept
+            // a hub. The first hop is scaled up so a word's own definition still anchors its
+            // meaning over the expanded neighborhood.
+            if w1 < EXPAND_FLOOR {
+                continue;
+            }
+            if let Some(sub) = self.definition(w) {
+                for sw in sub {
+                    let ws = self.weight_of(sw);
+                    if ws >= EXPAND_FLOOR {
+                        b.add_weighted(&crate::lint_ai::token_hv(sw), ws);
+                    }
+                }
             }
         }
         (!b.is_empty()).then(|| b.finalize())
@@ -589,6 +680,11 @@ impl crate::lint_codec::Bin for MeaningNetwork {
                 e.str(w);
             }
         }
+        // The inverse-frequency table rides the artifact so a loaded brain rebinds the identical
+        // IDF-weighted meaning without re-reading the dictionary — two parallel RAW arrays
+        // (word seeds, document frequencies) in canonical sorted order.
+        e.raw_u64s(&self.df.iter().map(|(k, _)| *k).collect::<Vec<_>>());
+        e.raw_u32s(&self.df.iter().map(|(_, c)| *c).collect::<Vec<_>>());
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<MeaningNetwork> {
         let keys = d.raw_u64s()?;
@@ -604,7 +700,13 @@ impl crate::lint_codec::Bin for MeaningNetwork {
             }
             defs.push((k, words));
         }
-        Some(MeaningNetwork { defs })
+        let df_keys = d.raw_u64s()?;
+        let df_vals = d.raw_u32s()?;
+        if df_keys.len() != df_vals.len() {
+            return None;
+        }
+        let df = df_keys.into_iter().zip(df_vals).collect();
+        Some(MeaningNetwork { defs, df })
     }
 }
 
@@ -1339,10 +1441,14 @@ mod tests {
 
     // ── The dictionary meaning network ────────────────────────────────────────
 
-    /// A tiny fixture dictionary (hermetic — no machine dictionary, no network): negation
-    /// headwords written in SHARED negative vocabulary, neutral headwords in their own. The
-    /// cluster the tests below assert is a property of THESE definitions alone — the product code
-    /// ([`MeaningNetwork`]) names no negation word anywhere, so nothing is smuggled in by a list.
+    /// A fixture dictionary (hermetic — no machine dictionary, no network): negation headwords
+    /// written in SHARED negative vocabulary, neutral headwords in their own, plus enough unrelated
+    /// filler that the negative vocabulary is RARE across the whole corpus — as it is in the real
+    /// 103k-headword dictionary. Rarity matters: `related()` now weights each definition word by
+    /// inverse document frequency, so a word shared by a small cluster carries the cluster's meaning
+    /// while vocabulary sprinkled through every entry is discounted. The cluster the tests assert is
+    /// a property of THESE definitions alone — the product code ([`MeaningNetwork`]) names no
+    /// negation word anywhere, so nothing is smuggled in by a list.
     fn negation_fixture() -> MeaningNetwork {
         let mut m = MeaningNetwork::new();
         m.bind("never", &["not", "negation", "negative"]);
@@ -1351,6 +1457,24 @@ mod tests {
         m.bind("avoid", &["negation", "negative", "prevent"]);
         m.bind("banana", &["yellow", "curved", "tropical", "fruit"]);
         m.bind("table", &["furniture", "flat", "surface", "legs"]);
+        // Neutral filler in its own disjoint vocabulary, so the negative words above are rare
+        // corpus-wide (a small fraction of entries) rather than appearing in most of a six-word
+        // dictionary — the condition under which inverse-frequency weighting keeps shared cluster
+        // vocabulary meaningful.
+        for (head, def) in [
+            ("river", ["water", "flowing", "channel", "bank"]),
+            ("mountain", ["tall", "rocky", "peak", "summit"]),
+            ("music", ["sound", "rhythm", "melody", "harmony"]),
+            ("garden", ["plants", "flowers", "soil", "growing"]),
+            ("engine", ["machine", "power", "motor", "mechanical"]),
+            ("letter", ["written", "message", "envelope", "postage"]),
+            ("planet", ["orbit", "space", "celestial", "gravity"]),
+            ("bread", ["flour", "baked", "dough", "loaf"]),
+            ("clock", ["time", "hands", "ticking", "hours"]),
+            ("forest", ["trees", "woodland", "dense", "canopy"]),
+        ] {
+            m.bind(head, &def);
+        }
         m.seal();
         m
     }
@@ -1438,5 +1562,54 @@ mod tests {
             worst_intra < best_cross,
             "negation words must cluster: worst intra {worst_intra} < best cross {best_cross}"
         );
+    }
+
+    /// STEP-1 SEPARATION GATE (owner directive 2026-07-08): the meaning network's `related()`
+    /// proximity must SEPARATE concepts — a near-synonym ranks nearer than an unrelated word,
+    /// reliably. Built on the whole dictionary, over near-synonym groups: the gate is that each
+    /// word's nearest neighbor is a member of its own group far above the ~1/6 chance rate (the
+    /// baseline — unweighted spelling-centroid meaning — scored at chance, ~0.29). Ignored (reads
+    /// the local dictionary). Run:
+    /// `cargo test --release --lib meaning_separation_gate -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads the local dictionary; the Step-1 concept-separation gate"]
+    fn meaning_separation_gate() {
+        let defs = crate::lint_english::dictionary_definitions(None, MAX_MEANING_WORDS)
+            .expect("a readable dictionary");
+        let mut m = MeaningNetwork::new();
+        for (head, words) in &defs {
+            m.bind(head, &words.iter().map(String::as_str).collect::<Vec<_>>());
+        }
+        m.seal();
+        // Near-synonym groups: members of a group should out-rank members of any other group.
+        let groups = [
+            ["duplicate", "copy", "identical", "replicate"],
+            ["forbid", "prohibit", "ban", "prevent"],
+            ["ignore", "disregard", "neglect", "omit"],
+            ["document", "describe", "explain", "comment"],
+            ["secret", "password", "credential", "token"],
+            ["error", "mistake", "fault", "flaw"],
+        ];
+        let items: Vec<(&str, usize)> =
+            groups.iter().enumerate().flat_map(|(g, ws)| ws.iter().map(move |w| (*w, g))).collect();
+        let (mut correct, mut rank_sum) = (0u32, 0f64);
+        for (i, (wi, gi)) in items.iter().enumerate() {
+            let mut ds: Vec<(u32, usize)> = items
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, (wj, gj))| (m.related(wi, wj), *gj))
+                .collect();
+            ds.sort_by_key(|(d, _)| *d);
+            if ds[0].1 == *gi {
+                correct += 1;
+            }
+            rank_sum += ds.iter().position(|(_, gj)| gj == gi).map_or(ds.len(), |p| p + 1) as f64;
+        }
+        let acc = f64::from(correct) / items.len() as f64;
+        let mean_rank = rank_sum / items.len() as f64;
+        eprintln!("SEPARATION: NN-accuracy={acc:.2} ({correct}/{}) mean-synonym-rank={mean_rank:.2} (chance ~6)", items.len());
+        assert!(acc >= 0.60, "nearest neighbor must be a synonym far above chance: {acc:.2}");
+        assert!(mean_rank < 3.0, "a synonym must rank in the nearest few: {mean_rank:.2}");
     }
 }
