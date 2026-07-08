@@ -695,9 +695,11 @@ REFUSES — reported, by name, never silently degraded — when either substrate
 **No tag is ever consulted by name — the page is one token stream and the judgments are the
 reading's.** The only programmed piece is typography, from the already-allowed list: a `<…>`
 run is ONE MARKUP TOKEN (HTML's word-boundary rule, the same class of mechanism as "whitespace
-separates words"), and sentence punctuation is what it always was. Which tag a markup token is
-never matters to comprehension; there is no code-carrier list, no boundary list, no element
-vocabulary consulted anywhere. What the reading itself decides:
+separates words"), an opening markup token CONTAINS the text until its own name closes it
+(the element-containment rule — names compared only to each other, the same class as matching
+quotes), and sentence punctuation is what it always was. There is no ENUMERATED code-carrier
+list, no boundary list, no element vocabulary written into code anywhere; what a tag MEANS is
+learned by exposure, exactly as words were. What the reading itself decides:
 
 - **Code vs prose is a REGISTER judgment, made with the English brain.** The text between
   markup tokens (a GAP) reads as English or it doesn't: the fraction of its word tokens the
@@ -719,6 +721,26 @@ vocabulary consulted anywhere. What the reading itself decides:
   Governing prose never crosses one, and the title's own words never weld onto the section's
   first sentence (ledger #22's class, dissolved rather than special-cased). The shape's word
   ceiling is learned from the same W3 reading (the gap-length distribution's short mode).
+  **A gap that belongs to an OPEN sentence is never a boundary**: open on either side — the
+  previous prose gap ended without a sentence terminal and flows in, or the gap itself ends
+  unterminated and flows into the next. Flow is containment typography: adjacent gaps' stacks
+  NEST (one a prefix of the other — `[p]` into `[p, code]` and back), while a real heading
+  and its section's prose never nest, so flow stops exactly where sections do. Both fragments
+  a mid-sentence mark splits (`Never use the <code>var</code> statement`) stay prose; no tag
+  name is involved.
+- **TAG ROLES are learned from the W3 reading, never enumerated** (this is the "reading keeps
+  their role" clause made concrete). During the same corpus read, every gap testifies for every
+  element that CONTAINS it (the containment stack — nesting is typography, so `<pre><code>
+  <span>` all receive the code text they wrap): an element whose contained text reads, with ¾
+  decisiveness and real support, as code register earns a code-carrier role; one whose text
+  reads as heading-shaped (title shape, majority-English, and NOT continuing an open sentence —
+  the two guards that keep highlighter shreds and mid-sentence links from testifying as
+  headings) earns a boundary role. Everything else stays density-judged. At read time the
+  INNERMOST containing element with a decisive learned role decides a gap's register before
+  density does — this is what tells `<pre>goto cleanup</pre>` (code) from `<h1>flowlang
+  statements</h1>` (heading) when the two are textually identical, and what keeps a code
+  example's English comment lines inside the code span. The roles live in the brain as learned
+  data (seed → role); no name is ever compared to a list in code.
 - **Author marks stay corroborating provenance, never comprehension**: an `id="…"` anchor
   inside a markup token still names the section (rule ids), a `language-*`/`brush:` class still
   declares a block's own language (ledger #18's gate) — attributes the author wrote, read as
@@ -726,7 +748,8 @@ vocabulary consulted anywhere. What the reading itself decides:
 
 The artifact is `markup.global.bin` (machine-global, `HLM1`, beside the models): the html-fed
 reader (tags learned as vocabulary by exposure — ubiquity strips them of meaning-weight, the
-reading keeps their role) plus the calibration (density split, title-gap ceiling). Built at
+reading keeps their role) plus the calibration (density split, title-gap ceiling) and the
+learned tag roles (seed → code-carrier/boundary, the containment-stack tallies above). Built at
 SETUP after the English brain and before any language trains; machines without a readable html
 cache load the committed bootstrap `lint-index/markup-bootstrap.json` — machine-generated
 learned data, same covenant as the English and extensions bootstraps (regenerate with

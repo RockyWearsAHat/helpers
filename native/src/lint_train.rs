@@ -54,10 +54,10 @@ pub struct LangModel {
 /// "Map"). The learned catalog is cached and registry-shared, so the cost is paid once per
 /// machine per toolchain version.
 #[cfg(feature = "crawl")]
-const MAX_CRAWL_PAGES: usize = 20_000;
+pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-const TRAIN_VERSION: &str = "docs-v59-operative-negation";
+pub(crate) const TRAIN_VERSION: &str = "docs-v60-raw-pages-read-by-the-ai";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -2158,6 +2158,11 @@ fn overlay_stamp_of(lang: &str, data_root: &Path, version: &str, law: &[DocRule]
     h.update(project_fp.to_le_bytes());
     h.update(file_state(&cache_path(lang)).to_le_bytes());
     h.update(file_state(&crate::lint_docs::global_polarity_path()).to_le_bytes());
+    // The substrates shape comprehension (unit forming reads through the MarkupBrain, the
+    // English brain judges register), so a rebuilt brain must recompile what was read
+    // through the old one.
+    h.update(file_state(&model_dir().join("markup.global.bin")).to_le_bytes());
+    h.update(file_state(&model_dir().join("english.global.bin")).to_le_bytes());
     for s in lint_index_states(data_root).iter() {
         h.update(s.to_le_bytes());
     }

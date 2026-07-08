@@ -59,4 +59,5 @@ lint-index/*.json
 !lint-index/polarity-bootstrap.json
 !lint-index/english-bootstrap.json
 !lint-index/extensions-bootstrap.json
+!lint-index/markup-bootstrap.json
 !lint-index/trusted-keys.json

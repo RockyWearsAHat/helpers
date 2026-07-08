@@ -1446,7 +1446,6 @@ fn incremental_run(
         }
     }
     mark("rescan");
-    let witness = crate::lint_replay::combine(st.walk_w, st.aux_w);
     // ZERO-CHANGE fast path (a fired vnode whose content folded identical — editors save
     // twice, our own reopen races): the cached body IS the answer.
     if !changed_any {

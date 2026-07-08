@@ -214,7 +214,7 @@ pub fn block_lang_hint(html: &str, open: usize) -> String {
 
 /// The first language label inside an open tag's text: the token after `brush:` or after a
 /// `language-`/`lang-` class prefix. Alphanumeric plus `+`/`#` so `c++`/`c#` survive.
-fn lang_label_in_tag(tag: &str) -> String {
+pub(crate) fn lang_label_in_tag(tag: &str) -> String {
     let token_at = |rest: &str| -> String {
         rest.trim_start()
             .chars()
@@ -273,17 +273,6 @@ fn collect_json_strings(v: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
-/// The largest byte index `<= i` that lies on a UTF-8 char boundary of `s` (a stable stand-in for
-/// the unstable `str::floor_char_boundary`). Slicing at a raw byte offset computed by arithmetic can
-/// land inside a multi-byte char and panic; flooring it first keeps the slice safe.
-fn floor_char_boundary(s: &str, i: usize) -> usize {
-    let mut i = i.min(s.len());
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
-}
-
 /// The last `n` whitespace-separated words of `s`, in order — the local lead-in prose.
 fn words_tail(s: &str, n: usize) -> String {
     let w: Vec<&str> = s.split_whitespace().collect();
@@ -300,33 +289,24 @@ pub fn extract_sections_html(html: &str) -> Vec<(String, String)> {
 
 /// [`extract_sections_html`] carrying each block's own language hint ([`block_lang_hint`]).
 pub fn extract_sections_html_hinted(html: &str) -> Vec<(String, String, String)> {
-    let h = drop_script_style(html);
-    let mut out = Vec::new();
-    for (open, close) in [("<pre", "</pre>"), ("<code", "</code>")] {
-        let mut search_from = 0usize;
-        while let Some(rel) = h[search_from..].find(open) {
-            let start = search_from + rel;
-            let after_open = &h[start..];
-            let Some(gt) = after_open.find('>') else { break };
-            let body_start = start + gt + 1;
-            let Some(end_rel) = h[body_start..].find(close) else { break };
-            let code = strip_code(&h[body_start..body_start + end_rel]);
-            // Local context: the ~1500 bytes of markup before this block, tag-stripped, last words.
-            // Floor the window start to a char boundary — `start - 1500` can land inside a multi-byte
-            // char (docs prose has emoji/punctuation), which would panic the slice.
-            let ctx_start = floor_char_boundary(&h, start.saturating_sub(1500));
-            let local = words_tail(&strip_tags(&h[ctx_start..start]), 40);
-            if code.len() >= 3 && local.len() >= 8 {
-                out.push((local, code, block_lang_hint(&h, start)));
-            }
-            search_from = body_start + end_rel + close.len();
-        }
-    }
-    out
+    // The AI reads the markup (LINTER.md, "Markup second"): segmentation is the MarkupBrain's
+    // register judgment over the raw body — no tag list here. Without the substrates nothing
+    // can read HTML, and nothing pretends to.
+    let (Some(english), Some(markup)) =
+        (crate::lint_english::brain(), crate::lint_markup::brain())
+    else {
+        return Vec::new();
+    };
+    let body = drop_script_style(html);
+    crate::lint_markup::read_page(&body, english, markup)
+        .into_iter()
+        .filter(|u| u.prose.len() >= 8)
+        .map(|u| (u.prose, u.code, u.hint))
+        .collect()
 }
 
 /// Strip `<script>`/`<style>` blocks from HTML.
-fn drop_script_style(html: &str) -> String {
+pub(crate) fn drop_script_style(html: &str) -> String {
     let mut h = html.to_string();
     // Page chrome carries no documentation: scripts/styles are code for the BROWSER, and
     // nav/header/footer/aside are the site's furniture ("Skip to main content", theme pickers)
@@ -965,14 +945,6 @@ mod tests {
         let html = format!("<p>{prose}</p><pre>code here</pre>");
         let secs = extract_sections_html(&html);
         assert!(secs.iter().any(|(_, c)| c.contains("code here")), "code extracted: {secs:?}");
-    }
-
-    #[test]
-    fn floor_char_boundary_never_splits_a_char() {
-        let s = "ab🛠cd"; // '🛠' is 4 bytes at offsets 2..6
-        assert_eq!(floor_char_boundary(s, 3), 2, "floors into the emoji back to its start");
-        assert_eq!(floor_char_boundary(s, 2), 2, "already a boundary stays put");
-        assert_eq!(floor_char_boundary(s, 100), s.len(), "clamped to len");
     }
 
     #[test]
