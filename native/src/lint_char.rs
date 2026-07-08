@@ -1055,6 +1055,67 @@ mod tests {
         );
     }
 
+    /// UNIFORM over the WHOLE Unicode scalar set (owner directive 2026-07-08 "whole charset"):
+    /// reading privileges no subset. The reader is uniform BY CONSTRUCTION — [`char_hv`] seeds off
+    /// the full scalar (a bijection, so high planes never collide with ASCII), context addressing
+    /// hashes char CODES not bytes (no multibyte mis-slice), and no `as u8`/ascii-only path exists.
+    /// This proves it: Latin, CJK, Arabic (RTL), an astral-plane emoji, a mathematical symbol, and
+    /// a decomposed combining diacritic go through every reader path with NO loss and NO panic.
+    #[test]
+    fn reading_is_uniform_over_the_whole_charset() {
+        // (1) `char_hv` is collision-free across planes — the seed is a bijection of the scalar,
+        // so two DISTINCT scalars (however high their code point) get distinct vectors. A hash
+        // that folded high planes onto ASCII would fail here.
+        let scalars = [
+            'A',         // Latin
+            'é',         // Latin-1 precomposed
+            '中',        // CJK unified ideograph
+            'ا',         // Arabic (RTL)
+            '😀',        // U+1F600 — astral plane (emoji)
+            '×',         // mathematical symbol
+            '\u{0301}',  // combining acute accent
+            '\u{1F4A9}', // another astral scalar
+        ];
+        for i in 0..scalars.len() {
+            for j in (i + 1)..scalars.len() {
+                assert!(
+                    char_hv(scalars[i]).distance(&char_hv(scalars[j])) > 0,
+                    "distinct scalars must not collide: {:?} vs {:?}",
+                    scalars[i],
+                    scalars[j]
+                );
+            }
+        }
+
+        // (2) `encode` maps mixed-script text without loss and stays order-sensitive across
+        // scripts — a spelling centroid that dropped non-Latin characters would tie these.
+        let mixed = "中文 عربى 😀 café x×y n\u{0301}";
+        assert!(CharReader::new().encode(mixed).is_some(), "mixed-script text encodes");
+        let ab = CharReader::new().encode("中a").unwrap();
+        let ba = CharReader::new().encode("a中").unwrap();
+        assert!(ab.distance(&ba) > 0, "encode is order-sensitive across scripts (中a ≠ a中)");
+
+        // (3) LEARN then PREDICT round-trips every scalar: after one read, each position's exact
+        // continuation is retained in its context set — CJK, RTL, emoji, and combining marks
+        // included. A stored ASCII-only path would leave the non-Latin positions unpredicted.
+        let line = "中文文档 goto 説明 عربية نص 😀🎉 café n\u{0301}o\u{0301} x×÷y ";
+        let mut r = CharReader::new();
+        r.learn(line);
+        let chars: Vec<char> = line.chars().collect();
+        assert_eq!(r.total_read(), chars.len() as u64, "every scalar was read, none dropped");
+        for i in MIN_ORDER..chars.len() {
+            assert!(
+                r.predicted(&chars, i),
+                "scalar {:?} at {i} must be retained and predicted after reading it",
+                chars[i]
+            );
+        }
+
+        // (4) The gauge paths never panic on the full charset (combining marks, RTL, astral).
+        let _ = r.surprise(line);
+        let _ = r.segment(&format!("<p>{line}</p><pre>中: goto 😀</pre>"));
+    }
+
     /// The persisted brain round-trips exactly — a loaded brain reads pages identically to the
     /// one that trained (the property that lets segmentation stand on a saved reader).
     #[test]
