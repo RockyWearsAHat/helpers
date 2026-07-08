@@ -248,18 +248,18 @@ pub fn dictionary_prose_sample() -> Option<String> {
     dictionary_prose(Some(200))
 }
 
-/// The machine dictionary's raw definition PROSE, as one character stream — the character-level
-/// reader's English base ([`crate::lint_char`]). `max_chunks` bounds the read (`None` = the
-/// whole dictionary, the production curriculum). `None` return when no dictionary is parseable.
-pub fn dictionary_prose(max_chunks: Option<usize>) -> Option<String> {
-    let (path, _) = dictionary_body()?;
-    let data = std::fs::read(path).ok()?;
-    let mut out = String::new();
+/// Walk an Apple dictionary body's zlib chunks in order, handing `f` each chunk's decompressed
+/// XML. Heap layout (verified against the shipped New Oxford American body): a 0x60-byte header,
+/// then `[outer u32][inner u32][raw u32][zlib stream of outer-8 bytes]` repeated. The walk stops
+/// at `max_chunks` or the first malformed chunk — a partial read of a foreign layout must never
+/// be mistaken for a whole one. Returns the byte position it stopped at (the entirety witness a
+/// full read checks is zero padding) and the number of chunks handed to `f`.
+fn walk_chunks(data: &[u8], max_chunks: usize, mut f: impl FnMut(&str)) -> (usize, usize) {
     let mut pos = 0x60usize;
     let mut chunks = 0usize;
-    let cap = max_chunks.unwrap_or(usize::MAX);
-    while pos + 12 < data.len() && chunks < cap {
-        let outer = u32::from_le_bytes(data[pos..pos + 4].try_into().ok()?) as usize;
+    while pos + 12 < data.len() && chunks < max_chunks {
+        let Some(outer_bytes) = data.get(pos..pos + 4) else { break };
+        let outer = u32::from_le_bytes(outer_bytes.try_into().expect("4-byte slice")) as usize;
         if outer < 8 || pos + 4 + outer > data.len() {
             break;
         }
@@ -268,16 +268,82 @@ pub fn dictionary_prose(max_chunks: Option<usize>) -> Option<String> {
         else {
             break;
         };
-        let xml = String::from_utf8_lossy(&xml_bytes);
+        f(&String::from_utf8_lossy(&xml_bytes));
+        chunks += 1;
+        pos += 4 + outer;
+    }
+    (pos, chunks)
+}
+
+/// The machine dictionary's raw definition PROSE, as one character stream — the character-level
+/// reader's English base ([`crate::lint_char`]). `max_chunks` bounds the read (`None` = the
+/// whole dictionary, the production curriculum). `None` return when no dictionary is parseable.
+pub fn dictionary_prose(max_chunks: Option<usize>) -> Option<String> {
+    let (path, _) = dictionary_body()?;
+    let data = std::fs::read(path).ok()?;
+    let mut out = String::new();
+    walk_chunks(&data, max_chunks.unwrap_or(usize::MAX), |xml| {
         for piece in xml.split("<d:entry").skip(1) {
             let Some(gt) = piece.find('>') else { continue };
             let (prose, _) = strip_entry_xml(&piece[gt + 1..]);
             out.push_str(&prose);
             out.push(' ');
         }
-        chunks += 1;
-        pos += 4 + outer;
-    }
+    });
+    (!out.is_empty()).then_some(out)
+}
+
+/// The dictionary's headword→definition bindings as raw words — the source the character
+/// substrate's meaning network ([`crate::lint_char::MeaningNetwork`]) binds each headword to
+/// (LINTER.md, "The dictionary meaning network"). Each SINGLE-WORD headword yields the leading
+/// content words of its definition (the text before the entry's first " : " example separator;
+/// alphabetic, ≥2 characters, the headword itself excluded, capped at `max_words`); multi-word
+/// headwords are phrases whose parts are entries of their own. `max_chunks` bounds the read
+/// (`None` = the whole dictionary). `None` when no dictionary is parseable here.
+pub fn dictionary_definitions(
+    max_chunks: Option<usize>,
+    max_words: usize,
+) -> Option<Vec<(String, Vec<String>)>> {
+    let (path, _) = dictionary_body()?;
+    let data = std::fs::read(path).ok()?;
+    let mut out = Vec::new();
+    walk_chunks(&data, max_chunks.unwrap_or(usize::MAX), |xml| {
+        for piece in xml.split("<d:entry").skip(1) {
+            let Some(gt) = piece.find('>') else { continue };
+            let entry_title = piece[..gt]
+                .split("d:title=\"")
+                .nth(1)
+                .and_then(|a| a.split('"').next())
+                .map(str::to_string);
+            let (prose, mut titles) = strip_entry_xml(&piece[gt + 1..]);
+            if let Some(t) = entry_title {
+                titles.insert(0, t);
+            }
+            // The DEFINITION is the text before the entry's first example separator (" : "),
+            // exactly as the word substrate's bindings read it — example sentences quote
+            // arbitrary usage and must never leak their vocabulary into the headword's meaning.
+            let def_src = prose.split(" : ").next().unwrap_or(prose.as_str());
+            for title in &titles {
+                let toks = crate::lint_read::tokens(title);
+                let [head] = toks.as_slice() else { continue };
+                let mut words: Vec<String> = Vec::new();
+                for tok in crate::lint_read::tokens(def_src) {
+                    if tok.chars().count() < 2 || !tok.chars().all(char::is_alphabetic) {
+                        continue;
+                    }
+                    if &tok != head && !words.contains(&tok) {
+                        words.push(tok);
+                        if words.len() >= max_words {
+                            break;
+                        }
+                    }
+                }
+                if !words.is_empty() {
+                    out.push((head.clone(), words));
+                }
+            }
+        }
+    });
     (!out.is_empty()).then_some(out)
 }
 
