@@ -138,7 +138,15 @@ trained brain ⇒ no units, never a hand parse.
 char-code context addressing (n-gram backoff, no per-char hypervector — training the full
 dictionary + crawled web is seconds, not minutes); cumulative retain-and-grow; `HLM1` persistence
 (round-trips exactly); the setup verb `lint_char::ensure_brain` running the real curriculum
-(dictionary → crawled W3/MDN web); surprise validated as a GAUGE only (English ~11% of max vs
+(dictionary → crawled W3/MDN web), read DEDUPED to representative content (`lint_char::novel_blocks`:
+the nav/footer chrome repeated across a 20 000-page crawl is learned ONCE, not once per page — a
+correctness fix as much as a speed one, since re-reading identical chrome teaches an order-5
+predictor nothing and only skews the frequency curve; raw HTML is preserved so the structure-role
+learner still sees markup in context) — so the whole base brain builds in SECONDS, not minutes (the
+per-word English judgment `lint_graph::word_is_english` asks the meaning network's cheap EXISTENCE
+query `CharReader::has_meaning`, a binary search, never rebuilding a hypervector just to test
+`is_some`; that one change cut structure-role learning from ~203s to ~0.2s on the measured corpus);
+surprise validated as a GAUGE only (English ~11% of max vs
 novel code ~73% before the language is read); and the read path fully MOVED onto the char substrate
 — `lint_graph::read_page` forms the units both consumers (`doc_crawler::extract_sections_html_hinted`,
 `lint_docs::read_crawled_page`) read, on the meaning network and learned structural roles, and

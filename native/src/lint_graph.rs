@@ -193,12 +193,14 @@ fn push_word(body: &str, start: usize, end: usize, reader: &CharReader, g: &mut 
 /// vocabulary: the words themselves still come from the dictionary the brain read.
 pub(crate) fn word_is_english(reader: &CharReader, word: &str) -> bool {
     let w = word.to_lowercase();
-    if reader.meaning_of(&w).is_some() {
+    if reader.has_meaning(&w) {
         return true;
     }
     // Reduce a regular inflection to its lemma and re-query — never a word list, just suffix
     // morphology: `-s/-es/-ed/-ing/-d/-ly` drop, `-ies → -y`, doubled-consonant `-ing/-ed` undo.
-    let lemma_resolves = |stem: &str| stem.chars().count() >= 3 && reader.meaning_of(stem).is_some();
+    // `has_meaning` is the cheap existence query (no per-word hypervector rebuilt), which is what
+    // makes this per-word judgment affordable over a whole corpus.
+    let lemma_resolves = |stem: &str| stem.chars().count() >= 3 && reader.has_meaning(stem);
     if let Some(base) = w.strip_suffix("ies") {
         if lemma_resolves(&format!("{base}y")) {
             return true;
