@@ -220,6 +220,19 @@ impl RuleSet {
                 // "goto"; nim's `proc greet` names neither and dies).
                 || tokens.iter().any(|t| select::tokens_fire_text(desc, std::slice::from_ref(t)))
         };
+        // A single-token example-diff detector whose sole token is a COMMON ENGLISH WORD is a
+        // descriptive reference section that leaked into a firing rule, not a real prohibition:
+        // the construct a rule points at is the word English CANNOT account for (`goto`, `unwrap`),
+        // never a keyword the dictionary defines (`use`, `match`, `return`). This is the same
+        // "English cannot account for the construct" principle the description path already
+        // applies (`only_grounded`) — the example-diff path did not, and a Rust-reference `use`
+        // syntax section compiled `["use"]`, firing on every import (LINTER.md ledger; the
+        // reference-fire gate misses it whenever the corpus is under its statistical floor). The
+        // guard is for LEARNED rules only; project law is trusted by location.
+        let english_keyword = |tokens: &[String]| -> bool {
+            tokens.len() == 1
+                && crate::lint_english::brain().is_some_and(|e| e.is_common(&tokens[0]))
+        };
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
         let has_grammar = language(lang).is_some();
@@ -310,6 +323,10 @@ impl RuleSet {
                         dropped(id, "untraceable example tokens (never reality-flagged; not named by the law's words)");
                         continue;
                     }
+                    if !trusted.contains(id) && english_keyword(&tokens) {
+                        dropped(id, "single English-word token (a reference keyword like `use`, not a construct a rule points at)");
+                        continue;
+                    }
                     MatchKind::Tokens { tokens, raw: false }
                 } else {
                     dropped(id, "no detector (AST abstained; no groundable word; no token diff)");
@@ -323,6 +340,10 @@ impl RuleSet {
                 } else if let Some(tokens) = text_discriminator(bad, good) {
                     if !trusted.contains(id) && classifier_ready && !traceable(desc, bad, &tokens) {
                         dropped(id, "untraceable example tokens (never reality-flagged; not named by the law's words)");
+                        continue;
+                    }
+                    if !trusted.contains(id) && english_keyword(&tokens) {
+                        dropped(id, "single English-word token (a reference keyword like `use`, not a construct a rule points at)");
                         continue;
                     }
                     MatchKind::Tokens { tokens, raw: false }
