@@ -672,13 +672,12 @@ pub fn rules_from_understanding(lang: &str, prose: &str) -> Vec<crate::linter::L
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
             .filter(|w| w.len() >= 2)
             .collect();
-        // UNDERSTANDING — is this sentence's meaning a prohibition? It carries a word whose
-        // dictionary definition is negation (discovered from the dictionary, never a keyword
-        // list): "never" = "at no time", "deprecated" defined against use.
-        let prohibition = words
-            .iter()
-            .any(|w| eng.is_negation(crate::lint_ai::token_seed(&w.to_lowercase())));
-        if !prohibition {
+        // UNDERSTANDING — does this sentence STATE a prohibition (LINTER.md, "Entry gates")? A
+        // negation operator commands it ("Never use X") or a word names disapproval of the
+        // construct ("X is incorrect") — discovered from the dictionary's meaning network, never
+        // a keyword list. A negation merely buried in a description ("it is not allowed to move
+        // fields …") states nothing and is skipped.
+        if !eng.sentence_states_prohibition(sentence) {
             continue;
         }
         // The CONSTRUCT — the word the sentence is ABOUT that English cannot account for: a

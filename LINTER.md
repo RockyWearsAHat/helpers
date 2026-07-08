@@ -87,11 +87,16 @@ deflated in the DATA stream — a few MB beside the ~33MB context memory, never 
 headword), and the meaning vector is REBOUND on query, so the artifact never carries 78k×1KB. The
 graph is a pure query: `meaning_of(word)` rebinds the stored definition into its meaning Hv, and
 `related(a, b)` is the Hamming proximity of two words' meanings — words whose definitions share
-vocabulary land near each other. Prohibition/negation meaning EMERGES from this alone: negation
-words bind to the shared negative structure their dictionary definitions are written in, so a later
-increment asks "does this prose bind to prohibition-meaning" as one distance query — never a hand
-list of negation words (a firing offense here). Reading more material only ADDS entries; prior
-bindings are never overwritten (retain-and-grow).
+vocabulary land near each other. Prohibition/negation meaning EMERGES from the definitions alone,
+but the SHAPE of the query matters: `related()` Hamming proximity was MEASURED and does NOT
+separate disapproval from neutral reference vocabulary (`incorrect`/`unsafe` sit as near the
+prohibition anchors as `array`/`element` do — any distance threshold is both a magic constant and
+non-separating). What DOES separate, cleanly and with zero neutral false positives, is
+definition-COMPOUNDING: a word is negation when its own definition contains a discovered negator
+AND another negator-defined word (`English::is_negation`) — this is what the learned-rule entry
+gate reads prohibition off of (see "Entry gates"), never `related()`, never a hand list of
+negation words (a firing offense here). Reading more material only ADDS entries; prior bindings
+are never overwritten (retain-and-grow).
 
 **Reading a page is UNDERSTANDING, not tag-matching (Phase 2 — `lint_graph::read_page`).** A raw
 documentation page is scanned by the only typography the covenant grants — a `<…>` run is ONE
@@ -887,11 +892,36 @@ For **learned** doc rules: grounding in documented code is an entry *requirement
 rank), remedy-context words are ineligible outright ("…; use the logging module instead" can
 never compile `logging`), then forbidding context, not-connective, rarity.
 
-Entry gates: a **learned** rule (example-backed or not) compiles only if some SENTENCE of its
-description **classifies as a prohibition** under the information-weighted span classifier —
-the sentence is the verdict unit (ledger #6: never the mixed span; ledger #13: never a single
-word — one mis-leaning token in a tutorial paragraph must not admit the paragraph). A
-prose-derived detector must additionally be grounded in documented code. Every learned detector (AST or text) must also pass the **reference-fire gate**: it is
+Entry gates: a **learned** rule (example-backed or not) mints only when some SENTENCE of its
+governing prose is **COMMANDED BY A NEGATION OPERATOR** — the understanding gate, not the
+register. The reading is `English::states_prohibition`: an `is_negation` word (the meaning
+network's definition-COMPOUNDING judgment — a word whose own definition reaches negation; never a
+word list, never `related()` proximity, which was measured non-separating) GOVERNS the sentence,
+standing within its first two words of a sentence the author MARKED ("Never use X", "Do not call
+Y", "Deprecated: never use X"). This REPLACED the statistical `classify_tallied` escape, which
+admitted neutral/error-register reference prose as law — descriptive Rust Reference sections ("An
+array is a fixed-size sequence", "The rules for Send and Sync match those for normal struct
+types") classify as prohibition on register drift alone but command nothing, so understanding
+refuses them (measured on this repo: 125→46 findings, 36→~24 files; the `r-expr-*`/`r-type-*`
+descriptive junk class is gone). The grounded classifier still gates entry (`classify ==
+prohibition`) and still reads the fix and ranks the construct — it supplies the register; the
+meaning network supplies the *judgment that a prohibition was commanded*. **Why POSITION, not the
+word:** the meaning network cannot tell an imperative "Never use X" from a factual "X never
+includes Y" — the SAME word `never` — so only a negation that GOVERNS the sentence (leads it)
+reads as a command; a negation buried mid-clause ("…it is not allowed to move fields…") or used
+as a descriptive adverb ("this representation never includes a CR") states nothing. **Known
+residue** the covenant cannot yet kill: a negation LEADING a state description ("Not supported in
+Chrome", "Negative values are invalid") reads as a command and still mints — separating "Not
+<imperative>" from "Not <state>" needs the per-token side-count classifier (open problems).
+**Recall boundary:** prohibitions phrased WITHOUT a leading negation operator — predicate
+verdicts ("this code is incorrect", "X is unsafe") and non-operator deprecation ("X is deprecated
+and will be removed") — do NOT mint unless the sentence also leads with a covered operator; the
+dictionary meaning network is high-precision, low-recall on prohibition, and a hand list of
+disapproval words is a firing offense. Doc prose that means to forbid should COMMAND it. The
+sentence is the verdict unit (ledger #6:
+never the mixed span; ledger #13: never a single word — one mis-leaning token in a tutorial
+paragraph must not admit the paragraph). A prose-derived detector must additionally be grounded
+in documented code. Every learned detector (AST or text) must also pass the **reference-fire gate**: it is
 run against the language's reference corpus (the docs' own *normal* code) at compile time,
 and a detector that fires on more than 1% of that normal code's lines is over-general — the
 rule's real meaning is semantic (borrow usage, macro context) and tree shape cannot carry
