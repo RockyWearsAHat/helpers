@@ -53,6 +53,13 @@ pub struct English {
 /// (dictionaries front-load the genus); the tail is example phrases and cross-references.
 const MAX_DEFINITION_WORDS: usize = 12;
 
+/// How near the front of a sentence a bare negation OPERATOR must stand to COMMAND it
+/// (LINTER.md, "Entry gates"). Prohibitions are imperative and lead with their negation
+/// ("Never use X", "Do not call Y"); a bare "not" buried mid-clause ("…it is not allowed to
+/// move fields…") describes a constraint and commands nothing. Two words admits the leading
+/// operator and the imperative verb it may follow ("Do not …").
+const COMMAND_LEAD_WORDS: usize = 2;
+
 impl English {
     /// Whether common language accounts for `token`: the dictionary defines it, or definition
     /// prose reads it as common English (scale-free head of the dictionary corpus — catches
@@ -88,6 +95,44 @@ impl English {
             self.definition_of(*s).is_some_and(|d| d.iter().any(is_negator))
         };
         def.iter().any(is_negator) && def.iter().filter(|s| !is_negator(s)).any(|s| negator_defined(s))
+    }
+
+    /// Whether `sentence` STATES a prohibition under understanding — a negation OPERATOR
+    /// GOVERNS it: an [`is_negation`](Self::is_negation) word (the meaning network — never a word
+    /// list) stands within its first [`COMMAND_LEAD_WORDS`] words, and the sentence is one the
+    /// author MARKED (an uppercase or non-alphabetic first letter — a lowercase-led run is a
+    /// window fragment, not a sentence). This is the imperative reading the learned-rule entry
+    /// gate mints through ("Never use X", "Do not call Y", "Deprecated: never use X"). A negation
+    /// used DESCRIPTIVELY rather than to command — buried mid-sentence ("…it is not allowed to
+    /// move fields…") or a factual adverb ("this representation never includes a CR") — governs
+    /// nothing and states no prohibition (LINTER.md, "Entry gates"). Position, not a word list,
+    /// is the only signal that separates a commanding negation from a descriptive one; the
+    /// meaning network cannot tell "Never use X" from "X never includes Y" by the word alone.
+    pub fn sentence_states_prohibition(&self, sentence: &str) -> bool {
+        let mut words = sentence.split_whitespace();
+        let Some(first) = words.next() else { return false };
+        let marked = first
+            .chars()
+            .find(|c| c.is_alphanumeric())
+            .is_some_and(|c| c.is_uppercase() || !c.is_alphabetic());
+        if !marked && first.chars().any(|c| c.is_lowercase()) {
+            return false;
+        }
+        std::iter::once(first)
+            .chain(words)
+            .take(COMMAND_LEAD_WORDS)
+            .any(|w| {
+                let t = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+                !t.is_empty() && self.is_negation(crate::lint_ai::token_seed(&t))
+            })
+    }
+
+    /// Whether SOME sentence of `prose` states a prohibition ([`sentence_states_prohibition`]) —
+    /// the prose-level entry gate the learned-rule mint reads understanding off of.
+    pub fn states_prohibition(&self, prose: &str) -> bool {
+        crate::lint_read::sentences(prose)
+            .iter()
+            .any(|s| self.sentence_states_prohibition(s))
     }
 }
 
@@ -576,5 +621,59 @@ mod tests {
         for construct in ["telnetlib", "xmlhttprequest", "dbg", "paramiko"] {
             assert!(!english.knows(construct), "{construct:?} is not English — it is a construct");
         }
+    }
+
+    /// The committed bootstrap English — the offline, machine-independent substrate the gate
+    /// tests read understanding through (never the machine store, so CI and this repo agree).
+    fn bootstrap() -> English {
+        serde_json::from_str(
+            &crate::lint_train::embedded_lint_index_file("english-bootstrap.json")
+                .expect("bootstrap committed"),
+        )
+        .expect("bootstrap parses")
+    }
+
+    /// The learned-rule ENTRY GATE (LINTER.md, "Entry gates"): a sentence STATES a prohibition
+    /// only when a negation operator GOVERNS it. Neutral descriptive reference prose — the Rust
+    /// Reference junk class, including negation used DESCRIPTIVELY ("never includes a CR", "does
+    /// not allow orphans") — must refuse; an imperative prohibition must admit. Pinned through
+    /// the committed bootstrap so it holds with no machine store.
+    #[test]
+    fn entry_gate_admits_commanded_prohibition_and_refuses_description() {
+        let eng = bootstrap();
+        // Neutral descriptive reference prose states no prohibition — the junk that minted 824
+        // Rust rules, whether it classified on register drift ("An array is …") or carried a
+        // negation used descriptively rather than to command.
+        for neutral in [
+            "An array is a fixed-size sequence of N elements of type T.",
+            "The rules for Send and Sync match those for normal struct types, while Clone and Copy behave as if derived.",
+            "This string representation never includes a character U+000D immediately followed by U+000A.",
+            "Because it is not allowed to move fields out of a reference, move closures will only capture the prefix of a capture path.",
+            "Rust's trait system does not allow orphans.",
+        ] {
+            assert!(!eng.states_prohibition(neutral), "descriptive prose must not mint: {neutral:?}");
+        }
+        // A negation operator GOVERNING the sentence is the imperative prohibition — including
+        // the deprecation phrasing every behavior fixture uses.
+        for prohibition in [
+            "Never use the goto statement anywhere.",
+            "Deprecated: never use the wobble statement.",
+            "Do not call this function directly.",
+        ] {
+            assert!(eng.states_prohibition(prohibition), "commanded prohibition must mint: {prohibition:?}");
+        }
+    }
+
+    /// A negation is imperative only when it GOVERNS the sentence (leads it); buried mid-clause
+    /// or used as a factual adverb it describes and must not read as law — position, not the word,
+    /// is the separating signal (the meaning network cannot tell "Never use X" from "X never
+    /// includes Y").
+    #[test]
+    fn negation_governs_only_from_the_front() {
+        let eng = bootstrap();
+        assert!(eng.sentence_states_prohibition("Never use raw pointers here."));
+        assert!(eng.sentence_states_prohibition("Do not swallow the error."));
+        assert!(!eng.sentence_states_prohibition("The representation never includes a trailing CR."));
+        assert!(!eng.sentence_states_prohibition("It is not allowed to move fields out of a reference."));
     }
 }

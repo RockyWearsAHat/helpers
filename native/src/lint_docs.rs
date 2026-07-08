@@ -846,29 +846,28 @@ fn transferred_polarity() -> Option<std::sync::Arc<crate::lint_read::Polarity>> 
 /// per slug. Returns each rule with its source url for citation. Pure over the memory — offline,
 /// deterministic, testable.
 ///
-/// The mint gate is deliberately STRICTER than the compile entry gate (whole span vs some
-/// sentence): a sentence-level mint was tried and measured — MDN reference/error sections whose
-/// one "cannot be parsed"-register sentence classifies prohibition minted 14 junk rules (105
-/// findings on one repo) while the eval warning still failed its span. The whole-span gate is
-/// the dam; widening it to sentences is gated on the per-token side-count classifier (LINTER.md,
-/// open problems).
+/// The mint gate is UNDERSTANDING, not register (LINTER.md, "Entry gates"): a binding becomes a
+/// rule only when some sentence of its governing prose STATES A PROHIBITION through the meaning
+/// network ([`crate::lint_english::English::states_prohibition`]) — a negation operator commanding
+/// a sentence ("Never use X") or a word naming disapproval of the construct ("X is incorrect").
+/// This REPLACES the statistical `classify_tallied` escape that admitted neutral/error-register
+/// reference prose as law: descriptive Rust Reference sections ("An array is a fixed-size
+/// sequence", "The rules for Send and Sync match those for normal struct types") classify as
+/// prohibition on register drift alone but state no prohibition, so understanding refuses them.
 pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)> {
     let Some(polarity) = &memory.polarity else { return Vec::new() };
+    let Some(english) = crate::lint_english::brain() else { return Vec::new() };
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for (i, b) in memory.bindings.iter().enumerate() {
         if b.slug.len() < 2 || polarity.classify(&b.prose) != Some(true) {
             continue;
         }
-        // MINT is stricter than classify (module doc): prototype similarity alone is
-        // reading material, never law — the span must carry OPERATIVE evidence of
-        // prohibition: a negation operator COMMANDING a sentence ("Never use X"), or a
-        // decisive tallied reading. Incidental negation inside a statement ("does not
-        // work on WebAssembly") describes, and description never mints (measured: 59
-        // descriptive python rules rode incidental "not" through a mere presence bar).
-        if !polarity.has_operative_negation(&b.prose)
-            && polarity.classify_tallied(&b.prose) != Some(true)
-        {
+        // ENTRY ON UNDERSTANDING (module doc): the grounded classifier reads the prohibition's
+        // REGISTER (needed to pair the fix and rank the construct), but only the meaning network
+        // decides that a prohibition was STATED. Neutral reference prose reaches `classify` on
+        // register similarity yet states no prohibition, so it never mints.
+        if !english.states_prohibition(&b.prose) {
             continue;
         }
         if !seen.insert(b.slug.clone()) {
@@ -1273,7 +1272,7 @@ mod tests {
     #[test]
     fn memory_query_pairs_bad_with_the_pages_good() {
         let memory = memory_from(&[
-            ("https://d/rules/r1", "r1", "Avoid indexing with an inclusive range to len", "for i in 0..=xs.len() {}"),
+            ("https://d/rules/r1", "r1", "Never index with an inclusive range to len", "for i in 0..=xs.len() {}"),
             ("https://d/rules/r1", "r1", "Prefer iterating directly instead", "for x in xs {}"),
             ("https://d/rules/r2", "r2", "The language has three built-in numeric widths", "let y = 1;"),
         ]);
@@ -1283,7 +1282,7 @@ mod tests {
         assert_eq!(url, "https://d/rules/r1", "the rule cites the page it was read from");
         assert!(rule.bad.contains("0..=xs.len()"));
         assert!(rule.good.contains("for x in xs"), "the page's endorsement binding is paired as the fix");
-        assert!(rule.description.to_lowercase().contains("avoid indexing"), "description is the docs' own prose: {:?}", rule.description);
+        assert!(rule.description.to_lowercase().contains("never index"), "description is the docs' own prose: {:?}", rule.description);
     }
 
     /// A small offline char brain for the read-time tests: it binds the English words the
@@ -1360,7 +1359,7 @@ mod tests {
         // A page whose only later block is a neutral output dump gets NO fix, and a good-classified
         // binding on a DIFFERENT page is never borrowed as this rule's fix.
         let memory = memory_from(&[
-            ("https://d/rules/hd", "hd", "this code is incorrect and will fail", "h := http.Header{}"),
+            ("https://d/rules/hd", "hd", "Never build the header this way; it will fail", "h := http.Header{}"),
             ("https://d/rules/hd", "hd", "the program prints the following output", "// map[Etag]"),
             ("https://d/rules/other", "other", "this is the correct and idiomatic form", "ok()"),
         ]);
@@ -1374,7 +1373,7 @@ mod tests {
         // Docs often put an output block between the anti-pattern and its "use instead" — the fix is
         // still the same page's endorsement, with neutral blocks skipped, never guessed by position.
         let memory = memory_from(&[
-            ("https://d/rules/xi", "xi", "This indexing is incorrect and unsafe", "xs[xs.len()]"),
+            ("https://d/rules/xi", "xi", "Never index past the end; it is unsafe", "xs[xs.len()]"),
             ("https://d/rules/xi", "xi", "the program prints the following output", "panic!"),
             ("https://d/rules/xi", "xi", "Prefer this correct idiomatic form instead", "xs.last()"),
         ]);
