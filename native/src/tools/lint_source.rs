@@ -477,19 +477,21 @@ pub fn run_config(args: &Value) -> ToolResult {
             let started = std::time::Instant::now();
             // The ONE setup verb: network acquisition is allowed here and nowhere else.
             crate::lint_train::allow_network_setup();
-            // The curriculum, in dependency order (LINTER.md, "Markup second"): common
-            // language first — the substrate reads the machine's own dictionary ENTIRELY
-            // (purely local, witnessed); then markup — the W3 html docs read whole calibrate
-            // the register judgment; only then may any language documentation be read.
+            // The curriculum, in dependency order (LINTER.md, "The character-level substrate"):
+            // common language first — the substrate reads the machine's own dictionary ENTIRELY
+            // (purely local, witnessed); then the web delivery layer (html→css→js) read whole
+            // calibrates the register judgment and the learned structural roles; only then may
+            // any language documentation be read.
             let english = crate::lint_english::ensure_built();
             let data = crate::tools::lint::data_root_pub();
             // The language manifest always shows the full picture (backfilled, never
             // overwriting the user's entries) — LINTER.md, "The language manifest".
             crate::lint_train::manifest_sync(&data);
-            let markup = crate::lint_markup::ensure_built(&data);
             // The cumulative character brain (owner directive 2026-07-07): English base, then
-            // the web curriculum (html→css→js) layered on, so it can read any documentation
-            // in the website it arrives in. Reads what setup cached; saved machine-global.
+            // the web curriculum layered on, so it can read any documentation in the website it
+            // arrives in — and it LEARNS the structural roles ([`lint_graph::learn_structure_roles`])
+            // that page reading stands on, the stage the deleted MarkupBrain used to own. Reads
+            // what setup cached; saved machine-global.
             let char_brain = crate::lint_char::ensure_brain(&data);
             // SITE sources first ("A site is a source"): crawl any site cache that is
             // missing, discover the languages each site teaches, and report them — the
@@ -589,14 +591,14 @@ pub fn run_config(args: &Value) -> ToolResult {
             if let Some(cb) = char_brain {
                 body.push_str(&format!("{cb}\n"));
             }
-            match markup {
-                Some(m) => body.push_str(&format!("{m}\n")),
-                // The curriculum refusal, asked by name (LINTER.md, "Markup second"): with
-                // no html reading and no bootstrap the AI cannot read served pages at all.
-                None if crate::lint_markup::brain().is_none() => body.push_str(
-                    "markup: html documentation could not be read — language docs cannot be read until it is; register html docs: `lint_config action=add_source lang=html url=<docs>` then `train`\n",
-                ),
-                None => {} // the committed bootstrap serves this machine
+            // The curriculum refusal, asked by name (LINTER.md, "The character-level substrate"):
+            // a brain that learned no page structure cannot read served documentation at all —
+            // page reading gates on it ([`lint_graph::read_page`]). The committed
+            // char-structure bootstrap serves a machine that could not crawl the web.
+            if crate::lint_char::brain().is_none_or(|b| b.structure().is_empty()) {
+                body.push_str(
+                    "reading: html documentation could not be read — language docs cannot be read until the character brain learns page structure; register html docs: `lint_config action=add_source lang=html url=<docs>` then `train`\n",
+                );
             }
             if !site_lines.is_empty() {
                 body.push_str(&format!("\n{}\n", site_lines.join("\n")));

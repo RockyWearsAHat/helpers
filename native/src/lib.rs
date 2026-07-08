@@ -17,7 +17,6 @@ pub mod lint_docs;
 pub mod lint_english;
 pub mod lint_feedback;
 pub mod lint_graph;
-pub mod lint_markup;
 pub mod lint_match;
 pub mod lint_read;
 pub mod lint_sign;

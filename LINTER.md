@@ -116,17 +116,27 @@ trained brain ⇒ no units, never a hand parse.
 char-code context addressing (n-gram backoff, no per-char hypervector — training the full
 dictionary + crawled web is seconds, not minutes); cumulative retain-and-grow; `HLM1` persistence
 (round-trips exactly); the setup verb `lint_char::ensure_brain` running the real curriculum
-(dictionary → crawled W3/MDN web); and surprise validated as a GAUGE only (English ~11% of max vs
-novel code ~73% before the language is read). **Remaining — the actual work:** the associative
-KNOWLEDGE GRAPH (bind construct⊗governing-prose⊗meaning; the dictionary meaning network above is
-its comprehension backbone; "brain-waves" latent-sequence reasoning for real prose understanding);
-language MODULES as subgraphs (delta-stored, machine-global, never a project copy); rules read off
-the graph; migrating construct selection and polarity onto it; and the full retrain. The read path
-has MOVED — `lint_graph::read_page` (above) now forms the units both consumers
-(`doc_crawler::extract_sections_html_hinted`, `lint_docs::read_crawled_page`) read, on the char
-brain's meaning network and learned structural roles; `lint_markup.rs` is frozen and Phase 3
-deletes it (with word-level `english.knows`). Understanding is the product — surprise only ever
-measures whether it is forming.
+(dictionary → crawled W3/MDN web); surprise validated as a GAUGE only (English ~11% of max vs
+novel code ~73% before the language is read); and the read path fully MOVED onto the char substrate
+— `lint_graph::read_page` forms the units both consumers (`doc_crawler::extract_sections_html_hinted`,
+`lint_docs::read_crawled_page`) read, on the meaning network and learned structural roles, and
+**Phase 3 DELETED the word-substrate `lint_markup.rs` MarkupBrain** (the `markup.global.bin`
+artifact, its `markup-bootstrap.json`, and the dead `lint_docs::html_raw_pages`; the overlay cache
+stamp now folds `char.global.bin` in its place; codec kind 9 retired-reserved). **Remaining — the
+actual work:** the associative KNOWLEDGE GRAPH (bind construct⊗governing-prose⊗meaning; the
+dictionary meaning network above is its comprehension backbone; "brain-waves" latent-sequence
+reasoning for real prose understanding); language MODULES as subgraphs (delta-stored, machine-global,
+never a project copy); rules read off the graph; the full retrain; and **retiring word-level
+`english.knows`** — its two live callers both still stand on the word-substrate English brain and
+cannot swap cleanly yet, so they are LEFT with a precise migration recorded here:
+`lint_match::select.rs`'s `connective` closure (the single-token "common language accounts for this
+word" tie-break in SELECTION) and `lint_char::rules_from_understanding`'s construct filter (`!eng.knows(w)`
+picking the docs word English cannot account for). Both replace with the meaning-network judgment
+`lint_graph::word_is_english(char_brain, w)` (`CharReader::meaning_of` + morphology) — BLOCKED until
+the char brain is threaded into both paths AND their hermetic tests carry a meaning-bound brain
+(today those tests load only the English bootstrap, so a naive swap returns nothing / breaks
+selection). This is the same migration as "construct selection and polarity onto the graph." Understanding
+is the product — surprise only ever measures whether it is forming.
 
 ## Thesis
 
@@ -720,6 +730,14 @@ EXISTENCE, and adding meaning on top of it (definitions as bindings — word ⊗
 the designed "rules MEAN something" step) extends this section rather than adding a mechanism.
 
 ## Markup second — the MarkupBrain (HTML read from its own documentation)
+
+> **DELETED (Phase 3, branch `feat/char-level-substrate`).** The word-substrate MarkupBrain and its
+> `native/src/lint_markup.rs` are gone — page reading now happens on the char substrate through
+> `lint_graph::read_page` (the meaning network judges register, learned structural roles part a
+> title from an example), and the HTML curriculum is folded into the character brain by
+> `lint_char::ensure_brain`. See "The character-level substrate" at the top of this file. This
+> section is retained as HISTORY — the model it describes (HTML learned by reading its own docs,
+> no tag named, register is the reading's judgment) is exactly what the char substrate continues.
 
 **Documentation is served as HTML, so the thing that reads documentation must understand HTML —
 and it learns HTML the same way it learned English: by reading the docs that define it** (owner

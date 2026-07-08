@@ -42,9 +42,10 @@ pub mod kind {
     pub const REPLAY: u8 = 7;
     /// The machine-global extension map (learned claims folded from every saved module).
     pub const EXTMAP: u8 = 8;
-    /// The MarkupBrain (LINTER.md, "Markup second"): the html-fed reader plus the learned
-    /// register calibration every raw page is read with.
-    pub const MARKUP: u8 = 9;
+    /// RETIRED — the deleted word-substrate MarkupBrain's container (page reading moved to the
+    /// char substrate, LINTER.md "The character-level substrate"). The NUMBER stays reserved so
+    /// no future format reuses 9 and misreads a leftover `markup.global.bin`; nothing reads it.
+    pub const _RETIRED_MARKUP: u8 = 9;
     /// The character-level brain ([`crate::lint_char`]): the cumulative predictive reader whose
     /// atom is a UTF-8 scalar (context→next-char memory), trained dictionary→html→css→js→docs.
     pub const CHARBRAIN: u8 = 11;
