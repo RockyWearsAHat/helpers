@@ -31,7 +31,9 @@ const MEM_CAP: usize = 8 << 20;
 /// learned structural roles ([`StructureRoles`], the page-reading register association) ride it.
 /// 3: roles read word English-ness through morphology ([`crate::lint_graph::word_is_english`]).
 /// 4: the learned title-shape ceiling rides [`StructureRoles`] beside the roles.
-const BRAIN_REV: u64 = 4;
+/// 5: the meaning network binds the WHOLE dictionary — multi-word headwords included, all senses
+/// folded ([`MeaningNetwork`], owner directive 2026-07-07) — so every stale brain rebinds it.
+const BRAIN_REV: u64 = 5;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -428,9 +430,9 @@ fn word_vector(text: &str) -> Option<Hv> {
 /// same bound the word substrate keeps ([`crate::lint_english`]), so the two meaning views agree.
 pub const MAX_MEANING_WORDS: usize = 12;
 
-/// The dictionary MEANING NETWORK: each single-word headword bound to the words of its own
-/// definition, so a word's MEANING can be rebound on demand and two words compared by how much
-/// their definitions overlap. This is the comprehension backbone the char substrate reads
+/// The dictionary MEANING NETWORK: every headword the dictionary defines — single words AND
+/// multi-word phrases (`give up`) — bound to the words of its own definition, so a word's MEANING
+/// can be rebound on demand and two words compared by how much their definitions overlap. This is the comprehension backbone the char substrate reads
 /// prohibition off of — negation meaning EMERGES from the dictionary's own definitions (negation
 /// words are written in shared negative vocabulary, so their meanings cluster), never a hand list
 /// of negation words.
@@ -451,10 +453,11 @@ impl MeaningNetwork {
         MeaningNetwork { defs: Vec::new() }
     }
 
-    /// BIND a headword to the words of its definition (retain-and-grow: appended, canonicalized
-    /// at [`seal`](Self::seal); a headword's FIRST/primary sense wins). Words are lowercased and
-    /// filtered to alphabetic runs of ≥2 characters, capped at [`MAX_MEANING_WORDS`]. An empty
-    /// definition binds nothing.
+    /// BIND a headword to the words of its definition (retain-and-grow: appended, folded at
+    /// [`seal`](Self::seal); a headword's senses are UNIONED there, primary first). Words are
+    /// lowercased and filtered to alphabetic runs of ≥2 characters, capped at
+    /// [`MAX_MEANING_WORDS`]. An empty definition binds nothing. Multi-word headwords (`give up`)
+    /// are bound too — the caller keys them by their own space-joined token seed.
     pub fn bind(&mut self, headword: &str, def_words: &[&str]) {
         let words: Vec<String> = def_words
             .iter()
@@ -468,12 +471,32 @@ impl MeaningNetwork {
         self.defs.push((crate::lint_ai::token_seed(&headword.to_lowercase()), words));
     }
 
-    /// FINISH building: sort by headword seed and keep the FIRST sense of any duplicated headword,
-    /// so queries answer by binary search. Idempotent; retain-and-grow binds more material and
-    /// seals again without disturbing prior bindings (the sort is stable, first-inserted wins).
+    /// FINISH building: sort by headword seed (stably, so the primary/first-read sense leads) and
+    /// FOLD every sense of a duplicated headword into one meaning — the later senses' words are
+    /// UNIONED onto the primary's, up to [`MAX_MEANING_WORDS`], so a word's meaning reflects its
+    /// whole dictionary range. Queries then answer by binary search over one entry per headword.
+    /// Idempotent, and retain-and-grow: the fold only ever ADDS words to a binding (the primary
+    /// sense's words stay, in front), never overwrites — so binding more material and sealing
+    /// again grows meanings without losing any.
     pub fn seal(&mut self) {
         self.defs.sort_by_key(|(k, _)| *k);
-        self.defs.dedup_by(|a, b| a.0 == b.0);
+        let mut folded: Vec<(u64, Vec<String>)> = Vec::with_capacity(self.defs.len());
+        for (seed, words) in self.defs.drain(..) {
+            match folded.last_mut() {
+                Some((last_seed, meaning)) if *last_seed == seed => {
+                    for w in words {
+                        if meaning.len() >= MAX_MEANING_WORDS {
+                            break;
+                        }
+                        if !meaning.contains(&w) {
+                            meaning.push(w);
+                        }
+                    }
+                }
+                _ => folded.push((seed, words)),
+            }
+        }
+        self.defs = folded;
     }
 
     /// How many headwords carry a bound meaning.
@@ -964,8 +987,9 @@ mod tests {
         let (_, mut d) = Dec::open(&bytes, crate::lint_codec::kind::CHARBRAIN).expect("opens");
         let loaded = CharReader::dec(&mut d).expect("decodes");
         assert!(loaded.total_read() > 1_000_000, "read the dictionary: {} chars", loaded.total_read());
-        // The meaning network rode the artifact and answers on real data.
-        assert!(loaded.meanings().len() > 10_000, "bound the dictionary: {} meanings", loaded.meanings().len());
+        // The meaning network rode the artifact and answers on real data — the WHOLE dictionary is
+        // bound (multi-word headwords included), a floor near the measured ~103k, not the old 69k.
+        assert!(loaded.meanings().len() > 95_000, "bound the whole dictionary: {} meanings", loaded.meanings().len());
         // Report the meaning network's BYTE COST — the whole brain vs the brain with the network
         // stripped, so the artifact-size delta is visible on real data.
         let mut bare = loaded.clone();
@@ -1198,21 +1222,26 @@ mod tests {
         assert_eq!(m.related("never", "zzzznope"), DIM as u32, "an unknown word is maximally far");
     }
 
-    /// (c) Retain-and-grow: binding MORE material adds headwords and never overwrites a prior
-    /// binding — a repeated headword keeps its first/primary sense.
+    /// (c) Retain-and-grow with sense-folding: binding MORE material adds new headwords, and a
+    /// repeated headword FOLDS its further senses onto the primary (additive — the primary sense's
+    /// words stay in front, the new sense's words append) rather than being dropped or overwritten.
     #[test]
-    fn binding_more_material_retains_the_network() {
+    fn binding_more_material_folds_senses_and_retains_the_network() {
         let mut m = negation_fixture();
-        let before = m.meaning_of("never").expect("bound");
+        let primary = m.definition("never").expect("bound").to_vec();
         let n = m.len();
         m.bind("orange", &["round", "citrus", "fruit"]);
-        m.bind("never", &["completely", "different", "sense"]); // duplicate — first sense wins
+        m.bind("never", &["completely", "different", "sense"]); // second sense — folded in
         m.seal();
         assert!(m.len() > n, "new headwords were gained: {} -> {}", n, m.len());
-        assert_eq!(
-            m.meaning_of("never").unwrap().distance(&before),
-            0,
-            "the original 'never' meaning is retained, not overwritten"
+        let folded = m.definition("never").expect("still bound");
+        assert!(
+            folded.starts_with(&primary),
+            "the primary sense stays in front: {folded:?} vs {primary:?}"
+        );
+        assert!(
+            folded.contains(&"completely".to_string()),
+            "the later sense is folded in, not dropped: {folded:?}"
         );
         assert!(m.meaning_of("orange").is_some(), "the newly read word is queryable");
     }

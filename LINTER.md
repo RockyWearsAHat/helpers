@@ -78,16 +78,33 @@ for reuse. Project law (`lintPref.{md,txt}`) and the machine CS-principles corpu
 rules) are read through the same brain and compiled into the project OVERLAY, exactly as today.
 
 **The dictionary meaning network — the comprehension backbone (landing now,
-`lint_char::MeaningNetwork`).** As the brain reads the dictionary it BINDS each single-word
-headword to the MEANING of its own definition: the definition's leading content words are each
-`encode`d (the char-level spelling centroid, `CharReader::encode`) and majority-bundled into one
-meaning hypervector keyed by the headword's token seed. Storage is bounded and delta-honest — only
-the headword→definition-word list rides `char.global.bin` (the words themselves, capped per entry,
-deflated in the DATA stream — a few MB beside the ~33MB context memory, never one 1KB Hv per
-headword), and the meaning vector is REBOUND on query, so the artifact never carries 78k×1KB. The
+`lint_char::MeaningNetwork`).** As the brain reads the dictionary it BINDS EVERY headword the
+dictionary defines to the MEANING of its own definition — single words AND multi-word headwords
+(`give up`, `null pointer` are constructs too, keyed by their own token seed). The definition's
+leading content words are each `encode`d (the char-level spelling centroid, `CharReader::encode`)
+and majority-bundled into one meaning hypervector keyed by the headword's token seed. There is NO
+caller cap: the whole machine dictionary is bound (owner directive 2026-07-07 — "use the whole
+dictionary, make it work fully"). The measured funnel on the shipped New Oxford American body:
+**107,945 entries → 103,142 with a parseable definition → 69,691 bound before (the single-word
+filter, the "wtf" cap) → 103,142 bound after** (the 33,451 multi-word headwords the old filter
+dropped, now bound). The only remaining bound is dictionary typography, not a work cap: the leading
+`MAX_MEANING_WORDS` (12) content words carry a definition's genus; the tail is examples and
+cross-references. **All senses are FOLDED, not dropped**: when a headword has several dictionary
+entries, `seal` unions their leading content words into one meaning (primary sense first, later
+senses appended up to the cap) — one word's meaning reflects its whole dictionary range, and the
+fold is purely ADDITIVE so retain-and-grow still holds (a repeated headword only ever GAINS words,
+never loses its primary sense). Storage is bounded and delta-honest — only the
+headword→definition-word list rides `char.global.bin` (the words themselves, capped per entry,
+deflated in the DATA stream — a few MB beside the context memory, never one 1KB Hv per headword),
+and the meaning vector is REBOUND on query, so the artifact never carries 103k×1KB. The
 graph is a pure query: `meaning_of(word)` rebinds the stored definition into its meaning Hv, and
 `related(a, b)` is the Hamming proximity of two words' meanings — words whose definitions share
-vocabulary land near each other. Prohibition/negation meaning EMERGES from the definitions alone,
+vocabulary land near each other. This whole-dictionary growth does NOT change the lint verdict or
+the mint gate, so `TRAIN_VERSION` is UNCHANGED (only `BRAIN_REV` bumps, rebuilding `char.global.bin`):
+the sole runtime consumer, `lint_graph::word_is_english`, queries SINGLE words by `meaning_of(...)`
+existence — the additions are multi-word phrases never queried as single tokens, and sense-folding
+changes meaning VECTORS, not which single-word headwords exist, so page reading is bit-for-bit the
+same. Prohibition/negation meaning EMERGES from the definitions alone,
 but the SHAPE of the query matters: `related()` Hamming proximity was MEASURED and does NOT
 separate disapproval from neutral reference vocabulary (`incorrect`/`unsafe` sit as near the
 prohibition anchors as `array`/`element` do — any distance threshold is both a magic constant and
