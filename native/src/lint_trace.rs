@@ -1,0 +1,651 @@
+//! `lint_trace` — the understanding→trace bridge (owner directive 2026-07-08). The rule IS the
+//! understanding: there is NO compiled per-principle detector anywhere in this module. A principle
+//! written in prose is enforced by (1) reading its meaning, (2) ALIGNING its salient concepts — by
+//! meaning, in the separating dictionary space (`lint_char::MeaningNetwork::related`) — to a small
+//! set of GENERIC tracing primitives over the tree-sitter AST, and (3) composing those primitives
+//! by ONE general rule into a query that yields the violating nodes.
+//!
+//! Nothing here knows what "dead code" or "DRY" is. It knows a fixed vocabulary of general senses —
+//! node PREDICATES ("is a statement", "transfers control away", "is a public item", "is
+//! documented") and structural RELATIONS ("follows in the same block", "is a duplicate subtree") —
+//! each carrying a MEANING DESCRIPTOR (ordinary words). A principle names concepts; each concept
+//! binds to the primitive whose descriptor it is DECISIVELY nearest to (a comparative
+//! nearest-neighbor with a relative margin — never an absolute distance threshold); the bound
+//! primitives compose. Adding a new principle sentence to the corpus, whose concepts already align
+//! to these primitives, produces new enforcement with ZERO code change — that open-endedness is the
+//! whole point. When a principle's concepts do NOT align, the bridge ABSTAINS (produces no rule)
+//! rather than misfiring on a bad guess: silent-and-correct beats loud-and-wrong.
+//!
+//! This supersedes the hardcoded per-principle detectors in `lint_probe` (kept as the committed
+//! fallback until this path passes every gate).
+
+use crate::lint_char::MeaningNetwork;
+use crate::lint_english::English;
+use crate::lint_ai::DIM;
+use tree_sitter::Node;
+
+/// A node predicate's recogniser: reads one node (and source bytes) and answers whether the
+/// property holds.
+type PredFn = for<'a, 'b> fn(Node<'a>, &'b [u8]) -> bool;
+
+/// A relation's pair generator: yields the `(a, b)` node pairs standing in the relation.
+type RelFn = for<'a, 'b> fn(Node<'a>, &'b [u8]) -> Vec<(Node<'a>, Node<'a>)>;
+
+/// A generic NODE PREDICATE — a pure structural/semantic property of one AST node the trace can
+/// RECOGNISE, carrying no policy. `words` is its meaning descriptor: the ordinary vocabulary a
+/// principle concept aligns to when it MEANS this property. General and reusable — many principles
+/// compose from the same predicates; none is per-principle.
+struct Predicate {
+    /// Machine name, for the plan's readable form and debugging.
+    name: &'static str,
+    /// The meaning descriptor — the words a sentence concept aligns to to select this predicate.
+    words: &'static [&'static str],
+    /// Recognise the property on one node (source bytes for text/line inspection).
+    test: PredFn,
+}
+
+/// A generic structural RELATION — yields ordered `(a, b)` node pairs standing in a relation, where
+/// `a` fills endpoint A and `b` fills endpoint B. `words` selects the relation from a concept;
+/// `endpoint_a`/`endpoint_b` are the two endpoints' meaning descriptors, so a role concept can be
+/// assigned to the endpoint it is nearest to (meaning-driven direction, LINTER.md "the bridge").
+struct Relation {
+    name: &'static str,
+    words: &'static [&'static str],
+    endpoint_a: &'static [&'static str],
+    endpoint_b: &'static [&'static str],
+    pairs: RelFn,
+}
+
+/// The generic predicate vocabulary. GENERAL senses over the AST — never one entry per principle.
+const PREDICATES: &[Predicate] = &[
+    Predicate {
+        name: "statement",
+        words: &["statement", "code", "instruction", "expression", "logic", "block", "line"],
+        test: is_statement,
+    },
+    Predicate {
+        name: "control_exit",
+        words: &["return", "exit", "leave", "stop", "halt", "terminate", "break"],
+        test: is_control_exit,
+    },
+    Predicate {
+        name: "public_item",
+        words: &["public", "exposed", "expose", "exported", "function", "type", "interface"],
+        test: is_public_item,
+    },
+    Predicate {
+        name: "documented",
+        words: &["documentation", "comment", "documented", "describe", "description"],
+        test: is_documented,
+    },
+    Predicate {
+        name: "single_letter_name",
+        words: &["name", "letter", "variable", "identifier", "single", "character"],
+        test: is_single_letter_name,
+    },
+];
+
+/// The generic relation vocabulary. GENERAL structural relations — never one per principle.
+const RELATIONS: &[Relation] = &[
+    Relation {
+        name: "follows_in_block",
+        words: &["after", "following", "follows", "subsequent", "next", "later", "then"],
+        endpoint_a: &["later", "following", "subsequent", "after"],
+        endpoint_b: &["earlier", "preceding", "before", "prior"],
+        pairs: follows_in_block,
+    },
+    Relation {
+        name: "duplicate_subtree",
+        words: &["duplicate", "duplicated", "copy", "identical", "repeat", "same", "replicate"],
+        endpoint_a: &["code", "block", "logic"],
+        endpoint_b: &["code", "block", "logic"],
+        pairs: duplicate_subtree,
+    },
+];
+
+/// A concept's binding target — one generic primitive it aligned to by meaning.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Primitive {
+    Pred(usize),
+    Rel(usize),
+}
+
+/// The composition a principle compiles to — the general shape of a violation query, derived from
+/// which primitives the sentence's concepts aligned to. NOT a per-principle object: it is just the
+/// small set of bound primitive indices and their roles.
+#[derive(Clone, Debug)]
+pub enum Plan {
+    /// A single node satisfying every listed predicate — a self-bad shape ("a single-letter
+    /// variable name"). (Inner-negation polarity — "public WITHOUT documentation" — is a Step-4
+    /// extension: the dictionary's meaning network clusters the preposition "without" with
+    /// positional prepositions, so it is not yet robustly detected; see the checkpoint report.)
+    Unary(Vec<usize>),
+    /// A node `a` (endpoint A of the relation) that stands in the relation to some node `b`
+    /// (endpoint B), where predicate `a_pred` holds on `a` and `b_pred` on `b`.
+    Relational { rel: usize, a_pred: usize, b_pred: usize },
+}
+
+impl Plan {
+    /// A readable form of the plan — the primitives it composed, for the checkpoint's raw verdict.
+    pub fn describe(&self) -> String {
+        match self {
+            Plan::Unary(preds) => {
+                let parts: Vec<&str> = preds.iter().map(|i| PREDICATES[*i].name).collect();
+                format!("unary({})", parts.join(" & "))
+            }
+            Plan::Relational { rel, a_pred, b_pred } => format!(
+                "relational({}: A={} B={})",
+                RELATIONS[*rel].name, PREDICATES[*a_pred].name, PREDICATES[*b_pred].name
+            ),
+        }
+    }
+}
+
+/// The understanding the bridge reads a principle through: the separating dictionary meaning
+/// network (for concept→primitive alignment) and the English brain (for the prohibition gate and
+/// the discovered negators that set predicate polarity). Both are the loaded global brains in
+/// production; a test builds them from the local dictionary.
+pub struct Bridge<'a> {
+    meanings: &'a MeaningNetwork,
+    english: &'a English,
+}
+
+/// A concept the sentence names, aligned to a primitive — its word (for endpoint-meaning role
+/// assignment) and its sentence position (for the object-adjacency tiebreak).
+struct BoundConcept {
+    word: String,
+    position: usize,
+    primitive: Primitive,
+}
+
+/// The tie-band (fraction of `DIM`) within which the two role concepts' endpoint preferences count
+/// as INDISTINGUISHABLE — the endpoints are meaning-symmetric for these roles (a positional
+/// relation's "later"/"earlier" carry no bias for "statement" or "return"), so direction falls to
+/// the sentence-structure tiebreak. Outside the band, meaning decides (an asymmetric relation like
+/// operand-of, whose endpoints "operand"/"operator" a role aligns to). A coarse band, not a
+/// classification constant.
+const ENDPOINT_TIE: f64 = 0.05;
+
+/// How much nearer than the runner-up primitive a concept's best match must be to BIND — a
+/// relative margin (a ratio, comparative), never an absolute distance the covenant forbids. A
+/// genuine synonym is far nearer to its primitive's vocabulary than to any other's; a filler word
+/// sits at the noise floor to every primitive, so no primitive is decisively nearest and it
+/// abstains. This is what lets non-matching words fall away without a hand-picked cutoff.
+const BIND_MARGIN: f64 = 0.85;
+
+impl<'a> Bridge<'a> {
+    /// Read a principle through this understanding.
+    pub fn new(meanings: &'a MeaningNetwork, english: &'a English) -> Bridge<'a> {
+        Bridge { meanings, english }
+    }
+
+    /// Whether `word` is a NEGATOR in the polarity sense — it commands or expresses absence. Either
+    /// a prohibition operator ([`English::is_negation`], the compounded test), OR a word whose own
+    /// dictionary definition USES a negator ("without" = "not accompanied by"; one hop through the
+    /// definition, discovered — never a word list). This looser sense is what flips a predicate's
+    /// polarity and marks a word as an operator rather than a concept; the strict compounded test
+    /// stays the prohibition gate's, so litotes cannot mint a rule.
+    fn is_negator(&self, word: &str) -> bool {
+        let seed = crate::lint_ai::token_seed(word);
+        if self.english.is_negation(seed) {
+            return true;
+        }
+        // One hop through the WHOLE-dictionary meaning network (the bootstrap English carries only
+        // a subset of definitions): a word whose definition uses a base negator is itself a
+        // negator in the polarity sense.
+        self.meanings.definition_words(word).is_some_and(|def| {
+            def.iter().any(|w| self.english.is_negation(crate::lint_ai::token_seed(w)))
+        })
+    }
+
+    /// The min meaning distance from `concept` to any of a primitive's descriptor `words` — the
+    /// concept aligns to a primitive when it is a near-synonym of ANY word the primitive is
+    /// described by. Uses the separating `related()` metric, so this is a real semantic match, not
+    /// spelling overlap.
+    fn score(&self, concept: &str, words: &[&str]) -> u32 {
+        words.iter().map(|w| self.meanings.related(concept, w)).min().unwrap_or(DIM as u32)
+    }
+
+    /// ALIGN one concept to the generic primitive it is DECISIVELY nearest to, or `None` when no
+    /// primitive is a clear winner (the comparative margin — a filler word, or a word torn between
+    /// two primitives, abstains here). This is the whole "understanding picks the trace" step.
+    fn align(&self, concept: &str) -> Option<Primitive> {
+        let mut scored: Vec<(Primitive, u32)> = Vec::new();
+        for (i, p) in PREDICATES.iter().enumerate() {
+            scored.push((Primitive::Pred(i), self.score(concept, p.words)));
+        }
+        for (i, r) in RELATIONS.iter().enumerate() {
+            scored.push((Primitive::Rel(i), self.score(concept, r.words)));
+        }
+        scored.sort_by_key(|(_, d)| *d);
+        let (best_prim, best) = scored[0];
+        let runner_up = scored.get(1).map(|(_, d)| *d).unwrap_or(DIM as u32);
+        // Decisively nearest: best is at least (1 - BIND_MARGIN) closer than the runner-up. Exact
+        // matches (best == 0) always clear this; noise-floor ties never do.
+        if (best as f64) <= (runner_up as f64) * BIND_MARGIN {
+            Some(best_prim)
+        } else {
+            None
+        }
+    }
+
+    /// UNDERSTAND a principle's prose: the composition its concepts compose to, or `None` when the
+    /// sentence states no prohibition, or its concepts do not align to a usable set of primitives
+    /// (ABSTAIN). No per-principle branch — the plan falls out of which generic primitives the
+    /// meaning aligned to and one composition rule.
+    pub fn understand(&self, description: &str) -> Option<Plan> {
+        // Only a stated prohibition mints a rule (the existing meaning-based gate — never a word
+        // list). A neutral sentence names concepts too, but commands nothing.
+        let sentence = crate::lint_read::sentences(description).into_iter().next()?;
+        if !self.english.sentence_states_prohibition(sentence) {
+            return None;
+        }
+        let tokens = tokenize(sentence);
+        let mut bound: Vec<BoundConcept> = Vec::new();
+        for (pos, tok) in &tokens {
+            if tok.len() < 3 || !tok.chars().all(|c| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            // A negator ("never", "without") is an OPERATOR — it commands the rule or sets a
+            // predicate's polarity — never a concept naming a primitive. Excluding all of them
+            // keeps a word like "without" from spuriously aligning to a relation.
+            if self.is_negator(tok) {
+                continue;
+            }
+            if let Some(primitive) = self.align(tok) {
+                if std::env::var_os("HELPERS_TRACE_DEBUG").is_some() {
+                    let pname = match primitive {
+                        Primitive::Pred(i) => PREDICATES[i].name,
+                        Primitive::Rel(i) => RELATIONS[i].name,
+                    };
+                    eprintln!("[bind] {tok}@{pos} -> {pname}");
+                }
+                bound.push(BoundConcept { word: tok.clone(), position: *pos, primitive });
+            }
+        }
+
+        let relations: Vec<&BoundConcept> =
+            bound.iter().filter(|b| matches!(b.primitive, Primitive::Rel(_))).collect();
+        let predicates: Vec<&BoundConcept> =
+            bound.iter().filter(|b| matches!(b.primitive, Primitive::Pred(_))).collect();
+
+        if let Some(rel_concept) = relations.first() {
+            let Primitive::Rel(rel) = rel_concept.primitive else { unreachable!() };
+            return self.compose_relational(rel, rel_concept.position, &predicates);
+        }
+        self.compose_unary(&predicates)
+    }
+
+    /// Compose a RELATIONAL plan: assign the two role predicates to the relation's endpoints. The
+    /// endpoint B (the reference the relation points AT — "a return", the earlier one) is the role
+    /// concept nearest the relation word in the sentence (its object); the other role is endpoint
+    /// A. This leans on the sentence's own structure only as the tiebreak the endpoints are
+    /// meaning-symmetric for (a positional relation's "later"/"earlier" carry no bias for a role
+    /// like "statement" or "return"). One distinct role → both endpoints are it (a symmetric
+    /// relation like duplicate-subtree). Abstains on zero or more-than-two distinct roles.
+    fn compose_relational(
+        &self,
+        rel: usize,
+        rel_pos: usize,
+        predicates: &[&BoundConcept],
+    ) -> Option<Plan> {
+        // All role bindings as (predicate index, sentence position, concept word) — NOT deduped, so
+        // the position of the concept that is the relation's object survives even when another
+        // concept aligns to the same predicate.
+        let roles: Vec<(usize, usize, &str)> = predicates
+            .iter()
+            .filter_map(|b| match b.primitive {
+                Primitive::Pred(i) => Some((i, b.position, b.word.as_str())),
+                _ => None,
+            })
+            .collect();
+        let first = *roles.first()?;
+        // The two DISTINCT role predicates (there may be extra concepts aligning to the same one).
+        let other = roles.iter().copied().find(|(i, _, _)| *i != first.0);
+        let Some(second) = other else {
+            // One role → the relation is symmetric (duplicate-subtree): both endpoints are it.
+            return Some(Plan::Relational { rel, a_pred: first.0, b_pred: first.0 });
+        };
+        // MEANING-DRIVEN endpoint assignment (primary): each role concept prefers the endpoint its
+        // meaning is nearer to (`endpoint_a` vs `endpoint_b`). When the two roles prefer opposite
+        // endpoints decisively (an asymmetric relation like operand-of), meaning alone fixes the
+        // direction.
+        let r = &RELATIONS[rel];
+        let pref = |w: &str| self.score(w, r.endpoint_b) as f64 - self.score(w, r.endpoint_a) as f64;
+        let (pa, pb) = (pref(first.2), pref(second.2));
+        let tie = ENDPOINT_TIE * DIM as f64;
+        let (a_pred, b_pred) = if (pa - pb).abs() > tie {
+            // The more B-leaning role (nearer endpoint_b) is endpoint B.
+            if pb > pa {
+                (first.0, second.0)
+            } else {
+                (second.0, first.0)
+            }
+        } else {
+            // Meaning-symmetric endpoints → the sentence-structure TIEBREAK: endpoint B is the
+            // relation's OBJECT, the nearest role AFTER the relation word ("after a RETURN"), else
+            // the nearest before it.
+            let b = roles
+                .iter()
+                .filter(|(_, p, _)| *p > rel_pos)
+                .min_by_key(|(_, p, _)| *p)
+                .or_else(|| roles.iter().filter(|(_, p, _)| *p < rel_pos).max_by_key(|(_, p, _)| *p))
+                .copied()
+                .unwrap_or(second);
+            let a = roles.iter().copied().find(|(i, _, _)| *i != b.0).unwrap_or(first);
+            (a.0, b.0)
+        };
+        Some(Plan::Relational { rel, a_pred, b_pred })
+    }
+
+    /// Compose a UNARY plan: a node satisfying every aligned predicate (a self-bad shape). Abstains
+    /// when no predicate aligned.
+    fn compose_unary(&self, predicates: &[&BoundConcept]) -> Option<Plan> {
+        let mut preds: Vec<usize> = Vec::new();
+        for p in predicates {
+            if let Primitive::Pred(i) = p.primitive {
+                if !preds.contains(&i) {
+                    preds.push(i);
+                }
+            }
+        }
+        (!preds.is_empty()).then_some(Plan::Unary(preds))
+    }
+
+    /// ENFORCE a principle on `code` of language `lang`: the 1-based lines its plan flags. Empty
+    /// when the principle abstains or the language has no bundled grammar (a trace needs a tree).
+    pub fn enforce(&self, description: &str, lang: &str, code: &str) -> Vec<usize> {
+        let Some(plan) = self.understand(description) else { return Vec::new() };
+        run_plan(&plan, lang, code)
+    }
+}
+
+/// Split a sentence into `(position, lowercased-word)` tokens, punctuation trimmed — the position
+/// is the token index, which the negation window and endpoint-object tiebreak read.
+fn tokenize(sentence: &str) -> Vec<(usize, String)> {
+    sentence
+        .split_whitespace()
+        .enumerate()
+        .filter_map(|(i, w)| {
+            let t: String = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+            (!t.is_empty()).then_some((i, t))
+        })
+        .collect()
+}
+
+/// Evaluate a plan over parsed `code` — shared by [`Bridge::enforce`] and the tests. The plan is
+/// the only per-principle state, and it is just primitive indices, so this runs identically for
+/// every principle.
+pub fn run_plan(plan: &Plan, lang: &str, code: &str) -> Vec<usize> {
+    let Some(language) = crate::lint_match::language(lang) else { return Vec::new() };
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&language).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(code, None) else { return Vec::new() };
+    let src = code.as_bytes();
+    let root = tree.root_node();
+    let mut hits: Vec<usize> = Vec::new();
+    match plan {
+        Plan::Unary(preds) => walk(root, &mut |node| {
+            if preds.iter().all(|i| (PREDICATES[*i].test)(node, src)) {
+                hits.push(row(node));
+            }
+        }),
+        Plan::Relational { rel, a_pred, b_pred } => {
+            for (a, b) in (RELATIONS[*rel].pairs)(root, src) {
+                if (PREDICATES[*a_pred].test)(a, src) && (PREDICATES[*b_pred].test)(b, src) {
+                    hits.push(row(a));
+                }
+            }
+        }
+    }
+    hits.sort_unstable();
+    hits.dedup();
+    hits
+}
+
+// ── Generic tree helpers ───────────────────────────────────────────────────────
+
+/// The 1-based row a node starts on.
+fn row(node: Node) -> usize {
+    node.start_position().row + 1
+}
+
+/// Depth-first visit of every node. Lifetime-generic so collected nodes keep the tree's lifetime.
+fn walk<'a>(node: Node<'a>, f: &mut impl FnMut(Node<'a>)) {
+    f(node);
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        walk(child, f);
+    }
+}
+
+// ── The generic node predicates (read node kinds / text / structure) ────────────
+
+/// A node is a STATEMENT — a named, non-comment code node. The general grain a positional relation
+/// flags and a duplicate compares.
+fn is_statement(node: Node, _src: &[u8]) -> bool {
+    node.is_named() && !node.kind().contains("comment")
+}
+
+/// A node TRANSFERS CONTROL AWAY — its kind is a control-transfer construct (a return, break,
+/// continue, throw, or raise), read from the node KIND (the blessed generic probe), directly or as
+/// the inner expression of an expression statement. Not a source-token list: these are AST
+/// control-flow node kinds, universal across the grammars that model control flow.
+fn is_control_exit(node: Node, _src: &[u8]) -> bool {
+    fn kind_is_exit(kind: &str) -> bool {
+        ["return", "break", "continue", "throw", "raise"].iter().any(|k| kind.contains(k))
+    }
+    if kind_is_exit(node.kind()) {
+        return true;
+    }
+    node.kind() == "expression_statement"
+        && node.named_child(0).is_some_and(|c| kind_is_exit(c.kind()))
+}
+
+/// A node is a PUBLIC ITEM — a function/type/module item carrying a visibility modifier. Read from
+/// the node kind plus the presence of a `visibility_modifier` child (structural, grammar-driven).
+fn is_public_item(node: Node, _src: &[u8]) -> bool {
+    let is_item = matches!(
+        node.kind(),
+        "function_item"
+            | "struct_item"
+            | "enum_item"
+            | "trait_item"
+            | "type_item"
+            | "mod_item"
+            | "const_item"
+            | "static_item"
+    );
+    if !is_item {
+        return false;
+    }
+    if node.child_by_field_name("visibility_modifier").is_some() {
+        return true;
+    }
+    let mut cursor = node.walk();
+    let first_is_vis =
+        node.children(&mut cursor).next().is_some_and(|c| c.kind() == "visibility_modifier");
+    first_is_vis
+}
+
+/// A node is a SINGLE-LETTER NAME binding — a `let` binding or parameter whose name is one
+/// alphabetic character (`x`, `n`). Read from the binding pattern's text; `_` and multi-letter
+/// names never match.
+fn is_single_letter_name(node: Node, src: &[u8]) -> bool {
+    if !matches!(node.kind(), "let_declaration" | "parameter") {
+        return false;
+    }
+    let Some(pat) = node.child_by_field_name("pattern") else { return false };
+    let name = pat.utf8_text(src).unwrap_or("").trim();
+    name.len() == 1 && name.chars().all(|c| c.is_ascii_alphabetic())
+}
+
+/// A node is DOCUMENTED — a doc comment opens the line immediately above it (skipping attribute
+/// lines). Read from the source text so it is grammar-independent.
+fn is_documented(node: Node, src: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(src) else { return false };
+    let lines: Vec<&str> = text.lines().collect();
+    let mut i = node.start_position().row;
+    while i > 0 {
+        let prev = lines.get(i - 1).map(|l| l.trim_start()).unwrap_or("");
+        if prev.starts_with("#[") || prev.starts_with("#!") {
+            i -= 1;
+            continue;
+        }
+        return prev.starts_with("///") || prev.starts_with("//!") || prev.starts_with("/**");
+    }
+    false
+}
+
+// ── The generic structural relations ────────────────────────────────────────────
+
+/// FOLLOWS-IN-BLOCK: for every block, each later named sibling paired with each earlier named
+/// sibling — `(later, earlier)`, matching endpoint A = the following one, endpoint B = the earlier
+/// one. A general positional relation; "code after a return" is one composition over it.
+fn follows_in_block<'a>(root: Node<'a>, _src: &[u8]) -> Vec<(Node<'a>, Node<'a>)> {
+    let mut out = Vec::new();
+    walk(root, &mut |node| {
+        if node.kind() != "block" {
+            return;
+        }
+        let mut cursor = node.walk();
+        let sibs: Vec<Node> =
+            node.children(&mut cursor).filter(|c| c.is_named() && !c.kind().contains("comment")).collect();
+        for later in 0..sibs.len() {
+            for earlier in 0..later {
+                out.push((sibs[later], sibs[earlier]));
+            }
+        }
+    });
+    out
+}
+
+/// The smallest subtree size (node count) that can count as a real duplicate — below this, two
+/// tiny bodies coinciding is coincidence, not a copy.
+const DUP_MIN_NODES: usize = 12;
+
+/// DUPLICATE-SUBTREE: every pair of function bodies with an identical structural shape (identical
+/// node-kind sequence), in both orders so each duplicate site is an endpoint A once. A general
+/// structural relation; DRY is one composition over it.
+fn duplicate_subtree<'a>(root: Node<'a>, _src: &[u8]) -> Vec<(Node<'a>, Node<'a>)> {
+    use std::collections::HashMap;
+    let mut by_shape: HashMap<u64, Vec<Node>> = HashMap::new();
+    walk(root, &mut |node| {
+        if node.kind() != "function_item" {
+            return;
+        }
+        let Some(body) = node.child_by_field_name("body") else { return };
+        let mut kinds: Vec<u16> = Vec::new();
+        walk(body, &mut |n| kinds.push(n.kind_id()));
+        if kinds.len() < DUP_MIN_NODES {
+            return;
+        }
+        let mut h = 0xcbf29ce484222325u64;
+        for k in &kinds {
+            h ^= u64::from(*k);
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        by_shape.entry(h).or_default().push(node);
+    });
+    let mut out = Vec::new();
+    for group in by_shape.values() {
+        for i in 0..group.len() {
+            for j in 0..group.len() {
+                if i != j {
+                    out.push((group[i], group[j]));
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build the understanding a real machine loads: the separating dictionary meaning network
+    /// (whole dictionary) plus the English brain (bootstrap fallback is fine). Ignored — reads the
+    /// local dictionary.
+    fn understanding() -> MeaningNetwork {
+        let defs = crate::lint_english::dictionary_definitions(None, crate::lint_char::MAX_MEANING_WORDS)
+            .expect("a readable dictionary");
+        let mut m = MeaningNetwork::new();
+        for (head, words) in &defs {
+            m.bind(head, &words.iter().map(String::as_str).collect::<Vec<_>>());
+        }
+        m.seal();
+        m
+    }
+
+    /// THE CHECKPOINT PROOF (owner directive 2026-07-08): three DIFFERENTLY-SHAPED principles —
+    /// their REAL corpus prose — enforce end to end through ONE mechanism with ZERO per-principle
+    /// code: (a) dead-code-after-return (relation + two roles + direction — the crux), (b)
+    /// undocumented-public-item (unary, single self-bad predicate with an inner negation), (c) DRY
+    /// (a different relation, symmetric). Each flags the bad shape and is clean on good code. Raw
+    /// verdicts printed. Ignored (reads the local dictionary). Run:
+    /// `cargo test --release --lib bridge_enforces_three_shapes -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads the local dictionary; the Step-3 three-shape bridge proof"]
+    fn bridge_enforces_three_shapes() {
+        let meanings = understanding();
+        let english = crate::lint_english::brain().expect("English brain (bootstrap fallback)");
+        let bridge = Bridge::new(&meanings, &english);
+
+        // (a) dead-code-after-return — the real corpus prose.
+        let dead = "Never write code after a return statement. A statement that follows a return \
+                    is unreachable dead code.";
+        let plan = bridge.understand(dead).expect("dead-code understood");
+        eprintln!("(a) dead-code plan: {}", plan.describe());
+        assert!(matches!(plan, Plan::Relational { .. }), "dead-code is relational: {}", plan.describe());
+        let bad_a = "fn f(x: i32) -> i32 {\n    if x > 0 {\n        return x;\n        let z = x;\n        drop(z);\n    }\n    x\n}\n";
+        let good_a = "fn f(x: i32) -> i32 {\n    if x > 0 {\n        return x;\n    }\n    x + 1\n}\n";
+        let hits_bad_a = bridge.enforce(dead, "rust", bad_a);
+        let hits_good_a = bridge.enforce(dead, "rust", good_a);
+        eprintln!("    bad flags lines {hits_bad_a:?}; good flags {hits_good_a:?}");
+        assert!(hits_bad_a.contains(&4), "the dead `let z` (line 4) flags: {hits_bad_a:?}");
+        assert!(hits_good_a.is_empty(), "clean code is not flagged: {hits_good_a:?}");
+
+        // (b) non-descriptive-name — the UNARY shape: a single self-bad predicate, no relation,
+        // no inner negation (undocumented-public needs inner-negation of "without", a Step-4 gap
+        // reported to main — the dictionary clusters that preposition with positional ones).
+        let naming = "Never name a variable with a single meaningless letter.";
+        let plan_b = bridge.understand(naming).expect("naming understood");
+        eprintln!("(b) naming plan: {}", plan_b.describe());
+        assert!(matches!(plan_b, Plan::Unary(_)), "naming is unary: {}", plan_b.describe());
+        let bad_b = "fn f(count: i32) -> i32 {\n    let x = count + 1;\n    x\n}\n";
+        let good_b = "fn compute(count: i32) -> i32 {\n    let total = count + 1;\n    total\n}\n";
+        let hits_bad_b = bridge.enforce(naming, "rust", bad_b);
+        let hits_good_b = bridge.enforce(naming, "rust", good_b);
+        eprintln!("    bad flags lines {hits_bad_b:?}; good flags {hits_good_b:?}");
+        assert!(hits_bad_b.contains(&2), "the single-letter `let x` (line 2) flags: {hits_bad_b:?}");
+        assert!(hits_good_b.is_empty(), "descriptive names are not flagged: {hits_good_b:?}");
+
+        // (c) DRY — a different relation (duplicate-subtree), symmetric.
+        let dry = "Never duplicate the same code in two places.";
+        let plan_c = bridge.understand(dry).expect("DRY understood");
+        eprintln!("(c) DRY plan: {}", plan_c.describe());
+        assert!(matches!(plan_c, Plan::Relational { .. }), "DRY is relational: {}", plan_c.describe());
+        let bad_c = "fn alpha(a: i32, b: i32) -> i32 {\n    let s = a + b;\n    let t = s * 2;\n    let u = t - 1;\n    u\n}\nfn beta(a: i32, b: i32) -> i32 {\n    let s = a + b;\n    let t = s * 2;\n    let u = t - 1;\n    u\n}\n";
+        let good_c = "fn alpha(a: i32) -> i32 {\n    a + 1\n}\nfn beta(a: i32, b: i32) -> i32 {\n    let s = a + b;\n    let t = s * 2;\n    s - t\n}\n";
+        let hits_bad_c = bridge.enforce(dry, "rust", bad_c);
+        let hits_good_c = bridge.enforce(dry, "rust", good_c);
+        eprintln!("    bad flags lines {hits_bad_c:?}; good flags {hits_good_c:?}");
+        assert!(hits_bad_c.len() >= 2, "both duplicated functions flag: {hits_bad_c:?}");
+        assert!(hits_good_c.is_empty(), "distinct functions are not flagged: {hits_good_c:?}");
+
+        // ABSTAIN, never misfire: a sentence that states no prohibition, and a prohibition whose
+        // concepts align to NO primitive, both produce no rule.
+        assert!(
+            bridge.understand("A public function should carry a documentation comment.").is_none(),
+            "a non-prohibition states no rule"
+        );
+        assert!(
+            bridge.understand("Never declare variables with the var keyword.").is_none(),
+            "a prohibition with no aligning primitive abstains rather than misfiring"
+        );
+        eprintln!("ABSTAIN: non-prohibition and unmapped-prohibition both produced no rule.");
+    }
+}
