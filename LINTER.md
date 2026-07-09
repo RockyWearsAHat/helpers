@@ -194,14 +194,45 @@ the prose comes from and HOW WIDELY the rule applies:
 
 1. **The CS-principles module** — machine-global, language-agnostic. Its prose is the OWNER'S
    AUTHORITATIVE CANON, held VERBATIM in `<data_root>/corpus/` and source-attributed:
-   `cs3500-rubric.md` (the owner's CS 3500 A+ software-design rubric) and `cs2420-setup.md` (the
-   owner's CS 2420 data-structures/project standards). These files are DATA fetched from the owner's
-   own repositories and used AS-IS — never reworded, slimmed, recreated, or model-invented (the
-   reworded `corpus/principles.md` is exactly the degradation this replaces; precedent: commit
-   7747359 removed invented corpus rules). The understanding path's job is to read this canon's own
-   rich prose and extract the enforceable prohibition(s); the canon is never hand-rewritten to fit
-   the parser. Language-agnostic sections only (a canon's language-specific appendix is excluded).
-   Read FRESH each run (a file read), so editing the canon needs no retrain.
+   `cs3500-rubric.md` (the owner's CS 3500 A+ software-design rubric, 12 agnostic principles) and
+   `cs2420-principles.md` (the owner's CS 2420 data-structures/algorithms standards, 7 agnostic
+   principles). These are the ONLY two corpus files (landed 2026-07-09, `docs-v72`): the reworded
+   `corpus/principles.md`, the older `cs-principles.md`, and the `cs2420-setup.md` Maven pom were
+   removed — DATA fetched from the owner's own material and used AS-IS, never reworded, slimmed,
+   recreated, or model-invented (the reworded `principles.md` is exactly the degradation this
+   replaces; precedent: commit 7747359 removed invented corpus rules). The understanding path's job
+   is to read this canon's own rich prose and extract the enforceable prohibition(s); the canon is
+   never hand-rewritten to fit the parser. Read FRESH each run (a file read), so editing the canon
+   needs no retrain, and the canon is SWAPPABLE — drop in a different rubric file and the wiring
+   reads whatever agnostic `##` principles it holds, zero code change (no principle id or count is
+   baked into code).
+
+   **Language-agnostic sections only — the appendix exclusion (`lint_train::canon_agnostic`).** A
+   canon states each principle as a Markdown section; a section whose HEADING NAMES A KNOWN LANGUAGE
+   is a language appendix and is dropped together with its nested subsections, so `## Language-
+   Specific: C# and .NET` and its `###` members never mint cross-language junk like
+   `uses_construct(lock)`. "Names a known language" is decided by the EXISTING learned resolver —
+   a heading token that IS a bundled grammar or a language registered in the extension claims
+   (`token_names_language`), never a coded language/word list, and stricter than `resolve_language`
+   (which routes any stem best-effort) or `hint_language` (which admits an incidental mention count)
+   so an agnostic principle's own words ("Big-O", "One Concept", "graph") never read as a language.
+   Headings are recognised only outside fenced code, so a `# comment` inside a Python example is not
+   a heading. This generalises with zero code change: a future `## Rust: …` canon section drops out
+   the same way; trailing agnostic sections after a language section survive.
+
+   **Honest coverage (measured 2026-07-09, real canon through the current bridge).** The rich canon
+   binds FEWER rules than the retired engineered `principles.md` did — most structural probes
+   (dead-code, swallowed-error, magic-number, secret, god-function) do NOT bind from the canon's
+   human-titled prose yet; they ABSTAIN, which matches this module's design (rich aspirational
+   principles are expected to abstain, honestly and named). Genuine enforcement lands where a
+   principle's prohibition aligns a primitive — DRY → `relational(duplicate_subtree)` (verified).
+   Several principles currently mint LOW-QUALITY `uses_construct(<incidental-noun>)` rules
+   (`bugs`, `harder`, `HashMap`) when a sentence trips the prohibition gate but aligns no CS
+   concept and the construct fallback grabs a high-centrality unaligned word; these are
+   grounding/quarantine-gated at fire time (the zero-false-positive contract still holds — the
+   idiomatic-HashMap fixture is clean) but they are junk in the ruleset and are the next unit's
+   target (tighten construct extraction so these principles abstain). The per-principle map is the
+   `coverage_map` ignored test in `lint_trace.rs`.
 2. **Per-language modules** — machine-global, delta-stored, registry-distributed (the same
    distribution the word substrate used; a module stores only what it ADDS beyond the base brain).
    A module is the language's REAL rules, each learned from the language's FULL official

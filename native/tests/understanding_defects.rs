@@ -1,8 +1,10 @@
 //! Understanding-class defect detection, tested through the REAL engine (the built binary,
 //! invoked exactly as an agent invokes it). This is the acceptance test for the owner's north
 //! star: the linter flags code that is *bad by CS principles* — not because a rule string was
-//! hand-written for it, but because it READ a principle described in prose (the machine-global
-//! `corpus/`) and understood it well enough to recognise the construct the principle forbids.
+//! hand-written for it, but because it READ a principle described in prose (a `corpus/` document)
+//! and understood it well enough to recognise the construct the principle forbids. The corpus here
+//! is a self-contained probe-mechanism fixture (see `PRINCIPLES`); the owner's real canon and its
+//! honest, sparser coverage are measured by `lint_trace::coverage_map`, not asserted here.
 //!
 //! The mechanism under test (LINTER.md, "Rules from understanding — the probe bridge"): a
 //! structural AST *probe* is coded machinery (dead-code-after-return, unwrap-on-fallible, an
@@ -87,10 +89,15 @@ impl TestProject {
     }
 }
 
-/// The machine-global principles corpus (language-agnostic prose the AI reads). This is DATA —
-/// the same file that ships in `<repo>/corpus/`. Planted into the hermetic project so the run
-/// reads the exact principles under test.
-const PRINCIPLES: &str = include_str!("../../corpus/principles.md");
+/// A PROBE-MECHANISM fixture: language-agnostic prose that names each structural probe under test,
+/// exercising the prose→probe binding and the zero-false-positive contract. This is deliberately
+/// NOT the machine canon (`corpus/cs3500-rubric.md` + `cs2420-principles.md`): the owner's real
+/// canon states its principles as human titles ("6. Never Swallow Exceptions"), which — through the
+/// CURRENT understanding→trace bridge — bind far fewer structural probes than this probe-targeted
+/// prose does (measured: the canon's honest coverage is reported by `lint_trace::coverage_map`).
+/// This fixture keeps the probe-mechanism regression guard exact and self-contained; the canon's
+/// coverage is measured separately, so the two concerns do not entangle.
+const PRINCIPLES: &str = include_str!("fixtures/probe_principles.md");
 
 /// True when `rule` is flagged within `file`'s section of the verdict.
 fn flagged_in(verdict: &str, file: &str, rule: &str) -> bool {
@@ -195,7 +202,7 @@ fn project(name: &str) -> TestProject {
     // An empty sources registry anchors `data_root` at the project and keeps the run off the
     // real network (exactly as the behavior suite does).
     p.write("lint-index/sources.json", r#"{"version": 3, "sources": []}"#);
-    p.write("corpus/principles.md", PRINCIPLES);
+    p.write("corpus/probe_principles.md", PRINCIPLES);
     p
 }
 
