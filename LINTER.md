@@ -226,12 +226,24 @@ the prose comes from and HOW WIDELY the rule applies:
    human-titled prose yet; they ABSTAIN, which matches this module's design (rich aspirational
    principles are expected to abstain, honestly and named). Genuine enforcement lands where a
    principle's prohibition aligns a primitive — DRY → `relational(duplicate_subtree)` (verified).
-   Several principles currently mint LOW-QUALITY `uses_construct(<incidental-noun>)` rules
-   (`bugs`, `harder`, `HashMap`) when a sentence trips the prohibition gate but aligns no CS
-   concept and the construct fallback grabs a high-centrality unaligned word; these are
-   grounding/quarantine-gated at fire time (the zero-false-positive contract still holds — the
-   idiomatic-HashMap fixture is clean) but they are junk in the ruleset and are the next unit's
-   target (tighten construct extraction so these principles abstain). The per-principle map is the
+
+   **The construct fallback is SCOPED OFF for the canon (owner directive 2026-07-09 — the junk
+   fixed).** The language-agnostic canon reads through `lint_trace::understand_canon`
+   (`allow_construct == false`): a canon principle enforces through a STRUCTURAL primitive or
+   ABSTAINS honestly — it never mints `uses_construct` on a noun it merely mentions. This kills the
+   entire junk class the prior cut produced (`uses_construct(bugs)`, `(maps)`, `(harder)`,
+   `(inner/private)`, `(hash-table)`, and `(HashMap)` from "8 Prefer Deterministic Behavior", whose
+   rule is "don't rely on iteration order", NOT "don't use HashMap"). `HashMap` is a real construct,
+   which is exactly why only SCOPE — not prose-tightening — can suppress it: a canon principle that
+   names a construct still abstains because the rule is not "don't use that construct". Measured now:
+   1 canon principle enforces (DRY), 18 abstain honestly, ZERO `uses_construct`. The `uses_construct`
+   primitive still serves the GENERAL language-doc reading (`understand`, the default `explain`
+   scope) — "never use the `var` keyword" → `uses_construct(var)`, verified — and its extractor is
+   also hardened so a common English word in ANY inflection (`bugs`→bug, `maps`→map, `harder`→hard,
+   via `lint_graph::english_inflection` + `CONSTRUCT_SUFFIXES`) and any interior-punctuation token
+   ("hash-table") is rejected as a construct even in that scope; only a backticked name or a genuine
+   single-lexeme syntax token the dictionary cannot account for survives. `lint_query explain` takes
+   `scope=canon|language` (default `language`) to read either way. The per-principle map is the
    `coverage_map` ignored test in `lint_trace.rs`.
 2. **Per-language modules** — machine-global, delta-stored, registry-distributed (the same
    distribution the word substrate used; a module stores only what it ADDS beyond the base brain).

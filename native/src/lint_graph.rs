@@ -192,27 +192,47 @@ fn push_word(body: &str, start: usize, end: usize, reader: &CharReader, g: &mut 
 /// (the same class of programmed language typography as word boundaries), not an enumerated
 /// vocabulary: the words themselves still come from the dictionary the brain read.
 pub(crate) fn word_is_english(reader: &CharReader, word: &str) -> bool {
+    english_inflection(|w| reader.has_meaning(w), word, READ_SUFFIXES)
+}
+
+/// The regular-inflection suffixes the READ path reduces (`statements`, `combined`, `quickly`) —
+/// the set [`word_is_english`] has always used. Comparatives/superlatives are deliberately EXCLUDED
+/// here so the page-reading judgment (and thus segmentation and `TRAIN_VERSION`) is bit-identical;
+/// the trace bridge's construct filter uses a wider set ([`CONSTRUCT_SUFFIXES`]) where more English
+/// coverage only ever SUPPRESSES a junk `uses_construct`, never changes what a page reads as.
+pub(crate) const READ_SUFFIXES: &[&str] = &["s", "es", "ed", "ing", "d", "ly"];
+
+/// The suffixes the trace bridge's construct filter reduces — the read set plus comparative/
+/// superlative `-er/-est` (`harder`, `largest`), so a common English word in ANY inflection is
+/// recognised as English and never mistaken for a dictionary-unknown code construct. Wider than
+/// [`READ_SUFFIXES`] on purpose and safe to widen: it only makes the construct filter ABSTAIN more.
+pub(crate) const CONSTRUCT_SUFFIXES: &[&str] = &["s", "es", "ed", "ing", "d", "ly", "er", "est"];
+
+/// Whether `word` is accounted for by English — directly, or by reducing a regular inflection to a
+/// known lemma via `has` (the caller's existence query: the reader's meaning network, or the trace
+/// bridge's dictionary). `suffixes` is the inflection set to try (see [`READ_SUFFIXES`],
+/// [`CONSTRUCT_SUFFIXES`]). Pure suffix morphology — never a word list, just typography: strip the
+/// suffix, re-query the lemma; `-ies → -y`; undo a doubled final consonant before a vowel suffix
+/// (`running → run`, `hotter → hot`). Shared by [`word_is_english`] and the construct filter so both
+/// judge English inflection identically.
+pub(crate) fn english_inflection(has: impl Fn(&str) -> bool, word: &str, suffixes: &[&str]) -> bool {
     let w = word.to_lowercase();
-    if reader.has_meaning(&w) {
+    if has(&w) {
         return true;
     }
-    // Reduce a regular inflection to its lemma and re-query — never a word list, just suffix
-    // morphology: `-s/-es/-ed/-ing/-d/-ly` drop, `-ies → -y`, doubled-consonant `-ing/-ed` undo.
-    // `has_meaning` is the cheap existence query (no per-word hypervector rebuilt), which is what
-    // makes this per-word judgment affordable over a whole corpus.
-    let lemma_resolves = |stem: &str| stem.chars().count() >= 3 && reader.has_meaning(stem);
+    let lemma_resolves = |stem: &str| stem.chars().count() >= 3 && has(stem);
     if let Some(base) = w.strip_suffix("ies") {
         if lemma_resolves(&format!("{base}y")) {
             return true;
         }
     }
-    for suffix in ["s", "es", "ed", "ing", "d", "ly"] {
+    for suffix in suffixes {
         if let Some(stem) = w.strip_suffix(suffix) {
             if lemma_resolves(stem) {
                 return true;
             }
-            // A doubled final consonant before `-ing`/`-ed` (`running`, `stopped`) drops one.
-            if matches!(suffix, "ing" | "ed") {
+            // A doubled final consonant before a vowel suffix drops one (`running`, `hotter`).
+            if matches!(*suffix, "ing" | "ed" | "er" | "est") {
                 let chars: Vec<char> = stem.chars().collect();
                 if chars.len() >= 2 && chars[chars.len() - 1] == chars[chars.len() - 2] {
                     let deduped: String = chars[..chars.len() - 1].iter().collect();
