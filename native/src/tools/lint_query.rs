@@ -91,6 +91,7 @@ fn explain(prose: &str) -> Value {
                 "distance": c.distance,
                 "runner_up": c.runner_up,
                 "ratio": c.ratio,
+                "centrality": c.centrality,
             })
         })
         .collect();
@@ -107,19 +108,40 @@ fn explain(prose: &str) -> Value {
     })
 }
 
-/// `rules <language>` — the rules currently enforced for a language, with the understanding behind
-/// each.
+/// `rules <language>` — the rules currently enforced for a language, split by ORIGIN so the
+/// listing reflects what genuinely enforces. Two groups, exactly as the live lint merges them
+/// (overlay ⊕ module):
+///   * `understanding_rules` — the machine-global CS-principles corpus, read FRESH and shaped by
+///     the understanding→trace bridge (or the probe fallback). These are the rules the AI derives
+///     from prose, the north star of the system.
+///   * `module_rules` — the crawled-doc rules baked into the trained language module (AST/token
+///     detectors learned from the language's own documentation).
+/// Kept separate rather than a flat list: a stale crawled token-detector and an understanding-shaped
+/// trace rule are different kinds of thing, and conflating them was what made this query misleading.
 fn rules(lang: &str) -> Value {
-    let Some(rs) = crate::lint_train::cached_ruleset(lang) else {
-        return json!({ "kind": "rules", "language": lang, "count": 0,
-                       "note": format!("no trained module for `{lang}` — run lint_config action=train") });
-    };
-    let details: Vec<Value> = rs
-        .rule_details()
+    let understanding: Vec<Value> = detail_values(&crate::lint_train::corpus_ruleset(lang));
+    let module: Option<Vec<Value>> =
+        crate::lint_train::cached_ruleset(lang).map(|rs| detail_values(&rs));
+    let module_count = module.as_ref().map(Vec::len).unwrap_or(0);
+    json!({
+        "kind": "rules",
+        "language": lang,
+        "count": understanding.len() + module_count,
+        "understanding_count": understanding.len(),
+        "understanding_rules": understanding,
+        "module_count": module_count,
+        "module_rules": module,
+        "module_note": module.is_none()
+            .then(|| format!("no trained module for `{lang}` — run lint_config action=train")),
+    })
+}
+
+/// One rule set's `(id, severity, detector, principle)` rows as JSON — shared by both origin groups.
+fn detail_values(rs: &crate::lint_match::RuleSet) -> Vec<Value> {
+    rs.rule_details()
         .into_iter()
         .map(|(id, severity, description, detector)| {
             json!({ "id": id, "severity": severity, "detector": detector, "principle": description })
         })
-        .collect();
-    json!({ "kind": "rules", "language": lang, "count": details.len(), "rules": details })
+        .collect()
 }

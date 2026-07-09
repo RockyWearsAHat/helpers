@@ -86,8 +86,16 @@ pub const SKIP_DIRS: &[&str] = &[
     ".idea",
 ];
 
-/// Skip files larger than this — they are almost never source worth indexing.
-const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+/// A RUNAWAY SAFETY VALVE, never a working limit (LINTER.md, "the caps are runaway safety valves
+/// sized far above any real source, never working limits that silently truncate knowledge"). The
+/// linter is a streaming infinite-state machine: it lints arbitrarily large input with per-file
+/// memory (one parse tree, freed after the file) and imposes NO context/token window, so a genuinely
+/// large SOURCE file must be read in full and all its findings reported. This bound catches only
+/// pathological non-source blobs (a hundred-MB vendored/minified artifact `.gitignore` did not
+/// exclude), sized 64 MB — far above the largest hand-written source (a generated lexer, an
+/// amalgamated C file ~10 MB) — so it never silently drops real code. Raising it only widens the
+/// valve; it is not a per-input limit the walk works against.
+const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Fold `(mtime nanos, len)` into the one-word change witness the verdict cache stores.
 /// Must stay bit-identical to what historical caches hold, or every warm project re-lints.
