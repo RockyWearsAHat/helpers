@@ -358,8 +358,23 @@ impl<'a> Bridge<'a> {
     /// concepts do not align to a usable set of primitives (ABSTAIN). The rule is what understanding
     /// PRODUCES here; the machinery is the same [`explain`](Self::explain) step trace, minus the
     /// bookkeeping. No per-principle branch.
+    ///
+    /// This is the GENERAL (language-doc) reading: a prohibition that names a code construct but
+    /// aligns no CS primitive shapes a [`Plan::UsesConstruct`]. The language-AGNOSTIC canon reads
+    /// through [`understand_canon`](Self::understand_canon) instead, which never mints a construct.
     pub fn understand(&self, description: &str) -> Option<Plan> {
-        self.explain(description).plan
+        self.explain_scoped(description, true).plan
+    }
+
+    /// UNDERSTANDING SHAPES A RULE for the LANGUAGE-AGNOSTIC CANON — identical to
+    /// [`understand`](Self::understand) except the construct fallback is SUPPRESSED. A canon
+    /// principle is a language-agnostic design rule ("prefer deterministic behaviour"); it enforces
+    /// through a structural primitive or ABSTAINS honestly, and it never names a code construct whose
+    /// USE is the violation. Suppressing the fallback here is what keeps a canon sentence that merely
+    /// MENTIONS a construct (`HashMap` in "prefer deterministic behaviour", `bugs` in a rationale)
+    /// from minting `uses_construct(<that noun>)` — the junk class this scope exists to forbid.
+    pub fn understand_canon(&self, description: &str) -> Option<Plan> {
+        self.explain_scoped(description, false).plan
     }
 
     /// The step-by-step trace of understanding APPLIED to `description` — the debugger behind the
@@ -369,6 +384,16 @@ impl<'a> Bridge<'a> {
     /// most informative abstain: the first sentence whose prohibition gate fired, else the first
     /// sentence — so the reason stays honest. `understand` is this with only the plan kept.
     pub fn explain(&self, description: &str) -> Explanation {
+        self.explain_scoped(description, true)
+    }
+
+    /// The step trace of understanding APPLIED to `description` at a given SCOPE. `allow_construct`
+    /// is the only scope lever: `true` is the general (language-doc) reading where a prohibition
+    /// naming a code construct shapes a [`Plan::UsesConstruct`]; `false` is the language-agnostic
+    /// canon reading where the construct fallback is suppressed, so a canon principle enforces
+    /// through a structural primitive or abstains and never mints a construct on an incidental noun.
+    /// [`explain`](Self::explain) is this at general scope.
+    pub fn explain_scoped(&self, description: &str, allow_construct: bool) -> Explanation {
         let sentences = crate::lint_read::sentences(description);
         if sentences.is_empty() {
             let mut ex = Explanation::default();
@@ -377,7 +402,7 @@ impl<'a> Bridge<'a> {
         }
         let mut fallback: Option<Explanation> = None;
         for sentence in sentences {
-            let ex = self.explain_sentence(sentence);
+            let ex = self.explain_sentence(sentence, allow_construct);
             if ex.plan.is_some() {
                 return ex;
             }
@@ -395,7 +420,7 @@ impl<'a> Bridge<'a> {
     /// aligned to, and the plan understanding shaped from this sentence: a CS-primitive composition
     /// when its concepts align, else a [`Plan::UsesConstruct`] when the sentence NAMES a code
     /// construct, else the precise abstain reason.
-    fn explain_sentence(&self, sentence: &str) -> Explanation {
+    fn explain_sentence(&self, sentence: &str, allow_construct: bool) -> Explanation {
         let mut ex = Explanation::default();
         ex.sentence = sentence.to_string();
         ex.prohibition = self.english.sentence_states_prohibition(sentence);
@@ -463,9 +488,11 @@ impl<'a> Bridge<'a> {
         };
         match plan {
             // The CS primitive ALWAYS wins when one composed — understanding a defect beats matching
-            // a token. Only when NO primitive composed does a named construct carry the prohibition.
+            // a token. Only when NO primitive composed does a named construct carry the prohibition,
+            // and only in the GENERAL (language-doc) scope — the language-agnostic canon never mints
+            // a construct (`allow_construct == false`), enforcing structurally or abstaining.
             Some(p) => ex.plan = Some(p),
-            None => match self.extract_construct(sentence, baseline) {
+            None => match allow_construct.then(|| self.extract_construct(sentence, baseline)).flatten() {
                 Some(construct) => ex.plan = Some(Plan::UsesConstruct { construct }),
                 None => {
                     ex.abstain =
@@ -515,7 +542,24 @@ impl<'a> Bridge<'a> {
             if tok.len() < 2 || self.is_negator(&tok) || !tok.chars().any(|c| c.is_ascii_alphabetic()) {
                 continue;
             }
-            let reads_as_syntax = crate::lint_match::is_construct_keyword(&tok) || !self.meanings.has(&tok);
+            // A bare (non-backticked) construct name must read as a SINGLE code lexeme: an
+            // unbroken identifier/keyword run. A token carrying interior punctuation ("hash-table",
+            // "inner/private") is English prose joined by a symbol, not one construct — a genuine
+            // multi-symbol construct (`mem::uninitialized`, `==`) arrives BACKTICKED (handled above).
+            if !tok.chars().all(|c| c.is_ascii_alphanumeric()) {
+                continue;
+            }
+            // English cannot account for it — MORPHOLOGY-AWARE, so a common word in any inflection
+            // (`bugs`→bug, `maps`→map, `harder`→hard) is recognised as English and rejected, closing
+            // the leak where `!has` alone treated every plural/comparative as unknown syntax. The
+            // grammar-keyword signal still carries a real reserved word the dictionary also knows as
+            // an obscure abbreviation (`var`).
+            let english = crate::lint_graph::english_inflection(
+                |w| self.meanings.has(w),
+                &tok,
+                crate::lint_graph::CONSTRUCT_SUFFIXES,
+            );
+            let reads_as_syntax = crate::lint_match::is_construct_keyword(&tok) || !english;
             let centrality = self.meanings.centrality(&tok);
             if reads_as_syntax && centrality >= baseline {
                 words.push((centrality, pos, tok));
@@ -727,12 +771,25 @@ pub fn understand(description: &str) -> Option<Plan> {
     Bridge::new(char_brain.meanings(), english).understand(description)
 }
 
-/// EXPLAIN understanding applied to `description` through the machine's loaded brains — the step
-/// trace the `lint_query explain` interrogation returns. `None` when a brain is unavailable.
-pub fn explain(description: &str) -> Option<Explanation> {
+/// UNDERSTAND a LANGUAGE-AGNOSTIC CANON principle through the machine's loaded brains — the live
+/// entry the lint walk binds a `corpus/*.md` principle with. The construct fallback is SUPPRESSED
+/// (see [`Bridge::understand_canon`]): a canon principle enforces through a structural primitive or
+/// abstains honestly, and never mints `uses_construct` on an incidental noun it merely mentions.
+pub fn understand_canon(description: &str) -> Option<Plan> {
     let char_brain = crate::lint_char::brain()?;
     let english = crate::lint_english::brain()?;
-    Some(Bridge::new(char_brain.meanings(), english).explain(description))
+    Bridge::new(char_brain.meanings(), english).understand_canon(description)
+}
+
+/// EXPLAIN understanding applied to `description` through the machine's loaded brains — the step
+/// trace the `lint_query explain` interrogation returns. `canon` selects the scope: `true` reads it
+/// as a language-agnostic canon principle (no construct fallback), `false` as general/language-doc
+/// prose (a construct-naming prohibition may shape `uses_construct`). `None` when a brain is
+/// unavailable.
+pub fn explain(description: &str, canon: bool) -> Option<Explanation> {
+    let char_brain = crate::lint_char::brain()?;
+    let english = crate::lint_english::brain()?;
+    Some(Bridge::new(char_brain.meanings(), english).explain_scoped(description, !canon))
 }
 
 /// The distance from `word` to EVERY generic primitive (min over the primitive's descriptor words),
@@ -1327,7 +1384,9 @@ mod tests {
             if heading.is_empty() || prose.trim().is_empty() {
                 return;
             }
-            match bridge.understand(prose) {
+            // Canon scope — the language-agnostic canon never mints a `uses_construct`; it enforces
+            // through a structural primitive or abstains honestly (owner directive 2026-07-09).
+            match bridge.understand_canon(prose) {
                 Some(plan) => {
                     enforced += 1;
                     eprintln!("  ENFORCE  {heading:52} -> {}", plan.describe());

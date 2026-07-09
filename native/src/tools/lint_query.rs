@@ -26,7 +26,8 @@ pub fn schema() -> Value {
             "type": "object",
             "properties": {
                 "kind": { "type": "string", "enum": ["define", "explain", "rules"], "description": "The interrogation to run." },
-                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust)." }
+                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust)." },
+                "scope": { "type": "string", "enum": ["canon", "language"], "description": "explain only: read the prose as the language-agnostic canon (no uses_construct fallback) or as general language-doc prose (default). Canon principles enforce structurally or abstain." }
             },
             "required": ["kind", "arg"]
         }
@@ -38,9 +39,14 @@ pub fn schema() -> Value {
 pub fn run(args: &Value) -> ToolResult {
     let kind = args["kind"].as_str().unwrap_or("");
     let arg = args["arg"].as_str().unwrap_or("").trim();
+    // `scope` selects how `explain` reads the prose: the language-agnostic CANON (no construct
+    // fallback — a principle enforces structurally or abstains) vs general LANGUAGE-doc prose (a
+    // construct-naming prohibition may shape `uses_construct`). Default is language-doc so
+    // `explain "never use the var keyword"` still shapes `uses_construct(var)`.
+    let canon = matches!(args["scope"].as_str(), Some("canon"));
     let out = match kind {
         "define" => define(arg),
-        "explain" => explain(arg),
+        "explain" => explain(arg, canon),
         "rules" => rules(arg),
         other => {
             return Err(format!(
@@ -74,9 +80,11 @@ fn define(word: &str) -> Value {
     })
 }
 
-/// `explain <principle prose>` — understanding applied, step by step.
-fn explain(prose: &str) -> Value {
-    let Some(ex) = crate::lint_trace::explain(prose) else {
+/// `explain <principle prose>` — understanding applied, step by step. `canon` reads the prose as a
+/// language-agnostic canon principle (construct fallback suppressed) rather than general
+/// language-doc prose.
+fn explain(prose: &str, canon: bool) -> Value {
+    let Some(ex) = crate::lint_trace::explain(prose, canon) else {
         return json!({ "kind": "explain", "prose": prose, "brain_loaded": false,
                        "note": "no character/English brain loaded — run lint_config action=train" });
     };
