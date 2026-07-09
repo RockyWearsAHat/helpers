@@ -99,6 +99,7 @@ fn explain(prose: &str) -> Value {
         "sentence": ex.sentence,
         "prohibition_gate_fired": ex.prohibition,
         "operators": ex.operators,
+        "inner_negations": ex.inner_negations,
         "concepts": concepts,
         "shaped_rule": ex.plan.as_ref().map(|p| p.describe()),
         "enforces": ex.plan.is_some(),
