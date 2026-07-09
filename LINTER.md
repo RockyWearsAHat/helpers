@@ -479,47 +479,73 @@ the 9 enforcing principles are unchanged and the tangential sentence abstains (`
 **COVERAGE MAP (real corpus, `lint_trace::tests::coverage_map`; live-validated via `call lint_query explain`).**
 Enforced through the bridge (9): dead_code_after_return `relational(follows_in_block)`,
 unwrap_on_fallible `unary(unwrap_call)`, god_function `unary(long_body)`, magic_number, non_descriptive_name,
-hardcoded_secret, shell_injection, duplicated_code `relational(duplicate_subtree)`, and now
+hardcoded_secret, shell_injection, duplicated_code `relational(duplicate_subtree)`,
 **undocumented_public_item** `present_without(public_item \ documented)` — the inner-negation of
 "without" is detected by the `ABSENCE` meaning descriptor (comparative, not a base-negator hop, so
 absence-DEFINED content words like "secret" = "not known" are untouched because they bind a primitive
-decisively). ABSTAIN honestly (1): **swallowed_error** — `ignore`/`discard`/`swallow`/`error` align
-to NO primitive (measured ratios 0.89–0.998; nothing in the vocabulary means "a discarded fallible
-result"), so it abstains and the probe fallback enforces it. CONCRETE NEXT STEP for it: add ONE
-generic predicate `discarded_fallible` (a binding of a Result/error to a throwaway `_`, or an empty
-catch/match arm) with descriptor words {ignore, discard, swallow, error, throwaway} — then the same
-`unary` composition picks it up with zero per-principle code. Adding that primitive is generic, not
-per-principle. `lint_probe` remains the committed fallback until the anti-cheat passes.
+decisively) — and now **swallowed_error** `unary(discarded_fallible)`. The generic
+`discarded_fallible` predicate (LANDED 2026-07-09) recognises the SHAPE of a swallowed error — a
+`let _ = <non-trivial>` (a fallible value bound to the throwaway `_`), or an `Err(..) => {}`/`()`
+match arm — with descriptor words {ignore, swallow, error, exception, suppress}. `discard` is
+DELIBERATELY excluded from the descriptor: as a bare verb it equally means discarding a
+variable/resource ("Unused variables — explicitly discard"), a sense collision that would let a
+CLEAN-BUILD bullet shadow the more-specific undoc rule; the distinctive `swallow`/`ignore` (+
+`error`/`exception`) carry the defect without it. The centrality baseline (`compose_unary`) now
+EXCLUDES words the meaning network has no vector for (nearest primitive at the max `DIM` distance —
+an unbound plural like "exceptions", a filler like "does"): they carry no meaning to reason about, so
+their rarity-driven centrality would inflate the median and wrongly suppress a genuine aligning
+concept — this is what lets "swallow" (74) clear the baseline in "Never Swallow Exceptions" and shape
+the rule. Adding the primitive was generic, not per-principle; `lint_probe` remains the committed
+fallback until the anti-cheat passes.
 
-**REAL-CANON coverage (owner directive 2026-07-09 — the two fixed corpus files, not synthetic prose).**
-Through the bridge at CANON scope (`understand_canon`), the owner's 19 language-agnostic principles map
-to: **1 enforces** — `12. DRY` → `relational(duplicate_subtree)` — and **18 abstain honestly**, with
-ZERO `uses_construct`. The abstentions are correct: the aspirational/semantic principles (Test Coverage,
-One Concept Per Test, Big-O, amortized cost, simplicity, choose-data-structure) SHOULD abstain. The
-genuinely-structural ones do not yet bind from the canon's REAL prose, and the blockers are named, not
-faked:
-- **undocumented_public_item** — DOES bind from the canon's real phrasing "Missing documentation on
-  public APIs — write it" → `present_without(public_item \ documented)`, verified at the sentence level
-  (`inner_negation_enforces_undocumented_public`). Two general bridge improvements made this honest, not
-  a per-principle hack: the inner-negation test runs BEFORE the base-negator test (an absence word whose
-  definition also compounds "not", like "missing"/"lacking", flips its OBJECT rather than commanding the
-  whole rule), and the present/absent split is OBJECT-based (the role nearest AFTER the negator is absent;
-  the rest present), so "missing Y on X" and "X without Y" read as the SAME public-present ∧ doc-absent
-  shape. `ABSENCE` gained "missing"/"absent" as declared-descriptor vocabulary. It does NOT yet surface in
-  the live/`coverage_map` merged-prose view because the canon states this rule as a terminal-less markdown
-  BULLET and the description assembler (`linter.rs` `read_document`) collapses a section's lines into one
-  space-joined blob, so the bullet never becomes a standalone sentence. CONCRETE NEXT STEP: preserve
-  line/bullet boundaries when assembling a principle's description (push `\n`, not ` `) so each canon
-  bullet surfaces as its own sentence — a SHARED-parser change (`linter.rs`, affects every rule document)
-  deferred out of this bounded unit for owner confirmation.
-- **dead_code**, **god_function**, **swallowed_error** — do NOT bind from the canon. Their canon sentences
-  are positively-framed / imperative ("Unreachable code — remove it"; "Each function … does exactly one
-  thing"; "Catch exceptions only when you can actually handle them"), and the meaning-based prohibition
-  gate correctly returns FALSE (no commanding negation). Landing them needs the gate to read IMPLIED /
-  positively-framed prohibitions ("do X only when Y" ⇒ "not X without Y") — a high-blast-radius change to
-  `English::sentence_states_prohibition` requiring its own validation — and, for swallowed_error, the
-  `discarded_fallible` primitive above. Deferred and reported, not forced. The probe fallback still fires
-  these on the acceptance Rust files.
+**REAL-CANON coverage (owner directive 2026-07-09 — the two fixed corpus files, not synthetic prose;
+`lint_trace::tests::coverage_map` now reads each canon file through the LIVE assembler
+`Knowledge::read_document`, so the map reflects what the live lint actually sees, not a synthetic
+join).** Of the owner's 19 language-agnostic principles, **3 enforce through understanding** and **16
+abstain honestly**, with ZERO `uses_construct`:
+- **`12. DRY` → `relational(duplicate_subtree)`** — live.
+- **`1. Clean Build` → `present_without(public_item \ documented)`** (undocumented_public_item) — LIVE
+  (verified end-to-end: flags an undocumented `pub fn`, clean on a documented one, cited
+  `⟨corpus/cs3500-rubric.md⟩`, via understanding not the probe). This landed via the ASSEMBLER FIX
+  (PART 1 below): `read_document` now joins a section's lines with `\n`, not a space, so the canon's
+  terminal-less bullet "Missing documentation on public APIs — write it" surfaces as its OWN sentence.
+  The inner-negation machinery ("missing" ⇒ absence of its object; present/absent split object-based)
+  was already in place; the assembler fix is what makes the bullet reach it. NOTE: "explicitly
+  discard" in the earlier "Unused variables …" bullet no longer shadows this, because `discard` was
+  removed from `discarded_fallible`'s descriptor (see above).
+- **`6. Never Swallow Exceptions` → `unary(discarded_fallible)`** — understanding SHAPES the rule
+  (gate fires on the "Never …" heading; "swallow" aligns to the new `discarded_fallible` primitive)
+  and `enforce()` fires it on bad Rust / clean on good (proven in the ignored trace tests). It is
+  **SHAPED-ONLY live**, NOT yet firing end-to-end: the canon illustrates principle 6 with a Java
+  `// Bad`/`// Good` snippet, so `read_document` populates the rule's `bad` example and the live
+  corpus router (`lint_match` mod.rs: `is_corpus_principle = source.contains("/corpus/") &&
+  bad.trim().is_empty()`) DIVERTS the principle to the example-based path as a rule in the
+  ILLUSTRATION's language (java), never reaching understanding. Firing it live needs corpus principles
+  routed understanding-FIRST with a language-AGNOSTIC trace rule — a corpus-wiring change beyond this
+  unit's sanctioned scope (gate + assembler + `discarded_fallible`). Reported, not forced.
+
+The abstentions are correct: the aspirational/semantic principles (Test Coverage, One Concept Per
+Test, Big-O, amortized cost, simplicity, choose-data-structure) SHOULD abstain. Two genuinely-
+structural principles remain HONEST SUBSTRATE WALLS — NOT merely gate walls but ALIGNMENT walls, so
+broadening the prohibition gate alone would only let their sentences pass the gate and then abstain at
+alignment (the junk-guard working), landing zero new enforcement while risking language-path junk:
+- **dead_code** — "Unreachable code — remove it": "unreachable" aligns to NO primitive (nearest is
+  `hardcoded_secret` at the noise floor; centrality 92 but no near-synonym among the descriptors),
+  "code" → `statement` (a role, not self-bad), "remove" → nothing. Even with the gate firing, nothing
+  composes: the defect ("a statement after a control-exit") is a RELATION the prose never names.
+  Landing it needs BOTH an imperative-remedy gate AND a generic `unreachable_code` self-bad predicate.
+- **god_function** — "Each function does exactly one thing": the prose names the POSITIVE norm ("one
+  thing"); the defect (a long / many-responsibility body) is never named, so no concept reaches
+  `long_body` ("function" → `public_item`, the rest → noise). A semantic-INVERSION wall the current
+  primitives cannot cross without per-principle descriptor hacking (rejected — would be faking).
+
+The gate (`English::sentence_states_prohibition`) was therefore deliberately NOT broadened this unit:
+it already fires for the two principles that landed (undoc via the "missing" inner-negation, swallow
+via the "Never" heading), and broadening it for dead_code/god_function would land nothing (alignment
+walls) while risking `uses_construct` junk in the language-doc path. The imperative/prescriptive/
+positive-conditional norm gate remains future work, blocked on the pure-English gate having no
+part-of-speech/mood signal to separate a norm from a descriptive fact without the covenant-forbidden
+word lists — recorded here, honestly, rather than shipped fragile.
 
 **Enumerating what enforces (`lint_query rules <lang>`).** The query reports BOTH origins the live
 lint merges (overlay ⊕ module), kept separate: `understanding_rules` — the machine-global corpus,

@@ -131,18 +131,22 @@ fn clean_line(line: &str) -> String {
 
 /// A paragraph's `(heading, body)` split: when its first line is a markdown ATX heading the
 /// heading text names the rule and the remaining lines are its description; otherwise there is no
-/// heading and the whole paragraph is body.
+/// heading and the whole paragraph is body. Body lines are joined with `\n`, NOT a space, so each
+/// source line stays a SENTENCE boundary ([`crate::lint_read::sentences`] breaks on `\n`): a canon
+/// section's terminal-less markdown bullet ("Missing documentation on public APIs — write it")
+/// surfaces as its OWN sentence for the understanding gate instead of welding into one blob with
+/// its neighbours (LINTER.md, "REAL-CANON coverage" — the description assembler fix).
 fn split_heading(paragraph: &str) -> (Option<String>, String) {
     let mut lines = paragraph.lines();
     let first = lines.next().unwrap_or("").trim();
     let stripped = first.trim_start_matches('#');
     let body_rest: Vec<String> = lines.map(clean_line).filter(|l| !l.is_empty()).collect();
     if stripped.len() < first.len() {
-        (Some(stripped.trim_matches('#').trim().to_string()), body_rest.join(" "))
+        (Some(stripped.trim_matches('#').trim().to_string()), body_rest.join("\n"))
     } else {
         let mut all = vec![clean_line(first)];
         all.extend(body_rest);
-        (None, all.into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" "))
+        (None, all.into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n"))
     }
 }
 
@@ -287,7 +291,7 @@ impl Knowledge {
                                 b.rule.description = clean;
                             } else {
                                 if !b.rule.description.is_empty() {
-                                    b.rule.description.push(' ');
+                                    b.rule.description.push('\n');
                                 }
                                 b.rule.description.push_str(&clean);
                             }
