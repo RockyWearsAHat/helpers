@@ -289,7 +289,7 @@ const BIND_MARGIN: f64 = 0.60;
 /// token-match rule — and it is applied COMPARATIVELY (nearer to absence than to any primitive), so
 /// a content word that merely grazes the absence sense ("secret" = "not known") stays a concept
 /// because it binds a real primitive decisively closer.
-const ABSENCE: &[&str] = &["absence", "without", "lacking", "lack"];
+const ABSENCE: &[&str] = &["absence", "without", "lacking", "lack", "missing", "absent"];
 
 impl<'a> Bridge<'a> {
     /// Read a principle through this understanding.
@@ -431,17 +431,22 @@ impl<'a> Bridge<'a> {
             if tok.len() < 3 || !tok.chars().all(|c| c.is_ascii_alphabetic()) {
                 continue;
             }
+            // An inner-negation ("without", "missing", "lacking") asserts the FOLLOWING concept is
+            // ABSENT (present ∧ ¬absent) — set aside, its position remembered. Checked BEFORE the
+            // base-negator test because a word can be both by definition ("missing" = "NOT able to
+            // be found"): absence of a SPECIFIC concept is the more specific, truer reading, so it
+            // flips one role rather than commanding the whole rule. A general base negator ("never",
+            // "not") is not DECISIVELY an absence word (temporal/logical negation), so it fails the
+            // comparative [`is_inner_negation`] test and falls through to the operator branch.
+            if self.is_inner_negation(tok) {
+                inner_neg_pos.get_or_insert(*pos);
+                ex.inner_negations.push(tok.clone());
+                continue;
+            }
             // A base negator ("never", "no") is an OPERATOR that commands the whole rule — never a
             // concept naming a primitive.
             if self.is_negator(tok) {
                 ex.operators.push(tok.clone());
-                continue;
-            }
-            // An inner-negation ("without") is an OPERATOR that flips the polarity of the role
-            // concepts after it (present ∧ ¬absent) — set aside, its position remembered.
-            if self.is_inner_negation(tok) {
-                inner_neg_pos.get_or_insert(*pos);
-                ex.inner_negations.push(tok.clone());
                 continue;
             }
             let (prim, best, runner_up) = self.align_scored(tok);
@@ -572,22 +577,32 @@ impl<'a> Bridge<'a> {
         words.into_iter().max_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1))).map(|(_, _, t)| t)
     }
 
-    /// Compose a PRESENT-WITHOUT plan: an inner-negation operator at `neg_pos` splits the role
-    /// predicates into a `present` set (those named before it — "a public function") and an `absent`
-    /// set (those named after it — "documentation comment"). The rule flags a node that satisfies
-    /// every present predicate but none of the absent ones. General over any "X lacking Y" principle;
-    /// abstains when either side has no role predicate (an inner negation needs something present to
-    /// flag and something absent to check for).
+    /// Compose a PRESENT-WITHOUT plan: an inner-negation operator at `neg_pos` asserts its OBJECT —
+    /// the role concept nearest AFTER it ("…WITHOUT documentation", "MISSING documentation…") — is
+    /// ABSENT; every OTHER role is the PRESENT context the absence is checked against. The rule flags
+    /// a node satisfying every present predicate but not the absent one. Nearest-after (else
+    /// nearest-before) is the same meaning-symmetric sentence-structure tiebreak
+    /// [`compose_relational`](Self::compose_relational) uses, so "a public item WITHOUT a doc
+    /// comment" and "MISSING documentation on a public API" both read as public-present ∧
+    /// doc-absent regardless of which side the present role sits on. General over any "present thing
+    /// lacking a property" principle; abstains when there is no object or no other present role (an
+    /// inner negation needs something present to flag and something absent to check for).
     fn compose_present_without(&self, neg_pos: usize, predicates: &[&BoundConcept]) -> Option<Plan> {
-        let (mut present, mut absent): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
+        let object = predicates
+            .iter()
+            .filter(|b| b.position > neg_pos)
+            .min_by_key(|b| b.position)
+            .or_else(|| predicates.iter().filter(|b| b.position < neg_pos).max_by_key(|b| b.position))?;
+        let Primitive::Pred(absent) = object.primitive else { return None };
+        let mut present: Vec<usize> = Vec::new();
         for b in predicates {
-            let Primitive::Pred(i) = b.primitive else { continue };
-            let side = if b.position < neg_pos { &mut present } else { &mut absent };
-            if !side.contains(&i) {
-                side.push(i);
+            if let Primitive::Pred(i) = b.primitive {
+                if i != absent && !present.contains(&i) {
+                    present.push(i);
+                }
             }
         }
-        (!present.is_empty() && !absent.is_empty()).then_some(Plan::PresentWithout { present, absent })
+        (!present.is_empty()).then_some(Plan::PresentWithout { present, absent: vec![absent] })
     }
 
     /// Why composition produced no rule — the precise application-failure reason the `explain` query
@@ -1280,6 +1295,24 @@ mod tests {
         eprintln!("    bad flags lines {hits_bad:?}; good flags {hits_good:?}");
         assert!(hits_bad.contains(&1), "the undocumented `pub fn` (line 1) flags: {hits_bad:?}");
         assert!(hits_good.is_empty(), "a documented public item is not flagged: {hits_good:?}");
+
+        // REVERSED ROLE ORDER (owner directive 2026-07-09): the CANON states the same rule as
+        // "Missing documentation on public APIs — write it" — the absence word "missing" leads and
+        // its object (documentation) is ABSENT while the present role (public API) trails it. The
+        // generalized object-based split reads this as the SAME public-present ∧ doc-absent shape,
+        // so understanding binds the rule from the canon's REAL phrasing, not only the "X without
+        // Y" order. ("missing" is an absence word even though its definition compounds "not", so it
+        // is an inner-negation, not a whole-rule operator.)
+        let missing = "Missing documentation on public APIs — write it.";
+        let plan_m = bridge.understand_canon(missing).expect("missing-phrasing undoc understood");
+        eprintln!("missing-phrasing plan: {}", plan_m.describe());
+        assert!(
+            matches!(plan_m, Plan::PresentWithout { .. }),
+            "reversed 'missing Y on X' reads as present-without: {}",
+            plan_m.describe()
+        );
+        assert!(bridge.enforce(missing, "rust", bad).contains(&1), "missing-phrasing flags the undocumented pub fn");
+        assert!(bridge.enforce(missing, "rust", good).is_empty(), "missing-phrasing clean on documented");
 
         // The fix must NOT convert the honest swallowed_error abstain into a misfire: no primitive
         // means "a discarded fallible result", so it still shapes no rule.

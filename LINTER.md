@@ -491,6 +491,36 @@ catch/match arm) with descriptor words {ignore, discard, swallow, error, throwaw
 `unary` composition picks it up with zero per-principle code. Adding that primitive is generic, not
 per-principle. `lint_probe` remains the committed fallback until the anti-cheat passes.
 
+**REAL-CANON coverage (owner directive 2026-07-09 — the two fixed corpus files, not synthetic prose).**
+Through the bridge at CANON scope (`understand_canon`), the owner's 19 language-agnostic principles map
+to: **1 enforces** — `12. DRY` → `relational(duplicate_subtree)` — and **18 abstain honestly**, with
+ZERO `uses_construct`. The abstentions are correct: the aspirational/semantic principles (Test Coverage,
+One Concept Per Test, Big-O, amortized cost, simplicity, choose-data-structure) SHOULD abstain. The
+genuinely-structural ones do not yet bind from the canon's REAL prose, and the blockers are named, not
+faked:
+- **undocumented_public_item** — DOES bind from the canon's real phrasing "Missing documentation on
+  public APIs — write it" → `present_without(public_item \ documented)`, verified at the sentence level
+  (`inner_negation_enforces_undocumented_public`). Two general bridge improvements made this honest, not
+  a per-principle hack: the inner-negation test runs BEFORE the base-negator test (an absence word whose
+  definition also compounds "not", like "missing"/"lacking", flips its OBJECT rather than commanding the
+  whole rule), and the present/absent split is OBJECT-based (the role nearest AFTER the negator is absent;
+  the rest present), so "missing Y on X" and "X without Y" read as the SAME public-present ∧ doc-absent
+  shape. `ABSENCE` gained "missing"/"absent" as declared-descriptor vocabulary. It does NOT yet surface in
+  the live/`coverage_map` merged-prose view because the canon states this rule as a terminal-less markdown
+  BULLET and the description assembler (`linter.rs` `read_document`) collapses a section's lines into one
+  space-joined blob, so the bullet never becomes a standalone sentence. CONCRETE NEXT STEP: preserve
+  line/bullet boundaries when assembling a principle's description (push `\n`, not ` `) so each canon
+  bullet surfaces as its own sentence — a SHARED-parser change (`linter.rs`, affects every rule document)
+  deferred out of this bounded unit for owner confirmation.
+- **dead_code**, **god_function**, **swallowed_error** — do NOT bind from the canon. Their canon sentences
+  are positively-framed / imperative ("Unreachable code — remove it"; "Each function … does exactly one
+  thing"; "Catch exceptions only when you can actually handle them"), and the meaning-based prohibition
+  gate correctly returns FALSE (no commanding negation). Landing them needs the gate to read IMPLIED /
+  positively-framed prohibitions ("do X only when Y" ⇒ "not X without Y") — a high-blast-radius change to
+  `English::sentence_states_prohibition` requiring its own validation — and, for swallowed_error, the
+  `discarded_fallible` primitive above. Deferred and reported, not forced. The probe fallback still fires
+  these on the acceptance Rust files.
+
 **Enumerating what enforces (`lint_query rules <lang>`).** The query reports BOTH origins the live
 lint merges (overlay ⊕ module), kept separate: `understanding_rules` — the machine-global corpus,
 read FRESH and shaped by the bridge (or the probe fallback) — and `module_rules` — the crawled-doc
