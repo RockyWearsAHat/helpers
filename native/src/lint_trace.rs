@@ -128,6 +128,16 @@ const PREDICATES: &[Predicate] = &[
         self_bad: true,
         test: is_shell_injection,
     },
+    Predicate {
+        name: "discarded_fallible",
+        // The DISTINCTIVE swallowed-error vocabulary. "discard" is deliberately excluded: as a bare
+        // verb it equally means discarding a variable/resource ("Unused variables — explicitly
+        // discard"), a sense collision that would shadow a more specific rule; the distinctive
+        // "swallow"/"ignore"/"suppress" (+ "error"/"exception") carry the defect without it.
+        words: &["ignore", "swallow", "error", "exception", "suppress"],
+        self_bad: true,
+        test: is_discarded_fallible,
+    },
 ];
 
 /// The generic relation vocabulary. GENERAL structural relations — never one per principle.
@@ -481,8 +491,15 @@ impl<'a> Bridge<'a> {
             bound.iter().filter(|b| matches!(b.primitive, Primitive::Pred(_))).collect();
         // The sentence's CENTRAL baseline — the median distinctiveness of its content concepts.
         // A single-concept unary defect must clear this to shape a rule (see [`compose_unary`]), so
-        // the CORE prohibited concept drives the rule, never an incidental peripheral word.
-        let baseline = median(ex.concepts.iter().map(|c| c.centrality).collect());
+        // the CORE prohibited concept drives the rule, never an incidental peripheral word. Words
+        // the meaning network has NO vector for (nearest primitive at the max `DIM` distance — an
+        // unbound plural like "exceptions", a filler like "does") are excluded: they carry no
+        // meaning to reason about, so counting their rarity-driven centrality would inflate the
+        // baseline and wrongly suppress a genuine aligning concept ("swallow" in "Never Swallow
+        // Exceptions"). The baseline measures distinctiveness AMONG UNDERSTOOD words, comparatively.
+        let baseline = median(
+            ex.concepts.iter().filter(|c| c.distance < DIM as u32).map(|c| c.centrality).collect(),
+        );
         let plan = if let Some(rel_concept) = relations.first() {
             let Primitive::Rel(rel) = rel_concept.primitive else { unreachable!() };
             self.compose_relational(rel, rel_concept.position, &predicates)
@@ -1114,6 +1131,56 @@ fn is_shell_injection(node: Node, src: &[u8], words: &[&str]) -> bool {
     names_shell && interpolates
 }
 
+/// A node DISCARDS A FALLIBLE VALUE — an error/result thrown away instead of handled: a
+/// `let _ = <expr>` binding a non-trivial value (a call result, or a variable that held one) to
+/// the throwaway `_` pattern, or an `Err(..) => {}` / `() ` match arm whose error branch does
+/// nothing. The generic shape of a swallowed error — pure structure, no descriptor tokens (the
+/// descriptor `words` name the CONCEPT a principle aligns to select this predicate; the SHAPE it
+/// recognises is fixed). LINTER.md, "discarded_fallible": the generic primitive that lets
+/// swallowed_error bind from the canon's real "Never Swallow Exceptions" prose via `unary`.
+fn is_discarded_fallible(node: Node, src: &[u8], _words: &[&str]) -> bool {
+    match node.kind() {
+        "let_declaration" => {
+            let is_wild = node
+                .child_by_field_name("pattern")
+                .and_then(|p| p.utf8_text(src).ok())
+                .is_some_and(|t| t.trim() == "_");
+            // A discarded RESULT is non-trivial: `let _ = 5;` deliberately drops a literal, but
+            // `let _ = fallible();` and `let _ = d;` throw a real value (a failure) away.
+            let discards = node
+                .child_by_field_name("value")
+                .is_some_and(|v| !is_trivial_value(v.kind()));
+            is_wild && discards
+        }
+        "match_arm" => {
+            let names_err = node
+                .child_by_field_name("pattern")
+                .and_then(|p| p.utf8_text(src).ok())
+                .is_some_and(|t| t.contains("Err"));
+            let empty_body = node
+                .child_by_field_name("value")
+                .and_then(|v| v.utf8_text(src).ok())
+                .is_some_and(|t| matches!(t.trim(), "{}" | "()"));
+            names_err && empty_body
+        }
+        _ => false,
+    }
+}
+
+/// Whether an expression node is a TRIVIAL literal — a bare number, string, char, boolean, or
+/// unit. A `let _ =` of such a value is a deliberate discard, not a swallowed fallible result.
+fn is_trivial_value(kind: &str) -> bool {
+    matches!(
+        kind,
+        "integer_literal"
+            | "float_literal"
+            | "string_literal"
+            | "char_literal"
+            | "boolean_literal"
+            | "unit_expression"
+    )
+}
+
 // ── The generic structural relations ────────────────────────────────────────────
 
 /// FOLLOWS-IN-BLOCK: for every block, each later named sibling paired with each earlier named
@@ -1314,11 +1381,21 @@ mod tests {
         assert!(bridge.enforce(missing, "rust", bad).contains(&1), "missing-phrasing flags the undocumented pub fn");
         assert!(bridge.enforce(missing, "rust", good).is_empty(), "missing-phrasing clean on documented");
 
-        // The fix must NOT convert the honest swallowed_error abstain into a misfire: no primitive
-        // means "a discarded fallible result", so it still shapes no rule.
+        // swallowed_error now ENFORCES through the generic `discarded_fallible` primitive
+        // (LINTER.md): "ignore"/"discard"/"swallow" align to it, so the prohibition shapes a
+        // unary(discarded_fallible) rule that flags a `let _ = <fallible>` and stays clean on a
+        // handled result.
         let swallowed = "Never ignore, discard, or swallow an error.";
-        assert!(bridge.understand(swallowed).is_none(), "swallowed_error still abstains honestly");
-        eprintln!("swallowed_error: still abstains (no primitive means a discarded result).");
+        assert!(
+            matches!(bridge.understand(swallowed), Some(Plan::Unary(ref p)) if p.iter().any(|i| PREDICATES[*i].name == "discarded_fallible")),
+            "swallowed_error shapes unary(discarded_fallible): {:?}",
+            bridge.understand(swallowed).map(|p| p.describe())
+        );
+        let bad_sw = "fn f() { let d = std::fs::read_to_string(\"x\"); let _ = d; }";
+        let good_sw = "fn f() -> std::io::Result<()> { std::fs::read_to_string(\"x\")?; Ok(()) }";
+        assert!(!bridge.enforce(swallowed, "rust", bad_sw).is_empty(), "flags the discarded result");
+        assert!(bridge.enforce(swallowed, "rust", good_sw).is_empty(), "clean on the handled result");
+        eprintln!("swallowed_error: enforces via unary(discarded_fallible).");
     }
 
     /// The five primitives added in Step 4 each FIRE on their bad shape and stay clean on good
@@ -1395,66 +1472,57 @@ mod tests {
         assert!(hits_good.is_empty(), "let/const code is clean: {hits_good:?}");
     }
 
-    /// COVERAGE MAP (owner directive, Step 4): read EVERY language-agnostic principle across the
-    /// owner's CANON files and report which the bridge enforces (with the plan it composed) and
-    /// which ABSTAIN — honesty on coverage is the deliverable. Each file is read through
-    /// [`crate::lint_train::canon_agnostic`] first, so a language appendix (the C# section) is
-    /// excluded exactly as the live wiring excludes it. `## ` sections OUTSIDE fenced code are the
-    /// principles; a `## ` line inside an example fence is skipped. Ignored (reads the local
-    /// dictionary + the repo corpus). Run:
-    /// `cargo test --release --lib coverage_map -- --ignored --nocapture`
+    /// COVERAGE MAP (owner directive): read EVERY language-agnostic principle across the owner's
+    /// CANON files EXACTLY as the LIVE lint reads them — [`crate::lint_train::canon_agnostic`] drops
+    /// the language appendix, then [`crate::linter::Knowledge::read_document`] assembles each `##`
+    /// section into a DocRule description (heading folded in, lines kept as `\n` sentence
+    /// boundaries) — and report which the bridge enforces (with the plan it composed) and which
+    /// ABSTAIN. Reading through the real assembler (not a synthetic space-join) is what makes this
+    /// map HONEST: a terminal-less canon bullet and a `Never …` heading each surface as their own
+    /// sentence, exactly as live understanding sees them. Ignored (reads the local dictionary + the
+    /// repo corpus). Run: `cargo test --release --lib coverage_map -- --ignored --nocapture`
     #[test]
-    #[ignore = "reads the local dictionary + repo corpus; the Step-4 coverage map"]
+    #[ignore = "reads the local dictionary + repo corpus; the honest canon coverage map"]
     fn coverage_map() {
         let meanings = understanding();
         let english = crate::lint_english::brain().expect("English brain");
         let bridge = Bridge::new(&meanings, &english);
         let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("corpus");
         let (mut enforced, mut abstained) = (0u32, 0u32);
-        let mut heading = String::new();
-        let mut prose = String::new();
-        let mut flush = |heading: &str, prose: &str| {
-            if heading.is_empty() || prose.trim().is_empty() {
-                return;
-            }
-            // Canon scope — the language-agnostic canon never mints a `uses_construct`; it enforces
-            // through a structural primitive or abstains honestly (owner directive 2026-07-09).
-            match bridge.understand_canon(prose) {
-                Some(plan) => {
-                    enforced += 1;
-                    eprintln!("  ENFORCE  {heading:52} -> {}", plan.describe());
-                }
-                None => {
-                    abstained += 1;
-                    eprintln!("  abstain  {heading:52} -> honest (no aligning primitive)");
-                }
-            }
-        };
         for file in ["cs3500-rubric.md", "cs2420-principles.md"] {
             eprintln!("== {file} ==");
             let raw = std::fs::read_to_string(corpus.join(file)).expect("canon file");
-            let text = crate::lint_train::canon_agnostic(&raw);
-            let mut in_fence = false;
-            for line in text.lines() {
-                let trimmed = line.trim_start();
-                if trimmed.starts_with("```") {
-                    in_fence = !in_fence;
-                } else if !in_fence {
-                    if let Some(rest) = trimmed.strip_prefix("## ") {
-                        flush(&heading, &prose);
-                        heading = rest.trim().to_string();
-                        prose.clear();
-                        continue;
+            // The live path: strip the language appendix, then read the document into DocRules —
+            // one per `##` principle — through the SAME assembler the lint uses.
+            let doc = crate::lint_train::canon_agnostic(&raw);
+            let rules = crate::linter::Knowledge::read_document("any", &doc, None).rules;
+            for r in &rules {
+                // Canon scope — the language-agnostic canon never mints a `uses_construct`; it
+                // enforces through a structural primitive or abstains honestly.
+                match bridge.understand_canon(&r.description) {
+                    Some(plan) => {
+                        enforced += 1;
+                        // HONEST live note: the live corpus router only reaches understanding when
+                        // the principle carries NO in-language example (`lint_match` mod.rs:
+                        // `is_corpus_principle = source.contains("/corpus/") && bad.trim().is_empty()`).
+                        // A principle whose canon prose includes a `// Bad`/`// Good` illustration
+                        // (e.g. "6. Never Swallow Exceptions" ships a Java snippet) is DIVERTED live
+                        // to the example-based path as a rule in the ILLUSTRATION's language — so the
+                        // rule understanding shapes here does not fire live until corpus principles
+                        // route understanding-FIRST. Flagged so the map never overstates live reach.
+                        let live = if r.bad.trim().is_empty() {
+                            "live"
+                        } else {
+                            "SHAPED-ONLY (live example-diverted; carries a bad example)"
+                        };
+                        eprintln!("  ENFORCE  {:44} -> {}  [{live}]", r.id, plan.describe());
                     }
-                    if !heading.is_empty() {
-                        prose.push_str(trimmed);
-                        prose.push(' ');
+                    None => {
+                        abstained += 1;
+                        eprintln!("  abstain  {:44} -> honest (no aligning primitive)", r.id);
                     }
                 }
             }
-            flush(&heading, &prose);
-            heading.clear();
-            prose.clear();
         }
         eprintln!("COVERAGE: {enforced} enforced, {abstained} abstained");
     }
