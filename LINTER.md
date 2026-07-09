@@ -254,9 +254,15 @@ ZERO code change. `lint_trace` is that bridge, and it stands on the now-SEPARATI
   space — a comparative nearest-neighbor with a relative margin (`BIND_MARGIN`), never an absolute
   distance threshold: a filler word sits at the noise floor to every primitive and so binds none.
   Discovered negators (`is_negation`, plus a one-hop definitional check) are OPERATORS, excluded from
-  alignment. The aligned primitives compose by ONE general rule: an aligned relation with two role
-  predicates → `{ a : a_pred(a) ∧ ∃b. rel(a,b) ∧ b_pred(b) }`; with no relation → a node satisfying
-  every aligned predicate. Role DIRECTION is meaning-driven — each role concept goes to the endpoint
+  alignment. A separate INNER-NEGATION operator — a preposition asserting the following concept is
+  ABSENT ("public function WITHOUT documentation"), recognised by aligning to the `ABSENCE` meaning
+  descriptor MORE decisively than to any primitive (the same comparative `related()` test, so a
+  content word that also grazes absence — "secret" = "not known" — stays a concept because it binds a
+  primitive at ~0) — is likewise excluded from alignment and instead SPLITS the role predicates it
+  separates into a present set and an absent set. The aligned primitives compose by ONE general rule:
+  an aligned relation with two role predicates → `{ a : a_pred(a) ∧ ∃b. rel(a,b) ∧ b_pred(b) }`; an
+  inner negation with roles on both sides → `{ n : present(n) ∧ ¬absent(n) }` (`Plan::PresentWithout`);
+  with neither → a node satisfying every aligned self-bad predicate. Role DIRECTION is meaning-driven — each role concept goes to the endpoint
   descriptor it is nearer to — and falls to a sentence-structure tiebreak (endpoint B = the relation's
   object, the nearest role after the relation word) only when the endpoints are meaning-symmetric for
   those roles (a positional relation's "later"/"earlier" carry no bias for "statement"/"return").
@@ -280,17 +286,20 @@ tokens it looks for from its OWN meaning descriptor — one declared vocabulary,
 comparative bind margin is relative (ratio 0.60 vs the runner-up), never an absolute distance:
 genuine descriptor matches bind at ratio ~0, spurious ones (~0.75–0.82) are dropped.
 
-**COVERAGE MAP (real corpus, `lint_trace::tests::coverage_map`; live-validated via `call lint`).**
-Enforced through the bridge (8): dead_code_after_return `relational(follows_in_block)`,
+**COVERAGE MAP (real corpus, `lint_trace::tests::coverage_map`; live-validated via `call lint_query explain`).**
+Enforced through the bridge (9): dead_code_after_return `relational(follows_in_block)`,
 unwrap_on_fallible `unary(unwrap_call)`, god_function `unary(long_body)`, magic_number, non_descriptive_name,
-hardcoded_secret, shell_injection, duplicated_code `relational(duplicate_subtree)`. ABSTAIN honestly
-(2): **swallowed_error** (no predicate built — the probe fallback still enforces it) and
-**undocumented_public_item** (inner-negation of "without" is not robustly detectable: the meaning
-network clusters that preposition with positional ones and its definition chain "in the absence of"
-never reaches a base negator; a definitional-hop attempt was reverted because it wrongly excluded
-absence-DEFINED content words like "secret" = "NOT known" — so the compounded operator test stands
-and undoc abstains cleanly, enforced meanwhile by the probe fallback). Adding a primitive later is
-generic, not per-principle. `lint_probe` remains the committed fallback until the anti-cheat passes.
+hardcoded_secret, shell_injection, duplicated_code `relational(duplicate_subtree)`, and now
+**undocumented_public_item** `present_without(public_item \ documented)` — the inner-negation of
+"without" is detected by the `ABSENCE` meaning descriptor (comparative, not a base-negator hop, so
+absence-DEFINED content words like "secret" = "not known" are untouched because they bind a primitive
+decisively). ABSTAIN honestly (1): **swallowed_error** — `ignore`/`discard`/`swallow`/`error` align
+to NO primitive (measured ratios 0.89–0.998; nothing in the vocabulary means "a discarded fallible
+result"), so it abstains and the probe fallback enforces it. CONCRETE NEXT STEP for it: add ONE
+generic predicate `discarded_fallible` (a binding of a Result/error to a throwaway `_`, or an empty
+catch/match arm) with descriptor words {ignore, discard, swallow, error, throwaway} — then the same
+`unary` composition picks it up with zero per-principle code. Adding that primitive is generic, not
+per-principle. `lint_probe` remains the committed fallback until the anti-cheat passes.
 
 **Compilation and firing.** In `RuleSet::build`, a corpus principle (source under `/corpus/`, no
 in-language example) is routed to `understand` FIRST; a bound principle compiles to
