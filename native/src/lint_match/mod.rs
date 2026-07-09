@@ -23,7 +23,7 @@ mod tree;
 mod tests;
 
 pub use grammar::bundled_language;
-pub(crate) use grammar::{code_ngrams, language};
+pub(crate) use grammar::{code_ngrams, is_construct_keyword, language};
 pub use select::Grounding;
 pub use tree::RulePattern;
 

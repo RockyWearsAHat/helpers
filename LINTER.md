@@ -234,33 +234,44 @@ illustration). Both the token path (weak construct on descriptive prose) and the
   disapproval-word list). Each such sentence is understood into a `Plan`; a page yields as many
   rules as it commands, or none. Descriptive reference prose ("An integer radix is chosen by…")
   commands nothing and mints nothing — the fix for the descriptive-junk class.
-- **A new generic primitive, `uses_construct`.** Real language rules name a SPECIFIC construct
-  (`var`, `eval`, `mem::uninitialized`, `==`). `uses_construct(name)` is a general trace that
-  recognises AST USAGE of the named construct: it walks the tree and flags a named identifier /
-  type / field / keyword / call node whose exact whole-token text equals `name` — AST-grained, never
-  inside string or comment interiors, never a substring. The `name` is DATA extracted from the
-  prohibition's own prose by understanding (the author's backtick in the naming sentence, or the
-  code token English cannot account for — the existing construct-ranking in `lint_match/select.rs`,
-  reused), never a coded list. This is the covenant-clean successor to `tokens \`X\``: same target,
-  but the construct is chosen by understanding a commanded prohibition and the firing respects the
-  tree. When a sentence names a construct AND aligns a CS-shaped concept, the CS primitive wins
-  (understanding a defect beats matching a token); when only a construct is named, `uses_construct`
-  carries it; when neither, ABSTAIN.
+- **A new generic primitive, `uses_construct` (LANDED 2026-07-09, `lint_trace::Plan::UsesConstruct`).**
+  Real language rules name a SPECIFIC construct (`var`, `eval`, `mem::uninitialized`, `==`).
+  `uses_construct(name)` is a general trace that recognises AST USAGE of the named construct: it walks
+  the tree and flags a LEAF token node (identifier / type / field / keyword / operator) whose exact
+  whole-token text equals `name` — AST-grained (only childless token nodes match), never inside string
+  or comment interiors (`scan_construct` skips descent into them), never a substring. The `name` is
+  DATA extracted from the prohibition's own prose by understanding, never a coded list. Extraction
+  reuses `lint_match/select.rs`'s PRINCIPLE without its code grounding (unavailable at understand-time)
+  via two covenant-clean signals: the author's BACKTICK in the naming sentence, else a token that
+  reads as language SYNTAX — some bundled grammar lexes it as a keyword/primitive
+  (`lint_match::is_construct_keyword`, grammar-driven, never a keyword list) OR the dictionary meaning
+  network cannot account for it (`MeaningNetwork::has` — a token like `eval` no grammar flags) — gated
+  by the same comparative CENTRALITY baseline `compose_unary` uses (the construct must be at least as
+  distinctive as the sentence's median content word). This is what separates the distinctive `var`
+  (centrality 92) from an incidental keyword-shaped common word like `use`/`or` (below baseline). Plain
+  `!has_meaning` alone is NOT enough — the real dictionary knows `var` as an obscure abbreviation, so
+  the grammar signal carries the token and the centrality gate carries the quality (measured: the
+  outlier/meaning-distance signal does NOT separate `var` from `keyword`/`variable`; grammar+centrality
+  does). This is the covenant-clean successor to `tokens \`X\``. When a sentence names a construct AND
+  aligns a CS-shaped concept, the CS primitive wins (understanding a defect beats matching a token);
+  when only a construct is named, `uses_construct` carries it; when neither, ABSTAIN.
 
-  Measured gap this closes (`lint_query explain`, 2026-07-09): "Never use the var keyword to declare
-  a variable" gates TRUE but abstains today — "only an incidental concept aligned to a defect
-  [variable] while the prohibition's central concepts aligned to no primitive" — precisely because
-  there is no primitive that carries a named code construct. `uses_construct` is that primitive.
+  Gap closed (`lint_query explain`, verified 2026-07-09): "Never use the var keyword to declare a
+  variable. Use let or const instead." now gates TRUE and shapes `uses_construct(var)`, enforces true,
+  and `let`/`const` (the remedy sentence) are never chosen — extraction reads ONLY the naming sentence.
 
-**Multi-sentence prose — read the whole principle, not the first line.** The canon and real docs
-state a prohibition across several sentences, and the enforceable clause is often not the first.
-`lint_trace` today reads only `sentences(description).next()`; it must scan EVERY sentence, keep the
-ones that command a prohibition, and shape a plan from each (a principle → 0/1/many rules). Measured
-gap (`lint_query explain`, 2026-07-09): the canon's Single-Responsibility principle — "Each function,
-method, or module does exactly one thing…" — gates FALSE on its first sentence (a statement, not a
-commanded prohibition), so its enforceable content (the god-function/complexity clause deeper in the
-prose) is never reached. Whole-prose scanning is the same machinery the language prohibition scan
-needs — one mechanism serves canon and docs.
+**Multi-sentence prose — read the whole principle, not the first line (LANDED 2026-07-09).** The canon
+and real docs state a prohibition across several sentences, and the enforceable clause is often not the
+first. `lint_trace::explain` now SCANS EVERY sentence (`lint_read::sentences`) and shapes a plan from
+the FIRST sentence that both commands a prohibition AND yields a plan; `Explanation::sentence` records
+which sentence was chosen (surfaced by `lint_query explain`). One Plan per principle is still returned
+(fits the one-DocRule-one-rule wiring); the abstain reason stays honest — the most informative
+prohibition-gating sentence — when no sentence yields a rule. Verified: "Each function should do one
+thing. Never write an enormous function that runs on for dozens of statements." gates FALSE on
+sentence 1 (a statement) and shapes `unary(long_body)` from sentence 2, enforces true. Whole-prose
+scanning is the same machinery the language prohibition scan needs — one mechanism serves canon and
+docs. (Full principle → 0/1/MANY rules across sentences remains future; this unit keeps one plan per
+principle to fit current wiring.)
 
 **Deprecation recall — a known boundary to extend, understanding-driven.** Language rules include
 deprecations, and deprecations are often phrased WITHOUT a leading negation operator ("The var
@@ -293,10 +304,12 @@ large project.
 
 **Phase-A measured coverage (real `lint_query` data, 2026-07-09 — the gap the build closes).**
 Through the CURRENT bridge: canon prohibitions that align to an existing primitive already enforce
-(`dead_code_after_return` → `relational(follows_in_block)`, verified). What abstains, and the exact
-mechanism each needs: SRP → whole-prose scan; "never use `var`" → `uses_construct`; "`var` is
-deprecated" → deprecation-recall; swallowed-error → the `discarded_fallible` primitive already named
-in the probe-bridge coverage map below. Every abstention is honest and named; nothing is faked.
+(`dead_code_after_return` → `relational(follows_in_block)`, verified). LANDED 2026-07-09: SRP/god-
+function via the whole-prose scan, and "never use `var`" via `uses_construct` (both verified through
+`lint_query explain`). Still open, and the exact mechanism each needs: "`var` is deprecated" →
+deprecation-recall (bare state description gates FALSE); swallowed-error → the `discarded_fallible`
+primitive already named in the probe-bridge coverage map below (still honestly abstains, no junk
+minted — verified against the real corpus). Every abstention is honest and named; nothing is faked.
 
 ## Rules from understanding — the probe bridge (`lint_probe.rs`)
 

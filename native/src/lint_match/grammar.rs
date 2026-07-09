@@ -256,6 +256,15 @@ pub(crate) fn language(lang: &str) -> Option<tree_sitter::Language> {
 /// (`usize`, `u32`), or `None` for a nameable identifier a rule could legitimately point at
 /// (`goto`, `panic`, a user construct). Used by the mint gate to reject a single-token detector
 /// that is really part of the language's syntax and fires on nearly every file.
+/// Whether ANY bundled grammar lexes `token` as a keyword or primitive type — the grammar-driven
+/// test for "this word is a language CONSTRUCT, not prose" (`var`, `unsafe`, `goto`), read from the
+/// grammars themselves, never an enumerated keyword list. Language-agnostic: a construct-naming
+/// prohibition ("never use the var keyword") does not state which language, so any bundled grammar
+/// recognising the token as syntax is evidence it names a construct.
+pub(crate) fn is_construct_keyword(token: &str) -> bool {
+    BUNDLED.keys().any(|l| token_role(l, token).is_some())
+}
+
 pub(crate) fn token_role(lang: &str, token: &str) -> Option<&'static str> {
     let ts = language(lang)?;
     // A keyword/operator is an ANONYMOUS (literal) token in the grammar — the grammar knows its
