@@ -161,13 +161,16 @@ enum Primitive {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Plan {
     /// A single node satisfying every listed predicate — a self-bad shape ("a single-letter
-    /// variable name"). (Inner-negation polarity — "public WITHOUT documentation" — is a Step-4
-    /// extension: the dictionary's meaning network clusters the preposition "without" with
-    /// positional prepositions, so it is not yet robustly detected; see the checkpoint report.)
+    /// variable name").
     Unary(Vec<usize>),
     /// A node `a` (endpoint A of the relation) that stands in the relation to some node `b`
     /// (endpoint B), where predicate `a_pred` holds on `a` and `b_pred` on `b`.
     Relational { rel: usize, a_pred: usize, b_pred: usize },
+    /// A node satisfying every `present` predicate but NONE of the `absent` predicates — the
+    /// "X WITHOUT Y" shape ("a public item WITHOUT a documentation comment" → public_item ∧
+    /// ¬documented). Produced when an inner-negation operator separates the present role concepts
+    /// from the absent ones. General over any "present-thing lacking a property" principle.
+    PresentWithout { present: Vec<usize>, absent: Vec<usize> },
 }
 
 impl Plan {
@@ -182,6 +185,12 @@ impl Plan {
                 "relational({}: A={} B={})",
                 RELATIONS[*rel].name, PREDICATES[*a_pred].name, PREDICATES[*b_pred].name
             ),
+            Plan::PresentWithout { present, absent } => {
+                let names = |ids: &[usize]| {
+                    ids.iter().map(|i| PREDICATES[*i].name).collect::<Vec<_>>().join(" & ")
+                };
+                format!("present_without({} \\ {})", names(present), names(absent))
+            }
         }
     }
 }
@@ -211,6 +220,9 @@ pub struct Explanation {
     pub prohibition: bool,
     /// Negation OPERATORS found and set aside (they command; they are not concepts).
     pub operators: Vec<String>,
+    /// INNER-NEGATION operators found ("without") — each flips the following role concepts into the
+    /// `absent` set of a [`Plan::PresentWithout`]. Named so the `explain` query shows the fix at work.
+    pub inner_negations: Vec<String>,
     /// Every salient concept and where it aligned.
     pub concepts: Vec<ConceptAlign>,
     /// The rule understanding shaped, when it did.
@@ -251,6 +263,16 @@ const ENDPOINT_TIE: f64 = 0.05;
 /// abstains. This is what lets non-matching words fall away without a hand-picked cutoff.
 const BIND_MARGIN: f64 = 0.60;
 
+/// The meaning descriptor for an INNER-NEGATION operator — a preposition asserting that the concept
+/// it precedes is ABSENT ("public function WITHOUT documentation" reads as public-item ∧
+/// ¬documented). Distinct from the base negators [`Bridge::is_negator`] catches, which command the
+/// WHOLE rule: this one flips the polarity of the role predicates that follow it. It is a MEANING
+/// descriptor aligned through the same `related()` metric as a primitive's descriptor — never a
+/// token-match rule — and it is applied COMPARATIVELY (nearer to absence than to any primitive), so
+/// a content word that merely grazes the absence sense ("secret" = "not known") stays a concept
+/// because it binds a real primitive decisively closer.
+const ABSENCE: &[&str] = &["absence", "without", "lacking", "lack"];
+
 impl<'a> Bridge<'a> {
     /// Read a principle through this understanding.
     pub fn new(meanings: &'a MeaningNetwork, english: &'a English) -> Bridge<'a> {
@@ -267,6 +289,17 @@ impl<'a> Bridge<'a> {
     /// undocumented-public (see LINTER.md).
     fn is_negator(&self, word: &str) -> bool {
         self.english.is_negation(crate::lint_ai::token_seed(word))
+    }
+
+    /// Whether `word` is an INNER-NEGATION operator (see [`ABSENCE`]) — DECISIVELY nearer to the
+    /// absence sense than to any generic primitive. Comparative (a ratio against the word's best
+    /// primitive distance), never an absolute cutoff: "without" (def "in the absence of") clears it
+    /// while a content word that binds a primitive at ~0 never can. This is what lets "public
+    /// WITHOUT documentation" read as an absence without a hand-listed preposition.
+    fn is_inner_negation(&self, word: &str) -> bool {
+        let absence = self.score(word, ABSENCE) as f64;
+        let (_, best_primitive, _) = self.align_scored(word);
+        absence <= best_primitive as f64 * BIND_MARGIN
     }
 
     /// The min meaning distance from `concept` to any of a primitive's descriptor `words` — the
@@ -325,14 +358,22 @@ impl<'a> Bridge<'a> {
         ex.prohibition = self.english.sentence_states_prohibition(sentence);
         let tokens = tokenize(sentence);
         let mut bound: Vec<BoundConcept> = Vec::new();
+        let mut inner_neg_pos: Option<usize> = None;
         for (pos, tok) in &tokens {
             if tok.len() < 3 || !tok.chars().all(|c| c.is_ascii_alphabetic()) {
                 continue;
             }
-            // A negator ("never", "without") is an OPERATOR — it commands the rule or sets a
-            // predicate's polarity — never a concept naming a primitive.
+            // A base negator ("never", "no") is an OPERATOR that commands the whole rule — never a
+            // concept naming a primitive.
             if self.is_negator(tok) {
                 ex.operators.push(tok.clone());
+                continue;
+            }
+            // An inner-negation ("without") is an OPERATOR that flips the polarity of the role
+            // concepts after it (present ∧ ¬absent) — set aside, its position remembered.
+            if self.is_inner_negation(tok) {
+                inner_neg_pos.get_or_insert(*pos);
+                ex.inner_negations.push(tok.clone());
                 continue;
             }
             let (prim, best, runner_up) = self.align_scored(tok);
@@ -361,21 +402,58 @@ impl<'a> Bridge<'a> {
         let plan = if let Some(rel_concept) = relations.first() {
             let Primitive::Rel(rel) = rel_concept.primitive else { unreachable!() };
             self.compose_relational(rel, rel_concept.position, &predicates)
+        } else if let Some(neg_pos) = inner_neg_pos {
+            self.compose_present_without(neg_pos, &predicates)
         } else {
             self.compose_unary(&predicates)
         };
         match plan {
             Some(p) => ex.plan = Some(p),
             None => {
-                ex.abstain = Some(self.abstain_reason(&relations, &predicates));
+                ex.abstain = Some(self.abstain_reason(&relations, &predicates, inner_neg_pos));
             }
         }
         ex
     }
 
+    /// Compose a PRESENT-WITHOUT plan: an inner-negation operator at `neg_pos` splits the role
+    /// predicates into a `present` set (those named before it — "a public function") and an `absent`
+    /// set (those named after it — "documentation comment"). The rule flags a node that satisfies
+    /// every present predicate but none of the absent ones. General over any "X lacking Y" principle;
+    /// abstains when either side has no role predicate (an inner negation needs something present to
+    /// flag and something absent to check for).
+    fn compose_present_without(&self, neg_pos: usize, predicates: &[&BoundConcept]) -> Option<Plan> {
+        let (mut present, mut absent): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
+        for b in predicates {
+            let Primitive::Pred(i) = b.primitive else { continue };
+            let side = if b.position < neg_pos { &mut present } else { &mut absent };
+            if !side.contains(&i) {
+                side.push(i);
+            }
+        }
+        (!present.is_empty() && !absent.is_empty()).then_some(Plan::PresentWithout { present, absent })
+    }
+
     /// Why composition produced no rule — the precise application-failure reason the `explain` query
-    /// reports (never a vague "abstained").
-    fn abstain_reason(&self, relations: &[&BoundConcept], predicates: &[&BoundConcept]) -> String {
+    /// reports (never a vague "abstained"). `inner_neg` carries the inner-negation operator's
+    /// position when one was found, so an "X without Y" that failed to split is explained as such.
+    fn abstain_reason(
+        &self,
+        relations: &[&BoundConcept],
+        predicates: &[&BoundConcept],
+        inner_neg: Option<usize>,
+    ) -> String {
+        if let Some(pos) = inner_neg {
+            let before = predicates.iter().any(|b| b.position < pos);
+            let after = predicates.iter().any(|b| b.position > pos);
+            if !before || !after {
+                return format!(
+                    "an inner-negation was found but a role predicate is missing on {} of it \
+                     (an 'X without Y' needs a present thing and an absent property)",
+                    if !before { "the present side" } else { "the absent side" }
+                );
+            }
+        }
         if relations.is_empty() && predicates.is_empty() {
             return "no salient concept aligned to any primitive".to_string();
         }
@@ -568,6 +646,12 @@ pub fn run_plan(plan: &Plan, lang: &str, code: &str) -> Vec<usize> {
                 }
             }
         }
+        Plan::PresentWithout { present, absent } => walk(root, &mut |node| {
+            let holds = |i: &usize| (PREDICATES[*i].test)(node, src, PREDICATES[*i].words);
+            if present.iter().all(&holds) && !absent.iter().any(&holds) {
+                hits.push(row(node));
+            }
+        }),
     }
     hits.sort_unstable();
     hits.dedup();
@@ -920,6 +1004,39 @@ mod tests {
         eprintln!("ABSTAIN: non-prohibition and unmapped-prohibition both produced no rule.");
     }
 
+    /// INNER-NEGATION: undocumented_public_item — the real corpus prose "…public function or type
+    /// WITHOUT a documentation comment" — composes `present_without(public_item \ documented)` and
+    /// FIRES on an undocumented public item while staying clean on a documented one, through the same
+    /// understand()/enforce() path with zero per-principle code. The companion abstain check proves
+    /// the fix did not turn the honest swallowed_error abstain into a misfire. Ignored (dictionary).
+    #[test]
+    #[ignore = "reads the local dictionary; the inner-negation firing check"]
+    fn inner_negation_enforces_undocumented_public() {
+        let meanings = understanding();
+        let english = crate::lint_english::brain().expect("English brain");
+        let bridge = Bridge::new(&meanings, &english);
+
+        let undoc = "Never expose a public function or type without a documentation comment. A public \
+                     item is an API other code depends on; document every public item with a comment.";
+        let plan = bridge.understand(undoc).expect("undocumented-public understood");
+        eprintln!("undoc plan: {}", plan.describe());
+        assert!(matches!(plan, Plan::PresentWithout { .. }), "present-without shape: {}", plan.describe());
+
+        let bad = "pub fn total(items: &[i32]) -> i32 {\n    items.iter().sum()\n}\n";
+        let good = "/// Sum every item in the slice.\npub fn total(items: &[i32]) -> i32 {\n    items.iter().sum()\n}\n";
+        let hits_bad = bridge.enforce(undoc, "rust", bad);
+        let hits_good = bridge.enforce(undoc, "rust", good);
+        eprintln!("    bad flags lines {hits_bad:?}; good flags {hits_good:?}");
+        assert!(hits_bad.contains(&1), "the undocumented `pub fn` (line 1) flags: {hits_bad:?}");
+        assert!(hits_good.is_empty(), "a documented public item is not flagged: {hits_good:?}");
+
+        // The fix must NOT convert the honest swallowed_error abstain into a misfire: no primitive
+        // means "a discarded fallible result", so it still shapes no rule.
+        let swallowed = "Never ignore, discard, or swallow an error.";
+        assert!(bridge.understand(swallowed).is_none(), "swallowed_error still abstains honestly");
+        eprintln!("swallowed_error: still abstains (no primitive means a discarded result).");
+    }
+
     /// The five primitives added in Step 4 each FIRE on their bad shape and stay clean on good
     /// code — through the same understand()/enforce() path, real corpus prose. Ignored (dictionary).
     #[test]
@@ -982,7 +1099,7 @@ mod tests {
         let (mut enforced, mut abstained) = (0u32, 0u32);
         let mut id = String::new();
         let mut prose = String::new();
-        let mut flush = |id: &str, prose: &str, enforced: &mut u32, abstained: &mut u32| {
+        let flush = |id: &str, prose: &str, enforced: &mut u32, abstained: &mut u32| {
             if id.is_empty() || prose.trim().is_empty() {
                 return;
             }
