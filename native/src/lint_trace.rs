@@ -171,6 +171,14 @@ pub enum Plan {
     /// ¬documented). Produced when an inner-negation operator separates the present role concepts
     /// from the absent ones. General over any "present-thing lacking a property" principle.
     PresentWithout { present: Vec<usize>, absent: Vec<usize> },
+    /// AST USAGE of a specific named code construct — the shape of a real language rule ("never
+    /// use `var`", "never call `eval`", "avoid `==`"). `construct` is DATA extracted from the
+    /// prohibition's own prose (a backticked name, or a token English cannot account for), never a
+    /// coded token list. Fired by [`run_plan`] as an exact whole-token match over leaf token nodes,
+    /// skipping string/char/comment interiors — the covenant-clean successor to the retired
+    /// `tokens `X`` detector. Produced only when a prohibition names a construct AND aligns to no
+    /// CS primitive (understanding a defect always beats matching a token).
+    UsesConstruct { construct: String },
 }
 
 impl Plan {
@@ -191,6 +199,7 @@ impl Plan {
                 };
                 format!("present_without({} \\ {})", names(present), names(absent))
             }
+            Plan::UsesConstruct { construct } => format!("uses_construct({construct})"),
         }
     }
 }
@@ -354,15 +363,40 @@ impl<'a> Bridge<'a> {
     }
 
     /// The step-by-step trace of understanding APPLIED to `description` — the debugger behind the
-    /// `lint_query explain` interrogation. Records the prohibition-gate result, every salient
-    /// concept and the primitive it aligned to (with distance/margin), the plan understanding
-    /// shaped, or the precise reason it abstained. `understand` is this with only the plan kept.
+    /// `lint_query explain` interrogation. SCANS EVERY sentence (a principle states its enforceable
+    /// clause once, often not in the opening line) and returns the trace of the FIRST sentence that
+    /// both commands a prohibition AND yields a plan. When no sentence yields a rule, returns the
+    /// most informative abstain: the first sentence whose prohibition gate fired, else the first
+    /// sentence — so the reason stays honest. `understand` is this with only the plan kept.
     pub fn explain(&self, description: &str) -> Explanation {
-        let mut ex = Explanation::default();
-        let Some(sentence) = crate::lint_read::sentences(description).into_iter().next() else {
+        let sentences = crate::lint_read::sentences(description);
+        if sentences.is_empty() {
+            let mut ex = Explanation::default();
             ex.abstain = Some("empty input (no sentence)".to_string());
             return ex;
-        };
+        }
+        let mut fallback: Option<Explanation> = None;
+        for sentence in sentences {
+            let ex = self.explain_sentence(sentence);
+            if ex.plan.is_some() {
+                return ex;
+            }
+            // Keep the most honest abstain: upgrade to the first prohibition-gating sentence.
+            let upgrade = fallback.as_ref().map_or(true, |f| !f.prohibition && ex.prohibition);
+            if upgrade {
+                fallback = Some(ex);
+            }
+        }
+        fallback.unwrap_or_default()
+    }
+
+    /// The step trace for ONE sentence — the per-sentence core [`explain`] calls across a whole
+    /// principle. Records the prohibition-gate result, every salient concept and the primitive it
+    /// aligned to, and the plan understanding shaped from this sentence: a CS-primitive composition
+    /// when its concepts align, else a [`Plan::UsesConstruct`] when the sentence NAMES a code
+    /// construct, else the precise abstain reason.
+    fn explain_sentence(&self, sentence: &str) -> Explanation {
+        let mut ex = Explanation::default();
         ex.sentence = sentence.to_string();
         ex.prohibition = self.english.sentence_states_prohibition(sentence);
         let tokens = tokenize(sentence);
@@ -428,12 +462,70 @@ impl<'a> Bridge<'a> {
             self.compose_unary(&predicates, baseline)
         };
         match plan {
+            // The CS primitive ALWAYS wins when one composed — understanding a defect beats matching
+            // a token. Only when NO primitive composed does a named construct carry the prohibition.
             Some(p) => ex.plan = Some(p),
-            None => {
-                ex.abstain = Some(self.abstain_reason(&relations, &predicates, inner_neg_pos, baseline));
-            }
+            None => match self.extract_construct(sentence, baseline) {
+                Some(construct) => ex.plan = Some(Plan::UsesConstruct { construct }),
+                None => {
+                    ex.abstain =
+                        Some(self.abstain_reason(&relations, &predicates, inner_neg_pos, baseline));
+                }
+            },
         }
         ex
+    }
+
+    /// Extract the CODE CONSTRUCT a prohibition names, reusing the construct-ranking PRINCIPLE of
+    /// [`crate::lint_match::select`] (never duplicating its word list) without needing that path's
+    /// code grounding, which is unavailable at understand-time. Two covenant-clean signals identify
+    /// a construct token:
+    ///
+    /// * BACKTICKED — the author naming a construct explicitly (kept EXACTLY: code is case- and
+    ///   symbol-sensitive, `mem::uninitialized`, `==`). Highest priority.
+    /// * A construct WORD — a token that reads as language syntax rather than prose: either some
+    ///   bundled grammar lexes it as a keyword/primitive type ([`crate::lint_match::is_construct_keyword`]
+    ///   — grammar-driven, never a keyword list) OR the dictionary meaning network cannot account for
+    ///   it ([`MeaningNetwork::has`] — a token like `eval` no grammar flags as syntax). Either way the
+    ///   token must be at least as CENTRAL as the sentence's `baseline` (its median content-word
+    ///   distinctiveness): the same comparative gate [`compose_unary`] uses, and what separates the
+    ///   distinctive `var` (centrality 92) from an incidental keyword-shaped word like `use` or `or`
+    ///   that is common English. `!has` alone is NOT enough — the real dictionary knows `var` as an
+    ///   obscure abbreviation, so the grammar signal carries it; the centrality gate carries the
+    ///   quality.
+    ///
+    /// Among construct words the most CENTRAL wins (ties → earliest), so a distinctive construct is
+    /// chosen over an incidental one. Read ONLY from this NAMING sentence, so a remedy alternative
+    /// stated in a later sentence ("use `let` instead") can never be mistaken for the construct.
+    /// `None` when nothing reads as a named construct — a bare English prohibition stays silent
+    /// rather than mint junk.
+    fn extract_construct(&self, sentence: &str, baseline: u32) -> Option<String> {
+        let mut backticked: Vec<(usize, String)> = Vec::new();
+        // (centrality, position, token) for each construct word — ranked most-central first.
+        let mut words: Vec<(u32, usize, String)> = Vec::new();
+        for (pos, raw) in sentence.split_whitespace().enumerate() {
+            if let Some(open) = raw.find('`') {
+                let inner = raw[open + 1..].split('`').next().unwrap_or("");
+                if !inner.is_empty() {
+                    backticked.push((pos, inner.to_string()));
+                }
+                continue;
+            }
+            let tok: String = raw.trim_matches(|c: char| !c.is_ascii_alphanumeric()).to_lowercase();
+            if tok.len() < 2 || self.is_negator(&tok) || !tok.chars().any(|c| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            let reads_as_syntax = crate::lint_match::is_construct_keyword(&tok) || !self.meanings.has(&tok);
+            let centrality = self.meanings.centrality(&tok);
+            if reads_as_syntax && centrality >= baseline {
+                words.push((centrality, pos, tok));
+            }
+        }
+        if let Some((_, construct)) = backticked.into_iter().min_by_key(|(pos, _)| *pos) {
+            return Some(construct);
+        }
+        // Most central construct word; ties broken by the earliest position (its naming order).
+        words.into_iter().max_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1))).map(|(_, _, t)| t)
     }
 
     /// Compose a PRESENT-WITHOUT plan: an inner-negation operator at `neg_pos` splits the role
@@ -721,6 +813,7 @@ pub fn run_plan(plan: &Plan, lang: &str, code: &str) -> Vec<usize> {
                 hits.push(row(node));
             }
         }),
+        Plan::UsesConstruct { construct } => scan_construct(root, src, construct, &mut hits),
     }
     hits.sort_unstable();
     hits.dedup();
@@ -740,6 +833,32 @@ fn walk<'a>(node: Node<'a>, f: &mut impl FnMut(Node<'a>)) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         walk(child, f);
+    }
+}
+
+/// Whether a node's kind is a STRING/CHAR/COMMENT interior — a lexical region whose text is not
+/// code. [`scan_construct`] neither matches nor descends into it, so a construct's name discussed
+/// in a comment or embedded in a string is never a usage. Read from the node kind by substring (the
+/// blessed generic probe, as [`is_statement`] reads `comment`), never a grammar-specific list.
+fn is_lexical_text(kind: &str) -> bool {
+    kind.contains("string") || kind.contains("comment") || kind.contains("char")
+}
+
+/// Record every AST USAGE of the exact whole-token `construct`: a LEAF token node (an identifier,
+/// type, field, keyword, or operator — whatever the grammar lexes as one token) whose utf8 text
+/// equals `construct` EXACTLY (never a substring). Skips string/char/comment interiors entirely, so
+/// the construct's name in prose or a literal is not a usage. The 1-based row of each usage is
+/// pushed to `hits`. AST-grained by construction: only childless token nodes can match.
+fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>) {
+    if is_lexical_text(node.kind()) {
+        return;
+    }
+    if node.child_count() == 0 && node.utf8_text(src).map(|t| t == construct).unwrap_or(false) {
+        hits.push(row(node));
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        scan_construct(child, src, construct, hits);
     }
 }
 
@@ -1066,11 +1185,17 @@ mod tests {
             bridge.understand("A public function should carry a documentation comment.").is_none(),
             "a non-prohibition states no rule"
         );
+        // A prohibition that NAMES a code construct but aligns to no CS primitive now shapes a
+        // `uses_construct` rule (the covenant-clean successor to `tokens `X``) — understanding
+        // reads the construct out of the prose rather than abstaining.
         assert!(
-            bridge.understand("Never declare variables with the var keyword.").is_none(),
-            "a prohibition with no aligning primitive abstains rather than misfiring"
+            matches!(
+                bridge.understand("Never use the var keyword to declare a variable.").as_ref(),
+                Some(Plan::UsesConstruct { construct }) if construct == "var"
+            ),
+            "a construct-naming prohibition shapes uses_construct(var)"
         );
-        eprintln!("ABSTAIN: non-prohibition and unmapped-prohibition both produced no rule.");
+        eprintln!("ABSTAIN: non-prohibition produced no rule; var-prohibition shapes uses_construct.");
     }
 
     /// INNER-NEGATION: undocumented_public_item — the real corpus prose "…public function or type
@@ -1150,6 +1275,36 @@ mod tests {
         }
     }
 
+    /// USES_CONSTRUCT (owner directive 2026-07-09): a prohibition that NAMES a code construct but
+    /// aligns to no CS primitive — "Never use the var keyword to declare a variable" — shapes
+    /// `uses_construct(var)` and FIRES on javascript that uses `var`, staying clean on `let`/`const`
+    /// code. `let`/`const` (the remedy in a later sentence) are NEVER chosen as the construct. The
+    /// name is DATA read from the prose, never a coded token list. Ignored (reads the dictionary).
+    #[test]
+    #[ignore = "reads the local dictionary; the uses_construct firing check"]
+    fn uses_construct_fires() {
+        let meanings = understanding();
+        let english = crate::lint_english::brain().expect("English brain");
+        let bridge = Bridge::new(&meanings, &english);
+
+        let prose = "Never use the var keyword to declare a variable. Use let or const instead.";
+        let plan = bridge.understand(prose).expect("var prohibition understood");
+        eprintln!("var plan: {}", plan.describe());
+        assert!(
+            matches!(&plan, Plan::UsesConstruct { construct } if construct == "var"),
+            "names the var construct, not the let/const remedy: {}",
+            plan.describe()
+        );
+
+        let bad = "function f() {\n    var x = 1;\n    return x;\n}\n";
+        let good = "function f() {\n    let x = 1;\n    const y = 2;\n    return x + y;\n}\n";
+        let hits_bad = bridge.enforce(prose, "javascript", bad);
+        let hits_good = bridge.enforce(prose, "javascript", good);
+        eprintln!("    bad flags {hits_bad:?}; good flags {hits_good:?}");
+        assert!(hits_bad.contains(&2), "the `var` on line 2 flags: {hits_bad:?}");
+        assert!(hits_good.is_empty(), "let/const code is clean: {hits_good:?}");
+    }
+
     /// COVERAGE MAP (owner directive, Step 4): read EVERY principle in the real corpus and report
     /// which the bridge enforces (with the plan it composed) and which ABSTAIN — honesty on
     /// coverage is the deliverable. Ignored (reads the local dictionary + the repo corpus). Run:
@@ -1197,4 +1352,5 @@ mod tests {
         eprintln!("COVERAGE: {enforced} enforced, {abstained} abstained");
     }
 }
+
 
