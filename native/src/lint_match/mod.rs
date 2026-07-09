@@ -347,7 +347,7 @@ impl RuleSet {
             // into a composition of generic primitives ([`crate::lint_trace`]). Only when the bridge
             // ABSTAINS does the committed per-principle probe fallback get a turn (run alongside
             // until the live anti-cheat passes; LINTER.md).
-            let bound_trace = if is_corpus_principle { crate::lint_trace::understand(desc) } else { None };
+            let bound_trace = if is_corpus_principle { crate::lint_trace::understand_canon(desc) } else { None };
             let bound_probe = if is_corpus_principle && bound_trace.is_none() {
                 crate::lint_probe::understand(desc)
             } else {
