@@ -178,6 +178,126 @@ the char brain is threaded into both paths AND their hermetic tests carry a mean
 selection). This is the same migration as "construct selection and polarity onto the graph." Understanding
 is the product — surprise only ever measures whether it is forming.
 
+## The modular rebuild — understanding shapes rules, per module (IN PROGRESS, owner directive 2026-07-09)
+
+> This is the authoritative Phase-A design for the owner-directed rebuild. Spec before code
+> (the covenant): nothing below is built until the owner confirms this section. It supersedes,
+> where they conflict, the token-miner "learned doc rules" model described in "The per-language
+> training pipeline" and "Sources of law" — those sections stay as the shipping description until
+> each piece here actually lands, then they are folded in. The measured facts that justify the
+> rebuild are recorded inline so the next reader needs no external memory.
+
+**One enforcement mechanism, three module kinds.** Every rule — a CS principle, a language rule, a
+project rule — is the SAME object: an understood prohibition compiled to a `lint_trace::Plan` and
+fired by `run_plan` in the one AST walk. There is no second rule engine. What differs is only WHERE
+the prose comes from and HOW WIDELY the rule applies:
+
+1. **The CS-principles module** — machine-global, language-agnostic. Its prose is the OWNER'S
+   AUTHORITATIVE CANON, held VERBATIM in `<data_root>/corpus/` and source-attributed:
+   `cs3500-rubric.md` (the owner's CS 3500 A+ software-design rubric) and `cs2420-setup.md` (the
+   owner's CS 2420 data-structures/project standards). These files are DATA fetched from the owner's
+   own repositories and used AS-IS — never reworded, slimmed, recreated, or model-invented (the
+   reworded `corpus/principles.md` is exactly the degradation this replaces; precedent: commit
+   7747359 removed invented corpus rules). The understanding path's job is to read this canon's own
+   rich prose and extract the enforceable prohibition(s); the canon is never hand-rewritten to fit
+   the parser. Language-agnostic sections only (a canon's language-specific appendix is excluded).
+   Read FRESH each run (a file read), so editing the canon needs no retrain.
+2. **Per-language modules** — machine-global, delta-stored, registry-distributed (the same
+   distribution the word substrate used; a module stores only what it ADDS beyond the base brain).
+   A module is the language's REAL rules, each learned from the language's FULL official
+   documentation (the whole in-scope site, deep-crawled) THROUGH THE UNDERSTANDING PATH, and stored
+   as an INSPECTABLE list: `{ id, prose, construct?, plan, source_url }` — not an opaque compiled
+   blob. Inspectable and editable is the point: `lint_query rules <lang>` lists every rule with the
+   prose and the plan it shaped; a bad rule is removable by id; a good rule is addable. The module
+   is what the registry shares.
+3. **The project overlay** — `lintPref.{md,txt}` at the project root, plus `.helpers/lint-rules/`,
+   compiled ON THE FLY at lint time through the same bridge. No retrain: add a prohibition to
+   lintPref and the next lint enforces it; delete it and the next lint stops — proven by the
+   with/without lintPref acceptance test.
+
+At load time the live lint merges `language-module ⊕ CS-canon ⊕ project-overlay` (overlay first —
+trust order) into one plan set, and that one set fires in the single tree walk.
+
+**Understanding-driven language rules — the token-miner is RETIRED for modules.** The crawled-doc
+token-miner (`lint_docs::rules_from_memory` → `LearnedRule{bad,good}` → example-diff AST patterns
+and single/paired token detectors) produced JUNK and is retired for language modules. Measured on
+the shipped rust module (`lint_query rules rust`, 2026-07-09): all 29 "module rules" are noise —
+`naming-html` is a Cargo.toml paragraph, `expressions-html` is the detector `tokens \`let … vec\``,
+`type-layout-html` is `tokens \`zero … variant\``, and the `r-expr-*`/`r-items-*` family are Rust
+Reference paragraphs compiled to `AST pattern` off deliberately-broken illustration code (a
+reference SHOWS invalid code to teach; grounding flags it; the miner mints a "rule" from the
+illustration). Both the token path (weak construct on descriptive prose) and the example-diff path
+(broken illustrations) are net-negative on reference docs. They are replaced by:
+
+- **The prohibition scan.** A crawled page's prose is scanned SENTENCE BY SENTENCE for a sentence
+  that COMMANDS a prohibition (`English::states_prohibition`, the meaning-based gate — never a
+  disapproval-word list). Each such sentence is understood into a `Plan`; a page yields as many
+  rules as it commands, or none. Descriptive reference prose ("An integer radix is chosen by…")
+  commands nothing and mints nothing — the fix for the descriptive-junk class.
+- **A new generic primitive, `uses_construct`.** Real language rules name a SPECIFIC construct
+  (`var`, `eval`, `mem::uninitialized`, `==`). `uses_construct(name)` is a general trace that
+  recognises AST USAGE of the named construct: it walks the tree and flags a named identifier /
+  type / field / keyword / call node whose exact whole-token text equals `name` — AST-grained, never
+  inside string or comment interiors, never a substring. The `name` is DATA extracted from the
+  prohibition's own prose by understanding (the author's backtick in the naming sentence, or the
+  code token English cannot account for — the existing construct-ranking in `lint_match/select.rs`,
+  reused), never a coded list. This is the covenant-clean successor to `tokens \`X\``: same target,
+  but the construct is chosen by understanding a commanded prohibition and the firing respects the
+  tree. When a sentence names a construct AND aligns a CS-shaped concept, the CS primitive wins
+  (understanding a defect beats matching a token); when only a construct is named, `uses_construct`
+  carries it; when neither, ABSTAIN.
+
+  Measured gap this closes (`lint_query explain`, 2026-07-09): "Never use the var keyword to declare
+  a variable" gates TRUE but abstains today — "only an incidental concept aligned to a defect
+  [variable] while the prohibition's central concepts aligned to no primitive" — precisely because
+  there is no primitive that carries a named code construct. `uses_construct` is that primitive.
+
+**Multi-sentence prose — read the whole principle, not the first line.** The canon and real docs
+state a prohibition across several sentences, and the enforceable clause is often not the first.
+`lint_trace` today reads only `sentences(description).next()`; it must scan EVERY sentence, keep the
+ones that command a prohibition, and shape a plan from each (a principle → 0/1/many rules). Measured
+gap (`lint_query explain`, 2026-07-09): the canon's Single-Responsibility principle — "Each function,
+method, or module does exactly one thing…" — gates FALSE on its first sentence (a statement, not a
+commanded prohibition), so its enforceable content (the god-function/complexity clause deeper in the
+prose) is never reached. Whole-prose scanning is the same machinery the language prohibition scan
+needs — one mechanism serves canon and docs.
+
+**Deprecation recall — a known boundary to extend, understanding-driven.** Language rules include
+deprecations, and deprecations are often phrased WITHOUT a leading negation operator ("The var
+statement is deprecated and should not be used" — gates FALSE today, measured). The meaning network
+is deliberately high-precision/low-recall on prohibition, and a hand list of disapproval words is a
+firing offense. The extension is to recognise deprecation/prescription by MEANING — a word whose own
+definition reaches disapproval/discouragement through the same definition-compounding `is_negation`
+judgment already used, never `related()` proximity (measured non-separating) and never an enumerated
+list — built and MEASURED, with coverage reported honestly rather than faked. Until it lands,
+deprecations phrased as bare state descriptions do not mint, and that is reported, not hidden.
+
+**Speed — the 1-bit kernel classifies the whole project in one batched popcount-XOR (owner directive
+2026-07-09).** The hot operation of this architecture is Hamming distance (popcount-XOR) over
+8192-bit hypervectors — microsecond-class and massively parallel. Whole-project lint is millions of
+(context × rule) pairs, past the measured threshold where GPU batching wins (~3M pairs; one Metal
+dispatch ~10–30 µs; ~13× on batched inference — `hv_batch.rs`, `--features gpu`). The HDC
+CLASSIFICATION/GATING layer — the concept gate, meaning alignment, quarantine relevance — is
+therefore structured as ONE (or a few) batched popcount-XOR dispatches over all
+contexts × all rule vectors, never per-node one-pair-at-a-time CPU calls (that serial pattern is the
+waste to delete). Parse/encode is kept OFF the critical path: tree-sitter parsing is per-file
+independent (parallel across cores; cached trees for incremental reparse), and where a full
+structural parse is not needed the char-substrate predictive encode already reads the raw stream.
+HONEST boundary, not overclaimed: a STRUCTURAL trace (code-after-return, `uses_construct`,
+duplicate-subtree) genuinely needs the tree — the popcount batch is the classification/gate layer,
+the parallel tree-walk is the structural match, and the two compose. Warm/incremental re-lint is µs
+via the verdict replay + kqueue tiers (Plans are cheap to re-run; unchanged files replay their cached
+verdicts, nothing re-reasoned). The Phase-A checkpoint reports REAL numbers: cold whole-project WITH
+the gpu-batched path, the pair count, warm re-lint, and the batched-GPU-vs-serial-CPU delta on a
+large project.
+
+**Phase-A measured coverage (real `lint_query` data, 2026-07-09 — the gap the build closes).**
+Through the CURRENT bridge: canon prohibitions that align to an existing primitive already enforce
+(`dead_code_after_return` → `relational(follows_in_block)`, verified). What abstains, and the exact
+mechanism each needs: SRP → whole-prose scan; "never use `var`" → `uses_construct`; "`var` is
+deprecated" → deprecation-recall; swallowed-error → the `discarded_fallible` primitive already named
+in the probe-bridge coverage map below. Every abstention is honest and named; nothing is faked.
+
 ## Rules from understanding — the probe bridge (`lint_probe.rs`)
 
 **The north star made concrete: read a principle in prose, enforce it — no rule string, no
