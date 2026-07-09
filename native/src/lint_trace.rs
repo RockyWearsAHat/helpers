@@ -1305,9 +1305,13 @@ mod tests {
         assert!(hits_good.is_empty(), "let/const code is clean: {hits_good:?}");
     }
 
-    /// COVERAGE MAP (owner directive, Step 4): read EVERY principle in the real corpus and report
-    /// which the bridge enforces (with the plan it composed) and which ABSTAIN — honesty on
-    /// coverage is the deliverable. Ignored (reads the local dictionary + the repo corpus). Run:
+    /// COVERAGE MAP (owner directive, Step 4): read EVERY language-agnostic principle across the
+    /// owner's CANON files and report which the bridge enforces (with the plan it composed) and
+    /// which ABSTAIN — honesty on coverage is the deliverable. Each file is read through
+    /// [`crate::lint_train::canon_agnostic`] first, so a language appendix (the C# section) is
+    /// excluded exactly as the live wiring excludes it. `## ` sections OUTSIDE fenced code are the
+    /// principles; a `## ` line inside an example fence is skipped. Ignored (reads the local
+    /// dictionary + the repo corpus). Run:
     /// `cargo test --release --lib coverage_map -- --ignored --nocapture`
     #[test]
     #[ignore = "reads the local dictionary + repo corpus; the Step-4 coverage map"]
@@ -1315,40 +1319,51 @@ mod tests {
         let meanings = understanding();
         let english = crate::lint_english::brain().expect("English brain");
         let bridge = Bridge::new(&meanings, &english);
-        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("corpus/principles.md");
-        let text = std::fs::read_to_string(&corpus).expect("corpus principles");
+        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("corpus");
         let (mut enforced, mut abstained) = (0u32, 0u32);
-        let mut id = String::new();
+        let mut heading = String::new();
         let mut prose = String::new();
-        let flush = |id: &str, prose: &str, enforced: &mut u32, abstained: &mut u32| {
-            if id.is_empty() || prose.trim().is_empty() {
+        let mut flush = |heading: &str, prose: &str| {
+            if heading.is_empty() || prose.trim().is_empty() {
                 return;
             }
             match bridge.understand(prose) {
                 Some(plan) => {
-                    *enforced += 1;
-                    eprintln!("  ENFORCE  {id:28} -> {}", plan.describe());
+                    enforced += 1;
+                    eprintln!("  ENFORCE  {heading:52} -> {}", plan.describe());
                 }
                 None => {
-                    *abstained += 1;
-                    eprintln!("  abstain  {id:28} -> (no aligning primitive)");
+                    abstained += 1;
+                    eprintln!("  abstain  {heading:52} -> honest (no aligning primitive)");
                 }
             }
         };
-        for line in text.lines() {
-            if let Some(rest) = line.strip_prefix("## ") {
-                flush(&id, &prose, &mut enforced, &mut abstained);
-                id = rest.split_whitespace().next().unwrap_or("").to_string();
-                prose.clear();
-            } else if !id.is_empty() {
-                prose.push_str(line);
-                prose.push(' ');
+        for file in ["cs3500-rubric.md", "cs2420-principles.md"] {
+            eprintln!("== {file} ==");
+            let raw = std::fs::read_to_string(corpus.join(file)).expect("canon file");
+            let text = crate::lint_train::canon_agnostic(&raw);
+            let mut in_fence = false;
+            for line in text.lines() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("```") {
+                    in_fence = !in_fence;
+                } else if !in_fence {
+                    if let Some(rest) = trimmed.strip_prefix("## ") {
+                        flush(&heading, &prose);
+                        heading = rest.trim().to_string();
+                        prose.clear();
+                        continue;
+                    }
+                    if !heading.is_empty() {
+                        prose.push_str(trimmed);
+                        prose.push(' ');
+                    }
+                }
             }
+            flush(&heading, &prose);
+            heading.clear();
+            prose.clear();
         }
-        flush(&id, &prose, &mut enforced, &mut abstained);
         eprintln!("COVERAGE: {enforced} enforced, {abstained} abstained");
     }
 }

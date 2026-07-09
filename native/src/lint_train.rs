@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v71-uses-construct-multisentence";
+pub(crate) const TRAIN_VERSION: &str = "docs-v72-canon-agnostic";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -354,7 +354,7 @@ fn rule_documents_uncached(dirs: &[PathBuf]) -> Vec<(PathBuf, String)> {
 /// language is `lang` or `any`. Project rules are merged BEFORE the global corpus and the crawled
 /// docs, so they take priority over both.
 pub(crate) fn project_rules(project_root: &Path, lang: &str) -> Vec<DocRule> {
-    rules_in_documents(&rule_documents(project_root), lang, "project-rule")
+    rules_in_documents(&rule_documents(project_root), lang, "project-rule", false)
 }
 
 /// The machine-global CS-principles rule documents: `<data_root>/corpus/*.{md,txt}`. A stem
@@ -393,17 +393,78 @@ fn corpus_documents_uncached(data_root: &Path) -> Vec<(PathBuf, String)> {
     docs
 }
 
-/// The corpus folder's rules that govern `lang` — see [`corpus_documents`].
+/// Whether `token` IS the name of a language this machine knows — a bundled grammar or a language
+/// registered in the learned extension claims. Deliberately stricter than [`resolve_language`]
+/// (which routes any stem to a best-effort language) and [`hint_language`] (which admits a language
+/// reached only by an incidental mention count): only a token that IS a known language name trips
+/// it, so an agnostic principle's own words ("Big-O", "One Concept", "graph") never read as a
+/// language. There is NO coded language list here — the set is exactly the machine's learned and
+/// bundled languages, so it grows with the machine and stays swappable.
+fn token_names_language(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let t = token.to_lowercase();
+    crate::lint_match::bundled_language(&t) || extension_claims_universe().contains_key(&t)
+}
+
+/// The language-AGNOSTIC portion of a canon corpus document — the ONLY portion the CS-principles
+/// module wires (LINTER.md: "language-agnostic sections only … a canon's language-specific appendix
+/// is excluded"). The canon states its principles as Markdown sections; a section whose HEADING
+/// names a known language ([`token_names_language`] — never a coded list) is a language appendix and
+/// is dropped together with its nested (deeper-heading) subsections, so `## Language-Specific: C# and
+/// .NET` and its `###` members never mint cross-language junk like `uses_construct(lock)`. Headings
+/// are recognised only OUTSIDE fenced code, mirroring the document reader, so a `# comment` inside a
+/// Python example is never mistaken for a heading. The rule is general and keeps the canon swappable
+/// with ZERO code change: a future `## Rust: …` canon section drops out the same way, and a different
+/// rubric file is read by whatever agnostic sections it holds. A document naming no language is
+/// returned whole; trailing agnostic sections AFTER a language section survive (only the language
+/// section and its subsections are removed).
+pub(crate) fn canon_agnostic(text: &str) -> String {
+    let mut kept = String::with_capacity(text.len());
+    let mut in_fence = false;
+    let mut excluding: Option<usize> = None; // the heading LEVEL the language section began at
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+        } else if !in_fence {
+            let level = trimmed.len() - trimmed.trim_start_matches('#').len();
+            if level > 0 {
+                // A sibling or shallower heading closes an open language section.
+                if excluding.is_some_and(|start| level <= start) {
+                    excluding = None;
+                }
+                if excluding.is_none()
+                    && trimmed[level..]
+                        .split(|c: char| !c.is_ascii_alphanumeric())
+                        .any(token_names_language)
+                {
+                    excluding = Some(level);
+                }
+            }
+        }
+        if excluding.is_none() {
+            kept.push_str(line);
+            kept.push('\n');
+        }
+    }
+    kept
+}
+
+/// The corpus folder's rules that govern `lang` — see [`corpus_documents`]. Read as CANON: each
+/// document's language-specific appendix is excluded first ([`canon_agnostic`]).
 pub(crate) fn corpus_rules(data_root: &Path, lang: &str) -> Vec<DocRule> {
-    rules_in_documents(&corpus_documents(data_root), lang, "corpus-rule")
+    rules_in_documents(&corpus_documents(data_root), lang, "corpus-rule", true)
 }
 
 /// Read rule documents through the ONE document reader and keep the rules that govern `lang`
-/// (`lang` itself, or `any` for code languages). `slice` labels the rules' origin tier.
-/// Prose-only rules (no bad example) are valid: the pattern is derived from the English
-/// description.
-fn rules_in_documents(docs: &[(PathBuf, String)], lang: &str, slice: &str) -> Vec<DocRule> {
-    let all = read_rule_documents(docs);
+/// (`lang` itself, or `any` for code languages). `slice` labels the rules' origin tier. `canon`
+/// reads each document as owner CANON — its language-specific appendix excluded ([`canon_agnostic`]);
+/// project law (`canon = false`) is read whole. Prose-only rules (no bad example) are valid: the
+/// pattern is derived from the English description.
+fn rules_in_documents(docs: &[(PathBuf, String)], lang: &str, slice: &str, canon: bool) -> Vec<DocRule> {
+    let all = read_rule_documents(docs, canon);
     let allow_any = !is_document_language(lang);
     let mut out = Vec::new();
     for (source, r) in all.iter() {
@@ -432,6 +493,7 @@ fn rules_in_documents(docs: &[(PathBuf, String)], lang: &str, slice: &str) -> Ve
 /// must produce ONE read, not seventeen racing ones.
 fn read_rule_documents(
     docs: &[(PathBuf, String)],
+    canon: bool,
 ) -> std::sync::Arc<Vec<(String, crate::linter::LearnedRule)>> {
     type Table = std::collections::HashMap<String, std::sync::Arc<Vec<(String, crate::linter::LearnedRule)>>>;
     static MEMO: std::sync::Mutex<Option<Table>> = std::sync::Mutex::new(None);
@@ -440,7 +502,7 @@ fn read_rule_documents(
         .map(|(p, _)| file_state(p))
         .fold(0u128, |acc, st| acc.rotate_left(11) ^ st);
     let names: Vec<&str> = docs.iter().filter_map(|(p, _)| p.to_str()).collect();
-    let key = format!("{state:x}\u{1f}{}", names.join("\u{1f}"));
+    let key = format!("{}\u{1f}{state:x}\u{1f}{}", canon as u8, names.join("\u{1f}"));
     let mut memo = MEMO.lock().unwrap_or_else(|e| e.into_inner());
     let table = memo.get_or_insert_with(Default::default);
     if let Some(hit) = table.get(&key) {
@@ -450,6 +512,8 @@ fn read_rule_documents(
     let mut out = Vec::new();
     for (path, default_lang) in docs {
         let Ok(doc) = std::fs::read_to_string(path) else { continue };
+        // Canon documents wire only their language-agnostic sections; project law is read whole.
+        let doc = if canon { canon_agnostic(&doc) } else { doc };
         let source = path.to_string_lossy().into_owned();
         for r in crate::linter::Knowledge::read_document(default_lang, &doc, polarity.as_deref()).rules {
             out.push((source.clone(), r));
@@ -549,8 +613,8 @@ pub fn ensure_models(
     // documents are language-agnostic and memoized behind one lock, so cold memos inside the
     // parallel wave would convoy every language on the first reader (measured: each of 17
     // languages reported the one ~1.5ms read as its own "law" time).
-    let _ = read_rule_documents(&rule_documents(project_root));
-    let _ = read_rule_documents(&corpus_documents(data_root));
+    let _ = read_rule_documents(&rule_documents(project_root), false);
+    let _ = read_rule_documents(&corpus_documents(data_root), true);
     let results: Vec<(TrainReport, Option<(String, LangModel)>)> = {
         use rayon::prelude::*;
         langs
