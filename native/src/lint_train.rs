@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v69-trace-inner-negation";
+pub(crate) const TRAIN_VERSION: &str = "docs-v70-trace-centrality-gate";
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -918,10 +918,31 @@ fn overlay_path(lang: &str, project_fp: u64) -> PathBuf {
 }
 
 /// The compiled machine-global [`RuleSet`] cached for `lang`, or `None` when the language has no
-/// trained module — the read the `lint_query rules` interrogation enumerates. Loads the cached
-/// module; never trains (a query must not mutate machine state).
+/// trained module — the crawled-DOC rules the `lint_query rules` interrogation enumerates. Loads
+/// the cached module; never trains (a query must not mutate machine state).
 pub fn cached_ruleset(lang: &str) -> Option<crate::lint_match::RuleSet> {
     load_module(lang).map(|m| m.rules)
+}
+
+/// The machine-global CORPUS rules compiled for `lang` — the understanding→trace (and probe
+/// fallback) rules the live overlay derives from `<data_root>/corpus/*.md`, read FRESH (LINTER.md,
+/// "the corpus is read fresh each run"). The `lint_query rules` interrogation enumerates these
+/// ALONGSIDE the crawled-doc module so the listing reflects what GENUINELY enforces, not just the
+/// module. Built with empty grounding: a trace/probe rule binds from UNDERSTANDING alone — grounding
+/// gates a doc EXAMPLE, which a prose-only corpus principle has none of — so the same rules the
+/// overlay compiles appear here without a project. Never trains; a pure read of the corpus files.
+pub fn corpus_ruleset(lang: &str) -> crate::lint_match::RuleSet {
+    let data_root = crate::tools::lint::data_root_pub();
+    let rules = corpus_rules(&data_root, lang);
+    let trusted: std::collections::HashSet<String> = rules.iter().map(|r| r.id.clone()).collect();
+    let ground = crate::lint_match::Grounding { trusted, ..Default::default() };
+    let tuples: Vec<(String, String, String, String, String, String)> = rules
+        .iter()
+        .map(|r| {
+            (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone())
+        })
+        .collect();
+    crate::lint_match::RuleSet::build(lang, &tuples, &ground)
 }
 
 fn load_module(lang: &str) -> Option<Module> {

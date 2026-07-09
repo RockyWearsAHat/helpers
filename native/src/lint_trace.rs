@@ -207,6 +207,11 @@ pub struct ConceptAlign {
     pub runner_up: u32,
     pub ratio: f64,
     pub aligned: Option<String>,
+    /// The concept's CENTRALITY to the prohibition — its dictionary distinctiveness
+    /// ([`MeaningNetwork::centrality`]). A high-centrality word is what the sentence is ABOUT; a
+    /// low one is incidental. The unary composition reads this so a peripheral word cannot drive a
+    /// rule alone (see [`Bridge::compose_unary`]).
+    pub centrality: u32,
 }
 
 /// The full step trace of understanding applied to one principle — the honest, structured answer
@@ -246,6 +251,10 @@ struct BoundConcept {
     word: String,
     position: usize,
     primitive: Primitive,
+    /// Dictionary distinctiveness ([`MeaningNetwork::centrality`]) — how central this concept is to
+    /// what the sentence prohibits. Read by [`Bridge::compose_unary`] so an incidental peripheral
+    /// word cannot drive a unary defect alone.
+    centrality: u32,
 }
 
 /// The tie-band (fraction of `DIM`) within which the two role concepts' endpoint preferences count
@@ -378,9 +387,15 @@ impl<'a> Bridge<'a> {
             }
             let (prim, best, runner_up) = self.align_scored(tok);
             let ratio = best as f64 / runner_up.max(1) as f64;
+            let centrality = self.meanings.centrality(tok);
             let aligned = (ratio <= BIND_MARGIN).then(|| Self::primitive_name(prim).to_string());
             if aligned.is_some() {
-                bound.push(BoundConcept { word: tok.clone(), position: *pos, primitive: prim });
+                bound.push(BoundConcept {
+                    word: tok.clone(),
+                    position: *pos,
+                    primitive: prim,
+                    centrality,
+                });
             }
             ex.concepts.push(ConceptAlign {
                 word: tok.clone(),
@@ -389,6 +404,7 @@ impl<'a> Bridge<'a> {
                 runner_up,
                 ratio: (ratio * 1000.0).round() / 1000.0,
                 aligned,
+                centrality,
             });
         }
         if !ex.prohibition {
@@ -399,18 +415,22 @@ impl<'a> Bridge<'a> {
             bound.iter().filter(|b| matches!(b.primitive, Primitive::Rel(_))).collect();
         let predicates: Vec<&BoundConcept> =
             bound.iter().filter(|b| matches!(b.primitive, Primitive::Pred(_))).collect();
+        // The sentence's CENTRAL baseline — the median distinctiveness of its content concepts.
+        // A single-concept unary defect must clear this to shape a rule (see [`compose_unary`]), so
+        // the CORE prohibited concept drives the rule, never an incidental peripheral word.
+        let baseline = median(ex.concepts.iter().map(|c| c.centrality).collect());
         let plan = if let Some(rel_concept) = relations.first() {
             let Primitive::Rel(rel) = rel_concept.primitive else { unreachable!() };
             self.compose_relational(rel, rel_concept.position, &predicates)
         } else if let Some(neg_pos) = inner_neg_pos {
             self.compose_present_without(neg_pos, &predicates)
         } else {
-            self.compose_unary(&predicates)
+            self.compose_unary(&predicates, baseline)
         };
         match plan {
             Some(p) => ex.plan = Some(p),
             None => {
-                ex.abstain = Some(self.abstain_reason(&relations, &predicates, inner_neg_pos));
+                ex.abstain = Some(self.abstain_reason(&relations, &predicates, inner_neg_pos, baseline));
             }
         }
         ex
@@ -442,6 +462,7 @@ impl<'a> Bridge<'a> {
         relations: &[&BoundConcept],
         predicates: &[&BoundConcept],
         inner_neg: Option<usize>,
+        baseline: u32,
     ) -> String {
         if let Some(pos) = inner_neg {
             let before = predicates.iter().any(|b| b.position < pos);
@@ -463,10 +484,11 @@ impl<'a> Bridge<'a> {
                 Self::primitive_name(rel.primitive)
             );
         }
-        let self_bad_present = predicates.iter().any(|b| {
-            matches!(b.primitive, Primitive::Pred(i) if PREDICATES[i].self_bad)
-        });
-        if !self_bad_present {
+        let self_bad: Vec<&&BoundConcept> = predicates
+            .iter()
+            .filter(|b| matches!(b.primitive, Primitive::Pred(i) if PREDICATES[i].self_bad))
+            .collect();
+        if self_bad.is_empty() {
             let names: Vec<&str> =
                 predicates.iter().map(|b| Self::primitive_name(b.primitive)).collect();
             return format!(
@@ -474,7 +496,19 @@ impl<'a> Bridge<'a> {
                 names.join(", ")
             );
         }
-        "no rule shaped".to_string()
+        // A self-bad defect DID align, yet composition abstained — the aligning concepts were all
+        // PERIPHERAL (each a lone incidental word below the sentence's central baseline, its
+        // descriptor grazed by a word the prohibition is not about). Name them, honestly.
+        let peripheral: Vec<String> = self_bad
+            .iter()
+            .map(|b| format!("{} (centrality {} < baseline {baseline})", b.word, b.centrality))
+            .collect();
+        format!(
+            "only an incidental concept aligned to a defect [{}] while the prohibition's central \
+             concepts aligned to no primitive — abstaining rather than shaping a rule from a \
+             peripheral word",
+            peripheral.join(", ")
+        )
     }
 
     /// Compose a RELATIONAL plan: assign the two role predicates to the relation's endpoints. The
@@ -541,26 +575,45 @@ impl<'a> Bridge<'a> {
 
     /// Compose a UNARY plan: the SELF-BAD defect the sentence is about. Only self-bad predicates
     /// (a magic number, an unwrap, an over-long body) are eligible — a role/qualifier concept the
-    /// sentence incidentally names ("…in the code", "never write …") is dropped. Among the eligible,
-    /// the defect is the one the MOST concepts vote for (plurality): a principle names ONE defect,
-    /// and ANDing a second self-bad predicate an incidental word aligned to ("unwrap on a VALUE that
-    /// might fail" grazing the numeric-value sense) would make the conjunction un-fireable, since a
-    /// node is rarely two defects at once. Ties keep the tied set. Abstains when no self-bad
-    /// predicate aligned.
-    fn compose_unary(&self, predicates: &[&BoundConcept]) -> Option<Plan> {
-        let mut votes: Vec<(usize, usize)> = Vec::new(); // (predicate index, concept count)
+    /// sentence incidentally names ("…in the code", "never write …") is dropped.
+    ///
+    /// A defect QUALIFIES to shape the rule only when its alignment is TRUSTWORTHY — the rule must
+    /// be driven by the principle's CORE prohibited concept, never an incidental word:
+    /// - CORROBORATED — two or more of the sentence's concepts align to it (a self-validating match:
+    ///   "unwrap … expect … result … fallible" all point at `unwrap_call`); or
+    /// - CENTRAL — a single aligning concept whose centrality is at least the sentence's `baseline`
+    ///   (its median content-word distinctiveness). This is the fix for the tangential-word class:
+    ///   in "Never ignore or discard an error RESULT", only the incidental noun `result` grazes a
+    ///   descriptor (`unwrap_call`'s "result") while the prohibition's central concepts (`ignore`,
+    ///   `discard`) align to nothing — `result` is below the sentence median, so the defect does not
+    ///   qualify and the principle ABSTAINS honestly rather than shaping a wrong unwrap rule.
+    ///
+    /// Among the qualifying defects, the winner is the one the MOST concepts vote for (plurality):
+    /// a principle names ONE defect, and ANDing a second self-bad predicate an incidental word
+    /// aligned to would make the conjunction un-fireable (a node is rarely two defects at once).
+    /// Ties keep the tied set. Abstains when no self-bad predicate qualifies. The `baseline` is
+    /// comparative (the sentence's own median), never an absolute distinctiveness cutoff.
+    fn compose_unary(&self, predicates: &[&BoundConcept], baseline: u32) -> Option<Plan> {
+        // Per self-bad predicate: how many concepts vote for it, and the most-central one's weight.
+        let mut votes: Vec<(usize, usize, u32)> = Vec::new(); // (predicate index, count, max centrality)
         for p in predicates {
             if let Primitive::Pred(i) = p.primitive {
                 if PREDICATES[i].self_bad {
-                    match votes.iter_mut().find(|(j, _)| *j == i) {
-                        Some(v) => v.1 += 1,
-                        None => votes.push((i, 1)),
+                    match votes.iter_mut().find(|(j, _, _)| *j == i) {
+                        Some(v) => {
+                            v.1 += 1;
+                            v.2 = v.2.max(p.centrality);
+                        }
+                        None => votes.push((i, 1, p.centrality)),
                     }
                 }
             }
         }
-        let top = votes.iter().map(|(_, n)| *n).max()?;
-        let winners: Vec<usize> = votes.iter().filter(|(_, n)| *n == top).map(|(i, _)| *i).collect();
+        // Keep only the defects that are corroborated OR carried by a central concept.
+        votes.retain(|(_, count, centrality)| *count >= 2 || *centrality >= baseline);
+        let top = votes.iter().map(|(_, n, _)| *n).max()?;
+        let winners: Vec<usize> =
+            votes.iter().filter(|(_, n, _)| *n == top).map(|(i, _, _)| *i).collect();
         Some(Plan::Unary(winners))
     }
 
@@ -604,6 +657,22 @@ pub fn concept_alignment(word: &str) -> Option<Vec<(String, u32)>> {
         .collect();
     out.sort_by_key(|(_, d)| *d);
     Some(out)
+}
+
+/// The MEDIAN of a set of centralities — the sentence's typical content-word distinctiveness, the
+/// comparative baseline a single-concept unary defect must clear ([`Bridge::compose_unary`]). An
+/// empty set has no baseline (0), so nothing to compare against lets a lone concept through.
+fn median(mut vals: Vec<u32>) -> u32 {
+    if vals.is_empty() {
+        return 0;
+    }
+    vals.sort_unstable();
+    let n = vals.len();
+    if n % 2 == 1 {
+        vals[n / 2]
+    } else {
+        (vals[n / 2 - 1] + vals[n / 2]) / 2
+    }
 }
 
 /// Split a sentence into `(position, lowercased-word)` tokens, punctuation trimmed — the position

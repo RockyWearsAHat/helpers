@@ -619,6 +619,18 @@ impl MeaningNetwork {
         ((idf * SCALE).round() as u32).max(1)
     }
 
+    /// The CENTRALITY of `word` — how distinctive it is across the whole dictionary, its
+    /// inverse-document-frequency [`weight`](Self::weight_of). A generic filler word ("result",
+    /// "code", "the") that appears in a great many definitions weighs ~1; a rare, meaning-bearing
+    /// word ("secret", "unwrap", "duplicate") weighs tens of times more. The understanding→trace
+    /// bridge reads this to tell a principle's CORE prohibited concept (the distinctive word the
+    /// sentence is about) from an incidental one, so a peripheral noun that merely collides with a
+    /// primitive's descriptor cannot drive a rule by itself. Comparative by construction — the same
+    /// dictionary statistic every meaning bundle already weighs by, never a hand-set score.
+    pub fn centrality(&self, word: &str) -> u32 {
+        self.weight_of(word)
+    }
+
     /// The MEANING of `word`: its definition's content words each [`encode`](CharReader::encode)d
     /// (the char-level spelling centroid) and majority-bundled into one hypervector, each word
     /// weighted by its INVERSE DOCUMENT FREQUENCY ([`weight_of`](Self::weight_of)) so the

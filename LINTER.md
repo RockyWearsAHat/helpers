@@ -286,6 +286,20 @@ tokens it looks for from its OWN meaning descriptor — one declared vocabulary,
 comparative bind margin is relative (ratio 0.60 vs the runner-up), never an absolute distance:
 genuine descriptor matches bind at ratio ~0, spurious ones (~0.75–0.82) are dropped.
 
+**The CENTRALITY GATE — a unary rule is shaped by the CORE prohibited concept, never a tangential
+word (`compose_unary`, docs-v70).** A self-bad defect qualifies to shape a unary rule only when its
+alignment is TRUSTWORTHY: either CORROBORATED (two or more of the sentence's concepts align to it —
+"unwrap … expect … result … fallible" all point at `unwrap_call`), or CENTRAL (a single aligning
+concept whose CENTRALITY — its dictionary distinctiveness, `MeaningNetwork::centrality`, the same IDF
+weight the meaning bundle already uses — is at least the sentence's MEDIAN content-word centrality).
+This closes the tangential-word class the `explain` query exposed: in "Never ignore or discard an
+error RESULT", only the incidental noun `result` (centrality 49) grazes a descriptor (`unwrap_call`'s
+"result") while the prohibition's central concepts `ignore`/`discard`/`error` align to nothing — 49 is
+below the sentence median (71), so the defect does NOT qualify and the principle ABSTAINS honestly
+rather than shaping a wrong unwrap rule. The baseline is COMPARATIVE (the sentence's own median),
+never an absolute cutoff; `hardcoded_secret`'s lone `secret` (56 ≥ median 55) still enforces. Verified
+the 9 enforcing principles are unchanged and the tangential sentence abstains (`call lint_query explain`).
+
 **COVERAGE MAP (real corpus, `lint_trace::tests::coverage_map`; live-validated via `call lint_query explain`).**
 Enforced through the bridge (9): dead_code_after_return `relational(follows_in_block)`,
 unwrap_on_fallible `unary(unwrap_call)`, god_function `unary(long_body)`, magic_number, non_descriptive_name,
@@ -300,6 +314,15 @@ generic predicate `discarded_fallible` (a binding of a Result/error to a throwaw
 catch/match arm) with descriptor words {ignore, discard, swallow, error, throwaway} — then the same
 `unary` composition picks it up with zero per-principle code. Adding that primitive is generic, not
 per-principle. `lint_probe` remains the committed fallback until the anti-cheat passes.
+
+**Enumerating what enforces (`lint_query rules <lang>`).** The query reports BOTH origins the live
+lint merges (overlay ⊕ module), kept separate: `understanding_rules` — the machine-global corpus,
+read FRESH and shaped by the bridge (or the probe fallback) — and `module_rules` — the crawled-doc
+AST/token detectors baked into the trained language module. `lint_train::corpus_ruleset(lang)`
+compiles the corpus with empty grounding (a trace/probe rule binds from understanding alone), so the
+10 principles appear without a project; the module keeps its doc rules. Conflating the two — a stale
+crawled token-detector beside an understanding-shaped trace rule — was what made the old flat listing
+misleading.
 
 **Compilation and firing.** In `RuleSet::build`, a corpus principle (source under `/corpus/`, no
 in-language example) is routed to `understand` FIRST; a bound principle compiles to
