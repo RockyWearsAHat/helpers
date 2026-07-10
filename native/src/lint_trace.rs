@@ -499,6 +499,16 @@ impl<'a> Bridge<'a> {
                 centrality,
             });
         }
+        // The prohibition gate. A construct is not inherently bad (docs name `let`/`const`/`map()`
+        // too), so naming one shapes a rule ONLY when the sentence takes a negative stance toward it.
+        // MEASURED 2026-07-10: dropping this gate made the reader flag every construct the docs
+        // mention (`uses_construct(let)`, `(const)`, `(map())`) — over-generation, not understanding.
+        // KNOWN LIMITATION: the gate is a positional-negation heuristic (a lead "never"/"not"), so it
+        // misses MDN's dominant phrasings ("deprecated", "avoid", "should not") — recall is low. The
+        // planned replacement is PROPOSE-then-VERIFY (LINTER.md): understanding proposes the rule,
+        // reality proves it against the docs' own bad/good examples, and only a PROVEN rule is
+        // learned — verification, not a gate, is the filter. Until that lands the gate stays, trading
+        // recall for precision.
         if !ex.prohibition {
             ex.abstain = Some("states no prohibition — the meaning-based gate did not fire".to_string());
             return ex;

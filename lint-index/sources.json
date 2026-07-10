@@ -526,10 +526,22 @@
    "seed": "https://www.nasm.us/xdoc/2.16.03/html/"
   },
   {
-   "tool": "eslint-rules",
+   "tool": "w3schools-js",
    "language": "javascript",
    "kind": "crawl",
-   "seed": "https://eslint.org/docs/latest/rules/"
+   "seed": "https://www.w3schools.com/js/"
+  },
+  {
+   "tool": "w3schools-css",
+   "language": "css",
+   "kind": "crawl",
+   "seed": "https://www.w3schools.com/css/"
+  },
+  {
+   "tool": "w3schools-html",
+   "language": "html",
+   "kind": "crawl",
+   "seed": "https://www.w3schools.com/html/"
   }
  ]
 }
