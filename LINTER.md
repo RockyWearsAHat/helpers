@@ -418,6 +418,57 @@ illustration). Both the token path (weak construct on descriptive prose) and the
   variable. Use let or const instead." now gates TRUE and shapes `uses_construct(var)`, enforces true,
   and `let`/`const` (the remedy sentence) are never chosen — extraction reads ONLY the naming sentence.
 
+**PROPOSE-VERIFY-LEARN is the language path — verification is the filter, not the gate (owner
+directive 2026-07-10, `lint_trace::understand_verified` extended to `uses_construct`; wired in
+`lint_match::RuleSet::build`).** The `understand()` prohibition gate above is a POSITIONAL-negation
+heuristic (`sentence_states_prohibition`, a lead "never"/"not" within `COMMAND_LEAD_WORDS`): it is
+high-precision but LOW-RECALL — it misses the phrasings real language docs actually use ("the `var`
+statement is **deprecated**", "**avoid** `eval`", "`with` **should not** be used"), so a gate-only
+language path enforces almost nothing. The fix is the north-star loop already proven for the CS canon:
+understanding PROPOSES a candidate check, and the docs' OWN paired examples PROVE it — a rule is
+learned only when its plan FIRES on the binding's bad example and stays CLEAN on its good example.
+- **`understand_verified` now proposes `uses_construct` candidates.** Alongside the unary /
+  present-without / relational primitive candidates it already tests, it extracts the construct(s)
+  the prose NAMES (the same covenant-clean `extract_construct`: a backtick, or a grammar/non-English
+  syntax token) from every sentence, proposes `uses_construct(name)` for each, and keeps only those
+  that fire-bad and stay-clean-good. A remedy alternative ("use `let` instead") is proposed too but
+  REJECTED because it appears in the GOOD example (fires-good) — so verification, not sentence
+  position, is what discards it. CS primitives still win ties over a construct (understanding a
+  defect beats matching a token); a bare construct rule carries only when no primitive verifies.
+- **The internal prohibition gate is DROPPED on the verified path.** `understand_verified` no longer
+  early-returns on `!prohibition`: a candidate that a false reading would propose cannot PROVE itself
+  against real bad/good, so the gate is redundant here (Task-3 logic — the filter is verification).
+  The gate STAYS on the plain `understand()`/`explain()` path, which has no examples to prove
+  against. Measured guard against the over-generation trap (naively dropping the gate flags
+  `let`/`const`/`map()`): the good example rejects every construct the docs merely NAME, since a
+  construct that is not the violation appears in the good code and fires-good.
+- **`rules_from_memory`'s binding gate stays conservative — MEASURED, a relaxation is net-negative
+  on MDN.** The verified path only sees the bindings `rules_from_memory` emits, and that emission is
+  still gated by `English::states_prohibition` (a commanded prohibition). Relaxing it to admit any
+  prohibition-REGISTER binding with a paired good example was built and measured (2026-07-10): on the
+  live MDN JavaScript crawl it lifts candidates from ~4 to ~212, but ZERO of the extra candidates
+  verify to a real construct rule — MDN's binding prose fragments do not NAME a construct in the form
+  `extract_construct` recognises (a backtick or a syntax keyword above the centrality baseline), and
+  the paired good is often not a true near-miss — while the token-detector fallback minted junk from
+  the admitted noise (an MDN version-picker paragraph → `tokens `previous … versions``). So the hard
+  gate is KEPT: the honest recall ceiling on the language path today is the doc-reader's binding
+  quality (surfacing a prohibition's construct name into `prose`), not the bridge, which is proven to
+  learn `var`/`eval`/`with`/`==` from real "deprecated"/"avoid" phrasings the moment a clean
+  (prose, bad, good) binding reaches it (`lint_query kind=learn`, and `verified_learns_construct_the_
+  gate_misses`). The next unlock is upstream: pull the construct name from the BAD example when the
+  prose omits it — a doc-reading change, out of this unit's bridge scope.
+
+- **A GRAMMARLESS language never routes through understanding.** An understanding `Plan` (even
+  `uses_construct`) is fired by `run_plan`, which needs a tree-sitter tree; a language with no
+  bundled grammar has no AST, so every trace silently yields nothing. `RuleSet::build` therefore
+  routes a language-doc rule through understanding ONLY when `has_grammar`; a grammarless language's
+  doc rule falls to the token detector, which reads the raw text ("Never use the goto statement" →
+  `tokens goto`, fired on the raw line). Routing grammarless languages through understanding
+  unconditionally was a regression — it compiled a non-firing trace and dropped the token detector.
+
+The measured JS results (bad file flagged for its real defects, perfect file zero findings, rule
+count, retain-and-grow) are recorded in "Phase-A measured coverage" once trained.
+
 **Multi-sentence prose — read the whole principle, not the first line (LANDED 2026-07-09).** The canon
 and real docs state a prohibition across several sentences, and the enforceable clause is often not the
 first. `lint_trace::explain` now SCANS EVERY sentence (`lint_read::sentences`) and shapes a plan from
