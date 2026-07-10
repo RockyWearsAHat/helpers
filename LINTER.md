@@ -5,6 +5,102 @@
 > semantic change lands without updating this file first** — every regression this system has
 > had came from editing behavior without a written model of it.
 
+## The north-star architecture — the understanding substrate as an Infinite State Machine (owner-agreed 2026-07-10)
+
+> This section is the AUTHORITATIVE current model, agreed line-by-line with the owner in a design
+> review on 2026-07-10. Where older sections below conflict with it, THIS governs; they remain as
+> the shipping description and history until each piece is re-wired onto this model. The theme of
+> the review: the system is largely BUILT — the failure is that it reads and judges **fragments**
+> (single sentences, isolated bindings) instead of **whole pages**, and it commits understanding it
+> has merely *predicted* rather than *proven*. This section fixes the MODEL; the code is wired to it,
+> cautiously, one proven piece at a time.
+
+**What the thing IS.** It is an AI, but more precisely an **Infinite State Machine (ISM)**: a knowledge
+graph of distinct, orthogonal states (concepts, constructs, rules) that grows without bound and
+**without conflation**, because a state is only ever committed once it is PROVEN. It is built on a
+1-bit predictive-coding substrate (the char reader + the HDC meaning graph), but it is not a token
+predictor — prediction is only one signal used to *build* the states. The product is understanding;
+linting is what understanding does for free.
+
+**Understanding ≠ prediction (the Dunning-Kruger law).** Reproducing a page (surprise → 0) proves you
+can *predict its structure*, not that you *understand it* — you can overfit a page's surface with zero
+comprehension. The substrate reports "I understand" LONG before its internal connections are real, and
+acting on that false floor fails catastrophically. Therefore prediction is **necessary, never
+sufficient**, and surprise is a GAUGE of convergence, never the thing that decides understanding.
+
+**The curriculum — bottom-up, each layer learned from its OWN documentation, standing on the proven
+layer below.** Order: the **English dictionary (bedrock, already proven-understood)** → **txt** →
+**markdown** → **HTML** → **CSS** → **JavaScript**. Each layer is understood by READING ITS OWN DOCS in
+the language of the layer beneath it: rough English reads the HTML docs; HTML understanding reads the
+CSS docs (so styling's *meaning* — emphasis = importance, small/aside = footnote — is LEARNED from the
+CSS documentation, never reverse-engineered from raw markup or hardcoded); then JS. When all layers are
+understood, the substrate comprehends any web page **as a whole**, however it was built — which is the
+precondition for reading real documentation pages and extracting what they actually mean.
+
+**Corroboration — the anti-Dunning-Kruger engine, judged in English.** A candidate understanding is
+proven, not predicted, by a **self-generated test loop** whose referee is the language's own STATED
+TRUTHS reduced to the proven English bedrock:
+
+1. From its understanding the AI DERIVES an expectation — e.g. "this code should flag this rule" (or
+   "this code is valid, no flag"). It can do this because it can WRITE CODE in a language it
+   understands; you cannot derive a correct expectation for something you do not actually understand,
+   so a faker's expectations are wrong by construction.
+2. It GENERATES the code and RUNS the real check.
+3. **Both sides of the equation are derived BACK INTO ENGLISH** — the expected outcome and the actual
+   outcome — and equality is checked *in English*. English is the incorruptible judge: it is already
+   proven-understood, so you **cannot fake equality in a language you genuinely understand**. A faker's
+   two sides do not reconcile in English; a true expert's always do. This is why the judgment never
+   happens in the language's own (possibly-overfit) representation.
+4. On mismatch the AI does NOT collapse: everything up to here is proven, so it RESHAPES only the
+   faking part until behavior matches the docs' stated truth.
+5. A truth GRADUATES from Dunning-Kruger facade to genuine expertise only when it is mirrored
+   **≥ 15 times INDEPENDENTLY** — each witness from genuinely different material or a different
+   derivation path, none contradicting. A fluke or overfit can mirror once in the setup it memorized;
+   it cannot independently reproduce the truth 15 times.
+
+**Commit discipline (the ISM invariants).**
+- **Never hold what is not corroborated.** If it cannot corroborate, it LEARNS MORE — it does not
+  commit a half-understood state. "Trash the un-understood" should therefore never fire, because the
+  un-understood is never committed. No state ever sits on a false floor.
+- **Concepts are individual until PROVABLY linked** — orthogonal by default, exactly like the English
+  dictionary; one concept's meaning is never weighted into another's until the link is proven. This is
+  what prevents the diffusion/contamination that wrecked earlier meaning graphs.
+- **Proven states validate new ones.** We build strictly upward: the parts of the substrate already
+  proven correct are FROZEN and used as the referee for the parts being built, so each new piece slots
+  into a known-good whole instead of destabilizing it. Retain-and-grow is measured, never assumed.
+- **Verify, never shape-test.** After a layer is read, its understanding is OBSERVED to be correct once
+  (e.g. `<b>` comes out as "bold, denotes importance") — a one-time human/inspection sanity gate, never
+  a brittle test asserting an internal shape, and once validated it is not touched again.
+
+**Module building — ONLY after the substrate comprehends whole pages.** Modules are the enforceable
+rules, and they are built strictly per-language:
+- **Language is assigned per sentence and per element, BY UNDERSTANDING** — never by shared vocabulary.
+  Because the substrate understands structure, each element/sentence's language falls out for free.
+  HTML `class=` and JS `class` share reasoning but are different languages; they live in separate
+  partitions that never see each other. A file is linted ONLY by its own actual language's module.
+- **Never conflate languages, even from the same site.** W3Schools teaches HTML/CSS/JS on one site;
+  MDN is a strong source for up-to-dateness and version-support; but rules proven on a JS page enter
+  ONLY the JS partition. The shared meaning graph is for COMPREHENSION; the rules are never shared.
+- **Read → prove → fold site-wide within a language → write once.** Each page yields a list of rules
+  the substrate can PROVE via the corroboration loop above. These fold across ALL of that site's pages
+  **of that language** (site-wide, not page-at-a-time), held in memory and editable during training so
+  late pages correct early assumptions, and the module file is WRITTEN ONCE at completion (progressive
+  file writes are wasted compute).
+- **Cross-page invariance = chrome, discarded.** An element whose structure **and** style **and**
+  content is invariant across a site's pages is navigation/boilerplate with zero meaning and is
+  excluded from rule-proving. Content UNIQUE to a page carries that page's information. (Invariance
+  requires content too: a recurring "Deprecated" marker shares styling across pages but its target
+  varies, so it is NOT chrome.)
+- **A train-time validation flag** dumps the understanding/rules pulled from a site for review BEFORE
+  the module is written — a debug tool, not part of the live lint path.
+
+**The line-of-caution.** A single small bug here corrupts a state that everything downstream trusts, so
+every change is: documentation first (this section), then wire the smallest proven piece, then
+corroborate it against the frozen known-good substrate — no external linters, no thousands of throwaway
+files, no treating it as a black-box "AI." We are building the infinite states (the knowledge graphs)
+correctly, one proven state at a time. The sections below describe the current implementation the parts
+are wired from; this section describes what they are being wired INTO.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
