@@ -1,10 +1,12 @@
 //! Native tool implementations. One module per tool (or tool family).
 
 pub mod checkpoint;
-pub mod cs_lint;
+pub mod lint;
+pub mod lint_flag;
+pub mod lint_query;
+pub mod lint_source;
 pub mod knowledge;
 pub mod project_index;
 pub mod project_tools;
 pub mod setup;
-pub mod strict_lint;
 pub mod web;

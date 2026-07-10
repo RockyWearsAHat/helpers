@@ -266,7 +266,7 @@ jobs:
           fi
 
   # Cross-build the one required Rust binary (helpers-native — which also hosts
-  # git-cs-grade and the git-* CLIs) for every supported platform, so installs
+  # the git-* CLIs) for every supported platform, so installs
   # download a prebuilt and need NO Rust toolchain. Runs on PRs too, so the
   # cross-builds are validated before merge. The optional C launcher is NOT
   # prebuilt (it bakes install-specific paths); it is always built locally.

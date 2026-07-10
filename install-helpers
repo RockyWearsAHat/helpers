@@ -948,16 +948,6 @@ main() {
     cp "${SCRIPT_DIR}/helpers-mcp.c" "${BIN_DIR}/helpers-mcp.c"
   fi
 
-  # cs-grade source (Rust lib) — the native/ crate depends on it, and git-cs-grade
-  # is folded into the one helpers-native binary. Needed only for `--from-source`
-  # builds. Copy sources only; never the build target/ artifacts.
-  if [ -d "${SCRIPT_DIR}/cs-grade" ] && [ "${SCRIPT_DIR}/cs-grade" != "${BIN_DIR}/cs-grade" ]; then
-    mkdir -p "${BIN_DIR}/cs-grade"
-    cp "${SCRIPT_DIR}/cs-grade/Cargo.toml" "${BIN_DIR}/cs-grade/" 2>/dev/null || true
-    [ -f "${SCRIPT_DIR}/cs-grade/Cargo.lock" ] && cp "${SCRIPT_DIR}/cs-grade/Cargo.lock" "${BIN_DIR}/cs-grade/"
-    rm -rf "${BIN_DIR}/cs-grade/src" && cp -R "${SCRIPT_DIR}/cs-grade/src" "${BIN_DIR}/cs-grade/src"
-  fi
-
   # Provision the native tools now: `helpers build` downloads the prebuilt binary
   # for this platform (no toolchain), or builds from source as a fallback.
   if [ -x "${BIN_DIR}/helpers" ]; then
@@ -980,18 +970,8 @@ main() {
   install_support_script_into_subdir "scripts/patch-vscode-git-head-display.js" "scripts/patch-vscode-git-head-display.js"
   install_support_script_into_subdir "scripts/patch-vscode-runsubagent-model.js" "scripts/patch-vscode-runsubagent-model.js"
 
-  # Write default git-research-mcp config if it doesn't exist
-  local research_config_dir="${HOME}/.config/git-research-mcp"
-  local research_env_file="${research_config_dir}/.env"
-  if [ ! -f "$research_env_file" ]; then
-    ensure_dir "$research_config_dir"
-    cat >"$research_env_file" <<'RENV'
-# SearXNG — local meta-search instance (Docker container on port 8888).
-# Start with: docker run -d --name searxng -p 8888:8080 searxng/searxng:latest
-SEARXNG_URL=http://localhost:8888
-RENV
-    echo "[install-helpers] Wrote default config: $research_env_file"
-  fi
+  # Web search uses Helpers' native search_web — automated headless Chrome straight
+  # against Google (Node-free, no SearXNG, no local search service to configure).
 
   configure_community_cache
 
@@ -1006,16 +986,19 @@ RENV
   echo ""
   setup_gpg_signing
 
-  # Optional: wire Helpers into Claude Code (MCP server + skills + commands + core).
-  if command -v claude >/dev/null 2>&1 || [ -d "${HOME}/.claude" ]; then
+  # Optional: wire Helpers into every supported agent in ONE pass — Claude Code,
+  # GitHub Copilot, and OpenAI Codex (MCP server + core/instructions + caveman comms
+  # + Matt Pocock's skills). A single `helpers install` covers them all.
+  if command -v claude >/dev/null 2>&1 || command -v codex >/dev/null 2>&1 \
+     || [ -d "${HOME}/.claude" ] || [ -d "${HOME}/.codex" ] || [ -d "${HOME}/.copilot" ]; then
     echo ""
-    printf '[install-helpers] Install Helpers into Claude Code (MCP server, skills, /helpers command, CLAUDE.md core)? [Y/n]: '
-    read -r claude_reply || claude_reply=""
-    if [[ -z "$claude_reply" || "$claude_reply" == "y" || "$claude_reply" == "Y" ]]; then
-      "${BIN_DIR}/helpers" install --agent claude --force || \
-        echo "[install-helpers] Claude install hit an error — run 'helpers install --agent claude' manually."
+    printf '[install-helpers] Install Helpers into all agents (Claude, Copilot, Codex — MCP, core, caveman comms, Matt Pocock skills)? [Y/n]: '
+    read -r agents_reply || agents_reply=""
+    if [[ -z "$agents_reply" || "$agents_reply" == "y" || "$agents_reply" == "Y" ]]; then
+      "${BIN_DIR}/helpers" install --agent all --force || \
+        echo "[install-helpers] Agent install hit an error — run 'helpers install' manually."
     else
-      echo "[install-helpers] Skipped. Run 'helpers install --agent claude' anytime."
+      echo "[install-helpers] Skipped. Run 'helpers install' anytime to wire all agents."
     fi
   fi
 

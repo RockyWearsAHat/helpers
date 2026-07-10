@@ -66,7 +66,7 @@ jobs:
           cd "$BIN"
           for n in helpers git-resolve git-remerge git-fucked-the-push git-initialize \
                    git-get git-scan-for-leaked-envs git-upload git-checkpoint \
-                   git-help-i-pushed-an-env git-cs-grade; do
+                   git-help-i-pushed-an-env; do
             ln -sf "helpers-native$EXE" "$n$EXE" 2>/dev/null || cp "helpers-native$EXE" "$n$EXE"
           done
           cd - >/dev/null
