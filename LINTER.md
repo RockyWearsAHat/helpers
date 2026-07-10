@@ -293,6 +293,50 @@ the char brain is threaded into both paths AND their hermetic tests carry a mean
 selection). This is the same migration as "construct selection and polarity onto the graph." Understanding
 is the product — surprise only ever measures whether it is forming.
 
+## The human-language I/O overlay — French reads and renders on the English concept graph (`lint_lang.rs`, owner directive 2026-07-10)
+
+**Code languages are constant; the INPUT and OUTPUT human languages are malleable.** The linter
+REASONS in the language-agnostic CONCEPT graph (`lint_char::MeaningNetwork`, built by reading the
+English dictionary). A second human language (first: FRENCH) is an OVERLAY on that same graph — never
+a second brain, never a change to any rule or any code language. The rules stay identical; only the
+human language of I/O changes. English is the ZERO-CONFIG default and its output is byte-for-byte
+unchanged (the overlay is inert unless a non-English I/O language is selected).
+
+**The overlay is a bilingual LEXICON, learned from DATA (covenant — no word list in code).** A human
+language is a mapping from ITS words to the SAME concepts. The French↔concept mapping is READ from a
+real bilingual dictionary — the FreeDict `fra-eng` TEI (0.4.1, GPL/CC-BY-SA), parsed once into a
+`<data_root>/lang/<lang>.tsv` cache of `french⇥english gloss words` (8248 entries), cited on every
+translated run. There is NO French word list in Rust; delete the data file and the overlay goes dark,
+exactly as deleting the corpus darkens the probes. `lint_lang::Lexicon` reads this file the way
+`lint_english` reads the machine dictionary: as pure, cited DATA.
+
+**INPUT — French resolves to the English concept.** `Lexicon::overlay_into(net)` binds each French
+headword into the meaning network AS its English gloss words (`éviter` → {avoid, evade}), then seals.
+Because the concept graph measures meaning as SET OVERLAP of definition vocabulary, a French word then
+lands next to its English synonym on the identical graph: measured on the shipped dictionary,
+`related("éviter","avoid")` sits far inside synonym range while `related("éviter","dog")` sits at the
+orthogonal floor (`lint_lang::tests::overlay_binds_french_to_english_concept`). French documentation
+prose then reads through the SAME graph and the SAME rules; no rule logic is touched. (Full French
+PROHIBITION firing end-to-end — `jamais`/`ne…pas` reaching `English::is_negation`, which reads
+negation off ENGLISH definition-compounding — is PARTIAL: the gloss carries a French negator's meaning
+onto its English negator, but the grammar of French negation is not modeled. Honest boundary, not
+overclaimed.)
+
+**OUTPUT — a finding renders in French, concept by concept.** `Lexicon::render` glosses a finding's
+content words and the verdict's structured labels back through the SAME lexicon (a reverse,
+primary-sense index: English word → the French headword whose PRIMARY translation it is). Severity and
+template terms translate the same way (`high`→`haut`, `low`→`bas`, `error`→`erreur`, `never`→`jamais`).
+A word the bilingual dictionary does not carry stays English — reported, never faked. This is a
+CONCEPT/WORD-level overlay, deliberately NOT full-sentence grammatical translation (that is HARD and is
+not promised): the structured defect and its key terms surface in French; French word order and
+agreement are not modeled. The reverse map is inherently lossy (French `parer` and `éviter` both mean
+"avoid") — the overlay picks the primary-sense headword and is honest that a different valid synonym
+may be chosen.
+
+**Configuration is DATA/config, never code.** `LintConfig.io_language` (default `"english"`) or
+`HELPERS_LINT_LANG=<lang>` selects the I/O language; `english`/absent ⇒ the overlay never loads and
+output is identical. Adding a language is adding its `lang/<lang>.tsv` — zero code change.
+
 ## The modular rebuild — understanding shapes rules, per module (IN PROGRESS, owner directive 2026-07-09)
 
 > This is the authoritative Phase-A design for the owner-directed rebuild. Spec before code
