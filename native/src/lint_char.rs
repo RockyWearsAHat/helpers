@@ -498,6 +498,42 @@ const GENERIC_COMPANION_PCT: f64 = 0.10;
 /// Storage is bounded and delta-honest: only the compact headword→definition-word list rides the
 /// artifact (deflated strings, capped at [`MAX_MEANING_WORDS`] per entry — a few MB, not one 1KB
 /// hypervector per headword), and the meaning vector is REBOUND from those words on query.
+/// A thread-safe memo of a PURE word→vector binding ([`MeaningNetwork::meaning_of`] /
+/// [`context_of`](MeaningNetwork::context_of)): rebinding a meaning bundles dozens of 8192-bit
+/// vectors, and the understanding→trace bridge asks for the SAME words hundreds of times (a
+/// concept scored against every primitive descriptor, the fixed descriptors scored against every
+/// token of every principle). Caching the pure result keyed by the word's lowercased seed turns
+/// that quadratic rebind into one bundle per distinct word — the `lint_query rules` re-derivation
+/// dropped from ~100s to seconds. The cache is DERIVED state, never identity: it does not ride the
+/// artifact (a decoded network starts empty and refills on demand) and [`Clone`] yields an empty
+/// memo. Bounded by the vocabulary the reasoning touches (corpus + descriptor + rule words), not
+/// by file contents — the lint hot path never rebinds meanings.
+#[derive(Default)]
+struct HvMemo(std::sync::RwLock<HashMap<u64, Option<crate::lint_ai::Hv>>>);
+
+impl Clone for HvMemo {
+    fn clone(&self) -> Self {
+        HvMemo::default()
+    }
+}
+
+impl HvMemo {
+    /// The cached binding for `key`, or `compute()` inserted and returned. Pure: `compute` must be
+    /// a function of `key` alone so a hit and a miss are indistinguishable.
+    fn get_or<F: FnOnce() -> Option<crate::lint_ai::Hv>>(&self, key: u64, compute: F) -> Option<crate::lint_ai::Hv> {
+        if let Ok(m) = self.0.read() {
+            if let Some(hit) = m.get(&key) {
+                return *hit;
+            }
+        }
+        let computed = compute();
+        if let Ok(mut m) = self.0.write() {
+            m.insert(key, computed);
+        }
+        computed
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct MeaningNetwork {
     /// Headword token seed → its definition's leading content words. Sorted by seed once
@@ -529,6 +565,12 @@ pub struct MeaningNetwork {
     /// grows it; [`seal`](Self::seal) ranks it into [`usage`](Self::usage) and clears it. Empty on
     /// a decoded network — a loaded brain reads its sealed usage, it does not re-observe.
     obs: HashMap<u64, HashMap<u64, (String, u32)>>,
+    /// Memo of [`meaning_of`](Self::meaning_of) — pure, keyed by lowercased word seed. Derived
+    /// state (skips the artifact; empty on a fresh/decoded network). See [`HvMemo`].
+    meaning_memo: HvMemo,
+    /// Memo of [`context_of`](Self::context_of) — the distributional (usage-only) vector. Same
+    /// derived-cache contract as [`meaning_memo`](Self::meaning_memo).
+    context_memo: HvMemo,
 }
 
 impl MeaningNetwork {
@@ -540,6 +582,8 @@ impl MeaningNetwork {
             usage: Vec::new(),
             usage_df: Vec::new(),
             obs: HashMap::new(),
+            meaning_memo: HvMemo::default(),
+            context_memo: HvMemo::default(),
         }
     }
 
@@ -615,6 +659,14 @@ impl MeaningNetwork {
     /// sense's words stay, in front), never overwrites — so binding more material and sealing
     /// again grows meanings without losing any.
     pub fn seal(&mut self) {
+        // Sealing rebinds every meaning, so any memo built against an earlier state is stale —
+        // drop both (they refill lazily on the next query against the freshly sealed network).
+        if let Ok(m) = self.meaning_memo.0.get_mut() {
+            m.clear();
+        }
+        if let Ok(m) = self.context_memo.0.get_mut() {
+            m.clear();
+        }
         self.defs.sort_by_key(|(k, _)| *k);
         let mut folded: Vec<(u64, Vec<String>)> = Vec::with_capacity(self.defs.len());
         for (seed, words) in self.defs.drain(..) {
@@ -789,6 +841,13 @@ impl MeaningNetwork {
     /// and STABLE — the same word always rebinds the same vector (the weights ride the sealed
     /// network), so a round-tripped network answers identically. `None` when no definition is bound.
     pub fn meaning_of(&self, word: &str) -> Option<Hv> {
+        let key = crate::lint_ai::token_seed(&word.to_lowercase());
+        self.meaning_memo.get_or(key, || self.meaning_of_uncached(word))
+    }
+
+    /// The uncached [`meaning_of`](Self::meaning_of) computation — one bundle rebind. Kept private
+    /// so every caller pays through the memo; only [`meaning_of`](Self::meaning_of) calls it.
+    fn meaning_of_uncached(&self, word: &str) -> Option<Hv> {
         let mut b = Bundler::new();
         if let Some(words) = self.definition(word) {
             self.bundle_definition(&mut b, words);
@@ -853,6 +912,13 @@ impl MeaningNetwork {
     /// concept it never shares a dictionary definition with. `None` when the corpus never observed
     /// the word.
     pub fn context_of(&self, word: &str) -> Option<Hv> {
+        let key = crate::lint_ai::token_seed(&word.to_lowercase());
+        self.context_memo.get_or(key, || self.context_of_uncached(word))
+    }
+
+    /// The uncached [`context_of`](Self::context_of) computation — one usage-only bundle rebind.
+    /// Private so every caller pays through the memo.
+    fn context_of_uncached(&self, word: &str) -> Option<Hv> {
         let usage = self.usage_of(word)?;
         let mut b = Bundler::new();
         for (coword, count) in usage {
@@ -1019,7 +1085,15 @@ impl crate::lint_codec::Bin for MeaningNetwork {
             return None;
         }
         let usage_df = udf_keys.into_iter().zip(udf_vals).collect();
-        Some(MeaningNetwork { defs, df, usage, usage_df, obs: HashMap::new() })
+        Some(MeaningNetwork {
+            defs,
+            df,
+            usage,
+            usage_df,
+            obs: HashMap::new(),
+            meaning_memo: HvMemo::default(),
+            context_memo: HvMemo::default(),
+        })
     }
 }
 
