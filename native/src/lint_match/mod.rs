@@ -372,6 +372,26 @@ impl RuleSet {
             // comes from what the docs MEAN, not from a token diff scraped off an illustration.
             let bound_trace = if is_corpus_principle {
                 crate::lint_trace::understand_canon(desc)
+            } else if !has_grammar {
+                // No bundled grammar ⇒ no AST to trace over. An understanding Plan (even
+                // `uses_construct`) is fired by `run_plan`, which needs a tree; without one every
+                // trace silently yields nothing. So a grammarless language's doc rule is NOT routed
+                // through understanding — it falls to the token detector below, which reads the raw
+                // text. (Routing it through understanding unconditionally was the regression that
+                // left "Never use the goto statement" a non-firing trace on grammarless flowlang.)
+                None
+            } else if !bad.trim().is_empty() && !good.trim().is_empty() {
+                // PROPOSE-VERIFY-LEARN (LINTER.md, "PROPOSE-VERIFY-LEARN is the language path"):
+                // understanding PROPOSES candidate checks from the prose; the binding's OWN paired
+                // examples PROVE them (fire on `bad`, stay clean on `good`); only a PROVEN plan is
+                // learned and remembered ([`lint_trace::learn_verified`]). Verification — not the
+                // low-recall positional-negation gate — reaches a real rule the docs phrase as
+                // "avoid `eval`" or "`with` is deprecated" (which the gate never fires on), proven
+                // against the docs' own example pair. When neither verification nor the gated
+                // `understand` shapes a plan, the token/AST detector below carries it (a rule the
+                // reader knows from examples but understanding cannot yet express structurally).
+                crate::lint_trace::learn_verified(desc, lang, bad, good)
+                    .or_else(|| crate::lint_trace::understand(desc))
             } else {
                 crate::lint_trace::understand(desc)
             };

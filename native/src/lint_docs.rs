@@ -866,7 +866,12 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
         // ENTRY ON UNDERSTANDING (module doc): the grounded classifier reads the prohibition's
         // REGISTER (needed to pair the fix and rank the construct), but only the meaning network
         // decides that a prohibition was STATED. Neutral reference prose reaches `classify` on
-        // register similarity yet states no prohibition, so it never mints.
+        // register similarity yet states no prohibition, so it never mints. (MEASURED 2026-07-10:
+        // relaxing this to admit any prohibition-register binding with a good pair let verification
+        // downstream be the filter, but on MDN it added no verified construct rule — the prose
+        // fragments do not name a construct `extract_construct` recognises — and admitted token-
+        // detector junk, so the hard gate is kept; the PROPOSE-VERIFY-LEARN path fires on the
+        // bindings that DO command a prohibition, e.g. "Never use `var`".)
         if !english.states_prohibition(&b.prose) {
             continue;
         }

@@ -504,11 +504,12 @@ impl<'a> Bridge<'a> {
         // MEASURED 2026-07-10: dropping this gate made the reader flag every construct the docs
         // mention (`uses_construct(let)`, `(const)`, `(map())`) — over-generation, not understanding.
         // KNOWN LIMITATION: the gate is a positional-negation heuristic (a lead "never"/"not"), so it
-        // misses MDN's dominant phrasings ("deprecated", "avoid", "should not") — recall is low. The
-        // planned replacement is PROPOSE-then-VERIFY (LINTER.md): understanding proposes the rule,
-        // reality proves it against the docs' own bad/good examples, and only a PROVEN rule is
-        // learned — verification, not a gate, is the filter. Until that lands the gate stays, trading
-        // recall for precision.
+        // misses MDN's dominant phrasings ("deprecated", "avoid", "should not") — recall is low. This
+        // is why the LANGUAGE path no longer relies on it: it goes through PROPOSE-then-VERIFY
+        // ([`understand_verified`], LINTER.md "PROPOSE-VERIFY-LEARN"), where understanding proposes the
+        // rule and reality proves it against the docs' own bad/good examples — verification, not this
+        // gate, is the filter. The gate stays ONLY on this plain `understand`/`explain` path, which has
+        // no examples to prove against, trading recall for precision.
         if !ex.prohibition {
             ex.abstain = Some("states no prohibition — the meaning-based gate did not fire".to_string());
             return ex;
@@ -831,11 +832,16 @@ impl<'a> Bridge<'a> {
     /// no model to referee, REALITY referees — a check earns the rule only by working. It is
     /// cheat-proof by construction, three ways:
     ///
-    ///   * the candidates are ONLY the general structural senses ([`PREDICATES`], self-bad) — never a
-    ///     snippet matcher, so a winner cannot overfit the literal example;
+    ///   * the candidates are only GENERAL senses — the structural primitives ([`PREDICATES`]/
+    ///     [`RELATIONS`]) and, for a real language rule, `uses_construct(name)` where `name` is
+    ///     extracted covenant-clean from the prose ([`extract_construct`]) — never a snippet matcher,
+    ///     so a winner cannot overfit the literal example;
     ///   * a winner MUST fire on `bad` AND stay clean on `good` — a lazy check that flags everything
-    ///     is rejected by the good example (the anti-cheat the good half exists for);
-    ///   * the plan is the SIMPLEST shape (one unary sense), and when several senses survive,
+    ///     is rejected by the good example (the anti-cheat the good half exists for). This is also
+    ///     what discards a REMEDY construct the prose names ("use `let` instead"): `let` is in the
+    ///     good example, so `uses_construct(let)` fires-good and never verifies;
+    ///   * a CS PRIMITIVE that verifies always beats a `uses_construct` (understanding a defect beats
+    ///     matching a token); within a tier the plan is the SIMPLEST shape, and when several survive
     ///     UNDERSTANDING breaks the tie (the survivor whose meaning is nearest the principle's own
     ///     central concepts) — reality picks the checks that work, comprehension picks which working
     ///     check the principle is ABOUT.
@@ -852,21 +858,22 @@ impl<'a> Bridge<'a> {
         bad: &str,
         good: &str,
     ) -> Option<Plan> {
-        // Only a stated prohibition enforces — the same meaning-based gate `understand` uses.
+        // NO prohibition gate on this path (Task-3 logic, LINTER.md "PROPOSE-VERIFY-LEARN"): a
+        // candidate a false reading would propose cannot PROVE itself against the docs' real
+        // bad/good, so the positional-negation gate `understand` uses is redundant here — and it is
+        // the low-recall wall that made the language path enforce almost nothing ("deprecated",
+        // "avoid" never gate). Verification is the filter. `explain` is still read, only for the
+        // concepts each sentence aligns (the comprehension guard below), never to decide enforcement.
         let ex = self.explain(description);
-        if !ex.prohibition {
-            return None;
-        }
         // The COMPREHENSION GUARD: the primitives the principle's own concepts aligned to. A
-        // candidate check may use ONLY these — a shape that merely happens to fire on a tiny
+        // PRIMITIVE candidate may use ONLY these — a shape that merely happens to fire on a tiny
         // example (`present_without(control_exit \ documented)` on an unreachable-code example, say)
         // is rejected because the principle never NAMES `documented`. Reality proves a check works;
-        // understanding proves it is the one the principle is ABOUT. Empty ⇒ nothing to enforce.
+        // understanding proves it is the one the principle is ABOUT. An EMPTY set does NOT abstain
+        // here: a bare construct rule ("avoid `eval`") aligns no primitive yet still verifies as a
+        // `uses_construct` candidate below — the construct is grounded in the prose, not a primitive.
         let named: std::collections::HashSet<&str> =
             ex.concepts.iter().filter_map(|c| c.aligned.as_deref()).collect();
-        if named.is_empty() {
-            return None;
-        }
         let allowed = |names: &[&str]| names.iter().all(|n| named.contains(n));
         // VERIFY: a check earns the rule only by FIRING on the bad shape and staying CLEAN on good.
         let fires = |plan: &Plan| {
@@ -890,14 +897,18 @@ impl<'a> Bridge<'a> {
         let nearness = |words: &[&str]| {
             concepts.iter().map(|w| self.score(w, words)).min().unwrap_or(DIM as u32)
         };
-        let mut candidates: Vec<(Plan, usize, u32)> = Vec::new();
+        // Each candidate carries `(plan, tier, arity, nearness)`. TIER 0 = a CS PRIMITIVE (a
+        // structural defect), TIER 1 = a `uses_construct` token check: a primitive that verifies
+        // ALWAYS beats a construct (understanding a defect beats matching a token). Within a tier the
+        // SIMPLEST shape wins (fewest primitives), UNDERSTANDING (lower nearness) breaking the tie.
+        let mut candidates: Vec<(Plan, u8, usize, u32)> = Vec::new();
         // Unary — one self-bad predicate ("an unwrap", "a swallowed error").
         for (i, p) in PREDICATES.iter().enumerate() {
             let names = [p.name];
             if p.self_bad && allowed(&names) {
                 let plan = Plan::Unary(vec![i]);
                 if fires(&plan) {
-                    candidates.push((plan, 1, nearness(p.words)));
+                    candidates.push((plan, 0, 1, nearness(p.words)));
                 }
             }
         }
@@ -911,7 +922,7 @@ impl<'a> Bridge<'a> {
                 }
                 let plan = Plan::PresentWithout { present: vec![pi], absent: vec![ai] };
                 if fires(&plan) {
-                    candidates.push((plan, 2, nearness(pp.words).min(nearness(ap.words))));
+                    candidates.push((plan, 0, 2, nearness(pp.words).min(nearness(ap.words))));
                 }
             }
         }
@@ -928,17 +939,63 @@ impl<'a> Bridge<'a> {
                     if fires(&plan) {
                         let near =
                             nearness(r.words).min(nearness(ap.words)).min(nearness(bp.words));
-                        candidates.push((plan, 3, near));
+                        candidates.push((plan, 0, 3, near));
                     }
                 }
             }
         }
-        // SIMPLEST verified shape wins; UNDERSTANDING (lower nearness = closer to the principle's
-        // concepts) breaks the tie. A single survivor needs no tie-break.
+        // USES_CONSTRUCT (tier 1) — the prose NAMES a specific code construct whose USE is the
+        // violation ("avoid `eval`", "the `with` statement is deprecated"). Propose the construct
+        // each sentence names (the same covenant-clean [`extract_construct`]: a backtick, or a
+        // grammar/non-English syntax token at least as central as the sentence's median) and keep
+        // only those that fire-bad and stay-clean-good. A REMEDY alternative ("use `let` instead")
+        // is proposed too but REJECTED — it appears in the GOOD example, so it fires-good and fails
+        // clean-good: verification, not sentence position, is what discards it. This is what lets a
+        // deprecation the gate never fires on ("`var` is deprecated") still learn, PROVEN against the
+        // docs' own paired example. `nearness` is `DIM - centrality` so the more distinctive
+        // construct wins among survivors; the tier keeps every construct below every CS primitive.
+        let mut seen_construct: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for sentence in crate::lint_read::sentences(description) {
+            let baseline = self.sentence_baseline(sentence);
+            let Some(construct) = self.extract_construct(sentence, baseline) else { continue };
+            if !seen_construct.insert(construct.clone()) {
+                continue;
+            }
+            let near = (DIM as u32).saturating_sub(self.meanings.centrality(&construct));
+            let plan = Plan::UsesConstruct { construct };
+            if fires(&plan) {
+                candidates.push((plan, 1, 1, near));
+            }
+        }
+        // The BEST candidate: lowest tier (primitive over construct), then simplest shape, then the
+        // check nearest the principle's own concepts. A single survivor needs no tie-break.
         candidates
             .into_iter()
-            .min_by_key(|(_, arity, near)| (*arity, *near))
-            .map(|(plan, _, _)| plan)
+            .min_by_key(|(_, tier, arity, near)| (*tier, *arity, *near))
+            .map(|(plan, _, _, _)| plan)
+    }
+
+    /// The sentence's CENTRAL baseline — the median distinctiveness of its understood content words,
+    /// the comparative gate [`extract_construct`] uses to reject an incidental keyword-shaped common
+    /// word. Mirrors the baseline [`explain_sentence`](Self::explain_sentence) computes (operators
+    /// and inner-negations excluded; words the meaning network has no vector for excluded, since
+    /// their rarity-driven centrality would inflate the median), so a construct proposed here is held
+    /// to exactly the standard the plain path holds it to.
+    fn sentence_baseline(&self, sentence: &str) -> u32 {
+        let mut centralities: Vec<u32> = Vec::new();
+        for (_, tok) in tokenize(sentence) {
+            if tok.len() < 3 || !tok.chars().all(|c| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            if self.is_inner_negation(&tok) || self.is_negator(&tok) {
+                continue;
+            }
+            let (_, best, _) = self.align_scored(&tok);
+            if best < DIM as u32 {
+                centralities.push(self.meanings.centrality(&tok));
+            }
+        }
+        median(centralities)
     }
 }
 
@@ -1710,6 +1767,36 @@ mod tests {
         eprintln!("    bad flags {hits_bad:?}; good flags {hits_good:?}");
         assert!(hits_bad.contains(&2), "the `var` on line 2 flags: {hits_bad:?}");
         assert!(hits_good.is_empty(), "let/const code is clean: {hits_good:?}");
+    }
+
+    /// VERIFICATION REACHES A RULE THE GATE MISSES (owner directive 2026-07-10 — the language-path
+    /// unlock). Real docs phrase a prohibition as "The `var` statement is deprecated" — NO leading
+    /// negation, so the positional gate `understand` uses returns FALSE and `understand` ABSTAINS.
+    /// `understand_verified` proposes `uses_construct(var)` and PROVES it against the docs' own
+    /// example pair (fires on `var`, clean on `let`) — verification, not the gate, is the filter. The
+    /// remedy construct `let` (present in the good example) is proposed too but rejected (fires-good).
+    #[test]
+    #[ignore = "reads the local dictionary + js grammar; the verified construct-learning proof"]
+    fn verified_learns_construct_the_gate_misses() {
+        let char_brain = crate::lint_char::brain().expect("char brain");
+        let english = crate::lint_english::brain().expect("english brain");
+        let bridge = Bridge::new(char_brain.meanings(), english);
+        let prose = "The var statement is deprecated. Use let instead.";
+        // The positional-negation gate abstains — no leading "never"/"not".
+        assert!(bridge.understand(prose).is_none(), "the gate misses the deprecation phrasing");
+        let bad = "function f() {\n    var x = 1;\n    return x;\n}\n";
+        let good = "function f() {\n    let x = 1;\n    return x;\n}\n";
+        let verified = bridge
+            .understand_verified(prose, "javascript", bad, good)
+            .expect("verification proves a construct the gate missed");
+        eprintln!("verified (gate-missed): {}", verified.describe());
+        assert!(
+            matches!(&verified, Plan::UsesConstruct { construct } if construct == "var"),
+            "proves uses_construct(var), not the `let` remedy: {}",
+            verified.describe()
+        );
+        assert!(!run_plan(&verified, "javascript", bad).is_empty(), "fires on var");
+        assert!(run_plan(&verified, "javascript", good).is_empty(), "clean on let");
     }
 
     /// COVERAGE MAP (owner directive): read EVERY language-agnostic principle across the owner's
