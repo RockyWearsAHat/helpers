@@ -707,12 +707,52 @@ fn severity_rank(sev: &str) -> u8 {
     }
 }
 
+/// Condense a rule's advice to the ONE enforceable sentence for display. A canon principle's
+/// description is its whole Markdown section — a heading line joined to several body sentences —
+/// which is training input for understanding, not a finding message. Dumping all of it made a
+/// single DRY hit render as six lines of rubric. This drops leading heading lines (a `#`/`N.`/
+/// bullet-marked line) and returns the first real body sentence, capped — the concise statement of
+/// the violation. Prose that is already a single short sentence passes through unchanged.
+fn condense_advice(advice: &str) -> String {
+    let body = advice
+        .lines()
+        .map(str::trim)
+        .find(|l| {
+            !l.is_empty()
+                && !l.starts_with('#')
+                && !l.starts_with(['-', '*'])
+                // A "12. DRY — …" heading line: digits then a dot. A real sentence never opens so.
+                && !l.split_whitespace().next().is_some_and(|w| w.trim_end_matches('.').chars().all(|c| c.is_ascii_digit()) && w.ends_with('.'))
+        })
+        .unwrap_or(advice.trim());
+    // First sentence: up to a terminal '.', '!' or '?' followed by space/end — not a decimal point.
+    let bytes = body.as_bytes();
+    let mut end = body.len();
+    for (i, &b) in bytes.iter().enumerate() {
+        if matches!(b, b'.' | b'!' | b'?')
+            && bytes.get(i + 1).is_none_or(|n| n.is_ascii_whitespace())
+            && !bytes.get(i.wrapping_sub(1)).is_some_and(u8::is_ascii_digit)
+        {
+            end = i + 1;
+            break;
+        }
+    }
+    let first = body[..end].trim();
+    // A defensive length cap for a pathological run-on sentence with no early terminator.
+    if first.chars().count() > 200 {
+        let cut: String = first.chars().take(197).collect();
+        format!("{}…", cut.trim_end())
+    } else {
+        first.to_string()
+    }
+}
+
 /// Collapse a file's hits into readable lines: one per distinct rule, carrying the advice once and
 /// the lines it occurred on (capped), highest-severity first.
 fn group_hits(hits: &[Hit]) -> Vec<String> {
     let mut groups: Vec<(String, String, String, String, Vec<usize>)> = Vec::new(); // (rule, sev, advice, source, lines)
     for h in hits {
-        let advice = if h.advice.is_empty() { format!("violates `{}`", h.rule) } else { h.advice.clone() };
+        let advice = if h.advice.is_empty() { format!("violates `{}`", h.rule) } else { condense_advice(&h.advice) };
         if let Some(g) = groups.iter_mut().find(|g| g.0 == h.rule) {
             g.4.push(h.line);
         } else {
