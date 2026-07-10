@@ -430,65 +430,6 @@ impl crate::lint_codec::Bin for ConceptModel {
     }
 }
 
-// ── Language keyword set (still used by memory/embed for token normalization) ──
-
-/// Keywords and well-known built-ins that the memory subsystem's token normalizer preserves.
-pub fn keywords() -> &'static std::collections::HashSet<&'static str> {
-    static SET: OnceLock<std::collections::HashSet<&'static str>> = OnceLock::new();
-    SET.get_or_init(|| [
-        "if", "else", "elif", "for", "while", "do", "switch", "case", "default",
-        "break", "continue", "return", "yield", "loop", "match", "defer", "goto",
-        "select", "range", "then",
-        "var", "let", "mut", "const", "static", "final",
-        "fn", "func", "fun", "def", "function",
-        "class", "struct", "enum", "interface", "trait", "type",
-        "impl", "extends", "implements", "mod", "module", "namespace",
-        "pub", "public", "private", "protected", "abstract", "native",
-        "synchronized", "transient", "volatile", "override", "virtual",
-        "readonly", "declare", "sealed",
-        "try", "catch", "except", "finally", "throw", "raise", "throws",
-        "void", "int", "long", "short", "byte", "float", "double", "char",
-        "bool", "boolean", "str", "string", "uint", "usize", "isize",
-        "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128",
-        "f32", "f64",
-        "null", "undefined", "nil", "None", "Some", "Ok", "Err",
-        "true", "false", "True", "False", "NaN", "Infinity",
-        "async", "await", "sync", "unsafe", "move", "ref", "box", "dyn", "where",
-        "import", "export", "from", "use", "require", "include",
-        "package", "crate", "extern", "super", "self", "Self",
-        "new", "delete", "typeof", "instanceof", "in", "of", "as",
-        "is", "not", "and", "or", "with", "pass", "assert", "del",
-        "global", "nonlocal", "lambda",
-        "this", "super",
-        "go", "chan", "make", "cap", "close", "recover", "panic",
-        "console", "Math", "Object", "Array", "String", "Number", "Boolean",
-        "Promise", "Error", "JSON", "Symbol", "Map", "Set", "WeakMap", "WeakSet",
-        "Date", "RegExp", "Buffer", "process", "global", "window", "document",
-        "eval", "arguments", "prototype", "constructor",
-        "print", "len", "range", "list", "dict", "tuple", "type", "set",
-        "isinstance", "hasattr", "getattr", "setattr", "open", "input", "iter",
-        "next", "enumerate", "zip", "map", "filter", "sorted", "reversed",
-        "staticmethod", "classmethod", "property", "super",
-        "Vec", "HashMap", "HashSet", "BTreeMap", "BTreeSet",
-        "Option", "Result", "Box", "Rc", "Arc", "Cell", "RefCell",
-        "println", "eprintln", "format", "todo", "unimplemented", "unreachable",
-        "assert", "assert_eq", "assert_ne", "debug_assert",
-        "unwrap", "expect", "clone", "collect", "iter", "into_iter",
-        "push", "pop", "len", "is_empty", "contains", "insert", "remove",
-        "unwrap_or", "unwrap_or_else",
-        "log", "warn", "error", "info", "debug",
-        "get", "set", "has", "add",
-        "map", "filter", "reduce", "find", "some", "every", "includes",
-        "join", "split", "slice", "splice", "concat", "flat", "flatMap",
-        "toString", "valueOf", "toFixed", "toInt", "toFloat",
-        "apply", "call", "bind",
-        "then", "catch", "finally",
-        "keys", "values", "entries", "assign", "create", "freeze",
-        "parseInt", "parseFloat", "isNaN", "isFinite",
-        "throws", "abstract", "native", "strictfp",
-    ].iter().copied().collect())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -363,7 +363,18 @@ impl RuleSet {
             // spell-matched the `duplicated_code` probe and fired on innocent repeated lines. The
             // bridge binds 10/10 of the probe-mechanism fixture through MEANING, so nothing is lost:
             // a canon principle enforces through understanding or drops — never a spelling match.
-            let bound_trace = if is_corpus_principle { crate::lint_trace::understand_canon(desc) } else { None };
+            // BOTH origins now read through the SAME understanding→trace bridge (the token-miner is
+            // retired for modules — LINTER.md, "The per-language training pipeline"). A corpus
+            // principle reads the language-AGNOSTIC canon (structural primitives only); a language-doc
+            // rule reads the GENERAL scope, where a prohibition naming a construct shapes
+            // `uses_construct` ("avoid the `with` statement" → uses_construct(with)) — understood from
+            // the PROSE, no bad/good example snippet required. Understanding-first means a real rule
+            // comes from what the docs MEAN, not from a token diff scraped off an illustration.
+            let bound_trace = if is_corpus_principle {
+                crate::lint_trace::understand_canon(desc)
+            } else {
+                crate::lint_trace::understand(desc)
+            };
             if is_corpus_principle && bound_trace.is_none() {
                 dropped(id, "corpus principle: understanding abstains (nothing structural to enforce)");
                 continue;
