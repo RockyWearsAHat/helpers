@@ -736,8 +736,13 @@ impl<'a> Bridge<'a> {
         let (pa, pb) = (pref(first.2), pref(second.2));
         let tie = ENDPOINT_TIE * DIM as f64;
         let (a_pred, b_pred) = if (pa - pb).abs() > tie {
-            // The more B-leaning role (nearer endpoint_b) is endpoint B.
-            if pb > pa {
+            // `pref = dist(endpoint_b) - dist(endpoint_a)`, so a HIGHER pref means NEARER endpoint_a.
+            // The role nearer endpoint_a is endpoint A; the other is endpoint B. (This was inverted:
+            // it sent the endpoint_a-leaning role to B, so "a statement that follows a return"
+            // compiled with `return` as the LATER endpoint — `follows_in_block` yields (later,
+            // earlier) pairs, so the rule then looked for a control-exit AFTER a statement and never
+            // fired on real dead code. Getting the direction right is what makes dead-code fire.)
+            if pa >= pb {
                 (first.0, second.0)
             } else {
                 (second.0, first.0)

@@ -27,6 +27,38 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+/// Seed the isolated models dir with the machine's REAL trained brain so understanding runs.
+///
+/// The linter's canon path is the understanding→trace bridge, and the bridge reasons through the
+/// dictionary meaning network the brain carries — the brain always runs (there is no spelling
+/// fallback). An empty models dir would starve it, so this copies the four brain artifacts from
+/// the machine-global store into the test's isolated `.test-models`: the run then reads real
+/// understanding but writes its trained modules into the temp dir, staying isolated. The brain is
+/// a precondition, not a network dependency — it is built once by `lint_config action=train`; if
+/// it is absent the test fails loudly with how to build it rather than silently testing nothing.
+fn seed_brain(models: &std::path::Path) {
+    fs::create_dir_all(models).expect("test models dir");
+    let real = std::env::var_os("HELPERS_LINT_MODELS")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/helpers/lint-models")))
+        .expect("a real models dir to seed the brain from");
+    let artifacts = ["char.global.bin", "char.global.fp", "english.global.bin", "polarity.global.bin"];
+    for name in artifacts {
+        let src = real.join(name);
+        assert!(
+            src.exists(),
+            "the trained brain is missing ({}). This test reasons through the real brain; build it \
+             once with `helpers-native call lint_config` action=train (setup needs internet).",
+            src.display()
+        );
+        // Copy only if absent/stale so repeated `lint()` calls do not re-copy megabytes each time.
+        let dst = models.join(name);
+        if !dst.exists() {
+            fs::copy(&src, &dst).unwrap_or_else(|e| panic!("seed {name}: {e}"));
+        }
+    }
+}
+
 /// A throwaway project with the isolated cache/home a hermetic lint run needs.
 struct TestProject {
     root: PathBuf,
@@ -58,11 +90,13 @@ impl TestProject {
 
     /// Run `helpers-native call lint` on this project and return the rendered verdict text.
     fn lint(&self) -> String {
+        let models = self.root.join(".test-models");
+        seed_brain(&models);
         let request = format!(r#"{{"root":{:?}}}"#, self.root.to_string_lossy());
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_helpers-native"));
         cmd.args(["call", "lint"])
             .current_dir(&self.root)
-            .env("HELPERS_LINT_MODELS", self.root.join(".test-models"))
+            .env("HELPERS_LINT_MODELS", &models)
             .env("HOME", self.root.join(".test-home"))
             .env("HELPERS_LINT_OFFLINE", "1")
             .stdin(Stdio::piped())

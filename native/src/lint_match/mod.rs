@@ -342,25 +342,34 @@ impl RuleSet {
             // binds ⇒ there is nothing structural to enforce, and a general principle must not
             // fall back to a token detector on its English words (that was the net-negative noise
             // — a rule watching `command`, a document title firing as law).
-            let is_corpus_principle = source.contains("/corpus/") && bad.trim().is_empty();
+            // A machine-global canon principle (`corpus/*.md`) is ALWAYS understanding-routed,
+            // even when the doc bundles an illustration example: the canon states language-agnostic
+            // design law, and its Java/`// Bad` snippet is a teaching illustration, NOT a token
+            // detector source. Requiring `bad.is_empty()` here was the diversion bug — a principle
+            // like "6. Never Swallow Exceptions" (illustrated with a Java try/catch) failed the
+            // empty-bad test, skipped understanding, and compiled a per-language token detector off
+            // the illustration (junk that fired on innocent lines). A canon principle enforces
+            // through the trace bridge or abstains; it never becomes a token/example detector.
+            let is_corpus_principle = source.contains("/corpus/");
             // UNDERSTANDING→TRACE first (the rule IS the understanding): read the principle's prose
             // into a composition of generic primitives ([`crate::lint_trace`]). Only when the bridge
             // ABSTAINS does the committed per-principle probe fallback get a turn (run alongside
             // until the live anti-cheat passes; LINTER.md).
+            // The understanding→trace bridge is the SOLE canon path — the brain always runs.
+            // Its abstention is MEANINGFUL: the principle maps to no structural shape, so the rule
+            // DROPS. The `lint_probe` spelling-centroid fallback is retired (LINTER.md end-state):
+            // it bound principles by SHARED SPELLING, so canon prose the bridge correctly abstains
+            // on ("Comments explain why not what", "Match the algorithm family…") spuriously
+            // spell-matched the `duplicated_code` probe and fired on innocent repeated lines. The
+            // bridge binds 10/10 of the probe-mechanism fixture through MEANING, so nothing is lost:
+            // a canon principle enforces through understanding or drops — never a spelling match.
             let bound_trace = if is_corpus_principle { crate::lint_trace::understand_canon(desc) } else { None };
-            let bound_probe = if is_corpus_principle && bound_trace.is_none() {
-                crate::lint_probe::understand(desc)
-            } else {
-                None
-            };
-            if is_corpus_principle && bound_trace.is_none() && bound_probe.is_none() {
-                dropped(id, "corpus principle: neither the trace bridge nor a probe recognises this prose (nothing structural to enforce)");
+            if is_corpus_principle && bound_trace.is_none() {
+                dropped(id, "corpus principle: understanding abstains (nothing structural to enforce)");
                 continue;
             }
             let kind = if let Some(plan) = bound_trace {
                 MatchKind::Trace(plan)
-            } else if let Some(probe) = bound_probe {
-                MatchKind::Probe(probe.name().to_string())
             } else if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
                     // AST pattern — lossless and most precise.
