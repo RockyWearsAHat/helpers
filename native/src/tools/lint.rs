@@ -54,6 +54,13 @@ pub struct LintConfig {
     /// When set, only these languages are reviewed (in addition to any `--lang` CLI flag).
     #[serde(default)]
     pub languages: Option<Vec<String>>,
+    /// The HUMAN language findings are rendered in (and, ahead, foreign docs are read in) — the I/O
+    /// overlay of LINTER.md, "The human-language I/O overlay". Default `"english"` (empty ⇒ same):
+    /// output is byte-for-byte unchanged. `"fr"`/`"french"` renders findings through the French
+    /// concept lexicon. `HELPERS_LINT_LANG` overrides this for a one-off run. Data/config only — no
+    /// translation lives in code.
+    #[serde(default)]
+    pub io_language: String,
 }
 
 /// Load `.helpers/lint.json` from the project root, returning defaults on any read/parse error.
@@ -747,9 +754,20 @@ fn condense_advice(advice: &str) -> String {
     }
 }
 
+/// Translate human-readable finding/verdict text into the selected I/O language, when one is set —
+/// a word-level concept gloss through the bilingual overlay (LINTER.md, "The human-language I/O
+/// overlay"). `None` (English default) returns the text unchanged, so English output is identical.
+fn tr(lex: Option<&crate::lint_lang::Lexicon>, text: &str) -> String {
+    match lex {
+        Some(l) => l.render(text),
+        None => text.to_string(),
+    }
+}
+
 /// Collapse a file's hits into readable lines: one per distinct rule, carrying the advice once and
-/// the lines it occurred on (capped), highest-severity first.
-fn group_hits(hits: &[Hit]) -> Vec<String> {
+/// the lines it occurred on (capped), highest-severity first. When `lex` is set the severity label
+/// and advice render in the selected I/O language; the rule id and source citation stay verbatim.
+fn group_hits(hits: &[Hit], lex: Option<&crate::lint_lang::Lexicon>) -> Vec<String> {
     let mut groups: Vec<(String, String, String, String, Vec<usize>)> = Vec::new(); // (rule, sev, advice, source, lines)
     for h in hits {
         let advice = if h.advice.is_empty() { format!("violates `{}`", h.rule) } else { condense_advice(&h.advice) };
@@ -769,7 +787,7 @@ fn group_hits(hits: &[Hit]) -> Vec<String> {
             let more = if count > 6 { format!(", +{} more", count - 6) } else { String::new() };
             let occ = if count == 1 { format!("L{}", lines[0]) } else { format!("×{count} (lines {}{more})", shown.join(", ")) };
             let cite = if source.is_empty() { String::new() } else { format!("  ⟨{source}⟩") };
-            format!("[{sev}] [{rule}] {advice}  {occ}{cite}")
+            format!("[{}] [{rule}] {}  {occ}{cite}", tr(lex, &sev), tr(lex, &advice))
         })
         .collect()
 }
@@ -782,10 +800,14 @@ fn render(
     unanalyzed: &BTreeMap<String, usize>,
     sources: &[String],
     max: usize,
+    lex: Option<&crate::lint_lang::Lexicon>,
 ) -> String {
     let mut s = String::new();
     let analyzed: usize = by_language.values().sum();
     let langs: Vec<String> = by_language.iter().map(|(l, n)| format!("{l} ({n})")).collect();
+    // The header carries a filesystem PATH and language names — glossing it word-by-word would
+    // corrupt them (`/private/` → `/privé/`, `rust` → `rouille`), so it stays English by design.
+    // Only the human-language FINDINGS and verdict labels below are rendered through the overlay.
     s.push_str(&format!(
         "I read {} and analyzed {analyzed} source file(s): {}.\n\n",
         root.display(),
@@ -794,7 +816,7 @@ fn render(
 
     let total: usize = reports.iter().map(|f| f.hits.len()).sum();
     if total == 0 {
-        s.push_str("Verdict: CLEAN. No violations of the learned rules or the project's law.\n");
+        s.push_str(&format!("{}\n", tr(lex, "Verdict: CLEAN. No violations of the learned rules or the project's law.")));
     } else {
         let (mut hi, mut me, mut lo) = (0usize, 0usize, 0usize);
         for f in reports {
@@ -807,14 +829,17 @@ fn render(
             }
         }
         s.push_str(&format!(
-            "Verdict: {total} issue(s) across {} of {analyzed} file(s) — {hi} high, {me} medium, {lo} low.\n",
-            reports.len()
+            "{}\n",
+            tr(lex, &format!(
+                "Verdict: {total} issue(s) across {} of {analyzed} file(s) — {hi} high, {me} medium, {lo} low.",
+                reports.len()
+            ))
         ));
         let mut shown = 0usize;
         for f in reports {
             if shown >= max { break; }
             s.push_str(&format!("\n{}\n", f.path));
-            for line in group_hits(&f.hits) {
+            for line in group_hits(&f.hits, lex) {
                 if shown >= max {
                     s.push_str("  …raise `max` to see more.\n");
                     break;
@@ -825,6 +850,9 @@ fn render(
         }
     }
 
+    // Language lists and the training-source line carry language names / identifiers, so they stay
+    // English (glossing them would translate `rust` → `rouille`); only the findings render in the
+    // I/O language.
     if !unanalyzed.is_empty() {
         let u: Vec<String> = unanalyzed.iter().map(|(l, n)| format!("{l} ({n})")).collect();
         s.push_str(&format!("\nLanguages without AST support (not analyzed): {}.\n", u.join(", ")));
@@ -832,6 +860,16 @@ fn render(
 
     if !sources.is_empty() {
         s.push_str(&format!("\nTrained from: {}.\n", sources.join(", ")));
+    }
+    // Cite the I/O overlay whenever findings are rendered in a non-English language (LINTER.md,
+    // "The human-language I/O overlay"): the reader sees WHICH lexicon translated the output, and
+    // that untranslated words are an honest gap in that bilingual dictionary, not a bug.
+    if let Some(l) = lex {
+        s.push_str(&format!(
+            "\n[I/O language: {} — findings rendered word-level through the {}; terms the bilingual dictionary lacks stay English.]\n",
+            l.lang(),
+            l.source(),
+        ));
     }
     s
 }
@@ -1292,7 +1330,8 @@ fn fire_shape_render(
     let analyzed: BTreeMap<String, usize> = by_language.iter().map(|(l, fs)| (l.clone(), fs.len())).collect();
     let unanalyzed: BTreeMap<String, usize> = BTreeMap::new();
     reports.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut body = render(root, &reports, &analyzed, &unanalyzed, &sources, max);
+    let lex = io_lexicon(config);
+    let mut body = render(root, &reports, &analyzed, &unanalyzed, &sources, max, lex.as_ref());
     let mut law_watch_block = String::new();
     if !law_watch.is_empty() {
         law_watch_block.push_str("\nYour law, as understood:\n");
@@ -1708,7 +1747,8 @@ fn render_from_state(
         }
         *analyzed.entry(lang.clone()).or_default() += 1;
     }
-    let mut body = render(root, &reports, &analyzed, &BTreeMap::new(), &st.sources, max);
+    let lex = io_lexicon(&st.config);
+    let mut body = render(root, &reports, &analyzed, &BTreeMap::new(), &st.sources, max, lex.as_ref());
     body.push_str(&st.law_watch_block);
     body.push_str(&st.run_footer);
     body.push_str(&render_quarantine(quarantined));
@@ -1815,6 +1855,15 @@ fn data_root() -> PathBuf {
     out
 }
 
+/// Build the human-language I/O overlay for a run, or `None` for the English default (LINTER.md,
+/// "The human-language I/O overlay"). Reads `HELPERS_LINT_LANG` then the project's `io_language`;
+/// loads the bilingual lexicon from the machine cache or the crate asset. `None` ⇒ output is
+/// byte-for-byte English, and no lexicon file is even read.
+fn io_lexicon(config: &LintConfig) -> Option<crate::lint_lang::Lexicon> {
+    let lang = crate::lint_lang::Lexicon::selected(&config.io_language)?;
+    crate::lint_lang::Lexicon::load(&data_root(), &lang)
+}
+
 fn data_root_uncached() -> PathBuf {
     let ws = workspace_root();
     if ws.join("extraDocs").exists() || ws.join("lint-index").exists() {
@@ -1883,7 +1932,7 @@ mod tests {
             Hit { line: 3, rule: "b".into(), severity: "high".into(), advice: "y".into(), source: "https://d/r".into() },
             Hit { line: 5, rule: "b".into(), severity: "high".into(), advice: "y".into(), source: "https://d/r".into() },
         ];
-        let lines = group_hits(&hits);
+        let lines = group_hits(&hits, None);
         assert!(lines[0].contains("[high]") && lines[0].contains("×2"), "high collapses first: {lines:?}");
         assert!(lines[1].contains("[low]"));
     }
