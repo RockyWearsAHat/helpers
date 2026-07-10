@@ -20,6 +20,7 @@ pub mod lint_graph;
 pub mod lint_match;
 pub mod lint_probe;
 pub mod lint_read;
+pub mod lint_socrawl;
 pub mod lint_trace;
 pub mod lint_sign;
 pub mod lint_toolchain;

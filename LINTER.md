@@ -125,6 +125,111 @@ when its own definition contains a discovered negator AND another negator-define
 here). Reading more material only ADDS entries; prior bindings are never overwritten
 (retain-and-grow); the document-frequency table rides `char.global.bin` beside the definitions.
 
+**Meaning is learned from USAGE, not only definition (owner directive 2026-07-09, `BRAIN_REV` 8,
+`lint_char::MeaningNetwork::usage` + `lint_socrawl`).** A dictionary defines a word by its GENUS;
+jargon is defined by how it is USED. `define swallow` returns only the eating sense — the AI has no
+programming sense of "swallow an error", so it cannot connect it to "discard a result". The fix is
+not a hand gloss (a taught gloss is a firing offense and it never bound anyway). The substrate now
+learns a word's meaning FROM EXPLANATORY PROSE: as it reads real programming explanations, every
+content word ACCUMULATES the distinctive words it CO-OCCURS with (sentence windows, `observe`), and
+`seal` folds those co-occurrences into a second, LEARNED sense per headword — ranked by count ×
+usage-distinctiveness, capped at `USAGE_CAP` (48, deliberately far above the 12-word dictionary cap:
+a jargon term earns its sense from MANY explanations). `meaning_of` bundles the dictionary sense AND
+this learned usage sense; `context_of` is the usage sense alone (the DISTRIBUTIONAL meaning — two
+words are close when they are USED ALIKE). The corpus is REAL text our own program fetches — a
+native, cached, conditional-`If-Modified-Since` Stack Overflow crawler (`lint_socrawl`, no browser,
+polite waves + 429 backoff, cache resumes toward "everything findable"). PROVEN: after reading real
+SO error-handling prose, `define swallow` gains a genuine programming sense — its top learned
+companions are `exception, catch, checked, rethrow, throw` (before: none). The COVENANT holds: no
+concept's meaning is hand-written; it is LEARNED from corpus text, deterministic, persisted.
+
+**The DOCS are folded into the concept graph too (owner directive 2026-07-09, `BRAIN_REV` 9,
+`ensure_brain` → `MeaningNetwork::observe_prose`).** "Docs and dictionary understanding is enough to
+get real findings" — but the crawled documentation prose was NOT feeding the concept graph: the web
+curriculum was read CHAR-level only, and only Stack Overflow fed `observe`. Now every curriculum
+page's prose is `observe_prose`d into the usage graph through the SAME reader the SO path uses (one
+shared helper), so a principle-word that has no code-structural DICTIONARY sense acquires its
+PROGRAMMING sense from how the docs USE it. `Bridge::score` reads this: it aligns a concept to a
+primitive by the BEST of dictionary-relatedness (`related`) and learned-usage relatedness
+(`context_related`), so a word binds either by what it MEANS or by how it is USED. MEASURED after the
+fold: `define unreachable` gains programming companions `disallow, statements, unused, loop` (before:
+web noise `reproduced, unmount`), `redundant` gains `useless, unnecessary, catch, return`, and its
+nearest primitive moves toward `control_exit` (3820 → 3426). DIRECTION confirmed, MAGNITUDE still
+short of binding — see the honest gap below.
+
+**Honest gap (measured 2026-07-09, do not re-litigate blindly).** The learned sense does NOT yet
+bind a prohibition to its structural primitive. Measured: swallowed-error words sit at
+`context(exception, error) ≈ 2850`, short of synonym range, and function-word HUBS dominate a small
+single-topic corpus — `context(exception, "the") ≈ 2550` is CLOSER than `context(exception, "error")`.
+Stripping generic companions (`is_generic_companion`, a document-frequency cutoff, not a stop list)
+only helps when the corpus is BROAD: in a narrow error-handling-only corpus, topic words and
+function words have overlapping document frequency, so no cutoff separates them (swept — none works).
+The real fix is a LARGE, MULTI-TOPIC corpus (all-of-SO scale), where inverse document frequency
+cleanly separates function words (≈ every topic) from topic words (a few) — which is exactly why the
+crawler pulls diverse tags and why the coded `discarded_fallible` concept-word list REMAINS a
+fallback for now (its word list is the temporary crutch, to be deleted only when the learned sense
+binds from a broad corpus). The unlock is validated in DIRECTION (define sense learned; error-words
+rank closest in context space); the MAGNITUDE waits on corpus breadth, which SO rate-limits into a
+multi-run accumulation, not one fetch.
+
+UPDATE 2026-07-09 — the docs are the breadth (`BRAIN_REV` 9). Folding docs prose into the concept
+graph (above) is precisely the "large, multi-topic corpus" this gap called for, and usage-aware
+`Bridge::score` is the alignment lever. Measured with only the 3-language char curriculum folded
+(html/css/js): inference concepts LEARN their programming companions and their nearest primitive
+moves the right way (`unreachable` → `control_exit` 3820 → 3426), but distances stay near the
+orthogonal floor (~3400 / 8192) and the best/runner-up RATIO does not clear `BIND_MARGIN` — so canon
+principles still do not bind decisively. The remaining breadth is mechanical, not conceptual: the
+docs-prose fold currently covers only `WEB_CURRICULUM` (3 langs); folding EVERY crawled language's
+docs prose into the graph (all ~70) is the "train all" that gives each concept enough distinct
+programming contexts for IDF to separate signal from hubs. That — not a new mechanism — is the next
+step; `discarded_fallible`'s word list stays a crutch until it binds.
+
+**Propose-then-verify — the AI REASONS its check, reality referees (owner directive 2026-07-09,
+Ornith on an M3, `lint_trace::understand_verified` / `learn_verified`).** The word-list alignment
+above is descriptor-matching, not reasoning; it abstains on a bare title like "Never Swallow
+Exceptions" (the centrality gate) and depends on hand-written concept words. The reasoning path
+replaces the DECISION with a TEST. Ornith-1.0 lets the model author its own scaffold and rewards the
+plan, using a frozen LLM as an incorruptible judge so the scaffold cannot cheat its reward. We have
+no judge model and only an M3 — so REALITY is the judge: given a principle and its own bad/good
+evidence, the AI PROPOSES every general structural sense as a candidate check, and KEEPS the one
+that actually FIRES on the bad shape and stays CLEAN on the good. The action space is the WHOLE
+primitive vocabulary, not just unary: a candidate is any `unary` self-bad predicate, any
+`present_without(present \ absent)` pair, or any `relational(rel: A B)` triple (updated 2026-07-09 —
+unary-only could not reach relational defects like unreachable-code-after-return). Cheat-proof AND
+junk-resistant by construction — candidates are only general senses (never a snippet matcher, so no
+overfitting the example); a winner must fire-bad AND clean-good (the good half rejects a check that
+flags everything); a winner may use ONLY primitives the principle's own concepts ALIGN to (the
+comprehension guard — a shape that merely happens to fire on a tiny example, like
+`present_without(control_exit \ documented)` for "unreachable code", is rejected because the
+principle never names `documented`); and among survivors the SIMPLEST shape wins (fewest primitives),
+UNDERSTANDING breaking any remaining tie (nearest the principle's central concepts). What verifies is
+REMEMBERED (`verified_rules.json`,
+principle→plan) and recalled by `understand()` before the descriptor path — reward flowing to the
+plan, so the hand word lists BURN DOWN as verified checks accumulate. PROVEN: "Never Swallow
+Exceptions" where the word path returns `None` (abstains) is reasoned to `unary(discarded_fallible)`
+by testing — fires on `let _ = fallible()`, clean on `fallible()?` — with NO word match, then
+recalled on the next run (`reasoning_selects_check_by_verification`, `lint_query kind=learn`).
+Relational proof (2026-07-09): "Unreachable code after a return" — where the word path abstains and
+no unary self-bad sense fits — is reasoned to `relational(follows_in_block: A=statement
+B=control_exit)` by testing the whole primitive space, fires on `return; let x = 2;`, clean without
+it, primitives all named by the principle's own words. Correctness of a non-unary check DEPENDS ON
+GROUNDS QUALITY: the good example must be a real NEAR-MISS containing the confounder (a return that
+is REACHABLE), or an over-broad shape ("flags any return") survives the toy good and mints junk — so
+the verifier requires the good to EXERCISE the checked class and otherwise ABSTAINS (honest, never a
+bad rule). This is the north star for the whole bridge: understanding proposes, verification
+confirms, memory keeps what works; the coded predicates remain only as the ACTION SPACE the reasoner
+selects from (and even those become learnable senses as this deepens), never as the word-list DECIDER.
+
+GAP — grounds are still HANDED IN, not self-generated (2026-07-09). The verifier runs only from
+`lint_query kind=learn`; the LIVE canon compile (`lint_match`, `understand_canon`) has NO bad/good
+for a `corpus/*.md` principle, so it never reasons — a bare `lint` still enforces only what the
+descriptor/inner-negation path shapes (e.g. `1_clean_build` → undoc only, its "Unreachable code"
+clause unenforced). Closing this is the GENERATIVE HALF of the two-way loop: for each principle
+clause the AI must SELF-GENERATE the violate/near-miss grounds from the truth it read, then run this
+verifier at train time. HOW those grounds are generated (per-primitive canonical fixtures vs. real
+code synthesis) is an open owner-boundary call — do not mint per-defect hand-authored examples
+without confirmation (the descriptor word-list antipattern in a new costume).
+
 **Reading a page is UNDERSTANDING, not tag-matching (Phase 2 — `lint_graph::read_page`).** A raw
 documentation page is scanned by the only typography the covenant grants — a `<…>` run is ONE
 markup token, whitespace splits words, sentence terminals close sentences — and every text run is
