@@ -218,14 +218,53 @@ impl RuleSet {
         // words name them. A Clean-parsing (or ungroundable) example's identifiers are just
         // code the docs showed — `proc greet` once compiled from nim tutorial narration and
         // fired on every greeter a user ever wrote.
+        //
+        // "Named by the law's words" is a token a PROSE sentence of the description states — never
+        // any word that merely appears somewhere in the scraped text. A crawled page folds
+        // navigation ("Related Rules"), compatibility notes ("JSCS: requireMatchingFunctionName")
+        // and inline code snippets ("const array2 = [4,5,6]") into the description; the diff tokens
+        // picked from that noise (`related`,`rules`,`array2`,`for`) name no real construct, and
+        // admitting any-word-in-the-description minted token detectors that fired on ordinary prose.
+        // The anchoring sentence must read as PROSE, not as a stray code LINE: a prose sentence
+        // carries connective ENGLISH the DICTIONARY knows as common ("Never USE THE goto statement…"
+        // has the/is/use/…), a code line carries none. The dictionary English brain is the judge —
+        // it is present even cold (embedded bootstrap), so this test does NOT depend on the
+        // machine-global docs classifier being warm; that independence is the fix, because the
+        // classifier being cold is exactly when a training run used to mint the junk (the old gate
+        // was skipped whenever no classifier was ready). Grounding cannot substitute for the prose
+        // test: a genuinely deprecated construct is absent from normal code by definition (`goto`,
+        // deprecated in the docs, never appears in the reference corpus), so it grounds nowhere yet
+        // must still enforce. When the docs classifier IS ready it TIGHTENS the anchor to prohibition
+        // sentences (dropping prose rationale/remedy); when cold, prose alone anchors. All signals
+        // LEARNED (the dictionary head, the classifier's reading) — never a stop-list.
+        let english = crate::lint_english::brain();
+        let anchoring_sentences = |desc: &str| -> Vec<String> {
+            let ready = ground.polarity.filter(|p| p.is_ready());
+            crate::lint_read::sentences(desc)
+                .into_iter()
+                .filter(|s| {
+                    let prose =
+                        crate::lint_read::tokens(s).iter().any(|t| english.is_some_and(|e| e.is_common(t)));
+                    // Prose is required always; a ready classifier additionally requires the
+                    // sentence to state a prohibition.
+                    prose && ready.map_or(true, |p| p.classify(s) == Some(true))
+                })
+                .map(str::to_string)
+                .collect()
+        };
         let traceable = |desc: &str, bad: &str, tokens: &[String]| -> bool {
-            reality_flagged.contains(&crate::lint_ai::token_seed(bad))
-                // ANY kept token named by the law anchors the detector: an ordered pair's
-                // partner token only NARROWS firing (both tokens must share a line), so an
-                // unnamed partner cannot broaden a named construct — but a detector with no
-                // named token at all is untraceable (`goto cleanup` keeps its pair through
-                // "goto"; nim's `proc greet` names neither and dies).
-                || tokens.iter().any(|t| select::tokens_fire_text(desc, std::slice::from_ref(t)))
+            if reality_flagged.contains(&crate::lint_ai::token_seed(bad)) {
+                return true;
+            }
+            // ANY anchoring token carries the detector: an ordered pair's partner only NARROWS
+            // firing (both tokens must share a line), so an unnamed partner cannot broaden a named
+            // construct — but a detector no prose sentence names is untraceable (`goto cleanup`
+            // keeps its pair through the "Never use the goto statement" sentence; the ESLint nav
+            // pairs and nim's `proc greet` are named by no prose sentence and die).
+            let named = anchoring_sentences(desc);
+            tokens
+                .iter()
+                .any(|t| named.iter().any(|s| select::tokens_fire_text(s, std::slice::from_ref(t))))
         };
         // OVER-GENERAL SINGLE-TOKEN GUARD (LINTER.md, "Entry gates"; the junk-doc-rule FP class).
         // A descriptive REFERENCE section that states no prohibition can still leak a firing
@@ -372,8 +411,11 @@ impl RuleSet {
                 } else if let Some(tokens) = text_discriminator(bad, good) {
                     // Code-diff fallback: description had no extractable term but the bad/good
                     // examples (themselves part of the official documentation) still distinguish.
-                    if !trusted.contains(id) && classifier_ready && !traceable(desc, bad, &tokens) {
-                        dropped(id, "untraceable example tokens (never reality-flagged; not named by the law's words)");
+                    // Provenance is checked ALWAYS (not only with a ready classifier): a token
+                    // detector's literal tokens are evidence only when traceable to flagged code,
+                    // a forbidding sentence, or the reference corpus.
+                    if !trusted.contains(id) && !traceable(desc, bad, &tokens) {
+                        dropped(id, "untraceable example tokens (never reality-flagged; not named by a forbidding sentence; not grounded in reference code)");
                         continue;
                     }
                     MatchKind::Tokens { tokens, raw: false }
@@ -387,8 +429,8 @@ impl RuleSet {
                 if let Some((token, raw)) = desc_detector(&ground) {
                     MatchKind::Tokens { tokens: vec![token], raw }
                 } else if let Some(tokens) = text_discriminator(bad, good) {
-                    if !trusted.contains(id) && classifier_ready && !traceable(desc, bad, &tokens) {
-                        dropped(id, "untraceable example tokens (never reality-flagged; not named by the law's words)");
+                    if !trusted.contains(id) && !traceable(desc, bad, &tokens) {
+                        dropped(id, "untraceable example tokens (never reality-flagged; not named by a forbidding sentence; not grounded in reference code)");
                         continue;
                     }
                     MatchKind::Tokens { tokens, raw: false }

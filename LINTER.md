@@ -172,17 +172,27 @@ binds from a broad corpus). The unlock is validated in DIRECTION (define sense l
 rank closest in context space); the MAGNITUDE waits on corpus breadth, which SO rate-limits into a
 multi-run accumulation, not one fetch.
 
-UPDATE 2026-07-09 — the docs are the breadth (`BRAIN_REV` 9). Folding docs prose into the concept
-graph (above) is precisely the "large, multi-topic corpus" this gap called for, and usage-aware
-`Bridge::score` is the alignment lever. Measured with only the 3-language char curriculum folded
-(html/css/js): inference concepts LEARN their programming companions and their nearest primitive
-moves the right way (`unreachable` → `control_exit` 3820 → 3426), but distances stay near the
-orthogonal floor (~3400 / 8192) and the best/runner-up RATIO does not clear `BIND_MARGIN` — so canon
-principles still do not bind decisively. The remaining breadth is mechanical, not conceptual: the
-docs-prose fold currently covers only `WEB_CURRICULUM` (3 langs); folding EVERY crawled language's
-docs prose into the graph (all ~70) is the "train all" that gives each concept enough distinct
-programming contexts for IDF to separate signal from hubs. That — not a new mechanism — is the next
-step; `discarded_fallible`'s word list stays a crutch until it binds.
+UPDATE 2026-07-09 — the docs are folded (`BRAIN_REV` 9), and BREADTH IS REFUTED as the unlock
+(measured, all ~70 languages). Folding docs prose is real infrastructure (usage-aware `Bridge::score`
+takes `min(related, context_related)`, and inference concepts DO learn programming companions —
+`unreachable` → `disallow, statements, unused`). But scaling the fold from 3 languages to all ~70 did
+NOT bind them; it made them WORSE: `unreachable` nearest went `control_exit` 3426 → `magic_number`
+3752, `redundant`/`dead` likewise sit at the ORTHOGONAL FLOOR (~3750 / 8192) to every primitive.
+`BIND_MARGIN` = 0.60 and no ratio clears it before or after. Cause: the extra corpus DIFFUSES these
+words across their non-code senses (C++ `std::unreachable`, SQL "dead", the Monty Python "swallow"
+gag), so more text sharpens nothing — a floor cannot be tuned away from a floor. The descriptor-
+alignment path STRUCTURALLY cannot bind a concept whose meaning is not its dictionary sense; only
+`duplicate`/`swallow` bind, and only via their primitive's own exact descriptor word (a word-list, not
+understanding). DO NOT re-run "more corpus" or "tune the margin" — both are closed.
+
+The lead that IS open (fits "run through the definitions, no examples"): the relational shape is
+reachable from a STRUCTURAL DEFINITION SENTENCE, not the bare concept word — "a statement that follows
+a return is unreachable" aligns `statement`, `follows`, `return` all at distance 0 and composes
+`relational(follows_in_block: statement, control_exit)`. So the unlock is READING a concept's
+definition sentence through the bridge (the docs define "unreachable code" structurally), not aligning
+the word "unreachable". Owner call pending on building that. The all-language fold is NOT landed (no
+measured benefit, slight regression); the 3-language fold + usage-aware score remain. `discarded_
+fallible`'s word list stays a crutch.
 
 **Propose-then-verify — the AI REASONS its check, reality referees (owner directive 2026-07-09,
 Ornith on an M3, `lint_trace::understand_verified` / `learn_verified`).** The word-list alignment
@@ -1782,13 +1792,25 @@ multi-ms slice of every cold resolution).
    was `proc greet` — the tutorial's OWN function name. Every user who writes a greeter gets
    flagged by a "rule" whose watched words appear nowhere in its own description and were never
    reality-tested) → *provenance: an example-diff TEXT detector compiles only when the
-   toolchain actually FLAGGED its example (the reality label travels with the memory) or the
-   law's own words name a kept token — whole-token, through the one matcher; the anchor
-   suffices, because a pair's partner token only narrows firing on the anchored line. A
-   Clean-parsing or ungroundable example's identifiers are just code the docs showed. Applies
-   whenever a classifier is rendering verdicts; with no classifier the author's material is
-   trusted, as at the entry gate. The AST path is untouched (structured patterns carry their
-   own discrimination and the reference-fire gate).*
+   toolchain actually FLAGGED its example (the reality label travels with the memory) or a kept
+   token is ANCHORED by a FORBIDDING PROSE SENTENCE of the law — whole-token, through the one
+   matcher; the anchor suffices, because a pair's partner token only narrows firing on the
+   anchored line. "Named by the law's words" is precisely that: a sentence the classifier reads
+   as a prohibition AND that carries connective ENGLISH the reader knows as common. It is NOT
+   anchored by merely appearing somewhere in a scraped description: a crawled page folds
+   navigation ("Related Rules"), compatibility notes ("JSCS: requireMatchingFunctionName"), and
+   inline code snippets ("const array2 = …") into the text — and the classifier even misreads a
+   stray code LINE as a prohibition, so the PROSE test is what rejects it (a code line has no
+   English function words). That hole minted `related … rules`, `array2 … push`, `for … example`,
+   `while … node`. Grounding CANNOT stand in for the prose test: a genuinely deprecated construct
+   is absent from normal code by definition (`goto`, deprecated in the docs, never appears in the
+   reference corpus), so requiring it in reference code would drop the very rule the docs teach.
+   This is PROVENANCE, checked ALWAYS — the earlier `classifier_ready` guard silently disabled it
+   whenever the machine-global classifier was cold, which is how the whole junk class slipped a
+   module build; with no ready classifier no sentence prohibits, so only the reality-flag carries
+   a detector through. A Clean-parsing example's identifiers are just code the docs showed. Project
+   law is trusted by location, as at the entry gate. The AST path is untouched (structured patterns
+   carry their own discrimination and the reference-fire gate).*
 
 20. **A genuine parenthetical dethroned a language's own extension machine-wide** (the docs'
    name-definition rule grants maximal claim strength, and real prose writes "Python (REPL)",
