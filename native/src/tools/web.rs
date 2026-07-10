@@ -208,11 +208,43 @@ fn profile_dir() -> PathBuf {
     dir
 }
 
+/// Remove a `SingletonLock` orphaned by a **dead** Chrome on the shared profile.
+///
+/// Chrome writes `SingletonLock` as a symlink named `<host>-<pid>`. If a prior
+/// helpers process (or its Chrome) was killed, that symlink lingers; the next
+/// launch then attaches to a phantom "primary" and its DevTools target never
+/// initializes — surfacing as `new tab failed: The event waited for never came`.
+/// We delete the singleton files **only when the recorded PID is provably gone**
+/// (`kill -0` fails), so a genuinely live Chrome is never disturbed.
+fn clear_stale_singleton_lock(profile: &std::path::Path) {
+    let lock = profile.join("SingletonLock");
+    let Ok(target) = std::fs::read_link(&lock) else { return };
+    let pid = target
+        .to_string_lossy()
+        .rsplit('-')
+        .next()
+        .and_then(|p| p.parse::<i32>().ok());
+    let alive = match pid {
+        Some(pid) => std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false),
+        None => false, // unparseable target -> treat as stale
+    };
+    if !alive {
+        for name in ["SingletonLock", "SingletonSocket", "SingletonCookie"] {
+            let _ = std::fs::remove_file(profile.join(name));
+        }
+    }
+}
+
 /// Launch Chrome (headless or visible) against the shared profile. Returns a
 /// clear, actionable error when Chrome can't be found or started so the agent
 /// can fix it (install Chrome / set HELPERS_CHROME_EXECUTABLE).
 fn launch(headless: bool) -> Result<Browser, String> {
     let profile = profile_dir();
+    clear_stale_singleton_lock(&profile);
     let resolved = chrome_executable();
     let mut builder = LaunchOptions::default_builder();
     builder
