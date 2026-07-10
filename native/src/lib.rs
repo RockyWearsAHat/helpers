@@ -15,6 +15,7 @@ pub mod lint_ai;
 pub mod lint_char;
 pub mod lint_docs;
 pub mod lint_english;
+pub mod lint_lang;
 pub mod lint_feedback;
 pub mod lint_graph;
 pub mod lint_match;
