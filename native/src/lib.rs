@@ -30,6 +30,7 @@ pub mod lint_replay;
 pub mod lint_kq;
 pub mod lint_checkers;
 pub mod lint_codec;
+pub mod lint_corroborate;
 pub mod linter;
 pub mod mcp;
 pub mod memory;
