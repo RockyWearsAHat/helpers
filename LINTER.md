@@ -183,6 +183,69 @@ honest gaps (synonyms the dictionary never cross-references; lexical negators `i
 compound) are graph-content limits, not logic bugs: the loop must keep pairing the referee with a genuine
 foil and treat an un-cross-referenced synonym as UNPROVEN rather than forcing it.
 
+### The corroboration engine — the graduation gate (`lint_ism.rs`, 2026-07-10)
+
+> The mechanism that turns the English-equality judge above into the ISM's **≥ 15 independent
+> witnesses** graduation law (north-star step 5). Given a **candidate truth** (an English statement)
+> and a stream of **witness statements**, it returns **PROVEN** iff at least the owner-specified
+> number of GENUINELY INDEPENDENT witnesses corroborate the truth AND none contradict it, else
+> **UNPROVEN** with the reason. It adds NO new judgement of its own — every per-witness decision is a
+> call into the frozen `lint_corroborate` comparator; the engine only counts and gates.
+
+**The candidate carries its own foil.** The comparator is COMPARATIVE — it never says "consistent iff
+score < K", only "nearer the truth than this foil is." A graduation gate therefore cannot judge a lone
+witness against a lone truth; it needs the genuine ALTERNATIVE the corroboration loop also derived (step
+1: "should flag" vs its competing "should not flag" / the competing is-a). So a `Candidate` is the pair
+`{ truth, foil }`, and **the engine is only as sound as that foil is genuine** — a degenerate/unrelated
+foil (one not on the truth's topic) makes on-topic trivially true and invalidates the verdict. This is
+the comparator's own documented requirement, inherited, not a new one.
+
+**Classifying one witness (`classify`) — three comparator calls, no constant.** For witness `W`:
+- `on_topic` iff `consistency(truth, W).reference_distance < consistency(truth, foil).reference_distance`
+  — `W`'s content is directed-reference-NEARER the truth than the foil's content is (a strict compare of
+  two distances, exactly like `corroborates`; never a threshold).
+- **CORROBORATES** iff `on_topic` AND `W` agrees in polarity with the truth (`!polarity_mismatch`).
+- **CONTRADICTS** iff (`on_topic` AND opposite polarity — a negation flip of the truth) OR `W` asserts
+  the FOIL instead (`consistency(foil, W).reference_distance < consistency(foil, truth).reference_distance`
+  with `W` agreeing in polarity with the foil).
+- **NEUTRAL** otherwise (off both topics — ignored, neither counts nor blocks).
+- **UNDECIDABLE** when the comparator returns `None` (a side has no English content concept) — an honest
+  "cannot judge", never a false match, exactly as the comparator promises.
+
+**Independence (`graduate`) — the identity element, not a tuned radius.** A corroborating witness counts
+only if it is DISTINCT from every witness already counted. Two witnesses are the SAME witness iff they
+reduce to a directed-reference-IDENTICAL assertion: same polarity AND `consistency.reference_distance == 0`
+— the identity point (every content concept at hop 0 to the other side), the same `0.0` the comparator's
+`identical_statement_is_maximally_consistent` asserts, NOT a magic "< K" radius. Repeating one phrasing 15×
+collapses to ONE independent witness; genuinely different material (different content concepts) stays
+distinct. This is CONSERVATIVE in the safe direction only at the identity point: it may UNDER-merge a near-
+duplicate that swaps a filler word surviving the median cut (counting it as independent), so "independent"
+means the spec's "genuinely different material," and a graduation set must supply that — the engine cannot
+manufacture independence a paraphrase does not carry. (A tighter merge would need a magic distance, which
+is forbidden; the identity point is the only non-arbitrary cut.)
+
+**Verdict.** `graduate` folds the stream: any CONTRADICTS ⇒ `Unproven::Contradicted` (a proven truth has
+no contradicting witness — one is fatal, short-circuits). Otherwise count distinct CORROBORATES; ≥
+`REQUIRED_WITNESSES` ⇒ `Proven`, else `Unproven::TooFewIndependent { independent, required }`. If the
+candidate itself is undecidable against its foil (no English content) ⇒ `Unproven::Undecidable`. The count
+`REQUIRED_WITNESSES = 15` is the **owner-specified** witness count (north-star step 5), a spec parameter
+cited as such, NOT a tuned distance threshold.
+
+**Safety property (verified, `examples/relcheck.rs` + module tests).** The un-cross-referenced-synonym
+boundary is PRESERVED end to end: for truth `"water is a liquid"` with genuine foil `"water is a gas"`,
+the witness `"water is a fluid"` is NOT on-topic (distance 1.38 to the truth is WORSE than the foil's 0.81,
+because `liquid`/`fluid` share no directed edge) → it never CORROBORATES → a candidate whose only support
+is that synonym never graduates. The engine cannot manufacture a proof the comparator cannot see; it stays
+UNPROVEN, exactly as the covenant requires.
+
+**Honest verdict.** As a graduation gate the engine is SOUND *conditional on a genuine foil and genuinely
+distinct witnesses* — both requirements are the substrate's, surfaced honestly, not papered over. Polarity
+contradictions and asserts-the-foil contradictions are caught soundly; the incompatible-assertion class is
+caught exactly to the reach of directed cross-reference (dog→bird yes, un-cross-referenced synonym no).
+Independence is sound at the identity point and under-merges beyond it — mitigated by, not a substitute
+for, supplying genuinely different material. Where the foil is degenerate or the witnesses are near-
+duplicates the comparator cannot separate, the engine reports UNPROVEN rather than guessing.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
