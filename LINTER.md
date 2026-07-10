@@ -105,51 +105,83 @@ are wired from; this section describes what they are being wired INTO.
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
 > expected outcome and the actual outcome, both derived back into English — do they assert the
-> **same / consistent** thing? Decided ENTIRELY over the frozen dictionary meaning graph
-> (`MeaningNetwork`), never over spelling and never over a word list. This subsection is the contract;
-> the module implements exactly it.
+> **same / consistent** thing (same DIRECTION, same POLARITY)? Decided ENTIRELY over the frozen
+> dictionary meaning graph (`MeaningNetwork`) plus the frozen negation classifier (`English::is_negation`),
+> never over spelling and never over a word list. This subsection is the contract; the module implements
+> exactly it.
 
-**What "English equality/consistency" means here.** A statement reduces to its **content concepts**:
-its tokens the bedrock knows (`has`), keeping those whose `centrality` is at or above the statement's
-own median — a COMPARATIVE cut that drops the shared filler (the/is/a) without any stop list. Two
-statements are *consistent* to the degree their content-concept **meaning sets align**: for each
-concept on one side, its nearest concept on the other by `related` (dictionary meaning distance),
-centrality-weighted so distinctive concepts dominate, averaged in both directions (a symmetric
-centrality-weighted chamfer). Lower distance = more consistent. This is meaning-set overlap, exactly
-as the north star specifies — the same statistic every meaning bundle already weighs by.
+**Why not flat meaning overlap.** The first cut judged consistency with `related()` — the bag-of-
+definition-words meaning distance. That signal is TOPICAL, not assertional: measured on the frozen graph
+it rates the false `dog~bird` (3834) in the same band as the true `dog~canine` (3608), reads antonyms
+`bright~dark` as near, and cannot tell "a dog is a canine" from "a dog is a bird". Topical relatedness is
+orthogonal to what an assertion claims, so flat overlap is the wrong referee.
 
-**The decision is COMPARATIVE, never a magic threshold.** The judge never says "consistent iff score <
-K." It ranks: `more_consistent(anchor, x, y)` answers which candidate asserts something nearer the
-anchor, and `corroborates(expected, actual, contrast)` holds iff `actual` aligns to `expected`
-**strictly nearer than** the `contrast` baseline does. The corroboration engine always has such a
-contrast — the negated/alternative expectation it also derived — so equality is judged as a *margin*
-against a foil, not against a constant.
+**The signal: DIRECTED CROSS-REFERENCE through the definitions.** The truth of an is-a lives in the
+dictionary's own DIRECTED reference edges. `"a dog is a canine"` is true because `canine`'s definition
+literally contains `dog` (a direct edge `canine ⟶ dog`); `"a dog is a bird"` is false because no short
+directed path joins `dog` and `bird` (they meet only at the distant shared hypernym `vertebrate`, a
+CONVERGENT `dog→…→vertebrate←…←bird` pattern, not a directed path between them). `reference_hops(a, b)` is
+a bounded **bidirectional** BFS over the definition-reference graph (edge `X ⟶ Y` iff `Y` is a content
+word of `X`'s `definition_words`): 0 = same word, 1 = a direct cross-reference, `None` = no path within
+the search HORIZON. Bidirectional because the dictionary encodes is-a in BOTH orientations inconsistently
+(`mammal`'s def references its hypernym `animal`; `canine`'s def references its hyponym `dog`) — one fixed
+orientation would miss half the true edges. The HORIZON is a computational search bound, not a decision
+threshold; the verdict is always comparative (see below), and unreachable maps to `horizon + 1` (a
+sentinel derived FROM the horizon, never a hand-set score).
 
-**Proven competence boundary (measured 2026-07-10, honest).** Against the frozen graph the judge is a
-reliable **relatedness floor** and a WEAK assertional referee, not the incorruptible fine referee the
-north star assumes:
+**Statement consistency = polarity, then directed-reference alignment.** A statement reduces to its
+**content concepts** (tokens the bedrock `has`, kept at or above the statement's own median `centrality` —
+a comparative cut that drops the/is/a with no stop list). Consistency of two statements is the pair
+`(polarity_mismatch, reference_distance)`, compared LEXICOGRAPHICALLY (polarity dominates):
 
-- **Reliable:** a true restatement scores far nearer an anchor than a topically-UNRELATED contrast
-  (`"a dog is a canine"` → restatement ≈ 0, unrelated `"a rock is a mineral"` ≈ 4080). The ranker is
-  trustworthy whenever the foil is off-topic.
-- **Fails:** it cannot separate a true restatement from a **same-topic contradiction**
-  (`"a dog is a bird"` ≈ 2005 — nearer than unrelated but inside the restatement band). Labeled AUC ≈
-  **0.80** (matches the graph's known ~0.75 near-synonym accuracy), not ≈ 1.0.
-- **Root cause, traced to the substrate:** the meaning vector is built from definition-word overlap, so
-  synonymy (`liquid`≈`fluid`), co-hyponymy (`mammal`~`fish`), and antonymy (`bright`~`dark`) ALL read
-  as "close" — they share defining vocabulary. The graph measures **topical relatedness**, which is
-  orthogonal to **assertional equality**. Distinguishing "same assertion" from "same-topic OPPOSITE
-  assertion" needs is-a direction and negation polarity; neither is in the frozen substrate. The judge
-  is therefore blind to negation (`avoid`~`use` both far) and to non-English jargon (`eval` unknown →
-  drops out).
+- **polarity** — each statement is NEGATIVE iff a negation OPERATOR governs it, decided by the frozen,
+  definition-compounding `English::is_negation` (never a negator word list). Opposite polarity ⇒ the
+  statements assert opposite things ⇒ maximally inconsistent regardless of topic, so `"do not use eval"`
+  and `"use eval"` separate.
+- **reference_distance** — a symmetric, centrality-weighted chamfer over the content concepts whose
+  per-pair distance is `reference_hops` (directed cross-reference), NOT `related`. Distinctive concepts
+  dominate (their `centrality` is the weight); a concept the other side cannot reach contributes the
+  sentinel, so a false predicate that shares no directed path drives the distance up.
 
-**Verdict.** The bedrock is proven-enough to REJECT off-topic foils (a coarse floor the rest of the
-substrate may lean on for that job) but is NOT proven-enough to be the sole fine referee of assertional
-equality. Building the 15×-independent corroboration ISM on this judge alone would let same-topic
-contradictions corroborate false understandings. Strengthening it requires adding is-a direction and
-negation polarity to the substrate — a substrate change, out of scope here (the graph is frozen). Until
-then the corroboration loop must pair this floor with a foil that is genuinely off-topic, or gate any
-same-topic judgment as UNPROVEN.
+**COMPARATIVE, never a magic threshold.** The judge never says "consistent iff score < K." It ranks:
+`more_consistent(anchor, x, y)` answers which candidate asserts something nearer the anchor, and
+`corroborates(expected, actual, contrast)` holds iff `actual` orders STRICTLY nearer `expected` than the
+`contrast` foil does. The corroboration engine always supplies such a foil (the negated/alternative
+expectation it also derived), so equality is a *margin* against a foil, not against a constant.
+
+**Measured competence (2026-07-10, honest — see `examples/relcheck.rs`).** Directed cross-reference +
+polarity is a SOUND assertional referee for the central jobs, and strictly better than flat overlap:
+
+- **is-a direction (the headline fix):** restatement `"a dog is a canine animal"` distance 0.0 vs the
+  false `"a dog is a bird"` 1.26 — cleanly separated where flat overlap could not (3608 vs 3834).
+- **co-hyponym rejected:** against a sibling-level anchor, `"the cat is an animal"` 0.50 corroborates over
+  the false `"the cat is a fish"` 1.09 (`fish` is unreachable from `cat`/`mammal` by directed reference).
+- **negation flip:** `"never use eval"` (same polarity as `"do not use eval"`) beats `"use eval"` (opposite
+  polarity) — polarity mismatch dominates the order.
+- **antonym:** `"the sun is luminous"` 0.53 corroborates over `"the sun is dark"` 1.44 (no directed path
+  `bright↔dark`).
+
+**Honest boundaries (do NOT lean past these).**
+
+- **Synonymy is captured only where the dictionary cross-references the pair.** `delete~remove` works
+  (`remove` is a content word of `delete`'s definition → distance 0.51). But `liquid~fluid` share NO
+  directed edge, so `"water is a fluid"` (1.38) actually ranks WORSE than the false `"water is a gas"`
+  (0.81, reachable in two hops). Where two true synonyms simply do not reference each other in the frozen
+  definitions, this referee cannot see their equality.
+- **`is_negation` scopes negation to OVERT, compounded operators** (`not`, `never`, `no…`-compounds). It
+  correctly does NOT fire on `avoid` (whose definition "keep away from" carries no compounded negator), so
+  `"avoid eval" ≡ "do not use eval"` is NOT reduced to a polarity match. The negation FLIP is proven; the
+  lexical-negation SYNONYM (`avoid` ≈ `not use`) is out of the frozen substrate's reach.
+- **Non-English jargon drops out** (`eval` has no definition → not a content concept). Two statements are
+  compared on the English they share; a purely-jargon statement is undecidable (`None`), never a false
+  match.
+
+**Verdict.** For the corroboration loop's real job — reject a same-topic is-a substitution (dog→bird),
+reject a co-hyponym substitution (cat→fish), and honor a negation flip (use→do-not-use) — directed cross-
+reference + polarity is a sound comparative referee, not the flat metric's topical blind spot. Its two
+honest gaps (synonyms the dictionary never cross-references; lexical negators `is_negation` does not
+compound) are graph-content limits, not logic bugs: the loop must keep pairing the referee with a genuine
+foil and treat an un-cross-referenced synonym as UNPROVEN rather than forcing it.
 
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
