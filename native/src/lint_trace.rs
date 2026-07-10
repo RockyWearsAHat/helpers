@@ -133,7 +133,11 @@ const PREDICATES: &[Predicate] = &[
         // The DISTINCTIVE swallowed-error vocabulary. "discard" is deliberately excluded: as a bare
         // verb it equally means discarding a variable/resource ("Unused variables — explicitly
         // discard"), a sense collision that would shadow a more specific rule; the distinctive
-        // "swallow"/"ignore"/"suppress" (+ "error"/"exception") carry the defect without it.
+        // "swallow"/"ignore"/"suppress" (+ "error"/"exception") carry the defect without it. This
+        // word list is a FALLBACK organ (owner doctrine: hardcoding to be retired): the learned
+        // usage substrate (`lint_char::MeaningNetwork::usage`) proved it can grow "swallow" a
+        // programming sense from real prose, but binding it structurally waits on broad-corpus scale
+        // and, ultimately, on the reasoning path — the list stays only until understanding replaces it.
         words: &["ignore", "swallow", "error", "exception", "suppress"],
         self_bad: true,
         test: is_discarded_fallible,
@@ -332,10 +336,24 @@ impl<'a> Bridge<'a> {
 
     /// The min meaning distance from `concept` to any of a primitive's descriptor `words` — the
     /// concept aligns to a primitive when it is a near-synonym of ANY word the primitive is
-    /// described by. Uses the separating `related()` metric, so this is a real semantic match, not
-    /// spelling overlap.
+    /// described by. Two independent readings of "near", taking the BEST (min) of:
+    ///   * DICTIONARY relatedness ([`related`]) — definitions share vocabulary. Binds a concept whose
+    ///     general-English sense already IS the code shape ("duplicate" → `duplicate_subtree`).
+    ///   * LEARNED-USAGE relatedness ([`context_related`]) — the two words are USED ALIKE in the docs
+    ///     the brain read. This is what lets an inference concept the dictionary defines only in
+    ///     general English ("unreachable" = "unable to be reached") align through its PROGRAMMING
+    ///     sense — `unreachable` sits in docs beside `statements`/`unused`/`disallow`, so it reads as
+    ///     near the `statement`/`control_exit` descriptors even though no definition connects them.
+    /// Owner directive 2026-07-09 ("docs + dictionary understanding is enough"): the docs prose is
+    /// now folded into the usage graph ([`ensure_brain`]), and this is where that learning enters
+    /// the rule-shaping decision. Neither reading is spelling overlap — both are set overlap of
+    /// distinctive words in an 8192-bit space.
     fn score(&self, concept: &str, words: &[&str]) -> u32 {
-        words.iter().map(|w| self.meanings.related(concept, w)).min().unwrap_or(DIM as u32)
+        words
+            .iter()
+            .map(|w| self.meanings.related(concept, w).min(self.meanings.context_related(concept, w)))
+            .min()
+            .unwrap_or(DIM as u32)
     }
 
     /// The name of a primitive (predicate or relation) — for readable query output.
@@ -791,6 +809,122 @@ impl<'a> Bridge<'a> {
         let Some(plan) = self.understand(description) else { return Vec::new() };
         run_plan(&plan, lang, code)
     }
+
+    /// PROPOSE-then-VERIFY — reason a principle's structural check by TESTING candidate senses
+    /// against the principle's own bad/good evidence, keeping the one that actually catches the bad
+    /// shape and spares the good. This is the M3-scale stand-in for Ornith's frozen-LLM judge: with
+    /// no model to referee, REALITY referees — a check earns the rule only by working. It is
+    /// cheat-proof by construction, three ways:
+    ///
+    ///   * the candidates are ONLY the general structural senses ([`PREDICATES`], self-bad) — never a
+    ///     snippet matcher, so a winner cannot overfit the literal example;
+    ///   * a winner MUST fire on `bad` AND stay clean on `good` — a lazy check that flags everything
+    ///     is rejected by the good example (the anti-cheat the good half exists for);
+    ///   * the plan is the SIMPLEST shape (one unary sense), and when several senses survive,
+    ///     UNDERSTANDING breaks the tie (the survivor whose meaning is nearest the principle's own
+    ///     central concepts) — reality picks the checks that work, comprehension picks which working
+    ///     check the principle is ABOUT.
+    ///
+    /// Returns the verified plan, or `None` when no candidate both fires-bad and stays-clean — an
+    /// honest abstain (no evidence that any check is right beats guessing one). Unlike
+    /// [`understand`](Self::understand), this needs no descriptor WORD LIST to reach the right sense:
+    /// the swallowed-error sense is selected because it CATCHES the swallowed error, not because a
+    /// word matched — the path by which the hand-written lists burn down as understanding rises.
+    pub fn understand_verified(
+        &self,
+        description: &str,
+        lang: &str,
+        bad: &str,
+        good: &str,
+    ) -> Option<Plan> {
+        // Only a stated prohibition enforces — the same meaning-based gate `understand` uses.
+        let ex = self.explain(description);
+        if !ex.prohibition {
+            return None;
+        }
+        // The COMPREHENSION GUARD: the primitives the principle's own concepts aligned to. A
+        // candidate check may use ONLY these — a shape that merely happens to fire on a tiny
+        // example (`present_without(control_exit \ documented)` on an unreachable-code example, say)
+        // is rejected because the principle never NAMES `documented`. Reality proves a check works;
+        // understanding proves it is the one the principle is ABOUT. Empty ⇒ nothing to enforce.
+        let named: std::collections::HashSet<&str> =
+            ex.concepts.iter().filter_map(|c| c.aligned.as_deref()).collect();
+        if named.is_empty() {
+            return None;
+        }
+        let allowed = |names: &[&str]| names.iter().all(|n| named.contains(n));
+        // VERIFY: a check earns the rule only by FIRING on the bad shape and staying CLEAN on good.
+        let fires = |plan: &Plan| {
+            !run_plan(plan, lang, bad).is_empty() && run_plan(plan, lang, good).is_empty()
+        };
+        // GROUNDS-EXERCISE guard: a non-unary check is only validated when the GOOD example is a real
+        // NEAR-MISS — it must contain the very construct being checked, done RIGHT. Without this, a
+        // thin good example that simply OMITS the construct (a good with no `return` at all) fails to
+        // rule out an over-broad shape ("flags any return"), and the verifier would mint that junk.
+        // Requiring the good to EXERCISE the class turns poor grounds into an honest ABSTAIN, not a
+        // bad rule. `unary` needs no such guard: the bad exhibits the self-bad defect and clean-good
+        // alone suffices. This is the structural half of the two-way loop's demand that generated
+        // grounds isolate the defect (good = the same shape minus only the fault).
+        let exercised = |i: usize| !run_plan(&Plan::Unary(vec![i]), lang, good).is_empty();
+        // PROPOSE the WHOLE primitive vocabulary as candidate shapes (updated 2026-07-09 — unary
+        // alone cannot reach relational defects). Each carries its arity (primitive count) so the
+        // SIMPLEST verified shape wins, and the descriptor words of its primitives so UNDERSTANDING
+        // breaks any remaining tie (the survivor nearest the principle's own concepts).
+        let concepts: Vec<&str> =
+            ex.concepts.iter().filter(|c| c.distance < DIM as u32).map(|c| c.word.as_str()).collect();
+        let nearness = |words: &[&str]| {
+            concepts.iter().map(|w| self.score(w, words)).min().unwrap_or(DIM as u32)
+        };
+        let mut candidates: Vec<(Plan, usize, u32)> = Vec::new();
+        // Unary — one self-bad predicate ("an unwrap", "a swallowed error").
+        for (i, p) in PREDICATES.iter().enumerate() {
+            let names = [p.name];
+            if p.self_bad && allowed(&names) {
+                let plan = Plan::Unary(vec![i]);
+                if fires(&plan) {
+                    candidates.push((plan, 1, nearness(p.words)));
+                }
+            }
+        }
+        // Present-without — a node with one property but lacking another ("public WITHOUT docs").
+        // The good must EXERCISE the present class (a documented public item), or the check is not a
+        // near-miss and cannot be trusted.
+        for (pi, pp) in PREDICATES.iter().enumerate() {
+            for (ai, ap) in PREDICATES.iter().enumerate() {
+                if pi == ai || !allowed(&[pp.name, ap.name]) || !exercised(pi) {
+                    continue;
+                }
+                let plan = Plan::PresentWithout { present: vec![pi], absent: vec![ai] };
+                if fires(&plan) {
+                    candidates.push((plan, 2, nearness(pp.words).min(nearness(ap.words))));
+                }
+            }
+        }
+        // Relational — two nodes standing in a structural relation ("a statement AFTER a return").
+        // The good must EXERCISE BOTH endpoint classes (a real near-miss: the return present, just
+        // nothing dead after it), or the pair cannot be trusted to isolate the defect.
+        for (ri, r) in RELATIONS.iter().enumerate() {
+            for (ai, ap) in PREDICATES.iter().enumerate() {
+                for (bi, bp) in PREDICATES.iter().enumerate() {
+                    if !allowed(&[r.name, ap.name, bp.name]) || !exercised(ai) || !exercised(bi) {
+                        continue;
+                    }
+                    let plan = Plan::Relational { rel: ri, a_pred: ai, b_pred: bi };
+                    if fires(&plan) {
+                        let near =
+                            nearness(r.words).min(nearness(ap.words)).min(nearness(bp.words));
+                        candidates.push((plan, 3, near));
+                    }
+                }
+            }
+        }
+        // SIMPLEST verified shape wins; UNDERSTANDING (lower nearness = closer to the principle's
+        // concepts) breaks the tie. A single survivor needs no tie-break.
+        candidates
+            .into_iter()
+            .min_by_key(|(_, arity, near)| (*arity, *near))
+            .map(|(plan, _, _)| plan)
+    }
 }
 
 /// UNDERSTAND a principle through the MACHINE'S LOADED BRAINS — the live entry the lint walk binds a
@@ -798,9 +932,63 @@ impl<'a> Bridge<'a> {
 /// English brain; `None` when a brain is unavailable or the principle abstains (no rule). Zero
 /// per-principle logic: whatever prose the corpus holds is read through the one generic mechanism.
 pub fn understand(description: &str) -> Option<Plan> {
+    // REMEMBER what worked: a principle the AI has already REASONED to a verified check (by testing
+    // it against real bad/good evidence, [`learn_verified`]) is recalled directly — the learned
+    // policy that lets the word lists burn down. Only when nothing was learned does it fall back to
+    // the descriptor-alignment path.
+    if let Some(plan) = recall_verified(description) {
+        return Some(plan);
+    }
     let char_brain = crate::lint_char::brain()?;
     let english = crate::lint_english::brain()?;
     Bridge::new(char_brain.meanings(), english).understand(description)
+}
+
+/// The verified-rule memory file — principle → the check the AI PROVED correct against evidence.
+fn verified_store_path() -> std::path::PathBuf {
+    crate::lint_train::model_dir_pub().join("verified_rules.json")
+}
+
+/// The stable key for a principle's text — whitespace-collapsed, lowercased, seeded — so the same
+/// principle recalls its learned check regardless of incidental spacing/case.
+fn principle_key(description: &str) -> String {
+    crate::lint_ai::token_seed(&description.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase())
+        .to_string()
+}
+
+/// Load the verified-rule memory (principle key → plan), or an empty map when none is saved yet.
+fn load_verified() -> std::collections::HashMap<String, Plan> {
+    std::fs::read_to_string(verified_store_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Recall the check the AI already PROVED correct for this principle, if any.
+pub fn recall_verified(description: &str) -> Option<Plan> {
+    load_verified().remove(&principle_key(description))
+}
+
+/// LEARN a principle's check by PROPOSE-then-VERIFY against real evidence, then REMEMBER it: the AI
+/// tests candidate structural senses on `bad`/`good`, keeps the one that catches the bad shape and
+/// spares the good ([`Bridge::understand_verified`]), and PERSISTS it so later runs recall it
+/// without re-deriving — reward flowing to the plan, Ornith-style, on an M3 with no judge model.
+/// Returns the verified plan (also persisted), or `None` when no candidate verified (honest
+/// abstain). The reward is reality's: a check earns the rule only by working.
+pub fn learn_verified(description: &str, lang: &str, bad: &str, good: &str) -> Option<Plan> {
+    let char_brain = crate::lint_char::brain()?;
+    let english = crate::lint_english::brain()?;
+    let plan = Bridge::new(char_brain.meanings(), english)
+        .understand_verified(description, lang, bad, good)?;
+    let mut store = load_verified();
+    store.insert(principle_key(description), plan.clone());
+    if let Some(parent) = verified_store_path().parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&store) {
+        let _ = std::fs::write(verified_store_path(), json);
+    }
+    Some(plan)
 }
 
 /// UNDERSTAND a LANGUAGE-AGNOSTIC CANON principle through the machine's loaded brains — the live
@@ -1396,6 +1584,43 @@ mod tests {
         assert!(!bridge.enforce(swallowed, "rust", bad_sw).is_empty(), "flags the discarded result");
         assert!(bridge.enforce(swallowed, "rust", good_sw).is_empty(), "clean on the handled result");
         eprintln!("swallowed_error: enforces via unary(discarded_fallible).");
+    }
+
+    /// REASONING beats word-matching: the AI selects a principle's structural check by PROPOSE-then-
+    /// VERIFY — testing candidate senses against the principle's own bad/good evidence — and reaches
+    /// the right one where the descriptor-word path abstains. "Never Swallow Exceptions" (a bare
+    /// title) trips the word-path's centrality gate and shapes NO rule; verification enforces it by
+    /// finding the sense that actually catches the swallowed error and spares the handled one. This
+    /// is the Ornith method on an M3 with no judge model: reality referees. Ignored (dictionary +
+    /// rust grammar).
+    #[test]
+    #[ignore = "reads the local dictionary + rust grammar; the propose-then-verify reasoning proof"]
+    fn reasoning_selects_check_by_verification() {
+        let char_brain = crate::lint_char::brain().expect("char brain");
+        let english = crate::lint_english::brain().expect("english brain");
+        let bridge = Bridge::new(char_brain.meanings(), english);
+        let principle = "Never Swallow Exceptions";
+        // Isolated evidence: the bad shape carries ONLY the swallowed-result defect (a bare `let _`,
+        // no single-letter name to confound), so verification has a UNIQUE survivor.
+        let bad = "fn f() { let _ = std::fs::read_to_string(\"x\"); }";
+        let good = "fn f() -> std::io::Result<()> { std::fs::read_to_string(\"x\")?; Ok(()) }";
+        // The descriptor-word path abstains on this bare title (centrality gate) — reasoning must not.
+        let word_path = bridge.understand(principle);
+        let verified = bridge
+            .understand_verified(principle, "rust", bad, good)
+            .expect("propose-then-verify selects a check");
+        eprintln!(
+            "word-path: {:?}; verified: {}",
+            word_path.as_ref().map(Plan::describe),
+            verified.describe()
+        );
+        assert!(
+            matches!(verified, Plan::Unary(ref p) if p.iter().any(|i| PREDICATES[*i].name == "discarded_fallible")),
+            "verification selects discarded_fallible by TESTING, not word-match: {}",
+            verified.describe()
+        );
+        assert!(!run_plan(&verified, "rust", bad).is_empty(), "fires on the swallowed error");
+        assert!(run_plan(&verified, "rust", good).is_empty(), "clean on the handled result");
     }
 
     /// The five primitives added in Step 4 each FIRE on their bad shape and stay clean on good
