@@ -40,7 +40,7 @@ const MEM_CAP: usize = 8 << 20;
 /// ([`MeaningNetwork::weight_of`], owner directive 2026-07-08) so `related()` SEPARATES concepts —
 /// the distinctive words carry the sense; the document-frequency table rides the artifact, so
 /// every stale brain rebuilds to gain it.
-const BRAIN_REV: u64 = 7;
+const BRAIN_REV: u64 = 9;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -466,6 +466,28 @@ const EXPAND_FLOOR: u32 = 24;
 /// same bound the word substrate keeps ([`crate::lint_english`]), so the two meaning views agree.
 pub const MAX_MEANING_WORDS: usize = 12;
 
+/// Learned-usage content-word cap per headword ([`MeaningNetwork::usage`]). Deliberately far larger
+/// than [`MAX_MEANING_WORDS`]: a dictionary genus is a dozen words, but a jargon term earns its
+/// sense from MANY explanations, so its learned neighborhood must be allowed to grow rich (the
+/// owner directive that lifted the 12-word cap for usage). Still bounded so a loaded brain stays in
+/// the megabytes and one ubiquitous headword cannot balloon the artifact.
+pub const USAGE_CAP: usize = 48;
+
+/// The co-occurrence count of a single usage word is clamped to this before it weights a learned
+/// meaning ([`MeaningNetwork::meaning_of`]) — a word seen together 200× must not drown the rest of
+/// the learned sense, but a genuinely frequent companion (seen 8× vs 1×) should still count for
+/// more. Distinctiveness ([`MeaningNetwork::usage_weight_of`]) does the separating; the count only
+/// tips scale within a bounded range.
+const USAGE_COUNT_CAP: u32 = 8;
+
+/// A usage co-word present in at least this FRACTION of all observed headwords is treated as a
+/// generic companion (a function-word hub) and dropped from context vectors
+/// ([`MeaningNetwork::is_generic_companion`]). Corpus-derived, not a stop list: in a broad enough
+/// corpus this cleanly separates topic words (which appear with a modest fraction) from function
+/// words (which appear with nearly all). Deliberately low because a narrow, single-topic corpus
+/// inflates even topic words' document frequency.
+const GENERIC_COMPANION_PCT: f64 = 0.10;
+
 /// The dictionary MEANING NETWORK: every headword the dictionary defines — single words AND
 /// multi-word phrases (`give up`) — bound to the words of its own definition, so a word's MEANING
 /// can be rebound on demand and two words compared by how much their definitions overlap. This is the comprehension backbone the char substrate reads
@@ -488,12 +510,83 @@ pub struct MeaningNetwork {
     /// dominates its headword's meaning. Sorted by seed for binary-search lookup, and PERSISTED so
     /// a loaded brain rebinds the identical inverse-frequency-weighted meaning. Empty until sealed.
     df: Vec<(u64, u32)>,
+    /// The LEARNED USAGE sense (LINTER.md, "Meaning is learned from usage, not only definition"):
+    /// headword seed → the distinctive words it CO-OCCURS with across explanatory prose, each with
+    /// its accumulated co-occurrence count. This is how a word whose dictionary sense is narrow
+    /// ("swallow" = the eating verb) grows a SECOND, learned sense from real programming text
+    /// ("swallow" near ignore/catch/exception/error/result) — the same 1-bit HDC bundle, sourced
+    /// from usage instead of one definition. Folded and ranked at [`seal`](Self::seal), capped per
+    /// headword at [`USAGE_CAP`], PERSISTED so a loaded brain rebinds the identical learned sense.
+    usage: Vec<(u64, Vec<(String, u32)>)>,
+    /// Usage-word token seed → how many DISTINCT headwords co-occur with it — the usage corpus's
+    /// own inverse-frequency statistic ([`Self::usage_weight_of`]). A word that co-occurs with
+    /// nearly everything ("the", "code", "use") weighs ~1; a distinctive one ("exception",
+    /// "catch") weighs far more, so a learned sense leans on the words that actually discriminate
+    /// it. Sorted by seed, PERSISTED with [`usage`](Self::usage).
+    usage_df: Vec<(u64, u32)>,
+    /// TRANSIENT co-occurrence accumulator, live only while building (never persisted): headword
+    /// seed → (co-word seed → (its lowercased text, running count)). [`observe`](Self::observe)
+    /// grows it; [`seal`](Self::seal) ranks it into [`usage`](Self::usage) and clears it. Empty on
+    /// a decoded network — a loaded brain reads its sealed usage, it does not re-observe.
+    obs: HashMap<u64, HashMap<u64, (String, u32)>>,
 }
 
 impl MeaningNetwork {
     /// An empty network.
     pub fn new() -> MeaningNetwork {
-        MeaningNetwork { defs: Vec::new(), df: Vec::new() }
+        MeaningNetwork {
+            defs: Vec::new(),
+            df: Vec::new(),
+            usage: Vec::new(),
+            usage_df: Vec::new(),
+            obs: HashMap::new(),
+        }
+    }
+
+    /// OBSERVE a window of explanatory prose (a sentence, already tokenized to lowercased content
+    /// words): accumulate, for every distinct word in the window, the OTHER words it appeared with.
+    /// This is how the substrate learns meaning FROM USAGE — read enough real programming prose and
+    /// "swallow" comes to co-occur with ignore/catch/exception/error, earning a learned sense it
+    /// never had from its one dictionary definition. Counts accumulate across every window; ranking
+    /// and capping happen at [`seal`](Self::seal). No word list, no hand gloss — the corpus text is
+    /// the only input. Words shorter than three characters are skipped as non-discriminating.
+    pub fn observe(&mut self, window: &[&str]) {
+        let words: Vec<(u64, String)> = window
+            .iter()
+            .map(|w| w.to_lowercase())
+            .filter(|w| w.chars().count() >= 3 && w.chars().all(char::is_alphabetic))
+            .map(|w| (crate::lint_ai::token_seed(&w), w))
+            .collect();
+        for (i, (a_seed, _)) in words.iter().enumerate() {
+            let bucket = self.obs.entry(*a_seed).or_default();
+            for (j, (b_seed, b_text)) in words.iter().enumerate() {
+                if i == j || a_seed == b_seed {
+                    continue;
+                }
+                let entry = bucket.entry(*b_seed).or_insert_with(|| (b_text.clone(), 0));
+                entry.1 = entry.1.saturating_add(1);
+            }
+        }
+    }
+
+    /// Fold a block of PROSE into the co-occurrence substrate as sentence-window observations — the
+    /// one reader behind BOTH the explanation corpus and the docs curriculum (LINTER.md, "Meaning is
+    /// learned from usage"). Splits on sentence terminals, [`observe`](Self::observe)s each window of
+    /// its content words together, and returns the sentence count read. The caller
+    /// [`seal`](Self::seal)s afterward to fold the observations into the ranked usage sense.
+    pub fn observe_prose(&mut self, prose: &str) -> usize {
+        let mut sentences = 0;
+        for sentence in prose.split(|c: char| matches!(c, '.' | '!' | '?' | '\n' | ';' | ':')) {
+            let window: Vec<&str> =
+                sentence.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+            // A one- or two-word fragment carries no co-occurrence signal; skip it.
+            if window.len() < 3 {
+                continue;
+            }
+            self.observe(&window);
+            sentences += 1;
+        }
+        sentences
     }
 
     /// BIND a headword to the words of its definition (retain-and-grow: appended, folded at
@@ -541,6 +634,64 @@ impl MeaningNetwork {
         }
         self.defs = folded;
         self.compute_df();
+        self.fold_usage();
+    }
+
+    /// Fold the transient co-occurrence accumulator ([`obs`](Self::obs)) into the sealed, ranked
+    /// [`usage`](Self::usage) sense — the second half of [`seal`](Self::seal), split out for
+    /// clarity. Retain-and-grow like the definition fold: existing sealed usage is re-seeded into
+    /// the accumulator first, so binding more prose and sealing again GROWS a word's learned sense
+    /// (its earlier companions keep their counts) instead of replacing it. For each headword the
+    /// co-words are ranked by `count × distinctiveness` (so distinctive frequent companions win the
+    /// capped slots and function words fall away without a stop list) and the top [`USAGE_CAP`]
+    /// kept. Deterministic: ties break by co-word seed. Clears the accumulator when done.
+    fn fold_usage(&mut self) {
+        // Re-seed prior sealed usage so accumulation is cumulative across seals.
+        for (head, words) in self.usage.drain(..) {
+            let bucket = self.obs.entry(head).or_default();
+            for (text, count) in words {
+                let seed = crate::lint_ai::token_seed(&text);
+                let entry = bucket.entry(seed).or_insert_with(|| (text, 0));
+                entry.1 = entry.1.saturating_add(count);
+            }
+        }
+        if self.obs.is_empty() {
+            self.usage_df = Vec::new();
+            return;
+        }
+        // Usage document frequency: how many DISTINCT headwords each co-word appears with — the
+        // corpus's own inverse-frequency statistic, computed before ranking so it can weight it.
+        let mut df: HashMap<u64, u32> = HashMap::new();
+        for bucket in self.obs.values() {
+            for coword in bucket.keys() {
+                *df.entry(*coword).or_insert(0) += 1;
+            }
+        }
+        let heads = self.obs.len().max(1) as f64;
+        let distinct = |seed: u64| -> f64 {
+            let d = df.get(&seed).copied().unwrap_or(1).max(1);
+            (heads / f64::from(d)).ln().max(0.0) + 1.0
+        };
+        let obs = std::mem::take(&mut self.obs);
+        let mut usage: Vec<(u64, Vec<(String, u32)>)> = Vec::with_capacity(obs.len());
+        for (head, bucket) in obs {
+            let mut words: Vec<(String, u32)> = bucket.into_values().collect();
+            // Rank by count × distinctiveness (descending); ties by co-word seed for determinism.
+            words.sort_by(|a, b| {
+                let sa = f64::from(a.1) * distinct(crate::lint_ai::token_seed(&a.0));
+                let sb = f64::from(b.1) * distinct(crate::lint_ai::token_seed(&b.0));
+                sb.partial_cmp(&sa)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| crate::lint_ai::token_seed(&a.0).cmp(&crate::lint_ai::token_seed(&b.0)))
+            });
+            words.truncate(USAGE_CAP);
+            usage.push((head, words));
+        }
+        usage.sort_by_key(|(k, _)| *k);
+        let mut usage_df: Vec<(u64, u32)> = df.into_iter().collect();
+        usage_df.sort_by_key(|(k, _)| *k);
+        self.usage = usage;
+        self.usage_df = usage_df;
     }
 
     /// Compute each definition-word's DOCUMENT FREQUENCY over the folded definitions — how many
@@ -638,8 +789,32 @@ impl MeaningNetwork {
     /// and STABLE — the same word always rebinds the same vector (the weights ride the sealed
     /// network), so a round-tripped network answers identically. `None` when no definition is bound.
     pub fn meaning_of(&self, word: &str) -> Option<Hv> {
-        let words = self.definition(word)?;
         let mut b = Bundler::new();
+        if let Some(words) = self.definition(word) {
+            self.bundle_definition(&mut b, words);
+        }
+        // The LEARNED USAGE sense rides the SAME bundle: the distinctive words this headword
+        // co-occurred with in explanatory prose, each weighted by its usage distinctiveness times
+        // its (clamped) co-occurrence count. A word with only a dictionary sense is unchanged; a
+        // jargon word whose usage sense is rich ("swallow" near ignore/catch/exception) has its
+        // meaning pulled toward that learned vocabulary — the unlock that lets it align to a
+        // structural primitive it could never reach from its eating-verb definition alone.
+        if let Some(usage) = self.usage_of(word) {
+            for (coword, count) in usage {
+                if self.is_generic_companion(coword) {
+                    continue;
+                }
+                let w = self.usage_weight_of(coword) * (*count).min(USAGE_COUNT_CAP);
+                b.add_weighted(&crate::lint_ai::token_hv(coword), w);
+            }
+        }
+        (!b.is_empty()).then(|| b.finalize())
+    }
+
+    /// Bundle a headword's DICTIONARY definition words into `b` — the first-hop IDF-weighted words
+    /// plus the one-hop transitive expansion of the distinctive ones. Split out of
+    /// [`meaning_of`](Self::meaning_of) so the learned-usage sense can share the same bundle.
+    fn bundle_definition(&self, b: &mut Bundler, words: &[String]) {
         for w in words {
             // The atom for a definition word is its CLEAN orthogonal code
             // ([`crate::lint_ai::token_hv`]), not its spelling centroid: meaning is SET OVERLAP of
@@ -669,7 +844,88 @@ impl MeaningNetwork {
                 }
             }
         }
+    }
+
+    /// The CONTEXT vector of `word` — its learned-usage co-words alone, bundled without the
+    /// dictionary sense (each companion's clean code weighted by usage distinctiveness × clamped
+    /// count). This is the DISTRIBUTIONAL meaning: two words have close context vectors when they
+    /// are USED ALIKE (share the same companions), the signal that lets a jargon term match a
+    /// concept it never shares a dictionary definition with. `None` when the corpus never observed
+    /// the word.
+    pub fn context_of(&self, word: &str) -> Option<Hv> {
+        let usage = self.usage_of(word)?;
+        let mut b = Bundler::new();
+        for (coword, count) in usage {
+            if self.is_generic_companion(coword) {
+                continue;
+            }
+            let w = self.usage_weight_of(coword) * (*count).min(USAGE_COUNT_CAP);
+            b.add_weighted(&crate::lint_ai::token_hv(coword), w);
+        }
         (!b.is_empty()).then(|| b.finalize())
+    }
+
+    /// Whether `coword` is a GENERIC COMPANION — present in so large a fraction of all observed
+    /// headwords that it discriminates nothing (the "the"/"you"/"and" hub that otherwise pulls
+    /// every context vector toward one centroid). Derived purely from the usage document frequency
+    /// (like [`EXPAND_FLOOR`] for definitions), never an enumerated stop list; the fraction is
+    /// tunable via `HELPERS_USAGE_GENERIC_PCT` while calibrating.
+    fn is_generic_companion(&self, coword: &str) -> bool {
+        let n = self.usage.len().max(1) as f64;
+        let seed = crate::lint_ai::token_seed(coword);
+        let df = self
+            .usage_df
+            .binary_search_by_key(&seed, |(k, _)| *k)
+            .ok()
+            .map(|i| self.usage_df[i].1)
+            .unwrap_or(0);
+        let pct = std::env::var("HELPERS_USAGE_GENERIC_PCT")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(GENERIC_COMPANION_PCT);
+        f64::from(df) / n >= pct
+    }
+
+    /// The Hamming proximity of two words' CONTEXT vectors ([`context_of`](Self::context_of)) —
+    /// small when they are used alike. [`DIM`] when either was never observed in the corpus.
+    pub fn context_related(&self, a: &str, b: &str) -> u32 {
+        match (self.context_of(a), self.context_of(b)) {
+            (Some(x), Some(y)) => x.distance(&y),
+            _ => DIM as u32,
+        }
+    }
+
+    /// The learned-usage co-words of `word` (companion text + count), or `None` when the corpus
+    /// never observed it. Requires a [`sealed`](Self::seal) network.
+    fn usage_of(&self, word: &str) -> Option<&[(String, u32)]> {
+        let seed = crate::lint_ai::token_seed(&word.to_lowercase());
+        self.usage.binary_search_by_key(&seed, |(k, _)| *k).ok().map(|i| self.usage[i].1.as_slice())
+    }
+
+    /// The learned-usage co-words of `word` — the READABLE view the `define` interrogation reports
+    /// as the word's PROGRAMMING sense, ranked most-distinctive-and-frequent first. `None` when the
+    /// explanatory corpus never observed the word co-occurring with anything.
+    pub fn usage_words(&self, word: &str) -> Option<&[(String, u32)]> {
+        self.usage_of(word)
+    }
+
+    /// The inverse-frequency WEIGHT of a USAGE co-word — the usage corpus's analogue of
+    /// [`weight_of`](Self::weight_of), computed from [`usage_df`](Self::usage_df). A companion word
+    /// that co-occurs with nearly every headword ("code", "use") weighs ~1; a distinctive one
+    /// ("exception", "catch") weighs far more, so a learned sense is carried by the words that
+    /// actually discriminate it. A word absent from the usage table weighs 1.
+    fn usage_weight_of(&self, word: &str) -> u32 {
+        const SCALE: f64 = 8.0;
+        let n = self.usage.len().max(1) as f64;
+        let seed = crate::lint_ai::token_seed(word);
+        let df = self
+            .usage_df
+            .binary_search_by_key(&seed, |(k, _)| *k)
+            .ok()
+            .map(|i| self.usage_df[i].1)
+            .unwrap_or(1);
+        let idf = (n / f64::from(df.max(1))).ln().max(0.0);
+        ((idf * SCALE).round() as u32).max(1)
     }
 
     /// The Hamming PROXIMITY of two words' meanings (0 = identical, ~[`DIM`]/2 = unrelated):
@@ -706,6 +962,21 @@ impl crate::lint_codec::Bin for MeaningNetwork {
         // (word seeds, document frequencies) in canonical sorted order.
         e.raw_u64s(&self.df.iter().map(|(k, _)| *k).collect::<Vec<_>>());
         e.raw_u32s(&self.df.iter().map(|(_, c)| *c).collect::<Vec<_>>());
+        // The LEARNED USAGE sense: per headword its co-words and counts (DATA-stream strings +
+        // RAW counts), then the usage inverse-frequency table — the same canonical, sorted,
+        // reproducible layout as the dictionary meaning above.
+        let mut usage = self.usage.clone();
+        usage.sort_by_key(|(k, _)| *k);
+        e.raw_u64s(&usage.iter().map(|(k, _)| *k).collect::<Vec<_>>());
+        e.raw_u32s(&usage.iter().map(|(_, w)| w.len() as u32).collect::<Vec<_>>());
+        for (_, words) in &usage {
+            for (text, count) in words {
+                e.str(text);
+                e.raw_u32s(&[*count]);
+            }
+        }
+        e.raw_u64s(&self.usage_df.iter().map(|(k, _)| *k).collect::<Vec<_>>());
+        e.raw_u32s(&self.usage_df.iter().map(|(_, c)| *c).collect::<Vec<_>>());
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<MeaningNetwork> {
         let keys = d.raw_u64s()?;
@@ -727,7 +998,28 @@ impl crate::lint_codec::Bin for MeaningNetwork {
             return None;
         }
         let df = df_keys.into_iter().zip(df_vals).collect();
-        Some(MeaningNetwork { defs, df })
+        let usage_keys = d.raw_u64s()?;
+        let usage_lens = d.raw_u32s()?;
+        if usage_keys.len() != usage_lens.len() {
+            return None;
+        }
+        let mut usage = Vec::with_capacity(usage_keys.len());
+        for (k, len) in usage_keys.into_iter().zip(usage_lens) {
+            let mut words = Vec::with_capacity(len as usize);
+            for _ in 0..len {
+                let text = d.str()?;
+                let count = *d.raw_u32s()?.first()?;
+                words.push((text, count));
+            }
+            usage.push((k, words));
+        }
+        let udf_keys = d.raw_u64s()?;
+        let udf_vals = d.raw_u32s()?;
+        if udf_keys.len() != udf_vals.len() {
+            return None;
+        }
+        let usage_df = udf_keys.into_iter().zip(udf_vals).collect();
+        Some(MeaningNetwork { defs, df, usage, usage_df, obs: HashMap::new() })
     }
 }
 
@@ -917,6 +1209,19 @@ pub fn brain() -> Option<&'static CharReader> {
     BRAIN.get()
 }
 
+/// Load the saved brain as an OWNED, MUTABLE reader (or `None` when untrained) — the write path,
+/// distinct from the memoized read-only [`brain`]. Used to fold new learning (e.g. explanatory
+/// co-occurrence, [`crate::lint_socrawl`]) into the existing brain and [`save`] it back, without
+/// rebuilding the whole curriculum.
+pub fn load_owned() -> Option<CharReader> {
+    use crate::lint_codec::{Bin, Dec};
+    let bytes = std::fs::read(store_path()).ok()?;
+    let (_, mut d) = Dec::open(&bytes, crate::lint_codec::kind::CHARBRAIN)?;
+    let mut r = CharReader::dec(&mut d)?;
+    r.ensure_structure();
+    Some(r)
+}
+
 /// Persist a character brain as its `HLM1` container (stamp = characters read, a cheap prefix
 /// probe of how much it has learned).
 pub fn save(reader: &CharReader) {
@@ -1021,6 +1326,11 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         fp ^= lang_fp.rotate_left(7);
         web.push((lang.to_string(), pages));
     }
+    // Fold the explanation corpus into the fingerprint so a refreshed Stack Overflow cache
+    // (more pages, new fetch) re-trains the learned usage sense instead of silently replaying.
+    if let Some(corpus) = crate::lint_socrawl::load() {
+        fp ^= (corpus.pages.len() as u64).wrapping_mul(0x100000001B3).rotate_left(19);
+    }
     if english.is_none() && web.iter().all(|(_, p)| p.is_empty()) {
         return None;
     }
@@ -1055,6 +1365,19 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         r.meanings.seal();
         order.push(format!("meanings {}w", r.meanings.len()));
     }
+    // LEARN MEANING FROM USAGE (LINTER.md, "Meaning is learned from usage, not only definition"):
+    // read the cached Stack Overflow explanation corpus as co-occurrence, so jargon terms the
+    // dictionary defines narrowly (or not at all) grow a real learned sense from how programmers
+    // actually use them. Reads the cache (fetching once when absent and online); a smarter reader
+    // re-reads the same raw pages. Re-seal folds the co-occurrence into the ranked usage sense.
+    {
+        let corpus = crate::lint_socrawl::ensure(false);
+        if !corpus.pages.is_empty() {
+            let (pages, sentences) = crate::lint_socrawl::learn_into(&corpus, &mut r.meanings);
+            r.meanings.seal();
+            order.push(format!("explanations {pages}p/{sentences}s"));
+        }
+    }
     lap(&mut clock, "meanings-bind");
     // Read the web curriculum DEDUPED: a global block set collapses the chrome repeated across a
     // crawl to its first occurrence, so the reader sees each language's real structure and content
@@ -1079,6 +1402,24 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         }
     }
     lap(&mut clock, "web-dedup+learn");
+    // FOLD THE DOCS' PROSE INTO THE MEANING GRAPH (owner directive 2026-07-09 — "docs and dictionary
+    // understanding is enough to get real findings"). The web curriculum is read CHAR-LEVEL above,
+    // but its prose must ALSO grow the concept graph's learned sense, exactly as the explanation
+    // corpus does — otherwise an inference concept the dictionary defines only in general English
+    // ("unreachable" = "unable to be reached") never acquires its PROGRAMMING sense (sitting near
+    // `return`/`statement`/`executed` in real docs), so a canon principle's words cannot align to a
+    // structural primitive without a hand-authored example. Observe the DEDUPED novel prose (chrome
+    // already collapsed) as sentence-window co-occurrence through the shared reader, then re-seal to
+    // fold it into the ranked usage sense. This is the wire that makes "docs are enough" true.
+    let mut doc_sentences = 0usize;
+    for body in &web_bodies {
+        doc_sentences += r.meanings.observe_prose(&crate::doc_crawler::extract_prose(body));
+    }
+    if doc_sentences > 0 {
+        r.meanings.seal();
+        order.push(format!("doc-prose {doc_sentences}s"));
+    }
+    lap(&mut clock, "doc-prose-observe");
     // Learn the page STRUCTURE by exposure (LINTER.md, "Reading a page is UNDERSTANDING"): over
     // the same (deduped) web curriculum, which register followed each markup token — code carriers
     // vs section headings — read with the meaning network just sealed. This is what lets the reader

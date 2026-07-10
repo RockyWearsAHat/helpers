@@ -25,9 +25,12 @@ pub fn schema() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ["define", "explain", "rules"], "description": "The interrogation to run." },
-                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust)." },
-                "scope": { "type": "string", "enum": ["canon", "language"], "description": "explain only: read the prose as the language-agnostic canon (no uses_construct fallback) or as general language-doc prose (default). Canon principles enforce structurally or abstain." }
+                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works." },
+                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence." },
+                "scope": { "type": "string", "enum": ["canon", "language"], "description": "explain only: read the prose as the language-agnostic canon (no uses_construct fallback) or as general language-doc prose (default). Canon principles enforce structurally or abstain." },
+                "language": { "type": "string", "description": "learn only: the language of the bad/good evidence (e.g. rust)." },
+                "bad": { "type": "string", "description": "learn only: code that BREAKS the principle — the check must fire on it." },
+                "good": { "type": "string", "description": "learn only: code that OBEYS the principle — the check must stay clean on it." }
             },
             "required": ["kind", "arg"]
         }
@@ -48,9 +51,10 @@ pub fn run(args: &Value) -> ToolResult {
         "define" => define(arg),
         "explain" => explain(arg, canon),
         "rules" => rules(arg),
+        "learn" => learn(arg, args),
         other => {
             return Err(format!(
-                "lint_query: unknown kind `{other}`. Valid: define | explain | rules"
+                "lint_query: unknown kind `{other}`. Valid: define | explain | rules | learn"
             ))
         }
     };
@@ -63,6 +67,12 @@ fn define(word: &str) -> Value {
     let known = brain.is_some_and(|b| b.has_meaning(word));
     let definition_words: Option<Vec<String>> =
         brain.and_then(|b| b.meanings().definition_words(word)).map(<[String]>::to_vec);
+    // The LEARNED USAGE sense — the words this term co-occurs with across explanatory prose, most
+    // distinctive-and-frequent first. Present only for words the explanation corpus observed; this
+    // is where a jargon term's PROGRAMMING sense shows up, distinct from its dictionary definition.
+    let usage_words: Option<Vec<Value>> = brain.and_then(|b| b.meanings().usage_words(word)).map(|u| {
+        u.iter().map(|(w, c)| json!({ "word": w, "count": c })).collect()
+    });
     let nearest: Vec<Value> = crate::lint_trace::concept_alignment(word)
         .unwrap_or_default()
         .into_iter()
@@ -75,6 +85,7 @@ fn define(word: &str) -> Value {
         "brain_loaded": brain.is_some(),
         "known": known,
         "definition_words": definition_words,
+        "usage_words": usage_words,
         "nearest_concepts": nearest,
         "note": "distance is Hamming over 8192-bit meaning vectors (0 = exact/synonymous, ~4096 = unrelated).",
     })
@@ -113,6 +124,39 @@ fn explain(prose: &str, canon: bool) -> Value {
         "shaped_rule": ex.plan.as_ref().map(|p| p.describe()),
         "enforces": ex.plan.is_some(),
         "abstain_reason": ex.abstain,
+    })
+}
+
+/// `learn <principle>` — PROPOSE-then-VERIFY: the AI reasons the principle's structural check by
+/// TESTING candidate senses against the `bad`/`good` evidence, keeps the one that catches the bad
+/// shape and spares the good, and REMEMBERS it so later runs recall it without re-deriving. This is
+/// the Ornith method with no judge model — reality referees. Reports the check learned (and whether
+/// the descriptor-word path would have reached it), or an honest abstain when nothing verified.
+fn learn(principle: &str, args: &Value) -> Value {
+    let lang = args["language"].as_str().unwrap_or("rust");
+    let bad = args["bad"].as_str().unwrap_or("");
+    let good = args["good"].as_str().unwrap_or("");
+    if bad.is_empty() || good.is_empty() {
+        return json!({ "kind": "learn", "principle": principle,
+            "note": "learn needs both `bad` (code that breaks the rule) and `good` (code that obeys it) — the check is chosen by which one it actually catches." });
+    }
+    let word_path = crate::lint_trace::understand(principle).map(|p| p.describe());
+    let learned = crate::lint_trace::learn_verified(principle, lang, bad, good);
+    let verified = learned.as_ref().map(|p| p.describe());
+    let bad_lines = learned.as_ref().map(|p| crate::lint_trace::run_plan(p, lang, bad));
+    let good_lines = learned.as_ref().map(|p| crate::lint_trace::run_plan(p, lang, good));
+    json!({
+        "kind": "learn",
+        "principle": principle,
+        "language": lang,
+        "word_path_plan": word_path,
+        "verified_plan": verified,
+        "learned": learned.is_some(),
+        "fires_on_bad": bad_lines,
+        "clean_on_good": good_lines.as_ref().map(|l: &Vec<usize>| l.is_empty()),
+        "note": learned.is_some()
+            .then(|| "reasoned by verification and remembered — future runs recall this check.".to_string())
+            .unwrap_or_else(|| "no candidate sense both fired on bad and stayed clean on good — honest abstain.".to_string()),
     })
 }
 
