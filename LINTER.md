@@ -101,6 +101,56 @@ files, no treating it as a black-box "AI." We are building the infinite states (
 correctly, one proven state at a time. The sections below describe the current implementation the parts
 are wired from; this section describes what they are being wired INTO.
 
+### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
+
+> The referee the corroboration loop (step 3 above) stands on: given two English statements — the
+> expected outcome and the actual outcome, both derived back into English — do they assert the
+> **same / consistent** thing? Decided ENTIRELY over the frozen dictionary meaning graph
+> (`MeaningNetwork`), never over spelling and never over a word list. This subsection is the contract;
+> the module implements exactly it.
+
+**What "English equality/consistency" means here.** A statement reduces to its **content concepts**:
+its tokens the bedrock knows (`has`), keeping those whose `centrality` is at or above the statement's
+own median — a COMPARATIVE cut that drops the shared filler (the/is/a) without any stop list. Two
+statements are *consistent* to the degree their content-concept **meaning sets align**: for each
+concept on one side, its nearest concept on the other by `related` (dictionary meaning distance),
+centrality-weighted so distinctive concepts dominate, averaged in both directions (a symmetric
+centrality-weighted chamfer). Lower distance = more consistent. This is meaning-set overlap, exactly
+as the north star specifies — the same statistic every meaning bundle already weighs by.
+
+**The decision is COMPARATIVE, never a magic threshold.** The judge never says "consistent iff score <
+K." It ranks: `more_consistent(anchor, x, y)` answers which candidate asserts something nearer the
+anchor, and `corroborates(expected, actual, contrast)` holds iff `actual` aligns to `expected`
+**strictly nearer than** the `contrast` baseline does. The corroboration engine always has such a
+contrast — the negated/alternative expectation it also derived — so equality is judged as a *margin*
+against a foil, not against a constant.
+
+**Proven competence boundary (measured 2026-07-10, honest).** Against the frozen graph the judge is a
+reliable **relatedness floor** and a WEAK assertional referee, not the incorruptible fine referee the
+north star assumes:
+
+- **Reliable:** a true restatement scores far nearer an anchor than a topically-UNRELATED contrast
+  (`"a dog is a canine"` → restatement ≈ 0, unrelated `"a rock is a mineral"` ≈ 4080). The ranker is
+  trustworthy whenever the foil is off-topic.
+- **Fails:** it cannot separate a true restatement from a **same-topic contradiction**
+  (`"a dog is a bird"` ≈ 2005 — nearer than unrelated but inside the restatement band). Labeled AUC ≈
+  **0.80** (matches the graph's known ~0.75 near-synonym accuracy), not ≈ 1.0.
+- **Root cause, traced to the substrate:** the meaning vector is built from definition-word overlap, so
+  synonymy (`liquid`≈`fluid`), co-hyponymy (`mammal`~`fish`), and antonymy (`bright`~`dark`) ALL read
+  as "close" — they share defining vocabulary. The graph measures **topical relatedness**, which is
+  orthogonal to **assertional equality**. Distinguishing "same assertion" from "same-topic OPPOSITE
+  assertion" needs is-a direction and negation polarity; neither is in the frozen substrate. The judge
+  is therefore blind to negation (`avoid`~`use` both far) and to non-English jargon (`eval` unknown →
+  drops out).
+
+**Verdict.** The bedrock is proven-enough to REJECT off-topic foils (a coarse floor the rest of the
+substrate may lean on for that job) but is NOT proven-enough to be the sole fine referee of assertional
+equality. Building the 15×-independent corroboration ISM on this judge alone would let same-topic
+contradictions corroborate false understandings. Strengthening it requires adding is-a direction and
+negation polarity to the substrate — a substrate change, out of scope here (the graph is frozen). Until
+then the corroboration loop must pair this floor with a foil that is genuinely off-topic, or gate any
+same-topic judgment as UNPROVEN.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
