@@ -64,6 +64,50 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        #[cfg(feature = "crawl")]
+        Some("fetch-explanations") => {
+            // Populate/refresh the Stack Overflow cache ONLY (no brain mutation) — the big
+            // incremental pull. A following `train` folds it cleanly into a fresh brain.
+            let t = std::time::Instant::now();
+            let corpus = helpers_native::lint_socrawl::ensure(true);
+            eprintln!(
+                "explanation cache: {} pages ({:.1}s), net_down={}",
+                corpus.pages.len(),
+                t.elapsed().as_secs_f64(),
+                helpers_native::doc_crawler::network_down()
+            );
+            ExitCode::SUCCESS
+        }
+        #[cfg(feature = "crawl")]
+        Some("learn-explanations") => {
+            // Fetch (or conditionally refresh) the Stack Overflow explanation corpus, fold its
+            // co-occurrence into the existing brain's meaning network, and save. The fast,
+            // incremental proof path — no full-curriculum rebuild.
+            let refresh = argv.iter().any(|a| a == "--refresh");
+            let corpus = helpers_native::lint_socrawl::ensure(refresh);
+            let mut brain = match helpers_native::lint_char::load_owned() {
+                Some(b) => b,
+                None => {
+                    eprintln!("no brain trained yet — run lint_config action=train first");
+                    return ExitCode::from(1);
+                }
+            };
+            let (pages, sentences) =
+                helpers_native::lint_socrawl::learn_into(&corpus, brain.meanings_mut());
+            brain.meanings_mut().seal();
+            helpers_native::lint_char::save(&brain);
+            let sample = brain
+                .meanings()
+                .usage_words("swallow")
+                .map(|u| {
+                    u.iter().take(12).map(|(w, c)| format!("{w}:{c}")).collect::<Vec<_>>().join(" ")
+                })
+                .unwrap_or_else(|| "(none)".into());
+            eprintln!(
+                "learned from {pages} pages, {sentences} sentences. swallow usage: {sample}"
+            );
+            ExitCode::SUCCESS
+        }
         Some("mcp") => mcp::run(),
         Some("call") => run_call(argv.get(1).map(String::as_str)),
         Some("bundle") => run_bundle(argv.get(1), argv.get(2)),

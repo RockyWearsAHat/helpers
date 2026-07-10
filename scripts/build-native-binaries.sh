@@ -2,11 +2,10 @@
 # Build the prebuilt `helpers-native` binary for ONE release target tag and pack
 # it as dist/helpers-native-<tag>.tar.gz. These tarballs are attached to the
 # GitHub release; `helpers build` downloads the matching one so installs need no
-# Rust toolchain. git-cs-grade and the git-* CLIs are folded into this one binary.
+# Rust toolchain. The git-* CLIs are folded into this one binary.
 #
-# Plain `cargo build --target` + cross-linkers are used (NO Docker/`cross`), so
-# the native crate's path-dependency on ../cs-grade resolves with normal
-# filesystem access. The toolchains each tag needs are installed by the CI job
+# Plain `cargo build --target` + cross-linkers are used (NO Docker/`cross`). The
+# toolchains each tag needs are installed by the CI job
 # (see .github/workflows/build-installer.yml: build-natives).
 #
 #   usage: scripts/build-native-binaries.sh <tag>

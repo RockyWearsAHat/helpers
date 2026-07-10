@@ -7,10 +7,14 @@ use std::path::Path;
 
 use include_dir::{include_dir, Dir};
 
-/// The Claude agent config: `CLAUDE.helpers.md`, `skills/`, `commands/`, `agents/`.
+/// The single, agent-agnostic always-on core (`CORE.md`) — one doc installed verbatim
+/// for every agent, so the guidance is never duplicated or allowed to drift per-agent.
+pub static AGENT_CONFIG: Dir = include_dir!("$CARGO_MANIFEST_DIR/../agent-config");
+
+/// Claude-only assets layered on top of the shared core: `skills/`, `commands/`, `agents/`.
 pub static CLAUDE_CONFIG: Dir = include_dir!("$CARGO_MANIFEST_DIR/../claude-config");
 
-/// The Copilot agent config: `instructions/`, `agents/`, `skills/`.
+/// Copilot-only assets layered on top of the shared core: scoped `instructions/`, `agents/`, `skills/`.
 pub static COPILOT_CONFIG: Dir = include_dir!("$CARGO_MANIFEST_DIR/../copilot-config");
 
 /// Recursively write an embedded directory's contents into `dest` (created if

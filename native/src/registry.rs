@@ -18,19 +18,14 @@ pub struct Tool {
 /// allowlist) is all that's needed to route it to Rust.
 pub fn all_tools() -> Vec<Tool> {
     use tools::{
-        checkpoint as cp, cs_lint as cl, knowledge as kn, project_index as pi, setup as su,
-        strict_lint as sl,
+        checkpoint as cp, knowledge as kn, lint as ln, lint_flag as lf, lint_source as ls,
+        project_index as pi, setup as su,
     };
     vec![
         Tool {
             name: "checkpoint",
             schema: cp::schema,
             handler: cp::run,
-        },
-        Tool {
-            name: "strict_lint",
-            schema: sl::schema,
-            handler: sl::run,
         },
         Tool {
             name: "index_project",
@@ -53,9 +48,34 @@ pub fn all_tools() -> Vec<Tool> {
             handler: su::run,
         },
         Tool {
-            name: "cs_lint",
-            schema: cl::schema,
-            handler: cl::run,
+            name: "lint",
+            schema: ln::schema,
+            handler: ln::run,
+        },
+        Tool {
+            name: "lint_flag",
+            schema: lf::schema,
+            handler: lf::run,
+        },
+        Tool {
+            name: "lint_submit",
+            schema: ls::schema_submit,
+            handler: ls::run_submit,
+        },
+        Tool {
+            name: "lint_rule",
+            schema: ls::schema_rule,
+            handler: ls::run_rule,
+        },
+        Tool {
+            name: "lint_config",
+            schema: ls::schema_config,
+            handler: ls::run_config,
+        },
+        Tool {
+            name: "lint_query",
+            schema: tools::lint_query::schema,
+            handler: tools::lint_query::run,
         },
         Tool {
             name: "build_knowledge_index",

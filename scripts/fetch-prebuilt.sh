@@ -81,7 +81,7 @@ install -m 0755 "$tmp/helpers-native${EXE}" "$BIN_DIR/helpers-native${EXE}" 2>/d
 
 # Symlink the busybox CLIs (helpers + git-*) to the one binary.
 for name in helpers git-resolve git-remerge git-fucked-the-push git-initialize git-get \
-	git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env git-cs-grade; do
+	git-scan-for-leaked-envs git-upload git-checkpoint git-help-i-pushed-an-env; do
 	ln -sf "helpers-native${EXE}" "$BIN_DIR/${name}${EXE}" 2>/dev/null ||
 		cp "$BIN_DIR/helpers-native${EXE}" "$BIN_DIR/${name}${EXE}" 2>/dev/null || true
 done
