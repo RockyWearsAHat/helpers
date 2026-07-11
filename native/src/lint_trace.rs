@@ -394,6 +394,25 @@ impl<'a> Bridge<'a> {
         self.explain_scoped(description, true).plan
     }
 
+    /// PROPOSE the code constructs a description NAMES — one covenant-clean [`extract_construct`]
+    /// per sentence, paired with the governing sentence it was read from. The module-training
+    /// workflow ([`crate::lint_module`]) uses this to propose construct-rule candidates LIBERALLY
+    /// (verification, not the low-recall prohibition gate, is the filter — LINTER.md
+    /// "PROPOSE-VERIFY-LEARN is the language path"). Deduped by construct, keeping the earliest
+    /// governing sentence. `(construct, governing sentence)` pairs; empty when the prose names none.
+    pub fn constructs_named(&self, description: &str) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for sentence in crate::lint_read::sentences(description) {
+            let baseline = self.sentence_baseline(sentence);
+            if let Some(construct) = self.extract_construct(sentence, baseline) {
+                if !out.iter().any(|(c, _)| c == &construct) {
+                    out.push((construct, sentence.to_string()));
+                }
+            }
+        }
+        out
+    }
+
     /// UNDERSTANDING SHAPES A RULE for the LANGUAGE-AGNOSTIC CANON — identical to
     /// [`understand`](Self::understand) except the construct fallback is SUPPRESSED. A canon
     /// principle is a language-agnostic design rule ("prefer deterministic behaviour"); it enforces

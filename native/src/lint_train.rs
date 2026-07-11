@@ -162,6 +162,15 @@ impl LearnedCatalog {
     fn doc_rules(&self, lang: &str) -> (Vec<DocRule>, Vec<String>) {
         match &self.memory {
             Some(memory) => {
+                // NOTE (2026-07-11): the construct-module training workflow ([`crate::lint_module`],
+                // LINTER.md "The construct-module training workflow") is the intended successor here —
+                // it PROVES each construct rule through the frozen self-generated test loop before it
+                // enters the module. It is BUILT and PROVEN as a mechanism, but MEASURED on the real
+                // JS crawl it is blocked by binding-prose QUALITY (garbled ESLint/MDN fragments): the
+                // precise prohibition gate drops the real classics while the liberal gate mints syntax
+                // junk. Until the upstream reading or the docs'-own-bad/good verification closes that
+                // gap, this seam stays on `rules_from_memory` (no regression), and the workflow's
+                // honest measurement lives in `examples/js_module_train.rs`.
                 let rules = crate::lint_docs::rules_from_memory(lang, memory)
                     .into_iter()
                     .map(|(r, url)| DocRule {
@@ -986,6 +995,14 @@ fn overlay_path(lang: &str, project_fp: u64) -> PathBuf {
 /// the cached module; never trains (a query must not mutate machine state).
 pub fn cached_ruleset(lang: &str) -> Option<crate::lint_match::RuleSet> {
     load_module(lang).map(|m| m.rules)
+}
+
+/// The association [`crate::lint_read::Memory`] a language's docs were read into — the source the
+/// construct-module training workflow ([`crate::lint_module`]) derives its loop inputs from, and what
+/// `examples/js_module_train.rs` measures against the real crawls. Loads the cached learned catalog;
+/// `None` when the language has not been read yet. Never trains, never touches the network.
+pub fn cached_memory(lang: &str) -> Option<crate::lint_read::Memory> {
+    load_cache(lang).and_then(|c| c.memory)
 }
 
 /// The machine-global CORPUS rules compiled for `lang` — the understanding→trace (and probe
