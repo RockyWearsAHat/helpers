@@ -325,6 +325,90 @@ verdict is: **the doc→corroboration→graduation pipeline reaches real HTML do
 because per-construct structural keying — the HTML layer's own subject identity — is the missing piece the
 English bedrock cannot supply.**
 
+### The HTML layer — structural construct-keying that unblocks graduation (`lint_html_layer.rs`, 2026-07-10)
+
+> The fix the previous subsection scoped for owner review, now BUILT and MEASURED. It supplies the
+> per-construct SUBJECT the English dictionary cannot key, so real HTML construct truths corroborate
+> only from their OWN construct's prose and the cross-construct leak is gone. The dictionary, the
+> comparator (`lint_corroborate`), and the engine (`lint_ism`) are UNTOUCHED — this layer only keys
+> and gates the witness stream that flows INTO the frozen engine. Probe: `native/examples/htmlgrad.rs`.
+
+**The construct is its own orthogonal state, keyed from the MARKUP — never a dictionary word.** A
+construct truth is the pair `(subject_key, English predicate)`. The `subject_key` is the element's
+tag name as an OPAQUE markup symbol (`strong`, `b`, `em`) — the HTML layer's own jargon, held in the
+HTML partition and NEVER written into the English meaning graph (the dictionary stays frozen and
+un-contaminated, per the north-star's "concepts individual until provably linked"). The PREDICATE is
+ordinary English (importance ≡ importance), and it is judged ONLY by the frozen comparator; the
+subject key never enters that judgement, it only GATES which witnesses the comparator ever sees.
+
+**Subject = page-of-origin (structural), not a tag substring.** MDN publishes exactly one reference
+page per element, so a sentence's construct-subject is *the construct whose reference page it belongs
+to* — a structural fact read from the page's URL (`/HTML/…/Elements/<name>`), not from any tag the
+sentence happens to contain (substring tag-matching grabbed example formatting — measured, previous
+subsection Experiment D). `KeyedWitness { subject, sentence }` carries that structural key with each
+sentence. **The leak dies at the gate:** graduating construct `C` counts ONLY witnesses whose
+`subject == C`, so `<em>`- and `<b>`-page sentences are never even offered to a `<strong>` truth,
+however much their English predicate would have corroborated it. This is construct-key IDENTITY, the
+HTML layer's own subject discrimination, standing in front of the (unchanged) English comparator.
+
+**Governing prose only — structural furniture excluded by the page's own anchors.** MDN sections open
+with stable machine anchors `<h2 id="usage_notes">` / `<h3 id="…">` whose id is a URL-fragment slug
+(not display prose). `sections(body)` splits a page at those anchors into `(anchor_id, region)`, the
+lead definition region carrying the empty anchor. Witnesses are drawn only from the GOVERNING regions
+(the lead + usage/description prose); the FURNITURE regions — the interactive `try_it`, worked
+`examples`, the `technical_summary`/`specifications`/`browser_compatibility` reference tables, the
+`see_also` link list, and `feedback` chrome — are dropped by their own stable anchor id (a structural
+page-role filter, never a judgement of construct meaning; marked INTERIM like the other structural
+windows). Two measured contradiction sources are removed structurally: `<pre>` code/example blocks
+are stripped, and any sentence that mentions a FOREIGN construct tag (a sibling cross-reference like
+"use the `<b>` element…", which survives tag-stripping as the literal token `<b>`) is dropped from a
+construct's witness stream — a sentence about a sibling is not governing prose about this subject.
+
+**Predicate and foil are doc-grounded, judged by the frozen engine.** The candidate `truth` is the
+construct's own definition sentence (the lead region's governing statement of its meaning); the
+`foil` is a confusable SIBLING construct's definition sentence (`<b>` for `<strong>`) — a genuinely
+competing near-meaning that DISCRIMINATES, where the previous "bold styling" misuse-foil was the
+farthest thing from the truth and admitted everything (measured). `graduate_construct` filters the
+witness stream to the subject key, then hands `(Candidate{truth, foil}, subject-keyed witnesses)`
+straight to the frozen `lint_ism::graduate` — the ≥15-independent-witness law and every per-witness
+judgement stay exactly the engine's, unchanged.
+
+**Measured (2026-07-10, `examples/htmlgrad.rs`, 158 MDN element pages, frozen brains).**
+
+- **The cross-construct LEAK is GONE.** Feeding the `<strong>` importance-truth the governing sentences
+  of every OTHER construct's page, the subject-key gate admits **0** witnesses from each of `<em>`,
+  `<b>`, `<i>`, `<mark>`, `<small>`, `<code>`, `<cite>`, `<span>` — versus the flat pipeline's **23 / 25
+  / 22** false corroborations from `<b>`/`<em>`/`<i>`. With the clean governing prose and the real
+  sibling-definition foils, even the raw comparator (before the gate) now corroborates 0 of them, so the
+  leak is closed both at the gate AND in the signal the gate stands on.
+- **Real doc-grounded truths, keyed to their own construct.** The candidate truth is now the construct's
+  actual definition sentence, read structurally from its lead paragraph (e.g. `<strong>`: "The `<strong>`
+  HTML element indicates that its contents have strong importance, seriousness, or urgency."; `<em>`:
+  "…marks text that has stress emphasis."), and the foil is the sibling's real definition. Each
+  corroborates ONLY from its own page's prose: independent corroborations `<strong>` 3, `<em>` 5, `<b>` 1,
+  `<mark>` 2, `<i>` 2.
+- **Graduation is blocked by witness SCARCITY, not by the leak.** One MDN reference page yields only a
+  handful of independent governing sentences (after excluding furniture, code, and sibling-cross-reference
+  prose): `<strong>` 15 offered / 3 corroborating, `<em>` 16 / 5, `<b>` 4 / 1, `<mark>` 4 / 2, `<i>` 9 / 2.
+  None reaches the owner's 15-independent-witness bar. `<mark>` and `<i>` additionally hit a genuine
+  CONTRADICTION from an on-topic governing sentence — an accessibility note in negative polarity
+  ("The presence of the `<mark>` element is not announced by most screen reading technology…") and a
+  contrast sentence — both real prose, correctly read by the frozen engine as incompatible with a bare
+  meaning-truth.
+
+**Honest verdict.** Structural subject-keying is the right fix and it WORKS: it removes the exact obstacle
+the previous subsection measured — construct identity now discriminates, and no `<em>`/`<b>` sentence can
+corroborate a `<strong>` truth. What it does NOT do by itself is manufacture witnesses: a single MDN page
+does not state a construct's meaning 15 independent ways, so graduation at the owner's count is gated on
+witness SCOPE, not on the leak. The smallest real next steps, for owner ruling: (1) widen witness gathering
+to other proven doc sources keyed by the SAME structural subject (WHATWG/W3Schools element pages, still
+page-of-origin), which multiplies independent governing sentences without touching the dictionary; and/or
+(2) the owner confirms whether the 15-count applies to this layer or a construct graduates on the full,
+non-contradicted governing prose of its authoritative page. The dictionary, comparator, and engine stayed
+frozen throughout; the sibling-cross-reference exclusion is conservative (it drops the rich "`<b>` vs.
+`<strong>`" comparison prose to avoid its foil-assertions) and is the main scope lever if witnesses are
+widened.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
