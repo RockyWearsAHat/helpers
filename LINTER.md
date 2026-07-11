@@ -471,6 +471,91 @@ count was set for is-a facts with many independent restatements, which single-me
 inherently lack), or (b) treat the comparator's polarity/cross-phrasing conservatism — not witness
 scope — as the next thing to extend, since even unlimited sources will keep hitting it.
 
+### The self-generated test loop — proving a rule by generating and linting violations (`lint_selftest.rs`, 2026-07-11)
+
+> The north-star's corroboration loop (section top, steps 1–5) made CONCRETE and MEASURED end to end.
+> The HTML-layer path above graduates a rule by counting how many times the DOCS RESTATE a construct's
+> meaning — witness scarcity is its wall. This path graduates a rule a different, un-fakeable way
+> (owner directive 2026-07-11, which CORRECTS the "count doc restatements" framing): the AI proves WHAT
+> IT UNDERSTANDS by **generating violating code and linting it**, judged in English. The dictionary,
+> the comparator (`lint_corroborate`), the engine (`lint_ism`), and the trace bridge (`lint_trace`) are
+> all FROZEN; this module only orchestrates them into the loop. Probe: `native/examples/selftest_probe.rs`
+> (untracked).
+
+**The loop, per the owner's exact mechanism.** A rule is LEARNED from documentation and understood into
+a firing check — the trace bridge already does this (`understand("Never use the var keyword …")` →
+`Plan::UsesConstruct { var }`). The rule's UNDERSTANDING is English (the AI's account of what the rule
+means/forbids); the linter's FINDING is also English (the advice a fired rule reports). The loop:
+
+1. Take the learned rule — its `understanding` (English) and its firing `Plan`.
+2. **GENERATE** code that embodies the violation, VARIED across reps (different identifiers, shapes,
+   contexts; the later reps tangential/edge-case). Self-generated, so the reps are of UNDERSTANDING
+   (unlimited), not doc restatements (scarce) — the count is honest and un-fakeable.
+3. **LINT** each sample with the REAL linter — `lint_trace::run_plan` over a `KnownRule` book. A sample
+   is FLAGGED iff some known rule's plan fires on it.
+4. Reduce the FOUND violation to English: the **advice of the rule that actually fired** — linter-
+   sourced, on a DIFFERENT derivation path from the AI's `understanding`.
+5. **Judge `English(found) == English(learned)`** with the frozen `corroborates` comparator, against a
+   genuine sibling `foil`: the found advice must order STRICTLY nearer the `understanding` than the foil
+   does. English is the incorruptible in-between — you cannot fake equality in a language you truly
+   understand.
+6. Fold **~10–12 reps** (`REQUIRED_REPS`, the owner's spec count — a floor, not a tuned threshold) into
+   `Proven`/`Unproven`.
+
+**Why this removes Dunning-Kruger — the two independent, un-fakeable signals per rep.** A rep
+`Corroborates` only when BOTH hold: (a) BEHAVIORAL — the real linter flags the self-generated code
+(`run_plan` non-empty); you can only generate flagging code for a rule you understand well enough to
+violate it; and (b) SEMANTIC — the fired rule's advice reconciles with the `understanding` in English.
+A facade fails one or both: mis-generated code either is not flagged (`NotFlagged`, a phased-out
+expectation) or trips a DIFFERENT rule whose advice does not reconcile (`Mismatch`), and a faked
+`understanding` fails the English reconciliation even on correctly-flagged code (the MEASURED control
+below). A single genuine `Mismatch` is fatal (the two Englishes contradict), exactly as one
+contradiction blocks in `lint_ism`.
+
+**Verdict.** `graduate` folds the rep stream: any `Mismatch` ⇒ `Unproven::Contradicted{advice}`
+(short-circuits); else count `Corroborates`; ≥ `REQUIRED_REPS` ⇒ `Proven`, else
+`Unproven::TooFewReps{corroborated, required, not_flagged}` (carrying the phased-out `NotFlagged`
+count so the loop reports rather than hides the expectations that did not hold). `Undecidable` (the
+comparator has no shared English content) neither counts nor blocks.
+
+**MEASURED end to end (2026-07-11, frozen brains, real JS grammar — `examples/selftest_probe.rs`).**
+
+- **A genuinely-understood rule GRADUATES.** Learned rule `"Never use the var keyword to declare a
+  variable. Use let or const instead."` → `uses_construct(var)`. Twelve varied JS samples (block/loop/
+  method/arrow/try/switch contexts) are ALL flagged by the real linter (12/12); each reconciles the
+  found advice `"using var declares a variable whose scope leaks out of its enclosing block"` with the
+  `understanding` over the genuine sibling foil (the eval security rule): distance **1.54** to the
+  understanding vs **4.0** to the foil — 12/12 corroborated ⇒ `Proven`. Five clean `let`/`const` samples
+  are correctly NOT flagged (including `var` appearing only inside a comment or a string literal).
+- **A FAKED understanding is REJECTED (the control).** Same rule and the SAME 12 flagged samples, but
+  the `understanding` is wrong — `"var should be indented with two spaces for readable code
+  formatting"`. All 12 are still behaviorally flagged (var IS used), yet **0/12** reconcile: the found
+  advice is nearer the genuine var-scope foil (2.22) than the indentation-`understanding` (2.69) ⇒
+  `Some(false)` every rep ⇒ `Unproven::Contradicted`. The behavioral signal alone cannot separate them;
+  the English judge is what rejects the facade — precisely the anti-Dunning-Kruger property.
+- **An expectation that did NOT hold, PHASED OUT and reported (not hidden).** The eval rule the owner
+  named as the worked example does NOT fire on JS `eval(…)`: `"Never use the eval function to execute a
+  string of code."` understands to the CS PRIMITIVE `unary(shell_injection)`, not `uses_construct(eval)`,
+  and `is_shell_injection` matches a Rust `format!` call chain, so `run_plan` flags nothing on
+  `eval(userInput)`. Understanding a defect (a semantic primitive) always beats a token match in the
+  trace bridge, so the eval prohibition never reaches the `uses_construct` fallback. This is a REAL gap,
+  surfaced honestly: the self-test loop needs a rule whose Plan actually fires on the generated code; the
+  `var` construct rule is that rule today. Making the eval SECURITY meaning fire on JS `eval` calls is a
+  trace-bridge concern (a JS `eval`-call primitive, or routing a backticked-construct prohibition to
+  `uses_construct` when its only primitive is the Rust-shaped `shell_injection`), out of this module's
+  scope and left for the language layer.
+
+**Honest verdict.** The self-generated test loop is BUILT and PROVEN on a real rule: a genuinely-
+understood rule graduates from 12 self-generated, really-linted violations whose English reconciles,
+and a faked understanding of the SAME rule is rejected by the English judge despite identical
+behavioral firing. The loop is only as sound as (a) the learned rule's Plan genuinely fires on the
+violation shape — the eval gap shows this is not automatic and belongs to the trace bridge — and (b)
+the foil is a genuine competing meaning, the comparator's own inherited requirement. The counting is by
+DISTINCT self-generated code (the un-fakeable independence axis), not by English restatements, so the
+`lint_ism` identity-merge (which would collapse the repeated found-advice to one witness) is
+deliberately NOT reused; this module counts behavioral reps and reuses only the frozen `corroborates`
+English gate.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
