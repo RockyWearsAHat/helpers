@@ -570,6 +570,116 @@ DISTINCT self-generated code (the un-fakeable independence axis), not by English
 deliberately NOT reused; this module counts behavioral reps and reuses only the frozen `corroborates`
 English gate.
 
+### The construct-module training workflow — deriving every loop input from real docs (`lint_module.rs`, 2026-07-11)
+
+> The self-generated test loop above is PROVEN (five JS rules graduate; a faked understanding is
+> rejected), but in its probes the `understanding`, `advice`, `foil`, the violating `samples`, and the
+> `clean` near-misses are all HAND-WRITTEN Rust literals. That proves the loop's MECHANISM; it is not
+> the workflow. This module is the workflow: it DERIVES every loop input from a language's own cached
+> documentation and graduates construct rules with ZERO hand-authored content, so it works for ANY
+> language. The dictionary, the comparator (`lint_corroborate`), the engine (`lint_ism`), the trace
+> bridge (`lint_trace`), and `lint_selftest`'s judging are all FROZEN; this module only reads the docs,
+> derives the inputs, and orchestrates the frozen loop. Probe: `native/examples/js_module_train.rs`.
+
+**The source is the read `Memory`, never a hand parse.** A language's docs are already read into a
+`lint_read::Memory` by the existing crawl path (`lint_docs::read_language` → the char-substrate page
+reader) — `bindings` (each a `(url, slug, prose, code)` prose⊗code unit) plus a `reference` corpus of
+real code the docs served. The workflow is a PURE function over that memory (plus the two frozen
+brains): no network, no tags, no language names in code.
+
+**PROPOSE liberally (verification is the filter, not a gate).** For every binding's governing prose,
+`Bridge::constructs_named` proposes the code constructs it names — the covenant-clean `extract_construct`
+(the author's backtick, else a grammar/non-English syntax token, centrality-gated). The low-recall
+prohibition gate is NOT used to admit a candidate (per "PROPOSE-VERIFY-LEARN is the language path"):
+propose every named construct, prove strictly. Each candidate carries `{ construct, governing sentence,
+source url }`; candidates dedup by construct, keeping the most-negated governing sentence.
+
+**DERIVE the four loop inputs from data — each a different derivation path.**
+- `understanding` = the construct's governing sentence, VERBATIM doc prose, source-cited.
+- `advice` = a SECOND, DISTINCT doc sentence that mentions the same construct (its rationale/definition
+  prose) — a genuinely different derivation path from the understanding, which is what makes the English
+  reconciliation un-fakeable (the north-star's "both sides derived back into English"). Two independent
+  doc sentences about the SAME construct must reconcile; a mis-attributed construct (whose governing
+  prose is really about a sibling) fails. When no distinct second sentence mentions the construct, the
+  rule CANNOT form an un-fakeable English pair and does NOT graduate — an honest gap, never a degenerate
+  self-comparison (`corroborates(x, x, foil)` is trivially true and is forbidden as a proof).
+- `foil` = a SIBLING candidate's understanding (another construct's governing sentence from the same
+  module). A genuine competing meaning that discriminates; with only one candidate there is no genuine
+  foil and nothing graduates (the comparator's own inherited requirement).
+- `samples` (the core design problem) = SELF-GENERATION BY HARVEST. The covenant forbids hand-written
+  per-rule fixtures and language-specific templates in Rust, so the varied violating code is HARVESTED
+  from the language's OWN crawled example corpus (bindings' code + the reference corpus): every real doc
+  code block on which `run_plan(uses_construct(C))` genuinely FIRES is a distinct violating rep, and
+  every block on which it does NOT fire is a `clean` near-miss (the remedy form, the construct absent).
+  This is language-general (no construct name in code), covenant-clean (all data from the docs), and the
+  variation is genuine (different real doc examples). Its honest limit is SCARCITY: a construct the docs
+  exemplify fewer than `REQUIRED_REPS` (10) distinct ways cannot reach the owner's rep floor from harvest
+  alone — measured per construct, reported, never faked with a template.
+
+**GRADUATE through the frozen loop, then EMIT for the live engine.** `lint_selftest::prove` folds the
+harvested reps: only `Verdict::Proven` (≥10 distinct real blocks fire AND the two doc sentences reconcile
+over the sibling foil, none contradicting) enters the module. A proven rule is emitted as a
+`linter::LearnedRule { id, description = governing prose, bad = a firing harvested block, good = a clean
+harvested block, source_url }`. This is exactly the shape `RuleSet::build` already compiles into a
+live-firing detector via the `bad ∧ ¬good` contrast — the same mechanism that turns a `var`-vs-`let` pair
+into the `no_var` AST detector (the keyword `over_general_token` guard already trusts a contrasted
+keyword). So the workflow's output slots into the EXISTING live path with no new firing engine: the
+self-generated loop is the FILTER that decides which construct rules are real; `RuleSet::build` is the
+compiler that fires them.
+
+**Retiring the token-miner for modules — the intended seam, NOT yet flipped.** `doc_rules` (the
+module's rule query) is meant to build from `lint_module::graduated_rules` instead of the token-miner
+`lint_docs::rules_from_memory` (MEASURED junk: all 29 rust "rules" noise, JS 15 junk catching nothing —
+it mints from any prohibition-classified binding without proving the bad/good isolates a construct).
+The graduated workflow admits a rule only after the frozen loop proves it. But the flip is HELD: on the
+real crawl the workflow's inputs are only as good as the READ BINDINGS, and those are garbled (see
+Measured), so flipping the live seam now would replace one junk source with another. `doc_rules` stays
+on `rules_from_memory` (no regression); `graduated_rules` is wired and ready but not live.
+
+**Measured (2026-07-11, `examples/js_module_train.rs`, real cached JS crawl — 3325 bindings, 1508
+reference blocks from MDN + ESLint, frozen brains). The mechanism is proven; the WALL is upstream
+binding-prose quality.**
+
+- **The workflow MECHANISM is proven end to end.** The `lint_module` unit test graduates a construct
+  purely from HARVESTED real-shaped blocks and DERIVED English — no hand-written sample, understanding,
+  advice, or foil — and the five-rule `examples/js_graduate.rs` still graduates var/eval/with/==/
+  document.write. So the pipeline (propose → derive → harvest → prove → emit) is real.
+- **The behavioral "fires ≥10×" axis alone CANNOT discriminate a prohibition from ordinary syntax.**
+  With a LIBERAL propose (every construct any prose names), 840 candidates were proposed and 61 "PROVEN"
+  in 470s — including pure syntax `}`, `const`, `if`, `for`, `this`, `[`, `return`, `let`, `class`:
+  each fires on ≥10 harvested blocks, so the loop's behavioral half is trivially satisfied by every
+  keyword. The English half passed too, because garbled ESLint prose supplies a same-polarity second
+  mention of almost anything. This is the central finding: DISCOVERING which constructs are prohibited
+  is a separate filter the self-generated loop does not supply — it PROVES a candidate rule, it does not
+  DISCOVER one.
+- **The blessed PROHIBITION gate is the right discriminator but is low-recall on garbled prose.**
+  Gating propose by `English::sentence_states_prohibition` collapsed 840 → 20 candidates and 470s → 9s
+  (fast, as required), and killed the keyword junk — but it also dropped ALL five owner classics
+  (var/eval/with/==/document.write were not proposed) because the specific sentence carrying the token
+  did not classify as a prohibition, while it still admitted 3 junk rules (`const`, `default`, `then`)
+  minted from MANGLED "sentences" that are really code fragments and ESLint UI text
+  (`// false warning (false positive) const foo = …`, `An empty array ([]) by default`,
+  `If "never" then there should be no spaces`). The bindings the char-substrate reader produced from
+  this crawl interleave real prose with code fragments and site chrome, so both the token extraction and
+  the prohibition classifier fire on noise and miss signal.
+- **Kitchen-sink acceptance is NOT met from this crawl.** 0 proven rules flag the bad JS file (the
+  classics were never proposed); 1 junk rule wrongly flags the modern file. Honest verdict: the owner's
+  acceptance bar is unreachable from the CURRENT read bindings, not because the workflow is wrong but
+  because its raw material is.
+
+**Honest verdict and the next real step.** The construct-module training workflow is BUILT, documented,
+unit-tested, and MEASURED against the real crawl; it correctly graduates a construct when its derived
+inputs are sound. The measured wall is TWO-fold and both are UPSTREAM of this module: (1) the crawl
+bindings' prose is garbled (code fragments and chrome mis-read as governing sentences), which poisons
+both construct extraction and the prohibition classifier; and (2) even clean, the prohibition gate trades
+recall for precision (it misses "deprecated"/"disallow"-style phrasings that carry no lead negator). The
+owner-named fix is PROPOSE-VERIFY-LEARN against the docs' OWN paired bad/good examples
+(`understand_verified`/`learn_verified`, the `LearnedRule{bad,good}` bindings): a construct earns the
+rule only when `uses_construct(C)` FIRES on the page's own bad example and stays CLEAN on its own good —
+a per-construct referee the harvested-fire axis lacks. Wiring that verification in front of the
+self-generated loop, over cleaner per-rule binding prose, is the next step; the live `doc_rules` seam
+stays on the old miner until it lands, so nothing regresses.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
