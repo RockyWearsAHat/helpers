@@ -533,24 +533,38 @@ comparator has no shared English content) neither counts nor blocks.
   advice is nearer the genuine var-scope foil (2.22) than the indentation-`understanding` (2.69) ⇒
   `Some(false)` every rep ⇒ `Unproven::Contradicted`. The behavioral signal alone cannot separate them;
   the English judge is what rejects the facade — precisely the anti-Dunning-Kruger property.
-- **An expectation that did NOT hold, PHASED OUT and reported (not hidden).** The eval rule the owner
-  named as the worked example does NOT fire on JS `eval(…)`: `"Never use the eval function to execute a
-  string of code."` understands to the CS PRIMITIVE `unary(shell_injection)`, not `uses_construct(eval)`,
-  and `is_shell_injection` matches a Rust `format!` call chain, so `run_plan` flags nothing on
-  `eval(userInput)`. Understanding a defect (a semantic primitive) always beats a token match in the
-  trace bridge, so the eval prohibition never reaches the `uses_construct` fallback. This is a REAL gap,
-  surfaced honestly: the self-test loop needs a rule whose Plan actually fires on the generated code; the
-  `var` construct rule is that rule today. Making the eval SECURITY meaning fire on JS `eval` calls is a
-  trace-bridge concern (a JS `eval`-call primitive, or routing a backticked-construct prohibition to
-  `uses_construct` when its only primitive is the Rust-shaped `shell_injection`), out of this module's
-  scope and left for the language layer.
+- **The eval gap — CLOSED (2026-07-11, `lint_trace` backtick reroute + `scan_construct` dotted match).**
+  Previously `"Never use the eval function to execute a string of code."` understood to the CS PRIMITIVE
+  `unary(shell_injection)` (the verb "execute" is a `shell_injection` descriptor at distance 0), and
+  `is_shell_injection` matches a Rust `format!` call chain, so `run_plan` flagged nothing on JS
+  `eval(userInput)`. Word-only understanding CANNOT tell this spurious alignment from the GENUINE
+  `shell_injection` rule ("interpolate untrusted input into a shell command") or from `"hardcode a
+  secret"` — all three are driven by a real descriptor word at distance 0. The discriminator is the
+  author's BACKTICK: when a prohibition backticks a code symbol (`` `eval` ``) that the composed unary
+  primitive does NOT itself recognise (the construct token binds to none of the plan's predicates),
+  the primitive is grazing the construct's behaviour and the named construct carries the rule
+  (`Bridge::reroute_grazed_construct`). `"Never use the `eval` function to execute a string of code."`
+  now shapes `uses_construct(eval)` and fires on JS `eval(...)`; the genuine `shell_injection`/
+  `hardcoded_secret`/`unwrap_call` rules (which backtick nothing) keep their primitive — MEASURED, zero
+  regression (`examples/routing_probe.rs`). Bare (un-backticked) naming is still left to the language
+  path's PROPOSE-then-VERIFY (`understand_verified`), where reality proves which primitive fires — it
+  already routes bare `eval` correctly. Separately, `scan_construct` now matches the SMALLEST AST node
+  whose whole text equals the construct, so a DOTTED member construct (`` `document.write` ``,
+  `Object.assign`) fires as one AST node, not only single leaf tokens.
+- **All five JS construct rules GRADUATE through the loop (2026-07-11, `examples/js_graduate.rs`).**
+  `var`, `eval`, `with`, `==`, `document.write` — each shaped by the bridge from its backticked
+  prohibition prose (`understand` → `uses_construct(name)`, the name DATA-read from the prose), each
+  flagged 12/12 on varied self-generated violations (0/4 clean wrongly-flagged), each reconciling the
+  found advice with the understanding over a genuine sibling foil ⇒ `Verdict::Proven`. `==` needed the
+  understanding and advice to share the subject phrase (`the equality operator`) for the conservative
+  comparator to cross-reference — a phrasing requirement, not a firing gap.
 
-**Honest verdict.** The self-generated test loop is BUILT and PROVEN on a real rule: a genuinely-
-understood rule graduates from 12 self-generated, really-linted violations whose English reconciles,
-and a faked understanding of the SAME rule is rejected by the English judge despite identical
-behavioral firing. The loop is only as sound as (a) the learned rule's Plan genuinely fires on the
-violation shape — the eval gap shows this is not automatic and belongs to the trace bridge — and (b)
-the foil is a genuine competing meaning, the comparator's own inherited requirement. The counting is by
+**Honest verdict.** The self-generated test loop is BUILT and PROVEN on five real JS rules: each
+graduates from 12 self-generated, really-linted violations whose English reconciles, and a faked
+understanding of a rule is rejected by the English judge despite identical behavioral firing. The loop
+is only as sound as (a) the learned rule's Plan genuinely fires on the violation shape — the eval fix
+makes the backticked-construct class fire — and (b) the foil is a genuine competing meaning, the
+comparator's own inherited requirement. The counting is by
 DISTINCT self-generated code (the un-fakeable independence axis), not by English restatements, so the
 `lint_ism` identity-merge (which would collapse the repeated found-advice to one witness) is
 deliberately NOT reused; this module counts behavioral reps and reuses only the frozen `corroborates`
@@ -990,9 +1004,11 @@ illustration). Both the token path (weak construct on descriptive prose) and the
 - **A new generic primitive, `uses_construct` (LANDED 2026-07-09, `lint_trace::Plan::UsesConstruct`).**
   Real language rules name a SPECIFIC construct (`var`, `eval`, `mem::uninitialized`, `==`).
   `uses_construct(name)` is a general trace that recognises AST USAGE of the named construct: it walks
-  the tree and flags a LEAF token node (identifier / type / field / keyword / operator) whose exact
-  whole-token text equals `name` — AST-grained (only childless token nodes match), never inside string
-  or comment interiors (`scan_construct` skips descent into them), never a substring. The `name` is
+  the tree and flags the SMALLEST AST node whose exact whole text equals `name` — for a single-token
+  construct (`var`, `==`) that is the LEAF token, for a DOTTED member construct (`document.write`,
+  `Object.assign`) it is the member/field-expression node whose whole text is the dotted name (a matched
+  node is recorded once and not descended into). AST-grained (a real node, never a text substring),
+  never inside string or comment interiors (`scan_construct` skips descent into them). The `name` is
   DATA extracted from the prohibition's own prose by understanding, never a coded list. Extraction
   reuses `lint_match/select.rs`'s PRINCIPLE without its code grounding (unavailable at understand-time)
   via two covenant-clean signals: the author's BACKTICK in the naming sentence, else a token that
