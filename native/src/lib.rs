@@ -31,6 +31,7 @@ pub mod lint_kq;
 pub mod lint_checkers;
 pub mod lint_codec;
 pub mod lint_corroborate;
+pub mod lint_html_layer;
 pub mod lint_ism;
 pub mod linter;
 pub mod mcp;
