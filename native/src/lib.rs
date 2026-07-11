@@ -33,6 +33,7 @@ pub mod lint_codec;
 pub mod lint_corroborate;
 pub mod lint_html_layer;
 pub mod lint_ism;
+pub mod lint_selftest;
 pub mod linter;
 pub mod mcp;
 pub mod memory;
