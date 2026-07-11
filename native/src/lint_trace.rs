@@ -538,11 +538,13 @@ impl<'a> Bridge<'a> {
             self.compose_unary(&predicates, baseline)
         };
         match plan {
-            // The CS primitive ALWAYS wins when one composed — understanding a defect beats matching
-            // a token. Only when NO primitive composed does a named construct carry the prohibition,
-            // and only in the GENERAL (language-doc) scope — the language-agnostic canon never mints
-            // a construct (`allow_construct == false`), enforcing structurally or abstaining.
-            Some(p) => ex.plan = Some(p),
+            // A composed CS primitive normally wins — understanding a defect beats matching a token —
+            // but ONLY when it GENUINELY recognises the prohibition's subject. When the sentence's
+            // real subject is a distinctive named construct and the unary primitive merely grazes a
+            // DESCRIPTOR of that construct's behaviour, the primitive is a differently-shaped defect
+            // that never fires on the construct's use; the construct carries the rule. Canon scope
+            // (`allow_construct == false`) never mints a construct — it keeps the primitive or abstains.
+            Some(p) => ex.plan = Some(self.reroute_grazed_construct(p, sentence, baseline, allow_construct)),
             None => match allow_construct.then(|| self.extract_construct(sentence, baseline)).flatten() {
                 Some(construct) => ex.plan = Some(Plan::UsesConstruct { construct }),
                 None => {
@@ -552,6 +554,51 @@ impl<'a> Bridge<'a> {
             },
         }
         ex
+    }
+
+    /// Keep a composed CS-primitive plan UNLESS it merely GRAZES a BACKTICKED construct's behaviour.
+    /// The doctrine "understanding a defect beats matching a token" holds only when the primitive
+    /// GENUINELY recognises the prohibition's subject. A [`Plan::Unary`] primitive selected by an
+    /// ordinary DESCRIPTOR word ("EXECUTE" → `shell_injection` for "Never use `eval` to execute a
+    /// string of code") — while the author EXPLICITLY backticked a different code symbol (`eval`) as
+    /// the thing forbidden — is a FALSE alignment: `shell_injection` is a differently-shaped defect (a
+    /// Rust `format!` shell exec) that never fires on JS `eval(...)`. The backticked construct carries
+    /// the rule (`uses_construct`).
+    ///
+    /// The precision gate is the BACKTICK — the covenant-blessed signal of the author naming a code
+    /// symbol explicitly ([`extract_construct`] already trusts it above every other cue). A genuine
+    /// structural rule describes its defect in plain prose ("hardcode a secret", "interpolate
+    /// untrusted input into a shell command") and backticks nothing, so its `hardcoded_secret`/
+    /// `shell_injection` primitive is never rerouted — the word-only signals cannot separate those
+    /// from `eval`'s spurious `shell_injection` (both are driven by a real descriptor at distance 0),
+    /// but the author's backtick can. A backticked construct that ITSELF aligns to one of the plan's
+    /// predicates (`` `unwrap` `` → `unwrap_call`) is what the primitive recognises and is KEPT —
+    /// understanding still wins where it genuinely applies. Only `Unary` is rerouted (relational/
+    /// present-without name a structural relation, not a construct) and only in the general scope;
+    /// canon prose (`allow_construct == false`) never mints a construct. Bare (un-backticked) construct
+    /// naming is left to the language path's PROPOSE-then-VERIFY ([`understand_verified`]), where
+    /// reality — not a word heuristic — proves which primitive genuinely fires.
+    fn reroute_grazed_construct(&self, plan: Plan, sentence: &str, baseline: u32, allow_construct: bool) -> Plan {
+        if !allow_construct {
+            return plan;
+        }
+        let Plan::Unary(ref preds) = plan else { return plan };
+        let Some(construct) = self.extract_construct(sentence, baseline) else { return plan };
+        if !sentence.contains(&format!("`{construct}`")) {
+            return plan; // not the author's explicit code symbol — never reroute a genuine primitive
+        }
+        // If the backticked construct ITSELF aligns to one of the plan's predicates, the primitive
+        // recognises the construct (genuine) — keep it. Otherwise the primitive grazed a descriptor of
+        // the construct's behaviour, and the explicitly-named construct carries the rule.
+        let (prim, best, runner_up) = self.align_scored(&construct);
+        let construct_is_the_defect =
+            (best as f64) <= runner_up.max(1) as f64 * BIND_MARGIN
+                && matches!(prim, Primitive::Pred(i) if preds.contains(&i));
+        if construct_is_the_defect {
+            plan
+        } else {
+            Plan::UsesConstruct { construct }
+        }
     }
 
     /// Extract the CODE CONSTRUCT a prohibition names, reusing the construct-ranking PRINCIPLE of
@@ -1193,17 +1240,21 @@ fn is_lexical_text(kind: &str) -> bool {
     kind.contains("string") || kind.contains("comment") || kind.contains("char")
 }
 
-/// Record every AST USAGE of the exact whole-token `construct`: a LEAF token node (an identifier,
-/// type, field, keyword, or operator — whatever the grammar lexes as one token) whose utf8 text
-/// equals `construct` EXACTLY (never a substring). Skips string/char/comment interiors entirely, so
-/// the construct's name in prose or a literal is not a usage. The 1-based row of each usage is
-/// pushed to `hits`. AST-grained by construction: only childless token nodes can match.
+/// Record every AST USAGE of the exact whole `construct`: the SMALLEST AST node whose utf8 text
+/// equals `construct` EXACTLY (never a substring). For a single-token construct (`var`, `==`) that
+/// smallest node is the LEAF token; for a DOTTED member construct (`document.write`,
+/// `Object.assign`) it is the member/field expression node whose whole text is the dotted name —
+/// still AST-grained (a real node, never a text-substring match). A node that matches is recorded
+/// and NOT descended into (its children are proper sub-spans, never the same construct), so each
+/// usage counts once. String/char/comment interiors are skipped entirely, so the construct's name
+/// in prose or a literal is not a usage. The 1-based row of each usage is pushed to `hits`.
 fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>) {
     if is_lexical_text(node.kind()) {
         return;
     }
-    if node.child_count() == 0 && node.utf8_text(src).map(|t| t == construct).unwrap_or(false) {
+    if node.utf8_text(src).map(|t| t == construct).unwrap_or(false) {
         hits.push(row(node));
+        return;
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -1767,6 +1818,59 @@ mod tests {
         eprintln!("    bad flags {hits_bad:?}; good flags {hits_good:?}");
         assert!(hits_bad.contains(&2), "the `var` on line 2 flags: {hits_bad:?}");
         assert!(hits_good.is_empty(), "let/const code is clean: {hits_good:?}");
+    }
+
+    /// BACKTICK REROUTE (2026-07-11): a prohibition that BACKTICKS a code symbol whose composed unary
+    /// CS primitive merely GRAZES the construct's behaviour reaches `uses_construct` on the plain
+    /// `understand` path, WITHOUT breaking a genuine primitive rule. "Never use the `eval` function to
+    /// EXECUTE a string of code" composes `unary(shell_injection)` (the verb "execute" is a
+    /// `shell_injection` descriptor) yet the Rust-shaped `shell_injection` never fires on JS `eval(…)`;
+    /// the backticked `eval` is the real subject, so understanding routes to `uses_construct(eval)`.
+    /// The GENUINE `shell_injection` rule — plain prose, no backtick — KEEPS its primitive: word-only
+    /// signals cannot separate the two, but the author's backtick can. A DOTTED member construct
+    /// (`document.write`) fires as one AST node via the generalised `scan_construct`. Ignored (reads
+    /// the dictionary + JS/Rust grammars).
+    #[test]
+    #[ignore = "reads the local dictionary + js/rust grammars; the backtick-reroute routing fix"]
+    fn backticked_construct_reroutes_from_grazed_primitive() {
+        let meanings = understanding();
+        let english = crate::lint_english::brain().expect("English brain");
+        let bridge = Bridge::new(&meanings, &english);
+
+        // A backticked construct whose only composed primitive grazes it → uses_construct, fires on JS.
+        let eval_prose = "Never use the `eval` function to execute a string of code.";
+        let eval_plan = bridge.understand(eval_prose).expect("eval prohibition understood");
+        eprintln!("eval plan: {}", eval_plan.describe());
+        assert!(
+            matches!(&eval_plan, Plan::UsesConstruct { construct } if construct == "eval"),
+            "backticked eval reroutes to uses_construct, not the grazed shell_injection: {}",
+            eval_plan.describe()
+        );
+        assert!(!bridge.enforce(eval_prose, "javascript", "eval(userInput);").is_empty(), "fires on JS eval");
+        assert!(bridge.enforce(eval_prose, "javascript", "JSON.parse(userInput);").is_empty(), "clean on JSON.parse");
+
+        // NO REGRESSION: the genuine shell-injection rule (plain prose, no backtick) KEEPS its primitive
+        // and still fires on the Rust shape it recognises.
+        let shell_prose = "Never interpolate untrusted input into a shell command string.";
+        let shell_plan = bridge.understand(shell_prose).expect("shell rule understood");
+        assert!(
+            matches!(&shell_plan, Plan::Unary(p) if p.iter().any(|i| PREDICATES[*i].name == "shell_injection")),
+            "the genuine shell rule keeps unary(shell_injection): {}",
+            shell_plan.describe()
+        );
+        let shell_bad = "fn f(u: &str) { std::process::Command::new(\"sh\").arg(format!(\"echo {u}\")); }";
+        assert!(!run_plan(&shell_plan, "rust", shell_bad).is_empty(), "genuine shell rule still fires");
+
+        // A DOTTED member construct fires as one AST node (generalised scan_construct).
+        let dw_prose = "Never use `document.write` to insert content into the page.";
+        let dw_plan = bridge.understand(dw_prose).expect("document.write prohibition understood");
+        assert!(
+            matches!(&dw_plan, Plan::UsesConstruct { construct } if construct == "document.write"),
+            "backticked dotted member shapes uses_construct(document.write): {}",
+            dw_plan.describe()
+        );
+        assert!(bridge.enforce(dw_prose, "javascript", "document.write('<p>x</p>');").contains(&1), "fires on document.write");
+        assert!(bridge.enforce(dw_prose, "javascript", "el.append(node);").is_empty(), "clean on el.append");
     }
 
     /// VERIFICATION REACHES A RULE THE GATE MISSES (owner directive 2026-07-10 — the language-path
