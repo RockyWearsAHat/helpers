@@ -409,6 +409,68 @@ frozen throughout; the sibling-cross-reference exclusion is conservative (it dro
 `<strong>`" comparison prose to avoid its foil-assertions) and is the main scope lever if witnesses are
 widened.
 
+### The HTML layer — CROSS-SOURCE witness widening, keyed by the same subject (`lint_html_layer.rs`, 2026-07-10)
+
+> The owner-approved next step from the subsection above: one reference page states a construct's
+> meaning only a handful of independent ways, short of the firm ≥15, so gather a construct's governing
+> witnesses from EVERY documentation SOURCE that publishes a page-of-origin unit for it — keyed by the
+> SAME structural subject. Fifteen corroborations drawn from three independent sources is STRONGER
+> independence than fifteen from one. The dictionary, comparator, and engine stay FROZEN; only the
+> witness stream flowing into them widens. Probe: `native/examples/htmlwiden.rs` (untracked).
+
+**Three sources, one subject key, one shared reader.** Each source contributes a per-construct
+page-of-origin unit and reduces its governing region to witnesses through the one shared reader
+[`witnesses_from_paragraphs`], so the leak-killing rules (sibling exclusion, example-code stripping)
+hold identically across sources:
+- **MDN** ([`page_witnesses`]) — one reference page per element; furniture dropped by stable `<h2 id>`
+  anchor, `<pre>` stripped, `<b>`-token sibling sentences excluded (unchanged from above).
+- **WHATWG** ([`whatwg_witnesses`]) — the single-page spec's per-element section, keyed STRUCTURALLY
+  from its `<h4 id=the-<name>-element>` landmark. Two source-specific structural cuts, the WHATWG
+  analogs of MDN's furniture/sibling filters: (a) each section is truncated at its first worked-example
+  block (`<div class=example>` / `<pre class=example>`) — normative definitional prose precedes the
+  examples, everything after is example NARRATION; (b) a paragraph that hyperlinks a FOREIGN element
+  section (`#the-<name>-element`, name ≠ subject) is a sibling cross-reference, dropped. Only bare `<p>`
+  is read (browser-support / example chrome carries a `class`). All INTERIM, like the MDN anchors.
+- **W3Schools** ([`w3schools_witnesses`]) — one `tag_<name>.asp` page per element; only the "Definition
+  and Usage" region is read (the worked example above and the support table below are outside it).
+
+**Measured (2026-07-10, `examples/htmlwiden.rs`, 153 MDN pages + WHATWG text-level-semantics + 9
+W3Schools tag pages, frozen brains).**
+
+- **The leak stays 0 after widening.** Feeding the `<strong>` truth every FOREIGN construct's widened
+  governing prose (`<em>/<b>/<i>/<mark>/<small>/<code>/<cite>/<span>/<dfn>`), the subject-key gate admits
+  **0** from each — the cross-source pool did NOT reintroduce cross-construct leakage.
+- **Widening roughly DOUBLES the independent-corroboration count.** Per-construct independent
+  corroborations (own subject, cross-source, governing prose only): `<em>` **11** (was 5 MDN-only),
+  `<strong>` **9** (was 3), `<b>` 2, `<mark>` 6, `<i>` 5, `<small>` 4. Combined offered witnesses per
+  construct rose to `<em>` 25, `<strong>` 24 (from ~15). WHATWG is the richest source; W3Schools adds
+  1–4 per tag.
+- **No construct reaches 15; the bottleneck MOVED from scarcity to the frozen comparator's
+  conservatism.** `<em>` is closest at **11 corroborations / 0 contradictions**. `<strong>` gathers 9 but
+  is blocked by ONE genuine negative-polarity governing sentence ("Changing the importance of a piece of
+  text with the strong element does **not** change the meaning of the sentence.") — real normative prose
+  the frozen engine correctly reads as a polarity flip of a bare positive meaning-truth. `<mark>/<i>/
+  <small>` are similarly blocked by genuine negative-polarity notes ("is **not** announced by most screen
+  reading technology…") and by cross-source DEFINITION phrasings the comparator cannot reconcile with the
+  MDN truth (e.g. WHATWG `<i>` "alternate voice or mood", W3Schools `<small>` "smaller text"). These are
+  the frozen engine's HONEST verdicts, NOT extraction artifacts — the sibling see-alsos and example
+  narration that tripped false contradictions are structurally removed. Suppressing them would be gaming
+  the engine and is deliberately NOT done.
+
+**Honest verdict.** Cross-source widening is a large, real gain and preserves every invariant: the leak
+stays 0, the dictionary/comparator/engine are untouched, and the subject key is always page-of-origin.
+It roughly doubles independent corroborations — but three mainstream sources of GOVERNING prose still do
+not state a construct's meaning 15 distinct ways, and the remaining ceiling is now the comparator's two
+documented conservative boundaries (a bare positive meaning-truth vs. a polarity-bearing governing
+sentence; and un-cross-referenced cross-phrasing of the same definition), not witness scarcity. Note
+also the design tension the owner should rule on: excluding worked-example NARRATION is principled
+(examples were the contradiction source) but costs corroborations — including WHATWG's `<em>` example
+narration would raise `<em>` to 13, still short of 15. For owner ruling: either (a) accept that this
+layer's constructs graduate on their full non-contradicted governing prose rather than a raw ≥15 (the
+count was set for is-a facts with many independent restatements, which single-meaning HTML constructs
+inherently lack), or (b) treat the comparator's polarity/cross-phrasing conservatism — not witness
+scope — as the next thing to extend, since even unlimited sources will keep hitting it.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten

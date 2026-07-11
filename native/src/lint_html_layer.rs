@@ -16,6 +16,16 @@
 //! `b`/`dfn`/`kbd` at all, so different constructs collapse onto shared English predicates and a
 //! `<em>` sentence corroborates a `<strong>` importance-truth. The subject key — page-of-origin, an
 //! opaque markup symbol — discriminates them BEFORE the comparator ever runs.
+//!
+//! Witnesses are pooled CROSS-SOURCE, keyed by the SAME structural subject: one reference page states a
+//! construct's meaning only a handful of independent ways, short of the owner's ≥15, so a construct's
+//! governing prose is gathered from every documentation SOURCE that publishes a page-of-origin unit for
+//! it — MDN's per-element reference page ([`page_witnesses`]), the WHATWG spec's per-element section
+//! ([`whatwg_witnesses`]), and W3Schools' per-tag page ([`w3schools_witnesses`]). Each source reduces
+//! its own governing region to witnesses through the one shared reader ([`witnesses_from_paragraphs`]),
+//! so the sibling-exclusion and example-stripping that killed the leak hold identically across sources,
+//! and a witness's subject is always its page-of-origin — never a substring tag-match. Fifteen
+//! corroborations drawn from three independent sources is STRONGER independence than fifteen from one.
 
 use crate::doc_crawler::{drop_script_style, strip_tags};
 use crate::lint_char::MeaningNetwork;
@@ -135,17 +145,164 @@ pub fn page_witnesses(element: &str, body: &str) -> Vec<KeyedWitness> {
         // availability indicator, breadcrumbs, and the in-page table of contents are structurally
         // NOT `<p>` — reading paragraphs drops that chrome without a phrase list, keeping only the
         // definition and usage statements.
-        for para in paragraphs(&region) {
-            let prose = strip_tags(&strip_pre_blocks(&para));
-            for sentence in split_sentences(&prose) {
-                if referenced_constructs(&sentence).iter().any(|&t| t != element) {
-                    continue; // names a sibling construct — not governing prose about this subject
-                }
-                out.push(KeyedWitness { subject: element.clone(), sentence });
+        out.extend(witnesses_from_paragraphs(&element, paragraphs(&region)));
+    }
+    out
+}
+
+/// The shared governing-prose reader every source funnels through: reduce a list of already-extracted
+/// paragraph HTML fragments to subject-keyed witnesses. Each paragraph has its `<pre>` example code
+/// stripped, is tag-stripped to prose, split into sentences, and any sentence that names a FOREIGN
+/// construct tag (a sibling cross-reference like `<b>`, surviving tag-stripping as the literal token)
+/// is dropped — a sentence about a sibling is not governing prose about this subject. Source-agnostic:
+/// MDN, WHATWG, and W3Schools differ only in HOW they carve a governing region into paragraphs; the
+/// leak-killing rules (sibling exclusion, example-code stripping) are identical here for all of them.
+fn witnesses_from_paragraphs(subject: &str, paras: Vec<String>) -> Vec<KeyedWitness> {
+    let mut out = Vec::new();
+    for para in paras {
+        let prose = strip_tags(&strip_pre_blocks(&para));
+        for sentence in split_sentences(&prose) {
+            if referenced_constructs(&sentence).iter().any(|&t| t != subject) {
+                continue;
             }
+            out.push(KeyedWitness { subject: subject.to_string(), sentence });
         }
     }
     out
+}
+
+/// Read subject-keyed governing witnesses from the WHATWG single-page spec (the `text-level-semantics`
+/// section documents `<strong>/<em>/<b>/<i>/<mark>/…`). Each element is its own page-of-origin unit: a
+/// section opened by `<h4 id=the-<name>-element>`, so the subject is read STRUCTURALLY from that anchor
+/// (the spec's own landmark for the element), never from a tag the prose contains. Only bare `<p>`
+/// paragraphs are read: WHATWG authors normative definitional prose as attribute-less `<p>`, while the
+/// browser-support annotation and worked examples carry a `class`, so [`bare_paragraphs`] drops that
+/// furniture by page-role. INTERIM, like the MDN anchor filter — the principled end state reads the
+/// region's role rather than its markup shape.
+pub fn whatwg_witnesses(body: &str) -> Vec<KeyedWitness> {
+    let body = drop_script_style(body);
+    let mut out = Vec::new();
+    for (subject, region) in whatwg_element_sections(&body) {
+        // Normative DEFINITIONAL prose precedes the element's worked examples; everything after the
+        // first worked-example block is example NARRATION ("Here, the word...", "In this example…"),
+        // not a statement of the construct's meaning — truncate there structurally (the spec's own
+        // `class=example` markup), the WHATWG analog of MDN's furniture-anchor cut.
+        let governing = &region[..whatwg_examples_start(&region)];
+        let paras = bare_paragraphs(governing)
+            .into_iter()
+            // A paragraph that hyperlinks a FOREIGN element section (`#the-<name>-element`, name ≠
+            // subject) is a sibling cross-reference / see-also — not governing prose about this
+            // construct, and a measured foil-assertion source. The spec links every element mention,
+            // so this is a precise STRUCTURAL sibling filter, needing no construct vocabulary.
+            .filter(|p| !whatwg_links_foreign_element(p, &subject))
+            .collect();
+        out.extend(witnesses_from_paragraphs(&subject, paras));
+    }
+    out
+}
+
+/// Byte offset of the element section's first worked-example block (`<div class=example>` or
+/// `<pre class=example>`), or the region length when it has none. Prose before this offset is the
+/// element's normative definition/usage; prose after it narrates worked examples.
+fn whatwg_examples_start(region: &str) -> usize {
+    ["<div class=example>", "<pre class=example"]
+        .iter()
+        .filter_map(|p| region.find(p))
+        .min()
+        .unwrap_or(region.len())
+}
+
+/// Whether a WHATWG paragraph hyperlinks a FOREIGN element's section — an anchor `#the-<name>-element`
+/// whose `<name>` differs from `subject`. Such a paragraph is a sibling cross-reference (the spec
+/// hyperlinks every element mention to its section), excluded like MDN's `<b>`-token sibling sentences.
+fn whatwg_links_foreign_element(para: &str, subject: &str) -> bool {
+    let mut at = 0usize;
+    while let Some(rel) = para[at..].find("#the-") {
+        let name_start = at + rel + "#the-".len();
+        if let Some(end) = para[name_start..].find("-element") {
+            let name = &para[name_start..name_start + end];
+            if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) && name != subject
+            {
+                return true;
+            }
+        }
+        at = name_start;
+    }
+    false
+}
+
+/// Split the WHATWG spec body into `(element_name, section_html)` at the per-element headings
+/// `<h4 id=the-<name>-element>` (quoted or unquoted id). The section runs to the next such heading. The
+/// element name between `the-` and `-element` is the structural subject — the spec's own page-of-origin
+/// key for that construct.
+fn whatwg_element_sections(body: &str) -> Vec<(String, String)> {
+    let mut heads: Vec<(usize, String)> = Vec::new();
+    for pat in ["<h4 id=the-", "<h4 id=\"the-"] {
+        let mut at = 0usize;
+        while let Some(rel) = body[at..].find(pat) {
+            let open = at + rel;
+            let name_start = open + pat.len();
+            if let Some(end) = body[name_start..].find("-element") {
+                let name = &body[name_start..name_start + end];
+                if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase()) {
+                    heads.push((open, name.to_string()));
+                }
+            }
+            at = name_start;
+        }
+    }
+    heads.sort_by_key(|(pos, _)| *pos);
+    let mut out = Vec::new();
+    for i in 0..heads.len() {
+        let (start, name) = &heads[i];
+        let end = heads.get(i + 1).map(|(p, _)| *p).unwrap_or(body.len());
+        out.push((name.clone(), body[*start..end].to_string()));
+    }
+    out
+}
+
+/// Paragraphs whose opening tag carries NO attributes — exactly `<p>`. Used for the WHATWG spec, whose
+/// normative definitional prose is authored as bare `<p>` while browser-support and worked-example
+/// chrome carry a `class` attribute; reading only bare paragraphs keeps the governing statements and
+/// drops that furniture structurally, without a phrase list.
+fn bare_paragraphs(region: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while let Some(rel) = region[at..].find("<p>") {
+        let inner_start = at + rel + "<p>".len();
+        let inner_end =
+            region[inner_start..].find("</p>").map(|i| inner_start + i).unwrap_or(region.len());
+        out.push(region[inner_start..inner_end].to_string());
+        at = (inner_end + "</p>".len()).min(region.len());
+    }
+    out
+}
+
+/// Read subject-keyed governing witnesses from a W3Schools per-tag reference page (`tag_<name>.asp`).
+/// The page-of-origin unit is the whole page (subject = `element`, from the URL), and its governing
+/// prose is the "Definition and Usage" region — the section from that heading to the next horizontal
+/// rule / heading. The worked `Example` block above it and the browser-support / attributes tables
+/// below are structurally outside that region and never read. The "Definition and Usage" landmark is
+/// the source's own section label (a page-role filter, INTERIM, like the MDN anchor slugs) — never a
+/// judgement of construct meaning.
+pub fn w3schools_witnesses(element: &str, body: &str) -> Vec<KeyedWitness> {
+    let body = drop_script_style(body);
+    let Some(region) = w3schools_definition_region(&body) else { return Vec::new() };
+    witnesses_from_paragraphs(&element.to_lowercase(), paragraphs(&region))
+}
+
+/// The "Definition and Usage" governing region of a W3Schools tag page: from that section heading to
+/// the next `<hr` or `<h2` landmark, or `None` when the page has no such section. A structural slice by
+/// the page's own section labels, never by meaning.
+fn w3schools_definition_region(body: &str) -> Option<String> {
+    let marker = body.find(">Definition and Usage<")?;
+    let after = body[marker..].find("</h2>").map(|i| marker + i + "</h2>".len()).unwrap_or(marker);
+    let end = ["<hr", "<h2"]
+        .iter()
+        .filter_map(|p| body[after..].find(p).map(|i| after + i))
+        .min()
+        .unwrap_or(body.len());
+    Some(body[after..end].to_string())
 }
 
 /// The inner HTML of every `<p …>…</p>` paragraph in `region`, in order. Governing documentation prose
@@ -228,43 +385,94 @@ pub fn graduate_construct(
     (graduate(m, en, &candidate, gated.iter().copied()), gated.len())
 }
 
+// Tests prove the MECHANISM with ZERO embedded HTML knowledge (per the LINTER.md invariant: no real
+// construct names or meanings anywhere, including tests). Subjects are ABSTRACT opaque keys
+// (`alpha`/`beta`/`gamma`) and prose is SYNTHETIC (a construct "conveys a widget property", a sibling
+// "marks a gadget region"). What is under test is page-of-origin subject-keying, the chrome/sibling/
+// example/furniture exclusions, and the leak-gone property — never any fact about HTML.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn sections_split_at_stable_anchors_lead_first() {
-        let body = r#"<h1>Title</h1><p>The lead definition.</p>
-            <h2 id="usage_notes" class="heading">Usage notes</h2><p>Use it well.</p>
-            <h2 id="examples" class="heading">Examples</h2><pre>code</pre>"#;
+        // The lead region (before the first anchor) carries the empty key; each later region carries
+        // its own anchor slug, whatever the slug happens to be.
+        let body = r#"<h1>Title</h1><p>The lead definition sits here plainly.</p>
+            <h2 id="region_two" class="heading">Region two</h2><p>More governing prose follows here.</p>
+            <h2 id="region_three" class="heading">Region three</h2><pre>code</pre>"#;
         let secs = sections(body);
         assert_eq!(secs[0].0, "", "lead region carries the empty anchor");
         assert!(secs[0].1.contains("lead definition"));
         let anchors: Vec<&str> = secs.iter().map(|(a, _)| a.as_str()).collect();
-        assert_eq!(anchors, vec!["", "usage_notes", "examples"]);
+        assert_eq!(anchors, vec!["", "region_two", "region_three"]);
     }
 
     #[test]
     fn furniture_sections_and_sibling_sentences_are_excluded() {
-        // Lead + usage govern; the examples section is furniture; the sibling sentence names <b>.
-        let body = r#"<h1>x</h1><p>The strong element indicates that contents have strong importance here.</p>
-            <h2 id="usage_notes">Usage notes</h2>
-            <p>This element gives its contents great importance in the document.</p>
-            <p>Use the <code>&lt;b&gt;</code> element to draw attention without importance.</p>
-            <h2 id="examples">Examples</h2><p>Never feed him after midnight and never forget the rule.</p>"#;
-        let ws = page_witnesses("strong", body);
-        let sentences: Vec<&str> = ws.iter().map(|w| w.sentence.as_str()).collect();
-        assert!(ws.iter().all(|w| w.subject == "strong"), "subject is page-of-origin");
-        assert!(sentences.iter().any(|s| s.contains("indicates that contents have strong importance")));
-        assert!(sentences.iter().any(|s| s.contains("great importance in the document")));
-        assert!(
-            !sentences.iter().any(|s| s.contains("draw attention")),
-            "a sentence naming the sibling <b> is not governing prose about <strong>"
+        // Lead + a governing section define subject `alpha`; a paragraph naming the sibling construct
+        // `<beta>` is not governing prose about alpha; a furniture section (keyed by one of the
+        // module's OWN non-governing anchors, taken from the constant so no slug is hard-coded here) is
+        // dropped whole. No HTML meaning is asserted — only these structural exclusions.
+        let furniture_anchor = NON_GOVERNING_ANCHORS[0];
+        let body = format!(
+            r#"<h1>x</h1><p>The alpha construct conveys a widget property here.</p>
+            <h2 id="governing_notes">Governing notes</h2>
+            <p>The alpha construct always conveys that widget property clearly.</p>
+            <p>Use the <code>&lt;beta&gt;</code> construct to mark a gadget region.</p>
+            <h2 id="{furniture_anchor}">Furniture</h2><p>An unrelated furniture sentence lives right here.</p>"#
         );
+        let ws = page_witnesses("alpha", &body);
+        let s: Vec<&str> = ws.iter().map(|w| w.sentence.as_str()).collect();
+        assert!(ws.iter().all(|w| w.subject == "alpha"), "subject is page-of-origin — always alpha");
+        assert!(s.iter().any(|x| x.contains("conveys a widget property")));
+        assert!(s.iter().any(|x| x.contains("always conveys that widget property")));
+        assert!(!s.iter().any(|x| x.contains("gadget")), "the sibling <beta> sentence is not governing prose");
+        assert!(!s.iter().any(|x| x.contains("furniture sentence")), "furniture section excluded by its anchor");
+    }
+
+    #[test]
+    fn whatwg_reader_keys_by_section_excludes_examples_and_foreign_links() {
+        // A spec-shaped page with two element sections. Witnesses are keyed by the SECTION they belong
+        // to (page-of-origin, structural). Within a section: bare `<p>` normative prose is kept; a
+        // browser-support `<p class=…>` is dropped; a paragraph HYPERLINKING a foreign element section
+        // is a sibling reference, dropped; prose after the first worked example is narration, dropped.
+        let body = r#"<h4 id=the-alpha-element>The alpha element</h4>
+            <p>The alpha construct conveys a widget property to readers.</p>
+            <p class=all-engines-text>Support exists in all current engines here.</p>
+            <p>Importance follows because alpha marks the widget clearly.</p>
+            <p>Prefer the <a href=#the-beta-element>beta</a> construct for a gadget instead.</p>
+            <div class=example><p>Here alpha wraps an example phrase that is shown.</p></div>
+            <p>In this example alpha decorates the sample text below.</p>
+            <h4 id=the-beta-element>The beta element</h4>
+            <p>The beta construct marks a gadget region for readers.</p>"#;
+        let ws = whatwg_witnesses(body);
+        let alpha: Vec<&str> = ws.iter().filter(|w| w.subject == "alpha").map(|w| w.sentence.as_str()).collect();
         assert!(
-            !sentences.iter().any(|s| s.contains("Never feed him")),
-            "the examples section is furniture, excluded by its stable anchor"
+            ws.iter().any(|w| w.subject == "beta" && w.sentence.contains("marks a gadget region")),
+            "the second section keys its prose to beta, structurally"
         );
+        assert!(alpha.iter().any(|x| x.contains("conveys a widget property")), "bare governing <p> kept");
+        assert!(alpha.iter().any(|x| x.contains("Importance follows")), "bare governing <p> kept");
+        assert!(!alpha.iter().any(|x| x.contains("all current engines")), "classed browser-support <p> dropped");
+        assert!(!alpha.iter().any(|x| x.contains("gadget")), "foreign-linking sibling paragraph dropped");
+        assert!(!alpha.iter().any(|x| x.contains("decorates the sample")), "post-example narration dropped");
+    }
+
+    #[test]
+    fn w3schools_reader_reads_only_the_definition_region() {
+        // Only the "Definition and Usage" region is governing: the worked example above it and the
+        // support table below it are outside that region and never read. No construct meaning asserted.
+        let body = r#"<div class="w3-example"><h3>Example</h3><p>An example alpha usage is shown here.</p></div>
+            <hr><h2>Definition and Usage</h2>
+            <p>The alpha construct conveys a widget property in documents.</p>
+            <hr><h2>Browser Support</h2><p>Every browser supports the alpha construct fully.</p>"#;
+        let ws = w3schools_witnesses("alpha", body);
+        let s: Vec<&str> = ws.iter().map(|w| w.sentence.as_str()).collect();
+        assert!(ws.iter().all(|w| w.subject == "alpha"), "subject is the page's own tag, alpha");
+        assert!(s.iter().any(|x| x.contains("conveys a widget property")), "the definition region is read");
+        assert!(!s.iter().any(|x| x.contains("example alpha usage")), "the pre-definition example region is excluded");
+        assert!(!s.iter().any(|x| x.contains("browser supports")), "the post-definition support table is excluded");
     }
 
     #[test]
@@ -272,48 +480,48 @@ mod tests {
         // A sentence recurring under two DISTINCT subjects is site furniture; one unique to a subject
         // is that construct's own governing prose and is kept.
         let ws = vec![
-            KeyedWitness { subject: "strong".into(), sentence: "This feature is widely available.".into() },
-            KeyedWitness { subject: "em".into(), sentence: "This feature is widely available.".into() },
-            KeyedWitness { subject: "strong".into(), sentence: "It indicates strong importance.".into() },
+            KeyedWitness { subject: "alpha".into(), sentence: "This shared banner appears on every page.".into() },
+            KeyedWitness { subject: "beta".into(), sentence: "This shared banner appears on every page.".into() },
+            KeyedWitness { subject: "alpha".into(), sentence: "The alpha construct conveys a widget property.".into() },
         ];
         let kept = discard_chrome(ws);
         assert_eq!(kept.len(), 1, "the cross-subject chrome sentence is dropped");
-        assert_eq!(kept[0].sentence, "It indicates strong importance.");
+        assert_eq!(kept[0].sentence, "The alpha construct conveys a widget property.");
     }
 
     #[test]
     fn subject_key_gate_admits_only_the_matching_construct() {
-        // The leak-gone property at the unit level: graduating construct `strong` offers ONLY
-        // strong-subject witnesses to the frozen engine — em/b-subject sentences never reach it,
-        // however their English predicate would read. Brains-gated (defined only over the real
-        // bedrock); skips honestly when no artifact is on disk.
+        // THE LEAK-GONE PROPERTY, abstractly: graduating construct `alpha` offers ONLY alpha-subject
+        // witnesses to the frozen engine — beta/gamma-subject sentences never reach it, however their
+        // English predicate would read. Brains-gated (the engine is defined only over the real bedrock);
+        // skips honestly when no artifact is on disk. The count is purely the structural gate.
         let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else {
             eprintln!("skip: no frozen brains on disk");
             return;
         };
         let m = br.meanings();
         let ws = vec![
-            KeyedWitness { subject: "strong".into(), sentence: "The element indicates strong importance.".into() },
-            KeyedWitness { subject: "em".into(), sentence: "The element marks stress emphasis.".into() },
-            KeyedWitness { subject: "b".into(), sentence: "The element draws attention to text.".into() },
+            KeyedWitness { subject: "alpha".into(), sentence: "The construct conveys a widget property.".into() },
+            KeyedWitness { subject: "beta".into(), sentence: "The construct marks a gadget region.".into() },
+            KeyedWitness { subject: "gamma".into(), sentence: "The construct draws a doodad boundary.".into() },
         ];
         let (_verdict, offered) = graduate_construct(
             m,
             en,
-            "strong",
-            "the element indicates strong importance",
-            "the element draws attention to text",
+            "alpha",
+            "the construct conveys a widget property",
+            "the construct draws a doodad boundary",
             &ws,
         );
-        assert_eq!(offered, 1, "only the strong-subject witness is offered — foreign subjects gated out");
+        assert_eq!(offered, 1, "only the alpha-subject witness is offered — foreign subjects gated out");
     }
 
     #[test]
     fn construct_tag_detection() {
-        assert_eq!(construct_tag("<b>"), Some("b"));
-        assert_eq!(construct_tag("<strong>"), Some("strong"));
-        assert_eq!(construct_tag("<b"), None);
-        assert_eq!(construct_tag("<b3>"), None);
-        assert_eq!(construct_tag("bold"), None);
+        assert_eq!(construct_tag("<beta>"), Some("beta"));
+        assert_eq!(construct_tag("<alpha>"), Some("alpha"));
+        assert_eq!(construct_tag("<beta"), None);
+        assert_eq!(construct_tag("<a3>"), None);
+        assert_eq!(construct_tag("gamma"), None);
     }
 }
