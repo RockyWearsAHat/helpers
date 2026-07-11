@@ -29,6 +29,11 @@ use crate::linter::LearnedRule;
 /// blocks fit well under it.
 const MAX_HARVEST_BLOCKS: usize = 4000;
 
+/// How many violating blocks the frozen [`prove`] loop is run over per candidate — a bound on the
+/// book-sweep cost, generous above [`REQUIRED_REPS`] so undecidable/mismatch reps still leave a graduating
+/// margin. The Outcome reports the TRUE violating count; only the proof sample is capped.
+const PROVE_SAMPLE_CAP: usize = 30;
+
 /// A construct-rule candidate proposed from the docs — the construct DATA-read from the prose, the
 /// governing sentence it was named in (the `understanding` side), and the source url for citation.
 #[derive(Clone, Debug)]
@@ -87,7 +92,8 @@ fn mentions(sentence: &str, construct: &str) -> bool {
 }
 
 /// The SECOND, distinct doc sentence that mentions `construct` — the `advice` side, a different
-/// derivation path from the `understanding` (the governing sentence). Scans every binding's prose for
+/// derivation path from the `understanding` (the governing sentence). Scans the POOLED clean governing
+/// sentences (read STRUCTURALLY by [`crate::lint_lang_layer`], no longer the garbled binding prose) for
 /// a sentence that mentions the construct, differs from the `understanding`, and CARRIES THE SAME
 /// POLARITY ([`lint_corroborate::is_negated`]). The polarity match is load-bearing and MEASURED: the
 /// frozen comparator judges polarity FIRST, so pairing a negative governing prohibition ("Never use
@@ -96,19 +102,51 @@ fn mentions(sentence: &str, construct: &str) -> bool {
 /// content; a mis-attributed construct (a sibling's prose) does not. `None` when the docs state the
 /// construct only once at this polarity: without a second independent same-polarity statement the rule
 /// cannot form an un-fakeable English pair, so it must not graduate (a self-comparison is forbidden).
-fn derive_advice(memory: &Memory, en: &English, construct: &str, understanding: &str) -> Option<String> {
+fn derive_advice(pool: &[PooledSentence], en: &English, construct: &str, understanding: &str, url: &str) -> Option<String> {
     let want_negated = crate::lint_corroborate::is_negated(en, understanding);
-    for b in &memory.bindings {
-        for s in crate::lint_read::sentences(&b.prose) {
-            if s != understanding
-                && mentions(s, construct)
-                && crate::lint_corroborate::is_negated(en, s) == want_negated
-            {
-                return Some(s.to_string());
-            }
-        }
+    let ok = |ps: &&PooledSentence| {
+        ps.sentence != understanding
+            && mentions(&ps.sentence, construct)
+            && crate::lint_corroborate::is_negated(en, &ps.sentence) == want_negated
+    };
+    // Prefer a second statement from the construct's OWN page (two doc sentences about the same construct
+    // reconcile); fall back to any page only if its own page states the construct just once.
+    pool.iter()
+        .filter(|ps| ps.url == url)
+        .find(ok)
+        .or_else(|| pool.iter().find(ok))
+        .map(|ps| ps.sentence.clone())
+}
+
+/// Whether `code` contains `construct` as a code token — the sound harvest pre-filter. A SYMBOL
+/// construct (`==`) must be a whole whitespace/punctuation-delimited token (so it is not found inside
+/// `===`); an alphanumeric construct (`var`) is matched on a non-alphanumeric, non-dot boundary (so it
+/// is not found inside `variable` and a dotted member is matched whole). Presence of the text is
+/// NECESSARY for `scan_construct` to fire, so a block failing this is provably clean without a parse.
+fn construct_in_text(code: &str, construct: &str) -> bool {
+    if construct.is_empty() {
+        return false;
     }
-    None
+    let is_symbol = construct.chars().all(|c| !c.is_ascii_alphanumeric() && c != '.');
+    if is_symbol {
+        return code
+            .split_whitespace()
+            .any(|t| t.trim_matches(|c: char| c == '(' || c == ')' || c == ';' || c == '{' || c == '}' || c == ',') == construct);
+    }
+    let bytes = code.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = code[from..].find(construct) {
+        let start = from + rel;
+        let end = start + construct.len();
+        let boundary = |b: u8| !(b.is_ascii_alphanumeric() || b == b'.');
+        let before_ok = start == 0 || boundary(bytes[start - 1]);
+        let after_ok = end >= bytes.len() || boundary(bytes[end]);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = start + 1;
+    }
+    false
 }
 
 /// Collect the language's OWN code corpus from the read memory — every distinct code block the docs
@@ -147,43 +185,147 @@ fn rule_id(construct: &str) -> String {
     format!("uses-{slug}")
 }
 
-/// PROPOSE a construct-rule candidate for every construct a doc sentence PROHIBITS — the construct
-/// [`Bridge::constructs_named`] reads from a sentence that [`English::sentence_states_prohibition`]
-/// classifies as a prohibition (the same meaning gate `rules_from_memory` uses). The prohibition gate
-/// is the DISCRIMINATOR, and it is load-bearing and MEASURED: WITHOUT it the self-generated loop
-/// graduates pure syntax — `}`, `const`, `if`, `for`, `this` each fire on ≥10 harvested blocks, so the
-/// behavioral axis alone cannot tell a banned construct from ordinary syntax (840 candidates, 61 junk
-/// "proven"). The gate is documented LOW-RECALL (it misses a prohibition phrased without a lead
-/// negator), which is why some real classics may not be proposed — a reported gap, never junk. Deduped
-/// by construct, keeping the FIRST prohibition sentence and its page url.
-fn propose(memory: &Memory, bridge: &Bridge, en: &English) -> Vec<Candidate> {
+/// The PROPOSED construct candidates for `lang` from its raw doc `pages`, WITHOUT the expensive prove —
+/// a fast diagnostic of how many constructs the structural reading discovers and what they are. Each
+/// carries its construct, the governing understanding sentence, and the source url. Pure over the pages
+/// and the two frozen brains.
+pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &MeaningNetwork, en: &English) -> Vec<Candidate> {
+    let bridge = Bridge::new(m, en);
+    let partition = lang_pages(pages, memory);
+    propose(lang, &partition, &bridge, en).0
+}
+
+/// PARTITION raw doc pages to the ones this language's docs were read from — the crawl's OWN per-page
+/// language attribution, reused: a page attributes to `lang` iff the language's read [`Memory`] holds a
+/// binding from that page (`memory.bindings[].url`). This is the "never conflate languages" law
+/// (LINTER.md) enforced at PROPOSE: a CSS deprecation page and a JS rule page live in the same MDN crawl,
+/// but each language proposes ONLY from its own attributed pages, so a CSS construct never enters the JS
+/// module. When the memory carries no bindings (nothing to attribute against), every page is kept — the
+/// caller has already scoped the pages to one language.
+fn lang_pages<'a>(pages: &'a [(String, String)], memory: &Memory) -> Vec<&'a (String, String)> {
+    let urls: std::collections::HashSet<&str> = memory.bindings.iter().map(|b| b.url.as_str()).collect();
+    if urls.is_empty() {
+        return pages.iter().collect();
+    }
+    pages.iter().filter(|(u, _)| urls.contains(u.as_str())).collect()
+}
+
+/// One clean governing sentence in the pooled reading, tagged with whether it came from a PROHIBITED
+/// page (so `understanding` selection can prefer a real prohibition statement) and its source url.
+struct PooledSentence {
+    sentence: String,
+    prohibited: bool,
+    /// The page the sentence came from — so `advice` can prefer a SECOND sentence from the construct's
+    /// OWN page (two statements about the same construct on its own page reconcile; a cross-page sentence
+    /// that merely mentions the name is unrelated chrome that contradicts).
+    url: String,
+    /// Precomputed negation polarity ([`lint_corroborate::is_negated`]) — computed ONCE per sentence,
+    /// not per candidate, so `understanding` selection over the pool stays fast.
+    negated: bool,
+}
+
+/// PROPOSE a construct-rule candidate for every construct a language-doc page structurally PROHIBITS,
+/// read by [`crate::lint_lang_layer`] (a rule page bans the construct it documents; a deprecated
+/// reference page bans its subject) — NOT the low-recall [`English::sentence_states_prohibition`] prose
+/// gate, MEASURED to fire on none of the clean real prohibition sentences ("This rule disallows `with`
+/// statements", "discouraging the use of `var`"). The structural page ROLE is the discriminator, so the
+/// behavioral loop is never asked to tell a banned construct from ordinary syntax (the measured `}`/
+/// `const`/`if` junk class): only constructs a prohibition PAGE names are proposed. Returns the deduped
+/// candidates plus the POOLED clean governing sentences (the `advice` search space). The `understanding`
+/// is a real doc sentence mentioning the construct — preferring one from a prohibited page and in
+/// negative polarity; a construct no clean sentence mentions cannot form an un-fakeable English pair and
+/// is dropped (never a synthesized sentence).
+fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English) -> (Vec<Candidate>, Vec<PooledSentence>) {
+    let docpages: Vec<crate::lint_lang_layer::DocPage> =
+        pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge)).collect();
+    let mut pooled: Vec<PooledSentence> = Vec::new();
+    for p in &docpages {
+        for s in &p.governing {
+            let negated = crate::lint_corroborate::is_negated(en, s);
+            pooled.push(PooledSentence { sentence: s.clone(), prohibited: p.prohibited, url: p.url.clone(), negated });
+        }
+    }
+
     let mut out: Vec<Candidate> = Vec::new();
-    for b in &memory.bindings {
-        for sentence in crate::lint_read::sentences(&b.prose) {
-            if !en.sentence_states_prohibition(sentence) {
+    for p in &docpages {
+        for construct in &p.constructs {
+            if out.iter().any(|c| &c.construct == construct) {
                 continue;
             }
-            for (construct, understanding) in bridge.constructs_named(sentence) {
-                if out.iter().any(|c| c.construct == construct) {
-                    continue;
-                }
-                out.push(Candidate { construct, understanding, url: b.url.clone() });
+            // VERIFY against the page's OWN bad/good examples with the frozen firing (the north-star's
+            // propose-verify-learn over the docs' own examples). A candidate is a genuine prohibition iff
+            // it fires on STRICTLY MORE incorrect than correct blocks — comment/string-safe (`run_plan`
+            // skips lexical text, so the `/*eslint no-var*/` config comment never counts) and it excludes
+            // the remedy (`const`/`let`/`===`, which fire on 0 incorrect) and a construct a good example
+            // legitimately uses (`declare var` in a `.d.ts`, which fires on BOTH). Pages with no examples
+            // (a deprecated reference page) pass — the deprecation notecard is their prohibition proof.
+            if !confirmed_by_examples(lang, construct, &p.incorrect, &p.correct) {
+                continue;
+            }
+            // The `understanding` is the best real doc sentence MENTIONING the construct: prefer one from
+            // the construct's OWN page (page-of-origin), then a prohibited-page statement, then negative
+            // polarity, then a longer (more informative) one. Its citation url is the proposing page.
+            let best = pooled
+                .iter()
+                .filter(|ps| mentions(&ps.sentence, construct))
+                .max_by_key(|ps| {
+                    (
+                        u32::from(ps.url == p.url),
+                        u32::from(ps.prohibited),
+                        u32::from(ps.negated),
+                        ps.sentence.len(),
+                    )
+                });
+            if let Some(best) = best {
+                out.push(Candidate {
+                    construct: construct.clone(),
+                    understanding: best.sentence.clone(),
+                    url: p.url.clone(),
+                });
             }
         }
     }
-    out
+    (out, pooled)
 }
 
-/// GRADUATE construct rules for `lang` from a read [`Memory`] — the whole workflow, pure over the
-/// memory and the two frozen brains. Returns an [`Outcome`] per proposed candidate (graduated or not)
-/// so the caller can measure honestly. Only `Outcome::rule.is_some()` candidates are module-ready.
+/// Whether the page's OWN examples confirm `construct` as a genuine prohibition of its BARE use: it
+/// fires (frozen `run_plan`) on some INCORRECT example AND does NOT fire on the page's PRIMARY (first)
+/// CORRECT example — the docs' main remedy demonstration, which omits the banned construct. Later correct
+/// blocks are OPTION-specific exceptions (eqeqeq's "smart" `x == null`, no-var's ambient `declare var`, an
+/// `allowIndirect` `window.eval`) that legitimately use the construct, so the first correct block — not a
+/// count over all of them — is the honest "the remedy drops it" test. A page with no incorrect examples
+/// (a deprecated reference page) passes: its deprecation notecard is the prohibition proof. Firing is
+/// AST-grained, so a construct named only in the `/*eslint no-var*/` config comment never counts.
+fn confirmed_by_examples(lang: &str, construct: &str, incorrect: &[String], correct: &[String]) -> bool {
+    if incorrect.is_empty() {
+        return true;
+    }
+    let plan = Plan::UsesConstruct { construct: construct.to_string() };
+    let fires = |b: &str| !run_plan(&plan, lang, b).is_empty();
+    let fires_incorrect = incorrect.iter().any(|b| fires(b));
+    let fires_primary_correct = correct.first().is_some_and(|g| fires(g));
+    fires_incorrect && !fires_primary_correct
+}
+
+/// GRADUATE construct rules for `lang` — the whole workflow, pure over the language's raw doc `pages`
+/// (the PROPOSE source, read structurally by [`crate::lint_lang_layer`]), the read [`Memory`] (the
+/// harvest corpus), and the two frozen brains. Returns an [`Outcome`] per proposed candidate (graduated
+/// or not) so the caller can measure honestly. Only `Outcome::rule.is_some()` candidates are
+/// module-ready.
 ///
 /// The frozen loop's independence axis is DISTINCT harvested violating blocks; its English gate is the
 /// two-doc-sentence reconciliation over a sibling foil. A candidate graduates iff ≥ [`REQUIRED_REPS`]
 /// distinct real blocks fire AND the two doc sentences reconcile AND none contradicts (LINTER.md).
-pub fn graduate(lang: &str, memory: &Memory, m: &MeaningNetwork, en: &English) -> Vec<Outcome> {
+pub fn graduate(
+    lang: &str,
+    pages: &[(String, String)],
+    memory: &Memory,
+    m: &MeaningNetwork,
+    en: &English,
+) -> Vec<Outcome> {
     let bridge = Bridge::new(m, en);
-    let candidates = propose(memory, &bridge, en);
+    let partition = lang_pages(pages, memory);
+    let (candidates, pool) = propose(lang, &partition, &bridge, en);
     let corpus = harvest_corpus(memory);
 
     // The linter's BOOK of known rules: every candidate's firing plan + its derived advice, so firing
@@ -191,7 +333,7 @@ pub fn graduate(lang: &str, memory: &Memory, m: &MeaningNetwork, en: &English) -
     // sentence has no un-fakeable advice and is dropped from the book (and cannot graduate).
     let advices: Vec<Option<String>> = candidates
         .iter()
-        .map(|c| derive_advice(memory, en, &c.construct, &c.understanding))
+        .map(|c| derive_advice(&pool, en, &c.construct, &c.understanding, &c.url))
         .collect();
     let book: Vec<KnownRule> = candidates
         .iter()
@@ -205,15 +347,20 @@ pub fn graduate(lang: &str, memory: &Memory, m: &MeaningNetwork, en: &English) -
 
     let mut outcomes = Vec::new();
     for (i, cand) in candidates.iter().enumerate() {
-        // HARVEST: partition the corpus into violating (the plan fires) and clean (it does not).
+        // HARVEST: partition the corpus into violating (the plan fires) and clean (it does not). A
+        // block whose TEXT does not contain the construct cannot possibly fire `uses_construct(C)`
+        // (`scan_construct` matches an AST node whose text equals `C`), so it is clean WITHOUT a parse —
+        // a sound pre-filter (no false negative) that turns the harvest from O(candidates × corpus
+        // parses) into a parse only where the construct's text appears, keeping training in seconds.
         let plan = Plan::UsesConstruct { construct: cand.construct.clone() };
         let mut violating: Vec<&str> = Vec::new();
         let mut clean: Vec<&str> = Vec::new();
         for block in &corpus {
-            if run_plan(&plan, lang, block).is_empty() {
-                clean.push(block);
-            } else {
+            let fires = construct_in_text(block, &cand.construct) && !run_plan(&plan, lang, block).is_empty();
+            if fires {
                 violating.push(block);
+            } else {
+                clean.push(block);
             }
         }
         // DERIVE the foil: a SIBLING candidate's understanding (a genuine competing meaning). No
@@ -228,7 +375,12 @@ pub fn graduate(lang: &str, memory: &Memory, m: &MeaningNetwork, en: &English) -
         let verdict = match (&advice, &foil) {
             (Some(_advice), Some(foil)) => {
                 let rule = RuleUnderTest::new(cand.understanding.clone(), foil.clone(), lang.to_string());
-                prove(m, en, &rule, &book, &violating)
+                // Prove on a bounded SAMPLE of the violating blocks: graduation needs only ≥ REQUIRED_REPS
+                // corroborations, so a cap keeps the book-sweep (O(samples × book) run_plans per
+                // candidate) in seconds without changing the verdict — the true violating count stays in
+                // the Outcome. A margin above the floor absorbs undecidable/mismatch reps.
+                let sample: Vec<&str> = violating.iter().take(PROVE_SAMPLE_CAP).copied().collect();
+                prove(m, en, &rule, &book, &sample)
             }
             // Missing an un-fakeable advice or a genuine foil is an honest "cannot judge" — reported
             // as too-few-reps with the real firing count so the gap is visible, never a false pass.
@@ -282,7 +434,12 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)
     let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else {
         return Vec::new();
     };
-    graduate(lang, memory, br.meanings(), en)
+    let data_root = crate::tools::lint::data_root_pub();
+    let (pages, _fp) = crate::lint_docs::raw_pages(&data_root, lang);
+    if pages.is_empty() {
+        return Vec::new();
+    }
+    graduate(lang, &pages, memory, br.meanings(), en)
         .into_iter()
         .filter_map(|o| o.rule)
         .collect()
@@ -333,56 +490,63 @@ mod tests {
         assert_eq!(corpus.len(), 2, "the duplicate block collapses; the reference block joins");
     }
 
-    /// The workflow graduates a construct from HARVESTED real blocks and DERIVED English — no
-    /// hand-written sample, understanding, advice, or foil. A synthetic-but-honest memory stands in for
-    /// a crawl: two constructs (`var`, `eval`) each with a governing sentence, a distinct rationale
-    /// sentence (the advice path), and ≥ REQUIRED_REPS harvested violating blocks. Skips without the
-    /// frozen brains (never fakes a pass). The REAL MDN/ESLint measurement is
-    /// `examples/js_module_train.rs`.
+    /// A synthetic-but-honest rule PAGE stands in for a crawl page: the construct is PROPOSED
+    /// structurally (a `/rules/` page bans the construct its own incorrect example uses and its correct
+    /// example drops), the `understanding`/`advice` are DERIVED from the page's clean governing prose,
+    /// and the violating/clean samples are HARVESTED from the memory corpus — no hand-written candidate,
+    /// sample, understanding, advice, or foil. Two sibling rule pages supply the genuine foil. Skips
+    /// without the frozen brains (never fakes a pass). The REAL three-language measurement is
+    /// `examples/web_module_train.rs`.
     #[test]
-    fn graduates_a_construct_from_harvested_blocks_and_derived_english() {
+    fn graduates_a_construct_from_structural_pages_and_harvested_blocks() {
         let Some((br, en)) = brains() else {
             eprintln!("skip: no frozen brains on disk");
             return;
         };
         let m = br.meanings();
+        // Two sibling rule pages, each proposing one construct from its OWN bad/good examples.
+        let var_page = r#"<html><body><h1>no-var</h1>
+            <p>This rule is aimed at discouraging the use of <code>var</code> and encouraging the use of <code>const</code> or <code>let</code> instead.</p>
+            <p>The <code>var</code> keyword declares a variable whose scope leaks out of its enclosing block.</p>
+            <p>Examples of <strong>incorrect</strong> code for this rule:</p>
+            <div class="incorrect"><pre><code>var x = 1;</code></pre></div>
+            <p>Examples of <strong>correct</strong> code for this rule:</p>
+            <div class="correct"><pre><code>let x = 1;</code></pre></div></body></html>"#;
+        let eval_page = r#"<html><body><h1>no-eval</h1>
+            <p>This rule is aimed at disallowing the use of the <code>eval()</code> function.</p>
+            <p>The <code>eval()</code> function executes a string of code as a security risk.</p>
+            <p>Examples of <strong>incorrect</strong> code for this rule:</p>
+            <div class="incorrect"><pre><code>eval("x");</code></pre></div>
+            <p>Examples of <strong>correct</strong> code for this rule:</p>
+            <div class="correct"><pre><code>JSON.parse("{}");</code></pre></div></body></html>"#;
+        let pages = vec![
+            ("https://docs/latest/rules/no-var".to_string(), var_page.to_string()),
+            ("https://docs/latest/rules/no-eval".to_string(), eval_page.to_string()),
+        ];
+        // Harvest corpus: ≥ REQUIRED_REPS distinct real-shaped violating blocks using `var`, plus clean
+        // near-misses (the remedy form, `var` absent). Distinct code = the independence axis.
         let mut memory = Memory::default();
-        // Governing prose (understanding) + a distinct rationale sentence (advice), for two siblings.
-        memory.bindings.push(binding(
-            "https://docs/var",
-            "no-var",
-            "Never use the `var` keyword to declare a variable. Never declare a variable with `var`, whose scope leaks out of its block.",
-            "var x = 1;",
-        ));
-        memory.bindings.push(binding(
-            "https://docs/eval",
-            "no-eval",
-            "Never use the `eval` function to execute a string of code. Never call `eval` on an arbitrary string of code as a security risk.",
-            "eval(userInput);",
-        ));
-        // Harvest corpus: ≥ REQUIRED_REPS distinct real-shaped violating blocks using `var`, plus
-        // clean near-misses (the remedy form, `var` absent). Distinct code = the independence axis.
         for i in 0..REQUIRED_REPS + 2 {
             memory.reference.push(format!("var v{i} = {i};"));
         }
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let outcomes = graduate("javascript", &memory, m, en);
+        let outcomes = graduate("javascript", &pages, &memory, m, en);
         let var = outcomes
             .iter()
             .find(|o| o.candidate.construct == "var")
-            .expect("var proposed from its governing prose");
-        eprintln!(
-            "var: violating={} clean={} verdict={:?}",
-            var.violating, var.clean, var.verdict
-        );
+            .expect("var proposed from the /rules/ page's own bad/good examples");
+        eprintln!("var: violating={} clean={} verdict={:?}", var.violating, var.clean, var.verdict);
+        // The remedy `const`/`let` must NOT be proposed (used in the correct example).
+        assert!(!outcomes.iter().any(|o| o.candidate.construct == "const" || o.candidate.construct == "let"),
+            "the remedy const/let is excluded by the page's own good example");
         assert!(var.violating >= REQUIRED_REPS, "≥ REQUIRED_REPS harvested violations: {}", var.violating);
         assert_eq!(var.verdict, Verdict::Proven, "genuinely-understood var graduates from harvest");
         let (rule, url) = var.rule.as_ref().expect("a proven rule is emitted");
         assert_eq!(rule.id, "uses-var");
         assert!(rule.bad.contains("var"), "bad is a harvested violating block: {}", rule.bad);
         assert!(!rule.bad.contains("var") || !rule.good.contains("var"), "good is a clean near-miss");
-        assert_eq!(url, "https://docs/var", "the rule cites its source page");
+        assert_eq!(url, "https://docs/latest/rules/no-var", "the rule cites its source page");
     }
 }

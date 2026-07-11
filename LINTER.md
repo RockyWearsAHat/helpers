@@ -680,6 +680,113 @@ a per-construct referee the harvested-fire axis lacks. Wiring that verification 
 self-generated loop, over cleaner per-rule binding prose, is the next step; the live `doc_rules` seam
 stays on the old miner until it lands, so nothing regresses.
 
+### The language-doc reading rung — structural per-construct governing prose (`lint_lang_layer.rs`, 2026-07-11)
+
+> The fix the subsection above scoped, now BUILT and MEASURED. The construct-module workflow's wall was
+> its RAW MATERIAL: it proposed from `memory.bindings[].prose`, and on the real crawl those "sentences"
+> are garbled (code fragments and site chrome the word-substrate binding step interleaves with real
+> prose). This rung replaces that source with the PROVEN `lint_html_layer` reading pattern applied to the
+> language-doc crawls: read each reference/rule page STRUCTURALLY, page-of-origin, into clean per-construct
+> governing prose. The dictionary, comparator (`lint_corroborate`), engine (`lint_ism`), trace bridge,
+> and `lint_selftest` judging stay FROZEN; only the witness stream feeding `lint_module::propose` changes.
+> Harness: `native/examples/web_module_train.rs` (untracked) — the three-language measurement run.
+
+**The reading is STRUCTURAL and page-of-origin, exactly like the HTML layer.** A JS reference/rule page
+documents ONE construct, so its subject and governing prose are structural facts of the page — not a
+per-language table in Rust, never a hardcoded construct list. `read_doc_page(url, body)`:
+- **Page kind from the URL path** — `Reference` (`/reference/` in the path, MDN's own structural marker
+  for its reference section) or `Rule` (`/rules/` — a linter's rule directory). Both are per-SOURCE
+  structural reads, INTERIM like `lint_html_layer`'s MDN anchors; NEITHER names a language. Any other page
+  contributes no candidates (only per-construct doc pages do).
+- **Governing prose only** — `lint_html_layer::sections` splits the page at its own `<h2 id>`/`<h3 id>`
+  anchors; furniture regions (`examples`, `specifications`, `browser_compatibility`, `see_also`, the
+  ESLint `options`/`version`/`resources`/`when-not-to-use-it` chrome) drop by anchor id; `<pre>` code is
+  stripped; the pre-definition page chrome (title, "Skip to main content", Baseline banner) is dropped by
+  reading only after the first governing statement.
+- **Code typography preserved as backticks.** `<code>==</code>` → `` `==` `` BEFORE tag-stripping, so
+  SYMBOL constructs (`==`, `===`, `!=`) survive into the sentence — plain `strip_tags` discards them, which
+  is why the previous measurement never saw `==`. This is the same backtick convention `extract_construct`
+  already reads; no new judgement.
+- **Foreign-construct sentences excluded** — the exact `lint_html_layer` leak-killer, so a sibling's prose
+  never keys this construct.
+
+**The PROHIBITION DISCRIMINATOR is STRUCTURAL, not the low-recall prose gate.** The previous workflow
+gated propose by `English::sentence_states_prohibition`, MEASURED here to fire on NONE of the clean real
+prohibition sentences ("This rule disallows `with` statements", "discouraging the use of `var`",
+"disallowing the use of the `eval()` function") — it is genuinely low-recall on clean prose too. The
+structural signal is sound and high-recall: a `/rules/` page IS a prohibition of the construct it
+documents; an MDN reference page carrying a "Deprecated" notecard prohibits its subject. So a construct is
+PROPOSED iff its page is a rule page OR carries a deprecation notecard — the page's ROLE, read structurally.
+
+**The construct is DATA-read two covenant-clean ways, unioned.** (a) `extract_construct` over the page's
+prohibition/deprecation prose (nails `var`, `eval`, `with` from the ESLint rule-details / lead summary,
+`()`-normalized so `eval()`→`eval`). (b) For a rule page, the docs' OWN paired examples — the north-star's
+"propose-verify-learn against the docs' own bad/good": the prohibited construct is a SYMBOL/keyword token
+present in the "incorrect code" blocks and ABSENT from the "correct code" blocks. This is what captures
+`==` (eqeqeq's incorrect example uses `==`/`!=`, its correct example `===`/`!==`; `==` ∈ incorrect∖correct
+as a whole whitespace token, and `scan_construct` fires it on `a == b` but never on `a === b`). Both are
+pure DATA from the page; no construct name lives in code.
+
+**Everything downstream is unchanged.** `propose` emits `Candidate{construct, understanding=the prohibition
+sentence, url}`; `derive_advice` finds the second same-polarity doc sentence over the POOLED clean
+sentences (all pages), the load-bearing same-polarity requirement kept; harvest, the frozen `prove`, and
+the `LearnedRule{bad,good}` emission are exactly as before. `graduate` now takes the language's raw pages
+(`lint_docs::raw_pages`), and `graduated_rules` fetches them — the read `Memory` is still the harvest
+corpus, only the PROPOSE source moved from its garbled prose to the structural page reading.
+
+**One site-general reader, all three web-stack languages, one workflow per language.** The owner widened
+this to HTML + CSS + JS together (the substrate learns the whole web stack, then reads every other
+language's docs through it). The SAME `read_doc_page` serves all three — MDN element/property/reference
+pages and ESLint rule pages alike — and the module workflow runs once per language over the SHARED crawl,
+partitioned by the crawl's OWN per-page language attribution (a page contributes to `lang` iff `lang`'s
+read `Memory` holds a binding from that page — `lint_module::lang_pages`). This is the "never conflate
+languages" law at PROPOSE: a CSS deprecation page and a JS rule page sit in one MDN crawl, but each
+language proposes ONLY from its own attributed pages, so a CSS construct never enters the JS module.
+
+**MEASURED (2026-07-11, shared web-stack crawl — 3054 pages MDN HTML/CSS/JS + ESLint + W3Schools, frozen
+brains; harness `examples/web_module_train.rs`).**
+
+| lang | partition | candidates | PROVEN | train | acceptance |
+|------|-----------|-----------|--------|-------|-----------|
+| javascript | ESLint rule pages (3325 bindings; the MDN-JS pages attribute elsewhere in this crawl) | 8–10 | 6 | ~16 s | `var` PROVEN and flags the bad file; `==`/`eval`/`with` NOT graduated; junk (`if`/`return`/`break`/`foo`/`||`) also graduated and `if` flags the clean file |
+| css | MDN CSS reference (11019 bindings) | 20 | 0 | 0.09 s | correct deprecated properties proposed (`box-orient`, `page-break-*`, `-moz-*`, `-webkit-*`, `text-decoration-skip`, `@document`); NONE graduate |
+| html | MDN HTML reference (1740 bindings) | 14 | 0 | 0.19 s | correct obsolete elements proposed (`frameset`, `noframes`, `plaintext`, `tt`, `xmp`, `param`); NONE graduate |
+
+**What the fix DID achieve (the reading rung is sound).** The garbled-binding-prose wall is GONE: the
+reader now delivers CLEAN per-construct governing prose and the docs' own bad/good examples, per language,
+with ZERO cross-language leak (measured: CSS constructs land only in css, HTML only in html), and PROPOSE
+is fast (CSS/HTML 0.1–0.2 s). The docs'-own-bad/good firing verification (`confirmed_by_examples`, frozen
+`run_plan`) correctly excludes the remedy (`const`/`let`/`===`) and the option-specific exception
+(ambient `declare var`, `x == null`) via the primary-correct test. `var` graduates end to end from the
+structural reading — the pipeline is capable.
+
+**The TWO measured walls that remain (both honest, neither faked).**
+1. **JS over-proposal on CONTEXTUAL rules.** ESLint has ~300 rules; many prohibit a *pattern in a context*
+   (no-setter-return, no-extra-boolean-cast, no-unreachable-loop), not a construct's bare use. Their prose
+   backticks an incidental keyword (`if`, `return`, `break`) and their primary correct example omits it,
+   so the keyword passes both `constructs_named` and `confirmed_by_examples` and then graduates — a JUNK
+   `uses_construct(if)` rule that flags ordinary code. Bare-use prohibitions (`var`/`with`/`eval`/`==`)
+   are a SUBSET the current propose cannot separate from contextual ones; the missing discriminator is
+   "the construct is the OBJECT of the prohibition," which the low-recall `sentence_states_prohibition`/
+   `understand` path abstains on for clean ESLint phrasings ("This rule disallows `with` statements") —
+   measured. `==`/`eval`/`with` did not graduate this run (advice/foil/confirm interplay), a real gap.
+2. **Deprecated-construct harvest SCARCITY (CSS/HTML).** CSS/HTML propose the RIGHT deprecated constructs
+   cleanly (deprecation is a per-construct structural signal, no junk), but a deprecated construct is by
+   definition RARE in an idiomatic reference corpus, so it fires on far fewer than `REQUIRED_REPS` (10)
+   harvested blocks → `TooFewReps` → nothing graduates. The self-generated loop's rep floor cannot be met
+   by HARVEST for deprecations; the north-star's answer is SELF-GENERATED violating code (the AI writes
+   `<marquee>…`), or a distinct graduation path where the deprecation NOTECARD is itself the authoritative
+   proof (a stated fact, not a predicted understanding) — an owner ruling, not built here.
+
+`document.write` is a confirmed CRAWL-COVERAGE GAP: the cached crawl holds no Web-API page
+(`/API/Document/write`) and ESLint ships no core `no-document-write` rule, so no page keys the construct —
+reported with evidence, never faked.
+
+**Seam decision: HELD (unchanged).** Nothing graduates CLEANLY on any of the three languages (JS admits
+junk; CSS/HTML graduate nothing), so `doc_rules` stays on `rules_from_memory` — the flip condition
+("measured clean") is not met, and holding means ZERO regression. `graduated_rules` is wired end to end
+over the new structural reading and ready to flip the instant the two walls above close.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
