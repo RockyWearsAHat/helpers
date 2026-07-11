@@ -246,6 +246,85 @@ Independence is sound at the identity point and under-merges beyond it — mitig
 for, supplying genuinely different material. Where the foil is degenerate or the witnesses are near-
 duplicates the comparator cannot separate, the engine reports UNPROVEN rather than guessing.
 
+### The HTML layer — first attempt to graduate real construct truths from real docs (2026-07-10)
+
+> The first curriculum layer ABOVE the proven English bedrock (order: dictionary → txt → markdown →
+> **HTML** → CSS → JS). The goal of this step: take real HTML documentation prose, extract English
+> TRUTHS about HTML constructs (`<strong>` means importance, `<em>` means emphasis), and GRADUATE them
+> via the frozen comparator + engine (≥15 independent witnesses). This subsection records what was
+> MEASURED end-to-end against real MDN pages and the exact obstacle that blocks graduation, so the next
+> agent builds the fix rather than re-deriving the wall. Probe: `native/examples/htmlgrad.rs`
+> (untracked); source: the cached MDN crawl (`~/.cache/helpers/lint-index/crawls/developer-mozilla-org-*.bin`,
+> 2821 pages, 158 HTML element reference pages incl. `<strong>/<b>/<em>/<i>/<mark>`).
+
+**The pipeline CONNECTS to real docs.** Decoding the `CRAWL` HLM1 container with the public codec, reading
+each page with `doc_crawler::extract_prose`, splitting into sentences, and feeding them as witnesses to
+`lint_ism::graduate` runs the frozen comparator+engine over genuine MDN prose with no new judgement. The
+`<strong>` page yields real candidate truths and their restatements — e.g. "The `<strong>` HTML element
+indicates that its contents have strong importance" (the definition), plus [7] "for content that is of
+'strong importance'", [17] "of greater importance", [22] HTML5 "representing strong importance", [24]
+"give portions of a sentence added importance". The material for graduation is really there.
+
+**But NO construct truth graduates, and the reason is measured and structural — not a logic bug.** Three
+walls, in order of severity:
+
+1. **Construct identity is HTML-layer JARGON the English dictionary cannot key.** The comparator judges
+   over English content concepts (`content_concepts`, tokens the meaning graph `has`). Half the construct
+   names are **not in the meaning graph at all** — `b`, `i`, `s`, `u`, `q` return `has=false` (single
+   letters), `dfn`/`kbd` are unknown to English entirely — so they contribute NO subject concept and drop
+   out. Where a name survives (`strong` centrality 45, `em`/`mark` at the rare tail), it is one concept
+   averaged into generic shared vocabulary (`element`, `text`, `contents`, `marks`, `indicates`). So two
+   truths about DIFFERENT constructs are compared purely on overlapping English predicates and CONFLATE.
+   Measured separation failure: feeding `<strong>`'s importance-truth the sentences from the `<b>`/`<em>`/
+   `<i>` pages produced **23 / 25 / 22** raw corroborations — *more* than the `<strong>` page's own signal.
+   Sentences literally asserting a different construct ("The `<em>` HTML element marks text that has stress
+   emphasis") corroborate the importance-truth. This is the central finding: **whole-page corroboration
+   needs a per-construct key the dictionary alone cannot provide.**
+
+2. **A genuine, doc-grounded foil does NOT function as a discriminating foil.** The engine's on-topic bar
+   is `distance(truth, witness) < distance(truth, foil)`. The genuine competing meaning the docs warn
+   against — "the element applies bold visual styling" — is by directed reference the **farthest** thing
+   from the importance-truth (distance **3.68**), farther than the sibling meanings (`b`/attention 2.00,
+   `i`/idiomatic 2.30, `em`/emphasis 2.63) and the true restatement (0.81). So the foil sets a bar that
+   **admits everything**, and separation collapses. The engine's documented soundness condition ("only as
+   sound as the foil is genuine, on the truth's topic") is met in spirit yet violated in effect: "genuine
+   competing meaning" and "a foil near enough to discriminate" are DIFFERENT requirements. The discriminating
+   foil is the confusable SIBLING's meaning (`<b>` for `<strong>`), not the misuse.
+
+3. **Example content and see-also cross-references trip false CONTRADICTIONS that short-circuit graduation.**
+   Every own-page run returned `Unproven(Contradicted)`. The contradictions are real signals fired on the
+   WRONG spans: negation-polarity EXAMPLE strings inside the element ("...you can never forget... never feed
+   him after midnight" — an example, not a claim about the construct), and legitimate contrast/see-also
+   sentences that assert the foil ("If you wish to indicate importance, use the `<strong>` element" — on the
+   `<b>` page). The engine cannot tell an assertion ABOUT this construct's meaning from example prose or a
+   pointer to another construct. One such sentence is fatal (contradiction short-circuits).
+
+**The proposed fix probe (Experiment D) and why the cheap version is insufficient.** Keying witnesses by the
+literal `<strong>` tag-mention the prose carries (a markup signal, not an English word) and using a sibling
+foil narrows 158 pages of noise to 17 candidate sentences — but only 5 corroborate (most `<strong>` mentions
+are USING the tag to bold example text, not describing it) and 2 still falsely contradict (a `<strong>`
+wrapping the example phrase "HTML Definition element (`<dfn>`)" is grabbed as if it were about `<strong>`).
+So a substring tag-match is too crude: **subject-keying must be STRUCTURAL** — which construct's reference
+section / governing prose a sentence belongs to — exactly what `lint_graph::read_page` units and
+`lint_docs` page attribution already compute but the corroboration path does not yet consume.
+
+**Smallest real next step (for owner review — NOT yet built).** The construct must enter the ISM as its own
+ORTHOGONAL state keyed from the HTML/markup substrate, never as an English word (keeping the dictionary
+frozen and un-contaminated, per the north-star's "concepts individual until provably linked"):
+- A truth is the pair `(construct_key, English predicate)`. `construct_key` is the tag as an opaque
+  symbol from the markup/char substrate (the HTML layer's own jargon), NOT a dictionary word.
+- Witnesses for a construct are the doc sentences whose STRUCTURAL subject IS that construct — the
+  governing/definition prose of its reference page, with example blocks and see-also pointers EXCLUDED —
+  drawn from the reading machinery that already segments pages (`read_page`, page attribution).
+- Corroboration runs the frozen English comparator ONLY over the PREDICATE (importance ≡ importance),
+  gated by construct-key IDENTITY (same tag → same subject); the foil is a confusable SIBLING construct's
+  predicate, chosen on the truth's topic so the on-topic bar discriminates.
+This keeps the covenant: the dictionary never learns tag names, the comparator/engine semantics are
+unchanged, and the HTML layer holds its constructs as its own proven states. Until it exists, the honest
+verdict is: **the doc→corroboration→graduation pipeline reaches real HTML docs, but graduates nothing,
+because per-construct structural keying — the HTML layer's own subject identity — is the missing piece the
+English bedrock cannot supply.**
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
