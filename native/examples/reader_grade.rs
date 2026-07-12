@@ -13,7 +13,7 @@
 use helpers_native::lint_char;
 use helpers_native::lint_codec::{self, Dec};
 use helpers_native::lint_english;
-use helpers_native::lint_graph::read_page;
+use helpers_native::lint_graph::{read_page, site_chrome};
 use helpers_native::lint_lang_layer::read_doc_page;
 use helpers_native::lint_trace::Bridge;
 
@@ -142,6 +142,14 @@ fn main() {
     let pages = all_pages();
     eprintln!("corpus pages: {}  (structure roles learned: {})", pages.len(), !br.structure().is_empty());
 
+    // LANDED cross-page-invariance chrome filter — the same `lint_graph::SiteChrome` the live module
+    // workflow and brain curriculum now use. The learned reader is fed the CHROME-STRIPPED body; the
+    // hand path stays on the original body as the ground-truth governing-sentence reference, so
+    // sent-recall measures whether the strip removed any GOVERNING prose (it should not) while
+    // learn-weld / allpg-weld measure the W3S collapse.
+    let chrome = site_chrome(&pages);
+    eprintln!("site chrome runs discovered: {}", chrome.len());
+
     use std::collections::BTreeMap;
     let mut by_src: BTreeMap<&'static str, Agg> = BTreeMap::new();
     let mut welding_example: Option<(String, String)> = None;
@@ -152,8 +160,9 @@ fn main() {
         a.pages += 1;
 
         // Match the LIVE caller (`doc_crawler::extract_sections_html_hinted`): semantic chrome
-        // (`<nav>/<header>/<footer>/<aside>`, script/style) is dropped before the reader sees it.
-        let dropped = drop_chrome(body);
+        // (`<nav>/<header>/<footer>/<aside>`, script/style) is dropped before the reader sees it,
+        // AND the landed cross-page-invariance chrome (div-based menus W3S wraps non-semantically).
+        let dropped = drop_chrome(&chrome.strip(url, body));
         let learned = read_page(&dropped, br);
         if !learned.is_empty() {
             a.learned_has_units += 1;

@@ -760,6 +760,18 @@ pub fn graduate(
     en: &English,
 ) -> Vec<Outcome> {
     let bridge = Bridge::new(m, en);
+    // CROSS-PAGE-INVARIANCE CHROME FILTER (LINTER.md → "Cross-page invariance = chrome, discarded";
+    // owner north-star). A site's navigation, breadcrumb, footer, and sidebar-menu text recurs
+    // IDENTICALLY across its pages and carries zero governing meaning, so it is discarded — site-
+    // scoped, learned from the corpus by exact text-run recurrence, no element name and no site name
+    // named ([`crate::lint_graph::site_chrome`]). This removes the W3Schools `<div id="leftmenuinner">`
+    // menu that a semantic-element chrome drop cannot catch, the measured blocker for reading W3S
+    // prose. Applied before any page is read into prohibition prose or example code, so every reader
+    // downstream — `read_doc_page`, `page_code_corpus`, the grammar partition — sees clean bodies.
+    let chrome = crate::lint_graph::site_chrome(pages);
+    let stripped: Vec<(String, String)> =
+        pages.iter().map(|(u, b)| (u.clone(), chrome.strip(u, b))).collect();
+    let pages: &[(String, String)] = &stripped;
     let partition = lang_pages(lang, pages, &bridge, en);
     let (candidates, pool) = propose(lang, &partition, &bridge, en);
     let corpus = harvest_corpus(memory);

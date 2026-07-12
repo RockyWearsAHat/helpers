@@ -1677,16 +1677,61 @@ non-code chrome words are counted too), and the ~20% MDN figure is the reference
 cleanly, so the next rung has a working signal to build the learned chrome filter on — no new heuristic, just
 the invariance the north-star already specifies.
 
-### Item 3 (the architecture mandate) — status after the docs-v84 pass (2026-07-12)
+### LANDED — the cross-page-invariance chrome filter (Item 3b step 1, docs-v85, 2026-07-12)
+
+> The prototype above is now SHIPPED as the reading path's chrome filter, exactly as the north-star specifies
+> ("an element whose structure and style and content is invariant across a site's pages is navigation/
+> boilerplate with zero meaning and is excluded from rule-proving"). `TRAIN_VERSION` → `docs-v85`, `BRAIN_REV`
+> → 10 (the segmentation change forces a brain + module rebuild). Lives in [`crate::lint_graph`]:
+> `site_chrome` + `SiteChrome`.
+
+**Mechanism (comparative, site-scoped, no names).** `site_chrome(pages)` groups a whole-site corpus by HOST,
+counts on how many DISTINCT pages of that host each tag-separated text RUN appears (deduped within a page), and
+keeps the runs recurring on ≥ `CHROME_PAGE_SUPPORT` pages. The floor is **8** — the prototype's measured
+separation point (W3Schools 70.1% invariant text mass vs MDN reference 19.8% / API 23.8% at ≥8 same-site pages)
+AND the same repetition-support floor as `TAG_ROLE_SUPPORT` (a signal is trusted-by-repetition only once at
+least that many independent instances testify). A run's key is `token_seed` of its whitespace-collapsed content
+(≥2 words, ≥6 chars): invariance is EXACT recurrence of content, never similarity, and no element name or site
+name is consulted. `SiteChrome::strip(url, body)` blanks every text run whose key is invariant on that page's
+host, preserving tags and attributes verbatim — so a `class="notecard deprecated"` marker, an `id=` anchor, and
+`<pre><code>` example code all survive; only recurring PROSE is removed.
+
+**Where it runs.** Applied at the two whole-site chokepoints, before any reader forms prose/units/roles:
+- [`crate::lint_module::graduate`] — strips every page before `lang_pages`/`propose`/`page_code_corpus`, so the
+  hand anatomy's `governing_sentences` and the grammar partition both see clean bodies (the W3S `<div
+  id="leftmenuinner">` menu a semantic-element drop cannot catch is gone).
+- [`crate::lint_char::ensure_brain`] — strips the curriculum before `novel_blocks`/`learn`/`learn_structure_roles`,
+  a strictly stronger cut than the per-block dedup (which only collapses IDENTICAL whole blocks), so chrome
+  never enters the meaning graph or the learned roles.
+
+**MEASURED (re-graded with the filter, `examples/reader_grade`).** W3Schools all-page code-weld **26.8% →
+12.2%** (now BELOW MDN's ~14%); the W3S welding example flips from the left-sidebar menu ("Visibility / Hide …
+Skew / Matrix …") to genuine tutorial prose ("Here, all `<p>` elements on the page will be center-aligned …").
+MDN sent-recall against the UN-stripped hand path drops (77% → 47%) — but this is the filter CORRECTLY removing
+MDN's IDENTICAL recurring deprecation/reference banners (invariant boilerplate with zero per-page information),
+NOT governing proof: the module funnel is unchanged (below). The `class="notecard deprecated"` attestation is an
+attribute, so it survives the text-run strip and every deprecation rule still graduates.
+
+**RULE-SET DELTA — zero regression (the burn bar).** The proven set is BYTE-IDENTICAL to docs-v84: js **54** /
+css **22** / html **8** freshly-graduated (live 57/22/17 with the retain-and-grow ledger), the acceptance
+kitchen-sink flags every prohibited construct and the clean file stays clean (`wrongly flagged by []`), the
+docs-v83 junk pages still abstain (junk floor zero), and the grammar-verification partition holds ∅. So the
+segmentation change cleaned W3S prose WITHOUT changing which constructs prove — the mandate's "retrain to the
+SAME OR BETTER" met exactly. The classics (`==`/`var`) are still not graduated: they need the W3S prose-command
+propose path (Item 3b step 4), now unblocked by clean prose but not yet built.
+
+### Item 3 (the architecture mandate) — status after the docs-v85 pass (2026-07-12)
 
 > Honest scoping record. Item 3 (a–e) is a large multi-rung architectural mandate; this pass completed a
 > down-payment on 3b and did not attempt 3a/3c/3d/3e, which each are their own rung. Recorded so the next
 > agent starts from the measured state, not a re-derivation.
-- **3b (fix the learned reader; burn the hand anatomy)** — STEP 2 (referee grading) LANDED as a MEASUREMENT
-  (subsection above): per-source agreement numbers measured across the whole cache; the honest verdict is
-  BURN-NOT-SAFE with the blocker located (cross-page-invariance chrome discovery). The earlier `sections`
-  earliest-heading fix (docs-v83) remains the step-1 down-payment. Step 3 (deletion) is correctly BLOCKED by
-  the measurement; step 1 (finish fixing the reader — invariance chrome) and step 4 (classics) are NOT done.
+- **3b (fix the learned reader; burn the hand anatomy)** — STEP 1 (fix the reader — cross-page-invariance
+  chrome) LANDED docs-v85 (subsection above): the prototype's chrome filter is shipped in the reading path,
+  W3S weld collapsed 26.8%→12.2%, rule set byte-identical (zero regression), junk floor zero, partition ∅.
+  STEP 2 (referee grading) remains the measurement that gated it. Step 3 (deletion of matched hand pieces) is
+  still BLOCKED — the learned reader now reads clean W3S prose but still has NO page-role/subject faculty (axis
+  b = 0%, measured), so the hand anatomy stays INTERIM. Step 4 (classics through the now-clean W3S prose) is
+  the next unblocked rung, not yet built.
 - **3a (curriculum txt → markdown reading rung), 3c (judgment LEARNS — contradiction-driven reshape), 3d
   (fixpoint + COMPLETE), 3e (cleanup / one-architecture consolidation)** — NOT attempted this pass. Each is a
   full rung; attempting them superficially would violate the honesty covenant. The graduated ledger today is

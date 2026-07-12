@@ -40,7 +40,7 @@ const MEM_CAP: usize = 8 << 20;
 /// ([`MeaningNetwork::weight_of`], owner directive 2026-07-08) so `related()` SEPARATES concepts —
 /// the distinctive words carry the sense; the document-frequency table rides the artifact, so
 /// every stale brain rebuilds to gain it.
-const BRAIN_REV: u64 = 9;
+const BRAIN_REV: u64 = 10;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -1459,13 +1459,24 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     // once instead of thousands of near-identical copies. The deduped raw-HTML pages are kept for
     // the structure-role learner (it needs markup in context, and identical chrome adds no
     // discriminating instances anyway).
+    // CROSS-PAGE-INVARIANCE CHROME FILTER (LINTER.md → "Cross-page invariance = chrome, discarded";
+    // owner north-star). Before the curriculum is read, discover each site's navigation/menu/footer
+    // boilerplate by exact text-run recurrence across the site's own pages and blank it — chrome
+    // carries zero meaning, so it must never enter the meaning graph or the learned structure roles.
+    // This is a stronger cut than the per-block dedup below (which only collapses IDENTICAL whole
+    // blocks): a menu welded inline with unique page text is a mixed block dedup keeps but invariance
+    // removes. Site-scoped, learned from data, no element or site name ([`crate::lint_graph::site_chrome`]).
+    let all_web: Vec<(String, String)> =
+        web.iter().flat_map(|(_, pages)| pages.iter().cloned()).collect();
+    let chrome = crate::lint_graph::site_chrome(&all_web);
     let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let mut web_bodies: Vec<String> = Vec::new();
     for (lang, pages) in &web {
         let before = r.total;
         let mut budget = LANG_CORPUS_CAP;
-        for (_, body) in pages {
-            let novel = novel_blocks(body, &mut seen, &mut budget);
+        for (url, body) in pages {
+            let body = chrome.strip(url, body);
+            let novel = novel_blocks(&body, &mut seen, &mut budget);
             if novel.is_empty() {
                 continue;
             }
