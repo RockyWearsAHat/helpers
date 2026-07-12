@@ -46,6 +46,14 @@ pub struct LearnedRule {
     pub bad: String,
     /// The corrected form (may be empty).
     pub good: String,
+    /// The code CONSTRUCT this rule's understanding forbids, when the rule carries its own proven
+    /// plan (a graduated construct-module rule — `LINTER.md`, "The modular rebuild"). `Some(c)` means
+    /// the rule IS the understood prohibition `uses_construct(c)`, compiled and fired DIRECTLY by
+    /// `run_plan` in the one AST walk — never re-derived from the bad/good example diff. `None` is a
+    /// legacy example/token-miner rule that keeps the example-diff detector path. Optional and
+    /// defaulted so no other rule source changes.
+    #[serde(default)]
+    pub construct: Option<String>,
 }
 
 /// A body of knowledge to learn from. Built from a crawled docs site or a text document; the rest
@@ -266,6 +274,7 @@ impl Knowledge {
                                 description,
                                 bad: String::new(),
                                 good: String::new(),
+                                construct: None,
                             },
                             from_heading: true,
                             heading_only: body_was_empty,
@@ -309,6 +318,7 @@ impl Knowledge {
                                     description: text.to_string(),
                                     bad: String::new(),
                                     good: String::new(),
+                                    construct: None,
                                 },
                                 from_heading: false,
                                 heading_only: false,

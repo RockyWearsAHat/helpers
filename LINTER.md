@@ -1010,14 +1010,14 @@ worth (javascript 5 / css 31 / html 8 via `graduated_rules` over full cached mem
 - `lint` on a kitchen-sink project fires graduated rules **citing source URLs** and leaves all good files ZERO:
   `uses-with` (⟨eslint…no-with⟩), `uses-tt` (⟨mdn…tt⟩), `uses-box-orient` + `uses-text-decoration-skip`
   (⟨mdn…⟩). Good `.js`/`.css`/`.html` files: no findings.
-- **HONEST GAP — partial live firing.** The harness proves every wanted construct fires via `run_plan(uses_construct)`
-  (JS 4/4, CSS 3/3, HTML 5/5), but the LIVE lint compiles a firing detector from the emitted `bad`/`good` example pair
-  through the EXISTING `RuleSet::build` + Hv concept gate, which is more conservative than the direct plan: several
-  graduated rules (`center`/`font`/`marquee`, `eval`/`var`/`==`, `page-break-after`) compile a detector but do not
-  fire the kitchen-sink line. This is a property of the compiler/gate consuming bad/good pairs, ORTHOGONAL to the
-  rule-source flip (the flip changes WHICH rules exist, not how they compile). Sharpening the emitted contrast (or
-  compiling the detector from the known construct rather than the example diff) is the named next step; the flip is a
-  strict precision win over the junk miner it replaces, so it lands.
+- **~~HONEST GAP — partial live firing.~~ CLOSED (2026-07-11, docs-v77, "Graduated rules fire their own plan" below).**
+  The harness proved every wanted construct fires via `run_plan(uses_construct)` (JS 4/4, CSS 3/3, HTML 5/5), but the
+  LIVE lint used to re-derive a detector from the emitted `bad`/`good` example diff through `RuleSet::build`, which was
+  more conservative than the direct plan: `center`/`font`/`marquee`, `eval`/`var`/`==`, `page-break-after` compiled a
+  detector (or a parenthesised `uses_construct(eval())`) that missed the kitchen-sink line. FIXED by carrying each
+  graduated rule's construct so the live build compiles its PROVEN `uses_construct` plan directly — see the subsection
+  below. Live now matches the harness exactly (JS var/==/eval/with; CSS box-orient/page-break-after/text-decoration-skip;
+  HTML center/font/frame/frameset/marquee/tt), good files ZERO.
 - **Training time (measured):** harness `graduate` over the shared crawl — javascript ~14 s, css ~3 s, html ~1.3 s;
   live online retrain of all detected languages 58 s (html re-crawled; js/css replayed).
 
@@ -1027,6 +1027,50 @@ worth (javascript 5 / css 31 / html 8 via `graduated_rules` over full cached mem
 **Seam decision: FLIPPED.** Item 1 landed (`??` gone, `==` kept, good files zero), so per the flip contract the seam
 moved to `graduated_rules` for the languages the workflow owns; other languages provably keep the miner. The residual
 work is live-firing COVERAGE (compiler/gate), not rule QUALITY.
+
+### Graduated rules fire their OWN plan — no second rule engine (2026-07-11, docs-v77)
+
+> The last leg: a graduated construct-module rule is "the SAME object: an understood prohibition compiled to a
+> `lint_trace::Plan` and fired by `run_plan` in the one AST walk" (this file's modular-rebuild mandate below). It no
+> longer re-derives a detector from the emitted example diff. The frozen substrate (dictionary, `lint_corroborate`,
+> `lint_ism`, `lint_selftest`, `lint_trace`) is UNTOUCHED. `TRAIN_VERSION` → `docs-v77-graduated-rules-fire-their-plan`.
+
+**The gap that was.** `graduate` proves each rule as `understanding → uses_construct(<c>)`, but emitted only `bad`/`good`
+prose+examples; the plan was DISCARDED at emission and `RuleSet::build` re-derived a detector from the bad/good diff.
+That re-derivation was conservative: `var`/`==`/`console` were dropped by the over-general / reference-fire gates,
+`eval` compiled the desc-derived non-firing `uses_construct(eval())`, and `center`/`font`/`marquee`/`page-break-after`
+became AST example patterns that missed real usages — so 4/5-per-language proven-firing collapsed to 1–2 live.
+
+**The fix — carry the construct, compile the plan, scope it behaviorally.**
+- **The plan rides the rule's own shape.** `LearnedRule` and the module's `DocRule` gain an optional `construct:
+  Option<String>` (the documented target module-rule shape `{id, prose, construct?, plan, source_url}`). `lint_module`
+  emits `Some(cand.construct)`; the miner and every other rule source leave it `None`. It threads through `doc_rules`
+  and the `RuleSet::build` input tuple (now 7-wide) — no side channel, no id-parsing hack.
+- **Build compiles the plan DIRECTLY.** A rule that carries a `construct` (and the language has a grammar to walk)
+  compiles straight to `MatchKind::Trace(Plan::UsesConstruct{construct})` — the SAME `run_plan` path CS-canon and
+  lintPref plan-rules already fire — ahead of `learn_verified`/`understand`/AST/token. Behavioral scope, no language
+  named: **a rule that HAS a plan fires its plan; a rule with only bad/good keeps the legacy example-diff path.**
+- **Reference-fire exempts the proven plan.** The statistical corpus gate is a heuristic for UNproven example-diff
+  detectors; a graduated `uses_construct` rule was already proven through the frozen loop over the docs' OWN corpus,
+  and its target is legacy-ubiquitous BY DESIGN (`var` is taught using `var` — measured 98/1508 reference; no monotone
+  corpus-fire cut separates it from junk). So a plan rule is exempt from reference-fire, exactly as project law is.
+  Self-fire/over-fire still hold: the plan fires the emitted `bad` (contains the construct) and stays clean on the
+  `good` near-miss (construct absent). String/comment interiors stay safe — `scan_construct` skips lexical text.
+
+**MEASURED — the LIVE compile+fire path (graduated_rules → RuleSet::build → flag), per language vs the harness:**
+
+| lang | live rules fire (kitchen-sink) | good file | harness parity |
+|------|-------------------------------|-----------|----------------|
+| javascript | `var`(1,3,5) `==`(2) `eval`(2) `with`(3); `console` compiled, unused→silent | 0 | 4/4 wanted |
+| css | `box-orient`(1) `page-break-after`(1) `text-decoration-skip`(1) | 0 | 3/3 wanted |
+| html | `center`(1) `font`(1) `frame`(3) `frameset`(3) `marquee`(2) `tt`(4) | 0 | 5/5 wanted + `frame` |
+
+`document.write` (JS) and the `center` binding stay attribution-coverage gaps in the LIVE `raw_pages(lang)` set exactly
+as before — unchanged by this leg. `var`/`eval` named in a comment or string flag ZERO (verified live). `lint_query
+rules <lang>` lists every rule with prose + `understanding → uses_construct(<c>)`.
+
+**Tests:** `cargo test --lib` 212 green (adds `a_graduated_rule_fires_its_plan_and_survives_reference_fire`); gauntlets
+`ai_linter_behaviors` 21, `understanding_defects` 7, `memory_invariants` 3 — all green.
 
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
