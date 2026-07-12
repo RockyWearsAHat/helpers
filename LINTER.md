@@ -200,6 +200,80 @@ notecard-keyed page role (no `/reference/` requirement) + example-derived qualif
 unwrap graduate `document.write` (and the whole deprecated Document API surface) cleanly, junk floor zero,
 partition ∅ intact.
 
+## THE CURRENT MODEL — read this; everything below the divider is appendix (Item 3e consolidation, 2026-07-12)
+
+> The one description of what ships today. The north-star section above is the AGREED THEORY; this is the
+> BUILT SYSTEM realizing it, folded into a single read so the next agent needs no archaeology. Every dated
+> `###` subsection BELOW THE APPENDIX DIVIDER is implementation history and the measured-falsification
+> ledger — kept (per the owner) so nobody re-derives a dead end, but NOT the model. When history conflicts
+> with this section, THIS governs.
+
+**The substrate (frozen, proven — never touched by module work).** A 1-bit predictive-coding character
+reader (`lint_char.rs`) and an HDC meaning graph (`MeaningNetwork`) learn English from the dictionary, then
+the web curriculum from its own docs. On top sit the frozen judges: the English-equality corroboration
+referee (`lint_corroborate.rs` — same DIRECTION + POLARITY over the meaning graph, no word lists), the
+negation classifier (`English::is_negation`, definition-compounding), and the self-generated blind-agreement
+test loop (`lint_selftest.rs`). These are OBSERVED correct once and then FROZEN; all module work stands on
+them and never modifies them. The brain's identity is its `brain_fingerprint` (BRAIN_REV ⊕ dictionary ⊕ web
+pages ⊕ explanation corpus).
+
+**The curriculum.** English (bedrock) → txt → markdown → HTML → CSS → JavaScript, each layer read from its
+OWN documentation in the language of the layer beneath. Comprehension is shared across layers (one meaning
+graph); RULES are never shared across languages.
+
+**Building a language module (the whole live path, `lint_module::graduated_rules`).**
+1. **Whole-site read.** The propose corpus is every cached page whose HOST is one of the language's
+   registered doc sources (`lint_docs::site_corpus`), unioned with the language's own read pages — no
+   section/URL filter. Cross-page-invariant chrome (nav/menu/footer, identical text+style+content across the
+   site) is stripped first (`lint_graph::site_chrome`), so every reader sees clean prose.
+2. **Language partition by GRAMMAR, not URL.** Every page is proposed to every language; a candidate joins a
+   language's partition only where its subject genuinely FIRES on the page's own worked-example code under
+   that language's grammar (`lint_module::lang_pages` → `page_proves_in_lang`, the frozen `run_plan` the only
+   referee). A CSS property never parses+fires as JS; a cross-section page (a Web-API page whose example is
+   JS) joins JS regardless of its URL.
+3. **Propose → generate → blind-prove.** Each candidate derives an understanding + a second, distinct doc
+   sentence as advice, harvests violating/clean blocks from the corpus (topping up with self-generated
+   violations when idiomatic reps are scarce), and proves through the blind-agreement loop: the generator
+   tags each sample's expectation, a BLIND lint pass (code only, never the expectation) produces the outcome,
+   and the frozen comparator judges agreement in English. `REQUIRED_REPS` = 15. A structurally-attested
+   deprecation notecard graduates on the structural facts directly (the English foil is degenerate by
+   construction). Rule identity is the construct's EXACT byte-preserved token (`uses-==`, `uses-document.write`).
+4. **THE FLIP.** A language whose docs prove ≥ `GRADUATED_MODULE_FLOOR` (3) construct rules OWNS the workflow
+   and its module IS the proven set; a language below the floor (typescript 1, rust 0, go, python…) stays on
+   the legacy token-miner fallback (`lint_docs::rules_from_memory`) — the miner is LIVE for non-owned
+   languages and the discovery probe, never dead. Scoped behaviorally; no language named in code.
+5. **Judgment learns — the 3c re-check (`merge_graduated`).** The fresh pass IS the re-check of the persisted
+   ledger against the current brain + corpus. A prior rule re-proven → fresh (possibly reshaped) wins; a
+   prior rule whose page is still in the corpus but did not re-prove → DROPPED as a contradiction (surfaced,
+   never silent); a prior rule whose page left the corpus → retained (retain-and-grow). Keyed by the
+   byte-preserved construct id.
+6. **Fixpoint + COMPLETE — 3d.** Graduation is deterministic over a frozen brain + fixed corpus and the 3c
+   merge is idempotent, so the proven set is at fixpoint after ONE pass (measured, not looped). The module is
+   written once, stamped COMPLETE against the knowledge snapshot (`train_version` ⊕ `sources_fp` ⊕
+   `brain_fp`); a changed snapshot reopens it through the 3c re-check. `is_current` gates on all three (the
+   brain axis only when this machine has a brain). `lint_query rules <lang>` surfaces the completion state.
+
+**Firing (the module is enforceable rules).** A graduated rule carries its construct and fires its OWN proven
+`uses_construct(construct)` plan via tree-sitter `scan_construct` (the INTERIM mechanism; parserless
+construct recognition is the north-star direction). One parse + one walk per file; the Hv concept gate
+confirms imprecise text-fallback findings. Findings cite their source page. Project law (`.helpers/lint-rules/`)
+compiles as a local overlay and never vanishes silently. Lint NEVER touches the network; setup does.
+
+**What is NOT yet built (honest frontier).** The learned reader has NO page-role/subject faculty (measured
+0%), so hand page-role anatomy stays INTERIM. The classics `var`/`==`/`eval` abstain on the
+recommendation/advice register (their commands carry no negation operator the substrate resolves yet). The
+whole-domain MDN root crawl is deferred on budget; coverage grows as the cache grows. svg is grammar-blocked.
+See "Open problems" and the falsification ledger for the measured dead-ends.
+
+---
+
+# APPENDIX — implementation history and the measured-falsification ledger
+
+> Everything below is HOW the current model above was arrived at, dated pass by pass, plus every measured
+> dead-end (kept so nobody re-derives it). It is NOT the current model. Read it only to understand why a
+> thing is the way it is, or before re-attempting something that was already falsified. The authoritative
+> "Failure ledger" section near the end of this file is the consolidated dead-end record.
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
@@ -1836,9 +1910,10 @@ blocker is dissolved and the blocker is now a single, well-specified classifier,
 
 ### Item 3 (the architecture mandate) — status after the docs-v85 pass (2026-07-12)
 
-> Honest scoping record. Item 3 (a–e) is a large multi-rung architectural mandate; this pass completed a
-> down-payment on 3b and did not attempt 3a/3c/3d/3e, which each are their own rung. Recorded so the next
-> agent starts from the measured state, not a re-derivation.
+> Honest scoping record. Item 3 (a–e) is a large multi-rung architectural mandate. Landed to date: 3b step 1
+> (docs-v85), 3c (docs-v86), 3d + 3e (docs-v87). Remaining: 3a (a full rung) and 3b's deletion/register steps
+> (blocked on the measured page-role/register gaps). Recorded so the next agent starts from the measured
+> state, not a re-derivation.
 - **3b (fix the learned reader; burn the hand anatomy)** — STEP 1 (fix the reader — cross-page-invariance
   chrome) LANDED docs-v85 (subsection above): the prototype's chrome filter is shipped in the reading path,
   W3S weld collapsed 26.8%→12.2%, rule set byte-identical (zero regression), junk floor zero, partition ∅.
@@ -1856,9 +1931,16 @@ blocker is dissolved and the blocker is now a single, well-specified classifier,
   iteration (graduation is deterministic; the 3c merge is idempotent — measured, not looped); modules carry
   a `brain_fp` completion snapshot and reopen through the 3c re-check when the brain/corpus/logic changes;
   `lint_query rules` surfaces the completion state.
-- **3a (curriculum txt → markdown reading rung), 3e (cleanup / one-architecture consolidation)** — 3e next;
-  3a not attempted this pass. Each is a full rung; attempting them superficially would violate the honesty
-  covenant.
+- **3e (cleanup / one-architecture consolidation)** — LANDED docs-v87 pass: (a) miner retirement MEASURED —
+  the token miner (`rules_from_memory`) is NOT dead code; it is the LIVE fallback for non-owned languages
+  (rust/go/typescript, below the flip floor) and the discovery probe, and owned languages already bypass it
+  behaviorally via the flip. The build is compiler-clean (0 dead-code warnings, default and `crawl` features);
+  there is no unreachable miner path to delete without breaking non-owned languages, and the rust/go fallback
+  tests pass unchanged — so nothing was deleted, and that is the honest measured outcome, not an omission.
+  (b) LINTER.md consolidated: the "THE CURRENT MODEL" section above the appendix divider is now the ONE model
+  to read; the dated `###` subsections are demoted to the appendix (history + falsification ledger), preserved
+  per the owner so dead-ends are not re-derived.
+- **3a (curriculum txt → markdown reading rung)** — NOT attempted this pass; a full rung of its own.
 
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
