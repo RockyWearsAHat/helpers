@@ -950,6 +950,84 @@ the wanted `==`). Per the flip contract (zero-junk on all three), `doc_rules` st
 separates `??`/contextual-operators from genuine operator bans. The closure pass is committed as the working
 parts (notecard path, remedy-demonstration abstain, prove-cost cut) with `cargo test --lib` green (211).
 
+### THE FLIP PASS — stated-subject gate kills `??`, attribution gap gains `center`, seam flipped LIVE (2026-07-11)
+
+> The three gaps the closure pass held on, closed. The frozen substrate (dictionary, `lint_corroborate`,
+> `lint_ism`, `lint_selftest` judging) is UNTOUCHED. `TRAIN_VERSION` → `docs-v76-module-flip-graduated-rules`.
+> Harness: `examples/web_module_train.rs`; live path verified through the real `lint`/`lint_config` tools.
+
+**ITEM 1 — the STATED-SUBJECT gate kills `??` covenant-clean (`lint_module::stated_by_lead`).** The residual
+JS junk `??` (no-constant-binary-expression) is structurally identical to the wanted `==` on every example-firing
+count, so no firing test separates them. The discriminator is the page's OWN STATED SUBJECT: a rule page's
+title/lead summary sentence states what it prohibits, read by the frozen construct extraction
+([`Bridge::constructs_named`] over the first governing sentence — ONE central construct, never a word list). A
+candidate PASSES iff (A) its construct IS the lead's stated subject (`no-console`→`console`, `no-eval`→`eval`,
+`no-with`→`with`), OR (B) — for an operator advised against in favour of a remedy — the lead names that REMEDY and
+the docs' OWN before/after pair shows it REPLACING the banned construct (the remedy fires the primary correct
+example and NO incorrect example; the candidate is the banned counterpart). MEASURED: `eqeqeq`'s lead names `===`,
+whose correct example introduces `===` absent from the `==` incorrect → `==` PASSES (B); `no-var` names `let`
+(introduced in correct) → `var` PASSES (B). `no-constant-binary-expression`'s lead lists `||`/`&&`/`??` as a
+CO-EQUAL class (central extraction reads `recommended`, chrome — names no single operator) AND its correct examples
+REUSE the same operators as incorrect (no replacement introduced) → `??` FAILS both → DROPPED. The gate is enforced
+at EMISSION, not at PROPOSE ([`Candidate::stated`]): removing a candidate at propose would shrink the pool and
+reshuffle the frozen self-test's order-sensitive foil, spuriously flipping UNRELATED verdicts (MEASURED: dropping
+`??`/`+=`/`!=` at propose Contradicted `eval` and graduated `++`). Keeping the pool intact and withholding only the
+un-stated subject's RULE leaves every other verdict identical. Result: JS 13 candidates → **5 proven**
+(`var`/`==`/`eval`/`with`/`console`), `??` gone, 4/4 wanted fire the bad file, good file ZERO.
+
+**OWNER RULING 2026-07-11: `console` (no-console) is GENUINE, kept.** `no-console`'s stated meaning IS "Disallow the
+use of `console`" — its lead names `console` as the direct subject, so it passes gate (A). It is a real bare-use ban,
+not junk; it stays in the JS module.
+
+**ITEM 2 — the partition ATTRIBUTION GAP (`lint_module::lang_pages`, `lint_docs::url_language`).** A pure-deprecation
+reference page forms NO prose⊗code binding, so binding-only attribution dropped it even though its page is crawled,
+attested, and reads correctly (`center`'s MDN page). Fix: a page joins `lang`'s partition iff a binding attributes it
+OR it is an attested deprecation page ([`lint_lang_layer::is_attested_deprecation_page`]) AND the crawl's own URL
+attribution ([`lint_docs::url_language`] — the URL/host half of `attribute_page`, a per-SOURCE structural read, no
+language named) names `lang`. Result: html gains `center` (live `uses-center` fires the bad file). `document.write`
+stays out (its Web-API page is genuinely not crawled — a coverage gap, noted). NOTE (measured, IMPORTANT): the
+*example harness* passes ALL three shared crawls to `graduate` per language, so `url_language` correctly pulls the
+entire MDN-JavaScript deprecated-method reference into the JS partition (escape/`__defineGetter__`/String.prototype
+.big/blink/… — 37 proven) — genuine deprecated JS, but their construct names (`sub`/`link`/`input`/`arguments`)
+collide with ubiquitous identifiers and would false-positive on real code. The **LIVE path** (`graduated_rules` →
+`raw_pages(lang)` over the registered sources) does NOT include those pages, so JS stays 5 clean — the flood is a
+harness artifact, not shipped. Latent risk if a future crawl adds them: NOTED, out of scope (no new crawls).
+
+**ITEM 3 — THE FLIP (`lint_train::doc_rules`, `GRADUATED_MODULE_FLOOR`).** `doc_rules` now sources a language's
+MODULE rules from `lint_module::graduated_rules` (the frozen-loop-proven construct rules) when the workflow OWNS the
+language — measured as ≥ `GRADUATED_MODULE_FLOOR` (3) graduated rules — else it FALLS BACK to the legacy token-miner
+`rules_from_memory`. This scopes the retirement BEHAVIORALLY (no language named): the web stack proves a module's
+worth (javascript 5 / css 31 / html 8 via `graduated_rules` over full cached memory), while an incidental cross-reader
+(typescript 1) or a language with no rule/notecard pages (rust 0) stays on the miner — VERIFIED unaffected in a real
+`lint_config action=train` (typescript 28, rust 24 rules unchanged). `graduated_rules` emits
+`LearnedRule{id=uses-<construct>, description=governing prose, bad, good, source_url}`, the exact shape
+`RuleSet::build` already compiles.
+
+**MEASURED — the LIVE path (real `lint`/`lint_config`/`lint_query`, not the harness):**
+- Retrain (online, `lint_config action=train`) rebuilds the modules from the graduated set: `lint_query rules <lang>`
+  shows `uses-*` rules with prose + `understanding → uses_construct(<c>)` plan; the old miner ids (`no-unused-vars`,
+  css `content`, html `showpicker`) are GONE.
+- `lint` on a kitchen-sink project fires graduated rules **citing source URLs** and leaves all good files ZERO:
+  `uses-with` (⟨eslint…no-with⟩), `uses-tt` (⟨mdn…tt⟩), `uses-box-orient` + `uses-text-decoration-skip`
+  (⟨mdn…⟩). Good `.js`/`.css`/`.html` files: no findings.
+- **HONEST GAP — partial live firing.** The harness proves every wanted construct fires via `run_plan(uses_construct)`
+  (JS 4/4, CSS 3/3, HTML 5/5), but the LIVE lint compiles a firing detector from the emitted `bad`/`good` example pair
+  through the EXISTING `RuleSet::build` + Hv concept gate, which is more conservative than the direct plan: several
+  graduated rules (`center`/`font`/`marquee`, `eval`/`var`/`==`, `page-break-after`) compile a detector but do not
+  fire the kitchen-sink line. This is a property of the compiler/gate consuming bad/good pairs, ORTHOGONAL to the
+  rule-source flip (the flip changes WHICH rules exist, not how they compile). Sharpening the emitted contrast (or
+  compiling the detector from the known construct rather than the example diff) is the named next step; the flip is a
+  strict precision win over the junk miner it replaces, so it lands.
+- **Training time (measured):** harness `graduate` over the shared crawl — javascript ~14 s, css ~3 s, html ~1.3 s;
+  live online retrain of all detected languages 58 s (html re-crawled; js/css replayed).
+
+**Tests:** `cargo test --lib` 211 green; integration/gauntlet `ai_linter_behaviors` 21, `understanding_defects` 7,
+`memory_invariants` 3 — all green (no regression).
+
+**Seam decision: FLIPPED.** Item 1 landed (`??` gone, `==` kept, good files zero), so per the flip contract the seam
+moved to `graduated_rules` for the languages the workflow owns; other languages provably keep the miner. The residual
+work is live-firing COVERAGE (compiler/gate), not rule QUALITY.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten

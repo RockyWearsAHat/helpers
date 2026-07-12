@@ -538,6 +538,19 @@ fn attribute_page(
     String::new()
 }
 
+/// The language a page's URL structurally attributes to — the crawl's OWN per-page URL attribution
+/// (the first path segment, else host label, that resolves to a known language via the registry),
+/// WITHOUT reading the page's blocks. This is the URL/host half of [`attribute_page`] with no block
+/// hints, so it is a per-SOURCE structural read (INTERIM, exactly like the `/rules/`|`/reference/`
+/// page-kind keying) and names no language in code. The module partition
+/// ([`crate::lint_module::lang_pages`]) uses it to include an attested deprecation reference page a
+/// language's `Memory` holds no binding for (a pure-deprecation page forms no prose⊗code binding).
+/// `None` when the URL names no known language.
+pub(crate) fn url_language(url: &str) -> Option<String> {
+    let l = attribute_page(url, &[], &std::collections::HashSet::new());
+    (!l.is_empty()).then_some(l)
+}
+
 /// READ one cached raw page into `(page prose, units)` — units as
 /// `(slug, governing prose, code, language hint)`. This is the whole read-time unit former
 /// (LINTER.md, "Reading a page is UNDERSTANDING"): fetch furniture is dropped, then the char
