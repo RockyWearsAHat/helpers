@@ -656,6 +656,7 @@ fn a_legacy_json_module_cache_migrates_to_the_container_and_still_fires() {
             "loop {{ step() }}".replace("{{", "{").replace("}}", "}"),
             "Never use the zorkle statement anywhere; it is deprecated and will be removed.".to_string(),
             "https://registry.example/zetalang/statements".to_string(),
+            None,
         )],
         &helpers_native::lint_match::Grounding {
             reference: vec!["loop { step() }".to_string(), "emit(\"done\")".to_string()],
@@ -718,6 +719,7 @@ fn a_published_model_is_downloaded_from_the_registry_instead_of_recrawled() {
             "loop {{ step() }}".replace("{{", "{").replace("}}", "}"),
             "Never use the zorkle statement anywhere; it is deprecated and will be removed.".to_string(),
             "https://registry.example/zetalang/statements".to_string(),
+            None,
         )],
         &helpers_native::lint_match::Grounding {
             reference: vec!["loop { step() }".to_string(), "emit(\"done\")".to_string()],

@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v76-module-flip-graduated-rules";
+pub(crate) const TRAIN_VERSION: &str = "docs-v77-graduated-rules-fire-their-plan";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -118,6 +118,11 @@ pub(crate) struct DocRule {
     good: String,
     #[serde(default)]
     source: String,
+    /// The construct a graduated construct-module rule forbids ([`crate::linter::LearnedRule::construct`]):
+    /// `Some(c)` compiles the rule to its proven `uses_construct(c)` plan directly; `None` is a legacy
+    /// example/token rule. Optional and defaulted so pre-extracted committed catalogs are unaffected.
+    #[serde(default)]
+    construct: Option<String>,
 }
 
 /// A language's learned catalog, cached so the linter does not relearn every run. Keyed by the
@@ -198,6 +203,7 @@ impl LearnedCatalog {
                         bad: r.bad,
                         good: r.good,
                         source: url,
+                        construct: r.construct,
                     })
                     .collect();
                 (rules, memory.reference.clone())
@@ -506,6 +512,7 @@ fn rules_in_documents(docs: &[(PathBuf, String)], lang: &str, slice: &str, canon
             bad: r.bad.clone(),
             good: r.good.clone(),
             source: source.clone(),
+            construct: r.construct.clone(),
         });
     }
     out
@@ -757,9 +764,9 @@ fn train_language(
         if learned_from == "nothing" {
             report.unlearned.push(lang.clone());
         } else {
-            let tuples: Vec<(String, String, String, String, String, String)> = doc_rules
+            let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = doc_rules
                 .iter()
-                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
+                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone(), r.construct.clone()))
                 .collect();
             let ground = crate::lint_match::Grounding {
                 reference,
@@ -831,9 +838,9 @@ fn train_language(
                 trusted: trusted.clone(),
                 flagged: Default::default(),
             };
-            let tuples: Vec<(String, String, String, String, String, String)> = local_rules
+            let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = local_rules
                 .iter()
-                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
+                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone(), r.construct.clone()))
                 .collect();
             let rules = RuleSet::build(lang, &tuples, &ground);
             let compiled: std::collections::HashSet<String> =
@@ -1034,10 +1041,10 @@ pub fn corpus_ruleset(lang: &str) -> crate::lint_match::RuleSet {
     let rules = corpus_rules(&data_root, lang);
     let trusted: std::collections::HashSet<String> = rules.iter().map(|r| r.id.clone()).collect();
     let ground = crate::lint_match::Grounding { trusted, ..Default::default() };
-    let tuples: Vec<(String, String, String, String, String, String)> = rules
+    let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = rules
         .iter()
         .map(|r| {
-            (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone())
+            (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone(), r.construct.clone())
         })
         .collect();
     crate::lint_match::RuleSet::build(lang, &tuples, &ground)
@@ -1788,6 +1795,7 @@ fn seed_with_version(data_root: &Path, lang: &str) -> (Vec<DocRule>, String) {
                 bad: bad.to_string(),
                 good: r["exampleGood"].as_str().unwrap_or("").to_string(),
                 source: r["source"].as_str().unwrap_or("").to_string(),
+                construct: None,
             });
         }
     }
@@ -1895,6 +1903,10 @@ impl Bin for DocRule {
         e.str(&self.bad);
         e.str(&self.good);
         e.str(&self.source);
+        // Empty string encodes `None` — a legacy example/token rule (the common case). Appended
+        // last so the wire form stays additive; older blobs predate `TRAIN_VERSION`, so they are
+        // relearned rather than decoded.
+        e.str(self.construct.as_deref().unwrap_or(""));
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<DocRule> {
         Some(DocRule {
@@ -1905,6 +1917,10 @@ impl Bin for DocRule {
             bad: d.str()?,
             good: d.str()?,
             source: d.str()?,
+            construct: {
+                let c = d.str()?;
+                (!c.is_empty()).then_some(c)
+            },
         })
     }
 }
@@ -2591,6 +2607,7 @@ mod tests {
                 "loop { step() }".to_string(),
                 "Never use the zorkle statement anywhere; it is deprecated.".to_string(),
                 "https://registry.example/zetalang".to_string(),
+                None,
             )],
             &crate::lint_match::Grounding {
                 reference: vec!["loop { step() }".to_string(), "emit(\"done\")".to_string()],
@@ -2640,6 +2657,7 @@ mod tests {
                 bad: "zorkle".to_string(),
                 good: "emit()".to_string(),
                 source: "https://registry.example".to_string(),
+                construct: None,
             }],
             reference: vec!["emit(\"done\")".to_string()],
             memory: Some(crate::lint_read::Memory {
@@ -2862,6 +2880,7 @@ mod tests {
                 "zip left".into(),
                 "Never use the zap statement anywhere; it is deprecated and will be removed.".into(),
                 "https://d/zap".into(),
+                None,
             )],
             &ground,
         );

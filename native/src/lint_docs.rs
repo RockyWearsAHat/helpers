@@ -941,6 +941,7 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
                 description: trim_prose(&b.prose),
                 bad: b.code.clone(),
                 good,
+                construct: None,
             },
             b.url.clone(),
         ));
