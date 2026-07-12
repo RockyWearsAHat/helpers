@@ -34,6 +34,16 @@ const MAX_HARVEST_BLOCKS: usize = 4000;
 /// margin. The Outcome reports the TRUE violating count; only the proof sample is capped.
 const PROVE_SAMPLE_CAP: usize = 30;
 
+/// How many clean corpus blocks self-generation ([`generate_violations`]) may splice into — a bound that
+/// keeps the top-up's `run_plan` sweep in the seconds budget while being ample to reach the rep floor from
+/// real contexts. Only reached for a SCARCE construct (a common one is covered by harvest and never
+/// generates); generation stops the instant it has [`REQUIRED_REPS`] + margin distinct firing samples.
+const GENERATE_CONTEXT_CAP: usize = 400;
+
+/// Distinct self-generated violating samples to aim for — the owner's rep floor plus a small margin so
+/// undecidable/near-miss reps still leave a graduating count.
+const GENERATE_TARGET: usize = REQUIRED_REPS + 4;
+
 /// A construct-rule candidate proposed from the docs — the construct DATA-read from the prose, the
 /// governing sentence it was named in (the `understanding` side), and the source url for citation.
 #[derive(Clone, Debug)]
@@ -45,6 +55,11 @@ pub struct Candidate {
     pub understanding: String,
     /// The documentation url the governing sentence came from — the finding's citation.
     pub url: String,
+    /// The page's own "incorrect code" example blocks that FIRE this construct — real, language-shaped
+    /// violating snippets used as SEEDS for self-generation ([`generate_violations`]) when the harvest
+    /// corpus is too scarce to reach the rep floor. Empty for a deprecated reference page (no examples);
+    /// then carriers are synthesized by splicing the construct into the corpus.
+    pub seeds: Vec<String>,
 }
 
 /// The outcome of putting one candidate through the frozen loop — reported whether it graduated or
@@ -174,6 +189,109 @@ fn harvest_corpus(memory: &Memory) -> Vec<String> {
     out
 }
 
+/// SELF-GENERATE distinct violating samples for `construct` in `lang`, language-GENERAL and covenant-clean:
+/// no per-language template, no hand-written fixture — the construct is DATA from the page, the contexts are
+/// real corpus blocks, and the frozen `run_plan` is the ONLY referee of what fires (LINTER.md → Fix 2).
+///
+/// 1. **Carriers** = the shortest snippets that genuinely FIRE `uses_construct(construct)`. Seeds are the
+///    page's own incorrect examples (real, language-shaped). When a page has none (a deprecated REFERENCE
+///    page), carriers are SYNTHESIZED by splicing the construct into corpus blocks — [`splice_construct`]
+///    swaps a whole name token in a real block (`display`→`box-orient`, `p`→`marquee`) and `run_plan` keeps
+///    only variants that fire.
+/// 2. **Variation** = each carrier spliced into VARIED real contexts (`ctx\ncarrier`, `carrier\nctx`), kept
+///    iff still firing and distinct. Distinct real contexts are the independence axis, exactly as the
+///    harvested distinct blocks were. Stops at [`GENERATE_TARGET`].
+fn generate_violations(lang: &str, construct: &str, seeds: &[String], contexts: &[&str]) -> Vec<String> {
+    let plan = Plan::UsesConstruct { construct: construct.to_string() };
+    let fires = |b: &str| !run_plan(&plan, lang, b).is_empty();
+
+    let mut carriers: Vec<String> = seeds.iter().filter(|s| fires(s)).cloned().collect();
+    if carriers.is_empty() {
+        // No seed: synthesize by splicing the construct into real corpus blocks, keeping only firers.
+        for ctx in contexts {
+            if let Some(c) = splice_construct(construct, ctx).into_iter().find(|c| fires(c)) {
+                carriers.push(c);
+            }
+            if carriers.len() >= 3 {
+                break;
+            }
+        }
+    }
+    if carriers.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out: Vec<String> = carriers.clone();
+    let mut seen: std::collections::HashSet<u64> = out.iter().map(|s| crate::lint_ai::token_seed(s)).collect();
+    'vary: for ctx in contexts {
+        for carrier in &carriers {
+            for cand in [format!("{ctx}\n{carrier}"), format!("{carrier}\n{ctx}")] {
+                if seen.insert(crate::lint_ai::token_seed(&cand)) && fires(&cand) {
+                    out.push(cand);
+                    if out.len() >= GENERATE_TARGET {
+                        break 'vary;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Candidate violating snippets from splicing `construct` into a real corpus `block`: for each distinct
+/// whole NAME token in the block (a `[A-Za-z][-A-Za-z0-9_]*` run — a selector/property/tag/identifier
+/// slot), the block with that token replaced by `construct`. A generic string op seeded by the corpus's own
+/// shape (a real CSS rule, a real element), never a Rust-authored snippet; the caller's `run_plan` decides
+/// which splices actually fire. Bounded to the first few slots so the sweep stays cheap.
+fn splice_construct(construct: &str, block: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let bytes = block.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_alphabetic() {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
+                i += 1;
+            }
+            let tok = &block[start..i];
+            if tok != construct && !tokens.iter().any(|t| t == tok) {
+                tokens.push(tok.to_string());
+            }
+        } else {
+            i += 1;
+        }
+    }
+    tokens.iter().take(12).map(|t| replace_whole_token(block, t, construct)).collect()
+}
+
+/// `haystack` with every WHOLE-token occurrence of `from` replaced by `to` — a token is `from` bounded by
+/// non-`[A-Za-z0-9_-]` (or string ends), so replacing `p` in `<p>hi</p>` yields `<C>hi</C>` without
+/// touching the `p` inside another word. The name-slot substitution [`splice_construct`] stands on.
+fn replace_whole_token(haystack: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return haystack.to_string();
+    }
+    let bytes = haystack.as_bytes();
+    let boundary = |b: u8| !(b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    let mut out = String::with_capacity(haystack.len());
+    let mut from_i = 0;
+    while let Some(rel) = haystack[from_i..].find(from) {
+        let start = from_i + rel;
+        let end = start + from.len();
+        let before_ok = start == 0 || boundary(bytes[start - 1]);
+        let after_ok = end >= bytes.len() || boundary(bytes[end]);
+        out.push_str(&haystack[from_i..start]);
+        if before_ok && after_ok {
+            out.push_str(to);
+        } else {
+            out.push_str(&haystack[start..end]);
+        }
+        from_i = end;
+    }
+    out.push_str(&haystack[from_i..]);
+    out
+}
+
 /// A stable, inspectable rule id from a construct name — `uses-<construct>` with non-alphanumerics
 /// folded to `-`, so `document.write` → `uses-document-write` and `==` → `uses--` stays distinct per
 /// construct. The construct is DATA, so the id is too.
@@ -246,65 +364,112 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
         }
     }
 
+    // ONE construct graduates per page: a rule/reference page prohibits its own SUBJECT, so among the
+    // constructs that pass the subject gate, keep the single strongest. This kills the CONTEXTUAL-rule
+    // junk that fires on the same counts as a real subject (`var` and junk `if` are numerically IDENTICAL
+    // — 2/2 incorrect, 1/2 correct — so only the SUBJECT signal separates them).
     let mut out: Vec<Candidate> = Vec::new();
     for p in &docpages {
-        for construct in &p.constructs {
-            if out.iter().any(|c| &c.construct == construct) {
-                continue;
-            }
-            // VERIFY against the page's OWN bad/good examples with the frozen firing (the north-star's
-            // propose-verify-learn over the docs' own examples). A candidate is a genuine prohibition iff
-            // it fires on STRICTLY MORE incorrect than correct blocks — comment/string-safe (`run_plan`
-            // skips lexical text, so the `/*eslint no-var*/` config comment never counts) and it excludes
-            // the remedy (`const`/`let`/`===`, which fire on 0 incorrect) and a construct a good example
-            // legitimately uses (`declare var` in a `.d.ts`, which fires on BOTH). Pages with no examples
-            // (a deprecated reference page) pass — the deprecation notecard is their prohibition proof.
-            if !confirmed_by_examples(lang, construct, &p.incorrect, &p.correct) {
-                continue;
-            }
-            // The `understanding` is the best real doc sentence MENTIONING the construct: prefer one from
-            // the construct's OWN page (page-of-origin), then a prohibited-page statement, then negative
-            // polarity, then a longer (more informative) one. Its citation url is the proposing page.
-            let best = pooled
-                .iter()
-                .filter(|ps| mentions(&ps.sentence, construct))
-                .max_by_key(|ps| {
-                    (
-                        u32::from(ps.url == p.url),
-                        u32::from(ps.prohibited),
-                        u32::from(ps.negated),
-                        ps.sentence.len(),
-                    )
-                });
-            if let Some(best) = best {
-                out.push(Candidate {
-                    construct: construct.clone(),
-                    understanding: best.sentence.clone(),
-                    url: p.url.clone(),
-                });
-            }
+        let subject = p
+            .constructs
+            .iter()
+            .filter(|c| !out.iter().any(|o| &o.construct == *c))
+            .filter(|c| is_prohibited_subject(lang, &p.url, c, &p.incorrect, &p.correct))
+            .max_by_key(|c| subject_score(lang, c, &p.incorrect));
+        let Some(construct) = subject else { continue };
+        // The `understanding` is the best real doc sentence MENTIONING the construct: prefer one from the
+        // construct's OWN page (page-of-origin), then a prohibited-page statement, then negative polarity,
+        // then a longer (more informative) one. Its citation url is the proposing page.
+        let best = pooled
+            .iter()
+            .filter(|ps| mentions(&ps.sentence, construct))
+            .max_by_key(|ps| {
+                (u32::from(ps.url == p.url), u32::from(ps.prohibited), u32::from(ps.negated), ps.sentence.len())
+            });
+        if let Some(best) = best {
+            let plan = Plan::UsesConstruct { construct: construct.clone() };
+            let seeds: Vec<String> =
+                p.incorrect.iter().filter(|b| !run_plan(&plan, lang, b).is_empty()).cloned().collect();
+            out.push(Candidate {
+                construct: construct.clone(),
+                understanding: best.sentence.clone(),
+                url: p.url.clone(),
+                seeds,
+            });
         }
     }
     (out, pooled)
 }
 
-/// Whether the page's OWN examples confirm `construct` as a genuine prohibition of its BARE use: it
-/// fires (frozen `run_plan`) on some INCORRECT example AND does NOT fire on the page's PRIMARY (first)
-/// CORRECT example — the docs' main remedy demonstration, which omits the banned construct. Later correct
-/// blocks are OPTION-specific exceptions (eqeqeq's "smart" `x == null`, no-var's ambient `declare var`, an
-/// `allowIndirect` `window.eval`) that legitimately use the construct, so the first correct block — not a
-/// count over all of them — is the honest "the remedy drops it" test. A page with no incorrect examples
-/// (a deprecated reference page) passes: its deprecation notecard is the prohibition proof. Firing is
-/// AST-grained, so a construct named only in the `/*eslint no-var*/` config comment never counts.
-fn confirmed_by_examples(lang: &str, construct: &str, incorrect: &[String], correct: &[String]) -> bool {
-    if incorrect.is_empty() {
-        return true;
-    }
+/// Whether `construct` is the page's PROHIBITED SUBJECT — what the page is ABOUT and forbids — separating a
+/// genuine bare-use prohibition from a CONTEXTUAL rule (which forbids a pattern-in-a-context, not the
+/// construct's bare use). A keyword and an operator are confirmed differently because only one of them can
+/// live in a URL:
+/// - **Keyword / identifier / property / element** — confirmed by the page's URL rule-name PAYLOAD equalling
+///   the construct ([`url_payload_equals`]): a doc page NAMES its whole subject in its path
+///   (`no-var`→`var`, `no-eval`→`eval`, `no-console`→`console`, `/CSS/box-orient`, `/Element/marquee`).
+///   `no-delete-var`→`delete-var`≠`delete` and `no-async-promise-executor`→`async-promise-executor`≠`async`
+///   are pattern names, not the bare construct, so they ABSTAIN. This is why the example FIRING is not
+///   required for a keyword: the URL is the confirmation, and it correctly admits `eval` even though eval's
+///   own `allowIndirect` "correct" example reuses `eval` (the example test alone would wrongly reject it).
+///   A per-SOURCE structural marker, INTERIM, exactly like the `/rules/`|`/reference/` keying.
+/// - **Multi-character OPERATOR** (`==`/`!=`) — a symbol a URL cannot spell, so it is confirmed by the docs'
+///   OWN before/after example pair (frozen `run_plan`): the page must carry correct examples (a genuine
+///   remedy demonstration — `no-self-compare` ships NONE, so its incidental `===` abstains), the operator
+///   fires on EVERY incorrect example, and NOT on the PRIMARY correct (the remedy drops it; later correct
+///   blocks are option exceptions like eqeqeq `smart` `x == null`, so PRIMARY not ALL).
+fn is_prohibited_subject(lang: &str, url: &str, construct: &str, incorrect: &[String], correct: &[String]) -> bool {
     let plan = Plan::UsesConstruct { construct: construct.to_string() };
     let fires = |b: &str| !run_plan(&plan, lang, b).is_empty();
-    let fires_incorrect = incorrect.iter().any(|b| fires(b));
-    let fires_primary_correct = correct.first().is_some_and(|g| fires(g));
-    fires_incorrect && !fires_primary_correct
+    if is_operator(construct) {
+        if correct.is_empty() || incorrect.is_empty() {
+            return false;
+        }
+        return incorrect.iter().all(|b| fires(b)) && !correct.first().is_some_and(|g| fires(g));
+    }
+    // Keyword/identifier/property/element: the URL names it as the whole subject AND it genuinely FIRES on
+    // every bad example (so a rule-name that is NOT a firing token — `max-statements`, `vars-on-top` — is
+    // rejected). A reference page carries no examples, so the URL name + deprecation notecard is the proof.
+    url_payload_equals(url, construct) && (incorrect.is_empty() || incorrect.iter().all(|b| fires(b)))
+}
+
+/// A rank over subject-gate passers so at most ONE graduates per page: prefer the construct present the most
+/// TIMES across the incorrect examples (the true subject recurs; an incidental token appears once), then the
+/// longer/more-specific token. Data-only, no construct list.
+fn subject_score(lang: &str, construct: &str, incorrect: &[String]) -> (usize, usize) {
+    let plan = Plan::UsesConstruct { construct: construct.to_string() };
+    let occurrences: usize = incorrect.iter().map(|b| run_plan(&plan, lang, b).len()).sum();
+    (occurrences, construct.len())
+}
+
+/// Slugify a token to lowercase, non-alphanumerics folded to `-`, empty runs collapsed, ends trimmed —
+/// so `box-orient`, `Box Orient`, and `boxOrient`… normalize comparably. Pure lexical, no vocabulary.
+fn slugify(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        out.push(if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' });
+    }
+    out.split('-').filter(|t| !t.is_empty()).collect::<Vec<_>>().join("-")
+}
+
+/// Whether the page's URL rule-name PAYLOAD equals `construct` — the doc page's own path segment for its
+/// subject, minus a leading `no-` negator (`no-var`→`var`, `no-console`→`console`, `.../box-orient`→
+/// `box-orient`, `.../Element/marquee`→`marquee`). EQUALITY, not containment, is the discriminator: a
+/// pattern-named rule (`no-delete-var`→`delete-var`, `no-async-promise-executor`→`async-promise-executor`)
+/// does NOT equal its incidental construct and is rejected. Pure DATA-vs-DATA, no construct or language name.
+fn url_payload_equals(url: &str, construct: &str) -> bool {
+    let last = url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+    let seg = slugify(last);
+    let payload = seg.strip_prefix("no-").unwrap_or(&seg);
+    let cslug = slugify(construct);
+    !cslug.is_empty() && payload == cslug
+}
+
+/// Whether `construct` is a multi-character OPERATOR — two or more symbol characters, no alphanumerics
+/// (`==`, `!=`, `===`). A symbol a URL cannot spell, so the subject gate vets it by the example firing
+/// alone. Mirrors [`crate::lint_lang_layer`]'s operator reading.
+fn is_operator(construct: &str) -> bool {
+    construct.len() >= 2 && construct.chars().all(|c| !c.is_ascii_alphanumeric() && c != '.')
 }
 
 /// GRADUATE construct rules for `lang` — the whole workflow, pure over the language's raw doc `pages`
@@ -328,21 +493,11 @@ pub fn graduate(
     let (candidates, pool) = propose(lang, &partition, &bridge, en);
     let corpus = harvest_corpus(memory);
 
-    // The linter's BOOK of known rules: every candidate's firing plan + its derived advice, so firing
-    // is realistic (any candidate may fire on any block). A candidate with no distinct second doc
-    // sentence has no un-fakeable advice and is dropped from the book (and cannot graduate).
+    // Each candidate's derived advice (its SECOND, distinct doc sentence). A candidate with no such
+    // sentence has no un-fakeable English pair and cannot graduate.
     let advices: Vec<Option<String>> = candidates
         .iter()
         .map(|c| derive_advice(&pool, en, &c.construct, &c.understanding, &c.url))
-        .collect();
-    let book: Vec<KnownRule> = candidates
-        .iter()
-        .zip(&advices)
-        .filter_map(|(c, adv)| {
-            adv.as_ref().map(|a| {
-                KnownRule::new(Plan::UsesConstruct { construct: c.construct.clone() }, a.clone())
-            })
-        })
         .collect();
 
     let mut outcomes = Vec::new();
@@ -353,14 +508,28 @@ pub fn graduate(
         // a sound pre-filter (no false negative) that turns the harvest from O(candidates × corpus
         // parses) into a parse only where the construct's text appears, keeping training in seconds.
         let plan = Plan::UsesConstruct { construct: cand.construct.clone() };
-        let mut violating: Vec<&str> = Vec::new();
+        let mut violating: Vec<String> = Vec::new();
         let mut clean: Vec<&str> = Vec::new();
         for block in &corpus {
             let fires = construct_in_text(block, &cand.construct) && !run_plan(&plan, lang, block).is_empty();
             if fires {
-                violating.push(block);
+                violating.push(block.clone());
             } else {
                 clean.push(block);
+            }
+        }
+        // TOP UP with SELF-GENERATED violations when the idiomatic corpus is too scarce to reach the rep
+        // floor (every CSS/HTML deprecation, JS `with`): splice the construct into varied real corpus
+        // contexts, seeded by the page's own incorrect examples, frozen `run_plan` the only referee
+        // (LINTER.md → the two walls → Fix 2). Harvested reps stay primary; generation only supplies count.
+        // Skipped when the candidate has no derived advice — it cannot graduate anyway, so generating reps
+        // for it is wasted `run_plan` sweeps (the training-time cut that keeps the workflow in seconds).
+        if advices[i].is_some() && violating.len() < REQUIRED_REPS {
+            let contexts: Vec<&str> = clean.iter().take(GENERATE_CONTEXT_CAP).copied().collect();
+            for g in generate_violations(lang, &cand.construct, &cand.seeds, &contexts) {
+                if !violating.iter().any(|v| v == &g) {
+                    violating.push(g);
+                }
             }
         }
         // DERIVE the foil: a SIBLING candidate's understanding (a genuine competing meaning). No
@@ -373,13 +542,19 @@ pub fn graduate(
         let advice = advices[i].clone();
 
         let verdict = match (&advice, &foil) {
-            (Some(_advice), Some(foil)) => {
+            (Some(advice), Some(foil)) => {
                 let rule = RuleUnderTest::new(cand.understanding.clone(), foil.clone(), lang.to_string());
+                // The book is JUST THIS CANDIDATE's own rule (its plan + its derived advice) — the honest
+                // per-candidate self-test (as `examples/js_graduate.rs`). A SHARED all-candidates book
+                // cross-contaminates: a `var` sample that also contains `===`/`??`/`-0` fires a SIBLING
+                // rule whose advice contradicts the `var` understanding → a spurious `Mismatch` that
+                // wrongly blocked `==`/`eval` (MEASURED). Each candidate is proven on its own merits; the
+                // English foil (a sibling's understanding) still supplies the un-fakeable comparison.
+                let book = [KnownRule::new(Plan::UsesConstruct { construct: cand.construct.clone() }, advice.clone())];
                 // Prove on a bounded SAMPLE of the violating blocks: graduation needs only ≥ REQUIRED_REPS
-                // corroborations, so a cap keeps the book-sweep (O(samples × book) run_plans per
-                // candidate) in seconds without changing the verdict — the true violating count stays in
-                // the Outcome. A margin above the floor absorbs undecidable/mismatch reps.
-                let sample: Vec<&str> = violating.iter().take(PROVE_SAMPLE_CAP).copied().collect();
+                // corroborations, so a cap keeps the sweep in seconds without changing the verdict — the
+                // true violating count stays in the Outcome. A margin above the floor absorbs undecidables.
+                let sample: Vec<&str> = violating.iter().take(PROVE_SAMPLE_CAP).map(String::as_str).collect();
                 prove(m, en, &rule, &book, &sample)
             }
             // Missing an un-fakeable advice or a genuine foil is an honest "cannot judge" — reported
