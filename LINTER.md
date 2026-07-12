@@ -1157,7 +1157,7 @@ this machine to fire the construct:
 |------|-------|------:|----:|-----:|---------:|----------|---------|
 | css | bin | 1236 | 1009 | 0 | **31** | yes (dylib) | **GRADUATES** 31 (harness); clean, good file zero |
 | html | legacy json → bin (MDN) | 296 | 234 | 0 | (bodyless cache) | yes (dylib) | **GRADUATES** 8 (harness) via notecard path |
-| javascript | legacy json + ESLint `/rules/` | 1331 | 1295 | (ESLint) | 0 | yes (bundled) | **GRADUATES** 5 (harness) via rule pages |
+| javascript | legacy json + ESLint `/rules/` | 1331 | 1295 | (ESLint) | 0 | yes (bundled) | **GRADUATES** 8 live (var/==/eval/with/…) via rule pages — see "LIVE REPRODUCTION GAP — CLOSED" |
 | svg | bin | 301 | 268 | 0 | **15** | **NO** | proposes 15 deprecations, but `uses_construct` can't fire — cannot graduate |
 | crystal | bin | 156 | 155 | 0 | 0 | no | ZERO — `/reference/` URLs but deprecation is narrative ("DEPRECATED" doc-comment keyword) |
 | rust | bin | 139 | 122 | 0 | 0 | yes (bundled) | ZERO — `/reference/` pages, but deprecation is prose ("is deprecated and slated for removal"), no notecard |
@@ -1183,35 +1183,49 @@ this machine to fire the construct:
   reader+grammars can own; every other language abstains for a structural reason, and abstention (miner)
   is the correct behavior there.
 
-**LIVE REPRODUCTION GAP (item 5, confirmed — matches the prior agent).** The HARNESS graduates css 31 /
-html 8 / js 5 by reading the crawl `.bin`s directly and reconstructing a harvest corpus from their code
-interiors. The LIVE seam (`lint_train::doc_rules` → `lint_module::graduated_rules(lang, memory)`) does NOT
-reproduce this on THIS machine: `graduated_rules` returns **0 for css/html/js/svg** (measured,
-`examples/live_grad_probe.rs`), so `doc_rules` falls back to the miner and a real `lint` on a kitchen-sink
-does **NOT** fire `box-orient`/`marquee`/`eval` (verified — only corpus CS-principle rules fire). Cause:
-`graduated_rules` sources its harvest corpus from the read `Memory` and its pages from
-`lint_docs::raw_pages(lang)`; on this offline/version-drifted machine `cached_memory(lang)` is empty (0
-bindings / 0 ref-blocks) and `raw_pages` cannot refresh, so `graduate` starves below `REQUIRED_REPS` and
-graduates nothing → the flip never engages → css/html/js run on the MINER live. This is an OFFLINE/caching
-reproduction gap, not a defect in the graduation logic (the harness proves that sound over the same bytes).
-**Recommended unlock (next agent, needs online validation):** have `graduated_rules` fall back to the raw
-doc pages' own `<code>` interiors as the harvest corpus when the read `Memory`'s `reference` is thin —
-exactly what `web_module_train`'s `reconstruct_memory` does — and let `raw_pages` serve a version-matched
-cached `.bin` under version drift; then the live flip engages from the cache alone, offline. Held here (not
-attempted) because it changes live verdicts (a `TRAIN_VERSION` bump) and cannot be validated end-to-end
-under this machine's partial network within the iteration budget.
+**LIVE REPRODUCTION GAP — CLOSED (2026-07-11, `TRAIN_VERSION` → `docs-v78-offline-graduation-corpus-fallback`).**
+The prior pass measured `graduated_rules` returning **0 for css/html/js** live even though the harness
+graduated them, because `graduated_rules` sourced its harvest corpus ONLY from the read `Memory`, and on a
+machine holding a legacy no-`memory` catalog (or a source that could not refresh with bindings)
+`cached_memory(lang)` is empty → the corpus starves below `REQUIRED_REPS` → nothing graduates → the flip
+never engages. **The recommended unlock is now landed** (`lint_module::graduated_rules`): when the
+memory-borne corpus is below the rep floor, the harvest corpus is reconstructed from the raw doc pages'
+OWN `<pre><code>` interiors (`lint_lang_layer::page_code_corpus`, the same extractor the reader uses — the
+shipped path of what `web_module_train`'s reconstruction proved sound). A rich read `Memory` is left
+untouched; the fallback only supplies the corpus the machine is missing. The per-page URL re-attribution
+was deliberately NOT applied inside the fallback: `raw_pages(lang)` is already scoped to the language's own
+registered sources, and the coarse `url_language` heuristic MIS-LABELS linter hosts it does not name
+(measured: `eslint.org` → a spurious `svg`), which would drop the entire JavaScript corpus.
 
-**Retrain wall time (measured on this machine).** Machine-wide `lint_config action=train all=true`: **83
-languages in 180.8 s** — but the network was partially unreachable (ESLint and several sites failed to
-refresh; js kept its prior module rather than clobbering). A warm project-scoped retrain (15 replayed
-languages, caches current) is **0.3 s**. The per-language graduate cost (harness, memoized) is css 0.54 s /
-html 0.23 s / js 13.85 s (js dominated by the harness's whole-MDN-JS-deprecated-method flood; the live
-`raw_pages(js)` set is far smaller). So the seconds budget is met per-language; the 180 s machine-wide
-figure is network-bound re-crawl/verify across 83 languages, NOT graduation compute.
+**LIVE RESULT (measured, `examples/live_grad_probe.rs` + a real `lint` on a kitchen-sink, ONLINE v78 build):**
+`graduated_rules` returns **css 31 / html 8 / javascript 8** and the flip engages — a `lint` on the
+kitchen-sink fires `box-orient`/`page-break-after`/`text-decoration-skip` (css),
+`center`/`font`/`frame`/`frameset`/`marquee`/`tt` (html), and `var`/`==`/`eval`/`with` (js), each cited to
+its source page; clean modern files are ZERO and construct names inside comments/strings are safe. `svg`
+still graduates **0** — its reader proposes 15 deprecated attributes but there is no tree-sitter grammar on
+this machine to fire `uses_construct` (the grammar gap, unchanged; see "Wall 0.5").
+
+**HONEST DELTAS (covenant).** (a) js graduates **8** live (`var == eval with debugger console continue ++`),
+not the harness's older 5 — the live `raw_pages(js)` ESLint `/rules/` set is what proves. (b) The set is
+**crawl-subset sensitive**: an OFFLINE `lint` over a thin cached ESLint subset graduated only 4 (var/eval/
+with + 1, `==` below the floor that run); the ONLINE-trained module carries the full 8. The user's setup
+(`lint_config action=train`) runs online, so the persisted module is the rich one. (c) html/js modules are
+`center`/etc. and `var`/etc. respectively — no `document.write` live, because MDN-JS is not in
+`raw_pages(javascript)` (ESLint is the only registered js `/rules/` source); an attribution/coverage gap,
+not a graduation defect.
+
+**DEPLOY FINDING (macOS, IMPORTANT for the next agent).** `cp` over the running
+`/Users/alexwaldmann/bin/helpers-native` does NOT SIGKILL the daemon as the memory note claimed — `cp`
+replaces the file INODE while the live process keeps the old inode's text pages mapped, so the OLD binary
+keeps running and **clobbers freshly-trained modules back to the old `TRAIN_VERSION`** whenever it relints
+the workspace (observed: css survived as v78 only because it was written last; html/js reverted to v51).
+The daemon must be **restarted** (stop the stale PID; the MCP host respawns it on the new binary) for the
+new modules to persist. After restart, `cached_ruleset`/`lint_query rules` decode the v78 modules and list
+the graduated set (css 31, html 8, javascript N) with prose+plan; before restart they report 0 (a v51
+module.bin the v78 decoder cannot read — a format skew that also forces every train to be a full retrain).
 
 **Tests (retain-and-grow, this pass):** `cargo test --lib` **213 green**; gauntlets `ai_linter_behaviors`
-21, `memory_invariants` 7, `understanding_defects` 3 — all green. No code logic changed (measurement +
-docs only), so `TRAIN_VERSION` is unchanged (`docs-v77`).
+21, `memory_invariants` 7, `understanding_defects` 3 — all green.
 
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
