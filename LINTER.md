@@ -1130,6 +1130,89 @@ dominant one. Reported, not hidden.
 **Tests:** `cargo test --lib` 213 green (adds `memoized_prove_matches_frozen_prove`); gauntlets
 `ai_linter_behaviors` 21, `understanding_defects` 3, `memory_invariants` 7 — all green.
 
+### Rollout coverage map — every cached language MEASURED against the two page-kind markers (2026-07-11)
+
+> The rollout pass: run the graduated reading rung across EVERY language this machine has cached docs for
+> and record, honestly, which propose and which abstain. The theme of the measurement: **the reader needs
+> NO new page-kind marker** — the two existing per-SOURCE structural markers (`/reference/`+deprecation
+> notecard, `/rules/`) already recognize every cached doc site that structurally marks a per-construct
+> prohibition; the wall for every other language is its docs' SHAPE (narrative, not per-construct
+> reference) or a MISSING GRAMMAR, neither of which the reading layer can or should paper over. The zeros
+> are the finding. Harnesses (untracked, measurement scaffolding beside `web_module_train.rs`):
+> `examples/lang_coverage.rs` (scan every crawl for the markers), `examples/depr_probe.rs` (sample how a
+> site marks deprecation), `examples/live_grad_probe.rs` (the live `graduated_rules` seam per language).
+
+**The two structural signals a construct is PROPOSED from** (`lint_lang_layer`): a `/rules/` URL (a linter
+rule directory — the page's ROLE is a prohibition) or a `/reference/` URL carrying an MDN-style deprecation
+notecard (`class="notecard deprecated"` / "no longer recommended"). A construct then GRADUATES only if a
+tree-sitter grammar exists to fire `uses_construct` over the harvested corpus (the frozen loop's evidence).
+
+**MEASURED — 77 languages with cached crawls scanned (`examples/lang_coverage.rs`).** Only the languages
+that expose a recognized marker are listed; the other **67 propose ZERO** (their docs carry no `/rules/`
+directory and no `/reference/` deprecation notecard — spec/manual/tutorial prose, honest abstention on the
+miner). `ref`/`rule`/`notecard` = pages matching each marker; `grammar?` = a tree-sitter grammar exists on
+this machine to fire the construct:
+
+| lang | cache | pages | ref | rule | notecard | grammar? | verdict |
+|------|-------|------:|----:|-----:|---------:|----------|---------|
+| css | bin | 1236 | 1009 | 0 | **31** | yes (dylib) | **GRADUATES** 31 (harness); clean, good file zero |
+| html | legacy json → bin (MDN) | 296 | 234 | 0 | (bodyless cache) | yes (dylib) | **GRADUATES** 8 (harness) via notecard path |
+| javascript | legacy json + ESLint `/rules/` | 1331 | 1295 | (ESLint) | 0 | yes (bundled) | **GRADUATES** 5 (harness) via rule pages |
+| svg | bin | 301 | 268 | 0 | **15** | **NO** | proposes 15 deprecations, but `uses_construct` can't fire — cannot graduate |
+| crystal | bin | 156 | 155 | 0 | 0 | no | ZERO — `/reference/` URLs but deprecation is narrative ("DEPRECATED" doc-comment keyword) |
+| rust | bin | 139 | 122 | 0 | 0 | yes (bundled) | ZERO — `/reference/` pages, but deprecation is prose ("is deprecated and slated for removal"), no notecard |
+| python | bin | 340 | 12 | 0 | 0 | yes (bundled) | ZERO — deprecation is a prose `DeprecationWarning` xref / version span, no per-construct notecard |
+| cue | bin | 250 | 47 | 0 | 0 | no | ZERO — `/reference/` URLs, narrative "will be obsoleted by" |
+| clojure / dockerfile | bin | 1–2 | 1 | 0 | 0 | no | ZERO — one incidental `/reference/` URL |
+
+**The honest conclusions.**
+- **No reading-layer extension is warranted.** The only site beyond css/html/js that exposes the notecard
+  marker is **MDN-SVG** (15 deprecated attributes/elements) — and it is the SAME reader (MDN), needing NO
+  new marker. SVG does not graduate for ONE reason: **there is no tree-sitter grammar for svg on this
+  machine** (`tree-sitter-svg.absent`), so `run_plan(uses_construct, "svg", …)` fires nothing and the
+  frozen loop has no evidence. That is a GRAMMAR gap (the css/html dylibs were hand-compiled — see "Wall
+  0.5"), not a reading gap. Compiling an svg grammar is the single clear unlock for one more clean
+  language; it is environment work, deliberately out of this measurement's scope.
+- **The grammar-capable languages that could fire (rust, python, ruby, go, java, c, bash, typescript) do
+  NOT expose the marker.** Sampled (`examples/depr_probe.rs`): rust/python/crystal/cue signal deprecation
+  only in NARRATIVE PROSE, which the covenant forbids keying on with a word list. Forcing them would invent
+  a per-construct marker their docs do not structurally provide — exactly the "do not force narrative docs"
+  boundary. They stay on the miner, honestly.
+- **The intersection {exposes a marker} ∩ {has a firing grammar} is exactly {css, html, javascript}** —
+  already graduated. The rollout's honest result is that the web stack is the complete set the current
+  reader+grammars can own; every other language abstains for a structural reason, and abstention (miner)
+  is the correct behavior there.
+
+**LIVE REPRODUCTION GAP (item 5, confirmed — matches the prior agent).** The HARNESS graduates css 31 /
+html 8 / js 5 by reading the crawl `.bin`s directly and reconstructing a harvest corpus from their code
+interiors. The LIVE seam (`lint_train::doc_rules` → `lint_module::graduated_rules(lang, memory)`) does NOT
+reproduce this on THIS machine: `graduated_rules` returns **0 for css/html/js/svg** (measured,
+`examples/live_grad_probe.rs`), so `doc_rules` falls back to the miner and a real `lint` on a kitchen-sink
+does **NOT** fire `box-orient`/`marquee`/`eval` (verified — only corpus CS-principle rules fire). Cause:
+`graduated_rules` sources its harvest corpus from the read `Memory` and its pages from
+`lint_docs::raw_pages(lang)`; on this offline/version-drifted machine `cached_memory(lang)` is empty (0
+bindings / 0 ref-blocks) and `raw_pages` cannot refresh, so `graduate` starves below `REQUIRED_REPS` and
+graduates nothing → the flip never engages → css/html/js run on the MINER live. This is an OFFLINE/caching
+reproduction gap, not a defect in the graduation logic (the harness proves that sound over the same bytes).
+**Recommended unlock (next agent, needs online validation):** have `graduated_rules` fall back to the raw
+doc pages' own `<code>` interiors as the harvest corpus when the read `Memory`'s `reference` is thin —
+exactly what `web_module_train`'s `reconstruct_memory` does — and let `raw_pages` serve a version-matched
+cached `.bin` under version drift; then the live flip engages from the cache alone, offline. Held here (not
+attempted) because it changes live verdicts (a `TRAIN_VERSION` bump) and cannot be validated end-to-end
+under this machine's partial network within the iteration budget.
+
+**Retrain wall time (measured on this machine).** Machine-wide `lint_config action=train all=true`: **83
+languages in 180.8 s** — but the network was partially unreachable (ESLint and several sites failed to
+refresh; js kept its prior module rather than clobbering). A warm project-scoped retrain (15 replayed
+languages, caches current) is **0.3 s**. The per-language graduate cost (harness, memoized) is css 0.54 s /
+html 0.23 s / js 13.85 s (js dominated by the harness's whole-MDN-JS-deprecated-method flood; the live
+`raw_pages(js)` set is far smaller). So the seconds budget is met per-language; the 180 s machine-wide
+figure is network-bound re-crawl/verify across 83 languages, NOT graduation compute.
+
+**Tests (retain-and-grow, this pass):** `cargo test --lib` **213 green**; gauntlets `ai_linter_behaviors`
+21, `memory_invariants` 7, `understanding_defects` 3 — all green. No code logic changed (measurement +
+docs only), so `TRAIN_VERSION` is unchanged (`docs-v77`).
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
