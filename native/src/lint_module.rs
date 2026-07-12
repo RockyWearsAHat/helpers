@@ -19,7 +19,7 @@
 use crate::lint_char::MeaningNetwork;
 use crate::lint_english::English;
 use crate::lint_read::Memory;
-use crate::lint_selftest::{prove, KnownRule, LearnedRule as RuleUnderTest, Verdict, REQUIRED_REPS};
+use crate::lint_selftest::{graduate as fold_reps, LearnedRule as RuleUnderTest, Rep, Verdict, REQUIRED_REPS};
 use crate::lint_trace::{run_plan, Bridge, Plan};
 use crate::linter::LearnedRule;
 
@@ -583,6 +583,48 @@ fn is_operator(construct: &str) -> bool {
     construct.len() >= 2 && construct.chars().all(|c| !c.is_ascii_alphanumeric() && c != '.')
 }
 
+/// A memoized, BIT-IDENTICAL equivalent of [`crate::lint_selftest::prove`] for this workflow's
+/// SINGLE-RULE self-test book — the training-speed lever of LINTER.md's speed pass (frozen substrate
+/// UNTOUCHED; this is memoization AT THE CALLER of a pure comparator, not a semantic change).
+///
+/// [`graduate`] always builds a book of EXACTLY ONE rule (the candidate's own `uses_construct` plan +
+/// its derived `advice`), so inside the frozen [`crate::lint_selftest::classify_sample`] the English
+/// reconciliation [`crate::lint_corroborate::corroborates`]`(understanding, advice, foil)` is called
+/// with the SAME three arguments for EVERY one of the ≤ [`PROVE_SAMPLE_CAP`] reps — a pure function
+/// re-evaluated identically per rep, and MEASURED as the dominant training cost (~0.1–0.26 s each, so a
+/// 14-rep candidate paid ~2–3.6 s of redundant re-alignment). This computes that comparison ONCE, then
+/// classifies each rep exactly as `classify_sample` does for a one-rule book and folds through the
+/// FROZEN counting law [`fold_reps`]. Every referee call ([`corroborates`], [`run_plan`], `fold_reps`)
+/// is the frozen primitive, unchanged; the ONLY difference from `prove` is that the constant comparator
+/// verdict is not recomputed per rep — hence bit-identical verdicts (asserted by
+/// `memoized_prove_matches_frozen_prove`).
+fn prove_memoized(
+    m: &MeaningNetwork,
+    en: &English,
+    rule: &RuleUnderTest,
+    plan: &Plan,
+    advice: &str,
+    samples: &[&str],
+) -> Verdict {
+    // The one English reconciliation shared by every FIRED rep (the book has a single rule): does the
+    // candidate's `advice` corroborate its `understanding` against the sibling `foil`?
+    let reconciled = crate::lint_corroborate::corroborates(m, en, &rule.understanding, advice, &rule.foil);
+    let reps = samples.iter().map(|code| {
+        // A sample is FLAGGED iff the book's single plan fires — identical to `classify_sample`'s
+        // `book.iter().filter(run_plan …)` for a one-rule book.
+        if run_plan(plan, &rule.lang, code).is_empty() {
+            Rep::NotFlagged
+        } else {
+            match reconciled {
+                Some(true) => Rep::Corroborates,
+                Some(false) => Rep::Mismatch(advice.to_string()),
+                None => Rep::Undecidable,
+            }
+        }
+    });
+    fold_reps(reps)
+}
+
 /// GRADUATE construct rules for `lang` — the whole workflow, pure over the language's raw doc `pages`
 /// (the PROPOSE source, read structurally by [`crate::lint_lang_layer`]), the read [`Memory`] (the
 /// harvest corpus), and the two frozen brains. Returns an [`Outcome`] per proposed candidate (graduated
@@ -655,18 +697,18 @@ pub fn graduate(
         let verdict = match (&advice, &foil) {
             (Some(advice), Some(foil)) => {
                 let rule = RuleUnderTest::new(cand.understanding.clone(), foil.clone(), lang.to_string());
-                // The book is JUST THIS CANDIDATE's own rule (its plan + its derived advice) — the honest
-                // per-candidate self-test (as `examples/js_graduate.rs`). A SHARED all-candidates book
-                // cross-contaminates: a `var` sample that also contains `===`/`??`/`-0` fires a SIBLING
-                // rule whose advice contradicts the `var` understanding → a spurious `Mismatch` that
-                // wrongly blocked `==`/`eval` (MEASURED). Each candidate is proven on its own merits; the
-                // English foil (a sibling's understanding) still supplies the un-fakeable comparison.
-                let book = [KnownRule::new(Plan::UsesConstruct { construct: cand.construct.clone() }, advice.clone())];
+                // The self-test book is JUST THIS CANDIDATE's own rule (its plan + its derived advice) — the
+                // honest per-candidate self-test (as `examples/js_graduate.rs`). A SHARED all-candidates book
+                // cross-contaminates: a `var` sample that also contains `===`/`??`/`-0` fires a SIBLING rule
+                // whose advice contradicts the `var` understanding → a spurious `Mismatch` that wrongly
+                // blocked `==`/`eval` (MEASURED). Each candidate is proven on its own merits; the English
+                // foil (a sibling's understanding) still supplies the un-fakeable comparison.
+                let plan = Plan::UsesConstruct { construct: cand.construct.clone() };
                 // Prove on a bounded SAMPLE of the violating blocks: graduation needs only ≥ REQUIRED_REPS
                 // corroborations, so a cap keeps the sweep in seconds without changing the verdict — the
                 // true violating count stays in the Outcome. A margin above the floor absorbs undecidables.
                 let sample: Vec<&str> = violating.iter().take(PROVE_SAMPLE_CAP).map(String::as_str).collect();
-                prove(m, en, &rule, &book, &sample)
+                prove_memoized(m, en, &rule, &plan, advice, &sample)
             }
             // Missing an un-fakeable advice or a genuine foil is an honest "cannot judge" — reported
             // as too-few-reps with the real firing count so the gap is visible, never a false pass.
@@ -771,6 +813,39 @@ mod tests {
             prose: prose.to_string(),
             code: code.to_string(),
             bind: crate::lint_ai::Hv::zero(),
+        }
+    }
+
+    /// The speed lever's correctness contract: [`prove_memoized`] returns the SAME [`Verdict`] as the
+    /// frozen [`crate::lint_selftest::prove`] for the single-rule book `graduate` builds — across the
+    /// firing (Corroborates/Mismatch/Undecidable) and non-firing (NotFlagged) rep classes. Guards that
+    /// the caller-side memoization never changes a graduation decision (LINTER.md: bit-identical funnel).
+    #[test]
+    fn memoized_prove_matches_frozen_prove() {
+        use crate::lint_selftest::{prove, KnownRule};
+        let Some((br, en)) = brains() else {
+            eprintln!("skip: no frozen brains on disk");
+            return;
+        };
+        let m = br.meanings();
+        // A mix of understanding/advice/foil triples exercising different comparator outcomes, each with
+        // firing (`var …`) and non-firing (`let …`) samples so both rep classes are covered.
+        let cases = [
+            ("Never use the `var` keyword.", "The `var` statement is discouraged and should be avoided.", "Use the `eval` function to run code."),
+            ("Avoid the `var` declaration.", "The `eval` function executes a string as code.", "Never use the `var` keyword."),
+            ("The `var` keyword declares a variable.", "A widget renders a colourful banner.", "Bananas grow in tropical climates."),
+        ];
+        let mut samples: Vec<String> = (0..REQUIRED_REPS + 3).map(|i| format!("var v{i} = {i};")).collect();
+        samples.push("let a = 1;".to_string()); // a non-firing near-miss → NotFlagged
+        samples.push("const b = 2;".to_string());
+        let refs: Vec<&str> = samples.iter().map(String::as_str).collect();
+        for (understanding, advice, foil) in cases {
+            let rule = RuleUnderTest::new(understanding.to_string(), foil.to_string(), "javascript".to_string());
+            let plan = Plan::UsesConstruct { construct: "var".to_string() };
+            let book = [KnownRule::new(plan.clone(), advice.to_string())];
+            let frozen = prove(m, en, &rule, &book, &refs);
+            let memoized = prove_memoized(m, en, &rule, &plan, advice, &refs);
+            assert_eq!(frozen, memoized, "prove_memoized must equal frozen prove for ({understanding} | {advice} | {foil})");
         }
     }
 
