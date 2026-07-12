@@ -1605,15 +1605,88 @@ prose-command PROPOSE route stays NOT SHIPPED (junk floor). Per-classic measured
 `a_non_reference_notecard_page_prohibits_its_qualified_subject`); gauntlets `ai_linter_behaviors` 21,
 `understanding_defects` 7, `memory_invariants` 3 — all green.
 
-### Item 3 (the architecture mandate) — status after the docs-v83 pass (2026-07-12)
+### Item 3b step 2 — the REFEREE GRADING, learned reader vs hand anatomy, MEASURED per source (2026-07-12)
+
+> The mandate's step-2 measurement, carried out end to end against the real 3700-page web-stack cache (the
+> `developer-mozilla-org` + `w3schools` crawls; ESLint purged docs-v80). NO verdict changed — no substrate
+> touched, no module retrained, no `TRAIN_VERSION` bump. This is the burn DECISION GATE: it converts the
+> qualitative docs-v84 "the reader is measured-garbled on real pages" into hard per-source numbers, and the
+> honest result is that BURN IS NOT SAFE this pass, for a precisely-located reason. Reproduce with the
+> untracked harness `cargo run --release --features crawl --example reader_grade` (the referee, kept beside
+> `web_module_train`).
+>
+> Method: for every cached page, run the LEARNED reader (`lint_graph::read_page`, fed the same
+> `drop_script_style`-chromed body the live caller `doc_crawler::extract_sections_html_hinted` passes) and
+> the HAND anatomy (`lint_lang_layer::read_doc_page` → `governing_sentences` + `prohibited`/`attested_deprecated`
+> + `constructs`). Axis (a): does the learned reader's prose recover the hand path's governing sentences
+> (≥70% content-token coverage), and how much CODE welds into each path's prose (fraction of code-shaped
+> whitespace tokens)? Axis (b): does the learned reader offer ANY page-role / subject equivalent?
+
+**MEASURED (matching the live chrome-drop):**
+
+| source | pages | prohib | learn≠∅ | sent-recall | learn-weld | hand-weld | all-page weld |
+|---|---|---|---|---|---|---|---|
+| MDN reference | 2538 | 84 | 100% | **77%** | **9.1%** | 11.7% | 12.0% |
+| MDN API | 147 | 33 | 100% | **74%** | **7.4%** | 11.2% | 10.3% |
+| W3Schools | 732 | 0 | 100% | — | — | — | **26.8%** |
+| MDN other | 283 | 0 | 100% | — | — | — | 9.3% |
+
+**Axis (a) — governing prose.** On MDN (reference + API) the learned reader nearly matches the hand path:
+it recovers ~3/4 of the hand path's governing sentences and, once semantic `<nav>/<header>/<footer>/<aside>`
+chrome is dropped, its prose is actually CLEANER than the hand path's (7–9% code-weld vs the hand path's
+11–12%, because the hand path preserves inline `<code>` as backticks). But recall is only ~75% — ~1/4 of the
+hand path's governing sentences are NOT recovered (the `GOVERNING_CTX` 320-char window + heading segmentation
+still clip them), so the learned reader does not yet strictly match-or-beat, the burn bar. On **W3Schools the
+learned reader is badly polluted (26.8% weld)**: MEASURED example `css_border_sides.asp` reads its LEFT
+SIDEBAR MENU as governing prose — "Visibility / Hide … Skew / Matrix … Image Shapes Code Challenge CSS
+object-fit …". W3Schools wraps that menu in a NON-semantic `<div id="leftmenuinner">`, not `<nav>`, so the
+element-NAME chrome drop cannot catch it. This div-based-chrome weld is the exact defect blocking the
+`==`/`var` classics (docs-v84 "extract_prose WELDS the pages' code examples into their prose"): a clean W3S
+prose reader is impossible while chrome is identified by a hand list of semantic element names.
+
+**Axis (b) — page roles + subjects.** `read_page` produces ONLY prose/code units — it has **no page-role,
+deprecation-attestation, or subject faculty at all**. The hand anatomy attests deprecation on **117 MDN
+prohibition pages** (notecard + URL-subject + `/reference/` marker); the learned reader offers **zero**
+equivalent. There is nothing to grade this axis against and nothing to burn: the notecard / URL-page-kind /
+subject-gate hand paths have NO learned replacement yet.
+
+**BURN DECISION — NOT SAFE, hand anatomy KEPT (INTERIM, measured reason).**
+- **Page-role / subject hand paths** (`has_deprecation_notecard`, `is_reference_page`, `member_page_shapes`,
+  `example_receiver_shapes`, the URL-subject gate) — NO learned equivalent exists (axis b = 0%). KEEP.
+- **Governing-prose hand path** (`governing_sentences`, `sections`) — the learned reader nearly matches on
+  MDN (cleaner, ~75% recall) but (i) misses ~1/4 of sentences and (ii) **cannot read W3Schools at all**
+  (div-chrome welds). Delegating the module workflow's PROPOSE material to `read_page` would change which
+  constructs graduate → risks regressing the proven 54/22/8 sets, which the mandate forbids ("retrain to the
+  SAME OR BETTER"). KEEP until the reader clears both gaps.
+- **THE SINGLE BLOCKER for both W3S prose and the `==`/`var` classics is CHROME DISCOVERY BY CROSS-PAGE
+  INVARIANCE** — the north-star's own stated mechanism ("an element whose structure AND style AND content is
+  invariant across a site's pages is navigation/boilerplate, discarded"), NOT a longer hand list of chrome
+  element names (which the covenant forbids adding). This is a real reader rung: learn per-site which element
+  INSTANCES repeat invariantly across the site's pages and exclude them from reading, exactly as
+  `learn_structure_roles` learns register roles by exposure. NAMED and designed here; not landed (landing it
+  is a segmentation change → retrain + full junk-floor-zero re-verification, its own rung).
+
+**INVARIANCE PROTOTYPE — measured, the fix VALIDATED (no shipped change).** The harness also proves the named
+mechanism would work. For each site, every tag-separated text RUN is counted by how many distinct pages it
+appears on; weighting by ENCOUNTER mass (run length × pages-seen-on), the fraction of a page's text that is
+site-invariant (recurs on ≥8 pages of the same site — chrome by the north-star definition, learned from data,
+zero element names) is: **W3Schools 70.1%**, MDN API 23.8%, MDN reference 19.8%. The 70% W3S figure is exactly
+the menu/breadcrumb/footer mass the reader currently welds (it maps onto the 26.8% code-shaped-weld once the
+non-code chrome words are counted too), and the ~20% MDN figure is the reference furniture the hand path's
+`NON_GOVERNING_ANCHORS` filter removes today. An exact-text-run detector at ≥8 pages already separates the two
+cleanly, so the next rung has a working signal to build the learned chrome filter on — no new heuristic, just
+the invariance the north-star already specifies.
+
+### Item 3 (the architecture mandate) — status after the docs-v84 pass (2026-07-12)
 
 > Honest scoping record. Item 3 (a–e) is a large multi-rung architectural mandate; this pass completed a
 > down-payment on 3b and did not attempt 3a/3c/3d/3e, which each are their own rung. Recorded so the next
 > agent starts from the measured state, not a re-derivation.
-- **3b (fix the learned reader; burn the hand anatomy)** — DOWN-PAYMENT LANDED: the `sections` earliest-heading
-  fix above is a concrete reader-correctness repair (heading segmentation), the exact "garbled output" class
-  3b targets. The referee-agreement measurement across the whole corpus and the hand-anatomy deletion are NOT
-  done.
+- **3b (fix the learned reader; burn the hand anatomy)** — STEP 2 (referee grading) LANDED as a MEASUREMENT
+  (subsection above): per-source agreement numbers measured across the whole cache; the honest verdict is
+  BURN-NOT-SAFE with the blocker located (cross-page-invariance chrome discovery). The earlier `sections`
+  earliest-heading fix (docs-v83) remains the step-1 down-payment. Step 3 (deletion) is correctly BLOCKED by
+  the measurement; step 1 (finish fixing the reader — invariance chrome) and step 4 (classics) are NOT done.
 - **3a (curriculum txt → markdown reading rung), 3c (judgment LEARNS — contradiction-driven reshape), 3d
   (fixpoint + COMPLETE), 3e (cleanup / one-architecture consolidation)** — NOT attempted this pass. Each is a
   full rung; attempting them superficially would violate the honesty covenant. The graduated ledger today is
