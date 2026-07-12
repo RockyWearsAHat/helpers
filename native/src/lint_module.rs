@@ -789,6 +789,25 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)
     if pages.is_empty() {
         return Vec::new();
     }
+    // OFFLINE-ROBUSTNESS FALLBACK (LINTER.md → "the recommended unlock"). The frozen loop's evidence is
+    // the harvested code corpus. On a machine whose read `Memory` is sparse — a legacy no-memory catalog,
+    // or a source that could not refresh with bindings — that corpus is empty and NOTHING graduates even
+    // though the crawl cache holds the very example code the harness graduates from. When the memory-borne
+    // corpus is too thin to reach the rep floor, reconstruct it from the raw pages' OWN `<pre><code>`
+    // interiors (exactly `examples/web_module_train`'s reconstruction, now the shipped path), so the flip
+    // engages from a valid crawl cache alone. A rich read `Memory` (css here) is left untouched — the
+    // fallback only supplies the corpus the machine is missing, never overrides real bindings.
+    let enriched;
+    let memory = if harvest_corpus(memory).len() < REQUIRED_REPS {
+        let mut m = memory.clone();
+        for block in crate::lint_lang_layer::page_code_corpus(&pages, lang, MAX_HARVEST_BLOCKS) {
+            m.reference.push(block);
+        }
+        enriched = m;
+        &enriched
+    } else {
+        memory
+    };
     graduate(lang, &pages, memory, br.meanings(), en)
         .into_iter()
         .filter_map(|o| o.rule)
