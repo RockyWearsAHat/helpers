@@ -52,6 +52,10 @@ pub mod kind {
     /// A documentation source's crawl page cache: RAW pages exactly as served (LINTER.md,
     /// "Pages are cached RAW") — url/body/freshness anchors, DATA-stream deflated.
     pub const CRAWL: u8 = 10;
+    /// The per-language GRADUATED-rule ledger ([`crate::lint_train`]): the construct rules PROVEN in
+    /// past retrains, kept retain-and-grow so a crawl-subset never silently drops a proven rule (owner
+    /// correction 2026-07-12, point 4). A `Vec<DocRule>` keyed by the byte-preserved construct id.
+    pub const GRADUATED: u8 = 12;
 }
 
 /// Hard ceiling on a declared inflated DATA stream (defense in depth at load — a crafted

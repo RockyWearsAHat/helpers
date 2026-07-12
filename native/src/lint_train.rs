@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v78-offline-graduation-corpus-fallback";
+pub(crate) const TRAIN_VERSION: &str = "docs-v79-blind-agreement-graduation";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -188,12 +188,13 @@ impl LearnedCatalog {
                 // html 8 flip to the proven set; typescript 1, rust 0 keep the miner. Behavioral scope,
                 // no language named. The workflow's per-language measurement is `examples/web_module_train.rs`.
                 let graduated = crate::lint_module::graduated_rules(lang, memory);
-                let source_rules = if graduated.len() >= GRADUATED_MODULE_FLOOR {
+                let flip = graduated.len() >= GRADUATED_MODULE_FLOOR;
+                let source_rules = if flip {
                     graduated
                 } else {
                     crate::lint_docs::rules_from_memory(lang, memory)
                 };
-                let rules = source_rules
+                let mut rules: Vec<DocRule> = source_rules
                     .into_iter()
                     .map(|(r, url)| DocRule {
                         id: r.id,
@@ -206,6 +207,13 @@ impl LearnedCatalog {
                         construct: r.construct,
                     })
                     .collect();
+                // PROVEN-STATE PERSISTENCE (owner correction 2026-07-12, point 4): a flip language's module
+                // RETAINS every construct rule proven in a past retrain, so a crawl-subset that under-covers
+                // a construct never silently drops it below the floor. The write side ([`persist_graduated_ledger`])
+                // runs after the module is built.
+                if flip {
+                    rules = merge_graduated(rules, load_graduated_ledger(lang));
+                }
                 (rules, memory.reference.clone())
             }
             None => (self.rules.clone(), self.reference.clone()),
@@ -798,6 +806,10 @@ fn train_language(
                 rules,
             };
             save_module(lang, &m);
+            // Persist the graduated construct rules this module was built from, so the next retrain
+            // retains them (owner point 4). `doc_rules` already merged in any prior ledger, so this
+            // grows the ledger monotonically; a non-flip language (no construct rules) leaves it untouched.
+            persist_graduated_ledger(lang, &doc_rules);
             report.trained.push(format!("{lang} ({} rules, from {learned_from})", m.rules.rule_count()));
             freshly_trained = true;
             module = Some(m);
@@ -1064,6 +1076,59 @@ fn load_module(lang: &str) -> Option<Module> {
 fn save_module(lang: &str, module: &Module) {
     save_bin(&module_path(lang), crate::lint_codec::kind::MODULE, &module.probe_stamp(), module);
     fold_extension_claims(lang, &module.extensions);
+}
+
+/// The per-language GRADUATED-rule ledger path (`<lang>.graduated.bin`, beside the module). A SEPARATE
+/// sidecar so it survives the module rebuild every retrain does — the store of PROVEN construct rules
+/// kept retain-and-grow (owner correction 2026-07-12, point 4).
+fn graduated_ledger_path(lang: &str) -> PathBuf {
+    model_dir().join(format!("{lang}.graduated.bin"))
+}
+
+/// The construct rules PROVEN in past retrains for `lang`, or empty when none is persisted. The ledger
+/// is stamped with the [`TRAIN_VERSION`] it was written under and DISCARDED on a mismatch: a ledger from
+/// a different version may carry rule ids/semantics this version changed (e.g. the pre-2026-07-12 slugged
+/// `uses--` collision), so persistence is retain-and-grow WITHIN a `TRAIN_VERSION`, reset on a semantic
+/// bump. Never trains; a pure read.
+fn load_graduated_ledger(lang: &str) -> Vec<DocRule> {
+    let Ok(bytes) = std::fs::read(graduated_ledger_path(lang)) else {
+        return Vec::new();
+    };
+    let Some((stamp, mut d)) = crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::GRADUATED) else {
+        return Vec::new();
+    };
+    if stamp != TRAIN_VERSION {
+        return Vec::new();
+    }
+    Vec::<DocRule>::dec(&mut d).unwrap_or_default()
+}
+
+/// RETAIN-AND-GROW merge of freshly-graduated construct rules with the persisted ledger (owner point 4):
+/// every construct proven THIS crawl is kept (fresh wins on the same construct id — a reshape), and every
+/// construct proven in a PAST retrain that this crawl did not re-prove is RETAINED, so a crawl-subset that
+/// under-covers a construct never silently drops a rule proven before (MEASURED motivation: eqeqeq
+/// graduated on one crawl, fell below the floor on the next). Keyed by the byte-preserved construct id
+/// (point 1). Only a genuine contradiction should reshape a prior rule; that reshape is the remaining step
+/// — today the merge never DROPS a proven rule (retain-and-grow, never re-earned from scratch).
+fn merge_graduated(mut fresh: Vec<DocRule>, prior: Vec<DocRule>) -> Vec<DocRule> {
+    let have: std::collections::HashSet<String> = fresh.iter().map(|r| r.id.clone()).collect();
+    for p in prior {
+        if !have.contains(&p.id) {
+            fresh.push(p);
+        }
+    }
+    fresh
+}
+
+/// Persist the graduated construct rules a fresh module was built from, so the next retrain retains them
+/// (owner point 4). Only the construct-carrying (graduated) rules are stored, and ONLY when there are any:
+/// a language whose module did NOT engage the flip (legacy miner rules, `construct == None`) must never
+/// overwrite an existing ledger with emptiness. Stamped with the current [`TRAIN_VERSION`].
+fn persist_graduated_ledger(lang: &str, rules: &[DocRule]) {
+    let graduated: Vec<DocRule> = rules.iter().filter(|r| r.construct.is_some()).cloned().collect();
+    if !graduated.is_empty() {
+        save_bin(&graduated_ledger_path(lang), crate::lint_codec::kind::GRADUATED, TRAIN_VERSION, &graduated);
+    }
 }
 
 // ── File types are learned by reading (LINTER.md) ─────────────────────────────────────────
