@@ -760,32 +760,112 @@ is fast (CSS/HTML 0.1–0.2 s). The docs'-own-bad/good firing verification (`con
 (ambient `declare var`, `x == null`) via the primary-correct test. `var` graduates end to end from the
 structural reading — the pipeline is capable.
 
-**The TWO measured walls that remain (both honest, neither faked).**
-1. **JS over-proposal on CONTEXTUAL rules.** ESLint has ~300 rules; many prohibit a *pattern in a context*
-   (no-setter-return, no-extra-boolean-cast, no-unreachable-loop), not a construct's bare use. Their prose
-   backticks an incidental keyword (`if`, `return`, `break`) and their primary correct example omits it,
-   so the keyword passes both `constructs_named` and `confirmed_by_examples` and then graduates — a JUNK
-   `uses_construct(if)` rule that flags ordinary code. Bare-use prohibitions (`var`/`with`/`eval`/`==`)
-   are a SUBSET the current propose cannot separate from contextual ones; the missing discriminator is
-   "the construct is the OBJECT of the prohibition," which the low-recall `sentence_states_prohibition`/
-   `understand` path abstains on for clean ESLint phrasings ("This rule disallows `with` statements") —
-   measured. `==`/`eval`/`with` did not graduate this run (advice/foil/confirm interplay), a real gap.
-2. **Deprecated-construct harvest SCARCITY (CSS/HTML).** CSS/HTML propose the RIGHT deprecated constructs
-   cleanly (deprecation is a per-construct structural signal, no junk), but a deprecated construct is by
-   definition RARE in an idiomatic reference corpus, so it fires on far fewer than `REQUIRED_REPS` (10)
-   harvested blocks → `TooFewReps` → nothing graduates. The self-generated loop's rep floor cannot be met
-   by HARVEST for deprecations; the north-star's answer is SELF-GENERATED violating code (the AI writes
-   `<marquee>…`), or a distinct graduation path where the deprecation NOTECARD is itself the authoritative
-   proof (a stated fact, not a predicted understanding) — an owner ruling, not built here.
+**The TWO measured walls — both CLOSED 2026-07-11 (the two fixes below).**
+
+**Wall 0 (the upstream defect both walls stood on): mangled example extraction.** The paired bad/good
+example blocks were extracted from `code_to_backtick(body)` and via `extract_code_blocks` (which grabs the
+`<pre>` block too). Both corrupt the code: the outer `<code>` became a single `` `…` `` pair, so the whole
+example parsed as ONE JS template literal (the construct node vanished → `uses_construct` fired on NOTHING,
+even its own bad example), and Prism's line-number gutter (`<span class="line-numbers-rows">`, INSIDE the
+`<pre>` but AFTER `</code>`) welded `123456` onto the block. Fix (`lint_lang_layer::examples_of_class` →
+`code_interiors`): extract examples from the RAW body, pulling only each `<code>…</code>` INTERIOR
+(`strip_code`, newlines preserved). The gutter sits outside `<code>` and is excluded; no backtick wrap. Now
+`uses_construct(==)` fires on eqeqeq's own incorrect examples and stays clean on its `===` correct — the
+docs'-own-example verification the whole gate depends on actually works.
+
+**Fix 1 — the SUBJECT-of-prohibition gate (kills the CONTEXTUAL-rule junk).** The measured surprise:
+`var`(2/2 incorrect, 1/2 correct) and junk `if`(2/2, 1/2) are NUMERICALLY IDENTICAL on the example counts,
+so NO count-based gate separates them. The genuine subject is what the page is ABOUT, and a doc page NAMES
+its subject in its own URL. `is_prohibited_subject` (replacing `confirmed_by_examples`) confirms a keyword
+and an operator differently, because only one can live in a URL:
+- **Keyword / identifier / property / element** — the page's URL rule-name PAYLOAD (last path segment minus
+  a leading `no-`) EQUALS the construct: `no-var`→`var`, `no-eval`→`eval`, `no-console`→`console`,
+  `/CSS/…/box-orient`, `/HTML/…/Element/marquee`. EQUALITY, not containment: `no-delete-var`→`delete-var`≠
+  `delete` and `no-async-promise-executor`→`async-promise-executor`≠`async` are PATTERN names, so their
+  incidental keyword abstains. It must ALSO fire on every incorrect example (a rule-name that is not a real
+  firing token — `max-statements`, `vars-on-top` — is rejected); a deprecated REFERENCE page has no
+  examples, so the URL name + deprecation notecard is the proof. The example FIRING is deliberately NOT
+  required to be clean-on-correct here — that would wrongly reject `eval`, whose own `allowIndirect`
+  "correct" example reuses `eval`; the URL is the confirmation.
+- **Multi-character OPERATOR** (`==`) — a symbol a URL cannot spell, so it is confirmed by the docs' OWN
+  before/after pair: the page must carry correct examples (`no-self-compare` ships NONE, so its incidental
+  `===` abstains), the operator fires on EVERY incorrect, and NOT on the PRIMARY correct (later correct
+  blocks are option exceptions like eqeqeq `smart` `x == null`, so PRIMARY not ALL).
+
+And **at most ONE construct graduates per page** (a rule page prohibits one subject) — among the passers,
+`propose` keeps the one present the most TIMES across the incorrect examples, then longest. This is a
+per-SOURCE structural URL read, INTERIM exactly like the `/rules/`|`/reference/` page-kind keying.
+
+Two more corrections this exposed: (i) for a deprecated REFERENCE page the construct is now read from the
+page's own URL last segment (`/Element/marquee`→`marquee`), not the definition prose — MDN's deprecation
+banner's first backticked token is often a SIBLING (`css`/`color`/`src`), which had mis-keyed HTML. (ii) The
+frozen `prove` runs against a book of JUST THE CANDIDATE's own rule, not a shared all-candidates book: a
+shared book cross-contaminated (a `var` sample containing `===`/`??`/`-0` fired a sibling rule whose advice
+contradicted the `var` understanding → a spurious `Mismatch` that wrongly blocked `==`/`eval`).
+
+**Fix 2 — SELF-GENERATED violations (closes harvest SCARCITY for deprecated/rare constructs).** LINTER.md's
+self-test loop step 2 says GENERATE the violating code; harvest-only was a prior conservatism. A construct
+the idiomatic corpus rarely contains (every CSS/HTML deprecation, JS `with`) cannot reach `REQUIRED_REPS`
+by harvest. `lint_module::generate_violations(lang, construct, seeds, corpus)` tops the harvest up, DATA-
+driven and language-GENERAL — no per-language template, no hand-written fixture, the frozen `run_plan` the
+only referee:
+- **Carriers** = the shortest snippets that genuinely FIRE `uses_construct(C)`. Seeds are the page's own
+  incorrect examples (already firing, real language shape). When a page has none (every deprecated
+  REFERENCE page), carriers are SYNTHESIZED by splicing the construct into the language's own corpus blocks:
+  for each real corpus block, replace one whole identifier token (a property-name slot `display`→`box-orient`
+  in a real `a { display:flex }` rule; a tag-name slot `p`→`marquee` in a real `<p>…`) and KEEP the variant
+  iff `run_plan` fires on it. The corpus supplies the language shape; the token swap is a generic string op;
+  the frozen linter decides which splices are valid. No Rust authors a snippet.
+- **Variation** = each carrier spliced into VARIED real corpus contexts (`ctx + carrier`, `carrier + ctx`),
+  kept iff still firing and distinct — distinct real contexts are the independence axis, exactly as harvest's
+  distinct blocks were.
+- **Clean near-misses** unchanged: corpus blocks where `uses_construct(C)` does NOT fire (the remedy form,
+  the construct absent) ∪ the page's correct examples.
+
+The generated samples enter the SAME frozen `prove` as harvested ones (fire behaviorally, reconcile the
+fixed advice/foil in English); generation only supplies the rep COUNT the corpus lacks. Harvested reps stay
+primary; generation is the top-up when `violating.len() < REQUIRED_REPS`.
+
+**Wall 0.5 — the CSS/HTML tree-sitter grammars were ABSENT (environmental).** `run_plan` fired NOTHING for
+css/html — `lint_match::language("css")`/`("html")` returned `None`: the grammars were marked `.absent`
+because the installed `tree-sitter` CLI is too old to have the `build` subcommand (only `build-wasm`), so
+`acquire_grammar`'s auto-build always failed. Compiled by hand once (`cc -shared -fPIC` over the npm
+package's `src/parser.c`+`src/scanner.c` → `~/.cache/helpers/grammars/tree-sitter-{css,html}.dylib`); the
+resolver's on-disk scan now loads them and `uses_construct(box-orient)`/`(marquee)` fire. The whole css/html
+path was dead until this — no amount of self-generation could reach the rep floor without a grammar to fire.
 
 `document.write` is a confirmed CRAWL-COVERAGE GAP: the cached crawl holds no Web-API page
 (`/API/Document/write`) and ESLint ships no core `no-document-write` rule, so no page keys the construct —
-reported with evidence, never faked.
+reported with evidence, never faked. It is the one wanted JS construct that does not graduate.
 
-**Seam decision: HELD (unchanged).** Nothing graduates CLEANLY on any of the three languages (JS admits
-junk; CSS/HTML graduate nothing), so `doc_rules` stays on `rules_from_memory` — the flip condition
-("measured clean") is not met, and holding means ZERO regression. `graduated_rules` is wired end to end
-over the new structural reading and ready to flip the instant the two walls above close.
+**MEASURED after all fixes (2026-07-11, shared crawl 3054 pages, `examples/web_module_train.rs`, grammars compiled):**
+
+| lang | candidates | PROVEN | wanted-graduated | junk | train | acceptance |
+|------|-----------|--------|------------------|------|-------|-----------|
+| javascript | 19 | 9 | `var` `==` `eval` `with` (all 4 reachable) | 5 (`console` `new` `undefined` `void` `??`) | ~37 s | bad file flags var/==/eval/with; **good file CLEAN (zero)** |
+| css | 20 | 11 | `page-break-after` `text-decoration-skip` | 0 | 3.5 s | bad flags 2/3; good CLEAN; `box-orient` misses (5 harvest + no 2nd advice sentence) |
+| html | 7 | 2 (`acronym`,`prerender`) | none of the wanted | 0 | 1.4 s | bad file flags NOTHING |
+
+- **JS: the four reachable classics graduate and the good file is CLEAN** — the starting-state regression
+  (`if` graduated and flagged the clean file) is GONE. The 5 residual are ESLint rules whose name IS their
+  construct: `console`/`undefined`/`void` are genuine bare-use bans (defensible), `new`(no-new)/`??`
+  (no-constant-binary) are contextual over-inclusions; NONE fires on the good file, so the safety property
+  holds, but "zero junk" is not strictly met. Training is ~37 s (harvest over 3325 bindings dominates —
+  generation is NOT the cost), OVER the seconds budget.
+- **CSS is clean**: 11 genuinely-deprecated properties/selectors/at-rules graduate, ZERO junk, good file
+  clean, and self-generation is what got them there (deprecated constructs are absent from idiomatic corpus).
+- **HTML is the remaining wall**: MDN's deprecation prose is NEAR-IDENTICAL across pages ("The `<X>` HTML
+  element … Deprecated: This feature is no longer recommended"), so the understanding/advice/foil are
+  indistinguishable and the frozen English comparator returns `Contradicted`/undecidable — `marquee`/`font`/
+  `frameset` fire 12–20× but cannot pass the self-test. This is exactly the case LINTER.md flagged for a
+  distinct graduation path where the deprecation NOTECARD is the authoritative proof (a stated fact, not a
+  predicted understanding) — an owner ruling, still not built.
+
+**Seam decision: HELD.** CSS graduates cleanly, but JS carries residual junk (5) and is over the seconds
+budget, and HTML graduates none of its wanted deprecated elements — so the "measured clean on all three"
+flip condition is not met. `doc_rules` stays on `rules_from_memory` (zero regression). `graduated_rules` is
+wired end to end over the fixed reading + gate + generation and flips the instant JS junk and the HTML
+identical-prose wall close.
 
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
