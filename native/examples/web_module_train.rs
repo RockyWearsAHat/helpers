@@ -177,14 +177,17 @@ fn main() {
                 Some(mem) => (mem, pages.clone()),
                 None => {
                     let mem = reconstruct_memory(lang, &pages);
-                    let subset: Vec<(String, String)> =
-                        pages.iter().filter(|(u, _)| url_lang(u) == Some(lang)).cloned().collect();
+                    // WHOLE-SITE corpus (owner directive 2026-07-12): every page is proposed to every
+                    // language and the GRAMMAR-verification partition inside `graduate` decides — a
+                    // `/Web/API/Document/write` page (URL-attributed to nothing) joins the JS partition
+                    // because its subject fires under the JS grammar. The old `url_lang` subset dropped
+                    // exactly those cross-section pages, under-measuring the live `site_corpus` path.
                     println!(
-                        "== {lang}: reconstructed harvest memory ({} ref blocks, {} partition pages)",
+                        "== {lang}: reconstructed harvest memory ({} ref blocks, {} whole-site pages)",
                         mem.reference.len(),
-                        subset.len()
+                        pages.len()
                     );
-                    (mem, subset)
+                    (mem, pages.clone())
                 }
             };
         let t = Instant::now();

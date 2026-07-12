@@ -115,6 +115,59 @@ fn member_page_shapes(url: &str) -> Vec<String> {
     }
 }
 
+/// The QUALIFIED-RECEIVER shapes a deprecated page proposes for its subject, read from the page's OWN
+/// example code — for a page WITHOUT the `/reference/` marker whose subject is a member call
+/// (`/Web/API/Document/write`: subject `write`, owner segment `Document`). A bare `write` over-fires on
+/// every `write`, and the receiver-generic `.write` over-fires on every `.write()`; the clean construct is
+/// the qualified `document.write`. We get it covenant-cleanly by linking the URL's OWNER path segment to
+/// the example's ACTUAL receiver: an `IDENT.subject` member access whose `IDENT` equals the owner segment
+/// case-insensitively (`document` for interface `Document`) yields the actual-case `document.write`. DATA
+/// read from the example, owner-to-receiver by identity — no language named, no case convention hardcoded.
+fn example_receiver_shapes(url: &str, example_code: &[String]) -> Vec<String> {
+    let path = url.split("://").nth(1).unwrap_or(url).trim_end_matches('/');
+    let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if segs.len() < 2 {
+        return Vec::new();
+    }
+    let (owner, subject) = (segs[segs.len() - 2], segs[segs.len() - 1]);
+    if owner.is_empty() || subject.is_empty() {
+        return Vec::new();
+    }
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    let mut out: Vec<String> = Vec::new();
+    for blk in example_code {
+        let bytes = blk.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() {
+            // Start of an identifier run (not preceded by an ident char).
+            if is_ident(bytes[i] as char) && (i == 0 || !is_ident(bytes[i - 1] as char)) {
+                let start = i;
+                while i < bytes.len() && is_ident(bytes[i] as char) {
+                    i += 1;
+                }
+                // `IDENT.subject` with IDENT == owner (ci) and subject a whole terminal property.
+                let recv = &blk[start..i];
+                if recv.eq_ignore_ascii_case(owner)
+                    && blk[i..].starts_with('.')
+                    && blk[i + 1..].starts_with(subject)
+                {
+                    let after = i + 1 + subject.len();
+                    let bounded = blk[after..].chars().next().map(|c| !is_ident(c)).unwrap_or(true);
+                    if bounded {
+                        let shape = format!("{recv}.{subject}");
+                        if !out.contains(&shape) {
+                            out.push(shape);
+                        }
+                    }
+                }
+                continue;
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
 /// Whether the url is a per-construct REFERENCE page — its path names a documentation reference section
 /// (`/reference/`). A per-SOURCE structural marker (MDN publishes its reference under `…/Reference/…`),
 /// INTERIM; it names no language.
@@ -264,6 +317,27 @@ fn examples_of_class(body: &str, class: &str) -> Vec<String> {
     out
 }
 
+/// The JavaScript interior of a code block that IS a single `<script>…</script>` element — the one way
+/// an HTML page embeds JS (MDN demonstrates `document.write` as `<script>document.write(…)</script>`).
+/// `None` when the block is not a lone script element (ordinary code, or HTML with other content), so an
+/// HTML example is never stripped of its markup. Structural: keys on the `<script>` element, names no
+/// language. The interior arrives already entity-decoded (`strip_code`), so `<script>` is a real tag here.
+fn script_interior(code: &str) -> Option<String> {
+    let t = code.trim();
+    if !starts_with_ci(t, "<script") || !t.to_ascii_lowercase().ends_with("</script>") {
+        return None;
+    }
+    let open_end = t.find('>')?;
+    let inner = &t[open_end + 1..t.len() - "</script>".len()];
+    // Only a NON-EMPTY interior is JS to surface (a `<script src=…></script>` reference has none, and
+    // there must be no nested `<script>` — a lone element only).
+    let inner = inner.trim();
+    if inner.is_empty() || find_ci(inner, "<script").is_some() {
+        return None;
+    }
+    Some(inner.to_string())
+}
+
 /// The `strip_code`-decoded INTERIOR of every `<pre>…<code>…</code>…</pre>` example in a markup region —
 /// the clean example code with line structure intact and highlight `<span>`s removed. Only a `<code>`
 /// INSIDE a `<pre>` is taken: that is the docs' worked example. This deliberately skips INLINE prose
@@ -285,7 +359,13 @@ fn code_interiors(html: &str) -> Vec<String> {
             if let Some(gt) = html[copen..].find('>') {
                 let inner_start = copen + gt + 1;
                 if let Some(cend) = find_ci(&html[inner_start..pre_end], "</code>") {
-                    out.push(crate::doc_crawler::strip_code(&html[inner_start..inner_start + cend]));
+                    let block = crate::doc_crawler::strip_code(&html[inner_start..inner_start + cend]);
+                    // A `<script>` ELEMENT INTERIOR is JavaScript — the one way an HTML page embeds JS.
+                    // An example that IS a lone script element (MDN's `<script>document.write(…)</script>`
+                    // demo) is surfaced as its JS interior so the JS grammar can parse+fire it; keying on
+                    // the `<script>` element is web-platform structure the reader understands, not a
+                    // language name. A non-script block passes through unchanged.
+                    out.push(script_interior(&block).unwrap_or(block));
                 }
             }
         }
@@ -386,7 +466,13 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
         correct: Vec::new(),
         example_code: Vec::new(),
     };
-    let attested_deprecated = !rule && reference && has_deprecation_notecard(body);
+    // A deprecation NOTECARD makes a page a prohibition regardless of the `/reference/` URL marker: MDN
+    // renders the same notecard on a `/Web/API/Document/write`-style API page that has no `/reference/`
+    // segment. The notecard is a STATED STRUCTURAL FACT (markup), and the grammar-verification partition
+    // ([`crate::lint_module::page_proves_in_lang`]) is the real guard against a wrong-language leak — so
+    // dropping the URL-marker requirement cannot cross the partition ∅. Reference vs non-reference only
+    // decides HOW the subject's construct SHAPE is derived below.
+    let attested_deprecated = !rule && has_deprecation_notecard(body);
     if !rule && !attested_deprecated {
         return empty;
     }
@@ -441,12 +527,25 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
         // caller keep the first that fires on this page's own example code under the language's grammar.
         // These shapes are already firing-form, so they bypass `normalize_construct` (which would strip a
         // leading `.`). The page's example code is carried for that grammar-refereed selection.
+        example_code = code_interiors(body);
+        // A `/reference/` page names its owner in the path (`…/String/substr`), so URL-derived shapes
+        // suffice. A NON-reference notecard page (`/Web/API/Document/write`) names the owner as a plain
+        // path segment whose CASE differs from the code receiver (`Document` vs `document`); its clean
+        // qualified shape is read from the page's OWN example receiver ([`example_receiver_shapes`]),
+        // prepended most-specific-first so the caller's grammar-refereed selection keeps `document.write`
+        // over the over-firing bare `write`.
+        if !reference {
+            for shape in example_receiver_shapes(url, &example_code) {
+                if !constructs.contains(&shape) {
+                    constructs.push(shape);
+                }
+            }
+        }
         for shape in member_page_shapes(url) {
             if shape.len() >= 2 && !constructs.contains(&shape) {
                 constructs.push(shape);
             }
         }
-        example_code = code_interiors(body);
     }
 
     DocPage { url: url.to_string(), prohibited, attested_deprecated, governing, constructs, incorrect, correct, example_code }
@@ -500,6 +599,54 @@ mod tests {
         assert!(page.constructs.contains(&"~~".to_string()), "the operator candidate is read: {:?}", page.constructs);
         assert!(page.incorrect.iter().any(|b| b.contains("~~")), "the page's own bad example is captured");
         assert!(page.correct.iter().any(|b| b.contains("~~~")), "the page's own good example is captured");
+    }
+
+    #[test]
+    fn script_interior_unwraps_a_lone_script_element_only() {
+        assert_eq!(script_interior("<script>obj.qux(1);</script>").as_deref(), Some("obj.qux(1);"));
+        assert_eq!(script_interior("  <SCRIPT>\n obj.qux(1);\n</SCRIPT>  ").as_deref(), Some("obj.qux(1);"));
+        assert_eq!(script_interior("obj.qux(1);"), None, "ordinary code is not a script element");
+        assert_eq!(script_interior("<script src=\"x.js\"></script>"), None, "empty interior is not JS to surface");
+        assert_eq!(
+            script_interior("<p>hi</p><script>obj.qux(1)</script>"),
+            None,
+            "HTML with other content is left whole"
+        );
+    }
+
+    #[test]
+    fn example_receiver_shapes_reads_the_qualified_receiver_from_the_example() {
+        // A non-reference page: subject `qux`, owner segment `Obj`; the example's actual receiver is `obj`.
+        let url = "https://example.org/en-US/docs/Web/API/Obj/qux";
+        let ex = vec!["obj.qux(1);\nfoo.bar();".to_string()];
+        assert_eq!(example_receiver_shapes(url, &ex), vec!["obj.qux".to_string()], "owner-linked, actual case");
+        // A DIFFERENT receiver (a local var) is NOT the owner, so no qualified shape is minted.
+        let ex2 = vec!["thing.qux(1);".to_string()];
+        assert!(example_receiver_shapes(url, &ex2).is_empty(), "a non-owner receiver mints no shape");
+    }
+
+    #[test]
+    fn a_non_reference_notecard_page_prohibits_its_qualified_subject() {
+        let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else {
+            eprintln!("skip: no frozen brains on disk");
+            return;
+        };
+        let bridge = Bridge::new(br.meanings(), en);
+        // A NON-`/reference/` API page carrying a deprecation notecard, whose lone-script example shows the
+        // subject called on its owner receiver — the `document.write` shape, opaque here (`obj.qux`).
+        let url = "https://example.org/en-US/docs/Web/API/Obj/qux";
+        let body = r#"<html><body><h1>Obj: qux() method</h1>
+            <div class="notecard deprecated"><p>Deprecated: no longer recommended.</p></div>
+            <pre class="brush: html"><code>&lt;script&gt;obj.qux("x");&lt;/script&gt;</code></pre>
+            </body></html>"#;
+        let page = read_doc_page(url, body, en, &bridge);
+        assert!(page.prohibited && page.attested_deprecated, "a notecard page is a prohibition without /reference/");
+        assert!(page.constructs.contains(&"obj.qux".to_string()), "qualified shape proposed: {:?}", page.constructs);
+        assert!(
+            page.example_code.iter().any(|b| b.contains("obj.qux") && !b.contains("<script")),
+            "the script interior is surfaced as JS example code: {:?}",
+            page.example_code
+        );
     }
 
     #[test]

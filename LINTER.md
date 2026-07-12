@@ -194,14 +194,11 @@ Point 2 read-pass precondition LANDED as a structural gate. Point 5 recorded as 
 languages' own MDN + W3Schools doc sources), grammar-verification partition (zero cross-language leak,
 proven), ESLint removed + ledger purged. COVERAGE FRONTIER (honest): the whole-domain MDN root crawl (and a
 `kind:"site"` registration to drive it) is deferred on budget — the cache holds the JS/CSS/HTML reference
-sections + a 147-page `/Web/API/Document/` slice; coverage grows as the cache grows. `document.write` is the
-named residual:
-its page is now cached and read, but (a) its deprecation is gated out by the `/reference/` page-kind marker
-(its URL is `/Web/API/Document/write`, no `/reference/`), and (b) its URL-last-segment subject is the bare
-`write` (receiver-less), which would over-fire on every `.write()`. Delivering it cleanly needs notecard-keyed
-page-kind (not `/reference/` URL) AND qualified-member construct extraction (`document.write`, not `write`) —
-NAMED, not landed, so no junk `uses-write` ships. This is the same receiver-less-construct limit that keeps the
-JS method-name deprecations (`arguments`/`link`/`input`/`sub`) coarse; see the delta report.
+sections + a 147-page `/Web/API/Document/` slice; coverage grows as the cache grows. `document.write` was the
+named residual — now DELIVERED in docs-v84 (see "Script-interior reading + notecard page-role"): the
+notecard-keyed page role (no `/reference/` requirement) + example-derived qualified receiver + `<script>`-interior
+unwrap graduate `document.write` (and the whole deprecated Document API surface) cleanly, junk floor zero,
+partition ∅ intact.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
@@ -1533,6 +1530,80 @@ heuristic to hold the junk floor at zero (the measured junk class above), which 
 
 **Tests (retain-and-grow):** `cargo test --lib` 216 green (adds the earliest-heading test); gauntlets
 `ai_linter_behaviors` 21, `understanding_defects` 7, `memory_invariants` 3 — all green.
+
+### Script-interior reading + notecard page-role — the `document.write` unlock + the deprecated-API surface (2026-07-12, docs-v84)
+
+> Owner Item 2 completion pass. Closes the measured `document.write` LIVE block (docs-v83, "NOT SHIPPED"):
+> `<script>` element interiors ARE JavaScript, so an HTML page's `<script>document.write(…)</script>` demo is
+> surfaced as JS example code and fires under the JS grammar. Landing it structurally also generalized the
+> deprecation page-role off the `/reference/` URL marker onto MDN's own deprecation NOTECARD, which graduated
+> the whole deprecated Document API surface. The prose-command classics (`eval`/`==`/`var`) stay ABSTAINED —
+> measured again against the grown cache, each for a distinct content/reader reason (below). Frozen substrate
+> (dictionary, comparator, engine, self-test judging) UNTOUCHED. `TRAIN_VERSION` →
+> `docs-v84-script-interior-notecard-role` (JS verdicts gain the Document-API deprecations → retrain, ledger reset).
+
+**LANDED — three coordinated covenant-clean reads in [`crate::lint_lang_layer`], grammar-refereed downstream.**
+1. **`<script>`-interior unwrap ([`script_interior`], in `code_interiors`).** A `<pre><code>` example that IS a
+   lone `<script>…</script>` element is surfaced as its JS interior — the one way an HTML page embeds JS,
+   web-platform structure the reader already understands (keys on the `<script>` element; names no language).
+   A mixed HTML+script block or an empty `<script src>` is left whole. MDN's `document.write` demo
+   `<pre class="brush: html"><code>&lt;script&gt;document.write("…")&lt;/script&gt;</code></pre>` becomes clean
+   JS `document.write("…")` that `parses_cleanly`+fires; the primary-example clean-parse partition gate is
+   UNCHANGED (the leak-killer stays), so `js∩css=js∩html=css∩html=∅` still holds (MEASURED, below).
+2. **Notecard page-role WITHOUT `/reference/` ([`read_doc_page`]).** `attested_deprecated = !rule &&
+   has_deprecation_notecard(body)` — the deprecation NOTECARD (a STATED structural markup fact) makes a page a
+   prohibition regardless of the `/reference/` URL marker, because MDN renders the identical notecard on a
+   `/Web/API/Document/write`-style API page that has no `/reference/` segment. The grammar-verification
+   partition (`page_proves_in_lang`) is the real language guard, so dropping the URL requirement cannot cross
+   the partition ∅ — an API page's JS example never fires+clean-parses under the CSS/HTML grammar.
+3. **Example-derived qualified receiver ([`example_receiver_shapes`]).** A non-`/reference/` API page names its
+   OWNER as a plain path segment whose CASE differs from the code receiver (`Document` vs `document`); a bare
+   `write` over-fires on every `write` and receiver-generic `.write` on every `.write()`. The clean construct
+   `document.write` is read from the page's OWN example: an `IDENT.subject(` member access whose `IDENT` equals
+   the owner segment case-insensitively yields the actual-case `document.write`. DATA from the example, owner
+   linked to receiver by identity — no case convention hardcoded, no language named. Prepended most-specific so
+   the existing shape-selection (`propose`) keeps `document.write` over bare `write`; `url_payload_equals` already
+   admits the qualified shape by its terminal segment (docs-v82).
+
+**MEASURED (harness `web_module_train`, real whole-site cache — the harness now passes the WHOLE corpus to
+`graduate`, matching the live `site_corpus` path; the old `url_lang` subset had dropped the cross-section
+`/Web/API/` pages and under-measured).** JS 30 → **54 PROVEN**: the two named siblings `document.write` +
+`document.writeln` PLUS 22 more genuinely-deprecated Document members (`document.execCommand`, `document.bgColor`,
+`document.fgColor`, `document.domain`, `document.fullscreen`, `document.createEvent`, `document.queryCommand*`,
+`document.*StyleSheetSet*`, …) — each backed by MDN's own `notecard deprecated` (VERIFIED on spot-checks:
+`document.fullscreen`/`browsingTopics`/`requestStorageAccessFor` all carry the notecard; the non-deprecated
+`:fullscreen` CSS selector page correctly carries none and is not caught). CSS 22 and HTML 8 UNCHANGED. Partition
+**∅ pairwise** (js∩css = js∩html = css∩html = ∅). **Junk floor ZERO:** a realistic modern JS file
+(`document.querySelector`/`getElementById`/`createElement`/`addEventListener`/`querySelectorAll`/`title`/`cookie`/
+`location`, `const`/`let`/`===`, arrow fns) flags **0** — every new rule is a QUALIFIED `document.X` that fires only
+on that exact deprecated member; the landmine deprecated file flags `document.write`/`document.execCommand`/
+`document.bgColor`/`with` on the correct lines (all CORRECT — those ARE deprecated).
+
+**COVERAGE CRAWL (Item-2 blocker 1) — W3Schools `/js/` section pulled (was 0 pages).** Before: W3S css 189, js **0**,
+html 282; MDN 3269. After a polite breadth-first map of `https://www.w3schools.com/js/` (188 pages incl.
+`js_best_practices`/`js_mistakes`/`js_comparisons`): W3S js **188**. Total corpus 15990 → 16178 deduped pages. The
+new pages contribute NOTHING to the current mechanism (W3S pages are neither `/reference/` nor `/rules/` nor
+notecard-bearing, so `read_doc_page` proposes nothing from them) — recorded honestly; the pages sit in the cache
+as the frontier for a future clean W3S-prose reader.
+
+**PROSE-COMMAND CLASSICS (`eval`/`==`/`var`) — STILL ABSTAINED, re-measured against the grown cache.** The
+prose-command PROPOSE route stays NOT SHIPPED (junk floor). Per-classic measured reason:
+- **`eval`** — the MDN command IS in a structural WARNING register (`notecard warning` present AND an `<h3
+  id="never_use_direct_eval!">Never use direct eval()!</h3>` heading), so discriminator (c) is satisfiable. But
+  there is still NO clean SECOND same-polarity prohibition sentence naming `eval` as its subject anywhere in the
+  grown corpus (W3S supplies none the frozen reader reads cleanly), so the blind loop has no independent witness —
+  eval abstains. Coverage did NOT dissolve the second-witness gap.
+- **`==` / `var`** — the W3S best-practice/mistakes/comparisons pages ARE now cached, but `extract_prose` WELDS
+  the pages' code examples into their prose (`"// Not possible Declare Arrays with const…"`, `"Don't Use new
+  Object()"`), so `sentence_states_prohibition` fires on garbled code-laden fragments, not a clean "Always use
+  ===" command. The route over the garbled W3S prose is the SAME junk-prone wall docs-v83 measured; it is not
+  shipped. The genuine unlock is a CLEAN W3S governing-prose reader (the `lint_lang_layer::governing_sentences`
+  segmentation applied to W3S page structure), which is the open Item-3b reader work — NAMED, not landed.
+
+**Tests (retain-and-grow):** `cargo test --lib` 219 green (adds `script_interior_unwraps_a_lone_script_element_only`,
+`example_receiver_shapes_reads_the_qualified_receiver_from_the_example`,
+`a_non_reference_notecard_page_prohibits_its_qualified_subject`); gauntlets `ai_linter_behaviors` 21,
+`understanding_defects` 7, `memory_invariants` 3 — all green.
 
 ### Item 3 (the architecture mandate) — status after the docs-v83 pass (2026-07-12)
 
