@@ -1410,6 +1410,56 @@ precondition's job is to prevent testing a half-read/cold crawl; it is first-cla
 **POINT 5 — parserless checking** recorded as north-star direction only (see the correction block);
 tree-sitter `scan_construct` stays the interim firing mechanism; svg stays grammar-blocked.
 
+### QUALIFIED-MEMBER extraction + clean-parse partition — the precision-landmine fix (2026-07-12, docs-v82)
+
+> Owner Item 1: receiver-less MDN subjects (`substr`, `link`, `input`, `arguments`, `sub`, `big` …)
+> shipped as BARE `uses_construct`, so `const link = 1` / `el.input` / `arguments.length` false-flagged
+> every ordinary identifier. Fixed SYSTEMICALLY at construct extraction + the firing scan + the partition
+> — no per-construct special-casing. The frozen substrate (dictionary, comparator, engine, self-test
+> judging) is UNTOUCHED. `TRAIN_VERSION` → `docs-v82-qualified-member-and-clean-partition` (rule ids +
+> verdicts change → full retrain, ledger reset).
+
+**QUALIFIED-MEMBER construct shapes (`lint_lang_layer::member_page_shapes`, `lint_trace::scan_construct`).**
+A deprecated REFERENCE page's subject is often a prototype MEMBER, not a bare token: MDN's
+`String.prototype.substr`, `Object.prototype.__defineGetter__`, `RegExp.input`. Its real USE is a member
+expression/call, never the bare name. Extraction now proposes, per member page, candidate SHAPES
+most-specific-first — the RECEIVER-SPECIFIC qualified `Owner.subject` (`RegExp.input`, `arguments.callee`,
+a static), the RECEIVER-GENERIC member `.subject` (`.substr`, a prototype method), then bare `subject` —
+derived from the URL's shape under the reference marker (an owner segment ⇒ a member). `propose` keeps the
+FIRST shape that FIRES on the page's OWN example code under `lang`'s grammar (the frozen `run_plan` the
+only referee); a subject the grammar never confirms as a member contributes nothing. `scan_construct`
+grew a leading-`.` MEMBER mode: the property leaf whose immediately-preceding source byte is `.` — so
+`x.substr(1)` fires on any receiver while `const substr = 0`, `{ substr: 1 }`, and a receiver token
+(`arguments.length` — the property is `length`) never match. MEASURED (JS): the 33 bare rules become 30
+member/qualified/global rules; the acceptance file `const link = 1; arguments.length; el.input; const
+substr = 0` flags NOTHING; `"x".substr(1)`, `obj.__defineGetter__(…)`, `RegExp.input`, `"x".link(…)` flag.
+`arguments`/`proto` DROP honestly (their own examples never demonstrate a member shape the grammar
+confirms — `arguments` appears only inside strings, `__proto__` ≠ the URL's `proto`).
+
+**Clean-parse + primary-example partition (`lint_trace::parses_cleanly`, `lint_module::page_proves_in_lang`).**
+The grammar-verification partition was UNSOUND because tree-sitter is ERROR-TOLERANT: a CSS `clip: rect(…)`
+or an HTML `<center>` exposes a stray identifier leaf under the JS grammar, so a CSS/HTML deprecation page
+"proved" in JS. This was LATENT — the deployed ledger was clean only because the confusable pages were
+cached AFTER the last train; a retrain over the grown cache MEASURABLY leaked `clip`/`center`/`big` into
+JS and `center`/`tt` into CSS. Three composable, covenant-clean gates close it, all grammar/structure, no
+language named:
+1. **`parses_cleanly`** — the firing block must parse under `lang` with NO error node. Genuine same-language
+   examples parse clean; a CSS rule under the JS grammar does not. (Closes CSS→JS.)
+2. **JSX skip** — `scan_construct` treats a `jsx_*` node as embedded markup (like a string/comment) and
+   neither matches nor descends into it, so `<center>` is not a JS usage even though the JS grammar accepts
+   it error-free. (Closes HTML-element→JS.)
+3. **Primary-example gate** — a page proves in `lang` iff the subject's FIRST demonstrated usage (the
+   earliest own example block containing it, document order) parses clean + fires under `lang`. An HTML
+   `<center>` page's CSS `.center{…}` REMEDY block is later, so `center` stays HTML and never claims CSS.
+   (Closes the remedy-block leak.)
+MEASURED after all three: js 30 / css 22 rules with `js∩css = js∩html = css∩html = ∅` on the current
+cache. RESIDUAL (honest, documented): SVG attribute pages (`xlink:href`, `attributeType`, `version` …)
+still verify into the permissive HTML grammar (9 rules) because **svg is grammar-blocked** (no tree-sitter
+grammar to partition into) — low harm (they fire on inline-SVG-in-HTML, where they ARE deprecated), and
+the true fix waits on the SVG grammar / the Item-3b reader partition. The `document.write` residual named
+in the whole-site block is now deliverable via the qualified shape once its page-kind marker is notecard-
+keyed (still NAMED, not landed — its URL carries no `/reference/`).
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten

@@ -76,6 +76,43 @@ pub struct DocPage {
     pub incorrect: Vec<String>,
     /// The page's own "correct code" example blocks (the docs' good examples) — where present.
     pub correct: Vec<String>,
+    /// The page's own worked-example code blocks (`<pre><code>`) — the grammar-referee corpus the
+    /// caller uses to SELECT which of a member page's candidate construct SHAPES (qualified
+    /// `String.substr`, member `.substr`, bare `substr`) genuinely fires on how the docs use the
+    /// subject. Populated for a deprecated reference page (a rule page uses `incorrect`/`correct`).
+    pub example_code: Vec<String>,
+}
+
+/// The candidate construct SHAPES a deprecated REFERENCE page proposes for its subject, most-specific
+/// first — so the caller keeps the first that FIRES on the page's own example code under the language's
+/// grammar (the covenant-clean squeeze; LINTER.md → "QUALIFIED-MEMBER construct extraction"). The
+/// subject is the URL's last path segment; whether it is a MEMBER is read from the URL's shape under the
+/// reference marker: a member sits under an OWNER segment (`…/Reference/Global_Objects/String/substr` —
+/// owner `String`, subject `substr`), a global/keyword sits directly under its category
+/// (`…/Reference/Global_Objects/escape`, `…/Reference/Statements/with`). For a member subject the shapes
+/// are the RECEIVER-SPECIFIC `Owner.subject` (a static like `RegExp.input`), the RECEIVER-GENERIC member
+/// `.subject` (a prototype method like `.substr`), then bare `subject`; for a non-member only bare. This
+/// is a per-SOURCE structural marker (the `/reference/` path depth), INTERIM like the page-kind keying,
+/// and it names no language: a NON-member language (CSS `@media/-moz-device-pixel-ratio`) simply fails
+/// to fire the dotted shapes under its grammar and the caller falls to bare.
+fn member_page_shapes(url: &str) -> Vec<String> {
+    let lower = url.to_lowercase();
+    let after = lower.find("/reference/").map(|i| &url[i + "/reference/".len()..]);
+    let segs: Vec<&str> = after
+        .unwrap_or("")
+        .trim_end_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let bare = segs.last().copied().unwrap_or_else(|| url.trim_end_matches('/').rsplit('/').next().unwrap_or(""));
+    // A member subject has an OWNER segment between its category and itself (depth ≥ 3 under the
+    // reference marker: category / owner / subject). A category-level subject (depth ≤ 2) is a global.
+    if segs.len() >= 3 {
+        let owner = segs[segs.len() - 2];
+        vec![format!("{owner}.{bare}"), format!(".{bare}"), bare.to_string()]
+    } else {
+        vec![bare.to_string()]
+    }
 }
 
 /// Whether the url is a per-construct REFERENCE page — its path names a documentation reference section
@@ -347,6 +384,7 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
         constructs: Vec::new(),
         incorrect: Vec::new(),
         correct: Vec::new(),
+        example_code: Vec::new(),
     };
     let attested_deprecated = !rule && reference && has_deprecation_notecard(body);
     if !rule && !attested_deprecated {
@@ -364,6 +402,7 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
     };
 
     let (mut incorrect, mut correct) = (Vec::new(), Vec::new());
+    let mut example_code: Vec<String> = Vec::new();
     if rule {
         // Examples are read from the RAW markup (only script/style dropped) — NOT `code_to_backtick`,
         // which wraps each example's `<code>` in one backtick pair and makes the whole block parse as a
@@ -395,11 +434,22 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
         // deprecation banner mentions — `css`/`color`/`src`, MEASURED) and covenant-clean: the URL is
         // DATA, a per-SOURCE structural marker exactly like the page-kind keying. The caller's URL-payload
         // subject gate then trivially confirms it, and the deprecation notecard is the prohibition proof.
-        let seg = url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-        push(seg.to_string(), &mut constructs);
+        //
+        // For a MEMBER subject (a prototype method / static property) the bare segment would fire on every
+        // ordinary identifier of that name (`const link = 1` fires `link`); so propose the QUALIFIED and
+        // RECEIVER-GENERIC-MEMBER shapes too ([`member_page_shapes`], most-specific first) and let the
+        // caller keep the first that fires on this page's own example code under the language's grammar.
+        // These shapes are already firing-form, so they bypass `normalize_construct` (which would strip a
+        // leading `.`). The page's example code is carried for that grammar-refereed selection.
+        for shape in member_page_shapes(url) {
+            if shape.len() >= 2 && !constructs.contains(&shape) {
+                constructs.push(shape);
+            }
+        }
+        example_code = code_interiors(body);
     }
 
-    DocPage { url: url.to_string(), prohibited, attested_deprecated, governing, constructs, incorrect, correct }
+    DocPage { url: url.to_string(), prohibited, attested_deprecated, governing, constructs, incorrect, correct, example_code }
 }
 
 #[cfg(test)]
