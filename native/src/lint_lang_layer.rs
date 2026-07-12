@@ -56,6 +56,14 @@ pub struct DocPage {
     pub url: String,
     /// Whether the page's ROLE prohibits its subject (rule page, or deprecated reference page).
     pub prohibited: bool,
+    /// Whether the page STRUCTURALLY ATTESTS its own subject is DEPRECATED — a reference page carrying a
+    /// deprecation notecard (never a rule page). This is the authoritative proof for the NOTECARD
+    /// GRADUATION PATH ([`crate::lint_module`]): when a reference site publishes IDENTICAL deprecation
+    /// boilerplate for every deprecated construct, the English self-test's foil is degenerate BY
+    /// CONSTRUCTION and that referee honestly cannot apply — but the page's own notecard is a STATED
+    /// STRUCTURAL FACT that its subject is deprecated, which graduates the rule directly. `false` for a
+    /// rule page (its distinguishable prose keeps the English self-test path).
+    pub attested_deprecated: bool,
     /// Clean governing sentences of the page (lead definition + usage/rule-details prose), furniture and
     /// example code removed, code typography preserved as backticks so symbol constructs survive.
     pub governing: Vec<String>,
@@ -307,12 +315,14 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
     let empty = DocPage {
         url: url.to_string(),
         prohibited: false,
+        attested_deprecated: false,
         governing: Vec::new(),
         constructs: Vec::new(),
         incorrect: Vec::new(),
         correct: Vec::new(),
     };
-    if !rule && !(reference && has_deprecation_notecard(body)) {
+    let attested_deprecated = !rule && reference && has_deprecation_notecard(body);
+    if !rule && !attested_deprecated {
         return empty;
     }
     let prohibited = true;
@@ -362,7 +372,7 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
         push(seg.to_string(), &mut constructs);
     }
 
-    DocPage { url: url.to_string(), prohibited, governing, constructs, incorrect, correct }
+    DocPage { url: url.to_string(), prohibited, attested_deprecated, governing, constructs, incorrect, correct }
 }
 
 #[cfg(test)]
