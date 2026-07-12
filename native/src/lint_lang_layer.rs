@@ -267,6 +267,36 @@ fn code_interiors(html: &str) -> Vec<String> {
     out
 }
 
+/// A fallback harvest corpus for `lang` reconstructed from RAW doc `pages` — every `<pre><code>` worked
+/// example on a page the crawl attributes to `lang` ([`code_interiors`], the same extractor the reader
+/// already uses), deduped and bounded. This is the OFFLINE-ROBUSTNESS source
+/// ([`crate::lint_module::graduated_rules`]) leans on when this machine's read [`Memory`] is too sparse to
+/// reach the rep floor (a legacy no-memory catalog, or a source that could not refresh): the graduation
+/// evidence then comes from the crawl cache's OWN example code instead of the missing bindings, exactly
+/// what `examples/web_module_train`'s reconstruction proves sound. The caller's `pages` already come from
+/// `lang`'s OWN registered sources ([`crate::lint_docs::raw_pages`], resolved per-language), so EVERY page
+/// is this language's — the corpus is harvested from all of them WITHOUT re-attributing by URL. A
+/// per-page URL re-attribution is deliberately NOT applied: the crawl's coarse `url_language` heuristic
+/// mis-labels linter hosts it does not name (`eslint.org` → a spurious language), and dropping on that
+/// would starve the very corpus the harness graduates JavaScript from. The upstream per-language source
+/// resolution is the single scoping authority; this reads what it already handed us. Never fetches.
+pub(crate) fn page_code_corpus(pages: &[(String, String)], _lang: &str, cap: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (_url, body) in pages {
+        for block in code_interiors(body) {
+            let trimmed = block.trim();
+            if trimmed.len() >= 3 && seen.insert(trimmed.to_string()) {
+                out.push(trimmed.to_string());
+                if out.len() >= cap {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Normalize an extracted construct token to its firing form: strip a trailing empty-call `()` (prose
 /// names a callable `eval()` but the AST node in `eval(userInput)` is the identifier `eval`), and trim
 /// surrounding punctuation. Symbol constructs (`==`) pass through unchanged.
