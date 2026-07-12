@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v79-blind-agreement-graduation";
+pub(crate) const TRAIN_VERSION: &str = "docs-v81-whole-site-read-understanding-partition";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -173,7 +173,7 @@ impl LearnedCatalog {
 
     /// The catalog's rules and reference corpus: queried from the association memory when present
     /// (reading IS the knowledge), else the pre-extracted tuples an older module shipped.
-    fn doc_rules(&self, lang: &str) -> (Vec<DocRule>, Vec<String>) {
+    fn doc_rules(&self, lang: &str, data_root: &Path) -> (Vec<DocRule>, Vec<String>) {
         match &self.memory {
             Some(memory) => {
                 // THE FLIP (2026-07-11, LINTER.md "The flip pass"): a language's MODULE rules are the
@@ -210,9 +210,14 @@ impl LearnedCatalog {
                 // PROVEN-STATE PERSISTENCE (owner correction 2026-07-12, point 4): a flip language's module
                 // RETAINS every construct rule proven in a past retrain, so a crawl-subset that under-covers
                 // a construct never silently drops it below the floor. The write side ([`persist_graduated_ledger`])
-                // runs after the module is built.
+                // runs after the module is built. SOURCE-SCOPED (owner directive 2026-07-12): a retained rule
+                // whose source is no longer a registered documentation source for this language is DROPPED
+                // ([`registered_ledger`]) — an owner-removed source (a third-party linter catalog) cannot leak
+                // its proven rules back through the ledger. Structural (host match against the registry), no
+                // domain name in code.
                 if flip {
-                    rules = merge_graduated(rules, load_graduated_ledger(lang));
+                    let prior = registered_ledger(data_root, lang, load_graduated_ledger(lang));
+                    rules = merge_graduated(rules, prior);
                 }
                 (rules, memory.reference.clone())
             }
@@ -842,7 +847,7 @@ fn train_language(
             // whatever reading memory THIS machine has — a machine that only pulled the
             // module compiles law without a docs corpus, by design: documentation is never
             // shipped, and the evidence hierarchy leads with project grounding anyway.
-            let reference = load_cache(lang).map(|c| c.doc_rules(lang).1).unwrap_or_default();
+            let reference = load_cache(lang).map(|c| c.doc_rules(lang, data_root).1).unwrap_or_default();
             let ground = crate::lint_match::Grounding {
                 reference,
                 project: project_code.sources(lang).into_iter().map(|(_, src)| src).collect(),
@@ -1118,6 +1123,20 @@ fn merge_graduated(mut fresh: Vec<DocRule>, prior: Vec<DocRule>) -> Vec<DocRule>
         }
     }
     fresh
+}
+
+/// Drop ledger rules whose SOURCE is no longer a registered documentation source for `lang` (owner
+/// directive 2026-07-12: a language's module learns ONLY from its own registered documentation; a
+/// source the owner removes from the registry — a third-party linter's rule catalog, say — must not
+/// leak its proven rules back through the retain-and-grow ledger). STRUCTURAL: a rule is retained only
+/// when its source URL's host ([`crate::lint_docs::url_host`]) matches a currently-registered source's
+/// host ([`resolved_sources`]). Names no domain — the registry (`sources.json`/manifest) is the DATA
+/// that decides.
+fn registered_ledger(data_root: &Path, lang: &str, prior: Vec<DocRule>) -> Vec<DocRule> {
+    let host = crate::lint_docs::url_host;
+    let allowed: std::collections::HashSet<String> =
+        resolved_sources(data_root, lang).iter().filter_map(|s| host(&s.url)).collect();
+    prior.into_iter().filter(|r| host(&r.source).is_some_and(|h| allowed.contains(&h))).collect()
 }
 
 /// Persist the graduated construct rules a fresh module was built from, so the next retrain retains them
@@ -1455,7 +1474,7 @@ fn resolve_rules(
     if !refresh {
         if let Some(cat) = load_cache(lang) {
             if cat.current(version, &sources_fp) {
-                let (rules, reference) = cat.doc_rules(lang);
+                let (rules, reference) = cat.doc_rules(lang, data_root);
                 if !rules.is_empty() {
                     let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
                     let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
@@ -1494,7 +1513,7 @@ fn resolve_rules(
             reference: Vec::new(),
             memory: Some(memory),
         };
-        let (rules, reference) = cat.doc_rules(lang);
+        let (rules, reference) = cat.doc_rules(lang, data_root);
         // Reading IS the module (LINTER.md): a descriptive spec that yields ZERO prohibition
         // rules still delivers the reference corpus and comprehension — the language is set
         // up, not "unlearned". Only a source that could not be READ falls through.

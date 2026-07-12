@@ -152,6 +152,57 @@ are wired from; this section describes what they are being wired INTO.
 15) LANDED — see "Blind-agreement graduation" below. Point 4 persistence LANDED as the graduated ledger.
 Point 2 read-pass precondition LANDED as a structural gate. Point 5 recorded as direction only.
 
+### OWNER DIRECTIVE 2026-07-12 — whole-site reading, language-by-understanding (supersedes per-section source framing)
+
+> Recorded BEFORE code (docs-first). Owner's words: "take documentation language sites, pull ALL the
+> information across the whole site, not some, not assigning to a language, UNDERSTANDING THEN
+> BUILDING/UPDATING MODULES." The frozen substrate stays UNTOUCHED; the source model and the module
+> PROPOSE/PARTITION are reshaped. `TRAIN_VERSION` → `docs-v81-whole-site-read-understanding-partition`.
+
+1. **Sources are SITES, not per-language sections.** A language's documentation SITE (MDN, W3Schools) is
+   read WHOLE: the module PROPOSE corpus is every cached page whose HOST is one of the language's registered
+   doc sources ([`lint_docs::site_corpus`] — host-derived, so `/Web/JavaScript/`, `/Web/API/`, `/Web/CSS/`,
+   `/js/` all fold into ONE unfiltered corpus regardless of which section seed fetched them). A linter's rule
+   catalog (ESLint) is NOT documentation and is not read. Pulling the whole site is the ideal; within a crawl
+   budget the cache grows breadth-first and the pipeline reads WHATEVER the cache holds — coverage is a
+   frontier that grows, never a filter. (The host set derives from the registered doc-source hosts, so no
+   separate `kind:"site"` registration or whole-domain root crawl is forced on every setup — that root crawl
+   is the coverage-growth step, deferred; see the frontier note.)
+
+2. **Language assignment EMERGES from understanding/verification, never from URL attribution.** The module
+   PROPOSE source is the whole-site corpus (above — no section filter). Every page is proposed to every
+   language; a candidate
+   GRADUATES ONLY in the language partition where its subject genuinely FIRES on the page's OWN worked-example
+   code under that language's grammar ([`lint_module::lang_pages`] → `page_proves_in_lang`, the frozen
+   `run_plan` the only referee). The grammar is the squeeze: a CSS property (`clip`, `shape`) never parses+
+   fires as a JavaScript construct, so it can never leak into JS even though the whole MDN corpus is proposed
+   to JS; a CROSS-SECTION page (a Web-API page whose example is JavaScript) joins the JS partition regardless
+   of its `/Web/API/` URL shape. A construct that fires in NO grammar abstains. `url_language`/binding-URL
+   attribution is DELETED from the partition — MEASURED sound: `js∩css = js∩html = css∩html = ∅` after the
+   whole-corpus retrain.
+
+3. **Never-conflate holds at the MODULE.** A proven rule lands only in the partition it proved in; the shared
+   reading/meaning substrate is for comprehension, never for sharing rules across languages.
+
+4. **Purge = a ledger rule whose source SITE is no longer registered drops at merge**
+   ([`lint_train::registered_ledger`], host-matched against the registered doc-source set — no domain named).
+   ESLint removed ⇒ every eslint.org-sourced graduated rule is dropped; the `TRAIN_VERSION` bump also discards
+   the whole ledger. Structural, durable even without a bump.
+
+**IMPLEMENTATION STATUS (2026-07-12, docs-v81).** Points 1–4 LANDED over the EXISTING MDN + W3Schools cache
+(the mechanism-first landing the owner sanctioned): whole-site `site_corpus` propose (host-derived from the
+languages' own MDN + W3Schools doc sources), grammar-verification partition (zero cross-language leak,
+proven), ESLint removed + ledger purged. COVERAGE FRONTIER (honest): the whole-domain MDN root crawl (and a
+`kind:"site"` registration to drive it) is deferred on budget — the cache holds the JS/CSS/HTML reference
+sections + a 147-page `/Web/API/Document/` slice; coverage grows as the cache grows. `document.write` is the
+named residual:
+its page is now cached and read, but (a) its deprecation is gated out by the `/reference/` page-kind marker
+(its URL is `/Web/API/Document/write`, no `/reference/`), and (b) its URL-last-segment subject is the bare
+`write` (receiver-less), which would over-fire on every `.write()`. Delivering it cleanly needs notecard-keyed
+page-kind (not `/reference/` URL) AND qualified-member construct extraction (`document.write`, not `write`) —
+NAMED, not landed, so no junk `uses-write` ships. This is the same receiver-less-construct limit that keeps the
+JS method-name deprecations (`arguments`/`link`/`input`/`sub`) coarse; see the delta report.
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
@@ -1277,6 +1328,33 @@ module.bin the v78 decoder cannot read — a format skew that also forces every 
 
 **Tests (retain-and-grow, this pass):** `cargo test --lib` **213 green**; gauntlets `ai_linter_behaviors`
 21, `memory_invariants` 7, `understanding_defects` 3 — all green.
+
+### Source policy — a language learns ONLY from its own documentation (owner directive 2026-07-12)
+
+> Recorded BEFORE code (docs-first). `TRAIN_VERSION` → `docs-v80-own-docs-only-source-policy` (verdicts
+> change → full retrain, and the version bump discards every stale graduated ledger).
+
+**The rule.** A language's module learns ONLY from that language's OWN registered documentation —
+its reference/manual/style-guide/tutorial. A **third-party linter's rule catalog is NOT the language's
+documentation** and is not a registered source: it is one tool's opinion, not the language telling you
+what it is. This was already the stated policy of `sources.json` ("OFFICIAL LANGUAGE DOCUMENTATION …
+not linter rule catalogs"); this directive re-affirms it after ESLint's `/rules/` catalog had been
+re-admitted as the JavaScript source. The web stack (html, css, javascript) learns from **MDN +
+W3Schools** — the languages' own docs — and nothing else.
+
+**What changed.** The per-machine manifest (`~/.config/helpers/languages.json`) had overridden
+`javascript` to ESLint's `/rules/` alone (and `css`/`html` to MDN alone); it now points all three at
+their MDN + W3Schools sources, matching the committed registry's intent. The committed `sources.json`
+already carried no linter catalog — the registry was clean; only the local override reintroduced one.
+
+**Purge mechanism — structural, no domain name in code (`lint_train::registered_ledger`).** The
+graduated ledger (`<lang>.graduated.bin`) retains PROVEN construct rules across retrains, so a rule once
+graduated from a now-removed source would otherwise leak back forever. At merge, a prior ledger rule is
+RETAINED only when its **source URL's host still matches a currently-registered source** for that
+language (`resolved_sources` → `url_host`); a rule whose source the owner removed from the registry is
+DROPPED. This is a host match against the registry DATA — it names no domain and encodes no linter. (A
+`TRAIN_VERSION` bump also discards the whole ledger; the structural filter is the DURABLE guarantee that
+holds even without a bump.)
 
 ### Blind-agreement graduation — construct identity, expectation-carrying reps, retain-and-grow (2026-07-12)
 
