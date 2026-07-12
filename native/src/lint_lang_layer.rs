@@ -91,16 +91,6 @@ fn is_rule_page(url: &str) -> bool {
     url.to_lowercase().contains("/rules/")
 }
 
-/// Whether a page STRUCTURALLY ATTESTS its subject deprecated — a reference page carrying a deprecation
-/// notecard (never a rule page), the exact condition [`read_doc_page`] records as
-/// [`DocPage::attested_deprecated`]. Exposed so the module partition ([`crate::lint_module::lang_pages`])
-/// can include such a page in a language's partition even when the language's read `Memory` holds no
-/// binding for it (a pure-deprecation page forms no prose⊗code binding), keyed by the crawl's own
-/// per-page URL attribution.
-pub(crate) fn is_attested_deprecation_page(url: &str, body: &str) -> bool {
-    !is_rule_page(url) && is_reference_page(url) && has_deprecation_notecard(body)
-}
-
 /// Whether the page carries a DEPRECATION notecard — the structural marker a reference site renders for a
 /// discouraged feature (`class="notecard deprecated"`, or the MDN lead line "Deprecated: This feature is
 /// no longer recommended"). A page-role signal read from the markup/label, never an English judgement of
@@ -267,19 +257,16 @@ fn code_interiors(html: &str) -> Vec<String> {
     out
 }
 
-/// A fallback harvest corpus for `lang` reconstructed from RAW doc `pages` — every `<pre><code>` worked
-/// example on a page the crawl attributes to `lang` ([`code_interiors`], the same extractor the reader
-/// already uses), deduped and bounded. This is the OFFLINE-ROBUSTNESS source
-/// ([`crate::lint_module::graduated_rules`]) leans on when this machine's read [`Memory`] is too sparse to
-/// reach the rep floor (a legacy no-memory catalog, or a source that could not refresh): the graduation
-/// evidence then comes from the crawl cache's OWN example code instead of the missing bindings, exactly
-/// what `examples/web_module_train`'s reconstruction proves sound. The caller's `pages` already come from
-/// `lang`'s OWN registered sources ([`crate::lint_docs::raw_pages`], resolved per-language), so EVERY page
-/// is this language's — the corpus is harvested from all of them WITHOUT re-attributing by URL. A
-/// per-page URL re-attribution is deliberately NOT applied: the crawl's coarse `url_language` heuristic
-/// mis-labels linter hosts it does not name (`eslint.org` → a spurious language), and dropping on that
-/// would starve the very corpus the harness graduates JavaScript from. The upstream per-language source
-/// resolution is the single scoping authority; this reads what it already handed us. Never fetches.
+/// The `<pre><code>` worked-example code of `pages` — every example block ([`code_interiors`], the same
+/// extractor the reader uses), deduped and bounded. NO URL/language attribution is applied (owner
+/// directive 2026-07-12: language emerges from understanding/verification, never from the URL): the caller
+/// decides scope. Two callers, both grammar-refereed downstream so an off-language block is harmless here:
+/// (a) [`crate::lint_module::page_proves_in_lang`] passes ONE page and checks whether its subject fires on
+/// this code under `lang`'s grammar — the verification-decided partition; (b)
+/// [`crate::lint_module::graduated_rules`] passes the WHOLE-SITE corpus as the OFFLINE-ROBUSTNESS harvest
+/// (LINTER.md → "the recommended unlock") when this machine's read [`Memory`] is too sparse to reach the
+/// rep floor — a block that does not contain a candidate's construct simply never fires for it. Never
+/// fetches; `lang` is unused (grammar judging happens in the caller).
 pub(crate) fn page_code_corpus(pages: &[(String, String)], _lang: &str, cap: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();

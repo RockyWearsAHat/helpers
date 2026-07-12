@@ -332,37 +332,53 @@ fn rule_id(construct: &str) -> String {
 /// a fast diagnostic of how many constructs the structural reading discovers and what they are. Each
 /// carries its construct, the governing understanding sentence, and the source url. Pure over the pages
 /// and the two frozen brains.
-pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &MeaningNetwork, en: &English) -> Vec<Candidate> {
+pub fn proposed(lang: &str, pages: &[(String, String)], _memory: &Memory, m: &MeaningNetwork, en: &English) -> Vec<Candidate> {
     let bridge = Bridge::new(m, en);
-    let partition = lang_pages(lang, pages, memory);
+    let partition = lang_pages(lang, pages, &bridge, en);
     propose(lang, &partition, &bridge, en).0
 }
 
-/// PARTITION raw doc pages to the ones this language's docs were read from — the crawl's OWN per-page
-/// language attribution, reused: a page attributes to `lang` iff the language's read [`Memory`] holds a
-/// binding from that page (`memory.bindings[].url`), OR the page STRUCTURALLY ATTESTS a deprecation
-/// ([`crate::lint_lang_layer::is_attested_deprecation_page`]) and the crawl's own URL attribution
-/// ([`crate::lint_docs::url_language`]) names this language. The second clause closes the ATTRIBUTION GAP
-/// (LINTER.md): a pure-deprecation reference page (`center`, an obsolete element) forms NO prose⊗code
-/// binding, so binding-attribution alone drops it even though its page is crawled, attested, and reads
-/// correctly — the notecard graduation path never sees it. Including it by the page's OWN URL is
-/// structural, per-SOURCE, and covenant-clean (no language named in code). This stays the "never conflate
-/// languages" law (LINTER.md): both clauses attribute a page to exactly one language, so a CSS deprecation
-/// page never enters the JS module. When the memory carries no bindings (nothing to attribute against),
-/// every page is kept — the caller has already scoped the pages to one language.
-fn lang_pages<'a>(lang: &str, pages: &'a [(String, String)], memory: &Memory) -> Vec<&'a (String, String)> {
-    let urls: std::collections::HashSet<&str> = memory.bindings.iter().map(|b| b.url.as_str()).collect();
-    if urls.is_empty() {
-        return pages.iter().collect();
+/// PARTITION whole-site doc pages to the ones that PROVE in this language — decided by GRAMMAR
+/// VERIFICATION, never by URL attribution (owner directive 2026-07-12: "language assignment emerges from
+/// understanding/verification, not URL attribution"). A page belongs to `lang`'s partition iff a
+/// construct its ROLE prohibits ([`crate::lint_lang_layer::read_doc_page`] — a rule page's subject, a
+/// deprecated reference page's subject) FIRES on the page's OWN worked-example code under `lang`'s
+/// grammar ([`run_plan`], the frozen referee). This is the owner's squeeze made structural: a CSS
+/// deprecation page's example code (`box-orient: horizontal`) fires `uses_construct(box-orient)` only
+/// under the CSS grammar, so `box-orient` can never leak into JavaScript even though the whole MDN corpus
+/// is proposed to every language; and a CROSS-SECTION page (a Web-API `document.write` page whose example
+/// is JavaScript) joins the JS partition regardless of its `/Web/API/` URL shape. A page whose subject
+/// fires in NO grammar abstains — never conflated, never guessed. No language or domain is named in code;
+/// the tree-sitter grammar of `lang` is the only judge.
+fn lang_pages<'a>(
+    lang: &str,
+    pages: &'a [(String, String)],
+    bridge: &Bridge,
+    en: &English,
+) -> Vec<&'a (String, String)> {
+    pages.iter().filter(|(u, body)| page_proves_in_lang(lang, u, body, bridge, en)).collect()
+}
+
+/// Whether a prohibition/deprecation page PROVES in `lang`: its role names a prohibited subject AND that
+/// subject fires on the page's OWN worked-example code under `lang`'s grammar (the frozen `run_plan`).
+/// The page's example code is read STRUCTURALLY ([`crate::lint_lang_layer::page_code_corpus`], every
+/// `<pre><code>`), so the referee is the language grammar, not the URL — the whole point of the
+/// verification-decided partition. A non-prohibition page, or one whose subject the grammar does not fire
+/// on the page's own examples, is not in this language's partition.
+fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &English) -> bool {
+    let page = crate::lint_lang_layer::read_doc_page(url, body, en, bridge);
+    if !page.prohibited || page.constructs.is_empty() {
+        return false;
     }
-    pages
-        .iter()
-        .filter(|(u, body)| {
-            urls.contains(u.as_str())
-                || (crate::lint_lang_layer::is_attested_deprecation_page(u, body)
-                    && crate::lint_docs::url_language(u).as_deref() == Some(lang))
-        })
-        .collect()
+    let own = crate::lint_lang_layer::page_code_corpus(
+        std::slice::from_ref(&(url.to_string(), body.to_string())),
+        lang,
+        MAX_HARVEST_BLOCKS,
+    );
+    page.constructs.iter().any(|c| {
+        let plan = Plan::UsesConstruct { construct: c.clone() };
+        own.iter().any(|blk| construct_in_text(blk, c) && !run_plan(&plan, lang, blk).is_empty())
+    })
 }
 
 /// One clean governing sentence in the pooled reading, tagged with whether it came from a PROHIBITED
@@ -687,7 +703,7 @@ pub fn graduate(
     en: &English,
 ) -> Vec<Outcome> {
     let bridge = Bridge::new(m, en);
-    let partition = lang_pages(lang, pages, memory);
+    let partition = lang_pages(lang, pages, &bridge, en);
     let (candidates, pool) = propose(lang, &partition, &bridge, en);
     let corpus = harvest_corpus(memory);
 
@@ -851,7 +867,21 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)
         return Vec::new();
     };
     let data_root = crate::tools::lint::data_root_pub();
-    let (pages, _fp) = crate::lint_docs::raw_pages(&data_root, lang);
+    // WHOLE-SITE PROPOSE (owner directive 2026-07-12): the candidate source is the ENTIRE registered-site
+    // corpus, read with NO section/language filter ([`crate::lint_docs::site_corpus`]), UNIONED with this
+    // language's own read pages (the Memory basis). Every page of the site is proposed to every language;
+    // the language partition is decided downstream by GRAMMAR VERIFICATION ([`lang_pages`]), never by URL.
+    // A page whose subject fires in no grammar abstains — this is how a cross-section page (MDN Web-API
+    // `document.write`) reaches JavaScript while a CSS property never leaks into it.
+    let (mut pages, _fp) = crate::lint_docs::raw_pages(&data_root, lang);
+    {
+        let mut seen: std::collections::HashSet<String> = pages.iter().map(|(u, _)| u.clone()).collect();
+        for (u, b) in crate::lint_docs::site_corpus(&data_root, lang) {
+            if seen.insert(u.clone()) {
+                pages.push((u, b));
+            }
+        }
+    }
     // FULL-DOCS-READ PRECONDITION (owner correction 2026-07-12, point 2): a language is TESTED only
     // after its registered documentation has been READ at least once — a STRUCTURAL precondition, the
     // crawl's read pass having produced a page corpus (`raw_pages` non-empty; the pages are the read
