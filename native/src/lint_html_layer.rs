@@ -68,7 +68,14 @@ pub fn sections(body: &str) -> Vec<(String, String)> {
     let mut at = 0usize;
     while at < body.len() {
         let rest = &body[at..];
-        let hit = ["<h2 id=\"", "<h3 id=\""].iter().find_map(|pat| rest.find(pat).map(|i| (at + i, pat.len())));
+        // Split at the EARLIEST heading of either level — take the MINIMUM position across both
+        // patterns, never the first pattern in array order. `find_map` returning `<h2 id="`'s position
+        // whenever any h2 exists SKIPPED every `<h3 id="` before a later h2, welding those subsections
+        // (and their heading text — e.g. a "Never use …!" command heading) into the preceding region.
+        let hit = ["<h2 id=\"", "<h3 id=\""]
+            .iter()
+            .filter_map(|pat| rest.find(pat).map(|i| (at + i, pat.len())))
+            .min_by_key(|(pos, _)| *pos);
         let Some((open, pat_len)) = hit else { break };
         // Read the anchor id up to the closing quote.
         let id_start = open + pat_len;
@@ -406,6 +413,21 @@ mod tests {
         assert!(secs[0].1.contains("lead definition"));
         let anchors: Vec<&str> = secs.iter().map(|(a, _)| a.as_str()).collect();
         assert_eq!(anchors, vec!["", "region_two", "region_three"]);
+    }
+
+    #[test]
+    fn sections_split_at_the_earliest_heading_not_the_first_pattern() {
+        // An `<h3 id>` subsection that PRECEDES a later `<h2 id>` must open its own region — the split is
+        // at the EARLIEST heading of either level, never the first pattern in array order. Before the fix,
+        // `find_map` returned the `<h2 id>` position whenever any h2 existed, WELDING the earlier h3 (and
+        // its heading text — a "Never use …!" command) into the preceding region.
+        let body = r#"<h1>Title</h1><p>Lead prose sits here plainly.</p>
+            <h3 id="early_note" class="heading">Never use the thing directly!</h3><p>Because it is unsafe here.</p>
+            <h2 id="later_region" class="heading">Later region</h2><p>Closing governing prose follows.</p>"#;
+        let anchors: Vec<String> = sections(body).into_iter().map(|(a, _)| a).collect();
+        assert_eq!(anchors, vec!["", "early_note", "later_region"], "the h3 before the h2 opens its own region");
+        let early = sections(body).into_iter().find(|(a, _)| a == "early_note").unwrap().1;
+        assert!(early.contains("Never use the thing directly!"), "the h3 heading text lands in its OWN region, not welded into the lead");
     }
 
     #[test]
