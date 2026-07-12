@@ -709,6 +709,10 @@ pub fn graduate(
                         description: cand.understanding.clone(),
                         bad,
                         good: good.unwrap_or_default(),
+                        // The rule IS its understood prohibition: carry the construct so the live
+                        // build compiles `uses_construct(construct)` and fires the SAME plan the
+                        // frozen loop proved — never a detector re-derived from the example diff.
+                        construct: Some(cand.construct.clone()),
                     },
                     cand.url.clone(),
                 )),

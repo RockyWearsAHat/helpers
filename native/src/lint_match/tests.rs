@@ -8,9 +8,17 @@
 use super::select::{code_surface, description_discriminator, GroundView};
 use super::{Finding, Grounding, RuleSet};
 
-/// A `(id, severity, bad, good, desc, source)` tuple in the shape `RuleSet::build` expects.
-fn rule(id: &str, bad: &str, good: &str, desc: &str) -> (String, String, String, String, String, String) {
-    (id.into(), "high".into(), bad.into(), good.into(), desc.into(), "test://rule".into())
+/// A `(id, severity, bad, good, desc, source, construct)` tuple in the shape `RuleSet::build`
+/// expects. Legacy example/token rules carry no construct (`None`); the graduated-plan path is
+/// exercised by [`rule_plan`].
+fn rule(id: &str, bad: &str, good: &str, desc: &str) -> (String, String, String, String, String, String, Option<String>) {
+    (id.into(), "high".into(), bad.into(), good.into(), desc.into(), "test://rule".into(), None)
+}
+
+/// A graduated construct-module rule tuple: it carries `construct`, so `RuleSet::build` compiles it
+/// directly to `uses_construct(construct)` (the proven plan) instead of an example-diff detector.
+fn rule_plan(id: &str, bad: &str, good: &str, desc: &str, construct: &str) -> (String, String, String, String, String, String, Option<String>) {
+    (id.into(), "high".into(), bad.into(), good.into(), desc.into(), "test://rule".into(), Some(construct.into()))
 }
 
 fn lines_for(fs: &[Finding], id: &str) -> Vec<usize> {
@@ -478,6 +486,36 @@ fn js_container_rule_fires_on_var_items() {
     let set = RuleSet::build("javascript", &rules, &Grounding::default());
     let hits = set.flag("var items = [1, 2, 3]");
     assert_eq!(lines_for(&hits, "q_containers_js"), vec![1], "JS container rule must fire on `var items = [1, 2, 3]`");
+}
+
+#[test]
+fn a_graduated_rule_fires_its_plan_and_survives_reference_fire() {
+    // A graduated construct-module rule carries its construct, so it compiles DIRECTLY to
+    // `uses_construct(var)` and fires the proven plan in the one walk — never a detector
+    // re-derived from the example diff (LINTER.md, "The modular rebuild"). It is EXEMPT from the
+    // statistical reference-fire gate: the construct it bans is legacy-ubiquitous BY DESIGN
+    // (`var` is taught using `var`), so a reference corpus saturated with `var` must not veto it.
+    let rules = [rule_plan(
+        "uses-var",
+        "var x = 1;",
+        "let x = 1;",
+        "The var statement declares a variable whose scope leaks; use let or const instead.",
+        "var",
+    )];
+    // A reference corpus above REFERENCE_FIRE_MIN_LINES, saturated with the banned construct —
+    // the exact shape that drops an UNproven example-diff detector.
+    let reference: Vec<String> = (0..600).map(|i| format!("var v{i} = {i};")).collect();
+    let ground = Grounding { reference, ..Default::default() };
+    let set = RuleSet::build("javascript", &rules, &ground);
+    assert_eq!(set.rule_count(), 1, "the graduated plan rule survives reference-fire");
+    assert_eq!(
+        set.detector_of("uses-var").as_deref(),
+        Some("understanding traced from the principle (uses_construct(var))"),
+        "compiles to its proven plan, not an example-diff detector"
+    );
+    // Fires every real usage; the remedy form and a comment/string mention stay clean.
+    let hits = set.flag("var a = 1;\nlet b = 2;\nvar c = 3;\n// mentions var here\nlet s = \"use var\";\n");
+    assert_eq!(lines_for(&hits, "uses-var"), vec![1, 3], "fires each var usage; comment/string mentions are safe");
 }
 
 #[test]

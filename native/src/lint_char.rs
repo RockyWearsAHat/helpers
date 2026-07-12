@@ -1245,6 +1245,7 @@ pub fn rules_from_understanding(lang: &str, prose: &str) -> Vec<crate::linter::L
             description: sentence.trim().to_string(),
             bad: construct.clone(),
             good: String::new(),
+            construct: None,
         });
     }
     out
@@ -1666,7 +1667,7 @@ mod tests {
             rules.iter().map(|r| (r.bad.clone(), r.description.clone())).collect::<Vec<_>>()
         );
         // Compile through the REAL matcher and fire on REAL code — the whole path.
-        let tuples: Vec<(String, String, String, String, String, String)> = rules
+        let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = rules
             .iter()
             .map(|r| {
                 (
@@ -1676,6 +1677,7 @@ mod tests {
                     r.good.clone(),
                     r.description.clone(),
                     "doc".to_string(),
+                    r.construct.clone(),
                 )
             })
             .collect();
