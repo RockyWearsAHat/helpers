@@ -1460,6 +1460,95 @@ the true fix waits on the SVG grammar / the Item-3b reader partition. The `docum
 in the whole-site block is now deliverable via the qualified shape once its page-kind marker is notecard-
 keyed (still NAMED, not landed — its URL carries no `/reference/`).
 
+### Statement-prose prohibitions — measured walls + the earliest-heading reader fix (2026-07-12, docs-v83)
+
+> Owner Item 2: re-earn the prose-commanded classics (`eval`/`==`/`var`/`document.write`) that structural
+> deprecation/rule pages don't propose, by extending PROPOSE to commanded-prohibition sentences in the
+> whole-site governing prose through the frozen meaning-based reading (`English::sentence_states_prohibition`),
+> proven via the SAME blind loop, junk floor ZERO. The investigation was carried out end to end against the
+> real cache; the honest result is that the classics do NOT graduate cleanly from THIS cache, each for a
+> distinct MEASURED reason, and the prose-command route as tried VIOLATES the junk floor — so it is NOT
+> shipped. What DID land is the reader-correctness fix the investigation surfaced (which also advances the
+> Item-3b "fix the learned reader" mandate). The frozen substrate (dictionary, comparator, engine,
+> self-test judging) is UNTOUCHED. `TRAIN_VERSION` → `docs-v83-earliest-heading-segmentation` (HTML verdicts
+> gain two genuine deprecations → retrain, ledger reset).
+
+**LANDED — `lint_html_layer::sections` splits at the EARLIEST heading, not the first pattern.** MEASURED
+BUG: `sections` chose the next heading with `["<h2 id=\"", "<h3 id=\""].iter().find_map(rest.find)`, which
+returns the `<h2 id>` position whenever ANY h2 exists — so every `<h3 id>` subsection BEFORE a later h2 was
+SKIPPED, welding its heading text into the preceding region. MDN's `eval` page carries its command as an
+`<h3 id="never_use_direct_eval!">Never use direct eval()!</h3>`; before the fix that heading welded into a
+prior descriptive run ("…one can use `new.target`: js Never use direct eval()") and `sentence_states_prohibition`
+read it as descriptive (the `never` buried mid-sentence). Fix: take the MINIMUM position across both heading
+patterns (`filter_map(...).min_by_key(pos)`). After it, "Never use direct `eval()`!" is a clean sentence and
+`sentence_states_prohibition` returns TRUE. MEASURED effect on graduation (harness `web_module_train`, real
+cache): JS 30/30 and CSS 22 UNCHANGED; HTML 6 → 8, the two new rules the genuinely-deprecated `<big>` and
+`<rb>` elements (their MDN pages' governing headings now segment cleanly), ZERO junk, good file clean. Test:
+`sections_split_at_the_earliest_heading_not_the_first_pattern`.
+
+**NOT SHIPPED — the prose-command PROPOSE route (measured junk + measured block).** A route was built and
+measured: a reference page whose governing prose STATES A PROHIBITION (`sentence_states_prohibition`) naming
+its own subject proposes that subject, proven through the English self-test. MEASURED against the whole JS
+corpus it BOTH (a) graduated LANDMINE junk — `function`, `this`, `Boolean`, `String`, `direction`, `clear`
+(non-deprecated pages carrying a warning notecard + a DESCRIPTIVE "not"/"never" sentence the position
+heuristic misreads as a command; these would flag ordinary code) AND (b) FAILED to graduate the genuine
+`eval` (its only same-polarity second sentence is descriptive — "If `script` is not a `TrustedScript`… returns
+the argument unchanged" — which the frozen comparator ranks as CONTRADICTING the command, so the blind loop
+correctly refuses it). The English self-test lets the junk through and blocks the real command — the exact
+low-recall-AND-imprecise wall the structural page-role discriminator was built to avoid (see "The construct-
+module training workflow" and Fix 1 above). Per the junk-floor-ZERO covenant and "no forcing", the route is
+NOT shipped.
+
+**PER-CLASSIC honest verdict (measured, this cache).**
+- **`eval`** — the command EXISTS on MDN (`Reference/Global_Objects/eval`, the `<h3>` "Never use direct
+  `eval()`!" the sections fix now surfaces) and the subject gate confirms it (`url_payload = eval`), but it
+  does NOT graduate: the docs supply no SECOND same-polarity prohibition sentence about `eval`, so the blind
+  loop's English reconciliation Contradicts. Honest abstention with the exact blocking sentence.
+- **`document.write`** — its page IS cached with a deprecation notecard AND the qualified `document.write`
+  shape is derivable from its own `document.write(…)` examples; a notecard-keyed page role (deprecation
+  regardless of `/reference/`) + example-derived receiver qualification WAS prototyped and graduated it in the
+  harness. But LIVE it is BLOCKED by the docs-v82 partition: `document.write`'s FIRST MDN demonstration is a
+  `<script>document.write(…)</script>` block — under the JS grammar the JSX-skip treats `<script>` as embedded
+  markup so `document.write` does NOT fire, and the primary-example clean-parse gate (which MUST stay to keep
+  the remedy-block leak closed, `js∩css=js∩html=∅`) rejects the page for the JS partition. Delivering it
+  cleanly needs the partition to distinguish `<script>`-embedded JS from JSX markup without reopening that
+  leak — a partition-gate change beyond safe scope here. Sibling `document.writeln` (bare `document.writeln(…)`
+  examples) graduates in that prototype; `document.write` specifically does not. NOT shipped (the prototype
+  reverted with the prose-command route; only the sections fix kept).
+- **`var`** — MDN's `Reference/Statements/var` states NO prohibition (MEASURED: "Baseline Widely available";
+  ZERO prohibition sentences). The W3Schools best-practice pages that would command "prefer let/const" are NOT
+  in this cache (only W3Schools HTML tutorial + tryit pages are cached; no `js_best_practices`/`js_mistakes`).
+  Honest abstention — no page in the cache commands against `var`.
+- **`==`** — MDN's `Reference/Operators/Equality` does not command against `==` (its `==` mentions are
+  descriptive symmetry/coercion prose); the W3Schools "Always use ===" best-practice page is not cached; and a
+  linter's `eqeqeq` rule page is NOT documentation (own-docs-only policy, docs-v80). Honest abstention — the
+  remedy-pair `===` has no commanding page in the cache.
+
+**COVERAGE FRONTIER (honest).** The single unlock for the classics is CACHE COVERAGE, not a new mechanism: the
+W3Schools best-practice/mistakes pages (which DO command `===`, `let`/`const`, avoid `document.write`) are not
+crawled here, and `eval`'s second-sentence gap is a real docs-content limit. When those pages enter the cache,
+`sentence_states_prohibition` over cleanly-segmented governing prose (now that the sections fix surfaces
+command headings) is the right reader — but it must be paired with a discriminator stronger than the position
+heuristic to hold the junk floor at zero (the measured junk class above), which is the open design problem.
+
+**Tests (retain-and-grow):** `cargo test --lib` 216 green (adds the earliest-heading test); gauntlets
+`ai_linter_behaviors` 21, `understanding_defects` 7, `memory_invariants` 3 — all green.
+
+### Item 3 (the architecture mandate) — status after the docs-v83 pass (2026-07-12)
+
+> Honest scoping record. Item 3 (a–e) is a large multi-rung architectural mandate; this pass completed a
+> down-payment on 3b and did not attempt 3a/3c/3d/3e, which each are their own rung. Recorded so the next
+> agent starts from the measured state, not a re-derivation.
+- **3b (fix the learned reader; burn the hand anatomy)** — DOWN-PAYMENT LANDED: the `sections` earliest-heading
+  fix above is a concrete reader-correctness repair (heading segmentation), the exact "garbled output" class
+  3b targets. The referee-agreement measurement across the whole corpus and the hand-anatomy deletion are NOT
+  done.
+- **3a (curriculum txt → markdown reading rung), 3c (judgment LEARNS — contradiction-driven reshape), 3d
+  (fixpoint + COMPLETE), 3e (cleanup / one-architecture consolidation)** — NOT attempted this pass. Each is a
+  full rung; attempting them superficially would violate the honesty covenant. The graduated ledger today is
+  retain-and-grow only (no contradiction reshape — the 3c residual already noted under "Blind-agreement
+  graduation, POINT 4").
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
