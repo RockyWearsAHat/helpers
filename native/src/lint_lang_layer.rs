@@ -91,6 +91,16 @@ fn is_rule_page(url: &str) -> bool {
     url.to_lowercase().contains("/rules/")
 }
 
+/// Whether a page STRUCTURALLY ATTESTS its subject deprecated — a reference page carrying a deprecation
+/// notecard (never a rule page), the exact condition [`read_doc_page`] records as
+/// [`DocPage::attested_deprecated`]. Exposed so the module partition ([`crate::lint_module::lang_pages`])
+/// can include such a page in a language's partition even when the language's read `Memory` holds no
+/// binding for it (a pure-deprecation page forms no prose⊗code binding), keyed by the crawl's own
+/// per-page URL attribution.
+pub(crate) fn is_attested_deprecation_page(url: &str, body: &str) -> bool {
+    !is_rule_page(url) && is_reference_page(url) && has_deprecation_notecard(body)
+}
+
 /// Whether the page carries a DEPRECATION notecard — the structural marker a reference site renders for a
 /// discouraged feature (`class="notecard deprecated"`, or the MDN lead line "Deprecated: This feature is
 /// no longer recommended"). A page-role signal read from the markup/label, never an English judgement of
@@ -260,7 +270,7 @@ fn code_interiors(html: &str) -> Vec<String> {
 /// Normalize an extracted construct token to its firing form: strip a trailing empty-call `()` (prose
 /// names a callable `eval()` but the AST node in `eval(userInput)` is the identifier `eval`), and trim
 /// surrounding punctuation. Symbol constructs (`==`) pass through unchanged.
-fn normalize_construct(raw: &str) -> String {
+pub(crate) fn normalize_construct(raw: &str) -> String {
     let mut c = raw.trim().trim_matches(|ch: char| ch == '`' || ch == ',' || ch == '.' || ch == ':').to_string();
     // An HTML element is named `<marquee>` in prose but its AST tag-name node text is `marquee`; strip
     // the angle brackets so the construct fires. Symbol/property/keyword constructs carry no brackets.
