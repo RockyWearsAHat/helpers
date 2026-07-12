@@ -1394,8 +1394,41 @@ construct id, priors this crawl didn't re-prove are RETAINED, keyed by the byte-
 train build writes the merged set back (`persist_graduated_ledger` — never overwrites with emptiness on a
 non-flip language). The ledger is stamped with `TRAIN_VERSION` and DISCARDED on a mismatch (a ledger from
 a version whose ids/semantics changed — like the pre-2026-07-12 `uses--` collision — must not be retained),
-so persistence is retain-and-grow WITHIN a `TRAIN_VERSION`. RESIDUAL: contradiction-driven reshape of a
-prior rule is the remaining step; today the merge never DROPS a proven rule (retain-and-grow only).
+so persistence is retain-and-grow WITHIN a `TRAIN_VERSION`. The contradiction-driven reshape half is now
+LANDED — see "Item 3c" below.
+
+### Item 3c — contradiction-driven reshape: judgment LEARNS (docs-v86, 2026-07-12)
+
+> The missing half of point 4. Retain-and-grow persisted proven rules SILENTLY; a rule whose own docs
+> changed such that it no longer proves was kept forever. Owner directive: judgment must LEARN — every
+> retained rule is RE-CHECKED against the current (grown) brain + corpus, and a contradiction is never a
+> silent keep. Docs-first; the frozen substrate is untouched — only the module MERGE is reshaped.
+
+**The re-check IS the fresh pass.** `graduated_rules` already re-runs the blind self-generated loop over
+the CURRENT corpus every retrain, so no separate re-proof is needed: it now returns a `GraduatedModule`
+carrying both the proven `rules` AND `corpus_urls` (the exact page-URL set it proposed over — the re-check
+basis). `merge_graduated(fresh, prior, corpus_urls)` then resolves each PRIOR ledger rule by its
+byte-preserved construct id:
+
+- **Re-proven** — construct is in `fresh`: fresh WINS. A reshaped understanding from the grown brain
+  replaces the stale text under the same id (agreement; no duplicate). This is where "reshape" happens —
+  the construct re-graduates with whatever understanding the current brain derives.
+- **Contradiction** — construct ABSENT from `fresh` but its `source` page is STILL in `corpus_urls`: the
+  page was re-read and re-tested this crawl and the rule FAILED to re-prove. DROPPED, never silently kept.
+- **Unrefreshed retain** — construct absent from `fresh` AND its `source` page has LEFT the corpus (a
+  subset crawl that did not fetch it): the last proof is RETAINED (retain-and-grow), never re-litigated
+  against a corpus that never saw it — this is exactly the MEASURED eqeqeq subset-variance case point 4
+  fixed, now cleanly separated from a genuine contradiction by page presence.
+
+**Never silent.** `merge_graduated` returns every dropped `(construct id, source)`; `record_contradictions`
+folds them into `TrainReport.contradicted`, and the lint footer names each ("Reshaped this run — a
+previously-proven rule … no longer re-proves, so it was dropped: …"). A contradiction is a first-class,
+surfaced event, never a vanished rule.
+
+**Tests:** `merge_drops_a_contradicted_rule_and_retains_one_whose_page_left_the_corpus` drives the
+perturbation directly (fresh carries only A; prior B's page in corpus → DROP + recorded, prior C's page
+gone → RETAIN); `merge_lets_a_reshaped_fresh_rule_win_over_the_stale_ledger_copy` proves the reshape wins
+with no duplicate. `cargo test --lib` 223 green; gauntlets 21/3 green.
 
 **POINT 2 — full-docs-read precondition (`lint_module::read_pass_complete`).** A language is graduated
 only after its read pass produced a page corpus (`raw_pages` non-empty — the read pass's own persisted
@@ -1777,11 +1810,13 @@ blocker is dissolved and the blocker is now a single, well-specified classifier,
   ATTEMPTED and MEASURED (subsection above): the docs-v83 cache-coverage blocker is RESOLVED (the `var`/`==`/
   `eval` commands are now cached and read cleanly), but the blocker relocated to a missing recommendation-
   register discriminator — NOT shipped, forcing it mints the measured junk class. The one remaining design.
-- **3a (curriculum txt → markdown reading rung), 3c (judgment LEARNS — contradiction-driven reshape), 3d
-  (fixpoint + COMPLETE), 3e (cleanup / one-architecture consolidation)** — NOT attempted this pass. Each is a
-  full rung; attempting them superficially would violate the honesty covenant. The graduated ledger today is
-  retain-and-grow only (no contradiction reshape — the 3c residual already noted under "Blind-agreement
-  graduation, POINT 4").
+- **3c (judgment LEARNS — contradiction-driven reshape)** — LANDED docs-v86 (subsection "Item 3c" above):
+  the fresh graduation pass is the re-check; `merge_graduated` drops a contradicted rule (page re-read, no
+  re-prove), retains a rule whose page left the corpus, and surfaces every drop in the footer. The ledger is
+  no longer a silent retain-and-grow.
+- **3a (curriculum txt → markdown reading rung), 3d (fixpoint + COMPLETE), 3e (cleanup / one-architecture
+  consolidation)** — 3d/3e next; 3a not attempted this pass. Each is a full rung; attempting them
+  superficially would violate the honesty covenant.
 
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 

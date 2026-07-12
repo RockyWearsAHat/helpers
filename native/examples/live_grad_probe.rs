@@ -12,7 +12,7 @@ use helpers_native::lint_train;
 fn main() {
     for lang in ["css", "html", "javascript", "svg"] {
         let mem = lint_train::cached_memory(lang).unwrap_or_default();
-        let rules = lint_module::graduated_rules(lang, &mem);
+        let rules = lint_module::graduated_rules(lang, &mem).rules;
         println!(
             "{:12} cached_memory: {} bindings / {} ref-blocks | graduated_rules -> {} rule(s){}",
             lang,

@@ -926,14 +926,28 @@ fn read_pass_complete(pages: &[(String, String)]) -> bool {
     !pages.is_empty()
 }
 
+/// The result of a graduation pass: the PROVEN construct rules AND the exact corpus the pass read.
+/// `corpus_urls` is the re-check basis for contradiction-driven reshape (LINTER.md → Item 3c): the set
+/// of page URLs this pass proposed over, so the caller can tell a rule whose source page is STILL in the
+/// corpus (its absence from `rules` is a genuine failure to re-prove — a contradiction) from one whose
+/// page has LEFT the corpus (a subset crawl — retain the last proof, unrefreshed).
+pub struct GraduatedModule {
+    /// Every rule the pass PROVED this crawl, as `(rule, source url)`.
+    pub rules: Vec<(LearnedRule, String)>,
+    /// The URLs of every page the pass read (raw pages ∪ whole-site corpus) — the re-check basis.
+    pub corpus_urls: std::collections::HashSet<String>,
+}
+
 /// The LIVE entry the module build calls (the covenant-clean successor to
 /// [`crate::lint_docs::rules_from_memory`] for MODULES): graduate `lang`'s construct rules from the
-/// read `memory` through the frozen loop, returning `(rule, source url)` for every PROVEN rule only.
-/// Loads the two frozen brains; empty when either is unavailable (the loop is defined only over the
-/// real bedrock — never fake a rule). Never trains, never touches the network.
-pub fn graduated_rules(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)> {
+/// read `memory` through the frozen loop, returning every PROVEN rule AND the corpus it read (the
+/// [`GraduatedModule`] contract — the corpus is Item 3c's re-check basis). Loads the two frozen brains;
+/// an empty module when either is unavailable (the loop is defined only over the real bedrock — never
+/// fake a rule). Never trains, never touches the network.
+pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
+    let empty = || GraduatedModule { rules: Vec::new(), corpus_urls: std::collections::HashSet::new() };
     let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else {
-        return Vec::new();
+        return empty();
     };
     let data_root = crate::tools::lint::data_root_pub();
     // WHOLE-SITE PROPOSE (owner directive 2026-07-12): the candidate source is the ENTIRE registered-site
@@ -957,8 +971,11 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)
     // pass's own persisted output). No raw pages ⇒ the read pass has not completed for this language ⇒
     // it is NOT graduated (it stays on the miner / abstains), never tested from a half-read crawl.
     if !read_pass_complete(&pages) {
-        return Vec::new();
+        return empty();
     }
+    // The re-check basis (Item 3c): every page URL this pass proposes over. Captured BEFORE the
+    // corpus-enrichment fallback (which only pushes reference code blocks, never new pages).
+    let corpus_urls: std::collections::HashSet<String> = pages.iter().map(|(u, _)| u.clone()).collect();
     // OFFLINE-ROBUSTNESS FALLBACK (LINTER.md → "the recommended unlock"). The frozen loop's evidence is
     // the harvested code corpus. On a machine whose read `Memory` is sparse — a legacy no-memory catalog,
     // or a source that could not refresh with bindings — that corpus is empty and NOTHING graduates even
@@ -978,10 +995,11 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)
     } else {
         memory
     };
-    graduate(lang, &pages, memory, br.meanings(), en)
+    let rules = graduate(lang, &pages, memory, br.meanings(), en)
         .into_iter()
         .filter_map(|o| o.rule)
-        .collect()
+        .collect();
+    GraduatedModule { rules, corpus_urls }
 }
 
 #[cfg(test)]
