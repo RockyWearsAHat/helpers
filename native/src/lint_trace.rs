@@ -1195,6 +1195,26 @@ fn tokenize(sentence: &str) -> Vec<(usize, String)> {
         .collect()
 }
 
+/// Whether `code` parses under `lang`'s grammar with NO error — the honest test of "is this code
+/// genuinely IN this language." Tree-sitter is ERROR-TOLERANT: a CSS rule (`clip: rect(1px …)`) or an
+/// HTML element (`<center>…`) parses under the JavaScript grammar into a tree studded with `ERROR`/
+/// `MISSING` nodes yet still exposes stray identifier leaves (`clip`, `center`) that a bare construct
+/// scan would fire on. That is exactly the loophole that let a CSS/HTML deprecation page "prove" in the
+/// JS partition. Requiring a CLEAN parse (`!root.has_error()`) is the language-general, covenant-clean
+/// squeeze: genuine JS (`"x".substr(1)`, `with (o) {}`) parses clean; foreign snippets do not. Returns
+/// `false` for a grammarless language (nothing to verify against).
+pub fn parses_cleanly(lang: &str, code: &str) -> bool {
+    let Some(language) = crate::lint_match::language(lang) else { return false };
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&language).is_err() {
+        return false;
+    }
+    match parser.parse(code, None) {
+        Some(tree) => !tree.root_node().has_error(),
+        None => false,
+    }
+}
+
 /// Evaluate a plan over parsed `code` — shared by [`Bridge::enforce`] and the tests. The plan is
 /// the only per-principle state, and it is just primitive indices, so this runs identically for
 /// every principle.
@@ -1256,7 +1276,18 @@ fn walk<'a>(node: Node<'a>, f: &mut impl FnMut(Node<'a>)) {
 /// in a comment or embedded in a string is never a usage. Read from the node kind by substring (the
 /// blessed generic probe, as [`is_statement`] reads `comment`), never a grammar-specific list.
 fn is_lexical_text(kind: &str) -> bool {
-    kind.contains("string") || kind.contains("comment") || kind.contains("char")
+    kind.contains("string") || kind.contains("comment") || kind.contains("char") || is_embedded_markup(kind)
+}
+
+/// Whether a node kind is an EMBEDDED-MARKUP region — a JSX element/fragment the JavaScript grammar
+/// parses out of `<center>…</center>`. Its tag names are markup identifiers, NOT code usages of a
+/// language construct, so [`scan_construct`] must neither match nor descend into them — the same reason
+/// it skips a string/comment interior. This closes the HTML-element → JS partition leak that a clean
+/// parse alone cannot (tree-sitter-javascript accepts `<center>` as error-free JSX). Read from the node
+/// KIND by substring — the blessed generic probe (as `is_statement` reads `comment`), never a language
+/// name: any grammar's `jsx_*` markup nodes are covered, and a non-markup construct usage is untouched.
+fn is_embedded_markup(kind: &str) -> bool {
+    kind.contains("jsx")
 }
 
 /// Record every AST USAGE of the exact whole `construct`: the SMALLEST AST node whose utf8 text
@@ -1267,7 +1298,20 @@ fn is_lexical_text(kind: &str) -> bool {
 /// and NOT descended into (its children are proper sub-spans, never the same construct), so each
 /// usage counts once. String/char/comment interiors are skipped entirely, so the construct's name
 /// in prose or a literal is not a usage. The 1-based row of each usage is pushed to `hits`.
+///
+/// RECEIVER-GENERIC MEMBER USE (a construct beginning with `.`, e.g. `.substr`): the smallest node
+/// whose text is the property NAME (`substr`) AND that sits on the PROPERTY side of a member access —
+/// its first non-whitespace SOURCE byte to the left is `.`. This fires `x.substr(1)` on ANY receiver
+/// without matching a bare identifier (`const substr = 0`), an object-literal key (`{ substr: 1 }`),
+/// or a receiver token (`arguments.length` — the property is `length`, not the subject). It is the
+/// covenant-clean shape for a prototype MEMBER whose MDN subject is `String.prototype.substr`; a
+/// STATIC property (`RegExp.input`) keeps the receiver-specific DOTTED form above. Grammar-agnostic:
+/// the leading-`.` source test reads no language-specific node kind.
 fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>) {
+    if let Some(property) = construct.strip_prefix('.') {
+        scan_member(node, src, property, hits);
+        return;
+    }
     if is_lexical_text(node.kind()) {
         return;
     }
@@ -1278,6 +1322,32 @@ fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         scan_construct(child, src, construct, hits);
+    }
+}
+
+/// Record every RECEIVER-GENERIC MEMBER usage of `property` — the leaf whose whole text is
+/// `property` and whose immediately preceding non-whitespace source byte is `.` (so it is the
+/// property side of a member access, `receiver.property`). Descends past string/comment interiors so
+/// the name in a literal is never a usage. Sub-part of [`scan_construct`] for a `.name` construct.
+fn scan_member(node: Node, src: &[u8], property: &str, hits: &mut Vec<usize>) {
+    if is_lexical_text(node.kind()) {
+        return;
+    }
+    let mut cursor = node.walk();
+    let is_leaf = node.child_count() == 0;
+    if is_leaf && node.utf8_text(src).map(|t| t == property).unwrap_or(false) {
+        let start = node.start_byte();
+        let mut i = start;
+        while i > 0 && src[i - 1].is_ascii_whitespace() {
+            i -= 1;
+        }
+        if i > 0 && src[i - 1] == b'.' {
+            hits.push(row(node));
+            return;
+        }
+    }
+    for child in node.children(&mut cursor) {
+        scan_member(child, src, property, hits);
     }
 }
 
@@ -1890,6 +1960,32 @@ mod tests {
         );
         assert!(bridge.enforce(dw_prose, "javascript", "document.write('<p>x</p>');").contains(&1), "fires on document.write");
         assert!(bridge.enforce(dw_prose, "javascript", "el.append(node);").is_empty(), "clean on el.append");
+    }
+
+    /// RECEIVER-GENERIC MEMBER construct (`.substr`) + the CROSS-LANGUAGE partition gates (owner Item 1:
+    /// QUALIFIED-MEMBER extraction; the leak fixes). Uses only the bundled JS grammar — no dictionary.
+    #[test]
+    fn member_construct_and_partition_gates() {
+        let member = Plan::UsesConstruct { construct: ".substr".to_string() };
+        // Fires on a member CALL/access on ANY receiver, at the property position.
+        assert_eq!(run_plan(&member, "javascript", "var s = \"x\".substr(1);"), vec![1]);
+        assert_eq!(run_plan(&member, "javascript", "obj.substr(2);"), vec![1]);
+        // NOT an ordinary identifier, an object-literal key, or a receiver token of that name.
+        assert!(run_plan(&member, "javascript", "const substr = 0;").is_empty(), "bare binding is not a member use");
+        assert!(run_plan(&member, "javascript", "const o = { substr: 1 };").is_empty(), "object key is not a member use");
+        assert!(run_plan(&member, "javascript", "substr(1);").is_empty(), "a bare call is not a member use");
+        // A qualified static keeps its receiver; `el.input` (a user member) never matches `RegExp.input`.
+        let qualified = Plan::UsesConstruct { construct: "RegExp.input".to_string() };
+        assert_eq!(run_plan(&qualified, "javascript", "RegExp.input;"), vec![1]);
+        assert!(run_plan(&qualified, "javascript", "el.input = 7;").is_empty(), "a user member is not the static");
+
+        // parses_cleanly: genuine JS parses clean; a CSS rule does NOT parse clean under the JS grammar
+        // (the CSS-into-JS leak vector the gate closes).
+        assert!(parses_cleanly("javascript", "\"x\".substr(1);"));
+        assert!(!parses_cleanly("javascript", ".dotted { clip: rect(1px, 2px, 3px, 4px); }"), "a CSS rule is not clean JS");
+        // JSX is embedded markup, not a code usage: `<center>` is not a JS construct usage.
+        let center = Plan::UsesConstruct { construct: "center".to_string() };
+        assert!(run_plan(&center, "javascript", "<center>hi</center>").is_empty(), "a JSX tag name is not a JS construct");
     }
 
     /// VERIFICATION REACHES A RULE THE GATE MISSES (owner directive 2026-07-10 — the language-path

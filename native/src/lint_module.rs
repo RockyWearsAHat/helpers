@@ -109,7 +109,10 @@ pub struct Outcome {
 /// derivation of `advice` (a SECOND distinct doc sentence about the construct) stands on this.
 fn mentions(sentence: &str, construct: &str) -> bool {
     let lower = sentence.to_lowercase();
-    let c = construct.to_lowercase();
+    // Prose names a member by its TERMINAL name (`substr`, not `.substr` or `String.prototype.substr`),
+    // so a member/qualified construct is mentioned by its last dotted segment. A bare construct's
+    // terminal is itself, so this is a no-op for the common case.
+    let c = construct.trim_start_matches('.').rsplit('.').next().unwrap_or(construct).to_lowercase();
     if lower.contains(&format!("`{c}`")) {
         return true;
     }
@@ -165,6 +168,13 @@ fn derive_advice(pool: &[PooledSentence], en: &English, construct: &str, underst
 fn construct_in_text(code: &str, construct: &str) -> bool {
     if construct.is_empty() {
         return false;
+    }
+    // A RECEIVER-GENERIC MEMBER construct (`.substr`) fires only where its property name follows a `.`;
+    // the exact `.substr` substring is the sound necessary pre-filter (`run_plan`/`scan_member` is the
+    // real referee), and the leading-`.` boundary logic below would reject it (the char before `.` is a
+    // receiver alphanumeric).
+    if construct.starts_with('.') {
+        return code.contains(construct);
     }
     let is_symbol = construct.chars().all(|c| !c.is_ascii_alphanumeric() && c != '.');
     if is_symbol {
@@ -377,7 +387,21 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
     );
     page.constructs.iter().any(|c| {
         let plan = Plan::UsesConstruct { construct: c.clone() };
-        own.iter().any(|blk| construct_in_text(blk, c) && !run_plan(&plan, lang, blk).is_empty())
+        // PRIMARY-EXAMPLE language gate. The subject's language is where its FIRST DEMONSTRATED usage —
+        // the EARLIEST own example block (document order) that contains it — parses CLEANLY under `lang`
+        // (`parses_cleanly`, not merely an error-tolerant parse) and FIRES. Two leaks this closes,
+        // MEASURED:
+        //   (a) error-tolerant leak — a CSS `clip: rect(…)` / an HTML `<center>` exposes a stray leaf
+        //       under the JS grammar; the clean-parse requirement rejects it (and `scan_construct` skips
+        //       JSX, so `<center>` is not a JS usage either);
+        //   (b) remedy-block leak — an HTML `<center>` element page carries a CSS `.center{…}` REMEDY
+        //       whose class/value `center` fires cleanly under CSS; gating on the FIRST subject-bearing
+        //       block (the `<center>` deprecated-usage demonstration, not the later remedy) keeps the
+        //       subject in HTML and out of CSS.
+        // The frozen `run_plan` under `lang`'s grammar is the only referee; no language is named.
+        own.iter().find(|blk| construct_in_text(blk, c)).is_some_and(|blk| {
+            crate::lint_trace::parses_cleanly(lang, blk) && !run_plan(&plan, lang, blk).is_empty()
+        })
     })
 }
 
@@ -407,8 +431,35 @@ struct PooledSentence {
 /// negative polarity; a construct no clean sentence mentions cannot form an un-fakeable English pair and
 /// is dropped (never a synthesized sentence).
 fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English) -> (Vec<Candidate>, Vec<PooledSentence>) {
-    let docpages: Vec<crate::lint_lang_layer::DocPage> =
+    let mut docpages: Vec<crate::lint_lang_layer::DocPage> =
         pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge)).collect();
+
+    // QUALIFIED-MEMBER SHAPE SELECTION (LINTER.md → "QUALIFIED-MEMBER construct extraction"). A
+    // deprecated reference page proposes several candidate SHAPES for its subject, most-specific first
+    // (qualified `RegExp.input`, receiver-generic member `.substr`, bare `substr`). Keep the FIRST that
+    // FIRES on the page's OWN example code under `lang`'s grammar — the covenant-clean squeeze: a
+    // prototype method member-shapes to `.substr` (so an ordinary `const substr = 1` never fires), a
+    // static keeps its receiver (`RegExp.input`, so `el.input` never fires), and a subject the grammar
+    // never confirms as a member falls to bare only where bare is the firing shape (a CSS property, a
+    // global function). A page whose subject fires in NO proposed shape contributes nothing. The frozen
+    // `run_plan` is the only referee; no language is named.
+    for p in &mut docpages {
+        if !p.attested_deprecated || p.constructs.len() <= 1 {
+            continue;
+        }
+        let chosen = p
+            .constructs
+            .iter()
+            .find(|c| {
+                let plan = Plan::UsesConstruct { construct: (*c).clone() };
+                p.example_code
+                    .iter()
+                    .any(|blk| construct_in_text(blk, c) && !run_plan(&plan, lang, blk).is_empty())
+            })
+            .cloned();
+        p.constructs = chosen.into_iter().collect();
+    }
+    let docpages = docpages;
     let mut pooled: Vec<PooledSentence> = Vec::new();
     for p in &docpages {
         for s in &p.governing {
@@ -594,7 +645,13 @@ fn url_payload_equals(url: &str, construct: &str) -> bool {
     let last = url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
     let seg = slugify(last);
     let payload = seg.strip_prefix("no-").unwrap_or(&seg);
-    let cslug = slugify(construct);
+    // A member/qualified construct (`RegExp.input`, `.substr`) names its subject in its TERMINAL dotted
+    // segment; the URL's last segment is that same subject (`…/RegExp/input`, `…/String/substr`). So the
+    // payload is compared to the construct's terminal-segment slug, not the whole dotted slug — a bare
+    // construct's terminal is itself, so this is unchanged for the common case, and a pattern rule
+    // (`no-delete-var` → `delete-var` ≠ `delete`) is still rejected.
+    let terminal = construct.trim_start_matches('.').rsplit('.').next().unwrap_or(construct);
+    let cslug = slugify(terminal);
     !cslug.is_empty() && payload == cslug
 }
 
