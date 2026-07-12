@@ -1543,6 +1543,16 @@ fn fp_path() -> std::path::PathBuf {
 fn brain_fp() -> Option<u64> {
     std::fs::read_to_string(fp_path()).ok()?.trim().parse().ok()
 }
+
+/// The persisted brain's knowledge-snapshot fingerprint — the folded (`BRAIN_REV` ⊕ dictionary ⊕ web
+/// pages ⊕ explanation corpus) identity written beside the brain artifact. Public so a trained module
+/// can stamp the exact understanding it was built on (LINTER.md → Item 3d, COMPLETE against a knowledge
+/// snapshot): when this changes, the module's completion is reopened and its rules are re-proven through
+/// the 3c re-check. `None` when no brain has been built on this machine (a pull-only machine) — the
+/// module currency gate then skips the brain axis rather than churn. A pure read; never trains.
+pub fn brain_fingerprint() -> Option<u64> {
+    brain_fp()
+}
 fn save_brain_fp(fp: u64) {
     let _ = std::fs::write(fp_path(), fp.to_string());
 }

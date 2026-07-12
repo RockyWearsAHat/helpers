@@ -175,6 +175,19 @@ fn rules(lang: &str) -> Value {
     let module: Option<Vec<Value>> =
         crate::lint_train::cached_ruleset(lang).map(|rs| detail_values(&rs));
     let module_count = module.as_ref().map(Vec::len).unwrap_or(0);
+    // Item 3d — the COMPLETION surface: the knowledge snapshot the module was proven at fixpoint against,
+    // and whether a changed corpus/brain has reopened it for re-proving through the 3c re-check.
+    let completion = crate::lint_train::module_completion(lang).map(|c| {
+        json!({
+            "complete": c.complete,
+            "state": if c.complete { "COMPLETE (proven set at fixpoint against current knowledge)" }
+                     else { "reopened (corpus or brain changed — next train re-proves via the 3c re-check)" },
+            "train_version": c.train_version,
+            "sources_fp": c.sources_fp,
+            "brain_fp": c.brain_fp.to_string(),
+            "trained_at": c.trained_at,
+        })
+    });
     json!({
         "kind": "rules",
         "language": lang,
@@ -183,6 +196,7 @@ fn rules(lang: &str) -> Value {
         "understanding_rules": understanding,
         "module_count": module_count,
         "module_rules": module,
+        "completion": completion,
         "module_note": module.is_none()
             .then(|| format!("no trained module for `{lang}` — run lint_config action=train")),
     })

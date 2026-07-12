@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v86-contradiction-reshape";
+pub(crate) const TRAIN_VERSION: &str = "docs-v87-fixpoint-complete";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -751,8 +751,17 @@ fn train_language(
 
     // ── 1) The AI MODULE: fresh on disk → registry → read the docs → none (law-only). ──
     let on_disk = load_module(lang);
+    // Item 3d — COMPLETE against a knowledge snapshot: a module is current only under the SAME
+    // (toolchain ⊕ train logic ⊕ sources ⊕ BRAIN) it was proven on. The brain axis reopens refinement
+    // when this machine's understanding changes (a rebuilt brain → the module re-proves through the 3c
+    // re-check). Skipped when this machine has NO brain (a pull-only machine — `brain_fingerprint` is
+    // `None`): a foreign module's brain stamp must not force a local retrain the machine cannot do.
+    let local_brain = crate::lint_char::brain_fingerprint();
     let is_current = |m: &Module| {
-        m.version == version && m.train_version == TRAIN_VERSION && m.sources_fp == sources_fp
+        m.version == version
+            && m.train_version == TRAIN_VERSION
+            && m.sources_fp == sources_fp
+            && local_brain.map_or(true, |fp| m.brain_fp == fp)
     };
     let stale = on_disk.as_ref().is_some_and(|m| !is_current(m));
     let mut module = on_disk.filter(is_current);
@@ -824,6 +833,8 @@ fn train_language(
                 verified_at: unix_now(),
                 learned_from: learned_from.clone(),
                 extensions,
+                // COMPLETE against this machine's current understanding (Item 3d) — 0 when brain-less.
+                brain_fp: crate::lint_char::brain_fingerprint().unwrap_or(0),
                 concept: ConceptModel::compile(&concept_tuples, lang),
                 rules,
             };
@@ -959,6 +970,12 @@ struct Module {
     /// reading") — folded into the machine-global extension map at save.
     #[serde(default)]
     extensions: std::collections::BTreeMap<String, u32>,
+    /// The knowledge-snapshot fingerprint this module was COMPLETED against (LINTER.md → Item 3d):
+    /// the brain's [`crate::lint_char::brain_fingerprint`] at train time (0 when no brain existed).
+    /// Together with `train_version` + `sources_fp` it is the completion stamp — a changed brain
+    /// reopens refinement (the module goes stale and its rules re-prove through the 3c re-check).
+    #[serde(default)]
+    brain_fp: u64,
     rules: RuleSet,
     concept: ConceptModel,
 }
@@ -982,6 +999,8 @@ impl Bin for Module {
         e.u(self.verified_at);
         e.str(&self.learned_from);
         self.extensions.enc(e);
+        // The completion snapshot rides the wire; a `TRAIN_VERSION` bump relearns any older blob.
+        e.u(self.brain_fp);
         self.rules.enc(e);
         self.concept.enc(e);
     }
@@ -994,6 +1013,7 @@ impl Bin for Module {
             verified_at: d.u()?,
             learned_from: d.str()?,
             extensions: Bin::dec(d)?,
+            brain_fp: d.u()?,
             rules: Bin::dec(d)?,
             concept: Bin::dec(d)?,
         })
@@ -1053,6 +1073,47 @@ fn overlay_path(lang: &str, project_fp: u64) -> PathBuf {
 /// the cached module; never trains (a query must not mutate machine state).
 pub fn cached_ruleset(lang: &str) -> Option<crate::lint_match::RuleSet> {
     load_module(lang).map(|m| m.rules)
+}
+
+/// A trained module's COMPLETION state (LINTER.md → Item 3d): the knowledge snapshot it was proven
+/// against and whether that snapshot is STILL current on this machine. `complete == true` means the
+/// module was written under today's train logic, the current registered sources, and (when a brain
+/// exists) this machine's current understanding — its proven set is at fixpoint and needs no refinement.
+/// `complete == false` means a changed corpus or brain has REOPENED it: the next `train` re-proves its
+/// rules through the 3c re-check.
+pub struct ModuleCompletion {
+    /// The train-logic version the module was written under.
+    pub train_version: String,
+    /// The source-set fingerprint (the corpus stamp) at train time.
+    pub sources_fp: String,
+    /// The brain knowledge-snapshot fingerprint at train time (0 when built brain-less).
+    pub brain_fp: u64,
+    /// Unix seconds the module was trained.
+    pub trained_at: u64,
+    /// Whether the snapshot is still current on this machine (no reopening pending).
+    pub complete: bool,
+}
+
+/// The COMPLETION state of `lang`'s trained module, or `None` when no module is on disk. Recomputes the
+/// live corpus stamp and reads the live brain fingerprint to decide `complete`, so the answer reflects
+/// TODAY's knowledge, not just what was stamped. A pure read; never trains, never touches the network.
+pub fn module_completion(lang: &str) -> Option<ModuleCompletion> {
+    let m = load_module(lang)?;
+    let data_root = crate::tools::lint::data_root_pub();
+    let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
+    let live_sources_fp = sources_fingerprint(&data_root, lang);
+    let live_brain = crate::lint_char::brain_fingerprint();
+    let complete = m.train_version == TRAIN_VERSION
+        && m.version == version
+        && m.sources_fp == live_sources_fp
+        && live_brain.map_or(true, |fp| m.brain_fp == fp);
+    Some(ModuleCompletion {
+        train_version: m.train_version,
+        sources_fp: m.sources_fp,
+        brain_fp: m.brain_fp,
+        trained_at: m.trained_at,
+        complete,
+    })
 }
 
 /// The association [`crate::lint_read::Memory`] a language's docs were read into — the source the
@@ -2631,6 +2692,25 @@ mod tests {
         assert!(dropped.is_empty(), "a re-proven reshape is agreement, not a contradiction");
     }
 
+    /// Item 3d — the TRAINING loop is at fixpoint. Re-running training over an unchanged corpus re-proves
+    /// the same set: merging a fresh pass with a prior ledger EQUAL to it (every construct re-proven, every
+    /// source page still in the corpus) returns that set unchanged with ZERO contradictions. The proven set
+    /// does not oscillate — a second retrain against the same knowledge is a no-op.
+    #[test]
+    fn re_training_over_an_unchanged_corpus_is_a_fixpoint() {
+        let fresh = vec![ledger_rule("A", "https://docs.test/a"), ledger_rule("B", "https://docs.test/b")];
+        let prior = fresh.clone(); // last retrain's ledger, identical because the corpus did not change
+        let corpus: std::collections::HashSet<String> =
+            ["https://docs.test/a", "https://docs.test/b"].iter().map(|s| s.to_string()).collect();
+
+        let (merged, dropped) = merge_graduated(fresh.clone(), prior, &corpus);
+        let mut merged_ids: Vec<&str> = merged.iter().map(|r| r.id.as_str()).collect();
+        merged_ids.sort();
+        assert_eq!(merged_ids, vec!["A", "B"], "the proven set is stable across an unchanged retrain");
+        assert_eq!(merged.len(), fresh.len(), "no growth, no duplication — a fixpoint");
+        assert!(dropped.is_empty(), "nothing contradicts itself over the same corpus");
+    }
+
     /// Law is found from a SUBDIRECTORY: a project's `.helpers/lint-rules` and root `lintPref`
     /// govern a lint run rooted deep inside the project, and the walk stops at the repo root.
     #[test]
@@ -2816,6 +2896,7 @@ mod tests {
             verified_at: 9,
             learned_from: "docs".to_string(),
             extensions: [("zl".to_string(), 3u32)].into_iter().collect(),
+            brain_fp: 0,
             rules,
             concept,
         };
@@ -3078,6 +3159,7 @@ mod tests {
             verified_at: 1,
             learned_from: "docs".into(),
             extensions: Default::default(),
+            brain_fp: 0,
             concept: ConceptModel { rules: Vec::new() },
             rules,
         };
