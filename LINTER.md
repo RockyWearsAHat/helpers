@@ -1720,6 +1720,49 @@ segmentation change cleaned W3S prose WITHOUT changing which constructs prove �
 SAME OR BETTER" met exactly. The classics (`==`/`var`) are still not graduated: they need the W3S prose-command
 propose path (Item 3b step 4), now unblocked by clean prose but not yet built.
 
+### Item 3b step 4 — the classics through clean W3S prose: coverage RESOLVED, blocker RELOCATED (2026-07-12)
+
+> Re-attempt of `==`/`var`/`eval` now that the chrome filter reads W3S prose cleanly. Real attempt, measured
+> end to end; the honest verdict is that the docs-v83 CACHE-COVERAGE blocker is GONE but a DIFFERENT,
+> precisely-located blocker (the recommendation-register discriminator) still bars a junk-floor-zero landing.
+> NOT shipped — forcing it would mint the measured junk class. The substrate is untouched; no version bump.
+
+**Coverage — RESOLVED.** docs-v83 abstained on `==`/`var` because "the W3Schools best-practice pages … are NOT
+in this cache". They are now cached and, with the chrome filter, READ CLEANLY (measured, chrome-stripped):
+- `var`: `js_varletconst.asp` states **"Modern JavaScript standards recommend avoiding var entirely to minimize
+  unintentional bugs"** and `js_best_practices.asp` marks `var carName; var carName;` **"(Not Recommended)"`.
+- `==`: `js_best_practices.asp` states **"Use === Comparison. The `==` comparison operator always converts (to
+  matching types) before comparison"** — remedy `===` named, `==` the counterpart.
+- `eval`: MDN's `<h3>` **"Never use direct `eval()`!"** (the docs-v83 earliest-heading fix surfaces it).
+
+**Blocker — RELOCATED to the recommendation-register discriminator (MEASURED, `examples/probe_cmd`).** The
+existing prose-command gate `English::sentence_states_prohibition` is NEGATION-position based, and the classics'
+commands are a RECOMMENDATION register, not a negation-led imperative. Measured on the exact sentences:
+
+| sentence | gate fires? |
+|---|---|
+| "Modern JavaScript standards recommend avoiding var entirely…" | **false** |
+| "Use === Comparison." | **false** |
+| "Never use direct `eval()`!" | true |
+| "String is not a primitive." (junk) | false |
+| "The `this` keyword does not refer to…" (junk) | false |
+| "A `function` is not hoisted when declared as an expression." (junk) | false |
+
+So the existing gate ABSTAINS on `var`/`==` (their register is "recommend"/"Use", which the frozen negation
+classifier correctly does not read as a command — the `avoid`≈`not use` lexical-negation gap the comparator
+documents). Graduating `var`/`==` needs a NEW **recommendation/advice register classifier** (imperative "Use X" /
+"recommend avoiding Y" / "Not Recommended") that does not exist. And `eval`'s command IS caught, but its MDN page
+has no prohibition-page ROLE (no rule marker, no notecard), so it never enters `propose`; extending `propose` to
+prose-command REFERENCE pages is exactly the docs-v83 route MEASURED to graduate the junk class
+(`function`/`this`/`Boolean`/`String`/`direction`/`clear`) off the whole MDN corpus.
+
+**Why NOT forced.** A recommendation-register classifier applied to the whole-site corpus would re-expose every
+MDN reference page; the junk constructs it could mint (`function`, `this`, `String`, `clear`) are UBIQUITOUS, so
+a single false graduation flags ordinary code catastrophically. Per the junk-floor-ZERO covenant and "no
+forcing", the register discriminator is the real remaining design — build it against the frozen meaning graph
+with the junk class as its acceptance foil, then this rung completes. The advance this pass: the coverage
+blocker is dissolved and the blocker is now a single, well-specified classifier, not missing data.
+
 ### Item 3 (the architecture mandate) — status after the docs-v85 pass (2026-07-12)
 
 > Honest scoping record. Item 3 (a–e) is a large multi-rung architectural mandate; this pass completed a
@@ -1730,8 +1773,10 @@ propose path (Item 3b step 4), now unblocked by clean prose but not yet built.
   W3S weld collapsed 26.8%→12.2%, rule set byte-identical (zero regression), junk floor zero, partition ∅.
   STEP 2 (referee grading) remains the measurement that gated it. Step 3 (deletion of matched hand pieces) is
   still BLOCKED — the learned reader now reads clean W3S prose but still has NO page-role/subject faculty (axis
-  b = 0%, measured), so the hand anatomy stays INTERIM. Step 4 (classics through the now-clean W3S prose) is
-  the next unblocked rung, not yet built.
+  b = 0%, measured), so the hand anatomy stays INTERIM. Step 4 (classics through the now-clean W3S prose) was
+  ATTEMPTED and MEASURED (subsection above): the docs-v83 cache-coverage blocker is RESOLVED (the `var`/`==`/
+  `eval` commands are now cached and read cleanly), but the blocker relocated to a missing recommendation-
+  register discriminator — NOT shipped, forcing it mints the measured junk class. The one remaining design.
 - **3a (curriculum txt → markdown reading rung), 3c (judgment LEARNS — contradiction-driven reshape), 3d
   (fixpoint + COMPLETE), 3e (cleanup / one-architecture consolidation)** — NOT attempted this pass. Each is a
   full rung; attempting them superficially would violate the honesty covenant. The graduated ledger today is
