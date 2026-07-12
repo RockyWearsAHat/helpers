@@ -101,6 +101,57 @@ files, no treating it as a black-box "AI." We are building the infinite states (
 correctly, one proven state at a time. The sections below describe the current implementation the parts
 are wired from; this section describes what they are being wired INTO.
 
+### OWNER CORRECTION 2026-07-12 — the graduation model, five faithful points
+
+> A correction to the graduation model, recorded BEFORE code (docs-first). The frozen substrate
+> (dictionary, `lint_corroborate`, `lint_ism`, `lint_selftest` judging) stays UNTOUCHED; only the module
+> workflow that STANDS ON it is reshaped. Where an older subsection below conflicts, THIS governs.
+
+1. **Rules emerge from understanding; rule NAMES are irrelevant.** A rule's identity is its understanding
+   state — the construct as an OPAQUE symbol from the language's own substrate plus its English predicate —
+   never a sanitized name slug. MEASURED SYMPTOM: `rule_id` slugged non-alphanumerics to `-`, so `==` and
+   `++` both became `uses--`; the compiled `RuleSet::build` dedups by id (`seen.insert(id)`), so one rule
+   silently shadowed the other and `==` never fired live. FIX: key module rules by the construct's EXACT
+   opaque token, BYTE-PRESERVED, with NO slugging/sanitizing anywhere in identity (`==` → `uses-==`,
+   `++` → `uses-++`, `document.write` → `uses-document.write`); display names are rendering only. `==`
+   fires live after this.
+
+2. **Docs are read WHOLE before testing starts.** A language is tested (graduated) only after its full
+   registered documentation has been read at least once — a STRUCTURAL precondition (the crawl's read pass
+   completed under the current source set), not a new heuristic. Then refinement continues "until it can
+   match both sides" — the anti-Dunning-Kruger method: mismatch → reshape the faking part → re-test; never
+   commit an unreconciled state.
+
+3. **Graduation = 15 SELF-GENERATED examples judged by BLIND AGREEMENT — never doc-example counting.**
+   Owner's exact mechanism: "we don't need 15 examples from the docs, we need 15 examples the AI generates
+   with the expectation of that rule, then blindly sends another agent with its same understanding to lint,
+   then if both agree and the agreement comes from the knowledge, it has the rule correct." Two sides, same
+   understanding substrate, no shared expectation: (a) the GENERATOR derives an expectation per sample from
+   the rule's understanding ("this should flag" / "this is clean, no flag"); (b) a BLIND lint pass — the
+   real linter compiled from the same understanding, receiving ONLY the code, never the expectation —
+   produces the outcome; (c) both sides reduce to English and the frozen comparator judges agreement (this
+   is `lint_selftest`'s existing judge — the blindness and the 15-generated-reps framing are what this
+   directive pins). Agreement must come FROM THE KNOWLEDGE (the fired rule's advice reconciling with the
+   understanding over a genuine foil). `REQUIRED_REPS` → 15 (owner spec count). Rationale: "it can't match
+   the documentation if it doesn't understand; it can't lint if it doesn't understand; therefore if it can
+   lint as expected, it understands the docs" — the substrate beneath is 100% proven, so the squeeze from
+   BOTH sides pins the rule to truth; not a guarantee, but a squeeze.
+
+4. **Doc examples LEARN, they don't COUNT.** The docs' own bad/good examples inform understanding and seed
+   generation variety; they are no longer a proof-counting basis or a rep floor. Consequence: crawl-subset
+   variance in graduation (MEASURED: eqeqeq graduated on one crawl, fell below the floor on the next) is
+   dissolved the ISM way — a PROVEN rule state PERSISTS retain-and-grow across retrains (never re-earned
+   from scratch per crawl; only a genuine contradiction reshapes it).
+
+5. **Parserless checking is the stated IDEAL.** "Ideally we shouldn't need a parser to check rules —
+   construct recognition should come from the full understanding of the language." This is the north-star
+   DIRECTION. Tree-sitter `scan_construct` stays the INTERIM firing mechanism (NOT ripped out now); svg
+   stays blocked on a grammar until parserless checking exists — NOTED, out of current scope.
+
+**IMPLEMENTATION STATUS (2026-07-12).** Point 1 (identity) and point 3 (blind-agreement, `REQUIRED_REPS`
+15) LANDED — see "Blind-agreement graduation" below. Point 4 persistence LANDED as the graduated ledger.
+Point 2 read-pass precondition LANDED as a structural gate. Point 5 recorded as direction only.
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
@@ -1226,6 +1277,60 @@ module.bin the v78 decoder cannot read — a format skew that also forces every 
 
 **Tests (retain-and-grow, this pass):** `cargo test --lib` **213 green**; gauntlets `ai_linter_behaviors`
 21, `memory_invariants` 7, `understanding_defects` 3 — all green.
+
+### Blind-agreement graduation — construct identity, expectation-carrying reps, retain-and-grow (2026-07-12)
+
+> The owner correction (north-star block, "OWNER CORRECTION 2026-07-12") wired into the module workflow.
+> The frozen substrate (dictionary, `lint_corroborate`, `lint_ism`, `lint_selftest`'s judging law) is
+> UNTOUCHED — only the module workflow standing on it changed. `TRAIN_VERSION` →
+> `docs-v79-blind-agreement-graduation` (verdicts + rule ids change → full retrain).
+
+**POINT 1 — construct identity, byte-preserved (`lint_module::rule_id`).** A rule's identity is its
+construct's EXACT opaque token; `rule_id` now emits `uses-<construct>` verbatim (`==` → `uses-==`,
+`++` → `uses-++`, `document.write` → `uses-document.write`). MEASURED SYMPTOM fixed: the old slug folded
+non-alphanumerics to `-`, so `==` and `++` both became `uses--`, and `RuleSet::build`'s id dedup
+(`seen.insert(id)`) silently shadowed one — `==` never fired live. The id is opaque (nothing parses it;
+the plan rides the rule's own `construct` field), so any construct bytes are safe as an id. Test:
+`rule_id_byte_preserves_the_construct_no_collision`.
+
+**POINT 3 — blind-agreement loop (`lint_module::prove_blind`, `Sample`/`Expect`, `REQUIRED_REPS` = 15).**
+Graduation is now 15 self-generated examples judged by BLIND AGREEMENT, not doc-example counting. The
+GENERATOR tags each self-generated block with an `Expect` (a violation it expects to `Flag`, or a clean
+near-miss it expects `Clean`), derived from the rule's understanding. The BLIND lint side (`blind_fires`)
+receives the CODE ONLY — a TYPE separation, so it can never see what it "should" say — and runs the real
+`run_plan`. Each rep reduces to an agreement judged by the FROZEN comparator and folded by the FROZEN
+counting law (`lint_selftest::graduate`). Per rep: `Flag`+fired → the frozen English verdict
+(`Some(true)`→Corroborates, `Some(false)`→Mismatch (fatal), `None`→Undecidable); `Flag`+not-fired →
+NotFlagged (a phased-out expectation, reported); `Clean`+not-fired → Corroborates BUT ONLY when the rule's
+English reconciles (`Some(true)`) — "the agreement comes from the KNOWLEDGE" — else Undecidable (a
+non-understood rule cannot graduate on clean samples alone); `Clean`+fired → Mismatch (a false positive,
+fatal). Clean reps thus COUNT toward the 15 (the squeeze from the other side) without letting a dead rule
+pass. `REQUIRED_REPS` is the owner's spec count (15), a parameter — not the comparator logic. Over an
+ALL-`Flag` set `prove_blind` is bit-identical to the frozen `lint_selftest::prove` (test
+`blind_prove_matches_frozen_prove`); the clean-counting + fatal-false-positive behavior is tested by
+`clean_samples_count_toward_agreement_and_a_clean_firing_is_fatal`.
+
+**POINT 4 — proven-state persistence (the graduated ledger, `lint_train`).** A flip language's PROVEN
+construct rules persist retain-and-grow across retrains, so the crawl-subset variance the owner measured
+(eqeqeq graduated on one crawl, fell below the floor on the next) is dissolved. A per-language sidecar
+`<lang>.graduated.bin` (codec `kind::GRADUATED`, a `Vec<DocRule>`) stores the graduated construct rules;
+`doc_rules` MERGES the fresh graduation with the prior ledger (`merge_graduated` — fresh wins on the same
+construct id, priors this crawl didn't re-prove are RETAINED, keyed by the byte-preserved id), and the
+train build writes the merged set back (`persist_graduated_ledger` — never overwrites with emptiness on a
+non-flip language). The ledger is stamped with `TRAIN_VERSION` and DISCARDED on a mismatch (a ledger from
+a version whose ids/semantics changed — like the pre-2026-07-12 `uses--` collision — must not be retained),
+so persistence is retain-and-grow WITHIN a `TRAIN_VERSION`. RESIDUAL: contradiction-driven reshape of a
+prior rule is the remaining step; today the merge never DROPS a proven rule (retain-and-grow only).
+
+**POINT 2 — full-docs-read precondition (`lint_module::read_pass_complete`).** A language is graduated
+only after its read pass produced a page corpus (`raw_pages` non-empty — the read pass's own persisted
+output); a cold cache is an incomplete read and is not tested from. WHAT IT GATES TODAY: among this
+machine's cached languages, none additionally — every cached language has a completed read, and the
+rollout's zeros are STRUCTURAL (no per-construct marker, or a missing grammar), not incomplete reads. The
+precondition's job is to prevent testing a half-read/cold crawl; it is first-class now, not incidental.
+
+**POINT 5 — parserless checking** recorded as north-star direction only (see the correction block);
+tree-sitter `scan_construct` stays the interim firing mechanism; svg stays grammar-blocked.
 
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 

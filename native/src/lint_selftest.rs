@@ -27,11 +27,12 @@ use crate::lint_english::English;
 use crate::lint_trace::{run_plan, Plan};
 
 /// The OWNER-SPECIFIED number of self-generated, really-linted, English-reconciled reps a learned rule
-/// must pass to GRADUATE (`LINTER.md` north-star: "~10–12 self-generated reps"). This is a spec
-/// PARAMETER — the floor of the owner's stated range — NOT a tuned threshold: every per-rep decision is
-/// the behavioral `run_plan` firing plus the comparative `corroborates` English gate; only this count is
-/// a literal, and it is the owner's, cited as such.
-pub const REQUIRED_REPS: usize = 10;
+/// must pass to GRADUATE (owner correction 2026-07-12, point 3: "we need 15 examples the AI generates
+/// with the expectation of that rule … if both agree … it has the rule correct"). This is a spec
+/// PARAMETER — the owner's exact count — NOT a tuned threshold: every per-rep decision is the behavioral
+/// `run_plan` firing plus the comparative `corroborates` English gate; only this count is a literal, and
+/// it is the owner's, cited as such. Changing the parameter does not touch the frozen comparator/judge.
+pub const REQUIRED_REPS: usize = 15;
 
 /// A rule the linter enforces: the firing check plus the English ADVICE it reports when it fires. The
 /// `advice` is the "found violation in English" — linter-sourced, on a DIFFERENT derivation path from
