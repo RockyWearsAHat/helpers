@@ -1430,6 +1430,44 @@ perturbation directly (fresh carries only A; prior B's page in corpus → DROP +
 gone → RETAIN); `merge_lets_a_reshaped_fresh_rule_win_over_the_stale_ledger_copy` proves the reshape wins
 with no duplicate. `cargo test --lib` 223 green; gauntlets 21/3 green.
 
+### Item 3d — FIXPOINT + COMPLETE: the module is proven once against a knowledge snapshot (docs-v87, 2026-07-12)
+
+> A trained module should be written ONCE, at the point its proven set stops changing against current
+> knowledge, and marked COMPLETE against that knowledge — reopening automatically when the knowledge moves.
+
+**Fixpoint is reached in ONE iteration — measured, not looped.** Graduation (`graduate`) is a
+DETERMINISTIC pure function of a FROZEN brain and a FIXED corpus: it never reads its own output or the
+ledger, so proposing→generating→blind-proving over the same inputs yields the byte-identical proven set.
+The 3c merge is idempotent over an unchanged corpus (every construct re-proven, nothing contradicts
+itself). Therefore the proven set is already at fixpoint after a single pass; a literal re-iteration loop
+would only burn compute to confirm no change, so none is added — the property is proven by
+`graduation_reaches_fixpoint_in_one_iteration` (two passes, identical set) and
+`re_training_over_an_unchanged_corpus_is_a_fixpoint` (merge idempotence, zero drops). The one thing that
+can change the set between passes is the brain itself, which is frozen within a run — so the ONLY way to
+reopen is a new snapshot, handled below. (Measured iteration count to fixpoint on the real stack: **1**.)
+
+**COMPLETE against a knowledge snapshot.** A `Module` now carries `brain_fp` — the brain's
+[`lint_char::brain_fingerprint`] (BRAIN_REV ⊕ dictionary ⊕ web pages ⊕ explanation corpus) at train time.
+Together with `train_version` (train logic) and `sources_fp` (the corpus stamp) it is the completion
+snapshot: the module is COMPLETE while all three still match this machine's live knowledge. The module
+currency gate (`is_current`) now includes the brain axis — but ONLY when this machine HAS a brain
+(`brain_fingerprint` is `Some`); a pull-only machine (no brain) skips the brain axis so a foreign module's
+stamp never forces a retrain it cannot perform.
+
+**Reopening is the 3c re-check, tied together.** When the brain (or corpus, or train logic) changes,
+`is_current` fails → the module goes stale → the next `train` re-runs graduation → the 3c re-check
+re-proves every rule and reshapes/drops on contradiction. So "a changed brain reopens refinement" and
+"judgment learns" are the SAME mechanism: the completion stamp detects the change, the 3c re-check acts on
+it. `lint_query rules <lang>` surfaces the state under `completion`: `complete` + a human `state`
+("COMPLETE (proven set at fixpoint against current knowledge)" vs "reopened (corpus or brain changed …)"),
+plus the snapshot (`train_version`, `sources_fp`, `brain_fp`, `trained_at`) via
+[`lint_train::module_completion`].
+
+**Tests:** the two fixpoint tests above; `re_training_over_an_unchanged_corpus_is_a_fixpoint`; the stale
+`docs-v0-ancient` module test still proves train-logic reopening end to end. `cargo test --lib` 225 green;
+gauntlets 21/3 green. TRAIN_VERSION → `docs-v87-fixpoint-complete` (every module retrains once and gains
+the `brain_fp` stamp).
+
 **POINT 2 — full-docs-read precondition (`lint_module::read_pass_complete`).** A language is graduated
 only after its read pass produced a page corpus (`raw_pages` non-empty — the read pass's own persisted
 output); a cold cache is an incomplete read and is not tested from. WHAT IT GATES TODAY: among this
@@ -1814,9 +1852,13 @@ blocker is dissolved and the blocker is now a single, well-specified classifier,
   the fresh graduation pass is the re-check; `merge_graduated` drops a contradicted rule (page re-read, no
   re-prove), retains a rule whose page left the corpus, and surfaces every drop in the footer. The ledger is
   no longer a silent retain-and-grow.
-- **3a (curriculum txt → markdown reading rung), 3d (fixpoint + COMPLETE), 3e (cleanup / one-architecture
-  consolidation)** — 3d/3e next; 3a not attempted this pass. Each is a full rung; attempting them
-  superficially would violate the honesty covenant.
+- **3d (FIXPOINT + COMPLETE)** — LANDED docs-v87 (subsection "Item 3d" above): fixpoint reached in ONE
+  iteration (graduation is deterministic; the 3c merge is idempotent — measured, not looped); modules carry
+  a `brain_fp` completion snapshot and reopen through the 3c re-check when the brain/corpus/logic changes;
+  `lint_query rules` surfaces the completion state.
+- **3a (curriculum txt → markdown reading rung), 3e (cleanup / one-architecture consolidation)** — 3e next;
+  3a not attempted this pass. Each is a full rung; attempting them superficially would violate the honesty
+  covenant.
 
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
