@@ -867,6 +867,89 @@ flip condition is not met. `doc_rules` stays on `rules_from_memory` (zero regres
 wired end to end over the fixed reading + gate + generation and flips the instant JS junk and the HTML
 identical-prose wall close.
 
+### Final closure pass — notecard proof, remedy-demonstration abstain, real speed bottleneck (2026-07-11)
+
+> Three measured gaps from the table above, closed. The frozen substrate (dictionary, `lint_corroborate`,
+> `lint_ism`, `lint_selftest` judging) is UNTOUCHED — the notecard path is a NEW graduation route BESIDE the
+> self-test, not an edit to it. Harness: `examples/web_module_train.rs`.
+
+**GAP 1 — the NOTECARD-AS-PROOF graduation path (owner ruling GRANTED 2026-07-11).** The self-test's English
+judge requires a genuinely discriminating foil. When a reference site publishes IDENTICAL deprecation
+boilerplate for every deprecated construct (MDN: "The `<X>` HTML element … Deprecated: This feature is no
+longer recommended"), the foil is degenerate BY CONSTRUCTION and that referee HONESTLY CANNOT APPLY — its
+own documented soundness condition. But the docs' stated truth is STRUCTURAL, not prose: the page's own
+deprecation NOTECARD marks its subject deprecated (a stated fact, not a predicted understanding). So for this
+class graduation is: (a) the page STRUCTURALLY ATTESTS deprecation of its OWN subject — a marked notecard
+region read site-general (`lint_lang_layer::has_deprecation_notecard` → `DocPage::attested_deprecated`; a
+`class="notecard deprecated"` banner / "no longer recommended" label, never a prose word-list); (b)
+`uses_construct(subject)` fires on ≥ `REQUIRED_REPS` distinct own/generated violations AND stays clean on a
+real near-miss; (c) the subject passed the URL-payload gate (already enforced at `propose`). Implemented in
+`lint_module::graduate` as `notecard_proven` — emitted ALONGSIDE the English `Verdict::Proven`, and generation
+now tops up an attested candidate's reps even with no derived advice (it graduates via the notecard, not the
+self-test). This route is ONLY for `attested_deprecated` pages; a rule page (distinguishable prose) always
+takes the English self-test. Result: `marquee`/`font`/`frameset`/`tt` graduate (html 2 → 7), and CSS's
+`box-orient`/`page-break-inside` — previously `TooFewReps`/`Contradicted` — graduate too (css 11 → 20).
+
+**GAP 2 — the REMEDY-DEMONSTRATION abstain (kills contextual bare-use junk), in `is_prohibited_subject`.** An
+UNCONDITIONAL ban's remedy example demonstrates the construct's ABSENCE: at least one `correct` block drops it
+(`var`→`let`, `==`→`===`, `eval`→`JSON.parse`, `with`→direct access). A CONTEXTUAL rule (`no-new`,
+`no-undefined`, `no-void`) forbids only a PATTERN, so EVERY one of its `correct` blocks STILL uses the
+construct — it demonstrates the construct's acceptable uses, not a replacement. So **a candidate whose every
+own `correct` example still fires the construct ABSTAINS.** Vacuous when there are no correct examples (a
+deprecated reference page), so CSS/HTML are untouched. MEASURED on the real crawl: `all_correct_fire` is TRUE
+for exactly `new`/`undefined`/`void` (dropped) and FALSE for every wanted classic — crucially `eval`'s
+`allowIndirect` "correct" reuses `eval`, but its `JSON.parse` correct is construct-free, so eval is soundly
+KEPT. This abstain lands at `propose`, BEFORE the expensive prove, so it is also a speed win.
+  - **The literal "fires widely on the idiomatic corpus" discriminator is FALSIFIED by the data and was NOT
+    used.** Measured fire-rate on the docs' own good/correct blocks: `var` (the flagship wanted rule) is the
+    SINGLE most idiomatic-firing construct (102/749 good blocks; 176/3325 bindings; 98/1508 reference), while
+    the contextual-junk operator `??` is among the RAREST (4/749). `var` is legacy-ubiquitous — ESLint teaches
+    var-is-bad USING var. No monotone corpus-fire cut separates {var,==,eval,with} from the junk. The
+    remedy-demonstration test is the sound version of the same idea ("stays clean on the docs' OWN known-good
+    code" = "the rule's remedy demonstrates the construct's absence"), which var/eval pass and the junk fails.
+  - **Residual JS junk = `??` and `console`, an HONEST documented limit.** `??` (no-constant-binary-expression)
+    and `console` (no-console) are MIXED — some `correct` blocks fire, some don't — structurally IDENTICAL to
+    `==`/`eval` (operator/keyword, all-incorrect-fire, one exception-correct that fires). No example-firing
+    test can drop them without losing the wanted `==`/`eval`. `console` is a defensible bare-use ban (no-console
+    is a real rule; its remedy set includes a console-free correct). `??` is genuine junk with no structural
+    discriminator: dropping it would require reading no-constant-binary-expression's prose to see the rule is
+    about CONSTANT operands, not `??` — beyond the structural gate. NONE of the residual fires on the good file.
+
+**GAP 3 — the real training bottleneck is `prove`, NOT harvest (memory-note premise corrected).** PROFILED: the
+harvest scan the prior note blamed is ~0.05 s total for JS (a token pre-filter, then a parse only where the
+construct's text appears). The dominant cost is the frozen `lint_selftest::prove` — ~0.1–0.26 s PER REP of
+English reconciliation (`corroborates` over the meaning graph), and `prove` folds EVERY sample (no
+short-circuit, since a late `Mismatch` is fatal). Two honest levers, neither touching frozen code: (i) the GAP-2
+abstain removes `new`/`undefined`/`void` from the candidate set BEFORE their proves (`new` alone was 7.9 s,
+`void` 8.3 s); (ii) `PROVE_SAMPLE_CAP` cut 30 → `REQUIRED_REPS + 4` (graduation needs only the rep floor; the
+margin absorbs undecidables) roughly halves each remaining prove. Building a token→blocks harvest index (the
+note's suggestion) was NOT done — it targets a 0.05 s non-bottleneck. Result: JS 35.8 s → 13.5 s, total
+40.5 s → 18.8 s. Honest: 13.5 s is "seconds" but not single-digit; the residue is `propose` (~4 s of
+`Bridge::constructs_named` meaning alignment) + the frozen per-rep English cost of the surviving candidates —
+both largely irreducible without touching the frozen substrate.
+
+**MEASURED after the closure pass (2026-07-11, shared crawl 3054 pages, `examples/web_module_train.rs`):**
+
+| lang | candidates | PROVEN | wanted-graduated | junk | train | acceptance |
+|------|-----------|--------|------------------|------|-------|-----------|
+| javascript | 13 | 6 | `var` `==` `eval` `with` (all 4) | 2 (`??` `console`) | 13.5 s | bad flags var/==/eval/with; **good file CLEAN (zero)** |
+| css | 20 | 20 | `box-orient` `page-break-after` `text-decoration-skip` | 0 | 3.7 s | bad flags 3/3; good CLEAN |
+| html | 7 | 7 | `font` `marquee` `frameset` `tt` (via notecard) | 0 | 1.5 s | bad flags 5 (font/frame/frameset/marquee/tt); good CLEAN |
+
+- **`document.write` (JS) and `center` (HTML) are ATTRIBUTION-COVERAGE GAPS, not logic failures.** `center`'s
+  MDN page IS crawled and reads correctly (`attested_deprecated`, construct `center`), but no `center` binding
+  is in html's read `Memory`, so `lang_pages` excludes the page from the html partition. Same class as
+  `document.write` (no Web-API page crawled). Reported with evidence, never faked; out of the closure scope
+  (no new crawling).
+
+**Seam decision: STILL HELD (one leg fails).** CSS is clean (20/0), HTML now graduates its attested
+deprecations cleanly (7/0, good file zero), and all three good files are zero — but JS is not strictly
+zero-junk: `??` is a genuine over-inclusion with NO structural discriminator (measured indistinguishable from
+the wanted `==`). Per the flip contract (zero-junk on all three), `doc_rules` stays on `rules_from_memory`
+(zero regression); `graduated_rules` remains wired end to end and flips the instant a prose-reading discriminator
+separates `??`/contextual-operators from genuine operator bans. The closure pass is committed as the working
+parts (notecard path, remedy-demonstration abstain, prove-cost cut) with `cargo test --lib` green (211).
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten

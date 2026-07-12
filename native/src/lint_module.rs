@@ -30,9 +30,13 @@ use crate::linter::LearnedRule;
 const MAX_HARVEST_BLOCKS: usize = 4000;
 
 /// How many violating blocks the frozen [`prove`] loop is run over per candidate — a bound on the
-/// book-sweep cost, generous above [`REQUIRED_REPS`] so undecidable/mismatch reps still leave a graduating
-/// margin. The Outcome reports the TRUE violating count; only the proof sample is capped.
-const PROVE_SAMPLE_CAP: usize = 30;
+/// book-sweep cost. Graduation needs only ≥ [`REQUIRED_REPS`] corroborations, and [`prove`] does not
+/// short-circuit (it folds EVERY sample, since a late `Mismatch` is fatal), so the per-rep English
+/// reconciliation (~0.1–0.26 s each, MEASURED) is the training's dominant cost. Capping at the rep floor
+/// plus a small margin (which absorbs undecidable/near-miss reps) roughly HALVES the prove sweep versus a
+/// cap of 30 without changing any measured verdict — the four wanted JS classics still graduate. The
+/// Outcome reports the TRUE violating count; only the proof sample is capped.
+const PROVE_SAMPLE_CAP: usize = REQUIRED_REPS + 4;
 
 /// How many clean corpus blocks self-generation ([`generate_violations`]) may splice into — a bound that
 /// keeps the top-up's `run_plan` sweep in the seconds budget while being ample to reach the rep floor from
@@ -60,6 +64,11 @@ pub struct Candidate {
     /// corpus is too scarce to reach the rep floor. Empty for a deprecated reference page (no examples);
     /// then carriers are synthesized by splicing the construct into the corpus.
     pub seeds: Vec<String>,
+    /// Whether the origin page STRUCTURALLY ATTESTS this construct as deprecated (a reference page with a
+    /// deprecation notecard — [`crate::lint_lang_layer::DocPage::attested_deprecated`]). Such a candidate
+    /// may graduate via the NOTECARD PATH when the English self-test cannot apply (degenerate identical
+    /// deprecation prose across a site's pages), because the notecard is a STATED structural fact.
+    pub attested_deprecated: bool,
 }
 
 /// The outcome of putting one candidate through the frozen loop — reported whether it graduated or
@@ -75,8 +84,11 @@ pub struct Outcome {
     pub clean: usize,
     /// The frozen loop's verdict over the harvested reps.
     pub verdict: Verdict,
-    /// The proven rule ready for the module (`Some` iff `verdict` is `Proven` and a clean near-miss
-    /// existed to contrast against), paired with its source url.
+    /// The graduated rule ready for the module, paired with its source url. `Some` iff the candidate
+    /// graduated AND a clean near-miss existed to contrast against — either the English self-test proved it
+    /// (`verdict == Proven`), or the NOTECARD PATH did (a structurally-attested deprecation that fired
+    /// ≥ `REQUIRED_REPS` with a near-miss, whose degenerate identical prose the English judge could not
+    /// apply). For a notecard graduation `verdict` stays the honest English result (often `Contradicted`).
     pub rule: Option<(LearnedRule, String)>,
 }
 
@@ -395,6 +407,7 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
                 understanding: best.sentence.clone(),
                 url: p.url.clone(),
                 seeds,
+                attested_deprecated: p.attested_deprecated,
             });
         }
     }
@@ -418,9 +431,29 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
 ///   remedy demonstration — `no-self-compare` ships NONE, so its incidental `===` abstains), the operator
 ///   fires on EVERY incorrect example, and NOT on the PRIMARY correct (the remedy drops it; later correct
 ///   blocks are option exceptions like eqeqeq `smart` `x == null`, so PRIMARY not ALL).
+///
+/// **The REMEDY-DEMONSTRATION discriminator (kills the CONTEXTUAL bare-use junk `new`/`undefined`/`void`).**
+/// An UNCONDITIONAL ban's remedy example demonstrates the construct's ABSENCE — at least one `correct`
+/// block drops the construct (`var`→`let`, `==`→`===`, `eval`→`JSON.parse`, `with`→direct access). A
+/// CONTEXTUAL rule (`no-new`, `no-undefined`, `no-void`) forbids only a PATTERN, so EVERY one of its
+/// `correct` blocks STILL uses the construct — it is demonstrating the construct's acceptable uses, not
+/// replacing it. So a candidate whose every own `correct` example still fires the construct is contextual
+/// and ABSTAINS. MEASURED (2026-07-11): this is TRUE for exactly `new`/`undefined`/`void` and FALSE for
+/// every wanted classic — `eval`'s `allowIndirect` "correct" reuses `eval` but its `JSON.parse` correct is
+/// construct-free, so eval is (soundly) kept. A deprecated REFERENCE page has NO correct examples (this
+/// test is vacuous there), so CSS/HTML deprecations are unaffected. The residual mixed-pattern junk
+/// (`??` on no-constant-binary-expression, `console` on no-console) fires on SOME correct and not others —
+/// structurally IDENTICAL to `==`/`eval`, so no example-firing test can drop it without losing the wanted
+/// operators; that is an honest, documented limit, not a gate to widen.
 fn is_prohibited_subject(lang: &str, url: &str, construct: &str, incorrect: &[String], correct: &[String]) -> bool {
     let plan = Plan::UsesConstruct { construct: construct.to_string() };
     let fires = |b: &str| !run_plan(&plan, lang, b).is_empty();
+    // Contextual bare-use ABSTAIN: every remedy example still uses the construct ⇒ the rule demonstrates
+    // acceptable uses, not a replacement ⇒ not an unconditional ban. Vacuous when there are no correct
+    // examples (a deprecated reference page), so it never touches the notecard-attested CSS/HTML class.
+    if !correct.is_empty() && correct.iter().all(|g| fires(g)) {
+        return false;
+    }
     if is_operator(construct) {
         if correct.is_empty() || incorrect.is_empty() {
             return false;
@@ -524,7 +557,7 @@ pub fn graduate(
         // (LINTER.md → the two walls → Fix 2). Harvested reps stay primary; generation only supplies count.
         // Skipped when the candidate has no derived advice — it cannot graduate anyway, so generating reps
         // for it is wasted `run_plan` sweeps (the training-time cut that keeps the workflow in seconds).
-        if advices[i].is_some() && violating.len() < REQUIRED_REPS {
+        if (advices[i].is_some() || cand.attested_deprecated) && violating.len() < REQUIRED_REPS {
             let contexts: Vec<&str> = clean.iter().take(GENERATE_CONTEXT_CAP).copied().collect();
             for g in generate_violations(lang, &cand.construct, &cand.seeds, &contexts) {
                 if !violating.iter().any(|v| v == &g) {
@@ -566,9 +599,25 @@ pub fn graduate(
             }),
         };
 
-        // EMIT: a proven candidate with a clean near-miss to contrast against becomes a module rule
-        // in the shape `RuleSet::build` compiles into a firing detector (bad ∧ ¬good).
-        let rule = if matches!(verdict, Verdict::Proven) {
+        // NOTECARD GRADUATION PATH (LINTER.md → the notecard-as-proof route, owner ruling 2026-07-11).
+        // When the origin page STRUCTURALLY ATTESTS its subject deprecated (a reference notecard) AND a
+        // reference site publishes IDENTICAL deprecation boilerplate for every such construct, the English
+        // self-test's foil is degenerate BY CONSTRUCTION — the frozen comparator honestly cannot apply
+        // (`Contradicted`/undecidable on indistinguishable prose). The page's own notecard is a STATED
+        // structural fact, not a predicted understanding, so it graduates the rule directly on the three
+        // structural conditions the self-test would otherwise stand in for: (a) the notecard attests the
+        // page's OWN subject deprecated (`attested_deprecated`); (b) `uses_construct(subject)` fires on
+        // ≥ REQUIRED_REPS distinct own/generated violations AND stays clean on a real near-miss; (c) the
+        // subject passed the URL-payload gate (already enforced at `propose`, so every candidate reaching
+        // here satisfies it). This route is ONLY for structurally-attested deprecations; a rule page
+        // (`attested_deprecated == false`) always takes the English self-test.
+        let notecard_proven =
+            cand.attested_deprecated && violating.len() >= REQUIRED_REPS && !clean.is_empty();
+
+        // EMIT: a graduated candidate (English self-test PROVEN, or notecard-proven) with a clean near-miss
+        // to contrast against becomes a module rule in the shape `RuleSet::build` compiles into a firing
+        // detector (bad ∧ ¬good).
+        let rule = if matches!(verdict, Verdict::Proven) || notecard_proven {
             let bad = violating.iter().min_by_key(|b| b.len()).map(|b| b.to_string());
             let good = clean.iter().min_by_key(|b| b.len()).map(|b| b.to_string());
             match (bad, good) {
