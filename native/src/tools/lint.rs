@@ -540,6 +540,19 @@ pub fn run(args: &Value) -> ToolResult {
             ));
         }
     }
+    // Item 3c — contradiction-driven reshape: a proven rule whose source page was re-read this run and
+    // failed to re-prove is DROPPED, never silently kept. Name each one so judgment learning is visible.
+    if !report.contradicted.is_empty() {
+        let mut names: Vec<String> =
+            report.contradicted.iter().map(|(lang, what)| format!("{lang}: {what}")).collect();
+        names.sort();
+        names.dedup();
+        run_footer.push_str(&format!(
+            "\nReshaped this run — a previously-proven rule was re-read from its own docs and no longer \
+             re-proves, so it was dropped: {}.\n",
+            names.join("; ")
+        ));
+    }
     let feedback_footer = render_feedback(&root, &auto_suppressed);
     let (mut body, fresh_updates, _quarantined, law_watch_block) = fire_shape_render(
         &root,

@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v85-cross-page-invariance-chrome";
+pub(crate) const TRAIN_VERSION: &str = "docs-v86-contradiction-reshape";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -173,7 +173,7 @@ impl LearnedCatalog {
 
     /// The catalog's rules and reference corpus: queried from the association memory when present
     /// (reading IS the knowledge), else the pre-extracted tuples an older module shipped.
-    fn doc_rules(&self, lang: &str, data_root: &Path) -> (Vec<DocRule>, Vec<String>) {
+    fn doc_rules(&self, lang: &str, data_root: &Path) -> (Vec<DocRule>, Vec<String>, Vec<Contradiction>) {
         match &self.memory {
             Some(memory) => {
                 // THE FLIP (2026-07-11, LINTER.md "The flip pass"): a language's MODULE rules are the
@@ -187,10 +187,10 @@ impl LearnedCatalog {
                 // so no other language's rules disappear. MEASURED 2026-07-11: javascript 5 / css 31 /
                 // html 8 flip to the proven set; typescript 1, rust 0 keep the miner. Behavioral scope,
                 // no language named. The workflow's per-language measurement is `examples/web_module_train.rs`.
-                let graduated = crate::lint_module::graduated_rules(lang, memory);
-                let flip = graduated.len() >= GRADUATED_MODULE_FLOOR;
+                let module = crate::lint_module::graduated_rules(lang, memory);
+                let flip = module.rules.len() >= GRADUATED_MODULE_FLOOR;
                 let source_rules = if flip {
-                    graduated
+                    module.rules
                 } else {
                     crate::lint_docs::rules_from_memory(lang, memory)
                 };
@@ -207,21 +207,26 @@ impl LearnedCatalog {
                         construct: r.construct,
                     })
                     .collect();
-                // PROVEN-STATE PERSISTENCE (owner correction 2026-07-12, point 4): a flip language's module
-                // RETAINS every construct rule proven in a past retrain, so a crawl-subset that under-covers
-                // a construct never silently drops it below the floor. The write side ([`persist_graduated_ledger`])
-                // runs after the module is built. SOURCE-SCOPED (owner directive 2026-07-12): a retained rule
-                // whose source is no longer a registered documentation source for this language is DROPPED
-                // ([`registered_ledger`]) — an owner-removed source (a third-party linter catalog) cannot leak
-                // its proven rules back through the ledger. Structural (host match against the registry), no
-                // domain name in code.
+                // PROVEN-STATE PERSISTENCE + CONTRADICTION-DRIVEN RESHAPE (owner corrections 2026-07-12,
+                // points 4 and 3c). A flip language's module RETAINS every construct rule proven in a past
+                // retrain whose source page LEFT this crawl's corpus (retain-and-grow); a rule whose page is
+                // STILL in the corpus but did not re-prove this crawl is a CONTRADICTION and is DROPPED, never
+                // silently kept ([`merge_graduated`] — the fresh pass IS the re-check). SOURCE-SCOPED (owner
+                // directive 2026-07-12): a retained rule whose source is no longer a registered documentation
+                // source for this language is DROPPED first ([`registered_ledger`]) — an owner-removed source
+                // (a third-party linter catalog) cannot leak its proven rules back through the ledger.
+                // Structural (host match against the registry), no domain name in code. The write side
+                // ([`persist_graduated_ledger`]) runs after the module is built.
+                let mut contradictions = Vec::new();
                 if flip {
                     let prior = registered_ledger(data_root, lang, load_graduated_ledger(lang));
-                    rules = merge_graduated(rules, prior);
+                    let (merged, dropped) = merge_graduated(rules, prior, &module.corpus_urls);
+                    rules = merged;
+                    contradictions = dropped;
                 }
-                (rules, memory.reference.clone())
+                (rules, memory.reference.clone(), contradictions)
             }
-            None => (self.rules.clone(), self.reference.clone()),
+            None => (self.rules.clone(), self.reference.clone(), Vec::new()),
         }
     }
 }
@@ -256,6 +261,18 @@ pub struct TrainReport {
     /// `HELPERS_LINT_OFFLINE` switch simulated it): whatever is `unlearned` stayed that way
     /// because the wire was down, so the report asks to reconnect instead of to rephrase.
     pub net_down: bool,
+    /// Ledger rules DROPPED this run because their source page was re-read and the rule failed to
+    /// re-prove (Item 3c — contradiction-driven reshape). Recorded as `(language, "construct @ source")`
+    /// so a contradiction is surfaced, never a silent drop.
+    pub contradicted: Vec<(String, String)>,
+}
+
+/// Record every contradiction a language's [`LearnedCatalog::doc_rules`] re-check dropped, so the run
+/// report can surface it (Item 3c — never a silent drop). No-op when the re-check found none.
+fn record_contradictions(report: &mut TrainReport, lang: &str, contradictions: Vec<Contradiction>) {
+    for (id, source) in contradictions {
+        report.contradicted.push((lang.to_string(), format!("{id} @ {source}")));
+    }
 }
 
 /// Ensure a fresh, cached compiled [`RuleSet`] exists for each requested language, learning from the
@@ -1108,21 +1125,42 @@ fn load_graduated_ledger(lang: &str) -> Vec<DocRule> {
     Vec::<DocRule>::dec(&mut d).unwrap_or_default()
 }
 
-/// RETAIN-AND-GROW merge of freshly-graduated construct rules with the persisted ledger (owner point 4):
-/// every construct proven THIS crawl is kept (fresh wins on the same construct id — a reshape), and every
-/// construct proven in a PAST retrain that this crawl did not re-prove is RETAINED, so a crawl-subset that
-/// under-covers a construct never silently drops a rule proven before (MEASURED motivation: eqeqeq
-/// graduated on one crawl, fell below the floor on the next). Keyed by the byte-preserved construct id
-/// (point 1). Only a genuine contradiction should reshape a prior rule; that reshape is the remaining step
-/// — today the merge never DROPS a proven rule (retain-and-grow, never re-earned from scratch).
-fn merge_graduated(mut fresh: Vec<DocRule>, prior: Vec<DocRule>) -> Vec<DocRule> {
+/// One dropped ledger rule: its byte-preserved construct id and the source page whose re-check
+/// contradicted it — recorded so a contradiction is NEVER a silent drop (LINTER.md → Item 3c).
+type Contradiction = (String, String);
+
+/// CONTRADICTION-DRIVEN RESHAPE merge of freshly-graduated construct rules with the persisted ledger
+/// (owner correction 2026-07-12, Item 3c — judgment LEARNS, the missing half of point 4). The fresh
+/// graduation pass IS the re-check: it re-ran the blind self-generated loop over the CURRENT (grown)
+/// brain + corpus. So for each PRIOR ledger rule, keyed by its byte-preserved construct id (point 1):
+/// - **Re-proven** — its construct is in `fresh`: fresh WINS (a reshaped understanding from the grown
+///   brain replaces the old one; the stamp refreshes on the next persist). Agreement, retained.
+/// - **Contradiction** — its construct is ABSENT from `fresh` but its `source` page is STILL in
+///   `corpus_urls`: the page was re-read and re-tested this crawl and the rule FAILED to re-prove. Never
+///   a silent keep — the rule is DROPPED and the contradiction is recorded for the caller to surface.
+/// - **Unrefreshed retain** — its construct is absent from `fresh` AND its `source` page has LEFT the
+///   corpus (a subset crawl that did not fetch it): the last proof is RETAINED (retain-and-grow), never
+///   re-litigated against a corpus that never saw it (the MEASURED eqeqeq subset-variance case).
+///
+/// Returns the merged rule set and every contradiction dropped, so nothing vanishes silently.
+fn merge_graduated(
+    mut fresh: Vec<DocRule>,
+    prior: Vec<DocRule>,
+    corpus_urls: &std::collections::HashSet<String>,
+) -> (Vec<DocRule>, Vec<Contradiction>) {
     let have: std::collections::HashSet<String> = fresh.iter().map(|r| r.id.clone()).collect();
+    let mut dropped = Vec::new();
     for p in prior {
-        if !have.contains(&p.id) {
-            fresh.push(p);
+        if have.contains(&p.id) {
+            continue; // re-proven this crawl — fresh (possibly reshaped) already carries it
+        }
+        if corpus_urls.contains(&p.source) {
+            dropped.push((p.id, p.source)); // page re-read, rule did not re-prove — contradiction
+        } else {
+            fresh.push(p); // page left the corpus — retain the last proof, unrefreshed
         }
     }
-    fresh
+    (fresh, dropped)
 }
 
 /// Drop ledger rules whose SOURCE is no longer a registered documentation source for `lang` (owner
@@ -1474,8 +1512,9 @@ fn resolve_rules(
     if !refresh {
         if let Some(cat) = load_cache(lang) {
             if cat.current(version, &sources_fp) {
-                let (rules, reference) = cat.doc_rules(lang, data_root);
+                let (rules, reference, contradictions) = cat.doc_rules(lang, data_root);
                 if !rules.is_empty() {
+                    record_contradictions(report, lang, contradictions);
                     let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
                     let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
                     return (rules, reference, exts, format!("cache:{}", cat.learned_from), flagged);
@@ -1513,7 +1552,8 @@ fn resolve_rules(
             reference: Vec::new(),
             memory: Some(memory),
         };
-        let (rules, reference) = cat.doc_rules(lang, data_root);
+        let (rules, reference, contradictions) = cat.doc_rules(lang, data_root);
+        record_contradictions(report, lang, contradictions);
         // Reading IS the module (LINTER.md): a descriptive spec that yields ZERO prohibition
         // rules still delivers the reference corpus and comprehension — the language is set
         // up, not "unlearned". Only a source that could not be READ falls through.
@@ -2530,6 +2570,67 @@ fn file_state(p: &Path) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    use super::{merge_graduated, DocRule};
+
+    /// A minimal ledger-shaped [`DocRule`] keyed by construct `id` and its `source` page.
+    fn ledger_rule(id: &str, source: &str) -> DocRule {
+        DocRule {
+            id: id.to_string(),
+            slice: "medium".into(),
+            severity: "medium".into(),
+            description: format!("Never use `{id}`."),
+            bad: format!("{id} x;"),
+            good: "y;".into(),
+            source: source.into(),
+            construct: Some(id.to_string()),
+        }
+    }
+
+    /// Item 3c — the re-check's three outcomes, driven by a PERTURBED corpus. The fresh pass carries
+    /// only `A` (re-proven). Two prior ledger rules — `B` whose page is still in the corpus (a
+    /// contradiction: re-read, did not re-prove) and `C` whose page has LEFT the corpus (a subset
+    /// crawl) — must resolve as DROP and RETAIN respectively, and never the reverse.
+    #[test]
+    fn merge_drops_a_contradicted_rule_and_retains_one_whose_page_left_the_corpus() {
+        let fresh = vec![ledger_rule("A", "https://docs.test/a")];
+        let prior = vec![
+            ledger_rule("B", "https://docs.test/b"),
+            ledger_rule("C", "https://docs.test/c"),
+        ];
+        // The PERTURBATION: B's page is still read this crawl (so its absence from `fresh` is a genuine
+        // failure to re-prove); C's page was NOT fetched this crawl.
+        let corpus: std::collections::HashSet<String> =
+            ["https://docs.test/a", "https://docs.test/b"].iter().map(|s| s.to_string()).collect();
+
+        let (merged, dropped) = merge_graduated(fresh, prior, &corpus);
+        let kept: std::collections::HashSet<&str> = merged.iter().map(|r| r.id.as_str()).collect();
+
+        assert!(kept.contains("A"), "re-proven rule retained (fresh wins)");
+        assert!(!kept.contains("B"), "contradicted rule (page re-read, no re-prove) DROPPED");
+        assert!(kept.contains("C"), "rule whose page left the corpus RETAINED (retain-and-grow)");
+        assert_eq!(
+            dropped,
+            vec![("B".to_string(), "https://docs.test/b".to_string())],
+            "the contradiction is recorded, never a silent drop"
+        );
+    }
+
+    /// The reshape half: when the fresh pass RE-PROVES a construct with a changed understanding, the
+    /// fresh (reshaped) rule WINS over the stale ledger copy — never the old text kept, never a duplicate.
+    #[test]
+    fn merge_lets_a_reshaped_fresh_rule_win_over_the_stale_ledger_copy() {
+        let mut reshaped = ledger_rule("A", "https://docs.test/a");
+        reshaped.description = "A reshaped understanding of `A`.".into();
+        let prior = vec![ledger_rule("A", "https://docs.test/a")]; // stale text, same construct id
+        let corpus: std::collections::HashSet<String> =
+            ["https://docs.test/a"].iter().map(|s| s.to_string()).collect();
+
+        let (merged, dropped) = merge_graduated(vec![reshaped], prior, &corpus);
+        assert_eq!(merged.len(), 1, "no duplicate — one construct, one rule");
+        assert_eq!(merged[0].description, "A reshaped understanding of `A`.", "fresh reshape wins");
+        assert!(dropped.is_empty(), "a re-proven reshape is agreement, not a contradiction");
+    }
+
     /// Law is found from a SUBDIRECTORY: a project's `.helpers/lint-rules` and root `lintPref`
     /// govern a lint run rooted deep inside the project, and the walk stops at the repo root.
     #[test]
