@@ -31,6 +31,92 @@ fn decode_crawl(bytes: &[u8]) -> Option<Vec<(String, String)>> {
     Some(pages)
 }
 
+/// Approximate the crawl's own per-page language attribution by URL shape — ONLY so this throwaway
+/// harness can partition the cached pages when no per-language read `Memory` is on this machine. The
+/// live path uses the real binding attribution; this is a measurement stand-in, never shipped logic.
+fn url_lang(url: &str) -> Option<&'static str> {
+    let u = url.to_lowercase();
+    if u.contains("eslint.org") {
+        return Some("javascript");
+    }
+    if u.contains("/docs/web/javascript") {
+        return Some("javascript");
+    }
+    if u.contains("/docs/web/css") {
+        return Some("css");
+    }
+    if u.contains("/docs/web/html") || u.contains("w3schools") {
+        return Some("html");
+    }
+    None
+}
+
+/// Pull every `<code>…</code>` interior from a page body — a crude harvest-corpus reconstruction for
+/// TIMING ONLY (the shipped harvest reads `memory.reference`). Not covenant-clean; a measurement prop.
+fn code_interiors(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    // ASCII-lowercased byte copy: same length as the UTF-8 bytes (ASCII-only fold), so byte offsets
+    // found here index `body` on char boundaries wherever the markers are ASCII.
+    let lb: Vec<u8> = body.bytes().map(|b| b.to_ascii_lowercase()).collect();
+    let find = |from: usize, needle: &[u8]| -> Option<usize> {
+        if from > lb.len() {
+            return None;
+        }
+        lb[from..].windows(needle.len()).position(|w| w == needle).map(|p| from + p)
+    };
+    let mut i = 0;
+    while let Some(open) = find(i, b"<code") {
+        let Some(gt) = find(open, b">").map(|g| g + 1) else { break };
+        let Some(close) = find(gt, b"</code>") else { break };
+        if !body.is_char_boundary(gt) || !body.is_char_boundary(close) {
+            i = open + 5;
+            continue;
+        }
+        let raw = &body[gt..close];
+        // strip any nested tags (Prism spans) — keep text
+        let mut txt = String::new();
+        let mut intag = false;
+        for ch in raw.chars() {
+            match ch {
+                '<' => intag = true,
+                '>' => intag = false,
+                _ if !intag => txt.push(ch),
+                _ => {}
+            }
+        }
+        let txt = txt
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"");
+        if txt.trim().len() >= 2 {
+            out.push(txt.trim().to_string());
+        }
+        i = close + 7;
+    }
+    out
+}
+
+/// Reconstruct a harvest `Memory` for `lang` from the cached crawl pages when this machine holds no
+/// read `Memory` (the owner's per-language catalogs are absent here). `bindings` stays EMPTY — with no
+/// bindings `lint_module::lang_pages` keeps exactly the pages passed in, so the caller controls the
+/// partition — and `reference` is the harvested code corpus. Measurement scaffolding only.
+fn reconstruct_memory(lang: &str, pages: &[(String, String)]) -> helpers_native::lint_read::Memory {
+    let mut mem = helpers_native::lint_read::Memory::default();
+    let mut seen = std::collections::HashSet::new();
+    for (url, body) in pages {
+        if url_lang(url) != Some(lang) {
+            continue;
+        }
+        for block in code_interiors(body) {
+            if seen.insert(block.clone()) {
+                mem.reference.push(block);
+            }
+        }
+    }
+    mem
+}
+
 fn all_pages() -> Vec<(String, String)> {
     let home = std::env::var("HOME").unwrap();
     let dir = format!("{home}/.cache/helpers/lint-index/crawls");
@@ -84,12 +170,25 @@ fn main() {
 
     let mut total = std::time::Duration::ZERO;
     for lang in ["javascript", "css", "html"] {
-        let Some(memory) = lint_train::cached_memory(lang) else {
-            println!("== {lang}: no cached memory\n");
-            continue;
-        };
+        // Prefer the real per-language read Memory; fall back to a harvest reconstruction from the
+        // cached crawls (measurement only) when this machine holds no catalog.
+        let (memory, lang_pages): (helpers_native::lint_read::Memory, Vec<(String, String)>) =
+            match lint_train::cached_memory(lang) {
+                Some(mem) => (mem, pages.clone()),
+                None => {
+                    let mem = reconstruct_memory(lang, &pages);
+                    let subset: Vec<(String, String)> =
+                        pages.iter().filter(|(u, _)| url_lang(u) == Some(lang)).cloned().collect();
+                    println!(
+                        "== {lang}: reconstructed harvest memory ({} ref blocks, {} partition pages)",
+                        mem.reference.len(),
+                        subset.len()
+                    );
+                    (mem, subset)
+                }
+            };
         let t = Instant::now();
-        let outcomes = lint_module::graduate(lang, &pages, &memory, m, en);
+        let outcomes = lint_module::graduate(lang, &lang_pages, &memory, m, en);
         let elapsed = t.elapsed();
         total += elapsed;
         let proven: Vec<&Outcome> = outcomes.iter().filter(|o| o.rule.is_some()).collect();

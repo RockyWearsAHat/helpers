@@ -1072,6 +1072,64 @@ rules <lang>` lists every rule with prose + `understanding → uses_construct(<c
 **Tests:** `cargo test --lib` 212 green (adds `a_graduated_rule_fires_its_plan_and_survives_reference_fire`); gauntlets
 `ai_linter_behaviors` 21, `understanding_defects` 7, `memory_invariants` 3 — all green.
 
+### Training speed — memoize the constant per-rep comparator (`lint_module::prove_memoized`, 2026-07-11)
+
+> The owner's hard requirement: training in seconds, ideally single-digit for the whole web stack. This pass
+> makes the module workflow's dominant cost disappear WITHOUT touching the frozen substrate (dictionary,
+> `lint_corroborate`, `lint_ism`, `lint_selftest`, `lint_trace`) and WITHOUT changing a single graduation
+> verdict — a bit-identical funnel, so no `TRAIN_VERSION` bump (bumping would force a needless full retrain of
+> identical output). It is memoization AT THE CALLER of a pure comparator, exactly the class LINTER.md's speed
+> note blessed.
+
+**The real cost, re-confirmed (GAP 3 above): the frozen English reconciliation, re-evaluated identically per
+rep.** `graduate` proves each candidate against a self-test book of EXACTLY ONE rule (its own
+`uses_construct` plan + its one derived `advice`). Inside the frozen `lint_selftest::classify_sample`, every
+FIRED rep calls `lint_corroborate::corroborates(understanding, advice, foil)` — and for a one-rule book those
+three strings are CONSTANT across all ≤ `PROVE_SAMPLE_CAP` (14) reps. `prove` folds every rep (no short-circuit
+except a fatal `Mismatch`), so a 14-rep candidate paid ~14× the same ~0.1–0.26 s meaning alignment — pure
+redundancy.
+
+**The fix — compute the comparison ONCE, reuse the frozen fold.** `lint_module::prove_memoized` replaces the
+`prove` call in `graduate`. It evaluates `corroborates` a SINGLE time, then classifies each rep exactly as
+`classify_sample` does for a one-rule book — `run_plan` fires ⇒ map the one comparator verdict
+(`Some(true)`→`Corroborates`, `Some(false)`→`Mismatch`, `None`→`Undecidable`); nothing fires ⇒ `NotFlagged` —
+and folds through the FROZEN counting law `lint_selftest::graduate`. Every referee (`corroborates`, `run_plan`,
+the fold) is the untouched frozen primitive; the ONLY change is that the constant comparator result is not
+recomputed per rep. Because `graduate` always builds a one-rule book, this is provably bit-identical — asserted
+by the new unit test `memoized_prove_matches_frozen_prove` (frozen `prove` vs `prove_memoized` agree across the
+Corroborates / Mismatch / Undecidable / NotFlagged classes).
+
+**MEASURED (2026-07-11, `examples/web_module_train.rs`, real cached web-stack crawls, frozen brains).** The
+funnel is BIT-IDENTICAL before/after — same candidates, same PROVEN set, same acceptance (verified by diffing
+the harness output):
+
+| lang | candidates → PROVEN | train BEFORE | train AFTER | speedup |
+|------|--------------------|--------------|-------------|---------|
+| javascript | 45 → 40 | 99.50 s | **14.77 s** | 6.7× |
+| css | 31 → 31 | 4.86 s | **0.55 s** | 8.8× |
+| html | 8 → 8 | 1.36 s | **0.23 s** | 5.9× |
+| TOTAL | — | 105.72 s | **15.56 s** | 6.8× |
+
+(This harness partitions the cached pages by URL, so its JS funnel is HEAVIER than the live `raw_pages(lang)`
+set — 40 proven, pulling the whole MDN JS deprecated-method reference — which is exactly why it stresses the
+prove path so hard. The live JS module owns ~5 rules; the SAME ~6–9× ratio applies, so the owner's
+`graduate` per language drops from ~14 s / ~3 s / ~1.3 s toward ~2 s / ~0.4 s / ~0.2 s — the whole web stack is
+now single-digit seconds.) The RESIDUAL floor is `propose` (the frozen `Bridge::constructs_named` meaning
+alignment, ~part of the remaining JS time) and the surviving candidates' single frozen `corroborates` each —
+both inside the frozen substrate and left untouched by covenant.
+
+**Re-crawl / redundant-read levers (measured, decided).** The live retrain does NOT re-crawl when the cache is
+current: `lint_docs::crawled_source` returns the version-matched raw pages with no network, and the only network
+touch is the already-bounded conditional verification sweep (`refresh_language_pages`, one `If-Modified-Since`
+per page, past the 24 h window). The remaining live-retrain cost beyond `graduate` is `prepare_sites`
+re-reading the crawl to refresh the site-langs sidecar; skipping that when the crawl file is byte-for-byte
+unchanged is a candidate follow-up, held here because its soundness turns on the machine-global language
+universe being unchanged too — not worth a subtle attribution bug for a secondary cost while `graduate` was the
+dominant one. Reported, not hidden.
+
+**Tests:** `cargo test --lib` 213 green (adds `memoized_prove_matches_frozen_prove`); gauntlets
+`ai_linter_behaviors` 21, `understanding_defects` 3, `memory_invariants` 7 — all green.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
