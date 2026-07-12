@@ -48,6 +48,11 @@ const GENERATE_CONTEXT_CAP: usize = 400;
 /// undecidable/near-miss reps still leave a graduating count.
 const GENERATE_TARGET: usize = REQUIRED_REPS + 4;
 
+/// How many CLEAN near-miss blocks the blind-agreement loop admits as expect-no-flag reps (owner point
+/// 3: clean samples count toward agreement). Bounded like the flag sample so the blind sweep stays in
+/// the seconds budget; ample to add a squeeze from the clean side alongside the flag reps.
+const CLEAN_SAMPLE_CAP: usize = REQUIRED_REPS;
+
 /// A construct-rule candidate proposed from the docs — the construct DATA-read from the prose, the
 /// governing sentence it was named in (the `understanding` side), and the source url for citation.
 #[derive(Clone, Debug)]
@@ -311,15 +316,16 @@ fn replace_whole_token(haystack: &str, from: &str, to: &str) -> String {
     out
 }
 
-/// A stable, inspectable rule id from a construct name — `uses-<construct>` with non-alphanumerics
-/// folded to `-`, so `document.write` → `uses-document-write` and `==` → `uses--` stays distinct per
-/// construct. The construct is DATA, so the id is too.
+/// A rule's IDENTITY is the construct's EXACT opaque token, byte-preserved — `uses-<construct>` with
+/// the construct verbatim, NO slugging or sanitizing anywhere in identity (owner correction 2026-07-12,
+/// point 1). Slugging non-alphanumerics to `-` collided `==` and `++` on `uses--`, and the compiled
+/// `RuleSet::build` dedups by id, so one silently shadowed the other and `==` never fired live. Byte
+/// preservation keeps every distinct construct a distinct rule (`==` → `uses-==`, `++` → `uses-++`,
+/// `document.write` → `uses-document.write`). The id is opaque — nothing parses it (the plan rides the
+/// rule's own `construct` field, LINTER.md "no id-parsing hack") — so any construct bytes are safe. The
+/// construct is DATA read from the prose, so the id is too. Display names are rendering only.
 fn rule_id(construct: &str) -> String {
-    let slug: String = construct
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
-        .collect();
-    format!("uses-{slug}")
+    format!("uses-{construct}")
 }
 
 /// The PROPOSED construct candidates for `lang` from its raw doc `pages`, WITHOUT the expensive prove —
@@ -583,43 +589,82 @@ fn is_operator(construct: &str) -> bool {
     construct.len() >= 2 && construct.chars().all(|c| !c.is_ascii_alphanumeric() && c != '.')
 }
 
-/// A memoized, BIT-IDENTICAL equivalent of [`crate::lint_selftest::prove`] for this workflow's
-/// SINGLE-RULE self-test book — the training-speed lever of LINTER.md's speed pass (frozen substrate
-/// UNTOUCHED; this is memoization AT THE CALLER of a pure comparator, not a semantic change).
+/// What the GENERATOR expects the blind linter to do with a self-generated sample — DERIVED from the
+/// rule's understanding, one of two ways (owner correction 2026-07-12, point 3): a violation it expects
+/// to FLAG, or a clean near-miss it expects the linter to leave alone. The lint side NEVER sees this.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Expect {
+    /// The generator wrote this to embody the violation — it expects the rule to FIRE.
+    Flag,
+    /// The generator wrote this as a valid near-miss (the construct absent / the remedy form) — it
+    /// expects NO flag. A clean sample counts toward agreement exactly as a flagging one does.
+    Clean,
+}
+
+/// A self-generated example paired with the generator's expectation. The blind lint path ([`blind_fires`])
+/// receives the `code` ALONE; `expect` is compared to the blind outcome only AFTERWARD, so the linter can
+/// never bias its outcome by what it "should" say — the type separation IS the blindness (owner point 3).
+struct Sample {
+    /// The self-generated code the blind linter receives — the only thing it sees.
+    code: String,
+    /// The generator's expectation, derived from the understanding — invisible to the lint side.
+    expect: Expect,
+}
+
+/// The BLIND lint outcome for one sample: whether the language's real firing engine flags `code`.
+/// Receives the CODE ONLY — no [`Expect`], no understanding, no advice — so the outcome cannot be
+/// influenced by the generator's expectation (the demonstrable blindness of owner point 3; this is the
+/// same `run_plan` the live linter fires). A separate function so the blindness is a TYPE fact.
+fn blind_fires(plan: &Plan, lang: &str, code: &str) -> bool {
+    !run_plan(plan, lang, code).is_empty()
+}
+
+/// The BLIND-AGREEMENT graduation loop (owner correction 2026-07-12, point 3), computed over this
+/// workflow's SINGLE-RULE self-test book. Two sides that share the same understanding substrate but NOT
+/// the expectation: the GENERATOR tagged each [`Sample`] with an [`Expect`]; the blind linter
+/// ([`blind_fires`], code only) produces the outcome; each rep reduces to an agreement judged by the
+/// FROZEN comparator and folded by the FROZEN counting law [`fold_reps`]. The three-argument English
+/// reconciliation [`crate::lint_corroborate::corroborates`]`(understanding, advice, foil)` is CONSTANT
+/// across the ≤ ([`PROVE_SAMPLE_CAP`]+clean) reps of a one-rule book, so it is computed ONCE and reused
+/// (the memoization LINTER.md's speed pass blessed — a pure comparator re-evaluated identically per rep).
 ///
-/// [`graduate`] always builds a book of EXACTLY ONE rule (the candidate's own `uses_construct` plan +
-/// its derived `advice`), so inside the frozen [`crate::lint_selftest::classify_sample`] the English
-/// reconciliation [`crate::lint_corroborate::corroborates`]`(understanding, advice, foil)` is called
-/// with the SAME three arguments for EVERY one of the ≤ [`PROVE_SAMPLE_CAP`] reps — a pure function
-/// re-evaluated identically per rep, and MEASURED as the dominant training cost (~0.1–0.26 s each, so a
-/// 14-rep candidate paid ~2–3.6 s of redundant re-alignment). This computes that comparison ONCE, then
-/// classifies each rep exactly as `classify_sample` does for a one-rule book and folds through the
-/// FROZEN counting law [`fold_reps`]. Every referee call ([`corroborates`], [`run_plan`], `fold_reps`)
-/// is the frozen primitive, unchanged; the ONLY difference from `prove` is that the constant comparator
-/// verdict is not recomputed per rep — hence bit-identical verdicts (asserted by
-/// `memoized_prove_matches_frozen_prove`).
-fn prove_memoized(
+/// Per rep, expectation × blind outcome:
+/// - **Flag, fired** — the sides agree behaviorally; the English judge decides whether the found advice
+///   reconciles with the understanding (frozen `Some(true)`→[`Rep::Corroborates`], `Some(false)`→
+///   [`Rep::Mismatch`] (fatal), `None`→[`Rep::Undecidable`]).
+/// - **Flag, not fired** — a phased-out expectation ([`Rep::NotFlagged`]); reported, never hidden.
+/// - **Clean, not fired** — the sides AGREE this near-miss is valid; it COUNTS ([`Rep::Corroborates`])
+///   but ONLY when the rule's English genuinely reconciles (`Some(true)`) — "the agreement comes from
+///   the KNOWLEDGE" (owner). Without reconciling knowledge a clean agreement is [`Rep::Undecidable`]
+///   (neither counts nor blocks), so a non-understood rule cannot graduate on clean samples alone.
+/// - **Clean, fired** — a false positive: the rule flags code the understanding calls valid, a genuine
+///   self-contradiction, fatal exactly as a flagged [`Rep::Mismatch`].
+///
+/// For an ALL-`Flag` sample set this is bit-identical to the frozen [`crate::lint_selftest::prove`]
+/// (asserted by `blind_prove_matches_frozen_prove`); the clean reps are the new, additive squeeze.
+fn prove_blind(
     m: &MeaningNetwork,
     en: &English,
     rule: &RuleUnderTest,
     plan: &Plan,
     advice: &str,
-    samples: &[&str],
+    samples: &[Sample],
 ) -> Verdict {
-    // The one English reconciliation shared by every FIRED rep (the book has a single rule): does the
-    // candidate's `advice` corroborate its `understanding` against the sibling `foil`?
     let reconciled = crate::lint_corroborate::corroborates(m, en, &rule.understanding, advice, &rule.foil);
-    let reps = samples.iter().map(|code| {
-        // A sample is FLAGGED iff the book's single plan fires — identical to `classify_sample`'s
-        // `book.iter().filter(run_plan …)` for a one-rule book.
-        if run_plan(plan, &rule.lang, code).is_empty() {
-            Rep::NotFlagged
-        } else {
-            match reconciled {
+    let reps = samples.iter().map(|s| {
+        let fires = blind_fires(plan, &rule.lang, &s.code); // BLIND: code only, no expectation
+        match (s.expect, fires) {
+            (Expect::Flag, true) => match reconciled {
                 Some(true) => Rep::Corroborates,
                 Some(false) => Rep::Mismatch(advice.to_string()),
                 None => Rep::Undecidable,
-            }
+            },
+            (Expect::Flag, false) => Rep::NotFlagged,
+            (Expect::Clean, false) => match reconciled {
+                Some(true) => Rep::Corroborates,
+                _ => Rep::Undecidable,
+            },
+            (Expect::Clean, true) => Rep::Mismatch(advice.to_string()),
         }
     });
     fold_reps(reps)
@@ -704,11 +749,24 @@ pub fn graduate(
                 // blocked `==`/`eval` (MEASURED). Each candidate is proven on its own merits; the English
                 // foil (a sibling's understanding) still supplies the un-fakeable comparison.
                 let plan = Plan::UsesConstruct { construct: cand.construct.clone() };
-                // Prove on a bounded SAMPLE of the violating blocks: graduation needs only ≥ REQUIRED_REPS
-                // corroborations, so a cap keeps the sweep in seconds without changing the verdict — the
-                // true violating count stays in the Outcome. A margin above the floor absorbs undecidables.
-                let sample: Vec<&str> = violating.iter().take(PROVE_SAMPLE_CAP).map(String::as_str).collect();
-                prove_memoized(m, en, &rule, &plan, advice, &sample)
+                // BLIND-AGREEMENT sample set (owner point 3): the generator tags each self-generated block
+                // with its expectation — the harvested/generated VIOLATIONS expect a flag, the harvested
+                // CLEAN near-misses expect no flag. The blind lint (`blind_fires`, code only) then judges
+                // agreement. Both kinds count toward the rep floor; the flag reps stay primary (capped at
+                // PROVE_SAMPLE_CAP), the clean reps add the squeeze from the other side (CLEAN_SAMPLE_CAP).
+                // Bounded so the sweep stays in the seconds budget; the true counts stay in the Outcome.
+                let mut samples: Vec<Sample> = violating
+                    .iter()
+                    .take(PROVE_SAMPLE_CAP)
+                    .map(|c| Sample { code: c.clone(), expect: Expect::Flag })
+                    .collect();
+                samples.extend(
+                    clean
+                        .iter()
+                        .take(CLEAN_SAMPLE_CAP)
+                        .map(|c| Sample { code: c.to_string(), expect: Expect::Clean }),
+                );
+                prove_blind(m, en, &rule, &plan, advice, &samples)
             }
             // Missing an un-fakeable advice or a genuine foil is an honest "cannot judge" — reported
             // as too-few-reps with the real firing count so the gap is visible, never a false pass.
@@ -775,6 +833,14 @@ pub fn graduate(
     outcomes
 }
 
+/// Whether `lang`'s documentation READ PASS has completed (owner correction 2026-07-12, point 2): the
+/// crawl produced a page corpus — `pages` (the read pass's own persisted raw-page output) is non-empty.
+/// A cold cache (no pages) is an INCOMPLETE read, and a language is never graduated from a half-read
+/// crawl. This is a STRUCTURAL precondition (the read output exists), not a heuristic over the prose.
+fn read_pass_complete(pages: &[(String, String)]) -> bool {
+    !pages.is_empty()
+}
+
 /// The LIVE entry the module build calls (the covenant-clean successor to
 /// [`crate::lint_docs::rules_from_memory`] for MODULES): graduate `lang`'s construct rules from the
 /// read `memory` through the frozen loop, returning `(rule, source url)` for every PROVEN rule only.
@@ -786,7 +852,12 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)
     };
     let data_root = crate::tools::lint::data_root_pub();
     let (pages, _fp) = crate::lint_docs::raw_pages(&data_root, lang);
-    if pages.is_empty() {
+    // FULL-DOCS-READ PRECONDITION (owner correction 2026-07-12, point 2): a language is TESTED only
+    // after its registered documentation has been READ at least once — a STRUCTURAL precondition, the
+    // crawl's read pass having produced a page corpus (`raw_pages` non-empty; the pages are the read
+    // pass's own persisted output). No raw pages ⇒ the read pass has not completed for this language ⇒
+    // it is NOT graduated (it stays on the miner / abstains), never tested from a half-read crawl.
+    if !read_pass_complete(&pages) {
         return Vec::new();
     }
     // OFFLINE-ROBUSTNESS FALLBACK (LINTER.md → "the recommended unlock"). The frozen loop's evidence is
@@ -835,12 +906,13 @@ mod tests {
         }
     }
 
-    /// The speed lever's correctness contract: [`prove_memoized`] returns the SAME [`Verdict`] as the
-    /// frozen [`crate::lint_selftest::prove`] for the single-rule book `graduate` builds — across the
-    /// firing (Corroborates/Mismatch/Undecidable) and non-firing (NotFlagged) rep classes. Guards that
-    /// the caller-side memoization never changes a graduation decision (LINTER.md: bit-identical funnel).
+    /// The blind loop's parity contract: over an ALL-`Flag` sample set [`prove_blind`] returns the SAME
+    /// [`Verdict`] as the frozen [`crate::lint_selftest::prove`] for the single-rule book `graduate`
+    /// builds — across the firing (Corroborates/Mismatch/Undecidable) and non-firing (NotFlagged) rep
+    /// classes. Guards that the flag half of the blind loop (and its once-computed comparator) never
+    /// changes a graduation decision (LINTER.md: bit-identical funnel); the clean reps are additive.
     #[test]
-    fn memoized_prove_matches_frozen_prove() {
+    fn blind_prove_matches_frozen_prove() {
         use crate::lint_selftest::{prove, KnownRule};
         let Some((br, en)) = brains() else {
             eprintln!("skip: no frozen brains on disk");
@@ -858,14 +930,48 @@ mod tests {
         samples.push("let a = 1;".to_string()); // a non-firing near-miss → NotFlagged
         samples.push("const b = 2;".to_string());
         let refs: Vec<&str> = samples.iter().map(String::as_str).collect();
+        // The blind loop over an ALL-`Flag` set must reduce to the frozen prove.
+        let flag_samples: Vec<Sample> =
+            samples.iter().map(|c| Sample { code: c.clone(), expect: Expect::Flag }).collect();
         for (understanding, advice, foil) in cases {
             let rule = RuleUnderTest::new(understanding.to_string(), foil.to_string(), "javascript".to_string());
             let plan = Plan::UsesConstruct { construct: "var".to_string() };
             let book = [KnownRule::new(plan.clone(), advice.to_string())];
             let frozen = prove(m, en, &rule, &book, &refs);
-            let memoized = prove_memoized(m, en, &rule, &plan, advice, &refs);
-            assert_eq!(frozen, memoized, "prove_memoized must equal frozen prove for ({understanding} | {advice} | {foil})");
+            let blind = prove_blind(m, en, &rule, &plan, advice, &flag_samples);
+            assert_eq!(frozen, blind, "prove_blind (all-Flag) must equal frozen prove for ({understanding} | {advice} | {foil})");
         }
+    }
+
+    /// The novel half of owner point 3: CLEAN expect-no-flag samples count toward agreement when the
+    /// rule's English reconciles, and a clean sample that FIRES is a fatal false positive. Uses the
+    /// frozen comparator's proven abstract is-a fixture (`a dog is a canine`) and the opaque token
+    /// `alpha` (fires) / `beta` (never appears) — no real construct or meaning.
+    #[test]
+    fn clean_samples_count_toward_agreement_and_a_clean_firing_is_fatal() {
+        let Some((br, en)) = brains() else {
+            eprintln!("skip: no frozen brains on disk");
+            return;
+        };
+        let m = br.meanings();
+        let rule = RuleUnderTest::new("a dog is a canine", "a dog is a bird", "javascript".to_string());
+        let plan = Plan::UsesConstruct { construct: "alpha".to_string() };
+        let advice = "a dog is a canine animal"; // reconciles Some(true) over the bird foil
+
+        // Too few flag reps ALONE (5 < REQUIRED_REPS) is not enough; the clean near-misses (`beta;`,
+        // which never fires) top the agreement over the floor — the squeeze from the other side.
+        let mut samples: Vec<Sample> =
+            (0..5).map(|i| Sample { code: format!("alpha; // {i}"), expect: Expect::Flag }).collect();
+        let flag_only = prove_blind(m, en, &rule, &plan, advice, &samples);
+        assert!(matches!(flag_only, Verdict::Unproven(_)), "5 flag reps alone are below the floor");
+        samples.extend((0..REQUIRED_REPS).map(|i| Sample { code: format!("beta{i};"), expect: Expect::Clean }));
+        assert_eq!(prove_blind(m, en, &rule, &plan, advice, &samples), Verdict::Proven,
+            "clean expect-no-flag reps count toward agreement when the English reconciles");
+
+        // A clean sample that FIRES (`alpha;` tagged Clean) is a false positive — fatal.
+        let contradicting = vec![Sample { code: "alpha;".to_string(), expect: Expect::Clean }];
+        assert!(matches!(prove_blind(m, en, &rule, &plan, advice, &contradicting), Verdict::Unproven(_)),
+            "a clean sample the rule flags is a fatal self-contradiction");
     }
 
     #[test]
@@ -877,9 +983,14 @@ mod tests {
     }
 
     #[test]
-    fn rule_id_is_a_stable_construct_slug() {
+    fn rule_id_byte_preserves_the_construct_no_collision() {
         assert_eq!(rule_id("var"), "uses-var");
-        assert_eq!(rule_id("document.write"), "uses-document-write");
+        // Byte-preserved: dotted members and operators keep their exact bytes (owner point 1).
+        assert_eq!(rule_id("document.write"), "uses-document.write");
+        // The collision the correction fixes: `==` and `++` were both `uses--`; now distinct.
+        assert_eq!(rule_id("=="), "uses-==");
+        assert_eq!(rule_id("++"), "uses-++");
+        assert_ne!(rule_id("=="), rule_id("++"), "distinct constructs must have distinct ids");
     }
 
     #[test]
