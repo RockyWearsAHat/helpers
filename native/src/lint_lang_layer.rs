@@ -42,6 +42,7 @@ const NON_GOVERNING_ANCHORS: &[&str] = &[
     "further-reading",
     "related-rules",
     "when-not-to-use-it",
+    "known-limitations",
     "handled_by_typescript",
 ];
 
@@ -186,11 +187,14 @@ fn governing_sentences(body: &str) -> Vec<String> {
     out
 }
 
-/// Every `<pre>` code block inside a `<div class="<class>">` region — the docs' own paired-example markup
+/// Every example CODE block inside a `<div class="<class>">` region — the docs' own paired-example markup
 /// (`class="incorrect"` / `class="correct"` on ESLint rule pages). A page-role CLASS filter, the exact
 /// analog of the [`crate::lint_html_layer`] W3Schools/WHATWG class cuts — structural markup, never English
-/// prose. Each region runs until the next paired-example class marker (or a bounded window), and its
-/// `<pre><code>` text is decoded with line structure intact.
+/// prose. Each region runs until the next paired-example class marker (or a bounded window). The example
+/// code is read from the RAW markup (never `code_to_backtick`, which would wrap the whole block in one
+/// backtick pair — the block then parses as a single JS template literal and the construct node vanishes)
+/// as the INTERIOR of each `<code>…</code>` only ([`code_interiors`]) — so Prism's line-number gutter
+/// (`<span class="line-numbers-rows">`, inside the `<pre>` but AFTER `</code>`) is excluded, not welded on.
 fn examples_of_class(body: &str, class: &str) -> Vec<String> {
     let needle = format!("class=\"{class}\"");
     let stops = ["class=\"incorrect\"", "class=\"correct\""];
@@ -205,12 +209,42 @@ fn examples_of_class(body: &str, class: &str) -> Vec<String> {
             .min()
             .unwrap_or(body.len())
             .min(start + 8000);
-        for block in crate::doc_crawler::extract_code_blocks(&body[start..end]) {
+        for block in code_interiors(&body[start..end]) {
             if block.trim().len() >= 3 {
                 out.push(block);
             }
         }
         at = end;
+    }
+    out
+}
+
+/// The `strip_code`-decoded INTERIOR of every `<pre>…<code>…</code>…</pre>` example in a markup region —
+/// the clean example code with line structure intact and highlight `<span>`s removed. Only a `<code>`
+/// INSIDE a `<pre>` is taken: that is the docs' worked example. This deliberately skips INLINE prose
+/// `<code>` (a `` `--fix` ``/`` `null` ``/`` `===` `` mentioned in the option text after the example),
+/// which is not an example block and would pollute the per-example firing verification. The enclosing
+/// `<pre>` itself is never taken, so a sibling line-number gutter is left behind.
+fn code_interiors(html: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while let Some(rel) = find_ci(&html[at..], "<pre") {
+        let pre_open = at + rel;
+        let pre_end = match find_ci(&html[pre_open..], "</pre>") {
+            Some(e) => pre_open + e,
+            None => break,
+        };
+        // The FIRST `<code>` interior inside this `<pre>` is the example; anything after `</pre>` is not.
+        if let Some(crel) = find_ci(&html[pre_open..pre_end], "<code") {
+            let copen = pre_open + crel;
+            if let Some(gt) = html[copen..].find('>') {
+                let inner_start = copen + gt + 1;
+                if let Some(cend) = find_ci(&html[inner_start..pre_end], "</code>") {
+                    out.push(crate::doc_crawler::strip_code(&html[inner_start..inner_start + cend]));
+                }
+            }
+        }
+        at = pre_end + "</pre>".len();
     }
     out
 }
@@ -294,9 +328,13 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
 
     let (mut incorrect, mut correct) = (Vec::new(), Vec::new());
     if rule {
-        let body_bt = code_to_backtick(&drop_script_style(body));
-        incorrect = examples_of_class(&body_bt, "incorrect");
-        correct = examples_of_class(&body_bt, "correct");
+        // Examples are read from the RAW markup (only script/style dropped) — NOT `code_to_backtick`,
+        // which wraps each example's `<code>` in one backtick pair and makes the whole block parse as a
+        // single template literal (the construct node vanishes → the docs'-own-example verification fires
+        // on nothing). `examples_of_class` pulls the clean `<code>` interior.
+        let raw = drop_script_style(body);
+        incorrect = examples_of_class(&raw, "incorrect");
+        correct = examples_of_class(&raw, "correct");
         // Prose-named constructs (reads their MEANING — catches a keyword/identifier the token diff
         // cannot: `var`, `with`, `eval`). Only the first few backtick-bearing sentences are read (the
         // lead summary + rule-details name the subject there), which bounds the expensive alignment.
@@ -314,14 +352,14 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
             }
         }
     } else {
-        // Deprecated reference page: the subject is the construct its definition sentence names (the
-        // first backtick-bearing governing sentence — MDN opens with "The `<marquee>` element…").
-        for s in governing.iter().filter(|s| s.contains('`')) {
-            if let Some((c, _)) = bridge.constructs_named(s).into_iter().next() {
-                push(c, &mut constructs);
-                break;
-            }
-        }
+        // Deprecated reference page: the SUBJECT is the page's own URL last segment — MDN names the
+        // element/property in its path (`/Element/marquee`, `/Properties/box-orient`). This is far more
+        // reliable than the definition prose (whose first backticked token is often a SIBLING the
+        // deprecation banner mentions — `css`/`color`/`src`, MEASURED) and covenant-clean: the URL is
+        // DATA, a per-SOURCE structural marker exactly like the page-kind keying. The caller's URL-payload
+        // subject gate then trivially confirms it, and the deprecation notecard is the prohibition proof.
+        let seg = url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+        push(seg.to_string(), &mut constructs);
     }
 
     DocPage { url: url.to_string(), prohibited, governing, constructs, incorrect, correct }
