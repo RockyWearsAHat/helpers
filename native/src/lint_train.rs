@@ -57,7 +57,16 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v75-propose-verify-learn-language-path";
+pub(crate) const TRAIN_VERSION: &str = "docs-v76-module-flip-graduated-rules";
+
+/// The minimum number of PROVEN construct rules the construct-module workflow
+/// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
+/// from the legacy token-miner to the proven set (THE FLIP, LINTER.md). A language the workflow OWNS —
+/// one whose docs are per-construct rule pages / deprecation-notecard reference pages (the web stack) —
+/// proves a module's worth of rules (MEASURED: javascript 5, css 31, html 8); an incidental cross-reader
+/// (typescript 1) or a language with no such pages (rust 0) falls below the floor and STAYS on the miner,
+/// so the flip is scoped BEHAVIORALLY to what the new workflow actually proves — no language named in code.
+pub(crate) const GRADUATED_MODULE_FLOOR: usize = 3;
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -162,16 +171,24 @@ impl LearnedCatalog {
     fn doc_rules(&self, lang: &str) -> (Vec<DocRule>, Vec<String>) {
         match &self.memory {
             Some(memory) => {
-                // NOTE (2026-07-11): the construct-module training workflow ([`crate::lint_module`],
-                // LINTER.md "The construct-module training workflow") is the intended successor here —
-                // it PROVES each construct rule through the frozen self-generated test loop before it
-                // enters the module. It is BUILT and PROVEN as a mechanism, but MEASURED on the real
-                // JS crawl it is blocked by binding-prose QUALITY (garbled ESLint/MDN fragments): the
-                // precise prohibition gate drops the real classics while the liberal gate mints syntax
-                // junk. Until the upstream reading or the docs'-own-bad/good verification closes that
-                // gap, this seam stays on `rules_from_memory` (no regression), and the workflow's
-                // honest measurement lives in `examples/js_module_train.rs`.
-                let rules = crate::lint_docs::rules_from_memory(lang, memory)
+                // THE FLIP (2026-07-11, LINTER.md "The flip pass"): a language's MODULE rules are the
+                // PROVEN construct rules from the construct-module workflow ([`crate::lint_module`]) —
+                // each graduated through the frozen self-generated test loop (or the notecard path) over
+                // the docs' OWN prohibition/deprecation pages — for every language the new workflow OWNS.
+                // A language OWNS the workflow when its structural doc reading (rule pages / deprecation
+                // notecards) proves a MODULE's worth of construct rules ([`GRADUATED_MODULE_FLOOR`]); a
+                // language that only shares the meaning graph (an incidental cross-reader) or has no such
+                // pages graduates 0–1 and STAYS on the legacy token-miner ([`crate::lint_docs::rules_from_memory`]),
+                // so no other language's rules disappear. MEASURED 2026-07-11: javascript 5 / css 31 /
+                // html 8 flip to the proven set; typescript 1, rust 0 keep the miner. Behavioral scope,
+                // no language named. The workflow's per-language measurement is `examples/web_module_train.rs`.
+                let graduated = crate::lint_module::graduated_rules(lang, memory);
+                let source_rules = if graduated.len() >= GRADUATED_MODULE_FLOOR {
+                    graduated
+                } else {
+                    crate::lint_docs::rules_from_memory(lang, memory)
+                };
+                let rules = source_rules
                     .into_iter()
                     .map(|(r, url)| DocRule {
                         id: r.id,

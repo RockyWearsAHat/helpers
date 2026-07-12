@@ -69,6 +69,13 @@ pub struct Candidate {
     /// may graduate via the NOTECARD PATH when the English self-test cannot apply (degenerate identical
     /// deprecation prose across a site's pages), because the notecard is a STATED structural fact.
     pub attested_deprecated: bool,
+    /// Whether the page's LEAD SUMMARY structurally STATES this construct as its subject ([`stated_by_lead`])
+    /// — the covenant-clean `??`-vs-`==` discriminator. Computed at PROPOSE but enforced at EMISSION (the
+    /// candidate stays in the pool so the frozen self-test's foil/advice — and thus every OTHER candidate's
+    /// verdict — is identical to not gating; only the EMITTED rule set drops an un-stated subject like `??`).
+    /// `true` for a deprecated reference page (no paired examples — the notecard is its proof), so CSS/HTML
+    /// are unaffected.
+    pub stated: bool,
 }
 
 /// The outcome of putting one candidate through the frozen loop — reported whether it graduated or
@@ -321,23 +328,35 @@ fn rule_id(construct: &str) -> String {
 /// and the two frozen brains.
 pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &MeaningNetwork, en: &English) -> Vec<Candidate> {
     let bridge = Bridge::new(m, en);
-    let partition = lang_pages(pages, memory);
+    let partition = lang_pages(lang, pages, memory);
     propose(lang, &partition, &bridge, en).0
 }
 
 /// PARTITION raw doc pages to the ones this language's docs were read from — the crawl's OWN per-page
 /// language attribution, reused: a page attributes to `lang` iff the language's read [`Memory`] holds a
-/// binding from that page (`memory.bindings[].url`). This is the "never conflate languages" law
-/// (LINTER.md) enforced at PROPOSE: a CSS deprecation page and a JS rule page live in the same MDN crawl,
-/// but each language proposes ONLY from its own attributed pages, so a CSS construct never enters the JS
-/// module. When the memory carries no bindings (nothing to attribute against), every page is kept — the
-/// caller has already scoped the pages to one language.
-fn lang_pages<'a>(pages: &'a [(String, String)], memory: &Memory) -> Vec<&'a (String, String)> {
+/// binding from that page (`memory.bindings[].url`), OR the page STRUCTURALLY ATTESTS a deprecation
+/// ([`crate::lint_lang_layer::is_attested_deprecation_page`]) and the crawl's own URL attribution
+/// ([`crate::lint_docs::url_language`]) names this language. The second clause closes the ATTRIBUTION GAP
+/// (LINTER.md): a pure-deprecation reference page (`center`, an obsolete element) forms NO prose⊗code
+/// binding, so binding-attribution alone drops it even though its page is crawled, attested, and reads
+/// correctly — the notecard graduation path never sees it. Including it by the page's OWN URL is
+/// structural, per-SOURCE, and covenant-clean (no language named in code). This stays the "never conflate
+/// languages" law (LINTER.md): both clauses attribute a page to exactly one language, so a CSS deprecation
+/// page never enters the JS module. When the memory carries no bindings (nothing to attribute against),
+/// every page is kept — the caller has already scoped the pages to one language.
+fn lang_pages<'a>(lang: &str, pages: &'a [(String, String)], memory: &Memory) -> Vec<&'a (String, String)> {
     let urls: std::collections::HashSet<&str> = memory.bindings.iter().map(|b| b.url.as_str()).collect();
     if urls.is_empty() {
         return pages.iter().collect();
     }
-    pages.iter().filter(|(u, _)| urls.contains(u.as_str())).collect()
+    pages
+        .iter()
+        .filter(|(u, body)| {
+            urls.contains(u.as_str())
+                || (crate::lint_lang_layer::is_attested_deprecation_page(u, body)
+                    && crate::lint_docs::url_language(u).as_deref() == Some(lang))
+        })
+        .collect()
 }
 
 /// One clean governing sentence in the pooled reading, tagged with whether it came from a PROHIBITED
@@ -382,6 +401,16 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
     // — 2/2 incorrect, 1/2 correct — so only the SUBJECT signal separates them).
     let mut out: Vec<Candidate> = Vec::new();
     for p in &docpages {
+        // The lead summary's stated subject(s) — the covenant-clean `??`-vs-`==` discriminator. Read once
+        // per page from the first governing sentence (the title + lead the reader welds together).
+        let lead_named: Vec<String> = p
+            .governing
+            .first()
+            .map(|s| bridge.constructs_named(s))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(c, _)| crate::lint_lang_layer::normalize_construct(&c))
+            .collect();
         let subject = p
             .constructs
             .iter()
@@ -389,6 +418,12 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
             .filter(|c| is_prohibited_subject(lang, &p.url, c, &p.incorrect, &p.correct))
             .max_by_key(|c| subject_score(lang, c, &p.incorrect));
         let Some(construct) = subject else { continue };
+        // The stated-subject gate is computed here but NOT used to reject the candidate: rejecting at
+        // PROPOSE would shrink the pool and reshuffle the frozen self-test's order-sensitive foil, flipping
+        // UNRELATED verdicts (MEASURED: dropping the junk operators `??`/`+=`/`!=` here spuriously
+        // Contradicted `eval` and graduated `++`). The candidate STAYS in the pool (identical foils/advice
+        // to no gate); `graduate` simply does not EMIT a rule whose subject its own lead never states.
+        let stated = stated_by_lead(lang, construct, &lead_named, &p.incorrect, &p.correct);
         // The `understanding` is the best real doc sentence MENTIONING the construct: prefer one from the
         // construct's OWN page (page-of-origin), then a prohibited-page statement, then negative polarity,
         // then a longer (more informative) one. Its citation url is the proposing page.
@@ -408,6 +443,7 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
                 url: p.url.clone(),
                 seeds,
                 attested_deprecated: p.attested_deprecated,
+                stated,
             });
         }
     }
@@ -466,6 +502,48 @@ fn is_prohibited_subject(lang: &str, url: &str, construct: &str, incorrect: &[St
     url_payload_equals(url, construct) && (incorrect.is_empty() || incorrect.iter().all(|b| fires(b)))
 }
 
+/// Whether the page's LEAD SUMMARY structurally STATES `construct` as its subject — the covenant-clean
+/// `??`-vs-`==` discriminator (LINTER.md → the stated-subject gate, owner ruling 2026-07-11). A genuine
+/// single-construct ban NAMES its subject in the title/lead sentence, one of two ways:
+/// - **directly** — the lead names the construct itself (`no-console` → "Disallow the use of `console`",
+///   `no-eval`, `no-with`); or
+/// - **by its REMEDY** — a construct advised AGAINST in favour of a replacement is stated by naming that
+///   replacement (`no-var` → "Require `let` … instead of `var`", `eqeqeq` → "Require `===` and `!==`"):
+///   the lead names the remedy, and the docs' OWN before/after pair shows the remedy REPLACING the banned
+///   construct (the remedy fires the primary correct example and NO incorrect example; the candidate fires
+///   an incorrect example and NOT the primary correct).
+///
+/// `no-constant-binary-expression` states NEITHER for `??`: its lead lists `||`/`&&`/`??` as a CO-EQUAL
+/// class (the central extraction reads the rule's real subject, "expressions where the operation doesn't
+/// affect the value", naming no single operator), and its correct examples REUSE the same operators as the
+/// incorrect ones (no replacement construct is introduced) — so `??` is not the stated subject and is
+/// dropped, while `==` (whose remedy `===` IS named and IS introduced in the correct example) survives.
+/// `lead_named` is the covenant-clean construct(s) the frozen extraction reads from the lead sentence
+/// ([`Bridge::constructs_named`] — one central construct per sentence; NEVER a word list). Vacuously true
+/// for a page with NO paired examples (a deprecated reference page — its notecard is the proof, so the
+/// lead gate must not touch it), keeping CSS/HTML unaffected.
+fn stated_by_lead(lang: &str, construct: &str, lead_named: &[String], incorrect: &[String], correct: &[String]) -> bool {
+    // (A) the candidate IS the lead's stated subject.
+    if lead_named.iter().any(|s| s == construct) {
+        return true;
+    }
+    // A deprecated reference page carries no paired examples — the lead gate does not apply (the notecard
+    // is its proof). Leave it to the notecard path.
+    if incorrect.is_empty() || correct.is_empty() {
+        return true;
+    }
+    // (B) REMEDY path: the candidate is the banned counterpart (fires an incorrect example, not the primary
+    // correct), and a lead-named construct is the remedy the docs demonstrate (fires the primary correct,
+    // fires NO incorrect — it is the introduced replacement). Frozen `run_plan` is the only referee.
+    let fires = |c: &str, b: &str| !run_plan(&Plan::UsesConstruct { construct: c.to_string() }, lang, b).is_empty();
+    let primary = &correct[0];
+    let cand_banned = incorrect.iter().any(|b| fires(construct, b)) && !fires(construct, primary);
+    cand_banned
+        && lead_named
+            .iter()
+            .any(|s| s != construct && fires(s, primary) && incorrect.iter().all(|b| !fires(s, b)))
+}
+
 /// A rank over subject-gate passers so at most ONE graduates per page: prefer the construct present the most
 /// TIMES across the incorrect examples (the true subject recurs; an incidental token appears once), then the
 /// longer/more-specific token. Data-only, no construct list.
@@ -522,7 +600,7 @@ pub fn graduate(
     en: &English,
 ) -> Vec<Outcome> {
     let bridge = Bridge::new(m, en);
-    let partition = lang_pages(pages, memory);
+    let partition = lang_pages(lang, pages, memory);
     let (candidates, pool) = propose(lang, &partition, &bridge, en);
     let corpus = harvest_corpus(memory);
 
@@ -614,10 +692,12 @@ pub fn graduate(
         let notecard_proven =
             cand.attested_deprecated && violating.len() >= REQUIRED_REPS && !clean.is_empty();
 
-        // EMIT: a graduated candidate (English self-test PROVEN, or notecard-proven) with a clean near-miss
-        // to contrast against becomes a module rule in the shape `RuleSet::build` compiles into a firing
-        // detector (bad ∧ ¬good).
-        let rule = if matches!(verdict, Verdict::Proven) || notecard_proven {
+        // EMIT: a graduated candidate (English self-test PROVEN, or notecard-proven) whose subject its own
+        // lead STATES ([`Candidate::stated`] — the `??`-vs-`==` discriminator), with a clean near-miss to
+        // contrast against, becomes a module rule in the shape `RuleSet::build` compiles into a firing
+        // detector (bad ∧ ¬good). The lead gate is enforced HERE, not at propose, so the pool (and every
+        // other candidate's frozen verdict) is untouched — only the un-stated subject is withheld.
+        let rule = if cand.stated && (matches!(verdict, Verdict::Proven) || notecard_proven) {
             let bad = violating.iter().min_by_key(|b| b.len()).map(|b| b.to_string());
             let good = clean.iter().min_by_key(|b| b.len()).map(|b| b.to_string());
             match (bad, good) {
