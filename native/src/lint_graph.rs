@@ -458,6 +458,145 @@ fn hint_before(body: &str, tags: &[(usize, usize)], span_start: usize) -> String
     String::new()
 }
 
+// ── Cross-page-invariance chrome discovery (site-scoped, setup only) ───────────
+
+/// A text run counts as site chrome once it recurs on at least this many DISTINCT pages of the same
+/// site — the north-star's own law ("an element whose structure and style and content is invariant
+/// across a site's pages is navigation/boilerplate with zero meaning"), approximated by CONTENT-run
+/// recurrence. This is the PROTOTYPE's measured separation floor (`examples/reader_grade`): at ≥8
+/// same-site pages the site-invariant text mass separates cleanly — W3Schools 70.1% (its menu/
+/// breadcrumb/footer) vs MDN reference 19.8% / API 23.8% (reference furniture). It is the SAME
+/// repetition-support floor as [`TAG_ROLE_SUPPORT`]: a signal is trusted-by-repetition only once at
+/// least this many independent instances testify, never on one sighting.
+const CHROME_PAGE_SUPPORT: usize = 8;
+
+/// The invariance key of one tag-separated text run — the atom the chrome detector counts across a
+/// site's pages. Pure typography: whitespace-collapse the run, and only a run of at least two words
+/// and six characters is a comparison atom (a lone word or a stray symbol never keys as chrome). The
+/// key is the run's content hash ([`crate::lint_ai::token_seed`]), so two byte-identical runs on two
+/// pages collide and a paraphrase does not — invariance is EXACT recurrence, never similarity.
+fn run_key(text: &str) -> Option<u64> {
+    let norm: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if norm.len() < 6 || norm.split(' ').count() < 2 {
+        return None;
+    }
+    Some(crate::lint_ai::token_seed(&norm))
+}
+
+/// Per-HOST site chrome: the set of text-run keys that recur across a site's pages (navigation,
+/// breadcrumb, footer, sidebar menu). Keyed by host because invariance is a property of ONE site —
+/// a run shared by MDN and W3Schools is not chrome, and each site's furniture is discarded only
+/// against its own pages. Built once over a whole-site corpus at setup ([`site_chrome`]); the strip
+/// ([`SiteChrome::strip`]) removes chrome text before any reader (learned [`read_page`] or the hand
+/// anatomy) forms prose or units, so boilerplate never welds into a page's governing meaning.
+pub struct SiteChrome {
+    chrome: std::collections::HashMap<String, std::collections::HashSet<u64>>,
+}
+
+impl SiteChrome {
+    /// Whether no host contributed any chrome — a corpus too small or too varied to find invariance.
+    pub fn is_empty(&self) -> bool {
+        self.chrome.values().all(std::collections::HashSet::is_empty)
+    }
+
+    /// The number of distinct chrome runs discovered across all hosts — a measurement handle.
+    pub fn len(&self) -> usize {
+        self.chrome.values().map(std::collections::HashSet::len).sum()
+    }
+
+    /// STRIP `url`'s site chrome from `body`: every tag-separated text run whose key is invariant on
+    /// this page's host is blanked to a space, tags and attributes preserved verbatim (so a
+    /// `class="notecard deprecated"` marker, an `id=` anchor, and `<pre><code>` example code all
+    /// survive — only recurring PROSE text is removed). A page whose host contributed no chrome, or
+    /// a url with no host, is returned unchanged. Pure typography: `<…>` is a markup token whose
+    /// interior is copied as-is, text between tokens is the run the key is computed over.
+    pub fn strip(&self, url: &str, body: &str) -> String {
+        let Some(host) = crate::lint_docs::url_host(url) else { return body.to_string() };
+        let Some(set) = self.chrome.get(&host) else { return body.to_string() };
+        if set.is_empty() {
+            return body.to_string();
+        }
+        let bytes = body.as_bytes();
+        let mut out = String::with_capacity(body.len());
+        let mut at = 0usize;
+        let mut run_start = 0usize;
+        while at < bytes.len() {
+            if bytes[at] == b'<' {
+                let run = &body[run_start..at];
+                if run_key(run).is_some_and(|k| set.contains(&k)) {
+                    out.push(' ');
+                } else {
+                    out.push_str(run);
+                }
+                let close = body[at..].find('>').map(|i| at + i + 1).unwrap_or(bytes.len());
+                out.push_str(&body[at..close]);
+                at = close;
+                run_start = at;
+                continue;
+            }
+            at += 1;
+        }
+        let tail = &body[run_start..];
+        if run_key(tail).is_some_and(|k| set.contains(&k)) {
+            out.push(' ');
+        } else {
+            out.push_str(tail);
+        }
+        out
+    }
+}
+
+/// DISCOVER each site's chrome by cross-page text-run invariance over a whole-site `pages` corpus
+/// (LINTER.md, "Cross-page invariance = chrome, discarded"). Groups pages by host, counts on how
+/// many DISTINCT pages of that host each text-run key appears (deduped within a page), and keeps the
+/// keys recurring on ≥ [`CHROME_PAGE_SUPPORT`] pages. No element name and no site name is consulted:
+/// the discriminator is purely how often a run's exact content recurs across the same site. Pure
+/// over the corpus; called once at setup, never on the lint path.
+pub fn site_chrome(pages: &[(String, String)]) -> SiteChrome {
+    use std::collections::{HashMap, HashSet};
+    let mut counts: HashMap<String, HashMap<u64, usize>> = HashMap::new();
+    for (url, body) in pages {
+        let Some(host) = crate::lint_docs::url_host(url) else { continue };
+        let mut on_page: HashSet<u64> = HashSet::new();
+        let mut in_tag = false;
+        let mut run_start = 0usize;
+        let b = body.as_bytes();
+        for i in 0..b.len() {
+            match b[i] {
+                b'<' => {
+                    if !in_tag {
+                        if let Some(k) = run_key(&body[run_start..i]) {
+                            on_page.insert(k);
+                        }
+                    }
+                    in_tag = true;
+                }
+                b'>' => {
+                    in_tag = false;
+                    run_start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if let Some(k) = run_key(&body[run_start..]) {
+            on_page.insert(k);
+        }
+        let host_counts = counts.entry(host).or_default();
+        for k in on_page {
+            *host_counts.entry(k).or_insert(0) += 1;
+        }
+    }
+    let chrome = counts
+        .into_iter()
+        .map(|(host, ks)| {
+            let set: HashSet<u64> =
+                ks.into_iter().filter(|(_, n)| *n >= CHROME_PAGE_SUPPORT).map(|(k, _)| k).collect();
+            (host, set)
+        })
+        .collect();
+    SiteChrome { chrome }
+}
+
 // ── Learning the structural roles by exposure (setup only) ────────────────────
 
 /// A markup element needs at least this many occurrences across the corpus before its role is
@@ -714,6 +853,52 @@ mod tests {
         assert!(
             read_page(body, &brain).is_empty(),
             "no structure ⇒ no units (the curriculum gate)"
+        );
+    }
+
+    /// A text run recurring across a site's pages (the menu) is discovered as chrome and blanked,
+    /// while a run UNIQUE to one page (its governing prose) survives — the cross-page-invariance
+    /// filter, site-scoped and learned purely from recurrence, no element or site name consulted.
+    #[test]
+    fn site_invariance_discovers_and_strips_the_recurring_menu_but_keeps_unique_prose() {
+        // A shared navigation run on every page; each page's own body prose is unique. The menu run
+        // is well over the two-word / six-char comparison-atom floor, so it keys.
+        let menu = "<div id=\"m\">Home About Contact Reference Guide</div>";
+        let pages: Vec<(String, String)> = (0..CHROME_PAGE_SUPPORT)
+            .map(|i| {
+                let url = format!("https://site.test/page{i}");
+                let body = format!("{menu}<p>Unique page {i} governing sentence about widgets.</p>");
+                (url, body)
+            })
+            .collect();
+        let chrome = site_chrome(&pages);
+        assert!(!chrome.is_empty(), "the menu recurs on >= the support floor of pages ⇒ chrome");
+
+        let stripped = chrome.strip(&pages[0].0, &pages[0].1);
+        assert!(
+            !stripped.contains("Home About Contact Reference Guide"),
+            "the invariant menu text is blanked: {stripped}"
+        );
+        assert!(
+            stripped.contains("Unique page 0 governing sentence about widgets."),
+            "the page's own unique prose survives: {stripped}"
+        );
+        assert!(stripped.contains("<div id=\"m\">"), "tags and attributes are preserved verbatim");
+    }
+
+    /// A run seen on only a FEW pages of a site (below the support floor) is NOT chrome — a genuine
+    /// recurring sentence on two pages is content, not boilerplate.
+    #[test]
+    fn a_run_below_the_page_support_floor_is_not_chrome() {
+        let shared = "<p>This appears on just a couple of pages only.</p>";
+        let pages: Vec<(String, String)> = (0..3)
+            .map(|i| (format!("https://site.test/p{i}"), format!("{shared}<p>body {i}</p>")))
+            .collect();
+        let chrome = site_chrome(&pages);
+        let stripped = chrome.strip(&pages[0].0, &pages[0].1);
+        assert!(
+            stripped.contains("This appears on just a couple of pages only."),
+            "below the support floor ⇒ kept as content: {stripped}"
         );
     }
 }
