@@ -1908,6 +1908,49 @@ forcing", the register discriminator is the real remaining design — build it a
 with the junk class as its acceptance foil, then this rung completes. The advance this pass: the coverage
 blocker is dissolved and the blocker is now a single, well-specified classifier, not missing data.
 
+### Item 4 (STRETCH) — the advice register: MEASURED not separable covenant-clean yet (2026-07-12, third confirmation)
+
+> The stretch rung's own strictest-bar measurement. Design under test: a sentence is an advice-command iff its
+> verb resolves to negation-meaning through EITHER covenant-clean path — the compounded-definition negation
+> (`is_negation`) OR the LEARNED usage sense (`MeaningNetwork` usage companions) — AND the v82 subject gates
+> hold AND the remedy-counterpart mechanism applies. The measurement PRE-EMPTS the build: neither path supplies
+> a signal, so NO code was written (nothing to revert — the third confirmation of the two prior reverts).
+
+**Path 1 — compounded-definition negation. FAILS.** `explain "Avoid the var keyword."` (live, deployed binary):
+`prohibition_gate_fired: false`, `operators: []`, `inner_negations: []`. `avoid`'s dictionary definition is
+`[verb, with, object, keep, away, from, or, stop, oneself, doing, something]` — its constituents (`keep`,
+`away`, `stop`) are not classified negators, so `is_negation(avoid)` is false and the gate abstains. `avoid`
+aligns nearest to `control_exit` at distance 3644 (ratio 0.958 — effectively unaligned). The `avoid`≈`not use`
+lexical-negation gap the comparator documents is REAL and unbridged.
+
+**Path 2 — the learned usage sense. FAILS (measured companions, deployed brain).** The read corpus (web docs +
+Stack Overflow) gives these advice verbs usage companions that are web-doc NOISE, carrying zero negation-meaning:
+| verb | top learned-usage companions | negation companion? |
+|---|---|---|
+| `avoid` | the, break, you, and, page, using, this, column, region, with, use, are, global, can, auto | **none** |
+| `recommend` | the, however, using, title, body, style, guides, this, head, unintentional, month, because, html | **none** |
+| `discouraged` | the, strongly, for, handler, event, not, jump, and, attributes, ordering, because, disposed, use | `not` (generic hub) |
+| `instead` | the, use, and, you, returns, value, object, this, string, for, with, using, that, new, element | **none** |
+
+`avoid`'s learned sense is dominated by CSS layout words (`break`, `column`, `region`, `global`, `auto`) — the
+corpus talks ABOUT avoiding page breaks far more than it commands avoiding a construct, so the distributional
+sense carries no prohibition. `discouraged` co-occurs with `not`, but `not` is a generic companion (the
+`the`/`you` hub `is_generic_companion` strips), not a distinctive negation signal.
+
+**And the remedy register has no verb at all.** "Use === Comparison" / "Use X instead of Y" is led by the
+ENDORSEMENT verb `use` (positive); the prohibition is only IMPLIED by the counterpart. `instead` resolves to
+`[adverb, as, an, alternative, or, substitute]` — a replacement sense, no negation. There is no covenant-clean
+signal that turns "Use X instead of Y" into "Y is prohibited" without a phrase list.
+
+**Verdict — NOT shipped, no forcing, substrate untouched, no version bump.** Both stated paths are measured
+empty, so any discriminator built now would need a word/phrase list (covenant-forbidden) or would fire the
+recommendation register on the whole MDN corpus and mint the UBIQUITOUS junk class (`function`/`this`/`String`/
+`clear`) — the exact class the two prior attempts minted and reverted. The register REOPENS on its own once the
+substrate earns the signal: (a) the learned usage sense gains negation companions from a corpus that COMMANDS
+avoidance (not one that discusses page-breaks), or (b) `is_negation`'s definition-compounding reaches `avoid`
+via a proven `keep away from`/`stop` → negation link. Until a measurement shows one of those, the classics stay
+abstained — correctly. This is the honest third confirmation, now with the concrete companion numbers.
+
 ### Item 3 (the architecture mandate) — status after the docs-v85 pass (2026-07-12)
 
 > Honest scoping record. Item 3 (a–e) is a large multi-rung architectural mandate. Landed to date: 3b step 1
