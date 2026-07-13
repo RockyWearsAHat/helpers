@@ -664,12 +664,21 @@ substrate is untouched; attestation is a module-training faculty). COVENANT: the
 text, and page set are all DISCOVERED from data; only the prohibition enum value is data (`deprecation-status.json`);
 no site/word/element list in code.
 
-**Honest remainder — rung 3 (language expansion) frontier.** The metadata faculty is now the shape other
-languages plug into: Python `.. deprecated:: 3.x` directives / rendered "Deprecated since version X" boxes,
-Rust `#[deprecated]` / rendered badges — the same author-metadata marker, a new `prohibits` value or a new
-metadata shape per site. `deprecation-status.json` is the extension point (add the value; discovery finds the
-marker). Python/Rust crawl coverage + grammar-dylib status is the next measured step; abstain honestly where a
-docs site publishes no metadata marker.
+**Honest remainder — rung 3 (language expansion) is CORPUS-BLOCKED (measured).** The metadata faculty is the
+shape other languages plug into, and the extension is covenant-clean: Python renders `.. deprecated::` as a
+`<div class="deprecated">` / "Deprecated since version 3.11" box, Rust `#[deprecated]` as a rendered badge —
+a data-keyed CLASS-VALUE marker (typography, like a fence info-string), matchable against the `prohibits`
+value in `deprecation-status.json` as DATA, NOT prose. This needs a rendered-HTML-marker discovery variant
+(no markdown frontmatter + slug-join — Python/Rust carry the marker directly in the crawled HTML), distinct
+from the MDN frontmatter mechanism. BUT the corpora that carry the markers are NOT cached: the crawled
+`python-docs` (12 pages) and `rust-reference` (123 pages) are the language REFERENCE/SPEC — which describe
+syntax and carry ZERO deprecation markers (measured: 0 of 135) — while the deprecations live in the API docs
+(`docs.python.org/3/library`, `doc.rust-lang.org/std`) that are NOT crawled. A polite one-page fetch confirmed
+the marker shape is live (`docs.python.org/3/library/cgi.html` → "Deprecated since version 3.11"). So rung 3
+is a CORPUS-ACQUISITION + discovery-variant + grammar-dylib + module-floor task (python/rust sit below the
+graduation floor on the miner fallback; flipping needs ≥3 fired deprecated constructs), not a wiring task —
+the faculty ABSTAINS honestly on the cached reference corpora (no metadata → no false attestation, verified).
+Deferred to a corpus pass, per the rung discipline's honest stop.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
