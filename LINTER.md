@@ -281,6 +281,16 @@ construct recognition is the north-star direction). One parse + one walk per fil
 confirms imprecise text-fallback findings. Findings cite their source page. Project law (`.helpers/lint-rules/`)
 compiles as a local overlay and never vanishes silently. Lint NEVER touches the network; setup does.
 
+**Module isolation — "like C, don't pay for what you don't use" (VERIFIED, PASS 17).** Loading is lazy per
+project language: `tools::lint::run` detects the project's languages from its own file extensions
+(`select_by_language`) and calls `ensure_models` on ONLY those, so a pure-JS project loads `javascript.*`
+(the filename-keyed per-language `module`/`graduated`/`learned`/`overlay` artifacts) plus the shared
+machine-global substrate that loads ONCE (the char brain, the English brain, the transferred polarity, the
+extensions map) — never the other languages' modules. Per-language artifacts are independently removable and
+the registry-distribution unit is the per-language module; MEASURED (`examples/module_isolation`): deleting
+every non-JS module leaves the JS findings BYTE-IDENTICAL. RULES are never shared across languages, and now
+neither are their LOADS.
+
 **The deprecation attestation faculty — BUILT, metadata-keyed (COMPLETION PASS 13).** A page's DEPRECATION
 role is read from the AUTHOR'S OWN METADATA TYPOGRAPHY, not from English polarity — the covenant-clean
 sidestep of the passes-11/12 wall. The author marks status in a frontmatter block-sequence ENUM
@@ -327,13 +337,20 @@ the 117 (P = R = 1.000) and web graduation byte-identical.
 
 **What is NOT yet built (honest frontier).** The learned reader still has NO general page-role/subject
 faculty beyond deprecation attestation; other page roles stay INTERIM. The RECOMMENDATION/ADVICE register
-(the classics `var`/`==`/`eval` on a "prefer X" page with no metadata marker) is still SEMANTICALLY
-unlabelable — the same wall passes 11/12 measured (frozen negator discovery finds only `"not"`; the meaning
-network carries no geometry for `deprecated`/`avoid`/`obsolete`; the `un`/`non` prefix polarity is
-covenant-clean but 1-hop-bounded and FP-explosive through the count-based compounding guard). That register
-re-lands only WITH (a) a discovery that finds `"no"`/`"no longer"` unbiased by the `prefix+root` morphology
-AND (b) a propagating SIGNED polarity surviving multi-hop without the compounding FP explosion (or the trained
-side-count `Polarity` on real bad/good labels). The **SUPERSESSION register** (flag OLD-way web code with
+(the classics `var`/`==`/`eval` on a "prefer X" page with no metadata marker) is still unwirable as a page
+gate, but PASS 17 moved the diagnosis one mechanism deeper by actually TRAINING the side-count `Polarity` on
+the system's own machine-derived labels (117 deprecation banners vs ~1284 Baseline banners, run-balanced,
+rest as exposure). The trained token leans SUPERSEDE the passes-11/12 `related()` noise band —
+`recommend`/`avoid`/`cease`→prohibition, `established`/`works`→endorsement, learned with no word list — and
+the prose-command classics score prohibition 5/6 under the full classify. But the register cannot GATE
+reference pages: MEASURED, the frozen `is_negation` "not" short-circuit inside `tally_lean` drives 100% of a
+48–86% page-open flood (the register's OWN trained vocabulary floods 0%), and the distinctive advice words are
+exposure-entangled with ordinary guide prose so they never clear the side-count bad bar — only a
+banner-exclusive word (`cease`) does. So the trained register re-lands as a GATE only WITH (a) the trained
+lean SUPERSEDING the frozen negator for words it has decisive evidence on (a change to the SHARED classifier
+that needs its own regression proof) AND (b) SUBJECT confirmation (url-subject fires on the page's own
+example) to separate a construct-prohibition from generic advice — see the PASS 17 ledger item for the tables
+and the full flood measurement. The **SUPERSESSION register** (flag OLD-way web code with
 the MODERN feature — `new Date()` → Temporal, `history.pushState` → Navigation API — the rule read from
 MDN's "designed as a replacement for X"/"successor to X" prose) hits the SAME flat-geometry wall, measured
 COMPLETION PASS 16 (`examples/super_probe`): the substitution vocabulary is not separable from ordinary
@@ -872,6 +889,95 @@ need" NEGATION-of-need form (the same negation wall). OR: the owner blesses a si
 DATA (exactly as `deprecation-status.json`'s `prohibits: ["deprecated"]` — the one datum no structural
 signal supplies), accepting that recognition is then literal-membership over that datum and NOT an
 understanding-read — a DIFFERENT covenant posture than this pass permits. Until then the honest gap stands.
+
+### Item — COMPLETION PASS 17: the TRAINED register supersedes the noise band but is exposure-entangled; module isolation VERIFIED (measured; NO ship, 2026-07-13)
+
+> Owner ruling (PASS 17): two rungs. Rung 1 — TRAIN the register on the system's OWN machine-derived
+> labels (the 117 deprecation-attested banners vs the ~1284 Baseline availability banners), the vehicle
+> the existing side-count [`Polarity`] (`lint_read.rs`), then MEASURE generalization before wiring, then
+> wire what generalization supports (the prose-command classics `var`/`==`/`eval` proposed through the
+> blind loop) at junk floor zero — "if a leg fails, wire only the legs that pass and record the rest with
+> numbers." Rung 2 — module isolation: "like C, don't pay for what we don't use." MEASURED end to end
+> (`examples/register_train`, `examples/module_isolation`, both reproducible). No library logic changed;
+> `TRAIN_VERSION`/`BRAIN_REV` unmoved; 235 lib tests + gauntlets green.
+
+**Rung 1 — the register TRAINS, and it SUPERSEDES the passes-11/12 noise band (the new positive).** The
+labels are machine-derived page-role facts, no hand list: BAD = the 117-page deprecation banner runs
+(family-dominant sentence-scale invariant runs, off-family 0 — `metajoin`'s markers), GOOD = the Baseline
+availability banners discovered structurally as the top sentence-scale PROSE invariant runs absent from the
+family (support 807 "…is well established and works across many devices…", 477 "…is not Baseline because it
+does not work…", 486 "Want more support…"), the rest of the corpus as neutral EXPOSURE. The LABEL is the
+banner FACT (one run), so each DISTINCT run is one training example — class-balanced at the run level
+(otherwise the 807/477 Baseline pages poison shared nouns like "feature" toward the larger family; measured:
+per-page labels flipped `feature`→good and regressed the classics). Trained thus, the per-token side-count
+leans are CLEAN and CORRECT for the distinctive register vocabulary — `recommend`/`avoid`/`cease`→prohibition,
+`established`/`works`/`widely`/`available`→endorsement — the SAME words passes 11/12 measured sitting in the
+`related()` noise band (`deprecated`↔`obsolete` 3967 vs a neutral `search`↔`obsolete` 3891, i.e. CLOSER).
+This is the trained-`Polarity`-on-real-labels the passes-11/12 re-land condition named, and it works at the
+token level: reality's own page-role verdicts polarize the register vocabulary with no word list.
+
+**Rung 1 generalization tables (`examples/register_train`, MEASURED).** `classify` = tallies then prototype
+fallback; `tally-only` = `classify_tallied` (decisive learned register words, abstain otherwise).
+- (a) held-out banners: 5/5 correct (banners invariant — confirms training took, not generalization).
+- (b) PROSE-COMMAND classics (want prohibition): `classify` 5/6 — "Never use direct eval()!"✓, "…recommend
+  avoiding var…"✓, "The == operator is not recommended…"✓, "…no longer recommended to use this feature"✓,
+  "This method is deprecated and should be avoided"✓, "Use === Comparison" abstains (positive advice, no
+  prohibition). `tally-only` catches only 2/6 (the exposure-common register words cannot clear the bars —
+  see the wall).
+- (c) ABSTENTION FOILS (want NOT prohibition): the three Baseline banners → `classify` all endorsement✓
+  (INCLUDING "…is not Baseline because it does not work…", the descriptive-negation trap passes 11/12 FP'd);
+  junk governing prose (`this`/`String` pages) → `classify` **2 FALSE POSITIVES** ("keyword refers to the
+  context…", "Strings are useful…"), but `tally-only` correctly ABSTAINS on both.
+- (d) note-scope: "This does not work on WebAssembly targets" → `classify` endorsement (the passes-11/12
+  "does not" FP is GONE once the 477 banner is a GOOD label); "if loop is not specified…" → prohibition (FP).
+
+**Rung 1 — the WIRING wall, diagnosed one mechanism deeper (the reason NO rule ships).** The register cannot
+gate `read_doc_page` (the classics' MDN reference pages early-return empty there because they are neither
+`/rules/` nor `attested_deprecated`; the register would OPEN them). MEASURED flood over 2851 non-attested
+reference pages: `tally-only` opens **48.3%**, `classify` **85.8%** — but the sample opened subjects are
+generic guide pages ("properties", "selectors", "specificity", "inheritance", "grid_layout"), NOT
+prohibitions. The decisive isolation: counting ONLY genuinely TRAINED-bad register words (decisive label
+lean, EXCLUDING the frozen `is_negation` "not" short-circuit) opens **0.0%**. So the entire flood is the
+frozen negator cluster — any negated prose reads prohibition through `tally_lean`'s `is_negation`-first
+branch (PASS 12's "not" problem, now shown to drive 100% of the flood). AND the converse: the distinctive
+register words that SHOULD gate (`recommend`/`avoid`) can never clear the side-count bad bar `f ≥ 2·(g+e)`,
+because they pervade ordinary advisory prose ("we recommend", "avoid floats") → exposure `e` is huge; only a
+banner-EXCLUSIVE word (`cease`, e=0) earns a clean tally-bad lean. So the classics' clean leg-(b) scores come
+from the undertrained PROTOTYPE (≈5 label runs) — the SAME prototype that FPs the leg-(c) junk. Net: no leg
+passes the junk-floor-zero gate for standalone wiring. Wiring `read_doc_page` behind the register would flood
+the propose pool (the code's own warning: dropping/adding candidates reshuffles the order-sensitive self-test
+and flips UNRELATED verdicts among the 100+ graduated rules), so — per the covenant (no forcing) and the
+passes-11/12/16 honest-stop precedent — NO library code lands and the deprecation faculty (metadata-keyed,
+PASS 13) stays the covenant-clean route for the pages that carry a marker.
+
+**Rung 1 re-land condition (sharpened past PASS 12, TWO mechanism gaps, both now quantified).** (a) The
+frozen `is_negation` short-circuit inside `Polarity::tally_lean` must be SUPERSEDED by decisive TRAINED
+evidence (a word the labels met with a decisive lean uses its trained lean; only an unmet word falls back to
+the negator cluster) — this is what makes "not" trained-neutral and collapses the 48–86% flood — BUT this
+method is SHARED with the grounded (toolchain) polarity that drives construct selection, so the change needs
+its own regression proof (deferred, not attempted). (b) The register/advice vocabulary is EXPOSURE-ENTANGLED
+with ordinary guide prose (`recommend`/`avoid` are common advice), so the side-count bars cannot separate a
+construct-PROHIBITION from generic advice without SUBJECT confirmation — the propose path's existing
+"url-subject fires on the page's own example" filter is the missing conjunct, and only the full graduation +
+self-test run (also deferred on regression risk) can prove it keeps junk floor zero. The trained register is
+REAL and MEASURED; its safe consumer is not yet available.
+
+**Rung 2 — module isolation VERIFIED already correct; no fix needed (`examples/module_isolation`, MEASURED).**
+The live lint load path is already "don't pay for what you don't use": `tools::lint::run` detects the
+project's languages (`select_by_language`, keyed on the project's own file extensions) and calls
+`ensure_models(&by_language.keys(), …)` — ONLY the languages actually present. Per-language artifacts are
+filename-keyed and independently removable (`<lang>.module.bin` + `.graduated.bin` + `.learned.bin` +
+`.overlay-<fp>.bin`); `load_module` reads exactly `<lang>.module.bin`; the only `read_dir(model_dir())` walks
+are setup-time (`invalidate_module`) and reporting, never the lint hot path. MEASURED on a throwaway copy of
+the model cache (711 files, 255 MB across every language): a pure-JS project loads only `javascript.*`
+(9.8 MB, "53 rules across 1 language(s)") plus the shared machine-global substrate that loads ONCE
+(`char.global.bin` 55 MB, `english.global.bin` 9.6 MB, `polarity.global.bin` 0.29 MB, `extensions.bin`
+32 KB) — never the other 245 MB of language modules. ISOLATION PROVED: after deleting EVERY non-JS language
+module (711 → 491 files, 190 MB removed) the JS findings are **BYTE-IDENTICAL** (`true`); removing a
+language changes nothing for another. A CSS project after `css.*` removal independently re-acquires its own
+module (per-language registry pull, no other language dragged along). The registry-distribution unit is
+already the per-language module; the C-like "pay only for the languages your project uses" property holds and
+is now measured, so rung 2 lands as a VERIFICATION with numbers, not a code change.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
