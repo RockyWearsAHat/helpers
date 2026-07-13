@@ -160,6 +160,105 @@ fn derive_advice(pool: &[PooledSentence], en: &English, construct: &str, underst
         .map(|ps| ps.sentence.clone())
 }
 
+/// How many DISTINCT receivers a receiver-generic member shape (`.split`) may ride in the language's own
+/// reference corpus and still be considered UNAMBIGUOUS — enforceable as a member rule. Above this, the
+/// member name belongs to several unrelated types (`str.split`, `shlex.split`) and a rule on it would flag
+/// idiomatic non-deprecated use. Receiver-IDENTITY is judged separately by [`member_demo_ok`].
+const MAX_UNAMBIGUOUS_RECEIVERS: usize = 2;
+
+/// Whether an example block DEMONSTRATES the receiver-generic member `member` (leading dot) as the marked
+/// item's own usage — the receiver of a firing occurrence must be either the item's OWN PARENT component
+/// (case-insensitive: the classmethod/static style `datetime.utcnow()` under id
+/// `datetime.datetime.utcnow`) or a BLOCK-LOCAL instance (an identifier the block itself introduced
+/// earlier: rustdoc's `let s = …; s.trim_left()`). A FOREIGN-NAMESPACE receiver (`collections.abc.Sequence`
+/// demonstrating the deprecation's own recommended replacement for `typing.Sequence`, MEASURED) matches
+/// neither and is rejected — the demo is a different item, so the member rule would flag the fix itself.
+fn member_demo_ok(block: &str, member: &str, parent: &str) -> bool {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    let mut from = 0usize;
+    while let Some(rel) = block[from..].find(member) {
+        let at = from + rel;
+        let end = at + member.len();
+        let bounded = block[end..].chars().next().map(|c| !is_ident(c)).unwrap_or(true);
+        if bounded {
+            // A LITERAL/EXPRESSION receiver (`"11foo1bar11".trim_left_matches('1')`, `(a + b).abs_sub`) is
+            // an instance usage by construction — the value's own type owns the member.
+            if matches!(block[..at].chars().next_back(), Some('"') | Some('\'') | Some(')') | Some(']')) {
+                return true;
+            }
+            let recv: String = block[..at]
+                .chars()
+                .rev()
+                .take_while(|c| is_ident(*c))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if !recv.is_empty() {
+                let recv_start = at - recv.len();
+                let deeper = recv_start > 0 && block[..recv_start].ends_with('.');
+                if !deeper {
+                    if recv.eq_ignore_ascii_case(parent) {
+                        return true;
+                    }
+                    // Block-local instance: the receiver identifier appears EARLIER in the block in a
+                    // non-member position (its own introduction), so this usage is an instance call.
+                    let earlier = &block[..recv_start];
+                    let mut f = 0usize;
+                    while let Some(r2) = earlier[f..].find(recv.as_str()) {
+                        let s2 = f + r2;
+                        let e2 = s2 + recv.len();
+                        let b_ok = s2 == 0
+                            || (!is_ident(earlier[..s2].chars().next_back().unwrap_or(' '))
+                                && !earlier[..s2].ends_with('.'));
+                        let a_ok =
+                            earlier[e2..].chars().next().map(|c| !is_ident(c)).unwrap_or(true);
+                        if b_ok && a_ok {
+                            return true;
+                        }
+                        f = s2 + 1;
+                    }
+                }
+            }
+        }
+        from = at + 1;
+    }
+    false
+}
+
+/// The number of DISTINCT receiver identifiers `X` such that `X<member>` appears in the reference corpus
+/// (`member` carries its leading dot: `.split` counts `re.split`, `s.split`, …). Text-level and
+/// language-free: an identifier run immediately before the member's dot is the receiver. The ambiguity
+/// referee for receiver-generic member shapes ([`propose`]'s shape reduction).
+fn member_receivers(reference: &[String], member: &str) -> usize {
+    let mut receivers: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    for blk in reference {
+        let mut from = 0usize;
+        while let Some(rel) = blk[from..].find(member) {
+            let at = from + rel;
+            // The receiver is the identifier run ending at the dot; member must end on a boundary.
+            let end = at + member.len();
+            let bounded = blk[end..].chars().next().map(|c| !is_ident(c)).unwrap_or(true);
+            if bounded {
+                let recv: String = blk[..at]
+                    .chars()
+                    .rev()
+                    .take_while(|c| is_ident(*c))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                if !recv.is_empty() {
+                    receivers.insert(recv);
+                }
+            }
+            from = at + 1;
+        }
+    }
+    receivers.len()
+}
+
 /// Whether `code` contains `construct` as a code token — the sound harvest pre-filter. A SYMBOL
 /// construct (`==`) must be a whole whitespace/punctuation-delimited token (so it is not found inside
 /// `===`); an alphanumeric construct (`var`) is matched on a non-alphanumeric, non-dot boundary (so it
@@ -342,13 +441,13 @@ fn rule_id(construct: &str) -> String {
 /// a fast diagnostic of how many constructs the structural reading discovers and what they are. Each
 /// carries its construct, the governing understanding sentence, and the source url. Pure over the pages
 /// and the two frozen brains.
-pub fn proposed(lang: &str, pages: &[(String, String)], _memory: &Memory, m: &MeaningNetwork, en: &English) -> Vec<Candidate> {
+pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &MeaningNetwork, en: &English) -> Vec<Candidate> {
     let bridge = Bridge::new(m, en);
     let attest = crate::lint_attest::Attestation::discover(pages);
     let attested: std::collections::HashSet<String> =
         pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
     let partition = lang_pages(lang, pages, &bridge, en, &attested);
-    propose(lang, &partition, &bridge, en, &attested).0
+    propose(lang, &partition, &bridge, en, &attested, memory).0
 }
 
 /// PARTITION whole-site doc pages to the ones that PROVE in this language — decided by GRAMMAR
@@ -384,11 +483,18 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
     if !page.prohibited || page.constructs.is_empty() {
         return false;
     }
-    let own = crate::lint_lang_layer::page_code_corpus(
-        std::slice::from_ref(&(url.to_string(), body.to_string())),
-        lang,
-        MAX_HARVEST_BLOCKS,
-    );
+    // A rendered-marker page (Python/Rust) demonstrates its items in bare inline `<code>`, not
+    // `<pre><code>`, so its example corpus is the WIDENED reading; a URL-subject page (MDN) has no
+    // markers and reads exactly the frozen `<pre><code>` corpus — byte-identical.
+    let own = if page.marked_deprecated.is_empty() {
+        crate::lint_lang_layer::page_code_corpus(
+            std::slice::from_ref(&(url.to_string(), body.to_string())),
+            lang,
+            MAX_HARVEST_BLOCKS,
+        )
+    } else {
+        crate::lint_lang_layer::page_example_corpus(body, &page.marked_deprecated)
+    };
     page.constructs.iter().any(|c| {
         let plan = Plan::UsesConstruct { construct: c.clone() };
         // PRIMARY-EXAMPLE language gate. The subject's language is where its FIRST DEMONSTRATED usage —
@@ -434,7 +540,7 @@ struct PooledSentence {
 /// is a real doc sentence mentioning the construct — preferring one from a prohibited page and in
 /// negative polarity; a construct no clean sentence mentions cannot form an un-fakeable English pair and
 /// is dropped (never a synthesized sentence).
-fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>) -> (Vec<Candidate>, Vec<PooledSentence>) {
+fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, memory: &Memory) -> (Vec<Candidate>, Vec<PooledSentence>) {
     let mut docpages: Vec<crate::lint_lang_layer::DocPage> =
         pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested)).collect();
 
@@ -451,17 +557,57 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
         if !p.attested_deprecated || p.constructs.len() <= 1 {
             continue;
         }
-        let chosen = p
-            .constructs
-            .iter()
-            .find(|c| {
-                let plan = Plan::UsesConstruct { construct: (*c).clone() };
-                p.example_code
-                    .iter()
-                    .any(|blk| construct_in_text(blk, c) && !run_plan(&plan, lang, blk).is_empty())
-            })
-            .cloned();
-        p.constructs = chosen.into_iter().collect();
+        let fires_on_own = |c: &str| {
+            let plan = Plan::UsesConstruct { construct: c.to_string() };
+            p.example_code
+                .iter()
+                .any(|blk| construct_in_text(blk, c) && !run_plan(&plan, lang, blk).is_empty())
+        };
+        if p.marked_deprecated.is_empty() {
+            // URL-subject page (MDN): one subject, first firing shape wins — the frozen selection.
+            let chosen = p.constructs.iter().find(|c| fires_on_own(c)).cloned();
+            p.constructs = chosen.into_iter().collect();
+        } else {
+            // RENDERED-MARKER page: the unit is the ITEM (an API page marks many — ssl.html marks 20).
+            // Per item, keep the FIRST shape that fires on the page's own demonstrated usage — with the
+            // RECEIVER-GENERIC member (`.split`) admitted only when its member name is UNAMBIGUOUS in the
+            // language's own reference corpus ([`member_receivers`] ≤ [`MAX_UNAMBIGUOUS_RECEIVERS`]):
+            // `.utcnow`/`.compare_and_swap` are one-receiver names and stay enforceable; `.split`/`.name`
+            // ride many receivers (`str.split`, `Path.name`) and a rule on them would flag idiomatic
+            // non-deprecated use, so they abstain and the item contributes a receiver-specific shape or
+            // nothing. Data-driven (the corpus the language's own docs demonstrate), no word list.
+            let mut chosen: Vec<String> = Vec::new();
+            for group in &p.marked_deprecated {
+                // The item's parent component, from the group's most-specific shape (the full anchor id).
+                let parent = group
+                    .first()
+                    .and_then(|full| {
+                        let parts: Vec<&str> = full.split('.').collect();
+                        (parts.len() >= 2).then(|| parts[parts.len() - 2].to_string())
+                    })
+                    .unwrap_or_default();
+                let pick = group.iter().find(|c| {
+                    if !c.starts_with('.') {
+                        return fires_on_own(c);
+                    }
+                    if member_receivers(&memory.reference, c) > MAX_UNAMBIGUOUS_RECEIVERS {
+                        return false;
+                    }
+                    let plan = Plan::UsesConstruct { construct: (*c).clone() };
+                    p.example_code.iter().any(|blk| {
+                        construct_in_text(blk, c)
+                            && !run_plan(&plan, lang, blk).is_empty()
+                            && member_demo_ok(blk, c, &parent)
+                    })
+                });
+                if let Some(c) = pick {
+                    if !chosen.contains(c) {
+                        chosen.push(c.clone());
+                    }
+                }
+            }
+            p.constructs = chosen;
+        }
     }
     let docpages = docpages;
     let mut pooled: Vec<PooledSentence> = Vec::new();
@@ -488,13 +634,29 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
             .into_iter()
             .map(|(c, _)| crate::lint_lang_layer::normalize_construct(&c))
             .collect();
-        let subject = p
-            .constructs
-            .iter()
-            .filter(|c| !out.iter().any(|o| &o.construct == *c))
-            .filter(|c| is_prohibited_subject(lang, &p.url, c, &p.incorrect, &p.correct))
-            .max_by_key(|c| subject_score(lang, c, &p.incorrect));
-        let Some(construct) = subject else { continue };
+        // A subject is confirmed either by the URL naming it ([`is_prohibited_subject`], the
+        // URL-subject sites — ONE subject per page, the page IS the item), OR — for a RENDERED-MARKER
+        // site (Python/Rust) whose URL names the module/type, not the member — by the deprecation marker
+        // sitting on the member's OWN item anchor ([`DocPage::marked_deprecated`]) — one candidate PER
+        // MARKED ITEM (an API page marks many). The anchor confirmation is the structural parallel of the
+        // URL payload; MDN's dotless-id banner yields an empty marked set, so this never admits a
+        // URL-subject-site construct the URL did not already name, and never widens MDN past one subject.
+        let subjects: Vec<&String> = if p.marked_deprecated.is_empty() {
+            p.constructs
+                .iter()
+                .filter(|c| !out.iter().any(|o| &o.construct == *c))
+                .filter(|c| is_prohibited_subject(lang, &p.url, c, &p.incorrect, &p.correct))
+                .max_by_key(|c| subject_score(lang, c, &p.incorrect))
+                .into_iter()
+                .collect()
+        } else {
+            p.constructs
+                .iter()
+                .filter(|c| !out.iter().any(|o| &o.construct == *c))
+                .filter(|_| p.attested_deprecated)
+                .collect()
+        };
+        for construct in subjects {
         // The stated-subject gate is computed here but NOT used to reject the candidate: rejecting at
         // PROPOSE would shrink the pool and reshuffle the frozen self-test's order-sensitive foil, flipping
         // UNRELATED verdicts (MEASURED: dropping the junk operators `??`/`+=`/`!=` here spuriously
@@ -522,6 +684,7 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
                 attested_deprecated: p.attested_deprecated,
                 stated,
             });
+        }
         }
     }
     (out, pooled)
@@ -788,7 +951,7 @@ pub fn graduate(
         pages.iter().map(|(u, b)| (u.clone(), chrome.strip(u, b))).collect();
     let pages: &[(String, String)] = &stripped;
     let partition = lang_pages(lang, pages, &bridge, en, &attested);
-    let (candidates, pool) = propose(lang, &partition, &bridge, en, &attested);
+    let (candidates, pool) = propose(lang, &partition, &bridge, en, &attested, memory);
     let corpus = harvest_corpus(memory);
 
     // Each candidate's derived advice (its SECOND, distinct doc sentence). A candidate with no such
@@ -1021,6 +1184,31 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
 mod tests {
     use super::*;
     use crate::lint_read::Binding;
+
+    #[test]
+    fn member_demo_ok_accepts_own_parent_local_and_literal_receivers_rejects_foreign() {
+        // Classmethod style: receiver equals the item's own parent component.
+        assert!(member_demo_ok("dt = datetime.utcnow()", ".utcnow", "datetime"));
+        // Block-local instance: the receiver was introduced earlier in the same block.
+        assert!(member_demo_ok("let s = \" hi \"; let t = s.trim_left();", ".trim_left", "method"));
+        // Literal receiver: the value's own type owns the member.
+        assert!(member_demo_ok("assert_eq!(\"x\", \"1x1\".trim_left_matches('1'));", ".trim_left_matches", "method"));
+        // Foreign namespace: the demo names ANOTHER item (the recommended replacement) — rejected.
+        assert!(!member_demo_ok("x: collections.abc.Sequence[int] = []", ".Sequence", "typing"));
+        assert!(!member_demo_ok("d = collections.OrderedDict()", ".OrderedDict", "typing"));
+    }
+
+    #[test]
+    fn member_receivers_counts_distinct_receivers() {
+        let corpus = vec![
+            "words = text.split(',')".to_string(),
+            "parts = name.split('.')".to_string(),
+            "re.split(pattern, s)".to_string(),
+            "dt = datetime.utcnow()".to_string(),
+        ];
+        assert!(member_receivers(&corpus, ".split") >= 3, "split rides many receivers");
+        assert_eq!(member_receivers(&corpus, ".utcnow"), 1, "utcnow is bound to one receiver");
+    }
 
     /// Both frozen brains, or `None` when an artifact is not on disk (the workflow is defined only over
     /// the real bedrock, so tests observe against it or skip honestly — never fake a pass).
