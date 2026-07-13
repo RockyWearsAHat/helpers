@@ -57,6 +57,14 @@ fn has_notecard(body: &str) -> bool {
     body.contains("notecard deprecated") || body.contains("no longer recommended")
 }
 
+/// Count pages the LEARNED attestation faculty attests for one language's own pages — the extended
+/// (PASS 14) measurement: frontmatter text-run markers (MDN) plus rendered class-token markers
+/// (`<div class="deprecated">` / `stab deprecated`), both discovered from data.
+fn attested_count(pages: &[(String, String)]) -> usize {
+    let att = helpers_native::lint_attest::Attestation::discover(pages);
+    pages.iter().filter(|(_, b)| att.attests(b)).count()
+}
+
 #[derive(Default)]
 struct Cov {
     files: Vec<String>,
@@ -64,6 +72,8 @@ struct Cov {
     reference: usize,
     rule: usize,
     notecard: usize,
+    attested: usize,
+    lang_pages: Vec<(String, String)>,
     legacy_only: bool, // every crawl file for this language was body-less legacy json
     has_bin: bool,
 }
@@ -105,6 +115,9 @@ fn main() {
         c.files.push(fname);
         c.pages += pages.len();
         if !is_legacy {
+            c.lang_pages.extend(pages.iter().cloned());
+        }
+        if !is_legacy {
             c.has_bin = true;
         }
         for (url, body) in &pages {
@@ -121,16 +134,17 @@ fn main() {
     }
     for c in cov.values_mut() {
         c.legacy_only = !c.has_bin;
+        c.attested = attested_count(&c.lang_pages);
     }
 
     // ── Report: the coverage map, sorted so the languages that EXPOSE markers surface first ──
     println!("LANG COVERAGE MAP — cached crawls scanned for the reader's page-kind markers\n");
-    println!("{:14} {:>7} {:>6} {:>5} {:>8}  {:<7} files", "lang", "pages", "ref", "rule", "notecard", "cache");
+    println!("{:14} {:>7} {:>6} {:>5} {:>8} {:>8}  {:<7} files", "lang", "pages", "ref", "rule", "notecard", "attested", "cache");
     let mut rows: Vec<(&String, &Cov)> = cov.iter().collect();
-    rows.sort_by_key(|(_, c)| std::cmp::Reverse(c.reference + c.rule + c.notecard));
+    rows.sort_by_key(|(_, c)| std::cmp::Reverse(c.reference + c.rule + c.notecard + c.attested));
     let (mut exposing, mut zero) = (0usize, 0usize);
     for (lang, c) in &rows {
-        let signal = c.reference + c.rule + c.notecard;
+        let signal = c.reference + c.rule + c.notecard + c.attested;
         if signal > 0 {
             exposing += 1;
         } else {
@@ -138,8 +152,8 @@ fn main() {
         }
         let cache = if c.legacy_only { "legacy" } else { "bin" };
         println!(
-            "{:14} {:>7} {:>6} {:>5} {:>8}  {:<7} {}",
-            lang, c.pages, c.reference, c.rule, c.notecard, cache,
+            "{:14} {:>7} {:>6} {:>5} {:>8} {:>8}  {:<7} {}",
+            lang, c.pages, c.reference, c.rule, c.notecard, c.attested, cache,
             c.files.join(",")
         );
     }
