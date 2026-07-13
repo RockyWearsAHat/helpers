@@ -45,7 +45,10 @@ const MEM_CAP: usize = 8 << 20;
 /// character level between English and the web, and its line typography (fenced code, ATX headings)
 /// tallies into the SAME learned role space through [`crate::lint_graph::scan_markdown`], so every
 /// stale brain rebuilds to read markdown by the register it shares with HTML.
-const BRAIN_REV: u64 = 11;
+/// 12: the MDN-content markdown corpus (LINTER.md rung 2a) joins the curriculum — the SOURCE
+/// markdown of the crawled MDN pages, whose fences are tagged ` ```js `/` ```css ` and are ~98%
+/// code, so the fence marker EARNS its code register by exposure (the rung-1 abstain is crossed).
+const BRAIN_REV: u64 = 12;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -1339,17 +1342,27 @@ const WEB_CURRICULUM: [&str; 3] = ["html", "css", "javascript"];
 /// English and BEFORE the web curriculum (LINTER.md rung 1: txt → markdown → HTML). Its structure
 /// (headings, fenced code) is learned by exposure through the char reader, exactly as web element
 /// roles are, so the reader arrives at HTML already knowing the heading and code-fence registers.
-/// Sourced from the bundled skills clone beside the models (`mattpocock-skills`, present after
-/// `helpers install`); a machine without it simply learns no markdown roles (a graceful abstain,
-/// like an un-crawled web language). Returns each file's contents; bounded by a total budget.
+/// Sourced from two DATA clones beside the models, each present after its registered fetch and
+/// each a graceful abstain when absent (a machine without one simply learns fewer markdown roles,
+/// like an un-crawled web language):
+///   - `mattpocock-skills` (rung 1) — general docs-shaped skill markdown whose fences are MIXED
+///     (bash/yaml/text/prose), so on it alone the fence role stays below the ¾-purity bar.
+///   - `mdn-content` (rung 2a) — the SOURCE markdown of the MDN pages already crawled, where fences
+///     are tagged ` ```js `/` ```css `/` ```html ` and are ~98% code, so the fence marker EARNS its
+///     code register by exposure (re-measured in the rung-2 appendix).
+/// Returns each file's contents in a DETERMINISTIC path order, so the freshness fingerprint and the
+/// learned roles are reproducible; a total byte budget caps the read regardless of corpus growth.
 fn markdown_corpus() -> Vec<String> {
-    let dir = crate::lint_train::model_dir_pub()
-        .parent()
-        .map(|p| p.join("mattpocock-skills"))
-        .unwrap_or_else(|| std::path::PathBuf::from("mattpocock-skills"));
-    let mut out = Vec::new();
-    let mut budget: usize = 8 << 20; // 8 MiB safety valve — the corpus is ~350 KiB today
-    let mut stack = vec![dir];
+    let beside = |name: &str| {
+        crate::lint_train::model_dir_pub()
+            .parent()
+            .map(|p| p.join(name))
+            .unwrap_or_else(|| std::path::PathBuf::from(name))
+    };
+    // Collect every `*.md` PATH first, then sort, THEN read under budget — so which files survive a
+    // truncation is a deterministic function of the paths, not of filesystem walk order.
+    let mut paths: Vec<std::path::PathBuf> = Vec::new();
+    let mut stack = vec![beside("mattpocock-skills"), beside("mdn-content")];
     while let Some(d) = stack.pop() {
         let Ok(rd) = std::fs::read_dir(&d) else { continue };
         for e in rd.flatten() {
@@ -1357,18 +1370,23 @@ fn markdown_corpus() -> Vec<String> {
             if p.is_dir() {
                 stack.push(p);
             } else if p.extension().is_some_and(|x| x == "md") {
-                if let Ok(text) = std::fs::read_to_string(&p) {
-                    if budget == 0 {
-                        return out;
-                    }
-                    let text = if text.len() > budget { text[..budget].to_string() } else { text };
-                    budget -= text.len();
-                    out.push(text);
-                }
+                paths.push(p);
             }
         }
     }
-    out.sort(); // deterministic order so the fingerprint and learning are reproducible
+    paths.sort();
+    let mut out = Vec::new();
+    let mut budget: usize = 24 << 20; // 24 MiB — covers both clones (~17 MiB today); a safety valve.
+    for p in paths {
+        if budget == 0 {
+            break;
+        }
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            let text = if text.len() > budget { text[..budget].to_string() } else { text };
+            budget -= text.len();
+            out.push(text);
+        }
+    }
     out
 }
 

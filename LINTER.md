@@ -220,18 +220,22 @@ pages ⊕ explanation corpus).
 **The curriculum.** English (bedrock) → txt → markdown → HTML → CSS → JavaScript, each layer read from its
 OWN documentation in the language of the layer beneath. Comprehension is shared across layers (one meaning
 graph); RULES are never shared across languages. The **markdown/txt precursor is BUILT** (rung 1,
-`BRAIN_REV` 11): between English and the web, `ensure_brain` reads a real docs-shaped markdown corpus (the
-bundled `mattpocock-skills` clone) at the character level, and `lint_graph::scan_markdown` reads its LINE
-typography (fenced code, ATX headings) into the SAME learned role space the HTML element roles occupy —
-markers are keyed by their OWN characters (`` ``` ``, `#`), and their register is LEARNED by exposure
-(`learn_structure_roles`), never assigned. `lint_graph::read_markdown` segments a markdown doc into
-heading-governed code-fence units through the identical unit former (`read_scan`) the web reader uses.
-MEASURED on that corpus (honest): the markers' register is genuinely MIXED — fenced blocks are 47%
-code-majority (bash/yaml/text/prose examples fill the rest), ATX headings 68% heading-shaped — so both fall
-short of the strict ¾-purity role bar and correctly ABSTAIN; segmentation still succeeds on 97/113 real
-files (and the deterministic `a_markdown_doc_segments_into_heading_prose_and_code_fence_units` witness) via
-the shared meaning/shape fallback the roles back-stop. A more code-consistent markdown corpus would let the
-fence cross; the faculty is wired to learn it when the data supports it.
+extended rung 2a, `BRAIN_REV` 12): between English and the web, `ensure_brain` reads real docs-shaped
+markdown corpora (two registered DATA clones beside the models — the `mattpocock-skills` skill docs plus
+`mdn-content`, the SOURCE markdown of the crawled MDN pages) at the character level, and
+`lint_graph::scan_markdown` reads their LINE typography (fenced code, ATX headings) into the SAME learned
+role space the HTML element roles occupy — markers are keyed by their OWN characters (`` ``` ``, `#`), and
+their register is LEARNED by exposure (`learn_structure_roles`), never assigned. `lint_graph::read_markdown`
+segments a markdown doc into heading-governed code-fence units through the identical unit former (`read_scan`)
+the web reader uses. MEASURED on the combined corpus (honest, `HELPERS_ROLE_TRACE`): the fence register rose
+from rung-1's 47% to **73% code-majority** once MDN's ~98%-code-tagged fences were added — but its *readable
+content* stays under the ¾-purity bar because MDN worked examples are richly commented in English and use
+`plain`/output fences, so the shared code-detector (calibrated on syntax-highlighted HTML `<pre>`) reads only
+73% of raw fences as code-content-majority; ATX headings are 68% heading-shaped. BOTH markers therefore still
+correctly ABSTAIN (the ¾ bar STAYS; no forcing). Segmentation succeeds via the shared meaning/shape fallback.
+The honest boundary: closing the last 2 points would require tuning the code-detector to treat commented raw
+code as code (it would churn the frozen HTML `<pre>` register and every module's `TRAIN_VERSION`), which the
+covenant forbids as forcing — so the fence lands at a measured near-miss, not a hacked cross.
 
 **Building a language module (the whole live path, `lint_module::graduated_rules`).**
 1. **Whole-site read.** The propose corpus is every cached page whose HOST is one of the language's
@@ -331,6 +335,57 @@ code-consistent markdown corpus (language READMEs/tutorials where fences are ~al
 wired to learn it the moment such a corpus is present. Rungs 2 (perfect-extraction bar), 3 (verdict gate),
 and 4 (language expansion) are UNTOUCHED this pass — stopped honestly at the rung-1 boundary per the rung
 discipline.
+
+### Item — RUNG 2a: feed the fence role with the MDN-content markdown corpus (`BRAIN_REV` 12, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 9, rung 2a): "FEED THE FENCE ROLE — add a code-consistent markdown corpus
+> as curriculum DATA. Strong candidate: `mdn/content` (the SOURCE markdown of the crawled MDN pages, fences
+> ~always code). Re-measure the vote table; the ¾ bar stays." Rung-1 carry-forward: the faculty was wired to
+> learn the fence role the moment a code-consistent corpus was present.
+
+**What was built (DATA + one determinism fix, no lists).**
+- A bounded, sparse, shallow clone of `mdn/content` (`files/en-us/web/{javascript,css,html}`, ~2820 `*.md`,
+  16.5 MiB) was fetched into `~/.cache/helpers/mdn-content` as a second registered markdown DATA root — the
+  `.git` and the prose-heavy `web/api` tree were dropped to keep it bounded and code-consistent. Its fences
+  are tagged ` ```js `/` ```css `/` ```html `/` ```js-nolint ` and are **~98% code** by author tag (16.5k code
+  fences vs ~390 `plain`/json/regex/http/bash).
+- `lint_char::markdown_corpus` now reads BOTH clones (`mattpocock-skills` + `mdn-content`) and was corrected
+  to be genuinely DETERMINISTIC: it collects every `*.md` PATH, sorts, THEN reads under a 24 MiB budget — so
+  which files survive a truncation is a function of the paths, not filesystem walk order (the prior code
+  consumed the budget DURING an unsorted walk, contradicting its own "deterministic" doc comment; harmless at
+  350 KiB, a real defect at 16.8 MiB). The corpus contents fold into the freshness fingerprint, so every
+  stale brain retrains.
+- `learn_structure_roles` gained an `HELPERS_ROLE_TRACE`-gated diagnostic that prints the raw vote tally for
+  the two markdown marker seeds (`` ``` ``, `#`), so the register purity is measurable before the ¾ bar
+  decides. No effect on the learned roles.
+
+**MEASURED (honest, combined corpus, `BRAIN_REV` 12).** Marker votes (support / code / heading):
+`fence 17337 / 12768 (73%) / 153 (0%)`; `heading 30008 / 856 (2%) / 20566 (68%)`. The fence rose **47% → 73%
+code-majority** (a +26-point move — the MDN corpus is the right data) but MISSES the ¾ bar by 2 points and
+still ABSTAINS. WHY (diagnosed, not forced): the fences are 98% code by TAG, but their READABLE CONTENT is
+73% code-majority under the shared code-detector (`code = !english_majority && (symbolic || words≥2)`), which
+was calibrated on syntax-highlighted HTML `<pre>` (highlighter `<span>`s inflate symbol density and split the
+english fraction). Raw markdown code carries no highlighter markup, and MDN worked examples are heavily
+commented in English (`// Expected output: true`) and include `plain`/output fences — so ~27% of fences read
+as english-content-majority. Closing the gap would mean re-tuning the code-detector to count commented raw
+code as code, which would churn the frozen HTML `<pre>` register AND every module's `TRAIN_VERSION` — the
+covenant's definition of forcing. So the fence lands at a **measured near-miss**; the ¾ bar STAYS.
+
+**No regression (the acceptance gate).** `BRAIN_REV` 12 invalidates every module's `brain_fp` axis, reopening
+graduation through the 3c re-check WITHOUT a `TRAIN_VERSION` bump (so the ledger persists → live js 57 / css
+25 / html 20 hold via retain-and-grow). Base graduation vs the new brain (`web_module_train`) is BYTE-
+IDENTICAL to docs-v85: javascript **54/54 proven**, css **22/22**, html **8/8**; every bad fixture flags, every
+clean fixture flagged by `[]` (junk floor zero, no false positives). HTML referee unchanged (MDN API 48.3% /
+12.4%; reference 49.6% / 12.8%; roles 14) — the added MDN markdown grows the meaning graph but the recall
+bottleneck is the reader's SEGMENTATION, not vocabulary, so rung 2b (recall→95%) is a reader task, not a
+corpus one (measured: the corpus alone moves the referee zero). `cargo test --lib` 226 green.
+
+**Honest remainder.** Rung 2a delivered the corpus, the determinism fix, and the measured vote table; the
+fence is a 2-point near-miss (abstain correct, ¾ bar intact — no forcing). Rungs 2b (learned-reader recall
+50%→95% + weld→≤3%: a segmentation-faculty task the referee localizes, untouched this pass), 2c (page-role
+faculty from `status: deprecated` frontmatter + `{{Deprecated_Header}}` typography — the MDN-content
+attestation is now on disk as clean markers, ready to learn), 3 (verdict gate), and 4 (language expansion)
+are UNTOUCHED — stopped honestly at the rung-2a corpus boundary per the rung discipline.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
