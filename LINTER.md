@@ -342,15 +342,36 @@ gate, but PASS 17 moved the diagnosis one mechanism deeper by actually TRAINING 
 the system's own machine-derived labels (117 deprecation banners vs ~1284 Baseline banners, run-balanced,
 rest as exposure). The trained token leans SUPERSEDE the passes-11/12 `related()` noise band —
 `recommend`/`avoid`/`cease`→prohibition, `established`/`works`→endorsement, learned with no word list — and
-the prose-command classics score prohibition 5/6 under the full classify. But the register cannot GATE
-reference pages: MEASURED, the frozen `is_negation` "not" short-circuit inside `tally_lean` drives 100% of a
-48–86% page-open flood (the register's OWN trained vocabulary floods 0%), and the distinctive advice words are
-exposure-entangled with ordinary guide prose so they never clear the side-count bad bar — only a
-banner-exclusive word (`cease`) does. So the trained register re-lands as a GATE only WITH (a) the trained
-lean SUPERSEDING the frozen negator for words it has decisive evidence on (a change to the SHARED classifier
-that needs its own regression proof) AND (b) SUBJECT confirmation (url-subject fires on the page's own
-example) to separate a construct-prohibition from generic advice — see the PASS 17 ledger item for the tables
-and the full flood measurement. The **SUPERSESSION register** (flag OLD-way web code with
+the prose-command classics score prohibition 5/6 under the full classify. **PASS 18 BUILT the re-land
+condition (a) — trained-lean precedence in the shared classifier — with the full regression proof, and it
+LANDS**: where the training met a negation word with a DECISIVE endorsement lean (`lean_of` = good, the same
+4:1 reality bar the side-count already trusts), that lean now OUTRANKS the frozen `is_negation` short-circuit
+inside `tally_lean` — but only ever to NEUTRALISE (a negator is never praise, so the outcome is abstain, never
+`Some(false)`), and only where the evidence is decisive (retain-and-grow: an uncleared negator keeps the cold
+floor). This makes "not" trained-neutral (196020 exp / 18 good / 0 bad → decisive good → neutralised) and
+REPAIRS the descriptive-negation FP class — "if loop is not specified…" flips from a `Some(true)` false
+prohibition to `Some(false)`, "does not work on WebAssembly" reads good — with ZERO regression: negated
+endorsement is preserved ("== is not recommended" stays prohibition — "not" abstains, "recommended" still
+leans bad), the classics hold 5/6, and every graduated module re-graduates BYTE-IDENTICAL (js 54 / css 22 /
+html 8 / python 25 / rust 8, cross-language ∅, junk floor zero; 236 lib + gauntlets green). The change is
+surgical: it only touches negation words with a decisive good lean, which the toolchain-grounded per-language
+classifiers do not produce, so graduation is provably unmoved. **But the register STILL cannot GATE reference
+pages, and PASS 18 SHARPENS why with numbers.** The PASS-17 estimate that the frozen "not" short-circuit
+"drives 100%" of the flood is CORRECTED: neutralising the decisive-good negation subset drops the flood only
+48.3→39.0% (tally-only) / 85.8→83.2% (full), so "not" the word is a MINORITY. The residual is two named walls
+the supersession cannot cross: (i) the **negation-SCOPE tail** — the is_negation cluster is broad (litotes runs
+through dictionaries: `never`/`incorrect`/`un-*`/`in-*` compounds), and those words carry GENUINE prohibitions
+elsewhere ("Never use X"), so a bag-of-token-leans cannot tell them from their descriptive uses ("X never does
+Y"); only position-aware `states_prohibition` can, and it is already the mint gate; retain-and-grow correctly
+keeps them firing. (ii) the **prototype flat geometry** — the full classify's 83% flood is prototype-dominated
+(the register's OWN trained vocabulary floods 0.0%, MEASURED via the label-only `trained_bad` predicate), the
+same passes-11/12/16 wall: the leg-(c) junk foils ("keyword refers to the context…", "Strings are useful…")
+still full-classify `Some(true)`. So wiring `read_doc_page` behind the register would still flood the propose
+pool (perturbing the order-sensitive self-test), and re-land condition (b) — SUBJECT confirmation (url-subject
+fires on the page's own example) — is NOT sufficient alone against an 83% base rate. NO gate wiring ships this
+pass; the classifier improvement lands, its safe reference-page consumer is still unavailable. See the PASS 18
+ledger item for the decomposition tables and the per-leg foil measurements. The **SUPERSESSION register**
+(flag OLD-way web code with
 the MODERN feature — `new Date()` → Temporal, `history.pushState` → Navigation API — the rule read from
 MDN's "designed as a replacement for X"/"successor to X" prose) hits the SAME flat-geometry wall, measured
 COMPLETION PASS 16 (`examples/super_probe`): the substitution vocabulary is not separable from ordinary
@@ -978,6 +999,82 @@ language changes nothing for another. A CSS project after `css.*` removal indepe
 module (per-language registry pull, no other language dragged along). The registry-distribution unit is
 already the per-language module; the C-like "pay only for the languages your project uses" property holds and
 is now measured, so rung 2 lands as a VERIFICATION with numbers, not a code change.
+
+### Item — COMPLETION PASS 18: THE REGISTER WIRE — trained-lean precedence LANDS with byte-identical regression; the gate stays blocked by the negation-SCOPE + prototype walls (measured, 2026-07-13)
+
+> Owner ruling (PASS 18): implement the standing ruling "judgment should not be frozen — frozen at the
+> moment, but always learning more" at the CLASSIFIER level. Rung 1 — trained-lean precedence in the shared
+> classifier (the PASS-17 re-land condition (a)): where the training met a token with a decisive lean, that
+> lean supersedes the frozen negator; unmet tokens keep the frozen judge (retain-and-grow). Rung 2 — the
+> regression proof (the reason prior passes deferred this: the shared classifier guards 100+ graduated rules
+> and the order-sensitive self-test). Rungs 3/4 — subject-confirmation gate + the classics, then the
+> supersession relation, CONDITIONAL on the classics landing. MEASURED end to end (`examples/register_train`,
+> `web_module_train`, `apidocs_graduate`, reproducible); `TRAIN_VERSION`→`docs-v90-register-wire`; `BRAIN_REV`
+> unmoved (no brain/dictionary/negation change).
+
+**Rung 1 — the mechanism BUILT (`lint_read::Polarity::tally_lean`).** One surgical change: before the frozen
+`is_negation` short-circuit returns `Some(true)`, a negation word is checked against its OWN trained
+side-count. If `lean_of(f,g,e)` is a decisive ENDORSEMENT (`Some(false)` — the token cleared the side-count's
+existing 4:1 good bar), the frozen prohibition is SUPERSEDED — but only to NEUTRALISE (`None`), never to
+endorse (a negation operator is not praise). Every other path is byte-identical to the frozen code: a
+non-negation word never entered the negator branch; a negation word with no decisive good lean still returns
+`Some(true)`. So the change bites EXACTLY the negation words reality has decisively shown are not prohibition
+markers — "not" the archetype (196020 exposure / 18 good-label / 0 bad-label bits → decisive good →
+neutralised). The gate is the side-count's own decisiveness, a comparative bar FROM the training, not a hand
+constant; retain-and-grow keeps the cold floor for every uncleared negator (`incorrect` = "not correct" stays
+prohibition — no counter-evidence). Pinned by `trained_lean_supersedes_the_negator_only_to_neutralise`.
+
+**Rung 1 generalization (`register_train`, MEASURED; register trained on 117 deprecation banners vs the
+Baseline availability banners, run-balanced, 856779 exposure runs, 11.9M tokens).** vs the PASS-17 baseline:
+- (b) PROSE-COMMAND classics — UNCHANGED at 5/6 (`classify`): "Never use direct eval()!"✓, "…recommend
+  avoiding var"✓, "== is not recommended; use === instead"✓ (**preserved** — the neutralise-only design keeps
+  the negated-endorsement prohibition, where an endorse-flip design regressed it to `Some(false)`),
+  "…deprecated and should be avoided"✓, "no longer recommended…"✓, "Use ===" abstains (positive advice).
+- (c) FOILS — the descriptive-negation baseline "…is not Baseline because it does not work…" stays
+  `Some(false)`✓; the leg-(c) junk foils "keyword refers to the context…" / "Strings are useful…" still
+  full-classify `Some(true)` (the prototype wall, unmoved).
+- (d) NOTE-SCOPE (the descriptive-negation FP class) — **REPAIRED**: "if loop is not specified…" flips from a
+  `Some(true)` false prohibition (PASS-17 baseline) to `Some(false)`; "This does not work on WebAssembly" reads
+  `Some(false)` consistently under both `classify` and `classify_tallied`.
+
+**Rung 1 — the flood, DECOMPOSED (corrects the PASS-17 "not drives 100%" estimate).** Neutralising the
+decisive-good negation subset moves the flood over the 2851 non-attested reference pages only:
+
+| register read | PASS-17 baseline | PASS-18 (supersession) |
+|---|---|---|
+| tally-only (`classify_tallied`) | 48.3% | **39.0%** |
+| full (`classify`, incl. prototype) | 85.8% | **83.2%** |
+| trained-bad-word only (label leans, no frozen negator) | 0.0% | **0.0%** |
+
+So "not" the WORD is a MINORITY of the flood; the residual is two named walls the supersession cannot cross:
+(i) the **negation-SCOPE tail** — the `is_negation` cluster is broad (litotes: `never`/`incorrect`/`un-*`/`in-*`
+compounds), and those words carry GENUINE prohibitions elsewhere, so a bag-of-token-leans cannot separate
+"Never use X" from "X never does Y"; only position-aware `states_prohibition` (already the mint gate) can, and
+retain-and-grow correctly keeps them firing; (ii) the **prototype flat geometry** — the full 83% is
+prototype-dominated (the register's own trained vocabulary floods 0.0%, the `trained_bad` label-only predicate),
+the passes-11/12/16 wall unchanged. The advice words (`recommend`/`avoid`) remain exposure-entangled (their
+`classify=Some(true)` comes from the prototype, not a clean tally lean — `avoid` bad=15 vs exp=4980 never
+clears `f≥2·(g+e)`); register-context exposure counting was evaluated as the lever and MEASURED not to be one
+(it cannot cross the scope or geometry walls). **NO gate wiring ships.** Re-land condition (b) — subject
+confirmation — is insufficient alone against an 83% base rate; the classics DO NOT newly land (they were
+already 5/6 via the prototype in PASS 17 and are preserved, not enabled as a gate). Rungs 3/4 do not open.
+
+**Rung 2 — the REGRESSION PROOF (the reason prior passes deferred rung 1), CLEAN.** The change is a
+training-logic change (`TRAIN_VERSION` bumped, reopening every module through the 3c re-check), and every
+module re-graduates BYTE-IDENTICAL: **javascript 54/54, css 22/22, html 8/8** (`web_module_train`), **python
+25/25, rust 8/8** (union 7, `apidocs_graduate`), cross-language sources 0 (partitions ∅), MDN attested set
+unmoved (base graduation identical implies the 117). Every kitchen-sink flags its bad constructs with lines +
+cites and every clean file is flagged by `[]` (junk floor zero). Gauntlets green (`ai_linter_behaviors` 21,
+`understanding_defects` 3); `cargo test --lib` **236** (adds the supersession pin). The change is inert for
+graduation because the toolchain-grounded per-language classifiers do not produce decisive-good negation words
+during grounding — proving the supersession touches only where genuine register-training evidence exists.
+
+**Verdict.** Rung 1 (the classifier change) + rung 2 (its regression proof) LAND: the shared classifier now
+learns past the frozen negator where reality is decisive, repairing the descriptive-negation FP class with
+zero regression — the owner's "judgment is not frozen" ruling, realized. Rungs 3/4 HONEST-STOP: the register
+still cannot gate reference pages, and PASS 18 sharpens WHY (the scope tail + prototype geometry, decomposed
+above), not just THAT. The metadata-attestation faculty (PASS 13/14) remains the covenant-clean route for the
+pages that carry a marker.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 

@@ -1,4 +1,7 @@
-//! THROWAWAY PROBE (untracked): COMPLETION PASS 17 rung 1 — TRAIN THE REGISTER.
+//! MEASUREMENT PROBE: COMPLETION PASS 17 rung 1 — TRAIN THE REGISTER; re-used PASS 18 to measure the
+//! trained-lean supersession (the flood decomposition table + the per-leg foils under the new
+//! `Polarity::tally_lean`). The per-token block now also prints each token's reader read-count and the
+//! `is_common_word` verdict, so the "met" reasoning behind the supersession is visible from the numbers.
 //! Question: does the existing side-count `Polarity` (lint_read.rs), trained on the system's OWN
 //! machine-derived labels — the 117 deprecation-attested MDN banner sentences (BAD register) vs the
 //! ~1284 Baseline availability banners (GOOD/non-prohibition register), with the rest of the corpus as
@@ -209,10 +212,13 @@ fn main() {
 
     // per-token learned lean sanity: the register words
     println!("\n    learned token leans (Some(true)=bad, Some(false)=good, None=abstain):");
+    println!("      reader total_read = {}", pol.reader().total_read());
     for w in ["deprecated", "recommended", "avoid", "obsolete", "cease", "established",
-              "widely", "available", "works", "not", "the", "feature", "use", "eval", "var"] {
+              "widely", "available", "works", "not", "no", "cannot", "without", "never",
+              "incorrect", "the", "feature", "use", "eval", "var"] {
         let (f, g, e) = pol.tally_of(w);
-        println!("      {w:14} lean={:?}  tally(bad={f},good={g},exp={e})", pol.token_lean(w));
+        println!("      {w:14} lean={:?}  read={:>8}  common={}  tally(bad={f},good={g},exp={e})",
+            pol.token_lean(w), pol.reader().read_count(w), pol.reader().is_common_word(w));
     }
 
     // ── foil legs ── report BOTH the full classify (tallies then prototype fallback) and the
