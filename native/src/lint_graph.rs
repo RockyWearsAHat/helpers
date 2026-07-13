@@ -184,13 +184,30 @@ fn text_gap(body: &str, start: usize, end: usize, reader: &CharReader, stack: Ve
 
 // ── Markdown typography (the curriculum precursor to web reading, LINTER.md rung 1) ──
 
-/// The seed of the markdown FENCED-CODE marker — a run of ≥3 backticks or tildes. Keyed by the
-/// marker's OWN characters (the fence literal), the same [`crate::lint_ai::token_seed`] the HTML
-/// scan keys element names with, so a fence and an HTML `<pre>` occupy the SAME learned role space.
-/// The ROLE (code carrier) is never assigned here — it is LEARNED by exposure exactly as element
-/// roles are ([`learn_structure_roles`]); this only recognises the typography.
-fn md_fence_seed() -> u64 {
-    crate::lint_ai::token_seed("```")
+/// The seed of the markdown FENCED-CODE marker — a run of ≥3 backticks or tildes, keyed by the
+/// marker's OWN typography INCLUDING its author-supplied INFO-STRING (rung 1): `` ```js ``,
+/// `` ```plain ``, and a bare `` ``` `` are DISTINCT markers, exactly as `<pre class="…">` variants
+/// would be. The info-string is part of the fence's own tag — the author declares the register the
+/// same way an element's attributes ride its tag — so a code fence and an output/`plain` fence learn
+/// SEPARATE roles by exposure ([`learn_structure_roles`]), never assigned here. Same
+/// [`crate::lint_ai::token_seed`] the HTML scan keys element names with, so a tagged fence and an
+/// HTML `<pre>` still occupy the same learned role SPACE. An empty info-string keys the bare
+/// `` ``` `` marker, which keeps whatever register it honestly earns.
+fn md_fence_seed(info: &str) -> u64 {
+    if info.is_empty() {
+        crate::lint_ai::token_seed("```")
+    } else {
+        crate::lint_ai::token_seed(&format!("```{}", info.to_ascii_lowercase()))
+    }
+}
+
+/// The INFO-STRING of a markdown fence OPEN line — the text after the run of fence characters, its
+/// first whitespace-delimited token (`` ```js `` → `js`, `` ```js-nolint `` → `js-nolint`, `` ```
+/// title=x `` → the first word, a bare `` ``` `` → empty). Pure typography (the author's own tag on
+/// the fence), the markdown analogue of reading an element's attributes; lowercased at the seed.
+fn md_fence_info(trimmed: &str) -> &str {
+    let c = trimmed.chars().next().unwrap_or('`');
+    trimmed.trim_start_matches(c).split_whitespace().next().unwrap_or("")
 }
 
 /// The seed of the markdown ATX-HEADING marker — a line-leading run of `#`. Keyed by the marker's
@@ -213,11 +230,12 @@ fn is_md_fence(trimmed: &str) -> bool {
 /// verbatim. Pure typography (line-leading markers), never a semantic markdown parser: the markers'
 /// ROLES are learned by exposure, this only reads their characters.
 fn scan_markdown(md: &str, reader: &CharReader) -> Scan {
-    let fence = md_fence_seed();
     let heading = md_heading_seed();
     let mut gaps = Vec::new();
     let mut inst: u32 = 0;
-    let mut fence_open: Option<u32> = None;
+    // The open fence carries its instance id AND its info-string-keyed seed, so every content line of
+    // the block is contained by the marker the AUTHOR tagged (`` ```js `` vs `` ```plain ``).
+    let mut fence_open: Option<(u32, u64)> = None;
     let bytes = md.as_bytes();
     let mut at = 0usize;
     while at < bytes.len() {
@@ -225,17 +243,17 @@ fn scan_markdown(md: &str, reader: &CharReader) -> Scan {
         let line = &md[at..eol];
         let trimmed = line.trim_start();
         let indent = line.len() - trimmed.len();
-        if let Some(open) = fence_open {
+        if let Some((open, seed)) = fence_open {
             if is_md_fence(trimmed) {
                 fence_open = None; // the closing fence ends the block
             } else {
-                let g = text_gap(md, at, eol, reader, vec![(open, fence)]);
+                let g = text_gap(md, at, eol, reader, vec![(open, seed)]);
                 if g.words > 0 {
                     gaps.push(g);
                 }
             }
         } else if is_md_fence(trimmed) {
-            fence_open = Some(inst);
+            fence_open = Some((inst, md_fence_seed(md_fence_info(trimmed))));
             inst += 1;
         } else if trimmed.starts_with('#') {
             let hashes = trimmed.chars().take_while(|&c| c == '#').count();
@@ -772,12 +790,34 @@ pub fn learn_structure_roles(reader: &CharReader, bodies: &[&str], md_bodies: &[
             e.2 += u32::from(heading);
         }
     }
-    // Diagnostic (rung 2 measurement, off unless HELPERS_ROLE_TRACE is set): report the raw
-    // vote tally for the two MARKDOWN marker seeds so the fence/heading register purity is visible
-    // before the ¾ bar decides. No effect on the learned roles.
+    // Diagnostic (rung 1/2 measurement, off unless HELPERS_ROLE_TRACE is set): report the raw vote
+    // tally for the markdown markers so register purity is visible before the ¾ bar decides. The
+    // fence FAMILY is now info-string-keyed (rung 1), so the labels are drawn from the corpus's own
+    // opening-fence info-strings (data, not a code list) plus the bare fence and the heading. No
+    // effect on the learned roles.
     if std::env::var_os("HELPERS_ROLE_TRACE").is_some() {
-        for (label, marker) in [("fence", "```"), ("heading", "#")] {
+        let mut markers: Vec<String> = vec!["```".to_string(), "#".to_string()];
+        for body in md_bodies {
+            let mut open = false;
+            for line in body.lines() {
+                let trimmed = line.trim_start();
+                if is_md_fence(trimmed) {
+                    if !open {
+                        let info = md_fence_info(trimmed);
+                        if !info.is_empty() {
+                            let m = format!("```{}", info.to_ascii_lowercase());
+                            if !markers.contains(&m) {
+                                markers.push(m);
+                            }
+                        }
+                    }
+                    open = !open;
+                }
+            }
+        }
+        for marker in &markers {
             let seed = crate::lint_ai::token_seed(marker);
+            let label = if marker == "#" { "heading" } else { "fence" };
             if let Some((support, code, heading)) = tally.get(&seed).copied() {
                 let pct = |n: u32| if support > 0 { 100 * n / support } else { 0 };
                 eprintln!(
@@ -994,9 +1034,26 @@ mod tests {
     /// heading marker the learned HEADING (boundary) role — the SAME role space HTML `<pre>`/`<h2>`
     /// use — so the same unit former reads markdown as it reads a web page. Markdown-marker roles are
     /// keyed by the marker's OWN characters (`` ``` ``/`#`), never a role name.
+    /// The fence marker is keyed by the author's own INFO-STRING (rung 1): `` ```js ``, `` ```plain ``,
+    /// and a bare `` ``` `` are DISTINCT markers that can learn separate roles, exactly as `<pre
+    /// class="…">` variants would. Pure typography — the seed is a hash of the fence literal plus its
+    /// info-string, case-folded like an element name, never compared to a list.
+    #[test]
+    fn fence_markers_are_keyed_by_their_info_string() {
+        assert_eq!(md_fence_info("```js"), "js");
+        assert_eq!(md_fence_info("```js-nolint  title=x"), "js-nolint");
+        assert_eq!(md_fence_info("~~~python"), "python");
+        assert_eq!(md_fence_info("```"), "", "a bare fence has no info-string");
+        assert_ne!(md_fence_seed("js"), md_fence_seed("plain"), "tagged fences are different markers");
+        assert_ne!(md_fence_seed("js"), md_fence_seed(""), "a tagged fence differs from the bare fence");
+        assert_eq!(md_fence_seed(""), crate::lint_ai::token_seed("```"), "the bare fence keeps its own seed");
+        assert_eq!(md_fence_seed("JS"), md_fence_seed("js"), "the info-string case-folds like an element name");
+    }
+
     #[test]
     fn a_markdown_doc_segments_into_heading_prose_and_code_fence_units() {
-        let brain = test_brain(&[("```", 1), ("#", -1)]);
+        // The fence carries the `js` info-string, so its learned role is keyed `` ```js `` (rung 1).
+        let brain = test_brain(&[("```js", 1), ("#", -1)]);
         let body = "# Introduced sections\n\
             \n\
             Sections are introduced here with a full sentence of prose.\n\
