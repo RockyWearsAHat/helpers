@@ -48,7 +48,10 @@ const MEM_CAP: usize = 8 << 20;
 /// 12: the MDN-content markdown corpus (LINTER.md rung 2a) joins the curriculum — the SOURCE
 /// markdown of the crawled MDN pages, whose fences are tagged ` ```js `/` ```css ` and are ~98%
 /// code, so the fence marker EARNS its code register by exposure (the rung-1 abstain is crossed).
-const BRAIN_REV: u64 = 12;
+/// 13: fence role-votes are keyed by the author's own INFO-STRING (LINTER.md rung 1) — ` ```js `,
+/// ` ```plain `, and a bare ` ``` ` are DISTINCT markers, so a tagged code fence earns its own
+/// register separate from an output/`plain` fence; every stale brain rebuilds to the split keying.
+const BRAIN_REV: u64 = 13;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -407,15 +410,17 @@ impl CharReader {
         self.structure.title_ceiling()
     }
 
-    /// Ensure the reader can read a page's structure: if the curriculum read no web pages (an
-    /// offline or localhost-only machine, so no roles were learned), hydrate the roles from the
-    /// committed bootstrap — the meaning network is still the brain's own local dictionary read.
-    /// Setup and the load path both call this, so a role-less brain never reaches the reader.
+    /// Ensure the reader can read a page's structure by MERGING the committed bootstrap under
+    /// whatever roles were learned live: live-learned roles win, and every role the curriculum could
+    /// NOT teach this machine is filled from the bootstrap. A machine that read no web pages hydrates
+    /// the whole bootstrap (the old all-or-nothing case); a machine that learned ONLY the markdown
+    /// fence roles (rung 1, but no crawled web cache) still reads HTML by role because the bootstrap's
+    /// element roles fill the seeds live learning never saw. A full-web machine's live set already
+    /// covers the bootstrap, so the merge adds nothing. Setup and the load path both call this, so a
+    /// partially-taught brain never reaches the reader missing a whole register.
     pub fn ensure_structure(&mut self) {
-        if self.structure.is_empty() {
-            if let Some(roles) = structure_bootstrap() {
-                self.structure = roles;
-            }
+        if let Some(bootstrap) = structure_bootstrap() {
+            self.structure.hydrate_missing(&bootstrap);
         }
     }
 }
@@ -1154,6 +1159,23 @@ impl StructureRoles {
         &self.roles
     }
 
+    /// Fill in every role this set did not learn from `fallback` (the committed bootstrap), the
+    /// live-learned roles winning where both decide — the MERGE hydration a partially-taught machine
+    /// needs ([`CharReader::ensure_structure`]). Adopts the fallback title ceiling only when none was
+    /// learned live. Idempotent and order-independent: a full set absorbs nothing new.
+    pub fn hydrate_missing(&mut self, fallback: &StructureRoles) {
+        let have: std::collections::HashSet<u64> = self.roles.iter().map(|(k, _)| *k).collect();
+        for &(seed, role) in &fallback.roles {
+            if !have.contains(&seed) {
+                self.roles.push((seed, role));
+            }
+        }
+        self.roles.sort_by_key(|(k, _)| *k);
+        if self.title_ceiling == 0 {
+            self.title_ceiling = fallback.title_ceiling;
+        }
+    }
+
     /// The learned title-shape ceiling in words (0 = none learned) — the section-heading shape
     /// fallback the reader uses when a heading element earned no role.
     pub fn title_ceiling(&self) -> u32 {
@@ -1647,6 +1669,27 @@ mod tests {
     /// English prose the reader has read must be far LESS surprising than code it has not —
     /// the hermetic floor of the whole rewrite (the real-dictionary gate is the ignored test
     /// below). The reader trains on English sentences, then judges unseen English vs code.
+    /// The MERGE hydration a partially-taught machine relies on ([`CharReader::ensure_structure`]):
+    /// roles learned live win where both decide, every seed the curriculum could not teach is filled
+    /// from the committed bootstrap, and the bootstrap ceiling is adopted only when none was learned
+    /// live. This is what keeps a no-web machine that learned ONLY the markdown fence roles (rung 1)
+    /// still reading HTML by role.
+    #[test]
+    fn hydrate_missing_merges_bootstrap_under_live_roles() {
+        // Live: one code role (seed 1), no ceiling learned. Bootstrap: seed 1 as heading (loses to
+        // live), seed 2 as heading (filled), ceiling 4 (adopted).
+        let mut live = StructureRoles::from_learned(vec![(1, 1)], 0);
+        let boot = StructureRoles::from_learned(vec![(1, -1), (2, -1)], 4);
+        live.hydrate_missing(&boot);
+        assert_eq!(live.role_of(1), Some(true), "the live-learned role wins on overlap");
+        assert_eq!(live.role_of(2), Some(false), "an unlearned seed is filled from the bootstrap");
+        assert_eq!(live.title_ceiling(), 4, "the bootstrap ceiling is adopted when none was learned live");
+        // A machine that learned its own ceiling keeps it (the bootstrap never overrides live).
+        let mut taught = StructureRoles::from_learned(vec![(3, 1)], 9);
+        taught.hydrate_missing(&boot);
+        assert_eq!(taught.title_ceiling(), 9, "a learned ceiling is never overridden by the bootstrap");
+    }
+
     #[test]
     fn english_reads_calmer_than_code() {
         let mut r = CharReader::new();

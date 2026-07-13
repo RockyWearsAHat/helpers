@@ -219,23 +219,28 @@ pages ⊕ explanation corpus).
 
 **The curriculum.** English (bedrock) → txt → markdown → HTML → CSS → JavaScript, each layer read from its
 OWN documentation in the language of the layer beneath. Comprehension is shared across layers (one meaning
-graph); RULES are never shared across languages. The **markdown/txt precursor is BUILT** (rung 1,
-extended rung 2a, `BRAIN_REV` 12): between English and the web, `ensure_brain` reads real docs-shaped
-markdown corpora (two registered DATA clones beside the models — the `mattpocock-skills` skill docs plus
-`mdn-content`, the SOURCE markdown of the crawled MDN pages) at the character level, and
+graph); RULES are never shared across languages. The **markdown/txt precursor is BUILT** (rung 1, extended
+rung 2a, then fence-info keying `BRAIN_REV` 13): between English and the web, `ensure_brain` reads real
+docs-shaped markdown corpora (two registered DATA clones beside the models — the `mattpocock-skills` skill
+docs plus `mdn-content`, the SOURCE markdown of the crawled MDN pages) at the character level, and
 `lint_graph::scan_markdown` reads their LINE typography (fenced code, ATX headings) into the SAME learned
-role space the HTML element roles occupy — markers are keyed by their OWN characters (`` ``` ``, `#`), and
-their register is LEARNED by exposure (`learn_structure_roles`), never assigned. `lint_graph::read_markdown`
-segments a markdown doc into heading-governed code-fence units through the identical unit former (`read_scan`)
-the web reader uses. MEASURED on the combined corpus (honest, `HELPERS_ROLE_TRACE`): the fence register rose
-from rung-1's 47% to **73% code-majority** once MDN's ~98%-code-tagged fences were added — but its *readable
-content* stays under the ¾-purity bar because MDN worked examples are richly commented in English and use
-`plain`/output fences, so the shared code-detector (calibrated on syntax-highlighted HTML `<pre>`) reads only
-73% of raw fences as code-content-majority; ATX headings are 68% heading-shaped. BOTH markers therefore still
-correctly ABSTAIN (the ¾ bar STAYS; no forcing). Segmentation succeeds via the shared meaning/shape fallback.
-The honest boundary: closing the last 2 points would require tuning the code-detector to treat commented raw
-code as code (it would churn the frozen HTML `<pre>` register and every module's `TRAIN_VERSION`), which the
-covenant forbids as forcing — so the fence lands at a measured near-miss, not a hacked cross.
+role space the HTML element roles occupy. Fence markers are now keyed by the author's OWN INFO-STRING
+(`md_fence_seed`): `` ```js ``, `` ```plain ``, and a bare `` ``` `` are DISTINCT markers — the info-string
+is part of the fence's own typography exactly as `<pre class="…">` variants would be — and each learns its
+register by exposure (`learn_structure_roles`), never assigned. `lint_graph::read_markdown` segments a
+markdown doc into heading-governed code-fence units through the identical unit former (`read_scan`) the web
+reader uses. MEASURED on the combined corpus (honest, `HELPERS_ROLE_TRACE`): once the fence family is split
+by info-string, the TAGGED CODE fences EARN their code register — `` ```css `` 80%, `` ```css-nolint `` 84%,
+`` ```js `` 75%, `` ```js-nolint `` 76%, `` ```json `` 88%, `` ```http `` 100% all cross the ¾ bar (7 new
+code roles, roles 21→28), while the OUTPUT/prose fences correctly ABSTAIN by earning nothing pure —
+`` ```plain `` 42%, `` ```bash `` 50%, `` ```html `` 57% (HTML fences carry attribute/prose text), and the
+bare `` ``` `` 56%. ATX headings stay 68% heading-shaped and ABSTAIN. This is data-keyed learning: the ¾ bar
+is UNTOUCHED; the separation is what the author's tag already declared. The fence roles are markdown-seed
+roles, never consulted by the HTML reader (which keys on element seeds), so the frozen `<pre>` register and
+every module's `TRAIN_VERSION` are unmoved. A partially-taught machine (markdown roles learned live but no
+crawled web cache) still reads HTML by role: `ensure_structure` MERGES the committed bootstrap UNDER the live
+roles (live wins, the bootstrap fills every seed the curriculum could not teach), replacing the old
+all-or-nothing hydration that a non-empty markdown role set would have silently blocked.
 
 **Building a language module (the whole live path, `lint_module::graduated_rules`).**
 1. **Whole-site read.** The propose corpus is every cached page whose HOST is one of the language's
@@ -386,6 +391,63 @@ fence is a 2-point near-miss (abstain correct, ¾ bar intact — no forcing). Ru
 faculty from `status: deprecated` frontmatter + `{{Deprecated_Header}}` typography — the MDN-content
 attestation is now on disk as clean markers, ready to learn), 3 (verdict gate), and 4 (language expansion)
 are UNTOUCHED — stopped honestly at the rung-2a corpus boundary per the rung discipline.
+
+### Item — RUNG 1 (COMPLETION PASS 10): fence markers keyed by their OWN info-string (`BRAIN_REV` 13, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 10, rung 1): "The author tags every fence — `` ```js ``, `` ```css ``,
+> `` ```plain `` — the info-string is part of the marker's own typography, exactly as an element's
+> attributes ride its tag. Key fence role-votes by `token_seed` of fence+info-string; the generic bare
+> `` ``` `` seed keeps whatever it honestly earns. Data-keyed learning, zero hand logic."
+
+**What was built (typography, no lists).**
+- `lint_graph::md_fence_seed(info)` now keys a fence by the fence literal PLUS its info-string
+  (`token_seed("```js")` vs `token_seed("```plain")` vs the bare `token_seed("```")`), and
+  `md_fence_info` reads the info-string as the first whitespace token after the fence run, case-folded like
+  an element name. `scan_markdown` carries the open fence's info-keyed seed so every content line of the
+  block is contained by the marker the author tagged. Pure typography — the info-string is only ever a hash
+  key, never compared to a list.
+- The `HELPERS_ROLE_TRACE` diagnostic now enumerates the fence FAMILY from the corpus's own opening-fence
+  info-strings (data, not a code list) so each variant's register purity is visible before the ¾ bar decides.
+
+**MEASURED (honest, combined corpus, `BRAIN_REV` 13; the rung-2a 73% was the whole family collapsed onto the
+bare seed).** Splitting by info-string SEPARATES the register the author already declared. Marker votes
+(support / code / heading), variants ≥ the 8-support floor:
+
+| marker | support | code | heading | role earned |
+| --- | --- | --- | --- | --- |
+| `` ```css `` | 6827 | 5515 (80%) | 1 (0%) | **code** |
+| `` ```js `` | 5470 | 4137 (75%) | 0 | **code** |
+| `` ```html `` | 3190 | 1840 (57%) | 113 (3%) | abstain |
+| `` ```js-nolint `` | 1195 | 918 (76%) | 5 | **code** |
+| `` ```plain `` | 335 | 143 (42%) | 8 | abstain (output/prose) |
+| `` ```css-nolint `` | 96 | 81 (84%) | 0 | **code** |
+| `` ```bash `` | 57 | 29 (50%) | 22 | abstain |
+| `` ```json `` | 25 | 22 (88%) | 1 | **code** |
+| `` ```http `` | 8 | 8 (100%) | 0 | **code** |
+| bare `` ``` `` | 16 | 9 (56%) | 0 | abstain |
+| `#` (heading) | 30008 | 856 (2%) | 20566 (68%) | abstain |
+
+Seven tagged code fences EARN the code register; `plain`/output and the mixed `html`/`bash`/bare fences
+honestly abstain. Roles 21→28, all seven additions `+1` (code). This is the exposure learner being CORRECT,
+not tuned: a `` ```js `` fence IS the consistent code carrier a `<pre>` is; a `` ```plain `` output fence is
+not. The ¾ bar STAYS.
+
+**No regression (the acceptance gate).** The fence roles are markdown seeds; the HTML reader keys on element
+seeds and never consults them, so `<pre>`/`<h2>` roles and the module verdicts are unmoved. Live module
+counts hold (js 54 / css 22 / html 17 module rules + 2 understanding each) — `BRAIN_REV` 13 reopens
+completion via the 3c re-check WITHOUT a `TRAIN_VERSION` bump, so the ledger persists by retain-and-grow
+exactly as `BRAIN_REV` 12 did. `cargo test --lib` 228 green (adds the info-string-keying and merge tests);
+gauntlets `ai_linter_behaviors` 21 / `understanding_defects` 3 green. **Regression found + fixed:** rung 1
+first made the markdown roles non-empty, and the old `ensure_structure` hydrated the HTML bootstrap ONLY when
+roles were entirely empty — so on a no-web-cache machine the HTML register was silently lost. Hydration is
+now a MERGE (`StructureRoles::hydrate_missing`: live roles win, the bootstrap fills unseen seeds), and the
+committed `char-structure-bootstrap.json` was regenerated to carry all 28 roles (21 HTML preserved verbatim +
+7 markdown fence, title ceiling held at the full-web value 4).
+
+**Honest remainder.** Rung 1 delivered the info-string keying, the measured separation, and the hydration-
+merge fix. Rung 2 (the PAGE-ROLE attestation faculty — `{{Deprecated_Header}}` + `status: deprecated`
+learned by exposure, measured against the hand anatomy's attested MDN pages) and rungs 3/4 (verdict gate /
+language expansion) are UNTOUCHED — stopped honestly at the rung-1 boundary per the rung discipline.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
