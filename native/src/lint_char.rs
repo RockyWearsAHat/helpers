@@ -39,8 +39,13 @@ const MEM_CAP: usize = 8 << 20;
 /// 7: the meaning network weights each definition word by INVERSE DOCUMENT FREQUENCY
 /// ([`MeaningNetwork::weight_of`], owner directive 2026-07-08) so `related()` SEPARATES concepts —
 /// the distinctive words carry the sense; the document-frequency table rides the artifact, so
-/// every stale brain rebuilds to gain it.
-const BRAIN_REV: u64 = 10;
+/// every stale brain rebuilds to gain it. 8–10: usage-learned sense, docs folded into the concept
+/// graph, and the cross-page-invariance chrome filter (see the LINTER.md appendix for each).
+/// 11: the MARKDOWN curriculum (LINTER.md rung 1) — real docs-shaped markdown is read at the
+/// character level between English and the web, and its line typography (fenced code, ATX headings)
+/// tallies into the SAME learned role space through [`crate::lint_graph::scan_markdown`], so every
+/// stale brain rebuilds to read markdown by the register it shares with HTML.
+const BRAIN_REV: u64 = 11;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -1330,6 +1335,43 @@ pub fn train_curriculum<'a>(corpora: impl IntoIterator<Item = &'a str>) -> CharR
 /// PAGE is built from.
 const WEB_CURRICULUM: [&str; 3] = ["html", "css", "javascript"];
 
+/// The MARKDOWN curriculum corpus — real docs-shaped markdown the brain reads AFTER plain-text
+/// English and BEFORE the web curriculum (LINTER.md rung 1: txt → markdown → HTML). Its structure
+/// (headings, fenced code) is learned by exposure through the char reader, exactly as web element
+/// roles are, so the reader arrives at HTML already knowing the heading and code-fence registers.
+/// Sourced from the bundled skills clone beside the models (`mattpocock-skills`, present after
+/// `helpers install`); a machine without it simply learns no markdown roles (a graceful abstain,
+/// like an un-crawled web language). Returns each file's contents; bounded by a total budget.
+fn markdown_corpus() -> Vec<String> {
+    let dir = crate::lint_train::model_dir_pub()
+        .parent()
+        .map(|p| p.join("mattpocock-skills"))
+        .unwrap_or_else(|| std::path::PathBuf::from("mattpocock-skills"));
+    let mut out = Vec::new();
+    let mut budget: usize = 8 << 20; // 8 MiB safety valve — the corpus is ~350 KiB today
+    let mut stack = vec![dir];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "md") {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    if budget == 0 {
+                        return out;
+                    }
+                    let text = if text.len() > budget { text[..budget].to_string() } else { text };
+                    budget -= text.len();
+                    out.push(text);
+                }
+            }
+        }
+    }
+    out.sort(); // deterministic order so the fingerprint and learning are reproducible
+    out
+}
+
 /// Corpus dedup block size (characters). A crawled page is split into blocks at newlines (a block
 /// longer than this is further chunked, so minified single-line pages still dedup), and a block
 /// whose exact text was already learned THIS build is skipped. Repeated page chrome — the nav
@@ -1406,6 +1448,12 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     if let Some(corpus) = crate::lint_socrawl::load() {
         fp ^= (corpus.pages.len() as u64).wrapping_mul(0x100000001B3).rotate_left(19);
     }
+    // Fold the MARKDOWN curriculum corpus into the fingerprint (LINTER.md rung 1): a changed docs
+    // corpus retrains the txt/markdown stage instead of replaying stale roles.
+    let markdown = markdown_corpus();
+    for md in &markdown {
+        fp ^= crate::lint_ai::token_seed(md).rotate_left(11);
+    }
     if english.is_none() && web.iter().all(|(_, p)| p.is_empty()) {
         return None;
     }
@@ -1454,6 +1502,22 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         }
     }
     lap(&mut clock, "meanings-bind");
+    // MARKDOWN CURRICULUM (LINTER.md rung 1): read real docs-shaped markdown at the character level
+    // AFTER plain-text English and BEFORE the web, so its typography (headings, fenced code) is
+    // learned by exposure and the reader arrives at HTML already knowing those registers. The bodies
+    // are kept for the structure-role learner, which reads them through the markdown line typography.
+    let mut md_bodies: Vec<String> = Vec::new();
+    {
+        let before = r.total;
+        for md in &markdown {
+            r.learn(md);
+            md_bodies.push(md.clone());
+        }
+        if r.total > before {
+            order.push(format!("markdown {}c", r.total - before));
+        }
+    }
+    lap(&mut clock, "markdown-learn");
     // Read the web curriculum DEDUPED: a global block set collapses the chrome repeated across a
     // crawl to its first occurrence, so the reader sees each language's real structure and content
     // once instead of thousands of near-identical copies. The deduped raw-HTML pages are kept for
@@ -1511,7 +1575,8 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     // vs section headings — read with the meaning network just sealed. This is what lets the reader
     // tell a title from an example when their words are equally unbound.
     let bodies: Vec<&str> = web_bodies.iter().map(String::as_str).collect();
-    r.set_structure(crate::lint_graph::learn_structure_roles(&r, &bodies));
+    let md_refs: Vec<&str> = md_bodies.iter().map(String::as_str).collect();
+    r.set_structure(crate::lint_graph::learn_structure_roles(&r, &bodies, &md_refs));
     lap(&mut clock, "structure-roles");
     // No web to read (offline or localhost-only) ⇒ hydrate roles from the committed bootstrap, so
     // the saved brain reads pages by role even where the curriculum could not crawl the web.

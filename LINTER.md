@@ -219,7 +219,19 @@ pages ⊕ explanation corpus).
 
 **The curriculum.** English (bedrock) → txt → markdown → HTML → CSS → JavaScript, each layer read from its
 OWN documentation in the language of the layer beneath. Comprehension is shared across layers (one meaning
-graph); RULES are never shared across languages.
+graph); RULES are never shared across languages. The **markdown/txt precursor is BUILT** (rung 1,
+`BRAIN_REV` 11): between English and the web, `ensure_brain` reads a real docs-shaped markdown corpus (the
+bundled `mattpocock-skills` clone) at the character level, and `lint_graph::scan_markdown` reads its LINE
+typography (fenced code, ATX headings) into the SAME learned role space the HTML element roles occupy —
+markers are keyed by their OWN characters (`` ``` ``, `#`), and their register is LEARNED by exposure
+(`learn_structure_roles`), never assigned. `lint_graph::read_markdown` segments a markdown doc into
+heading-governed code-fence units through the identical unit former (`read_scan`) the web reader uses.
+MEASURED on that corpus (honest): the markers' register is genuinely MIXED — fenced blocks are 47%
+code-majority (bash/yaml/text/prose examples fill the rest), ATX headings 68% heading-shaped — so both fall
+short of the strict ¾-purity role bar and correctly ABSTAIN; segmentation still succeeds on 97/113 real
+files (and the deterministic `a_markdown_doc_segments_into_heading_prose_and_code_fence_units` witness) via
+the shared meaning/shape fallback the roles back-stop. A more code-consistent markdown corpus would let the
+fence cross; the faculty is wired to learn it when the data supports it.
 
 **Building a language module (the whole live path, `lint_module::graduated_rules`).**
 1. **Whole-site read.** The propose corpus is every cached page whose HOST is one of the language's
@@ -273,6 +285,52 @@ See "Open problems" and the falsification ledger for the measured dead-ends.
 > dead-end (kept so nobody re-derives it). It is NOT the current model. Read it only to understand why a
 > thing is the way it is, or before re-attempting something that was already falsified. The authoritative
 > "Failure ledger" section near the end of this file is the consolidated dead-end record.
+
+### Item — RUNG 1: the txt/markdown curriculum precursor, learned by exposure (`BRAIN_REV` 11, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 8): "text/markdown should have been the precursor to web." The substrate
+> must learn plain-text then markdown typography BY EXPOSURE through the char reader + the learned-association
+> pattern — exactly how HTML element registers are learned — keyed by the typography's OWN characters, never a
+> hand markdown parser. Validated by segmenting a real markdown doc into heading/prose/code-fence units.
+
+**What was built.** The reading machinery was generalized so ONE unit former serves both typographies:
+- `lint_graph::text_gap` — the per-run word-shape former, extracted from `scan` and now shared, so the HTML
+  tag scan and the markdown line scan emit byte-identical [`Gap`]s (the HTML path is bit-unchanged — proven
+  by the referee below landing byte-identical).
+- `lint_graph::scan_markdown` — the markdown analogue of the `<…>` tokenizer, reading LINE typography: a
+  fenced code block (≥3 `` ` ``/`~`) wraps its content lines in a fence-marker element, an ATX heading wraps
+  its trailing text in a heading-marker element, every other line is prose. Markers are keyed by
+  `token_seed("```")` / `token_seed("#")` — the SAME hash HTML element names use — so a fence and a `<pre>`
+  occupy the SAME learned role space. The marker ROLE is never assigned here; only the characters are read.
+- `read_scan` — extracted from `read_page`; both `read_page` (HTML) and `read_markdown` (markdown) form units
+  through it, so markdown segments by the identical register logic.
+- `learn_structure_roles` now ingests markdown bodies through `scan_markdown`, so a fence learns "code
+  carrier" and a heading "section heading" by exposure exactly as `<pre>`/`<h1>` do.
+- `ensure_brain` reads the markdown corpus (`lint_char::markdown_corpus`: `*.md` under the bundled
+  `~/.cache/helpers/mattpocock-skills` clone, 113 files / ~350 KiB, deterministic sort, folded into the
+  freshness fingerprint) at the character level between English and the web, and passes those bodies to the
+  role learner. Curriculum line now reads: english → meanings → explanations → **markdown 347 992c** → html →
+  css → js → doc-prose → roles.
+
+**MEASURED (honest, on the bundled corpus).** Marker vote tallies (support / code-votes / heading-votes):
+`fence 116 / 55 (47%) / 22`; `heading 547 / 32 / 370 (68%)`. Both fall short of the ¾-purity bar the role
+learner requires, so BOTH markers ABSTAIN (`structure_role` = `None`) — the register is genuinely mixed on
+skill docs (fences hold bash/yaml/text/markdown/prose, not only code; some headings are long, punctuated, or
+jargon-heavy). This is the exposure learner being CORRECT, not tuned: a markdown fence is NOT the consistent
+code carrier a `<pre>` is, so it earns no pure role. Despite abstention, `read_markdown` segments **97/113**
+real files into ≥1 multi-line code-fence unit via the shared meaning/shape fallback the roles back-stop, and
+the deterministic unit test (roles present) proves the learned-role path. **HTML referee is BYTE-IDENTICAL to
+the pre-rung-1 baseline** (MDN API recall 48.3% / weld 12.4%; MDN reference 49.6% / 12.8%; roles 14) — adding
+markdown short gaps to the shared title-ceiling did not perturb the frozen web reading. `cargo test --lib`
+226 green (adds the markdown segmentation witness); gauntlets `ai_linter_behaviors` 21 / `understanding_defects` 3.
+
+**Honest remainder.** The markers abstaining means rung 2's "markdown roles transfer to HTML" is, on this
+corpus, a transfer of the shared MEANING graph + role SPACE + unit former, not of a learned fence/heading
+seed role (nothing pure was learned to transfer). Getting the fence to earn a code role needs a
+code-consistent markdown corpus (language READMEs/tutorials where fences are ~always code); the faculty is
+wired to learn it the moment such a corpus is present. Rungs 2 (perfect-extraction bar), 3 (verdict gate),
+and 4 (language expansion) are UNTOUCHED this pass — stopped honestly at the rung-1 boundary per the rung
+discipline.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
