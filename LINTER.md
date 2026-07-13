@@ -333,7 +333,15 @@ network carries no geometry for `deprecated`/`avoid`/`obsolete`; the `un`/`non` 
 covenant-clean but 1-hop-bounded and FP-explosive through the count-based compounding guard). That register
 re-lands only WITH (a) a discovery that finds `"no"`/`"no longer"` unbiased by the `prefix+root` morphology
 AND (b) a propagating SIGNED polarity surviving multi-hop without the compounding FP explosion (or the trained
-side-count `Polarity` on real bad/good labels). The metadata faculty sidesteps this only where the author
+side-count `Polarity` on real bad/good labels). The **SUPERSESSION register** (flag OLD-way web code with
+the MODERN feature — `new Date()` → Temporal, `history.pushState` → Navigation API — the rule read from
+MDN's "designed as a replacement for X"/"successor to X" prose) hits the SAME flat-geometry wall, measured
+COMPLETION PASS 16 (`examples/super_probe`): the substitution vocabulary is not separable from ordinary
+web-doc words under `related()` (flat ~4050, 58% control false-hit on the margin test), the learned usage
+sense, or directed cross-reference (which collapses to hop-0 literal membership = a phrase list) — and MDN
+itself states supersession for only a minority of the ten target features (Temporal/Navigation/invoker;
+the other seven describe the new feature without a supersession sentence). NO rule ships; the register
+re-lands under the same two-gap condition. The metadata faculty sidesteps this only where the author
 publishes a metadata marker; a docs site with none abstains honestly. The rendered-marker route carries a
 measured residual: ~6 of python's 25 rules over-approximate the SCOPE of a faithful author note (arg-form
 deprecations `urllib.parse.urlencode`/`asyncio.Task`; group notes `TLSVersion.TLSv1_3`/`.end_col_offset`
@@ -779,6 +787,91 @@ attested pages — the other 37 mark items whose usage the page never demonstrat
 a marker one. (d) Live-path caveat: the shipped `site_corpus` unions per-language sources; the harness
 measured per-corpus (union run confirmed ∅ cross-language, rust 7 vs 8 under union memory — ambiguity
 counts shift with the corpus, an honest sensitivity to note).
+
+### Item — COMPLETION PASS 16: the SUPERSESSION register hits the SAME flat-geometry wall (measured; NO ship, 2026-07-13)
+
+> Owner course-correction (PASS 16, recorded verbatim-ish): (1) marker/metadata-mining is ANOTHER "too
+> precise" scaffold — the system must READ the full documentation and rules must emerge from
+> UNDERSTANDING; (2) verification must be done BY THE SYSTEM on itself (generate expectations →
+> blind-lint → reconcile in English), not hand-written expert fixtures; (3) stop patch-pass churn on
+> individual gaps — fix at the understanding root; (4) THE TARGET: good practices / actual improvements
+> flagged on web-tech code, learned from W3Schools and MDN — "ensure that GOOD PRACTICES AND ACTUAL
+> PROBLEMS OR IMPROVEMENTS THAT CAN BE MADE GET FLAGGED FROM LEARNING BETTER WAYS FROM W3 AND MDN,
+> SPECIFICALLY FOR WEB TECH THIS PASS." The concrete inspiration: a video script on ten modern Baseline
+> features (URLPattern, ::details-content, iterator helpers, contrast-color(), container style queries,
+> Navigation API, invoker commands, Temporal, CSS anchor positioning, same-document View Transitions) —
+> flag the OLD way with the MODERN recommendation, the rule SOURCED from MDN/W3S supersession prose.
+
+**The design (within covenant).** The SUPERSESSION register is NOT prohibition — no negation, so the
+passes-11/12 polarity WALL should not apply. MDN states supersession in plain governing prose ("X is
+designed as a replacement for Y", "the successor to Y", "a declarative alternative to"). The plan: read
+the RELATION through UNDERSTANDING — the meaning network is supposed to relate the substitution
+vocabulary (`replacement`/`successor`/`alternative`/`instead`/`supersede`) to a single substitution
+ANCHOR via `related()` / directed definition cross-reference, NEVER a phrase list in code; the old
+construct is DATA (backtick typography) in the same sentence; the rule is an ADVICE-severity improvement
+`uses_construct(old) → supersession-sentence + new-feature, cited`, distinct from the deprecation faculty
+(which stays untouched — `Date`/`History`/`showModal` carry NO `status: deprecated` frontmatter, so
+deprecation correctly abstains; supersession is a genuine, uncovered register).
+
+**MEASURED — the premise is FALSE on the frozen substrate (`examples/super_probe`, four ways).** The
+substitution register is NOT geometrically separable, exactly the passes-11/12 flat-geometry wall
+reconfirmed for a new register:
+- **WALL 1 — `related()` is flat.** Over the dictionary meaning graph the substitution family and
+  unrelated web-doc controls sit in the SAME band (~3400–4200). `related(replace, successor)` = 4187 is
+  no closer than `related(replace, banana)` = 4056; only same-STEM morphology dips (`replace/replaces/
+  replacement/supersede` ~3650–3814), and that is within control noise.
+- **WALL 2 — the margin is noise.** A relative test (is a family word's nearest family neighbor closer
+  than its nearest control?) passes 8/10 for the family — but 7/12 pure CONTROLS ALSO false-hit
+  (`pattern`→family 3443, `browser`→3555, closer than the family's own internal distances). ~58%
+  false-positive rate ⇒ the ordering is noise, not a classifier.
+- **WALL 3 — the learned USAGE sense (`context_related`) is flat too** — 4/10 internal-coherence, and the
+  SEPs are again same-stem (`supersede`/`supersedes`).
+- **WALL 4 — directed cross-reference collapses to LITERAL membership.** On real MDN sentences the only
+  hits at horizon ≤ 2 are hop-0 (the sentence literally CONTAINS a substitution word); the two
+  supersession sentences with no literal substitution word ("you no longer need", "…supersedes…") MISS,
+  and every clean sentence correctly misses. So the only reliable recognizer is a hardcoded substitution
+  PHRASE LIST — the exact thing the covenant (and owner count 1) forbid.
+
+**A SECOND, independent wall at the DOC layer.** Even with a perfect reader, MDN's own reference prose
+states an explicit supersession relation for a MINORITY of the ten. Measured on the `mdn-content` clone:
+**Temporal** states it cleanly ("It is designed as a full replacement for the `Date` object"); **Navigation
+API** and **invoker commands** ("successor to the History API" / "declarative alternative") are Web-API
+pages (not in the js/css/html clone, per the task's own quotes). The other seven — iterator helpers,
+::details-content/`<details>`, contrast-color(), container style queries, URLPattern, anchor positioning,
+View Transitions — DESCRIBE the new feature but state NO supersession; the "delete your accordion",
+"replaces a library", "FLIP libraries had a good run" framings are the video author's editorial, NOT MDN
+governing prose. So the register would ABSTAIN on ~7/10 even with a working reader — the owner's premise
+("MDN states these relations in plain governing prose") holds for the minority.
+
+**Per-feature verdict (doc sentence → construct → outcome).**
+
+| # | feature | MDN supersession sentence | old construct | verdict |
+|---|---------|---------------------------|---------------|---------|
+| 3 | Temporal | "designed as a full replacement for the `Date` object" | `Date` | doc STATES it; reader WALL (can't recognise) |
+| 5 | Navigation API | "the successor to the History API" (Web-API pg, per task) | `history.pushState` | doc STATES it; reader WALL |
+| 4 | invoker commands | "declarative alternative to … with JavaScript" (per task) | `showModal()` click wiring | doc borderline; reader WALL |
+| 10 | URLPattern | (describes URL matching; no supersession) | regex routing | DOC ABSTAINS |
+| 9 | ::details-content | (describes disclosure widget + animation) | hand-rolled accordion JS | DOC ABSTAINS |
+| 8 | iterator helpers | (describes helper methods) | throwaway arrays | DOC ABSTAINS |
+| 7 | contrast-color() | (describes the function) | JS luminance util | DOC ABSTAINS |
+| 6 | container style queries | (describes the feature) | modifier classes | DOC ABSTAINS |
+| 2 | anchor positioning | (describes fallback positioning) | JS position library | DOC ABSTAINS |
+| 1 | View Transitions | (describes animated transitions) | FLIP library | DOC ABSTAINS |
+
+**Verdict: NO rule ships.** The two clean routes are both closed — a substitution phrase list (covenant
+violation + owner count 1) or extending the metadata-marker machinery (owner-forbidden this pass) — so,
+per the covenant (honest measurement, no forcing), the register ABSTAINS. No library logic changed; every
+module stays byte-identical (`TRAIN_VERSION` unchanged at `docs-v89`); the deprecation faculty is
+untouched. Only the reproducible measurement harness (`examples/super_probe`) lands.
+
+**Re-land condition (sharpened, same shape as passes 11/12).** The supersession register re-lands only
+WITH a substrate discovery that (a) SEPARATES the substitution register from ordinary vocabulary — a
+signed/trained `Polarity`-style side-count over real supersession/non-supersession sentence labels, or a
+learned register geometry the dictionary HDC does not currently carry — AND (b) reads the "no longer
+need" NEGATION-of-need form (the same negation wall). OR: the owner blesses a single substitution SEED as
+DATA (exactly as `deprecation-status.json`'s `prohibits: ["deprecated"]` — the one datum no structural
+signal supplies), accepting that recognition is then literal-membership over that datum and NOT an
+understanding-read — a DIFFERENT covenant posture than this pass permits. Until then the honest gap stands.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
