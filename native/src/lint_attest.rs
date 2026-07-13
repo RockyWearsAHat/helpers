@@ -19,13 +19,23 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
-/// The learned deprecation markers for the registered documentation sites — sentence-scale invariant runs
-/// the author renders for the prohibition status family. A crawled page that carries any of them is an
-/// attested deprecation. Discovered from the corpus + the author's frontmatter metadata; never a hardcoded
-/// banner string. Empty on a machine with no metadata corpus (attests nothing — an honest abstention).
+/// The learned deprecation markers for the registered documentation sites. Two data-keyed routes to the
+/// SAME page-role fact, both discovered — never a hardcoded banner or class string:
+///
+/// - `markers`: sentence-scale invariant text runs the author renders for the prohibition status family,
+///   discovered by joining the markdown frontmatter `status:` enum (found by shape) to the crawled pages
+///   by slug (the MDN route — the marker lives in a separate metadata file, joined in).
+/// - `class_markers`: author status-TYPOGRAPHY class-attribute values that JOIN a prohibition enum value
+///   directly in the rendered HTML (the Python `<div class="deprecated">` / Rust `class="stab deprecated"`
+///   route — a site that publishes the status in the markup itself, no frontmatter, no slug join).
+///
+/// A crawled page carrying any learned text run OR any element whose class carries a learned status token
+/// is an attested deprecation. Empty on a machine with no metadata corpus (attests nothing — an honest
+/// abstention).
 #[derive(Clone, Debug, Default)]
 pub struct Attestation {
     markers: Vec<String>,
+    class_markers: Vec<String>,
 }
 
 impl Attestation {
@@ -44,6 +54,10 @@ impl Attestation {
         if prohibit.is_empty() {
             return Attestation::default();
         }
+        // The rendered route runs unconditionally on whatever HTML is present — a site that renders the
+        // status class directly (Python/Rust) needs no frontmatter. Discovered here so a corpus with no
+        // markdown metadata still attests.
+        let class_markers = discover_class_markers(pages, &prohibit);
         let families = frontmatter_families(); // enum value -> set<slug>
         let mut dep_slugs: HashSet<&str> = HashSet::new();
         for v in &prohibit {
@@ -52,7 +66,7 @@ impl Attestation {
             }
         }
         if dep_slugs.is_empty() {
-            return Attestation::default();
+            return Attestation { markers: Vec::new(), class_markers };
         }
         let other_slugs: HashSet<&str> = families
             .iter()
@@ -74,7 +88,7 @@ impl Attestation {
             }
         }
         if dep_urls.is_empty() {
-            return Attestation::default();
+            return Attestation { markers: Vec::new(), class_markers };
         }
 
         // Candidate runs = the sentence-scale runs the family pages carry.
@@ -122,35 +136,153 @@ impl Attestation {
             .collect();
         markers.sort();
         markers.dedup();
-        Attestation { markers }
+        Attestation { markers, class_markers }
     }
 
     /// A test/data constructor over explicit marker runs (no corpus). Public so a synthetic page test can
     /// exercise the attester deterministically.
     pub fn from_markers(markers: Vec<String>) -> Attestation {
-        Attestation { markers }
+        Attestation { markers, class_markers: Vec::new() }
     }
 
-    /// Whether a page body carries a learned deprecation marker — the same run normalization discovery
-    /// used (whitespace-collapsed text between tags), matched as a whole run.
+    /// A test/data constructor over explicit rendered class-token markers (no corpus). Public so a
+    /// synthetic Python/Rust-shaped page test can exercise the rendered route deterministically.
+    pub fn from_class_markers(class_markers: Vec<String>) -> Attestation {
+        Attestation { markers: Vec::new(), class_markers }
+    }
+
+    /// Whether a page body carries a learned deprecation marker — either a sentence-scale text run (the
+    /// same whitespace-collapsed run normalization discovery used) or an element whose class attribute
+    /// carries a learned author status token (the rendered route).
     pub fn attests(&self, body: &str) -> bool {
-        if self.markers.is_empty() {
-            return false;
+        if !self.markers.is_empty() {
+            let runs: HashSet<String> = runs_of(body).into_iter().collect();
+            if self.markers.iter().any(|m| runs.contains(m)) {
+                return true;
+            }
         }
-        let runs: HashSet<String> = runs_of(body).into_iter().collect();
-        self.markers.iter().any(|m| runs.contains(m))
+        if !self.class_markers.is_empty() && body_carries_class_token(body, &self.class_markers) {
+            return true;
+        }
+        false
     }
 
     /// The learned marker runs (diagnostics / measurement).
     pub fn markers(&self) -> &[String] {
         &self.markers
     }
+
+    /// The learned rendered class-token markers (diagnostics / measurement).
+    pub fn class_markers(&self) -> &[String] {
+        &self.class_markers
+    }
+}
+
+/// The minimum number of distinct page SUBJECTS a rendered status class token must mark before it is a
+/// trusted marker — the same recurring-across-many-subject-varying-pages covenant the frontmatter route
+/// holds, so a lone page that happens to carry `class="deprecated"` in unrelated content is not a family.
+const CLASS_MARKER_SUPPORT_FLOOR: usize = 8;
+
+/// Discover the rendered author status-typography class tokens: a class-attribute value that JOINS a
+/// prohibition enum value (`deprecation-status.json` — the same one hand datum the frontmatter route uses)
+/// AND recurs across ≥ [`CLASS_MARKER_SUPPORT_FLOOR`] distinct page subjects. The join is data-keyed: the
+/// author's own class token (`deprecated`) is only ever kept because it EQUALS a prohibition value read
+/// from data — no class name, no site, is written in code. This is the rendered parallel of the
+/// frontmatter enum: Python renders `<div class="deprecated">`, Rust `class="stab deprecated"`, both
+/// carrying the token `deprecated` the data marks as prohibition.
+fn discover_class_markers(pages: &[(String, String)], prohibit: &[String]) -> Vec<String> {
+    let prohibit_set: HashSet<&str> = prohibit.iter().map(String::as_str).collect();
+    let mut token_subjects: HashMap<String, HashSet<String>> = HashMap::new();
+    for (url, body) in pages {
+        let subj = subject_of_url(url);
+        let mut on_page: HashSet<String> = HashSet::new();
+        for value in class_values(body) {
+            for tok in value.split_whitespace() {
+                let tok = tok.to_lowercase();
+                if prohibit_set.contains(tok.as_str()) {
+                    on_page.insert(tok);
+                }
+            }
+        }
+        for tok in on_page {
+            token_subjects.entry(tok).or_default().insert(subj.clone());
+        }
+    }
+    let mut markers: Vec<String> = token_subjects
+        .into_iter()
+        .filter(|(_, subjects)| subjects.len() >= CLASS_MARKER_SUPPORT_FLOOR)
+        .map(|(tok, _)| tok)
+        .collect();
+    markers.sort();
+    markers.dedup();
+    markers
+}
+
+/// Every `class="…"` / `class='…'` attribute value in an HTML body (structure only — the attribute
+/// value, never the element interior). The author's status typography lives here.
+fn class_values(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let lb = body.as_bytes();
+    let needle = b"class=";
+    let mut i = 0usize;
+    while i + needle.len() < lb.len() {
+        if &lb[i..i + needle.len()] == needle {
+            let q = lb[i + needle.len()];
+            if q == b'"' || q == b'\'' {
+                let start = i + needle.len() + 1;
+                if let Some(rel) = lb[start..].iter().position(|&b| b == q) {
+                    if body.is_char_boundary(start) && body.is_char_boundary(start + rel) {
+                        out.push(body[start..start + rel].to_string());
+                    }
+                    i = start + rel + 1;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Whether any element in `body` carries a class attribute whose token set contains a learned marker.
+fn body_carries_class_token(body: &str, class_markers: &[String]) -> bool {
+    for value in class_values(body) {
+        for tok in value.split_whitespace() {
+            let tok = tok.to_lowercase();
+            if class_markers.iter().any(|m| *m == tok) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// A page's subject key for the recurring-across-subjects test: the last path segment of its URL
+/// (case-folded, fragment/trailing-slash trimmed) — one page per item on rustdoc/python-docs, so the
+/// item name distinguishes subjects; the family is trusted only when many distinct items carry the token.
+fn subject_of_url(url: &str) -> String {
+    url.split('#')
+        .next()
+        .unwrap_or(url)
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .to_lowercase()
 }
 
 /// A rendered banner is a sentence, not a 2-word fragment: a minimum run length that is a typography
 /// property (banner = prose), not a word list. Drops generic short runs ("compatibility table") that
 /// merely miss the small negative slug set.
 const MIN_MARKER_WORDS: usize = 6;
+
+/// The author status tokens that denote PROHIBITION, from `deprecation-status.json` — the SAME data the
+/// attester joins, exposed so the language-layer subject reader can find the item anchors a page renders
+/// its markers on (the rendered route's structural subject extraction). A class/enum token equal to one of
+/// these is a deprecation marker; nothing else is named in code.
+pub fn prohibition_class_tokens() -> Vec<String> {
+    prohibition_values()
+}
 
 /// The author enum value(s) that denote PROHIBITION, from `deprecation-status.json`. The one datum the
 /// faculty cannot derive structurally (see the module doc); carried as DATA exactly like `sources.json`.
@@ -323,5 +455,36 @@ mod tests {
         ];
         let att = Attestation::discover(&pages);
         assert!(att.markers().is_empty(), "no frontmatter metadata on a test machine ⇒ honest abstention");
+    }
+
+    #[test]
+    fn rendered_class_token_attests_python_and_rust_shaped_pages() {
+        // The rendered route matches an element whose class carries a learned status token, whichever
+        // extra tokens the author bundles (`stab deprecated`) and whichever quote style.
+        let att = Attestation::from_class_markers(vec!["deprecated".to_string()]);
+        assert!(att.attests("<div class=\"deprecated\"><p>Deprecated since version 3.11</p></div>"));
+        assert!(att.attests("<div class='stab deprecated'>Deprecated</div>"));
+        assert!(!att.attests("<div class=\"stable\">fine</div>"));
+        assert!(!att.attests("the word deprecated in prose is not a class attribute"));
+    }
+
+    #[test]
+    fn rendered_discovery_keeps_only_the_prohibition_class_over_the_support_floor() {
+        // Ten distinct-subject pages carry `class="deprecated"` (the join value) plus a generic
+        // `class="section"`; discovery keeps only the prohibition token, and only because it EQUALS a
+        // value the data marks (the test cannot read `deprecation-status.json` in isolation, so it drives
+        // `discover_class_markers` directly with the prohibition set the library reads from data).
+        let mut pages = Vec::new();
+        for i in 0..10 {
+            pages.push((
+                format!("https://x/std/item{i}.html"),
+                "<div class=\"section deprecated\">Deprecated</div>".to_string(),
+            ));
+        }
+        let markers = discover_class_markers(&pages, &["deprecated".to_string()]);
+        assert_eq!(markers, vec!["deprecated".to_string()]);
+        // Below the support floor ⇒ no marker (a lone stray class is not a family).
+        let few = &pages[..3];
+        assert!(discover_class_markers(few, &["deprecated".to_string()]).is_empty());
     }
 }
