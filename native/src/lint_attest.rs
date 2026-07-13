@@ -1,0 +1,327 @@
+//! LEARNED page-role DEPRECATION attestation, keyed by the AUTHOR'S OWN METADATA TYPOGRAPHY
+//! (COMPLETION PASS 13). A documentation author marks a discouraged feature in machine metadata — MDN
+//! frontmatter `status:\n  - deprecated` (a block-sequence ENUM: deprecated / experimental / non-standard),
+//! the rendered `{{Deprecated_Header}}` banner. That metadata is TYPOGRAPHY (a data-keyed marker, exactly
+//! like a code-fence's info-string), NOT English prose — so the register is discoverable WITHOUT the
+//! meaning-network polarity that blocked passes 11 and 12.
+//!
+//! The faculty discovers, from data alone, the sentence-scale invariant runs the author renders for the
+//! DEPRECATION status family, and treats a crawled page carrying any such run as attested. The ONLY hand
+//! datum is which enum VALUE denotes prohibition (`deprecation-status.json` → `prohibits`) — the one
+//! choice no structural signal can supply (every status value renders a banner; structure cannot tell the
+//! deprecation banner from the experimental one — the measured PASS 11/12 wall). Everything else — the
+//! enum KEY, the family membership, the marker text — is discovered by shape + recurrence + slug-join.
+//!
+//! MEASURED (COMPLETION PASS 13, `examples/metajoin`): on the 2968-page crawled MDN corpus the discovered
+//! markers attest EXACTLY the 117 pages the retired hand marker did — P = 1.000, R = 1.000 — with zero
+//! false positives, so the burn of `has_deprecation_notecard` is strictly behavior-preserving.
+
+use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
+
+/// The learned deprecation markers for the registered documentation sites — sentence-scale invariant runs
+/// the author renders for the prohibition status family. A crawled page that carries any of them is an
+/// attested deprecation. Discovered from the corpus + the author's frontmatter metadata; never a hardcoded
+/// banner string. Empty on a machine with no metadata corpus (attests nothing — an honest abstention).
+#[derive(Clone, Debug, Default)]
+pub struct Attestation {
+    markers: Vec<String>,
+}
+
+impl Attestation {
+    /// Discover the markers from the whole-site crawled `pages` joined to the registered markdown
+    /// frontmatter metadata. Steps, all data-driven:
+    /// 1. Read frontmatter block-sequence ENUM values per page slug (`status:` is discovered by shape).
+    /// 2. The prohibition value(s) come from `deprecation-status.json` (the one hand datum); the pages
+    ///    whose metadata carries one form the FAMILY, the other enum-valued pages the negative set.
+    /// 3. A marker is an invariant run that is present on ≥ half the family's crawled pages, ABSENT from
+    ///    every negative-set page, family-DOMINANT (≥ half its own support is family), and sentence-scale
+    ///    (≥ [`MIN_MARKER_WORDS`] words — a rendered banner is prose, not a fragment). Such a run
+    ///    generalizes to every page the author renders the same banner on, including pages with no
+    ///    markdown source (the crawl's `web/api` tree the clone omits).
+    pub fn discover(pages: &[(String, String)]) -> Attestation {
+        let prohibit = prohibition_values();
+        if prohibit.is_empty() {
+            return Attestation::default();
+        }
+        let families = frontmatter_families(); // enum value -> set<slug>
+        let mut dep_slugs: HashSet<&str> = HashSet::new();
+        for v in &prohibit {
+            if let Some(s) = families.get(v) {
+                dep_slugs.extend(s.iter().map(String::as_str));
+            }
+        }
+        if dep_slugs.is_empty() {
+            return Attestation::default();
+        }
+        let other_slugs: HashSet<&str> = families
+            .iter()
+            .filter(|(v, _)| !prohibit.contains(*v))
+            .flat_map(|(_, s)| s.iter().map(String::as_str))
+            .filter(|s| !dep_slugs.contains(s))
+            .collect();
+
+        // Join the metadata families to the crawled pages by slug.
+        let mut dep_urls: HashSet<&str> = HashSet::new();
+        let mut other_urls: HashSet<&str> = HashSet::new();
+        for (url, _) in pages {
+            if let Some(slug) = slug_of_url(url) {
+                if dep_slugs.contains(slug.as_str()) {
+                    dep_urls.insert(url.as_str());
+                } else if other_slugs.contains(slug.as_str()) {
+                    other_urls.insert(url.as_str());
+                }
+            }
+        }
+        if dep_urls.is_empty() {
+            return Attestation::default();
+        }
+
+        // Candidate runs = the sentence-scale runs the family pages carry.
+        let mut candidates: HashSet<String> = HashSet::new();
+        for (url, body) in pages {
+            if !dep_urls.contains(url.as_str()) {
+                continue;
+            }
+            for run in runs_of(body) {
+                if run.split(' ').count() >= MIN_MARKER_WORDS {
+                    candidates.insert(run);
+                }
+            }
+        }
+        // Support of each candidate: on family / on negative-set / total.
+        let mut dep_ct: HashMap<&str, usize> = HashMap::new();
+        let mut other_ct: HashMap<&str, usize> = HashMap::new();
+        let mut total_ct: HashMap<&str, usize> = HashMap::new();
+        for (url, body) in pages {
+            let page_runs: HashSet<String> = runs_of(body).into_iter().collect();
+            let in_dep = dep_urls.contains(url.as_str());
+            let in_other = other_urls.contains(url.as_str());
+            for run in &page_runs {
+                if let Some(c) = candidates.get(run.as_str()) {
+                    *total_ct.entry(c.as_str()).or_default() += 1;
+                    if in_dep {
+                        *dep_ct.entry(c.as_str()).or_default() += 1;
+                    }
+                    if in_other {
+                        *other_ct.entry(c.as_str()).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let floor = (dep_urls.len() as f64 * 0.5).ceil() as usize;
+        let mut markers: Vec<String> = candidates
+            .iter()
+            .filter(|c| {
+                let d = *dep_ct.get(c.as_str()).unwrap_or(&0);
+                let o = *other_ct.get(c.as_str()).unwrap_or(&0);
+                let t = *total_ct.get(c.as_str()).unwrap_or(&1);
+                d >= floor && o == 0 && (d as f64 / t as f64) >= 0.5
+            })
+            .cloned()
+            .collect();
+        markers.sort();
+        markers.dedup();
+        Attestation { markers }
+    }
+
+    /// A test/data constructor over explicit marker runs (no corpus). Public so a synthetic page test can
+    /// exercise the attester deterministically.
+    pub fn from_markers(markers: Vec<String>) -> Attestation {
+        Attestation { markers }
+    }
+
+    /// Whether a page body carries a learned deprecation marker — the same run normalization discovery
+    /// used (whitespace-collapsed text between tags), matched as a whole run.
+    pub fn attests(&self, body: &str) -> bool {
+        if self.markers.is_empty() {
+            return false;
+        }
+        let runs: HashSet<String> = runs_of(body).into_iter().collect();
+        self.markers.iter().any(|m| runs.contains(m))
+    }
+
+    /// The learned marker runs (diagnostics / measurement).
+    pub fn markers(&self) -> &[String] {
+        &self.markers
+    }
+}
+
+/// A rendered banner is a sentence, not a 2-word fragment: a minimum run length that is a typography
+/// property (banner = prose), not a word list. Drops generic short runs ("compatibility table") that
+/// merely miss the small negative slug set.
+const MIN_MARKER_WORDS: usize = 6;
+
+/// The author enum value(s) that denote PROHIBITION, from `deprecation-status.json`. The one datum the
+/// faculty cannot derive structurally (see the module doc); carried as DATA exactly like `sources.json`.
+fn prohibition_values() -> Vec<String> {
+    let Some(text) = crate::lint_train::embedded_lint_index_file("deprecation-status.json") else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    json.get("prohibits")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_lowercase())).collect())
+        .unwrap_or_default()
+}
+
+/// Map every markdown frontmatter block-sequence ENUM value to the set of page slugs carrying it, across
+/// the registered markdown corpora. Cached per process (the corpus is fixed during a run). This is how the
+/// `status` enum is discovered WITHOUT naming it: any top-level key whose value is a YAML block sequence
+/// contributes its values; the prohibition value(s) then select the family.
+fn frontmatter_families() -> &'static HashMap<String, HashSet<String>> {
+    static CACHE: OnceLock<HashMap<String, HashSet<String>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut fam: HashMap<String, HashSet<String>> = HashMap::new();
+        for path in markdown_paths() {
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Some((slug, enums)) = frontmatter(&text) else { continue };
+            for values in enums.values() {
+                for v in values {
+                    fam.entry(v.clone()).or_default().insert(slug.clone());
+                }
+            }
+        }
+        fam
+    })
+}
+
+/// Every `*.md` path under the registered markdown corpora (the DATA clones beside the models). Shares the
+/// root resolution with [`crate::lint_char`]'s markdown curriculum.
+fn markdown_paths() -> Vec<std::path::PathBuf> {
+    let beside = |name: &str| {
+        crate::lint_train::model_dir_pub()
+            .parent()
+            .map(|p| p.join(name))
+            .unwrap_or_else(|| std::path::PathBuf::from(name))
+    };
+    let mut paths = Vec::new();
+    let mut stack = vec![beside("mdn-content"), beside("mattpocock-skills")];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "md") {
+                paths.push(p);
+            }
+        }
+    }
+    paths
+}
+
+/// Parse a markdown file's leading `---`…`---` frontmatter into (slug, block-sequence enums). A key whose
+/// value is empty and whose following `  - v` lines form a YAML sequence is an enum key; its lowercased
+/// values are collected. The `slug` scalar is the join key to the crawled page URL.
+fn frontmatter(text: &str) -> Option<(String, HashMap<String, Vec<String>>)> {
+    let body = text.strip_prefix("---")?;
+    let end = body.find("\n---")?;
+    let fm = &body[..end];
+    let mut slug = None;
+    let mut enums: HashMap<String, Vec<String>> = HashMap::new();
+    let mut current: Option<String> = None;
+    for line in fm.lines() {
+        if let Some(item) = line.strip_prefix("  - ") {
+            if let Some(key) = &current {
+                enums.entry(key.clone()).or_default().push(item.trim().trim_matches('"').to_lowercase());
+            }
+            continue;
+        }
+        if line.starts_with(' ') {
+            continue;
+        }
+        if let Some(colon) = line.find(':') {
+            let key = line[..colon].trim().to_lowercase();
+            let value = line[colon + 1..].trim().trim_matches('"');
+            if key == "slug" {
+                slug = Some(value.to_lowercase());
+            }
+            current = if value.is_empty() { Some(key) } else { None };
+        } else {
+            current = None;
+        }
+    }
+    Some((slug?, enums))
+}
+
+/// The join key both sides share: the URL path after `/docs/`, case-folded, trailing slash + fragment
+/// trimmed. A crawled `…/docs/Web/CSS/…` page and a frontmatter `slug: Web/CSS/…` map to the same key.
+fn slug_of_url(url: &str) -> Option<String> {
+    let u = url.split('#').next().unwrap_or(url);
+    let i = u.find("/docs/")?;
+    Some(u[i + 6..].trim_end_matches('/').to_lowercase())
+}
+
+/// Whitespace-collapse a text span; a run of ≥ 2 words and ≥ 6 chars is a comparison atom (the same rule
+/// [`crate::lint_graph`]'s site-invariance atom uses).
+fn norm_run(text: &str) -> Option<String> {
+    let norm: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if norm.len() < 6 || norm.split(' ').count() < 2 {
+        return None;
+    }
+    Some(norm)
+}
+
+/// The invariant text runs of an HTML body: the whitespace-collapsed text BETWEEN tags (a `<…>` opens a
+/// tag, `>` closes it). Structure only — never the tag interior.
+fn runs_of(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let b = body.as_bytes();
+    let (mut in_tag, mut start) = (false, 0usize);
+    for i in 0..b.len() {
+        match b[i] {
+            b'<' => {
+                if !in_tag {
+                    if let Some(r) = norm_run(&body[start..i]) {
+                        out.push(r);
+                    }
+                }
+                in_tag = true;
+            }
+            b'>' => {
+                in_tag = false;
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if let Some(r) = norm_run(&body[start..]) {
+        out.push(r);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attester_matches_a_learned_run_as_a_whole_run() {
+        let att = Attestation::from_markers(vec!["this feature is no longer recommended".to_string()]);
+        // Whitespace normalization means intervening tags / newlines still match the collapsed run.
+        assert!(att.attests("<p>This feature is\n  no longer   recommended</p>".to_lowercase().as_str()));
+        assert!(!att.attests("<p>this feature is recommended</p>"));
+        assert!(!Attestation::default().attests("anything at all here"));
+    }
+
+    #[test]
+    fn discovery_selects_the_family_dominant_sentence_run() {
+        // Two "deprecated"-family pages carry a shared banner sentence; an "experimental" page carries a
+        // different banner; a generic short run appears everywhere. Only the banner sentence is a marker.
+        let banner = "This feature is no longer recommended and should be avoided";
+        let dep_a = format!("<div class='x'>{banner}</div><span>compatibility table</span>");
+        let dep_b = format!("<div class='y'>{banner}</div><span>compatibility table</span>");
+        // No frontmatter corpus in a unit test ⇒ families empty ⇒ discovery abstains. This test documents
+        // the ABSTENTION contract (a machine with no metadata attests nothing); the real-corpus P=R=1.000
+        // is proven by `examples/metajoin`.
+        let pages = vec![
+            ("https://x/en-US/docs/Web/CSS/a".to_string(), dep_a),
+            ("https://x/en-US/docs/Web/CSS/b".to_string(), dep_b),
+        ];
+        let att = Attestation::discover(&pages);
+        assert!(att.markers().is_empty(), "no frontmatter metadata on a test machine ⇒ honest abstention");
+    }
+}

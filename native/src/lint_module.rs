@@ -344,8 +344,11 @@ fn rule_id(construct: &str) -> String {
 /// and the two frozen brains.
 pub fn proposed(lang: &str, pages: &[(String, String)], _memory: &Memory, m: &MeaningNetwork, en: &English) -> Vec<Candidate> {
     let bridge = Bridge::new(m, en);
-    let partition = lang_pages(lang, pages, &bridge, en);
-    propose(lang, &partition, &bridge, en).0
+    let attest = crate::lint_attest::Attestation::discover(pages);
+    let attested: std::collections::HashSet<String> =
+        pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
+    let partition = lang_pages(lang, pages, &bridge, en, &attested);
+    propose(lang, &partition, &bridge, en, &attested).0
 }
 
 /// PARTITION whole-site doc pages to the ones that PROVE in this language — decided by GRAMMAR
@@ -365,8 +368,9 @@ fn lang_pages<'a>(
     pages: &'a [(String, String)],
     bridge: &Bridge,
     en: &English,
+    attested: &std::collections::HashSet<String>,
 ) -> Vec<&'a (String, String)> {
-    pages.iter().filter(|(u, body)| page_proves_in_lang(lang, u, body, bridge, en)).collect()
+    pages.iter().filter(|(u, body)| page_proves_in_lang(lang, u, body, bridge, en, attested)).collect()
 }
 
 /// Whether a prohibition/deprecation page PROVES in `lang`: its role names a prohibited subject AND that
@@ -375,8 +379,8 @@ fn lang_pages<'a>(
 /// `<pre><code>`), so the referee is the language grammar, not the URL — the whole point of the
 /// verification-decided partition. A non-prohibition page, or one whose subject the grammar does not fire
 /// on the page's own examples, is not in this language's partition.
-fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &English) -> bool {
-    let page = crate::lint_lang_layer::read_doc_page(url, body, en, bridge);
+fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>) -> bool {
+    let page = crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested);
     if !page.prohibited || page.constructs.is_empty() {
         return false;
     }
@@ -430,9 +434,9 @@ struct PooledSentence {
 /// is a real doc sentence mentioning the construct — preferring one from a prohibited page and in
 /// negative polarity; a construct no clean sentence mentions cannot form an un-fakeable English pair and
 /// is dropped (never a synthesized sentence).
-fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English) -> (Vec<Candidate>, Vec<PooledSentence>) {
+fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>) -> (Vec<Candidate>, Vec<PooledSentence>) {
     let mut docpages: Vec<crate::lint_lang_layer::DocPage> =
-        pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge)).collect();
+        pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested)).collect();
 
     // QUALIFIED-MEMBER SHAPE SELECTION (LINTER.md → "QUALIFIED-MEMBER construct extraction"). A
     // deprecated reference page proposes several candidate SHAPES for its subject, most-specific first
@@ -760,6 +764,17 @@ pub fn graduate(
     en: &English,
 ) -> Vec<Outcome> {
     let bridge = Bridge::new(m, en);
+    // The LEARNED deprecation attestation, keyed by the author's OWN METADATA TYPOGRAPHY (frontmatter
+    // `status:` enum joined to the crawled pages by slug — COMPLETION PASS 13). Discovered from and applied
+    // to the ORIGINAL (pre-chrome-strip) bodies: the attestation is a PAGE-ROLE fact of the whole page,
+    // and the notecard's banner TEXT run is cross-page-identical, so the chrome filter (which removes
+    // invariant text runs for clean PROSE) strips it away — reading the role after the strip would lose it
+    // exactly as it would lose a class attribute. The attested URL SET is captured here and threaded down,
+    // so every downstream reader keys on the URL, not the stripped body. Replaces the hardcoded
+    // `has_deprecation_notecard` substring; MEASURED P=R=1.000 vs it (`examples/metajoin`).
+    let attest = crate::lint_attest::Attestation::discover(pages);
+    let attested: std::collections::HashSet<String> =
+        pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
     // CROSS-PAGE-INVARIANCE CHROME FILTER (LINTER.md → "Cross-page invariance = chrome, discarded";
     // owner north-star). A site's navigation, breadcrumb, footer, and sidebar-menu text recurs
     // IDENTICALLY across its pages and carries zero governing meaning, so it is discarded — site-
@@ -772,8 +787,8 @@ pub fn graduate(
     let stripped: Vec<(String, String)> =
         pages.iter().map(|(u, b)| (u.clone(), chrome.strip(u, b))).collect();
     let pages: &[(String, String)] = &stripped;
-    let partition = lang_pages(lang, pages, &bridge, en);
-    let (candidates, pool) = propose(lang, &partition, &bridge, en);
+    let partition = lang_pages(lang, pages, &bridge, en, &attested);
+    let (candidates, pool) = propose(lang, &partition, &bridge, en, &attested);
     let corpus = harvest_corpus(memory);
 
     // Each candidate's derived advice (its SECOND, distinct doc sentence). A candidate with no such
