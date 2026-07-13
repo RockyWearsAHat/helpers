@@ -772,6 +772,24 @@ pub fn learn_structure_roles(reader: &CharReader, bodies: &[&str], md_bodies: &[
             e.2 += u32::from(heading);
         }
     }
+    // Diagnostic (rung 2 measurement, off unless HELPERS_ROLE_TRACE is set): report the raw
+    // vote tally for the two MARKDOWN marker seeds so the fence/heading register purity is visible
+    // before the ¾ bar decides. No effect on the learned roles.
+    if std::env::var_os("HELPERS_ROLE_TRACE").is_some() {
+        for (label, marker) in [("fence", "```"), ("heading", "#")] {
+            let seed = crate::lint_ai::token_seed(marker);
+            if let Some((support, code, heading)) = tally.get(&seed).copied() {
+                let pct = |n: u32| if support > 0 { 100 * n / support } else { 0 };
+                eprintln!(
+                    "[role-trace] {label} ({marker}): support {support} / code {code} ({}%) / heading {heading} ({}%)",
+                    pct(code),
+                    pct(heading)
+                );
+            } else {
+                eprintln!("[role-trace] {label} ({marker}): no instances tallied");
+            }
+        }
+    }
     let mut votes = Vec::new();
     for (seed, (support, code, heading)) in tally {
         if support < TAG_ROLE_SUPPORT {
