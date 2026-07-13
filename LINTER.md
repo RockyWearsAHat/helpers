@@ -289,8 +289,15 @@ subject-varying runs — but which banner is a PROHIBITION is SEMANTICALLY unlab
 network carries no geometry for `deprecated`/`avoid`/`obsolete`/`no longer recommended` (absent or noise), and
 the `is_negation` signal fires false-positive on Baseline/descriptive negation while missing the notecard.
 This is the SAME wall as the next sentence: the classics `var`/`==`/`eval` abstain on the recommendation/advice
-register (their commands carry no negation operator the substrate resolves yet). Both re-land only WITH a
-declarative-attestation / per-token polarity resolver. The whole-domain MDN root crawl is deferred on budget;
+register (their commands carry no negation operator the substrate resolves yet). COMPLETION PASS 12 diagnosed
+this one layer deeper (measured, `examples/polrung`): the block is the DISCOVERY stage — the frozen negator
+discovery finds ONLY `"not"` (`"no"`/`"never"`/`"no longer"` are absent, so the 117 notecard text carries no
+operator to read) — PLUS the 1-hop compounding horizon: the negation PREFIXES `un`/`non` DO qualify
+covenant-clean (7.5×/7.1× flip lift) but `deprecate`→`disapproval`→`unfavorable` is a 2-hop chain, and feeding
+the prefix words into the count-based compounding guard flips 5408 headwords (endorsement banners read
+negative). Both re-land only WITH (a) a discovery that finds `"no"`/`"no longer"` unbiased by the
+`prefix+root` morphology AND (b) a propagating SIGNED polarity that survives multi-hop without the compounding
+FP explosion (or the trained side-count `Polarity` grounded on real bad/good labels). The whole-domain MDN root crawl is deferred on budget;
 coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the falsification ledger
 for the measured dead-ends.
 
@@ -523,6 +530,79 @@ prohibition without a word list (e.g. by teaching `"deprecated"` a prohibition U
 cluster, or a polarity judge that does not require an imperative lead). The moment that classifier exists, the
 attestation register is the invariant-partial-run whose subjects vary AND whose words resolve negative under
 it — the notecard family separates by MEANING, not by the hardcoded string, and the burn proceeds.
+
+### Item — COMPLETION PASS 12: the polarity rung is DISCOVERY-STARVED and HOP-BOUNDED (measured; NO cross, NO burn, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 12): extend polarity reading learned from the dictionary itself — half 1
+> a subject-scoped declarative `sentence_polarity` (position-free operator that GOVERNS the predicate), half 2
+> negation PREFIXES learned by the systematic-flip measurement — then wire what crosses (attestation burn,
+> the classics, the corroboration judge) at junk-floor zero. MEASURED end to end (`examples/polrung`, untracked
+> harness). The cross is NOT made — the SAME wall as PASS 11, now diagnosed one layer deeper: the block is the
+> DISCOVERY stage plus the 1-hop compounding horizon, not merely "no polarity classifier". No library code
+> lands (dead code or regression either way), no burn, no `TRAIN_VERSION`/`BRAIN_REV` move; `cargo test --lib`
+> 228 green.
+
+**The sole discovered operator is `"not"`; `"no"` is ABSENT (root cause).** The frozen negator discovery
+(`read_dictionary`, the "prefix+root : NEGATOR root" morphology, e.g. `in`+`valid` = "**not** valid") found
+**exactly one** base operator on this machine's dictionary: `"not"`. `"no"`, `"never"`, `"none"`, `"nor"`,
+`"without"` are all `base_discovered = false` — the discovery is STRUCTURALLY biased to the word that sits
+immediately before a stripped root in negative-morphology glosses, and that word is almost always `"not"`.
+Consequence: the 117 deprecation notecard text carries NO operator the substrate resolves — `"no longer
+recommended"` hinges on `"no"` (undiscovered) and `"recommended"` (not an operator); the boilerplate tail
+`"…may cease to work at any time."` carries none at all. There is nothing for ANY position rule (half 1) to
+find in the notecard, so half 1 cannot read the 117 negative no matter how it scopes governance.
+
+**Half 2 — `un`/`non` QUALIFY covenant-clean; `dis`/`in`/`im`/`il`/`ir` do NOT; the register still fails.**
+The systematic-flip measure (headwords H = prefix+stem where the stem is itself a headword; flip = H's own
+gloss carries a discovered negator AND references the stem or a one-hop neighbor; comparative bar = 3× the
+background "gloss carries a negator" rate, ≥20 support; iterated to a fixpoint): **`un` 22.0% flip / 7.5× lift
+/ 1062 support** and **`non` 20.9% / 7.1× / 268** qualify round 1; the fixpoint adds nothing (`dis` 0.3%,
+`in` 4.0%, `im` 3.0%, `il`/`ir` ~5–6% — all below 3× because the dictionary glosses dis-/in- words by SYNONYM,
+`disapproval` = "expression of an **unfavorable** opinion", not by `"not"`+stem). This is a REAL, clean win
+in isolation: promoting `un`/`non` makes `"unfavorable"`, `"disapproval"`, `"disapprove"` read negative. But
+it does NOT reach the deprecation register, and it cannot be wired without regression:
+- `"deprecated"` → (inflection) `"deprecate"` = "express **disapproval** of" → `"disapproval"` = "unfavorable
+  opinion" → `"unfavorable"` = un+favorable. That is a **2-hop** meaning chain; `is_negation`'s guard is
+  **1 hop** (def + def-of-def). `"deprecate"` reads FALSE — its gloss word `"disapproval"` is a `dis-` word
+  (unqualified) that only reads negative through a further hop `is_negation` does not take.
+- `"obsolete"` = "**no** longer produced…" — blocked on the undiscovered `"no"`.
+- `"avoid"` = "keep **away** from" and `"discouraged"` = "having **lost** confidence" — carry no operator at
+  all (the task's predicted honest failures; `"away"`/`"lost"` earn nothing).
+- `"forbidden"` = "**not** allowed banned" is the ONLY register word with a native operator — and it never
+  appears in the notecard (PASS 11 already recorded this).
+
+**Wiring `un`/`non` is a REGRESSION, measured.** The `disapproval` win exists ONLY through the compounding
+clause (its gloss `"unfavorable"` is an `un-` word). Feeding the ~2187 `un`/`non` words into `is_negation`'s
+two-signal compounding guard flips **5408** headwords to negative — sampled: `accept`, `resolute`, `calm`,
+`differ`, `canvas`, `idealistic`, `penitent`, `newsflash`, `cartoonish` — an FP blowout (a gloss with any two
+un-/non- words anywhere reads negative). At the sentence foils this reads the ENDORSEMENT banner `"This feature
+is well established and works across many devices…"` as NEGATIVE. Pure-typography promotion (prefix words are
+operators for DIRECT membership only, barred from the compounding second signal) is FP-safe but then reaches
+NONE of the register (not even `disapproval`, a `dis-` word) — dead weight for this rung.
+
+**Half 1 position-free is strictly WORSE than the frozen imperative gate at the foils.** With the augmented
+operator set, position-free `is_negation` over `"This feature is **not** Baseline because it **does not**
+work…"` (Baseline-limited banner, hand-overlap 0) reads NEGATIVE — a false positive — while the true 117
+notecard reads negative only via the FP-laden compounding, not via any operator actually in its text. So the
+half-1 experiment relabels availability/endorsement banners as prohibitions and still fails to isolate the 117
+by meaning — reconfirming PASS 11's `is_negation` result at the sentence level on the real texts.
+
+**Decision — NO wire, NO burn; hand `has_deprecation_notecard` stays INTERIM.** Both directions violate the
+bar: compounding-extended = regression (5408 FP negators, endorsement→prohibition); pure-typography or half-1
+position-free = abstains on the register (dead code) or FPs on the banners. Nothing crosses cleanly, so no
+library code lands and rungs 3–4 (attestation burn, classics, corroborate polarity, language expansion) stay
+gated on a cross this pass does not make. UNTOUCHED.
+
+**Re-land condition (sharpened past PASS 11).** Two independent gaps must close together, and both are DISCOVERY
+problems, not classifier-wiring problems: **(a)** the operator set must gain `"no"` and the multi-word `"no
+longer"` through a discovery that is not biased to the `prefix+root : "not" root` morphology (the current
+discovery structurally only ever finds `"not"`); **(b)** the meaning-polarity must be a propagating SIGN that
+survives multiple hops with sign-flips (so `deprecate → disapproval → unfavorable → favorable` resolves
+negative) WITHOUT the count-based compounding guard's FP explosion — i.e. a signed polarity field, distinct in
+kind from `is_negation`'s two-signal count, OR the already-built trained side-count `Polarity`
+(`lint_read.rs`) grounded on real bad/good MDN labels rather than on the frozen negator cluster. Absent both,
+the attestation register remains STRUCTURALLY discoverable and SEMANTICALLY unlabelable exactly as PASS 11 left
+it.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
