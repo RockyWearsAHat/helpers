@@ -121,55 +121,159 @@ fn scan(body: &str, reader: &CharReader) -> Scan {
             continue;
         }
         let end = body[at..].find('<').map(|i| at + i).unwrap_or(bytes.len());
-        let mut gap = Gap {
-            start: at,
-            end,
-            words: 0,
-            english_words: 0,
-            punctuated: false,
-            terminal: false,
-            symbolic: false,
-            stack: stack.clone(),
-        };
-        let mut w_start: Option<usize> = None;
-        // Walk char-wise so multibyte text never splits; a word closes at whitespace.
-        let text = &body[at..end];
-        let mut it = text.char_indices().peekable();
-        while let Some((i, c)) = it.next() {
-            let abs = at + i;
-            if c.is_whitespace() {
-                if let Some(s) = w_start.take() {
-                    push_word(body, s, abs, reader, &mut gap);
-                }
-                continue;
-            }
-            if !c.is_alphanumeric() {
-                gap.symbolic = true;
-            }
-            if w_start.is_none() {
-                w_start = Some(abs);
-            }
-            // Sentence typography: `.;!?` followed by whitespace or the gap's end closes a
-            // sentence — a `.` between letters is part of a word. A TERMINAL (`.!?`) marks a prose
-            // sentence's end; `;` is kept out because it also ends code statements.
-            if matches!(c, '.' | ';' | '!' | '?')
-                && it.peek().map(|(_, n)| n.is_whitespace()).unwrap_or(true)
-            {
-                gap.punctuated = true;
-                if matches!(c, '.' | '!' | '?') {
-                    gap.terminal = true;
-                }
-            }
-        }
-        if let Some(s) = w_start {
-            push_word(body, s, end, reader, &mut gap);
-        }
+        let gap = text_gap(body, at, end, reader, stack.clone());
         if gap.words > 0 {
             gaps.push(gap);
         }
         at = end;
     }
     Scan { gaps, tags }
+}
+
+/// Build the aggregate [`Gap`] for the text run `body[start..end]` under containment `stack`,
+/// judging each whitespace-delimited word's English-ness against the meaning network. The shared
+/// word-shape former: BOTH the HTML tag scan ([`scan`]) and the markdown marker scan
+/// ([`scan_markdown`]) emit gaps through it, so a fenced code block and a `<pre>` block are read by
+/// the identical typography — this is the curriculum's transfer point (LINTER.md rung 1).
+fn text_gap(body: &str, start: usize, end: usize, reader: &CharReader, stack: Vec<(u32, u64)>) -> Gap {
+    let mut gap = Gap {
+        start,
+        end,
+        words: 0,
+        english_words: 0,
+        punctuated: false,
+        terminal: false,
+        symbolic: false,
+        stack,
+    };
+    let mut w_start: Option<usize> = None;
+    // Walk char-wise so multibyte text never splits; a word closes at whitespace.
+    let text = &body[start..end];
+    let mut it = text.char_indices().peekable();
+    while let Some((i, c)) = it.next() {
+        let abs = start + i;
+        if c.is_whitespace() {
+            if let Some(s) = w_start.take() {
+                push_word(body, s, abs, reader, &mut gap);
+            }
+            continue;
+        }
+        if !c.is_alphanumeric() {
+            gap.symbolic = true;
+        }
+        if w_start.is_none() {
+            w_start = Some(abs);
+        }
+        // Sentence typography: `.;!?` followed by whitespace or the gap's end closes a
+        // sentence — a `.` between letters is part of a word. A TERMINAL (`.!?`) marks a prose
+        // sentence's end; `;` is kept out because it also ends code statements.
+        if matches!(c, '.' | ';' | '!' | '?')
+            && it.peek().map(|(_, n)| n.is_whitespace()).unwrap_or(true)
+        {
+            gap.punctuated = true;
+            if matches!(c, '.' | '!' | '?') {
+                gap.terminal = true;
+            }
+        }
+    }
+    if let Some(s) = w_start {
+        push_word(body, s, end, reader, &mut gap);
+    }
+    gap
+}
+
+// ── Markdown typography (the curriculum precursor to web reading, LINTER.md rung 1) ──
+
+/// The seed of the markdown FENCED-CODE marker — a run of ≥3 backticks or tildes. Keyed by the
+/// marker's OWN characters (the fence literal), the same [`crate::lint_ai::token_seed`] the HTML
+/// scan keys element names with, so a fence and an HTML `<pre>` occupy the SAME learned role space.
+/// The ROLE (code carrier) is never assigned here — it is LEARNED by exposure exactly as element
+/// roles are ([`learn_structure_roles`]); this only recognises the typography.
+fn md_fence_seed() -> u64 {
+    crate::lint_ai::token_seed("```")
+}
+
+/// The seed of the markdown ATX-HEADING marker — a line-leading run of `#`. Keyed by the marker's
+/// own character; the heading ROLE is learned by exposure, never assigned.
+fn md_heading_seed() -> u64 {
+    crate::lint_ai::token_seed("#")
+}
+
+/// Whether a line's leading (whitespace-trimmed) text opens or closes a markdown code FENCE — ≥3
+/// of the same fence char (`` ` `` or `~`). Pure typography, no info-string parsing.
+fn is_md_fence(trimmed: &str) -> bool {
+    let Some(c) = trimmed.chars().next() else { return false };
+    (c == '`' || c == '~') && trimmed.chars().take_while(|&x| x == c).count() >= 3
+}
+
+/// Tokenize a markdown body into gaps by its LINE typography — the markdown analogue of [`scan`]'s
+/// `<…>` tokenizer. A fenced block wraps its content lines in the fence marker element; an ATX
+/// heading wraps its trailing text in the heading marker element; every other line is plain prose
+/// under no element. Byte ranges index the ORIGINAL body so [`read_scan`] slices code and prose
+/// verbatim. Pure typography (line-leading markers), never a semantic markdown parser: the markers'
+/// ROLES are learned by exposure, this only reads their characters.
+fn scan_markdown(md: &str, reader: &CharReader) -> Scan {
+    let fence = md_fence_seed();
+    let heading = md_heading_seed();
+    let mut gaps = Vec::new();
+    let mut inst: u32 = 0;
+    let mut fence_open: Option<u32> = None;
+    let bytes = md.as_bytes();
+    let mut at = 0usize;
+    while at < bytes.len() {
+        let eol = md[at..].find('\n').map(|i| at + i).unwrap_or(bytes.len());
+        let line = &md[at..eol];
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if let Some(open) = fence_open {
+            if is_md_fence(trimmed) {
+                fence_open = None; // the closing fence ends the block
+            } else {
+                let g = text_gap(md, at, eol, reader, vec![(open, fence)]);
+                if g.words > 0 {
+                    gaps.push(g);
+                }
+            }
+        } else if is_md_fence(trimmed) {
+            fence_open = Some(inst);
+            inst += 1;
+        } else if trimmed.starts_with('#') {
+            let hashes = trimmed.chars().take_while(|&c| c == '#').count();
+            let after = &trimmed[hashes..];
+            // An ATX heading is 1–6 `#` followed by whitespace then text; `#word` is prose.
+            if hashes <= 6 && after.starts_with(char::is_whitespace) {
+                let lead = indent + hashes + (after.len() - after.trim_start().len());
+                let g = text_gap(md, at + lead, eol, reader, vec![(inst, heading)]);
+                inst += 1;
+                if g.words > 0 {
+                    gaps.push(g);
+                }
+            } else {
+                let g = text_gap(md, at, eol, reader, Vec::new());
+                if g.words > 0 {
+                    gaps.push(g);
+                }
+            }
+        } else {
+            let g = text_gap(md, at, eol, reader, Vec::new());
+            if g.words > 0 {
+                gaps.push(g);
+            }
+        }
+        at = if eol < bytes.len() { eol + 1 } else { eol };
+    }
+    Scan { gaps, tags: Vec::new() }
+}
+
+/// READ a markdown body into its [`PageUnit`]s — the markdown counterpart of [`read_page`], standing
+/// on the SAME learned roles and the SAME unit former ([`read_scan`]). A brain that learned no page
+/// structure reads nothing. This is the curriculum precursor: markdown structure the reader learned
+/// by exposure segments a doc into heading-governed code-fence units before the web layer is read.
+pub fn read_markdown(md: &str, reader: &CharReader) -> Vec<PageUnit> {
+    if reader.structure().is_empty() {
+        return Vec::new();
+    }
+    read_scan(scan_markdown(md, reader), md, reader)
 }
 
 /// Close one word: judge it against the meaning network and count it into its gap. The judgment
@@ -297,7 +401,14 @@ pub fn read_page(body: &str, reader: &CharReader) -> Vec<PageUnit> {
     if reader.structure().is_empty() {
         return Vec::new();
     }
-    let scan = scan(body, reader);
+    read_scan(scan(body, reader), body, reader)
+}
+
+/// Form units from an already-tokenized [`Scan`] over `body` — shared by the HTML reader
+/// ([`read_page`]) and the markdown reader ([`read_markdown`]), so both typographies segment into
+/// heading-governed code units by the identical register logic. `body` is the ORIGINAL source the
+/// scan indexes; code and prose are sliced from it verbatim.
+fn read_scan(scan: Scan, body: &str, reader: &CharReader) -> Vec<PageUnit> {
     if scan.is_empty() {
         return Vec::new();
     }
@@ -609,13 +720,17 @@ const TAG_ROLE_SUPPORT: u32 = 8;
 /// contained text reads decisively as code becomes a code carrier, a short title-shaped one a
 /// section heading. No element name is enumerated; the seeds are whatever the corpus used. Called
 /// once at setup with the curriculum bodies; the lint path only ever reads the result.
-pub fn learn_structure_roles(reader: &CharReader, bodies: &[&str]) -> StructureRoles {
+pub fn learn_structure_roles(reader: &CharReader, bodies: &[&str], md_bodies: &[&str]) -> StructureRoles {
     // Read every page's structure once; the title-shape ceiling is learned from the corpus's own
-    // short gaps so "heading-shaped" is the corpus's word-length, not a hand constant.
-    let scans: Vec<Vec<Gap>> = bodies
+    // short gaps so "heading-shaped" is the corpus's word-length, not a hand constant. The markdown
+    // curriculum (LINTER.md rung 1) is read through its OWN line typography ([`scan_markdown`]) and
+    // its marker instances tally into the SAME role space — a fence learns "code carrier", an ATX
+    // heading learns "section heading", exactly as `<pre>`/`<h1>` do, so the roles transfer.
+    let mut scans: Vec<Vec<Gap>> = bodies
         .iter()
         .map(|b| scan(&crate::doc_crawler::drop_script_style(b), reader).gaps)
         .collect();
+    scans.extend(md_bodies.iter().map(|b| scan_markdown(b, reader).gaps));
     let mut title_counts: Vec<u32> = Vec::new();
     for gaps in &scans {
         for (k, g) in gaps.iter().enumerate() {
@@ -853,6 +968,51 @@ mod tests {
         assert!(
             read_page(body, &brain).is_empty(),
             "no structure ⇒ no units (the curriculum gate)"
+        );
+    }
+
+    /// RUNG 1 (LINTER.md, the curriculum precursor): a real markdown document segments into a
+    /// heading-governed code-fence unit. The fence marker carries the learned CODE role, the ATX
+    /// heading marker the learned HEADING (boundary) role — the SAME role space HTML `<pre>`/`<h2>`
+    /// use — so the same unit former reads markdown as it reads a web page. Markdown-marker roles are
+    /// keyed by the marker's OWN characters (`` ``` ``/`#`), never a role name.
+    #[test]
+    fn a_markdown_doc_segments_into_heading_prose_and_code_fence_units() {
+        let brain = test_brain(&[("```", 1), ("#", -1)]);
+        let body = "# Introduced sections\n\
+            \n\
+            Sections are introduced here with a full sentence of prose.\n\
+            \n\
+            ## error handling\n\
+            \n\
+            Never use the var statement to declare a variable; it hoists silently.\n\
+            \n\
+            ```js\n\
+            var total = compute(items);\n\
+            ```\n\
+            \n\
+            Use let or const instead, which scope to the block.\n";
+        let units = read_markdown(body, &brain);
+        assert_eq!(
+            units.len(),
+            1,
+            "one fenced code unit: {:?}",
+            units.iter().map(|u| &u.code).collect::<Vec<_>>()
+        );
+        assert!(
+            units[0].code.contains("var total = compute(items);"),
+            "the fenced code survives verbatim: {:?}",
+            units[0].code
+        );
+        assert!(
+            units[0].prose.contains("Never use the var statement"),
+            "the section body governs the fence: {:?}",
+            units[0].prose
+        );
+        assert!(
+            !units[0].prose.contains("introduced here"),
+            "the `## error handling` heading bounds the section, so the intro prose never governs: {:?}",
+            units[0].prose
         );
     }
 
