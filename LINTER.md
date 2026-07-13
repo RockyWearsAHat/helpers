@@ -280,11 +280,19 @@ construct recognition is the north-star direction). One parse + one walk per fil
 confirms imprecise text-fallback findings. Findings cite their source page. Project law (`.helpers/lint-rules/`)
 compiles as a local overlay and never vanishes silently. Lint NEVER touches the network; setup does.
 
-**What is NOT yet built (honest frontier).** The learned reader has NO page-role/subject faculty (measured
-0%), so hand page-role anatomy stays INTERIM. The classics `var`/`==`/`eval` abstain on the
-recommendation/advice register (their commands carry no negation operator the substrate resolves yet). The
-whole-domain MDN root crawl is deferred on budget; coverage grows as the cache grows. svg is grammar-blocked.
-See "Open problems" and the falsification ledger for the measured dead-ends.
+**What is NOT yet built (honest frontier).** The learned reader has NO page-role/subject faculty, so hand
+page-role anatomy stays INTERIM. The attestation register is STRUCTURALLY discoverable (COMPLETION PASS 11,
+measured): the `SiteChrome` invariance atom isolates the MDN deprecation notecard as one exact-recurrence run
+covering exactly the 117 hand-attested pages at F1 = 1.0, and surfaces the whole status-banner family
+(Deprecated / Baseline-available / Baseline-limited) as structurally identical invariant, partial-support,
+subject-varying runs — but which banner is a PROHIBITION is SEMANTICALLY unlabelable: the frozen meaning
+network carries no geometry for `deprecated`/`avoid`/`obsolete`/`no longer recommended` (absent or noise), and
+the `is_negation` signal fires false-positive on Baseline/descriptive negation while missing the notecard.
+This is the SAME wall as the next sentence: the classics `var`/`==`/`eval` abstain on the recommendation/advice
+register (their commands carry no negation operator the substrate resolves yet). Both re-land only WITH a
+declarative-attestation / per-token polarity resolver. The whole-domain MDN root crawl is deferred on budget;
+coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the falsification ledger
+for the measured dead-ends.
 
 ---
 
@@ -448,6 +456,73 @@ committed `char-structure-bootstrap.json` was regenerated to carry all 28 roles 
 merge fix. Rung 2 (the PAGE-ROLE attestation faculty — `{{Deprecated_Header}}` + `status: deprecated`
 learned by exposure, measured against the hand anatomy's attested MDN pages) and rungs 3/4 (verdict gate /
 language expansion) are UNTOUCHED — stopped honestly at the rung-1 boundary per the rung discipline.
+
+### Item — COMPLETION PASS 11: the attestation register is STRUCTURALLY discoverable, SEMANTICALLY unlabelable (measured; NO burn, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 11): build the LEARNED page-role attestation faculty — parallel to
+> `SiteChrome` but INVERTED: an invariant run recurring across ≥ the chrome floor of same-site pages whose
+> PAGE SUBJECTS VARY and whose OWN WORDS link to prohibition/deprecation MEANING through the meaning network
+> (`related`/`meaning_of`, "'deprecated' carries it", never a word list) — then burn `has_deprecation_notecard`
+> on a ≥95% agreement gate. MEASURED end to end (`examples/attest_probe`, untracked harness); the gate is NOT
+> crossed and the hand path STAYS. This is the same recommendation/advice-register wall THE CURRENT MODEL
+> already names ("their commands carry no negation operator the substrate resolves yet"), now pinned for the
+> attestation faculty specifically.
+
+**The corpus + the hand baseline (exact).** 2968 crawled MDN pages (`mdn-css` ⊕ `mdn-js` ⊕ `mdn-html` ⊕ the
+four `developer-mozilla-org-*` crawls, deduped by url). The hand anatomy attests **117** of them
+(`has_deprecation_notecard` = `notecard deprecated` ∨ `no longer recommended`, `!rules`) — matching the
+figure this pass inherited exactly. In the `mdn-content` markdown corpus the two clean markers agree to the
+file: `{{deprecated_header}}` (case-folded) in **84** files ≡ the frontmatter `status: - deprecated` in **84**
+files (the `status:` enum is `deprecated` 84 / `experimental` 107 / `non-standard` 84).
+
+**Structural half — WORKS, and discovers the whole MDN status-banner FAMILY.** The `SiteChrome` invariance
+atom (whitespace-collapsed tag-separated run, ≥2 words / ≥6 chars, keyed by exact recurrence) already
+isolates the notecard perfectly: the deprecation banner's own boilerplate tail — `"…at the bottom of this
+page to guide your decision. Be aware that this feature may cease to work at any time."` — recurs on
+**EXACTLY the 117** attested pages and **zero** others → a single-run page attester at **P = 1.000, R = 1.000,
+F1 = 1.000**, subjects varying (117 distinct constructs). `"no longer recommended"` is likewise an exact-117
+run. But the same detector surfaces the ENTIRE status-banner family as structurally identical invariant runs
+whose subjects vary: Baseline widely-available `"This feature is well established and works across many
+devices…"` (support 807, hand-overlap 0), Baseline limited `"This feature is not Baseline because it does
+not work in some of…"` (477, 0), plus section chrome `"Return value"` (792), `"Formal syntax"` (740),
+`"Computed value"`/`"Applies to"`/`"Animation type"` (~540). Structure ALONE cannot tell the DEPRECATION
+banner from the ENDORSEMENT banner or a section heading — all are invariant, partial-support, subject-varying
+runs. The discriminator can only be conjunct (c): the marker's words mean PROHIBITION.
+
+**Semantic half — BLOCKED on the frozen meaning network (multiply confirmed).** Conjunct (c) is not
+satisfiable covenant-clean on the current substrate:
+- `"deprecated"` is ABSENT from the English dictionary (`definition_of` len 0), `is_negation` false; its
+  char-brain USAGE vector exists but sits in the NOISE band to every prohibition anchor (`related` to
+  `obsolete` 3967, `removed` 3710, `forbidden` 3879 — while a neutral `"search"`↔`obsolete` is 3891, i.e.
+  CLOSER). No query formulation rescues a word with no geometry.
+- `"avoid"`/`"obsolete"`/`"cease"`/`"discourage"`/`"recommended"` HAVE dictionary meaning but are NOT
+  `is_negation`, and their definitions carry no discovered negator (`forbidden` is the only tested
+  deprecation-adjacent word whose definition does — and it never appears in the notecard).
+- `sentence_states_prohibition("Deprecated: This feature is no longer recommended.")` = **false**:
+  `COMMAND_LEAD_WORDS = 2` reads only IMPERATIVE-lead commands ("Never use X"); the notecard is a DECLARATIVE
+  attestation, and its lead words ("Deprecated", "This") are not negators.
+- The `is_negation` signal that DOES fire fires on the WRONG runs: `". Not all browsers may have implemented
+  every part…"` (713, overlap 8) and the Baseline `"…is not Baseline because it does not work…"` (477,
+  overlap 0) are descriptive negation → FALSE POSITIVES, while the deprecation notecard earns NOTHING. A
+  faculty gated on it would relabel endorsement/availability banners as prohibitions and still miss the 117.
+
+**Burn decision — NO BURN; hand `has_deprecation_notecard` stays INTERIM.** The gate wants ≥95% agreement or
+learned ⊇ hand; the learned SEMANTIC gate produces zero true attestations (correct abstention) or false
+positives — never the 117 — so it cannot replace the hand marker. Shipping the structural-discovery faculty
+now would be either DEAD CODE (abstains, unconsumed) or a REGRESSION (consumed → the 117-page CSS/HTML
+deprecation rules drop below the module floor). Both violate the bar, so no library code lands and the
+hardcoded strings remain the honest INTERIM. Rungs 3 (burn) and 4 (language expansion) are gated on a cross
+this pass does not make; UNTOUCHED. `cargo test --lib` 228 green, gauntlets green — no code touched, no
+`TRAIN_VERSION`/`BRAIN_REV` move.
+
+**Re-land condition (precise).** The structural half is proven and ready; the missing piece is a
+DECLARATIVE-ATTESTATION POLARITY resolver in the meaning network — the same per-token side-count / span
+polarity classifier the reverted advice-register experiments named ("re-lands only WITH per-token side-count
+classifier") — that reads `"deprecated"` / `"no longer recommended"` / `"avoid using it"` as negative-polarity
+prohibition without a word list (e.g. by teaching `"deprecated"` a prohibition USAGE sense strong enough to
+cluster, or a polarity judge that does not require an imperative lead). The moment that classifier exists, the
+attestation register is the invariant-partial-run whose subjects vary AND whose words resolve negative under
+it — the notecard family separates by MEANING, not by the hardcoded string, and the burn proceeds.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
