@@ -181,16 +181,6 @@ fn is_rule_page(url: &str) -> bool {
     url.to_lowercase().contains("/rules/")
 }
 
-/// Whether the page carries a DEPRECATION notecard — the structural marker a reference site renders for a
-/// discouraged feature (`class="notecard deprecated"`, or the MDN lead line "Deprecated: This feature is
-/// no longer recommended"). A page-role signal read from the markup/label, never an English judgement of
-/// the prose.
-fn has_deprecation_notecard(body: &str) -> bool {
-    // The markers appear lowercase in the markup (a class attribute, a notecard label), so a raw
-    // substring test suffices — no full-body lowercase allocation on every page.
-    body.contains("notecard deprecated") || body.contains("no longer recommended")
-}
-
 /// Convert inline code typography `<code>X</code>` → `` `X` `` so [`Bridge::extract_construct`] reads a
 /// SYMBOL construct (`==`, `===`, `!=`) that plain tag-stripping would discard. The same backtick
 /// convention the extractor already reads — no new judgement. Only the code interior is kept (nested tags
@@ -449,13 +439,14 @@ fn operator_tokens(code: &str) -> Vec<String> {
 ///   the page's own `class="incorrect"`/`class="correct"` example blocks.
 /// - **Deprecated reference page:** candidate = the construct its definition sentence names (the page's
 ///   subject), prohibited by the deprecation notecard; no paired examples.
-pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> DocPage {
+pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge, attested: &std::collections::HashSet<String>) -> DocPage {
     let reference = is_reference_page(url);
     let rule = is_rule_page(url);
-    // Only a PROHIBITION page contributes — a linter rule page, or a reference page with a deprecation
-    // notecard. Every check here is cheap (URL path + one substring scan of the body), so the ~thousands
-    // of ordinary reference/guide pages are skipped BEFORE the expensive governing-prose extraction, and
-    // the pool stays the clean per-construct prohibition reading. This keeps training in seconds.
+    // Only a PROHIBITION page contributes — a linter rule page, or a reference page the LEARNED attester
+    // ([`crate::lint_attest::Attestation`]) marks deprecated by the author's own metadata typography. Every
+    // check here is cheap (URL path + a run-membership test), so the ~thousands of ordinary reference/guide
+    // pages are skipped BEFORE the expensive governing-prose extraction, and the pool stays the clean
+    // per-construct prohibition reading. This keeps training in seconds.
     let empty = DocPage {
         url: url.to_string(),
         prohibited: false,
@@ -472,7 +463,7 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge) -> D
     // ([`crate::lint_module::page_proves_in_lang`]) is the real guard against a wrong-language leak — so
     // dropping the URL-marker requirement cannot cross the partition ∅. Reference vs non-reference only
     // decides HOW the subject's construct SHAPE is derived below.
-    let attested_deprecated = !rule && has_deprecation_notecard(body);
+    let attested_deprecated = !rule && attested.contains(url);
     if !rule && !attested_deprecated {
         return empty;
     }
@@ -594,7 +585,7 @@ mod tests {
             <div class="correct"><pre class="language-js"><code>a ~~~ b</code></pre></div>
             </body></html>"#;
         let url = "https://example.org/docs/latest/rules/no-loose";
-        let page = read_doc_page(url, body, en, &bridge);
+        let page = read_doc_page(url, body, en, &bridge, &std::collections::HashSet::new());
         assert!(page.prohibited, "a /rules/ page is a prohibition by its role");
         assert!(page.constructs.contains(&"~~".to_string()), "the operator candidate is read: {:?}", page.constructs);
         assert!(page.incorrect.iter().any(|b| b.contains("~~")), "the page's own bad example is captured");
@@ -633,13 +624,18 @@ mod tests {
         };
         let bridge = Bridge::new(br.meanings(), en);
         // A NON-`/reference/` API page carrying a deprecation notecard, whose lone-script example shows the
-        // subject called on its owner receiver — the `document.write` shape, opaque here (`obj.qux`).
+        // subject called on its owner receiver — the `document.write` shape, opaque here (`obj.qux`). The
+        // LEARNED attester is fed the page's own banner run (the corpus-discovered P=R=1.000 markers live in
+        // `examples/metajoin`); here we exercise the attestation → construct-shape path deterministically.
         let url = "https://example.org/en-US/docs/Web/API/Obj/qux";
         let body = r#"<html><body><h1>Obj: qux() method</h1>
             <div class="notecard deprecated"><p>Deprecated: no longer recommended.</p></div>
             <pre class="brush: html"><code>&lt;script&gt;obj.qux("x");&lt;/script&gt;</code></pre>
             </body></html>"#;
-        let page = read_doc_page(url, body, en, &bridge);
+        // The caller attested this url from the page's own metadata banner (the corpus-discovered P=R=1.000
+        // markers live in `examples/metajoin`); here we exercise the attestation → construct-shape path.
+        let attested = std::collections::HashSet::from([url.to_string()]);
+        let page = read_doc_page(url, body, en, &bridge, &attested);
         assert!(page.prohibited && page.attested_deprecated, "a notecard page is a prohibition without /reference/");
         assert!(page.constructs.contains(&"obj.qux".to_string()), "qualified shape proposed: {:?}", page.constructs);
         assert!(
@@ -658,7 +654,7 @@ mod tests {
         let bridge = Bridge::new(br.meanings(), en);
         let body = r#"<html><body><h1>qux</h1>
             <p>The <code>qux</code> operator combines two values into one clearly.</p></body></html>"#;
-        let page = read_doc_page("https://example.org/reference/operators/qux", body, en, &bridge);
+        let page = read_doc_page("https://example.org/reference/operators/qux", body, en, &bridge, &std::collections::HashSet::new());
         assert!(!page.prohibited, "a reference page with no deprecation notecard is not a prohibition");
         assert!(page.constructs.is_empty(), "no construct proposed from a non-prohibition page");
     }

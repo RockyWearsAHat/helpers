@@ -12,6 +12,7 @@ pub mod hv_batch;
 pub mod index;
 pub mod knowledge;
 pub mod lint_ai;
+pub mod lint_attest;
 pub mod lint_char;
 pub mod lint_docs;
 pub mod lint_english;

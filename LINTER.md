@@ -256,9 +256,10 @@ all-or-nothing hydration that a non-empty markdown role set would have silently 
    sentence as advice, harvests violating/clean blocks from the corpus (topping up with self-generated
    violations when idiomatic reps are scarce), and proves through the blind-agreement loop: the generator
    tags each sample's expectation, a BLIND lint pass (code only, never the expectation) produces the outcome,
-   and the frozen comparator judges agreement in English. `REQUIRED_REPS` = 15. A structurally-attested
-   deprecation notecard graduates on the structural facts directly (the English foil is degenerate by
-   construction). Rule identity is the construct's EXACT byte-preserved token (`uses-==`, `uses-document.write`).
+   and the frozen comparator judges agreement in English. `REQUIRED_REPS` = 15. A page the LEARNED
+   metadata attester ([`lint_attest::Attestation`], the author's `status:` enum joined by slug) marks
+   deprecated graduates on that structural fact directly (the English foil is degenerate by construction).
+   Rule identity is the construct's EXACT byte-preserved token (`uses-==`, `uses-document.write`).
 4. **THE FLIP.** A language whose docs prove ≥ `GRADUATED_MODULE_FLOOR` (3) construct rules OWNS the workflow
    and its module IS the proven set; a language below the floor (typescript 1, rust 0, go, python…) stays on
    the legacy token-miner fallback (`lint_docs::rules_from_memory`) — the miner is LIVE for non-owned
@@ -280,26 +281,38 @@ construct recognition is the north-star direction). One parse + one walk per fil
 confirms imprecise text-fallback findings. Findings cite their source page. Project law (`.helpers/lint-rules/`)
 compiles as a local overlay and never vanishes silently. Lint NEVER touches the network; setup does.
 
-**What is NOT yet built (honest frontier).** The learned reader has NO page-role/subject faculty, so hand
-page-role anatomy stays INTERIM. The attestation register is STRUCTURALLY discoverable (COMPLETION PASS 11,
-measured): the `SiteChrome` invariance atom isolates the MDN deprecation notecard as one exact-recurrence run
-covering exactly the 117 hand-attested pages at F1 = 1.0, and surfaces the whole status-banner family
-(Deprecated / Baseline-available / Baseline-limited) as structurally identical invariant, partial-support,
-subject-varying runs — but which banner is a PROHIBITION is SEMANTICALLY unlabelable: the frozen meaning
-network carries no geometry for `deprecated`/`avoid`/`obsolete`/`no longer recommended` (absent or noise), and
-the `is_negation` signal fires false-positive on Baseline/descriptive negation while missing the notecard.
-This is the SAME wall as the next sentence: the classics `var`/`==`/`eval` abstain on the recommendation/advice
-register (their commands carry no negation operator the substrate resolves yet). COMPLETION PASS 12 diagnosed
-this one layer deeper (measured, `examples/polrung`): the block is the DISCOVERY stage — the frozen negator
-discovery finds ONLY `"not"` (`"no"`/`"never"`/`"no longer"` are absent, so the 117 notecard text carries no
-operator to read) — PLUS the 1-hop compounding horizon: the negation PREFIXES `un`/`non` DO qualify
-covenant-clean (7.5×/7.1× flip lift) but `deprecate`→`disapproval`→`unfavorable` is a 2-hop chain, and feeding
-the prefix words into the count-based compounding guard flips 5408 headwords (endorsement banners read
-negative). Both re-land only WITH (a) a discovery that finds `"no"`/`"no longer"` unbiased by the
-`prefix+root` morphology AND (b) a propagating SIGNED polarity that survives multi-hop without the compounding
-FP explosion (or the trained side-count `Polarity` grounded on real bad/good labels). The whole-domain MDN root crawl is deferred on budget;
-coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the falsification ledger
-for the measured dead-ends.
+**The deprecation attestation faculty — BUILT, metadata-keyed (COMPLETION PASS 13).** A page's DEPRECATION
+role is read from the AUTHOR'S OWN METADATA TYPOGRAPHY, not from English polarity — the covenant-clean
+sidestep of the passes-11/12 wall. The author marks status in a frontmatter block-sequence ENUM
+(MDN `status:\n  - deprecated`, values deprecated/experimental/non-standard); `lint_attest::Attestation`
+DISCOVERS that enum by SHAPE (a top-level key whose value is a YAML sequence, recurring, closed value set —
+`status` is found without being named), joins the prohibition family to the crawled pages by SLUG, and learns
+the sentence-scale invariant banner runs those pages carry and the other families do not. A crawled page
+carrying such a run is an attested deprecation. The ONE datum no structural signal can supply — which enum
+VALUE denotes prohibition (every value renders a banner; structure cannot tell the deprecation banner from the
+experimental one, the measured PASS 11/12 wall) — lives in `lint-index/deprecation-status.json` (`prohibits:
+["deprecated"]`), as DATA exactly like `sources.json`. Nothing else is named: not the enum key, not the banner
+text, not a site or element. MEASURED (`examples/metajoin`) on the 2968-page MDN corpus: the discovered
+markers attest EXACTLY the 117 pages the retired hand marker `has_deprecation_notecard` did — P = R = 1.000,
+zero false positives — so the burn (rung 2) was strictly behavior-preserving (js 54 / css 22 / html 8 base
+graduation unmoved). The attestation is a PAGE-ROLE fact of the whole page, discovered and applied on the
+ORIGINAL body and threaded downstream as the attested URL SET (the banner's cross-page-identical text run is
+removed by the chrome filter, so reading the role after the strip would lose it — the URL set carries it past
+the strip). This REPLACES the passes-11/12 semantic route: no `is_negation`, no meaning geometry for
+`deprecated`, needed.
+
+**What is NOT yet built (honest frontier).** The learned reader still has NO general page-role/subject
+faculty beyond deprecation attestation; other page roles stay INTERIM. The RECOMMENDATION/ADVICE register
+(the classics `var`/`==`/`eval` on a "prefer X" page with no metadata marker) is still SEMANTICALLY
+unlabelable — the same wall passes 11/12 measured (frozen negator discovery finds only `"not"`; the meaning
+network carries no geometry for `deprecated`/`avoid`/`obsolete`; the `un`/`non` prefix polarity is
+covenant-clean but 1-hop-bounded and FP-explosive through the count-based compounding guard). That register
+re-lands only WITH (a) a discovery that finds `"no"`/`"no longer"` unbiased by the `prefix+root` morphology
+AND (b) a propagating SIGNED polarity surviving multi-hop without the compounding FP explosion (or the trained
+side-count `Polarity` on real bad/good labels). The metadata faculty sidesteps this only where the author
+publishes a metadata marker; a docs site with none abstains honestly. The whole-domain MDN root crawl is
+deferred on budget; coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the
+falsification ledger for the measured dead-ends.
 
 ---
 
@@ -603,6 +616,60 @@ kind from `is_negation`'s two-signal count, OR the already-built trained side-co
 (`lint_read.rs`) grounded on real bad/good MDN labels rather than on the frozen negator cluster. Absent both,
 the attestation register remains STRUCTURALLY discoverable and SEMANTICALLY unlabelable exactly as PASS 11 left
 it.
+
+### Item — COMPLETION PASS 13: attestation via the AUTHOR'S OWN METADATA TYPOGRAPHY — the burn (`TRAIN_VERSION` docs-v88, 2026-07-13)
+
+> Owner directive (COMPLETION PASS 13): key the attestation faculty on the author's MACHINE METADATA — the
+> MDN frontmatter `status:\n  - deprecated` enum, a data-keyed marker exactly like a fence info-string (the
+> PASS 10 precedent) — NOT on English meaning. The meaning-network conjunct that blocked passes 11–12 is
+> REPLACED by author-metadata agreement. Rung 1: the learned metadata-keyed register. Rung 2: gate + burn
+> `has_deprecation_notecard`. Rung 3: language expansion on the same metadata shape. THE CROSS PASSES 11–12
+> COULD NOT MAKE IS MADE HERE — measured, then burned.
+
+**Rung 1 — the learned attestation register, metadata-keyed (`src/lint_attest.rs`, MEASURED `examples/metajoin`).**
+The `status:` marker is a recurring, enum-valued author typography: a frontmatter block-sequence key
+(`status:` then `  - v` lines) whose value set is small and closed (`deprecated` 84 / `experimental` 107 /
+`non-standard` 84 across the `mdn-content` clone) and which partitions pages into status families whose
+SUBJECTS vary. `Attestation::discover` finds that enum by SHAPE (any top-level block-sequence key — `status`
+is never named in code), reads the prohibition family's enum value(s) from `lint-index/deprecation-status.json`
+(`prohibits: ["deprecated"]` — the one datum, carried like `sources.json`), joins the family's slugs to the
+crawled pages by slug (the URL path after `/docs/`, case-folded), and learns the DISCRIMINATIVE banner runs:
+an invariant text run present on ≥ half the family's crawled pages, ABSENT from every other-family page,
+family-DOMINANT (≥ half its own support is family), and sentence-scale (≥ 6 words — a rendered banner is
+prose, dropping the 2-word "compatibility table" fragment). MEASURED JOIN (117 hand-attested pages baseline):
+the `deprecated` metadata family = 84 slugs, ALL 84 in the crawl, ALL 84 in the structural notecard cluster
+(label purity **100%**); `experimental` → 0 in the cluster, `non-standard`-only → 0 (24 of the 84 are also
+`deprecated`). So the metadata `deprecated` family UNIQUELY + PURELY fingers the deprecation cluster — no
+English polarity needed. The 2 discovered markers (`"This feature is no longer recommended. Though some…"`,
+`"…at the bottom of this page to guide your decision. Be aware that this feature…"`) attest EXACTLY **117**
+pages: **P = 1.000, R = 1.000, FP = 0** vs the hand marker. Join-coverage is 84/117 = 71.8% on the
+markdown-discovery side (the clone omits the `web/api` tree), but the discovered banner run GENERALIZES to all
+117 — the 33 `web/api` pages with no markdown source still render the same banner — so the attester reproduces
+the full hand set from an 84-page metadata discovery.
+
+**Rung 2 — burn (BEHAVIOR-PRESERVING, verified live).** `has_deprecation_notecard` (the hardcoded
+`body.contains("notecard deprecated") || body.contains("no longer recommended")`) is DELETED. `read_doc_page`
+now takes the attested URL SET; `graduate` discovers the `Attestation` once from the ORIGINAL pages, builds
+the attested-URL set BEFORE the chrome strip (the banner's cross-page-identical text run is chrome, removed
+by `site_chrome::strip` — the retired hand marker survived only on the `class="notecard deprecated"` markup
+attribute the strip never touched; the URL set carries the page-role fact past the strip), and threads the set
+through `lang_pages`/`page_proves_in_lang`/`propose`. LIVE (`examples/web_module_train`, this machine's crawl
+= the whole owning corpus, no eslint cache so ALL js/css/html rules flow through the deprecation path): base
+graduation **js 54 / css 22 / html 8 PROVEN — byte-for-byte the pre-burn baseline**, every good fixture clean,
+junk floor zero. `cargo test --lib` **230** (adds 2 `lint_attest` tests: whole-run matching + the honest
+no-metadata abstention); gauntlets `ai_linter_behaviors` **21** / `understanding_defects` **3** green.
+`TRAIN_VERSION` docs-v87 → **docs-v88-metadata-attestation** (training logic changed; output identical, so the
+live ledger persists by retain-and-grow — js 54 / css 22 / html 17 hold). `BRAIN_REV` UNMOVED (the char/English
+substrate is untouched; attestation is a module-training faculty). COVENANT: the enum key, family, banner
+text, and page set are all DISCOVERED from data; only the prohibition enum value is data (`deprecation-status.json`);
+no site/word/element list in code.
+
+**Honest remainder — rung 3 (language expansion) frontier.** The metadata faculty is now the shape other
+languages plug into: Python `.. deprecated:: 3.x` directives / rendered "Deprecated since version X" boxes,
+Rust `#[deprecated]` / rendered badges — the same author-metadata marker, a new `prohibits` value or a new
+metadata shape per site. `deprecation-status.json` is the extension point (add the value; discovery finds the
+marker). Python/Rust crawl coverage + grammar-dylib status is the next measured step; abstain honestly where a
+docs site publishes no metadata marker.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
