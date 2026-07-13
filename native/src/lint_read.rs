@@ -643,16 +643,30 @@ impl Polarity {
     /// polarize the whole English vocabulary. No decisive majority anywhere → abstain.
     pub fn tally_lean(&self, word: &str) -> Option<bool> {
         let seed = crate::lint_ai::token_seed(&word.to_lowercase());
-        // Dictionary negation is KNOWLEDGE, not statistics: exposure beside parsing code
-        // cannot un-negate a word — a parse verdict cannot see style wrongness, so
-        // "incorrect" beside a thousand clean-parsing `var x = 1` examples still states
-        // wrongness (in-correct = not correct, the brain's own discovery). Negation
-        // OPERATORS lean prohibition warm or cold; their info-bit weight still decides
-        // how much any one of them moves a span.
-        if crate::lint_english::brain().is_some_and(|e| e.is_negation(seed)) {
-            return Some(true);
-        }
         let (f, g, e) = self.tally_of_seed(seed);
+        // TRAINED-LEAN PRECEDENCE over the frozen negator (LINTER.md, "PASS 18 — the register
+        // wire"). Dictionary negation is KNOWLEDGE, not statistics: exposure beside parsing code
+        // cannot un-negate a word — "incorrect" beside a thousand clean-parsing `var x = 1`
+        // examples still states wrongness (in-correct = not correct, the brain's own discovery),
+        // so the frozen negation cluster remains the prior. But judgment is not FROZEN there:
+        // where the training has met a negation word with DECISIVE reality that it is NOT a
+        // prohibition marker (a `lean_of` ENDORSEMENT verdict — the token cleared the side-count's
+        // own 4:1 good bar), that reality SUPERSEDES the frozen prior. The supersession only ever
+        // NEUTRALISES — a negation operator is never itself endorsement, so the outcome is abstain
+        // (`None`), never `Some(false)`: reality can retract a false prohibition, it cannot turn a
+        // negator into praise. This is what makes the ubiquitous primitive "not" trained-NEUTRAL
+        // (196020 exposure / 18 good-label / 0 bad-label bits → decisive endorsement lean →
+        // neutralised) and collapses the passes-11/12 "not"-floods-everything component, WITHOUT
+        // flipping negated endorsement ("not recommended" keeps its prohibition: "not" abstains,
+        // "recommended" still leans bad). RETAIN-AND-GROW: a negation word the training did NOT
+        // decisively clear (sparse, or genuinely mixed) keeps the frozen `Some(true)` — the cold
+        // floor is never deleted, only outranked where decisive counter-evidence exists.
+        if crate::lint_english::brain().is_some_and(|en| en.is_negation(seed)) {
+            return match lean_of(f, g, e) {
+                Some(false) => None,
+                _ => Some(true),
+            };
+        }
         if f + g + e >= 4 {
             return lean_of(f, g, e);
         }
@@ -1354,6 +1368,33 @@ mod tests {
             None,
             "without negation an unready classifier abstains"
         );
+    }
+
+    #[test]
+    fn trained_lean_supersedes_the_negator_only_to_neutralise() {
+        // PASS 18 — the register wire. The frozen negator is a PRIOR, not a freeze: a negation
+        // word the training met with a DECISIVE endorsement lean is neutralised (reality retracts
+        // a false prohibition), but the supersession never turns a negator into praise, and it
+        // never touches a negator the training did not decisively clear.
+        //
+        // Build a polarity where "not" carries a decisive GOOD lean (good-labelled repeatedly,
+        // never bad-labelled) plus heavy neutral exposure — the register-training shape that made
+        // "not" trained-neutral. "incorrect" gets no such counter-evidence, so it stays the frozen
+        // prohibition. Vocabulary is disjoint per side so the prototypes stay well separated.
+        let mut examples: Vec<(&str, bool)> = Vec::new();
+        // GOOD label using "not" (the availability-banner shape), repeated for a decisive g:g/f.
+        for _ in 0..12 {
+            examples.push(("this feature is not gated and remains widely available everywhere", false));
+        }
+        // BAD labels that never mention "not" — the deprecation-register shape.
+        for _ in 0..12 {
+            examples.push(("this deprecated helper corrupts the buffer and leaks resources", true));
+        }
+        let p = Polarity::from_labeled(&examples);
+        // "not" met a decisive good lean → the negator is NEUTRALISED (abstain), not endorsed.
+        assert_eq!(p.tally_lean("not"), None, "a decisively-non-bad negator neutralises, never endorses");
+        // A negator the training never decisively cleared keeps the frozen prohibition.
+        assert_eq!(p.tally_lean("incorrect"), Some(true), "an uncleared negator retains the cold floor");
     }
 
     #[test]
