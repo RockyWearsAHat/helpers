@@ -301,6 +301,30 @@ removed by the chrome filter, so reading the role after the strip would lose it 
 the strip). This REPLACES the passes-11/12 semantic route: no `is_negation`, no meaning geometry for
 `deprecated`, needed.
 
+**The RENDERED-MARKER variant + the item unit — Python/Rust modules (COMPLETION PASS 14, docs-v89).** A
+second, parallel route to the same page-role fact for sites that publish the status IN THE MARKUP itself
+(no frontmatter, no slug join): `Attestation::discover` also learns author status-typography CLASS TOKENS —
+a class-attribute value that EQUALS a prohibition enum value from `deprecation-status.json` (the same one
+datum) and recurs across ≥ 8 distinct page subjects (Python's `<div class="deprecated">`, rustdoc's
+`class="stab deprecated"` — the token is data-joined, never named in code). On such pages the graduation
+UNIT is the ITEM, not the page: each marker is attributed to its item's own DOTTED ANCHOR id by the
+container-vs-trailing typography (`lint_lang_layer::attested_item_shapes` — a marker element carrying the
+id is SELF-ANCHORED; one followed by an id with only markup between is a CONTAINER opening, forward; any
+other is a TRAILING badge, backward to the region's id; EVERY id delimits a region, and a region id that is
+not a valid dotted item attests NOTHING — nearest-by-distance and slide-past were both MEASURED unsound).
+An item proposes its dotted suffix shapes + the receiver-generic member, NEVER the bare name; the
+receiver-generic form must be corpus-unambiguous (≤ 2 distinct receivers, `member_receivers`) AND
+demonstrated as the item's own usage (`member_demo_ok`: receiver = the id's parent, a block-local instance,
+or a literal/expression value — a foreign-namespace receiver is the deprecation's own RECOMMENDED
+REPLACEMENT demoing, MEASURED on `typing.Sequence`→`collections.abc.Sequence`). MEASURED (docs-v89,
+`examples/apidocs_{crawl,attest,graduate}`): python-library 328 pages / 47 attested → **25 PROVEN**
+(`codecs.open`, the `typing.*` alias family, `ssl.SSLSocket`…); rust-std 1400 pages / 140 attested →
+**8 PROVEN** (`.trim_left/.trim_right(+_matches)`, `.connect`, `.slice_unchecked`, `.abs_sub`,
+`.wait_timeout_ms`). Kitchen-sink files flag with lines + cites; clean files USING THE REPLACEMENTS and
+junk-colliding idioms (`s.split`, `p.name`, `collections.abc.Sequence`, `v.join`, `s.trim_start`) flag
+ZERO. Union-corpus graduation shows py∩rust = ∅ (0 cross-language sources); MDN attested set stays exactly
+the 117 (P = R = 1.000) and web graduation byte-identical.
+
 **What is NOT yet built (honest frontier).** The learned reader still has NO general page-role/subject
 faculty beyond deprecation attestation; other page roles stay INTERIM. The RECOMMENDATION/ADVICE register
 (the classics `var`/`==`/`eval` on a "prefer X" page with no metadata marker) is still SEMANTICALLY
@@ -310,7 +334,12 @@ covenant-clean but 1-hop-bounded and FP-explosive through the count-based compou
 re-lands only WITH (a) a discovery that finds `"no"`/`"no longer"` unbiased by the `prefix+root` morphology
 AND (b) a propagating SIGNED polarity surviving multi-hop without the compounding FP explosion (or the trained
 side-count `Polarity` on real bad/good labels). The metadata faculty sidesteps this only where the author
-publishes a metadata marker; a docs site with none abstains honestly. The whole-domain MDN root crawl is
+publishes a metadata marker; a docs site with none abstains honestly. The rendered-marker route carries a
+measured residual: ~6 of python's 25 rules over-approximate the SCOPE of a faithful author note (arg-form
+deprecations `urllib.parse.urlencode`/`asyncio.Task`; group notes `TLSVersion.TLSv1_3`/`.end_col_offset`
+whose prose names siblings or exceptions) — narrowing needs the note's own English read (the same
+prose-scope wall). `mem::uninitialized`/`Error::description` stay unproven honestly (fn-page subjects have
+no dotted item anchor; `description` is never demonstrated in examples). The whole-domain MDN root crawl is
 deferred on budget; coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the
 falsification ledger for the measured dead-ends.
 
@@ -679,6 +708,77 @@ is a CORPUS-ACQUISITION + discovery-variant + grammar-dylib + module-floor task 
 graduation floor on the miner fallback; flipping needs ≥3 fired deprecated constructs), not a wiring task —
 the faculty ABSTAINS honestly on the cached reference corpora (no metadata → no false attestation, verified).
 Deferred to a corpus pass, per the rung discipline's honest stop.
+
+### Item — COMPLETION PASS 14: LANGUAGE EXPANSION — rendered markers, the ITEM unit, python+rust graduate (`TRAIN_VERSION` docs-v89, 2026-07-13)
+
+> Owner directive (COMPLETION PASS 14): acquire the Python/Rust API-doc corpora (the marker carriers PASS 13
+> measured missing), extend the metadata-attestation faculty to rendered-HTML markers, graduate both modules.
+> Rung discipline, comparative bars, honest stop.
+
+**Rung 1 — corpus acquisition (`examples/apidocs_crawl`, untracked).** Bounded breadth-first crawls, RAW
+HTML preserved: `python-library` (docs.python.org/3/library) **328 pages / 27.0 MiB / 5.1s / 47
+marker-bearing**; `rust-std` (doc.rust-lang.org/std) **1400 pages / 113.6 MiB / 10.4s / 140
+marker-bearing**. The prior python-library cache was prose-only JSON (class markers lost) — replaced by the
+HLM1 raw cache; `rust-std` registered in `sources.json` (DATA). NOTE: the old crawl JSON stored `prose`
+not `body`, which is WHY pass 13's measurement saw 0 markers on 328 crawled pages — the markers were
+stripped at store time, not absent from the site.
+
+**Rung 2 — rendered-marker discovery (`lint_attest`, MEASURED `examples/apidocs_attest`).** `Attestation`
+gains `class_markers`: class-attribute TOKENS equal to a `deprecation-status.json` prohibition value,
+recurring across ≥ `CLASS_MARKER_SUPPORT_FLOOR` (8) distinct page subjects. Discovered `["deprecated"]` on
+both sites; python 47 attested / rust 140 attested; ~10-page hand sample verified live (functions.html 3
+deprecated-class hits vs constants.html 0; struct.Vec.html 2 vs enum.Option.html 0). **MDN regression gate:
+the discovered class token adds ZERO pages — attested set = exactly the frontmatter-117, byte-identical.**
+
+**Rung 3 — the ITEM unit + graduation (the pass's real work; four MEASURED unsound shapes fixed).**
+API pages mark MANY items in place (ssl.html marks 20), so the page-subject machinery mis-read them four
+distinct ways, each caught by audit against the pages' own markup:
+1. *Nearest-by-distance anchor attribution* keyed python's trailing `<div class="deprecated">` (end of the
+   item's `<dd>`) to the NEXT item — `utcnow`'s deprecation landed on `fromtimestamp`, the replacement.
+   → container-vs-trailing typography: self-anchored / container-forward (no prose between) / trailing-back.
+2. *Slide-past on invalid ids*: rustdoc's `-1` trait-impl duplicates (`method.is_ascii-1`) are not valid
+   dotted items, and backward scan slid past them to an unrelated anchor (`is_ascii_control` junk). → EVERY
+   id delimits a region; an invalid region id attests NOTHING.
+3. *Bare shapes over-fire*: Sphinx writes LOCAL refs unqualified, so `re.split`'s only firing shape was bare
+   `split` — a rule that would flag every `s.split()`. → dotted suffixes + receiver-generic member only,
+   never bare.
+4. *The replacement demos the member*: `typing.Sequence` is deprecated but typing.html demonstrates
+   `collections.abc.Sequence` — the receiver-generic `.Sequence` fired ON THE FIX. → `member_demo_ok`:
+   the demonstrated receiver must be the id's parent (classmethod style), a block-local instance (rustdoc
+   `let s = …; s.trim_left()`), or a literal/expression value; foreign-namespace receivers reject. Plus the
+   corpus-ambiguity gate `member_receivers` ≤ 2 (`.split` rides many receivers → abstains).
+One candidate per marked ITEM (not per page) — ssl.html contributes its whole marked family. FUNNELS:
+python 328 pages → 47 attested → 10 partition-passing → **25 candidates → 25 PROVEN** (~19 exact-scope:
+`codecs.open`, `typing.Dict/List/Set/Type/Text/AnyStr/Callable/…` (13 alias family),
+`ssl.SSLSocket`/`SSLSocket.selected_npn_protocol`/`SSLContext.set_npn_protocols`,
+`importlib.abc.Loader.load_module`, `fileinput.hook_encoded`; ~6 scope-over-approximations of faithful
+author notes — see frontier). rust 1400 → 140 attested → 14 partition-passing → **8 candidates → 8 PROVEN**
+(`.connect`, `.slice_unchecked`, `.trim_left`, `.trim_right`, `.trim_left_matches`, `.trim_right_matches`,
+`.abs_sub`, `.wait_timeout_ms` — all verified genuinely `#[deprecated]`). ACCEPTANCE: kitchen-sink py flags
+lines [3,4,5] (`codecs.open`, `typing.Dict`, `typing.List`), rs flags [3,4,5,7] (`.trim_left`,
+`.trim_right`, `.abs_sub`, `.connect`); clean files using the REPLACEMENTS + junk-colliding idioms
+(`s.split(',')`, `p.name`, `collections.abc.Sequence`, `v.join`, `s.trim_start`) flag ZERO. UNION-corpus
+graduation: py∩rust = ∅ (0 cross-language rule sources).
+
+**Rung 4 — coverage map + regression.** `lang_coverage` gains the `attested` column (the learned faculty):
+javascript 40 / css 31 / svg 15 / rust 140 / python 48 / **elixir 19** (hexdocs renders deprecation badges —
+a future corpus, noted not forced). Web stack BYTE-IDENTICAL: base graduation js 54 / css 22 / html 8, good
+fixtures clean, junk floor zero; metajoin P = R = 1.000 (117/117); `cargo test --lib` **235** green (adds
+`attested_item_shapes` typography test, `member_demo_ok`, `member_receivers`); gauntlets 21 / 3 green.
+`TRAIN_VERSION` docs-v88 → **docs-v89-rendered-markers**.
+
+**Honest remainder.** (a) ~6 of python's 25 rules are scope-over-approximations of faithful author notes
+(arg-form: `urllib.parse.urlencode`, `asyncio.Future/Task`; group notes whose prose names siblings/
+exceptions: `TLSVersion.TLSv1_3`, `.end_col_offset`, `SSLContext.options`) — the note's SCOPE lives in its
+English ("except…", "if loop is not specified"), the same prose-scope wall as passes 11/12; narrowing
+re-lands only with a note-scope reader. (b) `mem::uninitialized` (fn-page: the item IS the page, no dotted
+anchor; URL-subject route doesn't spell `mem::uninitialized` either) and `Error::description` (marked, but
+never demonstrated in examples) stay unproven honestly. (c) The python partition passes only 10 of 47
+attested pages — the other 37 mark items whose usage the page never demonstrates in parseable inline code
+(doctest `<pre>`s carry no `<code>`, and `>>>` sessions don't parse) — a demonstration-scarcity limit, not
+a marker one. (d) Live-path caveat: the shipped `site_corpus` unions per-language sources; the harness
+measured per-corpus (union run confirmed ∅ cross-language, rust 7 vs 8 under union memory — ambiguity
+counts shift with the corpus, an honest sensitivity to note).
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
