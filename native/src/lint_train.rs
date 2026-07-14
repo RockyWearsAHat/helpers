@@ -57,7 +57,16 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v75-propose-verify-learn-language-path";
+pub(crate) const TRAIN_VERSION: &str = "docs-v92-graded-tier";
+
+/// The minimum number of PROVEN construct rules the construct-module workflow
+/// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
+/// from the legacy token-miner to the proven set (THE FLIP, LINTER.md). A language the workflow OWNS —
+/// one whose docs are per-construct rule pages / deprecation-notecard reference pages (the web stack) —
+/// proves a module's worth of rules (MEASURED: javascript 5, css 31, html 8); an incidental cross-reader
+/// (typescript 1) or a language with no such pages (rust 0) falls below the floor and STAYS on the miner,
+/// so the flip is scoped BEHAVIORALLY to what the new workflow actually proves — no language named in code.
+pub(crate) const GRADUATED_MODULE_FLOOR: usize = 3;
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
@@ -109,6 +118,11 @@ pub(crate) struct DocRule {
     good: String,
     #[serde(default)]
     source: String,
+    /// The construct a graduated construct-module rule forbids ([`crate::linter::LearnedRule::construct`]):
+    /// `Some(c)` compiles the rule to its proven `uses_construct(c)` plan directly; `None` is a legacy
+    /// example/token rule. Optional and defaulted so pre-extracted committed catalogs are unaffected.
+    #[serde(default)]
+    construct: Option<String>,
 }
 
 /// A language's learned catalog, cached so the linter does not relearn every run. Keyed by the
@@ -159,10 +173,28 @@ impl LearnedCatalog {
 
     /// The catalog's rules and reference corpus: queried from the association memory when present
     /// (reading IS the knowledge), else the pre-extracted tuples an older module shipped.
-    fn doc_rules(&self, lang: &str) -> (Vec<DocRule>, Vec<String>) {
+    fn doc_rules(&self, lang: &str, data_root: &Path) -> (Vec<DocRule>, Vec<String>, Vec<Contradiction>) {
         match &self.memory {
             Some(memory) => {
-                let rules = crate::lint_docs::rules_from_memory(lang, memory)
+                // THE FLIP (2026-07-11, LINTER.md "The flip pass"): a language's MODULE rules are the
+                // PROVEN construct rules from the construct-module workflow ([`crate::lint_module`]) —
+                // each graduated through the frozen self-generated test loop (or the notecard path) over
+                // the docs' OWN prohibition/deprecation pages — for every language the new workflow OWNS.
+                // A language OWNS the workflow when its structural doc reading (rule pages / deprecation
+                // notecards) proves a MODULE's worth of construct rules ([`GRADUATED_MODULE_FLOOR`]); a
+                // language that only shares the meaning graph (an incidental cross-reader) or has no such
+                // pages graduates 0–1 and STAYS on the legacy token-miner ([`crate::lint_docs::rules_from_memory`]),
+                // so no other language's rules disappear. MEASURED 2026-07-11: javascript 5 / css 31 /
+                // html 8 flip to the proven set; typescript 1, rust 0 keep the miner. Behavioral scope,
+                // no language named. The workflow's per-language measurement is `examples/web_module_train.rs`.
+                let module = crate::lint_module::graduated_rules(lang, memory);
+                let flip = module.rules.len() >= GRADUATED_MODULE_FLOOR;
+                let source_rules = if flip {
+                    module.rules
+                } else {
+                    crate::lint_docs::rules_from_memory(lang, memory)
+                };
+                let mut rules: Vec<DocRule> = source_rules
                     .into_iter()
                     .map(|(r, url)| DocRule {
                         id: r.id,
@@ -172,11 +204,46 @@ impl LearnedCatalog {
                         bad: r.bad,
                         good: r.good,
                         source: url,
+                        construct: r.construct,
                     })
                     .collect();
-                (rules, memory.reference.clone())
+                // PROVEN-STATE PERSISTENCE + CONTRADICTION-DRIVEN RESHAPE (owner corrections 2026-07-12,
+                // points 4 and 3c). A flip language's module RETAINS every construct rule proven in a past
+                // retrain whose source page LEFT this crawl's corpus (retain-and-grow); a rule whose page is
+                // STILL in the corpus but did not re-prove this crawl is a CONTRADICTION and is DROPPED, never
+                // silently kept ([`merge_graduated`] — the fresh pass IS the re-check). SOURCE-SCOPED (owner
+                // directive 2026-07-12): a retained rule whose source is no longer a registered documentation
+                // source for this language is DROPPED first ([`registered_ledger`]) — an owner-removed source
+                // (a third-party linter catalog) cannot leak its proven rules back through the ledger.
+                // Structural (host match against the registry), no domain name in code. The write side
+                // ([`persist_graduated_ledger`]) runs after the module is built.
+                let mut contradictions = Vec::new();
+                if flip {
+                    let prior = registered_ledger(data_root, lang, load_graduated_ledger(lang));
+                    let (merged, dropped) = merge_graduated(rules, prior, &module.corpus_urls);
+                    rules = merged;
+                    contradictions = dropped;
+                    // PASS 27 — the GRADED (LOW-severity) tier: append the evidence-graded findings AFTER the
+                    // proven merge, so the proven set and its order are byte-identical and the contradiction
+                    // re-check (which is a PROVEN-rule mechanism) never touches them. Graded rules carry a
+                    // `graded-<construct>` id and an empty bad/good; the module compile fires them via the
+                    // same `uses_construct(fire)` plan at LOW severity ([`crate::lint_module::graded_forms`]).
+                    for (r, url) in module.graded {
+                        rules.push(DocRule {
+                            id: r.id,
+                            slice: r.severity.clone(),
+                            severity: r.severity,
+                            description: r.description,
+                            bad: r.bad,
+                            good: r.good,
+                            source: url,
+                            construct: r.construct,
+                        });
+                    }
+                }
+                (rules, memory.reference.clone(), contradictions)
             }
-            None => (self.rules.clone(), self.reference.clone()),
+            None => (self.rules.clone(), self.reference.clone(), Vec::new()),
         }
     }
 }
@@ -211,6 +278,18 @@ pub struct TrainReport {
     /// `HELPERS_LINT_OFFLINE` switch simulated it): whatever is `unlearned` stayed that way
     /// because the wire was down, so the report asks to reconnect instead of to rephrase.
     pub net_down: bool,
+    /// Ledger rules DROPPED this run because their source page was re-read and the rule failed to
+    /// re-prove (Item 3c — contradiction-driven reshape). Recorded as `(language, "construct @ source")`
+    /// so a contradiction is surfaced, never a silent drop.
+    pub contradicted: Vec<(String, String)>,
+}
+
+/// Record every contradiction a language's [`LearnedCatalog::doc_rules`] re-check dropped, so the run
+/// report can surface it (Item 3c — never a silent drop). No-op when the re-check found none.
+fn record_contradictions(report: &mut TrainReport, lang: &str, contradictions: Vec<Contradiction>) {
+    for (id, source) in contradictions {
+        report.contradicted.push((lang.to_string(), format!("{id} @ {source}")));
+    }
 }
 
 /// Ensure a fresh, cached compiled [`RuleSet`] exists for each requested language, learning from the
@@ -480,6 +559,7 @@ fn rules_in_documents(docs: &[(PathBuf, String)], lang: &str, slice: &str, canon
             bad: r.bad.clone(),
             good: r.good.clone(),
             source: source.clone(),
+            construct: r.construct.clone(),
         });
     }
     out
@@ -688,8 +768,17 @@ fn train_language(
 
     // ── 1) The AI MODULE: fresh on disk → registry → read the docs → none (law-only). ──
     let on_disk = load_module(lang);
+    // Item 3d — COMPLETE against a knowledge snapshot: a module is current only under the SAME
+    // (toolchain ⊕ train logic ⊕ sources ⊕ BRAIN) it was proven on. The brain axis reopens refinement
+    // when this machine's understanding changes (a rebuilt brain → the module re-proves through the 3c
+    // re-check). Skipped when this machine has NO brain (a pull-only machine — `brain_fingerprint` is
+    // `None`): a foreign module's brain stamp must not force a local retrain the machine cannot do.
+    let local_brain = crate::lint_char::brain_fingerprint();
     let is_current = |m: &Module| {
-        m.version == version && m.train_version == TRAIN_VERSION && m.sources_fp == sources_fp
+        m.version == version
+            && m.train_version == TRAIN_VERSION
+            && m.sources_fp == sources_fp
+            && local_brain.map_or(true, |fp| m.brain_fp == fp)
     };
     let stale = on_disk.as_ref().is_some_and(|m| !is_current(m));
     let mut module = on_disk.filter(is_current);
@@ -731,9 +820,9 @@ fn train_language(
         if learned_from == "nothing" {
             report.unlearned.push(lang.clone());
         } else {
-            let tuples: Vec<(String, String, String, String, String, String)> = doc_rules
+            let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = doc_rules
                 .iter()
-                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
+                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone(), r.construct.clone()))
                 .collect();
             let ground = crate::lint_match::Grounding {
                 reference,
@@ -761,10 +850,16 @@ fn train_language(
                 verified_at: unix_now(),
                 learned_from: learned_from.clone(),
                 extensions,
+                // COMPLETE against this machine's current understanding (Item 3d) — 0 when brain-less.
+                brain_fp: crate::lint_char::brain_fingerprint().unwrap_or(0),
                 concept: ConceptModel::compile(&concept_tuples, lang),
                 rules,
             };
             save_module(lang, &m);
+            // Persist the graduated construct rules this module was built from, so the next retrain
+            // retains them (owner point 4). `doc_rules` already merged in any prior ledger, so this
+            // grows the ledger monotonically; a non-flip language (no construct rules) leaves it untouched.
+            persist_graduated_ledger(lang, &doc_rules);
             report.trained.push(format!("{lang} ({} rules, from {learned_from})", m.rules.rule_count()));
             freshly_trained = true;
             module = Some(m);
@@ -797,7 +892,7 @@ fn train_language(
             // whatever reading memory THIS machine has — a machine that only pulled the
             // module compiles law without a docs corpus, by design: documentation is never
             // shipped, and the evidence hierarchy leads with project grounding anyway.
-            let reference = load_cache(lang).map(|c| c.doc_rules(lang).1).unwrap_or_default();
+            let reference = load_cache(lang).map(|c| c.doc_rules(lang, data_root).1).unwrap_or_default();
             let ground = crate::lint_match::Grounding {
                 reference,
                 project: project_code.sources(lang).into_iter().map(|(_, src)| src).collect(),
@@ -805,9 +900,9 @@ fn train_language(
                 trusted: trusted.clone(),
                 flagged: Default::default(),
             };
-            let tuples: Vec<(String, String, String, String, String, String)> = local_rules
+            let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = local_rules
                 .iter()
-                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone()))
+                .map(|r| (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone(), r.construct.clone()))
                 .collect();
             let rules = RuleSet::build(lang, &tuples, &ground);
             let compiled: std::collections::HashSet<String> =
@@ -892,6 +987,12 @@ struct Module {
     /// reading") — folded into the machine-global extension map at save.
     #[serde(default)]
     extensions: std::collections::BTreeMap<String, u32>,
+    /// The knowledge-snapshot fingerprint this module was COMPLETED against (LINTER.md → Item 3d):
+    /// the brain's [`crate::lint_char::brain_fingerprint`] at train time (0 when no brain existed).
+    /// Together with `train_version` + `sources_fp` it is the completion stamp — a changed brain
+    /// reopens refinement (the module goes stale and its rules re-prove through the 3c re-check).
+    #[serde(default)]
+    brain_fp: u64,
     rules: RuleSet,
     concept: ConceptModel,
 }
@@ -915,6 +1016,8 @@ impl Bin for Module {
         e.u(self.verified_at);
         e.str(&self.learned_from);
         self.extensions.enc(e);
+        // The completion snapshot rides the wire; a `TRAIN_VERSION` bump relearns any older blob.
+        e.u(self.brain_fp);
         self.rules.enc(e);
         self.concept.enc(e);
     }
@@ -927,6 +1030,7 @@ impl Bin for Module {
             verified_at: d.u()?,
             learned_from: d.str()?,
             extensions: Bin::dec(d)?,
+            brain_fp: d.u()?,
             rules: Bin::dec(d)?,
             concept: Bin::dec(d)?,
         })
@@ -988,6 +1092,55 @@ pub fn cached_ruleset(lang: &str) -> Option<crate::lint_match::RuleSet> {
     load_module(lang).map(|m| m.rules)
 }
 
+/// A trained module's COMPLETION state (LINTER.md → Item 3d): the knowledge snapshot it was proven
+/// against and whether that snapshot is STILL current on this machine. `complete == true` means the
+/// module was written under today's train logic, the current registered sources, and (when a brain
+/// exists) this machine's current understanding — its proven set is at fixpoint and needs no refinement.
+/// `complete == false` means a changed corpus or brain has REOPENED it: the next `train` re-proves its
+/// rules through the 3c re-check.
+pub struct ModuleCompletion {
+    /// The train-logic version the module was written under.
+    pub train_version: String,
+    /// The source-set fingerprint (the corpus stamp) at train time.
+    pub sources_fp: String,
+    /// The brain knowledge-snapshot fingerprint at train time (0 when built brain-less).
+    pub brain_fp: u64,
+    /// Unix seconds the module was trained.
+    pub trained_at: u64,
+    /// Whether the snapshot is still current on this machine (no reopening pending).
+    pub complete: bool,
+}
+
+/// The COMPLETION state of `lang`'s trained module, or `None` when no module is on disk. Recomputes the
+/// live corpus stamp and reads the live brain fingerprint to decide `complete`, so the answer reflects
+/// TODAY's knowledge, not just what was stamped. A pure read; never trains, never touches the network.
+pub fn module_completion(lang: &str) -> Option<ModuleCompletion> {
+    let m = load_module(lang)?;
+    let data_root = crate::tools::lint::data_root_pub();
+    let version = crate::lint_checkers::detect_version(lang).unwrap_or_default();
+    let live_sources_fp = sources_fingerprint(&data_root, lang);
+    let live_brain = crate::lint_char::brain_fingerprint();
+    let complete = m.train_version == TRAIN_VERSION
+        && m.version == version
+        && m.sources_fp == live_sources_fp
+        && live_brain.map_or(true, |fp| m.brain_fp == fp);
+    Some(ModuleCompletion {
+        train_version: m.train_version,
+        sources_fp: m.sources_fp,
+        brain_fp: m.brain_fp,
+        trained_at: m.trained_at,
+        complete,
+    })
+}
+
+/// The association [`crate::lint_read::Memory`] a language's docs were read into — the source the
+/// construct-module training workflow ([`crate::lint_module`]) derives its loop inputs from, and what
+/// `examples/js_module_train.rs` measures against the real crawls. Loads the cached learned catalog;
+/// `None` when the language has not been read yet. Never trains, never touches the network.
+pub fn cached_memory(lang: &str) -> Option<crate::lint_read::Memory> {
+    load_cache(lang).and_then(|c| c.memory)
+}
+
 /// The machine-global CORPUS rules compiled for `lang` — the understanding→trace (and probe
 /// fallback) rules the live overlay derives from `<data_root>/corpus/*.md`, read FRESH (LINTER.md,
 /// "the corpus is read fresh each run"). The `lint_query rules` interrogation enumerates these
@@ -1000,10 +1153,10 @@ pub fn corpus_ruleset(lang: &str) -> crate::lint_match::RuleSet {
     let rules = corpus_rules(&data_root, lang);
     let trusted: std::collections::HashSet<String> = rules.iter().map(|r| r.id.clone()).collect();
     let ground = crate::lint_match::Grounding { trusted, ..Default::default() };
-    let tuples: Vec<(String, String, String, String, String, String)> = rules
+    let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = rules
         .iter()
         .map(|r| {
-            (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone())
+            (r.id.clone(), r.severity.clone(), r.bad.clone(), r.good.clone(), r.description.clone(), r.source.clone(), r.construct.clone())
         })
         .collect();
     crate::lint_match::RuleSet::build(lang, &tuples, &ground)
@@ -1023,6 +1176,94 @@ fn load_module(lang: &str) -> Option<Module> {
 fn save_module(lang: &str, module: &Module) {
     save_bin(&module_path(lang), crate::lint_codec::kind::MODULE, &module.probe_stamp(), module);
     fold_extension_claims(lang, &module.extensions);
+}
+
+/// The per-language GRADUATED-rule ledger path (`<lang>.graduated.bin`, beside the module). A SEPARATE
+/// sidecar so it survives the module rebuild every retrain does — the store of PROVEN construct rules
+/// kept retain-and-grow (owner correction 2026-07-12, point 4).
+fn graduated_ledger_path(lang: &str) -> PathBuf {
+    model_dir().join(format!("{lang}.graduated.bin"))
+}
+
+/// The construct rules PROVEN in past retrains for `lang`, or empty when none is persisted. The ledger
+/// is stamped with the [`TRAIN_VERSION`] it was written under and DISCARDED on a mismatch: a ledger from
+/// a different version may carry rule ids/semantics this version changed (e.g. the pre-2026-07-12 slugged
+/// `uses--` collision), so persistence is retain-and-grow WITHIN a `TRAIN_VERSION`, reset on a semantic
+/// bump. Never trains; a pure read.
+fn load_graduated_ledger(lang: &str) -> Vec<DocRule> {
+    let Ok(bytes) = std::fs::read(graduated_ledger_path(lang)) else {
+        return Vec::new();
+    };
+    let Some((stamp, mut d)) = crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::GRADUATED) else {
+        return Vec::new();
+    };
+    if stamp != TRAIN_VERSION {
+        return Vec::new();
+    }
+    Vec::<DocRule>::dec(&mut d).unwrap_or_default()
+}
+
+/// One dropped ledger rule: its byte-preserved construct id and the source page whose re-check
+/// contradicted it — recorded so a contradiction is NEVER a silent drop (LINTER.md → Item 3c).
+type Contradiction = (String, String);
+
+/// CONTRADICTION-DRIVEN RESHAPE merge of freshly-graduated construct rules with the persisted ledger
+/// (owner correction 2026-07-12, Item 3c — judgment LEARNS, the missing half of point 4). The fresh
+/// graduation pass IS the re-check: it re-ran the blind self-generated loop over the CURRENT (grown)
+/// brain + corpus. So for each PRIOR ledger rule, keyed by its byte-preserved construct id (point 1):
+/// - **Re-proven** — its construct is in `fresh`: fresh WINS (a reshaped understanding from the grown
+///   brain replaces the old one; the stamp refreshes on the next persist). Agreement, retained.
+/// - **Contradiction** — its construct is ABSENT from `fresh` but its `source` page is STILL in
+///   `corpus_urls`: the page was re-read and re-tested this crawl and the rule FAILED to re-prove. Never
+///   a silent keep — the rule is DROPPED and the contradiction is recorded for the caller to surface.
+/// - **Unrefreshed retain** — its construct is absent from `fresh` AND its `source` page has LEFT the
+///   corpus (a subset crawl that did not fetch it): the last proof is RETAINED (retain-and-grow), never
+///   re-litigated against a corpus that never saw it (the MEASURED eqeqeq subset-variance case).
+///
+/// Returns the merged rule set and every contradiction dropped, so nothing vanishes silently.
+fn merge_graduated(
+    mut fresh: Vec<DocRule>,
+    prior: Vec<DocRule>,
+    corpus_urls: &std::collections::HashSet<String>,
+) -> (Vec<DocRule>, Vec<Contradiction>) {
+    let have: std::collections::HashSet<String> = fresh.iter().map(|r| r.id.clone()).collect();
+    let mut dropped = Vec::new();
+    for p in prior {
+        if have.contains(&p.id) {
+            continue; // re-proven this crawl — fresh (possibly reshaped) already carries it
+        }
+        if corpus_urls.contains(&p.source) {
+            dropped.push((p.id, p.source)); // page re-read, rule did not re-prove — contradiction
+        } else {
+            fresh.push(p); // page left the corpus — retain the last proof, unrefreshed
+        }
+    }
+    (fresh, dropped)
+}
+
+/// Drop ledger rules whose SOURCE is no longer a registered documentation source for `lang` (owner
+/// directive 2026-07-12: a language's module learns ONLY from its own registered documentation; a
+/// source the owner removes from the registry — a third-party linter's rule catalog, say — must not
+/// leak its proven rules back through the retain-and-grow ledger). STRUCTURAL: a rule is retained only
+/// when its source URL's host ([`crate::lint_docs::url_host`]) matches a currently-registered source's
+/// host ([`resolved_sources`]). Names no domain — the registry (`sources.json`/manifest) is the DATA
+/// that decides.
+fn registered_ledger(data_root: &Path, lang: &str, prior: Vec<DocRule>) -> Vec<DocRule> {
+    let host = crate::lint_docs::url_host;
+    let allowed: std::collections::HashSet<String> =
+        resolved_sources(data_root, lang).iter().filter_map(|s| host(&s.url)).collect();
+    prior.into_iter().filter(|r| host(&r.source).is_some_and(|h| allowed.contains(&h))).collect()
+}
+
+/// Persist the graduated construct rules a fresh module was built from, so the next retrain retains them
+/// (owner point 4). Only the construct-carrying (graduated) rules are stored, and ONLY when there are any:
+/// a language whose module did NOT engage the flip (legacy miner rules, `construct == None`) must never
+/// overwrite an existing ledger with emptiness. Stamped with the current [`TRAIN_VERSION`].
+fn persist_graduated_ledger(lang: &str, rules: &[DocRule]) {
+    let graduated: Vec<DocRule> = rules.iter().filter(|r| r.construct.is_some()).cloned().collect();
+    if !graduated.is_empty() {
+        save_bin(&graduated_ledger_path(lang), crate::lint_codec::kind::GRADUATED, TRAIN_VERSION, &graduated);
+    }
 }
 
 // ── File types are learned by reading (LINTER.md) ─────────────────────────────────────────
@@ -1349,8 +1590,9 @@ fn resolve_rules(
     if !refresh {
         if let Some(cat) = load_cache(lang) {
             if cat.current(version, &sources_fp) {
-                let (rules, reference) = cat.doc_rules(lang);
+                let (rules, reference, contradictions) = cat.doc_rules(lang, data_root);
                 if !rules.is_empty() {
+                    record_contradictions(report, lang, contradictions);
                     let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
                     let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
                     return (rules, reference, exts, format!("cache:{}", cat.learned_from), flagged);
@@ -1388,7 +1630,8 @@ fn resolve_rules(
             reference: Vec::new(),
             memory: Some(memory),
         };
-        let (rules, reference) = cat.doc_rules(lang);
+        let (rules, reference, contradictions) = cat.doc_rules(lang, data_root);
+        record_contradictions(report, lang, contradictions);
         // Reading IS the module (LINTER.md): a descriptive spec that yields ZERO prohibition
         // rules still delivers the reference corpus and comprehension — the language is set
         // up, not "unlearned". Only a source that could not be READ falls through.
@@ -1754,6 +1997,7 @@ fn seed_with_version(data_root: &Path, lang: &str) -> (Vec<DocRule>, String) {
                 bad: bad.to_string(),
                 good: r["exampleGood"].as_str().unwrap_or("").to_string(),
                 source: r["source"].as_str().unwrap_or("").to_string(),
+                construct: None,
             });
         }
     }
@@ -1861,6 +2105,10 @@ impl Bin for DocRule {
         e.str(&self.bad);
         e.str(&self.good);
         e.str(&self.source);
+        // Empty string encodes `None` — a legacy example/token rule (the common case). Appended
+        // last so the wire form stays additive; older blobs predate `TRAIN_VERSION`, so they are
+        // relearned rather than decoded.
+        e.str(self.construct.as_deref().unwrap_or(""));
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<DocRule> {
         Some(DocRule {
@@ -1871,6 +2119,10 @@ impl Bin for DocRule {
             bad: d.str()?,
             good: d.str()?,
             source: d.str()?,
+            construct: {
+                let c = d.str()?;
+                (!c.is_empty()).then_some(c)
+            },
         })
     }
 }
@@ -2396,6 +2648,86 @@ fn file_state(p: &Path) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    use super::{merge_graduated, DocRule};
+
+    /// A minimal ledger-shaped [`DocRule`] keyed by construct `id` and its `source` page.
+    fn ledger_rule(id: &str, source: &str) -> DocRule {
+        DocRule {
+            id: id.to_string(),
+            slice: "medium".into(),
+            severity: "medium".into(),
+            description: format!("Never use `{id}`."),
+            bad: format!("{id} x;"),
+            good: "y;".into(),
+            source: source.into(),
+            construct: Some(id.to_string()),
+        }
+    }
+
+    /// Item 3c — the re-check's three outcomes, driven by a PERTURBED corpus. The fresh pass carries
+    /// only `A` (re-proven). Two prior ledger rules — `B` whose page is still in the corpus (a
+    /// contradiction: re-read, did not re-prove) and `C` whose page has LEFT the corpus (a subset
+    /// crawl) — must resolve as DROP and RETAIN respectively, and never the reverse.
+    #[test]
+    fn merge_drops_a_contradicted_rule_and_retains_one_whose_page_left_the_corpus() {
+        let fresh = vec![ledger_rule("A", "https://docs.test/a")];
+        let prior = vec![
+            ledger_rule("B", "https://docs.test/b"),
+            ledger_rule("C", "https://docs.test/c"),
+        ];
+        // The PERTURBATION: B's page is still read this crawl (so its absence from `fresh` is a genuine
+        // failure to re-prove); C's page was NOT fetched this crawl.
+        let corpus: std::collections::HashSet<String> =
+            ["https://docs.test/a", "https://docs.test/b"].iter().map(|s| s.to_string()).collect();
+
+        let (merged, dropped) = merge_graduated(fresh, prior, &corpus);
+        let kept: std::collections::HashSet<&str> = merged.iter().map(|r| r.id.as_str()).collect();
+
+        assert!(kept.contains("A"), "re-proven rule retained (fresh wins)");
+        assert!(!kept.contains("B"), "contradicted rule (page re-read, no re-prove) DROPPED");
+        assert!(kept.contains("C"), "rule whose page left the corpus RETAINED (retain-and-grow)");
+        assert_eq!(
+            dropped,
+            vec![("B".to_string(), "https://docs.test/b".to_string())],
+            "the contradiction is recorded, never a silent drop"
+        );
+    }
+
+    /// The reshape half: when the fresh pass RE-PROVES a construct with a changed understanding, the
+    /// fresh (reshaped) rule WINS over the stale ledger copy — never the old text kept, never a duplicate.
+    #[test]
+    fn merge_lets_a_reshaped_fresh_rule_win_over_the_stale_ledger_copy() {
+        let mut reshaped = ledger_rule("A", "https://docs.test/a");
+        reshaped.description = "A reshaped understanding of `A`.".into();
+        let prior = vec![ledger_rule("A", "https://docs.test/a")]; // stale text, same construct id
+        let corpus: std::collections::HashSet<String> =
+            ["https://docs.test/a"].iter().map(|s| s.to_string()).collect();
+
+        let (merged, dropped) = merge_graduated(vec![reshaped], prior, &corpus);
+        assert_eq!(merged.len(), 1, "no duplicate — one construct, one rule");
+        assert_eq!(merged[0].description, "A reshaped understanding of `A`.", "fresh reshape wins");
+        assert!(dropped.is_empty(), "a re-proven reshape is agreement, not a contradiction");
+    }
+
+    /// Item 3d — the TRAINING loop is at fixpoint. Re-running training over an unchanged corpus re-proves
+    /// the same set: merging a fresh pass with a prior ledger EQUAL to it (every construct re-proven, every
+    /// source page still in the corpus) returns that set unchanged with ZERO contradictions. The proven set
+    /// does not oscillate — a second retrain against the same knowledge is a no-op.
+    #[test]
+    fn re_training_over_an_unchanged_corpus_is_a_fixpoint() {
+        let fresh = vec![ledger_rule("A", "https://docs.test/a"), ledger_rule("B", "https://docs.test/b")];
+        let prior = fresh.clone(); // last retrain's ledger, identical because the corpus did not change
+        let corpus: std::collections::HashSet<String> =
+            ["https://docs.test/a", "https://docs.test/b"].iter().map(|s| s.to_string()).collect();
+
+        let (merged, dropped) = merge_graduated(fresh.clone(), prior, &corpus);
+        let mut merged_ids: Vec<&str> = merged.iter().map(|r| r.id.as_str()).collect();
+        merged_ids.sort();
+        assert_eq!(merged_ids, vec!["A", "B"], "the proven set is stable across an unchanged retrain");
+        assert_eq!(merged.len(), fresh.len(), "no growth, no duplication — a fixpoint");
+        assert!(dropped.is_empty(), "nothing contradicts itself over the same corpus");
+    }
+
     /// Law is found from a SUBDIRECTORY: a project's `.helpers/lint-rules` and root `lintPref`
     /// govern a lint run rooted deep inside the project, and the walk stops at the repo root.
     #[test]
@@ -2557,6 +2889,7 @@ mod tests {
                 "loop { step() }".to_string(),
                 "Never use the zorkle statement anywhere; it is deprecated.".to_string(),
                 "https://registry.example/zetalang".to_string(),
+                None,
             )],
             &crate::lint_match::Grounding {
                 reference: vec!["loop { step() }".to_string(), "emit(\"done\")".to_string()],
@@ -2580,6 +2913,7 @@ mod tests {
             verified_at: 9,
             learned_from: "docs".to_string(),
             extensions: [("zl".to_string(), 3u32)].into_iter().collect(),
+            brain_fp: 0,
             rules,
             concept,
         };
@@ -2606,6 +2940,7 @@ mod tests {
                 bad: "zorkle".to_string(),
                 good: "emit()".to_string(),
                 source: "https://registry.example".to_string(),
+                construct: None,
             }],
             reference: vec!["emit(\"done\")".to_string()],
             memory: Some(crate::lint_read::Memory {
@@ -2828,6 +3163,7 @@ mod tests {
                 "zip left".into(),
                 "Never use the zap statement anywhere; it is deprecated and will be removed.".into(),
                 "https://d/zap".into(),
+                None,
             )],
             &ground,
         );
@@ -2840,6 +3176,7 @@ mod tests {
             verified_at: 1,
             learned_from: "docs".into(),
             extensions: Default::default(),
+            brain_fp: 0,
             concept: ConceptModel { rules: Vec::new() },
             rules,
         };

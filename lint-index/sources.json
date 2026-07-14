@@ -316,6 +316,12 @@
    "seed": "https://docs.python.org/3/library/"
   },
   {
+   "tool": "rust-std",
+   "language": "rust",
+   "kind": "crawl",
+   "seed": "https://doc.rust-lang.org/std/"
+  },
+  {
    "tool": "docker-best-practices",
    "language": "dockerfile",
    "kind": "crawl",

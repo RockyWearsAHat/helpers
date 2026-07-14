@@ -208,7 +208,17 @@ impl RuleSet {
     /// over-fire (must not flag any `good` in the corpus). Only rules that pass both survive.
     /// `ground` is the learned evidence prose-only rules are read through ([`Grounding`]);
     /// pass `Grounding::default()` when no docs have been read for the language yet.
-    pub fn build(lang: &str, rules: &[(String, String, String, String, String, String)], ground: &Grounding) -> RuleSet {
+    /// Each rule is `(id, severity, bad, good, description, source, construct)`. The final
+    /// `construct` is `Some(c)` only for a GRADUATED construct-module rule that carries its own
+    /// proven plan (`LINTER.md`, "The modular rebuild"): it compiles DIRECTLY to
+    /// `uses_construct(c)` and fires that plan in the one walk, never re-derived from the example
+    /// diff. `None` keeps the legacy example/token detector path — behavioral scope, no language
+    /// named (a rule that HAS a plan fires its plan; one that has only bad/good keeps the old path).
+    pub fn build(
+        lang: &str,
+        rules: &[(String, String, String, String, String, String, Option<String>)],
+        ground: &Grounding,
+    ) -> RuleSet {
         let trusted = &ground.trusted;
         let reference_corpus = &ground.reference;
         let reality_flagged = ground.flagged.clone();
@@ -291,7 +301,14 @@ impl RuleSet {
                 eprintln!("[lint-build {lang}] {id} dropped: {gate}");
             }
         };
-        for (id, severity, bad, good, desc, source) in rules {
+        // Ids of graduated rules that compiled their own PROVEN plan — exempt from the statistical
+        // reference-fire gate below. That gate is a heuristic for UNproven example-diff detectors
+        // (a semantic rule that tree-diffs to a ubiquitous construct); a graduated `uses_construct`
+        // rule was already proven through the frozen self-generated loop over the docs' OWN corpus,
+        // and its target is legacy-ubiquitous BY DESIGN (`var` is taught using `var`), so the corpus
+        // fire-rate must not veto it (`LINTER.md`, "The modular rebuild").
+        let mut plan_rule_ids: HashSet<String> = HashSet::new();
+        for (id, severity, bad, good, desc, source, construct) in rules {
             if id.is_empty() || !seen.insert(id.clone()) {
                 continue;
             }
@@ -370,7 +387,22 @@ impl RuleSet {
             // `uses_construct` ("avoid the `with` statement" → uses_construct(with)) — understood from
             // the PROSE, no bad/good example snippet required. Understanding-first means a real rule
             // comes from what the docs MEAN, not from a token diff scraped off an illustration.
-            let bound_trace = if is_corpus_principle {
+            // GRADUATED MODULE RULE first (the rule IS its understood prohibition): a rule that
+            // carries a `construct` was proven through the frozen self-generated loop to be
+            // `uses_construct(construct)`, so it compiles to that plan DIRECTLY and fires the exact
+            // shape the loop proved — never a detector re-derived from the bad/good example diff
+            // (which the desc/AST path compiles more conservatively: `eval` became the non-firing
+            // `uses_construct(eval())`, `var`/`==` were dropped, `center`/`font`/`page-break-after`
+            // became AST patterns that miss real usages). The plan needs an AST to walk, so a
+            // grammarless language falls through (its `run_plan` would silently yield nothing).
+            let graduated_plan = construct
+                .as_deref()
+                .filter(|c| !c.is_empty() && has_grammar)
+                .map(|c| crate::lint_trace::Plan::UsesConstruct { construct: c.to_string() });
+            let bound_trace = if let Some(plan) = graduated_plan {
+                plan_rule_ids.insert(id.clone());
+                Some(plan)
+            } else if is_corpus_principle {
                 crate::lint_trace::understand_canon(desc)
             } else if !has_grammar {
                 // No bundled grammar ⇒ no AST to trace over. An understanding Plan (even
@@ -471,7 +503,7 @@ impl RuleSet {
         // first-wins for duplicate ids, matching which rule actually compiled).
         let mut bad_map: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         let mut good_map: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-        for (id, _, bad, good, _, _) in rules {
+        for (id, _, bad, good, _, _, _) in rules {
             bad_map.entry(id.as_str()).or_insert(bad.as_str());
             good_map.entry(id.as_str()).or_insert(good.trim());
         }
@@ -532,7 +564,10 @@ impl RuleSet {
                     _ => ref_lines / 1000,
                 };
                 let hits = fired.get(&r.id).copied().unwrap_or(0);
-                let keep = trusted.contains(&r.id) || hits <= bar;
+                // A graduated construct-module rule is exempt: it was proven over the docs' own
+                // corpus and deliberately bans a legacy-ubiquitous construct, so the corpus
+                // fire-rate is not evidence against it.
+                let keep = trusted.contains(&r.id) || plan_rule_ids.contains(&r.id) || hits <= bar;
                 if !keep {
                     dropped(&r.id, &format!("reference-fire ({hits} hits on {ref_lines} normal lines, bar {bar})"));
                 }

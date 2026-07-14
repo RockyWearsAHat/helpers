@@ -729,6 +729,80 @@ pub(crate) fn raw_pages(_data_root: &Path, _lang: &str) -> (Vec<(String, String)
     (Vec::new(), 0)
 }
 
+/// The host of a URL (`https://developer.mozilla.org/…` → `developer.mozilla.org`, `www.` trimmed), or
+/// `None` when it carries no scheme/host — the identity key for "is this page from a registered site".
+pub(crate) fn url_host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let host = rest.split('/').next()?.trim_start_matches("www.");
+    (!host.is_empty()).then(|| host.to_string())
+}
+
+/// The WHOLE-SITE documentation corpus this machine holds for `lang`'s OWN documentation sites, read
+/// with NO section filter (owner directive 2026-07-12: "pull ALL the information across the whole site,
+/// not some, not assigning to a language" — understanding then decides the language). The site host set
+/// is the host of every source `lang` is registered to learn from (MDN, W3Schools for the web stack), so
+/// every cached page of those sites — reference, API, tutorial, any section — folds into ONE unfiltered
+/// corpus, INCLUDING pages a narrow section seed never reached (a `/Web/API/` page beside the
+/// `/Web/JavaScript/` seed). This is the module PROPOSE input; the language partition is decided
+/// downstream by GRAMMAR VERIFICATION ([`crate::lint_module`]), never by which seed or section a page came
+/// from, so reading a CSS page here is harmless (it fires in no JS grammar). Deduped by URL, memoized per
+/// (host set, crawl-directory state) — the caches total hundreds of MB and every language asks once per
+/// setup batch. Never crawls — a pure read of what the cache holds.
+#[cfg(feature = "crawl")]
+pub(crate) fn site_corpus(data_root: &Path, lang: &str) -> Vec<(String, String)> {
+    let hosts: std::collections::HashSet<String> = crate::lint_train::registered_docs_sources(data_root, lang)
+        .iter()
+        .filter_map(|s| url_host(&s.url))
+        .collect();
+    if hosts.is_empty() {
+        return Vec::new();
+    }
+    let dir = crawl_cache_path("_").parent().map(std::path::Path::to_path_buf);
+    let Some(dir) = dir else { return Vec::new() };
+    type Memo = std::sync::Mutex<Option<(u128, Vec<String>, Vec<(String, String)>)>>;
+    static MEMO: Memo = std::sync::Mutex::new(None);
+    let dir_stat = std::fs::metadata(&dir)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut host_key: Vec<String> = hosts.iter().cloned().collect();
+    host_key.sort();
+    {
+        let guard = MEMO.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((stat, key, pages)) = guard.as_ref() {
+            if *stat == dir_stat && *key == host_key {
+                return pages.clone();
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for ent in rd.flatten() {
+            let p = ent.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("bin") {
+                continue;
+            }
+            let Some(src) = read_crawl_cache(&p) else { continue };
+            for pg in src.pages {
+                if url_host(&pg.url).is_some_and(|h| hosts.contains(&h)) && seen.insert(pg.url.clone()) {
+                    out.push((pg.url, pg.body));
+                }
+            }
+        }
+    }
+    let mut guard = MEMO.lock().unwrap_or_else(|e| e.into_inner());
+    *guard = Some((dir_stat, host_key, out.clone()));
+    out
+}
+
+#[cfg(not(feature = "crawl"))]
+pub(crate) fn site_corpus(_data_root: &Path, _lang: &str) -> Vec<(String, String)> {
+    Vec::new()
+}
+
 // ── Polarity transfer (grounded knowledge is shared across languages) ─────────
 
 /// Where the best grounded classifier lives for cross-language transfer
@@ -928,6 +1002,7 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
                 description: trim_prose(&b.prose),
                 bad: b.code.clone(),
                 good,
+                construct: None,
             },
             b.url.clone(),
         ));
