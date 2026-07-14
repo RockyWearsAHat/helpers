@@ -1242,10 +1242,16 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // those modules stay byte-identical. For python the consumer newly graduates the removal-only subjects.
     let constructions = crate::lint_construct::mine_and_prove(&pages);
     crate::lint_construct::persist(lang, &constructions);
-    let rules = graduate(lang, &pages, memory, br.meanings(), en, &constructions)
-        .into_iter()
-        .filter_map(|o| o.rule)
-        .collect();
+    // PASS 24 — THE LANGUAGE WEB. The graduation pass reads a construct⊗prose⊗meaning⊗source⊗attestation
+    // web; persist it as the language's subgraph and DERIVE the rules from it. Every candidate is a READ
+    // node (retained, queryable); every emitted rule is a PROVEN node carrying that exact rule as its
+    // compiled view. `derive_rules` projects the proven nodes in outcome order, so the live rule set is a
+    // VIEW over the web — byte-identical to the old `filter_map(|o| o.rule)` (the proven nodes carry those
+    // same `(rule, url)` pairs). Delete the web and re-read it: re-deriving reproduces the same rules.
+    let outcomes = graduate(lang, &pages, memory, br.meanings(), en, &constructions);
+    let web = crate::lint_web::build(br.meanings(), &outcomes);
+    crate::lint_web::persist(lang, &web);
+    let rules = crate::lint_web::derive_rules(lang, &web);
     GraduatedModule { rules, corpus_urls, constructions }
 }
 
@@ -1450,6 +1456,53 @@ mod tests {
         assert!(rule.bad.contains("var"), "bad is a harvested violating block: {}", rule.bad);
         assert!(!rule.bad.contains("var") || !rule.good.contains("var"), "good is a clean near-miss");
         assert_eq!(url, "https://docs/latest/rules/no-var", "the rule cites its source page");
+    }
+
+    /// PASS 24 — RULES ARE VIEWS. The rules the live path fires are DERIVED from the language web
+    /// ([`crate::lint_web::derive_rules`] over [`crate::lint_web::build`]), and that derivation is
+    /// BYTE-IDENTICAL to the old direct `graduate(...).filter_map(|o| o.rule)`: every proven outcome is a
+    /// proven web node carrying that exact `(rule, url)`, in the same order. This test proves the seam over
+    /// the real graduation fixture — the web is the source of truth, the rule list is its projection.
+    #[test]
+    fn rules_are_a_byte_identical_view_over_the_web() {
+        let Some((br, en)) = brains() else {
+            eprintln!("skip: no frozen brains on disk");
+            return;
+        };
+        let m = br.meanings();
+        let var_page = r#"<html><body><h1>no-var</h1>
+            <p>This rule is aimed at discouraging the use of <code>var</code> and encouraging the use of <code>const</code> or <code>let</code> instead.</p>
+            <p>The <code>var</code> keyword declares a variable whose scope leaks out of its enclosing block.</p>
+            <p>Examples of <strong>incorrect</strong> code for this rule:</p>
+            <div class="incorrect"><pre><code>var x = 1;</code></pre></div>
+            <p>Examples of <strong>correct</strong> code for this rule:</p>
+            <div class="correct"><pre><code>let x = 1;</code></pre></div></body></html>"#;
+        let eval_page = r#"<html><body><h1>no-eval</h1>
+            <p>This rule is aimed at disallowing the use of the <code>eval()</code> function.</p>
+            <p>The <code>eval()</code> function executes a string of code as a security risk.</p>
+            <p>Examples of <strong>incorrect</strong> code for this rule:</p>
+            <div class="incorrect"><pre><code>eval("x");</code></pre></div>
+            <p>Examples of <strong>correct</strong> code for this rule:</p>
+            <div class="correct"><pre><code>JSON.parse("{}");</code></pre></div></body></html>"#;
+        let pages = vec![
+            ("https://docs/latest/rules/no-var".to_string(), var_page.to_string()),
+            ("https://docs/latest/rules/no-eval".to_string(), eval_page.to_string()),
+        ];
+        let mut memory = Memory::default();
+        for i in 0..REQUIRED_REPS + 2 {
+            memory.reference.push(format!("var v{i} = {i};"));
+        }
+        memory.reference.push("let a = 1;".to_string());
+        memory.reference.push("const b = 2;".to_string());
+
+        let outcomes = graduate("javascript", &pages, &memory, m, en, &[]);
+        let direct: Vec<(LearnedRule, String)> = outcomes.iter().filter_map(|o| o.rule.clone()).collect();
+        let web = crate::lint_web::build(m, &outcomes);
+        let viewed = crate::lint_web::derive_rules("javascript", &web);
+        assert_eq!(direct, viewed, "the web-derived rules must equal the direct emitted rules byte-for-byte");
+        // Every read candidate is a node; only the proven ones are rules (everything-read is retained).
+        assert_eq!(web.len(), outcomes.len(), "every read candidate is a web node");
+        assert_eq!(web.iter().filter(|n| n.proven).count(), direct.len(), "proven nodes == rules");
     }
 
     /// Item 3d — FIXPOINT in ONE iteration. Graduation is a deterministic pure function of a FROZEN brain
