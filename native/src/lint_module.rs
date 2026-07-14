@@ -1114,6 +1114,10 @@ pub struct GraduatedModule {
     pub rules: Vec<(LearnedRule, String)>,
     /// The URLs of every page the pass read (raw pages ∪ whole-site corpus) — the re-check basis.
     pub corpus_urls: std::collections::HashSet<String>,
+    /// The PROVEN CONSTRUCTION states this pass mined + proved over the corpus (PASS 22): sentence-scale
+    /// invariant scaffolds proven under the frozen ISM law against the machine's own proven-deprecated
+    /// subject set ([`crate::lint_construct`]). Persisted retain-and-grow beside the graduated ledger.
+    pub constructions: Vec<crate::lint_construct::ConstructionState>,
 }
 
 /// The LIVE entry the module build calls (the covenant-clean successor to
@@ -1123,7 +1127,11 @@ pub struct GraduatedModule {
 /// an empty module when either is unavailable (the loop is defined only over the real bedrock — never
 /// fake a rule). Never trains, never touches the network.
 pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
-    let empty = || GraduatedModule { rules: Vec::new(), corpus_urls: std::collections::HashSet::new() };
+    let empty = || GraduatedModule {
+        rules: Vec::new(),
+        corpus_urls: std::collections::HashSet::new(),
+        constructions: Vec::new(),
+    };
     let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else {
         return empty();
     };
@@ -1177,7 +1185,14 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
         .into_iter()
         .filter_map(|o| o.rule)
         .collect();
-    GraduatedModule { rules, corpus_urls }
+    // PASS 22 — mine + PROVE construction states over this language's own corpus and persist them
+    // retain-and-grow beside the graduated ledger. Pure over `pages`; it does NOT touch `rules`, so every
+    // existing module stays byte-identical (the artifact is a new sidecar, not yet consumed). Today this
+    // proves ONE state for python (`the last version of python … module was`, 24 removed modules); every
+    // other language proves none and writes nothing.
+    let constructions = crate::lint_construct::mine_and_prove(&pages);
+    crate::lint_construct::persist(lang, &constructions);
+    GraduatedModule { rules, corpus_urls, constructions }
 }
 
 #[cfg(test)]
