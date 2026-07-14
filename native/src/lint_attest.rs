@@ -287,16 +287,57 @@ pub fn prohibition_class_tokens() -> Vec<String> {
 /// The author enum value(s) that denote PROHIBITION, from `deprecation-status.json`. The one datum the
 /// faculty cannot derive structurally (see the module doc); carried as DATA exactly like `sources.json`.
 fn prohibition_values() -> Vec<String> {
+    status_values("prohibits")
+}
+
+/// The author status token(s) that denote REMOVAL, from `deprecation-status.json` → `removed` (PASS 22 —
+/// the second data-keyed marker, consumed exactly as `prohibits` is). Removal is the strongest prohibition
+/// status: it is a WHOLE-MODULE marker (`class="deprecated-removed"`) distinct from an inline per-method
+/// deprecation note. Exposed for the construction miner's removal-subject basis; the page-role attester is
+/// untouched. Empty when the datum is absent.
+pub fn removal_class_tokens() -> Vec<String> {
+    status_values("removed")
+}
+
+/// Read a status-token array from `deprecation-status.json` by key (lower-cased). One reader for both the
+/// prohibition and removal data — the only hand data the faculty carries.
+fn status_values(key: &str) -> Vec<String> {
     let Some(text) = crate::lint_train::embedded_lint_index_file("deprecation-status.json") else {
         return Vec::new();
     };
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
         return Vec::new();
     };
-    json.get("prohibits")
+    json.get(key)
         .and_then(|v| v.as_array())
         .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_lowercase())).collect())
         .unwrap_or_default()
+}
+
+/// Whether `body` carries the TIGHT module-removal marker: some `class="…"` value that, split on
+/// whitespace AND hyphen, contains BOTH a prohibition token and a removal token (`deprecated-removed`).
+/// This is the whole-module removal status — the strongest prohibition — distinct from an inline
+/// `versionmodified deprecated` per-method note (the PASS-21 precision line, MEASURED: the tight compound
+/// matches 29 pages and admits exactly the removed python modules, while a loose `deprecated` substring
+/// floods 2812 and contaminates the subject basis). Structure only — the class attribute value, never
+/// prose. Consumed by the construction miner's removal-subject basis; NOT by [`Attestation::attests`], so
+/// every existing module is byte-identical. `false` when either datum is absent (honest abstention).
+pub fn attests_module_removal(body: &str) -> bool {
+    let prohibit = prohibition_values();
+    let removed = removal_class_tokens();
+    if prohibit.is_empty() || removed.is_empty() {
+        return false;
+    }
+    let prohibit: HashSet<&str> = prohibit.iter().map(String::as_str).collect();
+    let removed: HashSet<&str> = removed.iter().map(String::as_str).collect();
+    for value in class_values(body) {
+        let value = value.to_lowercase();
+        let toks: HashSet<&str> = value.split([' ', '\t', '\n', '-']).collect();
+        if toks.iter().any(|t| removed.contains(t)) && toks.iter().any(|t| prohibit.contains(t)) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Map every markdown frontmatter block-sequence ENUM value to the set of page slugs carrying it, across
@@ -466,6 +507,21 @@ mod tests {
         assert!(att.attests("<div class='stab deprecated'>Deprecated</div>"));
         assert!(!att.attests("<div class=\"stable\">fine</div>"));
         assert!(!att.attests("the word deprecated in prose is not a class attribute"));
+    }
+
+    #[test]
+    fn module_removal_needs_the_prohibition_and_removal_tokens_in_one_class_value() {
+        // The tight compound: a class value carrying BOTH a prohibition token and a removal token
+        // (hyphen-split). The data is read from the embedded `deprecation-status.json` (`prohibits` +
+        // `removed`), so this exercises the real datum wiring, not a synthetic set.
+        assert!(attests_module_removal("<div class=\"deprecated-removed\"><p>Removed in 3.13</p></div>"));
+        assert!(attests_module_removal("<section class='deprecated removed'>gone</section>"));
+        // A lone `deprecated` (the inline per-method note) is NOT a module-removal marker — the precision
+        // line that keeps the subject basis clean.
+        assert!(!attests_module_removal("<div class=\"versionmodified deprecated\">Deprecated since 3.11</div>"));
+        // A lone `removed` with no prohibition token, or the word in prose, does not attest either.
+        assert!(!attests_module_removal("<div class=\"removed\">gone</div>"));
+        assert!(!attests_module_removal("the module was deprecated and removed in prose only"));
     }
 
     #[test]

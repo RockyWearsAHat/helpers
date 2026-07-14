@@ -443,7 +443,24 @@ them. This pass ships the MEASUREMENT + the probe + the ledger ONLY: no library 
 `constructions` artifact, no consumer, no `TRAIN_VERSION` bump — the frozen substrate and every module are
 byte-identical (236 lib green), per the line-of-caution. RUNG 3 (a data-keyed removal-marker faculty extension,
 the `constructions` artifact, and the consumer) is the next verified rung, now UNBLOCKED by a genuine proof.
-See the PASS 21 ledger item for the three tables, the precision line, and the rung-3 wiring. The whole-domain MDN root crawl is deferred
+See the PASS 21 ledger item for the three tables, the precision line, and the rung-3 wiring. **PASS 22
+LANDS the faculty extension and the artifact (rungs 1–2 of that plan), byte-identical elsewhere.** (1) The
+`removed` datum enters `deprecation-status.json` beside `prohibits` (the second datum no structural signal
+supplies); `lint_attest::attests_module_removal` consumes it as the TIGHT compound (`deprecated-removed`,
+carrying both a prohibition token and `removed`) — a SEPARATE faculty surface, so `attests` /
+`prohibition_class_tokens` and every existing module are untouched. (2) `lint_construct` productionizes the
+PASS-21 miner: mode-fraction slot-variance scaffold mining + instance-level witness proof against the
+machine's own proven-deprecated subject set (item-level badges ∪ text-run ∪ the tight removal subjects),
+under the frozen ≥15/0 law, persisted retain-and-grow as `<lang>.constructions.bin` beside the graduated
+ledger. Wired into the train-time `graduated_rules` (pure over the corpus, `rules` untouched → byte-identical
+modules). MEASURED through the LIBRARY path (`examples/construct_prod`): python-library ALONE and the full
+5281-page cross-corpus each prove EXACTLY ONE state — `the last version of python that provided the ⟨⟩ module
+was`, REMOVAL, 24 witnesses — nothing else co-proves (the tight faculty is precise). The RUNG-3 delta,
+measured: 44 whole-module removal pages, 18 already covered by the existing `attests()`, **26 removal-only
+(genuinely new)** subjects (aifc/audioop/cgi/telnetlib/…). RUNG 3 (the consumer binding a proven construction
+on a page's prose to propose its slot subject → re-proven through the blind loop) and RUNG 4 (foils + full
+regression + all-language deploy) are the remaining verified rungs; the consumer would add net-new python
+rules bounded by the removal-only witnesses. 240 lib green (+4). The whole-domain MDN root crawl is deferred
 on budget; coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the falsification
 ledger for the measured dead-ends.
 
@@ -1370,6 +1387,73 @@ proven byte-identical on the existing python/rust graduation, (2) the `construct
 proven `python module removal` state (ledger pattern, stamped, retain-and-grow), (3) a consumer binding the
 proven construction on a page's prose to propose its slot subject as removed — re-proven through the blind loop,
 `states_prohibition` the fallback. The shared-remedy any-slot fix (residual i) rides the same rung.
+
+### Item — COMPLETION PASS 22 rungs 1–2: the removal faculty + the `constructions` artifact LAND (byte-identical), the proof reproduces through the LIBRARY path (`lint_construct`, `examples/construct_prod`, 2026-07-14)
+
+> PASS 21 proved the FIRST construction state (`python module removal`, 24/0) in a throwaway probe and drew
+> the rung-3 plan: (1) a data-keyed removal-marker faculty, (2) the `constructions` artifact + productionized
+> miner, (3) a consumer. PASS 22 LANDS (1) and (2) into the library, byte-identical elsewhere, and reproduces
+> the proof through the shipped code path — the smallest proven piece, no consumer/deploy in the same leap.
+
+**RUNG 1 — the data-keyed removal faculty (LANDED, byte-identical).** `deprecation-status.json` gains a
+second datum, `"removed": ["removed"]`, beside `"prohibits"` — the token that, PAIRED with a prohibition
+token in ONE class value (`deprecated-removed`), denotes REMOVAL (the strongest prohibition status, a
+whole-module marker distinct from an inline `versionmodified deprecated` per-method note — the PASS-21
+precision line). `lint_attest::attests_module_removal(body)` consumes it exactly as `prohibits` is consumed:
+a class value that, split on whitespace AND hyphen, carries BOTH a prohibition token and a removal token.
+This is a SEPARATE faculty surface — `Attestation::{discover,attests}`, `prohibition_class_tokens`, and the
+class-marker discovery are TEXTUALLY UNCHANGED (`prohibition_values` merely delegates to a shared
+`status_values(key)` that returns the identical `prohibits` array) — so every existing module is
+byte-identical and the removal signal reaches ONLY the construction miner's subject basis.
+
+**RUNG 2 — `lint_construct`, the productionized miner + the artifact (LANDED, byte-identical modules).** The
+PASS-21 mechanism, ported verbatim into the library with zero meaning geometry: flatten each body to text
+with short inline `<code>` as a variant SLOT, mine sentence shapes, keep every construction whose primary
+slot VARIES (mode-fraction ≤ 0.5 — the owner's "chrome's content is invariant" made structural, co-resident
+with the strip, no `site_chrome` pass needed since the mode test is the separator), and PROVE each scaffold's
+meaning against the machine's own proven-deprecated SUBJECT set — item-level badges (PASS-14 unit, qualified
+`owner.member`, bare last component dropped) ∪ MDN text-run attestation ∪ the TIGHT removal subjects (rung 1)
+— under the frozen `lint_ism::REQUIRED_WITNESSES` (15) / zero-contradiction law. A proven state carries its
+shape, `ConstructionKind` (Removal / Prohibition / Supersession, classified behaviorally: single-slot all-
+removal-witnesses → Removal; two-slot slotA-dep + slotB-clean, 0 contra → Supersession), witness count, and
+an example; persisted retain-and-grow as `<lang>.constructions.bin` (HLM1 kind 13, stamped, written only
+when non-empty — mirrors `persist_graduated_ledger`). Wired into the train-time `graduated_rules`
+(`mine_and_prove` + `persist` after `rules` is computed): PURE over the corpus, `rules` untouched → every
+module bin byte-identical; the artifact is a new sidecar, NOT yet consumed.
+
+**MEASURED through the library path (`examples/construct_prod`, real corpus).** Both python-library ALONE
+(328 pages — exactly what the per-language train path mines for python) and the full deduped 5281-page
+cross-corpus prove EXACTLY ONE state: `the last version of python that provided the ⟨⟩ module was`, REMOVAL,
+**24 witnesses**, nothing else co-proves — the tight removal faculty is precise (the PASS-21 loose-substring
+flood does not recur). This reproduces the throwaway `construct_p21` proof through shipped code, and confirms
+the construction is self-contained within python (its scaffold sentences and its `deprecated-removed` badges
+are both python-library pages, so per-language mining suffices).
+
+**RUNG-3 DELTA (measured, honest).** Of 44 whole-module removal pages, **18 are ALREADY covered** by the
+existing `attests()` (an inline `deprecated` class note also present → their subject already graduates today)
+and **26 are removal-only (GENUINELY NEW)**: aifc, asynchat, asyncore, audioop, cgi, cgitb, chunk, crypt,
+distutils, email.utils, imghdr, imp, mailcap, msilib, nis, nntplib, ossaudiodev, pipes, smtpd, sndhdr, spwd,
+sunau, telnetlib, uu, venv, xdrlib. The rung-3 consumer would newly propose the removal construction's slot
+subjects; net-new python rules are bounded by the removal-only witnesses (the construction's 24 slotted
+subjects intersected with the removal-only set).
+
+**What LANDS vs what remains.** LANDED + verified: the `removed` datum, `attests_module_removal`,
+`lint_construct` (miner + `ConstructionState` + codec kind 13 + persistence), the train-time wiring, the
+production probe, and 240 lib green (+4: removal-compound predicate, synthetic-python removal proof, sub-floor
+abstention, codec round-trip). Every existing module byte-identical (the mining is additive; `rules`
+untouched). NOT done, the HONEST STOP (the covenant's rung boundary, no forcing): **RUNG 3** — the consumer
+in `read_doc_page`/`propose` binding a proven construction on a page's own prose to propose `uses_construct`
+of its slot subject, re-proven through the blind loop (this is the FIRST behavior change — it adds live python
+rules, so it is byte-identical elsewhere but NOT for python); and **RUNG 4** — foils (docs-v83 junk / descriptive-
+negation traps bind nothing), the per-language before/after table, all-language kitchen-sinks + landmine, junk
+floor zero, partitions ∅, `TRAIN_VERSION` bump, and the release→resign→daemon-kill deploy. No `TRAIN_VERSION`
+bump this pass (no module semantics changed; the new artifact stamps under the current version).
+
+**The two structural residuals (re-land conditions, unchanged from PASS 21).** (i) `document.write`'s <15
+family — sound but structurally starved (~13 String HTML-wrapper members); needs either cross-register
+witnesses or an owner ruling on sub-floor sound-but-starved states. (ii) The shared-remedy false negative
+(`use the ⟨background-color⟩ css property instead` reads as invariant-slot, mode 1.00) — fix is any-slot
+variance + deprecated-source-side selection; rides the rung-3 consumer.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
