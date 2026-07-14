@@ -78,6 +78,17 @@ impl ConstructionKind {
             _ => None,
         }
     }
+    /// The DOC-ROLE label this construction kind attests — the faculty's OWN enum name, surfaced as a
+    /// first-class traversal target for the language web (PASS 25). Not a word list: the label IS the
+    /// proven construction's kind, so a web query "what connects to REMOVAL" reaches exactly the subjects
+    /// a Removal construction proved. Pure over the enum.
+    pub fn label(self) -> &'static str {
+        match self {
+            ConstructionKind::Removal => "removal",
+            ConstructionKind::Prohibition => "prohibition",
+            ConstructionKind::Supersession => "supersession",
+        }
+    }
 }
 
 /// One PROVEN construction state — the persisted, retain-and-grow artifact the consumer reads. Carries the
@@ -159,26 +170,53 @@ pub fn mine_and_prove(pages: &[(String, String)]) -> Vec<ConstructionState> {
 /// clean replacement), so binding on it would attest the wrong subject (the shared-remedy residual, parked
 /// for the any-slot-variance fix). Only the subject-direction single-slot constructions bind a subject.
 pub fn attested_subjects(states: &[ConstructionState], url: &str, body: &str) -> Vec<String> {
+    attested_subject_kinded(states, url, body).map(|(s, _)| vec![s]).unwrap_or_default()
+}
+
+/// The consumer binding WITH the proven construction's KIND (PASS 25 — the doc-role source). A page whose
+/// prose binds a subject-direction single-slot construction ([`ConstructionKind::Removal`] /
+/// [`ConstructionKind::Prohibition`]) naming its own module subject returns `(subject, kind)` — the same
+/// match [`attested_subjects`] makes, carrying the KIND so the web can key the subject's doc-role. `None`
+/// when no proven construction binds. Pure over `states` and the page.
+fn attested_subject_kinded(states: &[ConstructionState], url: &str, body: &str) -> Option<(String, ConstructionKind)> {
     let subject = module_subject(url);
     if subject.is_empty() || states.is_empty() {
-        return Vec::new();
+        return None;
     }
-    let shapes: HashSet<&str> = states
-        .iter()
-        .filter(|s| !matches!(s.kind, ConstructionKind::Supersession))
-        .map(|s| s.shape.as_str())
-        .collect();
-    if shapes.is_empty() {
-        return Vec::new();
+    let subject_direction: Vec<&ConstructionState> =
+        states.iter().filter(|s| !matches!(s.kind, ConstructionKind::Supersession)).collect();
+    if subject_direction.is_empty() {
+        return None;
     }
     let text = flatten(body);
     for sent in sentences(&text) {
         let Some((shape, fillers)) = shape_and_fillers(&sent) else { continue };
-        if shapes.contains(shape.as_str()) && fillers.first().is_some_and(|f| filler_names(f, &subject)) {
-            return vec![subject];
+        if !fillers.first().is_some_and(|f| filler_names(f, &subject)) {
+            continue;
+        }
+        if let Some(st) = subject_direction.iter().find(|s| s.shape == shape) {
+            return Some((subject, st.kind));
         }
     }
-    Vec::new()
+    None
+}
+
+/// The DOC-ROLE each construction-attested subject carries across `pages` — subject → the KIND label
+/// ("removal"/"prohibition") of the proven construction that attested it (PASS 25). The same binding the
+/// consumer uses, surfaced with its kind so the language web can make deprecation/removal a first-class
+/// TRAVERSAL TARGET (a query "what connects to REMOVAL" reaches cgi/telnetlib/… by the construction's own
+/// proven fact, never a word list). Pure over `states` and `pages`; empty when no construction binds.
+pub fn subject_roles(states: &[ConstructionState], pages: &[(String, String)]) -> HashMap<String, String> {
+    let mut roles = HashMap::new();
+    if states.is_empty() {
+        return roles;
+    }
+    for (url, body) in pages {
+        if let Some((subject, kind)) = attested_subject_kinded(states, url, body) {
+            roles.insert(subject, kind.label().to_string());
+        }
+    }
+    roles
 }
 
 /// Whether a construction slot filler NAMES `subject` — the [`names_subject`] bare-normalization compared

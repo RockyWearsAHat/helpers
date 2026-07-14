@@ -30,10 +30,11 @@ pub fn schema() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn", "web"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works. web: read a construct off the language subgraph — its governing prose, meaning links, state (proven/read), and cross-language connections." },
-                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence; web: a construct token (e.g. document.write, cgi)." },
+                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn", "web"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works. web: read a construct off the language subgraph — its governing prose, meaning links, doc-roles, state (proven/read), and cross-language connections. With role= set, web instead LISTS every construct carrying that doc-role, across languages." },
+                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence; web: a construct token (e.g. document.write, cgi) — or empty when querying by role=." },
                 "scope": { "type": "string", "enum": ["canon", "language"], "description": "explain only: read the prose as the language-agnostic canon (no uses_construct fallback) or as general language-doc prose (default). Canon principles enforce structurally or abstain." },
-                "language": { "type": "string", "description": "learn only: the language of the bad/good evidence (e.g. rust)." },
+                "role": { "type": "string", "description": "web only: a DOC-ROLE traversal target — removal | prohibition | deprecated — listing every construct the faculties prove carries it (e.g. what connects to REMOVAL → cgi, telnetlib). Scoped to language= when set, else across every language web." },
+                "language": { "type": "string", "description": "learn only: the language of the bad/good evidence (e.g. rust); web only: restrict the construct/role lookup to this language." },
                 "bad": { "type": "string", "description": "learn only: code that BREAKS the principle — the check must fire on it." },
                 "good": { "type": "string", "description": "learn only: code that OBEYS the principle — the check must stay clean on it." }
             },
@@ -57,7 +58,7 @@ pub fn run(args: &Value) -> ToolResult {
         "explain" => explain(arg, canon),
         "rules" => rules(arg),
         "learn" => learn(arg, args),
-        "web" => web(arg, args["language"].as_str()),
+        "web" => web(arg, args["language"].as_str(), args["role"].as_str()),
         other => {
             return Err(format!(
                 "lint_query: unknown kind `{other}`. Valid: define | explain | rules | learn | web"
@@ -214,8 +215,31 @@ fn rules(lang: &str) -> Value {
 /// (enforced) or merely READ (retained-unproven), the English concepts its meaning traverses to, and the
 /// nearest constructs in OTHER languages' webs through the shared base. Interpretation is a QUERY over the
 /// graph — no stored labels.
-fn web(construct: &str, language: Option<&str>) -> Value {
+fn web(construct: &str, language: Option<&str>, role: Option<&str>) -> Value {
     let brain = crate::lint_char::brain();
+    // DOC-ROLE traversal (PASS 25 rung 2): list every construct the faculties prove carries `role`, across
+    // every language web (or the named one) — "what connects to REMOVAL" reaches cgi/telnetlib regardless
+    // of what its prose's index-words say. The roles are stored proven facts, filtered here, never re-judged.
+    if let Some(role) = role.map(str::trim).filter(|r| !r.is_empty()) {
+        let carriers: Vec<Value> = match language {
+            Some(l) => crate::lint_web::nodes_with_role(&crate::lint_web::load(l), role)
+                .into_iter()
+                .map(|c| json!({ "language": l, "construct": c }))
+                .collect(),
+            None => crate::lint_web::roles_across(role)
+                .into_iter()
+                .map(|(lang, c)| json!({ "language": lang, "construct": c }))
+                .collect(),
+        };
+        return json!({
+            "kind": "web",
+            "role": role,
+            "found": !carriers.is_empty(),
+            "carriers": carriers,
+            "webs_available": crate::lint_web::languages_with_web(),
+            "note": "doc-roles are the proven faculties' own facts (author-metadata attestation family + construction kind), surfaced as first-class traversal targets — never a word list.",
+        });
+    }
     // Locate the node: the named language's web, else the first web on the machine that carries it.
     let langs: Vec<String> = match language {
         Some(l) => vec![l.to_string()],
@@ -262,6 +286,7 @@ fn web(construct: &str, language: Option<&str>) -> Value {
         "meaning_links": node.meaning_links,
         "sources": node.sources,
         "attested_deprecated": node.attested_deprecated,
+        "doc_roles": node.roles,
         "rule": node.rule.as_ref().map(|r| json!({ "id": r.id, "severity": r.severity, "description": r.description })),
         "traverses_to_concepts": concepts,
         "cross_language_connections": cross,
