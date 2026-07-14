@@ -385,9 +385,20 @@ measured residual: ~6 of python's 25 rules over-approximate the SCOPE of a faith
 deprecations `urllib.parse.urlencode`/`asyncio.Task`; group notes `TLSVersion.TLSv1_3`/`.end_col_offset`
 whose prose names siblings or exceptions) — narrowing needs the note's own English read (the same
 prose-scope wall). `mem::uninitialized`/`Error::description` stay unproven honestly (fn-page subjects have
-no dotted item anchor; `description` is never demonstrated in examples). The whole-domain MDN root crawl is
-deferred on budget; coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the
-falsification ledger for the measured dead-ends.
+no dotted item anchor; `description` is never demonstrated in examples). **PASS 19 rung 1 (measured,
+`examples/construct_mine`) reopens both the supersession AND the marker-less prohibition frontier from a new
+direction: CONSTRUCTION STATES.** A construction is a sentence-level invariant SCAFFOLD with variant SLOTS —
+the chrome/attestation invariant-run atom GENERALISED so the scaffold is invariant while a code slot varies.
+Mining 7848 real pages yields 378 such states by pure recurrence (≥8 pages, ≥2 distinct fillers), INCLUDING
+the register families the classics need: `replace ⟨⟩ with ⟨⟩` (13 pages), `use the ⟨⟩ css property instead,
+as this attribute is deprecated` (9), `you should not compare the results of ⟨⟩ to hardcoded constants` (18).
+This RECOVERS the PASS-16-walled supersession register STRUCTURALLY — with zero meaning geometry — because a
+construction is a discovered INVARIANT, not a judged similarity (the corpus REPEATS a scaffold rather than
+the graph RECOGNISING a register). Rung 1 proves the states EXIST and REPEAT; proving their MEANING against
+the labeled witness families + the frozen graduate/blind loop, then wiring a consumer, are the next rungs
+(see the PASS 19 ledger item). The whole-domain MDN root crawl is deferred on budget; coverage grows as the
+cache grows. svg is grammar-blocked. See "Open problems" and the falsification ledger for the measured
+dead-ends.
 
 ---
 
@@ -1075,6 +1086,64 @@ zero regression — the owner's "judgment is not frozen" ruling, realized. Rungs
 still cannot gate reference pages, and PASS 18 sharpens WHY (the scope tail + prototype geometry, decomposed
 above), not just THAT. The metadata-attestation faculty (PASS 13/14) remains the covenant-clean route for the
 pages that carry a marker.
+
+### Item — COMPLETION PASS 19 rung 1: CONSTRUCTION STATES are minable — the sentence-scaffold-with-slot atom falls out of the corpus, and the walled supersession register is RECOVERED structurally (measured, `examples/construct_mine`, 2026-07-14)
+
+> Owner ruling (PASS 19, verbatim intent): "build knowledge like english, infinite states please, scope is
+> not a question." A CONSTRUCTION is a sentence-level INVARIANT SCAFFOLD with VARIANT SLOTS — the SAME
+> invariant-scaffold/variant-slot pattern the page-level chrome detector (`lint_graph::site_chrome`) and the
+> banner-level attestation detector (`lint_attest`) already proved, GENERALISED from a WHOLE-RUN atom (the
+> run must be byte-identical across pages) to a SCAFFOLD-WITH-SLOT atom (the scaffold tokens invariant, one
+> or more slot positions varying). Each construction is an ORTHOGONAL STATE, mined only, committed only when
+> its MEANING is proven. Rung 1 is docs-first + the empirical de-risk: does the mining premise even hold on
+> the real corpus, or is it noise like the passes-11/12/16 meaning-geometry routes?
+
+**The mechanism (structural only — NO templates, NO word lists in the mining path).** For each cached page:
+flatten the HTML to prose with every `<code>…</code>` interior captured as an inline SLOT (the author's own
+code typography — the rendered backtick construct) and every other tag stripped to a space; split into
+sentences; the SHAPE of a slot-bearing sentence is the sentence with each slot filler replaced by `⟨⟩` and
+scaffold words lowercased, the fillers captured in order. A CONSTRUCTION is a shape recurring on ≥
+`SUPPORT_FLOOR` (8 — the SAME `CHROME_PAGE_SUPPORT`/`CLASS_MARKER_SUPPORT_FLOOR` repetition floor) DISTINCT
+pages with ≥ 2 DISTINCT slot fillers (a real variant slot, never a constant — the "content varies" half of
+the north-star's own chrome definition). This is the chrome/attestation atom with the invariance loosened
+from the whole run to the scaffold, so it is the SAME data-keyed learning, not a new heuristic.
+
+**MEASURED (`cargo run --release --features crawl --example construct_mine`) on 7848 real cached pages**
+(MDN JS/CSS + `/Web/API/` slices, W3Schools JS/CSS/com, rust-std, python-library): **378 distinct
+constructions** mined from 79 510 slot-bearing shapes. The premise HOLDS — scaffolds with a variant code slot
+fall out abundantly and cleanly, e.g. `the ⟨⟩ constructor creates ⟨⟩ objects.` (63 pages / 126 fillers),
+`creates a new ⟨⟩ object.` (51), `note: ⟨⟩ can only be constructed with ⟨⟩ .` (41),
+`attempting to call it without ⟨⟩ throws a ⟨⟩ .` (41). Crucially, the DESIGN-RELEVANT REGISTER FAMILIES the
+classics need are present as their own mined states:
+  - **supersession / remedy (two-slot):** `replace ⟨⟩ with ⟨⟩ .` (13 pages / 10 filler-pairs),
+    `use the ⟨⟩ css property instead, as this attribute is deprecated.` (9 / 7),
+    `instead of using ⟨⟩ and creating html text directly, you should use dom api…` (8 — the `document.write`
+    classic's own governing sentence), `consider, instead, using ⟨⟩ which has nicer behaviour.` (12).
+  - **prohibition / caution:** `you should not compare the results of ⟨⟩ to hardcoded constants.` (18 / 4).
+  - **deprecation / removal:** `the last version of python that provided the ⟨⟩ module was` (24 / 24).
+
+**THE HEADLINE.** The SUPERSESSION register that PASS 16 measured as WALLED — "the substitution vocabulary
+is not separable in the substrate's meaning geometry … the only reliable signal is LITERAL membership = a
+hardcoded phrase list, covenant-forbidden" — is RECOVERED here with ZERO meaning geometry: `replace ⟨⟩ with
+⟨⟩` is a STRUCTURAL state that recurs across 13 pages with 10 distinct filler-pairs, mined by the same
+recurrence law as chrome. PASS 16 asked the meaning graph to RECOGNISE a register; PASS 19 asks the corpus
+to REPEAT a scaffold. The scaffold repeats. This is why the owner's frame ("build knowledge like english …
+states to learn, like dictionary words") sidesteps the flat-geometry wall exactly as `lint_attest` did for
+prohibition: a construction is a discovered INVARIANT, not a judged similarity.
+
+**HONEST STOP — what rung 1 does NOT do (the measured remainder, the next rungs).** (1) Mining ran WITHOUT
+the `site_chrome` strip, so a handful of nav-chrome runs (`css guides modules …`, 904 fillers) survive as
+degenerate "constructions"; the live pipeline strips chrome first (`graduated_rules` already does), which
+removes them — the probe over-reports by not stripping, noted, not a mining defect. (2) The construction's
+MEANING is NOT yet proven: rung 1 shows the STATES exist and REPEAT; it does not yet decide which are
+prohibition vs description vs supersession. That proof is the next rung, against the labeled witness families
+(the 117 deprecation banners = prohibition witnesses; the Baseline banners = endorsement) + the frozen
+`lint_ism::graduate` / `lint_selftest` blind loop — a construction that cannot prove its meaning stays
+UNPROVEN (mined, not committed, per the ISM commit discipline). (3) No consumer is wired to the live lint
+path and no module re-graduated — the frozen substrate is untouched and every language's `TRAIN_VERSION` is
+unmoved this rung. (4) The `constructions` persistence artifact (retain-and-grow beside the graduated
+ledgers) is designed, not built. The classics, foils, per-language regression, and deploy all belong to the
+meaning-proof + consumer rungs that stand on this measured foundation.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
