@@ -586,6 +586,28 @@ pub(crate) fn page_code_corpus(pages: &[(String, String)], _lang: &str, cap: usi
     out
 }
 
+/// The `<pre><code>` worked-example blocks of `pages` WITH their source-page url attached (PASS 27) —
+/// `(url, block)` pairs, deduped by block text and bounded. The graded tier's usage-death and clean-near-
+/// miss gates ([`crate::lint_module::graded_forms`]) need to EXCLUDE a construct's OWN page when measuring
+/// whether its member is dead in the corpus's OTHER current example code (the PASS-26 measurement), so the
+/// url must ride each block — unlike [`page_code_corpus`], which drops it. Never fetches.
+pub(crate) fn page_code_blocks_by_url(pages: &[(String, String)], cap: usize) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (url, body) in pages {
+        for block in code_interiors(body) {
+            let trimmed = block.trim();
+            if trimmed.len() >= 3 && seen.insert(trimmed.to_string()) {
+                out.push((url.clone(), trimmed.to_string()));
+                if out.len() >= cap {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Normalize an extracted construct token to its firing form: strip a trailing empty-call `()` (prose
 /// names a callable `eval()` but the AST node in `eval(userInput)` is the identifier `eval`), and trim
 /// surrounding punctuation. Symbol constructs (`==`) pass through unchanged.
