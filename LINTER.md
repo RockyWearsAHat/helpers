@@ -414,8 +414,37 @@ meaning geometry — `instead of using ⟨document.write⟩ and creating html te
 scores slotA 8/8 deprecated / slotB 0/1, while generic `replace ⟨⟩ with ⟨⟩` reads 0/5 (correctly NOT a
 supersession) — but 8 independent A-subjects is below the ISM ≥15 floor (the PASS-12 discovery-starved wall).
 All constructions stay MINED-UNPROVEN; the frozen substrate and every `TRAIN_VERSION` are untouched. See the
-PASS 20 ledger item for the tables and the re-land condition. The whole-domain MDN root crawl is deferred on
-budget; coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the falsification
+PASS 20 ledger item for the tables and the re-land condition. **PASS 21 (measured, `examples/construct_p21`)
+CLOSES Wall A and MEASURES Wall B to its floor, still NO ship.** Wall A dissolves with the owner's own signal
+made structural — "chrome's content is INVARIANT, a slot-varying run is definitionally not chrome": a
+construction is a genuine SCAFFOLD iff its primary code slot VARIES across pages (no single filler covers >½
+its pages, the MODE-FRACTION test), so mining runs CO-RESIDENT with the strip and rescues the varying-slot
+runs the strip would eat while the invariant menus stay chrome. MEASURED: 139 register scaffolds RECOVERED
+(document.write modeFrac 0.12, `the last version of python … module was` 0.04 / 24 subjects, `replace ⟨⟩ with
+⟨⟩` 0.31), while `css guides modules …` (1.00), the rustdoc `type_id`/`( ⟨⟩ #NNNNN ) …` trait boilerplate
+(1.00) stay stripped — a clean geometry-free separation the naive PASS-20 strip could not make. The badge
+contamination is cut with the PASS-14 item unit (a badge attests its OWN dotted item, not the page): the
+277-page family splits into 84 whole-page-true MDN + 144 own-item pages. Wall B is CROSSED for the FIRST
+construction: instance-level witnesses (slot fillers vs the machine's proven-deprecated SUBJECT set) prove
+`the last version of python that provided the ⟨⟩ module was` — 24 instances, each slot a DISTINCT removed
+module independently attested by its own `class="deprecated-removed"` whole-page badge, 24 ≥ 15, zero
+contradiction — the first construction state PROVEN under the frozen ≥15/0-contradiction law. document.write is
+sound but STARVED (perfect slotA 8/8 deprecated / slotB 1 clean / 0 contradiction, but its ~13-member String
+HTML-wrapper family is structurally below 15); the apparent early ≥15 "proofs" (`polyfill of ⟨⟩ in ⟨⟩`) were
+subject-set tail collisions killed by exact `owner.member` matching. **The precision line (MEASURED both ways):**
+admitting whole-page removal subjects on ANY `deprecated` substring floods 2812 pages and falsely proves
+endorsement constructions (Wall B in disguise), while the TIGHT module-removal compound (`deprecated-removed`,
+carrying both the prohibition token and `removed`) matches 29 pages and ONLY the python-removal construction
+crosses — so the proof is sound iff the removal subject basis is precise. TWO residuals: (i) a supersession
+whose SLOT is a SHARED modern remedy (`use the ⟨background-color⟩ css property instead`) reads as invariant-slot
+and is NOT rescued — a false negative of the single-mode test (fix: any-slot variance + deprecated-source-side
+selection); (ii) module-removal subjects — RESOLVED into the proof above once the precise removal faculty admits
+them. This pass ships the MEASUREMENT + the probe + the ledger ONLY: no library semantic change, no
+`constructions` artifact, no consumer, no `TRAIN_VERSION` bump — the frozen substrate and every module are
+byte-identical (236 lib green), per the line-of-caution. RUNG 3 (a data-keyed removal-marker faculty extension,
+the `constructions` artifact, and the consumer) is the next verified rung, now UNBLOCKED by a genuine proof.
+See the PASS 21 ledger item for the three tables, the precision line, and the rung-3 wiring. The whole-domain MDN root crawl is deferred
+on budget; coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the falsification
 ledger for the measured dead-ends.
 
 ---
@@ -1229,6 +1258,118 @@ signal that a run is a scaffold, not boilerplate); and (b) a SENTENCE-scoped reg
 co-occurrence) OR corpus depth ≥ 15 independent subjects per register construction (the document.write
 supersession needs ~2× its current 8-subject support). The slot-cross-reference is the sound seed to build (a)
 and (b) on: it is already the correct, geometry-free meaning signal — it is starved, not wrong.
+
+### Item — COMPLETION PASS 21: Wall A CLOSED (slot-variance scaffold/chrome disambiguation), Wall B MEASURED to its floor — NO ship, the construction register stays MINED-UNPROVEN (measured, `examples/construct_p21`, 2026-07-14)
+
+> PASS 20 named two re-land conditions: (a) a scaffold-vs-chrome DISAMBIGUATOR so the register scaffold
+> survives the strip the pipeline needs, and (b) a SENTENCE-scoped register witness or corpus depth ≥15 per
+> construction. PASS 21 BUILT and MEASURED both, machine-derived witnesses only. (a) SUCCEEDS — a clean,
+> geometry-free disambiguator recovers every register scaffold PASS 20 lost. (b) is MEASURED to the floor and
+> STAYS starved: the instance-witness direction is sound but no construction reaches ≥15 with a geometry-free
+> witness. Result: a measured rung-1 advance + honest stop, NO construction state committed (the ISM commit
+> discipline). Recorded so the disambiguator is reused and the two residuals are not re-derived.
+
+**RUNG 1 — Wall A, the slot-variance scaffold/chrome disambiguator (BUILT + MEASURED, works).** The owner's
+signal, made structural with zero meaning geometry: *chrome's content is INVARIANT BY DEFINITION, so a run
+flanking a code slot whose filler VARIES page-to-page is definitionally a SCAFFOLD, not chrome.* The naive
+PASS-20 fix (does the run survive `site_chrome`?) fails two ways the probe MEASURED: a nav menu is ONE long
+sentence carrying the whole sidebar (`css guides modules …`, 1236 pages / 904 fillers, one occurrence per
+page — so "occurrences per page" does NOT separate it), and rustdoc trait boilerplate (`… gets the ⟨TypeId⟩
+of ⟨self⟩`, 625 pages) carries the SAME code on every page. The separating invariant is the MODE FRACTION:
+for a construction's primary slot, the fraction of its pages covered by its single most-common filler. Chrome
+and boilerplate carry an INVARIANT slot (one filler on ~all pages → mode → 1.00); a real scaffold's slot is
+PAGE-SPECIFIC (mode low). Mining runs CO-RESIDENT with the strip on the UNSTRIPPED bodies and keeps every
+construction with `mode ≤ 0.5`; the live prose reader keeps stripping chrome fully — only the miner claims the
+varying-slot runs back. MEASURED (5281 deduped pages, `construct_p21`):
+
+| set | count | example (modeFrac) |
+| --- | ----- | ------------------ |
+| mined unstripped | 378 | — |
+| survive naive strip | 113 | (PASS-20 set — register scaffolds gone) |
+| eaten by naive strip | 351 | — |
+| **rescued as varying-slot scaffolds** | **139** | `instead of using ⟨⟩ … dom apis` 0.12 · `the last version of python … module was` 0.04 · `replace ⟨⟩ with ⟨⟩` 0.31 · `the ⟨⟩ constructor creates ⟨⟩ objects` 0.02 |
+| left stripped as INVARIANT-slot menus | 212 | `css guides modules …` 1.00 · `… gets the ⟨TypeId⟩ of ⟨self⟩` 1.00 · `( ⟨⟩ #NNNNN ) advances the iterator by ⟨⟩` 1.00 |
+| **final co-resident scaffold set** | **160** | (survivors + rescued, all `mode ≤ 0.5`) |
+
+Every design-relevant register construction is RECOVERED (the PASS-20 headline loss reversed) and the nav
+junk that rung 1 over-reported is now dropped by the SAME test — a clean structural separation, no word list,
+no meaning geometry. This satisfies PASS-20 re-land condition (a).
+
+**RUNG 1 — the badge-contamination fix (the PASS-20 117→277 over-attestation).** A page-level class-token
+attestation fires on ANY `class="stab deprecated"` badge, so a rust-std integer page carrying a stray sidebar
+cross-ref to a deprecated item attests as a whole (PASS 20's prohibition family 117 → 277). The PASS-14 item
+unit is the fix, replicated in the probe: a badge attests only the DOTTED ITEM it anchors. MEASURED: the
+277-page family decomposes into 84 whole-page-true MDN text-run attestations + 144 pages whose OWN dotted item
+carries a badge; the proven-deprecated SUBJECT set, keyed to the qualified `owner.member` form (the bare last
+component `open`/`is`/`name` is dropped — it collides and manufactures witnesses), is 322 clean subjects.
+
+**RUNG 2 — Wall B, instance-level witnesses (BUILT + MEASURED — the FIRST construction PROVES, one is
+starved).** A construction's witnesses are its OWN INSTANCES cross-referenced against the proven-deprecated
+subject set (each subject was independently proven by the attestation faculty — genuine ISM independence): a
+single-slot instance whose filler NAMES a deprecated subject witnesses deprecation-direction; a two-slot
+instance with slotA deprecated + slotB clean witnesses supersession/remedy. Independence = distinct subject;
+≥15 with zero contradiction proves (the frozen `lint_ism` law, folded structurally). MEASURED — the named
+register constructions:
+
+| construction | pages | modeFrac | recovered | depA / cleanB | verdict |
+| ------------ | ----- | -------- | --------- | ------------- | ------- |
+| `the last version of python … module was` | 24 | 0.04 | ✔ | **24 / —** (0 contra) | **PROVEN removal** (with the precise removal faculty, below) |
+| `instead of using ⟨⟩ … dom apis` (document.write) | 8 | 0.12 | ✔ | **8 / 1** (0 contra) | **<15 MINED-UNPROVEN** (structurally starved) |
+| `replace ⟨⟩ with ⟨⟩` | 13 | 0.31 | ✔ | 0 / 5 | not a deprecation supersession (correct) |
+| `use the ⟨⟩ css property instead, as this attribute is deprecated` | 9 | 1.00 | ✗ | 0 / — | shared-remedy false negative (below) |
+| `consider, instead, using ⟨⟩ which has nicer behaviour` | 12 | 1.00 | ✗ | 0 / — | shared-remedy false negative |
+| `you should not compare the results of ⟨⟩ to hardcoded constants` | 18 | 0.61 | ✗ | 0 / — | mode > 0.5; a prohibition, no deprecated subject |
+
+**The first construction to graduate: `the last version of python that provided the ⟨⟩ module was`** — 24
+instances, each slot filler a DISTINCT removed python module (`aifc`/`audioop`/`asynchat`/…), each independently
+attested by its OWN page's whole-page `class="deprecated-removed"` module badge; 24 ≥ 15, zero contradiction.
+This is a TIGHT instance witness (the slot filler IS the attested-removed subject, not a page-role
+co-occurrence), and it is the FIRST construction state proven under the frozen ≥15/​0-contradiction law. The one
+piece it needs is a PRECISE removal-marker faculty (below). document.write scores a PERFECT slotA 8/8 deprecated
+/ slotB 1 clean / 0 contradiction — the direction is sound — but its own deprecated family (the ~13
+`String.prototype` HTML-wrapper methods: `anchor`/`big`/`blink`/`bold`/…) is STRUCTURALLY below the ≥15 floor;
+widening cannot cross it because the family has only ~13 members. The apparent early-run ≥15 "proofs"
+(`polyfill of ⟨⟩ in ⟨core-js⟩` depA 39) were subject-set collisions from a lossy last-component tail match;
+exact `owner.member` matching drops them to depA ≤ 2, confirming they were never genuine.
+
+**THE PRECISION LINE — loose whole-page attestation is Wall B in disguise; the tight removal compound is
+clean (MEASURED both).** Admitting a page's whole-page subject on ANY class token containing `deprecated`
+(hyphen-split) matches **2812 pages** (the inline `versionmodified deprecated` per-method notes flood the
+corpus), explodes the subject set to ≈2455, and FALSELY proves dozens of endorsement constructions
+(`creates a new ⟨Array⟩ object` depA 44, `⟨⟩ css media feature`, `polyfill of ⟨⟩`) — the page-role
+co-occurrence contamination PASS 20 named, exactly reproduced. Restricting to the MODULE-REMOVAL compound only —
+a class token carrying BOTH the prohibition token AND `removed` (`deprecated-removed`, the strongest prohibition
+status, a whole-module marker distinct from an inline per-method note) — matches **29 pages**, admits the ~24
+removed-module subjects, and **ONLY** `the last version of python … module was` crosses the floor; nothing else
+co-proves (every other construction's fillers are JS/CSS/rust names absent from the 29-page removal set). So the
+proof is sound iff the removal subject basis is PRECISE: the tight compound is the faithful author typography,
+the loose substring is contamination. This is the same lesson the badge-contamination fix teaches at page
+scale, now at subject-basis scale.
+
+**TWO honest residuals (measured, named — one is now a PROOF).** (i) **Shared-remedy false negative.** A
+supersession that points MANY deprecated features at ONE modern replacement puts the INVARIANT target in the
+slot (`use the ⟨background-color⟩ css property instead` — one remedy across many deprecated color attributes),
+so its primary slot reads as invariant (mode 1.00) and the single-mode test does NOT rescue it. Fix: test
+variance on ANY slot AND select the deprecated SOURCE side (which does vary). (ii) **Module-removal subjects —
+RESOLVED into the proof above.** `the last version of python … module was` was blocked only because its removed
+modules carry the `deprecated-removed` COMPOUND the faculty (keyed to the exact `deprecated`) misses; the tight
+removal detector recovers exactly 24 subjects and the construction PROVES. The remaining wiring is a
+data-keyed faculty extension (recognise the removal compound / a `removed` prohibition datum) + persistence +
+consumer.
+
+**Verdict + what lands.** Wall A is CLOSED (the slot-variance disambiguator is the reusable rung-1 advance,
+measured to recover every register scaffold and drop the nav junk by the SAME test). Wall B is CROSSED for the
+FIRST construction (`python module removal`, 24/​0 clean) with a PRECISE removal faculty, and MEASURED to its
+floor for document.write (8, structurally starved) — the proof is real and the precision line (tight vs loose)
+is the durable finding. This pass ships the MEASUREMENT + the probe + this ledger only: **no library semantic
+change, no `TRAIN_VERSION` bump, no `constructions` artifact, no consumer, no deploy** — the frozen substrate
+and every module are BYTE-IDENTICAL (236 lib green), per the line-of-caution (the smallest proven piece, no
+black-box wiring in one leap). RUNG 3 is the next verified rung and is now UNBLOCKED by a genuine proof: (1) a
+data-keyed removal-marker faculty extension (`deprecated-removed`/a `removed` datum in `deprecation-status.json`)
+proven byte-identical on the existing python/rust graduation, (2) the `constructions` artifact persisting the
+proven `python module removal` state (ledger pattern, stamped, retain-and-grow), (3) a consumer binding the
+proven construction on a page's prose to propose its slot subject as removed — re-proven through the blind loop,
+`states_prohibition` the fallback. The shared-remedy any-slot fix (residual i) rides the same rung.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
