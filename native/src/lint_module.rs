@@ -1219,6 +1219,154 @@ fn read_pass_complete(pages: &[(String, String)]) -> bool {
     !pages.is_empty()
 }
 
+/// The doc-roles that attest a REVOKED construct (deprecated / removed / prohibited) — the ONLY nodes
+/// eligible for the graded tier (PASS 27). A read node with none of these is knowledge, never a finding.
+const REVOKED_ROLES: [&str; 3] = ["deprecated", "removal", "prohibition"];
+
+/// How many example blocks the graded gates read from the corpus — a RUNAWAY bound only, sized far above
+/// any real docs corpus so it never truncates one. MEASURED: capping at [`MAX_HARVEST_BLOCKS`] (4000)
+/// truncated python's corpus inside its first NINE pages (reference pages carry hundreds of blocks each),
+/// which STARVED the usage-death gate — `.read`/`.write`/`.Sequence` all read "dead" on a 9-page corpus
+/// and would flood real code. Usage-death is meaningful only over the WHOLE corpus; the text pre-filter
+/// ([`construct_in_text`]) keeps the sweep cheap, and `run_plan` parses only blocks that could fire.
+const GRADED_CORPUS_CAP: usize = 1 << 20;
+
+/// Whether `construct` is QUALIFIED-SAFE to fire a graded finding on — the PASS-26 cut, reused verbatim: a
+/// real `owner.member` (or deeper) where every dotted part is an identifier (≥2 chars, alnum/underscore,
+/// alphabetic/underscore start). REJECTS a bare leading-dot member (`.read`), a doc URL basename
+/// (`ssl.html`, `struct.Vec.html`), a rustdoc anchor form (`method.x`/`struct.X`), and a single bare
+/// generic token — the junk classes a naive graded flood would fire on across every clean modern file.
+fn qualified_safe(c: &str) -> bool {
+    if c.starts_with('.') {
+        return false;
+    }
+    if [".html", ".htm", ".php"].iter().any(|e| c.ends_with(e)) {
+        return false;
+    }
+    let anchor = [
+        "method.", "struct.", "primitive.", "trait.", "enum.", "fn.", "macro.", "constant.", "type.",
+        "mod.", "keyword.", "associatedtype.", "union.", "associatedconstant.",
+    ];
+    let low = c.to_lowercase();
+    if anchor.iter().any(|p| low.starts_with(p)) {
+        return false;
+    }
+    let parts: Vec<&str> = c.split('.').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    parts.iter().all(|p| {
+        p.len() >= 2
+            && p.chars().next().is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+            && p.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    })
+}
+
+/// COMPUTE the graded (LOW-severity) firing forms for the revoked-role READ nodes (PASS 27) — the
+/// evidence-graded tier that replaces abstention. For each UNPROVEN construct the reader retained
+/// (`read_surface`) that carries a REVOKED doc-role (`roles`/`attested_deprecated`) and is QUALIFIED-SAFE,
+/// pick a flood-safe firing form and KEEP it only if it stays clean on the corpus's own other-page code:
+///
+///   1. member = the construct's terminal dotted segment; the receiver-generic form is `.member`.
+///   2. USAGE-DEATH (member scope): count OTHER-page example blocks (`code_by_url`, excluding the node's own
+///      source page) whose text carries `.member`. The member is DEAD iff that count is 0 — the PASS-26
+///      usage-death signal, which failed as a family discriminator but SUCCEEDS as a member-scope safety
+///      gate (`.blink` 0/N fires; `.bold`, alive across the corpus, abstains from the receiver-generic form).
+///   3. DEATH-VERDICT CALIBRATION (comparative, from the language's own candidate distribution): the death
+///      verdicts are TRUSTED only when the same measurement finds at least one ALIVE member among this
+///      language's own qualified candidates. A corpus that never witnesses life cannot certify death —
+///      MEASURED: python's 9-page corpus read ALL 92 candidates "dead" (including `.read`/`.write`, which
+///      flood every real file object) while javascript's 3052-page corpus split 10 dead / 11 alive. A
+///      degenerate all-dead distribution is corpus POVERTY, not universal death: every form falls to the
+///      dotted-literal tier. No constant — the corpus's own distribution is the referee.
+///   4. FORM: trusted-dead ⇒ fire the receiver-generic `.member` (high recall, real `x.member` usage);
+///      alive or uncalibrated ⇒ the dotted-literal `owner.member` (safe, low recall — fires only on the
+///      exact deprecated static text, so a LIVE remedy like `collections.abc.Sequence` is never flagged
+///      for `typing.Sequence`).
+///   5. PROVEN-COVERAGE DEDUP: a form a PROVEN rule already covers is SKIPPED — the graded tier only adds
+///      NEW enforcement. Covered = the proven constructs contain the fire token, the construct itself, or
+///      the receiver-generic `.member` (whose member scan already fires every `X.member`, dotted included) —
+///      MEASURED: javascript's proven set already carries `.blink`/`.getYear`/`.compile`, so their graded
+///      duplicates would double-report every kitchen-sink line.
+///   6. CLEAN-NEAR-MISS (graduation-lite): run the chosen plan over the other-page blocks that textually
+///      could fire it; if it fires on ANY, the form is not flood-safe → DROP (abstain). The attestation is
+///      the evidence a violation-witness search would otherwise supply; this check is the flood guard.
+///
+/// Returns `construct → GradedForm`. Pure over the read surface + corpus + the frozen `run_plan`; empty for
+/// a language whose revoked read nodes all fail the gates (the honest number — ship only what passes).
+fn graded_forms(
+    lang: &str,
+    read_surface: &[ReadConstruct],
+    roles: &std::collections::HashMap<String, String>,
+    proven_constructs: &std::collections::HashSet<String>,
+    code_by_url: &[(String, String)],
+) -> std::collections::HashMap<String, crate::lint_web::GradedForm> {
+    let corpus_pages = code_by_url.iter().map(|(u, _)| u).collect::<std::collections::HashSet<_>>().len();
+    // Phase 1 — the qualified revoked candidates with their member-scope death verdicts.
+    struct Candidate<'a> {
+        read: &'a ReadConstruct,
+        member_form: String,
+        dead: bool,
+    }
+    let mut candidates: Vec<Candidate> = Vec::new();
+    for r in read_surface {
+        // REVOKED gate: the node's construction kind is a revocation, or the page attests deprecation.
+        let role_specific = roles.get(&r.construct).map(String::as_str);
+        let revoked = r.attested_deprecated || role_specific.is_some_and(|k| REVOKED_ROLES.contains(&k));
+        if !revoked || !qualified_safe(&r.construct) {
+            continue;
+        }
+        let member = r.construct.rsplit('.').next().unwrap_or(&r.construct);
+        let member_form = format!(".{member}");
+        // USAGE-DEATH at member scope, EXCLUDING the construct's own source page (the deprecation's own
+        // illustration must not count as living usage — the PASS-26 own-page exclusion).
+        let dead = !code_by_url.iter().any(|(u, blk)| u != &r.url && construct_in_text(blk, &member_form));
+        candidates.push(Candidate { read: r, member_form, dead });
+    }
+    // Phase 2 — calibration: death is trusted only when this corpus proved it can witness life.
+    let corpus_discriminates = candidates.iter().any(|c| !c.dead);
+    // Phase 3 — form selection + proven-coverage dedup + clean-near-miss.
+    let mut out = std::collections::HashMap::new();
+    for c in candidates {
+        let r = c.read;
+        let trusted_dead = c.dead && corpus_discriminates;
+        let fire = if trusted_dead { c.member_form.clone() } else { r.construct.clone() };
+        if proven_constructs.contains(&fire)
+            || proven_constructs.contains(&r.construct)
+            || proven_constructs.contains(&c.member_form)
+        {
+            continue; // a proven rule already enforces this shape — the graded tier adds only NEW coverage
+        }
+        // CLEAN-NEAR-MISS: the chosen form must fire on NONE of the corpus's other-page blocks.
+        let plan = Plan::UsesConstruct { construct: fire.clone() };
+        let flags_clean = code_by_url
+            .iter()
+            .filter(|(u, blk)| u != &r.url && construct_in_text(blk, &fire))
+            .any(|(_, blk)| !run_plan(&plan, lang, blk).is_empty());
+        if flags_clean {
+            continue;
+        }
+        // The evidence message — a prohibition (so the build's entry gate reads it as one), citing the
+        // attested deprecation and the usage-death basis the RUNG requires.
+        let role_specific = roles.get(&r.construct).map(String::as_str);
+        let role = role_specific.filter(|k| *k != "deprecated").unwrap_or("deprecated");
+        let basis = if trusted_dead {
+            format!("its member `{}` is absent from the corpus's {corpus_pages} current example pages (usage-dead)", c.member_form)
+        } else {
+            format!("fires only on the exact deprecated `{}` form", r.construct)
+        };
+        let description = format!(
+            "Do not use `{}`: documented {role} ⟨{}⟩ — {basis}.",
+            r.construct, r.url
+        );
+        out.insert(
+            r.construct.clone(),
+            crate::lint_web::GradedForm { fire, severity: "low".to_string(), description, source: r.url.clone() },
+        );
+    }
+    out
+}
+
 /// The result of a graduation pass: the PROVEN construct rules AND the exact corpus the pass read.
 /// `corpus_urls` is the re-check basis for contradiction-driven reshape (LINTER.md → Item 3c): the set
 /// of page URLs this pass proposed over, so the caller can tell a rule whose source page is STILL in the
@@ -1233,6 +1381,10 @@ pub struct GraduatedModule {
     /// invariant scaffolds proven under the frozen ISM law against the machine's own proven-deprecated
     /// subject set ([`crate::lint_construct`]). Persisted retain-and-grow beside the graduated ledger.
     pub constructions: Vec<crate::lint_construct::ConstructionState>,
+    /// The GRADED (LOW-severity) rules this pass derived from the web's revoked-role read nodes (PASS 27) —
+    /// the evidence-graded tier, as `(rule, source)`. A SEPARATE tier from `rules`: the caller appends them
+    /// AFTER the proven set (never through the contradiction re-check), so the proven order stays identical.
+    pub graded: Vec<(LearnedRule, String)>,
 }
 
 /// The LIVE entry the module build calls (the covenant-clean successor to
@@ -1246,6 +1398,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
         rules: Vec::new(),
         corpus_urls: std::collections::HashSet::new(),
         constructions: Vec::new(),
+        graded: Vec::new(),
     };
     let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else {
         return empty();
@@ -1314,10 +1467,23 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // KIND ("removal"/"prohibition"), keyed by subject. Empty for every language that proves no
     // construction, so those webs carry only the author-metadata "deprecated" role.
     let roles = crate::lint_construct::subject_roles(&constructions, &pages);
-    let web = crate::lint_web::build(br.meanings(), &outcomes, &read_surface, &roles);
+    // PASS 27 — THE GRADED TIER. The web's revoked-role READ nodes (attested-deprecated, never proven) get a
+    // train-time-computed flood-safe firing form ([`graded_forms`]): the corpus's OWN example code (with
+    // page provenance so a construct's own illustration is excluded) supplies the member-scope usage-death
+    // and clean-near-miss gates. Persisted ON the node; derived to LOW rules AFTER the proven view.
+    let code_by_url = crate::lint_lang_layer::page_code_blocks_by_url(&pages, GRADED_CORPUS_CAP);
+    // The proven constructs (this pass's enforced shapes) — the graded tier never duplicates them.
+    let proven_constructs: std::collections::HashSet<String> = outcomes
+        .iter()
+        .filter(|o| o.rule.is_some())
+        .map(|o| o.candidate.construct.clone())
+        .collect();
+    let graded_forms = graded_forms(lang, &read_surface, &roles, &proven_constructs, &code_by_url);
+    let web = crate::lint_web::build(br.meanings(), &outcomes, &read_surface, &roles, &graded_forms);
     crate::lint_web::persist(lang, &web);
     let rules = crate::lint_web::derive_rules(lang, &web);
-    GraduatedModule { rules, corpus_urls, constructions }
+    let graded = crate::lint_web::derive_graded_rules(lang, &web);
+    GraduatedModule { rules, corpus_urls, constructions, graded }
 }
 
 #[cfg(test)]
@@ -1348,6 +1514,66 @@ mod tests {
         ];
         assert!(member_receivers(&corpus, ".split") >= 3, "split rides many receivers");
         assert_eq!(member_receivers(&corpus, ".utcnow"), 1, "utcnow is bound to one receiver");
+    }
+
+    /// PASS 27 — the qualified-safe cut rejects the measured junk classes (bare members, URL basenames,
+    /// rustdoc anchors, bare generics) and admits real `owner.member` forms.
+    #[test]
+    fn qualified_safe_rejects_junk_admits_owner_member() {
+        assert!(qualified_safe("typing.Sequence"));
+        assert!(qualified_safe("Object.__defineGetter__"));
+        assert!(qualified_safe("importlib.abc.Loader.load_module"));
+        assert!(!qualified_safe(".read"), "bare leading-dot member");
+        assert!(!qualified_safe("ssl.html"), "doc URL basename");
+        assert!(!qualified_safe("struct.Vec.html"), "doc URL basename");
+        assert!(!qualified_safe("method.foo"), "rustdoc anchor form");
+        assert!(!qualified_safe("compile"), "bare generic single identifier");
+    }
+
+    /// PASS 27 — the graded gates measured end to end over a synthetic corpus: a discriminating corpus
+    /// trusts death (receiver-generic form), an all-dead corpus is POVERTY (every form falls to the
+    /// dotted-literal), a proven-covered form is deduped, and a form firing on the corpus's own clean
+    /// blocks is dropped (the flood guard).
+    #[test]
+    fn graded_forms_gates_calibrate_dedup_and_stay_flood_safe() {
+        let read = |c: &str, url: &str| ReadConstruct {
+            construct: c.to_string(),
+            governing: format!("The {c} member is deprecated."),
+            url: url.to_string(),
+            attested_deprecated: true,
+        };
+        let dead = read("Legacy.deadfn", "https://d/legacy-deadfn");
+        let alive = read("Legacy.alive", "https://d/legacy-alive");
+        let roles = std::collections::HashMap::new();
+        let no_proven = std::collections::HashSet::new();
+        // Corpus: `.alive` rides another page's code; `.deadfn` appears nowhere else.
+        let corpus = vec![
+            ("https://d/other".to_string(), "let x = obj.alive();".to_string()),
+            ("https://d/other2".to_string(), "const y = 1;".to_string()),
+        ];
+        // Discriminating corpus (one alive, one dead): death is TRUSTED — the dead member fires
+        // receiver-generic, the alive one falls to its dotted-literal form.
+        let forms = graded_forms("javascript", &[dead.clone(), alive.clone()], &roles, &no_proven, &corpus);
+        assert_eq!(forms.get("Legacy.deadfn").unwrap().fire, ".deadfn", "trusted-dead fires receiver-generic");
+        assert_eq!(forms.get("Legacy.alive").unwrap().fire, "Legacy.alive", "alive member falls to dotted-literal");
+        assert_eq!(forms.get("Legacy.deadfn").unwrap().severity, "low");
+        // All-dead distribution (only the dead candidate): corpus POVERTY — the verdict is NOT trusted,
+        // the form falls to dotted-literal (the python 9-page `.read` flood, measured).
+        let poverty = graded_forms("javascript", &[dead.clone()], &roles, &no_proven, &corpus);
+        assert_eq!(poverty.get("Legacy.deadfn").unwrap().fire, "Legacy.deadfn", "uncalibrated death never fires receiver-generic");
+        // Proven-coverage dedup: a proven `.deadfn` rule already fires every `X.deadfn` — skipped.
+        let proven: std::collections::HashSet<String> = [".deadfn".to_string()].into();
+        let deduped = graded_forms("javascript", &[dead.clone(), alive.clone()], &roles, &proven, &corpus);
+        assert!(!deduped.contains_key("Legacy.deadfn"), "a proven-covered form is never duplicated");
+        assert!(deduped.contains_key("Legacy.alive"), "uncovered forms still graduate");
+        // Clean-near-miss flood guard: the alive DOTTED form appears in another page's own current code —
+        // firing it would flag the corpus's own clean examples, so it is dropped entirely.
+        let contested = vec![
+            ("https://d/other".to_string(), "let x = obj.alive();\nLegacy.alive();".to_string()),
+            ("https://d/other2".to_string(), "const y = 1;".to_string()),
+        ];
+        let dropped = graded_forms("javascript", &[dead.clone(), alive.clone()], &roles, &no_proven, &contested);
+        assert!(!dropped.contains_key("Legacy.alive"), "a form firing on the corpus's own clean code is dropped");
     }
 
     /// Both frozen brains, or `None` when an artifact is not on disk (the workflow is defined only over
@@ -1562,7 +1788,7 @@ mod tests {
 
         let (outcomes, read) = graduate("javascript", &pages, &memory, m, en, &[]);
         let direct: Vec<(LearnedRule, String)> = outcomes.iter().filter_map(|o| o.rule.clone()).collect();
-        let web = crate::lint_web::build(m, &outcomes, &read, &std::collections::HashMap::new());
+        let web = crate::lint_web::build(m, &outcomes, &read, &std::collections::HashMap::new(), &std::collections::HashMap::new());
         let viewed = crate::lint_web::derive_rules("javascript", &web);
         assert_eq!(direct, viewed, "the web-derived rules must equal the direct emitted rules byte-for-byte");
         // Everything READ is retained: every proposed candidate AND every never-proposed read construct is
