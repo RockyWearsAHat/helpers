@@ -38,6 +38,7 @@ pub mod lint_ism;
 pub mod lint_lang_layer;
 pub mod lint_module;
 pub mod lint_selftest;
+pub mod lint_web;
 pub mod linter;
 pub mod mcp;
 pub mod memory;

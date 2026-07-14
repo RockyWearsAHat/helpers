@@ -476,7 +476,43 @@ instead…`) rescues nothing measurable today — no CSS supersession constructi
 The pre-existing `if false` dead branch at `tools/lint.rs` (the disabled kq racy-window gate) is deleted (with
 its now-dead `witness` param). `TRAIN_VERSION` → `docs-v91-construction-consumer`. 241 lib green (+1 consumer
 test). The whole-domain MDN root crawl is deferred on budget; coverage grows as the cache grows. svg is
-grammar-blocked. See "Open problems" and the falsification ledger for the measured dead-ends.
+grammar-blocked. See "Open problems" and the falsification ledger for the measured dead-ends. **PASS 24
+LANDS THE LANGUAGE WEB (rungs 1–2 + regression + cross-language/assembly measurement).** The owner's frame:
+"the english understanding should build a web of the language … LANGUAGE UNDERSTANDING IS WHAT DRIVES
+LINTING." Where graduation used to REDUCE its read to a rule list and discard the rest, a language now
+PERSISTS its read as a SUBGRAPH ([`lint_web`], `<lang>.web.bin`, codec kind 14, stamped retain-and-grow
+beside the graduated ledger): one [`ConstructNode`] per construct read, binding the construct token ⊗ its
+GOVERNING PROSE (understanding + advice) ⊗ its MEANING LINKS (the distinctive content KEY-WORDS of that
+prose, keys into the FROZEN English web — never a copy of the base; their meaning is rebound on query, the
+same delta pattern the dictionary itself uses) ⊗ its doc SOURCES ⊗ its attestation + PROVEN/READ state.
+**Rules are now VIEWS over the web:** `graduated_rules` builds the web from the graduation outcomes,
+persists it, and DERIVES the live rule set from the PROVEN nodes ([`lint_web::derive_rules`]) — BYTE-
+IDENTICAL to the old direct `filter_map(|o| o.rule)` (every proven outcome is a proven node carrying that
+exact `(rule, url)`, in order), so deleting the web and re-deriving reproduces the same rules
+(`round_trips_and_derives`, `rules_are_a_byte_identical_view_over_the_web`, and the live measurement's
+per-language round-trip). **Webs CONNECT across languages through the shared English base:** a node's
+meaning links are key-words into the SAME frozen web, so a cross-language relation is a QUERY
+([`lint_web::cross_language`] — governing-prose meaning proximity; `class` in JS and `class` in Python stay
+DISTINCT nodes whose prose MEANING may relate, never conflated). MEASURED via the LIBRARY live path
+(`examples/web_pass24`, real crawl cache): css 22 / html 17 / javascript 54 / python 50 / rust 9 /
+typescript 54 rules, EVERY language's web-derived set round-trips byte-identical to the live-derived set;
+webs are per-language sidecars (assembly = internal dependencies: a project loads only the webs its files
+need, deleting language X's web changes nothing for Y — the isolation covenant, unchanged); cross-language
+traversal reaches genuine shared meaning (`document.write`↔`document.write` dist 0 via the whole shared
+link set; the CSS non-standard `-moz-float-edge`↔JS `document.preferredStyleSheetSet` dist 2594 via
+`["non","standard"]`). `lint_query kind=web <construct>` reads the subgraph directly (governing prose,
+meaning links, PROVEN/READ state, concept + cross-language traversal). **Honest frontier (scoped
+remainder).** (i) Today the web retains every PROPOSED candidate — and the graduation funnel is precise
+enough that every candidate graduates, so read-nodes == proven-nodes per language; retaining the FULL read
+surface (every doc construct the reader saw, including never-proposed ones, as retained-unproven nodes) is
+the next rung and needs `propose`/`graduate` to expose it. (ii) CONCEPT traversal to a shared "deprecation/
+removal" concept is noisy — the tracing-concept vocabulary is CS-PRIMITIVES, not doc-role concepts, and a
+construction-consumed removal's governing prose is a module-index sentence (cgi's links are
+`cgi/python/gateway/manipulate/audio…`), so its cross-language traversal is bounded by that prose quality;
+the RELATION query (shared meaning-links) is sound, the concept-space landing is not yet doc-role-aware.
+Verdicts are byte-identical and the web is additive, so `TRAIN_VERSION` is UNMOVED (a bump would force a
+needless full retrain); the web is a new sidecar built on the next train, absent-tolerant on cold machines.
+245 lib green (+4). See the PASS 24 ledger item.
 
 ---
 
@@ -1519,6 +1555,79 @@ green (+1 consumer test). **RUNG 4 — hygiene:** the pre-existing `if false && 
 branch at `tools/lint.rs` (the permanently-disabled kq racy-window gate — the kq tier's events are
 content-true, so it needs none) is deleted along with its now-unused `witness` param and both call-site args;
 crate-wide clippy: 0 errors.
+
+### Item — COMPLETION PASS 24: THE LANGUAGE WEB — the read persists as a subgraph, rules become views over it, webs connect across languages through the shared English base (`lint_web.rs`, `examples/web_pass24`, LANDED, 2026-07-14)
+
+> Owner ruling (verbatim intent): "the english understanding should build a web of the language. Then those
+> webs connect across languages. The modules allow precise and specific assembly of only the project
+> dependencies (INTERNAL DEPENDENCIES). LANGUAGE UNDERSTANDING IS WHAT DRIVES LINTING." LINTER.md's own
+> remaining-work line: "the associative KNOWLEDGE GRAPH (bind construct⊗governing-prose⊗meaning); language
+> MODULES as subgraphs (delta-stored, machine-global, never a project copy); rules read off the graph."
+
+**What the read already binds, and used to discard.** At train time `graduate` binds, per construct: the
+construct token, its governing prose (the `understanding` sentence + the derived `advice`), the English
+meaning of that prose, the source url, and the attestation/construction facts. Then `graduated_rules`
+reduced all of it to `filter_map(|o| o.rule)` — a rule list — and the rest died. PASS 24 PERSISTS the whole
+read as the language's SUBGRAPH and makes the rule list a VIEW of it.
+
+**The artifact (`lint_web.rs`, `<lang>.web.bin`, codec kind `WEB` = 14).** A `Vec<ConstructNode>`, one node
+per construct read: `construct` (the byte-preserved token = node id), `governing` (the understanding +
+advice sentences, verbatim), `meaning_links` (the distinctive content KEY-WORDS of the governing prose,
+ranked by the frozen brain's inverse-document-frequency CENTRALITY, capped at 12 — keys into the FROZEN
+English web, NOT a copy of the base; their meaning is rebound on query, the identical delta pattern the
+dictionary itself uses — it stores definition-WORDS, not the meaning hypervectors), `sources`,
+`attested_deprecated`, `proven`, and a `WebRule` (Some iff proven — the compiled/cached rule payload the
+fast path fires, a "query plan"). Stamped with `TRAIN_VERSION`, DISCARDED on a stamp mismatch, persisted
+retain-and-grow (written only when non-empty, so a subset crawl never wipes a prior web) — exactly like the
+graduated ledger and the constructions sidecar. A SEPARATE per-language file: the assembly/isolation unit.
+
+**Rules are VIEWS (byte-identical).** `graduated_rules` now: `let outcomes = graduate(...); let web =
+lint_web::build(m, &outcomes); lint_web::persist(lang, &web); let rules = lint_web::derive_rules(lang,
+&web);`. `build` makes a node per outcome (proven iff it emitted a rule, carrying that exact `(rule, url)`);
+`derive_rules` projects the PROVEN nodes in node order back to `(LearnedRule, source)`. Because node order
+follows outcome order and each proven node carries the emitted rule verbatim, `derive_rules(build(outcomes))
+== outcomes.filter_map(|o| o.rule)` BYTE-FOR-BYTE — the live path is unchanged, the rules are simply now READ
+OFF the web. Proven at the unit level (`rules_are_a_byte_identical_view_over_the_web` over the real
+graduation fixture; `round_trips_and_derives` proves the codec round-trip → derive is total) and at the
+LIVE level (`examples/web_pass24`: every language's persisted-web derive round-trips byte-identical to the
+live-derived set). "Everything READ is retained" is realized for the proposed surface: every candidate is a
+node whether or not it graduated — but MEASURED, today the graduation funnel is precise enough that every
+proposed candidate graduates, so read-nodes == proven-nodes per language (the FULL read surface — every doc
+construct the reader saw, including never-proposed ones — is the scoped next rung; it needs `propose` to
+expose the un-proposed constructs with their governing prose).
+
+**Webs connect across languages (a QUERY, no new geometry).** A node's meaning links are key-words into the
+SAME frozen English web, so a cross-language relation is `lint_web::cross_language` — the Hamming proximity
+of two nodes' governing-prose meanings (`node_meaning` bundles each link's `meaning_of` through the frozen
+brain), ranked, excluding the node's own language. `class` in JS and `class` in Python stay DISTINCT nodes
+(distinct per-language webs); this measures whether their PROSE means something related, never conflating
+the constructs. `lint_query kind=web <construct>` surfaces the whole node + its concept and cross-language
+traversals.
+
+**MEASURED (`examples/web_pass24`, real crawl cache, the LIBRARY live path).** Per-language rule counts,
+each round-tripping byte-identical (web-derived == live-derived): **css 22 / html 17 / javascript 54 /
+python 50 / rust 9 / typescript 54**; web sizes ~1.5–6.4 KB per language (delta-honest — key-words + prose +
+urls, never the base). Assembly/isolation: 6 per-language sidecars; deriving language X's rules is pure over
+X's web and never touches Y's (the "like C, don't pay for what you don't use" covenant, unchanged).
+Cross-language traversal reaches genuine shared meaning: `document.write`(JS)↔`document.write`(TS) dist 0
+via the whole shared link set (`xhtml,xml,html,exception,tag,embedded,throw,write,…`); the non-standard
+CSS `-moz-float-edge`↔JS `document.preferredStyleSheetSet` dist 2594 via `["non","standard"]` (two
+non-standard deprecated features connecting through the base). **Two honest walls, scoped not crossed.**
+(i) read-nodes == proven-nodes (above): the full everything-read surface is unbuilt. (ii) CONCEPT traversal
+to a shared "deprecation/removal" concept is NOISY — `concept_alignment`'s vocabulary is the CS-PRIMITIVES
+(`public_item`, `discarded_fallible`, `control_exit`), not doc-role concepts, and a construction-consumed
+removal's `understanding` is a module-index sentence (cgi's links are `cgi/python/gateway/manipulate/audio`,
+not `deprecated/removed`), so cgi does NOT traverse to a removal concept; the RELATION query (shared
+meaning-links / prose proximity) is sound, the concept-space landing is not yet doc-role-aware. A doc-role
+concept vocabulary (deprecation/removal/supersession as first-class traversal targets) is the re-land
+condition for point (ii).
+
+**No `TRAIN_VERSION` bump, no verdict change.** The web is purely additive: verdicts are byte-identical
+(derive == filter_map), the graduated ledger / module / verdict caches are unchanged in format and content,
+and a bump would force a needless full 82-language retrain + redeploy. The web is a new sidecar built on the
+next train and absent-tolerant on cold machines (`load` returns empty, queries report "not trained").
+`LearnedRule` gains `PartialEq, Eq` (for the byte-identical assertion). 245 lib green (+4: three
+`lint_web` tests + the module byte-identical-view test).
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
