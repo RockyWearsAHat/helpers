@@ -396,9 +396,27 @@ This RECOVERS the PASS-16-walled supersession register STRUCTURALLY — with zer
 construction is a discovered INVARIANT, not a judged similarity (the corpus REPEATS a scaffold rather than
 the graph RECOGNISING a register). Rung 1 proves the states EXIST and REPEAT; proving their MEANING against
 the labeled witness families + the frozen graduate/blind loop, then wiring a consumer, are the next rungs
-(see the PASS 19 ledger item). The whole-domain MDN root crawl is deferred on budget; coverage grows as the
-cache grows. svg is grammar-blocked. See "Open problems" and the falsification ledger for the measured
-dead-ends.
+(see the PASS 19 ledger item). **PASS 20 (measured, `examples/construct_prove`) ran that meaning proof and
+it does NOT land a committable state — two independent walls, NO ship.** (A) The `site_chrome` strip the live
+pipeline REQUIRES for clean prose COLLIDES with the construction scaffold: a scaffold's invariant text flanks
+a `<code>` slot that is a separate tag, so the flanking run's key is cross-page-constant and `site_chrome`
+blanks it — after honest URL-dedup (5281 distinct pages, not rung 1's double-counted 7848) plus the strip,
+113 constructions survive and EVERY design-relevant register construction is eaten as chrome. (B) Without the
+strip (378 survive), the register-inheritance proof (inherit R iff ≥15 independent instances land on family R,
+0 on the opposite) is the passes-16/17 co-occurrence noise re-surfaced at PAGE-ROLE scale: the 15 states that
+reach the floor are API-DESCRIPTION sentences co-occurring with a family by page role ("this results in
+undefined behavior when ⟨⟩" proves PROHIBITION only via a stray rustdoc `class="stab deprecated"` badge), while
+the GENUINE register constructions live on ordinary reference pages whose page-role is neutral (`you should not
+compare the results of ⟨⟩ …` proh=0, `the last version of python …` proh=0/neut=24). PAGE-ROLE families cannot
+witness a SENTENCE-level register. The pass's positive, sub-floor: the two-slot BEHAVIORAL slot-cross-reference
+(slot fillers vs the machine's proven-deprecated SUBJECT set) IS a sound direction discriminator with zero
+meaning geometry — `instead of using ⟨document.write⟩ and creating html text directly, you should use dom api`
+scores slotA 8/8 deprecated / slotB 0/1, while generic `replace ⟨⟩ with ⟨⟩` reads 0/5 (correctly NOT a
+supersession) — but 8 independent A-subjects is below the ISM ≥15 floor (the PASS-12 discovery-starved wall).
+All constructions stay MINED-UNPROVEN; the frozen substrate and every `TRAIN_VERSION` are untouched. See the
+PASS 20 ledger item for the tables and the re-land condition. The whole-domain MDN root crawl is deferred on
+budget; coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the falsification
+ledger for the measured dead-ends.
 
 ---
 
@@ -1144,6 +1162,73 @@ path and no module re-graduated — the frozen substrate is untouched and every 
 unmoved this rung. (4) The `constructions` persistence artifact (retain-and-grow beside the graduated
 ledgers) is designed, not built. The classics, foils, per-language regression, and deploy all belong to the
 meaning-proof + consumer rungs that stand on this measured foundation.
+
+### Item — COMPLETION PASS 20: the construction-MEANING proof hits two walls — the chrome strip eats the scaffold, and page-role family ≠ sentence register (measured, `examples/construct_prove`, NO ship, 2026-07-14)
+
+> PASS 19 rung 1 proved the ATOM (constructions are minable). Its honest stop named the meaning rung: decide
+> which mined constructions ASSERT prohibition vs endorsement vs description, through the frozen machinery, on
+> machine-derived witnesses only. PASS 20 built that proof and MEASURED it. The result is a measured NO-SHIP,
+> like passes 16/17 — the states stay MINED-UNPROVEN per the ISM commit discipline. Recorded so nobody
+> re-derives the two walls.
+
+**The proof designed + built (`examples/construct_prove`).** Mine constructions exactly as rung 1, then label
+each construction's INSTANCE PAGES by the machine's own page-role families — the deprecation-attested pages
+(`lint_attest::Attestation`, PROHIBITION witnesses) and the Baseline availability banners (ENDORSEMENT
+witnesses, discovered structurally as `register_train` does). A construction inherits register R iff ≥
+`REQUIRED_WITNESSES` (15 — the frozen `lint_ism` count) of its instances are INDEPENDENT (distinct slot
+subject) witnesses of R AND ZERO independent instances witness the OPPOSITE register (contradiction fatal —
+the exact `lint_ism::graduate` law, folded STRUCTURALLY: the labeled families are the witnesses, the count +
+contradiction law is the frozen one). Two fixes over the rung-1 probe: honest URL-dedup across the overlapping
+cache clones (the `developer-mozilla-org-*` crawls duplicate `mdn-js`/`mdn-css` — 7848 → **5281 distinct
+pages**), and the `site_chrome` strip the live `graduated_rules` applies.
+
+**WALL A — the chrome strip COLLIDES with the construction scaffold (measured).** A construction's scaffold is
+the invariant text FLANKING a varying `<code>` slot; because the slot is a separate `<code>` tag, the flanking
+text run's key is cross-page-CONSTANT, so `site_chrome` (which blanks any tag-separated run recurring on ≥ 8
+host pages) removes the scaffold as boilerplate. The chrome/attestation atom and the construction atom are the
+SAME invariant-run detector, so the strip that cleans nav prose also eats the scaffold. MEASURED: after dedup +
+strip, **113 constructions** survive (down from 378) and **only 2 prove** — both weak ENDORSEMENT
+API-property-table sentences (`⟨⟩ writable no enumerable no configurable no`), zero register value. EVERY
+design-relevant register construction is gone: `replace ⟨⟩ with ⟨⟩`, `you should not compare the results of
+⟨⟩ …`, `use the ⟨⟩ css property instead, as this attribute is deprecated`, `the last version of python that
+provided the ⟨⟩ module was` — all eaten as chrome. Rung 1's remainder (1) ("strip chrome, it removes the
+degenerate nav constructions") was right that it removes the nav junk; it ALSO removes the real scaffolds.
+
+**WALL B — page-role family ≠ sentence register (the passes-16/17 co-occurrence noise, re-surfaced).** Running
+WITHOUT the strip (378 constructions, scaffolds intact) exposes the register-inheritance proof itself as noisy.
+The prohibition family grew 117 → **277 pages** (the PASS-14 python/rust `class="…deprecated"` route now labels
+the whole corpus, and a rustdoc page carrying a stray deprecated-item badge in a sidebar attests as a whole).
+So the **15** states that reach the ≥15 floor are API-DESCRIPTION sentences co-occurring with a family by PAGE
+ROLE, not genuine register: `this results in undefined behavior when ⟨⟩` proves PROHIBITION (proh=24) only
+because 24 rust integer-method pages carry a stray badge; `the ⟨⟩ constructor creates ⟨⟩ objects` (endo=40),
+`creates a new ⟨⟩ object` (endo=28) prove ENDORSEMENT only because they sit on Baseline pages. Meanwhile the
+GENUINE register constructions land on ordinary reference pages whose page-role is NEUTRAL, so they inherit
+nothing: `you should not compare the results of ⟨⟩ to hardcoded constants` proh=0 endo=3; `the last version of
+python that provided the ⟨⟩ module was` proh=0 endo=0 neut=24; `replace ⟨⟩ with ⟨⟩` all-neutral; `use the ⟨⟩
+css property instead, as this attribute is deprecated` proh=0 endo=7 (its CSS pages carry a Baseline banner, so
+it would even be CONTRADICTED). Page-role families label the PAGE's subject status; a construction is a
+SENTENCE-level register that recurs across ordinary pages. The two granularities do not coincide.
+
+**THE PASS'S POSITIVE (sound design, sub-floor depth).** The task's two-slot BEHAVIORAL cross-reference — a
+supersession construction's slot fillers against the machine's proven-deprecated SUBJECT set (the last-segment
+subjects of the 277 attested pages, 234 distinct) — IS a sound direction discriminator with ZERO meaning
+geometry: `instead of using ⟨⟩ and creating html text directly, you should use dom api` (the document.write
+classic's OWN governing sentence) scores **slotA 8/8 deprecated / slotB 0/1** — a perfect discouraged-A /
+remedy-B separation — while the generic `replace ⟨⟩ with ⟨⟩` scores slotA 0/5, correctly reading as NOT a
+deprecation supersession. So the proof DESIGN discriminates where it applies; the corpus DEPTH (8 independent
+A-subjects) is below the ISM ≥15 floor — the same discovery-starved wall PASS 12 measured, now on the
+supersession register.
+
+**Verdict + re-land condition.** NO ship. All 113/378 constructions stay MINED-UNPROVEN; no consumer wired
+(rung 2), no classics forced (rung 3), no `constructions` artifact persisted (nothing proven to persist), no
+deploy — the frozen substrate and every `TRAIN_VERSION` are unmoved. The register re-lands when BOTH gaps
+close: (a) a scaffold-vs-chrome DISAMBIGUATOR so the scaffold survives the strip the pipeline needs — a
+construction's slot VARIES exactly where chrome is fully invariant, so the miner must run co-resident with
+`site_chrome` and claim the run whose `<code>`-slot varies before chrome blanks it (the varying slot is the
+signal that a run is a scaffold, not boilerplate); and (b) a SENTENCE-scoped register witness (not page-role
+co-occurrence) OR corpus depth ≥ 15 independent subjects per register construction (the document.write
+supersession needs ~2× its current 8-subject support). The slot-cross-reference is the sound seed to build (a)
+and (b) on: it is already the correct, geometry-free meaning signal — it is starved, not wrong.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
