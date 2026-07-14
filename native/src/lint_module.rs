@@ -104,6 +104,27 @@ pub struct Outcome {
     pub rule: Option<(LearnedRule, String)>,
 }
 
+/// One construct the reading layer EXTRACTED from a page but never PROPOSED as a rule candidate — the
+/// everything-read surface (PASS 25 rung 1). A page names many constructs its role prohibits ([`DocPage`]);
+/// the funnel proposes only the page's strongest SUBJECT, and the rest — sibling keywords, the junk operator
+/// tokens, the un-chosen member shapes — used to be DISCARDED. They are now retained as UNPROVEN web nodes:
+/// present, queryable, cross-linkable, NEVER fired (coverage = everything-read, enforcement = the proven
+/// subset). Carries the construct token, one governing sentence from its own page, the source url, and the
+/// page's structural deprecation attestation (so a read node still carries its doc-role).
+#[derive(Clone, Debug)]
+pub struct ReadConstruct {
+    /// The construct token the reader extracted — byte-preserved, the web node id.
+    pub construct: String,
+    /// A governing sentence from the construct's own page that GOVERNS it — the sentence mentioning it when
+    /// one exists, else the page's lead sentence (so the node always carries some prose to link meaning by).
+    pub governing: String,
+    /// The page the construct was read from — the node's source cite.
+    pub url: String,
+    /// Whether that page structurally attests deprecation ([`DocPage::attested_deprecated`]) — the read
+    /// node's doc-role seed.
+    pub attested_deprecated: bool,
+}
+
 /// Whether `sentence` MENTIONS `construct` as a code symbol — the backticked form `` `C` `` or `C`
 /// as a punctuation/whitespace-delimited token (so `var` does not match inside `variable`). The
 /// derivation of `advice` (a SECOND distinct doc sentence about the construct) stands on this.
@@ -452,6 +473,19 @@ pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &Mea
     propose(lang, &partition, &bridge, en, &attested, &construction, memory).0
 }
 
+/// The EVERYTHING-READ constructs of `lang`'s partition that the funnel NEVER proposed (PASS 25 rung 1) —
+/// the read surface minus the proposed candidate tokens, deduped by construct token. These become the
+/// retained-UNPROVEN nodes of the language web (present, queryable, never fired). Pure over the read;
+/// keyed identically to [`proposed`] so a proposed construct is never also a read-only node.
+fn read_not_proposed(candidates: &[Candidate], read_surface: Vec<ReadConstruct>) -> Vec<ReadConstruct> {
+    let proposed: std::collections::HashSet<&str> = candidates.iter().map(|c| c.construct.as_str()).collect();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    read_surface
+        .into_iter()
+        .filter(|r| !proposed.contains(r.construct.as_str()) && seen.insert(r.construct.clone()))
+        .collect()
+}
+
 /// The per-page CONSTRUCTION ATTESTATION map (COMPLETION PASS 23 — the rung-1 consumer wiring): url →
 /// the subjects a page attests by BINDING a proven construction on its own prose
 /// ([`crate::lint_construct::attested_subjects`]). A page ALREADY attested by the existing faculty
@@ -582,9 +616,34 @@ struct PooledSentence {
 /// is a real doc sentence mentioning the construct — preferring one from a prohibited page and in
 /// negative polarity; a construct no clean sentence mentions cannot form an un-fakeable English pair and
 /// is dropped (never a synthesized sentence).
-fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, construction: &std::collections::HashMap<String, Vec<String>>, memory: &Memory) -> (Vec<Candidate>, Vec<PooledSentence>) {
+fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, construction: &std::collections::HashMap<String, Vec<String>>, memory: &Memory) -> (Vec<Candidate>, Vec<PooledSentence>, Vec<ReadConstruct>) {
     let mut docpages: Vec<crate::lint_lang_layer::DocPage> =
         pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested, construction)).collect();
+
+    // EVERYTHING-READ SURFACE (PASS 25 rung 1). Captured HERE, before the subject-selection mutation below
+    // reduces each page's `constructs` to its chosen subject — this is the FULL set the reading layer
+    // extracted (page subjects, item-unit subjects, the code-typography tokens of the governing prose). The
+    // funnel proposes only the strongest subject per page; the rest are retained as unproven web nodes. Each
+    // read construct carries a governing sentence from its own page (the one mentioning it, else the lead).
+    let mut read_surface: Vec<ReadConstruct> = Vec::new();
+    for p in &docpages {
+        for c in &p.constructs {
+            let governing = p
+                .governing
+                .iter()
+                .filter(|s| mentions(s, c))
+                .max_by_key(|s| s.len())
+                .or_else(|| p.governing.first())
+                .cloned()
+                .unwrap_or_default();
+            read_surface.push(ReadConstruct {
+                construct: c.clone(),
+                governing,
+                url: p.url.clone(),
+                attested_deprecated: p.attested_deprecated,
+            });
+        }
+    }
 
     // QUALIFIED-MEMBER SHAPE SELECTION (LINTER.md → "QUALIFIED-MEMBER construct extraction"). A
     // deprecated reference page proposes several candidate SHAPES for its subject, most-specific first
@@ -735,7 +794,7 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
         }
         }
     }
-    (out, pooled)
+    (out, pooled, read_surface)
 }
 
 /// Whether `construct` is the page's PROHIBITED SUBJECT — what the page is ABOUT and forbids — separating a
@@ -974,7 +1033,7 @@ pub fn graduate(
     m: &MeaningNetwork,
     en: &English,
     constructions: &[crate::lint_construct::ConstructionState],
-) -> Vec<Outcome> {
+) -> (Vec<Outcome>, Vec<ReadConstruct>) {
     let bridge = Bridge::new(m, en);
     // The LEARNED deprecation attestation, keyed by the author's OWN METADATA TYPOGRAPHY (frontmatter
     // `status:` enum joined to the crawled pages by slug — COMPLETION PASS 13). Discovered from and applied
@@ -1005,7 +1064,9 @@ pub fn graduate(
         pages.iter().map(|(u, b)| (u.clone(), chrome.strip(u, b))).collect();
     let pages: &[(String, String)] = &stripped;
     let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
-    let (candidates, pool) = propose(lang, &partition, &bridge, en, &attested, &construction, memory);
+    let (candidates, pool, read_surface) = propose(lang, &partition, &bridge, en, &attested, &construction, memory);
+    // The everything-read surface the funnel never proposed — retained as the web's unproven nodes.
+    let read_surface = read_not_proposed(&candidates, read_surface);
     let corpus = harvest_corpus(memory);
 
     // Each candidate's derived advice (its SECOND, distinct doc sentence). A candidate with no such
@@ -1147,7 +1208,7 @@ pub fn graduate(
             rule,
         });
     }
-    outcomes
+    (outcomes, read_surface)
 }
 
 /// Whether `lang`'s documentation READ PASS has completed (owner correction 2026-07-12, point 2): the
@@ -1248,8 +1309,12 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // compiled view. `derive_rules` projects the proven nodes in outcome order, so the live rule set is a
     // VIEW over the web — byte-identical to the old `filter_map(|o| o.rule)` (the proven nodes carry those
     // same `(rule, url)` pairs). Delete the web and re-read it: re-deriving reproduces the same rules.
-    let outcomes = graduate(lang, &pages, memory, br.meanings(), en, &constructions);
-    let web = crate::lint_web::build(br.meanings(), &outcomes);
+    let (outcomes, read_surface) = graduate(lang, &pages, memory, br.meanings(), en, &constructions);
+    // The doc-role each construction-consumed subject carries (PASS 25 rung 2) — the proven construction's
+    // KIND ("removal"/"prohibition"), keyed by subject. Empty for every language that proves no
+    // construction, so those webs carry only the author-metadata "deprecated" role.
+    let roles = crate::lint_construct::subject_roles(&constructions, &pages);
+    let web = crate::lint_web::build(br.meanings(), &outcomes, &read_surface, &roles);
     crate::lint_web::persist(lang, &web);
     let rules = crate::lint_web::derive_rules(lang, &web);
     GraduatedModule { rules, corpus_urls, constructions }
@@ -1440,7 +1505,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let outcomes = graduate("javascript", &pages, &memory, m, en, &[]);
+        let (outcomes, _read) = graduate("javascript", &pages, &memory, m, en, &[]);
         let var = outcomes
             .iter()
             .find(|o| o.candidate.construct == "var")
@@ -1495,14 +1560,16 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let outcomes = graduate("javascript", &pages, &memory, m, en, &[]);
+        let (outcomes, read) = graduate("javascript", &pages, &memory, m, en, &[]);
         let direct: Vec<(LearnedRule, String)> = outcomes.iter().filter_map(|o| o.rule.clone()).collect();
-        let web = crate::lint_web::build(m, &outcomes);
+        let web = crate::lint_web::build(m, &outcomes, &read, &std::collections::HashMap::new());
         let viewed = crate::lint_web::derive_rules("javascript", &web);
         assert_eq!(direct, viewed, "the web-derived rules must equal the direct emitted rules byte-for-byte");
-        // Every read candidate is a node; only the proven ones are rules (everything-read is retained).
-        assert_eq!(web.len(), outcomes.len(), "every read candidate is a web node");
+        // Everything READ is retained: every proposed candidate AND every never-proposed read construct is
+        // a node; only the proven ones are rules — the derive-view is unmoved by the retained-unproven nodes.
+        assert_eq!(web.len(), outcomes.len() + read.len(), "every read construct is a web node");
         assert_eq!(web.iter().filter(|n| n.proven).count(), direct.len(), "proven nodes == rules");
+        assert!(web.iter().filter(|n| !n.proven).count() >= read.len(), "the never-proposed read constructs are retained unproven");
     }
 
     /// Item 3d — FIXPOINT in ONE iteration. Graduation is a deterministic pure function of a FROZEN brain
@@ -1547,8 +1614,8 @@ mod tests {
             ids.sort();
             ids
         };
-        let first = proven(graduate("javascript", &pages, &memory, m, en, &[]));
-        let second = proven(graduate("javascript", &pages, &memory, m, en, &[]));
+        let first = proven(graduate("javascript", &pages, &memory, m, en, &[]).0);
+        let second = proven(graduate("javascript", &pages, &memory, m, en, &[]).0);
         // The fixpoint claim is DETERMINISM — it holds whether or not this machine's brain state
         // graduates the fixture, so it never false-fails on brain-state/test-order (the graduation count
         // itself is the sibling test's job, gated on the suite's brain). Reported, not asserted.

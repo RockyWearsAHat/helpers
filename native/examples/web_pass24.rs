@@ -122,6 +122,33 @@ fn main() {
         }
     }
 
+    // ── Doc-role traversal (PASS 25 rung 2) ──────────────────────────────────────────────────────
+    println!("\n──── DOC-ROLE TRAVERSAL (removal/prohibition/deprecated as first-class targets) ────");
+    for role in ["removal", "prohibition", "deprecated"] {
+        let carriers = lint_web::roles_across(role);
+        println!("\n  role `{role}` → {} carrier(s) across all webs:", carriers.len());
+        for (lang, c) in carriers.iter().take(30) {
+            println!("     [{lang}] {c}");
+        }
+        if carriers.len() > 30 {
+            println!("     … and {} more", carriers.len() - 30);
+        }
+    }
+    // Per-language read-node vs role summary.
+    println!("\n  per-web node/role census:");
+    for (lang, web) in &webs {
+        let read = web.iter().filter(|n| !n.proven).count();
+        let with_roles = web.iter().filter(|n| !n.roles.is_empty()).count();
+        println!(
+            "    {:<12} nodes={:<4} proven={:<4} read-only={:<4} role-bearing={}",
+            lang,
+            web.len(),
+            web.iter().filter(|n| n.proven).count(),
+            read,
+            with_roles
+        );
+    }
+
     // ── Assembly / isolation ─────────────────────────────────────────────────────────────────────
     println!("\n──── ASSEMBLY / ISOLATION (per-language sidecar — internal dependencies only) ────");
     println!("webs on machine: {:?}", lint_web::languages_with_web());

@@ -32,7 +32,7 @@
 //! (distinct language webs) whose meaning links may traverse to shared concepts — never conflated.
 
 use crate::lint_char::MeaningNetwork;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// The largest number of meaning-link key-words a node stores per governing sentence — the distinctive
 /// content words that carry the sentence's sense (the filler every sentence shares is suppressed by the
@@ -76,6 +76,13 @@ pub struct ConstructNode {
     /// Whether the origin STRUCTURALLY ATTESTS the construct deprecated (author-metadata attestation —
     /// [`crate::lint_attest`]).
     pub attested_deprecated: bool,
+    /// The DOC-ROLE facts the proven faculties attest for this construct — first-class TRAVERSAL TARGETS
+    /// (PASS 25). Each entry is a faculty's OWN proven fact, never a word list: `"deprecated"` (the
+    /// author-metadata attestation family, from `attested_deprecated`) and/or `"removal"` /
+    /// `"prohibition"` (the KIND of the proven construction that consumed this subject —
+    /// [`crate::lint_construct::ConstructionKind::label`]). A web query "what connects to REMOVAL" filters
+    /// on these; the removal role is the SPECIFIC fact, deprecation the umbrella.
+    pub roles: Vec<String>,
     /// PROVEN (enforced — carries a rule) or merely READ (retained, unproven, never fired).
     pub proven: bool,
     /// The compiled rule VIEW — `Some` iff `proven`, byte-identical to the emitted `(rule, source)`.
@@ -110,6 +117,7 @@ impl crate::lint_codec::Bin for ConstructNode {
         self.meaning_links.enc(e);
         self.sources.enc(e);
         e.boolean(self.attested_deprecated);
+        self.roles.enc(e);
         e.boolean(self.proven);
         e.boolean(self.rule.is_some());
         if let Some(r) = &self.rule {
@@ -122,10 +130,11 @@ impl crate::lint_codec::Bin for ConstructNode {
         let meaning_links = <Vec<String> as crate::lint_codec::Bin>::dec(d)?;
         let sources = <Vec<String> as crate::lint_codec::Bin>::dec(d)?;
         let attested_deprecated = d.boolean()?;
+        let roles = <Vec<String> as crate::lint_codec::Bin>::dec(d)?;
         let proven = d.boolean()?;
         let has_rule = d.boolean()?;
         let rule = if has_rule { Some(WebRule::dec(d)?) } else { None };
-        Some(ConstructNode { construct, governing, meaning_links, sources, attested_deprecated, proven, rule })
+        Some(ConstructNode { construct, governing, meaning_links, sources, attested_deprecated, roles, proven, rule })
     }
 }
 
@@ -172,14 +181,55 @@ pub fn relate(m: &MeaningNetwork, a: &ConstructNode, b: &ConstructNode) -> Optio
     Some(node_meaning(m, a)?.distance(&node_meaning(m, b)?))
 }
 
-/// Build a language's web subgraph from a graduation pass's outcomes. Every candidate the pass PROPOSED is
-/// a READ node; an outcome that emitted a rule is a PROVEN node carrying that exact rule as its view. The
-/// governing prose is the candidate's understanding (plus its advice when the emitted rule's description
-/// differs — the derived second sentence); meaning links are extracted through the frozen brain. Pure over
-/// the outcomes and the frozen brain; node order follows outcome order so [`derive_rules`] reproduces the
-/// live rule order byte-identically.
-pub fn build(m: &MeaningNetwork, outcomes: &[crate::lint_module::Outcome]) -> Vec<ConstructNode> {
-    let mut nodes = Vec::with_capacity(outcomes.len());
+/// The DOC-ROLES a node carries, from the proven faculties' own facts (PASS 25 rung 2) — never a word
+/// list. `attested_deprecated` contributes the author-metadata attestation family role `"deprecated"`
+/// (the umbrella); `roles_by_construct` carries the SPECIFIC construction kind
+/// ([`crate::lint_construct::subject_roles`], `"removal"`/`"prohibition"`) for a construction-consumed
+/// subject. Order is deterministic (specific first, then the umbrella) so the encoding is stable.
+fn node_roles(construct: &str, attested_deprecated: bool, roles_by_construct: &HashMap<String, String>) -> Vec<String> {
+    let mut roles: Vec<String> = Vec::new();
+    if let Some(r) = roles_by_construct.get(construct) {
+        roles.push(r.clone());
+    }
+    if attested_deprecated && !roles.iter().any(|r| r == "deprecated") {
+        roles.push("deprecated".to_string());
+    }
+    roles
+}
+
+/// The meaning links bundled from one or more governing sentences, deduped and capped — the frozen brain's
+/// distinctive content key-words. Shared by the proven (outcome) and READ (everything-read) node builders.
+fn links_of(m: &MeaningNetwork, governing: &[String]) -> Vec<String> {
+    let mut links: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for sent in governing {
+        for w in meaning_links(m, sent) {
+            if seen.insert(w.clone()) {
+                links.push(w);
+            }
+        }
+    }
+    links.truncate(MAX_MEANING_LINKS);
+    links
+}
+
+/// Build a language's web subgraph — EVERYTHING READ, retained (PASS 25 rung 1). The pass's `outcomes`
+/// become nodes exactly as before (a proven outcome → a PROVEN node carrying its rule view; a proposed
+/// candidate that did not graduate → a READ node), and the `read_surface` — every construct the reading
+/// layer extracted that was NEVER proposed ([`crate::lint_module::ReadConstruct`]) — is appended as
+/// retained-UNPROVEN nodes (coverage = everything-read, enforcement = the proven subset). `roles_by_construct`
+/// keys each node's doc-role facts (rung 2). The governing prose is the candidate's understanding (plus its
+/// advice when the emitted rule's description differs); meaning links are extracted through the frozen brain.
+/// Node order follows outcome order, THEN read-surface order, so [`derive_rules`] (proven nodes only)
+/// reproduces the live rule order byte-identically — the read nodes carry no rule and never perturb it.
+pub fn build(
+    m: &MeaningNetwork,
+    outcomes: &[crate::lint_module::Outcome],
+    read_surface: &[crate::lint_module::ReadConstruct],
+    roles_by_construct: &HashMap<String, String>,
+) -> Vec<ConstructNode> {
+    let mut nodes = Vec::with_capacity(outcomes.len() + read_surface.len());
+    let mut have: HashSet<String> = HashSet::new();
     for o in outcomes {
         let mut governing = vec![o.candidate.understanding.clone()];
         let mut sources = vec![o.candidate.url.clone()];
@@ -207,24 +257,35 @@ pub fn build(m: &MeaningNetwork, outcomes: &[crate::lint_module::Outcome]) -> Ve
             }
             None => (false, None),
         };
-        let mut links: Vec<String> = Vec::new();
-        let mut seen: HashSet<String> = HashSet::new();
-        for sent in &governing {
-            for w in meaning_links(m, sent) {
-                if seen.insert(w.clone()) {
-                    links.push(w);
-                }
-            }
-        }
-        links.truncate(MAX_MEANING_LINKS);
+        have.insert(o.candidate.construct.clone());
         nodes.push(ConstructNode {
+            meaning_links: links_of(m, &governing),
+            roles: node_roles(&o.candidate.construct, o.candidate.attested_deprecated, roles_by_construct),
             construct: o.candidate.construct.clone(),
             governing,
-            meaning_links: links,
             sources,
             attested_deprecated: o.candidate.attested_deprecated,
             proven,
             rule,
+        });
+    }
+    // EVERYTHING READ. Every construct the reader saw but the funnel never proposed enters as a retained
+    // UNPROVEN node — knowledge, queryable, cross-linkable, never fired. Deduped against the proposed set
+    // (a proposed construct is already a node) and against itself (one node per construct token).
+    for r in read_surface {
+        if !have.insert(r.construct.clone()) {
+            continue;
+        }
+        let governing = vec![r.governing.clone()];
+        nodes.push(ConstructNode {
+            meaning_links: links_of(m, &governing),
+            roles: node_roles(&r.construct, r.attested_deprecated, roles_by_construct),
+            construct: r.construct.clone(),
+            governing,
+            sources: vec![r.url.clone()],
+            attested_deprecated: r.attested_deprecated,
+            proven: false,
+            rule: None,
         });
     }
     nodes
@@ -267,6 +328,30 @@ pub fn nodes_connecting(m: &MeaningNetwork, web: &[ConstructNode], concept: &str
         })
         .map(|n| n.construct.clone())
         .collect()
+}
+
+/// The construct nodes in `web` that carry doc-role `role` (PASS 25 rung 2) — a first-class TRAVERSAL over
+/// the faculties' own proven facts, case-insensitive. `nodes_with_role(web, "removal")` returns exactly the
+/// subjects a Removal construction proved (cgi, telnetlib, …); `"deprecated"` returns the whole
+/// author-metadata-attested family. Pure read — the roles are stored proven facts, never re-judged here.
+pub fn nodes_with_role(web: &[ConstructNode], role: &str) -> Vec<String> {
+    let low = role.to_lowercase();
+    web.iter().filter(|n| n.roles.iter().any(|r| r == &low)).map(|n| n.construct.clone()).collect()
+}
+
+/// Every construct carrying doc-role `role`, ACROSS every language web on this machine (PASS 25 rung 2) —
+/// the cross-language doc-role query: "what connects to REMOVAL" reaches every language's removed subjects
+/// through the faculties' shared role vocabulary, regardless of what its prose's index-words say. Loads
+/// each language sidecar (the assembly unit) and returns `(language, construct)` pairs, sorted. Pure read.
+pub fn roles_across(role: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for lang in languages_with_web() {
+        for construct in nodes_with_role(&load(&lang), role) {
+            out.push((lang.clone(), construct));
+        }
+    }
+    out.sort();
+    out
 }
 
 // ── persistence — the per-language web sidecar, delta-stored, retain-and-grow ────────────────────────
@@ -376,6 +461,7 @@ mod tests {
             meaning_links: vec!["never".to_string(), "keyword".to_string()],
             sources: vec![url.to_string()],
             attested_deprecated: false,
+            roles: Vec::new(),
             proven: true,
             rule: Some(WebRule {
                 id: format!("uses-{construct}"),
@@ -395,6 +481,7 @@ mod tests {
             meaning_links: vec!["keyword".to_string()],
             sources: vec!["u".to_string()],
             attested_deprecated: false,
+            roles: Vec::new(),
             proven: false,
             rule: None,
         }
@@ -436,6 +523,45 @@ mod tests {
         let web = vec![proven("var", "Never use var.", "u"), read_only("const"), read_only("if")];
         assert_eq!(web.iter().filter(|n| !n.proven).count(), 2, "two retained-unproven nodes");
         assert_eq!(derive_rules("javascript", &web).len(), 1, "only the proven node enforces");
+    }
+
+    /// Doc-role facts are first-class TRAVERSAL TARGETS (PASS 25 rung 2): a node carries the faculties'
+    /// own proven roles, they SURVIVE the codec round-trip, and a role query returns exactly the carriers —
+    /// per-web and (the cross-language intent) filtered by role, never by prose index-words.
+    #[test]
+    fn doc_roles_round_trip_and_query() {
+        let mut cgi = read_only("cgi");
+        cgi.roles = vec!["removal".to_string(), "deprecated".to_string()];
+        cgi.attested_deprecated = true;
+        let mut codecs = read_only("codecs.open");
+        codecs.roles = vec!["deprecated".to_string()];
+        let web = vec![proven("var", "Never use var.", "u"), cgi, codecs];
+
+        // The roles survive the codec round-trip.
+        let mut e = crate::lint_codec::Enc::new();
+        web.clone().enc(&mut e);
+        let bytes = e.finish(crate::lint_codec::kind::WEB, "test-stamp");
+        let (_stamp, mut d) = crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::WEB).expect("opens");
+        let back = <Vec<ConstructNode> as Bin>::dec(&mut d).expect("decodes");
+        assert_eq!(back.iter().find(|n| n.construct == "cgi").unwrap().roles, vec!["removal", "deprecated"]);
+
+        // Role query: REMOVAL reaches only the removed subject; DEPRECATED reaches the whole family.
+        assert_eq!(nodes_with_role(&back, "removal"), vec!["cgi"]);
+        assert_eq!(nodes_with_role(&back, "REMOVAL"), vec!["cgi"], "case-insensitive");
+        let dep = nodes_with_role(&back, "deprecated");
+        assert!(dep.contains(&"cgi".to_string()) && dep.contains(&"codecs.open".to_string()));
+        assert!(!dep.contains(&"var".to_string()), "var carries no doc-role");
+    }
+
+    /// `node_roles` derives from the faculties' facts only: the construction kind (specific) then the
+    /// attestation umbrella, never a word list — and never duplicates the umbrella.
+    #[test]
+    fn node_roles_are_specific_then_umbrella_no_duplicate() {
+        let mut roles = HashMap::new();
+        roles.insert("cgi".to_string(), "removal".to_string());
+        assert_eq!(node_roles("cgi", true, &roles), vec!["removal", "deprecated"]);
+        assert_eq!(node_roles("codecs.open", true, &roles), vec!["deprecated"]);
+        assert_eq!(node_roles("var", false, &roles), Vec::<String>::new());
     }
 
     /// Meaning links are the distinctive KEY-WORDS the frozen brain knows, ranked by centrality — no
