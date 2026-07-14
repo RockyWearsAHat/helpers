@@ -32,7 +32,7 @@ use crate::lint_read::Polarity;
 
 /// One documented rule learned from a doc or corpus: a language, an id, the bad/good examples, an
 /// English description, and a severity. This is the atom every layer trains from.
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct LearnedRule {
     /// Language the examples are written in.
     pub language: String,

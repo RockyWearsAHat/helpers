@@ -12,6 +12,11 @@
 //!     to (distance + margin), and the rule understanding shaped — or, on abstain, exactly why.
 //!   * `rules <language>` — the rules currently enforced for a language, counted and listed, each
 //!     with the understanding behind it (the principle prose + the plan it shaped).
+//!   * `web <construct>` — the language WEB read off the subgraph: the construct node's governing prose,
+//!     its meaning-link key-words into the frozen English base, its sources, whether it is PROVEN
+//!     (enforced) or merely READ (retained), the concepts it traverses to, and the nearest constructs in
+//!     OTHER languages' webs through the shared English base (the cross-language traversal). `language`
+//!     scopes the lookup; omitted, the first web that carries the construct is used.
 
 use serde_json::{json, Value};
 
@@ -25,8 +30,8 @@ pub fn schema() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works." },
-                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence." },
+                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn", "web"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works. web: read a construct off the language subgraph — its governing prose, meaning links, state (proven/read), and cross-language connections." },
+                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence; web: a construct token (e.g. document.write, cgi)." },
                 "scope": { "type": "string", "enum": ["canon", "language"], "description": "explain only: read the prose as the language-agnostic canon (no uses_construct fallback) or as general language-doc prose (default). Canon principles enforce structurally or abstain." },
                 "language": { "type": "string", "description": "learn only: the language of the bad/good evidence (e.g. rust)." },
                 "bad": { "type": "string", "description": "learn only: code that BREAKS the principle — the check must fire on it." },
@@ -52,9 +57,10 @@ pub fn run(args: &Value) -> ToolResult {
         "explain" => explain(arg, canon),
         "rules" => rules(arg),
         "learn" => learn(arg, args),
+        "web" => web(arg, args["language"].as_str()),
         other => {
             return Err(format!(
-                "lint_query: unknown kind `{other}`. Valid: define | explain | rules | learn"
+                "lint_query: unknown kind `{other}`. Valid: define | explain | rules | learn | web"
             ))
         }
     };
@@ -199,6 +205,67 @@ fn rules(lang: &str) -> Value {
         "completion": completion,
         "module_note": module.is_none()
             .then(|| format!("no trained module for `{lang}` — run lint_config action=train")),
+    })
+}
+
+/// `web <construct>` — the language subgraph read off directly (PASS 24). Finds the construct's node in
+/// the named language's web (or the first web that carries it), and reports the whole node: its governing
+/// prose, its meaning-link key-words into the frozen English base, its sources, whether it is PROVEN
+/// (enforced) or merely READ (retained-unproven), the English concepts its meaning traverses to, and the
+/// nearest constructs in OTHER languages' webs through the shared base. Interpretation is a QUERY over the
+/// graph — no stored labels.
+fn web(construct: &str, language: Option<&str>) -> Value {
+    let brain = crate::lint_char::brain();
+    // Locate the node: the named language's web, else the first web on the machine that carries it.
+    let langs: Vec<String> = match language {
+        Some(l) => vec![l.to_string()],
+        None => crate::lint_web::languages_with_web(),
+    };
+    let mut found: Option<(String, crate::lint_web::ConstructNode)> = None;
+    for lang in &langs {
+        if let Some(node) = crate::lint_web::load(lang).into_iter().find(|n| n.construct == construct) {
+            found = Some((lang.clone(), node));
+            break;
+        }
+    }
+    let Some((lang, node)) = found else {
+        return json!({
+            "kind": "web", "construct": construct,
+            "found": false, "webs_available": crate::lint_web::languages_with_web(),
+            "note": "no language web carries this construct — run lint_config action=train, or check the construct token exactly (byte-preserved).",
+        });
+    };
+    // Concept traversal: the concepts the node's meaning links sit nearest to in the frozen meaning space.
+    let concepts: Vec<Value> = node
+        .meaning_links
+        .iter()
+        .filter_map(|w| {
+            crate::lint_trace::concept_alignment(w)
+                .and_then(|a| a.into_iter().next())
+                .map(|(name, dist)| json!({ "link": w, "nearest_concept": name, "distance": dist }))
+        })
+        .collect();
+    // Cross-language traversal through the shared English base.
+    let cross: Vec<Value> = brain
+        .map(|b| crate::lint_web::cross_language(b.meanings(), &lang, &node, 8))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| json!({ "language": c.lang, "construct": c.construct, "distance": c.distance, "shared_links": c.shared_links }))
+        .collect();
+    json!({
+        "kind": "web",
+        "construct": construct,
+        "language": lang,
+        "found": true,
+        "state": if node.proven { "PROVEN (enforced)" } else { "READ (retained, unproven — never fired)" },
+        "governing_prose": node.governing,
+        "meaning_links": node.meaning_links,
+        "sources": node.sources,
+        "attested_deprecated": node.attested_deprecated,
+        "rule": node.rule.as_ref().map(|r| json!({ "id": r.id, "severity": r.severity, "description": r.description })),
+        "traverses_to_concepts": concepts,
+        "cross_language_connections": cross,
+        "note": "meaning links are key-words into the FROZEN English web; their meaning is rebound on query, never copied. Interpretation is a traversal, not a stored label.",
     })
 }
 
