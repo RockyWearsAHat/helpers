@@ -39,8 +39,19 @@ const MEM_CAP: usize = 8 << 20;
 /// 7: the meaning network weights each definition word by INVERSE DOCUMENT FREQUENCY
 /// ([`MeaningNetwork::weight_of`], owner directive 2026-07-08) so `related()` SEPARATES concepts —
 /// the distinctive words carry the sense; the document-frequency table rides the artifact, so
-/// every stale brain rebuilds to gain it.
-const BRAIN_REV: u64 = 9;
+/// every stale brain rebuilds to gain it. 8–10: usage-learned sense, docs folded into the concept
+/// graph, and the cross-page-invariance chrome filter (see the LINTER.md appendix for each).
+/// 11: the MARKDOWN curriculum (LINTER.md rung 1) — real docs-shaped markdown is read at the
+/// character level between English and the web, and its line typography (fenced code, ATX headings)
+/// tallies into the SAME learned role space through [`crate::lint_graph::scan_markdown`], so every
+/// stale brain rebuilds to read markdown by the register it shares with HTML.
+/// 12: the MDN-content markdown corpus (LINTER.md rung 2a) joins the curriculum — the SOURCE
+/// markdown of the crawled MDN pages, whose fences are tagged ` ```js `/` ```css ` and are ~98%
+/// code, so the fence marker EARNS its code register by exposure (the rung-1 abstain is crossed).
+/// 13: fence role-votes are keyed by the author's own INFO-STRING (LINTER.md rung 1) — ` ```js `,
+/// ` ```plain `, and a bare ` ``` ` are DISTINCT markers, so a tagged code fence earns its own
+/// register separate from an output/`plain` fence; every stale brain rebuilds to the split keying.
+const BRAIN_REV: u64 = 13;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
@@ -399,15 +410,17 @@ impl CharReader {
         self.structure.title_ceiling()
     }
 
-    /// Ensure the reader can read a page's structure: if the curriculum read no web pages (an
-    /// offline or localhost-only machine, so no roles were learned), hydrate the roles from the
-    /// committed bootstrap — the meaning network is still the brain's own local dictionary read.
-    /// Setup and the load path both call this, so a role-less brain never reaches the reader.
+    /// Ensure the reader can read a page's structure by MERGING the committed bootstrap under
+    /// whatever roles were learned live: live-learned roles win, and every role the curriculum could
+    /// NOT teach this machine is filled from the bootstrap. A machine that read no web pages hydrates
+    /// the whole bootstrap (the old all-or-nothing case); a machine that learned ONLY the markdown
+    /// fence roles (rung 1, but no crawled web cache) still reads HTML by role because the bootstrap's
+    /// element roles fill the seeds live learning never saw. A full-web machine's live set already
+    /// covers the bootstrap, so the merge adds nothing. Setup and the load path both call this, so a
+    /// partially-taught brain never reaches the reader missing a whole register.
     pub fn ensure_structure(&mut self) {
-        if self.structure.is_empty() {
-            if let Some(roles) = structure_bootstrap() {
-                self.structure = roles;
-            }
+        if let Some(bootstrap) = structure_bootstrap() {
+            self.structure.hydrate_missing(&bootstrap);
         }
     }
 }
@@ -1146,6 +1159,23 @@ impl StructureRoles {
         &self.roles
     }
 
+    /// Fill in every role this set did not learn from `fallback` (the committed bootstrap), the
+    /// live-learned roles winning where both decide — the MERGE hydration a partially-taught machine
+    /// needs ([`CharReader::ensure_structure`]). Adopts the fallback title ceiling only when none was
+    /// learned live. Idempotent and order-independent: a full set absorbs nothing new.
+    pub fn hydrate_missing(&mut self, fallback: &StructureRoles) {
+        let have: std::collections::HashSet<u64> = self.roles.iter().map(|(k, _)| *k).collect();
+        for &(seed, role) in &fallback.roles {
+            if !have.contains(&seed) {
+                self.roles.push((seed, role));
+            }
+        }
+        self.roles.sort_by_key(|(k, _)| *k);
+        if self.title_ceiling == 0 {
+            self.title_ceiling = fallback.title_ceiling;
+        }
+    }
+
     /// The learned title-shape ceiling in words (0 = none learned) — the section-heading shape
     /// fallback the reader uses when a heading element earned no role.
     pub fn title_ceiling(&self) -> u32 {
@@ -1245,6 +1275,7 @@ pub fn rules_from_understanding(lang: &str, prose: &str) -> Vec<crate::linter::L
             description: sentence.trim().to_string(),
             bad: construct.clone(),
             good: String::new(),
+            construct: None,
         });
     }
     out
@@ -1329,6 +1360,58 @@ pub fn train_curriculum<'a>(corpora: impl IntoIterator<Item = &'a str>) -> CharR
 /// PAGE is built from.
 const WEB_CURRICULUM: [&str; 3] = ["html", "css", "javascript"];
 
+/// The MARKDOWN curriculum corpus — real docs-shaped markdown the brain reads AFTER plain-text
+/// English and BEFORE the web curriculum (LINTER.md rung 1: txt → markdown → HTML). Its structure
+/// (headings, fenced code) is learned by exposure through the char reader, exactly as web element
+/// roles are, so the reader arrives at HTML already knowing the heading and code-fence registers.
+/// Sourced from two DATA clones beside the models, each present after its registered fetch and
+/// each a graceful abstain when absent (a machine without one simply learns fewer markdown roles,
+/// like an un-crawled web language):
+///   - `mattpocock-skills` (rung 1) — general docs-shaped skill markdown whose fences are MIXED
+///     (bash/yaml/text/prose), so on it alone the fence role stays below the ¾-purity bar.
+///   - `mdn-content` (rung 2a) — the SOURCE markdown of the MDN pages already crawled, where fences
+///     are tagged ` ```js `/` ```css `/` ```html ` and are ~98% code, so the fence marker EARNS its
+///     code register by exposure (re-measured in the rung-2 appendix).
+/// Returns each file's contents in a DETERMINISTIC path order, so the freshness fingerprint and the
+/// learned roles are reproducible; a total byte budget caps the read regardless of corpus growth.
+fn markdown_corpus() -> Vec<String> {
+    let beside = |name: &str| {
+        crate::lint_train::model_dir_pub()
+            .parent()
+            .map(|p| p.join(name))
+            .unwrap_or_else(|| std::path::PathBuf::from(name))
+    };
+    // Collect every `*.md` PATH first, then sort, THEN read under budget — so which files survive a
+    // truncation is a deterministic function of the paths, not of filesystem walk order.
+    let mut paths: Vec<std::path::PathBuf> = Vec::new();
+    let mut stack = vec![beside("mattpocock-skills"), beside("mdn-content")];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "md") {
+                paths.push(p);
+            }
+        }
+    }
+    paths.sort();
+    let mut out = Vec::new();
+    let mut budget: usize = 24 << 20; // 24 MiB — covers both clones (~17 MiB today); a safety valve.
+    for p in paths {
+        if budget == 0 {
+            break;
+        }
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            let text = if text.len() > budget { text[..budget].to_string() } else { text };
+            budget -= text.len();
+            out.push(text);
+        }
+    }
+    out
+}
+
 /// Corpus dedup block size (characters). A crawled page is split into blocks at newlines (a block
 /// longer than this is further chunked, so minified single-line pages still dedup), and a block
 /// whose exact text was already learned THIS build is skipped. Repeated page chrome — the nav
@@ -1405,6 +1488,12 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     if let Some(corpus) = crate::lint_socrawl::load() {
         fp ^= (corpus.pages.len() as u64).wrapping_mul(0x100000001B3).rotate_left(19);
     }
+    // Fold the MARKDOWN curriculum corpus into the fingerprint (LINTER.md rung 1): a changed docs
+    // corpus retrains the txt/markdown stage instead of replaying stale roles.
+    let markdown = markdown_corpus();
+    for md in &markdown {
+        fp ^= crate::lint_ai::token_seed(md).rotate_left(11);
+    }
     if english.is_none() && web.iter().all(|(_, p)| p.is_empty()) {
         return None;
     }
@@ -1453,18 +1542,45 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         }
     }
     lap(&mut clock, "meanings-bind");
+    // MARKDOWN CURRICULUM (LINTER.md rung 1): read real docs-shaped markdown at the character level
+    // AFTER plain-text English and BEFORE the web, so its typography (headings, fenced code) is
+    // learned by exposure and the reader arrives at HTML already knowing those registers. The bodies
+    // are kept for the structure-role learner, which reads them through the markdown line typography.
+    let mut md_bodies: Vec<String> = Vec::new();
+    {
+        let before = r.total;
+        for md in &markdown {
+            r.learn(md);
+            md_bodies.push(md.clone());
+        }
+        if r.total > before {
+            order.push(format!("markdown {}c", r.total - before));
+        }
+    }
+    lap(&mut clock, "markdown-learn");
     // Read the web curriculum DEDUPED: a global block set collapses the chrome repeated across a
     // crawl to its first occurrence, so the reader sees each language's real structure and content
     // once instead of thousands of near-identical copies. The deduped raw-HTML pages are kept for
     // the structure-role learner (it needs markup in context, and identical chrome adds no
     // discriminating instances anyway).
+    // CROSS-PAGE-INVARIANCE CHROME FILTER (LINTER.md → "Cross-page invariance = chrome, discarded";
+    // owner north-star). Before the curriculum is read, discover each site's navigation/menu/footer
+    // boilerplate by exact text-run recurrence across the site's own pages and blank it — chrome
+    // carries zero meaning, so it must never enter the meaning graph or the learned structure roles.
+    // This is a stronger cut than the per-block dedup below (which only collapses IDENTICAL whole
+    // blocks): a menu welded inline with unique page text is a mixed block dedup keeps but invariance
+    // removes. Site-scoped, learned from data, no element or site name ([`crate::lint_graph::site_chrome`]).
+    let all_web: Vec<(String, String)> =
+        web.iter().flat_map(|(_, pages)| pages.iter().cloned()).collect();
+    let chrome = crate::lint_graph::site_chrome(&all_web);
     let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let mut web_bodies: Vec<String> = Vec::new();
     for (lang, pages) in &web {
         let before = r.total;
         let mut budget = LANG_CORPUS_CAP;
-        for (_, body) in pages {
-            let novel = novel_blocks(body, &mut seen, &mut budget);
+        for (url, body) in pages {
+            let body = chrome.strip(url, body);
+            let novel = novel_blocks(&body, &mut seen, &mut budget);
             if novel.is_empty() {
                 continue;
             }
@@ -1499,7 +1615,8 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     // vs section headings — read with the meaning network just sealed. This is what lets the reader
     // tell a title from an example when their words are equally unbound.
     let bodies: Vec<&str> = web_bodies.iter().map(String::as_str).collect();
-    r.set_structure(crate::lint_graph::learn_structure_roles(&r, &bodies));
+    let md_refs: Vec<&str> = md_bodies.iter().map(String::as_str).collect();
+    r.set_structure(crate::lint_graph::learn_structure_roles(&r, &bodies, &md_refs));
     lap(&mut clock, "structure-roles");
     // No web to read (offline or localhost-only) ⇒ hydrate roles from the committed bootstrap, so
     // the saved brain reads pages by role even where the curriculum could not crawl the web.
@@ -1531,6 +1648,16 @@ fn fp_path() -> std::path::PathBuf {
 fn brain_fp() -> Option<u64> {
     std::fs::read_to_string(fp_path()).ok()?.trim().parse().ok()
 }
+
+/// The persisted brain's knowledge-snapshot fingerprint — the folded (`BRAIN_REV` ⊕ dictionary ⊕ web
+/// pages ⊕ explanation corpus) identity written beside the brain artifact. Public so a trained module
+/// can stamp the exact understanding it was built on (LINTER.md → Item 3d, COMPLETE against a knowledge
+/// snapshot): when this changes, the module's completion is reopened and its rules are re-proven through
+/// the 3c re-check. `None` when no brain has been built on this machine (a pull-only machine) — the
+/// module currency gate then skips the brain axis rather than churn. A pure read; never trains.
+pub fn brain_fingerprint() -> Option<u64> {
+    brain_fp()
+}
 fn save_brain_fp(fp: u64) {
     let _ = std::fs::write(fp_path(), fp.to_string());
 }
@@ -1542,6 +1669,27 @@ mod tests {
     /// English prose the reader has read must be far LESS surprising than code it has not —
     /// the hermetic floor of the whole rewrite (the real-dictionary gate is the ignored test
     /// below). The reader trains on English sentences, then judges unseen English vs code.
+    /// The MERGE hydration a partially-taught machine relies on ([`CharReader::ensure_structure`]):
+    /// roles learned live win where both decide, every seed the curriculum could not teach is filled
+    /// from the committed bootstrap, and the bootstrap ceiling is adopted only when none was learned
+    /// live. This is what keeps a no-web machine that learned ONLY the markdown fence roles (rung 1)
+    /// still reading HTML by role.
+    #[test]
+    fn hydrate_missing_merges_bootstrap_under_live_roles() {
+        // Live: one code role (seed 1), no ceiling learned. Bootstrap: seed 1 as heading (loses to
+        // live), seed 2 as heading (filled), ceiling 4 (adopted).
+        let mut live = StructureRoles::from_learned(vec![(1, 1)], 0);
+        let boot = StructureRoles::from_learned(vec![(1, -1), (2, -1)], 4);
+        live.hydrate_missing(&boot);
+        assert_eq!(live.role_of(1), Some(true), "the live-learned role wins on overlap");
+        assert_eq!(live.role_of(2), Some(false), "an unlearned seed is filled from the bootstrap");
+        assert_eq!(live.title_ceiling(), 4, "the bootstrap ceiling is adopted when none was learned live");
+        // A machine that learned its own ceiling keeps it (the bootstrap never overrides live).
+        let mut taught = StructureRoles::from_learned(vec![(3, 1)], 9);
+        taught.hydrate_missing(&boot);
+        assert_eq!(taught.title_ceiling(), 9, "a learned ceiling is never overridden by the bootstrap");
+    }
+
     #[test]
     fn english_reads_calmer_than_code() {
         let mut r = CharReader::new();
@@ -1666,7 +1814,7 @@ mod tests {
             rules.iter().map(|r| (r.bad.clone(), r.description.clone())).collect::<Vec<_>>()
         );
         // Compile through the REAL matcher and fire on REAL code — the whole path.
-        let tuples: Vec<(String, String, String, String, String, String)> = rules
+        let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = rules
             .iter()
             .map(|r| {
                 (
@@ -1676,6 +1824,7 @@ mod tests {
                     r.good.clone(),
                     r.description.clone(),
                     "doc".to_string(),
+                    r.construct.clone(),
                 )
             })
             .collect();

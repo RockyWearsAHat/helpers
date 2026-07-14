@@ -394,6 +394,25 @@ impl<'a> Bridge<'a> {
         self.explain_scoped(description, true).plan
     }
 
+    /// PROPOSE the code constructs a description NAMES — one covenant-clean [`extract_construct`]
+    /// per sentence, paired with the governing sentence it was read from. The module-training
+    /// workflow ([`crate::lint_module`]) uses this to propose construct-rule candidates LIBERALLY
+    /// (verification, not the low-recall prohibition gate, is the filter — LINTER.md
+    /// "PROPOSE-VERIFY-LEARN is the language path"). Deduped by construct, keeping the earliest
+    /// governing sentence. `(construct, governing sentence)` pairs; empty when the prose names none.
+    pub fn constructs_named(&self, description: &str) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for sentence in crate::lint_read::sentences(description) {
+            let baseline = self.sentence_baseline(sentence);
+            if let Some(construct) = self.extract_construct(sentence, baseline) {
+                if !out.iter().any(|(c, _)| c == &construct) {
+                    out.push((construct, sentence.to_string()));
+                }
+            }
+        }
+        out
+    }
+
     /// UNDERSTANDING SHAPES A RULE for the LANGUAGE-AGNOSTIC CANON — identical to
     /// [`understand`](Self::understand) except the construct fallback is SUPPRESSED. A canon
     /// principle is a language-agnostic design rule ("prefer deterministic behaviour"); it enforces
@@ -538,11 +557,13 @@ impl<'a> Bridge<'a> {
             self.compose_unary(&predicates, baseline)
         };
         match plan {
-            // The CS primitive ALWAYS wins when one composed — understanding a defect beats matching
-            // a token. Only when NO primitive composed does a named construct carry the prohibition,
-            // and only in the GENERAL (language-doc) scope — the language-agnostic canon never mints
-            // a construct (`allow_construct == false`), enforcing structurally or abstaining.
-            Some(p) => ex.plan = Some(p),
+            // A composed CS primitive normally wins — understanding a defect beats matching a token —
+            // but ONLY when it GENUINELY recognises the prohibition's subject. When the sentence's
+            // real subject is a distinctive named construct and the unary primitive merely grazes a
+            // DESCRIPTOR of that construct's behaviour, the primitive is a differently-shaped defect
+            // that never fires on the construct's use; the construct carries the rule. Canon scope
+            // (`allow_construct == false`) never mints a construct — it keeps the primitive or abstains.
+            Some(p) => ex.plan = Some(self.reroute_grazed_construct(p, sentence, baseline, allow_construct)),
             None => match allow_construct.then(|| self.extract_construct(sentence, baseline)).flatten() {
                 Some(construct) => ex.plan = Some(Plan::UsesConstruct { construct }),
                 None => {
@@ -552,6 +573,51 @@ impl<'a> Bridge<'a> {
             },
         }
         ex
+    }
+
+    /// Keep a composed CS-primitive plan UNLESS it merely GRAZES a BACKTICKED construct's behaviour.
+    /// The doctrine "understanding a defect beats matching a token" holds only when the primitive
+    /// GENUINELY recognises the prohibition's subject. A [`Plan::Unary`] primitive selected by an
+    /// ordinary DESCRIPTOR word ("EXECUTE" → `shell_injection` for "Never use `eval` to execute a
+    /// string of code") — while the author EXPLICITLY backticked a different code symbol (`eval`) as
+    /// the thing forbidden — is a FALSE alignment: `shell_injection` is a differently-shaped defect (a
+    /// Rust `format!` shell exec) that never fires on JS `eval(...)`. The backticked construct carries
+    /// the rule (`uses_construct`).
+    ///
+    /// The precision gate is the BACKTICK — the covenant-blessed signal of the author naming a code
+    /// symbol explicitly ([`extract_construct`] already trusts it above every other cue). A genuine
+    /// structural rule describes its defect in plain prose ("hardcode a secret", "interpolate
+    /// untrusted input into a shell command") and backticks nothing, so its `hardcoded_secret`/
+    /// `shell_injection` primitive is never rerouted — the word-only signals cannot separate those
+    /// from `eval`'s spurious `shell_injection` (both are driven by a real descriptor at distance 0),
+    /// but the author's backtick can. A backticked construct that ITSELF aligns to one of the plan's
+    /// predicates (`` `unwrap` `` → `unwrap_call`) is what the primitive recognises and is KEPT —
+    /// understanding still wins where it genuinely applies. Only `Unary` is rerouted (relational/
+    /// present-without name a structural relation, not a construct) and only in the general scope;
+    /// canon prose (`allow_construct == false`) never mints a construct. Bare (un-backticked) construct
+    /// naming is left to the language path's PROPOSE-then-VERIFY ([`understand_verified`]), where
+    /// reality — not a word heuristic — proves which primitive genuinely fires.
+    fn reroute_grazed_construct(&self, plan: Plan, sentence: &str, baseline: u32, allow_construct: bool) -> Plan {
+        if !allow_construct {
+            return plan;
+        }
+        let Plan::Unary(ref preds) = plan else { return plan };
+        let Some(construct) = self.extract_construct(sentence, baseline) else { return plan };
+        if !sentence.contains(&format!("`{construct}`")) {
+            return plan; // not the author's explicit code symbol — never reroute a genuine primitive
+        }
+        // If the backticked construct ITSELF aligns to one of the plan's predicates, the primitive
+        // recognises the construct (genuine) — keep it. Otherwise the primitive grazed a descriptor of
+        // the construct's behaviour, and the explicitly-named construct carries the rule.
+        let (prim, best, runner_up) = self.align_scored(&construct);
+        let construct_is_the_defect =
+            (best as f64) <= runner_up.max(1) as f64 * BIND_MARGIN
+                && matches!(prim, Primitive::Pred(i) if preds.contains(&i));
+        if construct_is_the_defect {
+            plan
+        } else {
+            Plan::UsesConstruct { construct }
+        }
     }
 
     /// Extract the CODE CONSTRUCT a prohibition names, reusing the construct-ranking PRINCIPLE of
@@ -1129,6 +1195,26 @@ fn tokenize(sentence: &str) -> Vec<(usize, String)> {
         .collect()
 }
 
+/// Whether `code` parses under `lang`'s grammar with NO error — the honest test of "is this code
+/// genuinely IN this language." Tree-sitter is ERROR-TOLERANT: a CSS rule (`clip: rect(1px …)`) or an
+/// HTML element (`<center>…`) parses under the JavaScript grammar into a tree studded with `ERROR`/
+/// `MISSING` nodes yet still exposes stray identifier leaves (`clip`, `center`) that a bare construct
+/// scan would fire on. That is exactly the loophole that let a CSS/HTML deprecation page "prove" in the
+/// JS partition. Requiring a CLEAN parse (`!root.has_error()`) is the language-general, covenant-clean
+/// squeeze: genuine JS (`"x".substr(1)`, `with (o) {}`) parses clean; foreign snippets do not. Returns
+/// `false` for a grammarless language (nothing to verify against).
+pub fn parses_cleanly(lang: &str, code: &str) -> bool {
+    let Some(language) = crate::lint_match::language(lang) else { return false };
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&language).is_err() {
+        return false;
+    }
+    match parser.parse(code, None) {
+        Some(tree) => !tree.root_node().has_error(),
+        None => false,
+    }
+}
+
 /// Evaluate a plan over parsed `code` — shared by [`Bridge::enforce`] and the tests. The plan is
 /// the only per-principle state, and it is just primitive indices, so this runs identically for
 /// every principle.
@@ -1190,24 +1276,78 @@ fn walk<'a>(node: Node<'a>, f: &mut impl FnMut(Node<'a>)) {
 /// in a comment or embedded in a string is never a usage. Read from the node kind by substring (the
 /// blessed generic probe, as [`is_statement`] reads `comment`), never a grammar-specific list.
 fn is_lexical_text(kind: &str) -> bool {
-    kind.contains("string") || kind.contains("comment") || kind.contains("char")
+    kind.contains("string") || kind.contains("comment") || kind.contains("char") || is_embedded_markup(kind)
 }
 
-/// Record every AST USAGE of the exact whole-token `construct`: a LEAF token node (an identifier,
-/// type, field, keyword, or operator — whatever the grammar lexes as one token) whose utf8 text
-/// equals `construct` EXACTLY (never a substring). Skips string/char/comment interiors entirely, so
-/// the construct's name in prose or a literal is not a usage. The 1-based row of each usage is
-/// pushed to `hits`. AST-grained by construction: only childless token nodes can match.
+/// Whether a node kind is an EMBEDDED-MARKUP region — a JSX element/fragment the JavaScript grammar
+/// parses out of `<center>…</center>`. Its tag names are markup identifiers, NOT code usages of a
+/// language construct, so [`scan_construct`] must neither match nor descend into them — the same reason
+/// it skips a string/comment interior. This closes the HTML-element → JS partition leak that a clean
+/// parse alone cannot (tree-sitter-javascript accepts `<center>` as error-free JSX). Read from the node
+/// KIND by substring — the blessed generic probe (as `is_statement` reads `comment`), never a language
+/// name: any grammar's `jsx_*` markup nodes are covered, and a non-markup construct usage is untouched.
+fn is_embedded_markup(kind: &str) -> bool {
+    kind.contains("jsx")
+}
+
+/// Record every AST USAGE of the exact whole `construct`: the SMALLEST AST node whose utf8 text
+/// equals `construct` EXACTLY (never a substring). For a single-token construct (`var`, `==`) that
+/// smallest node is the LEAF token; for a DOTTED member construct (`document.write`,
+/// `Object.assign`) it is the member/field expression node whose whole text is the dotted name —
+/// still AST-grained (a real node, never a text-substring match). A node that matches is recorded
+/// and NOT descended into (its children are proper sub-spans, never the same construct), so each
+/// usage counts once. String/char/comment interiors are skipped entirely, so the construct's name
+/// in prose or a literal is not a usage. The 1-based row of each usage is pushed to `hits`.
+///
+/// RECEIVER-GENERIC MEMBER USE (a construct beginning with `.`, e.g. `.substr`): the smallest node
+/// whose text is the property NAME (`substr`) AND that sits on the PROPERTY side of a member access —
+/// its first non-whitespace SOURCE byte to the left is `.`. This fires `x.substr(1)` on ANY receiver
+/// without matching a bare identifier (`const substr = 0`), an object-literal key (`{ substr: 1 }`),
+/// or a receiver token (`arguments.length` — the property is `length`, not the subject). It is the
+/// covenant-clean shape for a prototype MEMBER whose MDN subject is `String.prototype.substr`; a
+/// STATIC property (`RegExp.input`) keeps the receiver-specific DOTTED form above. Grammar-agnostic:
+/// the leading-`.` source test reads no language-specific node kind.
 fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>) {
+    if let Some(property) = construct.strip_prefix('.') {
+        scan_member(node, src, property, hits);
+        return;
+    }
     if is_lexical_text(node.kind()) {
         return;
     }
-    if node.child_count() == 0 && node.utf8_text(src).map(|t| t == construct).unwrap_or(false) {
+    if node.utf8_text(src).map(|t| t == construct).unwrap_or(false) {
         hits.push(row(node));
+        return;
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         scan_construct(child, src, construct, hits);
+    }
+}
+
+/// Record every RECEIVER-GENERIC MEMBER usage of `property` — the leaf whose whole text is
+/// `property` and whose immediately preceding non-whitespace source byte is `.` (so it is the
+/// property side of a member access, `receiver.property`). Descends past string/comment interiors so
+/// the name in a literal is never a usage. Sub-part of [`scan_construct`] for a `.name` construct.
+fn scan_member(node: Node, src: &[u8], property: &str, hits: &mut Vec<usize>) {
+    if is_lexical_text(node.kind()) {
+        return;
+    }
+    let mut cursor = node.walk();
+    let is_leaf = node.child_count() == 0;
+    if is_leaf && node.utf8_text(src).map(|t| t == property).unwrap_or(false) {
+        let start = node.start_byte();
+        let mut i = start;
+        while i > 0 && src[i - 1].is_ascii_whitespace() {
+            i -= 1;
+        }
+        if i > 0 && src[i - 1] == b'.' {
+            hits.push(row(node));
+            return;
+        }
+    }
+    for child in node.children(&mut cursor) {
+        scan_member(child, src, property, hits);
     }
 }
 
@@ -1767,6 +1907,85 @@ mod tests {
         eprintln!("    bad flags {hits_bad:?}; good flags {hits_good:?}");
         assert!(hits_bad.contains(&2), "the `var` on line 2 flags: {hits_bad:?}");
         assert!(hits_good.is_empty(), "let/const code is clean: {hits_good:?}");
+    }
+
+    /// BACKTICK REROUTE (2026-07-11): a prohibition that BACKTICKS a code symbol whose composed unary
+    /// CS primitive merely GRAZES the construct's behaviour reaches `uses_construct` on the plain
+    /// `understand` path, WITHOUT breaking a genuine primitive rule. "Never use the `eval` function to
+    /// EXECUTE a string of code" composes `unary(shell_injection)` (the verb "execute" is a
+    /// `shell_injection` descriptor) yet the Rust-shaped `shell_injection` never fires on JS `eval(…)`;
+    /// the backticked `eval` is the real subject, so understanding routes to `uses_construct(eval)`.
+    /// The GENUINE `shell_injection` rule — plain prose, no backtick — KEEPS its primitive: word-only
+    /// signals cannot separate the two, but the author's backtick can. A DOTTED member construct
+    /// (`document.write`) fires as one AST node via the generalised `scan_construct`. Ignored (reads
+    /// the dictionary + JS/Rust grammars).
+    #[test]
+    #[ignore = "reads the local dictionary + js/rust grammars; the backtick-reroute routing fix"]
+    fn backticked_construct_reroutes_from_grazed_primitive() {
+        let meanings = understanding();
+        let english = crate::lint_english::brain().expect("English brain");
+        let bridge = Bridge::new(&meanings, &english);
+
+        // A backticked construct whose only composed primitive grazes it → uses_construct, fires on JS.
+        let eval_prose = "Never use the `eval` function to execute a string of code.";
+        let eval_plan = bridge.understand(eval_prose).expect("eval prohibition understood");
+        eprintln!("eval plan: {}", eval_plan.describe());
+        assert!(
+            matches!(&eval_plan, Plan::UsesConstruct { construct } if construct == "eval"),
+            "backticked eval reroutes to uses_construct, not the grazed shell_injection: {}",
+            eval_plan.describe()
+        );
+        assert!(!bridge.enforce(eval_prose, "javascript", "eval(userInput);").is_empty(), "fires on JS eval");
+        assert!(bridge.enforce(eval_prose, "javascript", "JSON.parse(userInput);").is_empty(), "clean on JSON.parse");
+
+        // NO REGRESSION: the genuine shell-injection rule (plain prose, no backtick) KEEPS its primitive
+        // and still fires on the Rust shape it recognises.
+        let shell_prose = "Never interpolate untrusted input into a shell command string.";
+        let shell_plan = bridge.understand(shell_prose).expect("shell rule understood");
+        assert!(
+            matches!(&shell_plan, Plan::Unary(p) if p.iter().any(|i| PREDICATES[*i].name == "shell_injection")),
+            "the genuine shell rule keeps unary(shell_injection): {}",
+            shell_plan.describe()
+        );
+        let shell_bad = "fn f(u: &str) { std::process::Command::new(\"sh\").arg(format!(\"echo {u}\")); }";
+        assert!(!run_plan(&shell_plan, "rust", shell_bad).is_empty(), "genuine shell rule still fires");
+
+        // A DOTTED member construct fires as one AST node (generalised scan_construct).
+        let dw_prose = "Never use `document.write` to insert content into the page.";
+        let dw_plan = bridge.understand(dw_prose).expect("document.write prohibition understood");
+        assert!(
+            matches!(&dw_plan, Plan::UsesConstruct { construct } if construct == "document.write"),
+            "backticked dotted member shapes uses_construct(document.write): {}",
+            dw_plan.describe()
+        );
+        assert!(bridge.enforce(dw_prose, "javascript", "document.write('<p>x</p>');").contains(&1), "fires on document.write");
+        assert!(bridge.enforce(dw_prose, "javascript", "el.append(node);").is_empty(), "clean on el.append");
+    }
+
+    /// RECEIVER-GENERIC MEMBER construct (`.substr`) + the CROSS-LANGUAGE partition gates (owner Item 1:
+    /// QUALIFIED-MEMBER extraction; the leak fixes). Uses only the bundled JS grammar — no dictionary.
+    #[test]
+    fn member_construct_and_partition_gates() {
+        let member = Plan::UsesConstruct { construct: ".substr".to_string() };
+        // Fires on a member CALL/access on ANY receiver, at the property position.
+        assert_eq!(run_plan(&member, "javascript", "var s = \"x\".substr(1);"), vec![1]);
+        assert_eq!(run_plan(&member, "javascript", "obj.substr(2);"), vec![1]);
+        // NOT an ordinary identifier, an object-literal key, or a receiver token of that name.
+        assert!(run_plan(&member, "javascript", "const substr = 0;").is_empty(), "bare binding is not a member use");
+        assert!(run_plan(&member, "javascript", "const o = { substr: 1 };").is_empty(), "object key is not a member use");
+        assert!(run_plan(&member, "javascript", "substr(1);").is_empty(), "a bare call is not a member use");
+        // A qualified static keeps its receiver; `el.input` (a user member) never matches `RegExp.input`.
+        let qualified = Plan::UsesConstruct { construct: "RegExp.input".to_string() };
+        assert_eq!(run_plan(&qualified, "javascript", "RegExp.input;"), vec![1]);
+        assert!(run_plan(&qualified, "javascript", "el.input = 7;").is_empty(), "a user member is not the static");
+
+        // parses_cleanly: genuine JS parses clean; a CSS rule does NOT parse clean under the JS grammar
+        // (the CSS-into-JS leak vector the gate closes).
+        assert!(parses_cleanly("javascript", "\"x\".substr(1);"));
+        assert!(!parses_cleanly("javascript", ".dotted { clip: rect(1px, 2px, 3px, 4px); }"), "a CSS rule is not clean JS");
+        // JSX is embedded markup, not a code usage: `<center>` is not a JS construct usage.
+        let center = Plan::UsesConstruct { construct: "center".to_string() };
+        assert!(run_plan(&center, "javascript", "<center>hi</center>").is_empty(), "a JSX tag name is not a JS construct");
     }
 
     /// VERIFICATION REACHES A RULE THE GATE MISSES (owner directive 2026-07-10 — the language-path

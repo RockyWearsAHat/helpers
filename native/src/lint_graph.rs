@@ -121,55 +121,177 @@ fn scan(body: &str, reader: &CharReader) -> Scan {
             continue;
         }
         let end = body[at..].find('<').map(|i| at + i).unwrap_or(bytes.len());
-        let mut gap = Gap {
-            start: at,
-            end,
-            words: 0,
-            english_words: 0,
-            punctuated: false,
-            terminal: false,
-            symbolic: false,
-            stack: stack.clone(),
-        };
-        let mut w_start: Option<usize> = None;
-        // Walk char-wise so multibyte text never splits; a word closes at whitespace.
-        let text = &body[at..end];
-        let mut it = text.char_indices().peekable();
-        while let Some((i, c)) = it.next() {
-            let abs = at + i;
-            if c.is_whitespace() {
-                if let Some(s) = w_start.take() {
-                    push_word(body, s, abs, reader, &mut gap);
-                }
-                continue;
-            }
-            if !c.is_alphanumeric() {
-                gap.symbolic = true;
-            }
-            if w_start.is_none() {
-                w_start = Some(abs);
-            }
-            // Sentence typography: `.;!?` followed by whitespace or the gap's end closes a
-            // sentence — a `.` between letters is part of a word. A TERMINAL (`.!?`) marks a prose
-            // sentence's end; `;` is kept out because it also ends code statements.
-            if matches!(c, '.' | ';' | '!' | '?')
-                && it.peek().map(|(_, n)| n.is_whitespace()).unwrap_or(true)
-            {
-                gap.punctuated = true;
-                if matches!(c, '.' | '!' | '?') {
-                    gap.terminal = true;
-                }
-            }
-        }
-        if let Some(s) = w_start {
-            push_word(body, s, end, reader, &mut gap);
-        }
+        let gap = text_gap(body, at, end, reader, stack.clone());
         if gap.words > 0 {
             gaps.push(gap);
         }
         at = end;
     }
     Scan { gaps, tags }
+}
+
+/// Build the aggregate [`Gap`] for the text run `body[start..end]` under containment `stack`,
+/// judging each whitespace-delimited word's English-ness against the meaning network. The shared
+/// word-shape former: BOTH the HTML tag scan ([`scan`]) and the markdown marker scan
+/// ([`scan_markdown`]) emit gaps through it, so a fenced code block and a `<pre>` block are read by
+/// the identical typography — this is the curriculum's transfer point (LINTER.md rung 1).
+fn text_gap(body: &str, start: usize, end: usize, reader: &CharReader, stack: Vec<(u32, u64)>) -> Gap {
+    let mut gap = Gap {
+        start,
+        end,
+        words: 0,
+        english_words: 0,
+        punctuated: false,
+        terminal: false,
+        symbolic: false,
+        stack,
+    };
+    let mut w_start: Option<usize> = None;
+    // Walk char-wise so multibyte text never splits; a word closes at whitespace.
+    let text = &body[start..end];
+    let mut it = text.char_indices().peekable();
+    while let Some((i, c)) = it.next() {
+        let abs = start + i;
+        if c.is_whitespace() {
+            if let Some(s) = w_start.take() {
+                push_word(body, s, abs, reader, &mut gap);
+            }
+            continue;
+        }
+        if !c.is_alphanumeric() {
+            gap.symbolic = true;
+        }
+        if w_start.is_none() {
+            w_start = Some(abs);
+        }
+        // Sentence typography: `.;!?` followed by whitespace or the gap's end closes a
+        // sentence — a `.` between letters is part of a word. A TERMINAL (`.!?`) marks a prose
+        // sentence's end; `;` is kept out because it also ends code statements.
+        if matches!(c, '.' | ';' | '!' | '?')
+            && it.peek().map(|(_, n)| n.is_whitespace()).unwrap_or(true)
+        {
+            gap.punctuated = true;
+            if matches!(c, '.' | '!' | '?') {
+                gap.terminal = true;
+            }
+        }
+    }
+    if let Some(s) = w_start {
+        push_word(body, s, end, reader, &mut gap);
+    }
+    gap
+}
+
+// ── Markdown typography (the curriculum precursor to web reading, LINTER.md rung 1) ──
+
+/// The seed of the markdown FENCED-CODE marker — a run of ≥3 backticks or tildes, keyed by the
+/// marker's OWN typography INCLUDING its author-supplied INFO-STRING (rung 1): `` ```js ``,
+/// `` ```plain ``, and a bare `` ``` `` are DISTINCT markers, exactly as `<pre class="…">` variants
+/// would be. The info-string is part of the fence's own tag — the author declares the register the
+/// same way an element's attributes ride its tag — so a code fence and an output/`plain` fence learn
+/// SEPARATE roles by exposure ([`learn_structure_roles`]), never assigned here. Same
+/// [`crate::lint_ai::token_seed`] the HTML scan keys element names with, so a tagged fence and an
+/// HTML `<pre>` still occupy the same learned role SPACE. An empty info-string keys the bare
+/// `` ``` `` marker, which keeps whatever register it honestly earns.
+fn md_fence_seed(info: &str) -> u64 {
+    if info.is_empty() {
+        crate::lint_ai::token_seed("```")
+    } else {
+        crate::lint_ai::token_seed(&format!("```{}", info.to_ascii_lowercase()))
+    }
+}
+
+/// The INFO-STRING of a markdown fence OPEN line — the text after the run of fence characters, its
+/// first whitespace-delimited token (`` ```js `` → `js`, `` ```js-nolint `` → `js-nolint`, `` ```
+/// title=x `` → the first word, a bare `` ``` `` → empty). Pure typography (the author's own tag on
+/// the fence), the markdown analogue of reading an element's attributes; lowercased at the seed.
+fn md_fence_info(trimmed: &str) -> &str {
+    let c = trimmed.chars().next().unwrap_or('`');
+    trimmed.trim_start_matches(c).split_whitespace().next().unwrap_or("")
+}
+
+/// The seed of the markdown ATX-HEADING marker — a line-leading run of `#`. Keyed by the marker's
+/// own character; the heading ROLE is learned by exposure, never assigned.
+fn md_heading_seed() -> u64 {
+    crate::lint_ai::token_seed("#")
+}
+
+/// Whether a line's leading (whitespace-trimmed) text opens or closes a markdown code FENCE — ≥3
+/// of the same fence char (`` ` `` or `~`). Pure typography, no info-string parsing.
+fn is_md_fence(trimmed: &str) -> bool {
+    let Some(c) = trimmed.chars().next() else { return false };
+    (c == '`' || c == '~') && trimmed.chars().take_while(|&x| x == c).count() >= 3
+}
+
+/// Tokenize a markdown body into gaps by its LINE typography — the markdown analogue of [`scan`]'s
+/// `<…>` tokenizer. A fenced block wraps its content lines in the fence marker element; an ATX
+/// heading wraps its trailing text in the heading marker element; every other line is plain prose
+/// under no element. Byte ranges index the ORIGINAL body so [`read_scan`] slices code and prose
+/// verbatim. Pure typography (line-leading markers), never a semantic markdown parser: the markers'
+/// ROLES are learned by exposure, this only reads their characters.
+fn scan_markdown(md: &str, reader: &CharReader) -> Scan {
+    let heading = md_heading_seed();
+    let mut gaps = Vec::new();
+    let mut inst: u32 = 0;
+    // The open fence carries its instance id AND its info-string-keyed seed, so every content line of
+    // the block is contained by the marker the AUTHOR tagged (`` ```js `` vs `` ```plain ``).
+    let mut fence_open: Option<(u32, u64)> = None;
+    let bytes = md.as_bytes();
+    let mut at = 0usize;
+    while at < bytes.len() {
+        let eol = md[at..].find('\n').map(|i| at + i).unwrap_or(bytes.len());
+        let line = &md[at..eol];
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if let Some((open, seed)) = fence_open {
+            if is_md_fence(trimmed) {
+                fence_open = None; // the closing fence ends the block
+            } else {
+                let g = text_gap(md, at, eol, reader, vec![(open, seed)]);
+                if g.words > 0 {
+                    gaps.push(g);
+                }
+            }
+        } else if is_md_fence(trimmed) {
+            fence_open = Some((inst, md_fence_seed(md_fence_info(trimmed))));
+            inst += 1;
+        } else if trimmed.starts_with('#') {
+            let hashes = trimmed.chars().take_while(|&c| c == '#').count();
+            let after = &trimmed[hashes..];
+            // An ATX heading is 1–6 `#` followed by whitespace then text; `#word` is prose.
+            if hashes <= 6 && after.starts_with(char::is_whitespace) {
+                let lead = indent + hashes + (after.len() - after.trim_start().len());
+                let g = text_gap(md, at + lead, eol, reader, vec![(inst, heading)]);
+                inst += 1;
+                if g.words > 0 {
+                    gaps.push(g);
+                }
+            } else {
+                let g = text_gap(md, at, eol, reader, Vec::new());
+                if g.words > 0 {
+                    gaps.push(g);
+                }
+            }
+        } else {
+            let g = text_gap(md, at, eol, reader, Vec::new());
+            if g.words > 0 {
+                gaps.push(g);
+            }
+        }
+        at = if eol < bytes.len() { eol + 1 } else { eol };
+    }
+    Scan { gaps, tags: Vec::new() }
+}
+
+/// READ a markdown body into its [`PageUnit`]s — the markdown counterpart of [`read_page`], standing
+/// on the SAME learned roles and the SAME unit former ([`read_scan`]). A brain that learned no page
+/// structure reads nothing. This is the curriculum precursor: markdown structure the reader learned
+/// by exposure segments a doc into heading-governed code-fence units before the web layer is read.
+pub fn read_markdown(md: &str, reader: &CharReader) -> Vec<PageUnit> {
+    if reader.structure().is_empty() {
+        return Vec::new();
+    }
+    read_scan(scan_markdown(md, reader), md, reader)
 }
 
 /// Close one word: judge it against the meaning network and count it into its gap. The judgment
@@ -297,7 +419,14 @@ pub fn read_page(body: &str, reader: &CharReader) -> Vec<PageUnit> {
     if reader.structure().is_empty() {
         return Vec::new();
     }
-    let scan = scan(body, reader);
+    read_scan(scan(body, reader), body, reader)
+}
+
+/// Form units from an already-tokenized [`Scan`] over `body` — shared by the HTML reader
+/// ([`read_page`]) and the markdown reader ([`read_markdown`]), so both typographies segment into
+/// heading-governed code units by the identical register logic. `body` is the ORIGINAL source the
+/// scan indexes; code and prose are sliced from it verbatim.
+fn read_scan(scan: Scan, body: &str, reader: &CharReader) -> Vec<PageUnit> {
     if scan.is_empty() {
         return Vec::new();
     }
@@ -458,6 +587,145 @@ fn hint_before(body: &str, tags: &[(usize, usize)], span_start: usize) -> String
     String::new()
 }
 
+// ── Cross-page-invariance chrome discovery (site-scoped, setup only) ───────────
+
+/// A text run counts as site chrome once it recurs on at least this many DISTINCT pages of the same
+/// site — the north-star's own law ("an element whose structure and style and content is invariant
+/// across a site's pages is navigation/boilerplate with zero meaning"), approximated by CONTENT-run
+/// recurrence. This is the PROTOTYPE's measured separation floor (`examples/reader_grade`): at ≥8
+/// same-site pages the site-invariant text mass separates cleanly — W3Schools 70.1% (its menu/
+/// breadcrumb/footer) vs MDN reference 19.8% / API 23.8% (reference furniture). It is the SAME
+/// repetition-support floor as [`TAG_ROLE_SUPPORT`]: a signal is trusted-by-repetition only once at
+/// least this many independent instances testify, never on one sighting.
+const CHROME_PAGE_SUPPORT: usize = 8;
+
+/// The invariance key of one tag-separated text run — the atom the chrome detector counts across a
+/// site's pages. Pure typography: whitespace-collapse the run, and only a run of at least two words
+/// and six characters is a comparison atom (a lone word or a stray symbol never keys as chrome). The
+/// key is the run's content hash ([`crate::lint_ai::token_seed`]), so two byte-identical runs on two
+/// pages collide and a paraphrase does not — invariance is EXACT recurrence, never similarity.
+fn run_key(text: &str) -> Option<u64> {
+    let norm: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if norm.len() < 6 || norm.split(' ').count() < 2 {
+        return None;
+    }
+    Some(crate::lint_ai::token_seed(&norm))
+}
+
+/// Per-HOST site chrome: the set of text-run keys that recur across a site's pages (navigation,
+/// breadcrumb, footer, sidebar menu). Keyed by host because invariance is a property of ONE site —
+/// a run shared by MDN and W3Schools is not chrome, and each site's furniture is discarded only
+/// against its own pages. Built once over a whole-site corpus at setup ([`site_chrome`]); the strip
+/// ([`SiteChrome::strip`]) removes chrome text before any reader (learned [`read_page`] or the hand
+/// anatomy) forms prose or units, so boilerplate never welds into a page's governing meaning.
+pub struct SiteChrome {
+    chrome: std::collections::HashMap<String, std::collections::HashSet<u64>>,
+}
+
+impl SiteChrome {
+    /// Whether no host contributed any chrome — a corpus too small or too varied to find invariance.
+    pub fn is_empty(&self) -> bool {
+        self.chrome.values().all(std::collections::HashSet::is_empty)
+    }
+
+    /// The number of distinct chrome runs discovered across all hosts — a measurement handle.
+    pub fn len(&self) -> usize {
+        self.chrome.values().map(std::collections::HashSet::len).sum()
+    }
+
+    /// STRIP `url`'s site chrome from `body`: every tag-separated text run whose key is invariant on
+    /// this page's host is blanked to a space, tags and attributes preserved verbatim (so a
+    /// `class="notecard deprecated"` marker, an `id=` anchor, and `<pre><code>` example code all
+    /// survive — only recurring PROSE text is removed). A page whose host contributed no chrome, or
+    /// a url with no host, is returned unchanged. Pure typography: `<…>` is a markup token whose
+    /// interior is copied as-is, text between tokens is the run the key is computed over.
+    pub fn strip(&self, url: &str, body: &str) -> String {
+        let Some(host) = crate::lint_docs::url_host(url) else { return body.to_string() };
+        let Some(set) = self.chrome.get(&host) else { return body.to_string() };
+        if set.is_empty() {
+            return body.to_string();
+        }
+        let bytes = body.as_bytes();
+        let mut out = String::with_capacity(body.len());
+        let mut at = 0usize;
+        let mut run_start = 0usize;
+        while at < bytes.len() {
+            if bytes[at] == b'<' {
+                let run = &body[run_start..at];
+                if run_key(run).is_some_and(|k| set.contains(&k)) {
+                    out.push(' ');
+                } else {
+                    out.push_str(run);
+                }
+                let close = body[at..].find('>').map(|i| at + i + 1).unwrap_or(bytes.len());
+                out.push_str(&body[at..close]);
+                at = close;
+                run_start = at;
+                continue;
+            }
+            at += 1;
+        }
+        let tail = &body[run_start..];
+        if run_key(tail).is_some_and(|k| set.contains(&k)) {
+            out.push(' ');
+        } else {
+            out.push_str(tail);
+        }
+        out
+    }
+}
+
+/// DISCOVER each site's chrome by cross-page text-run invariance over a whole-site `pages` corpus
+/// (LINTER.md, "Cross-page invariance = chrome, discarded"). Groups pages by host, counts on how
+/// many DISTINCT pages of that host each text-run key appears (deduped within a page), and keeps the
+/// keys recurring on ≥ [`CHROME_PAGE_SUPPORT`] pages. No element name and no site name is consulted:
+/// the discriminator is purely how often a run's exact content recurs across the same site. Pure
+/// over the corpus; called once at setup, never on the lint path.
+pub fn site_chrome(pages: &[(String, String)]) -> SiteChrome {
+    use std::collections::{HashMap, HashSet};
+    let mut counts: HashMap<String, HashMap<u64, usize>> = HashMap::new();
+    for (url, body) in pages {
+        let Some(host) = crate::lint_docs::url_host(url) else { continue };
+        let mut on_page: HashSet<u64> = HashSet::new();
+        let mut in_tag = false;
+        let mut run_start = 0usize;
+        let b = body.as_bytes();
+        for i in 0..b.len() {
+            match b[i] {
+                b'<' => {
+                    if !in_tag {
+                        if let Some(k) = run_key(&body[run_start..i]) {
+                            on_page.insert(k);
+                        }
+                    }
+                    in_tag = true;
+                }
+                b'>' => {
+                    in_tag = false;
+                    run_start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if let Some(k) = run_key(&body[run_start..]) {
+            on_page.insert(k);
+        }
+        let host_counts = counts.entry(host).or_default();
+        for k in on_page {
+            *host_counts.entry(k).or_insert(0) += 1;
+        }
+    }
+    let chrome = counts
+        .into_iter()
+        .map(|(host, ks)| {
+            let set: HashSet<u64> =
+                ks.into_iter().filter(|(_, n)| *n >= CHROME_PAGE_SUPPORT).map(|(k, _)| k).collect();
+            (host, set)
+        })
+        .collect();
+    SiteChrome { chrome }
+}
+
 // ── Learning the structural roles by exposure (setup only) ────────────────────
 
 /// A markup element needs at least this many occurrences across the corpus before its role is
@@ -470,13 +738,17 @@ const TAG_ROLE_SUPPORT: u32 = 8;
 /// contained text reads decisively as code becomes a code carrier, a short title-shaped one a
 /// section heading. No element name is enumerated; the seeds are whatever the corpus used. Called
 /// once at setup with the curriculum bodies; the lint path only ever reads the result.
-pub fn learn_structure_roles(reader: &CharReader, bodies: &[&str]) -> StructureRoles {
+pub fn learn_structure_roles(reader: &CharReader, bodies: &[&str], md_bodies: &[&str]) -> StructureRoles {
     // Read every page's structure once; the title-shape ceiling is learned from the corpus's own
-    // short gaps so "heading-shaped" is the corpus's word-length, not a hand constant.
-    let scans: Vec<Vec<Gap>> = bodies
+    // short gaps so "heading-shaped" is the corpus's word-length, not a hand constant. The markdown
+    // curriculum (LINTER.md rung 1) is read through its OWN line typography ([`scan_markdown`]) and
+    // its marker instances tally into the SAME role space — a fence learns "code carrier", an ATX
+    // heading learns "section heading", exactly as `<pre>`/`<h1>` do, so the roles transfer.
+    let mut scans: Vec<Vec<Gap>> = bodies
         .iter()
         .map(|b| scan(&crate::doc_crawler::drop_script_style(b), reader).gaps)
         .collect();
+    scans.extend(md_bodies.iter().map(|b| scan_markdown(b, reader).gaps));
     let mut title_counts: Vec<u32> = Vec::new();
     for gaps in &scans {
         for (k, g) in gaps.iter().enumerate() {
@@ -516,6 +788,46 @@ pub fn learn_structure_roles(reader: &CharReader, bodies: &[&str]) -> StructureR
             e.0 += 1;
             e.1 += u32::from(code);
             e.2 += u32::from(heading);
+        }
+    }
+    // Diagnostic (rung 1/2 measurement, off unless HELPERS_ROLE_TRACE is set): report the raw vote
+    // tally for the markdown markers so register purity is visible before the ¾ bar decides. The
+    // fence FAMILY is now info-string-keyed (rung 1), so the labels are drawn from the corpus's own
+    // opening-fence info-strings (data, not a code list) plus the bare fence and the heading. No
+    // effect on the learned roles.
+    if std::env::var_os("HELPERS_ROLE_TRACE").is_some() {
+        let mut markers: Vec<String> = vec!["```".to_string(), "#".to_string()];
+        for body in md_bodies {
+            let mut open = false;
+            for line in body.lines() {
+                let trimmed = line.trim_start();
+                if is_md_fence(trimmed) {
+                    if !open {
+                        let info = md_fence_info(trimmed);
+                        if !info.is_empty() {
+                            let m = format!("```{}", info.to_ascii_lowercase());
+                            if !markers.contains(&m) {
+                                markers.push(m);
+                            }
+                        }
+                    }
+                    open = !open;
+                }
+            }
+        }
+        for marker in &markers {
+            let seed = crate::lint_ai::token_seed(marker);
+            let label = if marker == "#" { "heading" } else { "fence" };
+            if let Some((support, code, heading)) = tally.get(&seed).copied() {
+                let pct = |n: u32| if support > 0 { 100 * n / support } else { 0 };
+                eprintln!(
+                    "[role-trace] {label} ({marker}): support {support} / code {code} ({}%) / heading {heading} ({}%)",
+                    pct(code),
+                    pct(heading)
+                );
+            } else {
+                eprintln!("[role-trace] {label} ({marker}): no instances tallied");
+            }
         }
     }
     let mut votes = Vec::new();
@@ -714,6 +1026,114 @@ mod tests {
         assert!(
             read_page(body, &brain).is_empty(),
             "no structure ⇒ no units (the curriculum gate)"
+        );
+    }
+
+    /// RUNG 1 (LINTER.md, the curriculum precursor): a real markdown document segments into a
+    /// heading-governed code-fence unit. The fence marker carries the learned CODE role, the ATX
+    /// heading marker the learned HEADING (boundary) role — the SAME role space HTML `<pre>`/`<h2>`
+    /// use — so the same unit former reads markdown as it reads a web page. Markdown-marker roles are
+    /// keyed by the marker's OWN characters (`` ``` ``/`#`), never a role name.
+    /// The fence marker is keyed by the author's own INFO-STRING (rung 1): `` ```js ``, `` ```plain ``,
+    /// and a bare `` ``` `` are DISTINCT markers that can learn separate roles, exactly as `<pre
+    /// class="…">` variants would. Pure typography — the seed is a hash of the fence literal plus its
+    /// info-string, case-folded like an element name, never compared to a list.
+    #[test]
+    fn fence_markers_are_keyed_by_their_info_string() {
+        assert_eq!(md_fence_info("```js"), "js");
+        assert_eq!(md_fence_info("```js-nolint  title=x"), "js-nolint");
+        assert_eq!(md_fence_info("~~~python"), "python");
+        assert_eq!(md_fence_info("```"), "", "a bare fence has no info-string");
+        assert_ne!(md_fence_seed("js"), md_fence_seed("plain"), "tagged fences are different markers");
+        assert_ne!(md_fence_seed("js"), md_fence_seed(""), "a tagged fence differs from the bare fence");
+        assert_eq!(md_fence_seed(""), crate::lint_ai::token_seed("```"), "the bare fence keeps its own seed");
+        assert_eq!(md_fence_seed("JS"), md_fence_seed("js"), "the info-string case-folds like an element name");
+    }
+
+    #[test]
+    fn a_markdown_doc_segments_into_heading_prose_and_code_fence_units() {
+        // The fence carries the `js` info-string, so its learned role is keyed `` ```js `` (rung 1).
+        let brain = test_brain(&[("```js", 1), ("#", -1)]);
+        let body = "# Introduced sections\n\
+            \n\
+            Sections are introduced here with a full sentence of prose.\n\
+            \n\
+            ## error handling\n\
+            \n\
+            Never use the var statement to declare a variable; it hoists silently.\n\
+            \n\
+            ```js\n\
+            var total = compute(items);\n\
+            ```\n\
+            \n\
+            Use let or const instead, which scope to the block.\n";
+        let units = read_markdown(body, &brain);
+        assert_eq!(
+            units.len(),
+            1,
+            "one fenced code unit: {:?}",
+            units.iter().map(|u| &u.code).collect::<Vec<_>>()
+        );
+        assert!(
+            units[0].code.contains("var total = compute(items);"),
+            "the fenced code survives verbatim: {:?}",
+            units[0].code
+        );
+        assert!(
+            units[0].prose.contains("Never use the var statement"),
+            "the section body governs the fence: {:?}",
+            units[0].prose
+        );
+        assert!(
+            !units[0].prose.contains("introduced here"),
+            "the `## error handling` heading bounds the section, so the intro prose never governs: {:?}",
+            units[0].prose
+        );
+    }
+
+    /// A text run recurring across a site's pages (the menu) is discovered as chrome and blanked,
+    /// while a run UNIQUE to one page (its governing prose) survives — the cross-page-invariance
+    /// filter, site-scoped and learned purely from recurrence, no element or site name consulted.
+    #[test]
+    fn site_invariance_discovers_and_strips_the_recurring_menu_but_keeps_unique_prose() {
+        // A shared navigation run on every page; each page's own body prose is unique. The menu run
+        // is well over the two-word / six-char comparison-atom floor, so it keys.
+        let menu = "<div id=\"m\">Home About Contact Reference Guide</div>";
+        let pages: Vec<(String, String)> = (0..CHROME_PAGE_SUPPORT)
+            .map(|i| {
+                let url = format!("https://site.test/page{i}");
+                let body = format!("{menu}<p>Unique page {i} governing sentence about widgets.</p>");
+                (url, body)
+            })
+            .collect();
+        let chrome = site_chrome(&pages);
+        assert!(!chrome.is_empty(), "the menu recurs on >= the support floor of pages ⇒ chrome");
+
+        let stripped = chrome.strip(&pages[0].0, &pages[0].1);
+        assert!(
+            !stripped.contains("Home About Contact Reference Guide"),
+            "the invariant menu text is blanked: {stripped}"
+        );
+        assert!(
+            stripped.contains("Unique page 0 governing sentence about widgets."),
+            "the page's own unique prose survives: {stripped}"
+        );
+        assert!(stripped.contains("<div id=\"m\">"), "tags and attributes are preserved verbatim");
+    }
+
+    /// A run seen on only a FEW pages of a site (below the support floor) is NOT chrome — a genuine
+    /// recurring sentence on two pages is content, not boilerplate.
+    #[test]
+    fn a_run_below_the_page_support_floor_is_not_chrome() {
+        let shared = "<p>This appears on just a couple of pages only.</p>";
+        let pages: Vec<(String, String)> = (0..3)
+            .map(|i| (format!("https://site.test/p{i}"), format!("{shared}<p>body {i}</p>")))
+            .collect();
+        let chrome = site_chrome(&pages);
+        let stripped = chrome.strip(&pages[0].0, &pages[0].1);
+        assert!(
+            stripped.contains("This appears on just a couple of pages only."),
+            "below the support floor ⇒ kept as content: {stripped}"
         );
     }
 }

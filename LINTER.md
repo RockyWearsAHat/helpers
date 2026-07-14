@@ -5,6 +5,3600 @@
 > semantic change lands without updating this file first** — every regression this system has
 > had came from editing behavior without a written model of it.
 
+## The north-star architecture — the understanding substrate as an Infinite State Machine (owner-agreed 2026-07-10)
+
+> This section is the AUTHORITATIVE current model, agreed line-by-line with the owner in a design
+> review on 2026-07-10. Where older sections below conflict with it, THIS governs; they remain as
+> the shipping description and history until each piece is re-wired onto this model. The theme of
+> the review: the system is largely BUILT — the failure is that it reads and judges **fragments**
+> (single sentences, isolated bindings) instead of **whole pages**, and it commits understanding it
+> has merely *predicted* rather than *proven*. This section fixes the MODEL; the code is wired to it,
+> cautiously, one proven piece at a time.
+
+**What the thing IS.** It is an AI, but more precisely an **Infinite State Machine (ISM)**: a knowledge
+graph of distinct, orthogonal states (concepts, constructs, rules) that grows without bound and
+**without conflation**, because a state is only ever committed once it is PROVEN. It is built on a
+1-bit predictive-coding substrate (the char reader + the HDC meaning graph), but it is not a token
+predictor — prediction is only one signal used to *build* the states. The product is understanding;
+linting is what understanding does for free.
+
+**Understanding ≠ prediction (the Dunning-Kruger law).** Reproducing a page (surprise → 0) proves you
+can *predict its structure*, not that you *understand it* — you can overfit a page's surface with zero
+comprehension. The substrate reports "I understand" LONG before its internal connections are real, and
+acting on that false floor fails catastrophically. Therefore prediction is **necessary, never
+sufficient**, and surprise is a GAUGE of convergence, never the thing that decides understanding.
+
+**The curriculum — bottom-up, each layer learned from its OWN documentation, standing on the proven
+layer below.** Order: the **English dictionary (bedrock, already proven-understood)** → **txt** →
+**markdown** → **HTML** → **CSS** → **JavaScript**. Each layer is understood by READING ITS OWN DOCS in
+the language of the layer beneath it: rough English reads the HTML docs; HTML understanding reads the
+CSS docs (so styling's *meaning* — emphasis = importance, small/aside = footnote — is LEARNED from the
+CSS documentation, never reverse-engineered from raw markup or hardcoded); then JS. When all layers are
+understood, the substrate comprehends any web page **as a whole**, however it was built — which is the
+precondition for reading real documentation pages and extracting what they actually mean.
+
+**Corroboration — the anti-Dunning-Kruger engine, judged in English.** A candidate understanding is
+proven, not predicted, by a **self-generated test loop** whose referee is the language's own STATED
+TRUTHS reduced to the proven English bedrock:
+
+1. From its understanding the AI DERIVES an expectation — e.g. "this code should flag this rule" (or
+   "this code is valid, no flag"). It can do this because it can WRITE CODE in a language it
+   understands; you cannot derive a correct expectation for something you do not actually understand,
+   so a faker's expectations are wrong by construction.
+2. It GENERATES the code and RUNS the real check.
+3. **Both sides of the equation are derived BACK INTO ENGLISH** — the expected outcome and the actual
+   outcome — and equality is checked *in English*. English is the incorruptible judge: it is already
+   proven-understood, so you **cannot fake equality in a language you genuinely understand**. A faker's
+   two sides do not reconcile in English; a true expert's always do. This is why the judgment never
+   happens in the language's own (possibly-overfit) representation.
+4. On mismatch the AI does NOT collapse: everything up to here is proven, so it RESHAPES only the
+   faking part until behavior matches the docs' stated truth.
+5. A truth GRADUATES from Dunning-Kruger facade to genuine expertise only when it is mirrored
+   **≥ 15 times INDEPENDENTLY** — each witness from genuinely different material or a different
+   derivation path, none contradicting. A fluke or overfit can mirror once in the setup it memorized;
+   it cannot independently reproduce the truth 15 times.
+
+**Commit discipline (the ISM invariants).**
+- **Never hold what is not corroborated.** If it cannot corroborate, it LEARNS MORE — it does not
+  commit a half-understood state. "Trash the un-understood" should therefore never fire, because the
+  un-understood is never committed. No state ever sits on a false floor.
+- **Concepts are individual until PROVABLY linked** — orthogonal by default, exactly like the English
+  dictionary; one concept's meaning is never weighted into another's until the link is proven. This is
+  what prevents the diffusion/contamination that wrecked earlier meaning graphs.
+- **Proven states validate new ones.** We build strictly upward: the parts of the substrate already
+  proven correct are FROZEN and used as the referee for the parts being built, so each new piece slots
+  into a known-good whole instead of destabilizing it. Retain-and-grow is measured, never assumed.
+- **Verify, never shape-test.** After a layer is read, its understanding is OBSERVED to be correct once
+  (e.g. `<b>` comes out as "bold, denotes importance") — a one-time human/inspection sanity gate, never
+  a brittle test asserting an internal shape, and once validated it is not touched again.
+
+**Module building — ONLY after the substrate comprehends whole pages.** Modules are the enforceable
+rules, and they are built strictly per-language:
+- **Language is assigned per sentence and per element, BY UNDERSTANDING** — never by shared vocabulary.
+  Because the substrate understands structure, each element/sentence's language falls out for free.
+  HTML `class=` and JS `class` share reasoning but are different languages; they live in separate
+  partitions that never see each other. A file is linted ONLY by its own actual language's module.
+- **Never conflate languages, even from the same site.** W3Schools teaches HTML/CSS/JS on one site;
+  MDN is a strong source for up-to-dateness and version-support; but rules proven on a JS page enter
+  ONLY the JS partition. The shared meaning graph is for COMPREHENSION; the rules are never shared.
+- **Read → prove → fold site-wide within a language → write once.** Each page yields a list of rules
+  the substrate can PROVE via the corroboration loop above. These fold across ALL of that site's pages
+  **of that language** (site-wide, not page-at-a-time), held in memory and editable during training so
+  late pages correct early assumptions, and the module file is WRITTEN ONCE at completion (progressive
+  file writes are wasted compute).
+- **Cross-page invariance = chrome, discarded.** An element whose structure **and** style **and**
+  content is invariant across a site's pages is navigation/boilerplate with zero meaning and is
+  excluded from rule-proving. Content UNIQUE to a page carries that page's information. (Invariance
+  requires content too: a recurring "Deprecated" marker shares styling across pages but its target
+  varies, so it is NOT chrome.)
+- **A train-time validation flag** dumps the understanding/rules pulled from a site for review BEFORE
+  the module is written — a debug tool, not part of the live lint path.
+
+**The line-of-caution.** A single small bug here corrupts a state that everything downstream trusts, so
+every change is: documentation first (this section), then wire the smallest proven piece, then
+corroborate it against the frozen known-good substrate — no external linters, no thousands of throwaway
+files, no treating it as a black-box "AI." We are building the infinite states (the knowledge graphs)
+correctly, one proven state at a time. The sections below describe the current implementation the parts
+are wired from; this section describes what they are being wired INTO.
+
+### OWNER CORRECTION 2026-07-12 — the graduation model, five faithful points
+
+> A correction to the graduation model, recorded BEFORE code (docs-first). The frozen substrate
+> (dictionary, `lint_corroborate`, `lint_ism`, `lint_selftest` judging) stays UNTOUCHED; only the module
+> workflow that STANDS ON it is reshaped. Where an older subsection below conflicts, THIS governs.
+
+1. **Rules emerge from understanding; rule NAMES are irrelevant.** A rule's identity is its understanding
+   state — the construct as an OPAQUE symbol from the language's own substrate plus its English predicate —
+   never a sanitized name slug. MEASURED SYMPTOM: `rule_id` slugged non-alphanumerics to `-`, so `==` and
+   `++` both became `uses--`; the compiled `RuleSet::build` dedups by id (`seen.insert(id)`), so one rule
+   silently shadowed the other and `==` never fired live. FIX: key module rules by the construct's EXACT
+   opaque token, BYTE-PRESERVED, with NO slugging/sanitizing anywhere in identity (`==` → `uses-==`,
+   `++` → `uses-++`, `document.write` → `uses-document.write`); display names are rendering only. `==`
+   fires live after this.
+
+2. **Docs are read WHOLE before testing starts.** A language is tested (graduated) only after its full
+   registered documentation has been read at least once — a STRUCTURAL precondition (the crawl's read pass
+   completed under the current source set), not a new heuristic. Then refinement continues "until it can
+   match both sides" — the anti-Dunning-Kruger method: mismatch → reshape the faking part → re-test; never
+   commit an unreconciled state.
+
+3. **Graduation = 15 SELF-GENERATED examples judged by BLIND AGREEMENT — never doc-example counting.**
+   Owner's exact mechanism: "we don't need 15 examples from the docs, we need 15 examples the AI generates
+   with the expectation of that rule, then blindly sends another agent with its same understanding to lint,
+   then if both agree and the agreement comes from the knowledge, it has the rule correct." Two sides, same
+   understanding substrate, no shared expectation: (a) the GENERATOR derives an expectation per sample from
+   the rule's understanding ("this should flag" / "this is clean, no flag"); (b) a BLIND lint pass — the
+   real linter compiled from the same understanding, receiving ONLY the code, never the expectation —
+   produces the outcome; (c) both sides reduce to English and the frozen comparator judges agreement (this
+   is `lint_selftest`'s existing judge — the blindness and the 15-generated-reps framing are what this
+   directive pins). Agreement must come FROM THE KNOWLEDGE (the fired rule's advice reconciling with the
+   understanding over a genuine foil). `REQUIRED_REPS` → 15 (owner spec count). Rationale: "it can't match
+   the documentation if it doesn't understand; it can't lint if it doesn't understand; therefore if it can
+   lint as expected, it understands the docs" — the substrate beneath is 100% proven, so the squeeze from
+   BOTH sides pins the rule to truth; not a guarantee, but a squeeze.
+
+4. **Doc examples LEARN, they don't COUNT.** The docs' own bad/good examples inform understanding and seed
+   generation variety; they are no longer a proof-counting basis or a rep floor. Consequence: crawl-subset
+   variance in graduation (MEASURED: eqeqeq graduated on one crawl, fell below the floor on the next) is
+   dissolved the ISM way — a PROVEN rule state PERSISTS retain-and-grow across retrains (never re-earned
+   from scratch per crawl; only a genuine contradiction reshapes it).
+
+5. **Parserless checking is the stated IDEAL.** "Ideally we shouldn't need a parser to check rules —
+   construct recognition should come from the full understanding of the language." This is the north-star
+   DIRECTION. Tree-sitter `scan_construct` stays the INTERIM firing mechanism (NOT ripped out now); svg
+   stays blocked on a grammar until parserless checking exists — NOTED, out of current scope.
+
+**IMPLEMENTATION STATUS (2026-07-12).** Point 1 (identity) and point 3 (blind-agreement, `REQUIRED_REPS`
+15) LANDED — see "Blind-agreement graduation" below. Point 4 persistence LANDED as the graduated ledger.
+Point 2 read-pass precondition LANDED as a structural gate. Point 5 recorded as direction only.
+
+### OWNER DIRECTIVE 2026-07-12 — whole-site reading, language-by-understanding (supersedes per-section source framing)
+
+> Recorded BEFORE code (docs-first). Owner's words: "take documentation language sites, pull ALL the
+> information across the whole site, not some, not assigning to a language, UNDERSTANDING THEN
+> BUILDING/UPDATING MODULES." The frozen substrate stays UNTOUCHED; the source model and the module
+> PROPOSE/PARTITION are reshaped. `TRAIN_VERSION` → `docs-v81-whole-site-read-understanding-partition`.
+
+1. **Sources are SITES, not per-language sections.** A language's documentation SITE (MDN, W3Schools) is
+   read WHOLE: the module PROPOSE corpus is every cached page whose HOST is one of the language's registered
+   doc sources ([`lint_docs::site_corpus`] — host-derived, so `/Web/JavaScript/`, `/Web/API/`, `/Web/CSS/`,
+   `/js/` all fold into ONE unfiltered corpus regardless of which section seed fetched them). A linter's rule
+   catalog (ESLint) is NOT documentation and is not read. Pulling the whole site is the ideal; within a crawl
+   budget the cache grows breadth-first and the pipeline reads WHATEVER the cache holds — coverage is a
+   frontier that grows, never a filter. (The host set derives from the registered doc-source hosts, so no
+   separate `kind:"site"` registration or whole-domain root crawl is forced on every setup — that root crawl
+   is the coverage-growth step, deferred; see the frontier note.)
+
+2. **Language assignment EMERGES from understanding/verification, never from URL attribution.** The module
+   PROPOSE source is the whole-site corpus (above — no section filter). Every page is proposed to every
+   language; a candidate
+   GRADUATES ONLY in the language partition where its subject genuinely FIRES on the page's OWN worked-example
+   code under that language's grammar ([`lint_module::lang_pages`] → `page_proves_in_lang`, the frozen
+   `run_plan` the only referee). The grammar is the squeeze: a CSS property (`clip`, `shape`) never parses+
+   fires as a JavaScript construct, so it can never leak into JS even though the whole MDN corpus is proposed
+   to JS; a CROSS-SECTION page (a Web-API page whose example is JavaScript) joins the JS partition regardless
+   of its `/Web/API/` URL shape. A construct that fires in NO grammar abstains. `url_language`/binding-URL
+   attribution is DELETED from the partition — MEASURED sound: `js∩css = js∩html = css∩html = ∅` after the
+   whole-corpus retrain.
+
+3. **Never-conflate holds at the MODULE.** A proven rule lands only in the partition it proved in; the shared
+   reading/meaning substrate is for comprehension, never for sharing rules across languages.
+
+4. **Purge = a ledger rule whose source SITE is no longer registered drops at merge**
+   ([`lint_train::registered_ledger`], host-matched against the registered doc-source set — no domain named).
+   ESLint removed ⇒ every eslint.org-sourced graduated rule is dropped; the `TRAIN_VERSION` bump also discards
+   the whole ledger. Structural, durable even without a bump.
+
+**IMPLEMENTATION STATUS (2026-07-12, docs-v81).** Points 1–4 LANDED over the EXISTING MDN + W3Schools cache
+(the mechanism-first landing the owner sanctioned): whole-site `site_corpus` propose (host-derived from the
+languages' own MDN + W3Schools doc sources), grammar-verification partition (zero cross-language leak,
+proven), ESLint removed + ledger purged. COVERAGE FRONTIER (honest): the whole-domain MDN root crawl (and a
+`kind:"site"` registration to drive it) is deferred on budget — the cache holds the JS/CSS/HTML reference
+sections + a 147-page `/Web/API/Document/` slice; coverage grows as the cache grows. `document.write` was the
+named residual — now DELIVERED in docs-v84 (see "Script-interior reading + notecard page-role"): the
+notecard-keyed page role (no `/reference/` requirement) + example-derived qualified receiver + `<script>`-interior
+unwrap graduate `document.write` (and the whole deprecated Document API surface) cleanly, junk floor zero,
+partition ∅ intact.
+
+## THE CURRENT MODEL — read this; everything below the divider is appendix (Item 3e consolidation, 2026-07-12)
+
+> The one description of what ships today. The north-star section above is the AGREED THEORY; this is the
+> BUILT SYSTEM realizing it, folded into a single read so the next agent needs no archaeology. Every dated
+> `###` subsection BELOW THE APPENDIX DIVIDER is implementation history and the measured-falsification
+> ledger — kept (per the owner) so nobody re-derives a dead end, but NOT the model. When history conflicts
+> with this section, THIS governs.
+
+**The substrate (frozen, proven — never touched by module work).** A 1-bit predictive-coding character
+reader (`lint_char.rs`) and an HDC meaning graph (`MeaningNetwork`) learn English from the dictionary, then
+the web curriculum from its own docs. On top sit the frozen judges: the English-equality corroboration
+referee (`lint_corroborate.rs` — same DIRECTION + POLARITY over the meaning graph, no word lists), the
+negation classifier (`English::is_negation`, definition-compounding), and the self-generated blind-agreement
+test loop (`lint_selftest.rs`). These are OBSERVED correct once and then FROZEN; all module work stands on
+them and never modifies them. The brain's identity is its `brain_fingerprint` (BRAIN_REV ⊕ dictionary ⊕ web
+pages ⊕ explanation corpus).
+
+**The curriculum.** English (bedrock) → txt → markdown → HTML → CSS → JavaScript, each layer read from its
+OWN documentation in the language of the layer beneath. Comprehension is shared across layers (one meaning
+graph); RULES are never shared across languages. The **markdown/txt precursor is BUILT** (rung 1, extended
+rung 2a, then fence-info keying `BRAIN_REV` 13): between English and the web, `ensure_brain` reads real
+docs-shaped markdown corpora (two registered DATA clones beside the models — the `mattpocock-skills` skill
+docs plus `mdn-content`, the SOURCE markdown of the crawled MDN pages) at the character level, and
+`lint_graph::scan_markdown` reads their LINE typography (fenced code, ATX headings) into the SAME learned
+role space the HTML element roles occupy. Fence markers are now keyed by the author's OWN INFO-STRING
+(`md_fence_seed`): `` ```js ``, `` ```plain ``, and a bare `` ``` `` are DISTINCT markers — the info-string
+is part of the fence's own typography exactly as `<pre class="…">` variants would be — and each learns its
+register by exposure (`learn_structure_roles`), never assigned. `lint_graph::read_markdown` segments a
+markdown doc into heading-governed code-fence units through the identical unit former (`read_scan`) the web
+reader uses. MEASURED on the combined corpus (honest, `HELPERS_ROLE_TRACE`): once the fence family is split
+by info-string, the TAGGED CODE fences EARN their code register — `` ```css `` 80%, `` ```css-nolint `` 84%,
+`` ```js `` 75%, `` ```js-nolint `` 76%, `` ```json `` 88%, `` ```http `` 100% all cross the ¾ bar (7 new
+code roles, roles 21→28), while the OUTPUT/prose fences correctly ABSTAIN by earning nothing pure —
+`` ```plain `` 42%, `` ```bash `` 50%, `` ```html `` 57% (HTML fences carry attribute/prose text), and the
+bare `` ``` `` 56%. ATX headings stay 68% heading-shaped and ABSTAIN. This is data-keyed learning: the ¾ bar
+is UNTOUCHED; the separation is what the author's tag already declared. The fence roles are markdown-seed
+roles, never consulted by the HTML reader (which keys on element seeds), so the frozen `<pre>` register and
+every module's `TRAIN_VERSION` are unmoved. A partially-taught machine (markdown roles learned live but no
+crawled web cache) still reads HTML by role: `ensure_structure` MERGES the committed bootstrap UNDER the live
+roles (live wins, the bootstrap fills every seed the curriculum could not teach), replacing the old
+all-or-nothing hydration that a non-empty markdown role set would have silently blocked.
+
+**Building a language module (the whole live path, `lint_module::graduated_rules`).**
+1. **Whole-site read.** The propose corpus is every cached page whose HOST is one of the language's
+   registered doc sources (`lint_docs::site_corpus`), unioned with the language's own read pages — no
+   section/URL filter. Cross-page-invariant chrome (nav/menu/footer, identical text+style+content across the
+   site) is stripped first (`lint_graph::site_chrome`), so every reader sees clean prose.
+2. **Language partition by GRAMMAR, not URL.** Every page is proposed to every language; a candidate joins a
+   language's partition only where its subject genuinely FIRES on the page's own worked-example code under
+   that language's grammar (`lint_module::lang_pages` → `page_proves_in_lang`, the frozen `run_plan` the only
+   referee). A CSS property never parses+fires as JS; a cross-section page (a Web-API page whose example is
+   JS) joins JS regardless of its URL.
+3. **Propose → generate → blind-prove.** Each candidate derives an understanding + a second, distinct doc
+   sentence as advice, harvests violating/clean blocks from the corpus (topping up with self-generated
+   violations when idiomatic reps are scarce), and proves through the blind-agreement loop: the generator
+   tags each sample's expectation, a BLIND lint pass (code only, never the expectation) produces the outcome,
+   and the frozen comparator judges agreement in English. `REQUIRED_REPS` = 15. A page the LEARNED
+   metadata attester ([`lint_attest::Attestation`], the author's `status:` enum joined by slug) marks
+   deprecated graduates on that structural fact directly (the English foil is degenerate by construction).
+   Rule identity is the construct's EXACT byte-preserved token (`uses-==`, `uses-document.write`).
+4. **THE FLIP.** A language whose docs prove ≥ `GRADUATED_MODULE_FLOOR` (3) construct rules OWNS the workflow
+   and its module IS the proven set; a language below the floor (typescript 1, rust 0, go, python…) stays on
+   the legacy token-miner fallback (`lint_docs::rules_from_memory`) — the miner is LIVE for non-owned
+   languages and the discovery probe, never dead. Scoped behaviorally; no language named in code.
+5. **Judgment learns — the 3c re-check (`merge_graduated`).** The fresh pass IS the re-check of the persisted
+   ledger against the current brain + corpus. A prior rule re-proven → fresh (possibly reshaped) wins; a
+   prior rule whose page is still in the corpus but did not re-prove → DROPPED as a contradiction (surfaced,
+   never silent); a prior rule whose page left the corpus → retained (retain-and-grow). Keyed by the
+   byte-preserved construct id.
+6. **Fixpoint + COMPLETE — 3d.** Graduation is deterministic over a frozen brain + fixed corpus and the 3c
+   merge is idempotent, so the proven set is at fixpoint after ONE pass (measured, not looped). The module is
+   written once, stamped COMPLETE against the knowledge snapshot (`train_version` ⊕ `sources_fp` ⊕
+   `brain_fp`); a changed snapshot reopens it through the 3c re-check. `is_current` gates on all three (the
+   brain axis only when this machine has a brain). `lint_query rules <lang>` surfaces the completion state.
+
+**Firing (the module is enforceable rules).** A graduated rule carries its construct and fires its OWN proven
+`uses_construct(construct)` plan via tree-sitter `scan_construct` (the INTERIM mechanism; parserless
+construct recognition is the north-star direction). One parse + one walk per file; the Hv concept gate
+confirms imprecise text-fallback findings. Findings cite their source page. Project law (`.helpers/lint-rules/`)
+compiles as a local overlay and never vanishes silently. Lint NEVER touches the network; setup does.
+
+**Module isolation — "like C, don't pay for what you don't use" (VERIFIED, PASS 17).** Loading is lazy per
+project language: `tools::lint::run` detects the project's languages from its own file extensions
+(`select_by_language`) and calls `ensure_models` on ONLY those, so a pure-JS project loads `javascript.*`
+(the filename-keyed per-language `module`/`graduated`/`learned`/`overlay` artifacts) plus the shared
+machine-global substrate that loads ONCE (the char brain, the English brain, the transferred polarity, the
+extensions map) — never the other languages' modules. Per-language artifacts are independently removable and
+the registry-distribution unit is the per-language module; MEASURED (`examples/module_isolation`): deleting
+every non-JS module leaves the JS findings BYTE-IDENTICAL. RULES are never shared across languages, and now
+neither are their LOADS.
+
+**The deprecation attestation faculty — BUILT, metadata-keyed (COMPLETION PASS 13).** A page's DEPRECATION
+role is read from the AUTHOR'S OWN METADATA TYPOGRAPHY, not from English polarity — the covenant-clean
+sidestep of the passes-11/12 wall. The author marks status in a frontmatter block-sequence ENUM
+(MDN `status:\n  - deprecated`, values deprecated/experimental/non-standard); `lint_attest::Attestation`
+DISCOVERS that enum by SHAPE (a top-level key whose value is a YAML sequence, recurring, closed value set —
+`status` is found without being named), joins the prohibition family to the crawled pages by SLUG, and learns
+the sentence-scale invariant banner runs those pages carry and the other families do not. A crawled page
+carrying such a run is an attested deprecation. The ONE datum no structural signal can supply — which enum
+VALUE denotes prohibition (every value renders a banner; structure cannot tell the deprecation banner from the
+experimental one, the measured PASS 11/12 wall) — lives in `lint-index/deprecation-status.json` (`prohibits:
+["deprecated"]`), as DATA exactly like `sources.json`. Nothing else is named: not the enum key, not the banner
+text, not a site or element. MEASURED (`examples/metajoin`) on the 2968-page MDN corpus: the discovered
+markers attest EXACTLY the 117 pages the retired hand marker `has_deprecation_notecard` did — P = R = 1.000,
+zero false positives — so the burn (rung 2) was strictly behavior-preserving (js 54 / css 22 / html 8 base
+graduation unmoved). The attestation is a PAGE-ROLE fact of the whole page, discovered and applied on the
+ORIGINAL body and threaded downstream as the attested URL SET (the banner's cross-page-identical text run is
+removed by the chrome filter, so reading the role after the strip would lose it — the URL set carries it past
+the strip). This REPLACES the passes-11/12 semantic route: no `is_negation`, no meaning geometry for
+`deprecated`, needed.
+
+**The RENDERED-MARKER variant + the item unit — Python/Rust modules (COMPLETION PASS 14, docs-v89).** A
+second, parallel route to the same page-role fact for sites that publish the status IN THE MARKUP itself
+(no frontmatter, no slug join): `Attestation::discover` also learns author status-typography CLASS TOKENS —
+a class-attribute value that EQUALS a prohibition enum value from `deprecation-status.json` (the same one
+datum) and recurs across ≥ 8 distinct page subjects (Python's `<div class="deprecated">`, rustdoc's
+`class="stab deprecated"` — the token is data-joined, never named in code). On such pages the graduation
+UNIT is the ITEM, not the page: each marker is attributed to its item's own DOTTED ANCHOR id by the
+container-vs-trailing typography (`lint_lang_layer::attested_item_shapes` — a marker element carrying the
+id is SELF-ANCHORED; one followed by an id with only markup between is a CONTAINER opening, forward; any
+other is a TRAILING badge, backward to the region's id; EVERY id delimits a region, and a region id that is
+not a valid dotted item attests NOTHING — nearest-by-distance and slide-past were both MEASURED unsound).
+An item proposes its dotted suffix shapes + the receiver-generic member, NEVER the bare name; the
+receiver-generic form must be corpus-unambiguous (≤ 2 distinct receivers, `member_receivers`) AND
+demonstrated as the item's own usage (`member_demo_ok`: receiver = the id's parent, a block-local instance,
+or a literal/expression value — a foreign-namespace receiver is the deprecation's own RECOMMENDED
+REPLACEMENT demoing, MEASURED on `typing.Sequence`→`collections.abc.Sequence`). MEASURED (docs-v89,
+`examples/apidocs_{crawl,attest,graduate}`): python-library 328 pages / 47 attested → **25 PROVEN**
+(`codecs.open`, the `typing.*` alias family, `ssl.SSLSocket`…); rust-std 1400 pages / 140 attested →
+**8 PROVEN** (`.trim_left/.trim_right(+_matches)`, `.connect`, `.slice_unchecked`, `.abs_sub`,
+`.wait_timeout_ms`). Kitchen-sink files flag with lines + cites; clean files USING THE REPLACEMENTS and
+junk-colliding idioms (`s.split`, `p.name`, `collections.abc.Sequence`, `v.join`, `s.trim_start`) flag
+ZERO. Union-corpus graduation shows py∩rust = ∅ (0 cross-language sources); MDN attested set stays exactly
+the 117 (P = R = 1.000) and web graduation byte-identical.
+
+**What is NOT yet built (honest frontier).** The learned reader still has NO general page-role/subject
+faculty beyond deprecation attestation; other page roles stay INTERIM. The RECOMMENDATION/ADVICE register
+(the classics `var`/`==`/`eval` on a "prefer X" page with no metadata marker) is still unwirable as a page
+gate, but PASS 17 moved the diagnosis one mechanism deeper by actually TRAINING the side-count `Polarity` on
+the system's own machine-derived labels (117 deprecation banners vs ~1284 Baseline banners, run-balanced,
+rest as exposure). The trained token leans SUPERSEDE the passes-11/12 `related()` noise band —
+`recommend`/`avoid`/`cease`→prohibition, `established`/`works`→endorsement, learned with no word list — and
+the prose-command classics score prohibition 5/6 under the full classify. **PASS 18 BUILT the re-land
+condition (a) — trained-lean precedence in the shared classifier — with the full regression proof, and it
+LANDS**: where the training met a negation word with a DECISIVE endorsement lean (`lean_of` = good, the same
+4:1 reality bar the side-count already trusts), that lean now OUTRANKS the frozen `is_negation` short-circuit
+inside `tally_lean` — but only ever to NEUTRALISE (a negator is never praise, so the outcome is abstain, never
+`Some(false)`), and only where the evidence is decisive (retain-and-grow: an uncleared negator keeps the cold
+floor). This makes "not" trained-neutral (196020 exp / 18 good / 0 bad → decisive good → neutralised) and
+REPAIRS the descriptive-negation FP class — "if loop is not specified…" flips from a `Some(true)` false
+prohibition to `Some(false)`, "does not work on WebAssembly" reads good — with ZERO regression: negated
+endorsement is preserved ("== is not recommended" stays prohibition — "not" abstains, "recommended" still
+leans bad), the classics hold 5/6, and every graduated module re-graduates BYTE-IDENTICAL (js 54 / css 22 /
+html 8 / python 25 / rust 8, cross-language ∅, junk floor zero; 236 lib + gauntlets green). The change is
+surgical: it only touches negation words with a decisive good lean, which the toolchain-grounded per-language
+classifiers do not produce, so graduation is provably unmoved. **But the register STILL cannot GATE reference
+pages, and PASS 18 SHARPENS why with numbers.** The PASS-17 estimate that the frozen "not" short-circuit
+"drives 100%" of the flood is CORRECTED: neutralising the decisive-good negation subset drops the flood only
+48.3→39.0% (tally-only) / 85.8→83.2% (full), so "not" the word is a MINORITY. The residual is two named walls
+the supersession cannot cross: (i) the **negation-SCOPE tail** — the is_negation cluster is broad (litotes runs
+through dictionaries: `never`/`incorrect`/`un-*`/`in-*` compounds), and those words carry GENUINE prohibitions
+elsewhere ("Never use X"), so a bag-of-token-leans cannot tell them from their descriptive uses ("X never does
+Y"); only position-aware `states_prohibition` can, and it is already the mint gate; retain-and-grow correctly
+keeps them firing. (ii) the **prototype flat geometry** — the full classify's 83% flood is prototype-dominated
+(the register's OWN trained vocabulary floods 0.0%, MEASURED via the label-only `trained_bad` predicate), the
+same passes-11/12/16 wall: the leg-(c) junk foils ("keyword refers to the context…", "Strings are useful…")
+still full-classify `Some(true)`. So wiring `read_doc_page` behind the register would still flood the propose
+pool (perturbing the order-sensitive self-test), and re-land condition (b) — SUBJECT confirmation (url-subject
+fires on the page's own example) — is NOT sufficient alone against an 83% base rate. NO gate wiring ships this
+pass; the classifier improvement lands, its safe reference-page consumer is still unavailable. See the PASS 18
+ledger item for the decomposition tables and the per-leg foil measurements. The **SUPERSESSION register**
+(flag OLD-way web code with
+the MODERN feature — `new Date()` → Temporal, `history.pushState` → Navigation API — the rule read from
+MDN's "designed as a replacement for X"/"successor to X" prose) hits the SAME flat-geometry wall, measured
+COMPLETION PASS 16 (`examples/super_probe`): the substitution vocabulary is not separable from ordinary
+web-doc words under `related()` (flat ~4050, 58% control false-hit on the margin test), the learned usage
+sense, or directed cross-reference (which collapses to hop-0 literal membership = a phrase list) — and MDN
+itself states supersession for only a minority of the ten target features (Temporal/Navigation/invoker;
+the other seven describe the new feature without a supersession sentence). NO rule ships; the register
+re-lands under the same two-gap condition. The metadata faculty sidesteps this only where the author
+publishes a metadata marker; a docs site with none abstains honestly. The rendered-marker route carries a
+measured residual: ~6 of python's 25 rules over-approximate the SCOPE of a faithful author note (arg-form
+deprecations `urllib.parse.urlencode`/`asyncio.Task`; group notes `TLSVersion.TLSv1_3`/`.end_col_offset`
+whose prose names siblings or exceptions) — narrowing needs the note's own English read (the same
+prose-scope wall). `mem::uninitialized`/`Error::description` stay unproven honestly (fn-page subjects have
+no dotted item anchor; `description` is never demonstrated in examples). **PASS 19 rung 1 (measured,
+`examples/construct_mine`) reopens both the supersession AND the marker-less prohibition frontier from a new
+direction: CONSTRUCTION STATES.** A construction is a sentence-level invariant SCAFFOLD with variant SLOTS —
+the chrome/attestation invariant-run atom GENERALISED so the scaffold is invariant while a code slot varies.
+Mining 7848 real pages yields 378 such states by pure recurrence (≥8 pages, ≥2 distinct fillers), INCLUDING
+the register families the classics need: `replace ⟨⟩ with ⟨⟩` (13 pages), `use the ⟨⟩ css property instead,
+as this attribute is deprecated` (9), `you should not compare the results of ⟨⟩ to hardcoded constants` (18).
+This RECOVERS the PASS-16-walled supersession register STRUCTURALLY — with zero meaning geometry — because a
+construction is a discovered INVARIANT, not a judged similarity (the corpus REPEATS a scaffold rather than
+the graph RECOGNISING a register). Rung 1 proves the states EXIST and REPEAT; proving their MEANING against
+the labeled witness families + the frozen graduate/blind loop, then wiring a consumer, are the next rungs
+(see the PASS 19 ledger item). **PASS 20 (measured, `examples/construct_prove`) ran that meaning proof and
+it does NOT land a committable state — two independent walls, NO ship.** (A) The `site_chrome` strip the live
+pipeline REQUIRES for clean prose COLLIDES with the construction scaffold: a scaffold's invariant text flanks
+a `<code>` slot that is a separate tag, so the flanking run's key is cross-page-constant and `site_chrome`
+blanks it — after honest URL-dedup (5281 distinct pages, not rung 1's double-counted 7848) plus the strip,
+113 constructions survive and EVERY design-relevant register construction is eaten as chrome. (B) Without the
+strip (378 survive), the register-inheritance proof (inherit R iff ≥15 independent instances land on family R,
+0 on the opposite) is the passes-16/17 co-occurrence noise re-surfaced at PAGE-ROLE scale: the 15 states that
+reach the floor are API-DESCRIPTION sentences co-occurring with a family by page role ("this results in
+undefined behavior when ⟨⟩" proves PROHIBITION only via a stray rustdoc `class="stab deprecated"` badge), while
+the GENUINE register constructions live on ordinary reference pages whose page-role is neutral (`you should not
+compare the results of ⟨⟩ …` proh=0, `the last version of python …` proh=0/neut=24). PAGE-ROLE families cannot
+witness a SENTENCE-level register. The pass's positive, sub-floor: the two-slot BEHAVIORAL slot-cross-reference
+(slot fillers vs the machine's proven-deprecated SUBJECT set) IS a sound direction discriminator with zero
+meaning geometry — `instead of using ⟨document.write⟩ and creating html text directly, you should use dom api`
+scores slotA 8/8 deprecated / slotB 0/1, while generic `replace ⟨⟩ with ⟨⟩` reads 0/5 (correctly NOT a
+supersession) — but 8 independent A-subjects is below the ISM ≥15 floor (the PASS-12 discovery-starved wall).
+All constructions stay MINED-UNPROVEN; the frozen substrate and every `TRAIN_VERSION` are untouched. See the
+PASS 20 ledger item for the tables and the re-land condition. **PASS 21 (measured, `examples/construct_p21`)
+CLOSES Wall A and MEASURES Wall B to its floor, still NO ship.** Wall A dissolves with the owner's own signal
+made structural — "chrome's content is INVARIANT, a slot-varying run is definitionally not chrome": a
+construction is a genuine SCAFFOLD iff its primary code slot VARIES across pages (no single filler covers >½
+its pages, the MODE-FRACTION test), so mining runs CO-RESIDENT with the strip and rescues the varying-slot
+runs the strip would eat while the invariant menus stay chrome. MEASURED: 139 register scaffolds RECOVERED
+(document.write modeFrac 0.12, `the last version of python … module was` 0.04 / 24 subjects, `replace ⟨⟩ with
+⟨⟩` 0.31), while `css guides modules …` (1.00), the rustdoc `type_id`/`( ⟨⟩ #NNNNN ) …` trait boilerplate
+(1.00) stay stripped — a clean geometry-free separation the naive PASS-20 strip could not make. The badge
+contamination is cut with the PASS-14 item unit (a badge attests its OWN dotted item, not the page): the
+277-page family splits into 84 whole-page-true MDN + 144 own-item pages. Wall B is CROSSED for the FIRST
+construction: instance-level witnesses (slot fillers vs the machine's proven-deprecated SUBJECT set) prove
+`the last version of python that provided the ⟨⟩ module was` — 24 instances, each slot a DISTINCT removed
+module independently attested by its own `class="deprecated-removed"` whole-page badge, 24 ≥ 15, zero
+contradiction — the first construction state PROVEN under the frozen ≥15/0-contradiction law. document.write is
+sound but STARVED (perfect slotA 8/8 deprecated / slotB 1 clean / 0 contradiction, but its ~13-member String
+HTML-wrapper family is structurally below 15); the apparent early ≥15 "proofs" (`polyfill of ⟨⟩ in ⟨⟩`) were
+subject-set tail collisions killed by exact `owner.member` matching. **The precision line (MEASURED both ways):**
+admitting whole-page removal subjects on ANY `deprecated` substring floods 2812 pages and falsely proves
+endorsement constructions (Wall B in disguise), while the TIGHT module-removal compound (`deprecated-removed`,
+carrying both the prohibition token and `removed`) matches 29 pages and ONLY the python-removal construction
+crosses — so the proof is sound iff the removal subject basis is precise. TWO residuals: (i) a supersession
+whose SLOT is a SHARED modern remedy (`use the ⟨background-color⟩ css property instead`) reads as invariant-slot
+and is NOT rescued — a false negative of the single-mode test (fix: any-slot variance + deprecated-source-side
+selection); (ii) module-removal subjects — RESOLVED into the proof above once the precise removal faculty admits
+them. This pass ships the MEASUREMENT + the probe + the ledger ONLY: no library semantic change, no
+`constructions` artifact, no consumer, no `TRAIN_VERSION` bump — the frozen substrate and every module are
+byte-identical (236 lib green), per the line-of-caution. RUNG 3 (a data-keyed removal-marker faculty extension,
+the `constructions` artifact, and the consumer) is the next verified rung, now UNBLOCKED by a genuine proof.
+See the PASS 21 ledger item for the three tables, the precision line, and the rung-3 wiring. **PASS 22
+LANDS the faculty extension and the artifact (rungs 1–2 of that plan), byte-identical elsewhere.** (1) The
+`removed` datum enters `deprecation-status.json` beside `prohibits` (the second datum no structural signal
+supplies); `lint_attest::attests_module_removal` consumes it as the TIGHT compound (`deprecated-removed`,
+carrying both a prohibition token and `removed`) — a SEPARATE faculty surface, so `attests` /
+`prohibition_class_tokens` and every existing module are untouched. (2) `lint_construct` productionizes the
+PASS-21 miner: mode-fraction slot-variance scaffold mining + instance-level witness proof against the
+machine's own proven-deprecated subject set (item-level badges ∪ text-run ∪ the tight removal subjects),
+under the frozen ≥15/0 law, persisted retain-and-grow as `<lang>.constructions.bin` beside the graduated
+ledger. Wired into the train-time `graduated_rules` (pure over the corpus, `rules` untouched → byte-identical
+modules). MEASURED through the LIBRARY path (`examples/construct_prod`): python-library ALONE and the full
+5281-page cross-corpus each prove EXACTLY ONE state — `the last version of python that provided the ⟨⟩ module
+was`, REMOVAL, 24 witnesses — nothing else co-proves (the tight faculty is precise). The RUNG-3 delta,
+measured: 44 whole-module removal pages, 18 already covered by the existing `attests()`, **26 removal-only
+(genuinely new)** subjects (aifc/audioop/cgi/telnetlib/…). 240 lib green (+4). **PASS 23 LANDS + SHIPS the
+CONSUMER (rung 1) with the full regression + deploy (rungs 2–4).** `lint_construct::attested_subjects`
+consumes the proven states on a page's OWN prose: a page whose sentence matches a proven single-slot
+(Removal/Prohibition) scaffold with its slot NAMING the page's own module subject ATTESTS that subject
+deprecated (removal-strength). Wired through `read_doc_page` (new `construction_attested` role) → `propose`
+(the subject bypasses the URL-payload/lead gates — the construction PROVED it, not the URL shape) →
+`page_proves_in_lang` (the page joins its language's partition by the construction's own proof) → the
+UNCHANGED blind loop (notecard-proven route: ≥15 reps, generated where the removed module is absent from the
+idiomatic corpus, plus a clean near-miss). MEASURED (`examples/construct_consume`, python-library): of the
+26 removal-only pages, **24 BIND the proven construction** (email.utils/venv are removal-flagged but their
+prose does not carry the construction sentence naming their own subject — correctly not bound) → **24
+proposed → 24 PROVEN** (each viol=17 generated / clean=4000). Python: **25 → 49 rules**, the 25 existing
+byte-IDENTICAL (0 perturbed/lost vs the empty-constructions baseline — the consumer is purely additive);
+every OTHER language byte-identical (only python's corpus proves a construction, so the map is empty and the
+consumer is inert). The shared-remedy residual (any-slot variance for `use the ⟨remedy⟩ css property
+instead…`) rescues nothing measurable today — no CSS supersession construction is proven — so it stays parked.
+The pre-existing `if false` dead branch at `tools/lint.rs` (the disabled kq racy-window gate) is deleted (with
+its now-dead `witness` param). `TRAIN_VERSION` → `docs-v91-construction-consumer`. 241 lib green (+1 consumer
+test). The whole-domain MDN root crawl is deferred on budget; coverage grows as the cache grows. svg is
+grammar-blocked. See "Open problems" and the falsification ledger for the measured dead-ends. **PASS 24
+LANDS THE LANGUAGE WEB (rungs 1–2 + regression + cross-language/assembly measurement).** The owner's frame:
+"the english understanding should build a web of the language … LANGUAGE UNDERSTANDING IS WHAT DRIVES
+LINTING." Where graduation used to REDUCE its read to a rule list and discard the rest, a language now
+PERSISTS its read as a SUBGRAPH ([`lint_web`], `<lang>.web.bin`, codec kind 14, stamped retain-and-grow
+beside the graduated ledger): one [`ConstructNode`] per construct read, binding the construct token ⊗ its
+GOVERNING PROSE (understanding + advice) ⊗ its MEANING LINKS (the distinctive content KEY-WORDS of that
+prose, keys into the FROZEN English web — never a copy of the base; their meaning is rebound on query, the
+same delta pattern the dictionary itself uses) ⊗ its doc SOURCES ⊗ its attestation + PROVEN/READ state.
+**Rules are now VIEWS over the web:** `graduated_rules` builds the web from the graduation outcomes,
+persists it, and DERIVES the live rule set from the PROVEN nodes ([`lint_web::derive_rules`]) — BYTE-
+IDENTICAL to the old direct `filter_map(|o| o.rule)` (every proven outcome is a proven node carrying that
+exact `(rule, url)`, in order), so deleting the web and re-deriving reproduces the same rules
+(`round_trips_and_derives`, `rules_are_a_byte_identical_view_over_the_web`, and the live measurement's
+per-language round-trip). **Webs CONNECT across languages through the shared English base:** a node's
+meaning links are key-words into the SAME frozen web, so a cross-language relation is a QUERY
+([`lint_web::cross_language`] — governing-prose meaning proximity; `class` in JS and `class` in Python stay
+DISTINCT nodes whose prose MEANING may relate, never conflated). MEASURED via the LIBRARY live path
+(`examples/web_pass24`, real crawl cache): css 22 / html 17 / javascript 54 / python 50 / rust 9 /
+typescript 54 rules, EVERY language's web-derived set round-trips byte-identical to the live-derived set;
+webs are per-language sidecars (assembly = internal dependencies: a project loads only the webs its files
+need, deleting language X's web changes nothing for Y — the isolation covenant, unchanged); cross-language
+traversal reaches genuine shared meaning (`document.write`↔`document.write` dist 0 via the whole shared
+link set; the CSS non-standard `-moz-float-edge`↔JS `document.preferredStyleSheetSet` dist 2594 via
+`["non","standard"]`). `lint_query kind=web <construct>` reads the subgraph directly (governing prose,
+meaning links, PROVEN/READ state, concept + cross-language traversal). **Honest frontier (scoped
+remainder).** (i) Today the web retains every PROPOSED candidate — and the graduation funnel is precise
+enough that every candidate graduates, so read-nodes == proven-nodes per language; retaining the FULL read
+surface (every doc construct the reader saw, including never-proposed ones, as retained-unproven nodes) is
+the next rung and needs `propose`/`graduate` to expose it. (ii) CONCEPT traversal to a shared "deprecation/
+removal" concept is noisy — the tracing-concept vocabulary is CS-PRIMITIVES, not doc-role concepts, and a
+construction-consumed removal's governing prose is a module-index sentence (cgi's links are
+`cgi/python/gateway/manipulate/audio…`), so its cross-language traversal is bounded by that prose quality;
+the RELATION query (shared meaning-links) is sound, the concept-space landing is not yet doc-role-aware.
+Verdicts are byte-identical and the web is additive, so `TRAIN_VERSION` is UNMOVED (a bump would force a
+needless full retrain); the web is a new sidecar built on the next train, absent-tolerant on cold machines.
+245 lib green (+4). See the PASS 24 ledger item. **PASS 25 FILLS THE WEB TO EVERYTHING-READ AND GIVES
+TRAVERSAL DOC-ROLE CONCEPTS — both PASS-24 remainders CROSSED, byte-identical, shipped.** (i) The web now
+retains the FULL read surface: [`lint_module::propose`] captures every construct the reading layer extracts
+BEFORE subject selection ([`ReadConstruct`]), `graduate` returns the read constructs the funnel never
+proposed, and [`lint_web::build`] appends them as retained-UNPROVEN nodes (proven:false, no rule — knowledge,
+queryable, cross-linkable, NEVER fired). MEASURED (live path, `examples/web_pass24`): read-nodes go from
+`==` proven to STRICTLY greater — **css 22→26, html 17→21, javascript 54→130, python 50→234, rust 9→36,
+typescript 54→130** — while the PROVEN nodes (and thus the DERIVED rules) stay EXACTLY the PASS-24 set
+(css 22 / html 17 / javascript 54 / python 50 / rust 9 / typescript 54, every language round-tripping
+byte-identical: derive projects proven nodes only, retained-unproven nodes never perturb it). Web sizes stay
+KB-scale (delta-honest: python 6.4→16 KB for its +184 read nodes; no per-language cap needed). (ii) Doc-roles
+are now FIRST-CLASS TRAVERSAL TARGETS: a node carries `roles` from the proven faculties' OWN facts — the
+author-metadata attestation family (`"deprecated"`) and the construction KIND
+([`lint_construct::ConstructionKind::label`] → `"removal"`/`"prohibition"`), never a word list — and
+`lint_web::roles_across(role)` answers "what connects to REMOVAL" DIRECTLY: **24 python removal subjects
+(cgi, telnetlib, aifc, audioop, …), 577 deprecated across all webs, 0 prohibition (none proven)** —
+regardless of what the prose's index-words say (cgi's module-index prose no longer bounds the query). This
+replaces the noisy CS-primitive `concept_alignment` landing with the faculties' own role vocabulary. Live via
+`lint_query kind=web` (doc_roles shown per node; `role=` lists carriers, scoped to `language=` or across all
+webs). The web-node CODEC gained a `roles` field (same `WEB` kind 14, stamp-gated + bounds-safe: an
+old-format sidecar decodes to empty and rebuilds on the next train). Verdicts byte-identical, web additive →
+`TRAIN_VERSION` UNMOVED. 247 lib green (+2), gauntlets green. See the PASS 25 ledger item. **PASS 26 ran the
+two owner rulings (derive-the-revoked-family word-free; graded findings for attested-but-unproven nodes) to a
+MEASURED WALL and did NOT ship — the seed stays, no verdict changes.** RUNG A: of the three derivation axes
+only SUCCESSION separates deprecated from the experimental foil (57% vs 5%), and only via a directional-prose
+connective (the passes-11/12 wall); usage-death FAILS the foil (experimental is equally absent, median-0), and
+every word-free structural surrogate collapses — the revoked family is not derivable word-free, re-confirming
+passes 11/12/13. RUNG B: the graded tier floods on the read-surface's bare members/URL-basenames; a qualified-
+safe gate yields a clean js/ts-21 / python-92 set, but the useful receiver-generic firing form needs a clean-
+corpus distinctiveness gate (graduation-lite) the unproven nodes never got. Both re-land conditions (incl. the
+promising usage-death-as-member-distinctiveness gate) are in the PASS 26 ledger item. **PASS 27 SHIPS the
+GRADED (LOW-severity) tier — the PASS-26 RUNG-B re-land, gated so it never floods.** Owner ruling: "it
+shouldn't abstain from information it knows — a linter that doesn't do anything isn't a linter." An
+attested-revoked-role web node WITHOUT a proven rule now carries a train-time-computed [`GradedForm`]
+(persisted on the node, `lint_web` codec trailing + bounds-safe) iff it passes FOUR gates
+([`lint_module::graded_forms`]): (1) QUALIFIED-SAFE (the PASS-26 cut — real `owner.member`, never a URL
+basename / rustdoc anchor / bare member); (2) member-scope USAGE-DEATH with **DEATH-VERDICT CALIBRATION** —
+death is trusted only when the same corpus finds ≥1 ALIVE member among the language's own candidates
+(MEASURED: python's 9-page corpus read ALL 92 "dead" incl. `.read`/`.write` — flood; javascript's 3052-page
+corpus split 10 dead / 11 alive — discriminates; a degenerate all-dead distribution is corpus POVERTY, so
+every form falls to the dotted-literal tier — no constant, the corpus's own distribution is the referee);
+(3) PROVEN-COVERAGE DEDUP (MEASURED: javascript's proven 54 ALREADY carries `.blink`/`.getYear`/`.compile`
+receiver-generic rules — all 21 js/ts qualified-safe candidates were duplicates and are skipped; the graded
+tier adds only NEW enforcement); (4) CLEAN-NEAR-MISS (graduation-lite — the chosen form must fire on NONE of
+the corpus's other-page current blocks; dropped `AST.end_col_offset` ×2). SHIPPED GRADED FORMS: **css 0 /
+html 0 / javascript 0 / typescript 0 / rust 0 / python 90 (all dotted-literal)** — the honest funnel: python
+184 revoked-unproven → 92 qualified-safe → 0 calibrated-dead → 90 after dedup+clean-check. Graded rules
+derive as a SEPARATE view ([`lint_web::derive_graded_rules`], id `graded-<construct>`, empty bad/good, the
+same `uses_construct(fire)` plan) appended AFTER the proven merge in `lint_train` (never through the
+contradiction re-check — proven set and order byte-identical). FIXTURES (real compiled `RuleSet::flag`):
+clean-modern js/py **0**, landmine js/py **0** (names in strings/comments never fire), kitchen-sink js 5
+(all PROVEN medium — the graded duplicates correctly absent), kitchen-sink py **+2 LOW**
+(`graded-typing.Sequence` on `xs: typing.Sequence[int]`, `graded-ssl.PROTOCOL_SSLv3`; `loader.load_module()`
+correctly NOT flagged — the dotted-literal form's documented low recall; the live remedy
+`collections.abc.Sequence` is never flagged). `lint_query kind=web` shows a GRADED state + the `graded`
+payload per node. `TRAIN_VERSION` → `docs-v92-graded-tier`. 250 lib green (+3: codec round-trip + gate
+calibration/dedup/flood + qualified-safe cut), gauntlets 21/3 green. See the PASS 27 ledger item.
+
+---
+
+# APPENDIX — implementation history and the measured-falsification ledger
+
+> Everything below is HOW the current model above was arrived at, dated pass by pass, plus every measured
+> dead-end (kept so nobody re-derives it). It is NOT the current model. Read it only to understand why a
+> thing is the way it is, or before re-attempting something that was already falsified. The authoritative
+> "Failure ledger" section near the end of this file is the consolidated dead-end record.
+
+### Item — RUNG 1: the txt/markdown curriculum precursor, learned by exposure (`BRAIN_REV` 11, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 8): "text/markdown should have been the precursor to web." The substrate
+> must learn plain-text then markdown typography BY EXPOSURE through the char reader + the learned-association
+> pattern — exactly how HTML element registers are learned — keyed by the typography's OWN characters, never a
+> hand markdown parser. Validated by segmenting a real markdown doc into heading/prose/code-fence units.
+
+**What was built.** The reading machinery was generalized so ONE unit former serves both typographies:
+- `lint_graph::text_gap` — the per-run word-shape former, extracted from `scan` and now shared, so the HTML
+  tag scan and the markdown line scan emit byte-identical [`Gap`]s (the HTML path is bit-unchanged — proven
+  by the referee below landing byte-identical).
+- `lint_graph::scan_markdown` — the markdown analogue of the `<…>` tokenizer, reading LINE typography: a
+  fenced code block (≥3 `` ` ``/`~`) wraps its content lines in a fence-marker element, an ATX heading wraps
+  its trailing text in a heading-marker element, every other line is prose. Markers are keyed by
+  `token_seed("```")` / `token_seed("#")` — the SAME hash HTML element names use — so a fence and a `<pre>`
+  occupy the SAME learned role space. The marker ROLE is never assigned here; only the characters are read.
+- `read_scan` — extracted from `read_page`; both `read_page` (HTML) and `read_markdown` (markdown) form units
+  through it, so markdown segments by the identical register logic.
+- `learn_structure_roles` now ingests markdown bodies through `scan_markdown`, so a fence learns "code
+  carrier" and a heading "section heading" by exposure exactly as `<pre>`/`<h1>` do.
+- `ensure_brain` reads the markdown corpus (`lint_char::markdown_corpus`: `*.md` under the bundled
+  `~/.cache/helpers/mattpocock-skills` clone, 113 files / ~350 KiB, deterministic sort, folded into the
+  freshness fingerprint) at the character level between English and the web, and passes those bodies to the
+  role learner. Curriculum line now reads: english → meanings → explanations → **markdown 347 992c** → html →
+  css → js → doc-prose → roles.
+
+**MEASURED (honest, on the bundled corpus).** Marker vote tallies (support / code-votes / heading-votes):
+`fence 116 / 55 (47%) / 22`; `heading 547 / 32 / 370 (68%)`. Both fall short of the ¾-purity bar the role
+learner requires, so BOTH markers ABSTAIN (`structure_role` = `None`) — the register is genuinely mixed on
+skill docs (fences hold bash/yaml/text/markdown/prose, not only code; some headings are long, punctuated, or
+jargon-heavy). This is the exposure learner being CORRECT, not tuned: a markdown fence is NOT the consistent
+code carrier a `<pre>` is, so it earns no pure role. Despite abstention, `read_markdown` segments **97/113**
+real files into ≥1 multi-line code-fence unit via the shared meaning/shape fallback the roles back-stop, and
+the deterministic unit test (roles present) proves the learned-role path. **HTML referee is BYTE-IDENTICAL to
+the pre-rung-1 baseline** (MDN API recall 48.3% / weld 12.4%; MDN reference 49.6% / 12.8%; roles 14) — adding
+markdown short gaps to the shared title-ceiling did not perturb the frozen web reading. `cargo test --lib`
+226 green (adds the markdown segmentation witness); gauntlets `ai_linter_behaviors` 21 / `understanding_defects` 3.
+
+**Honest remainder.** The markers abstaining means rung 2's "markdown roles transfer to HTML" is, on this
+corpus, a transfer of the shared MEANING graph + role SPACE + unit former, not of a learned fence/heading
+seed role (nothing pure was learned to transfer). Getting the fence to earn a code role needs a
+code-consistent markdown corpus (language READMEs/tutorials where fences are ~always code); the faculty is
+wired to learn it the moment such a corpus is present. Rungs 2 (perfect-extraction bar), 3 (verdict gate),
+and 4 (language expansion) are UNTOUCHED this pass — stopped honestly at the rung-1 boundary per the rung
+discipline.
+
+### Item — RUNG 2a: feed the fence role with the MDN-content markdown corpus (`BRAIN_REV` 12, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 9, rung 2a): "FEED THE FENCE ROLE — add a code-consistent markdown corpus
+> as curriculum DATA. Strong candidate: `mdn/content` (the SOURCE markdown of the crawled MDN pages, fences
+> ~always code). Re-measure the vote table; the ¾ bar stays." Rung-1 carry-forward: the faculty was wired to
+> learn the fence role the moment a code-consistent corpus was present.
+
+**What was built (DATA + one determinism fix, no lists).**
+- A bounded, sparse, shallow clone of `mdn/content` (`files/en-us/web/{javascript,css,html}`, ~2820 `*.md`,
+  16.5 MiB) was fetched into `~/.cache/helpers/mdn-content` as a second registered markdown DATA root — the
+  `.git` and the prose-heavy `web/api` tree were dropped to keep it bounded and code-consistent. Its fences
+  are tagged ` ```js `/` ```css `/` ```html `/` ```js-nolint ` and are **~98% code** by author tag (16.5k code
+  fences vs ~390 `plain`/json/regex/http/bash).
+- `lint_char::markdown_corpus` now reads BOTH clones (`mattpocock-skills` + `mdn-content`) and was corrected
+  to be genuinely DETERMINISTIC: it collects every `*.md` PATH, sorts, THEN reads under a 24 MiB budget — so
+  which files survive a truncation is a function of the paths, not filesystem walk order (the prior code
+  consumed the budget DURING an unsorted walk, contradicting its own "deterministic" doc comment; harmless at
+  350 KiB, a real defect at 16.8 MiB). The corpus contents fold into the freshness fingerprint, so every
+  stale brain retrains.
+- `learn_structure_roles` gained an `HELPERS_ROLE_TRACE`-gated diagnostic that prints the raw vote tally for
+  the two markdown marker seeds (`` ``` ``, `#`), so the register purity is measurable before the ¾ bar
+  decides. No effect on the learned roles.
+
+**MEASURED (honest, combined corpus, `BRAIN_REV` 12).** Marker votes (support / code / heading):
+`fence 17337 / 12768 (73%) / 153 (0%)`; `heading 30008 / 856 (2%) / 20566 (68%)`. The fence rose **47% → 73%
+code-majority** (a +26-point move — the MDN corpus is the right data) but MISSES the ¾ bar by 2 points and
+still ABSTAINS. WHY (diagnosed, not forced): the fences are 98% code by TAG, but their READABLE CONTENT is
+73% code-majority under the shared code-detector (`code = !english_majority && (symbolic || words≥2)`), which
+was calibrated on syntax-highlighted HTML `<pre>` (highlighter `<span>`s inflate symbol density and split the
+english fraction). Raw markdown code carries no highlighter markup, and MDN worked examples are heavily
+commented in English (`// Expected output: true`) and include `plain`/output fences — so ~27% of fences read
+as english-content-majority. Closing the gap would mean re-tuning the code-detector to count commented raw
+code as code, which would churn the frozen HTML `<pre>` register AND every module's `TRAIN_VERSION` — the
+covenant's definition of forcing. So the fence lands at a **measured near-miss**; the ¾ bar STAYS.
+
+**No regression (the acceptance gate).** `BRAIN_REV` 12 invalidates every module's `brain_fp` axis, reopening
+graduation through the 3c re-check WITHOUT a `TRAIN_VERSION` bump (so the ledger persists → live js 57 / css
+25 / html 20 hold via retain-and-grow). Base graduation vs the new brain (`web_module_train`) is BYTE-
+IDENTICAL to docs-v85: javascript **54/54 proven**, css **22/22**, html **8/8**; every bad fixture flags, every
+clean fixture flagged by `[]` (junk floor zero, no false positives). HTML referee unchanged (MDN API 48.3% /
+12.4%; reference 49.6% / 12.8%; roles 14) — the added MDN markdown grows the meaning graph but the recall
+bottleneck is the reader's SEGMENTATION, not vocabulary, so rung 2b (recall→95%) is a reader task, not a
+corpus one (measured: the corpus alone moves the referee zero). `cargo test --lib` 226 green.
+
+**Honest remainder.** Rung 2a delivered the corpus, the determinism fix, and the measured vote table; the
+fence is a 2-point near-miss (abstain correct, ¾ bar intact — no forcing). Rungs 2b (learned-reader recall
+50%→95% + weld→≤3%: a segmentation-faculty task the referee localizes, untouched this pass), 2c (page-role
+faculty from `status: deprecated` frontmatter + `{{Deprecated_Header}}` typography — the MDN-content
+attestation is now on disk as clean markers, ready to learn), 3 (verdict gate), and 4 (language expansion)
+are UNTOUCHED — stopped honestly at the rung-2a corpus boundary per the rung discipline.
+
+### Item — RUNG 1 (COMPLETION PASS 10): fence markers keyed by their OWN info-string (`BRAIN_REV` 13, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 10, rung 1): "The author tags every fence — `` ```js ``, `` ```css ``,
+> `` ```plain `` — the info-string is part of the marker's own typography, exactly as an element's
+> attributes ride its tag. Key fence role-votes by `token_seed` of fence+info-string; the generic bare
+> `` ``` `` seed keeps whatever it honestly earns. Data-keyed learning, zero hand logic."
+
+**What was built (typography, no lists).**
+- `lint_graph::md_fence_seed(info)` now keys a fence by the fence literal PLUS its info-string
+  (`token_seed("```js")` vs `token_seed("```plain")` vs the bare `token_seed("```")`), and
+  `md_fence_info` reads the info-string as the first whitespace token after the fence run, case-folded like
+  an element name. `scan_markdown` carries the open fence's info-keyed seed so every content line of the
+  block is contained by the marker the author tagged. Pure typography — the info-string is only ever a hash
+  key, never compared to a list.
+- The `HELPERS_ROLE_TRACE` diagnostic now enumerates the fence FAMILY from the corpus's own opening-fence
+  info-strings (data, not a code list) so each variant's register purity is visible before the ¾ bar decides.
+
+**MEASURED (honest, combined corpus, `BRAIN_REV` 13; the rung-2a 73% was the whole family collapsed onto the
+bare seed).** Splitting by info-string SEPARATES the register the author already declared. Marker votes
+(support / code / heading), variants ≥ the 8-support floor:
+
+| marker | support | code | heading | role earned |
+| --- | --- | --- | --- | --- |
+| `` ```css `` | 6827 | 5515 (80%) | 1 (0%) | **code** |
+| `` ```js `` | 5470 | 4137 (75%) | 0 | **code** |
+| `` ```html `` | 3190 | 1840 (57%) | 113 (3%) | abstain |
+| `` ```js-nolint `` | 1195 | 918 (76%) | 5 | **code** |
+| `` ```plain `` | 335 | 143 (42%) | 8 | abstain (output/prose) |
+| `` ```css-nolint `` | 96 | 81 (84%) | 0 | **code** |
+| `` ```bash `` | 57 | 29 (50%) | 22 | abstain |
+| `` ```json `` | 25 | 22 (88%) | 1 | **code** |
+| `` ```http `` | 8 | 8 (100%) | 0 | **code** |
+| bare `` ``` `` | 16 | 9 (56%) | 0 | abstain |
+| `#` (heading) | 30008 | 856 (2%) | 20566 (68%) | abstain |
+
+Seven tagged code fences EARN the code register; `plain`/output and the mixed `html`/`bash`/bare fences
+honestly abstain. Roles 21→28, all seven additions `+1` (code). This is the exposure learner being CORRECT,
+not tuned: a `` ```js `` fence IS the consistent code carrier a `<pre>` is; a `` ```plain `` output fence is
+not. The ¾ bar STAYS.
+
+**No regression (the acceptance gate).** The fence roles are markdown seeds; the HTML reader keys on element
+seeds and never consults them, so `<pre>`/`<h2>` roles and the module verdicts are unmoved. Live module
+counts hold (js 54 / css 22 / html 17 module rules + 2 understanding each) — `BRAIN_REV` 13 reopens
+completion via the 3c re-check WITHOUT a `TRAIN_VERSION` bump, so the ledger persists by retain-and-grow
+exactly as `BRAIN_REV` 12 did. `cargo test --lib` 228 green (adds the info-string-keying and merge tests);
+gauntlets `ai_linter_behaviors` 21 / `understanding_defects` 3 green. **Regression found + fixed:** rung 1
+first made the markdown roles non-empty, and the old `ensure_structure` hydrated the HTML bootstrap ONLY when
+roles were entirely empty — so on a no-web-cache machine the HTML register was silently lost. Hydration is
+now a MERGE (`StructureRoles::hydrate_missing`: live roles win, the bootstrap fills unseen seeds), and the
+committed `char-structure-bootstrap.json` was regenerated to carry all 28 roles (21 HTML preserved verbatim +
+7 markdown fence, title ceiling held at the full-web value 4).
+
+**Honest remainder.** Rung 1 delivered the info-string keying, the measured separation, and the hydration-
+merge fix. Rung 2 (the PAGE-ROLE attestation faculty — `{{Deprecated_Header}}` + `status: deprecated`
+learned by exposure, measured against the hand anatomy's attested MDN pages) and rungs 3/4 (verdict gate /
+language expansion) are UNTOUCHED — stopped honestly at the rung-1 boundary per the rung discipline.
+
+### Item — COMPLETION PASS 11: the attestation register is STRUCTURALLY discoverable, SEMANTICALLY unlabelable (measured; NO burn, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 11): build the LEARNED page-role attestation faculty — parallel to
+> `SiteChrome` but INVERTED: an invariant run recurring across ≥ the chrome floor of same-site pages whose
+> PAGE SUBJECTS VARY and whose OWN WORDS link to prohibition/deprecation MEANING through the meaning network
+> (`related`/`meaning_of`, "'deprecated' carries it", never a word list) — then burn `has_deprecation_notecard`
+> on a ≥95% agreement gate. MEASURED end to end (`examples/attest_probe`, untracked harness); the gate is NOT
+> crossed and the hand path STAYS. This is the same recommendation/advice-register wall THE CURRENT MODEL
+> already names ("their commands carry no negation operator the substrate resolves yet"), now pinned for the
+> attestation faculty specifically.
+
+**The corpus + the hand baseline (exact).** 2968 crawled MDN pages (`mdn-css` ⊕ `mdn-js` ⊕ `mdn-html` ⊕ the
+four `developer-mozilla-org-*` crawls, deduped by url). The hand anatomy attests **117** of them
+(`has_deprecation_notecard` = `notecard deprecated` ∨ `no longer recommended`, `!rules`) — matching the
+figure this pass inherited exactly. In the `mdn-content` markdown corpus the two clean markers agree to the
+file: `{{deprecated_header}}` (case-folded) in **84** files ≡ the frontmatter `status: - deprecated` in **84**
+files (the `status:` enum is `deprecated` 84 / `experimental` 107 / `non-standard` 84).
+
+**Structural half — WORKS, and discovers the whole MDN status-banner FAMILY.** The `SiteChrome` invariance
+atom (whitespace-collapsed tag-separated run, ≥2 words / ≥6 chars, keyed by exact recurrence) already
+isolates the notecard perfectly: the deprecation banner's own boilerplate tail — `"…at the bottom of this
+page to guide your decision. Be aware that this feature may cease to work at any time."` — recurs on
+**EXACTLY the 117** attested pages and **zero** others → a single-run page attester at **P = 1.000, R = 1.000,
+F1 = 1.000**, subjects varying (117 distinct constructs). `"no longer recommended"` is likewise an exact-117
+run. But the same detector surfaces the ENTIRE status-banner family as structurally identical invariant runs
+whose subjects vary: Baseline widely-available `"This feature is well established and works across many
+devices…"` (support 807, hand-overlap 0), Baseline limited `"This feature is not Baseline because it does
+not work in some of…"` (477, 0), plus section chrome `"Return value"` (792), `"Formal syntax"` (740),
+`"Computed value"`/`"Applies to"`/`"Animation type"` (~540). Structure ALONE cannot tell the DEPRECATION
+banner from the ENDORSEMENT banner or a section heading — all are invariant, partial-support, subject-varying
+runs. The discriminator can only be conjunct (c): the marker's words mean PROHIBITION.
+
+**Semantic half — BLOCKED on the frozen meaning network (multiply confirmed).** Conjunct (c) is not
+satisfiable covenant-clean on the current substrate:
+- `"deprecated"` is ABSENT from the English dictionary (`definition_of` len 0), `is_negation` false; its
+  char-brain USAGE vector exists but sits in the NOISE band to every prohibition anchor (`related` to
+  `obsolete` 3967, `removed` 3710, `forbidden` 3879 — while a neutral `"search"`↔`obsolete` is 3891, i.e.
+  CLOSER). No query formulation rescues a word with no geometry.
+- `"avoid"`/`"obsolete"`/`"cease"`/`"discourage"`/`"recommended"` HAVE dictionary meaning but are NOT
+  `is_negation`, and their definitions carry no discovered negator (`forbidden` is the only tested
+  deprecation-adjacent word whose definition does — and it never appears in the notecard).
+- `sentence_states_prohibition("Deprecated: This feature is no longer recommended.")` = **false**:
+  `COMMAND_LEAD_WORDS = 2` reads only IMPERATIVE-lead commands ("Never use X"); the notecard is a DECLARATIVE
+  attestation, and its lead words ("Deprecated", "This") are not negators.
+- The `is_negation` signal that DOES fire fires on the WRONG runs: `". Not all browsers may have implemented
+  every part…"` (713, overlap 8) and the Baseline `"…is not Baseline because it does not work…"` (477,
+  overlap 0) are descriptive negation → FALSE POSITIVES, while the deprecation notecard earns NOTHING. A
+  faculty gated on it would relabel endorsement/availability banners as prohibitions and still miss the 117.
+
+**Burn decision — NO BURN; hand `has_deprecation_notecard` stays INTERIM.** The gate wants ≥95% agreement or
+learned ⊇ hand; the learned SEMANTIC gate produces zero true attestations (correct abstention) or false
+positives — never the 117 — so it cannot replace the hand marker. Shipping the structural-discovery faculty
+now would be either DEAD CODE (abstains, unconsumed) or a REGRESSION (consumed → the 117-page CSS/HTML
+deprecation rules drop below the module floor). Both violate the bar, so no library code lands and the
+hardcoded strings remain the honest INTERIM. Rungs 3 (burn) and 4 (language expansion) are gated on a cross
+this pass does not make; UNTOUCHED. `cargo test --lib` 228 green, gauntlets green — no code touched, no
+`TRAIN_VERSION`/`BRAIN_REV` move.
+
+**Re-land condition (precise).** The structural half is proven and ready; the missing piece is a
+DECLARATIVE-ATTESTATION POLARITY resolver in the meaning network — the same per-token side-count / span
+polarity classifier the reverted advice-register experiments named ("re-lands only WITH per-token side-count
+classifier") — that reads `"deprecated"` / `"no longer recommended"` / `"avoid using it"` as negative-polarity
+prohibition without a word list (e.g. by teaching `"deprecated"` a prohibition USAGE sense strong enough to
+cluster, or a polarity judge that does not require an imperative lead). The moment that classifier exists, the
+attestation register is the invariant-partial-run whose subjects vary AND whose words resolve negative under
+it — the notecard family separates by MEANING, not by the hardcoded string, and the burn proceeds.
+
+### Item — COMPLETION PASS 12: the polarity rung is DISCOVERY-STARVED and HOP-BOUNDED (measured; NO cross, NO burn, 2026-07-12)
+
+> Owner directive (COMPLETION PASS 12): extend polarity reading learned from the dictionary itself — half 1
+> a subject-scoped declarative `sentence_polarity` (position-free operator that GOVERNS the predicate), half 2
+> negation PREFIXES learned by the systematic-flip measurement — then wire what crosses (attestation burn,
+> the classics, the corroboration judge) at junk-floor zero. MEASURED end to end (`examples/polrung`, untracked
+> harness). The cross is NOT made — the SAME wall as PASS 11, now diagnosed one layer deeper: the block is the
+> DISCOVERY stage plus the 1-hop compounding horizon, not merely "no polarity classifier". No library code
+> lands (dead code or regression either way), no burn, no `TRAIN_VERSION`/`BRAIN_REV` move; `cargo test --lib`
+> 228 green.
+
+**The sole discovered operator is `"not"`; `"no"` is ABSENT (root cause).** The frozen negator discovery
+(`read_dictionary`, the "prefix+root : NEGATOR root" morphology, e.g. `in`+`valid` = "**not** valid") found
+**exactly one** base operator on this machine's dictionary: `"not"`. `"no"`, `"never"`, `"none"`, `"nor"`,
+`"without"` are all `base_discovered = false` — the discovery is STRUCTURALLY biased to the word that sits
+immediately before a stripped root in negative-morphology glosses, and that word is almost always `"not"`.
+Consequence: the 117 deprecation notecard text carries NO operator the substrate resolves — `"no longer
+recommended"` hinges on `"no"` (undiscovered) and `"recommended"` (not an operator); the boilerplate tail
+`"…may cease to work at any time."` carries none at all. There is nothing for ANY position rule (half 1) to
+find in the notecard, so half 1 cannot read the 117 negative no matter how it scopes governance.
+
+**Half 2 — `un`/`non` QUALIFY covenant-clean; `dis`/`in`/`im`/`il`/`ir` do NOT; the register still fails.**
+The systematic-flip measure (headwords H = prefix+stem where the stem is itself a headword; flip = H's own
+gloss carries a discovered negator AND references the stem or a one-hop neighbor; comparative bar = 3× the
+background "gloss carries a negator" rate, ≥20 support; iterated to a fixpoint): **`un` 22.0% flip / 7.5× lift
+/ 1062 support** and **`non` 20.9% / 7.1× / 268** qualify round 1; the fixpoint adds nothing (`dis` 0.3%,
+`in` 4.0%, `im` 3.0%, `il`/`ir` ~5–6% — all below 3× because the dictionary glosses dis-/in- words by SYNONYM,
+`disapproval` = "expression of an **unfavorable** opinion", not by `"not"`+stem). This is a REAL, clean win
+in isolation: promoting `un`/`non` makes `"unfavorable"`, `"disapproval"`, `"disapprove"` read negative. But
+it does NOT reach the deprecation register, and it cannot be wired without regression:
+- `"deprecated"` → (inflection) `"deprecate"` = "express **disapproval** of" → `"disapproval"` = "unfavorable
+  opinion" → `"unfavorable"` = un+favorable. That is a **2-hop** meaning chain; `is_negation`'s guard is
+  **1 hop** (def + def-of-def). `"deprecate"` reads FALSE — its gloss word `"disapproval"` is a `dis-` word
+  (unqualified) that only reads negative through a further hop `is_negation` does not take.
+- `"obsolete"` = "**no** longer produced…" — blocked on the undiscovered `"no"`.
+- `"avoid"` = "keep **away** from" and `"discouraged"` = "having **lost** confidence" — carry no operator at
+  all (the task's predicted honest failures; `"away"`/`"lost"` earn nothing).
+- `"forbidden"` = "**not** allowed banned" is the ONLY register word with a native operator — and it never
+  appears in the notecard (PASS 11 already recorded this).
+
+**Wiring `un`/`non` is a REGRESSION, measured.** The `disapproval` win exists ONLY through the compounding
+clause (its gloss `"unfavorable"` is an `un-` word). Feeding the ~2187 `un`/`non` words into `is_negation`'s
+two-signal compounding guard flips **5408** headwords to negative — sampled: `accept`, `resolute`, `calm`,
+`differ`, `canvas`, `idealistic`, `penitent`, `newsflash`, `cartoonish` — an FP blowout (a gloss with any two
+un-/non- words anywhere reads negative). At the sentence foils this reads the ENDORSEMENT banner `"This feature
+is well established and works across many devices…"` as NEGATIVE. Pure-typography promotion (prefix words are
+operators for DIRECT membership only, barred from the compounding second signal) is FP-safe but then reaches
+NONE of the register (not even `disapproval`, a `dis-` word) — dead weight for this rung.
+
+**Half 1 position-free is strictly WORSE than the frozen imperative gate at the foils.** With the augmented
+operator set, position-free `is_negation` over `"This feature is **not** Baseline because it **does not**
+work…"` (Baseline-limited banner, hand-overlap 0) reads NEGATIVE — a false positive — while the true 117
+notecard reads negative only via the FP-laden compounding, not via any operator actually in its text. So the
+half-1 experiment relabels availability/endorsement banners as prohibitions and still fails to isolate the 117
+by meaning — reconfirming PASS 11's `is_negation` result at the sentence level on the real texts.
+
+**Decision — NO wire, NO burn; hand `has_deprecation_notecard` stays INTERIM.** Both directions violate the
+bar: compounding-extended = regression (5408 FP negators, endorsement→prohibition); pure-typography or half-1
+position-free = abstains on the register (dead code) or FPs on the banners. Nothing crosses cleanly, so no
+library code lands and rungs 3–4 (attestation burn, classics, corroborate polarity, language expansion) stay
+gated on a cross this pass does not make. UNTOUCHED.
+
+**Re-land condition (sharpened past PASS 11).** Two independent gaps must close together, and both are DISCOVERY
+problems, not classifier-wiring problems: **(a)** the operator set must gain `"no"` and the multi-word `"no
+longer"` through a discovery that is not biased to the `prefix+root : "not" root` morphology (the current
+discovery structurally only ever finds `"not"`); **(b)** the meaning-polarity must be a propagating SIGN that
+survives multiple hops with sign-flips (so `deprecate → disapproval → unfavorable → favorable` resolves
+negative) WITHOUT the count-based compounding guard's FP explosion — i.e. a signed polarity field, distinct in
+kind from `is_negation`'s two-signal count, OR the already-built trained side-count `Polarity`
+(`lint_read.rs`) grounded on real bad/good MDN labels rather than on the frozen negator cluster. Absent both,
+the attestation register remains STRUCTURALLY discoverable and SEMANTICALLY unlabelable exactly as PASS 11 left
+it.
+
+### Item — COMPLETION PASS 13: attestation via the AUTHOR'S OWN METADATA TYPOGRAPHY — the burn (`TRAIN_VERSION` docs-v88, 2026-07-13)
+
+> Owner directive (COMPLETION PASS 13): key the attestation faculty on the author's MACHINE METADATA — the
+> MDN frontmatter `status:\n  - deprecated` enum, a data-keyed marker exactly like a fence info-string (the
+> PASS 10 precedent) — NOT on English meaning. The meaning-network conjunct that blocked passes 11–12 is
+> REPLACED by author-metadata agreement. Rung 1: the learned metadata-keyed register. Rung 2: gate + burn
+> `has_deprecation_notecard`. Rung 3: language expansion on the same metadata shape. THE CROSS PASSES 11–12
+> COULD NOT MAKE IS MADE HERE — measured, then burned.
+
+**Rung 1 — the learned attestation register, metadata-keyed (`src/lint_attest.rs`, MEASURED `examples/metajoin`).**
+The `status:` marker is a recurring, enum-valued author typography: a frontmatter block-sequence key
+(`status:` then `  - v` lines) whose value set is small and closed (`deprecated` 84 / `experimental` 107 /
+`non-standard` 84 across the `mdn-content` clone) and which partitions pages into status families whose
+SUBJECTS vary. `Attestation::discover` finds that enum by SHAPE (any top-level block-sequence key — `status`
+is never named in code), reads the prohibition family's enum value(s) from `lint-index/deprecation-status.json`
+(`prohibits: ["deprecated"]` — the one datum, carried like `sources.json`), joins the family's slugs to the
+crawled pages by slug (the URL path after `/docs/`, case-folded), and learns the DISCRIMINATIVE banner runs:
+an invariant text run present on ≥ half the family's crawled pages, ABSENT from every other-family page,
+family-DOMINANT (≥ half its own support is family), and sentence-scale (≥ 6 words — a rendered banner is
+prose, dropping the 2-word "compatibility table" fragment). MEASURED JOIN (117 hand-attested pages baseline):
+the `deprecated` metadata family = 84 slugs, ALL 84 in the crawl, ALL 84 in the structural notecard cluster
+(label purity **100%**); `experimental` → 0 in the cluster, `non-standard`-only → 0 (24 of the 84 are also
+`deprecated`). So the metadata `deprecated` family UNIQUELY + PURELY fingers the deprecation cluster — no
+English polarity needed. The 2 discovered markers (`"This feature is no longer recommended. Though some…"`,
+`"…at the bottom of this page to guide your decision. Be aware that this feature…"`) attest EXACTLY **117**
+pages: **P = 1.000, R = 1.000, FP = 0** vs the hand marker. Join-coverage is 84/117 = 71.8% on the
+markdown-discovery side (the clone omits the `web/api` tree), but the discovered banner run GENERALIZES to all
+117 — the 33 `web/api` pages with no markdown source still render the same banner — so the attester reproduces
+the full hand set from an 84-page metadata discovery.
+
+**Rung 2 — burn (BEHAVIOR-PRESERVING, verified live).** `has_deprecation_notecard` (the hardcoded
+`body.contains("notecard deprecated") || body.contains("no longer recommended")`) is DELETED. `read_doc_page`
+now takes the attested URL SET; `graduate` discovers the `Attestation` once from the ORIGINAL pages, builds
+the attested-URL set BEFORE the chrome strip (the banner's cross-page-identical text run is chrome, removed
+by `site_chrome::strip` — the retired hand marker survived only on the `class="notecard deprecated"` markup
+attribute the strip never touched; the URL set carries the page-role fact past the strip), and threads the set
+through `lang_pages`/`page_proves_in_lang`/`propose`. LIVE (`examples/web_module_train`, this machine's crawl
+= the whole owning corpus, no eslint cache so ALL js/css/html rules flow through the deprecation path): base
+graduation **js 54 / css 22 / html 8 PROVEN — byte-for-byte the pre-burn baseline**, every good fixture clean,
+junk floor zero. `cargo test --lib` **230** (adds 2 `lint_attest` tests: whole-run matching + the honest
+no-metadata abstention); gauntlets `ai_linter_behaviors` **21** / `understanding_defects` **3** green.
+`TRAIN_VERSION` docs-v87 → **docs-v88-metadata-attestation** (training logic changed; output identical, so the
+live ledger persists by retain-and-grow — js 54 / css 22 / html 17 hold). `BRAIN_REV` UNMOVED (the char/English
+substrate is untouched; attestation is a module-training faculty). COVENANT: the enum key, family, banner
+text, and page set are all DISCOVERED from data; only the prohibition enum value is data (`deprecation-status.json`);
+no site/word/element list in code.
+
+**Honest remainder — rung 3 (language expansion) is CORPUS-BLOCKED (measured).** The metadata faculty is the
+shape other languages plug into, and the extension is covenant-clean: Python renders `.. deprecated::` as a
+`<div class="deprecated">` / "Deprecated since version 3.11" box, Rust `#[deprecated]` as a rendered badge —
+a data-keyed CLASS-VALUE marker (typography, like a fence info-string), matchable against the `prohibits`
+value in `deprecation-status.json` as DATA, NOT prose. This needs a rendered-HTML-marker discovery variant
+(no markdown frontmatter + slug-join — Python/Rust carry the marker directly in the crawled HTML), distinct
+from the MDN frontmatter mechanism. BUT the corpora that carry the markers are NOT cached: the crawled
+`python-docs` (12 pages) and `rust-reference` (123 pages) are the language REFERENCE/SPEC — which describe
+syntax and carry ZERO deprecation markers (measured: 0 of 135) — while the deprecations live in the API docs
+(`docs.python.org/3/library`, `doc.rust-lang.org/std`) that are NOT crawled. A polite one-page fetch confirmed
+the marker shape is live (`docs.python.org/3/library/cgi.html` → "Deprecated since version 3.11"). So rung 3
+is a CORPUS-ACQUISITION + discovery-variant + grammar-dylib + module-floor task (python/rust sit below the
+graduation floor on the miner fallback; flipping needs ≥3 fired deprecated constructs), not a wiring task —
+the faculty ABSTAINS honestly on the cached reference corpora (no metadata → no false attestation, verified).
+Deferred to a corpus pass, per the rung discipline's honest stop.
+
+### Item — COMPLETION PASS 14: LANGUAGE EXPANSION — rendered markers, the ITEM unit, python+rust graduate (`TRAIN_VERSION` docs-v89, 2026-07-13)
+
+> Owner directive (COMPLETION PASS 14): acquire the Python/Rust API-doc corpora (the marker carriers PASS 13
+> measured missing), extend the metadata-attestation faculty to rendered-HTML markers, graduate both modules.
+> Rung discipline, comparative bars, honest stop.
+
+**Rung 1 — corpus acquisition (`examples/apidocs_crawl`, untracked).** Bounded breadth-first crawls, RAW
+HTML preserved: `python-library` (docs.python.org/3/library) **328 pages / 27.0 MiB / 5.1s / 47
+marker-bearing**; `rust-std` (doc.rust-lang.org/std) **1400 pages / 113.6 MiB / 10.4s / 140
+marker-bearing**. The prior python-library cache was prose-only JSON (class markers lost) — replaced by the
+HLM1 raw cache; `rust-std` registered in `sources.json` (DATA). NOTE: the old crawl JSON stored `prose`
+not `body`, which is WHY pass 13's measurement saw 0 markers on 328 crawled pages — the markers were
+stripped at store time, not absent from the site.
+
+**Rung 2 — rendered-marker discovery (`lint_attest`, MEASURED `examples/apidocs_attest`).** `Attestation`
+gains `class_markers`: class-attribute TOKENS equal to a `deprecation-status.json` prohibition value,
+recurring across ≥ `CLASS_MARKER_SUPPORT_FLOOR` (8) distinct page subjects. Discovered `["deprecated"]` on
+both sites; python 47 attested / rust 140 attested; ~10-page hand sample verified live (functions.html 3
+deprecated-class hits vs constants.html 0; struct.Vec.html 2 vs enum.Option.html 0). **MDN regression gate:
+the discovered class token adds ZERO pages — attested set = exactly the frontmatter-117, byte-identical.**
+
+**Rung 3 — the ITEM unit + graduation (the pass's real work; four MEASURED unsound shapes fixed).**
+API pages mark MANY items in place (ssl.html marks 20), so the page-subject machinery mis-read them four
+distinct ways, each caught by audit against the pages' own markup:
+1. *Nearest-by-distance anchor attribution* keyed python's trailing `<div class="deprecated">` (end of the
+   item's `<dd>`) to the NEXT item — `utcnow`'s deprecation landed on `fromtimestamp`, the replacement.
+   → container-vs-trailing typography: self-anchored / container-forward (no prose between) / trailing-back.
+2. *Slide-past on invalid ids*: rustdoc's `-1` trait-impl duplicates (`method.is_ascii-1`) are not valid
+   dotted items, and backward scan slid past them to an unrelated anchor (`is_ascii_control` junk). → EVERY
+   id delimits a region; an invalid region id attests NOTHING.
+3. *Bare shapes over-fire*: Sphinx writes LOCAL refs unqualified, so `re.split`'s only firing shape was bare
+   `split` — a rule that would flag every `s.split()`. → dotted suffixes + receiver-generic member only,
+   never bare.
+4. *The replacement demos the member*: `typing.Sequence` is deprecated but typing.html demonstrates
+   `collections.abc.Sequence` — the receiver-generic `.Sequence` fired ON THE FIX. → `member_demo_ok`:
+   the demonstrated receiver must be the id's parent (classmethod style), a block-local instance (rustdoc
+   `let s = …; s.trim_left()`), or a literal/expression value; foreign-namespace receivers reject. Plus the
+   corpus-ambiguity gate `member_receivers` ≤ 2 (`.split` rides many receivers → abstains).
+One candidate per marked ITEM (not per page) — ssl.html contributes its whole marked family. FUNNELS:
+python 328 pages → 47 attested → 10 partition-passing → **25 candidates → 25 PROVEN** (~19 exact-scope:
+`codecs.open`, `typing.Dict/List/Set/Type/Text/AnyStr/Callable/…` (13 alias family),
+`ssl.SSLSocket`/`SSLSocket.selected_npn_protocol`/`SSLContext.set_npn_protocols`,
+`importlib.abc.Loader.load_module`, `fileinput.hook_encoded`; ~6 scope-over-approximations of faithful
+author notes — see frontier). rust 1400 → 140 attested → 14 partition-passing → **8 candidates → 8 PROVEN**
+(`.connect`, `.slice_unchecked`, `.trim_left`, `.trim_right`, `.trim_left_matches`, `.trim_right_matches`,
+`.abs_sub`, `.wait_timeout_ms` — all verified genuinely `#[deprecated]`). ACCEPTANCE: kitchen-sink py flags
+lines [3,4,5] (`codecs.open`, `typing.Dict`, `typing.List`), rs flags [3,4,5,7] (`.trim_left`,
+`.trim_right`, `.abs_sub`, `.connect`); clean files using the REPLACEMENTS + junk-colliding idioms
+(`s.split(',')`, `p.name`, `collections.abc.Sequence`, `v.join`, `s.trim_start`) flag ZERO. UNION-corpus
+graduation: py∩rust = ∅ (0 cross-language rule sources).
+
+**Rung 4 — coverage map + regression.** `lang_coverage` gains the `attested` column (the learned faculty):
+javascript 40 / css 31 / svg 15 / rust 140 / python 48 / **elixir 19** (hexdocs renders deprecation badges —
+a future corpus, noted not forced). Web stack BYTE-IDENTICAL: base graduation js 54 / css 22 / html 8, good
+fixtures clean, junk floor zero; metajoin P = R = 1.000 (117/117); `cargo test --lib` **235** green (adds
+`attested_item_shapes` typography test, `member_demo_ok`, `member_receivers`); gauntlets 21 / 3 green.
+`TRAIN_VERSION` docs-v88 → **docs-v89-rendered-markers**.
+
+**Honest remainder.** (a) ~6 of python's 25 rules are scope-over-approximations of faithful author notes
+(arg-form: `urllib.parse.urlencode`, `asyncio.Future/Task`; group notes whose prose names siblings/
+exceptions: `TLSVersion.TLSv1_3`, `.end_col_offset`, `SSLContext.options`) — the note's SCOPE lives in its
+English ("except…", "if loop is not specified"), the same prose-scope wall as passes 11/12; narrowing
+re-lands only with a note-scope reader. (b) `mem::uninitialized` (fn-page: the item IS the page, no dotted
+anchor; URL-subject route doesn't spell `mem::uninitialized` either) and `Error::description` (marked, but
+never demonstrated in examples) stay unproven honestly. (c) The python partition passes only 10 of 47
+attested pages — the other 37 mark items whose usage the page never demonstrates in parseable inline code
+(doctest `<pre>`s carry no `<code>`, and `>>>` sessions don't parse) — a demonstration-scarcity limit, not
+a marker one. (d) Live-path caveat: the shipped `site_corpus` unions per-language sources; the harness
+measured per-corpus (union run confirmed ∅ cross-language, rust 7 vs 8 under union memory — ambiguity
+counts shift with the corpus, an honest sensitivity to note).
+
+### Item — COMPLETION PASS 16: the SUPERSESSION register hits the SAME flat-geometry wall (measured; NO ship, 2026-07-13)
+
+> Owner course-correction (PASS 16, recorded verbatim-ish): (1) marker/metadata-mining is ANOTHER "too
+> precise" scaffold — the system must READ the full documentation and rules must emerge from
+> UNDERSTANDING; (2) verification must be done BY THE SYSTEM on itself (generate expectations →
+> blind-lint → reconcile in English), not hand-written expert fixtures; (3) stop patch-pass churn on
+> individual gaps — fix at the understanding root; (4) THE TARGET: good practices / actual improvements
+> flagged on web-tech code, learned from W3Schools and MDN — "ensure that GOOD PRACTICES AND ACTUAL
+> PROBLEMS OR IMPROVEMENTS THAT CAN BE MADE GET FLAGGED FROM LEARNING BETTER WAYS FROM W3 AND MDN,
+> SPECIFICALLY FOR WEB TECH THIS PASS." The concrete inspiration: a video script on ten modern Baseline
+> features (URLPattern, ::details-content, iterator helpers, contrast-color(), container style queries,
+> Navigation API, invoker commands, Temporal, CSS anchor positioning, same-document View Transitions) —
+> flag the OLD way with the MODERN recommendation, the rule SOURCED from MDN/W3S supersession prose.
+
+**The design (within covenant).** The SUPERSESSION register is NOT prohibition — no negation, so the
+passes-11/12 polarity WALL should not apply. MDN states supersession in plain governing prose ("X is
+designed as a replacement for Y", "the successor to Y", "a declarative alternative to"). The plan: read
+the RELATION through UNDERSTANDING — the meaning network is supposed to relate the substitution
+vocabulary (`replacement`/`successor`/`alternative`/`instead`/`supersede`) to a single substitution
+ANCHOR via `related()` / directed definition cross-reference, NEVER a phrase list in code; the old
+construct is DATA (backtick typography) in the same sentence; the rule is an ADVICE-severity improvement
+`uses_construct(old) → supersession-sentence + new-feature, cited`, distinct from the deprecation faculty
+(which stays untouched — `Date`/`History`/`showModal` carry NO `status: deprecated` frontmatter, so
+deprecation correctly abstains; supersession is a genuine, uncovered register).
+
+**MEASURED — the premise is FALSE on the frozen substrate (`examples/super_probe`, four ways).** The
+substitution register is NOT geometrically separable, exactly the passes-11/12 flat-geometry wall
+reconfirmed for a new register:
+- **WALL 1 — `related()` is flat.** Over the dictionary meaning graph the substitution family and
+  unrelated web-doc controls sit in the SAME band (~3400–4200). `related(replace, successor)` = 4187 is
+  no closer than `related(replace, banana)` = 4056; only same-STEM morphology dips (`replace/replaces/
+  replacement/supersede` ~3650–3814), and that is within control noise.
+- **WALL 2 — the margin is noise.** A relative test (is a family word's nearest family neighbor closer
+  than its nearest control?) passes 8/10 for the family — but 7/12 pure CONTROLS ALSO false-hit
+  (`pattern`→family 3443, `browser`→3555, closer than the family's own internal distances). ~58%
+  false-positive rate ⇒ the ordering is noise, not a classifier.
+- **WALL 3 — the learned USAGE sense (`context_related`) is flat too** — 4/10 internal-coherence, and the
+  SEPs are again same-stem (`supersede`/`supersedes`).
+- **WALL 4 — directed cross-reference collapses to LITERAL membership.** On real MDN sentences the only
+  hits at horizon ≤ 2 are hop-0 (the sentence literally CONTAINS a substitution word); the two
+  supersession sentences with no literal substitution word ("you no longer need", "…supersedes…") MISS,
+  and every clean sentence correctly misses. So the only reliable recognizer is a hardcoded substitution
+  PHRASE LIST — the exact thing the covenant (and owner count 1) forbid.
+
+**A SECOND, independent wall at the DOC layer.** Even with a perfect reader, MDN's own reference prose
+states an explicit supersession relation for a MINORITY of the ten. Measured on the `mdn-content` clone:
+**Temporal** states it cleanly ("It is designed as a full replacement for the `Date` object"); **Navigation
+API** and **invoker commands** ("successor to the History API" / "declarative alternative") are Web-API
+pages (not in the js/css/html clone, per the task's own quotes). The other seven — iterator helpers,
+::details-content/`<details>`, contrast-color(), container style queries, URLPattern, anchor positioning,
+View Transitions — DESCRIBE the new feature but state NO supersession; the "delete your accordion",
+"replaces a library", "FLIP libraries had a good run" framings are the video author's editorial, NOT MDN
+governing prose. So the register would ABSTAIN on ~7/10 even with a working reader — the owner's premise
+("MDN states these relations in plain governing prose") holds for the minority.
+
+**Per-feature verdict (doc sentence → construct → outcome).**
+
+| # | feature | MDN supersession sentence | old construct | verdict |
+|---|---------|---------------------------|---------------|---------|
+| 3 | Temporal | "designed as a full replacement for the `Date` object" | `Date` | doc STATES it; reader WALL (can't recognise) |
+| 5 | Navigation API | "the successor to the History API" (Web-API pg, per task) | `history.pushState` | doc STATES it; reader WALL |
+| 4 | invoker commands | "declarative alternative to … with JavaScript" (per task) | `showModal()` click wiring | doc borderline; reader WALL |
+| 10 | URLPattern | (describes URL matching; no supersession) | regex routing | DOC ABSTAINS |
+| 9 | ::details-content | (describes disclosure widget + animation) | hand-rolled accordion JS | DOC ABSTAINS |
+| 8 | iterator helpers | (describes helper methods) | throwaway arrays | DOC ABSTAINS |
+| 7 | contrast-color() | (describes the function) | JS luminance util | DOC ABSTAINS |
+| 6 | container style queries | (describes the feature) | modifier classes | DOC ABSTAINS |
+| 2 | anchor positioning | (describes fallback positioning) | JS position library | DOC ABSTAINS |
+| 1 | View Transitions | (describes animated transitions) | FLIP library | DOC ABSTAINS |
+
+**Verdict: NO rule ships.** The two clean routes are both closed — a substitution phrase list (covenant
+violation + owner count 1) or extending the metadata-marker machinery (owner-forbidden this pass) — so,
+per the covenant (honest measurement, no forcing), the register ABSTAINS. No library logic changed; every
+module stays byte-identical (`TRAIN_VERSION` unchanged at `docs-v89`); the deprecation faculty is
+untouched. Only the reproducible measurement harness (`examples/super_probe`) lands.
+
+**Re-land condition (sharpened, same shape as passes 11/12).** The supersession register re-lands only
+WITH a substrate discovery that (a) SEPARATES the substitution register from ordinary vocabulary — a
+signed/trained `Polarity`-style side-count over real supersession/non-supersession sentence labels, or a
+learned register geometry the dictionary HDC does not currently carry — AND (b) reads the "no longer
+need" NEGATION-of-need form (the same negation wall). OR: the owner blesses a single substitution SEED as
+DATA (exactly as `deprecation-status.json`'s `prohibits: ["deprecated"]` — the one datum no structural
+signal supplies), accepting that recognition is then literal-membership over that datum and NOT an
+understanding-read — a DIFFERENT covenant posture than this pass permits. Until then the honest gap stands.
+
+### Item — COMPLETION PASS 17: the TRAINED register supersedes the noise band but is exposure-entangled; module isolation VERIFIED (measured; NO ship, 2026-07-13)
+
+> Owner ruling (PASS 17): two rungs. Rung 1 — TRAIN the register on the system's OWN machine-derived
+> labels (the 117 deprecation-attested banners vs the ~1284 Baseline availability banners), the vehicle
+> the existing side-count [`Polarity`] (`lint_read.rs`), then MEASURE generalization before wiring, then
+> wire what generalization supports (the prose-command classics `var`/`==`/`eval` proposed through the
+> blind loop) at junk floor zero — "if a leg fails, wire only the legs that pass and record the rest with
+> numbers." Rung 2 — module isolation: "like C, don't pay for what we don't use." MEASURED end to end
+> (`examples/register_train`, `examples/module_isolation`, both reproducible). No library logic changed;
+> `TRAIN_VERSION`/`BRAIN_REV` unmoved; 235 lib tests + gauntlets green.
+
+**Rung 1 — the register TRAINS, and it SUPERSEDES the passes-11/12 noise band (the new positive).** The
+labels are machine-derived page-role facts, no hand list: BAD = the 117-page deprecation banner runs
+(family-dominant sentence-scale invariant runs, off-family 0 — `metajoin`'s markers), GOOD = the Baseline
+availability banners discovered structurally as the top sentence-scale PROSE invariant runs absent from the
+family (support 807 "…is well established and works across many devices…", 477 "…is not Baseline because it
+does not work…", 486 "Want more support…"), the rest of the corpus as neutral EXPOSURE. The LABEL is the
+banner FACT (one run), so each DISTINCT run is one training example — class-balanced at the run level
+(otherwise the 807/477 Baseline pages poison shared nouns like "feature" toward the larger family; measured:
+per-page labels flipped `feature`→good and regressed the classics). Trained thus, the per-token side-count
+leans are CLEAN and CORRECT for the distinctive register vocabulary — `recommend`/`avoid`/`cease`→prohibition,
+`established`/`works`/`widely`/`available`→endorsement — the SAME words passes 11/12 measured sitting in the
+`related()` noise band (`deprecated`↔`obsolete` 3967 vs a neutral `search`↔`obsolete` 3891, i.e. CLOSER).
+This is the trained-`Polarity`-on-real-labels the passes-11/12 re-land condition named, and it works at the
+token level: reality's own page-role verdicts polarize the register vocabulary with no word list.
+
+**Rung 1 generalization tables (`examples/register_train`, MEASURED).** `classify` = tallies then prototype
+fallback; `tally-only` = `classify_tallied` (decisive learned register words, abstain otherwise).
+- (a) held-out banners: 5/5 correct (banners invariant — confirms training took, not generalization).
+- (b) PROSE-COMMAND classics (want prohibition): `classify` 5/6 — "Never use direct eval()!"✓, "…recommend
+  avoiding var…"✓, "The == operator is not recommended…"✓, "…no longer recommended to use this feature"✓,
+  "This method is deprecated and should be avoided"✓, "Use === Comparison" abstains (positive advice, no
+  prohibition). `tally-only` catches only 2/6 (the exposure-common register words cannot clear the bars —
+  see the wall).
+- (c) ABSTENTION FOILS (want NOT prohibition): the three Baseline banners → `classify` all endorsement✓
+  (INCLUDING "…is not Baseline because it does not work…", the descriptive-negation trap passes 11/12 FP'd);
+  junk governing prose (`this`/`String` pages) → `classify` **2 FALSE POSITIVES** ("keyword refers to the
+  context…", "Strings are useful…"), but `tally-only` correctly ABSTAINS on both.
+- (d) note-scope: "This does not work on WebAssembly targets" → `classify` endorsement (the passes-11/12
+  "does not" FP is GONE once the 477 banner is a GOOD label); "if loop is not specified…" → prohibition (FP).
+
+**Rung 1 — the WIRING wall, diagnosed one mechanism deeper (the reason NO rule ships).** The register cannot
+gate `read_doc_page` (the classics' MDN reference pages early-return empty there because they are neither
+`/rules/` nor `attested_deprecated`; the register would OPEN them). MEASURED flood over 2851 non-attested
+reference pages: `tally-only` opens **48.3%**, `classify` **85.8%** — but the sample opened subjects are
+generic guide pages ("properties", "selectors", "specificity", "inheritance", "grid_layout"), NOT
+prohibitions. The decisive isolation: counting ONLY genuinely TRAINED-bad register words (decisive label
+lean, EXCLUDING the frozen `is_negation` "not" short-circuit) opens **0.0%**. So the entire flood is the
+frozen negator cluster — any negated prose reads prohibition through `tally_lean`'s `is_negation`-first
+branch (PASS 12's "not" problem, now shown to drive 100% of the flood). AND the converse: the distinctive
+register words that SHOULD gate (`recommend`/`avoid`) can never clear the side-count bad bar `f ≥ 2·(g+e)`,
+because they pervade ordinary advisory prose ("we recommend", "avoid floats") → exposure `e` is huge; only a
+banner-EXCLUSIVE word (`cease`, e=0) earns a clean tally-bad lean. So the classics' clean leg-(b) scores come
+from the undertrained PROTOTYPE (≈5 label runs) — the SAME prototype that FPs the leg-(c) junk. Net: no leg
+passes the junk-floor-zero gate for standalone wiring. Wiring `read_doc_page` behind the register would flood
+the propose pool (the code's own warning: dropping/adding candidates reshuffles the order-sensitive self-test
+and flips UNRELATED verdicts among the 100+ graduated rules), so — per the covenant (no forcing) and the
+passes-11/12/16 honest-stop precedent — NO library code lands and the deprecation faculty (metadata-keyed,
+PASS 13) stays the covenant-clean route for the pages that carry a marker.
+
+**Rung 1 re-land condition (sharpened past PASS 12, TWO mechanism gaps, both now quantified).** (a) The
+frozen `is_negation` short-circuit inside `Polarity::tally_lean` must be SUPERSEDED by decisive TRAINED
+evidence (a word the labels met with a decisive lean uses its trained lean; only an unmet word falls back to
+the negator cluster) — this is what makes "not" trained-neutral and collapses the 48–86% flood — BUT this
+method is SHARED with the grounded (toolchain) polarity that drives construct selection, so the change needs
+its own regression proof (deferred, not attempted). (b) The register/advice vocabulary is EXPOSURE-ENTANGLED
+with ordinary guide prose (`recommend`/`avoid` are common advice), so the side-count bars cannot separate a
+construct-PROHIBITION from generic advice without SUBJECT confirmation — the propose path's existing
+"url-subject fires on the page's own example" filter is the missing conjunct, and only the full graduation +
+self-test run (also deferred on regression risk) can prove it keeps junk floor zero. The trained register is
+REAL and MEASURED; its safe consumer is not yet available.
+
+**Rung 2 — module isolation VERIFIED already correct; no fix needed (`examples/module_isolation`, MEASURED).**
+The live lint load path is already "don't pay for what you don't use": `tools::lint::run` detects the
+project's languages (`select_by_language`, keyed on the project's own file extensions) and calls
+`ensure_models(&by_language.keys(), …)` — ONLY the languages actually present. Per-language artifacts are
+filename-keyed and independently removable (`<lang>.module.bin` + `.graduated.bin` + `.learned.bin` +
+`.overlay-<fp>.bin`); `load_module` reads exactly `<lang>.module.bin`; the only `read_dir(model_dir())` walks
+are setup-time (`invalidate_module`) and reporting, never the lint hot path. MEASURED on a throwaway copy of
+the model cache (711 files, 255 MB across every language): a pure-JS project loads only `javascript.*`
+(9.8 MB, "53 rules across 1 language(s)") plus the shared machine-global substrate that loads ONCE
+(`char.global.bin` 55 MB, `english.global.bin` 9.6 MB, `polarity.global.bin` 0.29 MB, `extensions.bin`
+32 KB) — never the other 245 MB of language modules. ISOLATION PROVED: after deleting EVERY non-JS language
+module (711 → 491 files, 190 MB removed) the JS findings are **BYTE-IDENTICAL** (`true`); removing a
+language changes nothing for another. A CSS project after `css.*` removal independently re-acquires its own
+module (per-language registry pull, no other language dragged along). The registry-distribution unit is
+already the per-language module; the C-like "pay only for the languages your project uses" property holds and
+is now measured, so rung 2 lands as a VERIFICATION with numbers, not a code change.
+
+### Item — COMPLETION PASS 18: THE REGISTER WIRE — trained-lean precedence LANDS with byte-identical regression; the gate stays blocked by the negation-SCOPE + prototype walls (measured, 2026-07-13)
+
+> Owner ruling (PASS 18): implement the standing ruling "judgment should not be frozen — frozen at the
+> moment, but always learning more" at the CLASSIFIER level. Rung 1 — trained-lean precedence in the shared
+> classifier (the PASS-17 re-land condition (a)): where the training met a token with a decisive lean, that
+> lean supersedes the frozen negator; unmet tokens keep the frozen judge (retain-and-grow). Rung 2 — the
+> regression proof (the reason prior passes deferred this: the shared classifier guards 100+ graduated rules
+> and the order-sensitive self-test). Rungs 3/4 — subject-confirmation gate + the classics, then the
+> supersession relation, CONDITIONAL on the classics landing. MEASURED end to end (`examples/register_train`,
+> `web_module_train`, `apidocs_graduate`, reproducible); `TRAIN_VERSION`→`docs-v90-register-wire`; `BRAIN_REV`
+> unmoved (no brain/dictionary/negation change).
+
+**Rung 1 — the mechanism BUILT (`lint_read::Polarity::tally_lean`).** One surgical change: before the frozen
+`is_negation` short-circuit returns `Some(true)`, a negation word is checked against its OWN trained
+side-count. If `lean_of(f,g,e)` is a decisive ENDORSEMENT (`Some(false)` — the token cleared the side-count's
+existing 4:1 good bar), the frozen prohibition is SUPERSEDED — but only to NEUTRALISE (`None`), never to
+endorse (a negation operator is not praise). Every other path is byte-identical to the frozen code: a
+non-negation word never entered the negator branch; a negation word with no decisive good lean still returns
+`Some(true)`. So the change bites EXACTLY the negation words reality has decisively shown are not prohibition
+markers — "not" the archetype (196020 exposure / 18 good-label / 0 bad-label bits → decisive good →
+neutralised). The gate is the side-count's own decisiveness, a comparative bar FROM the training, not a hand
+constant; retain-and-grow keeps the cold floor for every uncleared negator (`incorrect` = "not correct" stays
+prohibition — no counter-evidence). Pinned by `trained_lean_supersedes_the_negator_only_to_neutralise`.
+
+**Rung 1 generalization (`register_train`, MEASURED; register trained on 117 deprecation banners vs the
+Baseline availability banners, run-balanced, 856779 exposure runs, 11.9M tokens).** vs the PASS-17 baseline:
+- (b) PROSE-COMMAND classics — UNCHANGED at 5/6 (`classify`): "Never use direct eval()!"✓, "…recommend
+  avoiding var"✓, "== is not recommended; use === instead"✓ (**preserved** — the neutralise-only design keeps
+  the negated-endorsement prohibition, where an endorse-flip design regressed it to `Some(false)`),
+  "…deprecated and should be avoided"✓, "no longer recommended…"✓, "Use ===" abstains (positive advice).
+- (c) FOILS — the descriptive-negation baseline "…is not Baseline because it does not work…" stays
+  `Some(false)`✓; the leg-(c) junk foils "keyword refers to the context…" / "Strings are useful…" still
+  full-classify `Some(true)` (the prototype wall, unmoved).
+- (d) NOTE-SCOPE (the descriptive-negation FP class) — **REPAIRED**: "if loop is not specified…" flips from a
+  `Some(true)` false prohibition (PASS-17 baseline) to `Some(false)`; "This does not work on WebAssembly" reads
+  `Some(false)` consistently under both `classify` and `classify_tallied`.
+
+**Rung 1 — the flood, DECOMPOSED (corrects the PASS-17 "not drives 100%" estimate).** Neutralising the
+decisive-good negation subset moves the flood over the 2851 non-attested reference pages only:
+
+| register read | PASS-17 baseline | PASS-18 (supersession) |
+|---|---|---|
+| tally-only (`classify_tallied`) | 48.3% | **39.0%** |
+| full (`classify`, incl. prototype) | 85.8% | **83.2%** |
+| trained-bad-word only (label leans, no frozen negator) | 0.0% | **0.0%** |
+
+So "not" the WORD is a MINORITY of the flood; the residual is two named walls the supersession cannot cross:
+(i) the **negation-SCOPE tail** — the `is_negation` cluster is broad (litotes: `never`/`incorrect`/`un-*`/`in-*`
+compounds), and those words carry GENUINE prohibitions elsewhere, so a bag-of-token-leans cannot separate
+"Never use X" from "X never does Y"; only position-aware `states_prohibition` (already the mint gate) can, and
+retain-and-grow correctly keeps them firing; (ii) the **prototype flat geometry** — the full 83% is
+prototype-dominated (the register's own trained vocabulary floods 0.0%, the `trained_bad` label-only predicate),
+the passes-11/12/16 wall unchanged. The advice words (`recommend`/`avoid`) remain exposure-entangled (their
+`classify=Some(true)` comes from the prototype, not a clean tally lean — `avoid` bad=15 vs exp=4980 never
+clears `f≥2·(g+e)`); register-context exposure counting was evaluated as the lever and MEASURED not to be one
+(it cannot cross the scope or geometry walls). **NO gate wiring ships.** Re-land condition (b) — subject
+confirmation — is insufficient alone against an 83% base rate; the classics DO NOT newly land (they were
+already 5/6 via the prototype in PASS 17 and are preserved, not enabled as a gate). Rungs 3/4 do not open.
+
+**Rung 2 — the REGRESSION PROOF (the reason prior passes deferred rung 1), CLEAN.** The change is a
+training-logic change (`TRAIN_VERSION` bumped, reopening every module through the 3c re-check), and every
+module re-graduates BYTE-IDENTICAL: **javascript 54/54, css 22/22, html 8/8** (`web_module_train`), **python
+25/25, rust 8/8** (union 7, `apidocs_graduate`), cross-language sources 0 (partitions ∅), MDN attested set
+unmoved (base graduation identical implies the 117). Every kitchen-sink flags its bad constructs with lines +
+cites and every clean file is flagged by `[]` (junk floor zero). Gauntlets green (`ai_linter_behaviors` 21,
+`understanding_defects` 3); `cargo test --lib` **236** (adds the supersession pin). The change is inert for
+graduation because the toolchain-grounded per-language classifiers do not produce decisive-good negation words
+during grounding — proving the supersession touches only where genuine register-training evidence exists.
+
+**Verdict.** Rung 1 (the classifier change) + rung 2 (its regression proof) LAND: the shared classifier now
+learns past the frozen negator where reality is decisive, repairing the descriptive-negation FP class with
+zero regression — the owner's "judgment is not frozen" ruling, realized. Rungs 3/4 HONEST-STOP: the register
+still cannot gate reference pages, and PASS 18 sharpens WHY (the scope tail + prototype geometry, decomposed
+above), not just THAT. The metadata-attestation faculty (PASS 13/14) remains the covenant-clean route for the
+pages that carry a marker.
+
+### Item — COMPLETION PASS 19 rung 1: CONSTRUCTION STATES are minable — the sentence-scaffold-with-slot atom falls out of the corpus, and the walled supersession register is RECOVERED structurally (measured, `examples/construct_mine`, 2026-07-14)
+
+> Owner ruling (PASS 19, verbatim intent): "build knowledge like english, infinite states please, scope is
+> not a question." A CONSTRUCTION is a sentence-level INVARIANT SCAFFOLD with VARIANT SLOTS — the SAME
+> invariant-scaffold/variant-slot pattern the page-level chrome detector (`lint_graph::site_chrome`) and the
+> banner-level attestation detector (`lint_attest`) already proved, GENERALISED from a WHOLE-RUN atom (the
+> run must be byte-identical across pages) to a SCAFFOLD-WITH-SLOT atom (the scaffold tokens invariant, one
+> or more slot positions varying). Each construction is an ORTHOGONAL STATE, mined only, committed only when
+> its MEANING is proven. Rung 1 is docs-first + the empirical de-risk: does the mining premise even hold on
+> the real corpus, or is it noise like the passes-11/12/16 meaning-geometry routes?
+
+**The mechanism (structural only — NO templates, NO word lists in the mining path).** For each cached page:
+flatten the HTML to prose with every `<code>…</code>` interior captured as an inline SLOT (the author's own
+code typography — the rendered backtick construct) and every other tag stripped to a space; split into
+sentences; the SHAPE of a slot-bearing sentence is the sentence with each slot filler replaced by `⟨⟩` and
+scaffold words lowercased, the fillers captured in order. A CONSTRUCTION is a shape recurring on ≥
+`SUPPORT_FLOOR` (8 — the SAME `CHROME_PAGE_SUPPORT`/`CLASS_MARKER_SUPPORT_FLOOR` repetition floor) DISTINCT
+pages with ≥ 2 DISTINCT slot fillers (a real variant slot, never a constant — the "content varies" half of
+the north-star's own chrome definition). This is the chrome/attestation atom with the invariance loosened
+from the whole run to the scaffold, so it is the SAME data-keyed learning, not a new heuristic.
+
+**MEASURED (`cargo run --release --features crawl --example construct_mine`) on 7848 real cached pages**
+(MDN JS/CSS + `/Web/API/` slices, W3Schools JS/CSS/com, rust-std, python-library): **378 distinct
+constructions** mined from 79 510 slot-bearing shapes. The premise HOLDS — scaffolds with a variant code slot
+fall out abundantly and cleanly, e.g. `the ⟨⟩ constructor creates ⟨⟩ objects.` (63 pages / 126 fillers),
+`creates a new ⟨⟩ object.` (51), `note: ⟨⟩ can only be constructed with ⟨⟩ .` (41),
+`attempting to call it without ⟨⟩ throws a ⟨⟩ .` (41). Crucially, the DESIGN-RELEVANT REGISTER FAMILIES the
+classics need are present as their own mined states:
+  - **supersession / remedy (two-slot):** `replace ⟨⟩ with ⟨⟩ .` (13 pages / 10 filler-pairs),
+    `use the ⟨⟩ css property instead, as this attribute is deprecated.` (9 / 7),
+    `instead of using ⟨⟩ and creating html text directly, you should use dom api…` (8 — the `document.write`
+    classic's own governing sentence), `consider, instead, using ⟨⟩ which has nicer behaviour.` (12).
+  - **prohibition / caution:** `you should not compare the results of ⟨⟩ to hardcoded constants.` (18 / 4).
+  - **deprecation / removal:** `the last version of python that provided the ⟨⟩ module was` (24 / 24).
+
+**THE HEADLINE.** The SUPERSESSION register that PASS 16 measured as WALLED — "the substitution vocabulary
+is not separable in the substrate's meaning geometry … the only reliable signal is LITERAL membership = a
+hardcoded phrase list, covenant-forbidden" — is RECOVERED here with ZERO meaning geometry: `replace ⟨⟩ with
+⟨⟩` is a STRUCTURAL state that recurs across 13 pages with 10 distinct filler-pairs, mined by the same
+recurrence law as chrome. PASS 16 asked the meaning graph to RECOGNISE a register; PASS 19 asks the corpus
+to REPEAT a scaffold. The scaffold repeats. This is why the owner's frame ("build knowledge like english …
+states to learn, like dictionary words") sidesteps the flat-geometry wall exactly as `lint_attest` did for
+prohibition: a construction is a discovered INVARIANT, not a judged similarity.
+
+**HONEST STOP — what rung 1 does NOT do (the measured remainder, the next rungs).** (1) Mining ran WITHOUT
+the `site_chrome` strip, so a handful of nav-chrome runs (`css guides modules …`, 904 fillers) survive as
+degenerate "constructions"; the live pipeline strips chrome first (`graduated_rules` already does), which
+removes them — the probe over-reports by not stripping, noted, not a mining defect. (2) The construction's
+MEANING is NOT yet proven: rung 1 shows the STATES exist and REPEAT; it does not yet decide which are
+prohibition vs description vs supersession. That proof is the next rung, against the labeled witness families
+(the 117 deprecation banners = prohibition witnesses; the Baseline banners = endorsement) + the frozen
+`lint_ism::graduate` / `lint_selftest` blind loop — a construction that cannot prove its meaning stays
+UNPROVEN (mined, not committed, per the ISM commit discipline). (3) No consumer is wired to the live lint
+path and no module re-graduated — the frozen substrate is untouched and every language's `TRAIN_VERSION` is
+unmoved this rung. (4) The `constructions` persistence artifact (retain-and-grow beside the graduated
+ledgers) is designed, not built. The classics, foils, per-language regression, and deploy all belong to the
+meaning-proof + consumer rungs that stand on this measured foundation.
+
+### Item — COMPLETION PASS 20: the construction-MEANING proof hits two walls — the chrome strip eats the scaffold, and page-role family ≠ sentence register (measured, `examples/construct_prove`, NO ship, 2026-07-14)
+
+> PASS 19 rung 1 proved the ATOM (constructions are minable). Its honest stop named the meaning rung: decide
+> which mined constructions ASSERT prohibition vs endorsement vs description, through the frozen machinery, on
+> machine-derived witnesses only. PASS 20 built that proof and MEASURED it. The result is a measured NO-SHIP,
+> like passes 16/17 — the states stay MINED-UNPROVEN per the ISM commit discipline. Recorded so nobody
+> re-derives the two walls.
+
+**The proof designed + built (`examples/construct_prove`).** Mine constructions exactly as rung 1, then label
+each construction's INSTANCE PAGES by the machine's own page-role families — the deprecation-attested pages
+(`lint_attest::Attestation`, PROHIBITION witnesses) and the Baseline availability banners (ENDORSEMENT
+witnesses, discovered structurally as `register_train` does). A construction inherits register R iff ≥
+`REQUIRED_WITNESSES` (15 — the frozen `lint_ism` count) of its instances are INDEPENDENT (distinct slot
+subject) witnesses of R AND ZERO independent instances witness the OPPOSITE register (contradiction fatal —
+the exact `lint_ism::graduate` law, folded STRUCTURALLY: the labeled families are the witnesses, the count +
+contradiction law is the frozen one). Two fixes over the rung-1 probe: honest URL-dedup across the overlapping
+cache clones (the `developer-mozilla-org-*` crawls duplicate `mdn-js`/`mdn-css` — 7848 → **5281 distinct
+pages**), and the `site_chrome` strip the live `graduated_rules` applies.
+
+**WALL A — the chrome strip COLLIDES with the construction scaffold (measured).** A construction's scaffold is
+the invariant text FLANKING a varying `<code>` slot; because the slot is a separate `<code>` tag, the flanking
+text run's key is cross-page-CONSTANT, so `site_chrome` (which blanks any tag-separated run recurring on ≥ 8
+host pages) removes the scaffold as boilerplate. The chrome/attestation atom and the construction atom are the
+SAME invariant-run detector, so the strip that cleans nav prose also eats the scaffold. MEASURED: after dedup +
+strip, **113 constructions** survive (down from 378) and **only 2 prove** — both weak ENDORSEMENT
+API-property-table sentences (`⟨⟩ writable no enumerable no configurable no`), zero register value. EVERY
+design-relevant register construction is gone: `replace ⟨⟩ with ⟨⟩`, `you should not compare the results of
+⟨⟩ …`, `use the ⟨⟩ css property instead, as this attribute is deprecated`, `the last version of python that
+provided the ⟨⟩ module was` — all eaten as chrome. Rung 1's remainder (1) ("strip chrome, it removes the
+degenerate nav constructions") was right that it removes the nav junk; it ALSO removes the real scaffolds.
+
+**WALL B — page-role family ≠ sentence register (the passes-16/17 co-occurrence noise, re-surfaced).** Running
+WITHOUT the strip (378 constructions, scaffolds intact) exposes the register-inheritance proof itself as noisy.
+The prohibition family grew 117 → **277 pages** (the PASS-14 python/rust `class="…deprecated"` route now labels
+the whole corpus, and a rustdoc page carrying a stray deprecated-item badge in a sidebar attests as a whole).
+So the **15** states that reach the ≥15 floor are API-DESCRIPTION sentences co-occurring with a family by PAGE
+ROLE, not genuine register: `this results in undefined behavior when ⟨⟩` proves PROHIBITION (proh=24) only
+because 24 rust integer-method pages carry a stray badge; `the ⟨⟩ constructor creates ⟨⟩ objects` (endo=40),
+`creates a new ⟨⟩ object` (endo=28) prove ENDORSEMENT only because they sit on Baseline pages. Meanwhile the
+GENUINE register constructions land on ordinary reference pages whose page-role is NEUTRAL, so they inherit
+nothing: `you should not compare the results of ⟨⟩ to hardcoded constants` proh=0 endo=3; `the last version of
+python that provided the ⟨⟩ module was` proh=0 endo=0 neut=24; `replace ⟨⟩ with ⟨⟩` all-neutral; `use the ⟨⟩
+css property instead, as this attribute is deprecated` proh=0 endo=7 (its CSS pages carry a Baseline banner, so
+it would even be CONTRADICTED). Page-role families label the PAGE's subject status; a construction is a
+SENTENCE-level register that recurs across ordinary pages. The two granularities do not coincide.
+
+**THE PASS'S POSITIVE (sound design, sub-floor depth).** The task's two-slot BEHAVIORAL cross-reference — a
+supersession construction's slot fillers against the machine's proven-deprecated SUBJECT set (the last-segment
+subjects of the 277 attested pages, 234 distinct) — IS a sound direction discriminator with ZERO meaning
+geometry: `instead of using ⟨⟩ and creating html text directly, you should use dom api` (the document.write
+classic's OWN governing sentence) scores **slotA 8/8 deprecated / slotB 0/1** — a perfect discouraged-A /
+remedy-B separation — while the generic `replace ⟨⟩ with ⟨⟩` scores slotA 0/5, correctly reading as NOT a
+deprecation supersession. So the proof DESIGN discriminates where it applies; the corpus DEPTH (8 independent
+A-subjects) is below the ISM ≥15 floor — the same discovery-starved wall PASS 12 measured, now on the
+supersession register.
+
+**Verdict + re-land condition.** NO ship. All 113/378 constructions stay MINED-UNPROVEN; no consumer wired
+(rung 2), no classics forced (rung 3), no `constructions` artifact persisted (nothing proven to persist), no
+deploy — the frozen substrate and every `TRAIN_VERSION` are unmoved. The register re-lands when BOTH gaps
+close: (a) a scaffold-vs-chrome DISAMBIGUATOR so the scaffold survives the strip the pipeline needs — a
+construction's slot VARIES exactly where chrome is fully invariant, so the miner must run co-resident with
+`site_chrome` and claim the run whose `<code>`-slot varies before chrome blanks it (the varying slot is the
+signal that a run is a scaffold, not boilerplate); and (b) a SENTENCE-scoped register witness (not page-role
+co-occurrence) OR corpus depth ≥ 15 independent subjects per register construction (the document.write
+supersession needs ~2× its current 8-subject support). The slot-cross-reference is the sound seed to build (a)
+and (b) on: it is already the correct, geometry-free meaning signal — it is starved, not wrong.
+
+### Item — COMPLETION PASS 21: Wall A CLOSED (slot-variance scaffold/chrome disambiguation), Wall B MEASURED to its floor — NO ship, the construction register stays MINED-UNPROVEN (measured, `examples/construct_p21`, 2026-07-14)
+
+> PASS 20 named two re-land conditions: (a) a scaffold-vs-chrome DISAMBIGUATOR so the register scaffold
+> survives the strip the pipeline needs, and (b) a SENTENCE-scoped register witness or corpus depth ≥15 per
+> construction. PASS 21 BUILT and MEASURED both, machine-derived witnesses only. (a) SUCCEEDS — a clean,
+> geometry-free disambiguator recovers every register scaffold PASS 20 lost. (b) is MEASURED to the floor and
+> STAYS starved: the instance-witness direction is sound but no construction reaches ≥15 with a geometry-free
+> witness. Result: a measured rung-1 advance + honest stop, NO construction state committed (the ISM commit
+> discipline). Recorded so the disambiguator is reused and the two residuals are not re-derived.
+
+**RUNG 1 — Wall A, the slot-variance scaffold/chrome disambiguator (BUILT + MEASURED, works).** The owner's
+signal, made structural with zero meaning geometry: *chrome's content is INVARIANT BY DEFINITION, so a run
+flanking a code slot whose filler VARIES page-to-page is definitionally a SCAFFOLD, not chrome.* The naive
+PASS-20 fix (does the run survive `site_chrome`?) fails two ways the probe MEASURED: a nav menu is ONE long
+sentence carrying the whole sidebar (`css guides modules …`, 1236 pages / 904 fillers, one occurrence per
+page — so "occurrences per page" does NOT separate it), and rustdoc trait boilerplate (`… gets the ⟨TypeId⟩
+of ⟨self⟩`, 625 pages) carries the SAME code on every page. The separating invariant is the MODE FRACTION:
+for a construction's primary slot, the fraction of its pages covered by its single most-common filler. Chrome
+and boilerplate carry an INVARIANT slot (one filler on ~all pages → mode → 1.00); a real scaffold's slot is
+PAGE-SPECIFIC (mode low). Mining runs CO-RESIDENT with the strip on the UNSTRIPPED bodies and keeps every
+construction with `mode ≤ 0.5`; the live prose reader keeps stripping chrome fully — only the miner claims the
+varying-slot runs back. MEASURED (5281 deduped pages, `construct_p21`):
+
+| set | count | example (modeFrac) |
+| --- | ----- | ------------------ |
+| mined unstripped | 378 | — |
+| survive naive strip | 113 | (PASS-20 set — register scaffolds gone) |
+| eaten by naive strip | 351 | — |
+| **rescued as varying-slot scaffolds** | **139** | `instead of using ⟨⟩ … dom apis` 0.12 · `the last version of python … module was` 0.04 · `replace ⟨⟩ with ⟨⟩` 0.31 · `the ⟨⟩ constructor creates ⟨⟩ objects` 0.02 |
+| left stripped as INVARIANT-slot menus | 212 | `css guides modules …` 1.00 · `… gets the ⟨TypeId⟩ of ⟨self⟩` 1.00 · `( ⟨⟩ #NNNNN ) advances the iterator by ⟨⟩` 1.00 |
+| **final co-resident scaffold set** | **160** | (survivors + rescued, all `mode ≤ 0.5`) |
+
+Every design-relevant register construction is RECOVERED (the PASS-20 headline loss reversed) and the nav
+junk that rung 1 over-reported is now dropped by the SAME test — a clean structural separation, no word list,
+no meaning geometry. This satisfies PASS-20 re-land condition (a).
+
+**RUNG 1 — the badge-contamination fix (the PASS-20 117→277 over-attestation).** A page-level class-token
+attestation fires on ANY `class="stab deprecated"` badge, so a rust-std integer page carrying a stray sidebar
+cross-ref to a deprecated item attests as a whole (PASS 20's prohibition family 117 → 277). The PASS-14 item
+unit is the fix, replicated in the probe: a badge attests only the DOTTED ITEM it anchors. MEASURED: the
+277-page family decomposes into 84 whole-page-true MDN text-run attestations + 144 pages whose OWN dotted item
+carries a badge; the proven-deprecated SUBJECT set, keyed to the qualified `owner.member` form (the bare last
+component `open`/`is`/`name` is dropped — it collides and manufactures witnesses), is 322 clean subjects.
+
+**RUNG 2 — Wall B, instance-level witnesses (BUILT + MEASURED — the FIRST construction PROVES, one is
+starved).** A construction's witnesses are its OWN INSTANCES cross-referenced against the proven-deprecated
+subject set (each subject was independently proven by the attestation faculty — genuine ISM independence): a
+single-slot instance whose filler NAMES a deprecated subject witnesses deprecation-direction; a two-slot
+instance with slotA deprecated + slotB clean witnesses supersession/remedy. Independence = distinct subject;
+≥15 with zero contradiction proves (the frozen `lint_ism` law, folded structurally). MEASURED — the named
+register constructions:
+
+| construction | pages | modeFrac | recovered | depA / cleanB | verdict |
+| ------------ | ----- | -------- | --------- | ------------- | ------- |
+| `the last version of python … module was` | 24 | 0.04 | ✔ | **24 / —** (0 contra) | **PROVEN removal** (with the precise removal faculty, below) |
+| `instead of using ⟨⟩ … dom apis` (document.write) | 8 | 0.12 | ✔ | **8 / 1** (0 contra) | **<15 MINED-UNPROVEN** (structurally starved) |
+| `replace ⟨⟩ with ⟨⟩` | 13 | 0.31 | ✔ | 0 / 5 | not a deprecation supersession (correct) |
+| `use the ⟨⟩ css property instead, as this attribute is deprecated` | 9 | 1.00 | ✗ | 0 / — | shared-remedy false negative (below) |
+| `consider, instead, using ⟨⟩ which has nicer behaviour` | 12 | 1.00 | ✗ | 0 / — | shared-remedy false negative |
+| `you should not compare the results of ⟨⟩ to hardcoded constants` | 18 | 0.61 | ✗ | 0 / — | mode > 0.5; a prohibition, no deprecated subject |
+
+**The first construction to graduate: `the last version of python that provided the ⟨⟩ module was`** — 24
+instances, each slot filler a DISTINCT removed python module (`aifc`/`audioop`/`asynchat`/…), each independently
+attested by its OWN page's whole-page `class="deprecated-removed"` module badge; 24 ≥ 15, zero contradiction.
+This is a TIGHT instance witness (the slot filler IS the attested-removed subject, not a page-role
+co-occurrence), and it is the FIRST construction state proven under the frozen ≥15/​0-contradiction law. The one
+piece it needs is a PRECISE removal-marker faculty (below). document.write scores a PERFECT slotA 8/8 deprecated
+/ slotB 1 clean / 0 contradiction — the direction is sound — but its own deprecated family (the ~13
+`String.prototype` HTML-wrapper methods: `anchor`/`big`/`blink`/`bold`/…) is STRUCTURALLY below the ≥15 floor;
+widening cannot cross it because the family has only ~13 members. The apparent early-run ≥15 "proofs"
+(`polyfill of ⟨⟩ in ⟨core-js⟩` depA 39) were subject-set collisions from a lossy last-component tail match;
+exact `owner.member` matching drops them to depA ≤ 2, confirming they were never genuine.
+
+**THE PRECISION LINE — loose whole-page attestation is Wall B in disguise; the tight removal compound is
+clean (MEASURED both).** Admitting a page's whole-page subject on ANY class token containing `deprecated`
+(hyphen-split) matches **2812 pages** (the inline `versionmodified deprecated` per-method notes flood the
+corpus), explodes the subject set to ≈2455, and FALSELY proves dozens of endorsement constructions
+(`creates a new ⟨Array⟩ object` depA 44, `⟨⟩ css media feature`, `polyfill of ⟨⟩`) — the page-role
+co-occurrence contamination PASS 20 named, exactly reproduced. Restricting to the MODULE-REMOVAL compound only —
+a class token carrying BOTH the prohibition token AND `removed` (`deprecated-removed`, the strongest prohibition
+status, a whole-module marker distinct from an inline per-method note) — matches **29 pages**, admits the ~24
+removed-module subjects, and **ONLY** `the last version of python … module was` crosses the floor; nothing else
+co-proves (every other construction's fillers are JS/CSS/rust names absent from the 29-page removal set). So the
+proof is sound iff the removal subject basis is PRECISE: the tight compound is the faithful author typography,
+the loose substring is contamination. This is the same lesson the badge-contamination fix teaches at page
+scale, now at subject-basis scale.
+
+**TWO honest residuals (measured, named — one is now a PROOF).** (i) **Shared-remedy false negative.** A
+supersession that points MANY deprecated features at ONE modern replacement puts the INVARIANT target in the
+slot (`use the ⟨background-color⟩ css property instead` — one remedy across many deprecated color attributes),
+so its primary slot reads as invariant (mode 1.00) and the single-mode test does NOT rescue it. Fix: test
+variance on ANY slot AND select the deprecated SOURCE side (which does vary). (ii) **Module-removal subjects —
+RESOLVED into the proof above.** `the last version of python … module was` was blocked only because its removed
+modules carry the `deprecated-removed` COMPOUND the faculty (keyed to the exact `deprecated`) misses; the tight
+removal detector recovers exactly 24 subjects and the construction PROVES. The remaining wiring is a
+data-keyed faculty extension (recognise the removal compound / a `removed` prohibition datum) + persistence +
+consumer.
+
+**Verdict + what lands.** Wall A is CLOSED (the slot-variance disambiguator is the reusable rung-1 advance,
+measured to recover every register scaffold and drop the nav junk by the SAME test). Wall B is CROSSED for the
+FIRST construction (`python module removal`, 24/​0 clean) with a PRECISE removal faculty, and MEASURED to its
+floor for document.write (8, structurally starved) — the proof is real and the precision line (tight vs loose)
+is the durable finding. This pass ships the MEASUREMENT + the probe + this ledger only: **no library semantic
+change, no `TRAIN_VERSION` bump, no `constructions` artifact, no consumer, no deploy** — the frozen substrate
+and every module are BYTE-IDENTICAL (236 lib green), per the line-of-caution (the smallest proven piece, no
+black-box wiring in one leap). RUNG 3 is the next verified rung and is now UNBLOCKED by a genuine proof: (1) a
+data-keyed removal-marker faculty extension (`deprecated-removed`/a `removed` datum in `deprecation-status.json`)
+proven byte-identical on the existing python/rust graduation, (2) the `constructions` artifact persisting the
+proven `python module removal` state (ledger pattern, stamped, retain-and-grow), (3) a consumer binding the
+proven construction on a page's prose to propose its slot subject as removed — re-proven through the blind loop,
+`states_prohibition` the fallback. The shared-remedy any-slot fix (residual i) rides the same rung.
+
+### Item — COMPLETION PASS 22 rungs 1–2: the removal faculty + the `constructions` artifact LAND (byte-identical), the proof reproduces through the LIBRARY path (`lint_construct`, `examples/construct_prod`, 2026-07-14)
+
+> PASS 21 proved the FIRST construction state (`python module removal`, 24/0) in a throwaway probe and drew
+> the rung-3 plan: (1) a data-keyed removal-marker faculty, (2) the `constructions` artifact + productionized
+> miner, (3) a consumer. PASS 22 LANDS (1) and (2) into the library, byte-identical elsewhere, and reproduces
+> the proof through the shipped code path — the smallest proven piece, no consumer/deploy in the same leap.
+
+**RUNG 1 — the data-keyed removal faculty (LANDED, byte-identical).** `deprecation-status.json` gains a
+second datum, `"removed": ["removed"]`, beside `"prohibits"` — the token that, PAIRED with a prohibition
+token in ONE class value (`deprecated-removed`), denotes REMOVAL (the strongest prohibition status, a
+whole-module marker distinct from an inline `versionmodified deprecated` per-method note — the PASS-21
+precision line). `lint_attest::attests_module_removal(body)` consumes it exactly as `prohibits` is consumed:
+a class value that, split on whitespace AND hyphen, carries BOTH a prohibition token and a removal token.
+This is a SEPARATE faculty surface — `Attestation::{discover,attests}`, `prohibition_class_tokens`, and the
+class-marker discovery are TEXTUALLY UNCHANGED (`prohibition_values` merely delegates to a shared
+`status_values(key)` that returns the identical `prohibits` array) — so every existing module is
+byte-identical and the removal signal reaches ONLY the construction miner's subject basis.
+
+**RUNG 2 — `lint_construct`, the productionized miner + the artifact (LANDED, byte-identical modules).** The
+PASS-21 mechanism, ported verbatim into the library with zero meaning geometry: flatten each body to text
+with short inline `<code>` as a variant SLOT, mine sentence shapes, keep every construction whose primary
+slot VARIES (mode-fraction ≤ 0.5 — the owner's "chrome's content is invariant" made structural, co-resident
+with the strip, no `site_chrome` pass needed since the mode test is the separator), and PROVE each scaffold's
+meaning against the machine's own proven-deprecated SUBJECT set — item-level badges (PASS-14 unit, qualified
+`owner.member`, bare last component dropped) ∪ MDN text-run attestation ∪ the TIGHT removal subjects (rung 1)
+— under the frozen `lint_ism::REQUIRED_WITNESSES` (15) / zero-contradiction law. A proven state carries its
+shape, `ConstructionKind` (Removal / Prohibition / Supersession, classified behaviorally: single-slot all-
+removal-witnesses → Removal; two-slot slotA-dep + slotB-clean, 0 contra → Supersession), witness count, and
+an example; persisted retain-and-grow as `<lang>.constructions.bin` (HLM1 kind 13, stamped, written only
+when non-empty — mirrors `persist_graduated_ledger`). Wired into the train-time `graduated_rules`
+(`mine_and_prove` + `persist` after `rules` is computed): PURE over the corpus, `rules` untouched → every
+module bin byte-identical; the artifact is a new sidecar, NOT yet consumed.
+
+**MEASURED through the library path (`examples/construct_prod`, real corpus).** Both python-library ALONE
+(328 pages — exactly what the per-language train path mines for python) and the full deduped 5281-page
+cross-corpus prove EXACTLY ONE state: `the last version of python that provided the ⟨⟩ module was`, REMOVAL,
+**24 witnesses**, nothing else co-proves — the tight removal faculty is precise (the PASS-21 loose-substring
+flood does not recur). This reproduces the throwaway `construct_p21` proof through shipped code, and confirms
+the construction is self-contained within python (its scaffold sentences and its `deprecated-removed` badges
+are both python-library pages, so per-language mining suffices).
+
+**RUNG-3 DELTA (measured, honest).** Of 44 whole-module removal pages, **18 are ALREADY covered** by the
+existing `attests()` (an inline `deprecated` class note also present → their subject already graduates today)
+and **26 are removal-only (GENUINELY NEW)**: aifc, asynchat, asyncore, audioop, cgi, cgitb, chunk, crypt,
+distutils, email.utils, imghdr, imp, mailcap, msilib, nis, nntplib, ossaudiodev, pipes, smtpd, sndhdr, spwd,
+sunau, telnetlib, uu, venv, xdrlib. The rung-3 consumer would newly propose the removal construction's slot
+subjects; net-new python rules are bounded by the removal-only witnesses (the construction's 24 slotted
+subjects intersected with the removal-only set).
+
+**What LANDS vs what remains.** LANDED + verified: the `removed` datum, `attests_module_removal`,
+`lint_construct` (miner + `ConstructionState` + codec kind 13 + persistence), the train-time wiring, the
+production probe, and 240 lib green (+4: removal-compound predicate, synthetic-python removal proof, sub-floor
+abstention, codec round-trip). Every existing module byte-identical (the mining is additive; `rules`
+untouched). NOT done, the HONEST STOP (the covenant's rung boundary, no forcing): **RUNG 3** — the consumer
+in `read_doc_page`/`propose` binding a proven construction on a page's own prose to propose `uses_construct`
+of its slot subject, re-proven through the blind loop (this is the FIRST behavior change — it adds live python
+rules, so it is byte-identical elsewhere but NOT for python); and **RUNG 4** — foils (docs-v83 junk / descriptive-
+negation traps bind nothing), the per-language before/after table, all-language kitchen-sinks + landmine, junk
+floor zero, partitions ∅, `TRAIN_VERSION` bump, and the release→resign→daemon-kill deploy. No `TRAIN_VERSION`
+bump this pass (no module semantics changed; the new artifact stamps under the current version).
+
+**The two structural residuals (re-land conditions, unchanged from PASS 21).** (i) `document.write`'s <15
+family — sound but structurally starved (~13 String HTML-wrapper members); needs either cross-register
+witnesses or an owner ruling on sub-floor sound-but-starved states. (ii) The shared-remedy false negative
+(`use the ⟨background-color⟩ css property instead` reads as invariant-slot, mode 1.00) — fix is any-slot
+variance + deprecated-source-side selection; rides the rung-3 consumer.
+
+### Item — COMPLETION PASS 23: the CONSUMER lands + ships — a page binding a proven construction on its own prose graduates its removal subject through the unchanged blind loop (`lint_construct::attested_subjects`, `examples/construct_consume`, SHIPPED, 2026-07-14)
+
+> PASS 22 landed the removal faculty + the `constructions` artifact and drew the rung-3/4 plan: (3) a
+> consumer that BINDS a proven construction on a page's own prose to propose its slot subject, re-proven
+> through the blind loop, and (4) foils + full regression + deploy. PASS 23 LANDS the consumer and SHIPS the
+> coupled regression + deploy — the first behavior change (new python rules), byte-identical everywhere else.
+
+**RUNG 1 — the consumer (`lint_construct::attested_subjects`).** A page whose prose matches a PROVEN
+single-slot construction ([`ConstructionKind::Removal`]/`Prohibition`) whose PRIMARY slot NAMES the page's
+own `module_subject(url)` ATTESTS that subject deprecated (removal-strength). Exact-shape equality against
+the proven scaffold + `filler_names` (bare/`owner.member`-tail equality to the page subject) — a scaffold
+naming a SIBLING, or prose that is not a proven construction, binds nothing (unit-tested). `Supersession` is
+NOT consumed (its varying slot may be the remedy, not the subject — the shared-remedy residual, parked).
+
+**The wiring (the seam PASS 22 named).** `construction_attestation(pages, attested, constructions)` builds a
+`url → subject` map over the RAW bodies, EXCLUDING pages the existing faculty already attests (so the 18
+already-covered removal pages stay byte-identical on the notecard route). Threaded: `read_doc_page` gains a
+`construction_attested` role (its `constructs` = the firing-form slot subjects, no URL/item/member shape
+derivation); `propose` lets a construction-attested subject BYPASS `is_prohibited_subject` (the URL-payload
+gate `cgi.html ≠ cgi` would wrongly reject) and treats it as `stated` (the construction named it);
+`page_proves_in_lang` admits it to the language's partition by the construction's own proof (a removed
+module's stub page need not re-demonstrate in a `<pre><code>` block). Emission takes the UNCHANGED
+notecard-proven route (`attested_deprecated` ⇒ ≥[`REQUIRED_REPS`] reps — generated by splicing the subject
+into real corpus contexts where the removed module is absent — plus a clean near-miss). The mine now runs
+ONCE in `graduated_rules` (before `graduate`, passed in) instead of twice.
+
+**MEASURED (`examples/construct_consume`, python-library, the shipped path).** PROVEN constructions: 1 (the
+removal state, 24 witnesses). Of the 26 PASS-22 removal-only pages, **24 BIND** the proven construction —
+`email.utils` and `venv` are removal-flagged (`attests_module_removal`) but their prose does NOT carry the
+construction sentence naming their own subject, so they are correctly NOT bound (the consumer is tighter than
+the raw removal-flag count, and honestly so). Funnel: **24 candidates → 24 proposed → 24 PROVEN** (each
+viol=17 generated, clean=4000). The 24 new subjects: aifc, asynchat, asyncore, audioop, cgi, cgitb, chunk,
+crypt, distutils, imghdr, imp, mailcap, msilib, nis, nntplib, ossaudiodev, pipes, smtpd, sndhdr, spwd, sunau,
+telnetlib, uu, xdrlib.
+
+**RUNG 2 — foils + full regression (MEASURED).** Against the empty-constructions baseline: python **25 → 49**
+rules, the 25 existing **byte-IDENTICAL** (0 perturbed, 0 lost — adding 24 candidates to the pool did NOT
+reshuffle any existing foil/verdict, because the removal subjects graduate on the notecard route independent
+of the English self-test), +24 net-new. Every OTHER language byte-identical: only python's corpus proves a
+construction (`construct_prod`: the full cross-corpus proves EXACTLY the one python-removal state), so their
+`constructions` is empty → the map is empty → the consumer is inert. Foils: junk prose binds nothing (unit
+test); a proven scaffold naming a sibling binds nothing; no non-python construction exists to bind. The
+shared-remedy residual rescues nothing today (no CSS supersession is proven) — parked, no forcing.
+
+**RUNG 3 — ship.** `TRAIN_VERSION` → `docs-v91-construction-consumer`; release built, deployed to both
+`helpers-native` targets (xattr -c + `codesign --force --sign -`), daemon killed; retrained live. 241 lib
+green (+1 consumer test). **RUNG 4 — hygiene:** the pre-existing `if false && replay_safe(witness)` dead
+branch at `tools/lint.rs` (the permanently-disabled kq racy-window gate — the kq tier's events are
+content-true, so it needs none) is deleted along with its now-unused `witness` param and both call-site args;
+crate-wide clippy: 0 errors.
+
+### Item — COMPLETION PASS 24: THE LANGUAGE WEB — the read persists as a subgraph, rules become views over it, webs connect across languages through the shared English base (`lint_web.rs`, `examples/web_pass24`, LANDED, 2026-07-14)
+
+> Owner ruling (verbatim intent): "the english understanding should build a web of the language. Then those
+> webs connect across languages. The modules allow precise and specific assembly of only the project
+> dependencies (INTERNAL DEPENDENCIES). LANGUAGE UNDERSTANDING IS WHAT DRIVES LINTING." LINTER.md's own
+> remaining-work line: "the associative KNOWLEDGE GRAPH (bind construct⊗governing-prose⊗meaning); language
+> MODULES as subgraphs (delta-stored, machine-global, never a project copy); rules read off the graph."
+
+**What the read already binds, and used to discard.** At train time `graduate` binds, per construct: the
+construct token, its governing prose (the `understanding` sentence + the derived `advice`), the English
+meaning of that prose, the source url, and the attestation/construction facts. Then `graduated_rules`
+reduced all of it to `filter_map(|o| o.rule)` — a rule list — and the rest died. PASS 24 PERSISTS the whole
+read as the language's SUBGRAPH and makes the rule list a VIEW of it.
+
+**The artifact (`lint_web.rs`, `<lang>.web.bin`, codec kind `WEB` = 14).** A `Vec<ConstructNode>`, one node
+per construct read: `construct` (the byte-preserved token = node id), `governing` (the understanding +
+advice sentences, verbatim), `meaning_links` (the distinctive content KEY-WORDS of the governing prose,
+ranked by the frozen brain's inverse-document-frequency CENTRALITY, capped at 12 — keys into the FROZEN
+English web, NOT a copy of the base; their meaning is rebound on query, the identical delta pattern the
+dictionary itself uses — it stores definition-WORDS, not the meaning hypervectors), `sources`,
+`attested_deprecated`, `proven`, and a `WebRule` (Some iff proven — the compiled/cached rule payload the
+fast path fires, a "query plan"). Stamped with `TRAIN_VERSION`, DISCARDED on a stamp mismatch, persisted
+retain-and-grow (written only when non-empty, so a subset crawl never wipes a prior web) — exactly like the
+graduated ledger and the constructions sidecar. A SEPARATE per-language file: the assembly/isolation unit.
+
+**Rules are VIEWS (byte-identical).** `graduated_rules` now: `let outcomes = graduate(...); let web =
+lint_web::build(m, &outcomes); lint_web::persist(lang, &web); let rules = lint_web::derive_rules(lang,
+&web);`. `build` makes a node per outcome (proven iff it emitted a rule, carrying that exact `(rule, url)`);
+`derive_rules` projects the PROVEN nodes in node order back to `(LearnedRule, source)`. Because node order
+follows outcome order and each proven node carries the emitted rule verbatim, `derive_rules(build(outcomes))
+== outcomes.filter_map(|o| o.rule)` BYTE-FOR-BYTE — the live path is unchanged, the rules are simply now READ
+OFF the web. Proven at the unit level (`rules_are_a_byte_identical_view_over_the_web` over the real
+graduation fixture; `round_trips_and_derives` proves the codec round-trip → derive is total) and at the
+LIVE level (`examples/web_pass24`: every language's persisted-web derive round-trips byte-identical to the
+live-derived set). "Everything READ is retained" is realized for the proposed surface: every candidate is a
+node whether or not it graduated — but MEASURED, today the graduation funnel is precise enough that every
+proposed candidate graduates, so read-nodes == proven-nodes per language (the FULL read surface — every doc
+construct the reader saw, including never-proposed ones — is the scoped next rung; it needs `propose` to
+expose the un-proposed constructs with their governing prose).
+
+**Webs connect across languages (a QUERY, no new geometry).** A node's meaning links are key-words into the
+SAME frozen English web, so a cross-language relation is `lint_web::cross_language` — the Hamming proximity
+of two nodes' governing-prose meanings (`node_meaning` bundles each link's `meaning_of` through the frozen
+brain), ranked, excluding the node's own language. `class` in JS and `class` in Python stay DISTINCT nodes
+(distinct per-language webs); this measures whether their PROSE means something related, never conflating
+the constructs. `lint_query kind=web <construct>` surfaces the whole node + its concept and cross-language
+traversals.
+
+**MEASURED (`examples/web_pass24`, real crawl cache, the LIBRARY live path).** Per-language rule counts,
+each round-tripping byte-identical (web-derived == live-derived): **css 22 / html 17 / javascript 54 /
+python 50 / rust 9 / typescript 54**; web sizes ~1.5–6.4 KB per language (delta-honest — key-words + prose +
+urls, never the base). Assembly/isolation: 6 per-language sidecars; deriving language X's rules is pure over
+X's web and never touches Y's (the "like C, don't pay for what you don't use" covenant, unchanged).
+Cross-language traversal reaches genuine shared meaning: `document.write`(JS)↔`document.write`(TS) dist 0
+via the whole shared link set (`xhtml,xml,html,exception,tag,embedded,throw,write,…`); the non-standard
+CSS `-moz-float-edge`↔JS `document.preferredStyleSheetSet` dist 2594 via `["non","standard"]` (two
+non-standard deprecated features connecting through the base). **Two honest walls, scoped not crossed.**
+(i) read-nodes == proven-nodes (above): the full everything-read surface is unbuilt. (ii) CONCEPT traversal
+to a shared "deprecation/removal" concept is NOISY — `concept_alignment`'s vocabulary is the CS-PRIMITIVES
+(`public_item`, `discarded_fallible`, `control_exit`), not doc-role concepts, and a construction-consumed
+removal's `understanding` is a module-index sentence (cgi's links are `cgi/python/gateway/manipulate/audio`,
+not `deprecated/removed`), so cgi does NOT traverse to a removal concept; the RELATION query (shared
+meaning-links / prose proximity) is sound, the concept-space landing is not yet doc-role-aware. A doc-role
+concept vocabulary (deprecation/removal/supersession as first-class traversal targets) is the re-land
+condition for point (ii).
+
+**No `TRAIN_VERSION` bump, no verdict change.** The web is purely additive: verdicts are byte-identical
+(derive == filter_map), the graduated ledger / module / verdict caches are unchanged in format and content,
+and a bump would force a needless full 82-language retrain + redeploy. The web is a new sidecar built on the
+next train and absent-tolerant on cold machines (`load` returns empty, queries report "not trained").
+`LearnedRule` gains `PartialEq, Eq` (for the byte-identical assertion). 245 lib green (+4: three
+`lint_web` tests + the module byte-identical-view test).
+
+### Item — COMPLETION PASS 25: the web fills to EVERYTHING-READ and doc-roles become first-class traversal targets — both PASS-24 remainders crossed, byte-identical, SHIPPED (`lint_web.rs`, `lint_module.rs`, `lint_construct.rs`, `examples/web_pass24`, LANDED, 2026-07-14)
+
+> The owner's standing frame: "the web of a language should hold everything the reader understood — coverage
+> = everything-read, enforcement = the proven subset." PASS 24 landed the web but left two scoped remainders:
+> (i) read-nodes == proven-nodes (the web retained only the PROPOSED surface), and (ii) concept traversal was
+> noisy (CS-primitive vocabulary, not doc-role concepts). PASS 25 crosses BOTH under the frozen judging, with
+> no verdict change.
+
+**Rung 1 — EVERYTHING-READ retention.** The reading layer ([`lint_lang_layer::read_doc_page`]) already
+extracts every construct a page's role prohibits into `DocPage.constructs`; the funnel proposes only the
+page's strongest SUBJECT and DISCARDED the rest. Now [`lint_module::propose`] SNAPSHOTS the full
+`DocPage.constructs` — page subjects, item-unit subjects, the code-typography operator tokens of the
+governing prose — BEFORE the subject-selection mutation reduces it, as a `Vec<ReadConstruct>` (construct ⊗ a
+governing sentence from its own page ⊗ source ⊗ the page's structural attestation). `graduate` returns
+`(outcomes, read_surface)` where `read_surface` is the read constructs the funnel never proposed (deduped by
+token, `read_not_proposed`); [`lint_web::build`] appends them as retained-UNPROVEN nodes (`proven:false`, no
+`WebRule`). They are knowledge — queryable, cross-linkable, part of the coverage — and NEVER fire:
+[`derive_rules`] projects the PROVEN nodes only, so adding read nodes leaves the rule set byte-identical (the
+covenant). MEASURED (live path, `examples/web_pass24`, real crawl cache): read-nodes rise from `==` proven to
+strictly greater — **css 22→26 (+4), html 17→21 (+4), javascript 54→130 (+76), python 50→234 (+184),
+rust 9→36 (+27), typescript 54→130 (+76)** — while the PROVEN nodes / derived rules stay EXACTLY the PASS-24
+set (css 22 / html 17 / javascript 54 / python 50 / rust 9 / typescript 54), every language round-tripping
+byte-identical (persisted web reload → re-derive == live-derive, all six OK). Web sizes stay KB-scale and
+delta-honest (css 3.1 / html 2.9 / javascript 9.9 / python 16.0 / rust 3.0 / typescript 9.9 KB — the +184
+python read nodes cost ~9.5 KB of key-words + prose + urls, never the base); no per-language cap was needed.
+
+**Rung 2 — doc-role concepts for traversal.** A node now carries `roles: Vec<String>` derived from the
+proven faculties' OWN facts, NEVER a word list: the author-metadata attestation family contributes
+`"deprecated"` (from `attested_deprecated`, the umbrella), and the construction faculty contributes the
+SPECIFIC kind — [`lint_construct::ConstructionKind::label`] → `"removal"` / `"prohibition"` — keyed by
+subject via the new [`lint_construct::subject_roles`] (the same consumer binding, surfaced with its kind).
+`node_roles` orders specific-then-umbrella and never duplicates. The roles are TRAVERSAL TARGETS:
+[`lint_web::nodes_with_role`] (per web) and [`lint_web::roles_across`] (every sidecar) answer "what connects
+to REMOVAL" DIRECTLY — MEASURED: **`removal` → 24 python subjects (aifc, asynchat, asyncore, audioop, cgi,
+cgitb, chunk, crypt, distutils, imghdr, imp, mailcap, msilib, nis, nntplib, ossaudiodev, pipes, smtpd,
+sndhdr, spwd, sunau, telnetlib, uu, xdrlib); `deprecated` → 577 across all webs; `prohibition` → 0 (none
+proven)** — regardless of the prose's index-words (cgi's `cgi/python/gateway/manipulate/audio` module-index
+sentence no longer bounds the query, the PASS-24 wall). This is exposing existing proven facts to the query
+layer: no new judging, no concept geometry. Live via `lint_query kind=web` — `doc_roles` shown per node, and
+`role=<removal|prohibition|deprecated>` lists carriers (scoped to `language=` or across every web).
+
+**Wiring + regression.** `graduate` return became `(Vec<Outcome>, Vec<ReadConstruct>)`; `graduated_rules`
+threads `subject_roles` into `build`. The web-node CODEC gained a `roles` field (same `WEB` kind 14): the
+change is stamp-gated and BOUNDS-SAFE — an old-format sidecar (no roles) decodes to empty (`Vec` capacity
+capped, out-of-range reads return `None` → `unwrap_or_default`) and rebuilds on the next train, so no bad
+read is possible. Full regression: `cargo test --lib` **247 green (+2** doc-role round-trip/query + node-role
+derivation tests; the byte-identical-view test now asserts `web.len() == outcomes.len() + read.len()` with
+proven==rules unchanged); gauntlets `ai_linter_behaviors` **21** / `understanding_defects` **3** green;
+`examples/construct_consume` python **25→49 (0 perturbed/lost)** unchanged; cross-language partition ∅ and
+junk floor zero unmoved (verdicts byte-identical). Verdicts byte-identical + web additive → `TRAIN_VERSION`
+UNMOVED (a bump would force a needless full 82-language retrain). Deployed: the six webs rebuilt to the new
+format via the live path, binary re-signed, daemon restarted, `lint_query kind=web role=removal` verified
+live over MCP.
+
+### Item — COMPLETION PASS 26: DERIVE-the-revoked-family + graded-findings — BOTH measured to a wall, NO ship (measured, `examples/revoked_derive`, `examples/graded_probe`, 2026-07-14)
+
+Two owner rulings drove this pass: (1) *"we shouldn't have to hand-teach `prohibits`/`removed` — it should
+understand the STRUCTURE of those things being REVOKED"*; (2) *"abstinence is not the correct method to lint;
+a linter that doesn't do anything isn't a linter."* Both were run to a MEASURED wall; per the covenant
+(*"if a derivation axis doesn't separate, report the numbers and keep the seed … fake wins don't"*) the seed
+STAYS and no verdict changes — `TRAIN_VERSION` unmoved, `deprecation-status.json` unchanged, 247 lib green,
+no deploy. The walls, with numbers:
+
+**RUNG A — derive which enum family means REVOKED, word-free (kill the seed).** The `status:` families are
+already discovered by shape (deprecated 84 / experimental 107 / non-standard 84 md slugs). Measured three
+axes per family across the 3269-page MDN corpus, experimental as the mandatory not-yet foil:
+
+| family | usage-DEATH (absent from other example code) | succession (prose-directional) | versioned cessation | mined 2-slot scaffold |
+|---|---|---|---|---|
+| deprecated | 54% (median 0) | **57%** | 8% | 26% |
+| non-standard | 82% (median 0) | 20% | 2% | 0% |
+| experimental | 65% (median 0) | **5%** | 0% | 16% |
+| BASELINE (current ref) | 23% (median 6) | 10% | 0% | 40% |
+
+- **Usage-death FAILS the foil.** The owner hypothesis (deprecated≈absent, experimental low-nonzero) is
+  FALSIFIED: experimental is EQUALLY absent (both status families median-0; deprecated is actually LESS absent,
+  54% < 65%). Usage-death separates *has-a-status* from *current* (median 0 vs 6), not *no-longer* from
+  *not-yet*. New/proprietary features are absent from demos for the same reason dead ones are.
+- **Succession SEPARATES decisively** (deprecated 57% ≫ non-standard 20% ≫ experimental 5%; foil clean —
+  a not-yet feature has no predecessor to succeed) — BUT the signal is a DIRECTIONAL prose connective
+  (`replaced by`/`superseded`/`has been replaced`), i.e. the passes-11/12 polarity wall the seed exists to
+  sidestep. Every WORD-FREE structural surrogate collapses: two-code-slot co-mention 69/65/61 (co-mention
+  noise); mined recurrent 2-slot scaffolds 26/16/40-baseline (generic `polyfill of ⟨⟩ in ⟨⟩` / enumeration
+  scaffolds dominate — baseline highest). The clean separation lives ONLY in the connective's meaning.
+- **Versioned cessation weakly corroborates on MDN** (8% vs experimental 0%, foil clean) but is STARVED —
+  MDN marks browser drops as banners, not version-cessation prose (this axis is a Python/Rust
+  `class="deprecated-removed"` strength, already the PASS-22 removal faculty).
+
+VERDICT: the revoked family is NOT structurally derivable word-free from these axes. The only separating axis
+is prose-directional meaning (the wall); the one word-free signal that works elsewhere (PASS-21 slot-cross-
+reference against the proven-deprecated SUBJECT set) is CIRCULAR here — it needs the very set the seed defines.
+This re-confirms passes 11/12/13 with fresh RUNG-A-framed numbers. **Re-land condition:** a word-free
+structural signal that distinguishes no-longer from not-yet without reading directional prose — none exists in
+usage/succession/cessation as measured. Seed kept for ALL three axes, failure recorded.
+
+**RUNG B — graded findings for attested-but-not-graduated web nodes (replace abstention).** Sized the tier
+from the on-disk webs (`examples/graded_probe`): unproven nodes carrying a revoked doc-role (deprecated/
+removal/prohibition) number css 4 / html 4 / js 76 / python 184 / rust 27 / ts 76. **Firing them naively
+FLOODS**: the read-surface retains URL basenames (`struct.Vec.html`, `ssl.html` — never code) and bare generic
+members (`.read` `.write` `.input` `bold` `compile` `fixed` `link` `small`) that a LOW rule would fire on
+across every clean modern file — a junk-floor catastrophe. A qualified-safe gate (receiver.member, both real
+idents, no URL basename, no rustdoc anchor-form, no bare leading-dot) cuts to a CLEAN set — **js/ts 21**
+(`String.blink/bold/substr`, `Object.__defineGetter__`, `RegExp.compile`, `Date.getYear`), **python 92**
+(`typing.Sequence`, `asyncio.ensure_future`, `importlib.*.load_module`), **css/html/rust 0** (their deprecated
+constructs are already PROVEN, or are receiver-generic forms with no concrete receiver). BUT the FIRING
+mechanism ([`lint_trace::scan_construct`]) then splits the value: a DOTTED construct (`String.substr`) fires
+ONLY on the literal `String.substr` node — safe but near-zero recall (real usage is `s.substr(1)`, whose text
+is `s.substr`), i.e. near-abstention, the very thing the owner objected to; the USEFUL receiver-generic form
+(`.substr`) fires on any `x.substr` — high recall, but flood-safety then depends on whether the member name
+collides with modern code (`.blink`/`.fontcolor`/`.italics` are dead-distinctive; `.bold`/`.link`/`.small`/
+`.fixed`/`.sub` are common). Distinguishing them is EXACTLY graduation's clean-near-miss validation, which the
+unproven nodes never received. **Re-land condition (concrete, promising):** gate the receiver-generic graded
+form by a corpus-derived DISTINCTIVENESS check — a member is graded-fireable iff its `.member` is USAGE-DEAD
+(absent from the corpus's own modern example code), the RUNG-A usage-death signal repurposed at member scope
+(where it succeeds as a safety gate even though it failed as a family discriminator). That is a real
+graduation-lite pass + a full web-language retrain + clean/kitchen-sink fixture verification — a verified rung,
+not a one-shot, so it did NOT ship this pass rather than risk a flooding deploy. Probes are untracked scratch.
+
+### Item — COMPLETION PASS 27: the GRADED (LOW-severity) tier ships — PASS-26 RUNG B re-landed behind four measured gates (`lint_web.rs`, `lint_module.rs`, `lint_train.rs`, `lint_query.rs`, SHIPPED, 2026-07-14)
+
+> Owner ruling: *"it shouldn't abstain from information it knows — a linter that doesn't do anything isn't
+> a linter."* PASS 26 measured the graded tier to a wall (naive firing floods; the dotted/receiver-generic
+> split trades recall against flood-safety) and named the re-land condition: member-scope usage-death as a
+> safety gate + a graduation-lite clean check. PASS 27 is that re-land, with two ADDITIONAL gates the
+> measurement forced.
+
+**The mechanism.** A web node that is UNPROVEN but carries a revoked doc-role (deprecated/removal/
+prohibition — the PASS-25 role facts) may now carry a [`lint_web::GradedForm`] `{fire, severity:"low",
+description, source}`, computed at train time by [`lint_module::graded_forms`] and PERSISTED on the node
+(codec: trailing presence flag, bounds-safe — an old-format sidecar decodes to not-graded and rebuilds).
+[`lint_web::derive_graded_rules`] projects them as a SEPARATE view (`graded-<construct>` ids, empty
+bad/good, `construct = fire` so the module build compiles the same `uses_construct` plan the proven tier
+fires); `lint_train` appends them AFTER the proven merge — the proven set, its order, and the contradiction
+re-check are byte-identical. `lint_query kind=web` shows `state: GRADED` + the payload.
+
+**The four gates, each measured to be necessary:**
+1. **Qualified-safe** (PASS-26 cut, reused verbatim): real `owner.member`, both sides identifiers — kills
+   URL basenames (`ssl.html`), rustdoc anchors (`method.x`), bare members (`.read`), bare generics.
+2. **Member-scope usage-death + DEATH-VERDICT CALIBRATION** (the new gate this pass discovered): the member
+   is dead iff absent from the corpus's OTHER-page current example code — but a death verdict is TRUSTED
+   only when the same measurement finds ≥1 ALIVE member among the language's own qualified candidates.
+   MEASURED: python's corpus is 9 (huge) pages — ALL 92 candidates read "dead", including `.read`/`.write`,
+   and the receiver-generic form flagged `fh.read()` in the clean-modern fixture (the flood the tier must
+   never cause). javascript's 3052-page corpus split 10 dead / 11 alive — it discriminates. A corpus that
+   never witnesses life cannot certify death: a degenerate all-dead distribution is corpus POVERTY, and
+   every such form falls to the dotted-literal tier. Comparative, cited, no constant. (First cut of this
+   pass also fixed a corpus-truncation defect: capping blocks at 4000 cut python to its first 9 pages —
+   the graded corpus bound is now a runaway-only 2^20.)
+3. **Proven-coverage dedup**: MEASURED — javascript's proven 54 already contains the receiver-generic
+   member rules (`uses-.blink`, `uses-.getYear`, `uses-.compile`, `uses-.__defineGetter__`, …), so ALL 21
+   js/ts qualified-safe candidates are duplicates (kitchen-sink lines double-reported without this gate).
+   A graded form whose fire token, construct, or `.member` shape a proven rule already enforces is skipped
+   — the graded tier adds only NEW enforcement.
+4. **Clean-near-miss (graduation-lite)**: the chosen form must fire on NONE of the corpus's other-page
+   blocks (the attestation is the evidence; this is the flood guard). Dropped `AST.end_col_offset` /
+   `ast.AST.end_col_offset` (their dotted text rides other pages' current code).
+
+**The shipped funnel (honest numbers).** Candidates (revoked-role unproven nodes): css 4 / html 4 / js 76 /
+python 184 / rust 27 / ts 76. Qualified-safe: js/ts 21, python 92, css/html/rust 0. Death-calibrated
+receiver-generic: js/ts 10 dead of 21 BUT all 21 proven-covered → 0; python 92 "dead" UNTRUSTED (poverty) →
+0. Shipped: **python 90 dotted-literal LOW forms** (92 − 2 clean-check drops), **every other language 0**.
+The receiver-generic tier shipped EMPTY this pass — everywhere death was trusted, graduation had already
+proven the rule; the calibration gate exists so a poverty corpus can never fake the high-recall form.
+
+**Fixtures (real compiled `RuleSet::build` + `flag`).** clean-modern js/py 0 findings; landmine js/py 0
+(deprecated names inside strings/comments never fire — `scan_construct` skips lexical text); kitchen-sink
+js 5, ALL proven medium (`uses-.blink` line 1, `uses-.getYear` line 3, `uses-.compile` line 4,
+`uses-.__defineGetter__` line 5, `uses-.fontcolor` line 6 — the graded duplicates correctly absent);
+kitchen-sink py 2 LOW — `graded-typing.Sequence` (line 5, `xs: typing.Sequence[int]`) and
+`graded-ssl.PROTOCOL_SSLv3` (line 6). `loader.load_module()` is NOT flagged (the dotted-literal
+`SourceFileLoader.load_module` cannot match an instance receiver — the documented low-recall trade), and
+the remedy case the rung required is verified: `typing.Sequence`'s remedy `collections.abc.Sequence` is
+NEVER flagged (the dotted-literal form matches only the exact deprecated text; the AST holds no
+`typing.Sequence` node inside `collections.abc.Sequence`).
+
+**Regression + ship.** `cargo test --lib` green (+3: graded codec round-trip/derive, gate
+calibration/dedup/flood-safety, qualified-safe cut), gauntlets 21/3 green, cross-language partitions ∅
+(css/html/rust/js/ts graded = 0 ⇒ byte-identical firing surfaces there; python's proven 50 unchanged).
+`TRAIN_VERSION` → `docs-v92-graded-tier` (graded rules change python's rule set; the stale-tolerance path
+keeps other languages enforcing as-is until retrained). Probes: `examples/graded_measure.rs` (funnel per
+language), `examples/graded_fixtures.rs` (fixture regression) — untracked scratch, as `graded_probe`.
+
+**Deployed + live-verified (2026-07-14).** Release binary cp'd to both paths (`~/bin`, `~/.local/bin`),
+`xattr -c` + ad-hoc re-signed (no daemon was running to kill). All six languages retrained under
+`docs-v92-graded-tier` via the deployed binary (`lint_config action=train lang=<l>`, empty root): css 24 /
+html 18 / javascript 53 / typescript 53 / **python 125** / rust 11 rules. Python's live module = 50 proven
++ **73 graded LOW** + 2 retained-ledger rules — the live train's catalog memory is richer than the probe's
+reconstruction, so 17 more of the probe's 90 fell to the gates (honest live number). Live verification
+verbatim: `lint_query kind=web arg=typing.Sequence language=python` → `state: "GRADED (evidence-graded LOW
+tier — fires on the attested deprecation)"`, `graded: {fire: "typing.Sequence", severity: "low", …}`;
+`call lint` over the fixture dir → `Verdict: 7 issue(s) … 0 high, 5 medium, 2 low` — kitchen_sink.js 5
+medium (all proven: `uses-.blink` L1, `uses-.getYear` L3, `uses-.compile` L4, `uses-.__defineGetter__` L5,
+`uses-.fontcolor` L6), kitchen_sink.py 2 low (`graded-typing.Sequence` L5, `graded-ssl.PROTOCOL_SSLv3` L6,
+each citing its docs.python.org page), clean-modern and landmine files ZERO in both languages.
+
+**Honest remainder.** (i) The receiver-generic high-recall form ships nowhere today: python's corpus is too
+poor to calibrate death, and everywhere else the proven tier already owns the shape. It re-lands per
+language automatically the moment a crawl gives that language a corpus that witnesses ≥1 alive member.
+(ii) python's dotted-literal forms fire only receiver-qualified usage (`typing.Sequence`,
+`ssl.PROTOCOL_SSLv3`, `importlib.machinery.SourceFileLoader` chains) — instance-receiver deprecated calls
+(`loader.load_module()`) stay invisible at this tier by design. (iii) css/html/rust graded 0 is structural
+(their revoked constructs are proven or receiver-generic-only), unchanged from PASS 26.
+
+### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
+
+> The referee the corroboration loop (step 3 above) stands on: given two English statements — the
+> expected outcome and the actual outcome, both derived back into English — do they assert the
+> **same / consistent** thing (same DIRECTION, same POLARITY)? Decided ENTIRELY over the frozen
+> dictionary meaning graph (`MeaningNetwork`) plus the frozen negation classifier (`English::is_negation`),
+> never over spelling and never over a word list. This subsection is the contract; the module implements
+> exactly it.
+
+**Why not flat meaning overlap.** The first cut judged consistency with `related()` — the bag-of-
+definition-words meaning distance. That signal is TOPICAL, not assertional: measured on the frozen graph
+it rates the false `dog~bird` (3834) in the same band as the true `dog~canine` (3608), reads antonyms
+`bright~dark` as near, and cannot tell "a dog is a canine" from "a dog is a bird". Topical relatedness is
+orthogonal to what an assertion claims, so flat overlap is the wrong referee.
+
+**The signal: DIRECTED CROSS-REFERENCE through the definitions.** The truth of an is-a lives in the
+dictionary's own DIRECTED reference edges. `"a dog is a canine"` is true because `canine`'s definition
+literally contains `dog` (a direct edge `canine ⟶ dog`); `"a dog is a bird"` is false because no short
+directed path joins `dog` and `bird` (they meet only at the distant shared hypernym `vertebrate`, a
+CONVERGENT `dog→…→vertebrate←…←bird` pattern, not a directed path between them). `reference_hops(a, b)` is
+a bounded **bidirectional** BFS over the definition-reference graph (edge `X ⟶ Y` iff `Y` is a content
+word of `X`'s `definition_words`): 0 = same word, 1 = a direct cross-reference, `None` = no path within
+the search HORIZON. Bidirectional because the dictionary encodes is-a in BOTH orientations inconsistently
+(`mammal`'s def references its hypernym `animal`; `canine`'s def references its hyponym `dog`) — one fixed
+orientation would miss half the true edges. The HORIZON is a computational search bound, not a decision
+threshold; the verdict is always comparative (see below), and unreachable maps to `horizon + 1` (a
+sentinel derived FROM the horizon, never a hand-set score).
+
+**Statement consistency = polarity, then directed-reference alignment.** A statement reduces to its
+**content concepts** (tokens the bedrock `has`, kept at or above the statement's own median `centrality` —
+a comparative cut that drops the/is/a with no stop list). Consistency of two statements is the pair
+`(polarity_mismatch, reference_distance)`, compared LEXICOGRAPHICALLY (polarity dominates):
+
+- **polarity** — each statement is NEGATIVE iff a negation OPERATOR governs it, decided by the frozen,
+  definition-compounding `English::is_negation` (never a negator word list). Opposite polarity ⇒ the
+  statements assert opposite things ⇒ maximally inconsistent regardless of topic, so `"do not use eval"`
+  and `"use eval"` separate.
+- **reference_distance** — a symmetric, centrality-weighted chamfer over the content concepts whose
+  per-pair distance is `reference_hops` (directed cross-reference), NOT `related`. Distinctive concepts
+  dominate (their `centrality` is the weight); a concept the other side cannot reach contributes the
+  sentinel, so a false predicate that shares no directed path drives the distance up.
+
+**COMPARATIVE, never a magic threshold.** The judge never says "consistent iff score < K." It ranks:
+`more_consistent(anchor, x, y)` answers which candidate asserts something nearer the anchor, and
+`corroborates(expected, actual, contrast)` holds iff `actual` orders STRICTLY nearer `expected` than the
+`contrast` foil does. The corroboration engine always supplies such a foil (the negated/alternative
+expectation it also derived), so equality is a *margin* against a foil, not against a constant.
+
+**Measured competence (2026-07-10, honest — see `examples/relcheck.rs`).** Directed cross-reference +
+polarity is a SOUND assertional referee for the central jobs, and strictly better than flat overlap:
+
+- **is-a direction (the headline fix):** restatement `"a dog is a canine animal"` distance 0.0 vs the
+  false `"a dog is a bird"` 1.26 — cleanly separated where flat overlap could not (3608 vs 3834).
+- **co-hyponym rejected:** against a sibling-level anchor, `"the cat is an animal"` 0.50 corroborates over
+  the false `"the cat is a fish"` 1.09 (`fish` is unreachable from `cat`/`mammal` by directed reference).
+- **negation flip:** `"never use eval"` (same polarity as `"do not use eval"`) beats `"use eval"` (opposite
+  polarity) — polarity mismatch dominates the order.
+- **antonym:** `"the sun is luminous"` 0.53 corroborates over `"the sun is dark"` 1.44 (no directed path
+  `bright↔dark`).
+
+**Honest boundaries (do NOT lean past these).**
+
+- **Synonymy is captured only where the dictionary cross-references the pair.** `delete~remove` works
+  (`remove` is a content word of `delete`'s definition → distance 0.51). But `liquid~fluid` share NO
+  directed edge, so `"water is a fluid"` (1.38) actually ranks WORSE than the false `"water is a gas"`
+  (0.81, reachable in two hops). Where two true synonyms simply do not reference each other in the frozen
+  definitions, this referee cannot see their equality.
+- **`is_negation` scopes negation to OVERT, compounded operators** (`not`, `never`, `no…`-compounds). It
+  correctly does NOT fire on `avoid` (whose definition "keep away from" carries no compounded negator), so
+  `"avoid eval" ≡ "do not use eval"` is NOT reduced to a polarity match. The negation FLIP is proven; the
+  lexical-negation SYNONYM (`avoid` ≈ `not use`) is out of the frozen substrate's reach.
+- **Non-English jargon drops out** (`eval` has no definition → not a content concept). Two statements are
+  compared on the English they share; a purely-jargon statement is undecidable (`None`), never a false
+  match.
+
+**Verdict.** For the corroboration loop's real job — reject a same-topic is-a substitution (dog→bird),
+reject a co-hyponym substitution (cat→fish), and honor a negation flip (use→do-not-use) — directed cross-
+reference + polarity is a sound comparative referee, not the flat metric's topical blind spot. Its two
+honest gaps (synonyms the dictionary never cross-references; lexical negators `is_negation` does not
+compound) are graph-content limits, not logic bugs: the loop must keep pairing the referee with a genuine
+foil and treat an un-cross-referenced synonym as UNPROVEN rather than forcing it.
+
+### The corroboration engine — the graduation gate (`lint_ism.rs`, 2026-07-10)
+
+> The mechanism that turns the English-equality judge above into the ISM's **≥ 15 independent
+> witnesses** graduation law (north-star step 5). Given a **candidate truth** (an English statement)
+> and a stream of **witness statements**, it returns **PROVEN** iff at least the owner-specified
+> number of GENUINELY INDEPENDENT witnesses corroborate the truth AND none contradict it, else
+> **UNPROVEN** with the reason. It adds NO new judgement of its own — every per-witness decision is a
+> call into the frozen `lint_corroborate` comparator; the engine only counts and gates.
+
+**The candidate carries its own foil.** The comparator is COMPARATIVE — it never says "consistent iff
+score < K", only "nearer the truth than this foil is." A graduation gate therefore cannot judge a lone
+witness against a lone truth; it needs the genuine ALTERNATIVE the corroboration loop also derived (step
+1: "should flag" vs its competing "should not flag" / the competing is-a). So a `Candidate` is the pair
+`{ truth, foil }`, and **the engine is only as sound as that foil is genuine** — a degenerate/unrelated
+foil (one not on the truth's topic) makes on-topic trivially true and invalidates the verdict. This is
+the comparator's own documented requirement, inherited, not a new one.
+
+**Classifying one witness (`classify`) — three comparator calls, no constant.** For witness `W`:
+- `on_topic` iff `consistency(truth, W).reference_distance < consistency(truth, foil).reference_distance`
+  — `W`'s content is directed-reference-NEARER the truth than the foil's content is (a strict compare of
+  two distances, exactly like `corroborates`; never a threshold).
+- **CORROBORATES** iff `on_topic` AND `W` agrees in polarity with the truth (`!polarity_mismatch`).
+- **CONTRADICTS** iff (`on_topic` AND opposite polarity — a negation flip of the truth) OR `W` asserts
+  the FOIL instead (`consistency(foil, W).reference_distance < consistency(foil, truth).reference_distance`
+  with `W` agreeing in polarity with the foil).
+- **NEUTRAL** otherwise (off both topics — ignored, neither counts nor blocks).
+- **UNDECIDABLE** when the comparator returns `None` (a side has no English content concept) — an honest
+  "cannot judge", never a false match, exactly as the comparator promises.
+
+**Independence (`graduate`) — the identity element, not a tuned radius.** A corroborating witness counts
+only if it is DISTINCT from every witness already counted. Two witnesses are the SAME witness iff they
+reduce to a directed-reference-IDENTICAL assertion: same polarity AND `consistency.reference_distance == 0`
+— the identity point (every content concept at hop 0 to the other side), the same `0.0` the comparator's
+`identical_statement_is_maximally_consistent` asserts, NOT a magic "< K" radius. Repeating one phrasing 15×
+collapses to ONE independent witness; genuinely different material (different content concepts) stays
+distinct. This is CONSERVATIVE in the safe direction only at the identity point: it may UNDER-merge a near-
+duplicate that swaps a filler word surviving the median cut (counting it as independent), so "independent"
+means the spec's "genuinely different material," and a graduation set must supply that — the engine cannot
+manufacture independence a paraphrase does not carry. (A tighter merge would need a magic distance, which
+is forbidden; the identity point is the only non-arbitrary cut.)
+
+**Verdict.** `graduate` folds the stream: any CONTRADICTS ⇒ `Unproven::Contradicted` (a proven truth has
+no contradicting witness — one is fatal, short-circuits). Otherwise count distinct CORROBORATES; ≥
+`REQUIRED_WITNESSES` ⇒ `Proven`, else `Unproven::TooFewIndependent { independent, required }`. If the
+candidate itself is undecidable against its foil (no English content) ⇒ `Unproven::Undecidable`. The count
+`REQUIRED_WITNESSES = 15` is the **owner-specified** witness count (north-star step 5), a spec parameter
+cited as such, NOT a tuned distance threshold.
+
+**Safety property (verified, `examples/relcheck.rs` + module tests).** The un-cross-referenced-synonym
+boundary is PRESERVED end to end: for truth `"water is a liquid"` with genuine foil `"water is a gas"`,
+the witness `"water is a fluid"` is NOT on-topic (distance 1.38 to the truth is WORSE than the foil's 0.81,
+because `liquid`/`fluid` share no directed edge) → it never CORROBORATES → a candidate whose only support
+is that synonym never graduates. The engine cannot manufacture a proof the comparator cannot see; it stays
+UNPROVEN, exactly as the covenant requires.
+
+**Honest verdict.** As a graduation gate the engine is SOUND *conditional on a genuine foil and genuinely
+distinct witnesses* — both requirements are the substrate's, surfaced honestly, not papered over. Polarity
+contradictions and asserts-the-foil contradictions are caught soundly; the incompatible-assertion class is
+caught exactly to the reach of directed cross-reference (dog→bird yes, un-cross-referenced synonym no).
+Independence is sound at the identity point and under-merges beyond it — mitigated by, not a substitute
+for, supplying genuinely different material. Where the foil is degenerate or the witnesses are near-
+duplicates the comparator cannot separate, the engine reports UNPROVEN rather than guessing.
+
+### The HTML layer — first attempt to graduate real construct truths from real docs (2026-07-10)
+
+> The first curriculum layer ABOVE the proven English bedrock (order: dictionary → txt → markdown →
+> **HTML** → CSS → JS). The goal of this step: take real HTML documentation prose, extract English
+> TRUTHS about HTML constructs (`<strong>` means importance, `<em>` means emphasis), and GRADUATE them
+> via the frozen comparator + engine (≥15 independent witnesses). This subsection records what was
+> MEASURED end-to-end against real MDN pages and the exact obstacle that blocks graduation, so the next
+> agent builds the fix rather than re-deriving the wall. Probe: `native/examples/htmlgrad.rs`
+> (untracked); source: the cached MDN crawl (`~/.cache/helpers/lint-index/crawls/developer-mozilla-org-*.bin`,
+> 2821 pages, 158 HTML element reference pages incl. `<strong>/<b>/<em>/<i>/<mark>`).
+
+**The pipeline CONNECTS to real docs.** Decoding the `CRAWL` HLM1 container with the public codec, reading
+each page with `doc_crawler::extract_prose`, splitting into sentences, and feeding them as witnesses to
+`lint_ism::graduate` runs the frozen comparator+engine over genuine MDN prose with no new judgement. The
+`<strong>` page yields real candidate truths and their restatements — e.g. "The `<strong>` HTML element
+indicates that its contents have strong importance" (the definition), plus [7] "for content that is of
+'strong importance'", [17] "of greater importance", [22] HTML5 "representing strong importance", [24]
+"give portions of a sentence added importance". The material for graduation is really there.
+
+**But NO construct truth graduates, and the reason is measured and structural — not a logic bug.** Three
+walls, in order of severity:
+
+1. **Construct identity is HTML-layer JARGON the English dictionary cannot key.** The comparator judges
+   over English content concepts (`content_concepts`, tokens the meaning graph `has`). Half the construct
+   names are **not in the meaning graph at all** — `b`, `i`, `s`, `u`, `q` return `has=false` (single
+   letters), `dfn`/`kbd` are unknown to English entirely — so they contribute NO subject concept and drop
+   out. Where a name survives (`strong` centrality 45, `em`/`mark` at the rare tail), it is one concept
+   averaged into generic shared vocabulary (`element`, `text`, `contents`, `marks`, `indicates`). So two
+   truths about DIFFERENT constructs are compared purely on overlapping English predicates and CONFLATE.
+   Measured separation failure: feeding `<strong>`'s importance-truth the sentences from the `<b>`/`<em>`/
+   `<i>` pages produced **23 / 25 / 22** raw corroborations — *more* than the `<strong>` page's own signal.
+   Sentences literally asserting a different construct ("The `<em>` HTML element marks text that has stress
+   emphasis") corroborate the importance-truth. This is the central finding: **whole-page corroboration
+   needs a per-construct key the dictionary alone cannot provide.**
+
+2. **A genuine, doc-grounded foil does NOT function as a discriminating foil.** The engine's on-topic bar
+   is `distance(truth, witness) < distance(truth, foil)`. The genuine competing meaning the docs warn
+   against — "the element applies bold visual styling" — is by directed reference the **farthest** thing
+   from the importance-truth (distance **3.68**), farther than the sibling meanings (`b`/attention 2.00,
+   `i`/idiomatic 2.30, `em`/emphasis 2.63) and the true restatement (0.81). So the foil sets a bar that
+   **admits everything**, and separation collapses. The engine's documented soundness condition ("only as
+   sound as the foil is genuine, on the truth's topic") is met in spirit yet violated in effect: "genuine
+   competing meaning" and "a foil near enough to discriminate" are DIFFERENT requirements. The discriminating
+   foil is the confusable SIBLING's meaning (`<b>` for `<strong>`), not the misuse.
+
+3. **Example content and see-also cross-references trip false CONTRADICTIONS that short-circuit graduation.**
+   Every own-page run returned `Unproven(Contradicted)`. The contradictions are real signals fired on the
+   WRONG spans: negation-polarity EXAMPLE strings inside the element ("...you can never forget... never feed
+   him after midnight" — an example, not a claim about the construct), and legitimate contrast/see-also
+   sentences that assert the foil ("If you wish to indicate importance, use the `<strong>` element" — on the
+   `<b>` page). The engine cannot tell an assertion ABOUT this construct's meaning from example prose or a
+   pointer to another construct. One such sentence is fatal (contradiction short-circuits).
+
+**The proposed fix probe (Experiment D) and why the cheap version is insufficient.** Keying witnesses by the
+literal `<strong>` tag-mention the prose carries (a markup signal, not an English word) and using a sibling
+foil narrows 158 pages of noise to 17 candidate sentences — but only 5 corroborate (most `<strong>` mentions
+are USING the tag to bold example text, not describing it) and 2 still falsely contradict (a `<strong>`
+wrapping the example phrase "HTML Definition element (`<dfn>`)" is grabbed as if it were about `<strong>`).
+So a substring tag-match is too crude: **subject-keying must be STRUCTURAL** — which construct's reference
+section / governing prose a sentence belongs to — exactly what `lint_graph::read_page` units and
+`lint_docs` page attribution already compute but the corroboration path does not yet consume.
+
+**Smallest real next step (for owner review — NOT yet built).** The construct must enter the ISM as its own
+ORTHOGONAL state keyed from the HTML/markup substrate, never as an English word (keeping the dictionary
+frozen and un-contaminated, per the north-star's "concepts individual until provably linked"):
+- A truth is the pair `(construct_key, English predicate)`. `construct_key` is the tag as an opaque
+  symbol from the markup/char substrate (the HTML layer's own jargon), NOT a dictionary word.
+- Witnesses for a construct are the doc sentences whose STRUCTURAL subject IS that construct — the
+  governing/definition prose of its reference page, with example blocks and see-also pointers EXCLUDED —
+  drawn from the reading machinery that already segments pages (`read_page`, page attribution).
+- Corroboration runs the frozen English comparator ONLY over the PREDICATE (importance ≡ importance),
+  gated by construct-key IDENTITY (same tag → same subject); the foil is a confusable SIBLING construct's
+  predicate, chosen on the truth's topic so the on-topic bar discriminates.
+This keeps the covenant: the dictionary never learns tag names, the comparator/engine semantics are
+unchanged, and the HTML layer holds its constructs as its own proven states. Until it exists, the honest
+verdict is: **the doc→corroboration→graduation pipeline reaches real HTML docs, but graduates nothing,
+because per-construct structural keying — the HTML layer's own subject identity — is the missing piece the
+English bedrock cannot supply.**
+
+### The HTML layer — structural construct-keying that unblocks graduation (`lint_html_layer.rs`, 2026-07-10)
+
+> The fix the previous subsection scoped for owner review, now BUILT and MEASURED. It supplies the
+> per-construct SUBJECT the English dictionary cannot key, so real HTML construct truths corroborate
+> only from their OWN construct's prose and the cross-construct leak is gone. The dictionary, the
+> comparator (`lint_corroborate`), and the engine (`lint_ism`) are UNTOUCHED — this layer only keys
+> and gates the witness stream that flows INTO the frozen engine. Probe: `native/examples/htmlgrad.rs`.
+
+**The construct is its own orthogonal state, keyed from the MARKUP — never a dictionary word.** A
+construct truth is the pair `(subject_key, English predicate)`. The `subject_key` is the element's
+tag name as an OPAQUE markup symbol (`strong`, `b`, `em`) — the HTML layer's own jargon, held in the
+HTML partition and NEVER written into the English meaning graph (the dictionary stays frozen and
+un-contaminated, per the north-star's "concepts individual until provably linked"). The PREDICATE is
+ordinary English (importance ≡ importance), and it is judged ONLY by the frozen comparator; the
+subject key never enters that judgement, it only GATES which witnesses the comparator ever sees.
+
+**Subject = page-of-origin (structural), not a tag substring.** MDN publishes exactly one reference
+page per element, so a sentence's construct-subject is *the construct whose reference page it belongs
+to* — a structural fact read from the page's URL (`/HTML/…/Elements/<name>`), not from any tag the
+sentence happens to contain (substring tag-matching grabbed example formatting — measured, previous
+subsection Experiment D). `KeyedWitness { subject, sentence }` carries that structural key with each
+sentence. **The leak dies at the gate:** graduating construct `C` counts ONLY witnesses whose
+`subject == C`, so `<em>`- and `<b>`-page sentences are never even offered to a `<strong>` truth,
+however much their English predicate would have corroborated it. This is construct-key IDENTITY, the
+HTML layer's own subject discrimination, standing in front of the (unchanged) English comparator.
+
+**Governing prose only — structural furniture excluded by the page's own anchors.** MDN sections open
+with stable machine anchors `<h2 id="usage_notes">` / `<h3 id="…">` whose id is a URL-fragment slug
+(not display prose). `sections(body)` splits a page at those anchors into `(anchor_id, region)`, the
+lead definition region carrying the empty anchor. Witnesses are drawn only from the GOVERNING regions
+(the lead + usage/description prose); the FURNITURE regions — the interactive `try_it`, worked
+`examples`, the `technical_summary`/`specifications`/`browser_compatibility` reference tables, the
+`see_also` link list, and `feedback` chrome — are dropped by their own stable anchor id (a structural
+page-role filter, never a judgement of construct meaning; marked INTERIM like the other structural
+windows). Two measured contradiction sources are removed structurally: `<pre>` code/example blocks
+are stripped, and any sentence that mentions a FOREIGN construct tag (a sibling cross-reference like
+"use the `<b>` element…", which survives tag-stripping as the literal token `<b>`) is dropped from a
+construct's witness stream — a sentence about a sibling is not governing prose about this subject.
+
+**Predicate and foil are doc-grounded, judged by the frozen engine.** The candidate `truth` is the
+construct's own definition sentence (the lead region's governing statement of its meaning); the
+`foil` is a confusable SIBLING construct's definition sentence (`<b>` for `<strong>`) — a genuinely
+competing near-meaning that DISCRIMINATES, where the previous "bold styling" misuse-foil was the
+farthest thing from the truth and admitted everything (measured). `graduate_construct` filters the
+witness stream to the subject key, then hands `(Candidate{truth, foil}, subject-keyed witnesses)`
+straight to the frozen `lint_ism::graduate` — the ≥15-independent-witness law and every per-witness
+judgement stay exactly the engine's, unchanged.
+
+**Measured (2026-07-10, `examples/htmlgrad.rs`, 158 MDN element pages, frozen brains).**
+
+- **The cross-construct LEAK is GONE.** Feeding the `<strong>` importance-truth the governing sentences
+  of every OTHER construct's page, the subject-key gate admits **0** witnesses from each of `<em>`,
+  `<b>`, `<i>`, `<mark>`, `<small>`, `<code>`, `<cite>`, `<span>` — versus the flat pipeline's **23 / 25
+  / 22** false corroborations from `<b>`/`<em>`/`<i>`. With the clean governing prose and the real
+  sibling-definition foils, even the raw comparator (before the gate) now corroborates 0 of them, so the
+  leak is closed both at the gate AND in the signal the gate stands on.
+- **Real doc-grounded truths, keyed to their own construct.** The candidate truth is now the construct's
+  actual definition sentence, read structurally from its lead paragraph (e.g. `<strong>`: "The `<strong>`
+  HTML element indicates that its contents have strong importance, seriousness, or urgency."; `<em>`:
+  "…marks text that has stress emphasis."), and the foil is the sibling's real definition. Each
+  corroborates ONLY from its own page's prose: independent corroborations `<strong>` 3, `<em>` 5, `<b>` 1,
+  `<mark>` 2, `<i>` 2.
+- **Graduation is blocked by witness SCARCITY, not by the leak.** One MDN reference page yields only a
+  handful of independent governing sentences (after excluding furniture, code, and sibling-cross-reference
+  prose): `<strong>` 15 offered / 3 corroborating, `<em>` 16 / 5, `<b>` 4 / 1, `<mark>` 4 / 2, `<i>` 9 / 2.
+  None reaches the owner's 15-independent-witness bar. `<mark>` and `<i>` additionally hit a genuine
+  CONTRADICTION from an on-topic governing sentence — an accessibility note in negative polarity
+  ("The presence of the `<mark>` element is not announced by most screen reading technology…") and a
+  contrast sentence — both real prose, correctly read by the frozen engine as incompatible with a bare
+  meaning-truth.
+
+**Honest verdict.** Structural subject-keying is the right fix and it WORKS: it removes the exact obstacle
+the previous subsection measured — construct identity now discriminates, and no `<em>`/`<b>` sentence can
+corroborate a `<strong>` truth. What it does NOT do by itself is manufacture witnesses: a single MDN page
+does not state a construct's meaning 15 independent ways, so graduation at the owner's count is gated on
+witness SCOPE, not on the leak. The smallest real next steps, for owner ruling: (1) widen witness gathering
+to other proven doc sources keyed by the SAME structural subject (WHATWG/W3Schools element pages, still
+page-of-origin), which multiplies independent governing sentences without touching the dictionary; and/or
+(2) the owner confirms whether the 15-count applies to this layer or a construct graduates on the full,
+non-contradicted governing prose of its authoritative page. The dictionary, comparator, and engine stayed
+frozen throughout; the sibling-cross-reference exclusion is conservative (it drops the rich "`<b>` vs.
+`<strong>`" comparison prose to avoid its foil-assertions) and is the main scope lever if witnesses are
+widened.
+
+### The HTML layer — CROSS-SOURCE witness widening, keyed by the same subject (`lint_html_layer.rs`, 2026-07-10)
+
+> The owner-approved next step from the subsection above: one reference page states a construct's
+> meaning only a handful of independent ways, short of the firm ≥15, so gather a construct's governing
+> witnesses from EVERY documentation SOURCE that publishes a page-of-origin unit for it — keyed by the
+> SAME structural subject. Fifteen corroborations drawn from three independent sources is STRONGER
+> independence than fifteen from one. The dictionary, comparator, and engine stay FROZEN; only the
+> witness stream flowing into them widens. Probe: `native/examples/htmlwiden.rs` (untracked).
+
+**Three sources, one subject key, one shared reader.** Each source contributes a per-construct
+page-of-origin unit and reduces its governing region to witnesses through the one shared reader
+[`witnesses_from_paragraphs`], so the leak-killing rules (sibling exclusion, example-code stripping)
+hold identically across sources:
+- **MDN** ([`page_witnesses`]) — one reference page per element; furniture dropped by stable `<h2 id>`
+  anchor, `<pre>` stripped, `<b>`-token sibling sentences excluded (unchanged from above).
+- **WHATWG** ([`whatwg_witnesses`]) — the single-page spec's per-element section, keyed STRUCTURALLY
+  from its `<h4 id=the-<name>-element>` landmark. Two source-specific structural cuts, the WHATWG
+  analogs of MDN's furniture/sibling filters: (a) each section is truncated at its first worked-example
+  block (`<div class=example>` / `<pre class=example>`) — normative definitional prose precedes the
+  examples, everything after is example NARRATION; (b) a paragraph that hyperlinks a FOREIGN element
+  section (`#the-<name>-element`, name ≠ subject) is a sibling cross-reference, dropped. Only bare `<p>`
+  is read (browser-support / example chrome carries a `class`). All INTERIM, like the MDN anchors.
+- **W3Schools** ([`w3schools_witnesses`]) — one `tag_<name>.asp` page per element; only the "Definition
+  and Usage" region is read (the worked example above and the support table below are outside it).
+
+**Measured (2026-07-10, `examples/htmlwiden.rs`, 153 MDN pages + WHATWG text-level-semantics + 9
+W3Schools tag pages, frozen brains).**
+
+- **The leak stays 0 after widening.** Feeding the `<strong>` truth every FOREIGN construct's widened
+  governing prose (`<em>/<b>/<i>/<mark>/<small>/<code>/<cite>/<span>/<dfn>`), the subject-key gate admits
+  **0** from each — the cross-source pool did NOT reintroduce cross-construct leakage.
+- **Widening roughly DOUBLES the independent-corroboration count.** Per-construct independent
+  corroborations (own subject, cross-source, governing prose only): `<em>` **11** (was 5 MDN-only),
+  `<strong>` **9** (was 3), `<b>` 2, `<mark>` 6, `<i>` 5, `<small>` 4. Combined offered witnesses per
+  construct rose to `<em>` 25, `<strong>` 24 (from ~15). WHATWG is the richest source; W3Schools adds
+  1–4 per tag.
+- **No construct reaches 15; the bottleneck MOVED from scarcity to the frozen comparator's
+  conservatism.** `<em>` is closest at **11 corroborations / 0 contradictions**. `<strong>` gathers 9 but
+  is blocked by ONE genuine negative-polarity governing sentence ("Changing the importance of a piece of
+  text with the strong element does **not** change the meaning of the sentence.") — real normative prose
+  the frozen engine correctly reads as a polarity flip of a bare positive meaning-truth. `<mark>/<i>/
+  <small>` are similarly blocked by genuine negative-polarity notes ("is **not** announced by most screen
+  reading technology…") and by cross-source DEFINITION phrasings the comparator cannot reconcile with the
+  MDN truth (e.g. WHATWG `<i>` "alternate voice or mood", W3Schools `<small>` "smaller text"). These are
+  the frozen engine's HONEST verdicts, NOT extraction artifacts — the sibling see-alsos and example
+  narration that tripped false contradictions are structurally removed. Suppressing them would be gaming
+  the engine and is deliberately NOT done.
+
+**Honest verdict.** Cross-source widening is a large, real gain and preserves every invariant: the leak
+stays 0, the dictionary/comparator/engine are untouched, and the subject key is always page-of-origin.
+It roughly doubles independent corroborations — but three mainstream sources of GOVERNING prose still do
+not state a construct's meaning 15 distinct ways, and the remaining ceiling is now the comparator's two
+documented conservative boundaries (a bare positive meaning-truth vs. a polarity-bearing governing
+sentence; and un-cross-referenced cross-phrasing of the same definition), not witness scarcity. Note
+also the design tension the owner should rule on: excluding worked-example NARRATION is principled
+(examples were the contradiction source) but costs corroborations — including WHATWG's `<em>` example
+narration would raise `<em>` to 13, still short of 15. For owner ruling: either (a) accept that this
+layer's constructs graduate on their full non-contradicted governing prose rather than a raw ≥15 (the
+count was set for is-a facts with many independent restatements, which single-meaning HTML constructs
+inherently lack), or (b) treat the comparator's polarity/cross-phrasing conservatism — not witness
+scope — as the next thing to extend, since even unlimited sources will keep hitting it.
+
+### The self-generated test loop — proving a rule by generating and linting violations (`lint_selftest.rs`, 2026-07-11)
+
+> The north-star's corroboration loop (section top, steps 1–5) made CONCRETE and MEASURED end to end.
+> The HTML-layer path above graduates a rule by counting how many times the DOCS RESTATE a construct's
+> meaning — witness scarcity is its wall. This path graduates a rule a different, un-fakeable way
+> (owner directive 2026-07-11, which CORRECTS the "count doc restatements" framing): the AI proves WHAT
+> IT UNDERSTANDS by **generating violating code and linting it**, judged in English. The dictionary,
+> the comparator (`lint_corroborate`), the engine (`lint_ism`), and the trace bridge (`lint_trace`) are
+> all FROZEN; this module only orchestrates them into the loop. Probe: `native/examples/selftest_probe.rs`
+> (untracked).
+
+**The loop, per the owner's exact mechanism.** A rule is LEARNED from documentation and understood into
+a firing check — the trace bridge already does this (`understand("Never use the var keyword …")` →
+`Plan::UsesConstruct { var }`). The rule's UNDERSTANDING is English (the AI's account of what the rule
+means/forbids); the linter's FINDING is also English (the advice a fired rule reports). The loop:
+
+1. Take the learned rule — its `understanding` (English) and its firing `Plan`.
+2. **GENERATE** code that embodies the violation, VARIED across reps (different identifiers, shapes,
+   contexts; the later reps tangential/edge-case). Self-generated, so the reps are of UNDERSTANDING
+   (unlimited), not doc restatements (scarce) — the count is honest and un-fakeable.
+3. **LINT** each sample with the REAL linter — `lint_trace::run_plan` over a `KnownRule` book. A sample
+   is FLAGGED iff some known rule's plan fires on it.
+4. Reduce the FOUND violation to English: the **advice of the rule that actually fired** — linter-
+   sourced, on a DIFFERENT derivation path from the AI's `understanding`.
+5. **Judge `English(found) == English(learned)`** with the frozen `corroborates` comparator, against a
+   genuine sibling `foil`: the found advice must order STRICTLY nearer the `understanding` than the foil
+   does. English is the incorruptible in-between — you cannot fake equality in a language you truly
+   understand.
+6. Fold **~10–12 reps** (`REQUIRED_REPS`, the owner's spec count — a floor, not a tuned threshold) into
+   `Proven`/`Unproven`.
+
+**Why this removes Dunning-Kruger — the two independent, un-fakeable signals per rep.** A rep
+`Corroborates` only when BOTH hold: (a) BEHAVIORAL — the real linter flags the self-generated code
+(`run_plan` non-empty); you can only generate flagging code for a rule you understand well enough to
+violate it; and (b) SEMANTIC — the fired rule's advice reconciles with the `understanding` in English.
+A facade fails one or both: mis-generated code either is not flagged (`NotFlagged`, a phased-out
+expectation) or trips a DIFFERENT rule whose advice does not reconcile (`Mismatch`), and a faked
+`understanding` fails the English reconciliation even on correctly-flagged code (the MEASURED control
+below). A single genuine `Mismatch` is fatal (the two Englishes contradict), exactly as one
+contradiction blocks in `lint_ism`.
+
+**Verdict.** `graduate` folds the rep stream: any `Mismatch` ⇒ `Unproven::Contradicted{advice}`
+(short-circuits); else count `Corroborates`; ≥ `REQUIRED_REPS` ⇒ `Proven`, else
+`Unproven::TooFewReps{corroborated, required, not_flagged}` (carrying the phased-out `NotFlagged`
+count so the loop reports rather than hides the expectations that did not hold). `Undecidable` (the
+comparator has no shared English content) neither counts nor blocks.
+
+**MEASURED end to end (2026-07-11, frozen brains, real JS grammar — `examples/selftest_probe.rs`).**
+
+- **A genuinely-understood rule GRADUATES.** Learned rule `"Never use the var keyword to declare a
+  variable. Use let or const instead."` → `uses_construct(var)`. Twelve varied JS samples (block/loop/
+  method/arrow/try/switch contexts) are ALL flagged by the real linter (12/12); each reconciles the
+  found advice `"using var declares a variable whose scope leaks out of its enclosing block"` with the
+  `understanding` over the genuine sibling foil (the eval security rule): distance **1.54** to the
+  understanding vs **4.0** to the foil — 12/12 corroborated ⇒ `Proven`. Five clean `let`/`const` samples
+  are correctly NOT flagged (including `var` appearing only inside a comment or a string literal).
+- **A FAKED understanding is REJECTED (the control).** Same rule and the SAME 12 flagged samples, but
+  the `understanding` is wrong — `"var should be indented with two spaces for readable code
+  formatting"`. All 12 are still behaviorally flagged (var IS used), yet **0/12** reconcile: the found
+  advice is nearer the genuine var-scope foil (2.22) than the indentation-`understanding` (2.69) ⇒
+  `Some(false)` every rep ⇒ `Unproven::Contradicted`. The behavioral signal alone cannot separate them;
+  the English judge is what rejects the facade — precisely the anti-Dunning-Kruger property.
+- **The eval gap — CLOSED (2026-07-11, `lint_trace` backtick reroute + `scan_construct` dotted match).**
+  Previously `"Never use the eval function to execute a string of code."` understood to the CS PRIMITIVE
+  `unary(shell_injection)` (the verb "execute" is a `shell_injection` descriptor at distance 0), and
+  `is_shell_injection` matches a Rust `format!` call chain, so `run_plan` flagged nothing on JS
+  `eval(userInput)`. Word-only understanding CANNOT tell this spurious alignment from the GENUINE
+  `shell_injection` rule ("interpolate untrusted input into a shell command") or from `"hardcode a
+  secret"` — all three are driven by a real descriptor word at distance 0. The discriminator is the
+  author's BACKTICK: when a prohibition backticks a code symbol (`` `eval` ``) that the composed unary
+  primitive does NOT itself recognise (the construct token binds to none of the plan's predicates),
+  the primitive is grazing the construct's behaviour and the named construct carries the rule
+  (`Bridge::reroute_grazed_construct`). `"Never use the `eval` function to execute a string of code."`
+  now shapes `uses_construct(eval)` and fires on JS `eval(...)`; the genuine `shell_injection`/
+  `hardcoded_secret`/`unwrap_call` rules (which backtick nothing) keep their primitive — MEASURED, zero
+  regression (`examples/routing_probe.rs`). Bare (un-backticked) naming is still left to the language
+  path's PROPOSE-then-VERIFY (`understand_verified`), where reality proves which primitive fires — it
+  already routes bare `eval` correctly. Separately, `scan_construct` now matches the SMALLEST AST node
+  whose whole text equals the construct, so a DOTTED member construct (`` `document.write` ``,
+  `Object.assign`) fires as one AST node, not only single leaf tokens.
+- **All five JS construct rules GRADUATE through the loop (2026-07-11, `examples/js_graduate.rs`).**
+  `var`, `eval`, `with`, `==`, `document.write` — each shaped by the bridge from its backticked
+  prohibition prose (`understand` → `uses_construct(name)`, the name DATA-read from the prose), each
+  flagged 12/12 on varied self-generated violations (0/4 clean wrongly-flagged), each reconciling the
+  found advice with the understanding over a genuine sibling foil ⇒ `Verdict::Proven`. `==` needed the
+  understanding and advice to share the subject phrase (`the equality operator`) for the conservative
+  comparator to cross-reference — a phrasing requirement, not a firing gap.
+
+**Honest verdict.** The self-generated test loop is BUILT and PROVEN on five real JS rules: each
+graduates from 12 self-generated, really-linted violations whose English reconciles, and a faked
+understanding of a rule is rejected by the English judge despite identical behavioral firing. The loop
+is only as sound as (a) the learned rule's Plan genuinely fires on the violation shape — the eval fix
+makes the backticked-construct class fire — and (b) the foil is a genuine competing meaning, the
+comparator's own inherited requirement. The counting is by
+DISTINCT self-generated code (the un-fakeable independence axis), not by English restatements, so the
+`lint_ism` identity-merge (which would collapse the repeated found-advice to one witness) is
+deliberately NOT reused; this module counts behavioral reps and reuses only the frozen `corroborates`
+English gate.
+
+### The construct-module training workflow — deriving every loop input from real docs (`lint_module.rs`, 2026-07-11)
+
+> The self-generated test loop above is PROVEN (five JS rules graduate; a faked understanding is
+> rejected), but in its probes the `understanding`, `advice`, `foil`, the violating `samples`, and the
+> `clean` near-misses are all HAND-WRITTEN Rust literals. That proves the loop's MECHANISM; it is not
+> the workflow. This module is the workflow: it DERIVES every loop input from a language's own cached
+> documentation and graduates construct rules with ZERO hand-authored content, so it works for ANY
+> language. The dictionary, the comparator (`lint_corroborate`), the engine (`lint_ism`), the trace
+> bridge (`lint_trace`), and `lint_selftest`'s judging are all FROZEN; this module only reads the docs,
+> derives the inputs, and orchestrates the frozen loop. Probe: `native/examples/js_module_train.rs`.
+
+**The source is the read `Memory`, never a hand parse.** A language's docs are already read into a
+`lint_read::Memory` by the existing crawl path (`lint_docs::read_language` → the char-substrate page
+reader) — `bindings` (each a `(url, slug, prose, code)` prose⊗code unit) plus a `reference` corpus of
+real code the docs served. The workflow is a PURE function over that memory (plus the two frozen
+brains): no network, no tags, no language names in code.
+
+**PROPOSE liberally (verification is the filter, not a gate).** For every binding's governing prose,
+`Bridge::constructs_named` proposes the code constructs it names — the covenant-clean `extract_construct`
+(the author's backtick, else a grammar/non-English syntax token, centrality-gated). The low-recall
+prohibition gate is NOT used to admit a candidate (per "PROPOSE-VERIFY-LEARN is the language path"):
+propose every named construct, prove strictly. Each candidate carries `{ construct, governing sentence,
+source url }`; candidates dedup by construct, keeping the most-negated governing sentence.
+
+**DERIVE the four loop inputs from data — each a different derivation path.**
+- `understanding` = the construct's governing sentence, VERBATIM doc prose, source-cited.
+- `advice` = a SECOND, DISTINCT doc sentence that mentions the same construct (its rationale/definition
+  prose) — a genuinely different derivation path from the understanding, which is what makes the English
+  reconciliation un-fakeable (the north-star's "both sides derived back into English"). Two independent
+  doc sentences about the SAME construct must reconcile; a mis-attributed construct (whose governing
+  prose is really about a sibling) fails. When no distinct second sentence mentions the construct, the
+  rule CANNOT form an un-fakeable English pair and does NOT graduate — an honest gap, never a degenerate
+  self-comparison (`corroborates(x, x, foil)` is trivially true and is forbidden as a proof).
+- `foil` = a SIBLING candidate's understanding (another construct's governing sentence from the same
+  module). A genuine competing meaning that discriminates; with only one candidate there is no genuine
+  foil and nothing graduates (the comparator's own inherited requirement).
+- `samples` (the core design problem) = SELF-GENERATION BY HARVEST. The covenant forbids hand-written
+  per-rule fixtures and language-specific templates in Rust, so the varied violating code is HARVESTED
+  from the language's OWN crawled example corpus (bindings' code + the reference corpus): every real doc
+  code block on which `run_plan(uses_construct(C))` genuinely FIRES is a distinct violating rep, and
+  every block on which it does NOT fire is a `clean` near-miss (the remedy form, the construct absent).
+  This is language-general (no construct name in code), covenant-clean (all data from the docs), and the
+  variation is genuine (different real doc examples). Its honest limit is SCARCITY: a construct the docs
+  exemplify fewer than `REQUIRED_REPS` (10) distinct ways cannot reach the owner's rep floor from harvest
+  alone — measured per construct, reported, never faked with a template.
+
+**GRADUATE through the frozen loop, then EMIT for the live engine.** `lint_selftest::prove` folds the
+harvested reps: only `Verdict::Proven` (≥10 distinct real blocks fire AND the two doc sentences reconcile
+over the sibling foil, none contradicting) enters the module. A proven rule is emitted as a
+`linter::LearnedRule { id, description = governing prose, bad = a firing harvested block, good = a clean
+harvested block, source_url }`. This is exactly the shape `RuleSet::build` already compiles into a
+live-firing detector via the `bad ∧ ¬good` contrast — the same mechanism that turns a `var`-vs-`let` pair
+into the `no_var` AST detector (the keyword `over_general_token` guard already trusts a contrasted
+keyword). So the workflow's output slots into the EXISTING live path with no new firing engine: the
+self-generated loop is the FILTER that decides which construct rules are real; `RuleSet::build` is the
+compiler that fires them.
+
+**Retiring the token-miner for modules — the intended seam, NOT yet flipped.** `doc_rules` (the
+module's rule query) is meant to build from `lint_module::graduated_rules` instead of the token-miner
+`lint_docs::rules_from_memory` (MEASURED junk: all 29 rust "rules" noise, JS 15 junk catching nothing —
+it mints from any prohibition-classified binding without proving the bad/good isolates a construct).
+The graduated workflow admits a rule only after the frozen loop proves it. But the flip is HELD: on the
+real crawl the workflow's inputs are only as good as the READ BINDINGS, and those are garbled (see
+Measured), so flipping the live seam now would replace one junk source with another. `doc_rules` stays
+on `rules_from_memory` (no regression); `graduated_rules` is wired and ready but not live.
+
+**Measured (2026-07-11, `examples/js_module_train.rs`, real cached JS crawl — 3325 bindings, 1508
+reference blocks from MDN + ESLint, frozen brains). The mechanism is proven; the WALL is upstream
+binding-prose quality.**
+
+- **The workflow MECHANISM is proven end to end.** The `lint_module` unit test graduates a construct
+  purely from HARVESTED real-shaped blocks and DERIVED English — no hand-written sample, understanding,
+  advice, or foil — and the five-rule `examples/js_graduate.rs` still graduates var/eval/with/==/
+  document.write. So the pipeline (propose → derive → harvest → prove → emit) is real.
+- **The behavioral "fires ≥10×" axis alone CANNOT discriminate a prohibition from ordinary syntax.**
+  With a LIBERAL propose (every construct any prose names), 840 candidates were proposed and 61 "PROVEN"
+  in 470s — including pure syntax `}`, `const`, `if`, `for`, `this`, `[`, `return`, `let`, `class`:
+  each fires on ≥10 harvested blocks, so the loop's behavioral half is trivially satisfied by every
+  keyword. The English half passed too, because garbled ESLint prose supplies a same-polarity second
+  mention of almost anything. This is the central finding: DISCOVERING which constructs are prohibited
+  is a separate filter the self-generated loop does not supply — it PROVES a candidate rule, it does not
+  DISCOVER one.
+- **The blessed PROHIBITION gate is the right discriminator but is low-recall on garbled prose.**
+  Gating propose by `English::sentence_states_prohibition` collapsed 840 → 20 candidates and 470s → 9s
+  (fast, as required), and killed the keyword junk — but it also dropped ALL five owner classics
+  (var/eval/with/==/document.write were not proposed) because the specific sentence carrying the token
+  did not classify as a prohibition, while it still admitted 3 junk rules (`const`, `default`, `then`)
+  minted from MANGLED "sentences" that are really code fragments and ESLint UI text
+  (`// false warning (false positive) const foo = …`, `An empty array ([]) by default`,
+  `If "never" then there should be no spaces`). The bindings the char-substrate reader produced from
+  this crawl interleave real prose with code fragments and site chrome, so both the token extraction and
+  the prohibition classifier fire on noise and miss signal.
+- **Kitchen-sink acceptance is NOT met from this crawl.** 0 proven rules flag the bad JS file (the
+  classics were never proposed); 1 junk rule wrongly flags the modern file. Honest verdict: the owner's
+  acceptance bar is unreachable from the CURRENT read bindings, not because the workflow is wrong but
+  because its raw material is.
+
+**Honest verdict and the next real step.** The construct-module training workflow is BUILT, documented,
+unit-tested, and MEASURED against the real crawl; it correctly graduates a construct when its derived
+inputs are sound. The measured wall is TWO-fold and both are UPSTREAM of this module: (1) the crawl
+bindings' prose is garbled (code fragments and chrome mis-read as governing sentences), which poisons
+both construct extraction and the prohibition classifier; and (2) even clean, the prohibition gate trades
+recall for precision (it misses "deprecated"/"disallow"-style phrasings that carry no lead negator). The
+owner-named fix is PROPOSE-VERIFY-LEARN against the docs' OWN paired bad/good examples
+(`understand_verified`/`learn_verified`, the `LearnedRule{bad,good}` bindings): a construct earns the
+rule only when `uses_construct(C)` FIRES on the page's own bad example and stays CLEAN on its own good —
+a per-construct referee the harvested-fire axis lacks. Wiring that verification in front of the
+self-generated loop, over cleaner per-rule binding prose, is the next step; the live `doc_rules` seam
+stays on the old miner until it lands, so nothing regresses.
+
+### The language-doc reading rung — structural per-construct governing prose (`lint_lang_layer.rs`, 2026-07-11)
+
+> The fix the subsection above scoped, now BUILT and MEASURED. The construct-module workflow's wall was
+> its RAW MATERIAL: it proposed from `memory.bindings[].prose`, and on the real crawl those "sentences"
+> are garbled (code fragments and site chrome the word-substrate binding step interleaves with real
+> prose). This rung replaces that source with the PROVEN `lint_html_layer` reading pattern applied to the
+> language-doc crawls: read each reference/rule page STRUCTURALLY, page-of-origin, into clean per-construct
+> governing prose. The dictionary, comparator (`lint_corroborate`), engine (`lint_ism`), trace bridge,
+> and `lint_selftest` judging stay FROZEN; only the witness stream feeding `lint_module::propose` changes.
+> Harness: `native/examples/web_module_train.rs` (untracked) — the three-language measurement run.
+
+**The reading is STRUCTURAL and page-of-origin, exactly like the HTML layer.** A JS reference/rule page
+documents ONE construct, so its subject and governing prose are structural facts of the page — not a
+per-language table in Rust, never a hardcoded construct list. `read_doc_page(url, body)`:
+- **Page kind from the URL path** — `Reference` (`/reference/` in the path, MDN's own structural marker
+  for its reference section) or `Rule` (`/rules/` — a linter's rule directory). Both are per-SOURCE
+  structural reads, INTERIM like `lint_html_layer`'s MDN anchors; NEITHER names a language. Any other page
+  contributes no candidates (only per-construct doc pages do).
+- **Governing prose only** — `lint_html_layer::sections` splits the page at its own `<h2 id>`/`<h3 id>`
+  anchors; furniture regions (`examples`, `specifications`, `browser_compatibility`, `see_also`, the
+  ESLint `options`/`version`/`resources`/`when-not-to-use-it` chrome) drop by anchor id; `<pre>` code is
+  stripped; the pre-definition page chrome (title, "Skip to main content", Baseline banner) is dropped by
+  reading only after the first governing statement.
+- **Code typography preserved as backticks.** `<code>==</code>` → `` `==` `` BEFORE tag-stripping, so
+  SYMBOL constructs (`==`, `===`, `!=`) survive into the sentence — plain `strip_tags` discards them, which
+  is why the previous measurement never saw `==`. This is the same backtick convention `extract_construct`
+  already reads; no new judgement.
+- **Foreign-construct sentences excluded** — the exact `lint_html_layer` leak-killer, so a sibling's prose
+  never keys this construct.
+
+**The PROHIBITION DISCRIMINATOR is STRUCTURAL, not the low-recall prose gate.** The previous workflow
+gated propose by `English::sentence_states_prohibition`, MEASURED here to fire on NONE of the clean real
+prohibition sentences ("This rule disallows `with` statements", "discouraging the use of `var`",
+"disallowing the use of the `eval()` function") — it is genuinely low-recall on clean prose too. The
+structural signal is sound and high-recall: a `/rules/` page IS a prohibition of the construct it
+documents; an MDN reference page carrying a "Deprecated" notecard prohibits its subject. So a construct is
+PROPOSED iff its page is a rule page OR carries a deprecation notecard — the page's ROLE, read structurally.
+
+**The construct is DATA-read two covenant-clean ways, unioned.** (a) `extract_construct` over the page's
+prohibition/deprecation prose (nails `var`, `eval`, `with` from the ESLint rule-details / lead summary,
+`()`-normalized so `eval()`→`eval`). (b) For a rule page, the docs' OWN paired examples — the north-star's
+"propose-verify-learn against the docs' own bad/good": the prohibited construct is a SYMBOL/keyword token
+present in the "incorrect code" blocks and ABSENT from the "correct code" blocks. This is what captures
+`==` (eqeqeq's incorrect example uses `==`/`!=`, its correct example `===`/`!==`; `==` ∈ incorrect∖correct
+as a whole whitespace token, and `scan_construct` fires it on `a == b` but never on `a === b`). Both are
+pure DATA from the page; no construct name lives in code.
+
+**Everything downstream is unchanged.** `propose` emits `Candidate{construct, understanding=the prohibition
+sentence, url}`; `derive_advice` finds the second same-polarity doc sentence over the POOLED clean
+sentences (all pages), the load-bearing same-polarity requirement kept; harvest, the frozen `prove`, and
+the `LearnedRule{bad,good}` emission are exactly as before. `graduate` now takes the language's raw pages
+(`lint_docs::raw_pages`), and `graduated_rules` fetches them — the read `Memory` is still the harvest
+corpus, only the PROPOSE source moved from its garbled prose to the structural page reading.
+
+**One site-general reader, all three web-stack languages, one workflow per language.** The owner widened
+this to HTML + CSS + JS together (the substrate learns the whole web stack, then reads every other
+language's docs through it). The SAME `read_doc_page` serves all three — MDN element/property/reference
+pages and ESLint rule pages alike — and the module workflow runs once per language over the SHARED crawl,
+partitioned by the crawl's OWN per-page language attribution (a page contributes to `lang` iff `lang`'s
+read `Memory` holds a binding from that page — `lint_module::lang_pages`). This is the "never conflate
+languages" law at PROPOSE: a CSS deprecation page and a JS rule page sit in one MDN crawl, but each
+language proposes ONLY from its own attributed pages, so a CSS construct never enters the JS module.
+
+**MEASURED (2026-07-11, shared web-stack crawl — 3054 pages MDN HTML/CSS/JS + ESLint + W3Schools, frozen
+brains; harness `examples/web_module_train.rs`).**
+
+| lang | partition | candidates | PROVEN | train | acceptance |
+|------|-----------|-----------|--------|-------|-----------|
+| javascript | ESLint rule pages (3325 bindings; the MDN-JS pages attribute elsewhere in this crawl) | 8–10 | 6 | ~16 s | `var` PROVEN and flags the bad file; `==`/`eval`/`with` NOT graduated; junk (`if`/`return`/`break`/`foo`/`||`) also graduated and `if` flags the clean file |
+| css | MDN CSS reference (11019 bindings) | 20 | 0 | 0.09 s | correct deprecated properties proposed (`box-orient`, `page-break-*`, `-moz-*`, `-webkit-*`, `text-decoration-skip`, `@document`); NONE graduate |
+| html | MDN HTML reference (1740 bindings) | 14 | 0 | 0.19 s | correct obsolete elements proposed (`frameset`, `noframes`, `plaintext`, `tt`, `xmp`, `param`); NONE graduate |
+
+**What the fix DID achieve (the reading rung is sound).** The garbled-binding-prose wall is GONE: the
+reader now delivers CLEAN per-construct governing prose and the docs' own bad/good examples, per language,
+with ZERO cross-language leak (measured: CSS constructs land only in css, HTML only in html), and PROPOSE
+is fast (CSS/HTML 0.1–0.2 s). The docs'-own-bad/good firing verification (`confirmed_by_examples`, frozen
+`run_plan`) correctly excludes the remedy (`const`/`let`/`===`) and the option-specific exception
+(ambient `declare var`, `x == null`) via the primary-correct test. `var` graduates end to end from the
+structural reading — the pipeline is capable.
+
+**The TWO measured walls — both CLOSED 2026-07-11 (the two fixes below).**
+
+**Wall 0 (the upstream defect both walls stood on): mangled example extraction.** The paired bad/good
+example blocks were extracted from `code_to_backtick(body)` and via `extract_code_blocks` (which grabs the
+`<pre>` block too). Both corrupt the code: the outer `<code>` became a single `` `…` `` pair, so the whole
+example parsed as ONE JS template literal (the construct node vanished → `uses_construct` fired on NOTHING,
+even its own bad example), and Prism's line-number gutter (`<span class="line-numbers-rows">`, INSIDE the
+`<pre>` but AFTER `</code>`) welded `123456` onto the block. Fix (`lint_lang_layer::examples_of_class` →
+`code_interiors`): extract examples from the RAW body, pulling only each `<code>…</code>` INTERIOR
+(`strip_code`, newlines preserved). The gutter sits outside `<code>` and is excluded; no backtick wrap. Now
+`uses_construct(==)` fires on eqeqeq's own incorrect examples and stays clean on its `===` correct — the
+docs'-own-example verification the whole gate depends on actually works.
+
+**Fix 1 — the SUBJECT-of-prohibition gate (kills the CONTEXTUAL-rule junk).** The measured surprise:
+`var`(2/2 incorrect, 1/2 correct) and junk `if`(2/2, 1/2) are NUMERICALLY IDENTICAL on the example counts,
+so NO count-based gate separates them. The genuine subject is what the page is ABOUT, and a doc page NAMES
+its subject in its own URL. `is_prohibited_subject` (replacing `confirmed_by_examples`) confirms a keyword
+and an operator differently, because only one can live in a URL:
+- **Keyword / identifier / property / element** — the page's URL rule-name PAYLOAD (last path segment minus
+  a leading `no-`) EQUALS the construct: `no-var`→`var`, `no-eval`→`eval`, `no-console`→`console`,
+  `/CSS/…/box-orient`, `/HTML/…/Element/marquee`. EQUALITY, not containment: `no-delete-var`→`delete-var`≠
+  `delete` and `no-async-promise-executor`→`async-promise-executor`≠`async` are PATTERN names, so their
+  incidental keyword abstains. It must ALSO fire on every incorrect example (a rule-name that is not a real
+  firing token — `max-statements`, `vars-on-top` — is rejected); a deprecated REFERENCE page has no
+  examples, so the URL name + deprecation notecard is the proof. The example FIRING is deliberately NOT
+  required to be clean-on-correct here — that would wrongly reject `eval`, whose own `allowIndirect`
+  "correct" example reuses `eval`; the URL is the confirmation.
+- **Multi-character OPERATOR** (`==`) — a symbol a URL cannot spell, so it is confirmed by the docs' OWN
+  before/after pair: the page must carry correct examples (`no-self-compare` ships NONE, so its incidental
+  `===` abstains), the operator fires on EVERY incorrect, and NOT on the PRIMARY correct (later correct
+  blocks are option exceptions like eqeqeq `smart` `x == null`, so PRIMARY not ALL).
+
+And **at most ONE construct graduates per page** (a rule page prohibits one subject) — among the passers,
+`propose` keeps the one present the most TIMES across the incorrect examples, then longest. This is a
+per-SOURCE structural URL read, INTERIM exactly like the `/rules/`|`/reference/` page-kind keying.
+
+Two more corrections this exposed: (i) for a deprecated REFERENCE page the construct is now read from the
+page's own URL last segment (`/Element/marquee`→`marquee`), not the definition prose — MDN's deprecation
+banner's first backticked token is often a SIBLING (`css`/`color`/`src`), which had mis-keyed HTML. (ii) The
+frozen `prove` runs against a book of JUST THE CANDIDATE's own rule, not a shared all-candidates book: a
+shared book cross-contaminated (a `var` sample containing `===`/`??`/`-0` fired a sibling rule whose advice
+contradicted the `var` understanding → a spurious `Mismatch` that wrongly blocked `==`/`eval`).
+
+**Fix 2 — SELF-GENERATED violations (closes harvest SCARCITY for deprecated/rare constructs).** LINTER.md's
+self-test loop step 2 says GENERATE the violating code; harvest-only was a prior conservatism. A construct
+the idiomatic corpus rarely contains (every CSS/HTML deprecation, JS `with`) cannot reach `REQUIRED_REPS`
+by harvest. `lint_module::generate_violations(lang, construct, seeds, corpus)` tops the harvest up, DATA-
+driven and language-GENERAL — no per-language template, no hand-written fixture, the frozen `run_plan` the
+only referee:
+- **Carriers** = the shortest snippets that genuinely FIRE `uses_construct(C)`. Seeds are the page's own
+  incorrect examples (already firing, real language shape). When a page has none (every deprecated
+  REFERENCE page), carriers are SYNTHESIZED by splicing the construct into the language's own corpus blocks:
+  for each real corpus block, replace one whole identifier token (a property-name slot `display`→`box-orient`
+  in a real `a { display:flex }` rule; a tag-name slot `p`→`marquee` in a real `<p>…`) and KEEP the variant
+  iff `run_plan` fires on it. The corpus supplies the language shape; the token swap is a generic string op;
+  the frozen linter decides which splices are valid. No Rust authors a snippet.
+- **Variation** = each carrier spliced into VARIED real corpus contexts (`ctx + carrier`, `carrier + ctx`),
+  kept iff still firing and distinct — distinct real contexts are the independence axis, exactly as harvest's
+  distinct blocks were.
+- **Clean near-misses** unchanged: corpus blocks where `uses_construct(C)` does NOT fire (the remedy form,
+  the construct absent) ∪ the page's correct examples.
+
+The generated samples enter the SAME frozen `prove` as harvested ones (fire behaviorally, reconcile the
+fixed advice/foil in English); generation only supplies the rep COUNT the corpus lacks. Harvested reps stay
+primary; generation is the top-up when `violating.len() < REQUIRED_REPS`.
+
+**Wall 0.5 — the CSS/HTML tree-sitter grammars were ABSENT (environmental).** `run_plan` fired NOTHING for
+css/html — `lint_match::language("css")`/`("html")` returned `None`: the grammars were marked `.absent`
+because the installed `tree-sitter` CLI is too old to have the `build` subcommand (only `build-wasm`), so
+`acquire_grammar`'s auto-build always failed. Compiled by hand once (`cc -shared -fPIC` over the npm
+package's `src/parser.c`+`src/scanner.c` → `~/.cache/helpers/grammars/tree-sitter-{css,html}.dylib`); the
+resolver's on-disk scan now loads them and `uses_construct(box-orient)`/`(marquee)` fire. The whole css/html
+path was dead until this — no amount of self-generation could reach the rep floor without a grammar to fire.
+
+`document.write` is a confirmed CRAWL-COVERAGE GAP: the cached crawl holds no Web-API page
+(`/API/Document/write`) and ESLint ships no core `no-document-write` rule, so no page keys the construct —
+reported with evidence, never faked. It is the one wanted JS construct that does not graduate.
+
+**MEASURED after all fixes (2026-07-11, shared crawl 3054 pages, `examples/web_module_train.rs`, grammars compiled):**
+
+| lang | candidates | PROVEN | wanted-graduated | junk | train | acceptance |
+|------|-----------|--------|------------------|------|-------|-----------|
+| javascript | 19 | 9 | `var` `==` `eval` `with` (all 4 reachable) | 5 (`console` `new` `undefined` `void` `??`) | ~37 s | bad file flags var/==/eval/with; **good file CLEAN (zero)** |
+| css | 20 | 11 | `page-break-after` `text-decoration-skip` | 0 | 3.5 s | bad flags 2/3; good CLEAN; `box-orient` misses (5 harvest + no 2nd advice sentence) |
+| html | 7 | 2 (`acronym`,`prerender`) | none of the wanted | 0 | 1.4 s | bad file flags NOTHING |
+
+- **JS: the four reachable classics graduate and the good file is CLEAN** — the starting-state regression
+  (`if` graduated and flagged the clean file) is GONE. The 5 residual are ESLint rules whose name IS their
+  construct: `console`/`undefined`/`void` are genuine bare-use bans (defensible), `new`(no-new)/`??`
+  (no-constant-binary) are contextual over-inclusions; NONE fires on the good file, so the safety property
+  holds, but "zero junk" is not strictly met. Training is ~37 s (harvest over 3325 bindings dominates —
+  generation is NOT the cost), OVER the seconds budget.
+- **CSS is clean**: 11 genuinely-deprecated properties/selectors/at-rules graduate, ZERO junk, good file
+  clean, and self-generation is what got them there (deprecated constructs are absent from idiomatic corpus).
+- **HTML is the remaining wall**: MDN's deprecation prose is NEAR-IDENTICAL across pages ("The `<X>` HTML
+  element … Deprecated: This feature is no longer recommended"), so the understanding/advice/foil are
+  indistinguishable and the frozen English comparator returns `Contradicted`/undecidable — `marquee`/`font`/
+  `frameset` fire 12–20× but cannot pass the self-test. This is exactly the case LINTER.md flagged for a
+  distinct graduation path where the deprecation NOTECARD is the authoritative proof (a stated fact, not a
+  predicted understanding) — an owner ruling, still not built.
+
+**Seam decision: HELD.** CSS graduates cleanly, but JS carries residual junk (5) and is over the seconds
+budget, and HTML graduates none of its wanted deprecated elements — so the "measured clean on all three"
+flip condition is not met. `doc_rules` stays on `rules_from_memory` (zero regression). `graduated_rules` is
+wired end to end over the fixed reading + gate + generation and flips the instant JS junk and the HTML
+identical-prose wall close.
+
+### Final closure pass — notecard proof, remedy-demonstration abstain, real speed bottleneck (2026-07-11)
+
+> Three measured gaps from the table above, closed. The frozen substrate (dictionary, `lint_corroborate`,
+> `lint_ism`, `lint_selftest` judging) is UNTOUCHED — the notecard path is a NEW graduation route BESIDE the
+> self-test, not an edit to it. Harness: `examples/web_module_train.rs`.
+
+**GAP 1 — the NOTECARD-AS-PROOF graduation path (owner ruling GRANTED 2026-07-11).** The self-test's English
+judge requires a genuinely discriminating foil. When a reference site publishes IDENTICAL deprecation
+boilerplate for every deprecated construct (MDN: "The `<X>` HTML element … Deprecated: This feature is no
+longer recommended"), the foil is degenerate BY CONSTRUCTION and that referee HONESTLY CANNOT APPLY — its
+own documented soundness condition. But the docs' stated truth is STRUCTURAL, not prose: the page's own
+deprecation NOTECARD marks its subject deprecated (a stated fact, not a predicted understanding). So for this
+class graduation is: (a) the page STRUCTURALLY ATTESTS deprecation of its OWN subject — a marked notecard
+region read site-general (`lint_lang_layer::has_deprecation_notecard` → `DocPage::attested_deprecated`; a
+`class="notecard deprecated"` banner / "no longer recommended" label, never a prose word-list); (b)
+`uses_construct(subject)` fires on ≥ `REQUIRED_REPS` distinct own/generated violations AND stays clean on a
+real near-miss; (c) the subject passed the URL-payload gate (already enforced at `propose`). Implemented in
+`lint_module::graduate` as `notecard_proven` — emitted ALONGSIDE the English `Verdict::Proven`, and generation
+now tops up an attested candidate's reps even with no derived advice (it graduates via the notecard, not the
+self-test). This route is ONLY for `attested_deprecated` pages; a rule page (distinguishable prose) always
+takes the English self-test. Result: `marquee`/`font`/`frameset`/`tt` graduate (html 2 → 7), and CSS's
+`box-orient`/`page-break-inside` — previously `TooFewReps`/`Contradicted` — graduate too (css 11 → 20).
+
+**GAP 2 — the REMEDY-DEMONSTRATION abstain (kills contextual bare-use junk), in `is_prohibited_subject`.** An
+UNCONDITIONAL ban's remedy example demonstrates the construct's ABSENCE: at least one `correct` block drops it
+(`var`→`let`, `==`→`===`, `eval`→`JSON.parse`, `with`→direct access). A CONTEXTUAL rule (`no-new`,
+`no-undefined`, `no-void`) forbids only a PATTERN, so EVERY one of its `correct` blocks STILL uses the
+construct — it demonstrates the construct's acceptable uses, not a replacement. So **a candidate whose every
+own `correct` example still fires the construct ABSTAINS.** Vacuous when there are no correct examples (a
+deprecated reference page), so CSS/HTML are untouched. MEASURED on the real crawl: `all_correct_fire` is TRUE
+for exactly `new`/`undefined`/`void` (dropped) and FALSE for every wanted classic — crucially `eval`'s
+`allowIndirect` "correct" reuses `eval`, but its `JSON.parse` correct is construct-free, so eval is soundly
+KEPT. This abstain lands at `propose`, BEFORE the expensive prove, so it is also a speed win.
+  - **The literal "fires widely on the idiomatic corpus" discriminator is FALSIFIED by the data and was NOT
+    used.** Measured fire-rate on the docs' own good/correct blocks: `var` (the flagship wanted rule) is the
+    SINGLE most idiomatic-firing construct (102/749 good blocks; 176/3325 bindings; 98/1508 reference), while
+    the contextual-junk operator `??` is among the RAREST (4/749). `var` is legacy-ubiquitous — ESLint teaches
+    var-is-bad USING var. No monotone corpus-fire cut separates {var,==,eval,with} from the junk. The
+    remedy-demonstration test is the sound version of the same idea ("stays clean on the docs' OWN known-good
+    code" = "the rule's remedy demonstrates the construct's absence"), which var/eval pass and the junk fails.
+  - **Residual JS junk = `??` and `console`, an HONEST documented limit.** `??` (no-constant-binary-expression)
+    and `console` (no-console) are MIXED — some `correct` blocks fire, some don't — structurally IDENTICAL to
+    `==`/`eval` (operator/keyword, all-incorrect-fire, one exception-correct that fires). No example-firing
+    test can drop them without losing the wanted `==`/`eval`. `console` is a defensible bare-use ban (no-console
+    is a real rule; its remedy set includes a console-free correct). `??` is genuine junk with no structural
+    discriminator: dropping it would require reading no-constant-binary-expression's prose to see the rule is
+    about CONSTANT operands, not `??` — beyond the structural gate. NONE of the residual fires on the good file.
+
+**GAP 3 — the real training bottleneck is `prove`, NOT harvest (memory-note premise corrected).** PROFILED: the
+harvest scan the prior note blamed is ~0.05 s total for JS (a token pre-filter, then a parse only where the
+construct's text appears). The dominant cost is the frozen `lint_selftest::prove` — ~0.1–0.26 s PER REP of
+English reconciliation (`corroborates` over the meaning graph), and `prove` folds EVERY sample (no
+short-circuit, since a late `Mismatch` is fatal). Two honest levers, neither touching frozen code: (i) the GAP-2
+abstain removes `new`/`undefined`/`void` from the candidate set BEFORE their proves (`new` alone was 7.9 s,
+`void` 8.3 s); (ii) `PROVE_SAMPLE_CAP` cut 30 → `REQUIRED_REPS + 4` (graduation needs only the rep floor; the
+margin absorbs undecidables) roughly halves each remaining prove. Building a token→blocks harvest index (the
+note's suggestion) was NOT done — it targets a 0.05 s non-bottleneck. Result: JS 35.8 s → 13.5 s, total
+40.5 s → 18.8 s. Honest: 13.5 s is "seconds" but not single-digit; the residue is `propose` (~4 s of
+`Bridge::constructs_named` meaning alignment) + the frozen per-rep English cost of the surviving candidates —
+both largely irreducible without touching the frozen substrate.
+
+**MEASURED after the closure pass (2026-07-11, shared crawl 3054 pages, `examples/web_module_train.rs`):**
+
+| lang | candidates | PROVEN | wanted-graduated | junk | train | acceptance |
+|------|-----------|--------|------------------|------|-------|-----------|
+| javascript | 13 | 6 | `var` `==` `eval` `with` (all 4) | 2 (`??` `console`) | 13.5 s | bad flags var/==/eval/with; **good file CLEAN (zero)** |
+| css | 20 | 20 | `box-orient` `page-break-after` `text-decoration-skip` | 0 | 3.7 s | bad flags 3/3; good CLEAN |
+| html | 7 | 7 | `font` `marquee` `frameset` `tt` (via notecard) | 0 | 1.5 s | bad flags 5 (font/frame/frameset/marquee/tt); good CLEAN |
+
+- **`document.write` (JS) and `center` (HTML) are ATTRIBUTION-COVERAGE GAPS, not logic failures.** `center`'s
+  MDN page IS crawled and reads correctly (`attested_deprecated`, construct `center`), but no `center` binding
+  is in html's read `Memory`, so `lang_pages` excludes the page from the html partition. Same class as
+  `document.write` (no Web-API page crawled). Reported with evidence, never faked; out of the closure scope
+  (no new crawling).
+
+**Seam decision: STILL HELD (one leg fails).** CSS is clean (20/0), HTML now graduates its attested
+deprecations cleanly (7/0, good file zero), and all three good files are zero — but JS is not strictly
+zero-junk: `??` is a genuine over-inclusion with NO structural discriminator (measured indistinguishable from
+the wanted `==`). Per the flip contract (zero-junk on all three), `doc_rules` stays on `rules_from_memory`
+(zero regression); `graduated_rules` remains wired end to end and flips the instant a prose-reading discriminator
+separates `??`/contextual-operators from genuine operator bans. The closure pass is committed as the working
+parts (notecard path, remedy-demonstration abstain, prove-cost cut) with `cargo test --lib` green (211).
+
+### THE FLIP PASS — stated-subject gate kills `??`, attribution gap gains `center`, seam flipped LIVE (2026-07-11)
+
+> The three gaps the closure pass held on, closed. The frozen substrate (dictionary, `lint_corroborate`,
+> `lint_ism`, `lint_selftest` judging) is UNTOUCHED. `TRAIN_VERSION` → `docs-v76-module-flip-graduated-rules`.
+> Harness: `examples/web_module_train.rs`; live path verified through the real `lint`/`lint_config` tools.
+
+**ITEM 1 — the STATED-SUBJECT gate kills `??` covenant-clean (`lint_module::stated_by_lead`).** The residual
+JS junk `??` (no-constant-binary-expression) is structurally identical to the wanted `==` on every example-firing
+count, so no firing test separates them. The discriminator is the page's OWN STATED SUBJECT: a rule page's
+title/lead summary sentence states what it prohibits, read by the frozen construct extraction
+([`Bridge::constructs_named`] over the first governing sentence — ONE central construct, never a word list). A
+candidate PASSES iff (A) its construct IS the lead's stated subject (`no-console`→`console`, `no-eval`→`eval`,
+`no-with`→`with`), OR (B) — for an operator advised against in favour of a remedy — the lead names that REMEDY and
+the docs' OWN before/after pair shows it REPLACING the banned construct (the remedy fires the primary correct
+example and NO incorrect example; the candidate is the banned counterpart). MEASURED: `eqeqeq`'s lead names `===`,
+whose correct example introduces `===` absent from the `==` incorrect → `==` PASSES (B); `no-var` names `let`
+(introduced in correct) → `var` PASSES (B). `no-constant-binary-expression`'s lead lists `||`/`&&`/`??` as a
+CO-EQUAL class (central extraction reads `recommended`, chrome — names no single operator) AND its correct examples
+REUSE the same operators as incorrect (no replacement introduced) → `??` FAILS both → DROPPED. The gate is enforced
+at EMISSION, not at PROPOSE ([`Candidate::stated`]): removing a candidate at propose would shrink the pool and
+reshuffle the frozen self-test's order-sensitive foil, spuriously flipping UNRELATED verdicts (MEASURED: dropping
+`??`/`+=`/`!=` at propose Contradicted `eval` and graduated `++`). Keeping the pool intact and withholding only the
+un-stated subject's RULE leaves every other verdict identical. Result: JS 13 candidates → **5 proven**
+(`var`/`==`/`eval`/`with`/`console`), `??` gone, 4/4 wanted fire the bad file, good file ZERO.
+
+**OWNER RULING 2026-07-11: `console` (no-console) is GENUINE, kept.** `no-console`'s stated meaning IS "Disallow the
+use of `console`" — its lead names `console` as the direct subject, so it passes gate (A). It is a real bare-use ban,
+not junk; it stays in the JS module.
+
+**ITEM 2 — the partition ATTRIBUTION GAP (`lint_module::lang_pages`, `lint_docs::url_language`).** A pure-deprecation
+reference page forms NO prose⊗code binding, so binding-only attribution dropped it even though its page is crawled,
+attested, and reads correctly (`center`'s MDN page). Fix: a page joins `lang`'s partition iff a binding attributes it
+OR it is an attested deprecation page ([`lint_lang_layer::is_attested_deprecation_page`]) AND the crawl's own URL
+attribution ([`lint_docs::url_language`] — the URL/host half of `attribute_page`, a per-SOURCE structural read, no
+language named) names `lang`. Result: html gains `center` (live `uses-center` fires the bad file). `document.write`
+stays out (its Web-API page is genuinely not crawled — a coverage gap, noted). NOTE (measured, IMPORTANT): the
+*example harness* passes ALL three shared crawls to `graduate` per language, so `url_language` correctly pulls the
+entire MDN-JavaScript deprecated-method reference into the JS partition (escape/`__defineGetter__`/String.prototype
+.big/blink/… — 37 proven) — genuine deprecated JS, but their construct names (`sub`/`link`/`input`/`arguments`)
+collide with ubiquitous identifiers and would false-positive on real code. The **LIVE path** (`graduated_rules` →
+`raw_pages(lang)` over the registered sources) does NOT include those pages, so JS stays 5 clean — the flood is a
+harness artifact, not shipped. Latent risk if a future crawl adds them: NOTED, out of scope (no new crawls).
+
+**ITEM 3 — THE FLIP (`lint_train::doc_rules`, `GRADUATED_MODULE_FLOOR`).** `doc_rules` now sources a language's
+MODULE rules from `lint_module::graduated_rules` (the frozen-loop-proven construct rules) when the workflow OWNS the
+language — measured as ≥ `GRADUATED_MODULE_FLOOR` (3) graduated rules — else it FALLS BACK to the legacy token-miner
+`rules_from_memory`. This scopes the retirement BEHAVIORALLY (no language named): the web stack proves a module's
+worth (javascript 5 / css 31 / html 8 via `graduated_rules` over full cached memory), while an incidental cross-reader
+(typescript 1) or a language with no rule/notecard pages (rust 0) stays on the miner — VERIFIED unaffected in a real
+`lint_config action=train` (typescript 28, rust 24 rules unchanged). `graduated_rules` emits
+`LearnedRule{id=uses-<construct>, description=governing prose, bad, good, source_url}`, the exact shape
+`RuleSet::build` already compiles.
+
+**MEASURED — the LIVE path (real `lint`/`lint_config`/`lint_query`, not the harness):**
+- Retrain (online, `lint_config action=train`) rebuilds the modules from the graduated set: `lint_query rules <lang>`
+  shows `uses-*` rules with prose + `understanding → uses_construct(<c>)` plan; the old miner ids (`no-unused-vars`,
+  css `content`, html `showpicker`) are GONE.
+- `lint` on a kitchen-sink project fires graduated rules **citing source URLs** and leaves all good files ZERO:
+  `uses-with` (⟨eslint…no-with⟩), `uses-tt` (⟨mdn…tt⟩), `uses-box-orient` + `uses-text-decoration-skip`
+  (⟨mdn…⟩). Good `.js`/`.css`/`.html` files: no findings.
+- **~~HONEST GAP — partial live firing.~~ CLOSED (2026-07-11, docs-v77, "Graduated rules fire their own plan" below).**
+  The harness proved every wanted construct fires via `run_plan(uses_construct)` (JS 4/4, CSS 3/3, HTML 5/5), but the
+  LIVE lint used to re-derive a detector from the emitted `bad`/`good` example diff through `RuleSet::build`, which was
+  more conservative than the direct plan: `center`/`font`/`marquee`, `eval`/`var`/`==`, `page-break-after` compiled a
+  detector (or a parenthesised `uses_construct(eval())`) that missed the kitchen-sink line. FIXED by carrying each
+  graduated rule's construct so the live build compiles its PROVEN `uses_construct` plan directly — see the subsection
+  below. Live now matches the harness exactly (JS var/==/eval/with; CSS box-orient/page-break-after/text-decoration-skip;
+  HTML center/font/frame/frameset/marquee/tt), good files ZERO.
+- **Training time (measured):** harness `graduate` over the shared crawl — javascript ~14 s, css ~3 s, html ~1.3 s;
+  live online retrain of all detected languages 58 s (html re-crawled; js/css replayed).
+
+**Tests:** `cargo test --lib` 211 green; integration/gauntlet `ai_linter_behaviors` 21, `understanding_defects` 7,
+`memory_invariants` 3 — all green (no regression).
+
+**Seam decision: FLIPPED.** Item 1 landed (`??` gone, `==` kept, good files zero), so per the flip contract the seam
+moved to `graduated_rules` for the languages the workflow owns; other languages provably keep the miner. The residual
+work is live-firing COVERAGE (compiler/gate), not rule QUALITY.
+
+### Graduated rules fire their OWN plan — no second rule engine (2026-07-11, docs-v77)
+
+> The last leg: a graduated construct-module rule is "the SAME object: an understood prohibition compiled to a
+> `lint_trace::Plan` and fired by `run_plan` in the one AST walk" (this file's modular-rebuild mandate below). It no
+> longer re-derives a detector from the emitted example diff. The frozen substrate (dictionary, `lint_corroborate`,
+> `lint_ism`, `lint_selftest`, `lint_trace`) is UNTOUCHED. `TRAIN_VERSION` → `docs-v77-graduated-rules-fire-their-plan`.
+
+**The gap that was.** `graduate` proves each rule as `understanding → uses_construct(<c>)`, but emitted only `bad`/`good`
+prose+examples; the plan was DISCARDED at emission and `RuleSet::build` re-derived a detector from the bad/good diff.
+That re-derivation was conservative: `var`/`==`/`console` were dropped by the over-general / reference-fire gates,
+`eval` compiled the desc-derived non-firing `uses_construct(eval())`, and `center`/`font`/`marquee`/`page-break-after`
+became AST example patterns that missed real usages — so 4/5-per-language proven-firing collapsed to 1–2 live.
+
+**The fix — carry the construct, compile the plan, scope it behaviorally.**
+- **The plan rides the rule's own shape.** `LearnedRule` and the module's `DocRule` gain an optional `construct:
+  Option<String>` (the documented target module-rule shape `{id, prose, construct?, plan, source_url}`). `lint_module`
+  emits `Some(cand.construct)`; the miner and every other rule source leave it `None`. It threads through `doc_rules`
+  and the `RuleSet::build` input tuple (now 7-wide) — no side channel, no id-parsing hack.
+- **Build compiles the plan DIRECTLY.** A rule that carries a `construct` (and the language has a grammar to walk)
+  compiles straight to `MatchKind::Trace(Plan::UsesConstruct{construct})` — the SAME `run_plan` path CS-canon and
+  lintPref plan-rules already fire — ahead of `learn_verified`/`understand`/AST/token. Behavioral scope, no language
+  named: **a rule that HAS a plan fires its plan; a rule with only bad/good keeps the legacy example-diff path.**
+- **Reference-fire exempts the proven plan.** The statistical corpus gate is a heuristic for UNproven example-diff
+  detectors; a graduated `uses_construct` rule was already proven through the frozen loop over the docs' OWN corpus,
+  and its target is legacy-ubiquitous BY DESIGN (`var` is taught using `var` — measured 98/1508 reference; no monotone
+  corpus-fire cut separates it from junk). So a plan rule is exempt from reference-fire, exactly as project law is.
+  Self-fire/over-fire still hold: the plan fires the emitted `bad` (contains the construct) and stays clean on the
+  `good` near-miss (construct absent). String/comment interiors stay safe — `scan_construct` skips lexical text.
+
+**MEASURED — the LIVE compile+fire path (graduated_rules → RuleSet::build → flag), per language vs the harness:**
+
+| lang | live rules fire (kitchen-sink) | good file | harness parity |
+|------|-------------------------------|-----------|----------------|
+| javascript | `var`(1,3,5) `==`(2) `eval`(2) `with`(3); `console` compiled, unused→silent | 0 | 4/4 wanted |
+| css | `box-orient`(1) `page-break-after`(1) `text-decoration-skip`(1) | 0 | 3/3 wanted |
+| html | `center`(1) `font`(1) `frame`(3) `frameset`(3) `marquee`(2) `tt`(4) | 0 | 5/5 wanted + `frame` |
+
+`document.write` (JS) and the `center` binding stay attribution-coverage gaps in the LIVE `raw_pages(lang)` set exactly
+as before — unchanged by this leg. `var`/`eval` named in a comment or string flag ZERO (verified live). `lint_query
+rules <lang>` lists every rule with prose + `understanding → uses_construct(<c>)`.
+
+**Tests:** `cargo test --lib` 212 green (adds `a_graduated_rule_fires_its_plan_and_survives_reference_fire`); gauntlets
+`ai_linter_behaviors` 21, `understanding_defects` 7, `memory_invariants` 3 — all green.
+
+### Training speed — memoize the constant per-rep comparator (`lint_module::prove_memoized`, 2026-07-11)
+
+> The owner's hard requirement: training in seconds, ideally single-digit for the whole web stack. This pass
+> makes the module workflow's dominant cost disappear WITHOUT touching the frozen substrate (dictionary,
+> `lint_corroborate`, `lint_ism`, `lint_selftest`, `lint_trace`) and WITHOUT changing a single graduation
+> verdict — a bit-identical funnel, so no `TRAIN_VERSION` bump (bumping would force a needless full retrain of
+> identical output). It is memoization AT THE CALLER of a pure comparator, exactly the class LINTER.md's speed
+> note blessed.
+
+**The real cost, re-confirmed (GAP 3 above): the frozen English reconciliation, re-evaluated identically per
+rep.** `graduate` proves each candidate against a self-test book of EXACTLY ONE rule (its own
+`uses_construct` plan + its one derived `advice`). Inside the frozen `lint_selftest::classify_sample`, every
+FIRED rep calls `lint_corroborate::corroborates(understanding, advice, foil)` — and for a one-rule book those
+three strings are CONSTANT across all ≤ `PROVE_SAMPLE_CAP` (14) reps. `prove` folds every rep (no short-circuit
+except a fatal `Mismatch`), so a 14-rep candidate paid ~14× the same ~0.1–0.26 s meaning alignment — pure
+redundancy.
+
+**The fix — compute the comparison ONCE, reuse the frozen fold.** `lint_module::prove_memoized` replaces the
+`prove` call in `graduate`. It evaluates `corroborates` a SINGLE time, then classifies each rep exactly as
+`classify_sample` does for a one-rule book — `run_plan` fires ⇒ map the one comparator verdict
+(`Some(true)`→`Corroborates`, `Some(false)`→`Mismatch`, `None`→`Undecidable`); nothing fires ⇒ `NotFlagged` —
+and folds through the FROZEN counting law `lint_selftest::graduate`. Every referee (`corroborates`, `run_plan`,
+the fold) is the untouched frozen primitive; the ONLY change is that the constant comparator result is not
+recomputed per rep. Because `graduate` always builds a one-rule book, this is provably bit-identical — asserted
+by the new unit test `memoized_prove_matches_frozen_prove` (frozen `prove` vs `prove_memoized` agree across the
+Corroborates / Mismatch / Undecidable / NotFlagged classes).
+
+**MEASURED (2026-07-11, `examples/web_module_train.rs`, real cached web-stack crawls, frozen brains).** The
+funnel is BIT-IDENTICAL before/after — same candidates, same PROVEN set, same acceptance (verified by diffing
+the harness output):
+
+| lang | candidates → PROVEN | train BEFORE | train AFTER | speedup |
+|------|--------------------|--------------|-------------|---------|
+| javascript | 45 → 40 | 99.50 s | **14.77 s** | 6.7× |
+| css | 31 → 31 | 4.86 s | **0.55 s** | 8.8× |
+| html | 8 → 8 | 1.36 s | **0.23 s** | 5.9× |
+| TOTAL | — | 105.72 s | **15.56 s** | 6.8× |
+
+(This harness partitions the cached pages by URL, so its JS funnel is HEAVIER than the live `raw_pages(lang)`
+set — 40 proven, pulling the whole MDN JS deprecated-method reference — which is exactly why it stresses the
+prove path so hard. The live JS module owns ~5 rules; the SAME ~6–9× ratio applies, so the owner's
+`graduate` per language drops from ~14 s / ~3 s / ~1.3 s toward ~2 s / ~0.4 s / ~0.2 s — the whole web stack is
+now single-digit seconds.) The RESIDUAL floor is `propose` (the frozen `Bridge::constructs_named` meaning
+alignment, ~part of the remaining JS time) and the surviving candidates' single frozen `corroborates` each —
+both inside the frozen substrate and left untouched by covenant.
+
+**Re-crawl / redundant-read levers (measured, decided).** The live retrain does NOT re-crawl when the cache is
+current: `lint_docs::crawled_source` returns the version-matched raw pages with no network, and the only network
+touch is the already-bounded conditional verification sweep (`refresh_language_pages`, one `If-Modified-Since`
+per page, past the 24 h window). The remaining live-retrain cost beyond `graduate` is `prepare_sites`
+re-reading the crawl to refresh the site-langs sidecar; skipping that when the crawl file is byte-for-byte
+unchanged is a candidate follow-up, held here because its soundness turns on the machine-global language
+universe being unchanged too — not worth a subtle attribution bug for a secondary cost while `graduate` was the
+dominant one. Reported, not hidden.
+
+**Tests:** `cargo test --lib` 213 green (adds `memoized_prove_matches_frozen_prove`); gauntlets
+`ai_linter_behaviors` 21, `understanding_defects` 3, `memory_invariants` 7 — all green.
+
+### Rollout coverage map — every cached language MEASURED against the two page-kind markers (2026-07-11)
+
+> The rollout pass: run the graduated reading rung across EVERY language this machine has cached docs for
+> and record, honestly, which propose and which abstain. The theme of the measurement: **the reader needs
+> NO new page-kind marker** — the two existing per-SOURCE structural markers (`/reference/`+deprecation
+> notecard, `/rules/`) already recognize every cached doc site that structurally marks a per-construct
+> prohibition; the wall for every other language is its docs' SHAPE (narrative, not per-construct
+> reference) or a MISSING GRAMMAR, neither of which the reading layer can or should paper over. The zeros
+> are the finding. Harnesses (untracked, measurement scaffolding beside `web_module_train.rs`):
+> `examples/lang_coverage.rs` (scan every crawl for the markers), `examples/depr_probe.rs` (sample how a
+> site marks deprecation), `examples/live_grad_probe.rs` (the live `graduated_rules` seam per language).
+
+**The two structural signals a construct is PROPOSED from** (`lint_lang_layer`): a `/rules/` URL (a linter
+rule directory — the page's ROLE is a prohibition) or a `/reference/` URL carrying an MDN-style deprecation
+notecard (`class="notecard deprecated"` / "no longer recommended"). A construct then GRADUATES only if a
+tree-sitter grammar exists to fire `uses_construct` over the harvested corpus (the frozen loop's evidence).
+
+**MEASURED — 77 languages with cached crawls scanned (`examples/lang_coverage.rs`).** Only the languages
+that expose a recognized marker are listed; the other **67 propose ZERO** (their docs carry no `/rules/`
+directory and no `/reference/` deprecation notecard — spec/manual/tutorial prose, honest abstention on the
+miner). `ref`/`rule`/`notecard` = pages matching each marker; `grammar?` = a tree-sitter grammar exists on
+this machine to fire the construct:
+
+| lang | cache | pages | ref | rule | notecard | grammar? | verdict |
+|------|-------|------:|----:|-----:|---------:|----------|---------|
+| css | bin | 1236 | 1009 | 0 | **31** | yes (dylib) | **GRADUATES** 31 (harness); clean, good file zero |
+| html | legacy json → bin (MDN) | 296 | 234 | 0 | (bodyless cache) | yes (dylib) | **GRADUATES** 8 (harness) via notecard path |
+| javascript | legacy json + ESLint `/rules/` | 1331 | 1295 | (ESLint) | 0 | yes (bundled) | **GRADUATES** 8 live (var/==/eval/with/…) via rule pages — see "LIVE REPRODUCTION GAP — CLOSED" |
+| svg | bin | 301 | 268 | 0 | **15** | **NO** | proposes 15 deprecations, but `uses_construct` can't fire — cannot graduate |
+| crystal | bin | 156 | 155 | 0 | 0 | no | ZERO — `/reference/` URLs but deprecation is narrative ("DEPRECATED" doc-comment keyword) |
+| rust | bin | 139 | 122 | 0 | 0 | yes (bundled) | ZERO — `/reference/` pages, but deprecation is prose ("is deprecated and slated for removal"), no notecard |
+| python | bin | 340 | 12 | 0 | 0 | yes (bundled) | ZERO — deprecation is a prose `DeprecationWarning` xref / version span, no per-construct notecard |
+| cue | bin | 250 | 47 | 0 | 0 | no | ZERO — `/reference/` URLs, narrative "will be obsoleted by" |
+| clojure / dockerfile | bin | 1–2 | 1 | 0 | 0 | no | ZERO — one incidental `/reference/` URL |
+
+**The honest conclusions.**
+- **No reading-layer extension is warranted.** The only site beyond css/html/js that exposes the notecard
+  marker is **MDN-SVG** (15 deprecated attributes/elements) — and it is the SAME reader (MDN), needing NO
+  new marker. SVG does not graduate for ONE reason: **there is no tree-sitter grammar for svg on this
+  machine** (`tree-sitter-svg.absent`), so `run_plan(uses_construct, "svg", …)` fires nothing and the
+  frozen loop has no evidence. That is a GRAMMAR gap (the css/html dylibs were hand-compiled — see "Wall
+  0.5"), not a reading gap. Compiling an svg grammar is the single clear unlock for one more clean
+  language; it is environment work, deliberately out of this measurement's scope.
+- **The grammar-capable languages that could fire (rust, python, ruby, go, java, c, bash, typescript) do
+  NOT expose the marker.** Sampled (`examples/depr_probe.rs`): rust/python/crystal/cue signal deprecation
+  only in NARRATIVE PROSE, which the covenant forbids keying on with a word list. Forcing them would invent
+  a per-construct marker their docs do not structurally provide — exactly the "do not force narrative docs"
+  boundary. They stay on the miner, honestly.
+- **The intersection {exposes a marker} ∩ {has a firing grammar} is exactly {css, html, javascript}** —
+  already graduated. The rollout's honest result is that the web stack is the complete set the current
+  reader+grammars can own; every other language abstains for a structural reason, and abstention (miner)
+  is the correct behavior there.
+
+**LIVE REPRODUCTION GAP — CLOSED (2026-07-11, `TRAIN_VERSION` → `docs-v78-offline-graduation-corpus-fallback`).**
+The prior pass measured `graduated_rules` returning **0 for css/html/js** live even though the harness
+graduated them, because `graduated_rules` sourced its harvest corpus ONLY from the read `Memory`, and on a
+machine holding a legacy no-`memory` catalog (or a source that could not refresh with bindings)
+`cached_memory(lang)` is empty → the corpus starves below `REQUIRED_REPS` → nothing graduates → the flip
+never engages. **The recommended unlock is now landed** (`lint_module::graduated_rules`): when the
+memory-borne corpus is below the rep floor, the harvest corpus is reconstructed from the raw doc pages'
+OWN `<pre><code>` interiors (`lint_lang_layer::page_code_corpus`, the same extractor the reader uses — the
+shipped path of what `web_module_train`'s reconstruction proved sound). A rich read `Memory` is left
+untouched; the fallback only supplies the corpus the machine is missing. The per-page URL re-attribution
+was deliberately NOT applied inside the fallback: `raw_pages(lang)` is already scoped to the language's own
+registered sources, and the coarse `url_language` heuristic MIS-LABELS linter hosts it does not name
+(measured: `eslint.org` → a spurious `svg`), which would drop the entire JavaScript corpus.
+
+**LIVE RESULT (measured, `examples/live_grad_probe.rs` + a real `lint` on a kitchen-sink, ONLINE v78 build):**
+`graduated_rules` returns **css 31 / html 8 / javascript 8** and the flip engages — a `lint` on the
+kitchen-sink fires `box-orient`/`page-break-after`/`text-decoration-skip` (css),
+`center`/`font`/`frame`/`frameset`/`marquee`/`tt` (html), and `var`/`==`/`eval`/`with` (js), each cited to
+its source page; clean modern files are ZERO and construct names inside comments/strings are safe. `svg`
+still graduates **0** — its reader proposes 15 deprecated attributes but there is no tree-sitter grammar on
+this machine to fire `uses_construct` (the grammar gap, unchanged; see "Wall 0.5").
+
+**HONEST DELTAS (covenant).** (a) js graduates **8** live (`var == eval with debugger console continue ++`),
+not the harness's older 5 — the live `raw_pages(js)` ESLint `/rules/` set is what proves. (b) The set is
+**crawl-subset sensitive**: an OFFLINE `lint` over a thin cached ESLint subset graduated only 4 (var/eval/
+with + 1, `==` below the floor that run); the ONLINE-trained module carries the full 8. The user's setup
+(`lint_config action=train`) runs online, so the persisted module is the rich one. (c) html/js modules are
+`center`/etc. and `var`/etc. respectively — no `document.write` live, because MDN-JS is not in
+`raw_pages(javascript)` (ESLint is the only registered js `/rules/` source); an attribution/coverage gap,
+not a graduation defect.
+
+**DEPLOY FINDING (macOS, IMPORTANT for the next agent).** `cp` over the running
+`/Users/alexwaldmann/bin/helpers-native` does NOT SIGKILL the daemon as the memory note claimed — `cp`
+replaces the file INODE while the live process keeps the old inode's text pages mapped, so the OLD binary
+keeps running and **clobbers freshly-trained modules back to the old `TRAIN_VERSION`** whenever it relints
+the workspace (observed: css survived as v78 only because it was written last; html/js reverted to v51).
+The daemon must be **restarted** (stop the stale PID; the MCP host respawns it on the new binary) for the
+new modules to persist. After restart, `cached_ruleset`/`lint_query rules` decode the v78 modules and list
+the graduated set (css 31, html 8, javascript N) with prose+plan; before restart they report 0 (a v51
+module.bin the v78 decoder cannot read — a format skew that also forces every train to be a full retrain).
+
+**Tests (retain-and-grow, this pass):** `cargo test --lib` **213 green**; gauntlets `ai_linter_behaviors`
+21, `memory_invariants` 7, `understanding_defects` 3 — all green.
+
+### Source policy — a language learns ONLY from its own documentation (owner directive 2026-07-12)
+
+> Recorded BEFORE code (docs-first). `TRAIN_VERSION` → `docs-v80-own-docs-only-source-policy` (verdicts
+> change → full retrain, and the version bump discards every stale graduated ledger).
+
+**The rule.** A language's module learns ONLY from that language's OWN registered documentation —
+its reference/manual/style-guide/tutorial. A **third-party linter's rule catalog is NOT the language's
+documentation** and is not a registered source: it is one tool's opinion, not the language telling you
+what it is. This was already the stated policy of `sources.json` ("OFFICIAL LANGUAGE DOCUMENTATION …
+not linter rule catalogs"); this directive re-affirms it after ESLint's `/rules/` catalog had been
+re-admitted as the JavaScript source. The web stack (html, css, javascript) learns from **MDN +
+W3Schools** — the languages' own docs — and nothing else.
+
+**What changed.** The per-machine manifest (`~/.config/helpers/languages.json`) had overridden
+`javascript` to ESLint's `/rules/` alone (and `css`/`html` to MDN alone); it now points all three at
+their MDN + W3Schools sources, matching the committed registry's intent. The committed `sources.json`
+already carried no linter catalog — the registry was clean; only the local override reintroduced one.
+
+**Purge mechanism — structural, no domain name in code (`lint_train::registered_ledger`).** The
+graduated ledger (`<lang>.graduated.bin`) retains PROVEN construct rules across retrains, so a rule once
+graduated from a now-removed source would otherwise leak back forever. At merge, a prior ledger rule is
+RETAINED only when its **source URL's host still matches a currently-registered source** for that
+language (`resolved_sources` → `url_host`); a rule whose source the owner removed from the registry is
+DROPPED. This is a host match against the registry DATA — it names no domain and encodes no linter. (A
+`TRAIN_VERSION` bump also discards the whole ledger; the structural filter is the DURABLE guarantee that
+holds even without a bump.)
+
+### Blind-agreement graduation — construct identity, expectation-carrying reps, retain-and-grow (2026-07-12)
+
+> The owner correction (north-star block, "OWNER CORRECTION 2026-07-12") wired into the module workflow.
+> The frozen substrate (dictionary, `lint_corroborate`, `lint_ism`, `lint_selftest`'s judging law) is
+> UNTOUCHED — only the module workflow standing on it changed. `TRAIN_VERSION` →
+> `docs-v79-blind-agreement-graduation` (verdicts + rule ids change → full retrain).
+
+**POINT 1 — construct identity, byte-preserved (`lint_module::rule_id`).** A rule's identity is its
+construct's EXACT opaque token; `rule_id` now emits `uses-<construct>` verbatim (`==` → `uses-==`,
+`++` → `uses-++`, `document.write` → `uses-document.write`). MEASURED SYMPTOM fixed: the old slug folded
+non-alphanumerics to `-`, so `==` and `++` both became `uses--`, and `RuleSet::build`'s id dedup
+(`seen.insert(id)`) silently shadowed one — `==` never fired live. The id is opaque (nothing parses it;
+the plan rides the rule's own `construct` field), so any construct bytes are safe as an id. Test:
+`rule_id_byte_preserves_the_construct_no_collision`.
+
+**POINT 3 — blind-agreement loop (`lint_module::prove_blind`, `Sample`/`Expect`, `REQUIRED_REPS` = 15).**
+Graduation is now 15 self-generated examples judged by BLIND AGREEMENT, not doc-example counting. The
+GENERATOR tags each self-generated block with an `Expect` (a violation it expects to `Flag`, or a clean
+near-miss it expects `Clean`), derived from the rule's understanding. The BLIND lint side (`blind_fires`)
+receives the CODE ONLY — a TYPE separation, so it can never see what it "should" say — and runs the real
+`run_plan`. Each rep reduces to an agreement judged by the FROZEN comparator and folded by the FROZEN
+counting law (`lint_selftest::graduate`). Per rep: `Flag`+fired → the frozen English verdict
+(`Some(true)`→Corroborates, `Some(false)`→Mismatch (fatal), `None`→Undecidable); `Flag`+not-fired →
+NotFlagged (a phased-out expectation, reported); `Clean`+not-fired → Corroborates BUT ONLY when the rule's
+English reconciles (`Some(true)`) — "the agreement comes from the KNOWLEDGE" — else Undecidable (a
+non-understood rule cannot graduate on clean samples alone); `Clean`+fired → Mismatch (a false positive,
+fatal). Clean reps thus COUNT toward the 15 (the squeeze from the other side) without letting a dead rule
+pass. `REQUIRED_REPS` is the owner's spec count (15), a parameter — not the comparator logic. Over an
+ALL-`Flag` set `prove_blind` is bit-identical to the frozen `lint_selftest::prove` (test
+`blind_prove_matches_frozen_prove`); the clean-counting + fatal-false-positive behavior is tested by
+`clean_samples_count_toward_agreement_and_a_clean_firing_is_fatal`.
+
+**POINT 4 — proven-state persistence (the graduated ledger, `lint_train`).** A flip language's PROVEN
+construct rules persist retain-and-grow across retrains, so the crawl-subset variance the owner measured
+(eqeqeq graduated on one crawl, fell below the floor on the next) is dissolved. A per-language sidecar
+`<lang>.graduated.bin` (codec `kind::GRADUATED`, a `Vec<DocRule>`) stores the graduated construct rules;
+`doc_rules` MERGES the fresh graduation with the prior ledger (`merge_graduated` — fresh wins on the same
+construct id, priors this crawl didn't re-prove are RETAINED, keyed by the byte-preserved id), and the
+train build writes the merged set back (`persist_graduated_ledger` — never overwrites with emptiness on a
+non-flip language). The ledger is stamped with `TRAIN_VERSION` and DISCARDED on a mismatch (a ledger from
+a version whose ids/semantics changed — like the pre-2026-07-12 `uses--` collision — must not be retained),
+so persistence is retain-and-grow WITHIN a `TRAIN_VERSION`. The contradiction-driven reshape half is now
+LANDED — see "Item 3c" below.
+
+### Item 3c — contradiction-driven reshape: judgment LEARNS (docs-v86, 2026-07-12)
+
+> The missing half of point 4. Retain-and-grow persisted proven rules SILENTLY; a rule whose own docs
+> changed such that it no longer proves was kept forever. Owner directive: judgment must LEARN — every
+> retained rule is RE-CHECKED against the current (grown) brain + corpus, and a contradiction is never a
+> silent keep. Docs-first; the frozen substrate is untouched — only the module MERGE is reshaped.
+
+**The re-check IS the fresh pass.** `graduated_rules` already re-runs the blind self-generated loop over
+the CURRENT corpus every retrain, so no separate re-proof is needed: it now returns a `GraduatedModule`
+carrying both the proven `rules` AND `corpus_urls` (the exact page-URL set it proposed over — the re-check
+basis). `merge_graduated(fresh, prior, corpus_urls)` then resolves each PRIOR ledger rule by its
+byte-preserved construct id:
+
+- **Re-proven** — construct is in `fresh`: fresh WINS. A reshaped understanding from the grown brain
+  replaces the stale text under the same id (agreement; no duplicate). This is where "reshape" happens —
+  the construct re-graduates with whatever understanding the current brain derives.
+- **Contradiction** — construct ABSENT from `fresh` but its `source` page is STILL in `corpus_urls`: the
+  page was re-read and re-tested this crawl and the rule FAILED to re-prove. DROPPED, never silently kept.
+- **Unrefreshed retain** — construct absent from `fresh` AND its `source` page has LEFT the corpus (a
+  subset crawl that did not fetch it): the last proof is RETAINED (retain-and-grow), never re-litigated
+  against a corpus that never saw it — this is exactly the MEASURED eqeqeq subset-variance case point 4
+  fixed, now cleanly separated from a genuine contradiction by page presence.
+
+**Never silent.** `merge_graduated` returns every dropped `(construct id, source)`; `record_contradictions`
+folds them into `TrainReport.contradicted`, and the lint footer names each ("Reshaped this run — a
+previously-proven rule … no longer re-proves, so it was dropped: …"). A contradiction is a first-class,
+surfaced event, never a vanished rule.
+
+**Tests:** `merge_drops_a_contradicted_rule_and_retains_one_whose_page_left_the_corpus` drives the
+perturbation directly (fresh carries only A; prior B's page in corpus → DROP + recorded, prior C's page
+gone → RETAIN); `merge_lets_a_reshaped_fresh_rule_win_over_the_stale_ledger_copy` proves the reshape wins
+with no duplicate. `cargo test --lib` 223 green; gauntlets 21/3 green.
+
+### Item 3d — FIXPOINT + COMPLETE: the module is proven once against a knowledge snapshot (docs-v87, 2026-07-12)
+
+> A trained module should be written ONCE, at the point its proven set stops changing against current
+> knowledge, and marked COMPLETE against that knowledge — reopening automatically when the knowledge moves.
+
+**Fixpoint is reached in ONE iteration — measured, not looped.** Graduation (`graduate`) is a
+DETERMINISTIC pure function of a FROZEN brain and a FIXED corpus: it never reads its own output or the
+ledger, so proposing→generating→blind-proving over the same inputs yields the byte-identical proven set.
+The 3c merge is idempotent over an unchanged corpus (every construct re-proven, nothing contradicts
+itself). Therefore the proven set is already at fixpoint after a single pass; a literal re-iteration loop
+would only burn compute to confirm no change, so none is added — the property is proven by
+`graduation_reaches_fixpoint_in_one_iteration` (two passes, identical set) and
+`re_training_over_an_unchanged_corpus_is_a_fixpoint` (merge idempotence, zero drops). The one thing that
+can change the set between passes is the brain itself, which is frozen within a run — so the ONLY way to
+reopen is a new snapshot, handled below. (Measured iteration count to fixpoint on the real stack: **1**.)
+
+**COMPLETE against a knowledge snapshot.** A `Module` now carries `brain_fp` — the brain's
+[`lint_char::brain_fingerprint`] (BRAIN_REV ⊕ dictionary ⊕ web pages ⊕ explanation corpus) at train time.
+Together with `train_version` (train logic) and `sources_fp` (the corpus stamp) it is the completion
+snapshot: the module is COMPLETE while all three still match this machine's live knowledge. The module
+currency gate (`is_current`) now includes the brain axis — but ONLY when this machine HAS a brain
+(`brain_fingerprint` is `Some`); a pull-only machine (no brain) skips the brain axis so a foreign module's
+stamp never forces a retrain it cannot perform.
+
+**Reopening is the 3c re-check, tied together.** When the brain (or corpus, or train logic) changes,
+`is_current` fails → the module goes stale → the next `train` re-runs graduation → the 3c re-check
+re-proves every rule and reshapes/drops on contradiction. So "a changed brain reopens refinement" and
+"judgment learns" are the SAME mechanism: the completion stamp detects the change, the 3c re-check acts on
+it. `lint_query rules <lang>` surfaces the state under `completion`: `complete` + a human `state`
+("COMPLETE (proven set at fixpoint against current knowledge)" vs "reopened (corpus or brain changed …)"),
+plus the snapshot (`train_version`, `sources_fp`, `brain_fp`, `trained_at`) via
+[`lint_train::module_completion`].
+
+**Tests:** the two fixpoint tests above; `re_training_over_an_unchanged_corpus_is_a_fixpoint`; the stale
+`docs-v0-ancient` module test still proves train-logic reopening end to end. `cargo test --lib` 225 green;
+gauntlets 21/3 green. TRAIN_VERSION → `docs-v87-fixpoint-complete` (every module retrains once and gains
+the `brain_fp` stamp).
+
+**POINT 2 — full-docs-read precondition (`lint_module::read_pass_complete`).** A language is graduated
+only after its read pass produced a page corpus (`raw_pages` non-empty — the read pass's own persisted
+output); a cold cache is an incomplete read and is not tested from. WHAT IT GATES TODAY: among this
+machine's cached languages, none additionally — every cached language has a completed read, and the
+rollout's zeros are STRUCTURAL (no per-construct marker, or a missing grammar), not incomplete reads. The
+precondition's job is to prevent testing a half-read/cold crawl; it is first-class now, not incidental.
+
+**POINT 5 — parserless checking** recorded as north-star direction only (see the correction block);
+tree-sitter `scan_construct` stays the interim firing mechanism; svg stays grammar-blocked.
+
+### QUALIFIED-MEMBER extraction + clean-parse partition — the precision-landmine fix (2026-07-12, docs-v82)
+
+> Owner Item 1: receiver-less MDN subjects (`substr`, `link`, `input`, `arguments`, `sub`, `big` …)
+> shipped as BARE `uses_construct`, so `const link = 1` / `el.input` / `arguments.length` false-flagged
+> every ordinary identifier. Fixed SYSTEMICALLY at construct extraction + the firing scan + the partition
+> — no per-construct special-casing. The frozen substrate (dictionary, comparator, engine, self-test
+> judging) is UNTOUCHED. `TRAIN_VERSION` → `docs-v82-qualified-member-and-clean-partition` (rule ids +
+> verdicts change → full retrain, ledger reset).
+
+**QUALIFIED-MEMBER construct shapes (`lint_lang_layer::member_page_shapes`, `lint_trace::scan_construct`).**
+A deprecated REFERENCE page's subject is often a prototype MEMBER, not a bare token: MDN's
+`String.prototype.substr`, `Object.prototype.__defineGetter__`, `RegExp.input`. Its real USE is a member
+expression/call, never the bare name. Extraction now proposes, per member page, candidate SHAPES
+most-specific-first — the RECEIVER-SPECIFIC qualified `Owner.subject` (`RegExp.input`, `arguments.callee`,
+a static), the RECEIVER-GENERIC member `.subject` (`.substr`, a prototype method), then bare `subject` —
+derived from the URL's shape under the reference marker (an owner segment ⇒ a member). `propose` keeps the
+FIRST shape that FIRES on the page's OWN example code under `lang`'s grammar (the frozen `run_plan` the
+only referee); a subject the grammar never confirms as a member contributes nothing. `scan_construct`
+grew a leading-`.` MEMBER mode: the property leaf whose immediately-preceding source byte is `.` — so
+`x.substr(1)` fires on any receiver while `const substr = 0`, `{ substr: 1 }`, and a receiver token
+(`arguments.length` — the property is `length`) never match. MEASURED (JS): the 33 bare rules become 30
+member/qualified/global rules; the acceptance file `const link = 1; arguments.length; el.input; const
+substr = 0` flags NOTHING; `"x".substr(1)`, `obj.__defineGetter__(…)`, `RegExp.input`, `"x".link(…)` flag.
+`arguments`/`proto` DROP honestly (their own examples never demonstrate a member shape the grammar
+confirms — `arguments` appears only inside strings, `__proto__` ≠ the URL's `proto`).
+
+**Clean-parse + primary-example partition (`lint_trace::parses_cleanly`, `lint_module::page_proves_in_lang`).**
+The grammar-verification partition was UNSOUND because tree-sitter is ERROR-TOLERANT: a CSS `clip: rect(…)`
+or an HTML `<center>` exposes a stray identifier leaf under the JS grammar, so a CSS/HTML deprecation page
+"proved" in JS. This was LATENT — the deployed ledger was clean only because the confusable pages were
+cached AFTER the last train; a retrain over the grown cache MEASURABLY leaked `clip`/`center`/`big` into
+JS and `center`/`tt` into CSS. Three composable, covenant-clean gates close it, all grammar/structure, no
+language named:
+1. **`parses_cleanly`** — the firing block must parse under `lang` with NO error node. Genuine same-language
+   examples parse clean; a CSS rule under the JS grammar does not. (Closes CSS→JS.)
+2. **JSX skip** — `scan_construct` treats a `jsx_*` node as embedded markup (like a string/comment) and
+   neither matches nor descends into it, so `<center>` is not a JS usage even though the JS grammar accepts
+   it error-free. (Closes HTML-element→JS.)
+3. **Primary-example gate** — a page proves in `lang` iff the subject's FIRST demonstrated usage (the
+   earliest own example block containing it, document order) parses clean + fires under `lang`. An HTML
+   `<center>` page's CSS `.center{…}` REMEDY block is later, so `center` stays HTML and never claims CSS.
+   (Closes the remedy-block leak.)
+MEASURED after all three: js 30 / css 22 rules with `js∩css = js∩html = css∩html = ∅` on the current
+cache. RESIDUAL (honest, documented): SVG attribute pages (`xlink:href`, `attributeType`, `version` …)
+still verify into the permissive HTML grammar (9 rules) because **svg is grammar-blocked** (no tree-sitter
+grammar to partition into) — low harm (they fire on inline-SVG-in-HTML, where they ARE deprecated), and
+the true fix waits on the SVG grammar / the Item-3b reader partition. The `document.write` residual named
+in the whole-site block is now deliverable via the qualified shape once its page-kind marker is notecard-
+keyed (still NAMED, not landed — its URL carries no `/reference/`).
+
+### Statement-prose prohibitions — measured walls + the earliest-heading reader fix (2026-07-12, docs-v83)
+
+> Owner Item 2: re-earn the prose-commanded classics (`eval`/`==`/`var`/`document.write`) that structural
+> deprecation/rule pages don't propose, by extending PROPOSE to commanded-prohibition sentences in the
+> whole-site governing prose through the frozen meaning-based reading (`English::sentence_states_prohibition`),
+> proven via the SAME blind loop, junk floor ZERO. The investigation was carried out end to end against the
+> real cache; the honest result is that the classics do NOT graduate cleanly from THIS cache, each for a
+> distinct MEASURED reason, and the prose-command route as tried VIOLATES the junk floor — so it is NOT
+> shipped. What DID land is the reader-correctness fix the investigation surfaced (which also advances the
+> Item-3b "fix the learned reader" mandate). The frozen substrate (dictionary, comparator, engine,
+> self-test judging) is UNTOUCHED. `TRAIN_VERSION` → `docs-v83-earliest-heading-segmentation` (HTML verdicts
+> gain two genuine deprecations → retrain, ledger reset).
+
+**LANDED — `lint_html_layer::sections` splits at the EARLIEST heading, not the first pattern.** MEASURED
+BUG: `sections` chose the next heading with `["<h2 id=\"", "<h3 id=\""].iter().find_map(rest.find)`, which
+returns the `<h2 id>` position whenever ANY h2 exists — so every `<h3 id>` subsection BEFORE a later h2 was
+SKIPPED, welding its heading text into the preceding region. MDN's `eval` page carries its command as an
+`<h3 id="never_use_direct_eval!">Never use direct eval()!</h3>`; before the fix that heading welded into a
+prior descriptive run ("…one can use `new.target`: js Never use direct eval()") and `sentence_states_prohibition`
+read it as descriptive (the `never` buried mid-sentence). Fix: take the MINIMUM position across both heading
+patterns (`filter_map(...).min_by_key(pos)`). After it, "Never use direct `eval()`!" is a clean sentence and
+`sentence_states_prohibition` returns TRUE. MEASURED effect on graduation (harness `web_module_train`, real
+cache): JS 30/30 and CSS 22 UNCHANGED; HTML 6 → 8, the two new rules the genuinely-deprecated `<big>` and
+`<rb>` elements (their MDN pages' governing headings now segment cleanly), ZERO junk, good file clean. Test:
+`sections_split_at_the_earliest_heading_not_the_first_pattern`.
+
+**NOT SHIPPED — the prose-command PROPOSE route (measured junk + measured block).** A route was built and
+measured: a reference page whose governing prose STATES A PROHIBITION (`sentence_states_prohibition`) naming
+its own subject proposes that subject, proven through the English self-test. MEASURED against the whole JS
+corpus it BOTH (a) graduated LANDMINE junk — `function`, `this`, `Boolean`, `String`, `direction`, `clear`
+(non-deprecated pages carrying a warning notecard + a DESCRIPTIVE "not"/"never" sentence the position
+heuristic misreads as a command; these would flag ordinary code) AND (b) FAILED to graduate the genuine
+`eval` (its only same-polarity second sentence is descriptive — "If `script` is not a `TrustedScript`… returns
+the argument unchanged" — which the frozen comparator ranks as CONTRADICTING the command, so the blind loop
+correctly refuses it). The English self-test lets the junk through and blocks the real command — the exact
+low-recall-AND-imprecise wall the structural page-role discriminator was built to avoid (see "The construct-
+module training workflow" and Fix 1 above). Per the junk-floor-ZERO covenant and "no forcing", the route is
+NOT shipped.
+
+**PER-CLASSIC honest verdict (measured, this cache).**
+- **`eval`** — the command EXISTS on MDN (`Reference/Global_Objects/eval`, the `<h3>` "Never use direct
+  `eval()`!" the sections fix now surfaces) and the subject gate confirms it (`url_payload = eval`), but it
+  does NOT graduate: the docs supply no SECOND same-polarity prohibition sentence about `eval`, so the blind
+  loop's English reconciliation Contradicts. Honest abstention with the exact blocking sentence.
+- **`document.write`** — its page IS cached with a deprecation notecard AND the qualified `document.write`
+  shape is derivable from its own `document.write(…)` examples; a notecard-keyed page role (deprecation
+  regardless of `/reference/`) + example-derived receiver qualification WAS prototyped and graduated it in the
+  harness. But LIVE it is BLOCKED by the docs-v82 partition: `document.write`'s FIRST MDN demonstration is a
+  `<script>document.write(…)</script>` block — under the JS grammar the JSX-skip treats `<script>` as embedded
+  markup so `document.write` does NOT fire, and the primary-example clean-parse gate (which MUST stay to keep
+  the remedy-block leak closed, `js∩css=js∩html=∅`) rejects the page for the JS partition. Delivering it
+  cleanly needs the partition to distinguish `<script>`-embedded JS from JSX markup without reopening that
+  leak — a partition-gate change beyond safe scope here. Sibling `document.writeln` (bare `document.writeln(…)`
+  examples) graduates in that prototype; `document.write` specifically does not. NOT shipped (the prototype
+  reverted with the prose-command route; only the sections fix kept).
+- **`var`** — MDN's `Reference/Statements/var` states NO prohibition (MEASURED: "Baseline Widely available";
+  ZERO prohibition sentences). The W3Schools best-practice pages that would command "prefer let/const" are NOT
+  in this cache (only W3Schools HTML tutorial + tryit pages are cached; no `js_best_practices`/`js_mistakes`).
+  Honest abstention — no page in the cache commands against `var`.
+- **`==`** — MDN's `Reference/Operators/Equality` does not command against `==` (its `==` mentions are
+  descriptive symmetry/coercion prose); the W3Schools "Always use ===" best-practice page is not cached; and a
+  linter's `eqeqeq` rule page is NOT documentation (own-docs-only policy, docs-v80). Honest abstention — the
+  remedy-pair `===` has no commanding page in the cache.
+
+**COVERAGE FRONTIER (honest).** The single unlock for the classics is CACHE COVERAGE, not a new mechanism: the
+W3Schools best-practice/mistakes pages (which DO command `===`, `let`/`const`, avoid `document.write`) are not
+crawled here, and `eval`'s second-sentence gap is a real docs-content limit. When those pages enter the cache,
+`sentence_states_prohibition` over cleanly-segmented governing prose (now that the sections fix surfaces
+command headings) is the right reader — but it must be paired with a discriminator stronger than the position
+heuristic to hold the junk floor at zero (the measured junk class above), which is the open design problem.
+
+**Tests (retain-and-grow):** `cargo test --lib` 216 green (adds the earliest-heading test); gauntlets
+`ai_linter_behaviors` 21, `understanding_defects` 7, `memory_invariants` 3 — all green.
+
+### Script-interior reading + notecard page-role — the `document.write` unlock + the deprecated-API surface (2026-07-12, docs-v84)
+
+> Owner Item 2 completion pass. Closes the measured `document.write` LIVE block (docs-v83, "NOT SHIPPED"):
+> `<script>` element interiors ARE JavaScript, so an HTML page's `<script>document.write(…)</script>` demo is
+> surfaced as JS example code and fires under the JS grammar. Landing it structurally also generalized the
+> deprecation page-role off the `/reference/` URL marker onto MDN's own deprecation NOTECARD, which graduated
+> the whole deprecated Document API surface. The prose-command classics (`eval`/`==`/`var`) stay ABSTAINED —
+> measured again against the grown cache, each for a distinct content/reader reason (below). Frozen substrate
+> (dictionary, comparator, engine, self-test judging) UNTOUCHED. `TRAIN_VERSION` →
+> `docs-v84-script-interior-notecard-role` (JS verdicts gain the Document-API deprecations → retrain, ledger reset).
+
+**LANDED — three coordinated covenant-clean reads in [`crate::lint_lang_layer`], grammar-refereed downstream.**
+1. **`<script>`-interior unwrap ([`script_interior`], in `code_interiors`).** A `<pre><code>` example that IS a
+   lone `<script>…</script>` element is surfaced as its JS interior — the one way an HTML page embeds JS,
+   web-platform structure the reader already understands (keys on the `<script>` element; names no language).
+   A mixed HTML+script block or an empty `<script src>` is left whole. MDN's `document.write` demo
+   `<pre class="brush: html"><code>&lt;script&gt;document.write("…")&lt;/script&gt;</code></pre>` becomes clean
+   JS `document.write("…")` that `parses_cleanly`+fires; the primary-example clean-parse partition gate is
+   UNCHANGED (the leak-killer stays), so `js∩css=js∩html=css∩html=∅` still holds (MEASURED, below).
+2. **Notecard page-role WITHOUT `/reference/` ([`read_doc_page`]).** `attested_deprecated = !rule &&
+   has_deprecation_notecard(body)` — the deprecation NOTECARD (a STATED structural markup fact) makes a page a
+   prohibition regardless of the `/reference/` URL marker, because MDN renders the identical notecard on a
+   `/Web/API/Document/write`-style API page that has no `/reference/` segment. The grammar-verification
+   partition (`page_proves_in_lang`) is the real language guard, so dropping the URL requirement cannot cross
+   the partition ∅ — an API page's JS example never fires+clean-parses under the CSS/HTML grammar.
+3. **Example-derived qualified receiver ([`example_receiver_shapes`]).** A non-`/reference/` API page names its
+   OWNER as a plain path segment whose CASE differs from the code receiver (`Document` vs `document`); a bare
+   `write` over-fires on every `write` and receiver-generic `.write` on every `.write()`. The clean construct
+   `document.write` is read from the page's OWN example: an `IDENT.subject(` member access whose `IDENT` equals
+   the owner segment case-insensitively yields the actual-case `document.write`. DATA from the example, owner
+   linked to receiver by identity — no case convention hardcoded, no language named. Prepended most-specific so
+   the existing shape-selection (`propose`) keeps `document.write` over bare `write`; `url_payload_equals` already
+   admits the qualified shape by its terminal segment (docs-v82).
+
+**MEASURED (harness `web_module_train`, real whole-site cache — the harness now passes the WHOLE corpus to
+`graduate`, matching the live `site_corpus` path; the old `url_lang` subset had dropped the cross-section
+`/Web/API/` pages and under-measured).** JS 30 → **54 PROVEN**: the two named siblings `document.write` +
+`document.writeln` PLUS 22 more genuinely-deprecated Document members (`document.execCommand`, `document.bgColor`,
+`document.fgColor`, `document.domain`, `document.fullscreen`, `document.createEvent`, `document.queryCommand*`,
+`document.*StyleSheetSet*`, …) — each backed by MDN's own `notecard deprecated` (VERIFIED on spot-checks:
+`document.fullscreen`/`browsingTopics`/`requestStorageAccessFor` all carry the notecard; the non-deprecated
+`:fullscreen` CSS selector page correctly carries none and is not caught). CSS 22 and HTML 8 UNCHANGED. Partition
+**∅ pairwise** (js∩css = js∩html = css∩html = ∅). **Junk floor ZERO:** a realistic modern JS file
+(`document.querySelector`/`getElementById`/`createElement`/`addEventListener`/`querySelectorAll`/`title`/`cookie`/
+`location`, `const`/`let`/`===`, arrow fns) flags **0** — every new rule is a QUALIFIED `document.X` that fires only
+on that exact deprecated member; the landmine deprecated file flags `document.write`/`document.execCommand`/
+`document.bgColor`/`with` on the correct lines (all CORRECT — those ARE deprecated).
+
+**COVERAGE CRAWL (Item-2 blocker 1) — W3Schools `/js/` section pulled (was 0 pages).** Before: W3S css 189, js **0**,
+html 282; MDN 3269. After a polite breadth-first map of `https://www.w3schools.com/js/` (188 pages incl.
+`js_best_practices`/`js_mistakes`/`js_comparisons`): W3S js **188**. Total corpus 15990 → 16178 deduped pages. The
+new pages contribute NOTHING to the current mechanism (W3S pages are neither `/reference/` nor `/rules/` nor
+notecard-bearing, so `read_doc_page` proposes nothing from them) — recorded honestly; the pages sit in the cache
+as the frontier for a future clean W3S-prose reader.
+
+**PROSE-COMMAND CLASSICS (`eval`/`==`/`var`) — STILL ABSTAINED, re-measured against the grown cache.** The
+prose-command PROPOSE route stays NOT SHIPPED (junk floor). Per-classic measured reason:
+- **`eval`** — the MDN command IS in a structural WARNING register (`notecard warning` present AND an `<h3
+  id="never_use_direct_eval!">Never use direct eval()!</h3>` heading), so discriminator (c) is satisfiable. But
+  there is still NO clean SECOND same-polarity prohibition sentence naming `eval` as its subject anywhere in the
+  grown corpus (W3S supplies none the frozen reader reads cleanly), so the blind loop has no independent witness —
+  eval abstains. Coverage did NOT dissolve the second-witness gap.
+- **`==` / `var`** — the W3S best-practice/mistakes/comparisons pages ARE now cached, but `extract_prose` WELDS
+  the pages' code examples into their prose (`"// Not possible Declare Arrays with const…"`, `"Don't Use new
+  Object()"`), so `sentence_states_prohibition` fires on garbled code-laden fragments, not a clean "Always use
+  ===" command. The route over the garbled W3S prose is the SAME junk-prone wall docs-v83 measured; it is not
+  shipped. The genuine unlock is a CLEAN W3S governing-prose reader (the `lint_lang_layer::governing_sentences`
+  segmentation applied to W3S page structure), which is the open Item-3b reader work — NAMED, not landed.
+
+**Tests (retain-and-grow):** `cargo test --lib` 219 green (adds `script_interior_unwraps_a_lone_script_element_only`,
+`example_receiver_shapes_reads_the_qualified_receiver_from_the_example`,
+`a_non_reference_notecard_page_prohibits_its_qualified_subject`); gauntlets `ai_linter_behaviors` 21,
+`understanding_defects` 7, `memory_invariants` 3 — all green.
+
+### Item 3b step 2 — the REFEREE GRADING, learned reader vs hand anatomy, MEASURED per source (2026-07-12)
+
+> The mandate's step-2 measurement, carried out end to end against the real 3700-page web-stack cache (the
+> `developer-mozilla-org` + `w3schools` crawls; ESLint purged docs-v80). NO verdict changed — no substrate
+> touched, no module retrained, no `TRAIN_VERSION` bump. This is the burn DECISION GATE: it converts the
+> qualitative docs-v84 "the reader is measured-garbled on real pages" into hard per-source numbers, and the
+> honest result is that BURN IS NOT SAFE this pass, for a precisely-located reason. Reproduce with the
+> untracked harness `cargo run --release --features crawl --example reader_grade` (the referee, kept beside
+> `web_module_train`).
+>
+> Method: for every cached page, run the LEARNED reader (`lint_graph::read_page`, fed the same
+> `drop_script_style`-chromed body the live caller `doc_crawler::extract_sections_html_hinted` passes) and
+> the HAND anatomy (`lint_lang_layer::read_doc_page` → `governing_sentences` + `prohibited`/`attested_deprecated`
+> + `constructs`). Axis (a): does the learned reader's prose recover the hand path's governing sentences
+> (≥70% content-token coverage), and how much CODE welds into each path's prose (fraction of code-shaped
+> whitespace tokens)? Axis (b): does the learned reader offer ANY page-role / subject equivalent?
+
+**MEASURED (matching the live chrome-drop):**
+
+| source | pages | prohib | learn≠∅ | sent-recall | learn-weld | hand-weld | all-page weld |
+|---|---|---|---|---|---|---|---|
+| MDN reference | 2538 | 84 | 100% | **77%** | **9.1%** | 11.7% | 12.0% |
+| MDN API | 147 | 33 | 100% | **74%** | **7.4%** | 11.2% | 10.3% |
+| W3Schools | 732 | 0 | 100% | — | — | — | **26.8%** |
+| MDN other | 283 | 0 | 100% | — | — | — | 9.3% |
+
+**Axis (a) — governing prose.** On MDN (reference + API) the learned reader nearly matches the hand path:
+it recovers ~3/4 of the hand path's governing sentences and, once semantic `<nav>/<header>/<footer>/<aside>`
+chrome is dropped, its prose is actually CLEANER than the hand path's (7–9% code-weld vs the hand path's
+11–12%, because the hand path preserves inline `<code>` as backticks). But recall is only ~75% — ~1/4 of the
+hand path's governing sentences are NOT recovered (the `GOVERNING_CTX` 320-char window + heading segmentation
+still clip them), so the learned reader does not yet strictly match-or-beat, the burn bar. On **W3Schools the
+learned reader is badly polluted (26.8% weld)**: MEASURED example `css_border_sides.asp` reads its LEFT
+SIDEBAR MENU as governing prose — "Visibility / Hide … Skew / Matrix … Image Shapes Code Challenge CSS
+object-fit …". W3Schools wraps that menu in a NON-semantic `<div id="leftmenuinner">`, not `<nav>`, so the
+element-NAME chrome drop cannot catch it. This div-based-chrome weld is the exact defect blocking the
+`==`/`var` classics (docs-v84 "extract_prose WELDS the pages' code examples into their prose"): a clean W3S
+prose reader is impossible while chrome is identified by a hand list of semantic element names.
+
+**Axis (b) — page roles + subjects.** `read_page` produces ONLY prose/code units — it has **no page-role,
+deprecation-attestation, or subject faculty at all**. The hand anatomy attests deprecation on **117 MDN
+prohibition pages** (notecard + URL-subject + `/reference/` marker); the learned reader offers **zero**
+equivalent. There is nothing to grade this axis against and nothing to burn: the notecard / URL-page-kind /
+subject-gate hand paths have NO learned replacement yet.
+
+**BURN DECISION — NOT SAFE, hand anatomy KEPT (INTERIM, measured reason).**
+- **Page-role / subject hand paths** (`has_deprecation_notecard`, `is_reference_page`, `member_page_shapes`,
+  `example_receiver_shapes`, the URL-subject gate) — NO learned equivalent exists (axis b = 0%). KEEP.
+- **Governing-prose hand path** (`governing_sentences`, `sections`) — the learned reader nearly matches on
+  MDN (cleaner, ~75% recall) but (i) misses ~1/4 of sentences and (ii) **cannot read W3Schools at all**
+  (div-chrome welds). Delegating the module workflow's PROPOSE material to `read_page` would change which
+  constructs graduate → risks regressing the proven 54/22/8 sets, which the mandate forbids ("retrain to the
+  SAME OR BETTER"). KEEP until the reader clears both gaps.
+- **THE SINGLE BLOCKER for both W3S prose and the `==`/`var` classics is CHROME DISCOVERY BY CROSS-PAGE
+  INVARIANCE** — the north-star's own stated mechanism ("an element whose structure AND style AND content is
+  invariant across a site's pages is navigation/boilerplate, discarded"), NOT a longer hand list of chrome
+  element names (which the covenant forbids adding). This is a real reader rung: learn per-site which element
+  INSTANCES repeat invariantly across the site's pages and exclude them from reading, exactly as
+  `learn_structure_roles` learns register roles by exposure. NAMED and designed here; not landed (landing it
+  is a segmentation change → retrain + full junk-floor-zero re-verification, its own rung).
+
+**INVARIANCE PROTOTYPE — measured, the fix VALIDATED (no shipped change).** The harness also proves the named
+mechanism would work. For each site, every tag-separated text RUN is counted by how many distinct pages it
+appears on; weighting by ENCOUNTER mass (run length × pages-seen-on), the fraction of a page's text that is
+site-invariant (recurs on ≥8 pages of the same site — chrome by the north-star definition, learned from data,
+zero element names) is: **W3Schools 70.1%**, MDN API 23.8%, MDN reference 19.8%. The 70% W3S figure is exactly
+the menu/breadcrumb/footer mass the reader currently welds (it maps onto the 26.8% code-shaped-weld once the
+non-code chrome words are counted too), and the ~20% MDN figure is the reference furniture the hand path's
+`NON_GOVERNING_ANCHORS` filter removes today. An exact-text-run detector at ≥8 pages already separates the two
+cleanly, so the next rung has a working signal to build the learned chrome filter on — no new heuristic, just
+the invariance the north-star already specifies.
+
+### LANDED — the cross-page-invariance chrome filter (Item 3b step 1, docs-v85, 2026-07-12)
+
+> The prototype above is now SHIPPED as the reading path's chrome filter, exactly as the north-star specifies
+> ("an element whose structure and style and content is invariant across a site's pages is navigation/
+> boilerplate with zero meaning and is excluded from rule-proving"). `TRAIN_VERSION` → `docs-v85`, `BRAIN_REV`
+> → 10 (the segmentation change forces a brain + module rebuild). Lives in [`crate::lint_graph`]:
+> `site_chrome` + `SiteChrome`.
+
+**Mechanism (comparative, site-scoped, no names).** `site_chrome(pages)` groups a whole-site corpus by HOST,
+counts on how many DISTINCT pages of that host each tag-separated text RUN appears (deduped within a page), and
+keeps the runs recurring on ≥ `CHROME_PAGE_SUPPORT` pages. The floor is **8** — the prototype's measured
+separation point (W3Schools 70.1% invariant text mass vs MDN reference 19.8% / API 23.8% at ≥8 same-site pages)
+AND the same repetition-support floor as `TAG_ROLE_SUPPORT` (a signal is trusted-by-repetition only once at
+least that many independent instances testify). A run's key is `token_seed` of its whitespace-collapsed content
+(≥2 words, ≥6 chars): invariance is EXACT recurrence of content, never similarity, and no element name or site
+name is consulted. `SiteChrome::strip(url, body)` blanks every text run whose key is invariant on that page's
+host, preserving tags and attributes verbatim — so a `class="notecard deprecated"` marker, an `id=` anchor, and
+`<pre><code>` example code all survive; only recurring PROSE is removed.
+
+**Where it runs.** Applied at the two whole-site chokepoints, before any reader forms prose/units/roles:
+- [`crate::lint_module::graduate`] — strips every page before `lang_pages`/`propose`/`page_code_corpus`, so the
+  hand anatomy's `governing_sentences` and the grammar partition both see clean bodies (the W3S `<div
+  id="leftmenuinner">` menu a semantic-element drop cannot catch is gone).
+- [`crate::lint_char::ensure_brain`] — strips the curriculum before `novel_blocks`/`learn`/`learn_structure_roles`,
+  a strictly stronger cut than the per-block dedup (which only collapses IDENTICAL whole blocks), so chrome
+  never enters the meaning graph or the learned roles.
+
+**MEASURED (re-graded with the filter, `examples/reader_grade`).** W3Schools all-page code-weld **26.8% →
+12.2%** (now BELOW MDN's ~14%); the W3S welding example flips from the left-sidebar menu ("Visibility / Hide …
+Skew / Matrix …") to genuine tutorial prose ("Here, all `<p>` elements on the page will be center-aligned …").
+MDN sent-recall against the UN-stripped hand path drops (77% → 47%) — but this is the filter CORRECTLY removing
+MDN's IDENTICAL recurring deprecation/reference banners (invariant boilerplate with zero per-page information),
+NOT governing proof: the module funnel is unchanged (below). The `class="notecard deprecated"` attestation is an
+attribute, so it survives the text-run strip and every deprecation rule still graduates.
+
+**RULE-SET DELTA — zero regression (the burn bar).** The proven set is BYTE-IDENTICAL to docs-v84: js **54** /
+css **22** / html **8** freshly-graduated (live 57/22/17 with the retain-and-grow ledger), the acceptance
+kitchen-sink flags every prohibited construct and the clean file stays clean (`wrongly flagged by []`), the
+docs-v83 junk pages still abstain (junk floor zero), and the grammar-verification partition holds ∅. So the
+segmentation change cleaned W3S prose WITHOUT changing which constructs prove — the mandate's "retrain to the
+SAME OR BETTER" met exactly. The classics (`==`/`var`) are still not graduated: they need the W3S prose-command
+propose path (Item 3b step 4), now unblocked by clean prose but not yet built.
+
+### Item 3b step 4 — the classics through clean W3S prose: coverage RESOLVED, blocker RELOCATED (2026-07-12)
+
+> Re-attempt of `==`/`var`/`eval` now that the chrome filter reads W3S prose cleanly. Real attempt, measured
+> end to end; the honest verdict is that the docs-v83 CACHE-COVERAGE blocker is GONE but a DIFFERENT,
+> precisely-located blocker (the recommendation-register discriminator) still bars a junk-floor-zero landing.
+> NOT shipped — forcing it would mint the measured junk class. The substrate is untouched; no version bump.
+
+**Coverage — RESOLVED.** docs-v83 abstained on `==`/`var` because "the W3Schools best-practice pages … are NOT
+in this cache". They are now cached and, with the chrome filter, READ CLEANLY (measured, chrome-stripped):
+- `var`: `js_varletconst.asp` states **"Modern JavaScript standards recommend avoiding var entirely to minimize
+  unintentional bugs"** and `js_best_practices.asp` marks `var carName; var carName;` **"(Not Recommended)"`.
+- `==`: `js_best_practices.asp` states **"Use === Comparison. The `==` comparison operator always converts (to
+  matching types) before comparison"** — remedy `===` named, `==` the counterpart.
+- `eval`: MDN's `<h3>` **"Never use direct `eval()`!"** (the docs-v83 earliest-heading fix surfaces it).
+
+**Blocker — RELOCATED to the recommendation-register discriminator (MEASURED, `examples/probe_cmd`).** The
+existing prose-command gate `English::sentence_states_prohibition` is NEGATION-position based, and the classics'
+commands are a RECOMMENDATION register, not a negation-led imperative. Measured on the exact sentences:
+
+| sentence | gate fires? |
+|---|---|
+| "Modern JavaScript standards recommend avoiding var entirely…" | **false** |
+| "Use === Comparison." | **false** |
+| "Never use direct `eval()`!" | true |
+| "String is not a primitive." (junk) | false |
+| "The `this` keyword does not refer to…" (junk) | false |
+| "A `function` is not hoisted when declared as an expression." (junk) | false |
+
+So the existing gate ABSTAINS on `var`/`==` (their register is "recommend"/"Use", which the frozen negation
+classifier correctly does not read as a command — the `avoid`≈`not use` lexical-negation gap the comparator
+documents). Graduating `var`/`==` needs a NEW **recommendation/advice register classifier** (imperative "Use X" /
+"recommend avoiding Y" / "Not Recommended") that does not exist. And `eval`'s command IS caught, but its MDN page
+has no prohibition-page ROLE (no rule marker, no notecard), so it never enters `propose`; extending `propose` to
+prose-command REFERENCE pages is exactly the docs-v83 route MEASURED to graduate the junk class
+(`function`/`this`/`Boolean`/`String`/`direction`/`clear`) off the whole MDN corpus.
+
+**Why NOT forced.** A recommendation-register classifier applied to the whole-site corpus would re-expose every
+MDN reference page; the junk constructs it could mint (`function`, `this`, `String`, `clear`) are UBIQUITOUS, so
+a single false graduation flags ordinary code catastrophically. Per the junk-floor-ZERO covenant and "no
+forcing", the register discriminator is the real remaining design — build it against the frozen meaning graph
+with the junk class as its acceptance foil, then this rung completes. The advance this pass: the coverage
+blocker is dissolved and the blocker is now a single, well-specified classifier, not missing data.
+
+### Item 4 (STRETCH) — the advice register: MEASURED not separable covenant-clean yet (2026-07-12, third confirmation)
+
+> The stretch rung's own strictest-bar measurement. Design under test: a sentence is an advice-command iff its
+> verb resolves to negation-meaning through EITHER covenant-clean path — the compounded-definition negation
+> (`is_negation`) OR the LEARNED usage sense (`MeaningNetwork` usage companions) — AND the v82 subject gates
+> hold AND the remedy-counterpart mechanism applies. The measurement PRE-EMPTS the build: neither path supplies
+> a signal, so NO code was written (nothing to revert — the third confirmation of the two prior reverts).
+
+**Path 1 — compounded-definition negation. FAILS.** `explain "Avoid the var keyword."` (live, deployed binary):
+`prohibition_gate_fired: false`, `operators: []`, `inner_negations: []`. `avoid`'s dictionary definition is
+`[verb, with, object, keep, away, from, or, stop, oneself, doing, something]` — its constituents (`keep`,
+`away`, `stop`) are not classified negators, so `is_negation(avoid)` is false and the gate abstains. `avoid`
+aligns nearest to `control_exit` at distance 3644 (ratio 0.958 — effectively unaligned). The `avoid`≈`not use`
+lexical-negation gap the comparator documents is REAL and unbridged.
+
+**Path 2 — the learned usage sense. FAILS (measured companions, deployed brain).** The read corpus (web docs +
+Stack Overflow) gives these advice verbs usage companions that are web-doc NOISE, carrying zero negation-meaning:
+| verb | top learned-usage companions | negation companion? |
+|---|---|---|
+| `avoid` | the, break, you, and, page, using, this, column, region, with, use, are, global, can, auto | **none** |
+| `recommend` | the, however, using, title, body, style, guides, this, head, unintentional, month, because, html | **none** |
+| `discouraged` | the, strongly, for, handler, event, not, jump, and, attributes, ordering, because, disposed, use | `not` (generic hub) |
+| `instead` | the, use, and, you, returns, value, object, this, string, for, with, using, that, new, element | **none** |
+
+`avoid`'s learned sense is dominated by CSS layout words (`break`, `column`, `region`, `global`, `auto`) — the
+corpus talks ABOUT avoiding page breaks far more than it commands avoiding a construct, so the distributional
+sense carries no prohibition. `discouraged` co-occurs with `not`, but `not` is a generic companion (the
+`the`/`you` hub `is_generic_companion` strips), not a distinctive negation signal.
+
+**And the remedy register has no verb at all.** "Use === Comparison" / "Use X instead of Y" is led by the
+ENDORSEMENT verb `use` (positive); the prohibition is only IMPLIED by the counterpart. `instead` resolves to
+`[adverb, as, an, alternative, or, substitute]` — a replacement sense, no negation. There is no covenant-clean
+signal that turns "Use X instead of Y" into "Y is prohibited" without a phrase list.
+
+**Verdict — NOT shipped, no forcing, substrate untouched, no version bump.** Both stated paths are measured
+empty, so any discriminator built now would need a word/phrase list (covenant-forbidden) or would fire the
+recommendation register on the whole MDN corpus and mint the UBIQUITOUS junk class (`function`/`this`/`String`/
+`clear`) — the exact class the two prior attempts minted and reverted. The register REOPENS on its own once the
+substrate earns the signal: (a) the learned usage sense gains negation companions from a corpus that COMMANDS
+avoidance (not one that discusses page-breaks), or (b) `is_negation`'s definition-compounding reaches `avoid`
+via a proven `keep away from`/`stop` → negation link. Until a measurement shows one of those, the classics stay
+abstained — correctly. This is the honest third confirmation, now with the concrete companion numbers.
+
+### Item 3 (the architecture mandate) — status after the docs-v85 pass (2026-07-12)
+
+> Honest scoping record. Item 3 (a–e) is a large multi-rung architectural mandate. Landed to date: 3b step 1
+> (docs-v85), 3c (docs-v86), 3d + 3e (docs-v87). Remaining: 3a (a full rung) and 3b's deletion/register steps
+> (blocked on the measured page-role/register gaps). Recorded so the next agent starts from the measured
+> state, not a re-derivation.
+- **3b (fix the learned reader; burn the hand anatomy)** — STEP 1 (fix the reader — cross-page-invariance
+  chrome) LANDED docs-v85 (subsection above): the prototype's chrome filter is shipped in the reading path,
+  W3S weld collapsed 26.8%→12.2%, rule set byte-identical (zero regression), junk floor zero, partition ∅.
+  STEP 2 (referee grading) remains the measurement that gated it. Step 3 (deletion of matched hand pieces) is
+  still BLOCKED — the learned reader now reads clean W3S prose but still has NO page-role/subject faculty (axis
+  b = 0%, measured), so the hand anatomy stays INTERIM. Step 4 (classics through the now-clean W3S prose) was
+  ATTEMPTED and MEASURED (subsection above): the docs-v83 cache-coverage blocker is RESOLVED (the `var`/`==`/
+  `eval` commands are now cached and read cleanly), but the blocker relocated to a missing recommendation-
+  register discriminator — NOT shipped, forcing it mints the measured junk class. The one remaining design.
+- **3c (judgment LEARNS — contradiction-driven reshape)** — LANDED docs-v86 (subsection "Item 3c" above):
+  the fresh graduation pass is the re-check; `merge_graduated` drops a contradicted rule (page re-read, no
+  re-prove), retains a rule whose page left the corpus, and surfaces every drop in the footer. The ledger is
+  no longer a silent retain-and-grow.
+- **3d (FIXPOINT + COMPLETE)** — LANDED docs-v87 (subsection "Item 3d" above): fixpoint reached in ONE
+  iteration (graduation is deterministic; the 3c merge is idempotent — measured, not looped); modules carry
+  a `brain_fp` completion snapshot and reopen through the 3c re-check when the brain/corpus/logic changes;
+  `lint_query rules` surfaces the completion state.
+- **3e (cleanup / one-architecture consolidation)** — LANDED docs-v87 pass: (a) miner retirement MEASURED —
+  the token miner (`rules_from_memory`) is NOT dead code; it is the LIVE fallback for non-owned languages
+  (rust/go/typescript, below the flip floor) and the discovery probe, and owned languages already bypass it
+  behaviorally via the flip. The build is compiler-clean (0 dead-code warnings, default and `crawl` features);
+  there is no unreachable miner path to delete without breaking non-owned languages, and the rust/go fallback
+  tests pass unchanged — so nothing was deleted, and that is the honest measured outcome, not an omission.
+  (b) LINTER.md consolidated: the "THE CURRENT MODEL" section above the appendix divider is now the ONE model
+  to read; the dated `###` subsections are demoted to the appendix (history + falsification ledger), preserved
+  per the owner so dead-ends are not re-derived.
+- **3a (curriculum txt → markdown reading rung)** — NOT attempted this pass; a full rung of its own.
+
 ## The character-level substrate (IN PROGRESS — branch `feat/char-level-substrate`)
 
 > Owner directive 2026-07-07. This section describes the substrate the system is being rewritten
@@ -439,9 +4033,11 @@ illustration). Both the token path (weak construct on descriptive prose) and the
 - **A new generic primitive, `uses_construct` (LANDED 2026-07-09, `lint_trace::Plan::UsesConstruct`).**
   Real language rules name a SPECIFIC construct (`var`, `eval`, `mem::uninitialized`, `==`).
   `uses_construct(name)` is a general trace that recognises AST USAGE of the named construct: it walks
-  the tree and flags a LEAF token node (identifier / type / field / keyword / operator) whose exact
-  whole-token text equals `name` — AST-grained (only childless token nodes match), never inside string
-  or comment interiors (`scan_construct` skips descent into them), never a substring. The `name` is
+  the tree and flags the SMALLEST AST node whose exact whole text equals `name` — for a single-token
+  construct (`var`, `==`) that is the LEAF token, for a DOTTED member construct (`document.write`,
+  `Object.assign`) it is the member/field-expression node whose whole text is the dotted name (a matched
+  node is recorded once and not descended into). AST-grained (a real node, never a text substring),
+  never inside string or comment interiors (`scan_construct` skips descent into them). The `name` is
   DATA extracted from the prohibition's own prose by understanding, never a coded list. Extraction
   reuses `lint_match/select.rs`'s PRINCIPLE without its code grounding (unavailable at understand-time)
   via two covenant-clean signals: the author's BACKTICK in the naming sentence, else a token that
