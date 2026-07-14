@@ -12,6 +12,11 @@
 //!     to (distance + margin), and the rule understanding shaped — or, on abstain, exactly why.
 //!   * `rules <language>` — the rules currently enforced for a language, counted and listed, each
 //!     with the understanding behind it (the principle prose + the plan it shaped).
+//!   * `web <construct>` — the language WEB read off the subgraph: the construct node's governing prose,
+//!     its meaning-link key-words into the frozen English base, its sources, whether it is PROVEN
+//!     (enforced) or merely READ (retained), the concepts it traverses to, and the nearest constructs in
+//!     OTHER languages' webs through the shared English base (the cross-language traversal). `language`
+//!     scopes the lookup; omitted, the first web that carries the construct is used.
 
 use serde_json::{json, Value};
 
@@ -25,10 +30,11 @@ pub fn schema() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works." },
-                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence." },
+                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn", "web"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works. web: read a construct off the language subgraph — its governing prose, meaning links, doc-roles, state (proven/read), and cross-language connections. With role= set, web instead LISTS every construct carrying that doc-role, across languages." },
+                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence; web: a construct token (e.g. document.write, cgi) — or empty when querying by role=." },
                 "scope": { "type": "string", "enum": ["canon", "language"], "description": "explain only: read the prose as the language-agnostic canon (no uses_construct fallback) or as general language-doc prose (default). Canon principles enforce structurally or abstain." },
-                "language": { "type": "string", "description": "learn only: the language of the bad/good evidence (e.g. rust)." },
+                "role": { "type": "string", "description": "web only: a DOC-ROLE traversal target — removal | prohibition | deprecated — listing every construct the faculties prove carries it (e.g. what connects to REMOVAL → cgi, telnetlib). Scoped to language= when set, else across every language web." },
+                "language": { "type": "string", "description": "learn only: the language of the bad/good evidence (e.g. rust); web only: restrict the construct/role lookup to this language." },
                 "bad": { "type": "string", "description": "learn only: code that BREAKS the principle — the check must fire on it." },
                 "good": { "type": "string", "description": "learn only: code that OBEYS the principle — the check must stay clean on it." }
             },
@@ -52,9 +58,10 @@ pub fn run(args: &Value) -> ToolResult {
         "explain" => explain(arg, canon),
         "rules" => rules(arg),
         "learn" => learn(arg, args),
+        "web" => web(arg, args["language"].as_str(), args["role"].as_str()),
         other => {
             return Err(format!(
-                "lint_query: unknown kind `{other}`. Valid: define | explain | rules | learn"
+                "lint_query: unknown kind `{other}`. Valid: define | explain | rules | learn | web"
             ))
         }
     };
@@ -175,6 +182,19 @@ fn rules(lang: &str) -> Value {
     let module: Option<Vec<Value>> =
         crate::lint_train::cached_ruleset(lang).map(|rs| detail_values(&rs));
     let module_count = module.as_ref().map(Vec::len).unwrap_or(0);
+    // Item 3d — the COMPLETION surface: the knowledge snapshot the module was proven at fixpoint against,
+    // and whether a changed corpus/brain has reopened it for re-proving through the 3c re-check.
+    let completion = crate::lint_train::module_completion(lang).map(|c| {
+        json!({
+            "complete": c.complete,
+            "state": if c.complete { "COMPLETE (proven set at fixpoint against current knowledge)" }
+                     else { "reopened (corpus or brain changed — next train re-proves via the 3c re-check)" },
+            "train_version": c.train_version,
+            "sources_fp": c.sources_fp,
+            "brain_fp": c.brain_fp.to_string(),
+            "trained_at": c.trained_at,
+        })
+    });
     json!({
         "kind": "rules",
         "language": lang,
@@ -183,8 +203,101 @@ fn rules(lang: &str) -> Value {
         "understanding_rules": understanding,
         "module_count": module_count,
         "module_rules": module,
+        "completion": completion,
         "module_note": module.is_none()
             .then(|| format!("no trained module for `{lang}` — run lint_config action=train")),
+    })
+}
+
+/// `web <construct>` — the language subgraph read off directly (PASS 24). Finds the construct's node in
+/// the named language's web (or the first web that carries it), and reports the whole node: its governing
+/// prose, its meaning-link key-words into the frozen English base, its sources, whether it is PROVEN
+/// (enforced) or merely READ (retained-unproven), the English concepts its meaning traverses to, and the
+/// nearest constructs in OTHER languages' webs through the shared base. Interpretation is a QUERY over the
+/// graph — no stored labels.
+fn web(construct: &str, language: Option<&str>, role: Option<&str>) -> Value {
+    let brain = crate::lint_char::brain();
+    // DOC-ROLE traversal (PASS 25 rung 2): list every construct the faculties prove carries `role`, across
+    // every language web (or the named one) — "what connects to REMOVAL" reaches cgi/telnetlib regardless
+    // of what its prose's index-words say. The roles are stored proven facts, filtered here, never re-judged.
+    if let Some(role) = role.map(str::trim).filter(|r| !r.is_empty()) {
+        let carriers: Vec<Value> = match language {
+            Some(l) => crate::lint_web::nodes_with_role(&crate::lint_web::load(l), role)
+                .into_iter()
+                .map(|c| json!({ "language": l, "construct": c }))
+                .collect(),
+            None => crate::lint_web::roles_across(role)
+                .into_iter()
+                .map(|(lang, c)| json!({ "language": lang, "construct": c }))
+                .collect(),
+        };
+        return json!({
+            "kind": "web",
+            "role": role,
+            "found": !carriers.is_empty(),
+            "carriers": carriers,
+            "webs_available": crate::lint_web::languages_with_web(),
+            "note": "doc-roles are the proven faculties' own facts (author-metadata attestation family + construction kind), surfaced as first-class traversal targets — never a word list.",
+        });
+    }
+    // Locate the node: the named language's web, else the first web on the machine that carries it.
+    let langs: Vec<String> = match language {
+        Some(l) => vec![l.to_string()],
+        None => crate::lint_web::languages_with_web(),
+    };
+    let mut found: Option<(String, crate::lint_web::ConstructNode)> = None;
+    for lang in &langs {
+        if let Some(node) = crate::lint_web::load(lang).into_iter().find(|n| n.construct == construct) {
+            found = Some((lang.clone(), node));
+            break;
+        }
+    }
+    let Some((lang, node)) = found else {
+        return json!({
+            "kind": "web", "construct": construct,
+            "found": false, "webs_available": crate::lint_web::languages_with_web(),
+            "note": "no language web carries this construct — run lint_config action=train, or check the construct token exactly (byte-preserved).",
+        });
+    };
+    // Concept traversal: the concepts the node's meaning links sit nearest to in the frozen meaning space.
+    let concepts: Vec<Value> = node
+        .meaning_links
+        .iter()
+        .filter_map(|w| {
+            crate::lint_trace::concept_alignment(w)
+                .and_then(|a| a.into_iter().next())
+                .map(|(name, dist)| json!({ "link": w, "nearest_concept": name, "distance": dist }))
+        })
+        .collect();
+    // Cross-language traversal through the shared English base.
+    let cross: Vec<Value> = brain
+        .map(|b| crate::lint_web::cross_language(b.meanings(), &lang, &node, 8))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| json!({ "language": c.lang, "construct": c.construct, "distance": c.distance, "shared_links": c.shared_links }))
+        .collect();
+    json!({
+        "kind": "web",
+        "construct": construct,
+        "language": lang,
+        "found": true,
+        "state": if node.proven {
+            "PROVEN (enforced)"
+        } else if node.graded.is_some() {
+            "GRADED (evidence-graded LOW tier — fires on the attested deprecation)"
+        } else {
+            "READ (retained, unproven — never fired)"
+        },
+        "governing_prose": node.governing,
+        "meaning_links": node.meaning_links,
+        "sources": node.sources,
+        "attested_deprecated": node.attested_deprecated,
+        "doc_roles": node.roles,
+        "rule": node.rule.as_ref().map(|r| json!({ "id": r.id, "severity": r.severity, "description": r.description })),
+        "graded": node.graded.as_ref().map(|g| json!({ "fire": g.fire, "severity": g.severity, "description": g.description })),
+        "traverses_to_concepts": concepts,
+        "cross_language_connections": cross,
+        "note": "meaning links are key-words into the FROZEN English web; their meaning is rebound on query, never copied. Interpretation is a traversal, not a stored label.",
     })
 }
 

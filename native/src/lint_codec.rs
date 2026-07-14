@@ -52,6 +52,22 @@ pub mod kind {
     /// A documentation source's crawl page cache: RAW pages exactly as served (LINTER.md,
     /// "Pages are cached RAW") — url/body/freshness anchors, DATA-stream deflated.
     pub const CRAWL: u8 = 10;
+    /// The per-language GRADUATED-rule ledger ([`crate::lint_train`]): the construct rules PROVEN in
+    /// past retrains, kept retain-and-grow so a crawl-subset never silently drops a proven rule (owner
+    /// correction 2026-07-12, point 4). A `Vec<DocRule>` keyed by the byte-preserved construct id.
+    pub const GRADUATED: u8 = 12;
+    /// The per-language PROVEN CONSTRUCTION states ([`crate::lint_construct`]): sentence-scale invariant
+    /// scaffolds with a variant slot, PROVEN under the frozen ≥15/0-contradiction law against the
+    /// machine's own proven-deprecated subject set (PASS 22). Stamped, retain-and-grow beside the
+    /// graduated ledger. A `Vec<ConstructionState>`.
+    pub const CONSTRUCT: u8 = 13;
+    /// The per-language UNDERSTANDING WEB — the language's subgraph ([`crate::lint_web`]): every
+    /// construct READ (proven or unproven) wired to its governing prose, the meaning-link key-words
+    /// into the frozen English web, its doc sources, and its attestation state (PASS 24). The proven
+    /// nodes' rule payloads are the compiled/cached VIEW the live path derives; the source of truth is
+    /// the web. Delta-stored (key-words, never a copy of the English base), stamped, retain-and-grow
+    /// beside the graduated ledger. A `Vec<ConstructNode>`.
+    pub const WEB: u8 = 14;
 }
 
 /// Hard ceiling on a declared inflated DATA stream (defense in depth at load — a crafted

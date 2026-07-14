@@ -383,7 +383,7 @@ pub fn run(args: &Value) -> ToolResult {
         if let Some(body) = crate::lint_replay::replay(&root, &memo_key, witness) {
             // A stat-tier hit still arms the kqueue tier, so the NEXT call takes the
             // microsecond path — this is how a fresh daemon converges.
-            kq_arm_and_commit(&root, &data, &files, &walked_dirs, &witness, walk_fold.fold, &memo_key, &body);
+            kq_arm_and_commit(&root, &data, &files, &walked_dirs, walk_fold.fold, &memo_key, &body);
             if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
                 let us = t0.elapsed().as_micros();
                 eprintln!("[lint-replay] whole-project replay in {us}µs");
@@ -540,6 +540,19 @@ pub fn run(args: &Value) -> ToolResult {
             ));
         }
     }
+    // Item 3c — contradiction-driven reshape: a proven rule whose source page was re-read this run and
+    // failed to re-prove is DROPPED, never silently kept. Name each one so judgment learning is visible.
+    if !report.contradicted.is_empty() {
+        let mut names: Vec<String> =
+            report.contradicted.iter().map(|(lang, what)| format!("{lang}: {what}")).collect();
+        names.sort();
+        names.dedup();
+        run_footer.push_str(&format!(
+            "\nReshaped this run — a previously-proven rule was re-read from its own docs and no longer \
+             re-proves, so it was dropped: {}.\n",
+            names.join("; ")
+        ));
+    }
     let feedback_footer = render_feedback(&root, &auto_suppressed);
     let (mut body, fresh_updates, _quarantined, law_watch_block) = fire_shape_render(
         &root,
@@ -626,7 +639,7 @@ pub fn run(args: &Value) -> ToolResult {
     let final_witness =
         crate::lint_replay::combine(walk_fold, crate::lint_replay::aux_witness(&root, &data));
     crate::lint_replay::store(&root, &memo_key, final_witness, &body);
-    kq_arm_and_commit(&root, &data, &files, &walked_dirs, &final_witness, walk_fold.fold, &memo_key, &body);
+    kq_arm_and_commit(&root, &data, &files, &walked_dirs, walk_fold.fold, &memo_key, &body);
     // Honest latency accounting on demand: where a run's time actually went, stage by stage.
     if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
         mark(&mut stages, "render");
@@ -1359,7 +1372,6 @@ fn kq_arm_and_commit(
     data: &Path,
     files: &[crate::index::walk::WalkedFile],
     walked_dirs: &[PathBuf],
-    witness: &crate::lint_replay::Witness,
     walk_fold: u128,
     memo_key: &str,
     body: &str,
@@ -1368,36 +1380,7 @@ fn kq_arm_and_commit(
     // The kq tier needs NO mtime racy window: its invalidation is content-true events,
     // not (mtime, len) folds — a same-tick same-length rewrite still posts NOTE_WRITE.
     // The stat tier's on-disk store keeps the window; gating kq commits on it only
-    // delayed convergence after every edit (measured). Kept as a trace note only.
-    if false && !crate::lint_replay::replay_safe(witness) {
-        if trace {
-            let culprit = files
-                .iter()
-                .find(|f| f.mtime == witness.newest)
-                .map(|f| f.rel.clone())
-                .or_else(|| {
-                    let mut hit = None;
-                    for d in [
-                        root.join(".helpers"),
-                        root.join(".helpers/lint-rules"),
-                        data.join("corpus"),
-                        data.join("lint-index"),
-                        lint_train::model_dir_pub(),
-                    ] {
-                        for e in crate::index::walk::scan_dir(&d) {
-                            if e.mtime == witness.newest {
-                                hit = Some(format!("{}/{}", d.display(), e.name));
-                            }
-                        }
-                    }
-                    hit
-                });
-            eprintln!(
-                "[lint-kq] no commit: inside the racy window (newest input: {culprit:?})"
-            );
-        }
-        return;
-    }
+    // delayed convergence after every edit (measured), so no `replay_safe` gate here.
     let watch = kq_watch_set(root, data, files, walked_dirs);
     if !crate::lint_kq::arm(root, &watch) {
         if trace {
