@@ -147,6 +147,56 @@ pub fn mine_and_prove(pages: &[(String, String)]) -> Vec<ConstructionState> {
     out
 }
 
+/// CONSUME the proven construction states on ONE doc page (COMPLETION PASS 23 — the rung-1 consumer). A
+/// page whose prose BINDS a proven single-slot construction ([`ConstructionKind::Removal`] /
+/// [`ConstructionKind::Prohibition`], the subject-naming direction) — a sentence matching the proven
+/// invariant SCAFFOLD whose PRIMARY slot NAMES the page's OWN module subject — ATTESTS that subject
+/// deprecated (removal-strength). Returns the distinct subjects the page attests this way; the workflow
+/// then PROPOSES each as `uses_construct(subject)` and PROVES it through the UNCHANGED blind loop. Empty
+/// when no proven construction binds. Pure over `states` and the page; no network, no training.
+///
+/// [`ConstructionKind::Supersession`] is NOT consumed here: its varying slot may name the REMEDY (the
+/// clean replacement), so binding on it would attest the wrong subject (the shared-remedy residual, parked
+/// for the any-slot-variance fix). Only the subject-direction single-slot constructions bind a subject.
+pub fn attested_subjects(states: &[ConstructionState], url: &str, body: &str) -> Vec<String> {
+    let subject = module_subject(url);
+    if subject.is_empty() || states.is_empty() {
+        return Vec::new();
+    }
+    let shapes: HashSet<&str> = states
+        .iter()
+        .filter(|s| !matches!(s.kind, ConstructionKind::Supersession))
+        .map(|s| s.shape.as_str())
+        .collect();
+    if shapes.is_empty() {
+        return Vec::new();
+    }
+    let text = flatten(body);
+    for sent in sentences(&text) {
+        let Some((shape, fillers)) = shape_and_fillers(&sent) else { continue };
+        if shapes.contains(shape.as_str()) && fillers.first().is_some_and(|f| filler_names(f, &subject)) {
+            return vec![subject];
+        }
+    }
+    Vec::new()
+}
+
+/// Whether a construction slot filler NAMES `subject` — the [`names_subject`] bare-normalization compared
+/// to the ONE page subject: the filler's bare form EQUALS the subject, or its qualified `owner.member`
+/// tail's last component does. Equality (not containment) so a filler naming a sibling never attests.
+fn filler_names(f: &str, subject: &str) -> bool {
+    let low = f.to_lowercase();
+    let bare: String = low
+        .trim_end_matches("()")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
+        .collect();
+    if bare.len() < 2 {
+        return false;
+    }
+    bare == subject || bare.rsplit('.').next().map(|t| t == subject).unwrap_or(false)
+}
+
 /// The per-language PROVEN-CONSTRUCTION artifact path (`<lang>.constructions.bin`, beside the module and
 /// the graduated ledger). A SEPARATE sidecar so it survives the module rebuild every retrain does.
 fn constructions_path(lang: &str) -> std::path::PathBuf {
@@ -695,6 +745,48 @@ mod tests {
             pages.push((format!("https://docs.python.org/3/library/{m}.html"), body));
         }
         assert!(mine_and_prove(&pages).is_empty(), "3 subjects < 15 ⇒ mined-unproven");
+    }
+
+    /// The rung-1 CONSUMER: a page whose prose binds the proven removal construction with its OWN module
+    /// in the slot ATTESTS that subject; a foil page (right scaffold, WRONG subject in the slot) and a
+    /// junk-prose page bind NOTHING.
+    #[test]
+    fn consumer_binds_only_the_subject_naming_page() {
+        // Derive the PROVEN states from the real miner over a synthetic python corpus, then feed pages to
+        // the consumer — end-to-end, so the shape the consumer matches is exactly the one the miner proved.
+        let modules =
+            ["aifc", "audioop", "asynchat", "asyncore", "cgi", "cgitb", "chunk", "crypt", "imghdr",
+             "mailcap", "msilib", "nis", "nntplib", "ossaudiodev", "pipes", "sndhdr", "telnetlib", "uu"];
+        let sentence = |m: &str| format!(
+            "<div class=\"deprecated-removed\"><p>Deprecated since 3.11, removed in 3.13.</p></div>\
+             <p>The last version of Python that provided the <code>{m}</code> module was Python 3.12.</p>",
+        );
+        let pages: Vec<(String, String)> = modules
+            .iter()
+            .map(|m| (format!("https://docs.python.org/3/library/{m}.html"), sentence(m)))
+            .collect();
+        let states = mine_and_prove(&pages);
+        assert!(states.iter().any(|s| s.kind == ConstructionKind::Removal), "removal state must prove");
+
+        // A page whose slot NAMES its own subject attests it.
+        assert_eq!(
+            attested_subjects(&states, "https://docs.python.org/3/library/cgi.html", &sentence("cgi")),
+            vec!["cgi".to_string()],
+            "the page's own subject in the proven scaffold attests it"
+        );
+        // Foil: the same scaffold names a SIBLING (`telnetlib`), not this page's subject (`cgi`).
+        assert!(
+            attested_subjects(&states, "https://docs.python.org/3/library/cgi.html", &sentence("telnetlib")).is_empty(),
+            "a scaffold naming a sibling does not attest THIS page's subject"
+        );
+        // Junk prose: no proven scaffold present.
+        let junk = "<p>The <code>cgi</code> module handles Common Gateway Interface scripts.</p>";
+        assert!(
+            attested_subjects(&states, "https://docs.python.org/3/library/cgi.html", junk).is_empty(),
+            "prose that is not a proven construction binds nothing"
+        );
+        // No proven states ⇒ nothing binds.
+        assert!(attested_subjects(&[], "https://docs.python.org/3/library/cgi.html", &sentence("cgi")).is_empty());
     }
 
     /// The round-trip codec contract: a proven state survives encode → decode byte-identical.

@@ -457,12 +457,26 @@ modules). MEASURED through the LIBRARY path (`examples/construct_prod`): python-
 5281-page cross-corpus each prove EXACTLY ONE state — `the last version of python that provided the ⟨⟩ module
 was`, REMOVAL, 24 witnesses — nothing else co-proves (the tight faculty is precise). The RUNG-3 delta,
 measured: 44 whole-module removal pages, 18 already covered by the existing `attests()`, **26 removal-only
-(genuinely new)** subjects (aifc/audioop/cgi/telnetlib/…). RUNG 3 (the consumer binding a proven construction
-on a page's prose to propose its slot subject → re-proven through the blind loop) and RUNG 4 (foils + full
-regression + all-language deploy) are the remaining verified rungs; the consumer would add net-new python
-rules bounded by the removal-only witnesses. 240 lib green (+4). The whole-domain MDN root crawl is deferred
-on budget; coverage grows as the cache grows. svg is grammar-blocked. See "Open problems" and the falsification
-ledger for the measured dead-ends.
+(genuinely new)** subjects (aifc/audioop/cgi/telnetlib/…). 240 lib green (+4). **PASS 23 LANDS + SHIPS the
+CONSUMER (rung 1) with the full regression + deploy (rungs 2–4).** `lint_construct::attested_subjects`
+consumes the proven states on a page's OWN prose: a page whose sentence matches a proven single-slot
+(Removal/Prohibition) scaffold with its slot NAMING the page's own module subject ATTESTS that subject
+deprecated (removal-strength). Wired through `read_doc_page` (new `construction_attested` role) → `propose`
+(the subject bypasses the URL-payload/lead gates — the construction PROVED it, not the URL shape) →
+`page_proves_in_lang` (the page joins its language's partition by the construction's own proof) → the
+UNCHANGED blind loop (notecard-proven route: ≥15 reps, generated where the removed module is absent from the
+idiomatic corpus, plus a clean near-miss). MEASURED (`examples/construct_consume`, python-library): of the
+26 removal-only pages, **24 BIND the proven construction** (email.utils/venv are removal-flagged but their
+prose does not carry the construction sentence naming their own subject — correctly not bound) → **24
+proposed → 24 PROVEN** (each viol=17 generated / clean=4000). Python: **25 → 49 rules**, the 25 existing
+byte-IDENTICAL (0 perturbed/lost vs the empty-constructions baseline — the consumer is purely additive);
+every OTHER language byte-identical (only python's corpus proves a construction, so the map is empty and the
+consumer is inert). The shared-remedy residual (any-slot variance for `use the ⟨remedy⟩ css property
+instead…`) rescues nothing measurable today — no CSS supersession construction is proven — so it stays parked.
+The pre-existing `if false` dead branch at `tools/lint.rs` (the disabled kq racy-window gate) is deleted (with
+its now-dead `witness` param). `TRAIN_VERSION` → `docs-v91-construction-consumer`. 241 lib green (+1 consumer
+test). The whole-domain MDN root crawl is deferred on budget; coverage grows as the cache grows. svg is
+grammar-blocked. See "Open problems" and the falsification ledger for the measured dead-ends.
 
 ---
 
@@ -1454,6 +1468,57 @@ family — sound but structurally starved (~13 String HTML-wrapper members); nee
 witnesses or an owner ruling on sub-floor sound-but-starved states. (ii) The shared-remedy false negative
 (`use the ⟨background-color⟩ css property instead` reads as invariant-slot, mode 1.00) — fix is any-slot
 variance + deprecated-source-side selection; rides the rung-3 consumer.
+
+### Item — COMPLETION PASS 23: the CONSUMER lands + ships — a page binding a proven construction on its own prose graduates its removal subject through the unchanged blind loop (`lint_construct::attested_subjects`, `examples/construct_consume`, SHIPPED, 2026-07-14)
+
+> PASS 22 landed the removal faculty + the `constructions` artifact and drew the rung-3/4 plan: (3) a
+> consumer that BINDS a proven construction on a page's own prose to propose its slot subject, re-proven
+> through the blind loop, and (4) foils + full regression + deploy. PASS 23 LANDS the consumer and SHIPS the
+> coupled regression + deploy — the first behavior change (new python rules), byte-identical everywhere else.
+
+**RUNG 1 — the consumer (`lint_construct::attested_subjects`).** A page whose prose matches a PROVEN
+single-slot construction ([`ConstructionKind::Removal`]/`Prohibition`) whose PRIMARY slot NAMES the page's
+own `module_subject(url)` ATTESTS that subject deprecated (removal-strength). Exact-shape equality against
+the proven scaffold + `filler_names` (bare/`owner.member`-tail equality to the page subject) — a scaffold
+naming a SIBLING, or prose that is not a proven construction, binds nothing (unit-tested). `Supersession` is
+NOT consumed (its varying slot may be the remedy, not the subject — the shared-remedy residual, parked).
+
+**The wiring (the seam PASS 22 named).** `construction_attestation(pages, attested, constructions)` builds a
+`url → subject` map over the RAW bodies, EXCLUDING pages the existing faculty already attests (so the 18
+already-covered removal pages stay byte-identical on the notecard route). Threaded: `read_doc_page` gains a
+`construction_attested` role (its `constructs` = the firing-form slot subjects, no URL/item/member shape
+derivation); `propose` lets a construction-attested subject BYPASS `is_prohibited_subject` (the URL-payload
+gate `cgi.html ≠ cgi` would wrongly reject) and treats it as `stated` (the construction named it);
+`page_proves_in_lang` admits it to the language's partition by the construction's own proof (a removed
+module's stub page need not re-demonstrate in a `<pre><code>` block). Emission takes the UNCHANGED
+notecard-proven route (`attested_deprecated` ⇒ ≥[`REQUIRED_REPS`] reps — generated by splicing the subject
+into real corpus contexts where the removed module is absent — plus a clean near-miss). The mine now runs
+ONCE in `graduated_rules` (before `graduate`, passed in) instead of twice.
+
+**MEASURED (`examples/construct_consume`, python-library, the shipped path).** PROVEN constructions: 1 (the
+removal state, 24 witnesses). Of the 26 PASS-22 removal-only pages, **24 BIND** the proven construction —
+`email.utils` and `venv` are removal-flagged (`attests_module_removal`) but their prose does NOT carry the
+construction sentence naming their own subject, so they are correctly NOT bound (the consumer is tighter than
+the raw removal-flag count, and honestly so). Funnel: **24 candidates → 24 proposed → 24 PROVEN** (each
+viol=17 generated, clean=4000). The 24 new subjects: aifc, asynchat, asyncore, audioop, cgi, cgitb, chunk,
+crypt, distutils, imghdr, imp, mailcap, msilib, nis, nntplib, ossaudiodev, pipes, smtpd, sndhdr, spwd, sunau,
+telnetlib, uu, xdrlib.
+
+**RUNG 2 — foils + full regression (MEASURED).** Against the empty-constructions baseline: python **25 → 49**
+rules, the 25 existing **byte-IDENTICAL** (0 perturbed, 0 lost — adding 24 candidates to the pool did NOT
+reshuffle any existing foil/verdict, because the removal subjects graduate on the notecard route independent
+of the English self-test), +24 net-new. Every OTHER language byte-identical: only python's corpus proves a
+construction (`construct_prod`: the full cross-corpus proves EXACTLY the one python-removal state), so their
+`constructions` is empty → the map is empty → the consumer is inert. Foils: junk prose binds nothing (unit
+test); a proven scaffold naming a sibling binds nothing; no non-python construction exists to bind. The
+shared-remedy residual rescues nothing today (no CSS supersession is proven) — parked, no forcing.
+
+**RUNG 3 — ship.** `TRAIN_VERSION` → `docs-v91-construction-consumer`; release built, deployed to both
+`helpers-native` targets (xattr -c + `codesign --force --sign -`), daemon killed; retrained live. 241 lib
+green (+1 consumer test). **RUNG 4 — hygiene:** the pre-existing `if false && replay_safe(witness)` dead
+branch at `tools/lint.rs` (the permanently-disabled kq racy-window gate — the kq tier's events are
+content-true, so it needs none) is deleted along with its now-unused `witness` param and both call-site args;
+crate-wide clippy: 0 errors.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 

@@ -446,8 +446,40 @@ pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &Mea
     let attest = crate::lint_attest::Attestation::discover(pages);
     let attested: std::collections::HashSet<String> =
         pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
-    let partition = lang_pages(lang, pages, &bridge, en, &attested);
-    propose(lang, &partition, &bridge, en, &attested, memory).0
+    let constructions = crate::lint_construct::mine_and_prove(pages);
+    let construction = construction_attestation(pages, &attested, &constructions);
+    let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
+    propose(lang, &partition, &bridge, en, &attested, &construction, memory).0
+}
+
+/// The per-page CONSTRUCTION ATTESTATION map (COMPLETION PASS 23 — the rung-1 consumer wiring): url →
+/// the subjects a page attests by BINDING a proven construction on its own prose
+/// ([`crate::lint_construct::attested_subjects`]). A page ALREADY attested by the existing faculty
+/// (`attested`) is EXCLUDED so its rule stays on the unchanged notecard/reference route (byte-identical);
+/// only the removal-ONLY pages (a whole-module removal construction but no inline deprecation class) newly
+/// bind here. Empty when no construction is proven for the corpus (every non-python language today), so
+/// every other language's reading is untouched. Built over the RAW (pre-chrome-strip) bodies — the
+/// construction scaffold VARIES page-to-page, so it survives the strip, but the raw bodies are the exact
+/// text the miner proved over.
+fn construction_attestation(
+    pages: &[(String, String)],
+    attested: &std::collections::HashSet<String>,
+    constructions: &[crate::lint_construct::ConstructionState],
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut map = std::collections::HashMap::new();
+    if constructions.is_empty() {
+        return map;
+    }
+    for (url, body) in pages {
+        if attested.contains(url) {
+            continue;
+        }
+        let subjects = crate::lint_construct::attested_subjects(constructions, url, body);
+        if !subjects.is_empty() {
+            map.insert(url.clone(), subjects);
+        }
+    }
+    map
 }
 
 /// PARTITION whole-site doc pages to the ones that PROVE in this language — decided by GRAMMAR
@@ -468,8 +500,9 @@ fn lang_pages<'a>(
     bridge: &Bridge,
     en: &English,
     attested: &std::collections::HashSet<String>,
+    construction: &std::collections::HashMap<String, Vec<String>>,
 ) -> Vec<&'a (String, String)> {
-    pages.iter().filter(|(u, body)| page_proves_in_lang(lang, u, body, bridge, en, attested)).collect()
+    pages.iter().filter(|(u, body)| page_proves_in_lang(lang, u, body, bridge, en, attested, construction)).collect()
 }
 
 /// Whether a prohibition/deprecation page PROVES in `lang`: its role names a prohibited subject AND that
@@ -478,8 +511,17 @@ fn lang_pages<'a>(
 /// `<pre><code>`), so the referee is the language grammar, not the URL — the whole point of the
 /// verification-decided partition. A non-prohibition page, or one whose subject the grammar does not fire
 /// on the page's own examples, is not in this language's partition.
-fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>) -> bool {
-    let page = crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested);
+fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, construction: &std::collections::HashMap<String, Vec<String>>) -> bool {
+    // A CONSTRUCTION-BOUND page joins this language's partition by the construction's PROOF, not a per-page
+    // grammar demonstration: the construction was proven over THIS language's own corpus (its witnesses are
+    // this language's proven-deprecated subjects), so it already established both the language and the
+    // prohibition. Its removal-only subject need not re-demonstrate in a `<pre><code>` block (a removed
+    // module's stub page often has none). The map is non-empty only for the language the construction
+    // proved in, so this never crosses the partition into another language.
+    if construction.contains_key(url) {
+        return true;
+    }
+    let page = crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested, construction);
     if !page.prohibited || page.constructs.is_empty() {
         return false;
     }
@@ -540,9 +582,9 @@ struct PooledSentence {
 /// is a real doc sentence mentioning the construct — preferring one from a prohibited page and in
 /// negative polarity; a construct no clean sentence mentions cannot form an un-fakeable English pair and
 /// is dropped (never a synthesized sentence).
-fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, memory: &Memory) -> (Vec<Candidate>, Vec<PooledSentence>) {
+fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, construction: &std::collections::HashMap<String, Vec<String>>, memory: &Memory) -> (Vec<Candidate>, Vec<PooledSentence>) {
     let mut docpages: Vec<crate::lint_lang_layer::DocPage> =
-        pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested)).collect();
+        pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested, construction)).collect();
 
     // QUALIFIED-MEMBER SHAPE SELECTION (LINTER.md → "QUALIFIED-MEMBER construct extraction"). A
     // deprecated reference page proposes several candidate SHAPES for its subject, most-specific first
@@ -645,7 +687,10 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
             p.constructs
                 .iter()
                 .filter(|c| !out.iter().any(|o| &o.construct == *c))
-                .filter(|c| is_prohibited_subject(lang, &p.url, c, &p.incorrect, &p.correct))
+                // A CONSTRUCTION-BOUND subject bypasses the URL-payload gate: the proven construction
+                // (not the URL's path segment) confirmed the subject, so a removed module whose page url
+                // carries a `.html` the payload gate would reject (`cgi.html` ≠ `cgi`) still graduates.
+                .filter(|c| p.construction_attested || is_prohibited_subject(lang, &p.url, c, &p.incorrect, &p.correct))
                 .max_by_key(|c| subject_score(lang, c, &p.incorrect))
                 .into_iter()
                 .collect()
@@ -662,7 +707,10 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
         // UNRELATED verdicts (MEASURED: dropping the junk operators `??`/`+=`/`!=` here spuriously
         // Contradicted `eval` and graduated `++`). The candidate STAYS in the pool (identical foils/advice
         // to no gate); `graduate` simply does not EMIT a rule whose subject its own lead never states.
-        let stated = stated_by_lead(lang, construct, &lead_named, &p.incorrect, &p.correct);
+        // A CONSTRUCTION-BOUND subject is STATED by the construction binding itself — the proven scaffold
+        // named this page's own subject in its slot, a stronger structural "this page's subject" signal
+        // than the lead heuristic (which the removed-module stub prose may not satisfy).
+        let stated = p.construction_attested || stated_by_lead(lang, construct, &lead_named, &p.incorrect, &p.correct);
         // The `understanding` is the best real doc sentence MENTIONING the construct: prefer one from the
         // construct's OWN page (page-of-origin), then a prohibited-page statement, then negative polarity,
         // then a longer (more informative) one. Its citation url is the proposing page.
@@ -925,6 +973,7 @@ pub fn graduate(
     memory: &Memory,
     m: &MeaningNetwork,
     en: &English,
+    constructions: &[crate::lint_construct::ConstructionState],
 ) -> Vec<Outcome> {
     let bridge = Bridge::new(m, en);
     // The LEARNED deprecation attestation, keyed by the author's OWN METADATA TYPOGRAPHY (frontmatter
@@ -938,6 +987,11 @@ pub fn graduate(
     let attest = crate::lint_attest::Attestation::discover(pages);
     let attested: std::collections::HashSet<String> =
         pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
+    // THE RUNG-1 CONSUMER (PASS 23): the pages a PROVEN CONSTRUCTION binds on their own prose, each mapping
+    // to the removal subject(s) the construction named — built over the RAW (pre-strip) bodies the miner
+    // proved over, excluding pages the existing faculty already attests. Empty (⇒ inert) for every corpus
+    // that proves no construction, so every other language stays byte-identical.
+    let construction = construction_attestation(pages, &attested, constructions);
     // CROSS-PAGE-INVARIANCE CHROME FILTER (LINTER.md → "Cross-page invariance = chrome, discarded";
     // owner north-star). A site's navigation, breadcrumb, footer, and sidebar-menu text recurs
     // IDENTICALLY across its pages and carries zero governing meaning, so it is discarded — site-
@@ -950,8 +1004,8 @@ pub fn graduate(
     let stripped: Vec<(String, String)> =
         pages.iter().map(|(u, b)| (u.clone(), chrome.strip(u, b))).collect();
     let pages: &[(String, String)] = &stripped;
-    let partition = lang_pages(lang, pages, &bridge, en, &attested);
-    let (candidates, pool) = propose(lang, &partition, &bridge, en, &attested, memory);
+    let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
+    let (candidates, pool) = propose(lang, &partition, &bridge, en, &attested, &construction, memory);
     let corpus = harvest_corpus(memory);
 
     // Each candidate's derived advice (its SECOND, distinct doc sentence). A candidate with no such
@@ -1181,17 +1235,17 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     } else {
         memory
     };
-    let rules = graduate(lang, &pages, memory, br.meanings(), en)
+    // PASS 22/23 — mine + PROVE the construction states over this language's own corpus ONCE, persist them
+    // retain-and-grow beside the graduated ledger, AND feed them to `graduate` as the rung-1 CONSUMER's
+    // basis. Today this proves ONE state for python (`the last version of python … module was`, 24 removed
+    // modules); every other language proves none, so `constructions` is empty and the consumer is inert —
+    // those modules stay byte-identical. For python the consumer newly graduates the removal-only subjects.
+    let constructions = crate::lint_construct::mine_and_prove(&pages);
+    crate::lint_construct::persist(lang, &constructions);
+    let rules = graduate(lang, &pages, memory, br.meanings(), en, &constructions)
         .into_iter()
         .filter_map(|o| o.rule)
         .collect();
-    // PASS 22 — mine + PROVE construction states over this language's own corpus and persist them
-    // retain-and-grow beside the graduated ledger. Pure over `pages`; it does NOT touch `rules`, so every
-    // existing module stays byte-identical (the artifact is a new sidecar, not yet consumed). Today this
-    // proves ONE state for python (`the last version of python … module was`, 24 removed modules); every
-    // other language proves none and writes nothing.
-    let constructions = crate::lint_construct::mine_and_prove(&pages);
-    crate::lint_construct::persist(lang, &constructions);
     GraduatedModule { rules, corpus_urls, constructions }
 }
 
@@ -1380,7 +1434,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let outcomes = graduate("javascript", &pages, &memory, m, en);
+        let outcomes = graduate("javascript", &pages, &memory, m, en, &[]);
         let var = outcomes
             .iter()
             .find(|o| o.candidate.construct == "var")
@@ -1440,8 +1494,8 @@ mod tests {
             ids.sort();
             ids
         };
-        let first = proven(graduate("javascript", &pages, &memory, m, en));
-        let second = proven(graduate("javascript", &pages, &memory, m, en));
+        let first = proven(graduate("javascript", &pages, &memory, m, en, &[]));
+        let second = proven(graduate("javascript", &pages, &memory, m, en, &[]));
         // The fixpoint claim is DETERMINISM — it holds whether or not this machine's brain state
         // graduates the fixture, so it never false-fails on brain-state/test-order (the graduation count
         // itself is the sibling test's job, gated on the suite's brain). Reported, not asserted.
