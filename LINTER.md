@@ -533,7 +533,16 @@ replaces the noisy CS-primitive `concept_alignment` landing with the faculties' 
 `lint_query kind=web` (doc_roles shown per node; `role=` lists carriers, scoped to `language=` or across all
 webs). The web-node CODEC gained a `roles` field (same `WEB` kind 14, stamp-gated + bounds-safe: an
 old-format sidecar decodes to empty and rebuilds on the next train). Verdicts byte-identical, web additive →
-`TRAIN_VERSION` UNMOVED. 247 lib green (+2), gauntlets green. See the PASS 25 ledger item.
+`TRAIN_VERSION` UNMOVED. 247 lib green (+2), gauntlets green. See the PASS 25 ledger item. **PASS 26 ran the
+two owner rulings (derive-the-revoked-family word-free; graded findings for attested-but-unproven nodes) to a
+MEASURED WALL and did NOT ship — the seed stays, no verdict changes.** RUNG A: of the three derivation axes
+only SUCCESSION separates deprecated from the experimental foil (57% vs 5%), and only via a directional-prose
+connective (the passes-11/12 wall); usage-death FAILS the foil (experimental is equally absent, median-0), and
+every word-free structural surrogate collapses — the revoked family is not derivable word-free, re-confirming
+passes 11/12/13. RUNG B: the graded tier floods on the read-surface's bare members/URL-basenames; a qualified-
+safe gate yields a clean js/ts-21 / python-92 set, but the useful receiver-generic firing form needs a clean-
+corpus distinctiveness gate (graduation-lite) the unproven nodes never got. Both re-land conditions (incl. the
+promising usage-death-as-member-distinctiveness gate) are in the PASS 26 ledger item.
 
 ---
 
@@ -1703,6 +1712,70 @@ junk floor zero unmoved (verdicts byte-identical). Verdicts byte-identical + web
 UNMOVED (a bump would force a needless full 82-language retrain). Deployed: the six webs rebuilt to the new
 format via the live path, binary re-signed, daemon restarted, `lint_query kind=web role=removal` verified
 live over MCP.
+
+### Item — COMPLETION PASS 26: DERIVE-the-revoked-family + graded-findings — BOTH measured to a wall, NO ship (measured, `examples/revoked_derive`, `examples/graded_probe`, 2026-07-14)
+
+Two owner rulings drove this pass: (1) *"we shouldn't have to hand-teach `prohibits`/`removed` — it should
+understand the STRUCTURE of those things being REVOKED"*; (2) *"abstinence is not the correct method to lint;
+a linter that doesn't do anything isn't a linter."* Both were run to a MEASURED wall; per the covenant
+(*"if a derivation axis doesn't separate, report the numbers and keep the seed … fake wins don't"*) the seed
+STAYS and no verdict changes — `TRAIN_VERSION` unmoved, `deprecation-status.json` unchanged, 247 lib green,
+no deploy. The walls, with numbers:
+
+**RUNG A — derive which enum family means REVOKED, word-free (kill the seed).** The `status:` families are
+already discovered by shape (deprecated 84 / experimental 107 / non-standard 84 md slugs). Measured three
+axes per family across the 3269-page MDN corpus, experimental as the mandatory not-yet foil:
+
+| family | usage-DEATH (absent from other example code) | succession (prose-directional) | versioned cessation | mined 2-slot scaffold |
+|---|---|---|---|---|
+| deprecated | 54% (median 0) | **57%** | 8% | 26% |
+| non-standard | 82% (median 0) | 20% | 2% | 0% |
+| experimental | 65% (median 0) | **5%** | 0% | 16% |
+| BASELINE (current ref) | 23% (median 6) | 10% | 0% | 40% |
+
+- **Usage-death FAILS the foil.** The owner hypothesis (deprecated≈absent, experimental low-nonzero) is
+  FALSIFIED: experimental is EQUALLY absent (both status families median-0; deprecated is actually LESS absent,
+  54% < 65%). Usage-death separates *has-a-status* from *current* (median 0 vs 6), not *no-longer* from
+  *not-yet*. New/proprietary features are absent from demos for the same reason dead ones are.
+- **Succession SEPARATES decisively** (deprecated 57% ≫ non-standard 20% ≫ experimental 5%; foil clean —
+  a not-yet feature has no predecessor to succeed) — BUT the signal is a DIRECTIONAL prose connective
+  (`replaced by`/`superseded`/`has been replaced`), i.e. the passes-11/12 polarity wall the seed exists to
+  sidestep. Every WORD-FREE structural surrogate collapses: two-code-slot co-mention 69/65/61 (co-mention
+  noise); mined recurrent 2-slot scaffolds 26/16/40-baseline (generic `polyfill of ⟨⟩ in ⟨⟩` / enumeration
+  scaffolds dominate — baseline highest). The clean separation lives ONLY in the connective's meaning.
+- **Versioned cessation weakly corroborates on MDN** (8% vs experimental 0%, foil clean) but is STARVED —
+  MDN marks browser drops as banners, not version-cessation prose (this axis is a Python/Rust
+  `class="deprecated-removed"` strength, already the PASS-22 removal faculty).
+
+VERDICT: the revoked family is NOT structurally derivable word-free from these axes. The only separating axis
+is prose-directional meaning (the wall); the one word-free signal that works elsewhere (PASS-21 slot-cross-
+reference against the proven-deprecated SUBJECT set) is CIRCULAR here — it needs the very set the seed defines.
+This re-confirms passes 11/12/13 with fresh RUNG-A-framed numbers. **Re-land condition:** a word-free
+structural signal that distinguishes no-longer from not-yet without reading directional prose — none exists in
+usage/succession/cessation as measured. Seed kept for ALL three axes, failure recorded.
+
+**RUNG B — graded findings for attested-but-not-graduated web nodes (replace abstention).** Sized the tier
+from the on-disk webs (`examples/graded_probe`): unproven nodes carrying a revoked doc-role (deprecated/
+removal/prohibition) number css 4 / html 4 / js 76 / python 184 / rust 27 / ts 76. **Firing them naively
+FLOODS**: the read-surface retains URL basenames (`struct.Vec.html`, `ssl.html` — never code) and bare generic
+members (`.read` `.write` `.input` `bold` `compile` `fixed` `link` `small`) that a LOW rule would fire on
+across every clean modern file — a junk-floor catastrophe. A qualified-safe gate (receiver.member, both real
+idents, no URL basename, no rustdoc anchor-form, no bare leading-dot) cuts to a CLEAN set — **js/ts 21**
+(`String.blink/bold/substr`, `Object.__defineGetter__`, `RegExp.compile`, `Date.getYear`), **python 92**
+(`typing.Sequence`, `asyncio.ensure_future`, `importlib.*.load_module`), **css/html/rust 0** (their deprecated
+constructs are already PROVEN, or are receiver-generic forms with no concrete receiver). BUT the FIRING
+mechanism ([`lint_trace::scan_construct`]) then splits the value: a DOTTED construct (`String.substr`) fires
+ONLY on the literal `String.substr` node — safe but near-zero recall (real usage is `s.substr(1)`, whose text
+is `s.substr`), i.e. near-abstention, the very thing the owner objected to; the USEFUL receiver-generic form
+(`.substr`) fires on any `x.substr` — high recall, but flood-safety then depends on whether the member name
+collides with modern code (`.blink`/`.fontcolor`/`.italics` are dead-distinctive; `.bold`/`.link`/`.small`/
+`.fixed`/`.sub` are common). Distinguishing them is EXACTLY graduation's clean-near-miss validation, which the
+unproven nodes never received. **Re-land condition (concrete, promising):** gate the receiver-generic graded
+form by a corpus-derived DISTINCTIVENESS check — a member is graded-fireable iff its `.member` is USAGE-DEAD
+(absent from the corpus's own modern example code), the RUNG-A usage-death signal repurposed at member scope
+(where it succeeds as a safety gate even though it failed as a family discriminator). That is a real
+graduation-lite pass + a full web-language retrain + clean/kitchen-sink fixture verification — a verified rung,
+not a one-shot, so it did NOT ship this pass rather than risk a flooding deploy. Probes are untracked scratch.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
