@@ -542,7 +542,33 @@ every word-free structural surrogate collapses — the revoked family is not der
 passes 11/12/13. RUNG B: the graded tier floods on the read-surface's bare members/URL-basenames; a qualified-
 safe gate yields a clean js/ts-21 / python-92 set, but the useful receiver-generic firing form needs a clean-
 corpus distinctiveness gate (graduation-lite) the unproven nodes never got. Both re-land conditions (incl. the
-promising usage-death-as-member-distinctiveness gate) are in the PASS 26 ledger item.
+promising usage-death-as-member-distinctiveness gate) are in the PASS 26 ledger item. **PASS 27 SHIPS the
+GRADED (LOW-severity) tier — the PASS-26 RUNG-B re-land, gated so it never floods.** Owner ruling: "it
+shouldn't abstain from information it knows — a linter that doesn't do anything isn't a linter." An
+attested-revoked-role web node WITHOUT a proven rule now carries a train-time-computed [`GradedForm`]
+(persisted on the node, `lint_web` codec trailing + bounds-safe) iff it passes FOUR gates
+([`lint_module::graded_forms`]): (1) QUALIFIED-SAFE (the PASS-26 cut — real `owner.member`, never a URL
+basename / rustdoc anchor / bare member); (2) member-scope USAGE-DEATH with **DEATH-VERDICT CALIBRATION** —
+death is trusted only when the same corpus finds ≥1 ALIVE member among the language's own candidates
+(MEASURED: python's 9-page corpus read ALL 92 "dead" incl. `.read`/`.write` — flood; javascript's 3052-page
+corpus split 10 dead / 11 alive — discriminates; a degenerate all-dead distribution is corpus POVERTY, so
+every form falls to the dotted-literal tier — no constant, the corpus's own distribution is the referee);
+(3) PROVEN-COVERAGE DEDUP (MEASURED: javascript's proven 54 ALREADY carries `.blink`/`.getYear`/`.compile`
+receiver-generic rules — all 21 js/ts qualified-safe candidates were duplicates and are skipped; the graded
+tier adds only NEW enforcement); (4) CLEAN-NEAR-MISS (graduation-lite — the chosen form must fire on NONE of
+the corpus's other-page current blocks; dropped `AST.end_col_offset` ×2). SHIPPED GRADED FORMS: **css 0 /
+html 0 / javascript 0 / typescript 0 / rust 0 / python 90 (all dotted-literal)** — the honest funnel: python
+184 revoked-unproven → 92 qualified-safe → 0 calibrated-dead → 90 after dedup+clean-check. Graded rules
+derive as a SEPARATE view ([`lint_web::derive_graded_rules`], id `graded-<construct>`, empty bad/good, the
+same `uses_construct(fire)` plan) appended AFTER the proven merge in `lint_train` (never through the
+contradiction re-check — proven set and order byte-identical). FIXTURES (real compiled `RuleSet::flag`):
+clean-modern js/py **0**, landmine js/py **0** (names in strings/comments never fire), kitchen-sink js 5
+(all PROVEN medium — the graded duplicates correctly absent), kitchen-sink py **+2 LOW**
+(`graded-typing.Sequence` on `xs: typing.Sequence[int]`, `graded-ssl.PROTOCOL_SSLv3`; `loader.load_module()`
+correctly NOT flagged — the dotted-literal form's documented low recall; the live remedy
+`collections.abc.Sequence` is never flagged). `lint_query kind=web` shows a GRADED state + the `graded`
+payload per node. `TRAIN_VERSION` → `docs-v92-graded-tier`. 250 lib green (+3: codec round-trip + gate
+calibration/dedup/flood + qualified-safe cut), gauntlets 21/3 green. See the PASS 27 ledger item.
 
 ---
 
@@ -1776,6 +1802,78 @@ form by a corpus-derived DISTINCTIVENESS check — a member is graded-fireable i
 (where it succeeds as a safety gate even though it failed as a family discriminator). That is a real
 graduation-lite pass + a full web-language retrain + clean/kitchen-sink fixture verification — a verified rung,
 not a one-shot, so it did NOT ship this pass rather than risk a flooding deploy. Probes are untracked scratch.
+
+### Item — COMPLETION PASS 27: the GRADED (LOW-severity) tier ships — PASS-26 RUNG B re-landed behind four measured gates (`lint_web.rs`, `lint_module.rs`, `lint_train.rs`, `lint_query.rs`, SHIPPED, 2026-07-14)
+
+> Owner ruling: *"it shouldn't abstain from information it knows — a linter that doesn't do anything isn't
+> a linter."* PASS 26 measured the graded tier to a wall (naive firing floods; the dotted/receiver-generic
+> split trades recall against flood-safety) and named the re-land condition: member-scope usage-death as a
+> safety gate + a graduation-lite clean check. PASS 27 is that re-land, with two ADDITIONAL gates the
+> measurement forced.
+
+**The mechanism.** A web node that is UNPROVEN but carries a revoked doc-role (deprecated/removal/
+prohibition — the PASS-25 role facts) may now carry a [`lint_web::GradedForm`] `{fire, severity:"low",
+description, source}`, computed at train time by [`lint_module::graded_forms`] and PERSISTED on the node
+(codec: trailing presence flag, bounds-safe — an old-format sidecar decodes to not-graded and rebuilds).
+[`lint_web::derive_graded_rules`] projects them as a SEPARATE view (`graded-<construct>` ids, empty
+bad/good, `construct = fire` so the module build compiles the same `uses_construct` plan the proven tier
+fires); `lint_train` appends them AFTER the proven merge — the proven set, its order, and the contradiction
+re-check are byte-identical. `lint_query kind=web` shows `state: GRADED` + the payload.
+
+**The four gates, each measured to be necessary:**
+1. **Qualified-safe** (PASS-26 cut, reused verbatim): real `owner.member`, both sides identifiers — kills
+   URL basenames (`ssl.html`), rustdoc anchors (`method.x`), bare members (`.read`), bare generics.
+2. **Member-scope usage-death + DEATH-VERDICT CALIBRATION** (the new gate this pass discovered): the member
+   is dead iff absent from the corpus's OTHER-page current example code — but a death verdict is TRUSTED
+   only when the same measurement finds ≥1 ALIVE member among the language's own qualified candidates.
+   MEASURED: python's corpus is 9 (huge) pages — ALL 92 candidates read "dead", including `.read`/`.write`,
+   and the receiver-generic form flagged `fh.read()` in the clean-modern fixture (the flood the tier must
+   never cause). javascript's 3052-page corpus split 10 dead / 11 alive — it discriminates. A corpus that
+   never witnesses life cannot certify death: a degenerate all-dead distribution is corpus POVERTY, and
+   every such form falls to the dotted-literal tier. Comparative, cited, no constant. (First cut of this
+   pass also fixed a corpus-truncation defect: capping blocks at 4000 cut python to its first 9 pages —
+   the graded corpus bound is now a runaway-only 2^20.)
+3. **Proven-coverage dedup**: MEASURED — javascript's proven 54 already contains the receiver-generic
+   member rules (`uses-.blink`, `uses-.getYear`, `uses-.compile`, `uses-.__defineGetter__`, …), so ALL 21
+   js/ts qualified-safe candidates are duplicates (kitchen-sink lines double-reported without this gate).
+   A graded form whose fire token, construct, or `.member` shape a proven rule already enforces is skipped
+   — the graded tier adds only NEW enforcement.
+4. **Clean-near-miss (graduation-lite)**: the chosen form must fire on NONE of the corpus's other-page
+   blocks (the attestation is the evidence; this is the flood guard). Dropped `AST.end_col_offset` /
+   `ast.AST.end_col_offset` (their dotted text rides other pages' current code).
+
+**The shipped funnel (honest numbers).** Candidates (revoked-role unproven nodes): css 4 / html 4 / js 76 /
+python 184 / rust 27 / ts 76. Qualified-safe: js/ts 21, python 92, css/html/rust 0. Death-calibrated
+receiver-generic: js/ts 10 dead of 21 BUT all 21 proven-covered → 0; python 92 "dead" UNTRUSTED (poverty) →
+0. Shipped: **python 90 dotted-literal LOW forms** (92 − 2 clean-check drops), **every other language 0**.
+The receiver-generic tier shipped EMPTY this pass — everywhere death was trusted, graduation had already
+proven the rule; the calibration gate exists so a poverty corpus can never fake the high-recall form.
+
+**Fixtures (real compiled `RuleSet::build` + `flag`).** clean-modern js/py 0 findings; landmine js/py 0
+(deprecated names inside strings/comments never fire — `scan_construct` skips lexical text); kitchen-sink
+js 5, ALL proven medium (`uses-.blink` line 1, `uses-.getYear` line 3, `uses-.compile` line 4,
+`uses-.__defineGetter__` line 5, `uses-.fontcolor` line 6 — the graded duplicates correctly absent);
+kitchen-sink py 2 LOW — `graded-typing.Sequence` (line 5, `xs: typing.Sequence[int]`) and
+`graded-ssl.PROTOCOL_SSLv3` (line 6). `loader.load_module()` is NOT flagged (the dotted-literal
+`SourceFileLoader.load_module` cannot match an instance receiver — the documented low-recall trade), and
+the remedy case the rung required is verified: `typing.Sequence`'s remedy `collections.abc.Sequence` is
+NEVER flagged (the dotted-literal form matches only the exact deprecated text; the AST holds no
+`typing.Sequence` node inside `collections.abc.Sequence`).
+
+**Regression + ship.** `cargo test --lib` green (+3: graded codec round-trip/derive, gate
+calibration/dedup/flood-safety, qualified-safe cut), gauntlets 21/3 green, cross-language partitions ∅
+(css/html/rust/js/ts graded = 0 ⇒ byte-identical firing surfaces there; python's proven 50 unchanged).
+`TRAIN_VERSION` → `docs-v92-graded-tier` (graded rules change python's rule set; the stale-tolerance path
+keeps other languages enforcing as-is until retrained). Probes: `examples/graded_measure.rs` (funnel per
+language), `examples/graded_fixtures.rs` (fixture regression) — untracked scratch, as `graded_probe`.
+
+**Honest remainder.** (i) The receiver-generic high-recall form ships nowhere today: python's corpus is too
+poor to calibrate death, and everywhere else the proven tier already owns the shape. It re-lands per
+language automatically the moment a crawl gives that language a corpus that witnesses ≥1 alive member.
+(ii) python's dotted-literal forms fire only receiver-qualified usage (`typing.Sequence`,
+`ssl.PROTOCOL_SSLv3`, `importlib.machinery.SourceFileLoader` chains) — instance-receiver deprecated calls
+(`loader.load_module()`) stay invisible at this tier by design. (iii) css/html/rust graded 0 is structural
+(their revoked constructs are proven or receiver-generic-only), unchanged from PASS 26.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 

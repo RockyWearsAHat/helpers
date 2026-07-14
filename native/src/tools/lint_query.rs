@@ -281,13 +281,20 @@ fn web(construct: &str, language: Option<&str>, role: Option<&str>) -> Value {
         "construct": construct,
         "language": lang,
         "found": true,
-        "state": if node.proven { "PROVEN (enforced)" } else { "READ (retained, unproven — never fired)" },
+        "state": if node.proven {
+            "PROVEN (enforced)"
+        } else if node.graded.is_some() {
+            "GRADED (evidence-graded LOW tier — fires on the attested deprecation)"
+        } else {
+            "READ (retained, unproven — never fired)"
+        },
         "governing_prose": node.governing,
         "meaning_links": node.meaning_links,
         "sources": node.sources,
         "attested_deprecated": node.attested_deprecated,
         "doc_roles": node.roles,
         "rule": node.rule.as_ref().map(|r| json!({ "id": r.id, "severity": r.severity, "description": r.description })),
+        "graded": node.graded.as_ref().map(|g| json!({ "fire": g.fire, "severity": g.severity, "description": g.description })),
         "traverses_to_concepts": concepts,
         "cross_language_connections": cross,
         "note": "meaning links are key-words into the FROZEN English web; their meaning is rebound on query, never copied. Interpretation is a traversal, not a stored label.",

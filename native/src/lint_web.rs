@@ -59,8 +59,36 @@ pub struct WebRule {
     pub source: String,
 }
 
+/// The GRADED (LOW-severity) firing form a REVOKED-role READ node graduated to (COMPLETION PASS 27) — the
+/// evidence-graded tier that replaces abstention ("a linter that doesn't do anything isn't a linter"). It
+/// is `Some` on an UNPROVEN node iff, at train time, the node carried a revoked doc-role (deprecated /
+/// removal / prohibition), was QUALIFIED-SAFE (a real `owner.member`, never a URL basename or rustdoc
+/// anchor form), was NOT already covered by a proven rule, AND a flood-safe firing form survived the
+/// member-scope usage-death (calibrated against the corpus's own candidate distribution) + clean-near-miss
+/// gates ([`crate::lint_module::graded_forms`]). It fires at LOW severity, its message citing the attested
+/// deprecation. NEVER present on a proven node (already enforced) and NEVER on a read-roleless node (no
+/// revoked fact to grade). Persisted on the node so the gates are computed once, at train time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GradedForm {
+    /// The construct token the LOW rule fires `uses_construct` on — either the receiver-generic `.member`
+    /// (when the member is USAGE-DEAD in the corpus's own other-page example code AND the corpus's death
+    /// verdicts are calibrated, so it flags real `x.member` usage with high recall) or the dotted-literal
+    /// `owner.member` (when the member is alive, or the corpus never witnessed a live member — safe, low
+    /// recall, fires only on the exact deprecated static text so a live remedy like
+    /// `collections.abc.Sequence` is never flagged for `typing.Sequence`).
+    pub fire: String,
+    /// LOW — the evidence-graded tier. Proven rules stay `medium`; graded findings are always `low`.
+    pub severity: String,
+    /// The evidence message shown — a prohibition citing the attested deprecation and the usage-death
+    /// basis (the RUNG's "documented deprecated ⟨cite⟩" + the corpus-death count).
+    pub description: String,
+    /// The doc URL the finding cites.
+    pub source: String,
+}
+
 /// One construct the language READ — a node in its understanding subgraph. Proven nodes are the rules
-/// (via [`WebRule`]); unproven nodes are retained knowledge (present, never enforced).
+/// (via [`WebRule`]); unproven nodes are retained knowledge (present, never enforced) — EXCEPT an unproven
+/// node carrying a [`GradedForm`], which fires the evidence-graded LOW tier (PASS 27).
 #[derive(Clone, Debug)]
 pub struct ConstructNode {
     /// The construct token — the node id, byte-preserved (`var`, `document.write`, `cgi`).
@@ -87,6 +115,10 @@ pub struct ConstructNode {
     pub proven: bool,
     /// The compiled rule VIEW — `Some` iff `proven`, byte-identical to the emitted `(rule, source)`.
     pub rule: Option<WebRule>,
+    /// The GRADED (LOW-severity) firing form (PASS 27) — `Some` only on an UNPROVEN, revoked-role node that
+    /// passed the train-time safety gates. Fires the evidence-graded tier; proven nodes and read-roleless
+    /// nodes carry `None` and never fire from here.
+    pub graded: Option<GradedForm>,
 }
 
 impl crate::lint_codec::Bin for WebRule {
@@ -110,6 +142,18 @@ impl crate::lint_codec::Bin for WebRule {
     }
 }
 
+impl crate::lint_codec::Bin for GradedForm {
+    fn enc(&self, e: &mut crate::lint_codec::Enc) {
+        e.str(&self.fire);
+        e.str(&self.severity);
+        e.str(&self.description);
+        e.str(&self.source);
+    }
+    fn dec(d: &mut crate::lint_codec::Dec) -> Option<GradedForm> {
+        Some(GradedForm { fire: d.str()?, severity: d.str()?, description: d.str()?, source: d.str()? })
+    }
+}
+
 impl crate::lint_codec::Bin for ConstructNode {
     fn enc(&self, e: &mut crate::lint_codec::Enc) {
         e.str(&self.construct);
@@ -123,6 +167,14 @@ impl crate::lint_codec::Bin for ConstructNode {
         if let Some(r) = &self.rule {
             r.enc(e);
         }
+        // PASS 27 — the graded form rides at the END, stamp-gated and bounds-safe: an old-format node
+        // (written before graded existed) simply lacks these bytes, and `dec` reads the trailing presence
+        // flag as `None` (`d.boolean()` past the buffer returns `None` → `unwrap_or_default` → not graded),
+        // so an unmigrated web decodes to zero graded findings and rebuilds on the next train.
+        e.boolean(self.graded.is_some());
+        if let Some(g) = &self.graded {
+            g.enc(e);
+        }
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<ConstructNode> {
         let construct = d.str()?;
@@ -134,7 +186,12 @@ impl crate::lint_codec::Bin for ConstructNode {
         let proven = d.boolean()?;
         let has_rule = d.boolean()?;
         let rule = if has_rule { Some(WebRule::dec(d)?) } else { None };
-        Some(ConstructNode { construct, governing, meaning_links, sources, attested_deprecated, roles, proven, rule })
+        // Trailing, back-compatible: absent bytes (old format) read as not-graded rather than failing.
+        let graded = match d.boolean() {
+            Some(true) => Some(GradedForm::dec(d)?),
+            _ => None,
+        };
+        Some(ConstructNode { construct, governing, meaning_links, sources, attested_deprecated, roles, proven, rule, graded })
     }
 }
 
@@ -222,11 +279,16 @@ fn links_of(m: &MeaningNetwork, governing: &[String]) -> Vec<String> {
 /// advice when the emitted rule's description differs); meaning links are extracted through the frozen brain.
 /// Node order follows outcome order, THEN read-surface order, so [`derive_rules`] (proven nodes only)
 /// reproduces the live rule order byte-identically — the read nodes carry no rule and never perturb it.
+/// `graded_by_construct` (PASS 27) carries the train-time-computed [`GradedForm`] for each UNPROVEN
+/// revoked-role construct that passed the safety gates ([`crate::lint_module::graded_forms`]); a read node
+/// whose construct is a key fires the evidence-graded LOW tier, every other node stays abstaining as before.
+/// Proven nodes never take a graded form (they already enforce). Empty map ⇒ byte-identical to PASS 25.
 pub fn build(
     m: &MeaningNetwork,
     outcomes: &[crate::lint_module::Outcome],
     read_surface: &[crate::lint_module::ReadConstruct],
     roles_by_construct: &HashMap<String, String>,
+    graded_by_construct: &HashMap<String, GradedForm>,
 ) -> Vec<ConstructNode> {
     let mut nodes = Vec::with_capacity(outcomes.len() + read_surface.len());
     let mut have: HashSet<String> = HashSet::new();
@@ -267,6 +329,7 @@ pub fn build(
             attested_deprecated: o.candidate.attested_deprecated,
             proven,
             rule,
+            graded: None, // a proven node enforces via its rule; it never takes the graded tier
         });
     }
     // EVERYTHING READ. Every construct the reader saw but the funnel never proposed enters as a retained
@@ -280,6 +343,7 @@ pub fn build(
         nodes.push(ConstructNode {
             meaning_links: links_of(m, &governing),
             roles: node_roles(&r.construct, r.attested_deprecated, roles_by_construct),
+            graded: graded_by_construct.get(&r.construct).cloned(),
             construct: r.construct.clone(),
             governing,
             sources: vec![r.url.clone()],
@@ -310,6 +374,31 @@ pub fn derive_rules(lang: &str, web: &[ConstructNode]) -> Vec<(crate::linter::Le
                     construct: Some(n.construct.clone()),
                 },
                 r.source.clone(),
+            ))
+        })
+        .collect()
+}
+
+/// DERIVE `lang`'s GRADED (LOW-severity) rules as a VIEW over the web (PASS 27): every UNPROVEN node
+/// carrying a [`GradedForm`], as `(LearnedRule, source)` pairs the module build compiles into a firing
+/// `uses_construct(fire)` detector. The rule id is `graded-<construct>` (never colliding with a proven
+/// `uses-<construct>`); `bad`/`good` are empty (the detector rides the plan, not an example diff). Appended
+/// AFTER the proven rules by the caller, so the proven set and its order stay byte-identical.
+pub fn derive_graded_rules(lang: &str, web: &[ConstructNode]) -> Vec<(crate::linter::LearnedRule, String)> {
+    web.iter()
+        .filter_map(|n| {
+            let g = n.graded.as_ref()?;
+            Some((
+                crate::linter::LearnedRule {
+                    language: lang.to_string(),
+                    id: format!("graded-{}", n.construct),
+                    severity: g.severity.clone(),
+                    description: g.description.clone(),
+                    bad: String::new(),
+                    good: String::new(),
+                    construct: Some(g.fire.clone()),
+                },
+                g.source.clone(),
             ))
         })
         .collect()
@@ -471,6 +560,7 @@ mod tests {
                 good: "let x = 1;".to_string(),
                 source: url.to_string(),
             }),
+            graded: None,
         }
     }
 
@@ -484,6 +574,7 @@ mod tests {
             roles: Vec::new(),
             proven: false,
             rule: None,
+            graded: None,
         }
     }
 
@@ -562,6 +653,38 @@ mod tests {
         assert_eq!(node_roles("cgi", true, &roles), vec!["removal", "deprecated"]);
         assert_eq!(node_roles("codecs.open", true, &roles), vec!["deprecated"]);
         assert_eq!(node_roles("var", false, &roles), Vec::<String>::new());
+    }
+
+    /// PASS 27 — a graded READ node SURVIVES the codec round-trip and DERIVES a LOW-severity rule that
+    /// fires its `fire` form, while the proven-rule view stays unmoved (graded rules are a SEPARATE tier).
+    #[test]
+    fn graded_forms_round_trip_and_derive_a_low_rule() {
+        let mut blink = read_only("String.blink");
+        blink.roles = vec!["deprecated".to_string()];
+        blink.attested_deprecated = true;
+        blink.graded = Some(GradedForm {
+            fire: ".blink".to_string(),
+            severity: "low".to_string(),
+            description: "Do not use the deprecated `.blink`.".to_string(),
+            source: "https://mdn/String/blink".to_string(),
+        });
+        let web = vec![proven("var", "Never use var.", "u"), blink, read_only("if")];
+
+        let mut e = crate::lint_codec::Enc::new();
+        web.clone().enc(&mut e);
+        let bytes = e.finish(crate::lint_codec::kind::WEB, "test-stamp");
+        let (_stamp, mut d) = crate::lint_codec::Dec::open(&bytes, crate::lint_codec::kind::WEB).expect("opens");
+        let back = <Vec<ConstructNode> as Bin>::dec(&mut d).expect("decodes");
+        assert_eq!(back.iter().find(|n| n.construct == "String.blink").unwrap().graded.as_ref().unwrap().fire, ".blink");
+
+        // The proven view is unmoved; the graded view is a separate LOW tier firing the `.blink` form.
+        assert_eq!(derive_rules("javascript", &back).len(), 1, "only the proven node is a medium rule");
+        let graded = derive_graded_rules("javascript", &back);
+        assert_eq!(graded.len(), 1, "one graded low rule");
+        assert_eq!(graded[0].0.id, "graded-String.blink");
+        assert_eq!(graded[0].0.severity, "low");
+        assert_eq!(graded[0].0.construct.as_deref(), Some(".blink"), "fires the receiver-generic form");
+        assert_eq!(graded[0].1, "https://mdn/String/blink");
     }
 
     /// Meaning links are the distinctive KEY-WORDS the frozen brain knows, ranked by centrality — no
