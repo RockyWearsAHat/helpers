@@ -512,7 +512,28 @@ construction-consumed removal's governing prose is a module-index sentence (cgi'
 the RELATION query (shared meaning-links) is sound, the concept-space landing is not yet doc-role-aware.
 Verdicts are byte-identical and the web is additive, so `TRAIN_VERSION` is UNMOVED (a bump would force a
 needless full retrain); the web is a new sidecar built on the next train, absent-tolerant on cold machines.
-245 lib green (+4). See the PASS 24 ledger item.
+245 lib green (+4). See the PASS 24 ledger item. **PASS 25 FILLS THE WEB TO EVERYTHING-READ AND GIVES
+TRAVERSAL DOC-ROLE CONCEPTS — both PASS-24 remainders CROSSED, byte-identical, shipped.** (i) The web now
+retains the FULL read surface: [`lint_module::propose`] captures every construct the reading layer extracts
+BEFORE subject selection ([`ReadConstruct`]), `graduate` returns the read constructs the funnel never
+proposed, and [`lint_web::build`] appends them as retained-UNPROVEN nodes (proven:false, no rule — knowledge,
+queryable, cross-linkable, NEVER fired). MEASURED (live path, `examples/web_pass24`): read-nodes go from
+`==` proven to STRICTLY greater — **css 22→26, html 17→21, javascript 54→130, python 50→234, rust 9→36,
+typescript 54→130** — while the PROVEN nodes (and thus the DERIVED rules) stay EXACTLY the PASS-24 set
+(css 22 / html 17 / javascript 54 / python 50 / rust 9 / typescript 54, every language round-tripping
+byte-identical: derive projects proven nodes only, retained-unproven nodes never perturb it). Web sizes stay
+KB-scale (delta-honest: python 6.4→16 KB for its +184 read nodes; no per-language cap needed). (ii) Doc-roles
+are now FIRST-CLASS TRAVERSAL TARGETS: a node carries `roles` from the proven faculties' OWN facts — the
+author-metadata attestation family (`"deprecated"`) and the construction KIND
+([`lint_construct::ConstructionKind::label`] → `"removal"`/`"prohibition"`), never a word list — and
+`lint_web::roles_across(role)` answers "what connects to REMOVAL" DIRECTLY: **24 python removal subjects
+(cgi, telnetlib, aifc, audioop, …), 577 deprecated across all webs, 0 prohibition (none proven)** —
+regardless of what the prose's index-words say (cgi's module-index prose no longer bounds the query). This
+replaces the noisy CS-primitive `concept_alignment` landing with the faculties' own role vocabulary. Live via
+`lint_query kind=web` (doc_roles shown per node; `role=` lists carriers, scoped to `language=` or across all
+webs). The web-node CODEC gained a `roles` field (same `WEB` kind 14, stamp-gated + bounds-safe: an
+old-format sidecar decodes to empty and rebuilds on the next train). Verdicts byte-identical, web additive →
+`TRAIN_VERSION` UNMOVED. 247 lib green (+2), gauntlets green. See the PASS 25 ledger item.
 
 ---
 
@@ -1628,6 +1649,60 @@ and a bump would force a needless full 82-language retrain + redeploy. The web i
 next train and absent-tolerant on cold machines (`load` returns empty, queries report "not trained").
 `LearnedRule` gains `PartialEq, Eq` (for the byte-identical assertion). 245 lib green (+4: three
 `lint_web` tests + the module byte-identical-view test).
+
+### Item — COMPLETION PASS 25: the web fills to EVERYTHING-READ and doc-roles become first-class traversal targets — both PASS-24 remainders crossed, byte-identical, SHIPPED (`lint_web.rs`, `lint_module.rs`, `lint_construct.rs`, `examples/web_pass24`, LANDED, 2026-07-14)
+
+> The owner's standing frame: "the web of a language should hold everything the reader understood — coverage
+> = everything-read, enforcement = the proven subset." PASS 24 landed the web but left two scoped remainders:
+> (i) read-nodes == proven-nodes (the web retained only the PROPOSED surface), and (ii) concept traversal was
+> noisy (CS-primitive vocabulary, not doc-role concepts). PASS 25 crosses BOTH under the frozen judging, with
+> no verdict change.
+
+**Rung 1 — EVERYTHING-READ retention.** The reading layer ([`lint_lang_layer::read_doc_page`]) already
+extracts every construct a page's role prohibits into `DocPage.constructs`; the funnel proposes only the
+page's strongest SUBJECT and DISCARDED the rest. Now [`lint_module::propose`] SNAPSHOTS the full
+`DocPage.constructs` — page subjects, item-unit subjects, the code-typography operator tokens of the
+governing prose — BEFORE the subject-selection mutation reduces it, as a `Vec<ReadConstruct>` (construct ⊗ a
+governing sentence from its own page ⊗ source ⊗ the page's structural attestation). `graduate` returns
+`(outcomes, read_surface)` where `read_surface` is the read constructs the funnel never proposed (deduped by
+token, `read_not_proposed`); [`lint_web::build`] appends them as retained-UNPROVEN nodes (`proven:false`, no
+`WebRule`). They are knowledge — queryable, cross-linkable, part of the coverage — and NEVER fire:
+[`derive_rules`] projects the PROVEN nodes only, so adding read nodes leaves the rule set byte-identical (the
+covenant). MEASURED (live path, `examples/web_pass24`, real crawl cache): read-nodes rise from `==` proven to
+strictly greater — **css 22→26 (+4), html 17→21 (+4), javascript 54→130 (+76), python 50→234 (+184),
+rust 9→36 (+27), typescript 54→130 (+76)** — while the PROVEN nodes / derived rules stay EXACTLY the PASS-24
+set (css 22 / html 17 / javascript 54 / python 50 / rust 9 / typescript 54), every language round-tripping
+byte-identical (persisted web reload → re-derive == live-derive, all six OK). Web sizes stay KB-scale and
+delta-honest (css 3.1 / html 2.9 / javascript 9.9 / python 16.0 / rust 3.0 / typescript 9.9 KB — the +184
+python read nodes cost ~9.5 KB of key-words + prose + urls, never the base); no per-language cap was needed.
+
+**Rung 2 — doc-role concepts for traversal.** A node now carries `roles: Vec<String>` derived from the
+proven faculties' OWN facts, NEVER a word list: the author-metadata attestation family contributes
+`"deprecated"` (from `attested_deprecated`, the umbrella), and the construction faculty contributes the
+SPECIFIC kind — [`lint_construct::ConstructionKind::label`] → `"removal"` / `"prohibition"` — keyed by
+subject via the new [`lint_construct::subject_roles`] (the same consumer binding, surfaced with its kind).
+`node_roles` orders specific-then-umbrella and never duplicates. The roles are TRAVERSAL TARGETS:
+[`lint_web::nodes_with_role`] (per web) and [`lint_web::roles_across`] (every sidecar) answer "what connects
+to REMOVAL" DIRECTLY — MEASURED: **`removal` → 24 python subjects (aifc, asynchat, asyncore, audioop, cgi,
+cgitb, chunk, crypt, distutils, imghdr, imp, mailcap, msilib, nis, nntplib, ossaudiodev, pipes, smtpd,
+sndhdr, spwd, sunau, telnetlib, uu, xdrlib); `deprecated` → 577 across all webs; `prohibition` → 0 (none
+proven)** — regardless of the prose's index-words (cgi's `cgi/python/gateway/manipulate/audio` module-index
+sentence no longer bounds the query, the PASS-24 wall). This is exposing existing proven facts to the query
+layer: no new judging, no concept geometry. Live via `lint_query kind=web` — `doc_roles` shown per node, and
+`role=<removal|prohibition|deprecated>` lists carriers (scoped to `language=` or across every web).
+
+**Wiring + regression.** `graduate` return became `(Vec<Outcome>, Vec<ReadConstruct>)`; `graduated_rules`
+threads `subject_roles` into `build`. The web-node CODEC gained a `roles` field (same `WEB` kind 14): the
+change is stamp-gated and BOUNDS-SAFE — an old-format sidecar (no roles) decodes to empty (`Vec` capacity
+capped, out-of-range reads return `None` → `unwrap_or_default`) and rebuilds on the next train, so no bad
+read is possible. Full regression: `cargo test --lib` **247 green (+2** doc-role round-trip/query + node-role
+derivation tests; the byte-identical-view test now asserts `web.len() == outcomes.len() + read.len()` with
+proven==rules unchanged); gauntlets `ai_linter_behaviors` **21** / `understanding_defects` **3** green;
+`examples/construct_consume` python **25→49 (0 perturbed/lost)** unchanged; cross-language partition ∅ and
+junk floor zero unmoved (verdicts byte-identical). Verdicts byte-identical + web additive → `TRAIN_VERSION`
+UNMOVED (a bump would force a needless full 82-language retrain). Deployed: the six webs rebuilt to the new
+format via the live path, binary re-signed, daemon restarted, `lint_query kind=web role=removal` verified
+live over MCP.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
