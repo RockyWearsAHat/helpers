@@ -56,6 +56,11 @@ pub mod kind {
     /// past retrains, kept retain-and-grow so a crawl-subset never silently drops a proven rule (owner
     /// correction 2026-07-12, point 4). A `Vec<DocRule>` keyed by the byte-preserved construct id.
     pub const GRADUATED: u8 = 12;
+    /// The per-language PROVEN CONSTRUCTION states ([`crate::lint_construct`]): sentence-scale invariant
+    /// scaffolds with a variant slot, PROVEN under the frozen ≥15/0-contradiction law against the
+    /// machine's own proven-deprecated subject set (PASS 22). Stamped, retain-and-grow beside the
+    /// graduated ledger. A `Vec<ConstructionState>`.
+    pub const CONSTRUCT: u8 = 13;
 }
 
 /// Hard ceiling on a declared inflated DATA stream (defense in depth at load — a crafted
