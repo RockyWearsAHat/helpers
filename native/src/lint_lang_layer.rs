@@ -89,6 +89,13 @@ pub struct DocPage {
     /// here, so this is the covenant-clean STRUCTURAL confirmation the caller uses to admit Python/Rust
     /// member subjects the URL cannot spell, without perturbing the URL-subject sites.
     pub marked_deprecated: Vec<Vec<String>>,
+    /// Whether this page was made a prohibition by BINDING a PROVEN CONSTRUCTION on its own prose (PASS
+    /// 23, [`crate::lint_construct::attested_subjects`]): its `constructs` are the construction's slot
+    /// subjects (firing-form module names), and the construction's PROOF — not the URL payload or a
+    /// per-page grammar demonstration — established both the language and the (removal-strength)
+    /// prohibition. The workflow lets such a subject bypass the URL-payload / lead gates and proves it
+    /// through the unchanged blind loop. `false` for every page reached the ordinary rule/notecard way.
+    pub construction_attested: bool,
 }
 
 /// The candidate construct SHAPES a deprecated REFERENCE page proposes for its subject, most-specific
@@ -627,7 +634,14 @@ fn operator_tokens(code: &str) -> Vec<String> {
 ///   the page's own `class="incorrect"`/`class="correct"` example blocks.
 /// - **Deprecated reference page:** candidate = the construct its definition sentence names (the page's
 ///   subject), prohibited by the deprecation notecard; no paired examples.
-pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge, attested: &std::collections::HashSet<String>) -> DocPage {
+pub fn read_doc_page(
+    url: &str,
+    body: &str,
+    _en: &English,
+    bridge: &Bridge,
+    attested: &std::collections::HashSet<String>,
+    construction: &std::collections::HashMap<String, Vec<String>>,
+) -> DocPage {
     let reference = is_reference_page(url);
     let rule = is_rule_page(url);
     // Only a PROHIBITION page contributes — a linter rule page, or a reference page the LEARNED attester
@@ -645,6 +659,7 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge, atte
         correct: Vec::new(),
         example_code: Vec::new(),
         marked_deprecated: Vec::new(),
+        construction_attested: false,
     };
     // A deprecation NOTECARD makes a page a prohibition regardless of the `/reference/` URL marker: MDN
     // renders the same notecard on a `/Web/API/Document/write`-style API page that has no `/reference/`
@@ -652,7 +667,16 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge, atte
     // ([`crate::lint_module::page_proves_in_lang`]) is the real guard against a wrong-language leak — so
     // dropping the URL-marker requirement cannot cross the partition ∅. Reference vs non-reference only
     // decides HOW the subject's construct SHAPE is derived below.
-    let attested_deprecated = !rule && attested.contains(url);
+    //
+    // A page can ALSO become a prohibition by BINDING A PROVEN CONSTRUCTION on its own prose (PASS 23):
+    // the caller-supplied `construction` map carries, per url, the construction's slot subjects (already
+    // firing-form). Such a page attests its subject deprecated exactly as a notecard does — the
+    // construction's PROOF stands in for the notecard's structural fact — but its subject bypasses the
+    // URL-payload / lead gates downstream (the construction proved the subject, not the URL shape).
+    let existing_attested = !rule && attested.contains(url);
+    let construction_subjects: Vec<String> = construction.get(url).cloned().unwrap_or_default();
+    let construction_attested = !rule && !existing_attested && !construction_subjects.is_empty();
+    let attested_deprecated = existing_attested || construction_attested;
     if !rule && !attested_deprecated {
         return empty;
     }
@@ -692,6 +716,16 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge, atte
         for block in &incorrect {
             for t in operator_tokens(block) {
                 push(t, &mut constructs);
+            }
+        }
+    } else if construction_attested {
+        // CONSTRUCTION-BOUND page (PASS 23): the subject(s) the proven construction named in this page's
+        // own prose ARE the constructs — already firing-form module names (`cgi`, `telnetlib`). No
+        // URL/item/member shape derivation and no example corpus: the construction's proof IS the subject
+        // confirmation, so the caller admits the subject directly and proves it through the blind loop.
+        for c in &construction_subjects {
+            if !constructs.contains(c) {
+                constructs.push(c.clone());
             }
         }
     } else {
@@ -741,7 +775,7 @@ pub fn read_doc_page(url: &str, body: &str, _en: &English, bridge: &Bridge, atte
         }
     }
 
-    DocPage { url: url.to_string(), prohibited, attested_deprecated, governing, constructs, incorrect, correct, example_code, marked_deprecated }
+    DocPage { url: url.to_string(), prohibited, attested_deprecated, governing, constructs, incorrect, correct, example_code, marked_deprecated, construction_attested }
 }
 
 #[cfg(test)]
@@ -817,7 +851,7 @@ mod tests {
             <div class="correct"><pre class="language-js"><code>a ~~~ b</code></pre></div>
             </body></html>"#;
         let url = "https://example.org/docs/latest/rules/no-loose";
-        let page = read_doc_page(url, body, en, &bridge, &std::collections::HashSet::new());
+        let page = read_doc_page(url, body, en, &bridge, &std::collections::HashSet::new(), &std::collections::HashMap::new());
         assert!(page.prohibited, "a /rules/ page is a prohibition by its role");
         assert!(page.constructs.contains(&"~~".to_string()), "the operator candidate is read: {:?}", page.constructs);
         assert!(page.incorrect.iter().any(|b| b.contains("~~")), "the page's own bad example is captured");
@@ -867,7 +901,7 @@ mod tests {
         // The caller attested this url from the page's own metadata banner (the corpus-discovered P=R=1.000
         // markers live in `examples/metajoin`); here we exercise the attestation → construct-shape path.
         let attested = std::collections::HashSet::from([url.to_string()]);
-        let page = read_doc_page(url, body, en, &bridge, &attested);
+        let page = read_doc_page(url, body, en, &bridge, &attested, &std::collections::HashMap::new());
         assert!(page.prohibited && page.attested_deprecated, "a notecard page is a prohibition without /reference/");
         assert!(page.constructs.contains(&"obj.qux".to_string()), "qualified shape proposed: {:?}", page.constructs);
         assert!(
@@ -886,7 +920,7 @@ mod tests {
         let bridge = Bridge::new(br.meanings(), en);
         let body = r#"<html><body><h1>qux</h1>
             <p>The <code>qux</code> operator combines two values into one clearly.</p></body></html>"#;
-        let page = read_doc_page("https://example.org/reference/operators/qux", body, en, &bridge, &std::collections::HashSet::new());
+        let page = read_doc_page("https://example.org/reference/operators/qux", body, en, &bridge, &std::collections::HashSet::new(), &std::collections::HashMap::new());
         assert!(!page.prohibited, "a reference page with no deprecation notecard is not a prohibition");
         assert!(page.constructs.is_empty(), "no construct proposed from a non-prohibition page");
     }
