@@ -1867,6 +1867,19 @@ calibration/dedup/flood-safety, qualified-safe cut), gauntlets 21/3 green, cross
 keeps other languages enforcing as-is until retrained). Probes: `examples/graded_measure.rs` (funnel per
 language), `examples/graded_fixtures.rs` (fixture regression) — untracked scratch, as `graded_probe`.
 
+**Deployed + live-verified (2026-07-14).** Release binary cp'd to both paths (`~/bin`, `~/.local/bin`),
+`xattr -c` + ad-hoc re-signed (no daemon was running to kill). All six languages retrained under
+`docs-v92-graded-tier` via the deployed binary (`lint_config action=train lang=<l>`, empty root): css 24 /
+html 18 / javascript 53 / typescript 53 / **python 125** / rust 11 rules. Python's live module = 50 proven
++ **73 graded LOW** + 2 retained-ledger rules — the live train's catalog memory is richer than the probe's
+reconstruction, so 17 more of the probe's 90 fell to the gates (honest live number). Live verification
+verbatim: `lint_query kind=web arg=typing.Sequence language=python` → `state: "GRADED (evidence-graded LOW
+tier — fires on the attested deprecation)"`, `graded: {fire: "typing.Sequence", severity: "low", …}`;
+`call lint` over the fixture dir → `Verdict: 7 issue(s) … 0 high, 5 medium, 2 low` — kitchen_sink.js 5
+medium (all proven: `uses-.blink` L1, `uses-.getYear` L3, `uses-.compile` L4, `uses-.__defineGetter__` L5,
+`uses-.fontcolor` L6), kitchen_sink.py 2 low (`graded-typing.Sequence` L5, `graded-ssl.PROTOCOL_SSLv3` L6,
+each citing its docs.python.org page), clean-modern and landmine files ZERO in both languages.
+
 **Honest remainder.** (i) The receiver-generic high-recall form ships nowhere today: python's corpus is too
 poor to calibrate death, and everywhere else the proven tier already owns the shape. It re-lands per
 language automatically the moment a crawl gives that language a corpus that witnesses ≥1 alive member.
