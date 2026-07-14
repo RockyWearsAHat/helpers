@@ -191,7 +191,7 @@ fn main() {
                 }
             };
         let t = Instant::now();
-        let outcomes = lint_module::graduate(lang, &lang_pages, &memory, m, en);
+        let outcomes = lint_module::graduate(lang, &lang_pages, &memory, m, en, &[]);
         let elapsed = t.elapsed();
         total += elapsed;
         let proven: Vec<&Outcome> = outcomes.iter().filter(|o| o.rule.is_some()).collect();
