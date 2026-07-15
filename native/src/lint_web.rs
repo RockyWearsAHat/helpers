@@ -86,6 +86,31 @@ pub struct GradedForm {
     pub source: String,
 }
 
+/// A source's sentence that DENIES a role this web proved (PASS 30 — the self-referee's contradiction
+/// record). First-class signal: one side is wrong, and resolving which is learning — so it is persisted
+/// on the node, surfaced by `lint_query kind=web`, and it withholds the node's graded form (the
+/// evidence-graded tier requires uncontradicted evidence).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Contradiction {
+    /// The page whose sentence disagrees with the web's proven role.
+    pub source: String,
+    /// The disagreeing sentence (head-capped at persist time).
+    pub sentence: String,
+}
+
+/// The SELF-REFEREE verdicts a revoked-role node accumulated at train time (PASS 30): the machine's own
+/// web judging every OTHER source's claim about the construct. Coherence = independent corroboration
+/// (distinct source URLs whose own sentence asserts the same revocation); contradiction = a source
+/// denying it. Both capped; `None` on a node no other source speaks about (the honest sparse state —
+/// MEASURED starting point on the python corpora: 2 coherent, 0 contradictions across 208 revoked nodes).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Corroboration {
+    /// Distinct OTHER-source URLs asserting the node's revoked role.
+    pub coherent: Vec<String>,
+    /// Sources denying the node's revoked role — the contradiction records.
+    pub contradictions: Vec<Contradiction>,
+}
+
 /// One construct the language READ — a node in its understanding subgraph. Proven nodes are the rules
 /// (via [`WebRule`]); unproven nodes are retained knowledge (present, never enforced) — EXCEPT an unproven
 /// node carrying a [`GradedForm`], which fires the evidence-graded LOW tier (PASS 27).
@@ -119,6 +144,9 @@ pub struct ConstructNode {
     /// passed the train-time safety gates. Fires the evidence-graded tier; proven nodes and read-roleless
     /// nodes carry `None` and never fire from here.
     pub graded: Option<GradedForm>,
+    /// The SELF-REFEREE record (PASS 30) — `Some` iff other sources spoke about this revoked-role
+    /// construct at train time (corroborating sources and/or contradictions).
+    pub referee: Option<Corroboration>,
 }
 
 impl crate::lint_codec::Bin for WebRule {
@@ -175,6 +203,13 @@ impl crate::lint_codec::Bin for ConstructNode {
         if let Some(g) = &self.graded {
             g.enc(e);
         }
+        // PASS 30 — the self-referee record rides after the graded form, same trailing bounds-safe shape.
+        e.boolean(self.referee.is_some());
+        if let Some(r) = &self.referee {
+            r.coherent.enc(e);
+            (r.contradictions.iter().map(|c| c.source.clone()).collect::<Vec<_>>()).enc(e);
+            (r.contradictions.iter().map(|c| c.sentence.clone()).collect::<Vec<_>>()).enc(e);
+        }
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<ConstructNode> {
         let construct = d.str()?;
@@ -191,7 +226,22 @@ impl crate::lint_codec::Bin for ConstructNode {
             Some(true) => Some(GradedForm::dec(d)?),
             _ => None,
         };
-        Some(ConstructNode { construct, governing, meaning_links, sources, attested_deprecated, roles, proven, rule, graded })
+        // PASS 30 trailing referee record — same back-compatible read.
+        let referee = match d.boolean() {
+            Some(true) => {
+                let coherent = <Vec<String> as crate::lint_codec::Bin>::dec(d)?;
+                let srcs = <Vec<String> as crate::lint_codec::Bin>::dec(d)?;
+                let sents = <Vec<String> as crate::lint_codec::Bin>::dec(d)?;
+                let contradictions = srcs
+                    .into_iter()
+                    .zip(sents)
+                    .map(|(source, sentence)| Contradiction { source, sentence })
+                    .collect();
+                Some(Corroboration { coherent, contradictions })
+            }
+            _ => None,
+        };
+        Some(ConstructNode { construct, governing, meaning_links, sources, attested_deprecated, roles, proven, rule, graded, referee })
     }
 }
 
@@ -289,6 +339,7 @@ pub fn build(
     read_surface: &[crate::lint_module::ReadConstruct],
     roles_by_construct: &HashMap<String, String>,
     graded_by_construct: &HashMap<String, GradedForm>,
+    referee_by_construct: &HashMap<String, Corroboration>,
 ) -> Vec<ConstructNode> {
     let mut nodes = Vec::with_capacity(outcomes.len() + read_surface.len());
     let mut have: HashSet<String> = HashSet::new();
@@ -330,6 +381,7 @@ pub fn build(
             proven,
             rule,
             graded: None, // a proven node enforces via its rule; it never takes the graded tier
+            referee: referee_by_construct.get(&o.candidate.construct).cloned(),
         });
     }
     // EVERYTHING READ. Every construct the reader saw but the funnel never proposed enters as a retained
@@ -344,6 +396,7 @@ pub fn build(
             meaning_links: links_of(m, &governing),
             roles: node_roles(&r.construct, r.attested_deprecated, roles_by_construct),
             graded: graded_by_construct.get(&r.construct).cloned(),
+            referee: referee_by_construct.get(&r.construct).cloned(),
             construct: r.construct.clone(),
             governing,
             sources: vec![r.url.clone()],
@@ -561,6 +614,7 @@ mod tests {
                 source: url.to_string(),
             }),
             graded: None,
+            referee: None,
         }
     }
 
@@ -575,6 +629,7 @@ mod tests {
             proven: false,
             rule: None,
             graded: None,
+            referee: None,
         }
     }
 
@@ -583,9 +638,17 @@ mod tests {
     /// delete the web, re-read it, re-derive — the same rules). An unproven READ node contributes NO rule.
     #[test]
     fn round_trips_and_derives() {
+        let mut refereed = read_only("if");
+        refereed.referee = Some(Corroboration {
+            coherent: vec!["https://docs/other-page".to_string()],
+            contradictions: vec![Contradiction {
+                source: "https://docs/dissenter".to_string(),
+                sentence: "if is not deprecated".to_string(),
+            }],
+        });
         let web = vec![
             proven("var", "Never use the var keyword.", "https://docs/no-var"),
-            read_only("if"), // retained, unproven — present but never a rule
+            refereed, // retained, unproven — present but never a rule; carries a PASS-30 referee record
             proven("eval", "Disallow the eval function.", "https://docs/no-eval"),
         ];
         let mut e = crate::lint_codec::Enc::new();
@@ -595,6 +658,12 @@ mod tests {
         assert_eq!(stamp, "test-stamp");
         let back = <Vec<ConstructNode> as Bin>::dec(&mut d).expect("decodes");
         assert_eq!(back.len(), 3);
+        // PASS 30 — the referee record round-trips; the un-refereed nodes stay None.
+        let r = back[1].referee.as_ref().expect("referee record survives the codec");
+        assert_eq!(r.coherent, vec!["https://docs/other-page".to_string()]);
+        assert_eq!(r.contradictions.len(), 1);
+        assert_eq!(r.contradictions[0].source, "https://docs/dissenter");
+        assert!(back[0].referee.is_none() && back[2].referee.is_none());
 
         // Rules are a VIEW: exactly the proven nodes, in order, byte-identical to the emitted set.
         let derived = derive_rules("javascript", &back);

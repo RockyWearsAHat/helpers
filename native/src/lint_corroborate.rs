@@ -143,6 +143,38 @@ pub fn is_negated(en: &English, statement: &str) -> bool {
         .any(|t| en.is_negation(token_seed(&t.to_lowercase())))
 }
 
+/// What a sentence CLAIMS about revocation (PASS 30 — the self-referee's atom). Decided by exactly two
+/// frozen faculties: the negation classifier ([`is_negated`]) × the author status anchors
+/// (`deprecation-status.json` `prohibits`/`removed` — the same data every attestation faculty joins).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevocationClaim {
+    /// The sentence asserts revocation ("X is deprecated", "X was removed in 3.13").
+    Asserts,
+    /// The sentence DENIES revocation ("X is not deprecated") — a contradiction candidate against a
+    /// web node whose revoked role the machine proved.
+    Denies,
+    /// No revocation assertion either way — remedy prose ("use urllib.parse instead of cgi"),
+    /// descriptions, and imperative guidance all read NEUTRAL: the advice register is unproven (thrice
+    /// measured), so the referee never manufactures a contradiction from it.
+    Neutral,
+}
+
+/// Classify `statement`'s revocation claim: a status anchor as a bounded word × the statement's
+/// negation polarity. `negated` is passed in so a caller with a precomputed pool polarity
+/// (`lint_module`'s sentence pool) never re-runs the classifier. Truth table measured on the real
+/// corpus before shipping (LINTER.md PASS 30): (anchor, ¬neg) → Asserts, (anchor, neg) → Denies,
+/// no anchor → Neutral.
+pub fn revocation_claim(statement: &str, negated: bool, anchors: &[String]) -> RevocationClaim {
+    let revokes = statement
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .any(|w| anchors.iter().any(|a| a.eq_ignore_ascii_case(w)));
+    match (revokes, negated) {
+        (true, false) => RevocationClaim::Asserts,
+        (true, true) => RevocationClaim::Denies,
+        _ => RevocationClaim::Neutral,
+    }
+}
+
 /// The CONSISTENCY of two English statements: how nearly they assert the same thing. Ordered
 /// LEXICOGRAPHICALLY — `polarity_mismatch` dominates `reference_distance` — so opposite polarity is
 /// maximally inconsistent regardless of topic, and among same-polarity statements the directed-reference
@@ -221,6 +253,23 @@ mod tests {
     /// real bedrock, so tests observe against it or skip honestly — never fake a pass).
     fn brains() -> Option<(&'static lint_char::CharReader, &'static English)> {
         Some((lint_char::brain()?, lint_english::brain()?))
+    }
+
+    #[test]
+    fn revocation_claim_reads_the_measured_truth_table() {
+        // PASS 30 — the self-referee's atom, the exact table measured on the real corpus (LINTER.md):
+        // (anchor, ¬neg) → Asserts; (anchor, neg) → Denies; no anchor → Neutral either polarity. The
+        // remedy sentence is the load-bearing Neutral: it must never manufacture a contradiction.
+        let anchors = vec!["deprecated".to_string(), "removed".to_string()];
+        assert_eq!(revocation_claim("the cgi module is deprecated", false, &anchors), RevocationClaim::Asserts);
+        assert_eq!(revocation_claim("cgi was removed in python 3.13", false, &anchors), RevocationClaim::Asserts);
+        assert_eq!(revocation_claim("cgi is not deprecated", true, &anchors), RevocationClaim::Denies);
+        assert_eq!(revocation_claim("use urllib.parse instead of cgi", false, &anchors), RevocationClaim::Neutral);
+        assert_eq!(revocation_claim("do not use the cgi module", true, &anchors), RevocationClaim::Neutral);
+        // Bounded word: an anchor inside a longer token never matches.
+        assert_eq!(revocation_claim("the undeprecatedish flag", false, &anchors), RevocationClaim::Neutral);
+        // No anchors (a machine without the datum) ⇒ honest abstention.
+        assert_eq!(revocation_claim("x is deprecated", false, &[]), RevocationClaim::Neutral);
     }
 
     #[test]
