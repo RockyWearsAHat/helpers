@@ -2154,6 +2154,35 @@ fact-rendering makes this cosmetic for enforcement, but selecting the true prohi
 for python; regenerating fixtures from the WEB (oracle upstream of the stage under test) is open — the
 conservation invariant closes the silent-loss class those fixtures could not see.
 
+### Item — COMPLETION PASS 32: the WHOLE-SYSTEM ACCEPTANCE — every enforced construct proven end-to-end, all six languages (`lint_trace.rs`, `native/acceptance/`, SHIPPED, 2026-07-15)
+
+> Owner acceptance demand: "All understanding from docs properly lints incorrect files, recommends
+> outdated things to be fixed, and is happy with up to date and good code." Proven by the harness the
+> PASS-31 lesson required: fixtures GENERATED FROM THE ENFORCED SHAPES (upstream-seeded, never
+> hand-picked), one planted violation per enforced construct per language, plus a modern clean file.
+
+**The one defect it caught, fixed:** css pseudo-selectors attached to an element
+(`button::-moz-focus-inner`, the real-world form) never fired — `scan_construct`'s exact-node-text
+match only saw the BARE selector (the selector node's text includes the element). Fixed as the mirror
+of the receiver-generic `.member` shape: [`scan_pseudo`] matches the NAME node whose preceding source
+bytes are exactly the construct's own colon run (a `:x` construct never fires inside `::x`).
+Grammar-agnostic, no language named. Side effect measured: the blind loop can now PROVE
+element-attached pseudo shapes — css gained `uses-:host-context` (MDN-deprecated, truth-checked).
+`TRAIN_VERSION` → `docs-v97-pseudo-shape` (firing semantics changed ⇒ verdict caches invalidate).
+
+**The acceptance result (deployed binary, forced v97 retrain, all diffs truth-checked):**
+javascript 53/53, typescript 53/53, css 23/23, html 17/17, rust 9/9, python 110/110 planted
+constructs fire at their EXACT lines with citations; every clean modern file — DOM-API js with
+`m.clear()`, flex/grid css, semantic html, `trim_start`/`compare_exchange` rust, `TaskGroup`/
+`collections.abc` python, deprecated names in comments/strings throughout — ZERO findings; python's
+13 counter-attested plants stay silent. The harness is committed (`native/acceptance/`) and re-runs
+against any deployed binary (`HELPERS_BIN=… python3 verify_acceptance.py`).
+
+**Batch-train gotcha, ledgered:** one language in a six-language rm-and-retrain loop can end up with a
+STALE-STAMPED module (rust twice carried docs-v92 after a v96/v97 loop — cause unresolved, likely the
+per-language loop racing the project-scoped batch); the harness catches it (module_count 0 ⇒ FAIL), and
+the check is now part of acceptance: verify every language's `completion.train_version` after a batch.
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
