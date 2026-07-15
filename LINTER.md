@@ -2094,6 +2094,66 @@ proofs were valid, but the retrain regression and deploy were re-run under a `ca
 binary whose embedded `TRAIN_VERSION` string was verified before deploy (the new deploy covenant: check
 the version string in the shipped artifact, not the file date).
 
+### Item — COMPLETION PASS 31: THE COLLAPSE — presentation can never veto proven understanding (`lint_match/mod.rs`, SHIPPED, 2026-07-14)
+
+> Owner ruling (this session, direct): the architecture agreed on is SIMPLE — the web is the source of
+> truth, LANGUAGE UNDERSTANDING IS WHAT DRIVES LINTING (standing ruling), and a construct the machine has
+> PROVEN revoked is enforced. "Remove the legacy shit." MEASURED VIOLATION (`HELPERS_LINT_TRACE`):
+> javascript's web carries 54 PROVEN nodes; the module enforced 51 — `uses-document.write`,
+> `uses-createNSResolver`, `uses-clear` all dropped at the ENTRY GATE ("no sentence classifies as a
+> prohibition"), a SENTENCE-ERA gate judging the rule's DISPLAY SENTENCE. The sentence was junk because
+> the governing-sentence selector prefers overt negators and MDN's real lead ("use of document.write() is
+> strongly discouraged") carries none — so the XML/XHTML trivia footnote won, and a presentation
+> classifier silently unenforced a proven deprecation. Proof, presentation, and enforcement were
+> entangled; the linter knew and did nothing (violating the abstention ruling too).
+
+**The collapse.** The entry gate keeps its real job — it exists for UNPROVEN learned prose (the go.dev
+narration / MDN remedy-prose junk class) — but it can no longer VETO a GRADUATED construct rule. On
+entry-gate failure, a construct-carrying rule is RESCUED iff its firing SHAPE is flood-safe, judged by the
+build's existing LEARNED over-generality machinery (never a word list): a dotted qualified chain
+(`document.write`) is inherently narrow; a bare token must be neither common English, nor ubiquitous in
+the language's own reference corpus, nor an uncontrasted keyword (`createNSResolver` passes; `clear` — a
+common word that would flood every `map.clear()` — is WITHHELD with the named reason). A rescued rule's
+description is RE-RENDERED FROM THE FACT — "Do not use `X`: documented deprecated ⟨cite⟩" (the graded
+tier's honest register) — never the mis-selected sentence: presentation is derived from knowledge, not
+the other way around.
+
+**The invariant (permanent):** every PROVEN web node either ENFORCES or carries a NAMED SHAPE reason —
+"proven but silently unenforced" is now a failure class with a test, not a bug to rediscover.
+
+**Shipped + live-verified (docs-v96-collapse, 2026-07-15).** Three pieces landed:
+1. **The rescue** (`lint_match::RuleSet::build`, entry gate): a construct-carrying rule the sentence
+   classifier rejects is rescued iff its SHAPE is flood-safe — dotted chains always; a BARE token only
+   when the dictionary carries NO definition for it (an English-word construct like `clear` names
+   arbitrary user identifiers; the jargon compound `createNSResolver` collides with nothing) AND the
+   learned over-generality read passes; brainless ⇒ no bare certification (honest abstention). Rescued
+   descriptions are RE-RENDERED FROM THE FACT ("Do not use `X`: documented deprecated ⟨cite⟩.").
+2. **The conservation ledger** (`RuleSet::withheld`, persisted in the module codec — trailing,
+   bounds-safe): EVERY compile drop is recorded `(id, named gate)`, including the previously-silent
+   dedup/empty paths; `lint_query kind=rules` surfaces it. Nothing vanishes.
+3. **The train-time invariant** (`lint_train::proven_conservation_violations`): a PROVEN rule absent
+   from the compile without an ACCEPTED reason (flood-unsafe shape, duplicate id/pattern) FAILS the
+   language's train loudly — the module is NOT saved when the compile disagrees with the web.
+
+**Measured (forced six-language retrain, diff vs docs-v95):** zero removals anywhere; javascript +2
+(`uses-document.write`, `uses-createNSResolver` — the ledgered product gap, closed), typescript +2
+(same), html +1 (`uses-zoomAndPan`), python +15 graded (fully-qualified importlib spellings,
+`tkinter.Variable.trace_*` family, `OPTIMIZED_BYTECODE_SUFFIXES` — all previously entry-gate-vanished,
+every one truth-checked a genuine documented deprecation), css/rust unchanged. `uses-clear` withheld:
+`"entry gate (proven fact withheld: flood-unsafe bare shape)"` — queryable. END-TO-END:
+`document.write("…")` flags medium with the fact-rendered MDN citation; a clean DOM-API file with
+`m.clear()` stays ZERO (the withheld shape never floods); the python planted fixture holds 110/110
+fire / 13 counter-attested silent / clean zero. 256 lib tests green (+1 covering rescue,
+fact-rendering, the named withhold, and the brainless-abstention arm).
+
+**Honest remainder.** (i) `uses-clear`'s knowledge is enforceable only under a qualified shape
+(`document.clear`) — shape REQUALIFICATION (deriving the owner-qualified form for a flood-unsafe bare
+proven construct) is the named next rung. (ii) The sentence selector still prefers overt negators; the
+fact-rendering makes this cosmetic for enforcement, but selecting the true prohibition lead (MDN's
+"strongly discouraged") for PRESENTATION is open. (iii) The acceptance harness is still rule-list-seeded
+for python; regenerating fixtures from the WEB (oracle upstream of the stage under test) is open — the
+conservation invariant closes the silent-loss class those fixtures could not see.
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the

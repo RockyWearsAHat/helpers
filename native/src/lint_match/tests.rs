@@ -593,3 +593,80 @@ fn clean_idiomatic_file_produces_no_findings() {
     let src = "def greet(name):\n    return f\"hello {name}\"\n\nconfig = {\"first\": 90, \"second\": 85}\n";
     assert!(set.flag(src).is_empty(), "clean idiomatic code must yield zero findings");
 }
+
+#[test]
+fn proven_construct_rules_survive_the_entry_gate_with_fact_rendered_descriptions() {
+    // The bare-shape arm reads the on-disk brain through env-resolved paths; hold the crate env lock
+    // so a concurrently-running env-mutating test cannot steal the model dir mid-read.
+    let _env = crate::test_env_lock();
+    // PASS 31 — THE COLLAPSE (owner ruling: understanding drives linting; presentation never vetoes
+    // proven law). A GRADUATED construct rule whose DISPLAY sentence reads as trivia (the measured
+    // document.write case: the selector stapled the XML/XHTML footnote to a proven deprecation) must
+    // still enforce — with its description re-rendered from the FACT — while a flood-unsafe bare shape
+    // stays withheld with its reason named. The invariant: proven ⇒ enforced ∨ named shape reason.
+    let ground = Grounding { polarity: Some(std::sync::Arc::new(polarity())), ..Default::default() };
+    let junk = "xyzzy qwerty plugh zork.";
+
+    // Dotted qualified chain: inherently narrow — rescued, fires, fact-rendered.
+    let dotted = [rule_plan("uses-document.write", "document.write(\"<b>hi</b>\");", "", junk, "document.write")];
+    let set = RuleSet::build("javascript", &dotted, &ground);
+    assert_eq!(set.rule_count(), 1, "a proven dotted construct is never vetoed by its display sentence");
+    assert_eq!(lines_for(&set.flag("document.write(\"x\");"), "uses-document.write"), vec![1]);
+    let desc = set
+        .rule_details()
+        .into_iter()
+        .find(|(id, ..)| id == "uses-document.write")
+        .map(|(_, _, d, _)| d)
+        .expect("rule present");
+    assert!(
+        desc.contains("documented deprecated") && desc.contains("test://rule"),
+        "presentation derives from the fact, never the mis-selected sentence: {desc}"
+    );
+
+    // The bare-shape arms read the dictionary through the char brain; a suite-run process may have
+    // cached it as None under a test-mutated env (the known global-init race) — exercise the
+    // brainless contract then, exactly as the neighboring brain-dependent tests skip honestly.
+    if crate::lint_char::brain().is_some() {
+        // Bare RARE identifier: no dictionary definition, not corpus-ubiquitous — rescued.
+        let rare = [rule_plan("uses-createNSResolver", "createNSResolver(n);", "", junk, "createNSResolver")];
+        assert_eq!(
+            RuleSet::build("javascript", &rare, &ground).rule_count(),
+            1,
+            "a rare bare construct is a pointable shape and survives"
+        );
+        // Bare ENGLISH word: the flood-unsafe shape (`clear` fires on every map.clear()) — withheld
+        // with a NAMED reason in the conservation ledger, never silently vanished.
+        let flood = [rule_plan("uses-clear", "clear();", "", junk, "clear")];
+        let set = RuleSet::build("javascript", &flood, &ground);
+        assert_eq!(set.rule_count(), 0, "a flood-unsafe bare shape stays withheld");
+        let (id, gate) = set.withheld().first().expect("the loss is recorded, never silent");
+        assert_eq!(id, "uses-clear");
+        assert!(gate.contains("flood-unsafe"), "the reason is named: {gate}");
+    } else {
+        // Without the dictionary NO bare shape can be certified flood-safe: withheld, named.
+        let rare = [rule_plan("uses-createNSResolver", "createNSResolver(n);", "", junk, "createNSResolver")];
+        let set = RuleSet::build("javascript", &rare, &ground);
+        assert_eq!(set.rule_count(), 0, "brainless: bare shapes are never certified flood-safe");
+        assert!(
+            set.withheld().iter().any(|(_, g)| g.contains("flood-unsafe")),
+            "…and the withholding reason is named"
+        );
+        eprintln!("skip: char brain unavailable in this process — exercised the brainless arm instead");
+    }
+
+    // A prohibition-classifying sentence keeps today's path byte-identical: no rescue, no rewrite.
+    let stated = [rule_plan(
+        "uses-with",
+        "with (obj) { a = 1; }",
+        "const a = obj.a;",
+        "Never use this deprecated broken pattern anywhere in scripts.",
+        "with",
+    )];
+    let set = RuleSet::build("javascript", &stated, &ground);
+    let desc = set.rule_details().into_iter().find(|(id, ..)| id == "uses-with").map(|(_, _, d, _)| d);
+    assert_eq!(
+        desc.as_deref(),
+        Some("Never use this deprecated broken pattern anywhere in scripts."),
+        "a rule whose sentence already states the prohibition is untouched"
+    );
+}
