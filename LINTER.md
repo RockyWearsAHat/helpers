@@ -1962,36 +1962,40 @@ rendered route runs (python/rust); MDN's frontmatter route is untouched (dotless
 (iv) `uses-ssl.SSLSocket` shadow-fires on lines whose sin is the more specific `ssl.SSLSocket.read/write`
 (the token sequence is genuinely present — overlap, not a miss).
 
-### Owner direction — the MODULAR HUMAN LANGUAGE (ruled 2026-07-14, after PASS 28)
+### Owner direction — ONE BINARY MEANING NET, human language as PURE I/O OVERLAY (ruled 2026-07-14, corrected same day, after PASS 28)
 
-> Owner ruling, verbatim intent: *"English should continue to be learned WITH THE BASIS OF THE DICTIONARY
-> BUT NOT LIMITED TO. Potentially split the English language and have actual user languages be modular as
-> well, so it is available in any language and still reasons the same — just the module is pulled and it
-> properly reads and lints."*
+> Owner ruling: *"English continues to be learned with the basis of the dictionary but not limited to it.
+> It shouldn't need training in multiple languages — it trains in the user's language but always results
+> in the SAME meaning net. The language is just overlaid so it can communicate; it has nothing to do with
+> the knowledge graph, which is all just ones and zeros. We don't store tokens in the language knowledge
+> graphs — pure binary, decoded at model runtime into UTF-8, which allows speaking in any language: the
+> machine just has the knowledge to correctly speak in whatever language the user has pulled in and
+> configured."*
 
-Two commitments this sets, and what they bind to:
+What this fixes as architecture law:
 
-1. **Dictionary is the BASIS, never the CEILING.** The meaning network keeps its dictionary seed as the
-   ground-truth anchor, and keeps GROWING past it by exposure — the `seal` learned-sense fold
-   (co-occurrence senses beside dictionary senses) and the construction-state miner are the existing growth
-   organs; doc-corpus register vocabulary (the PASS-28 exception/usage-form words, remedy leads,
-   supersession phrasing) is the named next growth surface: LEARNED from each corpus's own recurring
-   scaffolds (the PASS 19–23 machinery — "Passing ⟨⟩ … is deprecated" IS a construction state), with the
-   hand token lists as the measured seed, not the end state.
-2. **The REASONING core is language-free; the human language is a PULLED MODULE.** Split target: geometry
-   ops, polarity/direction judgment (the corroboration judge's logic), construction mining, ISM, and the
-   Hv substrate carry no English tokens; everything English-specific — dictionary substrate, negation
-   classifier data, register vocabularies, mined scaffolds, typography — lives in a language module,
-   exactly as programming-language modules are pulled today. `lint_lang.rs::Lexicon` (the French FreeDict
-   overlay into the MeaningNetwork) is the existing seed of this seam. Pulling the French module must read
-   French-published docs (docs.python.org/fr) and derive THE SAME rules — same reasoning, different
-   vocabulary data.
+1. **Dictionary is the BASIS, never the CEILING.** The meaning net keeps its dictionary seed as the
+   ground-truth anchor and keeps GROWING by exposure — the `seal` learned-sense fold and the
+   construction-state miner (PASS 19–23) are the existing growth organs; doc-register meaning (exception,
+   usage-form, remedy, supersession) is the named next growth surface.
+2. **ONE meaning net, pure binary, language-free.** Knowledge lives ONLY as the binary substrate (Hv
+   vectors, graph structure) — never as tokens of any human language. Training in the user's language
+   lands in the SAME net, because surface words resolve to meaning nodes at READ time. There is no
+   per-language training, no per-language knowledge artifact, and no re-derivation: a rule proven from
+   English-published docs and one proven from French-published docs are the same binary fact.
+3. **The pulled language module is PURE I/O.** It carries surface bindings only — reading: configured
+   language's UTF-8 words → meaning nodes; speaking: meaning nodes → that language's UTF-8 rendering
+   (findings, footers, advice in the user's language). It holds zero knowledge. `lint_lang.rs::Lexicon`
+   (FreeDict overlay, `overlay_into`/`render`) is the existing seed of exactly this seam.
+4. **Registers are MEANING, tokens are shims.** PASS 28's `scope_exception`/`usage_form` word lists in
+   `deprecation-status.json` are a measured ENGLISH-surface shim for what is really a meaning-level fact
+   (exception-hood, conditional/usage-form-hood). The honest form keys `note_counter_attests` off the
+   MEANING NODES reached through the active lexicon — then a French note's "sauf" fires the same register
+   with zero language-specific logic, and no new vocabulary data ships per language.
 
-**Named misplacement to correct at the split:** PASS 28's `scope_exception`/`usage_form` tokens sit in
-`deprecation-status.json` (a global datum file) but are ENGLISH register vocabulary — they belong in the
-English language module; a French module carries its own ("sauf", "si", the -ant forms). **Refactor gate:**
-the split lands only byte-identical — every language's lint verdicts unchanged with the English module
-pulled — then proves on a second human language.
+**Validation shape (not a training need):** reading the SAME rules off translated docs
+(docs.python.org/fr) through the pulled lexicon, with NO retraining, byte-identical verdicts — proves the
+overlay is pure I/O and the net truly language-free.
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
