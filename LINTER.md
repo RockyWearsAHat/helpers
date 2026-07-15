@@ -2224,6 +2224,36 @@ still not crawled); `sources_fingerprint` hashes URLs only, so NO module is inva
 No `TRAIN_VERSION` bump: verdict and training semantics are untouched — these are store-integrity and
 source-identity fixes.
 
+**Measured (the coverage funnel, `examples/htmlfunnel`+`examples/orphan_blocks`, NO ship — the PASS-34
+design input).** The owner's coverage goal (html ~30 elements) is blocked by TWO stacked walls plus one
+absence, all named per element over the fresh corpus:
+- **Absent from MDN itself:** `applet`/`keygen`/`blink`/`spacer`/`menuitem`/`isindex`/`basefont`/
+  `listing` have no `/Elements/` page in MDN's current nav — their honest source is the whatwg
+  obsolete-features section, already in the registry (`html.spec.whatwg.org/multipage/`) and now
+  reachable per-URL once the manifest html entry adds it.
+- **The partition wall** (`page_proves_in_lang`): `font`/`dir`/`xmp`/`plaintext` are IN-CRAWL, ATTESTED
+  (the P=R=1.000 faculty), read prohibited with the URL-subject construct — and carry ZERO own example
+  blocks, so the own-demonstration gate excludes them from every partition; they never reach `propose`,
+  never enter the web (not even as READ/graded nodes — `kind=web font` → unconnected). `strike` has one
+  block that welds TWO labeled examples (`<strike>:`/`<s>:` dl-item interiors concatenated) into a
+  parse-unclean string — a reading defect, not a truth about the page. Downstream already supports the
+  no-example page (`is_prohibited_subject`: "URL name + notecard is the proof"; the graded tier's
+  usage-death/over-generality gates are the language referee) — only this doorway is closed.
+- **The sentence wall** (`propose`'s understanding gate): `nobr`/`noembed`/`noframes`/`rtc` (blocks
+  present and firing) and `xmp`/`plaintext` have ZERO governing sentences mentioning their subject —
+  MDN's prose names the element as angle-bracketed code (`<nobr>`), and the prose reader strips it AS
+  MARKUP, so `mentions(sentence, construct)` finds nothing and the candidate dies with no un-fakeable
+  English pair. The element name in running prose is a CODE-TYPOGRAPHY mention, not markup — a reading
+  correction, not a gate change.
+- **A firing-shape smell to audit with it:** `nobr`'s "demonstrating" block is `<span class="nobr">` —
+  the page's CSS REMEDY, firing `uses_construct(nobr)` on an ATTRIBUTE VALUE. Any widening that admits
+  these pages must first pin the element construct's firing shape to tag position (the `scan_pseudo`
+  precedent: shape keyed by the construct's own typography), or the minted rule flags the remedy.
+The rung is one coherent pass: fix the two reading defects (angle-bracket prose mentions; welded
+example items), open the partition to ATTESTED no-demonstration orphans (the loop's generated reps +
+graded gates stay the only provers), pin the element firing shape — then the whatwg source completes
+the absent set. `TRAIN_VERSION` bumps when it lands (training semantics change).
+
 **Measured (the restore, deployed binary, 2026-07-15).** The stale daemon killed; the fresh MDN
 `/Web/HTML/` crawl was recovered by IDENTITY, not recrawl — `manifest_tool` hashes recomputed
 (`examples/shard_ident`) proved `developer-mozilla-org-611ab56b.bin` IS the `/Web/HTML/` crawl and
