@@ -1312,6 +1312,18 @@ fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>
         scan_member(node, src, property, hits);
         return;
     }
+    // PSEUDO-SELECTOR shape (a construct beginning with `:`/`::`, e.g. `::-moz-focus-inner`): the
+    // exact-node-text match below only fires the BARE selector (`::-moz-focus-inner {…}`) — attached
+    // to an element (`button::-moz-focus-inner`, the real-world form) the selector node's text
+    // includes the element, so no node equals the construct (MEASURED false negative, acceptance
+    // suite). Mirror of the receiver-generic `.member` shape: match the NAME node whose immediately
+    // preceding source bytes are exactly the construct's own colon run. Grammar-agnostic — the
+    // leading-`:` source test reads no language-specific node kind.
+    if construct.starts_with(':') {
+        let colons = construct.bytes().take_while(|&b| b == b':').count();
+        scan_pseudo(node, src, colons, &construct[colons..], hits);
+        return;
+    }
     if is_lexical_text(node.kind()) {
         return;
     }
@@ -1322,6 +1334,31 @@ fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         scan_construct(child, src, construct, hits);
+    }
+}
+
+/// Record every PSEUDO-SELECTOR usage of `name` behind exactly `colons` colons: the smallest node
+/// whose whole text is `name`, whose preceding source bytes are that exact colon run, and where the
+/// byte before the run is NOT another colon (so a `:x` construct never fires inside `::x`). Fires
+/// `button::-moz-focus-inner` and the bare `::-moz-focus-inner {…}` alike; never the name as an
+/// ordinary identifier. Sub-part of [`scan_construct`] for a `:`-leading construct.
+fn scan_pseudo(node: Node, src: &[u8], colons: usize, name: &str, hits: &mut Vec<usize>) {
+    if is_lexical_text(node.kind()) {
+        return;
+    }
+    if node.utf8_text(src).map(|t| t == name).unwrap_or(false) {
+        let start = node.start_byte();
+        if start >= colons
+            && src[start - colons..start].iter().all(|&b| b == b':')
+            && (start == colons || src[start - colons - 1] != b':')
+        {
+            hits.push(row(node));
+            return;
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        scan_pseudo(child, src, colons, name, hits);
     }
 }
 
