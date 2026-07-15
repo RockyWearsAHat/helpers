@@ -371,56 +371,112 @@ fn marker_note_text(body: &str, mpos: usize) -> String {
     out
 }
 
-/// Whether `word` occurs in `hay` bounded by non-identifier characters (so `if` never matches `shift`).
-/// Both sides lower-case by contract.
-fn contains_bounded_word(hay: &str, word: &str) -> bool {
-    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
-    let mut from = 0usize;
-    while let Some(rel) = hay[from..].find(word) {
-        let s = from + rel;
-        let e = s + word.len();
-        let before_ok = hay[..s].chars().next_back().map(|c| !is_ident(c)).unwrap_or(true);
-        let after_ok = hay[e..].chars().next().map(|c| !is_ident(c)).unwrap_or(true);
-        if before_ok && after_ok {
-            return true;
-        }
-        from = e;
-    }
-    false
-}
-
-/// The PASS-28 NOTE-SCOPE registers: whether a deprecation note's own prose COUNTER-ATTESTS its
-/// attributed `item` (the marker then attests nothing). Two registers, vocabulary carried as DATA in
-/// `deprecation-status.json` (measured on python-library — LINTER.md PASS 28; both empty ⇒ `false`,
-/// the honest pre-PASS-28 behavior):
-/// - EXCEPTION SCOPE: the note names the item AFTER an exception token — the sentence excludes it
-///   ("All TLSVersion members except TLSVersion.TLSv1_3 are deprecated").
-/// - USAGE FORM: the FIRST SENTENCE of the clause after the deprecation head carries a usage-form token
-///   as a bounded word — the note deprecates an argument/call form, not the item ("Deprecation warning
-///   is emitted if loop …", "Passing … is deprecated"). First-sentence-only is load-bearing: later
-///   sentences are remedy prose ("Use isinstance(…) to test if …") and must not cut a true deprecation.
-fn note_counter_attests(note: &str, item: &str) -> bool {
+/// The NOTE-SCOPE registers (PASS 28, meaning-anchored in PASS 29): whether a deprecation note's own
+/// prose COUNTER-ATTESTS its attributed `item` (the marker then attests nothing). The anchors are the
+/// ONLY hand data (`deprecation-status.json` — `scope_exception: ["except"]`, `usage_form: ["if"]`);
+/// the MEANING NET expands each anchor to every word the dictionary DEFINES VIA it (owner ruling
+/// 2026-07-14: registers are meaning, tokens are shims — "unless"/"excluding"/"barring" carry the
+/// exception meaning because their own definitions say so, with a function-word POS gate read from the
+/// dictionary entry itself so a content word never rides a stray definition mention). `note` is
+/// lower-case by contract ([`marker_note_text`]).
+/// - EXCEPTION SCOPE: the note names the item AFTER an exception-meaning word — the sentence excludes
+///   it ("All TLSVersion members except TLSVersion.TLSv1_3 are deprecated").
+/// - CONDITIONAL FORM: the FIRST SENTENCE of the clause after the deprecation head carries a
+///   conditional-meaning word — the deprecation is conditional, not the item's ("Deprecation warning is
+///   emitted if loop …"). First-sentence-only is load-bearing: later sentences are remedy prose ("Use
+///   isinstance(…) to test if …") and must not cut a true deprecation.
+/// - USAGE SUBJECT: the first sentence's FIRST word is a gerund of a dictionary VERB — the sentence's
+///   subject is an ACTION on the item, not the item ("Passing …", "Setting …", "Accepting … is
+///   deprecated"). Verb-hood is the dictionary's own POS word; no gerund list exists anywhere.
+/// Without a brain on disk only the literal anchors match (honest narrow fallback); training always
+/// runs with the brain, so the learned view is the enforced one.
+pub fn note_counter_attests(note: &str, item: &str) -> bool {
     if note.is_empty() {
         return false;
     }
+    let net = crate::lint_char::brain().map(|b| b.meanings());
     let item = item.to_lowercase();
     let last = item.rsplit('.').next().unwrap_or(&item);
     let parts: Vec<&str> = item.split('.').collect();
     let two =
         if parts.len() >= 2 { parts[parts.len() - 2..].join(".") } else { item.clone() };
-    for tok in crate::lint_attest::scope_exception_tokens() {
-        let mut from = 0usize;
-        while let Some(rel) = note[from..].find(&tok) {
-            let after = &note[from + rel..];
+    let exception = crate::lint_attest::scope_exception_tokens();
+    for (pos, w) in note_words(note) {
+        if word_carries_anchor(w, &exception, net) {
+            let after = &note[pos + w.len()..];
             if after.contains(&two) || after.contains(&format!(".{last}")) {
                 return true;
             }
-            from += rel + tok.len();
         }
     }
     let clause = note.split_once(':').map(|(_, c)| c).unwrap_or(note);
     let first_sentence = clause.find(". ").map(|p| &clause[..p + 1]).unwrap_or(clause);
-    crate::lint_attest::usage_form_tokens().iter().any(|t| contains_bounded_word(first_sentence, t))
+    let conditional = crate::lint_attest::usage_form_tokens();
+    let words = note_words(first_sentence);
+    if let Some((_, w0)) = words.first() {
+        if gerund_of_known_verb(w0, net) {
+            return true;
+        }
+    }
+    words.iter().any(|(_, w)| word_carries_anchor(w, &conditional, net))
+}
+
+/// The word tokens of a lower-case note with their byte positions — identifier-ish runs, so `if` never
+/// matches inside `shift` and a dotted mention stays one probe target per component.
+fn note_words(note: &str) -> Vec<(usize, &str)> {
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    for (i, c) in note.char_indices() {
+        match (is_word(c), start) {
+            (true, None) => start = Some(i),
+            (false, Some(s)) => {
+                out.push((s, &note[s..i]));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        out.push((s, &note[s..]));
+    }
+    out
+}
+
+/// Whether `word` carries an anchor's MEANING: it IS an anchor, or the dictionary DEFINES it via one —
+/// its definition words contain an anchor AND its entry opens as a function word (conjunction /
+/// preposition, the dictionary's own POS typography), so "unless" (conjunction: "except if …") and
+/// "excluding" (preposition: "… apart from except") join the register while a content word whose long
+/// definition merely mentions the anchor does not. Anchor equality needs no brain.
+fn word_carries_anchor(
+    word: &str,
+    anchors: &[String],
+    net: Option<&crate::lint_char::MeaningNetwork>,
+) -> bool {
+    if anchors.iter().any(|a| a == word) {
+        return true;
+    }
+    let Some(net) = net else { return false };
+    let Some(defs) = net.definition_words(word) else { return false };
+    defs.iter().take(3).any(|d| d == "conjunction" || d == "preposition")
+        && defs.iter().any(|d| anchors.iter().any(|a| a == d))
+}
+
+/// Whether `word` is the GERUND of a dictionary VERB — morphological `-ing` plus the stem's own entry
+/// opening with the dictionary's `verb` POS word (candidates: drop `ing`, un-double the final
+/// consonant for `setting`→`set`, restore the silent `e` for `encoding`→`encode`). This is the
+/// usage-subject register with zero vocabulary: the dictionary's verb knowledge is the whole test.
+fn gerund_of_known_verb(word: &str, net: Option<&crate::lint_char::MeaningNetwork>) -> bool {
+    let Some(net) = net else { return false };
+    let Some(base) = word.strip_suffix("ing").filter(|b| b.len() >= 2) else { return false };
+    let mut candidates: Vec<String> = vec![base.to_string(), format!("{base}e")];
+    let b = base.as_bytes();
+    if b.len() >= 2 && b[b.len() - 1] == b[b.len() - 2] {
+        candidates.push(base[..base.len() - 1].to_string());
+    }
+    candidates.iter().any(|c| {
+        net.definition_words(c).is_some_and(|defs| defs.iter().take(8).any(|d| d == "verb"))
+    })
 }
 
 /// Whether the url is a per-construct REFERENCE page — its path names a documentation reference section
@@ -959,18 +1015,13 @@ mod tests {
         assert_eq!(counter.len(), 1, "…but stays a structural read (language witness): {counter:?}");
         assert_eq!(counter[0][0], "ssl.TLSVersion.TLSv1_3");
 
-        // PASS 28 — USAGE FORM: the first sentence deprecates a call/argument form ("… if loop …",
-        // "Passing …"), not the item (the real asyncio.shield / re.split shapes).
+        // PASS 28 — CONDITIONAL FORM: the first sentence deprecates a call/argument form ("… if
+        // loop …"), not the item (the real asyncio.shield shape). Literal anchor — no brain needed.
         let cond = r#"<dl><dt id="asyncio.shield"></dt><dd><p>Prose.</p>
             <div class="deprecated"><p>Deprecated since version 3.10: Deprecation warning is emitted if
             aw is not Future-like object and there is no running event loop.</p></div></dd></dl>"#;
         let (enforce, counter) = attested_item_shapes(cond);
         assert!(enforce.is_empty() && counter.len() == 1, "conditional-form note is counter-attested");
-        let gerund = r#"<dl><dt id="re.split"></dt><dd>
-            <div class="deprecated"><p>Deprecated since version 3.13: Passing maxsplit and flags as
-            positional arguments is deprecated.</p></div></dd></dl>"#;
-        let (enforce, counter) = attested_item_shapes(gerund);
-        assert!(enforce.is_empty() && counter.len() == 1, "gerund-lead arg-form note is counter-attested");
 
         // FIRST-SENTENCE-ONLY is load-bearing: "if" in a LATER remedy sentence must not cut a true
         // deprecation (the real SourceLoader.path_mtime shape).
@@ -987,6 +1038,43 @@ mod tests {
             <div class="deprecated"><p>Deprecated since version 9.9: use shift() or newitem() instead.
             </p></div></dd></dl>"#;
         assert_eq!(attested_item_shapes(plain).0.len(), 1, "'shift' does not read as the 'if' register");
+    }
+
+    #[test]
+    fn note_scope_registers_are_meaning_anchored_not_token_lists() {
+        // PASS 29 — the registers ride the MEANING NET (owner ruling: registers are meaning, tokens are
+        // shims). Needs the frozen brain on disk; a brainless machine matches literal anchors only.
+        if crate::lint_char::brain().is_none() {
+            eprintln!("skip: no frozen brain on disk");
+            return;
+        }
+        // GERUND USAGE-SUBJECT with zero vocabulary: "Passing"/"Setting" are gerunds of dictionary
+        // VERBS (`pass`, `set` via un-doubling) — no gerund appears in any data file.
+        assert!(
+            note_counter_attests("deprecated since version 3.13: passing maxsplit as positional arguments is deprecated.", "re.split"),
+            "gerund of a dictionary verb reads as the usage-subject register"
+        );
+        assert!(
+            note_counter_attests("deprecated since version 3.13: setting an attribute by two positional arguments is deprecated.", "tkinter.Wm.attributes"),
+            "consonant-doubled gerund resolves to its verb stem"
+        );
+        // An unlisted gerund generalizes the same way ("calling" was never in any list).
+        assert!(
+            note_counter_attests("deprecated since version 3.15: calling this with a loop argument is deprecated.", "mod.thing"),
+            "unseen gerund of a known verb fires the register"
+        );
+        // EXCEPTION MEANING beyond the anchor: "unless" is a conjunction the dictionary defines via
+        // "except", so an item named after it is excluded — no "unless" token exists anywhere.
+        assert!(
+            note_counter_attests("deprecated since version 3.10: all members are deprecated unless they are tlsversion.tlsv1_2 or tlsversion.tlsv1_3.", "ssl.TLSVersion.TLSv1_3"),
+            "'unless' carries the exception meaning through its own definition"
+        );
+        // A content word whose definition merely mentions an anchor does NOT ride the register (the
+        // function-word POS gate), and a first word that is not a verb gerund stays plain.
+        assert!(
+            !note_counter_attests("deprecated since version 3.12: this method is deprecated in favour of path_stats().", "abc.SourceLoader.path_mtime"),
+            "a plain deprecation stays attested under the meaning-anchored read"
+        );
     }
 
     #[test]
