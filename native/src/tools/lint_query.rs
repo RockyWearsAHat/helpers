@@ -17,6 +17,9 @@
 //!     (enforced) or merely READ (retained), the concepts it traverses to, and the nearest constructs in
 //!     OTHER languages' webs through the shared English base (the cross-language traversal). `language`
 //!     scopes the lookup; omitted, the first web that carries the construct is used.
+//!   * `verify <statement>` — the SELF-REFEREE (PASS 30): judge a statement against the proven web
+//!     itself. Per construct the statement names: PROVEN-COHERENT / CONTRADICTED / UNSUPPORTED /
+//!     CONNECTED — or `unconnected` when the web carries none of it (the honest gap).
 
 use serde_json::{json, Value};
 
@@ -30,8 +33,8 @@ pub fn schema() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn", "web"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works. web: read a construct off the language subgraph — its governing prose, meaning links, doc-roles, state (proven/read), and cross-language connections. With role= set, web instead LISTS every construct carrying that doc-role, across languages." },
-                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence; web: a construct token (e.g. document.write, cgi) — or empty when querying by role=." },
+                "kind": { "type": "string", "enum": ["define", "explain", "rules", "learn", "web", "verify"], "description": "The interrogation to run. learn: PROPOSE-then-VERIFY — reason a principle's check by testing candidate senses against bad/good evidence, keep and remember what actually works. web: read a construct off the language subgraph — its governing prose, meaning links, doc-roles, state (proven/read), and cross-language connections. With role= set, web instead LISTS every construct carrying that doc-role, across languages. verify: the SELF-REFEREE — judge a statement against the proven web itself: per named construct, PROVEN-COHERENT / CONTRADICTED / UNSUPPORTED / CONNECTED, or unconnected (the honest gap)." },
+                "arg": { "type": "string", "description": "define: a word; explain: a principle sentence; rules: a language id (e.g. rust); learn: the principle sentence; web: a construct token (e.g. document.write, cgi) — or empty when querying by role=; verify: the statement to judge against the proven web (e.g. \"the cgi module is deprecated\")." },
                 "scope": { "type": "string", "enum": ["canon", "language"], "description": "explain only: read the prose as the language-agnostic canon (no uses_construct fallback) or as general language-doc prose (default). Canon principles enforce structurally or abstain." },
                 "role": { "type": "string", "description": "web only: a DOC-ROLE traversal target — removal | prohibition | deprecated — listing every construct the faculties prove carries it (e.g. what connects to REMOVAL → cgi, telnetlib). Scoped to language= when set, else across every language web." },
                 "language": { "type": "string", "description": "learn only: the language of the bad/good evidence (e.g. rust); web only: restrict the construct/role lookup to this language." },
@@ -55,13 +58,14 @@ pub fn run(args: &Value) -> ToolResult {
     let canon = matches!(args["scope"].as_str(), Some("canon"));
     let out = match kind {
         "define" => define(arg),
+        "verify" => verify(arg, args["language"].as_str()),
         "explain" => explain(arg, canon),
         "rules" => rules(arg),
         "learn" => learn(arg, args),
         "web" => web(arg, args["language"].as_str(), args["role"].as_str()),
         other => {
             return Err(format!(
-                "lint_query: unknown kind `{other}`. Valid: define | explain | rules | learn | web"
+                "lint_query: unknown kind `{other}`. Valid: define | explain | rules | learn | web | verify"
             ))
         }
     };
@@ -215,6 +219,83 @@ fn rules(lang: &str) -> Value {
 /// (enforced) or merely READ (retained-unproven), the English concepts its meaning traverses to, and the
 /// nearest constructs in OTHER languages' webs through the shared base. Interpretation is a QUERY over the
 /// graph — no stored labels.
+/// `kind=verify` (PASS 30) — the self-referee as a live query: a statement in, the WEB's verdict out.
+/// The statement's revocation claim ([`crate::lint_corroborate::revocation_claim`] — negation polarity ×
+/// the status anchors) is judged against every web node the statement NAMES (bounded full token, across
+/// the loaded language webs or the named one). Per construct: PROVEN-COHERENT (the web proves the
+/// statement — its own verified role agrees; sources cited) / CONTRADICTED (the statement denies a role
+/// the web proved — one side is wrong) / UNSUPPORTED (the statement asserts a role the web cannot prove)
+/// / CONNECTED (a neutral mention of a known node — the web reports what it knows) / and an overall
+/// `unconnected: true` when no web node is named at all (the honest gap).
+fn verify(statement: &str, language: Option<&str>) -> Value {
+    let Some(en) = crate::lint_english::brain() else {
+        return json!({ "kind": "verify", "statement": statement, "error": "no English brain on disk — run lint_config action=train first" });
+    };
+    let mut anchors = crate::lint_attest::prohibition_class_tokens();
+    anchors.extend(crate::lint_attest::removal_class_tokens());
+    let lower = statement.to_lowercase();
+    let negated = crate::lint_corroborate::is_negated(en, statement);
+    let claim = crate::lint_corroborate::revocation_claim(&lower, negated, &anchors);
+    let langs: Vec<String> = match language {
+        Some(l) => vec![l.to_string()],
+        None => crate::lint_web::languages_with_web(),
+    };
+    let is_tok = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.';
+    let mentions = |needle: &str| -> bool {
+        let mut from = 0usize;
+        while let Some(rel) = lower[from..].find(needle) {
+            let s = from + rel;
+            let e = s + needle.len();
+            let before = lower[..s].chars().next_back().map(|c| !is_tok(c)).unwrap_or(true);
+            let after = lower[e..].chars().next().map(|c| !is_tok(c)).unwrap_or(true);
+            if before && after {
+                return true;
+            }
+            from = e;
+        }
+        false
+    };
+    let mut findings: Vec<Value> = Vec::new();
+    for lang in &langs {
+        for node in crate::lint_web::load(lang) {
+            if !mentions(&node.construct.to_lowercase()) {
+                continue;
+            }
+            let revoked = node.attested_deprecated || !node.roles.is_empty();
+            use crate::lint_corroborate::RevocationClaim::*;
+            let verdict = match (claim, revoked) {
+                (Asserts, true) => "PROVEN-COHERENT (the web's own verified role agrees with the statement)",
+                (Denies, true) => "CONTRADICTED (the statement denies a role this web proved — one side is wrong)",
+                (Asserts, false) => "UNSUPPORTED (the web cannot prove the asserted role — honest abstention)",
+                (Denies, false) => "COHERENT (the web carries no revoked role either)",
+                (Neutral, _) => "CONNECTED (neutral mention — the web reports what it knows)",
+            };
+            findings.push(json!({
+                "construct": node.construct,
+                "language": lang,
+                "verdict": verdict,
+                "web_state": if node.proven { "PROVEN" } else if node.graded.is_some() { "GRADED" } else { "READ" },
+                "doc_roles": node.roles,
+                "attested_deprecated": node.attested_deprecated,
+                "sources": node.sources,
+            }));
+        }
+    }
+    json!({
+        "kind": "verify",
+        "statement": statement,
+        "claim": match claim {
+            crate::lint_corroborate::RevocationClaim::Asserts => "asserts-revoked",
+            crate::lint_corroborate::RevocationClaim::Denies => "denies-revoked",
+            crate::lint_corroborate::RevocationClaim::Neutral => "neutral",
+        },
+        "unconnected": findings.is_empty(),
+        "constructs": findings,
+        "webs_available": crate::lint_web::languages_with_web(),
+        "note": "the SELF-REFEREE: the verdict is the machine's own proven web judging the statement — coherence corroborates, contradiction means one side is wrong, unconnected is the honest gap.",
+    })
+}
+
 fn web(construct: &str, language: Option<&str>, role: Option<&str>) -> Value {
     let brain = crate::lint_char::brain();
     // DOC-ROLE traversal (PASS 25 rung 2): list every construct the faculties prove carries `role`, across
@@ -295,6 +376,10 @@ fn web(construct: &str, language: Option<&str>, role: Option<&str>) -> Value {
         "doc_roles": node.roles,
         "rule": node.rule.as_ref().map(|r| json!({ "id": r.id, "severity": r.severity, "description": r.description })),
         "graded": node.graded.as_ref().map(|g| json!({ "fire": g.fire, "severity": g.severity, "description": g.description })),
+        "self_referee": node.referee.as_ref().map(|r| json!({
+            "coherent_sources": r.coherent,
+            "contradictions": r.contradictions.iter().map(|c| json!({ "source": c.source, "sentence": c.sentence })).collect::<Vec<_>>(),
+        })),
         "traverses_to_concepts": concepts,
         "cross_language_connections": cross,
         "note": "meaning links are key-words into the FROZEN English web; their meaning is rebound on query, never copied. Interpretation is a traversal, not a stored label.",
@@ -309,4 +394,49 @@ fn detail_values(rs: &crate::lint_match::RuleSet) -> Vec<Value> {
             json!({ "id": id, "severity": severity, "detector": detector, "principle": description })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// BLACK-BOX (PASS 30): the tool boundary only — JSON arguments into [`run`], JSON text out, no
+    /// internals observed. The system-as-a-whole contract: a statement the proven web agrees with is
+    /// PROVEN-COHERENT with sources; its denial is CONTRADICTED; an unknown construct is `unconnected`.
+    /// Judged against the REAL trained python web on this machine; skips honestly when absent.
+    fn run_verify(statement: &str) -> Option<Value> {
+        let out = run(&json!({ "kind": "verify", "arg": statement, "language": "python" })).ok()?;
+        serde_json::from_str(&out.first()?.text).ok()
+    }
+
+    #[test]
+    fn verify_judges_statements_against_the_proven_web_end_to_end() {
+        if crate::lint_english::brain().is_none() || crate::lint_web::load("python").is_empty() {
+            eprintln!("skip: no english brain or no trained python web on disk");
+            return;
+        }
+        // A true statement the web has proven: coherent, with the web's own citations.
+        let v = run_verify("the cgi module is deprecated").expect("tool answers");
+        assert_eq!(v["claim"], "asserts-revoked");
+        assert_eq!(v["unconnected"], false);
+        let cgi = v["constructs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["construct"] == "cgi")
+            .expect("the web names cgi");
+        assert!(cgi["verdict"].as_str().unwrap().starts_with("PROVEN-COHERENT"), "{v}");
+        assert!(!cgi["sources"].as_array().unwrap().is_empty(), "verdict carries citations");
+
+        // The statement's denial: the web proved the role, so one side is wrong — CONTRADICTED.
+        let v = run_verify("the cgi module is not deprecated").expect("tool answers");
+        assert_eq!(v["claim"], "denies-revoked");
+        let cgi = v["constructs"].as_array().unwrap().iter().find(|c| c["construct"] == "cgi").unwrap();
+        assert!(cgi["verdict"].as_str().unwrap().starts_with("CONTRADICTED"), "{v}");
+
+        // A construct no web carries: the honest gap, stated as such.
+        let v = run_verify("the flurbotron9000 gadget is deprecated").expect("tool answers");
+        assert_eq!(v["unconnected"], true, "{v}");
+        assert!(v["constructs"].as_array().unwrap().is_empty());
+    }
 }

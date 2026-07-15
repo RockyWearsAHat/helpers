@@ -595,6 +595,7 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
 
 /// One clean governing sentence in the pooled reading, tagged with whether it came from a PROHIBITED
 /// page (so `understanding` selection can prefer a real prohibition statement) and its source url.
+#[derive(Clone)]
 struct PooledSentence {
     sentence: String,
     prohibited: bool,
@@ -1039,7 +1040,7 @@ pub fn graduate(
     m: &MeaningNetwork,
     en: &English,
     constructions: &[crate::lint_construct::ConstructionState],
-) -> (Vec<Outcome>, Vec<ReadConstruct>) {
+) -> (Vec<Outcome>, Vec<ReadConstruct>, std::collections::HashMap<String, crate::lint_web::Corroboration>) {
     let bridge = Bridge::new(m, en);
     // The LEARNED deprecation attestation, keyed by the author's OWN METADATA TYPOGRAPHY (frontmatter
     // `status:` enum joined to the crawled pages by slug — COMPLETION PASS 13). Discovered from and applied
@@ -1214,7 +1215,118 @@ pub fn graduate(
             rule,
         });
     }
-    (outcomes, read_surface)
+    // PASS 30 — the SELF-REFEREE: the machine's own read judging every revoked-role construct against
+    // every OTHER source's claim. The referee hears the language's WHOLE attested corpus, not only the
+    // rule-learning partition (MEASURED: the corroborating sentences live on pages like wave.html /
+    // http.server.html that attest but never join the partition), so the partition pool is widened with
+    // the governing prose of every attested page outside it. Computed here because the pool lives here;
+    // attached to the web nodes by the caller.
+    let partition_urls: std::collections::HashSet<&str> =
+        partition.iter().map(|(u, _)| u.as_str()).collect();
+    let mut referee_pool: Vec<PooledSentence> = pool.clone();
+    for (url, body) in
+        pages.iter().filter(|(u, _)| attested.contains(u) && !partition_urls.contains(u.as_str()))
+    {
+        let p = crate::lint_lang_layer::read_doc_page(url, body, en, &bridge, &attested, &construction);
+        for s in &p.governing {
+            let negated = crate::lint_corroborate::is_negated(en, s);
+            referee_pool.push(PooledSentence {
+                sentence: s.clone(),
+                prohibited: p.prohibited,
+                url: url.clone(),
+                negated,
+            });
+        }
+    }
+    let targets: Vec<(String, Vec<String>)> = outcomes
+        .iter()
+        .filter(|o| o.candidate.attested_deprecated)
+        .map(|o| (o.candidate.construct.clone(), vec![o.candidate.url.clone()]))
+        .chain(
+            read_surface
+                .iter()
+                .filter(|r| r.attested_deprecated)
+                .map(|r| (r.construct.clone(), vec![r.url.clone()])),
+        )
+        .collect();
+    let referee = self_referee(&referee_pool, &targets);
+    (outcomes, read_surface, referee)
+}
+
+/// The largest number of corroborating sources / contradiction records the referee persists per node —
+/// the payload stays a summary, never a transcript.
+const MAX_REFEREE_RECORDS: usize = 8;
+
+/// The persisted head of a contradiction sentence — enough to read the disagreement, never a page dump.
+const MAX_CONTRADICTION_HEAD: usize = 160;
+
+/// PASS 30 — the SELF-REFEREE over the corpus's own sentence pool: for each revoked-role `(construct,
+/// own-source urls)` target, judge every OTHER source's governing sentence that names the construct
+/// (bounded full token) with [`crate::lint_corroborate::revocation_claim`]. An ASSERTING sentence from a
+/// distinct source corroborates (coherent url, deduped); a DENYING sentence is a CONTRADICTION record —
+/// first-class signal that one side is wrong. Neutral mentions carry nothing. Pure over the pool;
+/// returns only non-empty records (a construct nobody else speaks about is the honest sparse state).
+fn self_referee(
+    pool: &[PooledSentence],
+    targets: &[(String, Vec<String>)],
+) -> std::collections::HashMap<String, crate::lint_web::Corroboration> {
+    let mut anchors = crate::lint_attest::prohibition_class_tokens();
+    anchors.extend(crate::lint_attest::removal_class_tokens());
+    let mut out = std::collections::HashMap::new();
+    if anchors.is_empty() || targets.is_empty() {
+        return out;
+    }
+    let lowered: Vec<(String, &PooledSentence)> =
+        pool.iter().map(|p| (p.sentence.to_lowercase(), p)).collect();
+    for (construct, own) in targets {
+        let needle = construct.to_lowercase();
+        let mut rec = crate::lint_web::Corroboration::default();
+        for (sentence, p) in &lowered {
+            if own.contains(&p.url) || !mentions_full_token(sentence, &needle) {
+                continue;
+            }
+            match crate::lint_corroborate::revocation_claim(sentence, p.negated, &anchors) {
+                crate::lint_corroborate::RevocationClaim::Asserts => {
+                    if rec.coherent.len() < MAX_REFEREE_RECORDS && !rec.coherent.contains(&p.url) {
+                        rec.coherent.push(p.url.clone());
+                    }
+                }
+                crate::lint_corroborate::RevocationClaim::Denies => {
+                    if rec.contradictions.len() < MAX_REFEREE_RECORDS {
+                        let head: String = p.sentence.chars().take(MAX_CONTRADICTION_HEAD).collect();
+                        rec.contradictions.push(crate::lint_web::Contradiction {
+                            source: p.url.clone(),
+                            sentence: head,
+                        });
+                    }
+                }
+                crate::lint_corroborate::RevocationClaim::Neutral => {}
+            }
+        }
+        if !rec.coherent.is_empty() || !rec.contradictions.is_empty() {
+            out.insert(construct.clone(), rec);
+        }
+    }
+    out
+}
+
+/// Bounded FULL-TOKEN mention: `construct` appears in `sentence` delimited by non-identifier characters,
+/// with dots part of the token — so `ssl.SSLSocket.read` never matches inside a longer chain and a bare
+/// `read` never rides every sentence containing the word. Both sides lower-case by contract.
+fn mentions_full_token(sentence: &str, construct: &str) -> bool {
+    let is_tok = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.';
+    let mut from = 0usize;
+    while let Some(rel) = sentence[from..].find(construct) {
+        let s = from + rel;
+        let e = s + construct.len();
+        let before = sentence[..s].chars().next_back().map(|c| !is_tok(c)).unwrap_or(true);
+        let after = sentence[e..].chars().next().map(|c| !is_tok(c)).unwrap_or(true);
+        if before && after {
+            return true;
+        }
+        from = e;
+    }
+    false
 }
 
 /// Whether `lang`'s documentation READ PASS has completed (owner correction 2026-07-12, point 2): the
@@ -1468,7 +1580,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // compiled view. `derive_rules` projects the proven nodes in outcome order, so the live rule set is a
     // VIEW over the web — byte-identical to the old `filter_map(|o| o.rule)` (the proven nodes carry those
     // same `(rule, url)` pairs). Delete the web and re-read it: re-deriving reproduces the same rules.
-    let (outcomes, read_surface) = graduate(lang, &pages, memory, br.meanings(), en, &constructions);
+    let (outcomes, read_surface, referee) = graduate(lang, &pages, memory, br.meanings(), en, &constructions);
     // The doc-role each construction-consumed subject carries (PASS 25 rung 2) — the proven construction's
     // KIND ("removal"/"prohibition"), keyed by subject. Empty for every language that proves no
     // construction, so those webs carry only the author-metadata "deprecated" role.
@@ -1484,8 +1596,13 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
         .filter(|o| o.rule.is_some())
         .map(|o| o.candidate.construct.clone())
         .collect();
-    let graded_forms = graded_forms(lang, &read_surface, &roles, &proven_constructs, &code_by_url);
-    let web = crate::lint_web::build(br.meanings(), &outcomes, &read_surface, &roles, &graded_forms);
+    let mut graded_forms = graded_forms(lang, &read_surface, &roles, &proven_constructs, &code_by_url);
+    // PASS 30 — the self-referee's TEETH: a contradicted node's graded form is withheld (the evidence-
+    // graded tier requires uncontradicted evidence; the contradiction stays on the node for the human).
+    // INERT on the current corpora (measured: zero contradictions) — byte-identical rule sets — and it
+    // engages exactly when a new source disagrees with the web.
+    graded_forms.retain(|c, _| referee.get(c).is_none_or(|r| r.contradictions.is_empty()));
+    let web = crate::lint_web::build(br.meanings(), &outcomes, &read_surface, &roles, &graded_forms, &referee);
     crate::lint_web::persist(lang, &web);
     let rules = crate::lint_web::derive_rules(lang, &web);
     let graded = crate::lint_web::derive_graded_rules(lang, &web);
@@ -1496,6 +1613,32 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
 mod tests {
     use super::*;
     use crate::lint_read::Binding;
+
+    #[test]
+    fn self_referee_corroborates_across_sources_and_records_contradictions() {
+        // PASS 30 — white-box: the referee over a synthetic pool. Target `cgi` originates on page A;
+        // page B asserts its revocation (coherent), page C denies it (contradiction record), page A's own
+        // sentence is excluded (independence), and a neutral remedy mention carries nothing.
+        let pool = vec![
+            PooledSentence { sentence: "The cgi module is deprecated since 3.11.".into(), prohibited: true, url: "https://d/A".into(), negated: false },
+            PooledSentence { sentence: "Tools built on the cgi module are deprecated too.".into(), prohibited: true, url: "https://d/B".into(), negated: false },
+            PooledSentence { sentence: "The cgi module is not deprecated on this platform.".into(), prohibited: false, url: "https://d/C".into(), negated: true },
+            PooledSentence { sentence: "Use urllib.parse instead of cgi.".into(), prohibited: false, url: "https://d/D".into(), negated: false },
+        ];
+        let targets = vec![("cgi".to_string(), vec!["https://d/A".to_string()])];
+        let map = self_referee(&pool, &targets);
+        let rec = map.get("cgi").expect("cgi carries a referee record");
+        assert_eq!(rec.coherent, vec!["https://d/B".to_string()], "own page excluded, asserting source counted");
+        assert_eq!(rec.contradictions.len(), 1);
+        assert_eq!(rec.contradictions[0].source, "https://d/C");
+        // A target nobody else speaks about carries NO record (the honest sparse state).
+        let silent = self_referee(&pool, &[("telnetlib".to_string(), vec![])]);
+        assert!(silent.is_empty());
+        // Bounded full-token mention: `cgi` never rides `cgitb`, and a dotted chain is one token.
+        assert!(!mentions_full_token("the cgitb module is deprecated", "cgi"));
+        assert!(mentions_full_token("the cgi module is deprecated", "cgi"));
+        assert!(!mentions_full_token("ssl.sslsocket.read is fine", "read"));
+    }
 
     #[test]
     fn member_demo_ok_accepts_own_parent_local_and_literal_receivers_rejects_foreign() {
@@ -1737,7 +1880,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, _read) = graduate("javascript", &pages, &memory, m, en, &[]);
+        let (outcomes, _read, _referee) = graduate("javascript", &pages, &memory, m, en, &[]);
         let var = outcomes
             .iter()
             .find(|o| o.candidate.construct == "var")
@@ -1792,9 +1935,9 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, read) = graduate("javascript", &pages, &memory, m, en, &[]);
+        let (outcomes, read, referee) = graduate("javascript", &pages, &memory, m, en, &[]);
         let direct: Vec<(LearnedRule, String)> = outcomes.iter().filter_map(|o| o.rule.clone()).collect();
-        let web = crate::lint_web::build(m, &outcomes, &read, &std::collections::HashMap::new(), &std::collections::HashMap::new());
+        let web = crate::lint_web::build(m, &outcomes, &read, &std::collections::HashMap::new(), &std::collections::HashMap::new(), &referee);
         let viewed = crate::lint_web::derive_rules("javascript", &web);
         assert_eq!(direct, viewed, "the web-derived rules must equal the direct emitted rules byte-for-byte");
         // Everything READ is retained: every proposed candidate AND every never-proposed read construct is

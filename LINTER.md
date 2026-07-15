@@ -2035,6 +2035,65 @@ the registers fire in that language with zero per-language logic (the owner-dire
 remainder unchanged from PASS 28 (subject-vs-remedy misattribution; infinitive forms — "It is deprecated
 to create …" — the infinitive register is unprobed vocabulary and stays open).
 
+### Item — COMPLETION PASS 30: the SELF-REFEREE — the proven web judges incoming claims (`lint_corroborate.rs`, `lint_module.rs`, `lint_web.rs`, `tools/lint_query.rs`, SHIPPED, 2026-07-14)
+
+> Owner direction: external referees (docs' own examples, witness floors) are the BOOTSTRAP — how
+> knowledge enters a sparse web. The filled web disposes of new claims ITSELF: coherence with already-
+> verified knowledge corroborates, contradiction is first-class signal (one side is wrong — finding which
+> IS learning), unconnected is honest ignorance. The referee is SELF: the machine's own accumulated
+> proven knowledge, nothing external.
+
+**The claim classifier (`lint_corroborate::revocation_claim`).** A sentence's claim about a construct,
+from two frozen faculties ONLY: the negation classifier (`is_negated`) × the prohibition/removal anchors
+(`deprecation-status.json` data). `(revokes, negated)`: (T,F) → ASSERTS-REVOKED ("X is deprecated"),
+(T,T) → DENIES-REVOKED ("X is not deprecated"), else NEUTRAL — a remedy sentence ("use urllib.parse
+instead of cgi") reads NEUTRAL, never contradiction (the advice register stays unproven, thrice measured).
+Truth table validated on canonical shapes against the real classifier before shipping.
+
+**The referee (train time, `lint_module::self_referee`).** For every revoked-role construct, every OTHER
+source's governing sentence naming it (bounded full token) is judged: ASSERTS × revoked role → the node
+gains a corroborating source (distinct URLs, capped); DENIES × revoked role → a CONTRADICTION persisted
+on the node `{source, sentence}`. Persisted per node (`ConstructNode::referee`, trailing bounds-safe codec
+like the graded form), shown by `lint_query kind=web` as `self_referee`. TEETH: a contradicted node's
+GRADED form is withheld (the evidence-graded tier requires uncontradicted evidence); proven rules are
+untouched (graduation's own contradiction re-check already governs them).
+
+**The visible face (`lint_query kind=verify`).** Statement in → web verdict out, per named construct:
+PROVEN-COHERENT (the web proves the statement, citing its sources) / CONTRADICTED (the statement denies a
+role the web proved) / UNSUPPORTED (asserts a role the web cannot prove) / CONNECTED (neutral mention of a
+known node — the web reports what it knows) / UNCONNECTED (honest gap). This is "prove everything said and
+connect it all" as a live query over the one binary net.
+
+**Measured starting state (python corpora, `examples/referee_probe`):** 234 nodes / 208 revoked-role;
+cross-source coherence 2 (wave.html corroborates `aifc`'s removal; http.server corroborates `cgi`),
+contradictions 0, neutral mentions 32. The corpus does not contradict itself — the gate ships INERT
+(byte-identical rule sets, verified by forced retrain diff) and grows teeth exactly when a new source
+disagrees with the web. Coherence-as-proof-path (multi-source graduation for witness-starved families)
+is the named NEXT rung, not this one.
+
+**Shipped + live-verified (docs-v95-self-referee, 2026-07-14).** One integration finding, measured and
+fixed: the referee must hear the language's WHOLE ATTESTED CORPUS, not the rule-learning partition — the
+corroborating sentences live on pages (wave.html, http.server.html) that attest but never join the
+partition, so the partition pool is widened with the governing prose of every attested page outside it
+(referee-only; the learning pool is untouched). Live records match the probe exactly: `kind=web aifc` →
+`self_referee: {coherent_sources: [wave.html]}`, `cgi` → `[http.server.html]`. `kind=verify` live: "the
+cgi module is deprecated" → PROVEN-COHERENT (cited); "…is not deprecated" → CONTRADICTED; "use
+typing.Sequence …" → CONNECTED (neutral — never a manufactured contradiction); unknown construct →
+`unconnected: true`. Forced six-language retrain: rule sets BYTE-IDENTICAL (css 22 / html 16 / js 51 /
+ts 51 / python 110 / rust 9); planted fixture 110/110 fire, 13 counter-attested silent, clean zero.
+255 lib tests green (+3: the claim-table white-box, the referee white-box with own-source exclusion and
+bounded-token mentions, and the BLACK-BOX verify behaviors through the tool's JSON boundary — input to
+output, no internals observed). `helpers lint` over the changed files: two `12_dry` remainders, both the
+justified named-contract-surface class (the `status_values` accessor family; the URL structural-marker
+pair) — documented here as the rule requires. Deployed to both paths, version string verified in the
+shipped artifacts.
+
+**Process correction, ledgered honestly:** PASS 29's "retrained + deployed" had run a STALE binary —
+`cargo test --lib` and `cargo run --example` rebuild the lib, never the bin; the lib-level probe and unit
+proofs were valid, but the retrain regression and deploy were re-run under a `cargo build --release`
+binary whose embedded `TRAIN_VERSION` string was verified before deploy (the new deploy covenant: check
+the version string in the shipped artifact, not the file date).
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
