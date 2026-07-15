@@ -164,6 +164,13 @@ pub struct RuleSet {
     /// Language id (e.g. `rust`).
     pub lang: String,
     rules: Vec<CompiledRule>,
+    /// Every rule the compile DROPPED, with the gate that dropped it — `(id, named reason)` (PASS 31,
+    /// the conservation ledger). Nothing may vanish silently: the train-time invariant reads this to
+    /// prove every PROVEN rule is either compiled or withheld for a NAMED, accepted reason, and
+    /// `lint_query kind=rules` surfaces it. Persisted with the module (`serde(default)` keeps old
+    /// modules decodable as an empty ledger).
+    #[serde(default)]
+    withheld: Vec<(String, String)>,
     /// Single-pass firing index ([`Batch`]) — derived from `rules`, built lazily once per loaded
     /// model and never serialized.
     #[serde(skip)]
@@ -296,10 +303,14 @@ impl RuleSet {
         // drops and the gate that dropped it — the build-side counterpart of "Your law, as
         // understood". Rules must never vanish undebuggably.
         let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
+        // PASS 31 — the conservation ledger: EVERY drop is recorded `(id, named gate)`, not only
+        // traced. `RefCell` because the retain-closure gates below call this from immutable contexts.
+        let withheld_log: std::cell::RefCell<Vec<(String, String)>> = std::cell::RefCell::new(Vec::new());
         let dropped = |id: &str, gate: &str| {
             if trace {
                 eprintln!("[lint-build {lang}] {id} dropped: {gate}");
             }
+            withheld_log.borrow_mut().push((id.to_string(), gate.to_string()));
         };
         // Ids of graduated rules that compiled their own PROVEN plan — exempt from the statistical
         // reference-fire gate below. That gate is a heuristic for UNproven example-diff detectors
@@ -310,13 +321,17 @@ impl RuleSet {
         let mut plan_rule_ids: HashSet<String> = HashSet::new();
         for (id, severity, bad, good, desc, source, construct) in rules {
             if id.is_empty() || !seen.insert(id.clone()) {
+                if !id.is_empty() {
+                    dropped(id, "duplicate id (first occurrence wins)");
+                }
                 continue;
             }
             // bad may be empty when the documentation only provides prose (description-only
             // rules). description_discriminator will read the English doc to derive a pattern;
             // the SELF-FIRE gate below will then validate or drop it.
             if desc.trim().is_empty() && bad.trim().is_empty() {
-                continue; // nothing to learn from
+                dropped(id, "empty (no description and no example — nothing to learn from)");
+                continue;
             }
             // Read the description's polarity ALONG the text — each word's context is the
             // nearest decisive lean, no chopping, no punctuation ([`GroundView::word_contexts`]).
@@ -330,6 +345,9 @@ impl RuleSet {
             // Project rules are law by location and skip the reading; with no ready classifier
             // the question is unanswerable and the author's material is trusted as before.
             let classifier_ready = ground.polarity.is_some_and(|p| p.is_ready());
+            // PASS 31 — THE COLLAPSE (owner ruling: understanding drives linting; presentation never
+            // vetoes proven law). A rescued rule's description is re-rendered from the FACT below.
+            let mut fact_rendered: Option<String> = None;
             if !trusted.contains(id) && classifier_ready {
                 let states_violation = ground
                     .polarity
@@ -337,10 +355,44 @@ impl RuleSet {
                         crate::lint_read::sentences(desc).iter().any(|s| p.classify(s) == Some(true))
                     });
                 if !states_violation {
-                    dropped(id, "entry gate (no sentence classifies as a prohibition)");
-                    continue;
+                    // The entry gate judged only the DISPLAY SENTENCE — for a GRADUATED construct rule
+                    // the proof is the blind loop's, not the sentence's (MEASURED: the selector's
+                    // overt-negator preference stapled MDN's XML/XHTML trivia footnote to
+                    // `document.write` and this gate silently unenforced a proven deprecation). Rescue
+                    // the rule iff its firing SHAPE is flood-safe: a dotted qualified chain is
+                    // inherently narrow; a BARE token is safe only when it is NOT an ordinary English
+                    // word by the dictionary's own knowledge (`clear` names arbitrary user identifiers
+                    // — every `map.clear()` — and stays withheld with its reason named, while the
+                    // jargon compound `createNSResolver` collides with nothing) AND it passes the same
+                    // learned over-generality read as any single-token detector. Without a brain a
+                    // bare shape cannot be certified flood-safe and is withheld (honest abstention).
+                    let bare_safe = |c: &str| {
+                        crate::lint_char::brain().is_some_and(|b| {
+                            b.meanings().definition_words(&c.to_lowercase()).is_none()
+                                && !over_general_token(c, good)
+                        })
+                    };
+                    let shape_safe =
+                        construct.as_deref().is_some_and(|c| c.contains('.') || bare_safe(c));
+                    if !shape_safe {
+                        dropped(
+                            id,
+                            if construct.is_some() {
+                                "entry gate (proven fact withheld: flood-unsafe bare shape)"
+                            } else {
+                                "entry gate (no sentence classifies as a prohibition)"
+                            },
+                        );
+                        continue;
+                    }
+                    // Presentation derives from knowledge: the enforcement message is the fact and its
+                    // citation (the graded tier's honest register), never the mis-selected sentence.
+                    fact_rendered = construct
+                        .as_deref()
+                        .map(|c| format!("Do not use `{c}`: documented deprecated ⟨{source}⟩."));
                 }
             }
+            let desc: &String = fact_rendered.as_ref().unwrap_or(desc);
             // A description-derived detector exists only for prose that STATES a violation:
             // project law states one by LOCATION (the user wrote it in a rule file — that is
             // the label), learned prose by the classifier's reading. Within the description,
@@ -550,7 +602,7 @@ impl RuleSet {
         // over-general rule must not claim a pattern signature it cannot keep.
         let ref_lines: usize = reference_corpus.iter().map(|e| e.lines().count()).sum();
         if ref_lines >= REFERENCE_FIRE_MIN_LINES {
-            let probe = RuleSet { lang: lang.to_string(), rules: compiled, batch: Default::default() };
+            let probe = RuleSet { lang: lang.to_string(), rules: compiled, withheld: Vec::new(), batch: Default::default() };
             let mut fired: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
             for example in reference_corpus {
                 for f in probe.flag(example) {
@@ -580,9 +632,25 @@ impl RuleSet {
         // (project > corpus folder > crawled docs), so the most trusted rule wins its pattern.
         let mut seen_patterns = HashSet::new();
         compiled.retain(|r| {
-            seen_patterns.insert(serde_json::to_string(&r.kind).unwrap_or_default())
+            let keep = seen_patterns.insert(serde_json::to_string(&r.kind).unwrap_or_default());
+            if !keep {
+                dropped(&r.id, "duplicate compiled pattern (an identical detector already enforces)");
+            }
+            keep
         });
-        RuleSet { lang: lang.to_string(), rules: compiled, batch: Default::default() }
+        RuleSet {
+            lang: lang.to_string(),
+            rules: compiled,
+            withheld: withheld_log.into_inner(),
+            batch: Default::default(),
+        }
+    }
+
+    /// The conservation ledger (PASS 31): every rule this compile dropped, with the gate that dropped
+    /// it. The train-time invariant and `lint_query kind=rules` read this — a rule may be withheld,
+    /// never vanished.
+    pub fn withheld(&self) -> &[(String, String)] {
+        &self.withheld
     }
 
     /// Number of compiled rules.
@@ -818,7 +886,7 @@ impl RuleSet {
     /// An empty rule set for `lang` — the identity element [`RuleSet::merged`] folds with
     /// when a language has an overlay but no AI module yet (law-only enforcement).
     pub fn empty(lang: &str) -> RuleSet {
-        RuleSet { lang: lang.to_string(), rules: Vec::new(), batch: Default::default() }
+        RuleSet { lang: lang.to_string(), rules: Vec::new(), withheld: Vec::new(), batch: Default::default() }
     }
 
     /// Merge two rule sets, `first` outranking `second` — the trust-order merge that joins a
@@ -839,7 +907,7 @@ impl RuleSet {
             }
             rules.push(r);
         }
-        RuleSet { lang, rules, batch: Default::default() }
+        RuleSet { lang, rules, withheld: Vec::new(), batch: Default::default() }
     }
 
     /// Serialize to JSON for caching.
@@ -916,9 +984,24 @@ impl crate::lint_codec::Bin for RuleSet {
     fn enc(&self, e: &mut crate::lint_codec::Enc) {
         e.str(&self.lang);
         self.rules.enc(e);
+        // PASS 31 — the conservation ledger rides at the END, bounds-safe: an old-format module
+        // simply lacks these bytes and decodes to an empty ledger (same trailing shape the web's
+        // graded/referee payloads use).
+        let (ids, gates): (Vec<String>, Vec<String>) = self.withheld.iter().cloned().unzip();
+        ids.enc(e);
+        gates.enc(e);
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<RuleSet> {
-        Some(RuleSet { lang: d.str()?, rules: Vec::dec(d)?, batch: Default::default() })
+        let lang = d.str()?;
+        let rules = Vec::dec(d)?;
+        let withheld = match <Vec<String> as crate::lint_codec::Bin>::dec(d) {
+            Some(ids) => {
+                let gates = <Vec<String> as crate::lint_codec::Bin>::dec(d).unwrap_or_default();
+                ids.into_iter().zip(gates).collect()
+            }
+            None => Vec::new(),
+        };
+        Some(RuleSet { lang, rules, withheld, batch: Default::default() })
     }
 }
 
