@@ -1962,6 +1962,37 @@ rendered route runs (python/rust); MDN's frontmatter route is untouched (dotless
 (iv) `uses-ssl.SSLSocket` shadow-fires on lines whose sin is the more specific `ssl.SSLSocket.read/write`
 (the token sequence is genuinely present — overlap, not a miss).
 
+### Owner direction — the MODULAR HUMAN LANGUAGE (ruled 2026-07-14, after PASS 28)
+
+> Owner ruling, verbatim intent: *"English should continue to be learned WITH THE BASIS OF THE DICTIONARY
+> BUT NOT LIMITED TO. Potentially split the English language and have actual user languages be modular as
+> well, so it is available in any language and still reasons the same — just the module is pulled and it
+> properly reads and lints."*
+
+Two commitments this sets, and what they bind to:
+
+1. **Dictionary is the BASIS, never the CEILING.** The meaning network keeps its dictionary seed as the
+   ground-truth anchor, and keeps GROWING past it by exposure — the `seal` learned-sense fold
+   (co-occurrence senses beside dictionary senses) and the construction-state miner are the existing growth
+   organs; doc-corpus register vocabulary (the PASS-28 exception/usage-form words, remedy leads,
+   supersession phrasing) is the named next growth surface: LEARNED from each corpus's own recurring
+   scaffolds (the PASS 19–23 machinery — "Passing ⟨⟩ … is deprecated" IS a construction state), with the
+   hand token lists as the measured seed, not the end state.
+2. **The REASONING core is language-free; the human language is a PULLED MODULE.** Split target: geometry
+   ops, polarity/direction judgment (the corroboration judge's logic), construction mining, ISM, and the
+   Hv substrate carry no English tokens; everything English-specific — dictionary substrate, negation
+   classifier data, register vocabularies, mined scaffolds, typography — lives in a language module,
+   exactly as programming-language modules are pulled today. `lint_lang.rs::Lexicon` (the French FreeDict
+   overlay into the MeaningNetwork) is the existing seed of this seam. Pulling the French module must read
+   French-published docs (docs.python.org/fr) and derive THE SAME rules — same reasoning, different
+   vocabulary data.
+
+**Named misplacement to correct at the split:** PASS 28's `scope_exception`/`usage_form` tokens sit in
+`deprecation-status.json` (a global datum file) but are ENGLISH register vocabulary — they belong in the
+English language module; a French module carries its own ("sauf", "si", the -ant forms). **Refactor gate:**
+the split lands only byte-identical — every language's lint verdicts unchanged with the English module
+pulled — then proves on a second human language.
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
