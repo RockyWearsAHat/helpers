@@ -299,20 +299,21 @@ pub fn removal_class_tokens() -> Vec<String> {
     status_values("removed")
 }
 
-/// The author register tokens that introduce an EXCEPTION LIST inside a deprecation note, from
-/// `deprecation-status.json` → `scope_exception` (PASS 28). An item the note names AFTER such a token is
-/// EXCLUDED from the note's own deprecation ("All TLSVersion members except TLSVersion.TLSv1_3 are
-/// deprecated"), so the marker must not attest it. Empty when the datum is absent (honest abstention —
-/// no narrowing, the pre-PASS-28 behavior).
+/// The EXCEPTION register ANCHOR(s), from `deprecation-status.json` → `scope_exception` (PASS 28;
+/// meaning-anchored PASS 29). One dictionary word per register — the meaning net expands it to every
+/// word the dictionary defines via it ([`crate::lint_lang_layer::note_counter_attests`]). An item a
+/// note names AFTER an exception-meaning word is EXCLUDED from the note's own deprecation ("All
+/// TLSVersion members except TLSVersion.TLSv1_3 are deprecated"), so the marker must not attest it.
+/// Empty when the datum is absent (honest abstention — no narrowing).
 pub fn scope_exception_tokens() -> Vec<String> {
     status_values("scope_exception")
 }
 
-/// The author register tokens that mark a USAGE-FORM deprecation, from `deprecation-status.json` →
-/// `usage_form` (PASS 28). Found as a bounded word in the FIRST SENTENCE of the note's clause after the
-/// deprecation head, they mean the note deprecates an argument/call form ("Deprecation warning is emitted
-/// if loop …", "Passing … is deprecated"), not the item itself — so the marker must not attest the item.
-/// Empty when the datum is absent (honest abstention).
+/// The CONDITIONAL-form register ANCHOR(s), from `deprecation-status.json` → `usage_form` (PASS 28;
+/// meaning-anchored PASS 29 — same expansion as [`scope_exception_tokens`]). A conditional-meaning word
+/// in the FIRST SENTENCE of a note's clause after the deprecation head means the note deprecates an
+/// argument/call form ("Deprecation warning is emitted if loop …"), not the item itself — so the marker
+/// must not attest the item. Empty when the datum is absent (honest abstention).
 pub fn usage_form_tokens() -> Vec<String> {
     status_values("usage_form")
 }
