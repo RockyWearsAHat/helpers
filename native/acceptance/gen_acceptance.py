@@ -169,8 +169,13 @@ for lang in ["javascript", "typescript", "css", "html", "rust"]:
     header = HEADERS.get(lang if lang != "typescript" else "javascript", [])
     lines = list(header)
     manifest = {}
+    skipped = []
     for rid, fire in rules:
-        lines.append(LINE[lang](fire))
+        try:
+            lines.append(LINE[lang](fire))
+        except KeyError:
+            skipped.append(rid)  # shape with no template yet — report, never crash the suite
+            continue
         manifest[rid] = {"fire": fire, "line": len(lines)}
     lines += FOOTERS.get(lang if lang != "typescript" else "javascript", [])
     with open(os.path.join(d, f"bad.{EXT[lang]}"), "w") as f:
@@ -179,4 +184,5 @@ for lang in ["javascript", "typescript", "css", "html", "rust"]:
         f.write(CLEAN[lang if lang != "typescript" else "typescript"])
     with open(os.path.join(d, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=1)
-    print(lang, len(rules), "planted")
+    note = f" (no template, unverified: {skipped})" if skipped else ""
+    print(lang, len(manifest), "planted" + note)

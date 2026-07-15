@@ -167,6 +167,19 @@ impl Attestation {
         false
     }
 
+    /// Whether a page body carries a PAGE-SCOPE deprecation banner — the learned sentence-scale TEXT-RUN
+    /// markers only. The rendered class-token route is deliberately excluded: a status class marks an
+    /// ITEM (one table row, one anchor — PASS 14's item unit), so it must never confer deprecation on
+    /// the PAGE's own URL-subject (the measured junk class: a reference INDEX page with one deprecated
+    /// row minting its page slug as a deprecated construct).
+    pub fn attests_page_scope(&self, body: &str) -> bool {
+        if self.markers.is_empty() {
+            return false;
+        }
+        let runs: HashSet<String> = runs_of(body).into_iter().collect();
+        self.markers.iter().any(|m| runs.contains(m))
+    }
+
     /// The learned marker runs (diagnostics / measurement).
     pub fn markers(&self) -> &[String] {
         &self.markers
