@@ -117,7 +117,7 @@ pub struct DocPage {
 /// is a per-SOURCE structural marker (the `/reference/` path depth), INTERIM like the page-kind keying,
 /// and it names no language: a NON-member language (CSS `@media/-moz-device-pixel-ratio`) simply fails
 /// to fire the dotted shapes under its grammar and the caller falls to bare.
-fn member_page_shapes(url: &str) -> Vec<String> {
+pub(crate) fn member_page_shapes(url: &str) -> Vec<String> {
     let lower = url.to_lowercase();
     let after = lower.find("/reference/").map(|i| &url[i + "/reference/".len()..]);
     let segs: Vec<&str> = after
@@ -558,7 +558,7 @@ fn strip_pre_blocks(html: &str) -> String {
 /// backticks, tag-strip to prose, split into sentences. Chrome BEFORE the first governing statement (page
 /// title, "Skip to main content", Baseline banner) is left behind because it is not sentence-shaped prose
 /// the reader keeps — sentences under [`MIN_WORDS`] are dropped.
-fn governing_sentences(body: &str) -> Vec<String> {
+pub(crate) fn governing_sentences(body: &str) -> Vec<String> {
     const MIN_WORDS: usize = 4;
     let body = drop_script_style(body);
     // The page's CONTENT begins at its title `<h1>` — everything before (the site's search box, sidebar
