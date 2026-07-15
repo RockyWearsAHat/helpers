@@ -261,9 +261,12 @@ pub fn load(lang: &str) -> Vec<ConstructionState> {
 
 /// Persist the PROVEN construction states for `lang`, retain-and-grow: written ONLY when there are proven
 /// states, so a subset crawl that proves nothing never wipes a prior artifact (mirrors
-/// `persist_graduated_ledger`). Stamped with the current train version.
+/// `persist_graduated_ledger`). Stamped with the current train version; refuses a train-ordinal
+/// regression ([`crate::lint_train::stamp_regression`] — an outlived process keeps the newer store).
 pub fn persist(lang: &str, states: &[ConstructionState]) {
-    if states.is_empty() {
+    if states.is_empty()
+        || crate::lint_train::stamp_regression(&constructions_path(lang), crate::lint_train::train_version())
+    {
         return;
     }
     let mut e = crate::lint_codec::Enc::new();
