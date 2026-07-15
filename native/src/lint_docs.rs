@@ -660,10 +660,16 @@ fn read_crawl_cache(path: &std::path::Path) -> Option<CrawledSource> {
 }
 
 /// Persist a source's crawled raw pages with the crawl timestamp (see [`CrawledSource`]);
-/// removes the JSON-era twin so exactly one copy lives on disk (LINTER.md, "Save").
+/// removes the JSON-era twin so exactly one copy lives on disk (LINTER.md, "Save"). Refuses a
+/// train-ordinal regression on the `TRAIN_VERSION`-stamped site caches
+/// ([`crate::lint_train::stamp_regression`] — an outlived process keeps the newer store);
+/// toolchain-stamped caches carry no ordinal and are untouched.
 #[cfg(feature = "crawl")]
 fn write_crawl_cache(path: &std::path::Path, version: &str, pages: &[CrawledPage]) {
     use crate::lint_codec::Bin as _;
+    if crate::lint_train::stamp_regression(path, version) {
+        return;
+    }
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

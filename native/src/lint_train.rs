@@ -1083,9 +1083,37 @@ fn load_bin<T: Bin>(path: &Path, kind: u8) -> Option<T> {
     T::dec(&mut d)
 }
 
+/// The `docs-vNN` train ordinal a stamp carries, or `None` when it names none (a toolchain
+/// version, a foreign stamp) — the comparable core of [`TRAIN_VERSION`]-family stamps.
+fn train_ordinal(stamp: &str) -> Option<u32> {
+    let rest = &stamp[stamp.find("docs-v")? + "docs-v".len()..];
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+/// Whether writing an artifact stamped `stamp` at `path` would ROLL KNOWLEDGE BACKWARDS: the
+/// artifact already on disk carries a NEWER `docs-vNN` ordinal than the writer (PASS 33 — the
+/// stale-daemon class: a long-lived process whose binary was replaced on disk must never
+/// resurrect its older knowledge over a newer store). Abstains (`false`, write allowed) when
+/// either side carries no ordinal; reads only the container header prefix, never the payload.
+pub(crate) fn stamp_regression(path: &Path, stamp: &str) -> bool {
+    let Some(new) = train_ordinal(stamp) else { return false };
+    let mut prefix = [0u8; 512];
+    let have = std::fs::File::open(path)
+        .and_then(|mut f| std::io::Read::read(&mut f, &mut prefix))
+        .unwrap_or(0);
+    crate::lint_codec::probe(&prefix[..have])
+        .and_then(|h| train_ordinal(&h.stamp))
+        .is_some_and(|existing| existing > new)
+}
+
 /// Encode one `HLM1` artifact file, creating the directory and deleting the legacy `.json`
-/// twin so migrated machines keep exactly one copy (LINTER.md, "Save").
+/// twin so migrated machines keep exactly one copy (LINTER.md, "Save"). Refuses a
+/// train-ordinal REGRESSION ([`stamp_regression`]) — an outlived process keeps the newer store.
 fn save_bin<T: Bin>(path: &Path, kind: u8, stamp: &str, value: &T) {
+    if stamp_regression(path, stamp) {
+        return;
+    }
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -1935,23 +1963,18 @@ fn resolved_sources_uncached(data_root: &Path, lang: &str) -> Vec<crate::lint_do
         // `[]` is the user disabling this language's docs OUTRIGHT — sites included; the run
         // asks instead.
         Some(urls) if urls.is_empty() => return Vec::new(),
-        Some(urls) => {
-            let reg_urls: std::collections::BTreeSet<&str> =
-                registry.iter().map(|s| s.url.as_str()).collect();
-            let man_urls: std::collections::BTreeSet<&str> =
-                urls.iter().map(|u| u.as_str()).collect();
-            if man_urls == reg_urls {
-                registry
-            } else {
-                urls.iter()
-                    .map(|u| crate::lint_docs::DocsSource {
-                        url: u.clone(),
-                        crawl: true,
-                        tool: manifest_tool(u),
-                    })
-                    .collect()
-            }
-        }
+        // PER-URL identity (PASS 33): a manifest URL the registry also names keeps the registry's
+        // tool id — its crawl cache name and toolchain keying stay stable when the registry gains
+        // or loses a SIBLING source. Only a URL the registry does not carry is manifest-keyed. The
+        // manifest stays the user's word: a registry URL absent from it is still not crawled.
+        Some(urls) => urls
+            .iter()
+            .map(|u| {
+                registry.iter().find(|s| &s.url == u).cloned().unwrap_or_else(|| {
+                    crate::lint_docs::DocsSource { url: u.clone(), crawl: true, tool: manifest_tool(u) }
+                })
+            })
+            .collect(),
         None => registry,
     };
     // Site sources whose cached pages teach this language join in ("A site is a source").
@@ -3184,6 +3207,78 @@ mod tests {
         std::fs::write(&path, e.finish(crate::lint_codec::kind::EXTMAP, TRAIN_VERSION)).unwrap();
         let bin = read_extension_map(&path);
         assert_eq!(bin, legacy, "binary and legacy forms decode identically");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// PASS 33 — the stale-daemon rollback class: a writer whose stamp carries an OLDER
+    /// `docs-vNN` ordinal than the artifact on disk must be refused; every other write
+    /// (same, newer, either side ordinal-free, no file yet) proceeds.
+    #[test]
+    fn knowledge_writes_are_train_ordinal_monotonic() {
+        assert_eq!(super::train_ordinal("docs-v97-pseudo-shape"), Some(97));
+        assert_eq!(super::train_ordinal("docs-v92-graded-tier\u{1f}23.9.0\u{1f}ab"), Some(92));
+        assert_eq!(super::train_ordinal("23.9.0"), None, "a toolchain stamp carries no ordinal");
+
+        let dir = std::env::temp_dir().join(format!("stamp-monotonic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("x.web.bin");
+        let write = |stamp: &str| {
+            let e = crate::lint_codec::Enc::new();
+            std::fs::write(&path, e.finish(crate::lint_codec::kind::WEB, stamp)).unwrap();
+        };
+        assert!(!super::stamp_regression(&path, "docs-v92-x"), "no file yet — write allowed");
+        write("docs-v97-pseudo-shape");
+        assert!(super::stamp_regression(&path, "docs-v92-graded-tier"), "older writer REFUSED");
+        assert!(!super::stamp_regression(&path, "docs-v97-pseudo-shape"), "same version allowed");
+        assert!(!super::stamp_regression(&path, "docs-v98-next"), "newer writer allowed");
+        assert!(!super::stamp_regression(&path, "23.9.0"), "ordinal-free writer abstains");
+        write("23.9.0");
+        assert!(!super::stamp_regression(&path, "docs-v92-x"), "ordinal-free store abstains");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// PASS 33 — per-URL source identity: a manifest URL the registry also names keeps the
+    /// registry's tool id (stable crawl-cache name); only a URL the registry does not carry is
+    /// keyed by [`manifest_tool`]. The registry URL ABSENT from the manifest stays uncrawled
+    /// (the manifest is the user's word).
+    #[test]
+    fn manifest_urls_keep_their_registry_tool_identity() {
+        let dir = std::env::temp_dir().join(format!("per-url-tools-{}", std::process::id()));
+        let _env = crate::test_env_lock();
+        let old_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", &dir);
+        std::fs::create_dir_all(dir.join(".config/helpers")).unwrap();
+        std::fs::create_dir_all(dir.join("lint-index")).unwrap();
+        std::fs::write(
+            dir.join("lint-index/sources.json"),
+            r#"{"sources":[
+                {"tool":"shard-a","language":"shardlang","kind":"crawl","seed":"https://docs.shard/a/"},
+                {"tool":"shard-b","language":"shardlang","kind":"crawl","seed":"https://docs.shard/b/"}
+            ]}"#,
+        )
+        .unwrap();
+        // The manifest keeps a/, drops b/ (the user's word), adds a novel URL.
+        std::fs::write(
+            dir.join(".config/helpers/languages.json"),
+            r#"{"languages":{"shardlang":["https://docs.shard/a/","https://docs.shard/extra/"]}}"#,
+        )
+        .unwrap();
+        let sources = super::resolved_sources_uncached(&dir, "shardlang");
+        match old_home {
+            Some(h) => std::env::set_var("HOME", h),
+            None => std::env::remove_var("HOME"),
+        }
+        let extra_tool = super::manifest_tool("https://docs.shard/extra/");
+        let tools: Vec<(&str, &str)> =
+            sources.iter().map(|s| (s.url.as_str(), s.tool.as_str())).collect();
+        assert_eq!(
+            tools,
+            vec![
+                ("https://docs.shard/a/", "shard-a"),
+                ("https://docs.shard/extra/", extra_tool.as_str()),
+            ],
+            "registry URL keeps its tool id; novel URL is manifest-keyed; dropped URL stays dropped"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
