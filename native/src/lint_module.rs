@@ -562,14 +562,16 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
     // A rendered-marker page (Python/Rust) demonstrates its items in bare inline `<code>`, not
     // `<pre><code>`, so its example corpus is the WIDENED reading; a URL-subject page (MDN) has no
     // markers and reads exactly the frozen `<pre><code>` corpus — byte-identical.
-    let own = if page.marked_deprecated.is_empty() {
+    // A rendered-marker page stays one when every item is counter-attested (PASS 28): the marker
+    // typography is the structural fact; counter-attestation only narrows enforcement.
+    let own = if page.marked_deprecated.is_empty() && page.counter_attested.is_empty() {
         crate::lint_lang_layer::page_code_corpus(
             std::slice::from_ref(&(url.to_string(), body.to_string())),
             lang,
             MAX_HARVEST_BLOCKS,
         )
     } else {
-        crate::lint_lang_layer::page_example_corpus(body, &page.marked_deprecated)
+        crate::lint_lang_layer::page_example_corpus(body, true)
     };
     page.constructs.iter().any(|c| {
         let plan = Plan::UsesConstruct { construct: c.clone() };
@@ -636,11 +638,15 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
                 .or_else(|| p.governing.first())
                 .cloned()
                 .unwrap_or_default();
+            // PASS 28 — a counter-attested item (its own note excludes it or deprecates only a usage
+            // form) stays a READ node but must not carry the revoked doc-role seed: it is not
+            // deprecated, so neither the proven funnel nor the graded tier may enforce it.
+            let counter = p.counter_attested.iter().flatten().any(|s| s == c);
             read_surface.push(ReadConstruct {
                 construct: c.clone(),
                 governing,
                 url: p.url.clone(),
-                attested_deprecated: p.attested_deprecated,
+                attested_deprecated: p.attested_deprecated && !counter,
             });
         }
     }

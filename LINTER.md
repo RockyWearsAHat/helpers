@@ -380,11 +380,13 @@ sense, or directed cross-reference (which collapses to hop-0 literal membership 
 itself states supersession for only a minority of the ten target features (Temporal/Navigation/invoker;
 the other seven describe the new feature without a supersession sentence). NO rule ships; the register
 re-lands under the same two-gap condition. The metadata faculty sidesteps this only where the author
-publishes a metadata marker; a docs site with none abstains honestly. The rendered-marker route carries a
-measured residual: ~6 of python's 25 rules over-approximate the SCOPE of a faithful author note (arg-form
-deprecations `urllib.parse.urlencode`/`asyncio.Task`; group notes `TLSVersion.TLSv1_3`/`.end_col_offset`
-whose prose names siblings or exceptions) — narrowing needs the note's own English read (the same
-prose-scope wall). `mem::uninitialized`/`Error::description` stay unproven honestly (fn-page subjects have
+publishes a metadata marker; a docs site with none abstains honestly. The rendered-marker route's
+scope residual is NARROWED by COMPLETION PASS 28 (the note-scope read: an exception clause naming the item
+after "except", and a first-sentence usage-form register `if/passing/setting/accepting`, both data-keyed in
+`deprecation-status.json`, counter-attest the marker — kills the `TLSVersion.TLSv1_3` and
+`urllib.parse.urlencode`/`asyncio.Task`-family over-approximations); the remaining prose-scope wall is
+subject-vs-remedy misattribution (`.end_col_offset`, whose badge belongs to the `ast.Index`/`ast.ExtSlice`
+note) — see the PASS 28 ledger item. `mem::uninitialized`/`Error::description` stay unproven honestly (fn-page subjects have
 no dotted item anchor; `description` is never demonstrated in examples). **PASS 19 rung 1 (measured,
 `examples/construct_mine`) reopens both the supersession AND the marker-less prohibition frontier from a new
 direction: CONSTRUCTION STATES.** A construction is a sentence-level invariant SCAFFOLD with variant SLOTS —
@@ -1887,6 +1889,78 @@ language automatically the moment a crawl gives that language a corpus that witn
 `ssl.PROTOCOL_SSLv3`, `importlib.machinery.SourceFileLoader` chains) — instance-receiver deprecated calls
 (`loader.load_module()`) stay invisible at this tier by design. (iii) css/html/rust graded 0 is structural
 (their revoked constructs are proven or receiver-generic-only), unchanged from PASS 26.
+
+### Item — COMPLETION PASS 28: the NOTE-SCOPE read — two registers of the "note's own English" wall fall (`lint_lang_layer.rs`, `lint_attest.rs`, `deprecation-status.json`, `examples/notescope_probe`, SHIPPED, 2026-07-14)
+
+> The PASS-18-ledgered residual ("~6 of python's 25 rules over-approximate the SCOPE of a faithful author
+> note … narrowing needs the note's own English read") was REPRODUCED as live false positives by a
+> full-rule-set planted-fixture validation (123/123 rules fire at exact lines, clean fixture zero — the
+> DETECTION side is total; the defect is rule TRUTH): `uses-TLSVersion.TLSv1_3` flags the member its own
+> cited sentence EXCLUDES, and `graded-asyncio.shield`/`parse.urlencode`/`Wm.attributes` flag items whose
+> notes deprecate an ARGUMENT FORM, not the item. This pass reads the note.
+
+**The mechanism.** [`attested_item_shapes`] already holds the marker's byte position; the note's OWN prose
+(text after the marker tag, stopped at the next id-bearing tag — the region the author rendered inside the
+badge) is now read against two data-keyed registers before a marker may attest its item. The register
+vocabulary is DATA in `deprecation-status.json` (the same "one datum no structural signal can supply"
+covenant as `prohibits`/`removed` — author register words, never code):
+1. **EXCEPT-SCOPE** (`scope_exception: ["except"]`): the note names the attributed item AFTER an exception
+   token → the sentence EXCLUDES the item from its own deprecation; the marker attests NOTHING for it.
+   (`ssl.TLSVersion.TLSv1_3`: "All TLSVersion members except TLSVersion.TLSv1_2 and TLSVersion.TLSv1_3 are
+   deprecated.")
+2. **USAGE-FORM** (`usage_form: ["if", "passing", "setting", "accepting"]`): the FIRST SENTENCE of the
+   clause after the deprecation head carries a usage-form token as a bounded word → the note deprecates a
+   CALL/ARGUMENT FORM of the item, not the item; counter-attested. First-sentence-only is load-bearing
+   (MEASURED): later sentences are remedy prose ("Use isinstance(…) to test **if** obj …", "Raise OSError
+   **if** the path …") and full-note matching false-cuts the TRUE `ByteString`/`SourceLoader.path_mtime`
+   deprecations.
+
+**Measured on python-library (328 pages, 135 attested items, `examples/notescope_probe`):** EXCEPT-SCOPE
+1/1 correct (`ssl.TLSVersion.TLSv1_3` — the exact known FP, nothing else). USAGE-FORM 13/13 correct cuts
+(`asyncio.{ensure_future,wrap_future,Future,shield,as_completed,Task}` "Deprecation warning is emitted
+**if** loop …", `re.split`/`tomllib.TOMLDecodeError.colno`/`argparse….add_argument_group` "**Passing** … is
+deprecated", `tkinter.Wm.attributes` "**Setting** an attribute by passing …", `urllib.parse.parse_qs`/
+`urllib.parse.urlencode` "**Accepting** objects with false values … is now deprecated"); datamodel's
+`module.__loader__` ("**Setting** `__loader__` … while failing to set `__spec__.loader`") falls to the same
+register at train time — honest to its sentence, which deprecates the setting form. A THIRD register was
+probed and REJECTED: subject-vs-remedy misattribution (a note naming other same-page-anchored dotted items)
+false-cuts 4 of its 5 hits (`SourceFileLoader.load_module`/`SourcelessFileLoader.load_module`/
+`ResourceReader`/`hook_encoded` — their notes name the REMEDY as a dotted item, "Use `exec_module()`
+instead"), so it does NOT ship; distinguishing a note's SUBJECT from its REMEDY mention is the remaining
+prose-scope wall.
+
+**The witness-preserving split (the first cut's measured collateral, fixed).** Narrowing INSIDE
+`attested_item_shapes` (drop the group) silently removed TRUE rules: a counter-attested item was often its
+page's ONLY partition witness (`page_proves_in_lang` fires `.attributes` on tkinter.html's own
+`w.attributes('-alpha', 0.5)` demo; `module.__loader__` on datamodel.html), so the whole PAGE left the
+language partition and its innocent siblings' nodes died with it (MEASURED: `graded-Variable.trace_variable`
+and `graded-codeobject.co_lnotab` vanished). The landed shape returns TWO views —
+`DocPage::marked_deprecated` (enforceable) + `DocPage::counter_attested` — a counter-attested item stays in
+`constructs` (language witness, plain read node) and its read node carries `attested_deprecated: false`
+(never proposed, never graded); only the enforcement view narrows. Retrain gotcha, for the next pass: a
+same-`TRAIN_VERSION` retrain is a FIXPOINT NO-OP (`is_current` matches version⊕train⊕sources⊕brain), so
+re-measuring a code change under an already-stamped version requires deleting `<lang>.module.bin` first.
+
+**Shipped (live, deployed, retrained docs-v93-note-scope).** python 125 → **112** rules: −13, exactly the
+misread set (`uses-TLSVersion.TLSv1_3`, `uses-asyncio.{Future,Task}`, `uses-urllib.parse.urlencode`,
+`uses-module.__loader__`, `graded-ssl.TLSVersion.TLSv1_3`, `graded-asyncio.{ensure_future,wrap_future,
+shield,as_completed}`, `graded-Wm.attributes`, `graded-parse.{parse_qs,urlencode}`); every true rule kept
+(`graded-Variable.trace_variable` + `graded-codeobject.co_lnotab` restored by the witness split). Full-set
+planted-fixture validation through the deployed binary: **110/110 rules fire at their exact planted lines,
+the 13 counter-attested plants are silent, clean-modern fixture zero** (deprecated names in
+comments/strings and welded identifiers stay silent). 251 lib tests green (+1: the note-scope registers).
+css 24 / html 18 / js 53 / ts 53 / rust 11 unchanged (no counter-attested items on their corpora).
+
+**Honest remainder.** (i) `ast.AST.end_col_offset` stays over-attested (its trailing badge belongs to the
+`ast.Index`/`ast.ExtSlice` note — subject-naming without same-page anchors; the rejected third register).
+(ii) `ssl.SSLSocket` ("It is deprecated **to create** … directly" — infinitive usage-form register, unprobed
+vocabulary) and `ssl.SSLContext.options` (neighbor-subject note "All OP_NO_SSL* … options have been
+deprecated" whose sentence coincidentally contains "options") stay attested; both fire only on
+receiver-qualified literal text, so wild false-positive surface is the `isinstance(x, ssl.SSLSocket)` /
+`SSLContext.options` spelling, not ordinary `ctx.options` code. (iii) The registers run wherever the
+rendered route runs (python/rust); MDN's frontmatter route is untouched (dotless ids abstain as before).
+(iv) `uses-ssl.SSLSocket` shadow-fires on lines whose sin is the more specific `ssl.SSLSocket.read/write`
+(the token sequence is genuinely present — overlap, not a miss).
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
