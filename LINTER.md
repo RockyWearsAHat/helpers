@@ -1997,6 +1997,44 @@ What this fixes as architecture law:
 (docs.python.org/fr) through the pulled lexicon, with NO retraining, byte-identical verdicts — proves the
 overlay is pure I/O and the net truly language-free.
 
+### Item — COMPLETION PASS 29: the note-scope registers become MEANING-ANCHORED — the PASS-28 token shims die (`lint_lang_layer.rs`, `lint_attest.rs`, `deprecation-status.json`, SHIPPED, 2026-07-14)
+
+> The owner ruling above, made code the same day. PASS 28 shipped the note-scope read as English word
+> lists (`if/passing/setting/accepting`) — measured-correct on the trained corpora and nothing more. PASS
+> 29 re-keys the registers to the MEANING NET: the data keeps ONE dictionary anchor per register
+> (`scope_exception: ["except"]`, `usage_form: ["if"]` — the "one datum" covenant), and the net supplies
+> the rest.
+
+**The mechanism ([`note_counter_attests`], now `pub`).** Three reads, all through the dictionary:
+1. **Exception meaning** — a note word carries the register iff it IS the anchor or the dictionary
+   DEFINES it via the anchor under a FUNCTION-WORD POS GATE (the entry's own leading POS typography,
+   conjunction/preposition): "unless" (*conjunction: except if …*), "excluding", "barring" join by their
+   own definitions; a content word whose long definition merely mentions "except" does not.
+2. **Conditional meaning** — same expansion for "if", first-sentence-only as before.
+3. **Usage subject** — the first sentence's FIRST word is a gerund of a dictionary VERB (morphological
+   `-ing`; stem candidates drop `ing`, un-double the consonant `setting`→`set`, restore the silent `e`
+   `encoding`→`encode`; verb-hood is the dictionary entry's own `verb` POS word). **No gerund list exists
+   anywhere anymore.** Mid-sentence gerunds stay inert (noun `-ing` like "…have encoding and errors
+   parameters" must not cut `hook_encoded` — first-word-only is the measured boundary).
+Brainless fallback = literal anchors only (honest narrow); training always runs with the brain.
+
+**Measured.** Corpus regression over BOTH python corpora (probe diff, meaning-keyed vs the PASS-28
+tokens): every previously-cut item cut, every keeper kept, and ONE divergence — `pathlib.Path.as_uri`
+("**Calling** this method from PurePath rather than Path is possible but deprecated"), a genuine
+usage-form deprecation the token list missed and the verb register catches; it carries no rule, so the
+node honestly drops its revoked role. Full six-language forced retrain (modules deleted first — the
+PASS-28 fixpoint lesson): **css 22 / html 16 / js 51 / ts 51 / python 110 / rust 9 — byte-identical rule
+sets.** Planted fixture through the deployed binary: 110/110 fire at exact lines, 13 counter-attested
+plants silent, clean zero. 252 lib tests green (+1: `unless`-by-definition, unseen gerund `calling`,
+`setting`→`set` un-doubling, POS-gate negative). `TRAIN_VERSION` → `docs-v94-meaning-registers`.
+
+**What this buys.** The registers now generalize exactly as far as the dictionary's own knowledge — an
+unseen docs site writing "unless", "excluding", or any verb-gerund subject reads correctly with zero new
+data; and a pulled language lexicon that glosses foreign surface forms onto these same meaning nodes makes
+the registers fire in that language with zero per-language logic (the owner-direction seam). Honest
+remainder unchanged from PASS 28 (subject-vs-remedy misattribution; infinitive forms — "It is deprecated
+to create …" — the infinitive register is unprobed vocabulary and stays open).
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
