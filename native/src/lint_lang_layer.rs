@@ -89,6 +89,13 @@ pub struct DocPage {
     /// here, so this is the covenant-clean STRUCTURAL confirmation the caller uses to admit Python/Rust
     /// member subjects the URL cannot spell, without perturbing the URL-subject sites.
     pub marked_deprecated: Vec<Vec<String>>,
+    /// The marked item groups whose OWN note COUNTER-ATTESTS them (PASS 28 — an exception clause naming
+    /// the item, or a first-sentence usage-form deprecation). Kept SEPARATE from
+    /// [`marked_deprecated`](Self::marked_deprecated) rather than dropped: a counter-attested item is
+    /// still demonstrated python/rust on its page, so it remains a LANGUAGE WITNESS
+    /// ([`crate::lint_module::page_proves_in_lang`]) and a plain (non-revoked) web read node — it only
+    /// leaves the ENFORCEMENT view (no proposal, no graded form).
+    pub counter_attested: Vec<Vec<String>>,
     /// Whether this page was made a prohibition by BINDING a PROVEN CONSTRUCTION on its own prose (PASS
     /// 23, [`crate::lint_construct::attested_subjects`]): its `constructs` are the construction's slot
     /// subjects (firing-form module names), and the construction's PROOF — not the URL payload or a
@@ -194,10 +201,10 @@ fn example_receiver_shapes(url: &str, example_code: &[String]) -> Vec<String> {
 /// page's own example code. A DOTLESS id (an MDN section slug like `browser_compatibility`) is not an item
 /// anchor, so the URL-subject sites are never perturbed by this reader. No site, class, or language named:
 /// the marker token is data, the dotted-anchor shape is structure.
-fn attested_item_shapes(body: &str) -> Vec<Vec<String>> {
+fn attested_item_shapes(body: &str) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
     let tokens = crate::lint_attest::prohibition_class_tokens();
     if tokens.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
     let dotted_item = |v: &str| -> bool {
@@ -268,6 +275,7 @@ fn attested_item_shapes(body: &str) -> Vec<Vec<String>> {
         }
     }
     let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut counter: Vec<Vec<String>> = Vec::new();
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (mpos, own_id) in &markers {
         let mpos = *mpos;
@@ -308,10 +316,18 @@ fn attested_item_shapes(body: &str) -> Vec<Vec<String>> {
                 group.push(parts[start..].join("."));
             }
             group.push(format!(".{}", parts[parts.len() - 1]));
-            groups.push(group);
+            // PASS 28 — the NOTE-SCOPE read: the note's OWN sentence can exclude its attributed item
+            // (an exception clause) or deprecate only a usage form of it (a first-sentence conditional/
+            // gerund register). A counter-attested item leaves the ENFORCEMENT view but stays a
+            // structural read — it remains a language witness and a (non-revoked) web read node.
+            if note_counter_attests(&marker_note_text(body, mpos), id) {
+                counter.push(group);
+            } else {
+                groups.push(group);
+            }
         }
     }
-    groups
+    (groups, counter)
 }
 
 /// The largest byte distance between a deprecation marker and the item anchor it may belong to. A trailing
@@ -319,6 +335,93 @@ fn attested_item_shapes(body: &str) -> Vec<Vec<String>> {
 /// long description; a marker farther than this from any dotted anchor is page chrome (a nav badge, a
 /// changelog mention), not an item badge — so it attests nothing.
 const MARKER_ANCHOR_WINDOW: usize = 20_000;
+
+/// The most note prose read for the scope registers — a rendered badge is a short paragraph; the cap
+/// only bounds a pathological unclosed region.
+const NOTE_TEXT_CAP: usize = 600;
+
+/// The deprecation note's OWN prose (PASS 28): the whitespace-collapsed text after the marker tag at
+/// `mpos`, stopped at the next id-bearing tag (the following item's region) or [`NOTE_TEXT_CAP`] chars —
+/// the sentence the author rendered inside the badge, lower-cased for the register reads.
+fn marker_note_text(body: &str, mpos: usize) -> String {
+    let has_id = |tag: &str| {
+        tag.find("id=").is_some_and(|i| matches!(tag.as_bytes().get(i + 3), Some(b'"') | Some(b'\'')))
+    };
+    let mut out = String::new();
+    let mut i = mpos;
+    while i < body.len() && out.len() < NOTE_TEXT_CAP {
+        if body.as_bytes()[i] == b'<' {
+            let Some(rel) = body[i..].find('>') else { break };
+            if i > mpos && has_id(&body[i..i + rel + 1]) {
+                break;
+            }
+            i += rel + 1;
+            continue;
+        }
+        let c = body[i..].chars().next().unwrap();
+        if c.is_whitespace() {
+            if !out.is_empty() && !out.ends_with(' ') {
+                out.push(' ');
+            }
+        } else {
+            out.extend(c.to_lowercase());
+        }
+        i += c.len_utf8();
+    }
+    out
+}
+
+/// Whether `word` occurs in `hay` bounded by non-identifier characters (so `if` never matches `shift`).
+/// Both sides lower-case by contract.
+fn contains_bounded_word(hay: &str, word: &str) -> bool {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut from = 0usize;
+    while let Some(rel) = hay[from..].find(word) {
+        let s = from + rel;
+        let e = s + word.len();
+        let before_ok = hay[..s].chars().next_back().map(|c| !is_ident(c)).unwrap_or(true);
+        let after_ok = hay[e..].chars().next().map(|c| !is_ident(c)).unwrap_or(true);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = e;
+    }
+    false
+}
+
+/// The PASS-28 NOTE-SCOPE registers: whether a deprecation note's own prose COUNTER-ATTESTS its
+/// attributed `item` (the marker then attests nothing). Two registers, vocabulary carried as DATA in
+/// `deprecation-status.json` (measured on python-library — LINTER.md PASS 28; both empty ⇒ `false`,
+/// the honest pre-PASS-28 behavior):
+/// - EXCEPTION SCOPE: the note names the item AFTER an exception token — the sentence excludes it
+///   ("All TLSVersion members except TLSVersion.TLSv1_3 are deprecated").
+/// - USAGE FORM: the FIRST SENTENCE of the clause after the deprecation head carries a usage-form token
+///   as a bounded word — the note deprecates an argument/call form, not the item ("Deprecation warning
+///   is emitted if loop …", "Passing … is deprecated"). First-sentence-only is load-bearing: later
+///   sentences are remedy prose ("Use isinstance(…) to test if …") and must not cut a true deprecation.
+fn note_counter_attests(note: &str, item: &str) -> bool {
+    if note.is_empty() {
+        return false;
+    }
+    let item = item.to_lowercase();
+    let last = item.rsplit('.').next().unwrap_or(&item);
+    let parts: Vec<&str> = item.split('.').collect();
+    let two =
+        if parts.len() >= 2 { parts[parts.len() - 2..].join(".") } else { item.clone() };
+    for tok in crate::lint_attest::scope_exception_tokens() {
+        let mut from = 0usize;
+        while let Some(rel) = note[from..].find(&tok) {
+            let after = &note[from + rel..];
+            if after.contains(&two) || after.contains(&format!(".{last}")) {
+                return true;
+            }
+            from += rel + tok.len();
+        }
+    }
+    let clause = note.split_once(':').map(|(_, c)| c).unwrap_or(note);
+    let first_sentence = clause.find(". ").map(|p| &clause[..p + 1]).unwrap_or(clause);
+    crate::lint_attest::usage_form_tokens().iter().any(|t| contains_bounded_word(first_sentence, t))
+}
 
 /// Whether the url is a per-construct REFERENCE page — its path names a documentation reference section
 /// (`/reference/`). A per-SOURCE structural marker (MDN publishes its reference under `…/Reference/…`),
@@ -546,9 +649,9 @@ fn bare_code_interiors(html: &str) -> Vec<String> {
 /// example shape) for every page, WIDENED with [`bare_code_interiors`] when the page carries in-place
 /// rendered item-anchor markers (`marked` non-empty), so a Python/Rust item whose only clean usage is a
 /// bare inline `<code>` reference is visible to the grammar referee. Structural gate, no site named.
-pub(crate) fn page_example_corpus(body: &str, marked: &[Vec<String>]) -> Vec<String> {
+pub(crate) fn page_example_corpus(body: &str, rendered_marker: bool) -> Vec<String> {
     let mut out = code_interiors(body);
-    if !marked.is_empty() {
+    if rendered_marker {
         let mut seen: std::collections::HashSet<String> = out.iter().cloned().collect();
         for blk in bare_code_interiors(body) {
             if seen.insert(blk.clone()) {
@@ -681,6 +784,7 @@ pub fn read_doc_page(
         correct: Vec::new(),
         example_code: Vec::new(),
         marked_deprecated: Vec::new(),
+        counter_attested: Vec::new(),
         construction_attested: false,
     };
     // A deprecation NOTECARD makes a page a prohibition regardless of the `/reference/` URL marker: MDN
@@ -716,6 +820,7 @@ pub fn read_doc_page(
     let (mut incorrect, mut correct) = (Vec::new(), Vec::new());
     let mut example_code: Vec<String> = Vec::new();
     let mut marked_deprecated: Vec<Vec<String>> = Vec::new();
+    let mut counter_attested: Vec<Vec<String>> = Vec::new();
     if rule {
         // Examples are read from the RAW markup (only script/style dropped) — NOT `code_to_backtick`,
         // which wraps each example's `<code>` in one backtick pair and makes the whole block parse as a
@@ -767,18 +872,20 @@ pub fn read_doc_page(
         // RENDERED-MARKER sites (Python/Rust) mark each deprecated item in place with its own dotted
         // anchor, not one item per URL — so read the subjects from the page's item anchors, most-specific
         // first. Dotless-id (URL-subject) sites like MDN yield nothing here, so they are unperturbed.
-        marked_deprecated = attested_item_shapes(body);
+        (marked_deprecated, counter_attested) = attested_item_shapes(body);
         // The example corpus is [`code_interiors`] for a URL-subject page, WIDENED with the bare inline
         // `<code>` refs for a rendered-marker page (Python names its items only in inline code, not
-        // `<pre><code>`). MDN has no rendered markers, so its corpus is byte-identical.
-        example_code = page_example_corpus(body, &marked_deprecated);
+        // `<pre><code>`). MDN has no rendered markers, so its corpus is byte-identical. Whether a page IS
+        // a rendered-marker page is structural, so counter-attested items still count for the widening.
+        example_code =
+            page_example_corpus(body, !marked_deprecated.is_empty() || !counter_attested.is_empty());
         // A `/reference/` page names its owner in the path (`…/String/substr`), so URL-derived shapes
         // suffice. A NON-reference notecard page (`/Web/API/Document/write`) names the owner as a plain
         // path segment whose CASE differs from the code receiver (`Document` vs `document`); its clean
         // qualified shape is read from the page's OWN example receiver ([`example_receiver_shapes`]),
         // prepended most-specific-first so the caller's grammar-refereed selection keeps `document.write`
         // over the over-firing bare `write`.
-        for shape in marked_deprecated.iter().flatten() {
+        for shape in marked_deprecated.iter().chain(counter_attested.iter()).flatten() {
             if !constructs.contains(shape) {
                 constructs.push(shape.clone());
             }
@@ -797,7 +904,7 @@ pub fn read_doc_page(
         }
     }
 
-    DocPage { url: url.to_string(), prohibited, attested_deprecated, governing, constructs, incorrect, correct, example_code, marked_deprecated, construction_attested }
+    DocPage { url: url.to_string(), prohibited, attested_deprecated, governing, constructs, incorrect, correct, example_code, marked_deprecated, counter_attested, construction_attested }
 }
 
 #[cfg(test)]
@@ -817,7 +924,7 @@ mod tests {
         let py = r#"<dl><dt id="mod.klass.olditem"></dt><dd><p>Long description prose here.</p>
             <div class="deprecated"><p>Deprecated since version 9.9: gone.</p></div></dd>
             <dt id="mod.klass.newitem"></dt><dd><p>The replacement.</p></dd></dl>"#;
-        let groups = attested_item_shapes(py);
+        let (groups, _) = attested_item_shapes(py);
         assert_eq!(groups.len(), 1, "one marked item: {groups:?}");
         assert_eq!(groups[0], vec!["mod.klass.olditem", "klass.olditem", ".olditem"], "no bare shape");
 
@@ -825,19 +932,61 @@ mod tests {
         // between them — attributes FORWARD.
         let rs = r#"<details class="toggle method-toggle deprecated"><summary>
             <section id="method.olditem" class="method"><h4>fn olditem()</h4></section></summary></details>"#;
-        let groups = attested_item_shapes(rs);
+        let (groups, _) = attested_item_shapes(rs);
         assert_eq!(groups.len(), 1, "{groups:?}");
         assert_eq!(groups[0][0], "method.olditem");
 
         // SELF-ANCHORED (rustdoc section): id and marker class on the SAME element.
         let rs2 = r#"<section class="method deprecated" id="method.only_v6"><h4>sig</h4></section>"#;
-        assert_eq!(attested_item_shapes(rs2)[0][0], "method.only_v6");
+        assert_eq!(attested_item_shapes(rs2).0[0][0], "method.only_v6");
 
         // A dotless region id (an MDN section slug) and a `-1` duplicate id attest NOTHING.
         let mdn = r#"<h2 id="syntax"></h2><div class="notecard deprecated"><p>Deprecated.</p></div>"#;
-        assert!(attested_item_shapes(mdn).is_empty(), "dotless region id abstains");
+        assert!(attested_item_shapes(mdn).0.is_empty(), "dotless region id abstains");
         let dup = r#"<section id="method.is_ascii-1"></section><div class="stab deprecated">note</div>"#;
-        assert!(attested_item_shapes(dup).is_empty(), "invalid dotted id abstains, never slides past");
+        assert!(attested_item_shapes(dup).0.is_empty(), "invalid dotted id abstains, never slides past");
+    }
+
+    #[test]
+    fn note_scope_registers_counter_attest_exception_and_usage_form_notes() {
+        // PASS 28 — EXCEPTION SCOPE: the note names its attributed item AFTER "except", so the sentence
+        // EXCLUDES it (the real ssl.TLSVersion.TLSv1_3 shape). The marker attests nothing.
+        let except = r#"<dl><dt id="ssl.TLSVersion.TLSv1_3"></dt><dd><p>Enum member prose.</p>
+            <div class="deprecated"><p>Deprecated since version 3.10: All TLSVersion members except
+            TLSVersion.TLSv1_2 and TLSVersion.TLSv1_3 are deprecated.</p></div></dd></dl>"#;
+        let (enforce, counter) = attested_item_shapes(except);
+        assert!(enforce.is_empty(), "excepted item leaves the enforcement view");
+        assert_eq!(counter.len(), 1, "…but stays a structural read (language witness): {counter:?}");
+        assert_eq!(counter[0][0], "ssl.TLSVersion.TLSv1_3");
+
+        // PASS 28 — USAGE FORM: the first sentence deprecates a call/argument form ("… if loop …",
+        // "Passing …"), not the item (the real asyncio.shield / re.split shapes).
+        let cond = r#"<dl><dt id="asyncio.shield"></dt><dd><p>Prose.</p>
+            <div class="deprecated"><p>Deprecated since version 3.10: Deprecation warning is emitted if
+            aw is not Future-like object and there is no running event loop.</p></div></dd></dl>"#;
+        let (enforce, counter) = attested_item_shapes(cond);
+        assert!(enforce.is_empty() && counter.len() == 1, "conditional-form note is counter-attested");
+        let gerund = r#"<dl><dt id="re.split"></dt><dd>
+            <div class="deprecated"><p>Deprecated since version 3.13: Passing maxsplit and flags as
+            positional arguments is deprecated.</p></div></dd></dl>"#;
+        let (enforce, counter) = attested_item_shapes(gerund);
+        assert!(enforce.is_empty() && counter.len() == 1, "gerund-lead arg-form note is counter-attested");
+
+        // FIRST-SENTENCE-ONLY is load-bearing: "if" in a LATER remedy sentence must not cut a true
+        // deprecation (the real SourceLoader.path_mtime shape).
+        let keep = r#"<dl><dt id="abc.SourceLoader.path_mtime"></dt><dd>
+            <div class="deprecated"><p>Deprecated since version 3.3: This method is deprecated in favour
+            of path_stats(). Raise OSError if the path cannot be handled.</p></div></dd></dl>"#;
+        let (groups, counter) = attested_item_shapes(keep);
+        assert_eq!(groups.len(), 1, "remedy-sentence 'if' keeps the true deprecation: {groups:?}");
+        assert_eq!(groups[0][0], "abc.SourceLoader.path_mtime");
+        assert!(counter.is_empty());
+
+        // Bounded-word: "if" inside a longer identifier-ish word never matches; a plain note attests.
+        let plain = r#"<dl><dt id="mod.olditem"></dt><dd>
+            <div class="deprecated"><p>Deprecated since version 9.9: use shift() or newitem() instead.
+            </p></div></dd></dl>"#;
+        assert_eq!(attested_item_shapes(plain).0.len(), 1, "'shift' does not read as the 'if' register");
     }
 
     #[test]
