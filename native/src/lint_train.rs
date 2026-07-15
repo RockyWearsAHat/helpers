@@ -57,7 +57,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v95-self-referee";
+pub(crate) const TRAIN_VERSION: &str = "docs-v96-collapse";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -832,6 +832,24 @@ fn train_language(
                 flagged,
             };
             let rules = RuleSet::build(lang, &tuples, &ground);
+            // PASS 31 — THE CONSERVATION INVARIANT (owner ruling: understanding drives linting;
+            // "proven but silently unenforced" is a failure class, not a bug to rediscover). Every
+            // PROVEN construct rule must be compiled, or withheld for a NAMED, ACCEPTED reason
+            // (flood-unsafe shape; duplicate id/pattern — identical enforcement already exists).
+            // Any other loss of a proven rule means the pipeline disagrees with the web: the train
+            // FAILS LOUDLY for this language and refuses to ship the disagreeing module.
+            let violations = proven_conservation_violations(&doc_rules, &rules);
+            if !violations.is_empty() {
+                report.skipped.push((
+                    lang.clone(),
+                    format!(
+                        "INVARIANT VIOLATION — proven rules lost without an accepted reason: {} (module NOT saved; the web and the compile disagree)",
+                        violations.join("; ")
+                    ),
+                ));
+                mark(&mut splits, "module");
+                return (report, None);
+            }
             // Concepts exist only for rules that can FIRE (LINTER.md, "Hv concept gate"):
             // a rule that compiled no detector can never be confirmed, and its fingerprint
             // would only serve to veto other rules' true findings — measured: a
@@ -1206,6 +1224,32 @@ fn load_graduated_ledger(lang: &str) -> Vec<DocRule> {
 /// One dropped ledger rule: its byte-preserved construct id and the source page whose re-check
 /// contradicted it — recorded so a contradiction is NEVER a silent drop (LINTER.md → Item 3c).
 type Contradiction = (String, String);
+
+/// PASS 31 — the CONSERVATION INVARIANT check: every PROVEN construct rule (a `uses-…` graduated rule,
+/// never the evidence-graded LOW tier) must be COMPILED into the rule set, or WITHHELD for a NAMED,
+/// ACCEPTED reason — a flood-unsafe firing shape, or a duplicate id/pattern (identical enforcement
+/// already exists). Returns the violations (`id: reason` / `id: VANISHED`); an empty return is the
+/// invariant holding. This is the pipeline refereeing ITSELF: the web (source of truth) and the compile
+/// may never silently disagree — the measured `document.write` class (a proven deprecation unenforced
+/// because a presentation gate judged its display sentence) becomes a loud training failure.
+fn proven_conservation_violations(doc_rules: &[DocRule], rules: &crate::lint_match::RuleSet) -> Vec<String> {
+    let accepted = |gate: &str| {
+        gate.contains("flood-unsafe") || gate.contains("duplicate id") || gate.contains("duplicate compiled pattern")
+    };
+    let compiled: std::collections::HashSet<&str> = rules.rule_ids().collect();
+    let withheld: std::collections::HashMap<&str, &str> =
+        rules.withheld().iter().map(|(id, gate)| (id.as_str(), gate.as_str())).collect();
+    doc_rules
+        .iter()
+        .filter(|r| r.construct.is_some() && !r.id.starts_with("graded-"))
+        .filter(|r| !compiled.contains(r.id.as_str()))
+        .filter_map(|r| match withheld.get(r.id.as_str()) {
+            Some(gate) if accepted(gate) => None,
+            Some(gate) => Some(format!("{}: {}", r.id, gate)),
+            None => Some(format!("{}: VANISHED (no compile record at all)", r.id)),
+        })
+        .collect()
+}
 
 /// CONTRADICTION-DRIVEN RESHAPE merge of freshly-graduated construct rules with the persisted ledger
 /// (owner correction 2026-07-12, Item 3c — judgment LEARNS, the missing half of point 4). The fresh

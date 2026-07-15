@@ -183,9 +183,20 @@ fn learn(principle: &str, args: &Value) -> Value {
 /// trace rule are different kinds of thing, and conflating them was what made this query misleading.
 fn rules(lang: &str) -> Value {
     let understanding: Vec<Value> = detail_values(&crate::lint_train::corpus_ruleset(lang));
-    let module: Option<Vec<Value>> =
-        crate::lint_train::cached_ruleset(lang).map(|rs| detail_values(&rs));
+    let cached = crate::lint_train::cached_ruleset(lang);
+    let module: Option<Vec<Value>> = cached.as_ref().map(|rs| detail_values(rs));
     let module_count = module.as_ref().map(Vec::len).unwrap_or(0);
+    // PASS 31 — the conservation ledger: what the compile WITHHELD and why. A rule may be withheld
+    // for a named reason; it may never vanish (the train-time invariant enforces this for proven law).
+    let withheld: Vec<Value> = cached
+        .as_ref()
+        .map(|rs| {
+            rs.withheld()
+                .iter()
+                .map(|(id, gate)| json!({ "id": id, "reason": gate }))
+                .collect()
+        })
+        .unwrap_or_default();
     // Item 3d — the COMPLETION surface: the knowledge snapshot the module was proven at fixpoint against,
     // and whether a changed corpus/brain has reopened it for re-proving through the 3c re-check.
     let completion = crate::lint_train::module_completion(lang).map(|c| {
@@ -207,6 +218,7 @@ fn rules(lang: &str) -> Value {
         "understanding_rules": understanding,
         "module_count": module_count,
         "module_rules": module,
+        "withheld": withheld,
         "completion": completion,
         "module_note": module.is_none()
             .then(|| format!("no trained module for `{lang}` — run lint_config action=train")),
