@@ -1,6 +1,6 @@
 {
  "version": 3,
- "_note": "Shared seed of the language→docs registry — pure DATA, no language list in code. Every entry points at OFFICIAL LANGUAGE DOCUMENTATION (reference/manual/style guide), not linter rule catalogs: the AI reads the language's own docs — normative sections (deprecations, warnings, avoid/instead guidance) become rules, every code example feeds the what-is-normal reference corpus. A language may have several entries; all are learned and merged. Languages NOT listed are DISCOVERED on the fly (web search → crawl-validate) and cached per user in ~/.cache/helpers/lint-index/sources.json; share a discovered entry by committing it here (lint_submit).",
+ "_note": "Shared seed of the language\u2192docs registry \u2014 pure DATA, no language list in code. Every entry points at OFFICIAL LANGUAGE DOCUMENTATION (reference/manual/style guide), not linter rule catalogs: the AI reads the language's own docs \u2014 normative sections (deprecations, warnings, avoid/instead guidance) become rules, every code example feeds the what-is-normal reference corpus. A language may have several entries; all are learned and merged. Languages NOT listed are DISCOVERED on the fly (web search \u2192 crawl-validate) and cached per user in ~/.cache/helpers/lint-index/sources.json; share a discovered entry by committing it here (lint_submit).",
  "registry": "https://raw.githubusercontent.com/RockyWearsAHat/helpers/lint-models",
  "sources": [
   {
@@ -32,6 +32,12 @@
    "language": "javascript",
    "kind": "crawl",
    "seed": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/"
+  },
+  {
+   "tool": "mdn-api",
+   "language": "javascript",
+   "kind": "crawl",
+   "seed": "https://developer.mozilla.org/en-US/docs/Web/API/"
   },
   {
    "tool": "ts-handbook",

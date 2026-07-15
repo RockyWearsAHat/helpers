@@ -486,6 +486,99 @@ fn read_not_proposed(candidates: &[Candidate], read_surface: Vec<ReadConstruct>)
         .collect()
 }
 
+/// PASS 34 — THE REFERENCE READ (owner ruling 2026-07-15: the web over the current corpus IS the full
+/// ideal — every documented subject is knowledge; rules stay derived views). Appends, to the funnel's
+/// read surface, one read per subject of every source page the partition EXCLUDED:
+/// - an ATTESTED (or construction-bound) ORPHAN — a page the P=R=1.000 notecard faculty proves
+///   deprecated but whose own examples demonstrate nothing — reads through the SAME [`read_doc_page`]
+///   a partition page gets, and its subjects enter the web as attested nodes ("URL name + notecard is
+///   the proof", the [`is_prohibited_subject`] law). Enforcement stays with the graded tier's gates.
+/// - an ordinary REFERENCE page mints its URL-subject as a PLAIN read ([`reference_subjects`]) —
+///   unattested, no revoked role, so it can never enforce; it is retained knowledge.
+/// The funnel's own reads come FIRST in the returned order, so the web build's first-wins dedup and the
+/// proven-rule view are byte-identical to the pre-PASS-34 output by construction.
+fn with_reference_read(
+    pages: &[(String, String)],
+    partition: &[&(String, String)],
+    bridge: &Bridge,
+    en: &English,
+    attest: &crate::lint_attest::Attestation,
+    attested: &std::collections::HashSet<String>,
+    construction: &std::collections::HashMap<String, Vec<String>>,
+    mut read: Vec<ReadConstruct>,
+) -> Vec<ReadConstruct> {
+    let in_partition: std::collections::HashSet<&str> =
+        partition.iter().map(|(u, _)| u.as_str()).collect();
+    for (url, body) in pages {
+        if in_partition.contains(url.as_str()) {
+            continue;
+        }
+        if attested.contains(url) || construction.contains_key(url) {
+            let p = crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested, construction);
+            // TRUE ORPHAN only (the measured leak law): the attested subject is minted iff the
+            // deprecation is PAGE-SCOPE — a banner text run (or a proven construction binding),
+            // never a class token alone (item-scope, PASS 14) — AND the page's own examples
+            // demonstrate NOTHING. A page with subject-bearing examples already faced this
+            // language's grammar gate at the partition; overriding that verdict here is the
+            // measured cross-language leak (`String.substr` graded into css).
+            let page_scope = construction.contains_key(url) || attest.attests_page_scope(body);
+            let demonstrated = p
+                .constructs
+                .iter()
+                .any(|c| p.example_code.iter().any(|b| construct_in_text(b, c)));
+            if page_scope && !demonstrated {
+                for c in &p.constructs {
+                    let governing = p
+                        .governing
+                        .iter()
+                        .filter(|s| mentions(s, c))
+                        .max_by_key(|s| s.len())
+                        .or_else(|| p.governing.first())
+                        .cloned()
+                        .unwrap_or_default();
+                    let counter = p.counter_attested.iter().flatten().any(|s| s == c);
+                    read.push(ReadConstruct {
+                        construct: c.clone(),
+                        governing,
+                        url: url.clone(),
+                        attested_deprecated: p.attested_deprecated && !counter,
+                    });
+                }
+                continue;
+            }
+            // Not a true orphan: fall through — the page may still contribute a PLAIN read.
+        }
+        if let Some((construct, governing)) = reference_subjects(url, body) {
+            read.push(ReadConstruct { construct, governing, url: url.clone(), attested_deprecated: false });
+        }
+    }
+    read
+}
+
+/// The plain READ subject of an ordinary reference page, or `None`: the most-specific URL-derived
+/// shape ([`crate::lint_lang_layer::member_page_shapes`]) that the page's OWN example code demonstrates
+/// (`construct_in_text` over its `<pre><code>` corpus) — the demonstration is the confirmation, so a
+/// slug no example spells (`tag_video.asp`) never mints a junk node. Governing prose is the page's own
+/// sentence mentioning the subject, else its lead. Pure; no brain, no grammar, no network.
+fn reference_subjects(url: &str, body: &str) -> Option<(String, String)> {
+    let own = crate::lint_lang_layer::page_example_corpus(body, false);
+    if own.is_empty() {
+        return None;
+    }
+    let construct = crate::lint_lang_layer::member_page_shapes(url)
+        .into_iter()
+        .find(|c| c.len() >= 2 && own.iter().any(|blk| construct_in_text(blk, c)))?;
+    let pool = crate::lint_lang_layer::governing_sentences(body);
+    let governing = pool
+        .iter()
+        .filter(|s| mentions(s, &construct))
+        .max_by_key(|s| s.len())
+        .or_else(|| pool.first())
+        .cloned()
+        .unwrap_or_default();
+    Some((construct, governing))
+}
+
 /// The per-page CONSTRUCTION ATTESTATION map (COMPLETION PASS 23 — the rung-1 consumer wiring): url →
 /// the subjects a page attests by BINDING a proven construction on its own prose
 /// ([`crate::lint_construct::attested_subjects`]). A page ALREADY attested by the existing faculty
@@ -1072,8 +1165,35 @@ pub fn graduate(
     let pages: &[(String, String)] = &stripped;
     let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
     let (candidates, pool, read_surface) = propose(lang, &partition, &bridge, en, &attested, &construction, memory);
+    // PASS 34 — the MEMBER-SHAPE law (measured: `/Web/API/SharedStorage/clear`, a genuinely
+    // deprecated MEMBER page with no static examples, emitted BARE `clear` and the corpus harvest
+    // self-witnessed on foreign receivers — `m.clear()` flagged in clean modern code). A page whose
+    // URL parent AND grandparent are both pool pages IS a member page (owner/subject under a hub);
+    // its subject must never enforce bare. With no example-derived qualified shape to fall back on,
+    // the candidate ABSTAINS honestly. `/reference/`-marked URLs keep their own owner law
+    // ([`crate::lint_lang_layer::member_page_shapes`]); dotted shapes are untouched.
+    let pool_urls: std::collections::HashSet<&str> =
+        pages.iter().map(|(u, _)| u.trim_end_matches('/')).collect();
+    let is_member_page = |url: &str| -> bool {
+        if url.to_lowercase().contains("/reference/") {
+            return false;
+        }
+        let t = url.trim_end_matches('/');
+        let Some(parent) = t.rsplit_once('/').map(|(p, _)| p) else { return false };
+        let Some(grand) = parent.rsplit_once('/').map(|(p, _)| p) else { return false };
+        pool_urls.contains(parent) && pool_urls.contains(grand)
+    };
+    let candidates: Vec<Candidate> = candidates
+        .into_iter()
+        .filter(|c| c.construct.contains('.') || !is_member_page(&c.url))
+        .collect();
     // The everything-read surface the funnel never proposed — retained as the web's unproven nodes.
     let read_surface = read_not_proposed(&candidates, read_surface);
+    // PASS 34 — the REFERENCE READ: every partition-excluded page contributes its subject(s) too
+    // (attested orphans as attested nodes; ordinary reference pages as plain reads). Appended AFTER
+    // the funnel's reads so dedup and the proven view stay byte-identical.
+    let read_surface =
+        with_reference_read(pages, &partition, &bridge, en, &attest, &attested, &construction, read_surface);
     let corpus = harvest_corpus(memory);
 
     // Each candidate's derived advice (its SECOND, distinct doc sentence). A candidate with no such
@@ -1613,6 +1733,26 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
 mod tests {
     use super::*;
     use crate::lint_read::Binding;
+
+    /// PASS 34 — the reference read's pure arm: a page whose own example demonstrates its URL-subject
+    /// mints exactly that subject with its own governing sentence; a slug page whose examples never
+    /// spell it, and a page with no examples at all, mint nothing (demonstration is the confirmation).
+    #[test]
+    fn reference_subjects_mints_only_demonstrated_url_subjects() {
+        let body = "<html><body><h1>The video element</h1>\
+             <p>The video element embeds a media player for video playback.</p>\
+             <pre><code>video controls src=movie.mp4</code></pre></body></html>";
+        let (construct, governing) =
+            reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", body)
+                .expect("demonstrated subject mints");
+        assert_eq!(construct, "video");
+        assert!(governing.contains("video"), "governing prose is the page's own sentence: {governing}");
+        // The same body under a slug URL its examples never spell: nothing minted.
+        assert_eq!(reference_subjects("https://docs.test/tags/tag_video.asp", body), None);
+        // No examples at all: nothing to confirm with, nothing minted.
+        let bare = "<html><body><h1>The video element</h1><p>Prose only.</p></body></html>";
+        assert_eq!(reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", bare), None);
+    }
 
     #[test]
     fn self_referee_corroborates_across_sources_and_records_contradictions() {

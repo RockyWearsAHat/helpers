@@ -2254,6 +2254,67 @@ example items), open the partition to ATTESTED no-demonstration orphans (the loo
 graded gates stay the only provers), pin the element firing shape — then the whatwg source completes
 the absent set. `TRAIN_VERSION` bumps when it lands (training semantics change).
 
+### Item — COMPLETION PASS 34: the REFERENCE READ — the web fills from EVERY source page; prohibition becomes a role, not the admission ticket (`lint_module.rs`, `lint_lang_layer.rs`, 2026-07-15)
+
+> Owner challenge, measured true: "17 html rules?? how much does it actually know about html?" — census
+> (`examples/web_census`): the html web held 21 nodes from 536 crawled pages, every node a deprecation.
+> The reader (`read_doc_page` line ~862) returned EMPTY for every page that is neither a rule page nor
+> attested-deprecated — the "language web" was a revoked-subjects index, not a web of the language.
+> Owner ruling: **the web over the current corpus IS the full ideal** — every documented subject is
+> knowledge; rules stay derived views.
+
+**The mechanism (`with_reference_read`, appended to the read surface after `read_not_proposed`).** For
+every source page the partition EXCLUDED, in page order:
+- **ATTESTED (or construction-bound) orphan** — the notecard is the proof (`is_prohibited_subject`'s own
+  law): the page reads through the SAME `read_doc_page` a partition page gets, and its subjects enter the
+  web as attested nodes. This is the PASS-33-measured `font`/`dir`/`xmp`/`plaintext` class — in-crawl,
+  attested, previously invisible. Their enforcement is decided by the EXISTING graded-tier gates
+  (usage-death, over-generality, flood-safety) — the gates are the language referee for a page that
+  demonstrates nothing.
+- **Ordinary REFERENCE page** — mints its URL-subject as a plain READ node iff the page's OWN example
+  code demonstrates it (`construct_in_text` over `page_example_corpus`) — the demonstration is the
+  confirmation, so a `tag_video.asp`-shaped slug that no example spells never mints junk. Governing
+  prose = the page's own sentence mentioning the subject (else the lead). Unattested ⇒ no revoked role ⇒
+  the node can NEVER enforce — it is knowledge: queryable, cross-linkable, the substrate coverage grows
+  toward.
+The funnel is untouched: `propose`'s pool, candidates, and foils are byte-identical (the measured
+order-sensitivity law), so every PROVEN rule set is unchanged by construction; the web build's dedup
+keeps the first (funnel) node per construct and appends reference nodes after. `TRAIN_VERSION` →
+`docs-v98-reference-web` (web/graded semantics widen).
+
+**Two leak classes the first v98 train minted, both measured on real corpus and closed same-day:**
+1. **The broad orphan arm leaked cross-language** — with the whole-site union pool, another language's
+   attested pages (`String/substr` under css) and class-token-attested INDEX pages
+   (`js_string_reference.asp` — a sidebar/table `deprecated` icon is ITEM-scope, PASS 14) minted
+   attested nodes and graded rules in the wrong module. NARROWED: the attested-orphan mint requires
+   PAGE-SCOPE attestation (`Attestation::attests_page_scope` — banner text runs or a construction
+   binding, never a class token alone) AND a page whose own examples demonstrate NOTHING (a page with
+   subject-bearing examples already faced this language's grammar gate at the partition; overriding it
+   is the leak). Everything else falls through to the plain-read arm.
+2. **The MEMBER-SHAPE law** — `/Web/API/SharedStorage/clear` (genuinely deprecated, no static examples
+   on the page) emitted BARE `clear`, and the corpus harvest self-witnessed on foreign receivers:
+   `m.clear()` flagged in the clean modern fixture. Law: a page whose URL parent AND grandparent are
+   both pool pages IS a member page; its subject never enforces bare — with no example-derived
+   qualified shape it ABSTAINS (`/reference/` URLs keep `member_page_shapes`' own owner law; dotted
+   shapes untouched).
+
+**Measured (deployed docs-v98 binary, clean re-prove, 2026-07-15).** The `mdn-api` source (registry +
+manifest, `/Web/API/`, 8,034 pages crawled — the section the stale daemon's recrawl had dropped, which
+is where `document.write`'s page went) plus the reference read: **webs css 27→3,858 / html 21→3,854 /
+js 84→3,974 nodes** (knowledge: every documented subject the pages demonstrate); **javascript 51→86
+proven** (`document.write` re-proven; the WebVR family, DOM legacy — `writeln`/`domain`/`execCommand`/
+`bgColor`/`initEvent`/`cancelBubble`/`getUserMedia`/`lockOrientation`/RegExp statics/String HTML
+wrappers — every rule truth-checked a documented MDN deprecation citing its page), +2 graded
+(`sharedStorage.clear`, `permissions.revoke` — qualified, flood-safe). Acceptance harness regenerated:
+**js 88/88, ts 88/88, css 23/23, html 16/16, rust 9/9 at exact lines; every clean modern file ZERO**
+(the `m.clear()` flood caught and killed by the member-shape law); python untouched profile fires
+`uses-cgi`/`uses-aifc` live. html's `uses-scheme`/`uses-charCode` (universal-acceptor leaks through the
+error-tolerant html grammar) died with the member-shape law. Honest remainder: the PASS-33-measured
+element walls stand (`font`/`strike` orphan pages still blocked by the sentence wall + marker family
+dilution at 12k-page discovery scale — `Attestation` text-run markers discover 0 over the union, so
+page-scope orphan minting is currently inert for MDN); whatwg is still not in the manifest html entry;
+the graded tier for html elements stays future work.
+
 **Measured (the restore, deployed binary, 2026-07-15).** The stale daemon killed; the fresh MDN
 `/Web/HTML/` crawl was recovered by IDENTITY, not recrawl — `manifest_tool` hashes recomputed
 (`examples/shard_ident`) proved `developer-mozilla-org-611ab56b.bin` IS the `/Web/HTML/` crawl and
