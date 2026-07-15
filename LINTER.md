@@ -2182,6 +2182,63 @@ against any deployed binary (`HELPERS_BIN=… python3 verify_acceptance.py`).
 STALE-STAMPED module (rust twice carried docs-v92 after a v96/v97 loop — cause unresolved, likely the
 per-language loop racing the project-scoped batch); the harness catches it (module_count 0 ⇒ FAIL), and
 the check is now part of acceptance: verify every language's `completion.train_version` after a batch.
+[RESOLVED by PASS 33 — the cause was neither a race nor the batch: a STALE DAEMON.]
+
+### Item — COMPLETION PASS 33: the STALE-DAEMON ROLLBACK class dies — knowledge writes are train-version MONOTONIC, and manifest URLs keep their registry identity (`lint_train.rs`, `lint_web.rs`, `lint_construct.rs`, `lint_docs.rs`, 2026-07-15)
+
+> The 2026-07-15 open incident (html enforcement DOWN, module 0 rules): during the coverage fix the html
+> module regressed 17→8→0, and a retrain wrote **docs-v92-stamped** `html.web.bin`/`html.graduated.bin`
+> at 01:29 — the same signature rust showed after the v96/v97 batch. Both diagnosed to ONE cause, with a
+> second independent defect underneath.
+
+**Root cause A — the outlived process (the v92 writes).** A `helpers-native mcp` daemon started at 19:10
+on 2026-07-14 (binary of the docs-v92 era) survived the PASS 29–32 deploys: the on-disk binary was
+replaced under it (running image 43,736,336 bytes vs 43,785,920 on disk), so its in-memory
+`TRAIN_VERSION` stayed `docs-v92-graded-tier`. From ITS view the v97 html module was stale
+(`train_version` mismatch), and it lawfully re-resolved html — registry pull and retrain both filter on
+the BINARY'S OWN `TRAIN_VERSION`, so everything it wrote was v92. Per-binary the code behaved; system-
+level, an outlived process ROLLED THE STORE BACKWARDS. This also resolves the PASS 32 batch-train gotcha
+(rust's v92 stamps: the same daemon, not a batch race).
+
+**The fix: knowledge writes are MONOTONIC in the train ordinal.** Every versioned-artifact write seam
+(`lint_train::save_bin` — module, graduated ledger, overlay, learned catalog; `lint_web::persist`;
+`lint_construct::persist`; `lint_docs::write_crawl_cache`) now refuses to overwrite an artifact whose
+on-disk stamp carries a NEWER `docs-vNN` ordinal than the writer's stamp (`train_ordinal` /
+`stamp_regression`, read via the cheap `lint_codec::probe` header peek — no payload inflation). A stamp
+carrying no ordinal abstains (no judgment, write allowed), so toolchain-stamped crawl caches are
+untouched. Deletion still works — the guard gates only regressive OVERWRITE; a forced retrain that
+removes files first is unaffected. The class dies for every current and future stale process, not just
+this daemon (which was killed; the MCP client respawns the current binary).
+
+**Root cause B — manifest/registry set divergence re-keys every shard (the "missing mdn-html" mystery).**
+`resolved_sources` compared the manifest's URL set to the registry's WHOLE-SET-EXACT; ANY divergence
+abandoned every registry tool id and re-keyed all of the language's sources as `manifest_tool` hashes.
+The registry gained `https://html.spec.whatwg.org/multipage/` for html (sources.json, 2026-07-14 17:52),
+the user manifest still held the older two-URL html entry — so the fresh MDN html crawl persisted as
+`developer-mozilla-org-611ab56b.bin` (and whatwg was never crawled at all), while the session searched
+for `mdn-html.bin`. css/js/svg sets still matched exactly, which is why only html broke. Fix: PER-URL
+resolution — a manifest URL that exactly matches a registry seed for that language keeps the registry's
+tool id (stable cache name, stable toolchain keying); only a URL the registry does not carry gets the
+`manifest_tool` hash. The manifest stays the user's word (a registry URL absent from the manifest is
+still not crawled); `sources_fingerprint` hashes URLs only, so NO module is invalidated by the renaming.
+No `TRAIN_VERSION` bump: verdict and training semantics are untouched — these are store-integrity and
+source-identity fixes.
+
+**Measured (the restore, deployed binary, 2026-07-15).** The stale daemon killed; the fresh MDN
+`/Web/HTML/` crawl was recovered by IDENTITY, not recrawl — `manifest_tool` hashes recomputed
+(`examples/shard_ident`) proved `developer-mozilla-org-611ab56b.bin` IS the `/Web/HTML/` crawl and
+`w3schools-com-3ab5de42.bin` IS `/html/`; both renamed to their registry names (`mdn-html.bin`,
+`w3schools-html.bin`), orphan twins removed. v92 html artifacts deleted; one `lint_config action=train`
+through the deployed v97 binary rebuilt html in the project batch (49s): **html 17 construct rules —
+the 8 obsolete elements AND all 9 SVG attrs (`attributeType`/`baseProfile`/`clip`/`requiredFeatures`/
+`version`/`xlink:href`/`xml:lang`/`xml:space`/`zoomAndPan`) — plus graded, stamped docs-v97**; css/js/
+ts/python/rust modules UNTOUCHED (mtimes hold the pre-incident state; the train's per-language counts
+fold corpus law in, module files unchanged). Acceptance harness regenerated + green: js 53/53, ts 53/53,
+css 23/23, html 17/17, rust 9/9 at exact lines, every clean file zero; python spot-check fires
+`uses-cgi`/`uses-aifc` with citations. 258 lib tests green (+2: the monotonic-write law, the per-URL
+identity law). Remaining from the incident list: the COVERAGE rung — full MDN element/API sections
+(html ~30 elements, js DOM deprecations; `font`/`strike`/`applet`/`keygen`/`blink` pages are still
+missing from the crawl — the crawl is the ceiling, not the funnel).
 
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 

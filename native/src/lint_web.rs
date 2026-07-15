@@ -524,9 +524,10 @@ pub fn load(lang: &str) -> Vec<ConstructNode> {
 
 /// Persist `lang`'s web subgraph, retain-and-grow: written ONLY when there are nodes, so a subset crawl
 /// that reads nothing never wipes a prior web (mirrors [`crate::lint_construct::persist`] and the
-/// graduated ledger). Stamped with the current train version.
+/// graduated ledger). Stamped with the current train version; refuses a train-ordinal regression
+/// ([`crate::lint_train::stamp_regression`] — an outlived process keeps the newer store).
 pub fn persist(lang: &str, web: &[ConstructNode]) {
-    if web.is_empty() {
+    if web.is_empty() || crate::lint_train::stamp_regression(&web_path(lang), crate::lint_train::train_version()) {
         return;
     }
     let mut e = crate::lint_codec::Enc::new();
