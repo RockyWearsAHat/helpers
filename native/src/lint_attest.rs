@@ -123,14 +123,25 @@ impl Attestation {
                 }
             }
         }
-        let floor = (dep_urls.len() as f64 * 0.5).ceil() as usize;
+        // The support floor is the machine's own WITNESS LAW (≥ 15 independent witnesses,
+        // `lint_ism::REQUIRED_WITNESSES`), capped by half the family so a small corpus keeps its
+        // original bar. The old half-the-family demand was a COVERAGE demand, not a soundness one —
+        // at whole-site scale (12k+ pages, banner wording varying by section) no single run covers
+        // half the family and discovery died to zero (MEASURED, PASS 34); soundness lives in the
+        // other two gates (zero negative-family support; family dominance of the run's own support).
+        let floor = crate::lint_ism::REQUIRED_WITNESSES.min((dep_urls.len() as f64 * 0.5).ceil() as usize);
+        // Dominance is judged over the LABELED pages only (family + negative set): an unlabeled page
+        // carrying the run is an UNKNOWN the marker will rightly generalize to, never counter-evidence.
+        // MEASURED (PASS 35): at whole-site scale the banner run sits on 575 pages while the
+        // frontmatter join labels 84 — the old whole-corpus dominance (84/575 < 0.5) killed every real
+        // marker; labeled dominance (84/84) admits it, and site chrome still dies on its negative-set
+        // support (a run every page carries is on some experimental/non-standard page too).
         let mut markers: Vec<String> = candidates
             .iter()
             .filter(|c| {
                 let d = *dep_ct.get(c.as_str()).unwrap_or(&0);
                 let o = *other_ct.get(c.as_str()).unwrap_or(&0);
-                let t = *total_ct.get(c.as_str()).unwrap_or(&1);
-                d >= floor && o == 0 && (d as f64 / t as f64) >= 0.5
+                d >= floor && o == 0 && d * 2 >= d + o
             })
             .cloned()
             .collect();
@@ -386,7 +397,7 @@ pub fn attests_module_removal(body: &str) -> bool {
 /// the registered markdown corpora. Cached per process (the corpus is fixed during a run). This is how the
 /// `status` enum is discovered WITHOUT naming it: any top-level key whose value is a YAML block sequence
 /// contributes its values; the prohibition value(s) then select the family.
-fn frontmatter_families() -> &'static HashMap<String, HashSet<String>> {
+pub(crate) fn frontmatter_families() -> &'static HashMap<String, HashSet<String>> {
     static CACHE: OnceLock<HashMap<String, HashSet<String>>> = OnceLock::new();
     CACHE.get_or_init(|| {
         let mut fam: HashMap<String, HashSet<String>> = HashMap::new();
@@ -482,7 +493,7 @@ fn norm_run(text: &str) -> Option<String> {
 
 /// The invariant text runs of an HTML body: the whitespace-collapsed text BETWEEN tags (a `<…>` opens a
 /// tag, `>` closes it). Structure only — never the tag interior.
-fn runs_of(body: &str) -> Vec<String> {
+pub(crate) fn runs_of(body: &str) -> Vec<String> {
     let mut out = Vec::new();
     let b = body.as_bytes();
     let (mut in_tag, mut start) = (false, 0usize);
