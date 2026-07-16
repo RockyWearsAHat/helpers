@@ -2331,6 +2331,41 @@ identity law). Remaining from the incident list: the COVERAGE rung — full MDN 
 (html ~30 elements, js DOM deprecations; `font`/`strike`/`applet`/`keygen`/`blink` pages are still
 missing from the crawl — the crawl is the ceiling, not the funnel).
 
+### Item — PASS 34 addendum: WHOLE-SITE, uncapped — and the day's five measured laws (2026-07-15, evening)
+
+> Owner: "remove the cap, train the whole site… test for full 100% validity." Seeds widened to
+> `developer.mozilla.org/en-US/docs/Web/` (13,345 pages), `w3schools.com/` whole, whatwg multipage;
+> `MAX_CRAWL_PAGES` is now UNBOUNDED (frontier exhaustion is the only stop; the constant remains only
+> as overflow-safe arithmetic). The uncapped crawl CRASHED THE MACHINE once — three memory laws landed:
+> 1. `site_corpus` is never memoized (a resident clone of a whole-site corpus is gigabytes);
+> 2. chrome-strip is IN PLACE, and `raw_pages ∪ site_corpus` collapsed to `site_corpus` alone (it is
+>    the same host-matched cache set — the merge held the corpus twice);
+> 3. `graduate` FREES the page bodies before the candidate loop (the PASS-30 referee widening moved
+>    ahead of the loop as the last body reader); trains run ONE LANGUAGE PER PROCESS (the 16-wide
+>    parallel batch at whole-site scale was the crash).
+>
+> **The LIVING-NAME law** (replaces the first-cut bare-flood block scan, which the corpus itself
+> refuted — deprecation demonstrations read as "living usage"): a BARE construct is flood-unsafe iff
+> the corpus documents the SAME name as a LIVING subject on a non-attested page. Probed on the real
+> corpus and truth-checked on every verdict: `href` (HTMLAnchorElement/href lives) / `version` /
+> `clip` / `rel` / `frame` withheld; `xlink:href` / `mathcolor` / `zoomAndPan` / `marquee` / `center`
+> / `big` kept. `frame` is the one honest casualty (a living `frame` subject exists) — element-shape
+> pinning (PASS 35) recovers it.
+>
+> **Verdicts (deployed binary, whole-site v98):** webs ≈4,300–4,400 nodes/language. Acceptance ALL
+> PASS — js 85/85, ts 85/85, css 24/24, html 13/13 (+4 MathML shapes with no fixture template yet),
+> rust 9/9, every clean file zero. `lang_audit` (every rule fires-bad/clean-good, attested, cited,
+> uncontradicted, every revoked node accounted): **html CORRECT IN ITS ENTIRETY; css CORRECT IN ITS
+> ENTIRETY**; javascript 83/83 rules correct with 3 referee-noise records — the measured
+> FALSE-CONTRADICTION class (w3schools reference-table prose matched by bounded token; "Non-standard"
+> badge text reading as negation), which withholds nothing enforced and is the referee's named next
+> refinement. Knowledge challenge (the reviewing model's own deprecation list, 90 items): 66 known
+> (73%) — every absence is a page MDN itself no longer serves (applet/keygen/attachEvent class);
+> their honest source is whatwg, whose pages are crawled but not yet attestable (no banner family) —
+> the PASS-35 whatwg-attestation rung. Named open: judge drift (the whole-site-grown meaning net
+> perturbs `corroborates` on frozen inputs — the graduates-from-harvest test is the canary; the judge
+> must stand on the dictionary basis per its own contract), referee subject-vs-mention discrimination.
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the

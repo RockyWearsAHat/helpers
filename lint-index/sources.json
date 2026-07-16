@@ -554,6 +554,18 @@
    "language": "html",
    "kind": "crawl",
    "seed": "https://www.w3schools.com/html/"
+  },
+  {
+   "tool": "mdn-web",
+   "language": "html",
+   "kind": "crawl",
+   "seed": "https://developer.mozilla.org/en-US/docs/Web/"
+  },
+  {
+   "tool": "w3schools-site",
+   "language": "html",
+   "kind": "crawl",
+   "seed": "https://www.w3schools.com/"
   }
  ]
 }

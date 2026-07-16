@@ -54,7 +54,10 @@ pub struct LangModel {
 /// "Map"). The learned catalog is cached and registry-shared, so the cost is paid once per
 /// machine per toolchain version.
 #[cfg(feature = "crawl")]
-pub(crate) const MAX_CRAWL_PAGES: usize = 20_000;
+/// UNBOUNDED (owner ruling 2026-07-15: sites are read WHOLE — "crawl until it can't find more").
+/// The crawl ends when the frontier exhausts, never at a page count; `usize::MAX / 16` only keeps
+/// the crawler's `max_pages * 8` frontier arithmetic overflow-free, it is not a cap.
+pub(crate) const MAX_CRAWL_PAGES: usize = usize::MAX / 16;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
 pub(crate) const TRAIN_VERSION: &str = "docs-v98-reference-web";
