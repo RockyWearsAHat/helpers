@@ -1324,6 +1324,16 @@ fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>
         scan_pseudo(node, src, colons, &construct[colons..], hits);
         return;
     }
+    // ELEMENT shape (PASS 35 — a construct written `<x>`, the author's own element typography):
+    // fires ONLY where the name node's immediately preceding source byte is `<` — a tag position.
+    // This is what lets a name that COLLIDES with a living subject (`<frame>` vs `Window.frame`,
+    // `<font>` vs the CSS font property) enforce safely: the position disambiguates, exactly as the
+    // scan_pseudo colon-run and the `.member` receiver-generic shapes do. Grammar-agnostic — one
+    // preceding source byte, no language-specific node kind.
+    if let Some(name) = construct.strip_prefix('<').and_then(|c| c.strip_suffix('>')) {
+        scan_element(node, src, name, hits);
+        return;
+    }
     if is_lexical_text(node.kind()) {
         return;
     }
@@ -1359,6 +1369,27 @@ fn scan_pseudo(node: Node, src: &[u8], colons: usize, name: &str, hits: &mut Vec
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         scan_pseudo(child, src, colons, name, hits);
+    }
+}
+
+/// Record every ELEMENT-POSITION usage of `name` (PASS 35 — the `<x>` construct shape): the node
+/// whose whole text is `name` and whose immediately preceding source byte is `<` — a tag name,
+/// never an attribute value, an identifier, or prose. Mirror of [`scan_pseudo`]'s preceding-byte
+/// law; grammar-agnostic.
+fn scan_element(node: Node, src: &[u8], name: &str, hits: &mut Vec<usize>) {
+    if is_lexical_text(node.kind()) {
+        return;
+    }
+    if node.utf8_text(src).map(|t| t == name).unwrap_or(false) {
+        let start = node.start_byte();
+        if start >= 1 && src[start - 1] == b'<' {
+            hits.push(row(node));
+            return;
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        scan_element(child, src, name, hits);
     }
 }
 

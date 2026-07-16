@@ -2393,6 +2393,28 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > the improvement-severity firing tier (LOW, dotted-shape-only, cites the edge's own sentence) builds
 > on these edges once that verifier exists.
 
+### Item — PASS 35 Phase A2: attestation breathes at whole-site scale; the ELEMENT shape (`lint_attest.rs`, `lint_trace.rs`, `lint_module.rs`, 2026-07-16)
+
+> Owner: "fix if not [100%]". Two closures, both measured on the union corpus:
+>
+> **Marker discovery at scale.** The banner faculty found 0 markers over 13,345 pages — two gates
+> tuned for a small corpus: the support floor demanded the run on HALF the deprecated family (no
+> single wording covers half at whole-site scale), and dominance divided by ALL carriers while the
+> frontmatter join labels only 84 of the banner's 575 pages (84/575 < 0.5). Fixes: the floor is the
+> machine's own witness law (≥ `lint_ism::REQUIRED_WITNESSES`, capped by half the family so small
+> corpora keep their bar), and dominance is judged over LABELED pages only — an unlabeled carrier is
+> exactly what the marker generalizes to, never counter-evidence; chrome still dies on negative-set
+> support. Result: **2 markers rediscovered; html attested 28→481, js 292→734** — the whole banner
+> population, page-scope attestation live again (the `font`-class orphans now enter the web).
+>
+> **The ELEMENT shape `<x>`** (the third typed construct shape, after `.member` and `:pseudo`): fires
+> only where the name node's immediately preceding source byte is `<` — the author's own tag
+> typography, one source byte, no language named. Minted at graduation as the LIVING-NAME collision
+> rescue: a colliding bare whose own violating evidence carries ≥ witness-floor ELEMENT-POSITIONED
+> blocks re-proves as `<x>` (`uses-<frame>` recovered — fires on `<frame src>` in the expert trial,
+> never on `Window.frame`, modern files zero; acceptance ALL PASS, html 14/14). `font`/`dir` remain
+> knowledge-only (attested nodes, no examples anywhere to pin a shape from — the whatwg rung).
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
