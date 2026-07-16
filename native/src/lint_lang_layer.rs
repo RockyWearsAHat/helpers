@@ -201,7 +201,7 @@ fn example_receiver_shapes(url: &str, example_code: &[String]) -> Vec<String> {
 /// page's own example code. A DOTLESS id (an MDN section slug like `browser_compatibility`) is not an item
 /// anchor, so the URL-subject sites are never perturbed by this reader. No site, class, or language named:
 /// the marker token is data, the dotted-anchor shape is structure.
-fn attested_item_shapes(body: &str) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
+pub(crate) fn attested_item_shapes(body: &str) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
     let tokens = crate::lint_attest::prohibition_class_tokens();
     if tokens.is_empty() {
         return (Vec::new(), Vec::new());

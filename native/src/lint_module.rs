@@ -69,6 +69,13 @@ pub struct Candidate {
     /// corpus is too scarce to reach the rep floor. Empty for a deprecated reference page (no examples);
     /// then carriers are synthesized by splicing the construct into the corpus.
     pub seeds: Vec<String>,
+    /// Whether the origin page's deprecation is PAGE-SCOPE TRUTH (its own banner run) and the page
+    /// writes the subject as `&lt;name&gt;` — the two element-hood facts the element-shaped graded
+    /// tier needs when a proposed candidate FAILS graduation (the `center` blind spot: proposed
+    /// candidates are excluded from the read surface, so a failed one could never grade).
+    pub page_scope: bool,
+    /// See [`Candidate::page_scope`] — the page's own `&lt;name&gt;` element typography for this subject.
+    pub element_typography: bool,
     /// Whether the origin page STRUCTURALLY ATTESTS this construct as deprecated (a reference page with a
     /// deprecation notecard — [`crate::lint_lang_layer::DocPage::attested_deprecated`]). Such a candidate
     /// may graduate via the NOTECARD PATH when the English self-test cannot apply (degenerate identical
@@ -123,6 +130,15 @@ pub struct ReadConstruct {
     /// Whether that page structurally attests deprecation ([`DocPage::attested_deprecated`]) — the read
     /// node's doc-role seed.
     pub attested_deprecated: bool,
+    /// Whether the page's deprecation is PAGE-SCOPE TRUTH — its OWN banner text-run
+    /// ([`crate::lint_attest::Attestation::attests_page_scope`]), never an item badge or sidebar icon.
+    /// The element-shaped graded tier trusts only this (the measured `CSSNumericValue/div` leak:
+    /// item-route attestation admits API member pages whose URL payload is a bare member name).
+    pub page_scope: bool,
+    /// Whether the page's own body writes the subject AS AN ELEMENT — the escaped `&lt;name&gt;`
+    /// typography an element page titles itself with. The element-hood proof for the `<x>` graded
+    /// shape: an attribute or header subject (`scheme`, `Pragma`) never carries it.
+    pub element_typography: bool,
 }
 
 /// Whether `sentence` MENTIONS `construct` as a code symbol — the backticked form `` `C` `` or `C`
@@ -470,7 +486,7 @@ pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &Mea
     let constructions = crate::lint_construct::mine_and_prove(pages);
     let construction = construction_attestation(pages, &attested, &constructions);
     let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
-    propose(lang, &partition, &bridge, en, &attested, &construction, memory).0
+    propose(lang, &partition, &bridge, en, &attested, &Default::default(), &construction, memory).0
 }
 
 /// The EVERYTHING-READ constructs of `lang`'s partition that the funnel NEVER proposed (PASS 25 rung 1) —
@@ -480,8 +496,14 @@ pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &Mea
 fn read_not_proposed(candidates: &[Candidate], read_surface: Vec<ReadConstruct>) -> Vec<ReadConstruct> {
     let proposed: std::collections::HashSet<&str> = candidates.iter().map(|c| c.construct.as_str()).collect();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    read_surface
+    // PAGE-SCOPE entries dedup FIRST (a construct read from its own banner-attested page is the
+    // authoritative read — a co-read of the same token from another page must not shadow it; the
+    // measured `center` loss: its own-page entry lost first-wins dedup to an earlier co-read).
+    let (scoped, plain): (Vec<ReadConstruct>, Vec<ReadConstruct>) =
+        read_surface.into_iter().partition(|r| r.page_scope);
+    scoped
         .into_iter()
+        .chain(plain)
         .filter(|r| !proposed.contains(r.construct.as_str()) && seen.insert(r.construct.clone()))
         .collect()
 }
@@ -502,8 +524,8 @@ fn with_reference_read(
     partition: &[&(String, String)],
     bridge: &Bridge,
     en: &English,
-    attest: &crate::lint_attest::Attestation,
     attested: &std::collections::HashSet<String>,
+    page_scope: &std::collections::HashSet<String>,
     construction: &std::collections::HashMap<String, Vec<String>>,
     mut read: Vec<ReadConstruct>,
 ) -> Vec<ReadConstruct> {
@@ -521,7 +543,10 @@ fn with_reference_read(
             // demonstrate NOTHING. A page with subject-bearing examples already faced this
             // language's grammar gate at the partition; overriding that verdict here is the
             // measured cross-language leak (`String.substr` graded into css).
-            let page_scope = construction.contains_key(url) || attest.attests_page_scope(body);
+            // The PRE-STRIP page-scope set — the banner is a cross-page INVARIANT run, so the
+            // chrome filter strips it from the body this arm reads; re-checking the stripped body
+            // here read every banner page as unattested (MEASURED: xmp/plaintext minted nothing).
+            let page_scope = construction.contains_key(url) || page_scope.contains(url);
             let demonstrated = p
                 .constructs
                 .iter()
@@ -542,6 +567,9 @@ fn with_reference_read(
                         governing,
                         url: url.clone(),
                         attested_deprecated: p.attested_deprecated && !counter,
+                        // The orphan arm's own gate IS page-scope truth (banner or construction).
+                        page_scope,
+                        element_typography: body.contains(&format!("&lt;{c}&gt;")),
                     });
                 }
                 continue;
@@ -549,7 +577,16 @@ fn with_reference_read(
             // Not a true orphan: fall through — the page may still contribute a PLAIN read.
         }
         if let Some((construct, governing)) = reference_subjects(url, body) {
-            read.push(ReadConstruct { construct, governing, url: url.clone(), attested_deprecated: false });
+            read.push(ReadConstruct {
+                construct: construct.clone(),
+                governing,
+                url: url.clone(),
+                attested_deprecated: false,
+                // A demonstrated page can still be a BANNER page (center/strike — the sentence wall
+                // kept them from candidacy, not from truth): carry the pre-strip page-scope fact.
+                page_scope: page_scope.contains(url),
+                element_typography: body.contains(&format!("&lt;{construct}&gt;")),
+            });
         }
     }
     read
@@ -712,7 +749,7 @@ struct PooledSentence {
 /// is a real doc sentence mentioning the construct — preferring one from a prohibited page and in
 /// negative polarity; a construct no clean sentence mentions cannot form an un-fakeable English pair and
 /// is dropped (never a synthesized sentence).
-fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, construction: &std::collections::HashMap<String, Vec<String>>, memory: &Memory) -> (Vec<Candidate>, Vec<PooledSentence>, Vec<ReadConstruct>) {
+fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, page_scope: &std::collections::HashSet<String>, construction: &std::collections::HashMap<String, Vec<String>>, memory: &Memory) -> (Vec<Candidate>, Vec<PooledSentence>, Vec<ReadConstruct>) {
     let mut docpages: Vec<crate::lint_lang_layer::DocPage> =
         pages.iter().map(|(url, body)| crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested, construction)).collect();
 
@@ -722,7 +759,7 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
     // funnel proposes only the strongest subject per page; the rest are retained as unproven web nodes. Each
     // read construct carries a governing sentence from its own page (the one mentioning it, else the lead).
     let mut read_surface: Vec<ReadConstruct> = Vec::new();
-    for p in &docpages {
+    for (p, (_, page_body)) in docpages.iter().zip(pages.iter()) {
         for c in &p.constructs {
             let governing = p
                 .governing
@@ -741,6 +778,8 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
                 governing,
                 url: p.url.clone(),
                 attested_deprecated: p.attested_deprecated && !counter,
+                page_scope: page_scope.contains(&p.url),
+                element_typography: page_body.contains(&format!("&lt;{c}&gt;")),
             });
         }
     }
@@ -824,7 +863,7 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
     // junk that fires on the same counts as a real subject (`var` and junk `if` are numerically IDENTICAL
     // — 2/2 incorrect, 1/2 correct — so only the SUBJECT signal separates them).
     let mut out: Vec<Candidate> = Vec::new();
-    for p in &docpages {
+    for (p, (_, page_body)) in docpages.iter().zip(pages.iter()) {
         // The lead summary's stated subject(s) — the covenant-clean `??`-vs-`==` discriminator. Read once
         // per page from the first governing sentence (the title + lead the reader welds together).
         let lead_named: Vec<String> = p
@@ -888,6 +927,8 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
                 understanding: best.sentence.clone(),
                 url: p.url.clone(),
                 seeds,
+                page_scope: page_scope.contains(&p.url),
+                element_typography: page_body.contains(&format!("&lt;{construct}&gt;")),
                 attested_deprecated: p.attested_deprecated,
                 stated,
             });
@@ -1149,8 +1190,27 @@ pub fn graduate(
     // so every downstream reader keys on the URL, not the stripped body. Replaces the hardcoded
     // `has_deprecation_notecard` substring; MEASURED P=R=1.000 vs it (`examples/metajoin`).
     let attest = crate::lint_attest::Attestation::discover(&pages);
-    let attested: std::collections::HashSet<String> =
-        pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
+    // THE HONEST ATTESTED SET (PASS 35 — one fact, fixed at the source): a page is attested
+    // deprecated iff its OWN banner text-run says so (page scope), or its OWN item anchors carry
+    // the status typography (the rendered-marker route — the badge sits on the page's content,
+    // not its navigation). A page that merely LINKS to deprecated things (MDN sidebar icons made
+    // `div`'s page read as deprecated — the measured junk root) attests NOTHING; it falls to the
+    // plain reference read. Every downstream consumer (partition, orphan arm, read flags, referee
+    // widening, graded tiers) inherits this one corrected fact.
+    let attested: std::collections::HashSet<String> = pages
+        .iter()
+        .filter(|(_, b)| {
+            attest.attests_page_scope(b)
+                || !crate::lint_lang_layer::attested_item_shapes(b).0.is_empty()
+        })
+        .map(|(u, _)| u.clone())
+        .collect();
+    // The PAGE-SCOPE subset — banner-run truth only (the element-shaped graded tier's referee).
+    let page_scope: std::collections::HashSet<String> = pages
+        .iter()
+        .filter(|(_, b)| attest.attests_page_scope(b))
+        .map(|(u, _)| u.clone())
+        .collect();
     // THE RUNG-1 CONSUMER (PASS 23): the pages a PROVEN CONSTRUCTION binds on their own prose, each mapping
     // to the removal subject(s) the construction named — built over the RAW (pre-strip) bodies the miner
     // proved over, excluding pages the existing faculty already attests. Empty (⇒ inert) for every corpus
@@ -1174,7 +1234,8 @@ pub fn graduate(
     let mut page_store = pages;
     let pages: &[(String, String)] = &page_store;
     let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
-    let (candidates, pool, read_surface) = propose(lang, &partition, &bridge, en, &attested, &construction, memory);
+    let (candidates, pool, read_surface) =
+        propose(lang, &partition, &bridge, en, &attested, &page_scope, &construction, memory);
     // PASS 34 — the MEMBER-SHAPE law (measured: `/Web/API/SharedStorage/clear`, a genuinely
     // deprecated MEMBER page with no static examples, emitted BARE `clear` and the corpus harvest
     // self-witnessed on foreign receivers — `m.clear()` flagged in clean modern code). A page whose
@@ -1203,7 +1264,7 @@ pub fn graduate(
     // (attested orphans as attested nodes; ordinary reference pages as plain reads). Appended AFTER
     // the funnel's reads so dedup and the proven view stay byte-identical.
     let read_surface =
-        with_reference_read(pages, &partition, &bridge, en, &attest, &attested, &construction, read_surface);
+        with_reference_read(pages, &partition, &bridge, en, &attested, &page_scope, &construction, read_surface);
     let corpus = harvest_corpus(memory);
 
     // Each candidate's derived advice (its SECOND, distinct doc sentence). A candidate with no such
@@ -1593,6 +1654,7 @@ fn qualified_safe(c: &str) -> bool {
 fn graded_forms(
     lang: &str,
     read_surface: &[ReadConstruct],
+    outcomes: &[Outcome],
     roles: &std::collections::HashMap<String, String>,
     proven_constructs: &std::collections::HashSet<String>,
     code_by_url: &[(String, String)],
@@ -1633,8 +1695,19 @@ fn graded_forms(
         {
             continue; // a proven rule already enforces this shape — the graded tier adds only NEW coverage
         }
-        // CLEAN-NEAR-MISS: the chosen form must fire on NONE of the corpus's other-page blocks.
         let plan = Plan::UsesConstruct { construct: fire.clone() };
+        // LANGUAGE OWNERSHIP (the grammar as referee, qualified tier): the chosen form must FIRE
+        // under THIS language on the construct's OWN page examples — measured, the union pool
+        // minted dotted forms (`rel.prerender`, `gamepad.displayId`) into modules whose grammars
+        // can never fire them: planted-but-silent junk.
+        let own_fires = code_by_url
+            .iter()
+            .filter(|(u, _)| u == &r.url)
+            .any(|(_, blk)| !run_plan(&plan, lang, blk).is_empty());
+        if !own_fires {
+            continue;
+        }
+        // CLEAN-NEAR-MISS: the chosen form must fire on NONE of the corpus's other-page blocks.
         let flags_clean = code_by_url
             .iter()
             .filter(|(u, blk)| u != &r.url && construct_in_text(blk, &fire))
@@ -1658,6 +1731,56 @@ fn graded_forms(
         out.insert(
             r.construct.clone(),
             crate::lint_web::GradedForm { fire, severity: "low".to_string(), description, source: r.url.clone() },
+        );
+    }
+    // PASS 35 — ELEMENT-SHAPED graded forms (owner: "if it knows it, true knowledge, it will have
+    // things to enforce"). A BARE revoked subject the qualified tier cannot take (`font`, `dir` — no
+    // owner, no examples on its own page) enforces as the `<x>` element shape, which is
+    // identification-proof BY CONSTRUCTION: a tag named `font` IS the font element, by the grammar
+    // itself. Candidates come from BOTH surfaces: the read surface (never-proposed subjects) AND the
+    // failed outcomes (proposed candidates the sentence wall kept from graduating — the measured
+    // `center` blind spot). Gates, all measured: PAGE-SCOPE banner truth (item badges and sidebar
+    // icons admitted `CSSNumericValue/div`); the page's own `&lt;name&gt;` element typography (an
+    // attribute subject never carries it); the URL-SUBJECT law (co-reads minted `<div>`); and THE
+    // GRAMMAR AS REFEREE (the minimal demo must fire under THIS language — the union pool otherwise
+    // minted `<font>` into the css and javascript modules as planted-but-silent junk).
+    let element_candidates: Vec<(&String, &String)> = read_surface
+        .iter()
+        .filter(|r| r.page_scope && r.element_typography)
+        .map(|r| (&r.construct, &r.url))
+        .chain(
+            outcomes
+                .iter()
+                .filter(|o| o.rule.is_none() && o.candidate.page_scope && o.candidate.element_typography)
+                .map(|o| (&o.candidate.construct, &o.candidate.url)),
+        )
+        .collect();
+    for (construct, url) in element_candidates {
+        if out.contains_key(construct)
+            || construct.contains('.')
+            || construct.starts_with(':')
+            || construct.starts_with('<')
+            || construct.len() < 2
+            || !url_payload_equals(url, construct)
+        {
+            continue;
+        }
+        let fire = format!("<{construct}>");
+        if proven_constructs.contains(&fire) || proven_constructs.contains(construct) {
+            continue;
+        }
+        let demo = format!("<{construct}>x</{construct}>");
+        if run_plan(&Plan::UsesConstruct { construct: fire.clone() }, lang, &demo).is_empty() {
+            continue;
+        }
+        let role_specific = roles.get(construct).map(String::as_str);
+        let role = role_specific.filter(|k| *k != "deprecated").unwrap_or("deprecated");
+        let description = format!(
+            "Do not use `<{construct}>`: documented {role} ⟨{url}⟩ — fires only at tag position, the element itself."
+        );
+        out.insert(
+            construct.clone(),
+            crate::lint_web::GradedForm { fire, severity: "low".to_string(), description, source: url.clone() },
         );
     }
     out
@@ -1773,7 +1896,8 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
         .filter(|o| o.rule.is_some())
         .map(|o| o.candidate.construct.clone())
         .collect();
-    let mut graded_forms = graded_forms(lang, &read_surface, &roles, &proven_constructs, &code_by_url);
+    let mut graded_forms =
+        graded_forms(lang, &read_surface, &outcomes, &roles, &proven_constructs, &code_by_url);
     // PASS 30 — the self-referee's TEETH: a contradicted node's graded form is withheld (the evidence-
     // graded tier requires uncontradicted evidence; the contradiction stays on the node for the human).
     // INERT on the current corpora (measured: zero contradictions) — byte-identical rule sets — and it
@@ -1805,6 +1929,18 @@ mod tests {
         eprintln!("pages {} blocks {} attested-pages {}", pages.len(), code_by_url.len(), attested.len());
         let _ = code_by_url;
         eprintln!("union markers: {}", attest.markers().len());
+        for name in ["font", "center", "strike", "dir", "xmp", "plaintext"] {
+            let Some((u, b)) = pages.iter().find(|(u, _)| u.ends_with(&format!("/Elements/{name}")) || u.ends_with(&format!("/Global_attributes/{name}"))) else {
+                eprintln!("  {name}: NO PAGE");
+                continue;
+            };
+            let ps = attest.attests_page_scope(b);
+            let items = !crate::lint_lang_layer::attested_item_shapes(b).0.is_empty();
+            let runs: std::collections::HashSet<String> = crate::lint_attest::runs_of(b).into_iter().collect();
+            let m0 = attest.markers().first().map(|m| runs.contains(m)).unwrap_or(false);
+            let typo = b.contains(&format!("&lt;{name}&gt;"));
+            eprintln!("  {name}: page_scope={ps} item_route={items} marker0_in_runs={m0} elt_typo={typo} url={u}");
+        }
         // Trace the KNOWN banner run's gate counts at union scale.
         let needle = "This feature is no longer recommended";
         let families = crate::lint_attest::frontmatter_families();
@@ -1830,6 +1966,26 @@ mod tests {
             }
         }
         eprintln!("banner run: total-pages {t} dep {d} negative {o}");
+        // CENTER TRACE: run the real graduation and report which surface/gate sheds `center`.
+        {
+            let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else { panic!("brains") };
+            let memory = crate::lint_train::cached_memory("html").unwrap_or_default();
+            let constructions = crate::lint_construct::load("html");
+            let (outcomes, read, _ref, _liv) =
+                graduate("html", pages.clone(), &memory, br.meanings(), en, &constructions);
+            for o in outcomes.iter().filter(|o| o.candidate.construct == "center") {
+                eprintln!("CENTER candidate: url={} page_scope={} elt_typo={} rule={} verdict={:?}",
+                    o.candidate.url, o.candidate.page_scope, o.candidate.element_typography, o.rule.is_some(), o.verdict);
+            }
+            for r in read.iter().filter(|r| r.construct == "center") {
+                eprintln!("CENTER read: url={} page_scope={} elt_typo={}", r.url, r.page_scope, r.element_typography);
+            }
+            if !outcomes.iter().any(|o| o.candidate.construct == "center")
+                && !read.iter().any(|r| r.construct == "center")
+            {
+                eprintln!("CENTER: in NEITHER surface");
+            }
+        }
         let living: std::collections::HashSet<&str> = pages
             .iter()
             .filter(|(u, _)| !attested.contains(u))
@@ -1934,6 +2090,8 @@ mod tests {
     #[test]
     fn graded_forms_gates_calibrate_dedup_and_stay_flood_safe() {
         let read = |c: &str, url: &str| ReadConstruct {
+            page_scope: true,
+            element_typography: true,
             construct: c.to_string(),
             governing: format!("The {c} member is deprecated."),
             url: url.to_string(),
@@ -1943,33 +2101,39 @@ mod tests {
         let alive = read("Legacy.alive", "https://d/legacy-alive");
         let roles = std::collections::HashMap::new();
         let no_proven = std::collections::HashSet::new();
-        // Corpus: `.alive` rides another page's code; `.deadfn` appears nowhere else.
+        // Corpus: `.alive` rides another page's code; `.deadfn` appears nowhere else. Each subject's
+        // OWN page demonstrates its usage (the language-ownership gate's evidence — a form must fire
+        // under this grammar on its own page's examples).
         let corpus = vec![
+            ("https://d/legacy-deadfn".to_string(), "old.deadfn(); Legacy.deadfn();".to_string()),
+            ("https://d/legacy-alive".to_string(), "Legacy.alive();".to_string()),
             ("https://d/other".to_string(), "let x = obj.alive();".to_string()),
             ("https://d/other2".to_string(), "const y = 1;".to_string()),
         ];
         // Discriminating corpus (one alive, one dead): death is TRUSTED — the dead member fires
         // receiver-generic, the alive one falls to its dotted-literal form.
-        let forms = graded_forms("javascript", &[dead.clone(), alive.clone()], &roles, &no_proven, &corpus);
+        let forms = graded_forms("javascript", &[dead.clone(), alive.clone()], &[], &roles, &no_proven, &corpus);
         assert_eq!(forms.get("Legacy.deadfn").unwrap().fire, ".deadfn", "trusted-dead fires receiver-generic");
         assert_eq!(forms.get("Legacy.alive").unwrap().fire, "Legacy.alive", "alive member falls to dotted-literal");
         assert_eq!(forms.get("Legacy.deadfn").unwrap().severity, "low");
         // All-dead distribution (only the dead candidate): corpus POVERTY — the verdict is NOT trusted,
         // the form falls to dotted-literal (the python 9-page `.read` flood, measured).
-        let poverty = graded_forms("javascript", &[dead.clone()], &roles, &no_proven, &corpus);
+        let poverty = graded_forms("javascript", &[dead.clone()], &[], &roles, &no_proven, &corpus);
         assert_eq!(poverty.get("Legacy.deadfn").unwrap().fire, "Legacy.deadfn", "uncalibrated death never fires receiver-generic");
         // Proven-coverage dedup: a proven `.deadfn` rule already fires every `X.deadfn` — skipped.
         let proven: std::collections::HashSet<String> = [".deadfn".to_string()].into();
-        let deduped = graded_forms("javascript", &[dead.clone(), alive.clone()], &roles, &proven, &corpus);
+        let deduped = graded_forms("javascript", &[dead.clone(), alive.clone()], &[], &roles, &proven, &corpus);
         assert!(!deduped.contains_key("Legacy.deadfn"), "a proven-covered form is never duplicated");
         assert!(deduped.contains_key("Legacy.alive"), "uncovered forms still graduate");
         // Clean-near-miss flood guard: the alive DOTTED form appears in another page's own current code —
         // firing it would flag the corpus's own clean examples, so it is dropped entirely.
         let contested = vec![
+            ("https://d/legacy-deadfn".to_string(), "old.deadfn(); Legacy.deadfn();".to_string()),
+            ("https://d/legacy-alive".to_string(), "Legacy.alive();".to_string()),
             ("https://d/other".to_string(), "let x = obj.alive();\nLegacy.alive();".to_string()),
             ("https://d/other2".to_string(), "const y = 1;".to_string()),
         ];
-        let dropped = graded_forms("javascript", &[dead.clone(), alive.clone()], &roles, &no_proven, &contested);
+        let dropped = graded_forms("javascript", &[dead.clone(), alive.clone()], &[], &roles, &no_proven, &contested);
         assert!(!dropped.contains_key("Legacy.alive"), "a form firing on the corpus's own clean code is dropped");
     }
 
