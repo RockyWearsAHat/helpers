@@ -1245,14 +1245,25 @@ pub fn graduate(
     // ([`crate::lint_lang_layer::member_page_shapes`]); dotted shapes are untouched.
     let pool_urls: std::collections::HashSet<&str> =
         pages.iter().map(|(u, _)| u.trim_end_matches('/')).collect();
+    let body_of: std::collections::HashMap<&str, &str> =
+        pages.iter().map(|(u, b)| (u.as_str(), b.as_str())).collect();
     let is_member_page = |url: &str| -> bool {
         if url.to_lowercase().contains("/reference/") {
             return false;
         }
         let t = url.trim_end_matches('/');
-        let Some(parent) = t.rsplit_once('/').map(|(p, _)| p) else { return false };
-        let Some(grand) = parent.rsplit_once('/').map(|(p, _)| p) else { return false };
-        pool_urls.contains(parent) && pool_urls.contains(grand)
+        let Some((parent, subject)) = t.rsplit_once('/') else { return false };
+        let Some((grand, parent_seg)) = parent.rsplit_once('/').map(|(g, s)| (g, s)) else { return false };
+        if !pool_urls.contains(parent) || !pool_urls.contains(grand) {
+            return false;
+        }
+        // THE AUTHOR'S OWN TYPOGRAPHY decides member-hood (whole-site lesson: section INDEX pages
+        // exist for everything, so parent+grandparent-in-pool alone read every interface page as a
+        // member — `HMDVRDevice` lost its rule). A MEMBER page titles itself `Owner: subject` /
+        // `Owner.subject`; an interface page titles itself alone.
+        body_of.get(url).is_some_and(|b| {
+            b.contains(&format!("{parent_seg}: {subject}")) || b.contains(&format!("{parent_seg}.{subject}"))
+        })
     };
     let candidates: Vec<Candidate> = candidates
         .into_iter()
