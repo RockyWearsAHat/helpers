@@ -331,9 +331,18 @@ pub fn usage_form_tokens() -> Vec<String> {
     status_values("usage_form")
 }
 
+/// The SUPERSESSION register ANCHOR(s), from `deprecation-status.json` → `replacement` (PASS 35). One
+/// dictionary word; the meaning net carries it to its morphological forms and to words the dictionary
+/// defines via it. A governing sentence with this MEANING that names another living construct in the
+/// author's own code typography states "successor replaces subject" ([`crate::lint_web`]'s succession
+/// read). Empty when the datum is absent (honest abstention — no edges minted).
+pub fn replacement_tokens() -> Vec<String> {
+    status_values("replacement")
+}
+
 /// Read a status-token array from `deprecation-status.json` by key (lower-cased). One reader for all the
-/// register data (`prohibits`, `removed`, `scope_exception`, `usage_form`) — the only hand data the
-/// faculty carries.
+/// register data (`prohibits`, `removed`, `scope_exception`, `usage_form`, `replacement`) — the only hand
+/// data the faculty carries.
 fn status_values(key: &str) -> Vec<String> {
     let Some(text) = crate::lint_train::embedded_lint_index_file("deprecation-status.json") else {
         return Vec::new();

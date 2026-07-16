@@ -2366,6 +2366,33 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > perturbs `corroborates` on frozen inputs — the graduates-from-harvest test is the canary; the judge
 > must stand on the dictionary basis per its own contract), referee subject-vs-mention discrimination.
 
+### Item — PASS 35 Phase A: the SUCCESSION READ — supersession as a verified web edge (`lint_web.rs`, `lint_attest.rs`, `deprecation-status.json`, TRAIN_VERSION docs-v99, 2026-07-15)
+
+> Owner: patterns, not just functions — and "USE THE AI, don't use scaffolds." No sentence template
+> exists anywhere: a governing sentence STATES REPLACEMENT iff one of its prose words CARRIES the
+> replace MEANING — the anchor (`deprecation-status.json` → `replacement`, the fifth one-datum
+> covenant entry), or a candidate stem the DICTIONARY vouches for (a real verb headword; mechanical
+> cuts only generate candidates, the dictionary is the sole referee — the PASS-29 law, verb-gated).
+> The SUCCESSOR is the sentence's own code-typography token that is a LIVING corpus subject, not the
+> node's own construct, and not the page's owner segment.
+>
+> **Verification (the north star, enforced):** understanding PROPOSES the edge; the CLAIM proves it —
+> the node already carries the attested/revoked role, or the sentence itself asserts revocation (the
+> PASS-30 claim atom). Measured on the whole-site corpus: the unverified read minted 33–35 edges/web,
+> including `.splice → Array` (the dictionary honestly defines "change" via "replace" — meaning-true,
+> usability-false) and `Symbol.replace → exec` (the anchor inside a CODE token); with verification +
+> prose-only scanning + owner-segment exclusion: **4 edges, 4 true** — `getYear`/`.getYear`/
+> `Date.getYear → getFullYear` and `Pragma → Cache-Control` — zero junk, acceptance byte-stable
+> (js 85/85, ts 85/85, css 24/24, html 13/13, rust 9/9, clean zero). Persisted as the node's
+> trailing-codec `superseded_by`, surfaced by `lint_query kind=web`.
+>
+> **Honest recall + the named Phase B:** verified succession is revocation-coupled today. The owner's
+> pattern targets on LIVING subjects (`history.pushState` → Navigation API, `new Date` → Temporal)
+> assert replacement WITHOUT revocation — their verifier is multi-witness corroboration (the referee
+> machinery counting independent sources stating the same succession), not the revocation claim; and
+> the improvement-severity firing tier (LOW, dotted-shape-only, cites the edge's own sentence) builds
+> on these edges once that verifier exists.
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the

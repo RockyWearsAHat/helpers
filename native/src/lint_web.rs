@@ -147,6 +147,21 @@ pub struct ConstructNode {
     /// The SELF-REFEREE record (PASS 30) — `Some` iff other sources spoke about this revoked-role
     /// construct at train time (corroborating sources and/or contradictions).
     pub referee: Option<Corroboration>,
+    /// PASS 35 — the SUPERSESSION edge (owner ruling: supersession is NOT prohibition — no negation,
+    /// no template): read by the meaning net from the node's own governing prose. `None` = no
+    /// replacement stated (honest). The successor is a LIVING construct the sentence names in the
+    /// author's own code typography.
+    pub superseded_by: Option<Succession>,
+}
+
+/// A documented replacement relation: the node's construct is superseded by `successor`, stated by the
+/// docs' own `sentence` (the citation the improvement tier surfaces).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Succession {
+    /// The living construct the docs name as the replacement.
+    pub successor: String,
+    /// The docs' own sentence stating the relation — the finding's citation text.
+    pub sentence: String,
 }
 
 impl crate::lint_codec::Bin for WebRule {
@@ -210,6 +225,12 @@ impl crate::lint_codec::Bin for ConstructNode {
             (r.contradictions.iter().map(|c| c.source.clone()).collect::<Vec<_>>()).enc(e);
             (r.contradictions.iter().map(|c| c.sentence.clone()).collect::<Vec<_>>()).enc(e);
         }
+        // PASS 35 — the succession edge rides last, same trailing bounds-safe shape.
+        e.boolean(self.superseded_by.is_some());
+        if let Some(s) = &self.superseded_by {
+            e.str(&s.successor);
+            e.str(&s.sentence);
+        }
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<ConstructNode> {
         let construct = d.str()?;
@@ -241,7 +262,12 @@ impl crate::lint_codec::Bin for ConstructNode {
             }
             _ => None,
         };
-        Some(ConstructNode { construct, governing, meaning_links, sources, attested_deprecated, roles, proven, rule, graded, referee })
+        // PASS 35 trailing succession edge — same back-compatible read.
+        let superseded_by = match d.boolean() {
+            Some(true) => Some(Succession { successor: d.str()?, sentence: d.str()? }),
+            _ => None,
+        };
+        Some(ConstructNode { construct, governing, meaning_links, sources, attested_deprecated, roles, proven, rule, graded, referee, superseded_by })
     }
 }
 
@@ -333,8 +359,132 @@ fn links_of(m: &MeaningNetwork, governing: &[String]) -> Vec<String> {
 /// revoked-role construct that passed the safety gates ([`crate::lint_module::graded_forms`]); a read node
 /// whose construct is a key fires the evidence-graded LOW tier, every other node stays abstaining as before.
 /// Proven nodes never take a graded form (they already enforce). Empty map ⇒ byte-identical to PASS 25.
+/// PASS 35 — the SUCCESSION READ (owner ruling: "use the AI", never a sentence scaffold). A governing
+/// sentence states a replacement iff some word of it CARRIES THE REPLACE MEANING — it is the anchor
+/// (`deprecation-status.json` → `replacement`, the one-datum covenant), a morphological form of it
+/// (`replaced`/`replaces`/`replacement`/`replacing`), or a word the dictionary DEFINES via the anchor
+/// with the dictionary's own `verb` POS typography (the PASS-29 register law, verb-gated). The
+/// SUCCESSOR is the sentence's own code-typography token (backticked by the author) that is a LIVING
+/// subject of the corpus and not the node's own construct — the docs name their replacement in code,
+/// so no prose parsing is ever guessed. Returns the first such relation, or `None` (honest).
+fn succession_of(
+    m: &MeaningNetwork,
+    construct: &str,
+    source_url: &str,
+    node_revoked: bool,
+    governing: &[String],
+    living_names: &std::collections::HashSet<String>,
+) -> Option<Succession> {
+    let anchors = crate::lint_attest::replacement_tokens();
+    if anchors.is_empty() {
+        return None;
+    }
+    let own_terminal = construct.trim_start_matches('.').rsplit('.').next().unwrap_or(construct);
+    // The page's OWNER segment (`/Animation/persist` → `animation`) is the subject's interface, never
+    // its successor — measured: `persist → Animation` minted from the owner naming itself.
+    let owner_segment = {
+        let t = source_url.trim_end_matches('/');
+        let mut it = t.rsplit('/');
+        it.next();
+        it.next().map(|s| s.to_lowercase()).unwrap_or_default()
+    };
+    for sentence in governing {
+        // PROSE ONLY: code-typography spans are tokens, not words — `Symbol.replace` naming itself
+        // must never read as the replace MEANING (measured junk class).
+        let prose: String = {
+            let mut out = String::with_capacity(sentence.len());
+            let mut in_code = false;
+            for c in sentence.chars() {
+                if c == '`' {
+                    in_code = !in_code;
+                    out.push(' ');
+                } else if !in_code {
+                    out.push(c);
+                }
+            }
+            out
+        };
+        let lower = prose.to_lowercase();
+        let states = lower
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .filter(|w| w.len() >= anchors.iter().map(|a| a.len()).min().unwrap_or(2))
+            .any(|w| word_carries_replace_meaning(w, &anchors, m));
+        if !states {
+            continue;
+        }
+        // VERIFICATION (understanding proposes, the claim proves — owner's north star): the edge
+        // holds only when the docs REVOKE the subject alongside the replacement — the node already
+        // carries the attested/revoked role, or THIS sentence itself asserts revocation (the PASS-30
+        // claim atom: prohibition anchor present, not negated). "changes the contents of an array"
+        // states change, not succession — measured, it minted `.splice → Array` without this.
+        let asserts_revocation = node_revoked || {
+            let negated = crate::lint_english::brain()
+                .is_some_and(|en| crate::lint_corroborate::is_negated(en, &prose));
+            let mut prohibition = crate::lint_attest::prohibition_class_tokens();
+            prohibition.extend(crate::lint_attest::removal_class_tokens());
+            matches!(
+                crate::lint_corroborate::revocation_claim(&lower, negated, &prohibition),
+                crate::lint_corroborate::RevocationClaim::Asserts
+            )
+        };
+        if !asserts_revocation {
+            continue;
+        }
+        // The author's own code typography: backtick-quoted tokens, in sentence order.
+        let mut rest = sentence.as_str();
+        while let Some(open) = rest.find('`') {
+            let after = &rest[open + 1..];
+            let Some(close) = after.find('`') else { break };
+            let token = crate::lint_lang_layer::normalize_construct(&after[..close]);
+            rest = &after[close + 1..];
+            let terminal = token.trim_start_matches('.').rsplit('.').next().unwrap_or(&token);
+            if token.len() >= 2
+                && terminal != own_terminal
+                && !terminal.is_empty()
+                && terminal.to_lowercase() != owner_segment
+                && living_names.contains(terminal)
+            {
+                return Some(Succession { successor: token, sentence: sentence.clone() });
+            }
+        }
+    }
+    None
+}
+
+/// Whether `word` carries the REPLACE meaning — the PASS-29 register law, nothing hand-listed:
+/// a candidate STEM of the word (mechanical prefix cuts, silent-`e` restored — candidates only, never
+/// verdicts) counts iff the DICTIONARY ITSELF says so: the stem IS the anchor, or the stem is a real
+/// dictionary headword whose own entry opens as a VERB (the dictionary's POS typography) and defines
+/// via the anchor ("substitute", "supersede" join by their own definitions; a noun whose long entry
+/// merely mentions the anchor does not). The dictionary is the sole referee; the mechanical cuts only
+/// generate candidates for it to judge — exactly [`gerund_of_known_verb`]'s covenant.
+fn word_carries_replace_meaning(word: &str, anchors: &[String], m: &MeaningNetwork) -> bool {
+    if anchors.iter().any(|a| a == word) {
+        return true;
+    }
+    let mut candidates: Vec<String> = vec![word.to_string()];
+    for cut in 1..=4usize {
+        if word.len() > cut + 2 {
+            let b = &word[..word.len() - cut];
+            candidates.push(b.to_string());
+            candidates.push(format!("{b}e"));
+        }
+    }
+    candidates.iter().any(|c| {
+        let is_anchor = anchors.iter().any(|a| a == c);
+        let defs = m.definition_words(c);
+        let verb_headword = defs.is_some_and(|d| d.iter().take(8).any(|w| w == "verb"));
+        let defines_via_anchor =
+            defs.is_some_and(|d| d.iter().any(|w| anchors.iter().any(|a| a == w)));
+        // An inflected stem must be a REAL verb headword (the dictionary vouches for the cut);
+        // a distinct word joins only when its own entry defines it via the anchor as a verb.
+        (is_anchor && (c == word || verb_headword)) || (verb_headword && defines_via_anchor)
+    })
+}
+
 pub fn build(
     m: &MeaningNetwork,
+    living_names: &std::collections::HashSet<String>,
     outcomes: &[crate::lint_module::Outcome],
     read_surface: &[crate::lint_module::ReadConstruct],
     roles_by_construct: &HashMap<String, String>,
@@ -374,6 +524,7 @@ pub fn build(
         nodes.push(ConstructNode {
             meaning_links: links_of(m, &governing),
             roles: node_roles(&o.candidate.construct, o.candidate.attested_deprecated, roles_by_construct),
+            superseded_by: succession_of(m, &o.candidate.construct, &o.candidate.url, o.candidate.attested_deprecated, &governing, living_names),
             construct: o.candidate.construct.clone(),
             governing,
             sources,
@@ -397,6 +548,7 @@ pub fn build(
             roles: node_roles(&r.construct, r.attested_deprecated, roles_by_construct),
             graded: graded_by_construct.get(&r.construct).cloned(),
             referee: referee_by_construct.get(&r.construct).cloned(),
+            superseded_by: succession_of(m, &r.construct, &r.url, r.attested_deprecated, &governing, living_names),
             construct: r.construct.clone(),
             governing,
             sources: vec![r.url.clone()],
@@ -616,6 +768,7 @@ mod tests {
             }),
             graded: None,
             referee: None,
+            superseded_by: None,
         }
     }
 
@@ -631,6 +784,7 @@ mod tests {
             rule: None,
             graded: None,
             referee: None,
+            superseded_by: None,
         }
     }
 
