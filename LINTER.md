@@ -2415,6 +2415,35 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > never on `Window.frame`, modern files zero; acceptance ALL PASS, html 14/14). `font`/`dir` remain
 > knowledge-only (attested nodes, no examples anywhere to pin a shape from — the whatwg rung).
 
+### Item — PASS 35 A3: TRUE KNOWLEDGE ENFORCES — the element graded tier, and the four laws the corpus taught (`lint_module.rs`, 2026-07-16)
+
+> Owner: "why does knowledge-but-no-enforce even exist?" It exists because "X is deprecated" and
+> "THIS token is X" are different claims — but for ELEMENTS the `<x>` shape closes the gap BY
+> CONSTRUCTION (a tag named `font` IS the font element). Landed as the element graded tier
+> (LOW severity, cites the attested page), with every gate a measured lesson:
+> 1. **Page-scope truth only** — item badges/sidebar icons admitted `CSSNumericValue/div`;
+> 2. **The page's own `&lt;name&gt;` typography** is the element-hood proof (corpus usage measured
+>    the WRONG dimension: a usage-dead element has no modern usage BECAUSE deprecation worked);
+> 3. **The URL-subject law** — co-reads from another page's banner minted `<div>`/`<canvas>`;
+> 4. **The grammar as referee** — the minimal `<x>x</x>` demo must fire under THIS language (the
+>    union pool otherwise minted `<font>` into css/js as planted-but-silent junk); the QUALIFIED
+>    graded tier got the same law as own-page-fire (killing `rel.prerender`/`gamepad.displayId`
+>    cross-mints, at the honest cost of two exampleless qualified forms).
+> Plus two read-truth repairs upstream: the orphan arm re-checked banners on the CHROME-STRIPPED
+> body (the banner is a cross-page invariant run — the strip eats it; the pre-strip page-scope set
+> is now threaded through), and page-scope entries win the read-surface dedup (a co-read was
+> shadowing `center`'s own-page entry).
+>
+> **Measured (deployed, whole-site):** html 30 rules = 18 proven + 12 graded (`font`/`dir`/`xmp`/
+> `plaintext`/`strike`/`nobr`/`noembed`/`noframes`/`rtc`/`param`/`maction`/`shape` — every one a
+> truth-checked documented deprecation); css/js/ts/rust byte-clean of cross-language mints;
+> acceptance ALL PASS (js 83/83, ts 107/107, css 24/24, html 14/14, rust 9/9, clean zero); expert
+> trial 26 findings including `<font color>` and `<frame src>` at exact lines, modern files ZERO.
+> Honest remainder: `center` reaches the graded map's doorstep with every flag true yet drops
+> between surfaces in the full train (one named element, under diagnosis in the widening task);
+> `permissions.revoke`/`sharedStorage.clear` graded forms lost to the ownership gate (their pages
+> carry no static examples — knowledge retained, enforcement awaits example-free qualified proof).
+
 ### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
