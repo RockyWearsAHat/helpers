@@ -1128,7 +1128,7 @@ fn prove_blind(
 /// distinct real blocks fire AND the two doc sentences reconcile AND none contradicts (LINTER.md).
 pub fn graduate(
     lang: &str,
-    pages: &[(String, String)],
+    mut pages: Vec<(String, String)>,
     memory: &Memory,
     m: &MeaningNetwork,
     en: &English,
@@ -1143,14 +1143,14 @@ pub fn graduate(
     // exactly as it would lose a class attribute. The attested URL SET is captured here and threaded down,
     // so every downstream reader keys on the URL, not the stripped body. Replaces the hardcoded
     // `has_deprecation_notecard` substring; MEASURED P=R=1.000 vs it (`examples/metajoin`).
-    let attest = crate::lint_attest::Attestation::discover(pages);
+    let attest = crate::lint_attest::Attestation::discover(&pages);
     let attested: std::collections::HashSet<String> =
         pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
     // THE RUNG-1 CONSUMER (PASS 23): the pages a PROVEN CONSTRUCTION binds on their own prose, each mapping
     // to the removal subject(s) the construction named — built over the RAW (pre-strip) bodies the miner
     // proved over, excluding pages the existing faculty already attests. Empty (⇒ inert) for every corpus
     // that proves no construction, so every other language stays byte-identical.
-    let construction = construction_attestation(pages, &attested, constructions);
+    let construction = construction_attestation(&pages, &attested, constructions);
     // CROSS-PAGE-INVARIANCE CHROME FILTER (LINTER.md → "Cross-page invariance = chrome, discarded";
     // owner north-star). A site's navigation, breadcrumb, footer, and sidebar-menu text recurs
     // IDENTICALLY across its pages and carries zero governing meaning, so it is discarded — site-
@@ -1159,10 +1159,15 @@ pub fn graduate(
     // menu that a semantic-element chrome drop cannot catch, the measured blocker for reading W3S
     // prose. Applied before any page is read into prohibition prose or example code, so every reader
     // downstream — `read_doc_page`, `page_code_corpus`, the grammar partition — sees clean bodies.
-    let chrome = crate::lint_graph::site_chrome(pages);
-    let stripped: Vec<(String, String)> =
-        pages.iter().map(|(u, b)| (u.clone(), chrome.strip(u, b))).collect();
-    let pages: &[(String, String)] = &stripped;
+    let chrome = crate::lint_graph::site_chrome(&pages);
+    // Strip IN PLACE (crash lesson 2026-07-15): a second, stripped copy of a whole-site corpus
+    // beside the original doubled a multi-gigabyte allocation; each page's raw body is dropped as
+    // its stripped body replaces it.
+    for (u, b) in &mut pages {
+        *b = chrome.strip(u, b);
+    }
+    let mut page_store = pages;
+    let pages: &[(String, String)] = &page_store;
     let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
     let (candidates, pool, read_surface) = propose(lang, &partition, &bridge, en, &attested, &construction, memory);
     // PASS 34 — the MEMBER-SHAPE law (measured: `/Web/API/SharedStorage/clear`, a genuinely
@@ -1202,6 +1207,38 @@ pub fn graduate(
         .iter()
         .map(|c| derive_advice(&pool, en, &c.construct, &c.understanding, &c.url))
         .collect();
+
+    // PASS 30 referee-pool widening, MOVED ahead of the loop (crash lesson 2026-07-15, third strike):
+    // this is the LAST reader of page bodies, so extracting the attested-orphan governing prose here
+    // lets the whole-site body store be FREED before the long candidate loop below — the loop runs on
+    // the harvest corpus and the sentence pools alone.
+    let partition_urls: std::collections::HashSet<String> =
+        partition.iter().map(|(u, _)| u.clone()).collect();
+    let mut referee_pool: Vec<PooledSentence> = pool.clone();
+    for (url, body) in
+        pages.iter().filter(|(u, _)| attested.contains(u) && !partition_urls.contains(u.as_str()))
+    {
+        let p = crate::lint_lang_layer::read_doc_page(url, body, en, &bridge, &attested, &construction);
+        for s in &p.governing {
+            let negated = crate::lint_corroborate::is_negated(en, s);
+            referee_pool.push(PooledSentence {
+                sentence: s.clone(),
+                prohibited: p.prohibited,
+                url: url.clone(),
+                negated,
+            });
+        }
+    }
+    // The LIVING-NAME inventory (the PASS-34 flood law's referee): every non-attested page's
+    // URL-subject — a name documented as a LIVING construct anywhere in the corpus. URLs only.
+    let living_names: std::collections::HashSet<String> = pages
+        .iter()
+        .filter(|(u, _)| !attested.contains(u))
+        .filter_map(|(u, _)| u.trim_end_matches('/').rsplit('/').next().map(str::to_string))
+        .collect();
+    drop(partition);
+    page_store.clear();
+    page_store.shrink_to_fit();
 
     let mut outcomes = Vec::new();
     for (i, cand) in candidates.iter().enumerate() {
@@ -1302,7 +1339,19 @@ pub fn graduate(
         // contrast against, becomes a module rule in the shape `RuleSet::build` compiles into a firing
         // detector (bad ∧ ¬good). The lead gate is enforced HERE, not at propose, so the pool (and every
         // other candidate's frozen verdict) is untouched — only the un-stated subject is withheld.
-        let rule = if cand.stated && (matches!(verdict, Verdict::Proven) || notecard_proven) {
+        // PASS 34 — the LIVING-NAME law (measured: MathML's genuinely-deprecated `href` proved bare
+        // under the error-tolerant html grammar and flagged every `<a href>`). A BARE construct's
+        // name is flood-unsafe iff the corpus ALSO documents the SAME name as a LIVING subject — a
+        // NON-attested page whose URL-subject is this name (`HTMLAnchorElement/href` lives, so bare
+        // `href` names TWO constructs and enforcing it flags the living one; `xlink:href`/
+        // `mathcolor`/`marquee` exist only as deprecated subjects and stay enforceable). Probed on
+        // the real corpus: href/version/clip/rel withheld, xlink:href/mathcolor/zoomAndPan/marquee/
+        // center/big kept — every verdict truth-checked. No thresholds, no block scans: the corpus's
+        // own page inventory is the referee. The withheld fact stays an attested web node.
+        let name_collides = !cand.construct.contains('.')
+            && !cand.construct.starts_with(':')
+            && living_names.contains(&cand.construct);
+        let rule = if cand.stated && !name_collides && (matches!(verdict, Verdict::Proven) || notecard_proven) {
             let bad = violating.iter().min_by_key(|b| b.len()).map(|b| b.to_string());
             let good = clean.iter().min_by_key(|b| b.len()).map(|b| b.to_string());
             match (bad, good) {
@@ -1336,28 +1385,8 @@ pub fn graduate(
         });
     }
     // PASS 30 — the SELF-REFEREE: the machine's own read judging every revoked-role construct against
-    // every OTHER source's claim. The referee hears the language's WHOLE attested corpus, not only the
-    // rule-learning partition (MEASURED: the corroborating sentences live on pages like wave.html /
-    // http.server.html that attest but never join the partition), so the partition pool is widened with
-    // the governing prose of every attested page outside it. Computed here because the pool lives here;
-    // attached to the web nodes by the caller.
-    let partition_urls: std::collections::HashSet<&str> =
-        partition.iter().map(|(u, _)| u.as_str()).collect();
-    let mut referee_pool: Vec<PooledSentence> = pool.clone();
-    for (url, body) in
-        pages.iter().filter(|(u, _)| attested.contains(u) && !partition_urls.contains(u.as_str()))
-    {
-        let p = crate::lint_lang_layer::read_doc_page(url, body, en, &bridge, &attested, &construction);
-        for s in &p.governing {
-            let negated = crate::lint_corroborate::is_negated(en, s);
-            referee_pool.push(PooledSentence {
-                sentence: s.clone(),
-                prohibited: p.prohibited,
-                url: url.clone(),
-                negated,
-            });
-        }
-    }
+    // every OTHER source's claim, over the widened pool extracted above (the referee hears the
+    // language's WHOLE attested corpus, not only the rule-learning partition).
     let targets: Vec<(String, Vec<String>)> = outcomes
         .iter()
         .filter(|o| o.candidate.attested_deprecated)
@@ -1648,15 +1677,11 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // the language partition is decided downstream by GRAMMAR VERIFICATION ([`lang_pages`]), never by URL.
     // A page whose subject fires in no grammar abstains — this is how a cross-section page (MDN Web-API
     // `document.write`) reaches JavaScript while a CSS property never leaks into it.
-    let (mut pages, _fp) = crate::lint_docs::raw_pages(&data_root, lang);
-    {
-        let mut seen: std::collections::HashSet<String> = pages.iter().map(|(u, _)| u.clone()).collect();
-        for (u, b) in crate::lint_docs::site_corpus(&data_root, lang) {
-            if seen.insert(u.clone()) {
-                pages.push((u, b));
-            }
-        }
-    }
+    // ONE resident copy (crash lesson 2026-07-15, second strike): `raw_pages` and `site_corpus`
+    // decode the SAME host-matched crawl caches — the language's own sources are host-matched by
+    // construction — so the old raw_pages ∪ site_corpus merge held the whole-site corpus TWICE
+    // while deduping. `site_corpus` alone is the superset, already URL-deduped.
+    let pages = crate::lint_docs::site_corpus(&data_root, lang);
     // FULL-DOCS-READ PRECONDITION (owner correction 2026-07-12, point 2): a language is TESTED only
     // after its registered documentation has been READ at least once — a STRUCTURAL precondition, the
     // crawl's read pass having produced a page corpus (`raw_pages` non-empty; the pages are the read
@@ -1700,7 +1725,6 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // compiled view. `derive_rules` projects the proven nodes in outcome order, so the live rule set is a
     // VIEW over the web — byte-identical to the old `filter_map(|o| o.rule)` (the proven nodes carry those
     // same `(rule, url)` pairs). Delete the web and re-read it: re-deriving reproduces the same rules.
-    let (outcomes, read_surface, referee) = graduate(lang, &pages, memory, br.meanings(), en, &constructions);
     // The doc-role each construction-consumed subject carries (PASS 25 rung 2) — the proven construction's
     // KIND ("removal"/"prohibition"), keyed by subject. Empty for every language that proves no
     // construction, so those webs carry only the author-metadata "deprecated" role.
@@ -1709,7 +1733,11 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // train-time-computed flood-safe firing form ([`graded_forms`]): the corpus's OWN example code (with
     // page provenance so a construct's own illustration is excluded) supplies the member-scope usage-death
     // and clean-near-miss gates. Persisted ON the node; derived to LOW rules AFTER the proven view.
+    // Both computed BEFORE graduation over the same RAW bodies as always — graduation then CONSUMES the
+    // page vector (crash lesson: the whole-site corpus must never be resident twice).
     let code_by_url = crate::lint_lang_layer::page_code_blocks_by_url(&pages, GRADED_CORPUS_CAP);
+    let (outcomes, read_surface, referee) =
+        graduate(lang, pages, memory, br.meanings(), en, &constructions);
     // The proven constructs (this pass's enforced shapes) — the graded tier never duplicates them.
     let proven_constructs: std::collections::HashSet<String> = outcomes
         .iter()
@@ -1733,6 +1761,31 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
 mod tests {
     use super::*;
     use crate::lint_read::Binding;
+
+    /// DEV PROBE (ignored): replicate the PASS-34 bare-flood gate over the REAL html corpus for the
+    /// named constructs — measures which arm let a flooding bare shape (`href`) through.
+    #[test]
+    #[ignore = "dev probe: needs the machine's whole-site crawl caches"]
+    fn probe_bare_flood_gate_on_real_corpus() {
+        let data_root = std::path::PathBuf::from("/Users/alexwaldmann/bin");
+        let pages = crate::lint_docs::site_corpus(&data_root, "html");
+        let attest = crate::lint_attest::Attestation::discover(&pages);
+        let attested: std::collections::HashSet<String> =
+            pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
+        let code_by_url = crate::lint_lang_layer::page_code_blocks_by_url(&pages, GRADED_CORPUS_CAP);
+        eprintln!("pages {} blocks {} attested-pages {}", pages.len(), code_by_url.len(), attested.len());
+        let _ = code_by_url;
+        let living: std::collections::HashSet<&str> = pages
+            .iter()
+            .filter(|(u, _)| !attested.contains(u))
+            .filter_map(|(u, _)| u.trim_end_matches('/').rsplit('/').next())
+            .collect();
+        for construct in
+            ["href", "xlink:href", "mathcolor", "version", "clip", "frame", "zoomAndPan", "marquee", "center", "big", "rel"]
+        {
+            eprintln!("{construct:>12}: living-subject={} → withhold-bare={}", living.contains(construct), living.contains(construct));
+        }
+    }
 
     /// PASS 34 — the reference read's pure arm: a page whose own example demonstrates its URL-subject
     /// mints exactly that subject with its own governing sentence; a slug page whose examples never
@@ -2020,7 +2073,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, _read, _referee) = graduate("javascript", &pages, &memory, m, en, &[]);
+        let (outcomes, _read, _referee) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
         let var = outcomes
             .iter()
             .find(|o| o.candidate.construct == "var")
@@ -2075,7 +2128,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, read, referee) = graduate("javascript", &pages, &memory, m, en, &[]);
+        let (outcomes, read, referee) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
         let direct: Vec<(LearnedRule, String)> = outcomes.iter().filter_map(|o| o.rule.clone()).collect();
         let web = crate::lint_web::build(m, &outcomes, &read, &std::collections::HashMap::new(), &std::collections::HashMap::new(), &referee);
         let viewed = crate::lint_web::derive_rules("javascript", &web);
@@ -2129,8 +2182,8 @@ mod tests {
             ids.sort();
             ids
         };
-        let first = proven(graduate("javascript", &pages, &memory, m, en, &[]).0);
-        let second = proven(graduate("javascript", &pages, &memory, m, en, &[]).0);
+        let first = proven(graduate("javascript", pages.clone(), &memory, m, en, &[]).0);
+        let second = proven(graduate("javascript", pages.clone(), &memory, m, en, &[]).0);
         // The fixpoint claim is DETERMINISM — it holds whether or not this machine's brain state
         // graduates the fixture, so it never false-fails on brain-state/test-order (the graduation count
         // itself is the sibling test's job, gated on the suite's brain). Reported, not asserted.

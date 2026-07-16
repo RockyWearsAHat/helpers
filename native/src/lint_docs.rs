@@ -751,9 +751,9 @@ pub(crate) fn url_host(url: &str) -> Option<String> {
 /// corpus, INCLUDING pages a narrow section seed never reached (a `/Web/API/` page beside the
 /// `/Web/JavaScript/` seed). This is the module PROPOSE input; the language partition is decided
 /// downstream by GRAMMAR VERIFICATION ([`crate::lint_module`]), never by which seed or section a page came
-/// from, so reading a CSS page here is harmless (it fires in no JS grammar). Deduped by URL, memoized per
-/// (host set, crawl-directory state) — the caches total hundreds of MB and every language asks once per
-/// setup batch. Never crawls — a pure read of what the cache holds.
+/// from, so reading a CSS page here is harmless (it fires in no JS grammar). Deduped by URL, re-decoded
+/// from the on-disk shards on every call — deliberately NOT memoized (whole-site corpora are gigabytes
+/// inflated; a resident memo copy is what crashed the machine). Never crawls — a pure read of the cache.
 #[cfg(feature = "crawl")]
 pub(crate) fn site_corpus(data_root: &Path, lang: &str) -> Vec<(String, String)> {
     let hosts: std::collections::HashSet<String> = crate::lint_train::registered_docs_sources(data_root, lang)
@@ -765,24 +765,9 @@ pub(crate) fn site_corpus(data_root: &Path, lang: &str) -> Vec<(String, String)>
     }
     let dir = crawl_cache_path("_").parent().map(std::path::Path::to_path_buf);
     let Some(dir) = dir else { return Vec::new() };
-    type Memo = std::sync::Mutex<Option<(u128, Vec<String>, Vec<(String, String)>)>>;
-    static MEMO: Memo = std::sync::Mutex::new(None);
-    let dir_stat = std::fs::metadata(&dir)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let mut host_key: Vec<String> = hosts.iter().cloned().collect();
-    host_key.sort();
-    {
-        let guard = MEMO.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((stat, key, pages)) = guard.as_ref() {
-            if *stat == dir_stat && *key == host_key {
-                return pages.clone();
-            }
-        }
-    }
+    // NO memo (crash lesson 2026-07-15): at whole-site scale the corpus is GIGABYTES inflated, and a
+    // memoized copy cloned out per language held the machine at 3× the corpus — re-decoding the
+    // on-disk shards once per language train is CPU it can afford; the resident copy it cannot.
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     if let Ok(rd) = std::fs::read_dir(&dir) {
@@ -799,8 +784,6 @@ pub(crate) fn site_corpus(data_root: &Path, lang: &str) -> Vec<(String, String)>
             }
         }
     }
-    let mut guard = MEMO.lock().unwrap_or_else(|e| e.into_inner());
-    *guard = Some((dir_stat, host_key, out.clone()));
     out
 }
 
