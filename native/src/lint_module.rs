@@ -1133,7 +1133,12 @@ pub fn graduate(
     m: &MeaningNetwork,
     en: &English,
     constructions: &[crate::lint_construct::ConstructionState],
-) -> (Vec<Outcome>, Vec<ReadConstruct>, std::collections::HashMap<String, crate::lint_web::Corroboration>) {
+) -> (
+    Vec<Outcome>,
+    Vec<ReadConstruct>,
+    std::collections::HashMap<String, crate::lint_web::Corroboration>,
+    std::collections::HashSet<String>,
+) {
     let bridge = Bridge::new(m, en);
     // The LEARNED deprecation attestation, keyed by the author's OWN METADATA TYPOGRAPHY (frontmatter
     // `status:` enum joined to the crawled pages by slug — COMPLETION PASS 13). Discovered from and applied
@@ -1399,7 +1404,7 @@ pub fn graduate(
         )
         .collect();
     let referee = self_referee(&referee_pool, &targets);
-    (outcomes, read_surface, referee)
+    (outcomes, read_surface, referee, living_names)
 }
 
 /// The largest number of corroborating sources / contradiction records the referee persists per node —
@@ -1736,7 +1741,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // Both computed BEFORE graduation over the same RAW bodies as always — graduation then CONSUMES the
     // page vector (crash lesson: the whole-site corpus must never be resident twice).
     let code_by_url = crate::lint_lang_layer::page_code_blocks_by_url(&pages, GRADED_CORPUS_CAP);
-    let (outcomes, read_surface, referee) =
+    let (outcomes, read_surface, referee, living_names) =
         graduate(lang, pages, memory, br.meanings(), en, &constructions);
     // The proven constructs (this pass's enforced shapes) — the graded tier never duplicates them.
     let proven_constructs: std::collections::HashSet<String> = outcomes
@@ -1750,7 +1755,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // INERT on the current corpora (measured: zero contradictions) — byte-identical rule sets — and it
     // engages exactly when a new source disagrees with the web.
     graded_forms.retain(|c, _| referee.get(c).is_none_or(|r| r.contradictions.is_empty()));
-    let web = crate::lint_web::build(br.meanings(), &outcomes, &read_surface, &roles, &graded_forms, &referee);
+    let web = crate::lint_web::build(br.meanings(), &living_names, &outcomes, &read_surface, &roles, &graded_forms, &referee);
     crate::lint_web::persist(lang, &web);
     let rules = crate::lint_web::derive_rules(lang, &web);
     let graded = crate::lint_web::derive_graded_rules(lang, &web);
@@ -2073,7 +2078,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, _read, _referee) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
+        let (outcomes, _read, _referee, _living) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
         let var = outcomes
             .iter()
             .find(|o| o.candidate.construct == "var")
@@ -2128,9 +2133,9 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, read, referee) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
+        let (outcomes, read, referee, _living) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
         let direct: Vec<(LearnedRule, String)> = outcomes.iter().filter_map(|o| o.rule.clone()).collect();
-        let web = crate::lint_web::build(m, &outcomes, &read, &std::collections::HashMap::new(), &std::collections::HashMap::new(), &referee);
+        let web = crate::lint_web::build(m, &Default::default(), &outcomes, &read, &std::collections::HashMap::new(), &std::collections::HashMap::new(), &referee);
         let viewed = crate::lint_web::derive_rules("javascript", &web);
         assert_eq!(direct, viewed, "the web-derived rules must equal the direct emitted rules byte-for-byte");
         // Everything READ is retained: every proposed candidate AND every never-proposed read construct is

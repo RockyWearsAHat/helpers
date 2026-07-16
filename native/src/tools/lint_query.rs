@@ -392,6 +392,10 @@ fn web(construct: &str, language: Option<&str>, role: Option<&str>) -> Value {
             "coherent_sources": r.coherent,
             "contradictions": r.contradictions.iter().map(|c| json!({ "source": c.source, "sentence": c.sentence })).collect::<Vec<_>>(),
         })),
+        "superseded_by": node.superseded_by.as_ref().map(|s| json!({
+            "successor": s.successor,
+            "stated_by": s.sentence,
+        })),
         "traverses_to_concepts": concepts,
         "cross_language_connections": cross,
         "note": "meaning links are key-words into the FROZEN English web; their meaning is rebound on query, never copied. Interpretation is a traversal, not a stored label.",
