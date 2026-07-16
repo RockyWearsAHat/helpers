@@ -1356,14 +1356,38 @@ pub fn graduate(
         let name_collides = !cand.construct.contains('.')
             && !cand.construct.starts_with(':')
             && living_names.contains(&cand.construct);
+        // PASS 35 — ELEMENT-SHAPE RESCUE for a colliding bare: if EVERY firing of the construct in
+        // its own violating evidence is at ELEMENT POSITION (the name node's preceding source byte
+        // is `<` — the author's own tag typography), the rule enforces as the `<x>` shape, which the
+        // living name cannot collide with (`<frame>` fires on tags; `Window.frame` never does). The
+        // exemplars are the referee — no element list, no language named.
+        let emitted_construct = if name_collides && (matches!(verdict, Verdict::Proven) || notecard_proven) {
+            let element_form = format!("<{}>", cand.construct);
+            let element_plan = Plan::UsesConstruct { construct: element_form.clone() };
+            let bare_plan = Plan::UsesConstruct { construct: cand.construct.clone() };
+            let _ = &bare_plan;
+            // The element-positioned witnesses must satisfy the SAME witness law the bare proof did —
+            // the `<x>` rule re-proves on the subset of its own evidence that fires at tag position
+            // (an attribute-text or identifier hit is not element evidence and simply drops out).
+            let element_witnesses =
+                violating.iter().filter(|b| !run_plan(&element_plan, lang, b).is_empty()).count();
+            (element_witnesses >= REQUIRED_REPS.min(violating.len().max(1)))
+                .then_some(element_form)
+        } else {
+            None
+        };
+        let name_collides = name_collides && emitted_construct.is_none();
         let rule = if cand.stated && !name_collides && (matches!(verdict, Verdict::Proven) || notecard_proven) {
+            // The enforced shape: the candidate's own token, or its PASS-35 element form when the
+            // living-name collision was disambiguated by the exemplars' own tag positions.
+            let fire = emitted_construct.clone().unwrap_or_else(|| cand.construct.clone());
             let bad = violating.iter().min_by_key(|b| b.len()).map(|b| b.to_string());
             let good = clean.iter().min_by_key(|b| b.len()).map(|b| b.to_string());
             match (bad, good) {
                 (Some(bad), good) => Some((
                     LearnedRule {
                         language: lang.to_string(),
-                        id: rule_id(&cand.construct),
+                        id: rule_id(&fire),
                         severity: "medium".to_string(),
                         description: cand.understanding.clone(),
                         bad,
@@ -1371,7 +1395,7 @@ pub fn graduate(
                         // The rule IS its understood prohibition: carry the construct so the live
                         // build compiles `uses_construct(construct)` and fires the SAME plan the
                         // frozen loop proved — never a detector re-derived from the example diff.
-                        construct: Some(cand.construct.clone()),
+                        construct: Some(fire),
                     },
                     cand.url.clone(),
                 )),
@@ -1780,6 +1804,32 @@ mod tests {
         let code_by_url = crate::lint_lang_layer::page_code_blocks_by_url(&pages, GRADED_CORPUS_CAP);
         eprintln!("pages {} blocks {} attested-pages {}", pages.len(), code_by_url.len(), attested.len());
         let _ = code_by_url;
+        eprintln!("union markers: {}", attest.markers().len());
+        // Trace the KNOWN banner run's gate counts at union scale.
+        let needle = "This feature is no longer recommended";
+        let families = crate::lint_attest::frontmatter_families();
+        let dep: std::collections::HashSet<&str> =
+            families.get("deprecated").map(|s| s.iter().map(String::as_str).collect()).unwrap_or_default();
+        eprintln!("dep-family slugs: {}", dep.len());
+        let (mut d, mut o, mut t) = (0, 0, 0);
+        for (url, body) in &pages {
+            if !crate::lint_attest::runs_of(body).iter().any(|r| r.contains(needle)) {
+                continue;
+            }
+            t += 1;
+            let slug = url.split("/docs/").nth(1).unwrap_or("").to_lowercase();
+            let in_dep = dep.iter().any(|s| s.to_lowercase() == slug);
+            if in_dep {
+                d += 1;
+            }
+            for (v, set) in families.iter() {
+                if v != "deprecated" && set.iter().any(|s| s.to_lowercase() == slug) && !in_dep {
+                    o += 1;
+                    break;
+                }
+            }
+        }
+        eprintln!("banner run: total-pages {t} dep {d} negative {o}");
         let living: std::collections::HashSet<&str> = pages
             .iter()
             .filter(|(u, _)| !attested.contains(u))
