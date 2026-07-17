@@ -118,12 +118,6 @@
    "seed": "https://developer.mozilla.org/en-US/docs/Web/HTML/"
   },
   {
-   "tool": "whatwg-html",
-   "language": "html",
-   "kind": "crawl",
-   "seed": "https://html.spec.whatwg.org/multipage/"
-  },
-  {
    "tool": "json-org",
    "language": "json",
    "kind": "crawl",
@@ -554,6 +548,12 @@
    "language": "html",
    "kind": "crawl",
    "seed": "https://www.w3schools.com/html/"
+  },
+  {
+   "tool": "w3schools-tags",
+   "language": "html",
+   "kind": "crawl",
+   "seed": "https://www.w3schools.com/tags/"
   },
   {
    "tool": "mdn-web",
