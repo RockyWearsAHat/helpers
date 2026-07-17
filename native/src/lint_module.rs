@@ -1710,13 +1710,20 @@ fn graded_forms(
         // LANGUAGE OWNERSHIP (the grammar as referee, qualified tier): the chosen form must FIRE
         // under THIS language on the construct's OWN page examples — measured, the union pool
         // minted dotted forms (`rel.prerender`, `gamepad.displayId`) into modules whose grammars
-        // can never fire them: planted-but-silent junk.
-        let own_fires = code_by_url
-            .iter()
-            .filter(|(u, _)| u == &r.url)
-            .any(|(_, blk)| !run_plan(&plan, lang, blk).is_empty());
-        if !own_fires {
-            continue;
+        // can never fire them: planted-but-silent junk. SCOPE (measured, second strike): the gate
+        // judges on `<pre>` blocks, but an ITEM-ROUTE page (its own anchors carry the status —
+        // python's rendered markers) demonstrates its items in INLINE code the block corpus never
+        // holds, and its item anchors already lock the language — the gate blanked python's entire
+        // graded tier (80→0). Item-route pages are exempt; banner-page mints stay gated.
+        let item_route_page = r.attested_deprecated && !r.page_scope;
+        if !item_route_page {
+            let own_fires = code_by_url
+                .iter()
+                .filter(|(u, _)| u == &r.url)
+                .any(|(_, blk)| !run_plan(&plan, lang, blk).is_empty());
+            if !own_fires {
+                continue;
+            }
         }
         // CLEAN-NEAR-MISS: the chosen form must fire on NONE of the corpus's other-page blocks.
         let flags_clean = code_by_url
