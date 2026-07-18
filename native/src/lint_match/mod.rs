@@ -653,6 +653,18 @@ impl RuleSet {
         &self.withheld
     }
 
+    /// Append a PRE-COMPILE withhold row to the conservation ledger (PASS 36 — the recall census).
+    /// The read/mint/veto stages that refuse a fact BEFORE the compile funnel their named
+    /// `(id, stage-prefixed reason)` records into this SAME ledger after [`RuleSet::build`], so
+    /// `lint_query kind=rules` surfaces every stage's refusals through one surface — no second
+    /// ledger to drift. Rows are deduped by the `(id, reason)` pair; compile-stage rows always
+    /// precede appended ones, so the train-time invariant's first-wins read is unaffected.
+    pub(crate) fn note_withheld(&mut self, id: &str, reason: &str) {
+        if !self.withheld.iter().any(|(i, r)| i == id && r == reason) {
+            self.withheld.push((id.to_string(), reason.to_string()));
+        }
+    }
+
     /// Number of compiled rules.
     pub fn rule_count(&self) -> usize {
         self.rules.len()

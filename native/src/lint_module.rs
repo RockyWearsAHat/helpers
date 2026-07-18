@@ -485,7 +485,8 @@ pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &Mea
         pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
     let constructions = crate::lint_construct::mine_and_prove(pages);
     let construction = construction_attestation(pages, &attested, &constructions);
-    let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
+    // Diagnostic path: the abstention withholds are the TRAIN's to record ([`graduate`]) — dropped here.
+    let (partition, _) = lang_pages(lang, pages, &bridge, en, &attested, &construction);
     propose(lang, &partition, &bridge, en, &attested, &Default::default(), &construction, memory).0
 }
 
@@ -519,6 +520,13 @@ fn read_not_proposed(candidates: &[Candidate], read_surface: Vec<ReadConstruct>)
 ///   unattested, no revoked role, so it can never enforce; it is retained knowledge.
 /// The funnel's own reads come FIRST in the returned order, so the web build's first-wins dedup and the
 /// proven-rule view are byte-identical to the pre-PASS-34 output by construction.
+///
+/// PASS 36 — the recall census: the two silent exits of this read are NAMED into `withheld`
+/// (deduped `(id, reason)` rows for the one conservation ledger): an attested orphan-arm
+/// FALL-THROUGH records `read gate (attested but not demonstrated)` per subject (the attestation
+/// is the signal), and a reference page whose examples never spell its URL-subject records
+/// `read gate (no example spells the subject)` ([`ReferenceRead::Unspelled`] — the URL-derived
+/// candidate subject is the signal). A page with neither signal records nothing.
 fn with_reference_read(
     pages: &[(String, String)],
     partition: &[&(String, String)],
@@ -528,6 +536,7 @@ fn with_reference_read(
     page_scope: &std::collections::HashSet<String>,
     construction: &std::collections::HashMap<String, Vec<String>>,
     mut read: Vec<ReadConstruct>,
+    withheld: &mut Vec<(String, String)>,
 ) -> Vec<ReadConstruct> {
     let in_partition: std::collections::HashSet<&str> =
         partition.iter().map(|(u, _)| u.as_str()).collect();
@@ -574,37 +583,79 @@ fn with_reference_read(
                 }
                 continue;
             }
-            // Not a true orphan: fall through — the page may still contribute a PLAIN read.
+            // Not a true orphan: fall through — the page may still contribute a PLAIN read. The
+            // fall-through itself is a NAMED drop (PASS 36): the page IS attested (the signal),
+            // yet its subjects leave the attested route here — one ledger row per subject.
+            for c in &p.constructs {
+                note_withhold(withheld, format!("read-{c}"), "read gate (attested but not demonstrated)");
+            }
         }
-        if let Some((construct, governing)) = reference_subjects(url, body) {
-            read.push(ReadConstruct {
-                construct: construct.clone(),
-                governing,
-                url: url.clone(),
-                attested_deprecated: false,
-                // A demonstrated page can still be a BANNER page (center/strike — the sentence wall
-                // kept them from candidacy, not from truth): carry the pre-strip page-scope fact.
-                page_scope: page_scope.contains(url),
-                element_typography: body.contains(&format!("&lt;{construct}&gt;")),
-            });
+        match reference_subjects(url, body) {
+            ReferenceRead::Subject { construct, governing } => {
+                read.push(ReadConstruct {
+                    construct: construct.clone(),
+                    governing,
+                    url: url.clone(),
+                    attested_deprecated: false,
+                    // A demonstrated page can still be a BANNER page (center/strike — the sentence wall
+                    // kept them from candidacy, not from truth): carry the pre-strip page-scope fact.
+                    page_scope: page_scope.contains(url),
+                    element_typography: body.contains(&format!("&lt;{construct}&gt;")),
+                });
+            }
+            ReferenceRead::Unspelled { subject } => {
+                note_withhold(withheld, format!("read-{subject}"), "read gate (no example spells the subject)");
+            }
+            ReferenceRead::Mute => {}
         }
     }
     read
 }
 
-/// The plain READ subject of an ordinary reference page, or `None`: the most-specific URL-derived
+/// Dedup-append one named withhold row (PASS 36) — the same `(id, reason)` pair discipline
+/// [`crate::lint_match::RuleSet`]'s ledger holds, applied while the rows are still being collected.
+fn note_withhold(rows: &mut Vec<(String, String)>, id: String, reason: &str) {
+    let row = (id, reason.to_string());
+    if !rows.contains(&row) {
+        rows.push(row);
+    }
+}
+
+/// What an ordinary reference page's plain read yielded ([`reference_subjects`]).
+#[derive(Debug, PartialEq)]
+enum ReferenceRead {
+    /// The URL-derived subject its own example code demonstrates, with its governing sentence.
+    Subject { construct: String, governing: String },
+    /// The page carries a URL-derived candidate subject, but no own example spells it (or the
+    /// page has no example block at all) — the named drop of PASS 36.
+    Unspelled { subject: String },
+    /// No URL-derived candidate subject of usable shape — nothing was on the table.
+    Mute,
+}
+
+/// The plain READ subject of an ordinary reference page: the most-specific URL-derived
 /// shape ([`crate::lint_lang_layer::member_page_shapes`]) that the page's OWN example code demonstrates
 /// (`construct_in_text` over its `<pre><code>` corpus) — the demonstration is the confirmation, so a
-/// slug no example spells (`tag_video.asp`) never mints a junk node. Governing prose is the page's own
-/// sentence mentioning the subject, else its lead. Pure; no brain, no grammar, no network.
-fn reference_subjects(url: &str, body: &str) -> Option<(String, String)> {
+/// slug no example spells (`tag_video.asp`) never mints a junk node (it returns as
+/// [`ReferenceRead::Unspelled`], the PASS-36 named drop, instead of vanishing). Governing prose is the
+/// page's own sentence mentioning the subject, else its lead. Pure; no brain, no grammar, no network.
+fn reference_subjects(url: &str, body: &str) -> ReferenceRead {
+    let shapes = crate::lint_lang_layer::member_page_shapes(url);
+    let unspelled = || match shapes.iter().find(|c| c.len() >= 2) {
+        Some(subject) => ReferenceRead::Unspelled { subject: subject.clone() },
+        None => ReferenceRead::Mute,
+    };
     let own = crate::lint_lang_layer::page_example_corpus(body, false);
     if own.is_empty() {
-        return None;
+        return unspelled();
     }
-    let construct = crate::lint_lang_layer::member_page_shapes(url)
-        .into_iter()
-        .find(|c| c.len() >= 2 && own.iter().any(|blk| construct_in_text(blk, c)))?;
+    let Some(construct) = shapes
+        .iter()
+        .find(|c| c.len() >= 2 && own.iter().any(|blk| construct_in_text(blk, c)))
+        .cloned()
+    else {
+        return unspelled();
+    };
     let pool = crate::lint_lang_layer::governing_sentences(body);
     let governing = pool
         .iter()
@@ -613,7 +664,7 @@ fn reference_subjects(url: &str, body: &str) -> Option<(String, String)> {
         .or_else(|| pool.first())
         .cloned()
         .unwrap_or_default();
-    Some((construct, governing))
+    ReferenceRead::Subject { construct, governing }
 }
 
 /// The per-page CONSTRUCTION ATTESTATION map (COMPLETION PASS 23 — the rung-1 consumer wiring): url →
@@ -658,6 +709,13 @@ fn construction_attestation(
 /// is JavaScript) joins the JS partition regardless of its `/Web/API/` URL shape. A page whose subject
 /// fires in NO grammar abstains — never conflated, never guessed. No language or domain is named in code;
 /// the tree-sitter grammar of `lang` is the only judge.
+///
+/// PASS 36 — the recall census: the abstention is no longer a silent drop. A prohibition page whose
+/// subjects fire in none of THIS grammar's examples returns, beside the partition, one named
+/// withhold row per subject — `(read-<subject>, "read gate (no grammar claims the page)")` —
+/// deduped by the pair, for [`graduate`] to thread into the module's one conservation ledger.
+/// Signal-gated by construction: only a page whose ROLE prohibits named subjects records
+/// ([`PageClaim::Abstains`]); an ordinary page records nothing.
 fn lang_pages<'a>(
     lang: &str,
     pages: &'a [(String, String)],
@@ -665,8 +723,33 @@ fn lang_pages<'a>(
     en: &English,
     attested: &std::collections::HashSet<String>,
     construction: &std::collections::HashMap<String, Vec<String>>,
-) -> Vec<&'a (String, String)> {
-    pages.iter().filter(|(u, body)| page_proves_in_lang(lang, u, body, bridge, en, attested, construction)).collect()
+) -> (Vec<&'a (String, String)>, Vec<(String, String)>) {
+    let mut partition: Vec<&(String, String)> = Vec::new();
+    let mut withheld: Vec<(String, String)> = Vec::new();
+    for p in pages {
+        let (u, body) = p;
+        match page_proves_in_lang(lang, u, body, bridge, en, attested, construction) {
+            PageClaim::Proves => partition.push(p),
+            PageClaim::Abstains(subjects) => {
+                for c in subjects {
+                    note_withhold(&mut withheld, format!("read-{c}"), "read gate (no grammar claims the page)");
+                }
+            }
+            PageClaim::Mute => {}
+        }
+    }
+    (partition, withheld)
+}
+
+/// How one page relates to a language's grammar-verified partition ([`page_proves_in_lang`]).
+enum PageClaim {
+    /// A prohibited subject fires on the page's own examples under this grammar — in the partition.
+    Proves,
+    /// A prohibition page whose named subjects fire in none of this grammar's examples — the
+    /// honest abstention, carrying the subjects so the drop is a NAMED withhold (PASS 36).
+    Abstains(Vec<String>),
+    /// Not a prohibition page at all — nothing was dropped, nothing to record.
+    Mute,
 }
 
 /// Whether a prohibition/deprecation page PROVES in `lang`: its role names a prohibited subject AND that
@@ -674,8 +757,8 @@ fn lang_pages<'a>(
 /// The page's example code is read STRUCTURALLY ([`crate::lint_lang_layer::page_code_corpus`], every
 /// `<pre><code>`), so the referee is the language grammar, not the URL — the whole point of the
 /// verification-decided partition. A non-prohibition page, or one whose subject the grammar does not fire
-/// on the page's own examples, is not in this language's partition.
-fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, construction: &std::collections::HashMap<String, Vec<String>>) -> bool {
+/// on the page's own examples, is not in this language's partition ([`PageClaim`] carries which).
+fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &English, attested: &std::collections::HashSet<String>, construction: &std::collections::HashMap<String, Vec<String>>) -> PageClaim {
     // A CONSTRUCTION-BOUND page joins this language's partition by the construction's PROOF, not a per-page
     // grammar demonstration: the construction was proven over THIS language's own corpus (its witnesses are
     // this language's proven-deprecated subjects), so it already established both the language and the
@@ -683,11 +766,11 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
     // module's stub page often has none). The map is non-empty only for the language the construction
     // proved in, so this never crosses the partition into another language.
     if construction.contains_key(url) {
-        return true;
+        return PageClaim::Proves;
     }
     let page = crate::lint_lang_layer::read_doc_page(url, body, en, bridge, attested, construction);
     if !page.prohibited || page.constructs.is_empty() {
-        return false;
+        return PageClaim::Mute;
     }
     // A rendered-marker page (Python/Rust) demonstrates its items in bare inline `<code>`, not
     // `<pre><code>`, so its example corpus is the WIDENED reading; a URL-subject page (MDN) has no
@@ -703,7 +786,7 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
     } else {
         crate::lint_lang_layer::page_example_corpus(body, true)
     };
-    page.constructs.iter().any(|c| {
+    let proves = page.constructs.iter().any(|c| {
         let plan = Plan::UsesConstruct { construct: c.clone() };
         // PRIMARY-EXAMPLE language gate. The subject's language is where its FIRST DEMONSTRATED usage —
         // the EARLIEST own example block (document order) that contains it — parses CLEANLY under `lang`
@@ -720,7 +803,12 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
         own.iter().find(|blk| construct_in_text(blk, c)).is_some_and(|blk| {
             crate::lint_trace::parses_cleanly(lang, blk) && !run_plan(&plan, lang, blk).is_empty()
         })
-    })
+    });
+    if proves {
+        PageClaim::Proves
+    } else {
+        PageClaim::Abstains(page.constructs.clone())
+    }
 }
 
 /// One clean governing sentence in the pooled reading, tagged with whether it came from a PROHIBITED
@@ -1167,6 +1255,10 @@ fn prove_blind(
 /// The frozen loop's independence axis is DISTINCT harvested violating blocks; its English gate is the
 /// two-doc-sentence reconciliation over a sibling foil. A candidate graduates iff ≥ [`REQUIRED_REPS`]
 /// distinct real blocks fire AND the two doc sentences reconcile AND none contradicts (LINTER.md).
+///
+/// The final element is PASS 36's read-stage conservation rows — every named `(id, reason)`
+/// withhold this pass's readers refused (grammar abstention, member veto, orphan fall-through,
+/// unspelled reference subject), deduped, for the train to append to the module ledger.
 pub fn graduate(
     lang: &str,
     mut pages: Vec<(String, String)>,
@@ -1179,6 +1271,7 @@ pub fn graduate(
     Vec<ReadConstruct>,
     std::collections::HashMap<String, crate::lint_web::Corroboration>,
     std::collections::HashSet<String>,
+    Vec<(String, String)>,
 ) {
     let bridge = Bridge::new(m, en);
     // The LEARNED deprecation attestation, keyed by the author's OWN METADATA TYPOGRAPHY (frontmatter
@@ -1233,7 +1326,10 @@ pub fn graduate(
     }
     let mut page_store = pages;
     let pages: &[(String, String)] = &page_store;
-    let partition = lang_pages(lang, pages, &bridge, en, &attested, &construction);
+    // PASS 36 — the recall census: every read-stage refusal below funnels into this one row set
+    // (grammar abstention, member veto, orphan fall-through, unspelled reference subject), returned
+    // for the train to append to the module's conservation ledger. Deduped by (id, reason).
+    let (partition, mut withheld) = lang_pages(lang, pages, &bridge, en, &attested, &construction);
     let (candidates, pool, read_surface) =
         propose(lang, &partition, &bridge, en, &attested, &page_scope, &construction, memory);
     // PASS 34 — the MEMBER-SHAPE law (measured: `/Web/API/SharedStorage/clear`, a genuinely
@@ -1265,17 +1361,34 @@ pub fn graduate(
             b.contains(&format!("{parent_seg}: {subject}")) || b.contains(&format!("{parent_seg}.{subject}"))
         })
     };
-    let candidates: Vec<Candidate> = candidates
+    // The veto is a PARTITION, not a filter (PASS 36): each vetoed candidate stands in the
+    // conservation ledger under its rule id, never deleted silently.
+    let (candidates, vetoed): (Vec<Candidate>, Vec<Candidate>) = candidates
         .into_iter()
-        .filter(|c| c.construct.contains('.') || !is_member_page(&c.url))
-        .collect();
+        .partition(|c| c.construct.contains('.') || !is_member_page(&c.url));
+    for c in &vetoed {
+        note_withhold(
+            &mut withheld,
+            rule_id(&c.construct),
+            "member veto (bare shape from member page; parent typography)",
+        );
+    }
     // The everything-read surface the funnel never proposed — retained as the web's unproven nodes.
     let read_surface = read_not_proposed(&candidates, read_surface);
     // PASS 34 — the REFERENCE READ: every partition-excluded page contributes its subject(s) too
     // (attested orphans as attested nodes; ordinary reference pages as plain reads). Appended AFTER
     // the funnel's reads so dedup and the proven view stay byte-identical.
-    let read_surface =
-        with_reference_read(pages, &partition, &bridge, en, &attested, &page_scope, &construction, read_surface);
+    let read_surface = with_reference_read(
+        pages,
+        &partition,
+        &bridge,
+        en,
+        &attested,
+        &page_scope,
+        &construction,
+        read_surface,
+        &mut withheld,
+    );
     let corpus = harvest_corpus(memory);
 
     // Each candidate's derived advice (its SECOND, distinct doc sentence). A candidate with no such
@@ -1500,7 +1613,7 @@ pub fn graduate(
         )
         .collect();
     let referee = self_referee(&referee_pool, &targets);
-    (outcomes, read_surface, referee, living_names)
+    (outcomes, read_surface, referee, living_names, withheld)
 }
 
 /// The largest number of corroborating sources / contradiction records the referee persists per node —
@@ -1822,6 +1935,12 @@ pub struct GraduatedModule {
     /// the evidence-graded tier, as `(rule, source)`. A SEPARATE tier from `rules`: the caller appends them
     /// AFTER the proven set (never through the contradiction re-check), so the proven order stays identical.
     pub graded: Vec<(LearnedRule, String)>,
+    /// PASS 36 — the read-stage conservation rows this pass refused, as named `(id, reason)`
+    /// withholds (grammar abstention, member veto, orphan fall-through, unspelled reference
+    /// subject), deduped. The train appends them to the compiled module's one ledger
+    /// ([`crate::lint_match::RuleSet::withheld`]) before saving, so `lint_query kind=rules`
+    /// surfaces every stage's refusals — nothing read vanishes silently.
+    pub withheld: Vec<(String, String)>,
 }
 
 /// The LIVE entry the module build calls (the covenant-clean successor to
@@ -1836,6 +1955,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
         corpus_urls: std::collections::HashSet::new(),
         constructions: Vec::new(),
         graded: Vec::new(),
+        withheld: Vec::new(),
     };
     let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else {
         return empty();
@@ -1906,7 +2026,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // Both computed BEFORE graduation over the same RAW bodies as always — graduation then CONSUMES the
     // page vector (crash lesson: the whole-site corpus must never be resident twice).
     let code_by_url = crate::lint_lang_layer::page_code_blocks_by_url(&pages, GRADED_CORPUS_CAP);
-    let (outcomes, read_surface, referee, living_names) =
+    let (outcomes, read_surface, referee, living_names, withheld) =
         graduate(lang, pages, memory, br.meanings(), en, &constructions);
     // The proven constructs (this pass's enforced shapes) — the graded tier never duplicates them.
     let proven_constructs: std::collections::HashSet<String> = outcomes
@@ -1925,7 +2045,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     crate::lint_web::persist(lang, &web);
     let rules = crate::lint_web::derive_rules(lang, &web);
     let graded = crate::lint_web::derive_graded_rules(lang, &web);
-    GraduatedModule { rules, corpus_urls, constructions, graded }
+    GraduatedModule { rules, corpus_urls, constructions, graded, withheld }
 }
 
 #[cfg(test)]
@@ -1989,7 +2109,7 @@ mod tests {
             let (Some(br), Some(en)) = (crate::lint_char::brain(), crate::lint_english::brain()) else { panic!("brains") };
             let memory = crate::lint_train::cached_memory("html").unwrap_or_default();
             let constructions = crate::lint_construct::load("html");
-            let (outcomes, read, _ref, _liv) =
+            let (outcomes, read, _ref, _liv, _withheld) =
                 graduate("html", pages.clone(), &memory, br.meanings(), en, &constructions);
             for o in outcomes.iter().filter(|o| o.candidate.construct == "center") {
                 eprintln!("CENTER candidate: url={} page_scope={} elt_typo={} rule={} verdict={:?}",
@@ -2018,22 +2138,35 @@ mod tests {
 
     /// PASS 34 — the reference read's pure arm: a page whose own example demonstrates its URL-subject
     /// mints exactly that subject with its own governing sentence; a slug page whose examples never
-    /// spell it, and a page with no examples at all, mint nothing (demonstration is the confirmation).
+    /// spell it, and a page with no examples at all, mint nothing — and PASS 36 makes each such
+    /// refusal a NAMED [`ReferenceRead::Unspelled`] (demonstration is the confirmation).
     #[test]
     fn reference_subjects_mints_only_demonstrated_url_subjects() {
         let body = "<html><body><h1>The video element</h1>\
              <p>The video element embeds a media player for video playback.</p>\
              <pre><code>video controls src=movie.mp4</code></pre></body></html>";
-        let (construct, governing) =
+        let ReferenceRead::Subject { construct, governing } =
             reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", body)
-                .expect("demonstrated subject mints");
+        else {
+            panic!("demonstrated subject mints");
+        };
         assert_eq!(construct, "video");
         assert!(governing.contains("video"), "governing prose is the page's own sentence: {governing}");
-        // The same body under a slug URL its examples never spell: nothing minted.
-        assert_eq!(reference_subjects("https://docs.test/tags/tag_video.asp", body), None);
-        // No examples at all: nothing to confirm with, nothing minted.
-        let bare = "<html><body><h1>The video element</h1><p>Prose only.</p></body></html>";
-        assert_eq!(reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", bare), None);
+        // The same body under a slug URL its examples never spell: nothing minted — the drop is named.
+        assert_eq!(
+            reference_subjects("https://docs.test/tags/tag_video.asp", body),
+            ReferenceRead::Unspelled { subject: "tag_video.asp".to_string() }
+        );
+        // No examples at all: nothing to confirm with, nothing minted — same named drop.
+        assert_eq!(
+            reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", bare_body()),
+            ReferenceRead::Unspelled { subject: "video".to_string() }
+        );
+    }
+
+    /// A prose-only reference page body (no example block) — the [`ReferenceRead::Unspelled`] fixture.
+    fn bare_body() -> &'static str {
+        "<html><body><h1>The video element</h1><p>Prose only.</p></body></html>"
     }
 
     #[test]
@@ -2310,7 +2443,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, _read, _referee, _living) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
+        let (outcomes, _read, _referee, _living, _withheld) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
         let var = outcomes
             .iter()
             .find(|o| o.candidate.construct == "var")
@@ -2365,7 +2498,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, read, referee, _living) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
+        let (outcomes, read, referee, _living, _withheld) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
         let direct: Vec<(LearnedRule, String)> = outcomes.iter().filter_map(|o| o.rule.clone()).collect();
         let web = crate::lint_web::build(m, &Default::default(), &outcomes, &read, &std::collections::HashMap::new(), &std::collections::HashMap::new(), &referee);
         let viewed = crate::lint_web::derive_rules("javascript", &web);

@@ -2444,7 +2444,51 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > `permissions.revoke`/`sharedStorage.clear` graded forms lost to the ownership gate (their pages
 > carry no static examples — knowledge retained, enforcement awaits example-free qualified proof).
 
-### The English-equality corroboration judge (`lint_corroborate.rs`, 2026-07-10)
+### Item — COMPLETION PASS 36: THE RECALL CENSUS — nothing vanishes at ANY stage (`lint_module.rs`, `lint_html_layer.rs`, `lint_docs.rs`, `lint_graph.rs`, `tests/recall_census.rs`, TRAIN_VERSION → `docs-v100-recall-census`, 2026-07-17)
+
+> Owner directive: the pipeline is precision-first with ~12 gates, and until now only the COMPILE
+> stage kept the PASS-31 conservation ledger — every earlier stage (crawl, chrome strip, section
+> read, grammar partition, member veto, orphan routing, forbidding-sentence mint) dropped
+> **silently**. Nothing measured recall against authored truth; "does the machine learn 100% of a
+> doc page?" had no instrument. PASS 36 is that instrument plus the law it enforces.
+>
+> **The law (extends PASS 31 upstream, permanent):** every fact a documentation page states either
+> becomes enforcement, or stands in the conservation ledger with a NAMED, stage-prefixed reason.
+> "Silently lost" is a failure class with a test, at EVERY stage — not only compile. One ledger:
+> pre-compile refusals funnel into the same `RuleSet::withheld` `(id, reason)` shape the compile
+> already persists and `lint_query kind=rules` already surfaces; reasons carry their stage
+> (`read gate (…)`, `chrome (…)`, `member veto (…)`, `mint gate (…)`) alongside the existing
+> compile-gate strings. No new query surface, no second ledger to drift.
+>
+> **Named-withhold conversions (the previously-silent sites, each cited by the census):**
+> grammar abstention — a page whose subject fires in NO grammar (`lang_pages`) records
+> `read gate (no grammar claims the page)` per subject; the member-page veto records
+> `member veto (bare shape from member page; parent typography)` instead of deleting the
+> candidate; the orphan-arm fall-through and `reference_subjects` None record
+> `read gate (attested but not demonstrated)` / `read gate (no example spells the subject)`;
+> `NON_GOVERNING_ANCHORS` records `read gate (non-governing anchor: <slug>)` per skipped section;
+> the forbidding-sentence mint refusal records `mint gate (no forbidding sentence)` with the
+> binding's slug; a blockless prohibition section (heading + prose, zero `<pre>`) records
+> `read gate (blockless section — no example block)` — the `flare` hole becomes a NAMED withhold,
+> pinned in the ledger instead of invisible; the chrome strip stays cheap (multi-GB corpus law)
+> but its build fold records per-host chrome-run counts so a fact eaten as chrome is auditable.
+>
+> **The census (`tests/recall_census.rs`):** a machine-readable FACT MANIFEST is ground truth —
+> N authored facts, each tagged (language, page, kind: prohibition / blockless-prohibition /
+> deprecation / abstain-trap / member-shape / tutorial-negative / cross-language, expected
+> terminal state: LEARNED or WITHHELD(reason-substring)). The fixture site is GENERATED from the
+> manifest in two renders — CLEAN (minimal honest HTML) and MESSY (recurring chrome, furniture
+> sections, member pages, mixed-language page) — served localhost, trained via the real binary
+> (hermetic `HELPERS_LINT_MODELS`/`HOME` redirect, the ai_linter_behaviors harness). After train,
+> every fact is classified **learned** (planted violation fires with the docs' own words) /
+> **withheld-with-named-reason** (ledger reason matches expectation) / **silently-lost** — and
+> the census asserts `silently_lost == []`, printing the full accounting line
+> (`learned X + withheld Y + lost Z of N`) in the PASS-31 vocabulary. The clean render is the
+> English-substrate ratchet (100% first); clean-recall minus messy-recall is the exact punch list
+> for dissolving the interim HTML heuristics ("READ, not split"). Expectations are honest today:
+> the blockless fact expects its named withhold (flips to LEARNED when the per-token side-count
+> classifier lands), the abstain-trap expects abstention, the member-shape fact expects the veto's
+> named reason. Flipping an expectation from WITHHELD to LEARNED is the ratchet's unit of progress.
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
 > expected outcome and the actual outcome, both derived back into English — do they assert the
