@@ -137,15 +137,30 @@ fn split_sentences(prose: &str) -> Vec<String> {
 /// "use the `<b>` element…") is excluded — a sentence about a sibling is not governing prose about
 /// this subject, and those were a measured contradiction source. The construct's OWN tag in a sentence
 /// is fine (that is the definition naming itself).
-pub fn page_witnesses(element: &str, body: &str) -> Vec<KeyedWitness> {
+///
+/// PASS 36 — the recall census: an anchor-skipped section is no longer a silent drop. When the
+/// skipped region carries SIGNAL (a forbidding sentence by the frozen English, or a rendered
+/// attestation marker — [`region_carries_signal`], never a regex or word list), the skip is
+/// returned as a named withhold row `(read-<element>, "read gate (non-governing anchor: <slug>)")`
+/// alongside the witnesses, deduped by the pair, for the caller to funnel into the one
+/// conservation ledger. A signal-free furniture skip records nothing (the ledger discipline).
+pub fn page_witnesses(element: &str, body: &str) -> (Vec<KeyedWitness>, Vec<(String, String)>) {
     let element = element.to_lowercase();
     // Drop <script>/<style>/nav/header/footer/aside first — their raw text is NOT documentation and,
     // left in, survives tag-stripping as pathological run-on "sentences" (inline JS, chrome) that are
     // both noise and a cost blow-up for the comparator's per-concept BFS.
     let body = drop_script_style(body);
     let mut out = Vec::new();
+    let mut withheld: Vec<(String, String)> = Vec::new();
     for (anchor, region) in sections(&body) {
         if NON_GOVERNING_ANCHORS.contains(&anchor.as_str()) {
+            if region_carries_signal(&region) {
+                let row =
+                    (format!("read-{element}"), format!("read gate (non-governing anchor: {anchor})"));
+                if !withheld.contains(&row) {
+                    withheld.push(row);
+                }
+            }
             continue;
         }
         // Governing prose lives in the section's PARAGRAPHS. The page title (`<h1>`), the baseline-
@@ -154,7 +169,24 @@ pub fn page_witnesses(element: &str, body: &str) -> Vec<KeyedWitness> {
         // definition and usage statements.
         out.extend(witnesses_from_paragraphs(&element, paragraphs(&region)));
     }
-    out
+    (out, withheld)
+}
+
+/// Whether a section region carries governing SIGNAL worth a conservation-ledger row (PASS 36):
+/// its prose STATES a prohibition through the frozen meaning network
+/// ([`crate::lint_english::English::states_prohibition`] — a forbidding sentence), or its markup
+/// carries a rendered author attestation status token
+/// ([`crate::lint_attest::prohibition_class_tokens`], the same one hand datum the attester joins).
+/// Existing english/attestation faculties only — never a regex or word list. `false` when no
+/// English brain is loaded and no marker is present, so plain furniture never bloats the ledger.
+fn region_carries_signal(region: &str) -> bool {
+    if let Some(en) = crate::lint_english::brain() {
+        if en.states_prohibition(&strip_tags(&strip_pre_blocks(region))) {
+            return true;
+        }
+    }
+    crate::lint_attest::Attestation::from_class_markers(crate::lint_attest::prohibition_class_tokens())
+        .attests(region)
 }
 
 /// The shared governing-prose reader every source funnels through: reduce a list of already-extracted
@@ -444,7 +476,7 @@ mod tests {
             <p>Use the <code>&lt;beta&gt;</code> construct to mark a gadget region.</p>
             <h2 id="{furniture_anchor}">Furniture</h2><p>An unrelated furniture sentence lives right here.</p>"#
         );
-        let ws = page_witnesses("alpha", &body);
+        let ws = page_witnesses("alpha", &body).0;
         let s: Vec<&str> = ws.iter().map(|w| w.sentence.as_str()).collect();
         assert!(ws.iter().all(|w| w.subject == "alpha"), "subject is page-of-origin — always alpha");
         assert!(s.iter().any(|x| x.contains("conveys a widget property")));

@@ -619,18 +619,32 @@ fn run_key(text: &str) -> Option<u64> {
 /// ([`SiteChrome::strip`]) removes chrome text before any reader (learned [`read_page`] or the hand
 /// anatomy) forms prose or units, so boilerplate never welds into a page's governing meaning.
 pub struct SiteChrome {
-    chrome: std::collections::HashMap<String, std::collections::HashSet<u64>>,
+    /// host → {run key → distinct-page support count}. The count is kept (PASS 36 — the recall
+    /// census): a fact eaten as chrome must be AUDITABLE, so each stripped run's page support
+    /// stands on the chrome itself ([`SiteChrome::page_support`]) — key hashes and counts only,
+    /// never the run text (the multi-GB corpus law). Membership alone still decides the strip.
+    chrome: std::collections::HashMap<String, std::collections::HashMap<u64, usize>>,
 }
 
 impl SiteChrome {
     /// Whether no host contributed any chrome — a corpus too small or too varied to find invariance.
     pub fn is_empty(&self) -> bool {
-        self.chrome.values().all(std::collections::HashSet::is_empty)
+        self.chrome.values().all(std::collections::HashMap::is_empty)
     }
 
     /// The number of distinct chrome runs discovered across all hosts — a measurement handle.
     pub fn len(&self) -> usize {
-        self.chrome.values().map(std::collections::HashSet::len).sum()
+        self.chrome.values().map(std::collections::HashMap::len).sum()
+    }
+
+    /// PASS 36 — the chrome AUDIT surface: per-host, per-run-key distinct-page support counts, as
+    /// discovered by the build fold. A fact suspected eaten as chrome is checked here (key its run
+    /// with the same normalization the detector used and look it up), without the strip ever
+    /// recording per-run text. Read-only; empty for a corpus that discovered no chrome.
+    pub fn page_support(
+        &self,
+    ) -> &std::collections::HashMap<String, std::collections::HashMap<u64, usize>> {
+        &self.chrome
     }
 
     /// STRIP `url`'s site chrome from `body`: every tag-separated text run whose key is invariant on
@@ -652,7 +666,7 @@ impl SiteChrome {
         while at < bytes.len() {
             if bytes[at] == b'<' {
                 let run = &body[run_start..at];
-                if run_key(run).is_some_and(|k| set.contains(&k)) {
+                if run_key(run).is_some_and(|k| set.contains_key(&k)) {
                     out.push(' ');
                 } else {
                     out.push_str(run);
@@ -666,7 +680,7 @@ impl SiteChrome {
             at += 1;
         }
         let tail = &body[run_start..];
-        if run_key(tail).is_some_and(|k| set.contains(&k)) {
+        if run_key(tail).is_some_and(|k| set.contains_key(&k)) {
             out.push(' ');
         } else {
             out.push_str(tail);
@@ -715,12 +729,14 @@ pub fn site_chrome(pages: &[(String, String)]) -> SiteChrome {
             *host_counts.entry(k).or_insert(0) += 1;
         }
     }
+    // Keep each surviving key's page-support count (PASS 36): the strip's membership test is
+    // byte-identical in behavior, and the counts make a chrome-eaten fact auditable for free.
     let chrome = counts
         .into_iter()
         .map(|(host, ks)| {
-            let set: HashSet<u64> =
-                ks.into_iter().filter(|(_, n)| *n >= CHROME_PAGE_SUPPORT).map(|(k, _)| k).collect();
-            (host, set)
+            let kept: HashMap<u64, usize> =
+                ks.into_iter().filter(|(_, n)| *n >= CHROME_PAGE_SUPPORT).collect();
+            (host, kept)
         })
         .collect();
     SiteChrome { chrome }
