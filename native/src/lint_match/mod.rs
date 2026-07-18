@@ -256,45 +256,70 @@ impl RuleSet {
         // enumerated keyword list (a covenant offense). Learned rules only; project law is trusted.
         let reference_lines: Vec<&str> =
             reference_corpus.iter().flat_map(|e| e.lines()).map(str::trim).filter(|l| !l.is_empty()).collect();
+        // The two named over-generality ledger reasons: the plain ubiquitous-token drop, and the
+        // PASS-36 contextual refinement (the census's stable "over-general single token" core is
+        // the shared prefix, so ledger joins survive the refinement).
+        const OVER_GENERAL: &str =
+            "over-general single token (a ubiquitous language keyword/type, not a construct a rule points at)";
+        const CONTEXTUAL: &str =
+            "over-general single token (the docs' own remedy still uses it — contextual)";
         // Is `token` over-general on its own evidence — a word the LANGUAGE uses everywhere?
+        // Returns the named ledger reason when it is, `None` when the token can anchor a detector.
         // `good` is the rule's good example: a real bad∧good CONTRAST (the good form lacks the
         // token) is what tells a legitimately-banned keyword (`var`, contrasted against `let`)
         // apart from a syntax keyword/type a reference section merely mentions (`use`, `usize`,
         // with no good counterpart). Signals, all LEARNED — never an enumerated keyword list:
         //   * common English (`use`, `match`);
-        //   * ubiquitous in the language's own reference code;
+        //   * ubiquitous in the language's own reference code — read through the GOOD-CONTRAST
+        //     discriminator (the remedy-demonstration doctrine of
+        //     [`crate::lint_module::is_prohibited_subject`]): a good example that DROPS the token
+        //     is the docs' own remedy demonstrating the construct's absence, so corpus ubiquity
+        //     alone cannot veto it (`var` is taught using `var`); a good that still USES the
+        //     token demonstrates acceptable uses — a CONTEXTUAL rule, withheld under its own
+        //     named reason; no good example at all keeps the plain ubiquity drop;
         //   * the grammar's OWN classification as a keyword/operator or built-in primitive type,
         //     UNLESS a good example contrasts it (then the keyword really is the banned construct).
-        let over_general_token = |token: &str, good: &str| -> bool {
+        let over_general_token = |token: &str, good: &str| -> Option<&'static str> {
             if crate::lint_english::brain().is_some_and(|e| e.is_common(token)) {
-                return true;
+                return Some(OVER_GENERAL);
             }
             let denom = reference_lines.len();
             if denom >= 8 {
                 let needle = [token.to_string()];
                 let hits = reference_lines.iter().filter(|l| select::tokens_fire_line(l, &needle)).count();
                 if hits * 100 >= denom * 12 {
-                    return true;
+                    if good.trim().is_empty() {
+                        return Some(OVER_GENERAL);
+                    }
+                    if select::tokens_fire_text(good, &needle) {
+                        return Some(CONTEXTUAL);
+                    }
+                    // The good form drops the token: a remedy demonstration, not normal use —
+                    // fall through to the grammar-role reading.
                 }
             }
             match grammar::token_role(lang, token) {
                 // A built-in PRIMITIVE TYPE (`usize`, `u32`, `bool`) is essential syntax present
                 // in nearly every file and is never a bannable single-token construct — a
                 // reference section that mentions it (paths.html's `usize`) must never fire.
-                Some("primitive_type") => true,
+                Some("primitive_type") => Some(OVER_GENERAL),
                 // A KEYWORD (`var`, `use`) is over-general UNLESS a good example contrasts it: a
                 // real bad∧good pair (`var count` vs `let count`) proves the keyword itself is the
                 // banned construct, while a reference mention with no counterpart (`use` syntax)
                 // is not.
                 Some("keyword") => {
-                    !(!good.trim().is_empty()
-                        && !select::tokens_fire_text(good, std::slice::from_ref(&token.to_string())))
+                    let contrasted = !good.trim().is_empty()
+                        && !select::tokens_fire_text(good, std::slice::from_ref(&token.to_string()));
+                    (!contrasted).then_some(OVER_GENERAL)
                 }
-                _ => false,
+                _ => None,
             }
         };
-        let over_general = |tokens: &[String], good: &str| -> bool {
-            tokens.len() == 1 && over_general_token(&tokens[0], good)
+        let over_general = |tokens: &[String], good: &str| -> Option<&'static str> {
+            match tokens {
+                [only] => over_general_token(only, good),
+                _ => None,
+            }
         };
         let mut compiled = Vec::new();
         let mut seen = HashSet::new();
@@ -369,7 +394,7 @@ impl RuleSet {
                     let bare_safe = |c: &str| {
                         crate::lint_char::brain().is_some_and(|b| {
                             b.meanings().definition_words(&c.to_lowercase()).is_none()
-                                && !over_general_token(c, good)
+                                && over_general_token(c, good).is_none()
                         })
                     };
                     let shape_safe =
@@ -403,6 +428,20 @@ impl RuleSet {
             // real documented code (`only_grounded`); the project's own law does not.
             let desc_detector = |view: &GroundView| -> Option<(String, bool)> {
                 description_discriminator(desc, bad, good, view, &contexts, !trusted.contains(id))
+            };
+            // PASS 36 — the CONTEXTUAL named drop: the description names a construct that fires
+            // the bad example AND the docs' own good example. Selection's bad∧¬good validation
+            // rightly refuses such a token as a detector (a token firing the documented fix cannot
+            // mark a violation), but that refusal used to fall through as an anonymous
+            // "no detector" row. The remedy-demonstration doctrine
+            // ([`crate::lint_module::is_prohibited_subject`]) reads it as a CONTEXTUAL rule — the
+            // docs demonstrate the construct's acceptable uses, not a replacement — so the drop
+            // carries its own named ledger reason. Asked only AFTER every detector path abstained
+            // (the good example set aside for the re-ask), so selection's ranking is undisturbed.
+            let contextual_subject = |view: &GroundView| -> bool {
+                !good.trim().is_empty()
+                    && description_discriminator(desc, bad, "", view, &contexts, !trusted.contains(id))
+                        .is_some_and(|(t, _)| select::tokens_fire_text(good, std::slice::from_ref(&t)))
             };
             // UNDERSTANDING first (LINTER.md, "Rules from understanding — the probe bridge"): a
             // machine-global CS-principles doc (`corpus/*.md`) that describes a defect class in
@@ -501,6 +540,9 @@ impl RuleSet {
                         continue;
                     }
                     MatchKind::Tokens { tokens, raw: false }
+                } else if contextual_subject(&ground) {
+                    dropped(id, CONTEXTUAL);
+                    continue;
                 } else {
                     dropped(id, "no detector (AST abstained; no groundable word; no token diff)");
                     continue;
@@ -516,6 +558,9 @@ impl RuleSet {
                         continue;
                     }
                     MatchKind::Tokens { tokens, raw: false }
+                } else if contextual_subject(&ground) {
+                    dropped(id, CONTEXTUAL);
+                    continue;
                 } else {
                     dropped(id, "no detector (no groundable word; no token diff)");
                     continue;
@@ -526,8 +571,8 @@ impl RuleSet {
             // ubiquitous keyword/type fires on normal code everywhere and marks no violation.
             if !trusted.contains(id) {
                 if let MatchKind::Tokens { tokens, .. } = &kind {
-                    if over_general(tokens, good) {
-                        dropped(id, "over-general single token (a ubiquitous language keyword/type, not a construct a rule points at)");
+                    if let Some(reason) = over_general(tokens, good) {
+                        dropped(id, reason);
                         continue;
                     }
                 }

@@ -592,8 +592,9 @@ pub(crate) fn governing_sentences(body: &str) -> Vec<String> {
 /// prose. Each region runs until the next paired-example class marker (or a bounded window). The example
 /// code is read from the RAW markup (never `code_to_backtick`, which would wrap the whole block in one
 /// backtick pair — the block then parses as a single JS template literal and the construct node vanishes)
-/// as the INTERIOR of each `<code>…</code>` only ([`code_interiors`]) — so Prism's line-number gutter
-/// (`<span class="line-numbers-rows">`, inside the `<pre>` but AFTER `</code>`) is excluded, not welded on.
+/// as each `<pre>` example's interior ([`code_interiors`], the nested `<code>` preferred) — so Prism's
+/// line-number gutter (`<span class="line-numbers-rows">`, inside the `<pre>` but AFTER `</code>`) is
+/// excluded, not welded on.
 fn examples_of_class(body: &str, class: &str) -> Vec<String> {
     let needle = format!("class=\"{class}\"");
     let stops = ["class=\"incorrect\"", "class=\"correct\""];
@@ -639,12 +640,15 @@ fn script_interior(code: &str) -> Option<String> {
     Some(inner.to_string())
 }
 
-/// The `strip_code`-decoded INTERIOR of every `<pre>…<code>…</code>…</pre>` example in a markup region —
-/// the clean example code with line structure intact and highlight `<span>`s removed. Only a `<code>`
-/// INSIDE a `<pre>` is taken: that is the docs' worked example. This deliberately skips INLINE prose
-/// `<code>` (a `` `--fix` ``/`` `null` ``/`` `===` `` mentioned in the option text after the example),
-/// which is not an example block and would pollute the per-example firing verification. The enclosing
-/// `<pre>` itself is never taken, so a sibling line-number gutter is left behind.
+/// The `strip_code`-decoded INTERIOR of every `<pre>` example block in a markup region — the clean
+/// example code with line structure intact and highlight `<span>`s removed. A nested `<code>` INSIDE
+/// the `<pre>` is PREFERRED (the rustdoc/MDN/ESLint worked-example shape — taking only the `<code>`
+/// interior leaves a sibling line-number gutter behind); a bare `<pre>` with no `<code>` child is the
+/// example ITSELF (many real sites and the fixture pages author examples that way — PASS 36: reading
+/// only `<pre><code>` left those pages with an EMPTY own-example corpus, blinding the grammar
+/// partition and blanket-minting junk "no example spells the subject" rows). This deliberately skips
+/// INLINE prose `<code>` (a `` `--fix` ``/`` `null` ``/`` `===` `` mentioned in the option text after
+/// the example), which is not an example block and would pollute the per-example firing verification.
 fn code_interiors(html: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut at = 0usize;
@@ -655,20 +659,27 @@ fn code_interiors(html: &str) -> Vec<String> {
             None => break,
         };
         // The FIRST `<code>` interior inside this `<pre>` is the example; anything after `</pre>` is not.
-        if let Some(crel) = find_ci(&html[pre_open..pre_end], "<code") {
+        let block = if let Some(crel) = find_ci(&html[pre_open..pre_end], "<code") {
             let copen = pre_open + crel;
-            if let Some(gt) = html[copen..].find('>') {
+            html[copen..].find('>').and_then(|gt| {
                 let inner_start = copen + gt + 1;
-                if let Some(cend) = find_ci(&html[inner_start..pre_end], "</code>") {
-                    let block = crate::doc_crawler::strip_code(&html[inner_start..inner_start + cend]);
-                    // A `<script>` ELEMENT INTERIOR is JavaScript — the one way an HTML page embeds JS.
-                    // An example that IS a lone script element (MDN's `<script>document.write(…)</script>`
-                    // demo) is surfaced as its JS interior so the JS grammar can parse+fire it; keying on
-                    // the `<script>` element is web-platform structure the reader understands, not a
-                    // language name. A non-script block passes through unchanged.
-                    out.push(script_interior(&block).unwrap_or(block));
-                }
-            }
+                find_ci(&html[inner_start..pre_end], "</code>")
+                    .map(|cend| crate::doc_crawler::strip_code(&html[inner_start..inner_start + cend]))
+            })
+        } else {
+            // Bare `<pre>` — no `<code>` child anywhere inside: the `<pre>` interior IS the example.
+            html[pre_open..pre_end]
+                .find('>')
+                .map(|gt| crate::doc_crawler::strip_code(&html[pre_open + gt + 1..pre_end]))
+                .filter(|b| !b.trim().is_empty())
+        };
+        if let Some(block) = block {
+            // A `<script>` ELEMENT INTERIOR is JavaScript — the one way an HTML page embeds JS.
+            // An example that IS a lone script element (MDN's `<script>document.write(…)</script>`
+            // demo) is surfaced as its JS interior so the JS grammar can parse+fire it; keying on
+            // the `<script>` element is web-platform structure the reader understands, not a
+            // language name. A non-script block passes through unchanged.
+            out.push(script_interior(&block).unwrap_or(block));
         }
         at = pre_end + "</pre>".len();
     }
@@ -676,8 +687,8 @@ fn code_interiors(html: &str) -> Vec<String> {
 }
 
 /// Every `<code>…</code>` interior on a page (nested highlighter tags stripped), INCLUDING the bare inline
-/// `<code>` a `<pre>` does not wrap. This complements [`code_interiors`] (which reads only a `<pre>`'s
-/// nested `<code>`, the rustdoc/MDN/ESLint example shape) for RENDERED-MARKER sites whose demonstrated
+/// `<code>` a `<pre>` does not wrap. This complements [`code_interiors`] (which reads only `<pre>`
+/// example blocks) for RENDERED-MARKER sites whose demonstrated
 /// usage lives elsewhere: Python renders worked examples as `<pre>` DOCTESTS (`>>>`-prefixed, which do not
 /// parse cleanly) and names each item as bare inline `<code>datetime.utcfromtimestamp</code>` — so its
 /// clean-parsing usages are exactly the bare `<code>` refs this reads. Used only to ENRICH the example
@@ -972,6 +983,24 @@ mod tests {
     // synthetic prose. What is under test is page-role keying, furniture/example stripping, code-typography
     // preservation, and candidate extraction — never any fact about a real language. The bad/good FIRING
     // confirmation lives in `lint_module` (it needs the language) and is tested there.
+
+    #[test]
+    fn a_bare_pre_block_is_read_as_the_pages_own_example() {
+        // PASS 36 — F3: many real sites (and the census fixtures) author examples as a bare
+        // `<pre>` with no nested `<code>`. Reading only `<pre><code>` left such pages with an
+        // EMPTY own-example corpus, blinding the grammar partition and blanket-minting junk
+        // "no example spells the subject" rows. The `<pre>` interior IS the example there;
+        // a nested `<code>` interior stays PREFERRED when present (gutter siblings excluded).
+        let body = r#"<h1>zap()</h1><p>Never use zap.</p>
+            <pre>zap(payload)
+zap(other)</pre>
+            <pre><span class="gutter">1</span><code>preferred(interior)</code></pre>
+            <pre>   </pre>"#;
+        let own = page_example_corpus(body, false);
+        assert_eq!(own.len(), 2, "bare pre + pre>code, whitespace-only pre skipped: {own:?}");
+        assert!(own[0].contains("zap(payload)") && own[0].contains("zap(other)"), "the bare <pre> interior is the example unit: {:?}", own[0]);
+        assert_eq!(own[1], "preferred(interior)", "a nested <code> stays preferred; the gutter sibling is left behind");
+    }
 
     #[test]
     fn attested_item_shapes_reads_the_three_marker_typographies() {

@@ -485,8 +485,9 @@ pub fn proposed(lang: &str, pages: &[(String, String)], memory: &Memory, m: &Mea
         pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
     let constructions = crate::lint_construct::mine_and_prove(pages);
     let construction = construction_attestation(pages, &attested, &constructions);
-    // Diagnostic path: the abstention withholds are the TRAIN's to record ([`graduate`]) — dropped here.
-    let (partition, _) = lang_pages(lang, pages, &bridge, en, &attested, &construction);
+    // Diagnostic path: the abstention withholds are the TRAIN's to record ([`graduate`]) — dropped
+    // here, so the ownership scope is vacuous (empty owned set records nothing).
+    let (partition, _) = lang_pages(lang, pages, &bridge, en, &attested, &construction, &Default::default());
     propose(lang, &partition, &bridge, en, &attested, &Default::default(), &construction, memory).0
 }
 
@@ -526,7 +527,9 @@ fn read_not_proposed(candidates: &[Candidate], read_surface: Vec<ReadConstruct>)
 /// FALL-THROUGH records `read gate (attested but not demonstrated)` per subject (the attestation
 /// is the signal), and a reference page whose examples never spell its URL-subject records
 /// `read gate (no example spells the subject)` ([`ReferenceRead::Unspelled`] — the URL-derived
-/// candidate subject is the signal). A page with neither signal records nothing.
+/// candidate subject is the signal). A page with neither signal records nothing. Rows are
+/// OWNERSHIP-scoped (`owned`, [`crate::lint_docs::owned_urls`]): only a page this language's OWN
+/// source crawled records into ITS ledger — the read surface itself stays whole-corpus.
 fn with_reference_read(
     pages: &[(String, String)],
     partition: &[&(String, String)],
@@ -535,6 +538,7 @@ fn with_reference_read(
     attested: &std::collections::HashSet<String>,
     page_scope: &std::collections::HashSet<String>,
     construction: &std::collections::HashMap<String, Vec<String>>,
+    owned: &std::collections::HashSet<String>,
     mut read: Vec<ReadConstruct>,
     withheld: &mut Vec<(String, String)>,
 ) -> Vec<ReadConstruct> {
@@ -585,9 +589,12 @@ fn with_reference_read(
             }
             // Not a true orphan: fall through — the page may still contribute a PLAIN read. The
             // fall-through itself is a NAMED drop (PASS 36): the page IS attested (the signal),
-            // yet its subjects leave the attested route here — one ledger row per subject.
-            for c in &p.constructs {
-                note_withhold(withheld, format!("read-{c}"), "read gate (attested but not demonstrated)");
+            // yet its subjects leave the attested route here — one ledger row per subject,
+            // recorded only when this language's own source crawled the page.
+            if owned.contains(url) {
+                for c in &p.constructs {
+                    note_withhold(withheld, format!("read-{c}"), "read gate (attested but not demonstrated)");
+                }
             }
         }
         match reference_subjects(url, body) {
@@ -604,7 +611,9 @@ fn with_reference_read(
                 });
             }
             ReferenceRead::Unspelled { subject } => {
-                note_withhold(withheld, format!("read-{subject}"), "read gate (no example spells the subject)");
+                if owned.contains(url) {
+                    note_withhold(withheld, format!("read-{subject}"), "read gate (no example spells the subject)");
+                }
             }
             ReferenceRead::Mute => {}
         }
@@ -715,7 +724,10 @@ fn construction_attestation(
 /// withhold row per subject — `(read-<subject>, "read gate (no grammar claims the page)")` —
 /// deduped by the pair, for [`graduate`] to thread into the module's one conservation ledger.
 /// Signal-gated by construction: only a page whose ROLE prohibits named subjects records
-/// ([`PageClaim::Abstains`]); an ordinary page records nothing.
+/// ([`PageClaim::Abstains`]); an ordinary page records nothing. Rows are OWNERSHIP-scoped
+/// (`owned`, [`crate::lint_docs::owned_urls`]): the pooled site corpus is proposed to every
+/// language, so a row is recorded only for a page this language's OWN source crawled — the
+/// partition itself stays whole-corpus.
 fn lang_pages<'a>(
     lang: &str,
     pages: &'a [(String, String)],
@@ -723,6 +735,7 @@ fn lang_pages<'a>(
     en: &English,
     attested: &std::collections::HashSet<String>,
     construction: &std::collections::HashMap<String, Vec<String>>,
+    owned: &std::collections::HashSet<String>,
 ) -> (Vec<&'a (String, String)>, Vec<(String, String)>) {
     let mut partition: Vec<&(String, String)> = Vec::new();
     let mut withheld: Vec<(String, String)> = Vec::new();
@@ -731,6 +744,9 @@ fn lang_pages<'a>(
         match page_proves_in_lang(lang, u, body, bridge, en, attested, construction) {
             PageClaim::Proves => partition.push(p),
             PageClaim::Abstains(subjects) => {
+                if !owned.contains(u) {
+                    continue;
+                }
                 for c in subjects {
                     note_withhold(&mut withheld, format!("read-{c}"), "read gate (no grammar claims the page)");
                 }
@@ -1258,7 +1274,11 @@ fn prove_blind(
 ///
 /// The final element is PASS 36's read-stage conservation rows — every named `(id, reason)`
 /// withhold this pass's readers refused (grammar abstention, member veto, orphan fall-through,
-/// unspelled reference subject), deduped, for the train to append to the module ledger.
+/// unspelled reference subject), deduped, for the train to append to the module ledger. Read-stage
+/// rows are OWNERSHIP-scoped by `owned` ([`crate::lint_docs::owned_urls`], the URLs this
+/// language's own registered sources crawled): the pooled site corpus is shared by every language
+/// of a host, so without the scope every read-stage refusal would land in EVERY language's ledger.
+/// Learning and the partition stay whole-corpus — only ledger rows are scoped.
 pub fn graduate(
     lang: &str,
     mut pages: Vec<(String, String)>,
@@ -1266,6 +1286,7 @@ pub fn graduate(
     m: &MeaningNetwork,
     en: &English,
     constructions: &[crate::lint_construct::ConstructionState],
+    owned: &std::collections::HashSet<String>,
 ) -> (
     Vec<Outcome>,
     Vec<ReadConstruct>,
@@ -1329,7 +1350,7 @@ pub fn graduate(
     // PASS 36 — the recall census: every read-stage refusal below funnels into this one row set
     // (grammar abstention, member veto, orphan fall-through, unspelled reference subject), returned
     // for the train to append to the module's conservation ledger. Deduped by (id, reason).
-    let (partition, mut withheld) = lang_pages(lang, pages, &bridge, en, &attested, &construction);
+    let (partition, mut withheld) = lang_pages(lang, pages, &bridge, en, &attested, &construction, owned);
     let (candidates, pool, read_surface) =
         propose(lang, &partition, &bridge, en, &attested, &page_scope, &construction, memory);
     // PASS 34 — the MEMBER-SHAPE law (measured: `/Web/API/SharedStorage/clear`, a genuinely
@@ -1386,6 +1407,7 @@ pub fn graduate(
         &attested,
         &page_scope,
         &construction,
+        owned,
         read_surface,
         &mut withheld,
     );
@@ -2026,8 +2048,11 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // Both computed BEFORE graduation over the same RAW bodies as always — graduation then CONSUMES the
     // page vector (crash lesson: the whole-site corpus must never be resident twice).
     let code_by_url = crate::lint_lang_layer::page_code_blocks_by_url(&pages, GRADED_CORPUS_CAP);
+    // The ledger-ownership scope (PASS 36): read-stage withhold rows are recorded only for pages
+    // this language's OWN sources crawled — the pooled corpus above stays the whole-site propose.
+    let owned = crate::lint_docs::owned_urls(&data_root, lang);
     let (outcomes, read_surface, referee, living_names, withheld) =
-        graduate(lang, pages, memory, br.meanings(), en, &constructions);
+        graduate(lang, pages, memory, br.meanings(), en, &constructions, &owned);
     // The proven constructs (this pass's enforced shapes) — the graded tier never duplicates them.
     let proven_constructs: std::collections::HashSet<String> = outcomes
         .iter()
@@ -2052,6 +2077,12 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
 mod tests {
     use super::*;
     use crate::lint_read::Binding;
+
+    /// Every fixture page is this test language's OWN crawl — the ledger-ownership scope a real
+    /// train reads from its per-tool crawl caches ([`crate::lint_docs::owned_urls`]).
+    fn own_urls(pages: &[(String, String)]) -> std::collections::HashSet<String> {
+        pages.iter().map(|(u, _)| u.clone()).collect()
+    }
 
     /// DEV PROBE (ignored): replicate the PASS-34 bare-flood gate over the REAL html corpus for the
     /// named constructs — measures which arm let a flooding bare shape (`href`) through.
@@ -2110,7 +2141,7 @@ mod tests {
             let memory = crate::lint_train::cached_memory("html").unwrap_or_default();
             let constructions = crate::lint_construct::load("html");
             let (outcomes, read, _ref, _liv, _withheld) =
-                graduate("html", pages.clone(), &memory, br.meanings(), en, &constructions);
+                graduate("html", pages.clone(), &memory, br.meanings(), en, &constructions, &own_urls(&pages));
             for o in outcomes.iter().filter(|o| o.candidate.construct == "center") {
                 eprintln!("CENTER candidate: url={} page_scope={} elt_typo={} rule={} verdict={:?}",
                     o.candidate.url, o.candidate.page_scope, o.candidate.element_typography, o.rule.is_some(), o.verdict);
@@ -2443,7 +2474,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, _read, _referee, _living, _withheld) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
+        let (outcomes, _read, _referee, _living, _withheld) = graduate("javascript", pages.clone(), &memory, m, en, &[], &own_urls(&pages));
         let var = outcomes
             .iter()
             .find(|o| o.candidate.construct == "var")
@@ -2498,7 +2529,7 @@ mod tests {
         memory.reference.push("let a = 1;".to_string());
         memory.reference.push("const b = 2;".to_string());
 
-        let (outcomes, read, referee, _living, _withheld) = graduate("javascript", pages.clone(), &memory, m, en, &[]);
+        let (outcomes, read, referee, _living, _withheld) = graduate("javascript", pages.clone(), &memory, m, en, &[], &own_urls(&pages));
         let direct: Vec<(LearnedRule, String)> = outcomes.iter().filter_map(|o| o.rule.clone()).collect();
         let web = crate::lint_web::build(m, &Default::default(), &outcomes, &read, &std::collections::HashMap::new(), &std::collections::HashMap::new(), &referee);
         let viewed = crate::lint_web::derive_rules("javascript", &web);
@@ -2552,8 +2583,8 @@ mod tests {
             ids.sort();
             ids
         };
-        let first = proven(graduate("javascript", pages.clone(), &memory, m, en, &[]).0);
-        let second = proven(graduate("javascript", pages.clone(), &memory, m, en, &[]).0);
+        let first = proven(graduate("javascript", pages.clone(), &memory, m, en, &[], &own_urls(&pages)).0);
+        let second = proven(graduate("javascript", pages.clone(), &memory, m, en, &[], &own_urls(&pages)).0);
         // The fixpoint claim is DETERMINISM — it holds whether or not this machine's brain state
         // graduates the fixture, so it never false-fails on brain-state/test-order (the graduation count
         // itself is the sibling test's job, gated on the suite's brain). Reported, not asserted.
