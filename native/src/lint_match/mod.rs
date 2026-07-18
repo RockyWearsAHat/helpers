@@ -49,13 +49,30 @@ const REFERENCE_FIRE_MIN_LINES: usize = 500;
 /// member-typography veto (PASS 36) — a bare single-token detector on a member name would fire
 /// on every unrelated owner's own use of that identifier.
 fn dotted_owner_typography(line: &str, token: &str) -> bool {
+    dotted_owner_chain(line, token).is_some()
+}
+
+/// The author's own dotted chain `owner.token` read off a reference-corpus `line` that
+/// addresses `token` with dotted OWNER typography — the qualified spelling the member veto
+/// declares enforceable (`Gadget.grip(handle)` → `gadget.grip`, lowercased because every
+/// detector matches the lowercased surface). `None` when the line never spells the token as a
+/// member. This is the member veto's ENFORCING arm (owner ruling 2026-07-18, second): the bare
+/// token is refused, the author's typography IS the detector.
+fn dotted_owner_chain(line: &str, token: &str) -> Option<String> {
     let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
-    line.match_indices(token).any(|(at, _)| {
+    line.match_indices(token).find_map(|(at, _)| {
         let before = &line[..at];
         let after_ok = line[at + token.len()..].chars().next().map(|c| !ident(c)).unwrap_or(true);
-        after_ok
-            && before.ends_with('.')
-            && before[..before.len() - 1].chars().next_back().is_some_and(ident)
+        if !(after_ok && before.ends_with('.')) {
+            return None;
+        }
+        let head = &before[..before.len() - 1];
+        let owner_start = head
+            .rfind(|c: char| !ident(c))
+            .map_or(0, |i| i + head[i..].chars().next().map_or(1, char::len_utf8));
+        let owner = &head[owner_start..];
+        (!owner.is_empty())
+            .then(|| format!("{}.{}", owner.to_lowercase(), token.to_lowercase()))
     })
 }
 
@@ -116,7 +133,10 @@ enum MatchKind {
         /// Firing universe: `false` matches the code surface (strings/comments blanked —
         /// ledger #12); `true` matches raw lines, because the rule's construct grounded only
         /// inside the project's comments/strings and that is the universe the law governs
-        /// (LINTER.md, evidence hierarchy). Project law only; learned rules are always code.
+        /// (LINTER.md, evidence hierarchy). Project law, plus a learned DEMONSTRATED-SHAPE
+        /// detector whose bad/good contrast lives only inside a string literal (PASS 36,
+        /// [`select::demonstrated_shape`] — the abstain-trap's law governs the string's
+        /// interior); every other learned rule is always code.
         #[serde(default)]
         raw: bool,
     },
@@ -374,6 +394,13 @@ impl RuleSet {
         // and its target is legacy-ubiquitous BY DESIGN (`var` is taught using `var`), so the corpus
         // fire-rate must not veto it (`LINTER.md`, "The modular rebuild").
         let mut plan_rule_ids: HashSet<String> = HashSet::new();
+        // Ids whose detector was REWRITTEN to the author's dotted member typography (owner
+        // ruling 2026-07-18, second): the rule's own bad example demonstrates the BARE shape a
+        // member page teaches with, which the dotted detector rightly does not fire — its
+        // self-fire witness is the reference-corpus line the chain was read from, so the
+        // bare-example self-fire gate below exempts exactly these ids (over-fire and
+        // reference-fire still run un-exempted).
+        let mut member_dotted: HashSet<String> = HashSet::new();
         for (id, severity, bad, good, desc, source, construct) in rules {
             if id.is_empty() || !seen.insert(id.clone()) {
                 if !id.is_empty() {
@@ -459,19 +486,31 @@ impl RuleSet {
             let desc_detector = |view: &GroundView| -> Option<(String, bool)> {
                 description_discriminator(desc, bad, good, view, &contexts, !trusted.contains(id))
             };
-            // PASS 36 — the CONTEXTUAL named drop: the description names a construct that fires
+            // PASS 36 — the CONTEXTUAL token: the description names a construct that fires
             // the bad example AND the docs' own good example. Selection's bad∧¬good validation
             // rightly refuses such a token as a detector (a token firing the documented fix cannot
             // mark a violation), but that refusal used to fall through as an anonymous
             // "no detector" row. The remedy-demonstration doctrine
             // ([`crate::lint_module::is_prohibited_subject`]) reads it as a CONTEXTUAL rule — the
-            // docs demonstrate the construct's acceptable uses, not a replacement — so the drop
-            // carries its own named ledger reason. Asked only AFTER every detector path abstained
-            // (the good example set aside for the re-ask), so selection's ranking is undisturbed.
-            let contextual_subject = |view: &GroundView| -> bool {
-                !good.trim().is_empty()
-                    && description_discriminator(desc, bad, "", view, &contexts, !trusted.contains(id))
-                        .is_some_and(|(t, _)| select::tokens_fire_text(good, std::slice::from_ref(&t)))
+            // docs demonstrate the construct's acceptable uses, not a replacement. Asked only
+            // AFTER every detector path abstained (the good example set aside for the re-ask), so
+            // selection's ranking is undisturbed. Returns the refused token — the anchor the
+            // demonstrated-shape escape hatch (owner rulings 2026-07-18, second + third) narrows
+            // from; when no shape exists the drop carries its own named ledger reason.
+            let contextual_subject = |view: &GroundView| -> Option<String> {
+                if good.trim().is_empty() {
+                    return None;
+                }
+                description_discriminator(desc, bad, "", view, &contexts, !trusted.contains(id))
+                    .map(|(t, _)| t)
+                    .filter(|t| select::tokens_fire_text(good, std::slice::from_ref(t)))
+            };
+            // The demonstrated-shape compile for a refused contextual/over-general token
+            // ([`select::demonstrated_shape`]): the docs' own bad/good contrast narrows the
+            // token to the anchored diff — the rule IS the shape the docs demonstrate.
+            let shaped = |token: &str| -> Option<MatchKind> {
+                select::demonstrated_shape(lang, token, bad, good)
+                    .map(|(tokens, raw)| MatchKind::Tokens { tokens, raw })
             };
             // UNDERSTANDING first (LINTER.md, "Rules from understanding — the probe bridge"): a
             // machine-global CS-principles doc (`corpus/*.md`) that describes a defect class in
@@ -570,9 +609,16 @@ impl RuleSet {
                         continue;
                     }
                     MatchKind::Tokens { tokens, raw: false }
-                } else if contextual_subject(&ground) {
-                    dropped(id, CONTEXTUAL);
-                    continue;
+                } else if let Some(token) = contextual_subject(&ground) {
+                    // Demonstrated-shape escape hatch first; a shapeless contextual token keeps
+                    // its named ledger drop.
+                    match shaped(&token) {
+                        Some(kind) => kind,
+                        None => {
+                            dropped(id, CONTEXTUAL);
+                            continue;
+                        }
+                    }
                 } else {
                     dropped(id, "no detector (AST abstained; no groundable word; no token diff)");
                     continue;
@@ -594,9 +640,16 @@ impl RuleSet {
                         continue;
                     }
                     MatchKind::Tokens { tokens, raw: false }
-                } else if contextual_subject(&ground) {
-                    dropped(id, CONTEXTUAL);
-                    continue;
+                } else if let Some(token) = contextual_subject(&ground) {
+                    // Demonstrated-shape escape hatch first; a shapeless contextual token keeps
+                    // its named ledger drop.
+                    match shaped(&token) {
+                        Some(kind) => kind,
+                        None => {
+                            dropped(id, CONTEXTUAL);
+                            continue;
+                        }
+                    }
                 } else {
                     dropped(id, "no detector (no groundable word; no token diff)");
                     continue;
@@ -605,11 +658,41 @@ impl RuleSet {
             // The over-general single-token guard runs on the FINAL detector, whichever path
             // produced it (description or example diff): a learned rule whose whole detector is a
             // ubiquitous keyword/type fires on normal code everywhere and marks no violation.
+            // A refusal is not the end (owner rulings 2026-07-18, second + third): a
+            // member-vetoed bare token REWRITES to the author's own dotted typography (the
+            // qualified form the veto itself declared enforceable), and any other refused token
+            // narrows to its demonstrated shape when the docs' bad/good contrast carries one —
+            // only a shapeless refusal keeps its named ledger drop.
+            let mut kind = kind;
             if !trusted.contains(id) {
-                if let MatchKind::Tokens { tokens, .. } = &kind {
+                if let MatchKind::Tokens { tokens, raw } = &mut kind {
                     if let Some(reason) = over_general(tokens, good) {
-                        dropped(id, reason);
-                        continue;
+                        if reason == MEMBER_VETO {
+                            match reference_lines.iter().find_map(|l| dotted_owner_chain(l, &tokens[0])) {
+                                Some(dotted) => {
+                                    // The corpus line the chain was read from is this rule's
+                                    // self-fire witness: the member page's own bare example
+                                    // cannot contain the dotted form ([`member_dotted`]).
+                                    member_dotted.insert(id.clone());
+                                    *tokens = vec![dotted];
+                                }
+                                None => {
+                                    dropped(id, reason);
+                                    continue;
+                                }
+                            }
+                        } else {
+                            match select::demonstrated_shape(lang, &tokens[0], bad, good) {
+                                Some((shape, shape_raw)) => {
+                                    *tokens = shape;
+                                    *raw = shape_raw;
+                                }
+                                None => {
+                                    dropped(id, reason);
+                                    continue;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -652,8 +735,13 @@ impl RuleSet {
         };
         compiled.retain(|r| {
             let bad = bad_map.get(r.id.as_str()).copied().unwrap_or("").trim();
-            // No bad example → description-only rule; let it through without the SELF-FIRE check.
-            let keep = bad.is_empty() || !r.kind.matches(lang, &text_input(r, bad)).is_empty();
+            // No bad example → description-only rule; let it through without the SELF-FIRE
+            // check. A member-typography rewrite is exempt by construction: its bad example is
+            // the member page's BARE demonstration, and its self-fire witness is the corpus
+            // line its dotted chain was read from ([`member_dotted`]).
+            let keep = bad.is_empty()
+                || member_dotted.contains(&r.id)
+                || !r.kind.matches(lang, &text_input(r, bad)).is_empty();
             if !keep {
                 dropped(&r.id, "self-fire (detector misses the rule's own bad example)");
             }

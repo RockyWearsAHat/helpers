@@ -60,7 +60,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = usize::MAX / 16;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v102-two-axis-census";
+pub(crate) const TRAIN_VERSION: &str = "docs-v103-demonstrated-shape";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips

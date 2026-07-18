@@ -608,3 +608,102 @@ pub(super) fn text_discriminator(bad: &str, good: &str) -> Option<Vec<String>> {
     None
 }
 
+/// PASS 36 (owner rulings 2026-07-18, second + third) — the DEMONSTRATED-SHAPE detector: the
+/// lawful escape hatch for a prohibition whose single-token detector was refused as
+/// over-general/contextual but whose docs carry a bad/good CONTRAST the word-level
+/// [`text_discriminator`] cannot see (the difference is typography, not a word — the
+/// abstain-trap's `packvex("[1,2,]")` vs `packvex("[1,2]")`). The rule IS the shape the docs
+/// demonstrate, so the detector narrows from the refused token to the ANCHORED DIFF:
+///
+/// 1. The MINIMAL DIFFERING ELEMENT — longest common prefix/suffix of the two examples isolate
+///    the diff core (`,`). The core must carry TYPOGRAPHY (at least one non-word character): a
+///    letters/digits-only core is a VALUE (`frob(1)` vs `frob(2)`), semantics a containment
+///    token must not memorize — the caller keeps its named contextual drop there.
+/// 2. The core grows by minimal ADJACENT CONTEXT (following character first, then preceding)
+///    until it no longer fires the good example (`,` fires the good's own separator; `,]` does
+///    not) — the diff read in its context, never the verbatim example bytes (memorization
+///    masquerading as understanding is a defect class, third ruling).
+/// 3. The detector is the ordered pair `[anchor, diff]` — the refused token scopes the shape to
+///    its own construct context — validated with the ONE containment matcher: fires the bad
+///    example, silent on the good (the validity check the ruling requires).
+///
+/// Returns the tokens plus the firing universe: `false` when the shape discriminates on the
+/// CODE SURFACE, `true` when the demonstrated contrast lives only inside a string literal
+/// (the code surface blanks it — the law governs the string's interior, so the detector fires
+/// raw lines, exactly the evidence-hierarchy raw-universe rule). `None` when no honest shape
+/// exists (no contrast, a value-only diff, or nothing discriminates) — the caller's named
+/// ledger drop stands.
+pub(super) fn demonstrated_shape(
+    lang: &str,
+    anchor: &str,
+    bad: &str,
+    good: &str,
+) -> Option<(Vec<String>, bool)> {
+    if anchor.is_empty() || bad.trim().is_empty() || good.trim().is_empty() {
+        return None;
+    }
+    if bad.len() > MAX_EXAMPLE_BYTES || good.len() > MAX_EXAMPLE_BYTES {
+        return None;
+    }
+    // Same text hygiene as [`text_discriminator`]: doc-page comments never shape a detector;
+    // matching is case-insensitive, so the shape is derived on the lowercased surface.
+    let bad = strip_code_comments(bad).to_lowercase();
+    let good = strip_code_comments(good).to_lowercase();
+    let bad_chars: Vec<char> = bad.chars().collect();
+    let good_chars: Vec<char> = good.chars().collect();
+    // The diff core: strip the longest common prefix, then the longest common suffix of the
+    // remainders. An empty core means the bad example only LACKS something — absence is not a
+    // containment shape.
+    let prefix = bad_chars.iter().zip(&good_chars).take_while(|(b, g)| b == g).count();
+    let suffix = bad_chars[prefix..]
+        .iter()
+        .rev()
+        .zip(good_chars[prefix..].iter().rev())
+        .take_while(|(b, g)| b == g)
+        .count();
+    let (mut start, mut end) = (prefix, bad_chars.len() - suffix);
+    if start >= end {
+        return None;
+    }
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    // TYPOGRAPHY gate (third ruling): a core of word characters alone is a value/identifier
+    // diff — the word-level paths own those; memorizing one here would compile semantics.
+    if bad_chars[start..end].iter().all(|c| is_word(*c)) {
+        return None;
+    }
+    // Grow the core by adjacent context until it stops firing the docs' own good example —
+    // following context first (the character the anomaly breaks against: `,` before `]`),
+    // then preceding. Newlines never join a shape: the containment matcher is per-line.
+    let anchor = anchor.to_lowercase();
+    let shape_of = |s: usize, e: usize| bad_chars[s..e].iter().collect::<String>();
+    loop {
+        let t = shape_of(start, end);
+        if !t.contains('\n') && tokens_fire_text(&bad, std::slice::from_ref(&t)) && !tokens_fire_text(&good, std::slice::from_ref(&t)) {
+            break;
+        }
+        if end < bad_chars.len() && bad_chars[end] != '\n' {
+            end += 1;
+        } else if start > 0 && bad_chars[start - 1] != '\n' {
+            start -= 1;
+        } else {
+            return None;
+        }
+    }
+    let diff = shape_of(start, end);
+    // Anchor the shape in its construct context (the ruling's scope law): the refused token
+    // must precede the diff on one line of the bad example, and the pair must discriminate.
+    if diff == anchor {
+        return None;
+    }
+    let tokens = vec![anchor, diff];
+    if !tokens_fire_text(&bad, &tokens) || tokens_fire_text(&good, &tokens) {
+        return None;
+    }
+    // The firing universe is where the demonstration lives: on the code surface when the shape
+    // discriminates there too, raw when only the raw text carries it (a string-interior law).
+    let surface_bad = code_surface_file(lang, &bad);
+    let surface_good = code_surface_file(lang, &good);
+    let raw = !(tokens_fire_text(&surface_bad, &tokens) && !tokens_fire_text(&surface_good, &tokens));
+    Some((tokens, raw))
+}
+
