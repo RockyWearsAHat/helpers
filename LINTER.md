@@ -2469,6 +2469,36 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 >    of progress is pushing a known fact UP a tier, never learning less.
 > The census therefore reports two lines: knowledge N/N (hard 100% gate) and the enforcement
 > partition (proven + graded + named-quiet, silent = 0).
+>
+> **Owner ruling (2026-07-18, second) — perfect docs leave nothing quiet.** When the documentation
+> is written perfectly (states the law, shows the bad shape, shows the remedy), a quiet tier is
+> itself a masked error: the machine must enforce the SHAPE the docs demonstrate, not refuse the
+> token the shape contains. The abstain-trap fires by the docs' own bad-example token sequence
+> (the lawful containment-matcher form) — `packvex("[1,2,]")` flags, `packvex("[1,2]")` stays
+> clean — because the rule IS the trailing separator, not the word. The member shape fires by the
+> author's own dotted typography — `Gadget.grip(…)` flags, bare `grip` stays clean. Named-quiet
+> remains legal ONLY where the docs themselves under-specify (no bad example, no typography to
+> pin); on the census's perfectly-authored manifest the enforcement target is FIRES for every
+> stated fact. Proof duty is two-sided and mandatory: fixture truth (the census + the diversity
+> pseudocode language) AND production truth (a real language's own docs corpus retrained, the
+> acceptance fixtures, and a junk-storm check against the prior pass's measured numbers).
+>
+> **Owner ruling (2026-07-18, third) — ATTRIBUTION and ITERATED LINKING (the practice fixpoint).**
+> A bad/good contrast blames the MINIMAL DIFFERING ELEMENT read in its construct context, not the
+> outermost name: `packvex("[1,2,]")` vs `packvex("[1,2]")` is a fact about the trailing separator
+> of the LIST LITERAL inside the argument — the array errors, not packvex. Enforcement compiled
+> from a contrast is therefore the DIFF anchored in its context (fires on ANY trailing-separator
+> list in that context), never the verbatim example sequence — verbatim containment is
+> memorization, and memorization masquerading as understanding is a defect class. And knowledge
+> INTEGRATES by iterated linking: each learned fact applies on top of everything already
+> understood, deriving further links, until nothing more links — that fixpoint, not mere
+> retention, is the 100% the census measures once it PRACTICES. Practice = the machine verifies
+> each derived link against the docs' own examples (propose → verify → learn; only proven links
+> survive). The census's instrument for this is the NOVEL-INSTANCE probe: a planted violation the
+> docs never spelled verbatim (`packvex("[7,8,9,]")`) must fire while its clean twin
+> (`packvex("[7,8,9]")`) stays silent; a rule that only re-recognizes the docs' own bytes fails
+> the axis. Generalization stays honestly scoped to what the docs proved (the packvex-literal
+> context) until further corroborated links widen it.
 > pre-compile refusals funnel into the same `RuleSet::withheld` `(id, reason)` shape the compile
 > already persists and `lint_query kind=rules` already surfaces; reasons carry their stage
 > (`read gate (…)`, `chrome (…)`, `member veto (…)`, `mint gate (…)`) alongside the existing
@@ -2499,10 +2529,12 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > the census asserts `silently_lost == []`, printing the full accounting line
 > (`learned X + withheld Y + lost Z of N`) in the PASS-31 vocabulary. The clean render is the
 > English-substrate ratchet (100% first); clean-recall minus messy-recall is the exact punch list
-> for dissolving the interim HTML heuristics ("READ, not split"). Expectations are honest today:
-> the blockless fact expects its named withhold (flips to LEARNED when the per-token side-count
-> classifier lands), the abstain-trap expects abstention, the member-shape fact expects the veto's
-> named reason. Flipping an expectation from WITHHELD to LEARNED is the ratchet's unit of progress.
+> for dissolving the interim HTML heuristics ("READ, not split"). Expectations after the second
+> and third rulings (docs-v103): EVERY stated fact FIRES — the blockless fact at some tier
+> citing its sentence, the abstain-trap by its demonstrated shape (the anchored diff, proven on
+> a NOVEL instance the docs never spelled), the member fact by the author's dotted typography;
+> named-quiet on this perfectly-authored manifest is asserted to zero. Pushing a fact up a tier
+> remains the ratchet's unit of progress.
 >
 > **Two defects the census's first run caught, both closed (2026-07-18, byte-true replay of the
 > failing run's own hermetic env):** (1) the mixed-language page's facts ("In vex code, never use
@@ -2547,6 +2579,35 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 >    (failure-ledger re-land addendum, stage 2 note) — `flare` fires citing its forbidding
 >    sentence; in a grammarless language a construct-carrying rule compiles its construct as the
 >    one containment token (`uses_construct` plans need an AST).
+>
+> **The demonstrated-shape compile (2026-07-18, second+third rulings, TRAIN_VERSION →
+> `docs-v103-demonstrated-shape`) — the census's two quiet facts FIRE:**
+> 1. **The anchored-diff detector (the abstain-trap escape hatch, `lint_match::select::
+>    demonstrated_shape`).** When a prohibition rule's single-token detector is refused as
+>    over-general/contextual BUT the rule carries a bad/good pair, the compile derives the
+>    MINIMAL DIFFERING ELEMENT (third ruling): longest common prefix/suffix of the two examples
+>    isolates the diff core, which must carry TYPOGRAPHY (at least one non-word character — a
+>    letters/digits-only core is a VALUE, semantics the containment matcher must not memorize:
+>    `frob(1)` vs `frob(2)` still drops CONTEXTUAL); the core then grows by minimal adjacent
+>    context (suffix first, then prefix) until it no longer fires the good example, and compiles
+>    as the ordered pair `[refused token, anchored diff]` — scoped to the construct's own
+>    context, never the verbatim example bytes. Both halves are validated with the ONE
+>    containment matcher (fires bad ∧ silent on good); the firing universe is decided by where
+>    the demonstration lives — a contrast visible only inside a string literal compiles a
+>    raw-universe detector (the law governs the string's interior), everything else stays on the
+>    code surface. `packvex("[1,2,]")` vs `packvex("[1,2]")` ⇒ `[packvex, ",]"]` raw — fires the
+>    NOVEL `packvex("[7,8,9,]")`, silent on `packvex("[7,8,9]")` and every plain use.
+> 2. **The dotted-typography rewrite (the member veto's enforcing arm).** A bare single-token
+>    detector the member-typography veto refuses is REWRITTEN to the author's own dotted chain
+>    read off the reference corpus line that vetoed it (`Gadget.grip(handle)` ⇒ detector
+>    `gadget.grip`) — the qualified form the veto itself declared enforceable. Its self-fire
+>    witness is that corpus line (the member page's own bare demonstration cannot contain the
+>    dotted form, so such rules are exempt from the bare-example self-fire gate, and the
+>    over-fire/reference-fire gates still run). `Gadget.grip(lever)` flags citing the docs;
+>    bare `grip` in clean code never does.
+> Census target accounting, BOTH renders: knowledge 9/9; enforcement proven 9 + graded 0 +
+> quiet 0 + silent 0 (graded may only ever be the blockless `flare`); named-quiet is asserted
+> zero on this manifest (second ruling: perfect docs leave nothing quiet).
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
 > expected outcome and the actual outcome, both derived back into English — do they assert the

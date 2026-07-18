@@ -435,6 +435,69 @@ fn corpus_ubiquity_reads_the_good_contrast() {
 }
 
 #[test]
+fn abstain_trap_compiles_the_demonstrated_shape_and_fires_a_novel_instance() {
+    // PASS 36 (owner rulings 2026-07-18, second + third): a contextual token whose bad/good
+    // contrast is TYPOGRAPHY inside a string literal compiles the ANCHORED DIFF — the trailing
+    // separator, not the word — and must generalize: a NOVEL instance the docs never spelled
+    // fires, its clean twin and every plain use stay silent (memorizing the docs' own bytes
+    // fails the axis).
+    let reference: Vec<String> =
+        std::iter::repeat("x = packvex(\"[1,2]\")\ny = packvex(\"[3]\")\nz = calc(1)".to_string())
+            .take(4)
+            .collect();
+    let ground = Grounding {
+        reference,
+        polarity: Some(std::sync::Arc::new(polarity())),
+        ..Default::default()
+    };
+    let rules = [rule(
+        "packvex_trailing_separator",
+        "packvex(\"[1,2,]\")",
+        "packvex(\"[1,2]\")",
+        "Never write a trailing separator in a `packvex` literal; it is dangerous and rejected.",
+    )];
+    let set = RuleSet::build("qlang", &rules, &ground);
+    assert_eq!(set.rule_count(), 1, "the demonstrated shape compiles: {:?}", set.withheld);
+    // The novel instance (never spelled in the docs) fires — the rule IS the trailing
+    // separator in the packvex context, not the example's bytes …
+    assert_eq!(
+        lines_for(&set.flag("a = packvex(\"[7,8,9,]\")"), "packvex_trailing_separator"),
+        vec![1]
+    );
+    // … while the clean twin and the docs' own good form never flag.
+    assert!(set.flag("a = packvex(\"[7,8,9]\")").is_empty(), "clean twin must stay silent");
+    assert!(set.flag("a = packvex(\"[1,2]\")").is_empty(), "plain use must stay silent");
+}
+
+#[test]
+fn member_vetoed_bare_token_compiles_the_authors_dotted_typography() {
+    // PASS 36 (owner ruling 2026-07-18, second): the member veto's ENFORCING arm — a bare
+    // member token is refused, and the detector REWRITES to the author's own dotted chain read
+    // off the corpus line that vetoed it. The dotted shape fires (novel argument included);
+    // the bare token in clean code never does.
+    let reference: Vec<String> = std::iter::repeat(
+        "Gadget.grip(handle)\nGadget.clamp(handle)\nplain = calc(z)".to_string(),
+    )
+    .take(4)
+    .collect();
+    let ground = Grounding {
+        reference,
+        polarity: Some(std::sync::Arc::new(polarity())),
+        ..Default::default()
+    };
+    let rules = [rule(
+        "never_use_grip",
+        "grip(handle)",
+        "clamp(handle)",
+        "Never use the `grip` member anywhere; it is deprecated and forbidden.",
+    )];
+    let set = RuleSet::build("qlang", &rules, &ground);
+    assert_eq!(set.rule_count(), 1, "the dotted typography compiles: {:?}", set.withheld);
+    assert_eq!(lines_for(&set.flag("Gadget.grip(lever)"), "never_use_grip"), vec![1]);
+    assert!(set.flag("grip = clamp(other)").is_empty(), "a bare token in clean code never flags");
+}
+
+#[test]
 fn value_dependent_rule_does_not_compile_an_overfiring_ast_pattern() {
     // F521-class docs: two same-shape bad instances differing only in the string VALUE
     // (an invalid vs odd format string), no good example. Structure cannot represent value

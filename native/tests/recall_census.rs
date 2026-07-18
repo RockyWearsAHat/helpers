@@ -128,12 +128,14 @@ enum Expect {
     /// Fires at SOME tier — proven OR graded LOW, either accepted — and the finding cites the
     /// docs' own forbidding sentence (the blockless `flare` ratchet: known 100%, tier may vary).
     FiresAnyTier,
-    /// KNOWN + named-quiet: the conservation ledger names why no detector is safe, and the
-    /// subject fires in NEITHER planted file (the abstain-trap contract).
-    KnownQuiet,
-    /// KNOWN + named-quiet OR fires only on the DOTTED shape — either accepted; a bare token in
-    /// clean code must NEVER flag (the member-shape contract: the parent's typography is dotted).
-    KnownQuietOrDotted,
+    /// Fires by the docs' DEMONSTRATED SHAPE (owner rulings 2026-07-18, second + third): the
+    /// bad file's planted NOVEL bad-shape instance flags, while the clean file — carrying the
+    /// novel clean twin AND the docs' own good form — stays totally silent (the abstain-trap's
+    /// rule IS the trailing separator, never the bare token, never the docs' verbatim bytes).
+    FiresShape,
+    /// Fires ONLY by the author's DOTTED typography (the member-shape contract): the bad file's
+    /// planted `Owner.subject` instance flags, and a bare token in clean code NEVER does.
+    FiresDotted,
     /// Outside both axes: nothing minted, nothing fired, nothing known under the subject's name.
     Nothing,
 }
@@ -186,11 +188,12 @@ impl Fact {
 
 /// The census manifest: every kind the PASS 36 contract lists, across TWO fake languages —
 /// including the cross-language pair (one page each) and the mixed-language page both crawls
-/// read. Enforcement expectations per the 2026-07-18 owner ruling: the six reference
-/// prohibitions fire PROVEN; blockless `flare` fires at SOME tier (proven or graded LOW);
-/// abstain-trap `packvex` is known + named-quiet; member `grip` is known + named-quiet or fires
-/// only on the dotted shape; the tutorial states nothing. The KNOWLEDGE axis is not per-fact:
-/// every fact except the tutorial must be known, 100%, both renders.
+/// read. Enforcement expectations per the 2026-07-18 owner rulings (all three): the six
+/// reference prohibitions fire PROVEN; blockless `flare` fires at SOME tier (proven or graded
+/// LOW); abstain-trap `packvex` fires by its DEMONSTRATED SHAPE on a novel instance; member
+/// `grip` fires by the author's DOTTED typography; the tutorial states nothing. Perfect docs
+/// leave nothing quiet: named-quiet is asserted to ZERO on this manifest, both renders. The
+/// KNOWLEDGE axis is not per-fact: every fact except the tutorial must be known, 100%.
 fn manifest() -> Vec<Fact> {
     vec![
         Fact {
@@ -245,11 +248,15 @@ fn manifest() -> Vec<Fact> {
                 "Never write a trailing separator in a packvex literal; the string cannot be parsed and the program is rejected.",
             bad_code: "packvex(\"[1,2,]\")",
             good_code: "packvex(\"[1,2]\")",
-            plant_bad: None,
-            plant_good: None,
-            // bad/good differ only inside a string literal: a token detector would flood, so
-            // the honest state is KNOWN + a ledger row naming why — and total silence.
-            expected: Expect::KnownQuiet,
+            // NOVEL-INSTANCE probes (third ruling): the planted violation is a shape the docs
+            // never spelled verbatim — a rule that only re-recognizes the docs' own bytes
+            // fails; the clean file carries the novel clean twin plus the docs' own good form.
+            plant_bad: Some("packvex(\"[7,8,9,]\")"),
+            plant_good: Some("packvex(\"[7,8,9]\")\npackvex(\"[1,2]\")"),
+            // bad/good differ only inside a string literal — exactly the contrast the
+            // demonstrated-shape compile reads: the detector is the anchored diff (`,]` in the
+            // packvex context), so the shape FIRES and nothing is quiet.
+            expected: Expect::FiresShape,
         },
         Fact {
             id: "vex-no-grip-member",
@@ -261,12 +268,13 @@ fn manifest() -> Vec<Fact> {
                 "Never use the grip member anywhere; it is deprecated and will be removed.",
             // The member PAGE demonstrates the bare shape; the parent page's typography is
             // dotted. Planted files probe the ruling's exact boundary: the dotted shape in the
-            // bad file MAY fire; the bare token in the clean file must NEVER flag.
+            // bad file MUST fire (a novel argument — the parent spells `handle`); the bare
+            // token in the clean file must NEVER flag.
             bad_code: "grip(handle)",
             good_code: "clamp(handle)",
-            plant_bad: Some("Gadget.grip(handle)"),
+            plant_bad: Some("Gadget.grip(lever)"),
             plant_good: Some("grip = clamp(handle)"),
-            expected: Expect::KnownQuietOrDotted,
+            expected: Expect::FiresDotted,
         },
         Fact {
             id: "vex-greet-tutorial",
@@ -786,14 +794,47 @@ fn account(render: &str, census: &Census, facts: &[Fact]) -> Vec<(Fact, Observed
         census.ledgers,
         census.verdict
     );
-    // Per-kind FP laws, every render: the abstain trap fires nowhere; a bare member token in
-    // clean code never flags (the parent's typography is dotted — only the dotted shape may).
+    // Owner ruling (2026-07-18, second): perfect docs leave nothing quiet — on this
+    // perfectly-authored manifest EVERY stated fact fires, so named-quiet is asserted to zero
+    // in BOTH renders (named-quiet stays legal only where docs under-specify, which none do).
+    let quiet: Vec<&Fact> = states
+        .iter()
+        .filter(|(_, s)| matches!(s, Observed::Quiet { .. }))
+        .map(|(f, _)| f)
+        .collect();
+    assert!(
+        quiet.is_empty(),
+        "[{render}] owner ruling (2026-07-18, second): perfect docs leave nothing quiet — \
+         these facts must FIRE by their demonstrated shape: {:?}\nledgers: {:?}\nverdict:\n{}",
+        quiet.iter().map(|f| f.id).collect::<Vec<_>>(),
+        census.ledgers,
+        census.verdict
+    );
+    // The graded tier may only ever be the blockless `flare` (its FiresAnyTier ratchet);
+    // every other fact fires PROVEN — the census's target accounting is proven 9 + graded 0
+    // (or proven 8 + graded 1 when flare grades), quiet 0, silent 0.
+    let graded: Vec<&Fact> = states
+        .iter()
+        .filter(|(_, s)| matches!(s, Observed::Graded))
+        .map(|(f, _)| f)
+        .collect();
+    assert!(
+        graded.iter().all(|f| f.expected == Expect::FiresAnyTier),
+        "[{render}] only the any-tier blockless fact may grade — these graded unexpectedly: \
+         {:?}\nverdict:\n{}",
+        graded.iter().map(|f| f.id).collect::<Vec<_>>(),
+        census.verdict
+    );
+    // Per-kind FP laws, every render: the abstain trap's clean file (novel clean twin + the
+    // docs' own good form) never flags; a bare member token in clean code never flags (the
+    // parent's typography is dotted — only the dotted shape may fire).
     for (f, _) in &states {
         match f.kind {
             "abstain-trap" => assert!(
-                census.silent_everywhere(f),
-                "[{render}] {}: an abstain-trap must fire in NEITHER planted file:\n{}",
+                !flagged_in(&census.verdict, &format!("clean.{}", f.lang), f.subject),
+                "[{render}] {}: the clean twin and plain `{}` uses must NEVER flag:\n{}",
                 f.id,
+                f.subject,
                 census.verdict
             ),
             "member-shape" => assert!(
@@ -815,10 +856,12 @@ fn matches_expected(f: &Fact, state: &Observed) -> bool {
     match (f.expected, state) {
         (Expect::FiresProven, Observed::Proven) => true,
         (Expect::FiresAnyTier, Observed::Proven | Observed::Graded) => true,
-        (Expect::KnownQuiet, Observed::Quiet { .. }) => true,
-        // Either arm of the ruling: named-quiet, or fires only on the dotted shape (the fires
-        // classification already requires the clean file's bare token to stay unflagged).
-        (Expect::KnownQuietOrDotted, Observed::Quiet { .. } | Observed::Proven | Observed::Graded) => true,
+        // The demonstrated-shape and dotted-typography facts FIRE (the fires classification
+        // already requires the clean file — novel clean twin, plain uses, bare tokens — to
+        // stay unflagged); the tier is read off the web node, and [`account`] separately pins
+        // the graded tier to the any-tier blockless fact alone.
+        (Expect::FiresShape, Observed::Proven | Observed::Graded) => true,
+        (Expect::FiresDotted, Observed::Proven | Observed::Graded) => true,
         _ => false,
     }
 }
@@ -828,8 +871,9 @@ fn matches_expected(f: &Fact, state: &Observed) -> bool {
 /// CLEAN render — the English-substrate ratchet: minimal honest HTML must yield knowledge N/N
 /// AND land every fact EXACTLY on its expected enforcement: the six reference prohibitions fire
 /// PROVEN with the docs' own words; blockless `flare` fires at some tier citing its forbidding
-/// sentence; abstain-trap `packvex` is named-quiet and totally silent; member `grip` is
-/// named-quiet or fires only on the dotted shape.
+/// sentence; abstain-trap `packvex` fires by its demonstrated shape on the planted NOVEL
+/// instance (clean twin silent); member `grip` fires by the author's dotted typography (bare
+/// token silent). Nothing is quiet ([`account`] asserts it).
 #[test]
 fn census_clean_render_100_percent() {
     let facts = manifest();
@@ -844,15 +888,6 @@ fn census_clean_render_100_percent() {
             census.ledgers,
             census.verdict
         );
-        // A named-quiet expectation is QUIET: the subject fires in neither planted file.
-        if f.expected == Expect::KnownQuiet {
-            assert!(
-                census.silent_everywhere(f),
-                "[clean] {}: a named-quiet fact must flag nothing:\n{}",
-                f.id,
-                census.verdict
-            );
-        }
         // The any-tier fact's finding must cite the docs' own forbidding sentence.
         if f.expected == Expect::FiresAnyTier {
             let words = forbid_words(f).expect("the blockless sentence carries its clause");
@@ -867,10 +902,11 @@ fn census_clean_render_100_percent() {
 }
 
 /// MESSY render — the accounting instrument: recurring chrome, furniture sections, member
-/// pages, and the mixed-language page may cost an enforcement TIER (a fact may land quiet or
-/// graded where the clean render proved it — that delta is the punch list for dissolving the
-/// interim HTML heuristics), but they may never cost the LAW: knowledge stays N/N, nothing is
-/// silent, negatives stay silent, the FP laws hold, and the chrome never surfaces in findings.
+/// pages, and the mixed-language page may cost NOTHING the law names (owner rulings
+/// 2026-07-18): knowledge stays N/N, nothing is silent, nothing is quiet, only the blockless
+/// fact may grade ([`account`] asserts all four), negatives stay silent, the FP laws hold, and
+/// the chrome never surfaces in findings. Any residual divergence from the clean render's
+/// exact expectations is printed as the punch list for dissolving the interim HTML heuristics.
 #[test]
 fn census_messy_render_accounting() {
     let facts = manifest();
