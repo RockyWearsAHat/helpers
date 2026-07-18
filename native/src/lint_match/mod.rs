@@ -42,6 +42,23 @@ pub(super) const MAX_EXAMPLE_BYTES: usize = 8192;
 /// stays out of the way.
 const REFERENCE_FIRE_MIN_LINES: usize = 500;
 
+/// Whether `line` (reference-corpus code) addresses `token` with dotted OWNER typography —
+/// an occurrence of the token written as `owner.token` (an identifier character, then `.`,
+/// then the token at a word boundary). This is the author's own qualified spelling of a
+/// MEMBER, read straight off the corpus text: no shape list, no grammar. Used by the compile's
+/// member-typography veto (PASS 36) — a bare single-token detector on a member name would fire
+/// on every unrelated owner's own use of that identifier.
+fn dotted_owner_typography(line: &str, token: &str) -> bool {
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    line.match_indices(token).any(|(at, _)| {
+        let before = &line[..at];
+        let after_ok = line[at + token.len()..].chars().next().map(|c| !ident(c)).unwrap_or(true);
+        after_ok
+            && before.ends_with('.')
+            && before[..before.len() - 1].chars().next_back().is_some_and(ident)
+    })
+}
+
 /// Bound advice prose from documentation or a pulled module before it is stored and later
 /// shown to an agent: strip control characters (ANSI escapes, zero-width and line-break
 /// injection that could forge report structure or hide text), collapse whitespace runs, and
@@ -263,6 +280,10 @@ impl RuleSet {
             "over-general single token (a ubiquitous language keyword/type, not a construct a rule points at)";
         const CONTEXTUAL: &str =
             "over-general single token (the docs' own remedy still uses it — contextual)";
+        // PASS 36 — the miner-path MEMBER veto's named ledger reason (the graduation path's
+        // member veto shares the "member veto" stage prefix, so census/ledger joins line up).
+        const MEMBER_VETO: &str =
+            "member veto (bare shape; the corpus's own typography is dotted)";
         // Is `token` over-general on its own evidence — a word the LANGUAGE uses everywhere?
         // Returns the named ledger reason when it is, `None` when the token can anchor a detector.
         // `good` is the rule's good example: a real bad∧good CONTRAST (the good form lacks the
@@ -282,6 +303,15 @@ impl RuleSet {
         let over_general_token = |token: &str, good: &str| -> Option<&'static str> {
             if crate::lint_english::brain().is_some_and(|e| e.is_common(token)) {
                 return Some(OVER_GENERAL);
+            }
+            // MEMBER-TYPOGRAPHY VETO (PASS 36 — the miner-path analogue of the graduation's
+            // member veto): the reference corpus's own code addresses `token` with dotted OWNER
+            // typography (`Gadget.grip(handle)`), so the bare token names arbitrary user
+            // identifiers (any owner's own `grip = …`) and a bare single-token detector cannot
+            // mark a violation. Learned from the corpus's own typography, never a shape list;
+            // a dotted detector on the qualified form remains enforceable.
+            if reference_lines.iter().any(|l| dotted_owner_typography(l, token)) {
+                return Some(MEMBER_VETO);
             }
             let denom = reference_lines.len();
             if denom >= 8 {
@@ -550,7 +580,13 @@ impl RuleSet {
             } else {
                 // No grammar — token matching only. Documentation prose is the primary signal;
                 // code examples (which appear in the same docs) refine when prose is thin.
-                if let Some((token, raw)) = desc_detector(&ground) {
+                // A CONSTRUCT-carrying rule compiles its construct as the one containment token
+                // (PASS 36): `uses_construct` plans need an AST to walk, and the construct is the
+                // reader's own proven target — never re-derived from prose or an example diff.
+                // The over-general/member-veto guard below still runs on it, un-exempted.
+                if let Some(c) = construct.as_deref().filter(|c| !c.is_empty()) {
+                    MatchKind::Tokens { tokens: vec![c.to_string()], raw: false }
+                } else if let Some((token, raw)) = desc_detector(&ground) {
                     MatchKind::Tokens { tokens: vec![token], raw }
                 } else if let Some(tokens) = text_discriminator(bad, good) {
                     if !trusted.contains(id) && classifier_ready && !traceable(desc, bad, &tokens) {

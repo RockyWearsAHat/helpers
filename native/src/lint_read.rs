@@ -933,6 +933,25 @@ pub fn code_hv(lang: &str, code: &str) -> Hv {
     if b.is_empty() { Hv::zero() } else { b.finalize() }
 }
 
+/// PASS 36 (two-axis owner ruling 2026-07-18) — one FACT the documentation STATED, retained by
+/// the read itself: a prohibition-stating unit or blockless prohibition section, as (anchor slug,
+/// page url, the docs' own forbidding sentence, the unit's example code — empty for a blockless
+/// section). This is the KNOWLEDGE-axis substrate: the train absorbs every fact into the
+/// language web ([`crate::lint_web`]) so a ledger row is never a reason to not-know. Signal-gated
+/// at record time by the frozen English (a stated prohibition — never a word list), deduped by
+/// (slug, url), sentence head-capped (the multi-GB corpus law).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ReadFact {
+    /// The section's anchor slug (the author's own marking; the miner's rule id for this unit).
+    pub slug: String,
+    /// The page the fact was read from — the node's source cite.
+    pub url: String,
+    /// The docs' own forbidding sentence (head-capped) — the fact's governing prose.
+    pub prose: String,
+    /// The unit's example code (empty for a blockless section — nothing was demonstrated).
+    pub code: String,
+}
+
 /// Everything the reader took away from reading a language's docs: the bound (prose, code) units, a
 /// reference corpus of real code, and the trained polarity classifier (which carries the reader).
 /// This is the serialized artifact that means "the model read the docs" — a warm run loads it and
@@ -971,6 +990,11 @@ pub struct Memory {
     /// ledger ([`crate::lint_match::RuleSet::withheld`]) so nothing read vanishes silently.
     #[serde(default)]
     pub withheld: Vec<(String, String)>,
+    /// PASS 36 (two-axis) — every prohibition FACT the read retained ([`ReadFact`]): the
+    /// knowledge-axis substrate the train absorbs into the language web. Learning is never
+    /// skipped where enforcement stays quiet.
+    #[serde(default)]
+    pub facts: Vec<ReadFact>,
 }
 
 /// Read a language's self-defined abbreviations out of its own prose: the parenthetical
@@ -1160,6 +1184,12 @@ impl crate::lint_codec::Bin for Memory {
         let (ids, reasons): (Vec<String>, Vec<String>) = self.withheld.iter().cloned().unzip();
         ids.enc(e);
         reasons.enc(e);
+        // PASS 36 (two-axis) — the read facts ride as four parallel string columns, trailing
+        // (older containers are already rejected by the TRAIN_VERSION stamp).
+        self.facts.iter().map(|f| f.slug.clone()).collect::<Vec<_>>().enc(e);
+        self.facts.iter().map(|f| f.url.clone()).collect::<Vec<_>>().enc(e);
+        self.facts.iter().map(|f| f.prose.clone()).collect::<Vec<_>>().enc(e);
+        self.facts.iter().map(|f| f.code.clone()).collect::<Vec<_>>().enc(e);
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<Memory> {
         Some(Memory {
@@ -1176,6 +1206,22 @@ impl crate::lint_codec::Bin for Memory {
                     return None;
                 }
                 ids.into_iter().zip(reasons).collect()
+            },
+            facts: {
+                let slugs = Vec::<String>::dec(d)?;
+                let urls = Vec::<String>::dec(d)?;
+                let proses = Vec::<String>::dec(d)?;
+                let codes = Vec::<String>::dec(d)?;
+                if slugs.len() != urls.len() || urls.len() != proses.len() || proses.len() != codes.len() {
+                    return None;
+                }
+                slugs
+                    .into_iter()
+                    .zip(urls)
+                    .zip(proses)
+                    .zip(codes)
+                    .map(|(((slug, url), prose), code)| ReadFact { slug, url, prose, code })
+                    .collect()
             },
         })
     }
@@ -1441,7 +1487,7 @@ mod tests {
             .expect("content prose binds");
         assert_eq!(b.bind, polarity.prose_hv("never do this dangerous thing").unwrap().xor(&code_hv("python", "x = [1]")),
                    "bind is prose ⊗ code");
-        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity), pages_read: 1, extensions: Default::default(), flagged: Default::default(), withheld: Vec::new() };
+        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity), pages_read: 1, extensions: Default::default(), flagged: Default::default(), withheld: Vec::new(), facts: Vec::new() };
         let json = serde_json::to_string(&memory).expect("serializes");
         let back: Memory = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back.bindings.len(), 1);

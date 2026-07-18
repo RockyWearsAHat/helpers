@@ -1177,8 +1177,8 @@ fn serve_diverse_vexlang_site() -> String {
                  </body></html>"
             } else if req.starts_with("GET /flare") {
                 // BLOCKLESS prohibition SHAPE (the MDN-eval warning): heading + prose,
-                // zero <pre>. Pinned structurally invisible until the per-token side-count
-                // classifier lands (LINTER.md, \"A blockless section cannot teach law yet\").
+                // zero <pre>. Learns AND fires through the PASS-36 triple-conjunction gate
+                // (LINTER.md failure-ledger re-land addendum, 2026-07-18).
                 "<html><body><h1>flare()</h1>\
                  <h2 id=\"never_use_flare\">Never use flare!</h2>\
                  <p>Never use the flare statement anywhere; it is dangerous and will be removed.</p>\
@@ -1280,12 +1280,14 @@ fn a_diverse_real_shaped_site_exercises_every_reading_stage() {
         !flagged_in(&verdict, "bad.vex", "parsevex") && !flagged_in(&verdict, "clean.vex", "parsevex"),
         "error-page shape: a punctuation-only diff compiles no detector:\n{verdict}"
     );
-    // STAGE blockless prohibition (the MDN-eval shape): pinned structurally INVISIBLE until
-    // the per-token side-count classifier lands (LINTER.md, "A blockless section cannot
-    // teach law yet") — this row flips to a fire assertion when it does.
+    // STAGE blockless prohibition (the MDN-eval shape): LEARNS AND FIRES (PASS 36 re-land,
+    // LINTER.md failure-ledger addendum 2026-07-18) — minted through the triple-conjunction
+    // gate (frozen-English forbidding sentence + a construct common English cannot account
+    // for + the section's own anchor slug naming it), fired at the LOW tier citing the docs'
+    // own words. The clean file must stay silent (asserted by the zero-FP stage below).
     assert!(
-        !flagged_in(&verdict, "bad.vex", "flare"),
-        "blockless shape is pinned invisible today; if this fires, the pin (and LINTER.md) must move together:\n{verdict}"
+        flagged_in(&verdict, "bad.vex", "flare") && verdict.contains("use the flare statement"),
+        "blockless shape must mint through the triple-conjunction gate and fire citing the docs' words:\n{verdict}"
     );
     // STAGE zero false positives across every shape at once: the clean file uses every
     // GOOD form, the error-page feature legitimately, the tutorial's own construct, and

@@ -60,7 +60,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = usize::MAX / 16;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v101-fronted-lead-read";
+pub(crate) const TRAIN_VERSION: &str = "docs-v102-two-axis-census";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -177,15 +177,17 @@ impl LearnedCatalog {
     /// The catalog's rules and reference corpus: queried from the association memory when present
     /// (reading IS the knowledge), else the pre-extracted tuples an older module shipped.
     ///
-    /// The final element is PASS 36's pre-compile withhold rows — the read-stage refusals the
+    /// The fourth element is PASS 36's pre-compile withhold rows — the read-stage refusals the
     /// graduation pass named ([`crate::lint_module::GraduatedModule::withheld`]), the rows the
     /// read memory itself recorded (blockless sections), and the miner's mint-gate refusals —
-    /// for [`train_language`] to append to the compiled module's one conservation ledger.
+    /// for [`train_language`] to append to the compiled module's one conservation ledger. The
+    /// fifth is the read FACTS ([`crate::lint_read::ReadFact`], the two-axis knowledge surface)
+    /// for the train to absorb into the language web after the compile settles enforcement.
     fn doc_rules(
         &self,
         lang: &str,
         data_root: &Path,
-    ) -> (Vec<DocRule>, Vec<String>, Vec<Contradiction>, Vec<(String, String)>) {
+    ) -> (Vec<DocRule>, Vec<String>, Vec<Contradiction>, Vec<(String, String)>, Vec<crate::lint_read::ReadFact>) {
         match &self.memory {
             Some(memory) => {
                 // THE FLIP (2026-07-11, LINTER.md "The flip pass"): a language's MODULE rules are the
@@ -260,9 +262,9 @@ impl LearnedCatalog {
                         });
                     }
                 }
-                (rules, memory.reference.clone(), contradictions, withheld)
+                (rules, memory.reference.clone(), contradictions, withheld, memory.facts.clone())
             }
-            None => (self.rules.clone(), self.reference.clone(), Vec::new(), Vec::new()),
+            None => (self.rules.clone(), self.reference.clone(), Vec::new(), Vec::new(), Vec::new()),
         }
     }
 }
@@ -834,7 +836,7 @@ fn train_language(
     }
     let mut freshly_trained = false;
     if module.is_none() {
-        let (doc_rules, reference, extensions, learned_from, flagged, pre_compile_withheld) =
+        let (doc_rules, reference, extensions, learned_from, flagged, pre_compile_withheld, read_facts) =
             resolve_rules(data_root, lang, &version, &mut report);
         if learned_from == "nothing" {
             report.unlearned.push(lang.clone());
@@ -887,6 +889,46 @@ fn train_language(
                 .filter(|r| compiled.contains(r.id.as_str()))
                 .map(|r| (r.id.clone(), r.description.clone(), r.bad.clone()))
                 .collect();
+            // PASS 36 (two-axis owner ruling 2026-07-18): the machine LEARNS every fact — absorb
+            // the read facts into the language web now that the compile has settled which slugs
+            // ENFORCE. An enforcing fact lands/upgrades a PROVEN node carrying its rule as the
+            // view; every other fact stands as a READ node whose governing prose is the docs' own
+            // forbidding sentence. A ledger row is never a reason to not-know: the blockless, the
+            // abstain-trap, and the member-vetoed subjects all land here.
+            if let Some(en) = crate::lint_english::brain() {
+                let by_id: std::collections::HashMap<&str, &DocRule> =
+                    doc_rules.iter().map(|r| (r.id.as_str(), r)).collect();
+                let rows: Vec<(String, String, String, Option<crate::lint_web::WebRule>)> = read_facts
+                    .iter()
+                    .filter_map(|f| {
+                        let construct = crate::lint_docs::fact_subject(en, f)?;
+                        let rule = compiled
+                            .contains(f.slug.as_str())
+                            .then(|| by_id.get(f.slug.as_str()))
+                            .flatten()
+                            .map(|r| crate::lint_web::WebRule {
+                                id: r.id.clone(),
+                                severity: r.severity.clone(),
+                                description: r.description.clone(),
+                                bad: r.bad.clone(),
+                                good: r.good.clone(),
+                                source: r.source.clone(),
+                            });
+                        Some((construct, f.prose.clone(), f.url.clone(), rule))
+                    })
+                    .collect();
+                if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+                    eprintln!(
+                        "[lint-web {lang}] absorbing {} read facts ({} enforcing) from {} raw",
+                        rows.len(),
+                        rows.iter().filter(|r| r.3.is_some()).count(),
+                        read_facts.len()
+                    );
+                }
+                crate::lint_web::absorb_read_facts(lang, &rows);
+            } else if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+                eprintln!("[lint-web {lang}] absorb skipped — no english brain");
+            }
             let m = Module {
                 version: version.clone(),
                 train_version: TRAIN_VERSION.to_string(),
@@ -937,7 +979,18 @@ fn train_language(
             // whatever reading memory THIS machine has — a machine that only pulled the
             // module compiles law without a docs corpus, by design: documentation is never
             // shipped, and the evidence hierarchy leads with project grounding anyway.
-            let reference = load_cache(lang).map(|c| c.doc_rules(lang, data_root).1).unwrap_or_default();
+            // Read the reference corpus STRAIGHT off the catalog — `doc_rules` here re-ran the
+            // whole graduation pass as a side effect, and its web build re-persisted a bare
+            // `<lang>.web.bin` OVER the read facts the module stage had just absorbed (PASS 36
+            // two-axis: every knowledge node lost its forbidding sentence, its rule view, and
+            // the fact-only nodes entirely — the census's `found:false` class). Same bytes:
+            // `doc_rules().1` IS `memory.reference` (or the memory-less catalog's own list).
+            let reference = load_cache(lang)
+                .map(|c| match c.memory {
+                    Some(m) => m.reference,
+                    None => c.reference,
+                })
+                .unwrap_or_default();
             let ground = crate::lint_match::Grounding {
                 reference,
                 project: project_code.sources(lang).into_iter().map(|(_, src)| src).collect(),
@@ -1691,18 +1744,18 @@ fn resolve_rules(
     lang: &str,
     version: &str,
     report: &mut TrainReport,
-) -> (Vec<DocRule>, Vec<String>, ExtClaims, String, std::collections::HashSet<u64>, Vec<(String, String)>) {
+) -> (Vec<DocRule>, Vec<String>, ExtClaims, String, std::collections::HashSet<u64>, Vec<(String, String)>, Vec<crate::lint_read::ReadFact>) {
     let refresh = std::env::var_os("HELPERS_LINT_REFRESH").is_some();
     let sources_fp = sources_fingerprint(data_root, lang);
     if !refresh {
         if let Some(cat) = load_cache(lang) {
             if cat.current(version, &sources_fp) {
-                let (rules, reference, contradictions, withheld) = cat.doc_rules(lang, data_root);
+                let (rules, reference, contradictions, withheld, facts) = cat.doc_rules(lang, data_root);
                 if !rules.is_empty() {
                     record_contradictions(report, lang, contradictions);
                     let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
                     let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
-                    return (rules, reference, exts, format!("cache:{}", cat.learned_from), flagged, withheld);
+                    return (rules, reference, exts, format!("cache:{}", cat.learned_from), flagged, withheld, facts);
                 }
             }
         }
@@ -1717,7 +1770,7 @@ fn resolve_rules(
     // no reference code (its caps lean on the rules' own good examples).
     let seed_current = !seed.is_empty() && (version.is_empty() || seed_version.is_empty() || seed_version == version);
     if !refresh && seed_current {
-        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default(), Vec::new());
+        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default(), Vec::new(), Vec::new());
     }
     // READ it ourselves from the live docs. Cache the MEMORY we read (not pre-extracted rules),
     // keyed by the toolchain version, so the next run queries the same reading and only re-reads on
@@ -1737,7 +1790,7 @@ fn resolve_rules(
             reference: Vec::new(),
             memory: Some(memory),
         };
-        let (rules, reference, contradictions, withheld) = cat.doc_rules(lang, data_root);
+        let (rules, reference, contradictions, withheld, facts) = cat.doc_rules(lang, data_root);
         record_contradictions(report, lang, contradictions);
         // Reading IS the module (LINTER.md): a descriptive spec that yields ZERO prohibition
         // rules still delivers the reference corpus and comprehension — the language is set
@@ -1746,13 +1799,13 @@ fn resolve_rules(
         let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
         let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
         save_cache(lang, &cat);
-        return (rules, reference, exts, "live docs".to_string(), flagged, withheld);
+        return (rules, reference, exts, "live docs".to_string(), flagged, withheld, facts);
     }
     // Offline or crawl-disabled: fall back to the snapshot (stale is better than nothing).
     if !seed.is_empty() {
-        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default(), Vec::new());
+        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default(), Vec::new(), Vec::new());
     }
-    (Vec::new(), Vec::new(), ExtClaims::new(), "nothing".to_string(), Default::default(), Vec::new())
+    (Vec::new(), Vec::new(), ExtClaims::new(), "nothing".to_string(), Default::default(), Vec::new(), Vec::new())
 }
 
 /// READ `lang`'s official language documentation into an association [`crate::lint_read::Memory`].
@@ -3052,6 +3105,7 @@ mod tests {
                 pages_read: 4,
                 flagged: [1u64, u64::MAX].into_iter().collect(),
                 extensions: [("zl".to_string(), 2u32)].into_iter().collect(),
+                facts: Vec::new(),
                 withheld: vec![("read-zorkle".to_string(), "read gate (blockless section — no example block)".to_string())],
             }),
         };

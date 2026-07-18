@@ -679,6 +679,14 @@ pub fn load(lang: &str) -> Vec<ConstructNode> {
 /// graduated ledger). Stamped with the current train version; refuses a train-ordinal regression
 /// ([`crate::lint_train::stamp_regression`] — an outlived process keeps the newer store).
 pub fn persist(lang: &str, web: &[ConstructNode]) {
+    if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+        eprintln!(
+            "[lint-web {lang}] persist {} nodes ({} proven) regression={}",
+            web.len(),
+            web.iter().filter(|n| n.proven).count(),
+            crate::lint_train::stamp_regression(&web_path(lang), crate::lint_train::train_version())
+        );
+    }
     if web.is_empty() || crate::lint_train::stamp_regression(&web_path(lang), crate::lint_train::train_version()) {
         return;
     }
@@ -689,6 +697,59 @@ pub fn persist(lang: &str, web: &[ConstructNode]) {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(web_path(lang), bytes);
+}
+
+/// PASS 36 (two-axis owner ruling 2026-07-18) — ABSORB the read FACTS into `lang`'s persisted web:
+/// the KNOWLEDGE axis's 100% gate made real. Every fact is `(construct, the docs' own forbidding
+/// sentence, source url, Some(rule view) iff the fact's slug compiled an ENFORCING rule this
+/// train)`. A fact whose construct has no node yet inserts a READ node (PROVEN when it carries a
+/// rule); an existing node is ENRICHED — the forbidding sentence and source are appended (its
+/// meaning links rebound over the grown prose) and an enforcing fact upgrades a read node to
+/// PROVEN with its rule view. Never a demotion: an already-proven node keeps its rule, roles and
+/// referee records are untouched. A ledger row is never a reason to not-know — the blockless,
+/// abstain-trap, and member-vetoed subjects all land here with the page's own sentence. No-op
+/// without the character brain (nothing can bind meaning links) or with no facts.
+pub fn absorb_read_facts(lang: &str, facts: &[(String, String, String, Option<WebRule>)]) {
+    if facts.is_empty() {
+        return;
+    }
+    let Some(br) = crate::lint_char::brain() else { return };
+    let m = br.meanings();
+    let mut web = load(lang);
+    for (construct, governing, url, rule) in facts {
+        match web.iter_mut().find(|n| &n.construct == construct) {
+            Some(node) => {
+                if !node.governing.iter().any(|g| g == governing) {
+                    node.governing.push(governing.clone());
+                    node.meaning_links = meaning_links(m, &node.governing.join(" "));
+                }
+                if !node.sources.contains(url) {
+                    node.sources.push(url.clone());
+                }
+                if let Some(r) = rule {
+                    if !node.proven {
+                        node.proven = true;
+                        node.rule = Some(r.clone());
+                        node.graded = None; // enforced via its rule; the graded tier never doubles
+                    }
+                }
+            }
+            None => web.push(ConstructNode {
+                meaning_links: meaning_links(m, governing),
+                construct: construct.clone(),
+                governing: vec![governing.clone()],
+                sources: vec![url.clone()],
+                attested_deprecated: false,
+                roles: Vec::new(),
+                proven: rule.is_some(),
+                rule: rule.clone(),
+                graded: None,
+                referee: None,
+                superseded_by: None,
+            }),
+        }
+    }
+    persist(lang, &web);
 }
 
 /// Every language that has a persisted web on this machine — the basenames of the `*.web.bin` sidecars in
