@@ -101,12 +101,18 @@ pub fn read_language(
     // sections from the unit former below, plus code-less prohibition units at the bind step),
     // deduped by the (id, reason) pair and carried on the returned [`Memory`].
     let mut withheld: Vec<(String, String)> = Vec::new();
+    // PASS 36 (two-axis, owner ruling 2026-07-18) — the read FACTS: every prohibition-stating
+    // unit and blockless prohibition section, retained as knowledge regardless of what
+    // enforcement later does with it. Deduped by (slug, url), capped ([`MAX_FACTS`]),
+    // language-scoped exactly as the withhold rows are.
+    let mut facts: Vec<crate::lint_read::ReadFact> = Vec::new();
+    let mut seen_facts: std::collections::HashSet<(String, String)> = Default::default();
     let lang_lc = lang.to_lowercase();
     for src in sources {
         let mut src_units = Vec::new();
         let mut src_prose = Vec::new();
         for page in crawled_source(src, max_pages, cache_version) {
-            let (prose, units, page_withheld) =
+            let (prose, units, page_withheld, page_blockless) =
                 read_crawled_page(&src.url, &page.url, &page.body, brain);
             let hints: Vec<String> = units.iter().map(|(_, _, _, h)| h.clone()).collect();
             let page_lang = attribute_page(&page.url, &hints, &extra_langs);
@@ -115,6 +121,16 @@ pub fn read_language(
             // PASS 36: zim's ledger must not carry `/vex/…` pages' rows). A page attributed
             // to this language or to nothing records here.
             if page_lang.is_empty() || page_lang == lang_lc {
+                for (s, sentence) in page_blockless {
+                    if facts.len() < MAX_FACTS && seen_facts.insert((s.clone(), page.url.clone())) {
+                        facts.push(crate::lint_read::ReadFact {
+                            slug: s,
+                            url: page.url.clone(),
+                            prose: trim_prose(&sentence),
+                            code: String::new(),
+                        });
+                    }
+                }
                 for row in page_withheld {
                     if !withheld.contains(&row) {
                         withheld.push(row);
@@ -289,6 +305,25 @@ pub fn read_language(
     let mut reference = Vec::new();
     let mut seen_ref = std::collections::HashSet::new();
     for (url, s, prose, code) in units {
+        // PASS 36 (two-axis) — the knowledge axis records FIRST: a unit whose prose states a
+        // prohibition (the frozen English's positional command read, never a word list) is a
+        // FACT the docs stated, retained with its forbidding sentence and its example code
+        // whatever the enforcement stages later decide. First fact per (slug, url) wins — the
+        // violation unit precedes its fix-sibling, so the fact carries the violation's code.
+        if let Some(en) = crate::lint_english::brain() {
+            if facts.len() < MAX_FACTS && s.len() >= 2 {
+                if let Some(sentence) = forbidding_sentence(en, &prose) {
+                    if seen_facts.insert((s.clone(), url.clone())) {
+                        facts.push(crate::lint_read::ReadFact {
+                            slug: s.clone(),
+                            url: url.clone(),
+                            prose: trim_prose(&sentence),
+                            code: code.clone(),
+                        });
+                    }
+                }
+            }
+        }
         if code.len() < 3 {
             // PASS 36 — the recall census: a BLOCKLESS prohibition section (heading + forbidding
             // prose, zero example block — the MDN-eval/`flare` shape) used to vanish exactly here,
@@ -324,7 +359,7 @@ pub fn read_language(
     // the dictionary-negation cold floor (LINTER.md, "The cold floor"), which is how an
     // ungroundable language on a fresh machine mints its first overt prohibitions.
     let keep = polarity.is_ready() || polarity.reader().total_read() > 0;
-    Memory { bindings, reference, polarity: keep.then_some(polarity), pages_read, extensions, flagged, withheld }
+    Memory { bindings, reference, polarity: keep.then_some(polarity), pages_read, extensions, flagged, withheld, facts }
 }
 
 /// Ensure a SITE source's page cache exists (crawling when allowed) and return the languages
@@ -341,7 +376,7 @@ pub(crate) fn ensure_site_cache(
     };
     let mut langs: std::collections::BTreeSet<String> = Default::default();
     for page in crawled_source(src, max_pages, Some(crate::lint_train::train_version())) {
-        let (_, units, _) = read_crawled_page(&src.url, &page.url, &page.body, brain);
+        let (_, units, _, _) = read_crawled_page(&src.url, &page.url, &page.body, brain);
         let hints: Vec<String> = units.into_iter().map(|(_, _, _, h)| h).collect();
         let lang = attribute_page(&page.url, &hints, extra_langs);
         if !lang.is_empty() {
@@ -423,7 +458,7 @@ pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String>
                     .pages
                     .iter()
                     .filter_map(|p| {
-                        let (_, units, _) = read_crawled_page("", &p.url, &p.body, brain);
+                        let (_, units, _, _) = read_crawled_page("", &p.url, &p.body, brain);
                         let hints: Vec<String> =
                             units.into_iter().map(|(_, _, _, h)| h).collect();
                         let l = attribute_page(&p.url, &hints, &Default::default());
@@ -603,7 +638,7 @@ fn read_crawled_page(
     url: &str,
     body: &str,
     brain: &crate::lint_char::CharReader,
-) -> (String, Vec<(String, String, String, String)>, Vec<(String, String)>) {
+) -> (String, Vec<(String, String, String, String)>, Vec<(String, String)>, Vec<(String, String)>) {
     // Non-HTML documentation (Markdown, JSON rule data, plain text) keeps its own reading:
     // fences and JSON string leaves are the author's typography, not markup register.
     if !body.contains("</") {
@@ -611,7 +646,7 @@ fn read_crawled_page(
             .into_iter()
             .map(|(prose, code, hint)| (slug(&prose), prose, code, hint))
             .collect();
-        return (body.to_string(), units, Vec::new());
+        return (body.to_string(), units, Vec::new(), Vec::new());
     }
     let page_slug = rule_slug_under(seed_url, url);
     let dropped = crate::doc_crawler::drop_script_style(body);
@@ -625,15 +660,24 @@ fn read_crawled_page(
             (s, u.prose, u.code, u.hint)
         })
         .collect();
-    let withheld = blockless_prohibitions(&dropped, &units);
-    (crate::doc_crawler::extract_prose(body), units, withheld)
+    // PASS 36 (two-axis): each blockless prohibition section yields BOTH its named withhold row
+    // AND a read FACT `(slug, forbidding sentence)` — the knowledge axis retains what the
+    // enforcement axis cannot yet demonstrate.
+    let blockless = blockless_prohibitions(&dropped, &units);
+    let withheld = blockless
+        .iter()
+        .map(|(s, _)| (format!("read-{s}"), "read gate (blockless section — no example block)".to_string()))
+        .collect();
+    (crate::doc_crawler::extract_prose(body), units, withheld, blockless)
 }
 
-/// PASS 36 — the named withhold rows for a page's BLOCKLESS prohibition sections (module doc of
-/// [`read_crawled_page`]): an anchored section with no `<pre>` example block, no formed unit
-/// under its anchor slug, and prose that states a prohibition through the frozen English brain.
-/// Signal-gated (only a forbidding sentence records — plain furniture never bloats the ledger)
-/// and deduped by the `(id, reason)` pair; empty when no English brain is loaded.
+/// PASS 36 — a page's BLOCKLESS prohibition sections (module doc of [`read_crawled_page`]):
+/// each anchored section with no `<pre>` example block, no formed unit under its anchor slug,
+/// and prose that states a prohibition through the frozen English brain, returned as
+/// `(slug, the docs' own forbidding sentence)`. Signal-gated (only a forbidding sentence
+/// records — plain furniture never bloats the ledger), deduped by slug, sentence head-capped;
+/// empty when no English brain is loaded. The caller derives both the named withhold row and
+/// the knowledge-axis [`crate::lint_read::ReadFact`] from one entry.
 #[cfg(feature = "crawl")]
 fn blockless_prohibitions(
     dropped: &str,
@@ -648,15 +692,11 @@ fn blockless_prohibitions(
             continue;
         }
         let s = sanitize_anchor(&anchor);
-        if s.len() < 2 || unit_slugs.contains(s.as_str()) {
+        if s.len() < 2 || unit_slugs.contains(s.as_str()) || out.iter().any(|(have, _)| have == &s) {
             continue;
         }
-        if en.states_prohibition(&crate::doc_crawler::strip_tags(&region)) {
-            let row =
-                (format!("read-{s}"), "read gate (blockless section — no example block)".to_string());
-            if !out.contains(&row) {
-                out.push(row);
-            }
+        if let Some(sentence) = forbidding_sentence(en, &crate::doc_crawler::strip_tags(&region)) {
+            out.push((s, sentence));
         }
     }
     out
@@ -1063,6 +1103,25 @@ pub fn rules_from_memory(
         if !seen.insert(b.slug.clone()) {
             continue;
         }
+        // The fix-sibling is read by its INCREMENTAL prose (PASS 36): section text ACCUMULATES
+        // down the page, so a sibling's own window opens with the violation's sentence and bad
+        // code welded ahead of its "Use … instead" endorsement — read whole, its negation always
+        // outweighs half the violation's and no fix ever pairs (the measured zapcall
+        // good-contrast regression: every miner rule lost its good example and the over-general
+        // gate's remedy-demonstration rescue had nothing to read). What the docs ADDED after the
+        // violation is the sibling's own reading; an unwelded page strips nothing and reads
+        // exactly as before.
+        let residual = |nb: &crate::lint_read::Binding| -> String {
+            let mut rest = nb.prose.as_str();
+            for lead in [b.prose.as_str(), b.code.as_str()] {
+                if !lead.is_empty() {
+                    if let Some(r) = rest.strip_prefix(lead) {
+                        rest = r.trim_start();
+                    }
+                }
+            }
+            if rest.is_empty() { nb.prose.clone() } else { rest.to_string() }
+        };
         let good = memory.bindings[i + 1..]
             .iter()
             // The fix must come from the SAME section as the violation: on a single-page rule
@@ -1070,13 +1129,14 @@ pub fn rules_from_memory(
             // lint's "Use instead" block to the next lint as its good example.
             .take_while(|nb| nb.url == b.url && nb.slug == b.slug)
             .find(|nb| {
-                polarity.classify(&nb.prose) == Some(false)
+                let reading = residual(nb);
+                polarity.classify(&reading) == Some(false)
                     // Relative reading (ledger #6a, for pages): a sibling that classifies
                     // prohibition on register similarity but carries at most HALF the
                     // violation's negation is the documented fix ("Examples of correct
                     // code…" right after "Examples of incorrect code…").
-                    || (polarity.classify(&nb.prose) == Some(true)
-                        && polarity.negation_bits(&nb.prose) * 2
+                    || (polarity.classify(&reading) == Some(true)
+                        && polarity.negation_bits(&reading) * 2
                             <= polarity.negation_bits(&b.prose))
             })
             .map(|nb| nb.code.clone())
@@ -1093,7 +1153,7 @@ pub fn rules_from_memory(
                     return None;
                 }
                 let half_negated = |nb: &&crate::lint_read::Binding| {
-                    polarity.negation_bits(&nb.prose) * 2 <= polarity.negation_bits(&b.prose)
+                    polarity.negation_bits(&residual(nb)) * 2 <= polarity.negation_bits(&b.prose)
                 };
                 // The SAME-SECTION fix-sibling first (PASS 36): the section's own later
                 // binding under the violation's slug is the documented fix by the
@@ -1127,6 +1187,39 @@ pub fn rules_from_memory(
             b.url.clone(),
         ));
     }
+    // PASS 36 — BLOCKLESS SECTIONS LEARN AND FIRE (failure-ledger re-land addendum 2026-07-18;
+    // the flare hole). A blockless prohibition FACT (no example block under its anchor — the
+    // MDN-eval shape) mints a LOW-tier construct rule iff the TRIPLE CONJUNCTION holds, judged
+    // only over frozen substrates: the frozen English stated the forbidding sentence (gated at
+    // record time — the span/polarity classifier that minted the reverted 2026-07-06 lead-units
+    // junk is never consulted), the sentence names a construct common English cannot account
+    // for, and the section's own anchor slug names the same construct, uniquely
+    // ([`fact_subject`]). The rule carries the construct (a grammarless language compiles it as
+    // the one containment token), the sentence as its description, and the page as its cite; it
+    // faces every compile gate (over-general, member-typography veto, reference-fire)
+    // un-exempted.
+    for f in &memory.facts {
+        if f.code.trim().len() >= 3 || f.slug.len() < 2 || seen.contains(&f.slug) {
+            continue;
+        }
+        if !english.states_prohibition(&f.prose) {
+            continue;
+        }
+        let Some(subject) = fact_subject(english, f) else { continue };
+        seen.insert(f.slug.clone());
+        out.push((
+            LearnedRule {
+                language: lang.to_string(),
+                id: f.slug.clone(),
+                severity: "low".to_string(),
+                description: trim_prose(&f.prose),
+                bad: String::new(),
+                good: String::new(),
+                construct: Some(subject),
+            },
+            f.url.clone(),
+        ));
+    }
     (out, withheld)
 }
 
@@ -1145,6 +1238,69 @@ const MAX_READ_PAGES: usize = 50_000;
 /// (~2-3 KB per binding), sized so every real docs site's examples all bind.
 #[cfg(feature = "crawl")]
 const MAX_BINDINGS: usize = 25_000;
+
+/// Retained read FACTS per language (PASS 36, two-axis) — a runaway safety valve like
+/// [`MAX_BINDINGS`]; each fact is a head-capped sentence plus ids, so the serialized memory
+/// stays bounded on multi-GB corpora.
+#[cfg(feature = "crawl")]
+const MAX_FACTS: usize = 25_000;
+
+/// The docs' own FORBIDDING sentence within `prose` — the longest sentence the frozen English
+/// reads as a stated prohibition ([`crate::lint_english::English::sentence_states_prohibition`],
+/// the positional command read). Longest because section text welds heading and body ("Never use
+/// flare!" + the full law sentence share one region) and the fuller sentence is the one that
+/// names the law. `None` when no sentence states a prohibition — the caller records nothing.
+#[cfg(feature = "crawl")]
+fn forbidding_sentence(en: &crate::lint_english::English, prose: &str) -> Option<String> {
+    crate::lint_read::sentences(prose)
+        .iter()
+        .filter(|s| en.sentence_states_prohibition(s))
+        .max_by_key(|s| s.len())
+        .map(|s| s.trim().to_string())
+}
+
+/// The construct token a read fact GOVERNS (PASS 36, two-axis) — the join of the fact's own
+/// forbidding sentence with its section's anchor slug, decided over the frozen English:
+/// a candidate is a sentence token the slug also names that common English cannot account for
+/// (`is_common` false — the mint doctrine's own "a construct is a word English cannot commonly
+/// account for") and that is not a negation operator (the `never` in `never_use_flare`). When
+/// the fact carries example code, the candidate must appear in that code (the docs' own
+/// demonstration disambiguates `wobble` from a slug's `deprecated`). Ambiguity falls back to
+/// the one candidate the dictionary cannot define at all; still ambiguous → honest `None`.
+/// Never a token-shape enumeration — every signal is the frozen brains' own judgment.
+pub(crate) fn fact_subject(
+    en: &crate::lint_english::English,
+    f: &crate::lint_read::ReadFact,
+) -> Option<String> {
+    let slugish: std::collections::HashSet<String> = f
+        .slug
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| t.len() >= 2)
+        .map(str::to_lowercase)
+        .collect();
+    let mut cands: Vec<String> = Vec::new();
+    for t in crate::lint_read::tokens(&f.prose) {
+        if slugish.contains(&t)
+            && !en.is_common(&t)
+            && !en.is_negation(crate::lint_ai::token_seed(&t))
+            && !cands.contains(&t)
+        {
+            cands.push(t);
+        }
+    }
+    if !f.code.trim().is_empty() {
+        let code_toks: std::collections::HashSet<String> =
+            crate::lint_read::tokens(&f.code).into_iter().collect();
+        cands.retain(|c| code_toks.contains(c));
+    }
+    if cands.len() > 1 {
+        cands.retain(|c| !en.knows(c));
+    }
+    match cands.as_slice() {
+        [one] => Some(one.clone()),
+        _ => None,
+    }
+}
 
 /// The "what's normal" reference corpus — a runaway safety valve; the reference-fire and
 /// quarantine gates only get MORE accurate as this grows.
@@ -1487,7 +1643,7 @@ mod tests {
                 crate::lint_read::Binding::form("rust", url, slug, prose, code, &polarity)
             })
             .collect();
-        Memory { bindings, reference: Vec::new(), polarity: Some(polarity), pages_read: units.len(), extensions: Default::default(), flagged: Default::default(), withheld: Vec::new() }
+        Memory { bindings, reference: Vec::new(), polarity: Some(polarity), pages_read: units.len(), extensions: Default::default(), flagged: Default::default(), withheld: Vec::new(), facts: Vec::new() }
     }
 
     #[test]
@@ -1547,7 +1703,7 @@ mod tests {
             <h2 id="never_use_zap">Never use zap!</h2>
             <p>Never use a global mutable variable here. zap() is dangerous and simply wrong.</p>
         "#;
-        let (_, units, _) = read_crawled_page(
+        let (_, units, _, _) = read_crawled_page(
             "https://d/docs",
             "https://d/docs/zap",
             html,
@@ -1635,7 +1791,7 @@ mod tests {
             "<p>{}this code is incorrect and will fail:</p><pre>x = 1</pre>",
             "文".repeat(600)
         );
-        let (_, units, _) = read_crawled_page("https://d", "https://d/p", &html, &test_brain());
+        let (_, units, _, _) = read_crawled_page("https://d", "https://d/p", &html, &test_brain());
         assert!(
             units.iter().any(|(_, p, c, _)| c.contains("x = 1") && p.contains("incorrect")),
             "extraction still works around multibyte text: {:?}",
@@ -1706,7 +1862,7 @@ mod transfer_probe {
             };
             let tally = per_lang.entry(lang.to_string()).or_default();
             for page in &cached.pages {
-                let (prose, units, _) = read_crawled_page("", &page.url, &page.body, brain);
+                let (prose, units, _, _) = read_crawled_page("", &page.url, &page.body, brain);
                 crate::lint_read::tally_dotted_tokens(&prose, tally);
                 crate::lint_read::tally_name_aliases(lang, &prose, tally);
                 for (_, _, code, _) in &units {

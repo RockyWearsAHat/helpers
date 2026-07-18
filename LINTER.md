@@ -2455,6 +2455,20 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > **The law (extends PASS 31 upstream, permanent):** every fact a documentation page states either
 > becomes enforcement, or stands in the conservation ledger with a NAMED, stage-prefixed reason.
 > "Silently lost" is a failure class with a test, at EVERY stage — not only compile. One ledger:
+>
+> **Owner ruling (2026-07-18) — the two axes.** "The agent should learn everything — it never
+> disregards, because everything is at least slightly important." LEARNING and FIRING are separate
+> axes, and only the second may ever decline:
+> 1. **Knowledge axis — 100%, no exceptions.** Every authored fact enters the knowledge substrate
+>    (subject + governing prose + polarity): blockless sections, abstain-traps, member shapes,
+>    mixed-language pages — all of it. A ledger row is NEVER a reason to not-know; "withheld"
+>    vocabulary is banned from the learning path.
+> 2. **Enforcement axis — tiered, honest.** Every KNOWN fact fires at some tier (proven rule /
+>    graded LOW), or its ledger row names why a detector is unsafe (e.g. the abstain-trap whose
+>    bad/good differ inside a string literal — a token detector would flood). The ratchet's unit
+>    of progress is pushing a known fact UP a tier, never learning less.
+> The census therefore reports two lines: knowledge N/N (hard 100% gate) and the enforcement
+> partition (proven + graded + named-quiet, silent = 0).
 > pre-compile refusals funnel into the same `RuleSet::withheld` `(id, reason)` shape the compile
 > already persists and `lint_query kind=rules` already surfaces; reasons carry their stage
 > (`read gate (…)`, `chrome (…)`, `member veto (…)`, `mint gate (…)`) alongside the existing
@@ -2503,6 +2517,36 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > AND registered-language names (`extra_langs`) — and by scoping a page's read-gate withhold rows
 > to the language the page attributes to (a no-attribution page still binds to the reading
 > language: a per-language source's pages attribute to it or to nothing).
+>
+> **The two-axis implementation (2026-07-18, TRAIN_VERSION → `docs-v102-two-axis-census`):**
+> 1. **Knowledge axis — the READ-FACT surface.** The read now RETAINS every prohibition-stating
+>    unit (and every blockless prohibition section) as a `ReadFact { slug, url, governing
+>    sentence, code }` on the `Memory` — signal-gated by the frozen English (a stated
+>    prohibition, never a word list), language-scoped exactly as the withhold rows are, deduped
+>    by (slug, url), sentence head-capped (the multi-GB law). After the module compiles, the
+>    train ABSORBS every fact into the language web (`lint_web::absorb_read_facts`): a fact
+>    whose slug compiled an enforcing rule upgrades/creates a PROVEN node carrying that rule as
+>    its view; every other fact stands as (or enriches) a READ node whose `governing` carries
+>    the page's own forbidding sentence. A ledger row is never a reason to not-know: `flare`
+>    (blockless), `packvex` (abstain-trap), `grip` (member-vetoed) all answer
+>    `lint_query kind=web` with the docs' own sentence. The fact's construct is joined from the
+>    sentence ∩ the anchor slug (non-common, non-negation-operator tokens; code-restricted when
+>    the fact carries example code; unknown-to-the-dictionary preferred) — never a token-shape
+>    enumeration.
+> 2. **Enforcement axis — three census-caught defects closed.** (a) The fix-sibling pairing read
+>    the sibling's WHOLE welded prose (section text accumulates: violation sentence + bad code
+>    + "Use … instead"), so its negation always outweighed half the violation's and every miner
+>    rule lost its good example — `zapcall` then died at the over-general gate (the good-contrast
+>    rescue needs the good). Fixed: the sibling is read by its INCREMENTAL prose (its prose with
+>    the violation's own prose/code prefix stripped — what the docs ADDED after the violation);
+>    unwelded docs are byte-identical. (b) MEMBER-TYPOGRAPHY VETO at compile: a bare single-token
+>    detector is withheld when the reference corpus's own code addresses the token with dotted
+>    owner typography (`Gadget.grip(handle)` ⇒ bare `grip` names arbitrary user identifiers) —
+>    the miner-path analogue of the graduation's member veto, learned from the corpus, no shape
+>    list. (c) Blockless sections mint at the graded/LOW tier through the triple-conjunction gate
+>    (failure-ledger re-land addendum, stage 2 note) — `flare` fires citing its forbidding
+>    sentence; in a grammarless language a construct-carrying rule compiles its construct as the
+>    one containment token (`uses_construct` plans need an AST).
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
 > expected outcome and the actual outcome, both derived back into English — do they assert the
@@ -5236,7 +5280,23 @@ forces it regardless of age.
    under the current accumulation makes the classifier worse, not better, because
    clean-parsing pages' warning prose feeds the endorsement prototype. Re-land lead units
    TOGETHER WITH the per-token side-count classifier (open problems; asymmetric grounding —
-   Flagged is evidence, Clean only means "parses"), never before it. What remains landed:
+   Flagged is evidence, Clean only means "parses"), never before it.
+   **Re-land addendum (2026-07-18, PASS 36 — blockless sections LEARN AND FIRE through a
+   TIGHTER gate, not the reverted lead-units span read):** a blockless prohibition section now
+   mints a LOW-tier construct rule iff a TRIPLE CONJUNCTION holds, judged entirely over frozen
+   substrates — (1) the frozen English states a forbidding sentence in the section's own prose
+   (`English::sentence_states_prohibition`, the positional command read — the span/polarity
+   classifier that minted the 2026-07-06 junk is NEVER consulted); (2) that sentence names a
+   construct that common English cannot account for (`English::is_common` false and not a
+   negation operator — the same "a construct is a word English cannot commonly account for"
+   judgment the mint doctrine already holds; the bedrock dictionary DEFINES rare jargon-ish
+   constructs like `flare`, so definedness alone is not the cut) and the candidate is UNIQUE
+   after the joins; (3) the section's OWN anchor slug names the same construct (the author's
+   own marking). The minted rule carries `construct` (compiled to its token in grammarless
+   languages), LOW severity, the forbidding sentence as its description, and the page as its
+   cite; it faces every compile gate (over-general, member-typography veto, reference-fire)
+   un-exempted. The `flare` diversity pin flips to FIRES with the docs' own words.
+   What remains landed:
    unit-former changes poison the crawl cache by
    format marker (`UNITS_FORMAT` folded into the cached version): cached pages store formed
    units, not HTML, so a former change re-crawls rather than silently keeping old units.
