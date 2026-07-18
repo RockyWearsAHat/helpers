@@ -2489,6 +2489,20 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > the blockless fact expects its named withhold (flips to LEARNED when the per-token side-count
 > classifier lands), the abstain-trap expects abstention, the member-shape fact expects the veto's
 > named reason. Flipping an expectation from WITHHELD to LEARNED is the ratchet's unit of progress.
+>
+> **Two defects the census's first run caught, both closed (2026-07-18, byte-true replay of the
+> failing run's own hermetic env):** (1) the mixed-language page's facts ("In vex code, never use
+> the mixvex statement…") bound correctly but died SILENTLY at the miner's register gate
+> (`rules_from_memory`'s `classify != Some(true)` continue) — the cold-floor classifier reduces to
+> `sentence_states_prohibition`, and a fronted scoping adjunct defeated the two-word command lead;
+> fixed by the fronted-lead clause reading (see "Entry gates" above), which turns both the register
+> and the mint gate true on the same understanding. (2) `read_language`'s foreignness gate asked
+> ONLY the claims universe (`foreign_example`), so a brand-new language with no extension claims
+> yet was invisible to it and `/vex/…` pages minted into zim's module (and their read-gate rows
+> into zim's ledger); fixed by asking foreignness on BOTH bases attribution itself uses — claims
+> AND registered-language names (`extra_langs`) — and by scoping a page's read-gate withhold rows
+> to the language the page attributes to (a no-attribution page still binds to the reading
+> language: a per-language source's pages attribute to it or to nothing).
 
 > The referee the corroboration loop (step 3 above) stands on: given two English statements — the
 > expected outcome and the actual outcome, both derived back into English — do they assert the
@@ -5742,7 +5756,15 @@ register. The reading is `English::states_prohibition`: an `is_negation` word (t
 network's definition-COMPOUNDING judgment — a word whose own definition reaches negation; never a
 word list, never `related()` proximity, which was measured non-separating) GOVERNS the sentence,
 standing within its first two words of a sentence the author MARKED ("Never use X", "Do not call
-Y", "Deprecated: never use X"). This REPLACED the statistical `classify_tallied` escape, which
+Y", "Deprecated: never use X") — or CLAUSE-INITIAL right after a fronted lead the author set off
+with clause typography (`,`/`:`), when that lead is SHORTER than the clause it fronts ("In vex
+code, never use X" — a short scoping adjunct shifts the command point; the comparative length cut
+is the relative-reading pattern of ledger #6a, no hand constant). A corrective apposition stays
+descriptive under the same cut ("The value is a string, not a number" — the lead outweighs the
+clause), and "…, this never happens" keeps its subject before the negation (not clause-initial).
+PASS 36 landed this: the census mixed-language page's facts ("In vex code, never use the mixvex
+statement…") died SILENTLY at the miner's register gate because the cold-floor `classify` reduces
+to exactly this reading. This REPLACED the statistical `classify_tallied` escape, which
 admitted neutral/error-register reference prose as law — descriptive Rust Reference sections ("An
 array is a fixed-size sequence", "The rules for Send and Sync match those for normal struct
 types") classify as prohibition on register drift alone but command nothing, so understanding
