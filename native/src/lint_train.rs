@@ -60,7 +60,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = usize::MAX / 16;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v99-supersession-read";
+pub(crate) const TRAIN_VERSION: &str = "docs-v100-recall-census";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -176,7 +176,16 @@ impl LearnedCatalog {
 
     /// The catalog's rules and reference corpus: queried from the association memory when present
     /// (reading IS the knowledge), else the pre-extracted tuples an older module shipped.
-    fn doc_rules(&self, lang: &str, data_root: &Path) -> (Vec<DocRule>, Vec<String>, Vec<Contradiction>) {
+    ///
+    /// The final element is PASS 36's pre-compile withhold rows — the read-stage refusals the
+    /// graduation pass named ([`crate::lint_module::GraduatedModule::withheld`]), the rows the
+    /// read memory itself recorded (blockless sections), and the miner's mint-gate refusals —
+    /// for [`train_language`] to append to the compiled module's one conservation ledger.
+    fn doc_rules(
+        &self,
+        lang: &str,
+        data_root: &Path,
+    ) -> (Vec<DocRule>, Vec<String>, Vec<Contradiction>, Vec<(String, String)>) {
         match &self.memory {
             Some(memory) => {
                 // THE FLIP (2026-07-11, LINTER.md "The flip pass"): a language's MODULE rules are the
@@ -190,12 +199,19 @@ impl LearnedCatalog {
                 // so no other language's rules disappear. MEASURED 2026-07-11: javascript 5 / css 31 /
                 // html 8 flip to the proven set; typescript 1, rust 0 keep the miner. Behavioral scope,
                 // no language named. The workflow's per-language measurement is `examples/web_module_train.rs`.
-                let module = crate::lint_module::graduated_rules(lang, memory);
+                let mut module = crate::lint_module::graduated_rules(lang, memory);
                 let flip = module.rules.len() >= GRADUATED_MODULE_FLOOR;
+                // PASS 36 — the one-ledger funnel: the graduation pass's read-stage rows, the
+                // read memory's own rows (blockless sections), and — on the miner path — the
+                // mint-gate refusals, concatenated here; the ledger appender dedups on append.
+                let mut withheld = std::mem::take(&mut module.withheld);
+                withheld.extend(memory.withheld.iter().cloned());
                 let source_rules = if flip {
                     module.rules
                 } else {
-                    crate::lint_docs::rules_from_memory(lang, memory)
+                    let (mined, refusals) = crate::lint_docs::rules_from_memory(lang, memory);
+                    withheld.extend(refusals);
+                    mined
                 };
                 let mut rules: Vec<DocRule> = source_rules
                     .into_iter()
@@ -244,9 +260,9 @@ impl LearnedCatalog {
                         });
                     }
                 }
-                (rules, memory.reference.clone(), contradictions)
+                (rules, memory.reference.clone(), contradictions, withheld)
             }
-            None => (self.rules.clone(), self.reference.clone(), Vec::new()),
+            None => (self.rules.clone(), self.reference.clone(), Vec::new(), Vec::new()),
         }
     }
 }
@@ -818,7 +834,7 @@ fn train_language(
     }
     let mut freshly_trained = false;
     if module.is_none() {
-        let (doc_rules, reference, extensions, learned_from, flagged) =
+        let (doc_rules, reference, extensions, learned_from, flagged, pre_compile_withheld) =
             resolve_rules(data_root, lang, &version, &mut report);
         if learned_from == "nothing" {
             report.unlearned.push(lang.clone());
@@ -834,7 +850,15 @@ fn train_language(
                 trusted: std::collections::HashSet::new(),
                 flagged,
             };
-            let rules = RuleSet::build(lang, &tuples, &ground);
+            let mut rules = RuleSet::build(lang, &tuples, &ground);
+            // PASS 36 — THE ONE-LEDGER FUNNEL: every pre-compile refusal the read/mint stages
+            // named (grammar abstention, member veto, orphan fall-through, unspelled reference
+            // subject, blockless section, mint-gate refusal) is appended to the SAME conservation
+            // ledger the compile writes, BEFORE the module is saved — so `lint_query kind=rules`
+            // surfaces one ledger for every stage. Compile rows come first; the appender dedups.
+            for (id, reason) in &pre_compile_withheld {
+                rules.note_withheld(id, reason);
+            }
             // PASS 31 — THE CONSERVATION INVARIANT (owner ruling: understanding drives linting;
             // "proven but silently unenforced" is a failure class, not a bug to rediscover). Every
             // PROVEN construct rule must be compiled, or withheld for a NAMED, ACCEPTED reason
@@ -1268,8 +1292,13 @@ fn proven_conservation_violations(doc_rules: &[DocRule], rules: &crate::lint_mat
         gate.contains("flood-unsafe") || gate.contains("duplicate id") || gate.contains("duplicate compiled pattern")
     };
     let compiled: std::collections::HashSet<&str> = rules.rule_ids().collect();
-    let withheld: std::collections::HashMap<&str, &str> =
-        rules.withheld().iter().map(|(id, gate)| (id.as_str(), gate.as_str())).collect();
+    // First row wins per id: compile-stage rows precede the appended PASS-36 read-stage rows in
+    // the ledger, so a pre-compile withhold for the same id never shadows the compile's own
+    // accepted gate — the invariant's semantics are exactly the pre-PASS-36 ones.
+    let mut withheld: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for (id, gate) in rules.withheld() {
+        withheld.entry(id.as_str()).or_insert(gate.as_str());
+    }
     doc_rules
         .iter()
         .filter(|r| r.construct.is_some() && !r.id.starts_with("graded-"))
@@ -1653,24 +1682,27 @@ fn model_dir() -> PathBuf {
 ///      on a version bump;
 ///   4. the seed again as the offline fallback when a crawl is unavailable.
 ///
-/// Records crawl activity in `report`. Returns the rules and a short provenance label.
+/// Records crawl activity in `report`. Returns the rules and a short provenance label, plus PASS
+/// 36's pre-compile withhold rows (the read/mint-stage refusals [`LearnedCatalog::doc_rules`]
+/// collected) for [`train_language`] to append to the compiled module's conservation ledger. The
+/// snapshot/nothing arms carry no read, so their rows are empty.
 fn resolve_rules(
     data_root: &Path,
     lang: &str,
     version: &str,
     report: &mut TrainReport,
-) -> (Vec<DocRule>, Vec<String>, ExtClaims, String, std::collections::HashSet<u64>) {
+) -> (Vec<DocRule>, Vec<String>, ExtClaims, String, std::collections::HashSet<u64>, Vec<(String, String)>) {
     let refresh = std::env::var_os("HELPERS_LINT_REFRESH").is_some();
     let sources_fp = sources_fingerprint(data_root, lang);
     if !refresh {
         if let Some(cat) = load_cache(lang) {
             if cat.current(version, &sources_fp) {
-                let (rules, reference, contradictions) = cat.doc_rules(lang, data_root);
+                let (rules, reference, contradictions, withheld) = cat.doc_rules(lang, data_root);
                 if !rules.is_empty() {
                     record_contradictions(report, lang, contradictions);
                     let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
                     let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
-                    return (rules, reference, exts, format!("cache:{}", cat.learned_from), flagged);
+                    return (rules, reference, exts, format!("cache:{}", cat.learned_from), flagged, withheld);
                 }
             }
         }
@@ -1685,7 +1717,7 @@ fn resolve_rules(
     // no reference code (its caps lean on the rules' own good examples).
     let seed_current = !seed.is_empty() && (version.is_empty() || seed_version.is_empty() || seed_version == version);
     if !refresh && seed_current {
-        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default());
+        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default(), Vec::new());
     }
     // READ it ourselves from the live docs. Cache the MEMORY we read (not pre-extracted rules),
     // keyed by the toolchain version, so the next run queries the same reading and only re-reads on
@@ -1705,7 +1737,7 @@ fn resolve_rules(
             reference: Vec::new(),
             memory: Some(memory),
         };
-        let (rules, reference, contradictions) = cat.doc_rules(lang, data_root);
+        let (rules, reference, contradictions, withheld) = cat.doc_rules(lang, data_root);
         record_contradictions(report, lang, contradictions);
         // Reading IS the module (LINTER.md): a descriptive spec that yields ZERO prohibition
         // rules still delivers the reference corpus and comprehension — the language is set
@@ -1714,13 +1746,13 @@ fn resolve_rules(
         let exts = cat.memory.as_ref().map(|m| m.extensions.clone()).unwrap_or_default();
         let flagged = cat.memory.as_ref().map(|m| m.flagged.clone()).unwrap_or_default();
         save_cache(lang, &cat);
-        return (rules, reference, exts, "live docs".to_string(), flagged);
+        return (rules, reference, exts, "live docs".to_string(), flagged, withheld);
     }
     // Offline or crawl-disabled: fall back to the snapshot (stale is better than nothing).
     if !seed.is_empty() {
-        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default());
+        return (seed, Vec::new(), ExtClaims::new(), "committed snapshot".to_string(), Default::default(), Vec::new());
     }
-    (Vec::new(), Vec::new(), ExtClaims::new(), "nothing".to_string(), Default::default())
+    (Vec::new(), Vec::new(), ExtClaims::new(), "nothing".to_string(), Default::default(), Vec::new())
 }
 
 /// READ `lang`'s official language documentation into an association [`crate::lint_read::Memory`].
@@ -3020,6 +3052,7 @@ mod tests {
                 pages_read: 4,
                 flagged: [1u64, u64::MAX].into_iter().collect(),
                 extensions: [("zl".to_string(), 2u32)].into_iter().collect(),
+                withheld: vec![("read-zorkle".to_string(), "read gate (blockless section — no example block)".to_string())],
             }),
         };
         assert_round_trip(&catalog, kind::LEARNED, "LearnedCatalog");

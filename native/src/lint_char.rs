@@ -1233,9 +1233,20 @@ fn rotate_by(hv: &Hv, k: usize) -> Hv {
 /// "deprecated") — names a CONSTRUCT, the word the sentence is about that English cannot account
 /// for, and that pairing is a rule. No surprise, no threshold: comprehension decides, and a rule
 /// is a construct the docs' own words forbid.
-pub fn rules_from_understanding(lang: &str, prose: &str) -> Vec<crate::linter::LearnedRule> {
-    let Some(eng) = crate::lint_english::brain() else { return Vec::new() };
+///
+/// PASS 36 — the recall census: the understanding refusal is no longer a silent drop. A sentence
+/// that NAMES a construct-shaped subject (the signal gate — an already-formed candidate) but does
+/// not state a forbidding sentence is returned as a named withhold row
+/// `(mint-<subject>, "mint gate (no forbidding sentence)")` beside the rules — the
+/// Contradiction-return pattern — deduped by the pair, for the caller to funnel into the one
+/// conservation ledger. A sentence with no candidate subject records nothing.
+pub fn rules_from_understanding(
+    lang: &str,
+    prose: &str,
+) -> (Vec<crate::linter::LearnedRule>, Vec<(String, String)>) {
+    let Some(eng) = crate::lint_english::brain() else { return (Vec::new(), Vec::new()) };
     let mut out = Vec::new();
+    let mut withheld: Vec<(String, String)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for sentence in crate::lint_read::sentences(prose) {
         let words: Vec<String> = sentence
@@ -1243,25 +1254,35 @@ pub fn rules_from_understanding(lang: &str, prose: &str) -> Vec<crate::linter::L
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
             .filter(|w| w.len() >= 2)
             .collect();
-        // UNDERSTANDING — does this sentence STATE a prohibition (LINTER.md, "Entry gates")? A
-        // negation operator commands it ("Never use X") or a word names disapproval of the
-        // construct ("X is incorrect") — discovered from the dictionary's meaning network, never
-        // a keyword list. A negation merely buried in a description ("it is not allowed to move
-        // fields …") states nothing and is skipped.
-        if !eng.sentence_states_prohibition(sentence) {
-            continue;
-        }
         // The CONSTRUCT — the word the sentence is ABOUT that English cannot account for: a
         // dictionary non-word that is code-shaped (carries a letter). The most distinctive
         // (longest) such word is the named construct ("goto" among ordinary English).
         // MIGRATION (LINTER.md, "retiring word-level `english.knows`"): `!eng.knows` becomes
         // `!lint_graph::word_is_english(char_brain, w)` once the char brain is threaded here and
         // this test carries a meaning-bound brain — LEFT until then so understanding stays intact.
-        let Some(construct) = words
+        let candidate = words
             .iter()
             .filter(|w| !eng.knows(w) && w.chars().any(|c| c.is_alphabetic()))
-            .max_by_key(|w| w.len())
-        else {
+            .max_by_key(|w| w.len());
+        // UNDERSTANDING — does this sentence STATE a prohibition (LINTER.md, "Entry gates")? A
+        // negation operator commands it ("Never use X") or a word names disapproval of the
+        // construct ("X is incorrect") — discovered from the dictionary's meaning network, never
+        // a keyword list. A negation merely buried in a description ("it is not allowed to move
+        // fields …") states nothing and is skipped — as a NAMED withhold when a candidate
+        // subject was on the table (PASS 36, module doc above).
+        if !eng.sentence_states_prohibition(sentence) {
+            if let Some(c) = candidate {
+                let row = (
+                    format!("mint-{}", c.to_lowercase()),
+                    "mint gate (no forbidding sentence)".to_string(),
+                );
+                if !withheld.contains(&row) {
+                    withheld.push(row);
+                }
+            }
+            continue;
+        }
+        let Some(construct) = candidate else {
             continue;
         };
         let id = construct.to_lowercase();
@@ -1278,7 +1299,7 @@ pub fn rules_from_understanding(lang: &str, prose: &str) -> Vec<crate::linter::L
             construct: None,
         });
     }
-    out
+    (out, withheld)
 }
 
 // ── The cumulative global brain (setup trains it; lint loads it) ──────────────
@@ -1807,7 +1828,7 @@ mod tests {
     fn understanding_extracts_a_rule_that_fires_on_real_code() {
         let prose = "Never use the goto statement anywhere; it is deprecated and will be removed. \
                      Prefer a structured loop instead.";
-        let rules = super::rules_from_understanding("flowlang", prose);
+        let rules = super::rules_from_understanding("flowlang", prose).0;
         assert!(
             rules.iter().any(|r| r.bad == "goto"),
             "understanding names the forbidden construct: {:?}",

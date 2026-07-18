@@ -964,6 +964,13 @@ pub struct Memory {
     /// words dropped. `{extension → mention count}`; empty when the docs never name a file.
     #[serde(default)]
     pub extensions: std::collections::BTreeMap<String, u32>,
+    /// PASS 36 — the recall census: named withhold rows the READ itself recorded, `(id, stage-
+    /// prefixed reason)` — e.g. a blockless prohibition section (heading + forbidding prose, zero
+    /// example block) that could never form a binding. Deduped by the pair; ids/slugs only, never
+    /// bodies (the multi-GB corpus law). The train funnels these into the module's one conservation
+    /// ledger ([`crate::lint_match::RuleSet::withheld`]) so nothing read vanishes silently.
+    #[serde(default)]
+    pub withheld: Vec<(String, String)>,
 }
 
 /// Read a language's self-defined abbreviations out of its own prose: the parenthetical
@@ -1147,6 +1154,12 @@ impl crate::lint_codec::Bin for Memory {
         e.u(self.pages_read as u64);
         self.flagged.enc(e);
         self.extensions.enc(e);
+        // PASS 36 — the withhold ledger rides as two parallel string columns (the same unzip
+        // shape [`crate::lint_match::RuleSet`] persists); a pre-PASS-36 container simply fails
+        // this trailing read and is relearned (the TRAIN_VERSION stamp already rejects it).
+        let (ids, reasons): (Vec<String>, Vec<String>) = self.withheld.iter().cloned().unzip();
+        ids.enc(e);
+        reasons.enc(e);
     }
     fn dec(d: &mut crate::lint_codec::Dec) -> Option<Memory> {
         Some(Memory {
@@ -1156,6 +1169,14 @@ impl crate::lint_codec::Bin for Memory {
             pages_read: d.u()? as usize,
             flagged: crate::lint_codec::Bin::dec(d)?,
             extensions: crate::lint_codec::Bin::dec(d)?,
+            withheld: {
+                let ids = Vec::<String>::dec(d)?;
+                let reasons = Vec::<String>::dec(d)?;
+                if ids.len() != reasons.len() {
+                    return None;
+                }
+                ids.into_iter().zip(reasons).collect()
+            },
         })
     }
 }
@@ -1420,7 +1441,7 @@ mod tests {
             .expect("content prose binds");
         assert_eq!(b.bind, polarity.prose_hv("never do this dangerous thing").unwrap().xor(&code_hv("python", "x = [1]")),
                    "bind is prose ⊗ code");
-        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity), pages_read: 1, extensions: Default::default(), flagged: Default::default() };
+        let memory = Memory { bindings: vec![b], reference: vec!["ok = (1, 2)".into()], polarity: Some(polarity), pages_read: 1, extensions: Default::default(), flagged: Default::default(), withheld: Vec::new() };
         let json = serde_json::to_string(&memory).expect("serializes");
         let back: Memory = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back.bindings.len(), 1);

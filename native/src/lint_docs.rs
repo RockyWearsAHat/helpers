@@ -41,7 +41,7 @@ pub fn learn_from_url(lang: &str, source: &DocsSource, max_pages: usize, data_ro
     // cannot mistake a probe's slice for the whole source.
     let memory = read_language(lang, std::slice::from_ref(source), max_pages, data_root, None);
     Knowledge {
-        rules: rules_from_memory(lang, &memory).into_iter().map(|(r, _)| r).collect(),
+        rules: rules_from_memory(lang, &memory).0.into_iter().map(|(r, _)| r).collect(),
         reference: memory.reference,
     }
 }
@@ -97,11 +97,21 @@ pub fn read_language(
     let mut extra_langs: std::collections::HashSet<String> =
         crate::lint_train::registered_languages(data_root).into_iter().collect();
     extra_langs.insert(lang.to_lowercase());
+    // PASS 36 — the recall census: named withhold rows the read records (blockless prohibition
+    // sections from the unit former below, plus code-less prohibition units at the bind step),
+    // deduped by the (id, reason) pair and carried on the returned [`Memory`].
+    let mut withheld: Vec<(String, String)> = Vec::new();
     for src in sources {
         let mut src_units = Vec::new();
         let mut src_prose = Vec::new();
         for page in crawled_source(src, max_pages, cache_version) {
-            let (prose, units) = read_crawled_page(&src.url, &page.url, &page.body, brain);
+            let (prose, units, page_withheld) =
+                read_crawled_page(&src.url, &page.url, &page.body, brain);
+            for row in page_withheld {
+                if !withheld.contains(&row) {
+                    withheld.push(row);
+                }
+            }
             let hints: Vec<String> = units.iter().map(|(_, _, _, h)| h.clone()).collect();
             let page_lang = attribute_page(&page.url, &hints, &extra_langs);
             src_prose.push((page.body, prose));
@@ -264,6 +274,24 @@ pub fn read_language(
     let mut seen_ref = std::collections::HashSet::new();
     for (url, s, prose, code) in units {
         if code.len() < 3 {
+            // PASS 36 — the recall census: a BLOCKLESS prohibition section (heading + forbidding
+            // prose, zero example block — the MDN-eval/`flare` shape) used to vanish exactly here,
+            // because a unit with no code can never form a binding. It stays unmintable (LINTER.md,
+            // "A blockless section cannot teach law yet"), but the drop is now a NAMED withhold row
+            // in the read memory, funneled into the module's conservation ledger by the train.
+            // Signal-gated by the frozen English (a stated prohibition, never a word list) so
+            // ordinary lead prose records nothing; deduped by the (id, reason) pair.
+            if let Some(en) = crate::lint_english::brain() {
+                if en.states_prohibition(&prose) {
+                    let row = (
+                        format!("read-{s}"),
+                        "read gate (blockless section — no example block)".to_string(),
+                    );
+                    if !withheld.contains(&row) {
+                        withheld.push(row);
+                    }
+                }
+            }
             continue;
         }
         let is_bad = polarity.classify(&prose) == Some(true);
@@ -280,7 +308,7 @@ pub fn read_language(
     // the dictionary-negation cold floor (LINTER.md, "The cold floor"), which is how an
     // ungroundable language on a fresh machine mints its first overt prohibitions.
     let keep = polarity.is_ready() || polarity.reader().total_read() > 0;
-    Memory { bindings, reference, polarity: keep.then_some(polarity), pages_read, extensions, flagged }
+    Memory { bindings, reference, polarity: keep.then_some(polarity), pages_read, extensions, flagged, withheld }
 }
 
 /// Ensure a SITE source's page cache exists (crawling when allowed) and return the languages
@@ -297,7 +325,7 @@ pub(crate) fn ensure_site_cache(
     };
     let mut langs: std::collections::BTreeSet<String> = Default::default();
     for page in crawled_source(src, max_pages, Some(crate::lint_train::train_version())) {
-        let (_, units) = read_crawled_page(&src.url, &page.url, &page.body, brain);
+        let (_, units, _) = read_crawled_page(&src.url, &page.url, &page.body, brain);
         let hints: Vec<String> = units.into_iter().map(|(_, _, _, h)| h).collect();
         let lang = attribute_page(&page.url, &hints, extra_langs);
         if !lang.is_empty() {
@@ -379,7 +407,7 @@ pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String>
                     .pages
                     .iter()
                     .filter_map(|p| {
-                        let (_, units) = read_crawled_page("", &p.url, &p.body, brain);
+                        let (_, units, _) = read_crawled_page("", &p.url, &p.body, brain);
                         let hints: Vec<String> =
                             units.into_iter().map(|(_, _, _, h)| h).collect();
                         let l = attribute_page(&p.url, &hints, &Default::default());
@@ -538,7 +566,7 @@ fn attribute_page(
     String::new()
 }
 
-/// READ one cached raw page into `(page prose, units)` — units as
+/// READ one cached raw page into `(page prose, units, withheld)` — units as
 /// `(slug, governing prose, code, language hint)`. This is the whole read-time unit former
 /// (LINTER.md, "Reading a page is UNDERSTANDING"): fetch furniture is dropped, then the char
 /// substrate's page reading ([`crate::lint_graph::read_page`]) forms units — code is what the
@@ -546,14 +574,20 @@ fn attribute_page(
 /// and title-shaped gaps, and no tag name is ever consulted. Slugs come from
 /// author marks (a per-rule URL slug, the nearest `id="…"` anchor) with the prose itself as
 /// the last resort, exactly as before. Blockless sections still form NO units (LINTER.md,
-/// "A blockless section cannot teach law yet").
+/// "A blockless section cannot teach law yet") — but PASS 36 (the recall census) makes that
+/// pinned hole a NAMED drop instead of a silent one: this is exactly where the `flare` shape
+/// (heading + forbidding prose, zero `<pre>` example block) used to vanish, so each anchored
+/// section whose prose STATES a prohibition (the frozen English — the signal gate), carries no
+/// example block, and formed no unit is returned as a withhold row
+/// `(read-<anchor-slug>, "read gate (blockless section — no example block)")`, deduped, for the
+/// read memory to carry into the module's one conservation ledger. Ids/slugs only, never bodies.
 #[cfg(feature = "crawl")]
 fn read_crawled_page(
     seed_url: &str,
     url: &str,
     body: &str,
     brain: &crate::lint_char::CharReader,
-) -> (String, Vec<(String, String, String, String)>) {
+) -> (String, Vec<(String, String, String, String)>, Vec<(String, String)>) {
     // Non-HTML documentation (Markdown, JSON rule data, plain text) keeps its own reading:
     // fences and JSON string leaves are the author's typography, not markup register.
     if !body.contains("</") {
@@ -561,11 +595,11 @@ fn read_crawled_page(
             .into_iter()
             .map(|(prose, code, hint)| (slug(&prose), prose, code, hint))
             .collect();
-        return (body.to_string(), units);
+        return (body.to_string(), units, Vec::new());
     }
     let page_slug = rule_slug_under(seed_url, url);
     let dropped = crate::doc_crawler::drop_script_style(body);
-    let units = crate::lint_graph::read_page(&dropped, brain)
+    let units: Vec<(String, String, String, String)> = crate::lint_graph::read_page(&dropped, brain)
         .into_iter()
         .map(|u| {
             let s = page_slug
@@ -575,7 +609,41 @@ fn read_crawled_page(
             (s, u.prose, u.code, u.hint)
         })
         .collect();
-    (crate::doc_crawler::extract_prose(body), units)
+    let withheld = blockless_prohibitions(&dropped, &units);
+    (crate::doc_crawler::extract_prose(body), units, withheld)
+}
+
+/// PASS 36 — the named withhold rows for a page's BLOCKLESS prohibition sections (module doc of
+/// [`read_crawled_page`]): an anchored section with no `<pre>` example block, no formed unit
+/// under its anchor slug, and prose that states a prohibition through the frozen English brain.
+/// Signal-gated (only a forbidding sentence records — plain furniture never bloats the ledger)
+/// and deduped by the `(id, reason)` pair; empty when no English brain is loaded.
+#[cfg(feature = "crawl")]
+fn blockless_prohibitions(
+    dropped: &str,
+    units: &[(String, String, String, String)],
+) -> Vec<(String, String)> {
+    let Some(en) = crate::lint_english::brain() else { return Vec::new() };
+    let unit_slugs: std::collections::HashSet<&str> =
+        units.iter().map(|(s, _, _, _)| s.as_str()).collect();
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (anchor, region) in crate::lint_html_layer::sections(dropped) {
+        if anchor.is_empty() || region.contains("<pre") {
+            continue;
+        }
+        let s = sanitize_anchor(&anchor);
+        if s.len() < 2 || unit_slugs.contains(s.as_str()) {
+            continue;
+        }
+        if en.states_prohibition(&crate::doc_crawler::strip_tags(&region)) {
+            let row =
+                (format!("read-{s}"), "read gate (blockless section — no example block)".to_string());
+            if !out.contains(&row) {
+                out.push(row);
+            }
+        }
+    }
+    out
 }
 
 /// The pages of one documentation source: from the per-source cache
@@ -917,10 +985,20 @@ fn transferred_polarity() -> Option<std::sync::Arc<crate::lint_read::Polarity>> 
 /// reference prose as law: descriptive Rust Reference sections ("An array is a fixed-size
 /// sequence", "The rules for Send and Sync match those for normal struct types") classify as
 /// prohibition on register drift alone but state no prohibition, so understanding refuses them.
-pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, String)> {
-    let Some(polarity) = &memory.polarity else { return Vec::new() };
-    let Some(english) = crate::lint_english::brain() else { return Vec::new() };
+///
+/// PASS 36 — the recall census: the understanding refusal is no longer a silent drop. A binding
+/// the classifier reads in prohibition REGISTER (the signal gate) that states no forbidding
+/// sentence is returned as a named withhold row `(mint-<slug>, "mint gate (no forbidding
+/// sentence)")` beside the rules — the Contradiction-return pattern — deduped by the pair, for
+/// the train to funnel into the module's one conservation ledger.
+pub fn rules_from_memory(
+    lang: &str,
+    memory: &Memory,
+) -> (Vec<(LearnedRule, String)>, Vec<(String, String)>) {
+    let Some(polarity) = &memory.polarity else { return (Vec::new(), Vec::new()) };
+    let Some(english) = crate::lint_english::brain() else { return (Vec::new(), Vec::new()) };
     let mut out = Vec::new();
+    let mut withheld: Vec<(String, String)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for (i, b) in memory.bindings.iter().enumerate() {
         if b.slug.len() < 2 || polarity.classify(&b.prose) != Some(true) {
@@ -936,6 +1014,10 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
         // detector junk, so the hard gate is kept; the PROPOSE-VERIFY-LEARN path fires on the
         // bindings that DO command a prohibition, e.g. "Never use `var`".)
         if !english.states_prohibition(&b.prose) {
+            let row = (format!("mint-{}", b.slug), "mint gate (no forbidding sentence)".to_string());
+            if !withheld.contains(&row) {
+                withheld.push(row);
+            }
             continue;
         }
         if !seen.insert(b.slug.clone()) {
@@ -996,7 +1078,7 @@ pub fn rules_from_memory(lang: &str, memory: &Memory) -> Vec<(LearnedRule, Strin
             b.url.clone(),
         ));
     }
-    out
+    (out, withheld)
 }
 
 /// Grounding probes per crawl — a runaway safety valve, not a working limit (LINTER.md: the
@@ -1335,7 +1417,7 @@ mod tests {
                 crate::lint_read::Binding::form("rust", url, slug, prose, code, &polarity)
             })
             .collect();
-        Memory { bindings, reference: Vec::new(), polarity: Some(polarity), pages_read: units.len(), extensions: Default::default(), flagged: Default::default() }
+        Memory { bindings, reference: Vec::new(), polarity: Some(polarity), pages_read: units.len(), extensions: Default::default(), flagged: Default::default(), withheld: Vec::new() }
     }
 
     #[test]
@@ -1345,7 +1427,7 @@ mod tests {
             ("https://d/rules/r1", "r1", "Prefer iterating directly instead", "for x in xs {}"),
             ("https://d/rules/r2", "r2", "The language has three built-in numeric widths", "let y = 1;"),
         ]);
-        let rules = rules_from_memory("rust", &memory);
+        let rules = rules_from_memory("rust", &memory).0;
         assert_eq!(rules.len(), 1, "only the prohibition binding becomes a rule");
         let (rule, url) = &rules[0];
         assert_eq!(url, "https://d/rules/r1", "the rule cites the page it was read from");
@@ -1395,7 +1477,7 @@ mod tests {
             <h2 id="never_use_zap">Never use zap!</h2>
             <p>Never use a global mutable variable here. zap() is dangerous and simply wrong.</p>
         "#;
-        let (_, units) = read_crawled_page(
+        let (_, units, _) = read_crawled_page(
             "https://d/docs",
             "https://d/docs/zap",
             html,
@@ -1420,7 +1502,7 @@ mod tests {
         // No toolchain grounded the language ⇒ no polarity ⇒ no rule is invented from the memory.
         let mut memory = memory_from(&[("https://d/r", "r", "this code is incorrect and will fail", "x = [1]")]);
         memory.polarity = None;
-        assert!(rules_from_memory("rust", &memory).is_empty(), "ungrounded memory yields no rules");
+        assert!(rules_from_memory("rust", &memory).0.is_empty(), "ungrounded memory yields no rules");
     }
 
     #[test]
@@ -1432,7 +1514,7 @@ mod tests {
             ("https://d/rules/hd", "hd", "the program prints the following output", "// map[Etag]"),
             ("https://d/rules/other", "other", "this is the correct and idiomatic form", "ok()"),
         ]);
-        let rules = rules_from_memory("go", &memory);
+        let rules = rules_from_memory("go", &memory).0;
         assert_eq!(rules.len(), 1);
         assert!(rules[0].0.good.is_empty(), "no same-page fix ⇒ empty good, got: {:?}", rules[0].0.good);
     }
@@ -1446,7 +1528,7 @@ mod tests {
             ("https://d/rules/xi", "xi", "the program prints the following output", "panic!"),
             ("https://d/rules/xi", "xi", "Prefer this correct idiomatic form instead", "xs.last()"),
         ]);
-        let rules = rules_from_memory("go", &memory);
+        let rules = rules_from_memory("go", &memory).0;
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].0.good, "xs.last()", "the page's own fix is found past the neutral block");
     }
@@ -1483,7 +1565,7 @@ mod tests {
             "<p>{}this code is incorrect and will fail:</p><pre>x = 1</pre>",
             "文".repeat(600)
         );
-        let (_, units) = read_crawled_page("https://d", "https://d/p", &html, &test_brain());
+        let (_, units, _) = read_crawled_page("https://d", "https://d/p", &html, &test_brain());
         assert!(
             units.iter().any(|(_, p, c, _)| c.contains("x = 1") && p.contains("incorrect")),
             "extraction still works around multibyte text: {:?}",
@@ -1554,7 +1636,7 @@ mod transfer_probe {
             };
             let tally = per_lang.entry(lang.to_string()).or_default();
             for page in &cached.pages {
-                let (prose, units) = read_crawled_page("", &page.url, &page.body, brain);
+                let (prose, units, _) = read_crawled_page("", &page.url, &page.body, brain);
                 crate::lint_read::tally_dotted_tokens(&prose, tally);
                 crate::lint_read::tally_name_aliases(lang, &prose, tally);
                 for (_, _, code, _) in &units {
