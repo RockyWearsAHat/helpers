@@ -111,15 +111,22 @@ impl English {
     /// list) stands within its first [`COMMAND_LEAD_WORDS`] words, and the sentence is one the
     /// author MARKED (an uppercase or non-alphabetic first letter — a lowercase-led run is a
     /// window fragment, not a sentence). This is the imperative reading the learned-rule entry
-    /// gate mints through ("Never use X", "Do not call Y", "Deprecated: never use X"). A negation
-    /// used DESCRIPTIVELY rather than to command — buried mid-sentence ("…it is not allowed to
-    /// move fields…") or a factual adverb ("this representation never includes a CR") — governs
-    /// nothing and states no prohibition (LINTER.md, "Entry gates"). Position, not a word list,
-    /// is the only signal that separates a commanding negation from a descriptive one; the
-    /// meaning network cannot tell "Never use X" from "X never includes Y" by the word alone.
+    /// gate mints through ("Never use X", "Do not call Y", "Deprecated: never use X"). A fronted
+    /// lead the author set off with clause typography (`,`/`:`) shifts the command point when it
+    /// is SHORTER than the clause it fronts ("In vex code, never use X" — a scoping adjunct, and
+    /// the negation still leads its clause; the comparative cut is the relative-reading pattern,
+    /// no hand constant): PASS 36's mixed-language page facts died silently without this reading
+    /// (LINTER.md, "Entry gates"). A negation used DESCRIPTIVELY rather than to command — buried
+    /// mid-sentence ("…it is not allowed to move fields…"), a factual adverb ("this
+    /// representation never includes a CR"), a corrective apposition whose lead outweighs it
+    /// ("The value is a string, not a number"), or one with its subject still ahead of it
+    /// ("By default, this never happens") — governs nothing and states no prohibition. Position,
+    /// not a word list, is the only signal that separates a commanding negation from a
+    /// descriptive one; the meaning network cannot tell "Never use X" from "X never includes Y"
+    /// by the word alone.
     pub fn sentence_states_prohibition(&self, sentence: &str) -> bool {
-        let mut words = sentence.split_whitespace();
-        let Some(first) = words.next() else { return false };
+        let words: Vec<&str> = sentence.split_whitespace().collect();
+        let Some(first) = words.first() else { return false };
         let marked = first
             .chars()
             .find(|c| c.is_alphanumeric())
@@ -127,13 +134,18 @@ impl English {
         if !marked && first.chars().any(|c| c.is_lowercase()) {
             return false;
         }
-        std::iter::once(first)
-            .chain(words)
-            .take(COMMAND_LEAD_WORDS)
-            .any(|w| {
-                let t = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-                !t.is_empty() && self.is_negation(crate::lint_ai::token_seed(&t))
-            })
+        let negates = |w: &str| {
+            let t = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+            !t.is_empty() && self.is_negation(crate::lint_ai::token_seed(&t))
+        };
+        if words.iter().take(COMMAND_LEAD_WORDS).any(|w| negates(w)) {
+            return true;
+        }
+        // The fronted-lead reading: the negation stands clause-INITIAL right after a `,`/`:`
+        // mark, and the lead before that mark is shorter than the clause the negation commands.
+        words.iter().enumerate().skip(1).any(|(at, w)| {
+            words[at - 1].ends_with([',', ':']) && at < words.len() - at && negates(w)
+        })
     }
 
     /// Whether SOME sentence of `prose` states a prohibition ([`sentence_states_prohibition`]) —
@@ -692,5 +704,19 @@ mod tests {
         assert!(eng.sentence_states_prohibition("Do not swallow the error."));
         assert!(!eng.sentence_states_prohibition("The representation never includes a trailing CR."));
         assert!(!eng.sentence_states_prohibition("It is not allowed to move fields out of a reference."));
+    }
+
+    /// The fronted-lead reading (PASS 36): a short scoping adjunct set off with clause typography
+    /// shifts the command point — the negation still governs when it leads its clause and the
+    /// lead is shorter than the clause it fronts. A corrective apposition (lead outweighs the
+    /// clause) and a clause whose subject still precedes its negation stay descriptive.
+    #[test]
+    fn fronted_lead_shifts_the_command_point() {
+        let eng = bootstrap();
+        assert!(eng.sentence_states_prohibition(
+            "In vex code, never use the mixvex statement anywhere"
+        ));
+        assert!(!eng.sentence_states_prohibition("The value is a string, not a number."));
+        assert!(!eng.sentence_states_prohibition("By default, this never happens in modern engines."));
     }
 }

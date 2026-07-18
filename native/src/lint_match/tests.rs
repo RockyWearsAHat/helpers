@@ -351,15 +351,17 @@ fn over_general_single_token_from_a_reference_section_is_dropped() {
     // The junk-doc-rule FP class (LINTER.md "Entry gates"): a descriptive REFERENCE section that
     // states no prohibition — and, in the real hole, is read with no ready classifier — can leak a
     // single-token detector on a token that is UBIQUITOUS in the language's own normal code (a
-    // `usize`/`use` keyword or type). That is over-general and must be dropped: it fires on normal
-    // code everywhere and marks no violation. The signal is the LANGUAGE'S OWN reference corpus,
-    // never an enumerated keyword list.
+    // `usize`/`use` keyword or type). Such a section shows only usage snippets — it carries NO good
+    // counterpart (that absence IS the PASS-36 good-contrast discriminator; a rule WITH a
+    // token-dropping remedy is `corpus_ubiquity_reads_the_good_contrast`). It is over-general and
+    // must be dropped: it fires on normal code everywhere and marks no violation. The signal is
+    // the LANGUAGE'S OWN reference corpus, never an enumerated keyword list.
     let reference: Vec<String> =
         std::iter::repeat("let a = widget(x);\nlet b = widget(y);\nlet c = plain(z);".to_string())
             .take(4)
             .collect();
     let ground = Grounding { reference, ..Default::default() };
-    let leaked = [rule("ref_section", "row = widget(1)", "row = gadget(1)", "xyzzy qwerty plugh zork.")];
+    let leaked = [rule("ref_section", "widget(1)", "", "xyzzy qwerty plugh zork.")];
     let set = RuleSet::build("qlang", &leaked, &ground);
     assert_eq!(
         set.rule_count(),
@@ -374,6 +376,61 @@ fn over_general_single_token_from_a_reference_section_is_dropped() {
         RuleSet::build("qlang", &rare, &ground).rule_count(),
         1,
         "a rare token is a pointable construct and must survive"
+    );
+}
+
+#[test]
+fn corpus_ubiquity_reads_the_good_contrast() {
+    // PASS 36 — the GOOD-CONTRAST discriminator on the corpus-ubiquity arm (the remedy-
+    // demonstration doctrine of `lint_module::is_prohibited_subject`): docs teach a banned
+    // construct USING it, so its own reference corpus is saturated with it — corpus ubiquity
+    // alone cannot veto a rule whose good example DROPS the token (the docs demonstrate the
+    // remedy replacing it). A good example that still USES the token demonstrates acceptable
+    // uses — a CONTEXTUAL rule, withheld under its own named reason.
+    let reference: Vec<String> =
+        std::iter::repeat("total = frob(x)\nother = frob(y)\nplain = calc(z)".to_string())
+            .take(4)
+            .collect();
+    let ground = Grounding {
+        reference,
+        polarity: Some(std::sync::Arc::new(polarity())),
+        ..Default::default()
+    };
+    // Remedy arm: the good form drops `frob` → the ubiquity is the teaching corpus, not normal
+    // use — the rule compiles and fires.
+    let banned = [rule(
+        "no_frob",
+        "total = frob(1)",
+        "total = safecalc(1)",
+        "Never call `frob` anywhere; it is dangerous and forbidden.",
+    )];
+    let set = RuleSet::build("qlang", &banned, &ground);
+    assert_eq!(
+        set.rule_count(),
+        1,
+        "a corpus-ubiquitous token with a token-dropping remedy is a real ban: {:?}",
+        set.withheld
+    );
+    assert_eq!(lines_for(&set.flag("x = frob(s)"), "no_frob"), vec![1]);
+    // Contextual arm: the good form still uses `frob` → the docs demonstrate acceptable uses,
+    // not a replacement — withheld under the distinct named reason (the census's stable
+    // "over-general single token" core survives as the prefix).
+    let contextual = [rule(
+        "frob_trailing",
+        "total = frob(1)",
+        "total = frob(2)",
+        "Never call `frob` carelessly; it is dangerous and forbidden.",
+    )];
+    let set = RuleSet::build("qlang", &contextual, &ground);
+    assert_eq!(set.rule_count(), 0, "a contextual rule must not fire on every use");
+    assert!(
+        set.withheld.iter().any(|(id, r)| {
+            id == "frob_trailing"
+                && r.contains("over-general single token")
+                && r.contains("contextual")
+        }),
+        "the contextual drop is a NAMED ledger row: {:?}",
+        set.withheld
     );
 }
 

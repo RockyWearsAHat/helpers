@@ -101,19 +101,26 @@ pub fn read_language(
     // sections from the unit former below, plus code-less prohibition units at the bind step),
     // deduped by the (id, reason) pair and carried on the returned [`Memory`].
     let mut withheld: Vec<(String, String)> = Vec::new();
+    let lang_lc = lang.to_lowercase();
     for src in sources {
         let mut src_units = Vec::new();
         let mut src_prose = Vec::new();
         for page in crawled_source(src, max_pages, cache_version) {
             let (prose, units, page_withheld) =
                 read_crawled_page(&src.url, &page.url, &page.body, brain);
-            for row in page_withheld {
-                if !withheld.contains(&row) {
-                    withheld.push(row);
-                }
-            }
             let hints: Vec<String> = units.iter().map(|(_, _, _, h)| h.clone()).collect();
             let page_lang = attribute_page(&page.url, &hints, &extra_langs);
+            // A page that positively attributes to ANOTHER language keeps its read-gate rows
+            // in ITS OWN language's ledger (the orphan-arm cross-language leak doctrine —
+            // PASS 36: zim's ledger must not carry `/vex/…` pages' rows). A page attributed
+            // to this language or to nothing records here.
+            if page_lang.is_empty() || page_lang == lang_lc {
+                for row in page_withheld {
+                    if !withheld.contains(&row) {
+                        withheld.push(row);
+                    }
+                }
+            }
             src_prose.push((page.body, prose));
             for (s, prose, code, hint) in units {
                 // Ledger #18 + "A site is a source": a block's own label wins; an unlabeled
@@ -122,9 +129,18 @@ pub fn read_language(
                 // attributed page's unlabeled blocks while training javascript) is
                 // prose-only here — it never binds, never grounds a polarity label, never
                 // enters this language's reference corpus. The page's prose was already
-                // read above.
+                // read above. Foreignness is asked on BOTH bases attribution itself uses:
+                // the claims universe (`foreign_example`) AND the registered-language names
+                // (`extra_langs`) — a brand-new language's docs carry no extension claims
+                // yet, and the claims-only gate let `/vex/…` pages mint into zim's module
+                // (the PASS 36 census cross-contamination defect). A page attributing to
+                // NOTHING still binds to the reading language — a per-language source's
+                // pages attribute to it or to nothing (LINTER.md, "A site is a source").
                 let effective = if hint.is_empty() { page_lang.clone() } else { hint };
-                if crate::lint_train::foreign_example(lang, &effective) {
+                let named = effective.trim().to_lowercase();
+                if crate::lint_train::foreign_example(lang, &effective)
+                    || (named != lang_lc && extra_langs.contains(&named))
+                {
                     continue;
                 }
                 src_units.push((page.url.clone(), s, prose, code));
@@ -860,6 +876,30 @@ pub(crate) fn site_corpus(_data_root: &Path, _lang: &str) -> Vec<(String, String
     Vec::new()
 }
 
+/// The page URLs `lang`'s OWN registered sources/tools crawled — the LEDGER-OWNERSHIP set beside
+/// [`site_corpus`] (PASS 36). The pooled whole-site corpus is shared by every language of a host,
+/// so a read-stage withhold row recorded over it would land in EVERY registered language's ledger;
+/// ownership scopes those rows to the one language whose source actually fetched the page. The
+/// authority is on disk: each source's per-tool crawl cache ([`crawl_cache_path`]), enumerated
+/// through the one source-resolution seam ([`crate::lint_train::resolved_sources`]). A pure cache
+/// read — never crawls. Learning and the grammar partition stay whole-corpus; ONLY ledger rows are
+/// scoped by this set.
+#[cfg(feature = "crawl")]
+pub(crate) fn owned_urls(data_root: &Path, lang: &str) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for src in crate::lint_train::resolved_sources(data_root, lang) {
+        if let Some(cache) = read_crawl_cache(&crawl_cache_path(&src.tool)) {
+            out.extend(cache.pages.into_iter().map(|p| p.url));
+        }
+    }
+    out
+}
+
+#[cfg(not(feature = "crawl"))]
+pub(crate) fn owned_urls(_data_root: &Path, _lang: &str) -> std::collections::HashSet<String> {
+    Default::default()
+}
+
 // ── Polarity transfer (grounded knowledge is shared across languages) ─────────
 
 /// Where the best grounded classifier lives for cross-language transfer
@@ -1042,24 +1082,33 @@ pub fn rules_from_memory(
             .map(|nb| nb.code.clone())
             // words → sentences → ORDER (LINTER.md): endorsement needs grounding only
             // reality can give, so an UNREADY classifier cannot find the fix by reading —
-            // there, the section's IMMEDIATELY next non-violation block is the fix by the
-            // document-order convention (violation first, fix after). A ready classifier
-            // never guesses by position (neutral output dumps are skipped, never paired).
+            // there, document order is the convention (violation first, fix after). The
+            // reading is RELATIVE either way: the fix must read at most half as negated as
+            // the violation — a neighboring rule's own "Never …" block reads comparably
+            // negated and is excluded, while litotes vocabulary in a genuine fix ("the
+            // plain form") is not. A ready classifier never guesses by position (neutral
+            // output dumps are skipped, never paired).
             .or_else(|| {
                 if polarity.is_ready() {
                     return None;
                 }
+                let half_negated = |nb: &&crate::lint_read::Binding| {
+                    polarity.negation_bits(&nb.prose) * 2 <= polarity.negation_bits(&b.prose)
+                };
+                // The SAME-SECTION fix-sibling first (PASS 36): the section's own later
+                // binding under the violation's slug is the documented fix by the
+                // fix-sibling convention, even when another block sits between them.
                 memory.bindings[i + 1..]
-                    .first()
-                    // Same PAGE is the cold pairing scope (an anchorless page's slugs are
-                    // prose-derived, never equal), and the reading is RELATIVE: the fix must
-                    // read at most half as negated as the violation — a neighboring rule's
-                    // own "Never …" block reads comparably negated and is excluded, while
-                    // litotes vocabulary in a genuine fix ("the plain form") is not.
-                    .filter(|nb| {
-                        nb.url == b.url
-                            && polarity.negation_bits(&nb.prose) * 2
-                                <= polarity.negation_bits(&b.prose)
+                    .iter()
+                    .take_while(|nb| nb.url == b.url && nb.slug == b.slug)
+                    .find(half_negated)
+                    // Same PAGE is the anchorless cold scope (an anchorless page's slugs
+                    // are prose-derived, never equal), and only the IMMEDIATELY next block
+                    // can be the fix there.
+                    .or_else(|| {
+                        memory.bindings[i + 1..]
+                            .first()
+                            .filter(|nb| nb.url == b.url && half_negated(nb))
                     })
                     .map(|nb| nb.code.clone())
             })
@@ -1374,6 +1423,27 @@ pub fn add_docs_source(lang: &str, url: &str) -> DocsSource {
 mod tests {
     use super::*;
     use crate::lint_read::Polarity;
+
+    /// PASS 36 — F2: a COLD classifier (unready — a language with no toolchain grounding) pairs
+    /// the fix by the fix-sibling convention over the SAME SECTION: the violation's own slug
+    /// scope is searched for the half-negated fix, not just the immediately-next binding (whose
+    /// own warning register used to leave `good` empty and the census rule contrast-blind).
+    #[test]
+    fn cold_pairing_finds_the_fix_sibling_within_the_sections_slug_scope() {
+        let mut memory = memory_from(&[
+            ("https://d/rules/zap", "never_use_zap", "Never use the zap statement anywhere; it is deprecated and will be removed.", "zap(payload)"),
+            ("https://d/rules/zap", "never_use_zap", "Never disable the zap guard either; doing that is wrong.", "zap_guard(off)"),
+            ("https://d/rules/zap", "never_use_zap", "Use a structured call instead; this is the correct form:", "safecall(payload)"),
+        ]);
+        // Strip the classifier down to COLD (unready): no prototypes, only the negation floor.
+        memory.polarity = Some(Polarity::from_labeled(&[]));
+        let rules = rules_from_memory("vexlang", &memory).0;
+        assert_eq!(rules.len(), 1, "the cold floor still mints the overt prohibition");
+        assert_eq!(
+            rules[0].0.good, "safecall(payload)",
+            "the same-section fix sibling is the good, found past the sibling warning block"
+        );
+    }
 
     /// A polarity classifier LEARNED from labeled prose (no keyword table) — the offline stand-in for
     /// the read + toolchain-grounded classifier the live crawl builds. Each prohibition/endorsement
