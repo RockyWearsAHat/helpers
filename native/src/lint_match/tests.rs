@@ -790,3 +790,44 @@ fn proven_construct_rules_survive_the_entry_gate_with_fact_rendered_descriptions
         "a rule whose sentence already states the prohibition is untouched"
     );
 }
+
+// ── PASS 37 — the attribute dimension: tag-scoped pairs and the construct token form ─────────
+
+/// The `host@attr` construct compiles (grammarless) to the tag-scoped ordered pair, and every
+/// other construct to its own single containment token — one shared form for compile and the
+/// train-time demonstration gate.
+#[test]
+fn construct_tokens_shape_attribute_pairs_and_pass_others_through() {
+    assert_eq!(super::construct_tokens("panel@glow"), vec!["<panel".to_string(), "glow".to_string()]);
+    // An element construct is the TAG-OPEN token: `<blorb>` must fire `<blorb class="x">` too
+    // (the literal `<blorb>` token only matched an attribute-less tag — measured census miss).
+    assert_eq!(super::construct_tokens("<blorb>"), vec!["<blorb".to_string()]);
+    assert!(super::containment_fires(r#"<blorb class="old">x</blorb>"#, &super::construct_tokens("<blorb>")));
+    assert!(!super::containment_fires(r#"<section blorb="on">x</section>"#, &super::construct_tokens("<blorb>")));
+    assert_eq!(super::construct_tokens("@media"), vec!["@media".to_string()], "an at-rule never splits");
+    assert_eq!(super::construct_tokens("Owner.grip"), vec!["owner.grip".to_string()], "lowercased for the matcher");
+}
+
+/// The TAG-OPEN SPAN law (PASS 37): a `<`-leading pair token scopes its successors to the same
+/// `< … >` span — the attribute fires inside its own host's tag open, never on another host's
+/// attribute or across two tags on one line; the anchor retries later tag opens.
+#[test]
+fn tag_scoped_pair_fires_only_inside_its_own_hosts_tag_open() {
+    let pair = vec!["<panel".to_string(), "glow".to_string()];
+    let fires = |text: &str| super::containment_fires(text, &pair);
+    assert!(fires(r#"<panel glow="soft">Dial</panel>"#), "the attribute inside its host's tag open");
+    assert!(!fires(r#"<label glow="dim">Lamp</label>"#), "a different host never fires");
+    assert!(!fires(r#"<panel shine="high">glow</panel>"#), "the word OUTSIDE the tag open never fires");
+    assert!(
+        !fires(r#"<panel shine="x"> <label glow="y">"#),
+        "two tags on one line: the span law separates them"
+    );
+    assert!(
+        fires(r#"<panel shine="x"> <panel glow="y">"#),
+        "the anchor retries the LATER tag open of the same host"
+    );
+    // Unscoped pairs are byte-identical to the old sequential walk.
+    let plain = vec!["goto".to_string(), "cleanup".to_string()];
+    assert!(super::containment_fires("goto cleanup;", &plain));
+    assert!(!super::containment_fires("cleanup goto;", &plain));
+}

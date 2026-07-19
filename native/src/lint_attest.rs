@@ -393,6 +393,28 @@ pub fn attests_module_removal(body: &str) -> bool {
     false
 }
 
+/// Whether `fragment` (any HTML region — a whole page, one `<dt>` entry, a heading tag) carries a
+/// class attribute value that, split on whitespace AND hyphen, contains a PROHIBITION status token
+/// (`deprecation-status.json` → `prohibits` — the same one hand datum every attestation route joins).
+/// This is the [`attests_module_removal`] split precedent applied to the prohibition family alone: the
+/// author's compound status typography (`icon icon-deprecated`) joins by DATA, never by an icon or
+/// class list. PASS 37 — the per-attribute badge attester reads a definition-term entry through this.
+/// `false` when the datum is absent (honest abstention).
+pub fn class_carries_prohibition(fragment: &str) -> bool {
+    let prohibit = prohibition_values();
+    if prohibit.is_empty() {
+        return false;
+    }
+    let prohibit: HashSet<&str> = prohibit.iter().map(String::as_str).collect();
+    for value in class_values(fragment) {
+        let value = value.to_lowercase();
+        if value.split([' ', '\t', '\n', '-']).any(|t| prohibit.contains(t)) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Map every markdown frontmatter block-sequence ENUM value to the set of page slugs carrying it, across
 /// the registered markdown corpora. Cached per process (the corpus is fixed during a run). This is how the
 /// `status` enum is discovered WITHOUT naming it: any top-level key whose value is a YAML block sequence
@@ -575,6 +597,17 @@ mod tests {
         // A lone `removed` with no prohibition token, or the word in prose, does not attest either.
         assert!(!attests_module_removal("<div class=\"removed\">gone</div>"));
         assert!(!attests_module_removal("the module was deprecated and removed in prose only"));
+    }
+
+    #[test]
+    fn class_prohibition_join_reads_hyphen_compounds_never_prose() {
+        // PASS 37 — the badge attester's data join: a class value carrying the prohibition token
+        // as a whitespace- OR hyphen-split part joins (`icon icon-deprecated`); the word in prose
+        // or in a non-class attribute never does. Reads the real embedded datum (`prohibits`).
+        assert!(class_carries_prohibition("<abbr class=\"icon icon-deprecated\" title=\"x\">"));
+        assert!(class_carries_prohibition("<div class='deprecated'>note</div>"));
+        assert!(!class_carries_prohibition("<div class=\"stable icon\">deprecated in prose</div>"));
+        assert!(!class_carries_prohibition("the word deprecated with no class attribute at all"));
     }
 
     #[test]

@@ -368,6 +368,223 @@ fn paragraphs(region: &str) -> Vec<String> {
     out
 }
 
+// ── PASS 37 — the attribute dimension: three attestation SHAPES the reader learns ────────────────
+//
+// Contract: LINTER.md → "COMPLETION PASS 37", implementation subsection. Every judgement below is
+// an existing frozen faculty (the English prohibition read) or the one-hand-datum status join
+// ([`crate::lint_attest::class_carries_prohibition`]) — never an icon list, class list, or word
+// list. All three readers are structural page readers: they run over the PRE-chrome-strip body
+// (the banner-attester precedent — a recurring notice run is exactly what the chrome filter
+// strips) and return `(subject, governing prose)` pairs for the module's attestation read.
+
+/// LAW 1 — the per-attribute Deprecated badge inside an element page's attribute definition list
+/// (the MDN dt/dd shape). A `<dt …>` entry whose OWN markup (open tag + interior) carries a class
+/// value joining a prohibition status token attests its attribute deprecated; the attribute name
+/// is the dt's own `id` (else its first interior text token, byte-preserved), and the governing
+/// prose is the following `<dd>`'s tag-stripped text. The HOST element is the CALLER's fact (the
+/// page's URL subject under the element-hood proof) — this reader only reads the entries.
+pub fn attribute_badges(body: &str) -> Vec<(String, String)> {
+    let body = drop_script_style(body);
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut at = 0usize;
+    while let Some(rel) = body[at..].find("<dt") {
+        let open = at + rel;
+        // Confirm a real <dt> tag (next char ends the name), not <dtxyz…>.
+        if !matches!(body[open + 3..].chars().next(), Some('>') | Some(' ') | Some('\t') | Some('\n') | Some('/')) {
+            at = open + 3;
+            continue;
+        }
+        let Some(gt) = body[open..].find('>') else { break };
+        let entry_end = body[open..].find("</dt>").map(|i| open + i).unwrap_or(body.len());
+        let entry = &body[open..entry_end];
+        at = entry_end;
+        if !crate::lint_attest::class_carries_prohibition(entry) {
+            continue;
+        }
+        // The attribute name: the dt's own id, else the first text token of its interior.
+        let open_tag = &body[open..open + gt + 1];
+        let interior = &body[open + gt + 1..entry_end];
+        let name = tag_attr(open_tag, "id")
+            .or_else(|| strip_tags(interior).split_whitespace().next().map(str::to_string))
+            .unwrap_or_default();
+        if name.len() < 2 || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            continue;
+        }
+        // Governing prose: the following <dd>'s tag-stripped text.
+        let governing = body[entry_end..]
+            .find("<dd")
+            .map(|i| entry_end + i)
+            .and_then(|dd_open| {
+                let dd_gt = body[dd_open..].find('>')?;
+                let dd_end = body[dd_open..].find("</dd>").map(|i| dd_open + i).unwrap_or(body.len());
+                Some(strip_tags(&body[dd_open + dd_gt + 1..dd_end]))
+            })
+            .unwrap_or_default();
+        if !out.iter().any(|(n, _)| n == &name) {
+            out.push((name, governing));
+        }
+    }
+    out
+}
+
+/// One attribute value of a single HTML open tag (`id="…"`/`id='…'`), or `None`.
+fn tag_attr(tag: &str, name: &str) -> Option<String> {
+    let key = format!("{name}=");
+    let i = tag.find(&key)?;
+    let rest = &tag[i + key.len()..];
+    let q = rest.chars().next()?;
+    if q != '"' && q != '\'' {
+        return None;
+    }
+    let rest = &rest[1..];
+    Some(rest[..rest.find(q)?].to_string())
+}
+
+/// Every element name a markup fragment writes in the page's own ESCAPED element typography
+/// (`&lt;name&gt;`, ascii-lowercase name) — the `<x>` proof the PASS-35 element tier reads,
+/// scanned off the raw markup (entities are the author's typography for "this is a tag").
+fn escaped_element_names(fragment: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut at = 0usize;
+    while let Some(rel) = fragment[at..].find("&lt;") {
+        let start = at + rel + "&lt;".len();
+        let name: String =
+            fragment[start..].chars().take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).collect();
+        at = start + name.len();
+        if !name.is_empty() && fragment[at..].starts_with("&gt;") && !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// LAW 2a — the Elements-index obsolete section (the MDN `content`/`image` shape). An ANCHORED
+/// section (never the lead) whose own prose STATES a prohibition (the frozen English) or whose
+/// heading text carries a prohibition status token by the one-hand-datum join attests every
+/// element its `<dt>` entries name in the page's own `&lt;x&gt;` typography. Governing = the
+/// entry's own `<dd>` prose, else the section's stating sentence.
+pub fn obsolete_index_entries(body: &str, en: &crate::lint_english::English) -> Vec<(String, String)> {
+    let body = drop_script_style(body);
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (anchor, region) in sections(&body) {
+        if anchor.is_empty() {
+            continue; // the lead is never an index section
+        }
+        // The prohibition read runs per PARAGRAPH (the authored prose unit): whole-region prose
+        // welds the heading text onto the first sentence ("Old elements Never use…"), which
+        // defeats the frozen English's command-position read.
+        let para_sentences: Vec<String> = paragraphs(&strip_pre_blocks(&region))
+            .iter()
+            .flat_map(|p| {
+                let prose = strip_tags(p);
+                crate::lint_read::sentences(&prose)
+                    .iter()
+                    .map(|s| s.trim().to_string())
+                    .collect::<Vec<String>>()
+            })
+            .collect();
+        let heading_words_join = heading_text(&region)
+            .map(|h| {
+                let prohibit = crate::lint_attest::prohibition_class_tokens();
+                h.to_lowercase()
+                    .split(|c: char| !c.is_ascii_alphanumeric())
+                    .any(|w| prohibit.iter().any(|p| p == w))
+            })
+            .unwrap_or(false);
+        let stating = para_sentences
+            .iter()
+            .find(|s| en.sentence_states_prohibition(s))
+            .cloned()
+            .unwrap_or_default();
+        if !heading_words_join && stating.is_empty() {
+            continue;
+        }
+        // Each <dt> entry naming an element in the page's own escaped typography attests it.
+        let mut at = 0usize;
+        while let Some(rel) = region[at..].find("<dt") {
+            let open = at + rel;
+            let entry_end = region[open..].find("</dt>").map(|i| open + i).unwrap_or(region.len());
+            let entry = &region[open..entry_end];
+            at = entry_end + 1;
+            let Some(element) = escaped_element_names(entry).into_iter().next() else { continue };
+            let governing = region[entry_end..]
+                .find("<dd")
+                .map(|i| entry_end + i)
+                .and_then(|dd_open| {
+                    let dd_gt = region[dd_open..].find('>')?;
+                    let dd_end =
+                        region[dd_open..].find("</dd>").map(|i| dd_open + i).unwrap_or(region.len());
+                    Some(strip_tags(&region[dd_open + dd_gt + 1..dd_end]))
+                })
+                .filter(|g| !g.trim().is_empty())
+                .unwrap_or_else(|| stating.clone());
+            if element.len() >= 2 && !out.iter().any(|(e, _)| e == &element) {
+                out.push((element, governing));
+            }
+        }
+    }
+    out
+}
+
+/// The text of the first heading element (`<h1…6`) in a region, tag-stripped. `None` when the
+/// region opens with no heading.
+fn heading_text(region: &str) -> Option<String> {
+    let open = region.find("<h")?;
+    let level = region[open + 2..].chars().next().filter(|c| c.is_ascii_digit())?;
+    let gt = region[open..].find('>')? + open;
+    let close = format!("</h{level}>");
+    let end = region[gt..].find(&close)? + gt;
+    Some(strip_tags(&region[gt + 1..end]))
+}
+
+/// LAW 2b — the "Not Supported" page-role notice (the w3schools `applet` shape). A page whose
+/// LEAD (the region before the first section anchor) carries a sentence the frozen English reads
+/// as a stated prohibition, and whose lead writes an element in `&lt;x&gt;` typography that the
+/// URL's LAST SEGMENT names as a whole token (the URL-subject law), attests that element.
+/// Governing = the notice sentence plus the lead's own sentence naming the element. `None` when
+/// any leg is missing (honest abstention).
+pub fn not_supported_subject(
+    url: &str,
+    body: &str,
+    en: &crate::lint_english::English,
+) -> Option<(String, String)> {
+    let body = drop_script_style(body);
+    let lead = sections(&body).into_iter().find(|(a, _)| a.is_empty())?.1;
+    // Sentences per PARAGRAPH (the authored prose unit): whole-lead prose welds the `<h1>`
+    // text onto the notice, defeating the frozen English's command-position read.
+    let sentences: Vec<String> = paragraphs(&strip_pre_blocks(&lead))
+        .iter()
+        .flat_map(|p| {
+            let prose = strip_tags(p);
+            crate::lint_read::sentences(&prose)
+                .iter()
+                .map(|s| s.trim().to_string())
+                .collect::<Vec<String>>()
+        })
+        .collect();
+    let notice = sentences.iter().find(|s| en.sentence_states_prohibition(s))?.trim().to_string();
+    // The URL-subject law: the last path segment names the element as a whole token.
+    let seg = url.split(['?', '#']).next().unwrap_or(url).trim_end_matches('/').rsplit('/').next()?;
+    let seg_tokens: Vec<String> = seg
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    let element = escaped_element_names(&lead).into_iter().find(|e| seg_tokens.iter().any(|t| t == e))?;
+    let naming = sentences
+        .iter()
+        .filter(|s| {
+            s.split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|t| t.eq_ignore_ascii_case(&element))
+        })
+        .max_by_key(|s| s.len())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let governing =
+        if naming.is_empty() || naming == notice { notice } else { format!("{notice} {naming}") };
+    Some((element, governing))
+}
+
 /// Discard cross-page-invariant CHROME from a MULTI-page witness pool, per the north-star rule
 /// "Cross-page invariance = chrome, discarded." A sentence whose exact text recurs under MORE THAN ONE
 /// distinct construct subject is site furniture — the Baseline availability banner, "Skip to main
@@ -568,6 +785,65 @@ mod tests {
             &ws,
         );
         assert_eq!(offered, 1, "only the alpha-subject witness is offered — foreign subjects gated out");
+    }
+
+    #[test]
+    fn attribute_badges_read_the_marked_dt_and_its_dd_prose() {
+        // PASS 37 law 1 — the dt/dd definition-list shape: only the entry whose OWN markup
+        // carries the prohibition status join attests; its dd is the governing prose; the
+        // healthy sibling attests nothing. Names are opaque (no HTML knowledge asserted).
+        let body = r#"<h1>&lt;alpha&gt;</h1><h2 id="attributes">Attributes</h2><dl>
+            <dt id="blip">blip <abbr class="icon icon-deprecated" title="x"><span>Deprecated</span></abbr></dt>
+            <dd><p>Never use the blip attribute on the alpha element here.</p></dd>
+            <dt id="bloop">bloop</dt><dd><p>Sets the bloop level.</p></dd></dl>"#;
+        let badges = attribute_badges(body);
+        assert_eq!(badges.len(), 1, "only the marked entry attests: {badges:?}");
+        assert_eq!(badges[0].0, "blip");
+        assert!(badges[0].1.contains("Never use the blip attribute"), "dd prose is governing: {:?}", badges[0].1);
+    }
+
+    #[test]
+    fn obsolete_index_entries_attest_only_the_prohibition_section() {
+        // PASS 37 law 2a — the index shape: an anchored section whose prose states a
+        // prohibition attests each dt-listed `&lt;x&gt;` element; the healthy section and the
+        // lead attest nothing. Brains-gated (the prohibition read is the frozen English's).
+        let Some(en) = crate::lint_english::brain() else {
+            eprintln!("skip: no english brain on disk");
+            return;
+        };
+        let body = r#"<h1>Elements reference</h1><p>This page lists all the elements.</p>
+            <h2 id="live_elements">Live elements</h2>
+            <dl><dt><code>&lt;alpha&gt;</code></dt><dd>A live element here.</dd></dl>
+            <h2 id="old_elements">Old elements</h2>
+            <p>Never use these elements in new pages; they are obsolete now.</p>
+            <dl><dt><code>&lt;omega&gt;</code></dt><dd>Never use the omega element anywhere.</dd></dl>"#;
+        let entries = obsolete_index_entries(body, en);
+        assert_eq!(entries.len(), 1, "only the prohibition section's entry attests: {entries:?}");
+        assert_eq!(entries[0].0, "omega");
+        assert!(entries[0].1.contains("omega element"), "dd prose is governing: {:?}", entries[0].1);
+    }
+
+    #[test]
+    fn not_supported_subject_needs_notice_typography_and_url_subject() {
+        // PASS 37 law 2b — the page-role notice: a lead sentence the frozen English reads as a
+        // stated prohibition + the element's own `&lt;x&gt;` typography + the URL-subject law.
+        // A healthy page (no notice) attests nothing. Brains-gated.
+        let Some(en) = crate::lint_english::brain() else {
+            eprintln!("skip: no english brain on disk");
+            return;
+        };
+        let body = "<h1>&lt;omega&gt; Tag</h1><p>Not Supported in HTML5.</p>\
+             <p>The &lt;omega&gt; tag was used to embed a gadget in a page.</p>";
+        let got = not_supported_subject("https://site/tags/tag_omega", body, en);
+        let (element, governing) = got.expect("notice + typography + url-subject attest");
+        assert_eq!(element, "omega");
+        assert!(governing.contains("Not Supported"), "the notice is cited: {governing:?}");
+        assert!(governing.contains("omega"), "the naming sentence rides along: {governing:?}");
+        // Healthy page: same shape, no notice — attests nothing.
+        let healthy = "<h1>&lt;omega&gt; Tag</h1><p>The &lt;omega&gt; tag embeds a gadget.</p>";
+        assert!(not_supported_subject("https://site/tags/tag_omega", healthy, en).is_none());
+        // URL-subject law: the URL names a different subject — attests nothing.
+        assert!(not_supported_subject("https://site/tags/tag_other", body, en).is_none());
     }
 
     #[test]

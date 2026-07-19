@@ -60,7 +60,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = usize::MAX / 16;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v103-demonstrated-shape";
+pub(crate) const TRAIN_VERSION: &str = "docs-v104-attribute-dimension";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -244,23 +244,26 @@ impl LearnedCatalog {
                     let (merged, dropped) = merge_graduated(rules, prior, &module.corpus_urls);
                     rules = merged;
                     contradictions = dropped;
-                    // PASS 27 — the GRADED (LOW-severity) tier: append the evidence-graded findings AFTER the
-                    // proven merge, so the proven set and its order are byte-identical and the contradiction
-                    // re-check (which is a PROVEN-rule mechanism) never touches them. Graded rules carry a
-                    // `graded-<construct>` id and an empty bad/good; the module compile fires them via the
-                    // same `uses_construct(fire)` plan at LOW severity ([`crate::lint_module::graded_forms`]).
-                    for (r, url) in module.graded {
-                        rules.push(DocRule {
-                            id: r.id,
-                            slice: r.severity.clone(),
-                            severity: r.severity,
-                            description: r.description,
-                            bad: r.bad,
-                            good: r.good,
-                            source: url,
-                            construct: r.construct,
-                        });
-                    }
+                }
+                // PASS 27 — the GRADED (LOW-severity) tier: append the evidence-graded findings AFTER the
+                // proven merge, so the proven set and its order are byte-identical and the contradiction
+                // re-check (which is a PROVEN-rule mechanism) never touches them. Graded rules carry a
+                // `graded-<construct>` id and an empty bad/good; the module compile fires them via the
+                // same `uses_construct(fire)` plan at LOW severity ([`crate::lint_module::graded_forms`]).
+                // PASS 37: appended on BOTH training paths — the flip gate decides only which PROVEN
+                // set ships; the graded tier is a view over the web, path-independent (the miner path
+                // used to discard it silently, exactly the enforcement-axis loss PASS 36 forbids).
+                for (r, url) in module.graded {
+                    rules.push(DocRule {
+                        id: r.id,
+                        slice: r.severity.clone(),
+                        severity: r.severity,
+                        description: r.description,
+                        bad: r.bad,
+                        good: r.good,
+                        source: url,
+                        construct: r.construct,
+                    });
                 }
                 (rules, memory.reference.clone(), contradictions, withheld, memory.facts.clone())
             }

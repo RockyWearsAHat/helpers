@@ -495,16 +495,55 @@ pub(super) fn tokens_fire_text(text: &str, tokens: &[String]) -> bool {
 /// ledger #15). This is the ONLY text-matching function: the compile gates (self-fire,
 /// over-fire, reference-fire) and the live path both call it, so they can never disagree
 /// about what a detector means.
+///
+/// PASS 37 — the TAG-OPEN SPAN law: a pair token that BEGINS with `<` (and does not close it,
+/// e.g. `<host` of a `host@attr` attribute detector) denotes a tag open, so its successor
+/// tokens must land INSIDE that same `< … >` span — their match must end before the next `>`.
+/// The anchor retries across later tag opens on the line (`<panel shine> <panel glow>` must
+/// still fire), so tag-scoped matching stays complete. Detectors with no `<`-leading pair
+/// token match byte-identically to the pre-PASS-37 sequential leftmost walk.
 pub(super) fn tokens_fire_line(line: &str, tokens: &[String]) -> bool {
     if tokens.is_empty() {
         return false;
     }
     let hay = line.to_lowercase();
-    let mut from = 0;
+    seq_fire(&hay, tokens, 0)
+}
+
+/// Sequential whole-token containment from byte `from` — the recursive body of
+/// [`tokens_fire_line`]. Greedy leftmost per token (complete for unscoped ordered
+/// containment); a `<`-leading tag-open token scopes its successors to its own span and
+/// retries later openings when the scoped tail fails.
+fn seq_fire(hay: &str, tokens: &[String], from: usize) -> bool {
+    let Some((token, rest)) = tokens.split_first() else { return true };
+    let mut at = from;
+    while let Some(end) = find_whole_token(hay, token, at) {
+        if rest.is_empty() {
+            return true;
+        }
+        let tag_scoped = token.starts_with('<') && token.len() > 1 && !token.ends_with('>');
+        if tag_scoped {
+            let limit = hay[end..].find('>').map(|i| end + i).unwrap_or(hay.len());
+            if fire_within(hay, rest, end, limit) {
+                return true;
+            }
+            // This tag open's span lacks the tail — retry the anchor's next occurrence.
+            at = end;
+            continue;
+        }
+        return seq_fire(hay, rest, end);
+    }
+    false
+}
+
+/// Sequential whole-token containment where every match must END at or before `limit` — the
+/// inside-one-tag-open matching of [`seq_fire`]'s tag-scoped arm.
+fn fire_within(hay: &str, tokens: &[String], from: usize, limit: usize) -> bool {
+    let mut at = from;
     for token in tokens {
-        match find_whole_token(&hay, token, from) {
-            Some(end) => from = end,
-            None => return false,
+        match find_whole_token(hay, token, at) {
+            Some(end) if end <= limit => at = end,
+            _ => return false,
         }
     }
     true
