@@ -26,6 +26,17 @@
 //! Tests are hermetic exactly as `ai_linter_behaviors.rs`: caches and the learned-source registry
 //! are redirected into the test's temp dir (`HELPERS_LINT_MODELS`, `HOME`), and the network is
 //! used only to read the test's own localhost docs during the one training step.
+//!
+//! PASS 37 — THE ATTRIBUTE DIMENSION (LINTER.md, "COMPLETION PASS 37", fixture-truth first): the
+//! census gains a third language — REAL html, trained from this site's own localhost pages alone
+//! (the hermetic env has no machine caches) — carrying the three documentation shapes the PASS-37
+//! audit proved the reader has never read: the per-attribute Deprecated badge inside an element
+//! page's attribute definition list (construct `host@attr`, MDN shape), the Elements-index
+//! "Obsolete and deprecated elements" section (the `content`/`image` analogue), and the
+//! w3schools "Not Supported in HTML5." typography (the `applet` analogue). Their facts assert
+//! knowledge + tag-scoped firing + the TAG-POSITION LAW (an element rule witnesses its token
+//! only at tag-open `<x`; an attribute rule only inside its OWN host's tag open) — expected RED
+//! until the PASS-37 reader lands.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -136,6 +147,16 @@ enum Expect {
     /// Fires ONLY by the author's DOTTED typography (the member-shape contract): the bad file's
     /// planted `Owner.subject` instance flags, and a bare token in clean code NEVER does.
     FiresDotted,
+    /// PASS 37: fires TAG-SCOPED from a per-attribute Deprecated badge (subject `host@attr`,
+    /// proven or graded LOW — page-cited attestation): the planted `<host attr…>` usage flags
+    /// the attribute, while the SAME attribute word on a DIFFERENT host stays silent.
+    FiresAttribute,
+    /// PASS 37: an element documented ONLY by the Elements-index obsolete section fires (proven
+    /// or graded) at TAG-OPEN position; the same word in attribute position never fires.
+    FiresIndexSection,
+    /// PASS 37: an element documented ONLY by "Not Supported in HTML5." typography fires (proven
+    /// or graded) at TAG-OPEN position; the same word in value position never fires.
+    FiresNotSupported,
     /// Outside both axes: nothing minted, nothing fired, nothing known under the subject's name.
     Nothing,
 }
@@ -187,6 +208,7 @@ impl Fact {
 }
 
 /// The census manifest: every kind the PASS 36 contract lists, across TWO fake languages —
+/// plus the PASS-37 html facts (attribute badge, index section, not-supported typography) —
 /// including the cross-language pair (one page each) and the mixed-language page both crawls
 /// read. Enforcement expectations per the 2026-07-18 owner rulings (all three): the six
 /// reference prohibitions fire PROVEN; blockless `flare` fires at SOME tier (proven or graded
@@ -345,7 +367,64 @@ fn manifest() -> Vec<Fact> {
             plant_good: None,
             expected: Expect::FiresProven,
         },
+        // ── PASS 37 — the attribute dimension, REAL html trained from this site alone ─────────
+        Fact {
+            id: "html-panel-glow-attribute",
+            lang: "html",
+            page: "/html/reference/elements/panel",
+            kind: "attribute-badge",
+            subject: "panel@glow",
+            forbid_sentence:
+                "Never use the glow attribute on the panel element; it is deprecated and will be removed.",
+            bad_code: "",
+            good_code: "",
+            // NOVEL usage (the page documents the badge, never a usage): the demo shape
+            // `<panel glow…>` must flag; a clean panel AND the same word on a DIFFERENT host
+            // (`<label glow…>`, the tag-position law) must stay silent.
+            plant_bad: Some("<panel glow=\"soft\">Dial</panel>"),
+            plant_good: Some("<panel shine=\"high\">Dial</panel>\n<label glow=\"dim\">Lamp</label>"),
+            expected: Expect::FiresAttribute,
+        },
+        Fact {
+            id: "html-blorb-index-section",
+            lang: "html",
+            page: "/html/reference/elements",
+            kind: "index-section",
+            subject: "blorb",
+            forbid_sentence:
+                "Never use the blorb element anywhere; it is obsolete and will be removed.",
+            bad_code: "",
+            good_code: "",
+            // Documented ONLY by the index's obsolete section (the content/image analogue);
+            // the clean file carries the word in ATTRIBUTE position on another element — the
+            // tag-position law says an element rule witnesses only tag-open `<blorb`.
+            plant_bad: Some("<blorb>legacy content</blorb>"),
+            plant_good: Some("<section blorb=\"on\">modern content</section>"),
+            expected: Expect::FiresIndexSection,
+        },
+        Fact {
+            id: "html-zapplet-not-supported",
+            lang: "html",
+            page: "/html/tags/tag_zapplet",
+            kind: "not-supported",
+            subject: "zapplet",
+            forbid_sentence: "Not Supported in HTML5.",
+            bad_code: "",
+            good_code: "",
+            // Documented ONLY by the "Not Supported" typography (the applet analogue); the
+            // clean file carries the word in VALUE position — tag-position law again.
+            plant_bad: Some("<zapplet code=\"game.vx\">fallback</zapplet>"),
+            plant_good: Some("<a data-old=\"zapplet\">plugin history</a>"),
+            expected: Expect::FiresNotSupported,
+        },
     ]
+}
+
+/// The token a fact's rule must witness in verdict lines and ledger ids: the ATTRIBUTE name of a
+/// `host@attr` construct (the finding names the attribute inside its host's tag), the subject
+/// itself otherwise.
+fn fire_token(f: &Fact) -> &'static str {
+    f.subject.rsplit('@').next().unwrap_or(f.subject)
 }
 
 /// The docs' own forbidding words the FIRES classification requires in the verdict: the
@@ -387,7 +466,34 @@ fn page_h1(f: &Fact) -> String {
         "deprecation" => format!("The {} form", f.subject),
         "abstain-trap" => format!("SyntaxError: {} literal", f.subject),
         "tutorial-negative" => "Getting started".to_string(),
+        // The MDN element-page shape: the page is the HOST element's, not the attribute's.
+        "attribute-badge" => {
+            let host = f.subject.split('@').next().unwrap_or(f.subject);
+            format!("&lt;{host}&gt;: The {host} element")
+        }
+        "index-section" => "HTML elements reference".to_string(),
+        "not-supported" => format!("HTML &lt;{}&gt; Tag", f.subject),
         _ => format!("{}()", f.subject),
+    }
+}
+
+/// The lead paragraph under a page's `<h1>` — the fake reference voice for the token-stream
+/// languages, the real MDN/w3schools voice for the PASS-37 html shapes (the host element itself
+/// is NOT deprecated on the attribute page: no page banner, only the per-attribute badge).
+fn page_lead(f: &Fact) -> String {
+    match f.kind {
+        "attribute-badge" => {
+            let host = f.subject.split('@').next().unwrap_or(f.subject);
+            format!("The {host} element represents a control surface in classic documents.")
+        }
+        "index-section" => {
+            "This page lists all the elements of the language, grouped by function.".to_string()
+        }
+        "not-supported" => String::new(),
+        _ => format!(
+            "The {} call is part of the classic interface and appears throughout older programs.",
+            f.subject
+        ),
     }
 }
 
@@ -428,6 +534,44 @@ fn section_html(f: &Fact) -> String {
              <p>Run it with the runner and read the output.</p>",
             g = f.good_code
         ),
+        // PASS 37 — the MDN attribute-definition-list shape: dt carries the attribute name plus
+        // the INLINE Deprecated badge (never a page-level banner), dd carries the governing
+        // prose; a second, healthy attribute proves the badge is per-attribute.
+        "attribute-badge" => {
+            let attr = f.subject.rsplit('@').next().unwrap_or(f.subject);
+            format!(
+                "<h2 id=\"attributes\">Attributes</h2><dl>\
+                 <dt id=\"{attr}\">{attr} \
+                 <abbr class=\"icon icon-deprecated\" \
+                 title=\"Deprecated. Not for use in new websites.\">\
+                 <span class=\"visually-hidden\">Deprecated</span></abbr></dt>\
+                 <dd><p>{p}</p></dd>\
+                 <dt id=\"shine\">shine</dt>\
+                 <dd><p>Sets the shine level of the surface.</p></dd>\
+                 </dl>",
+                p = f.forbid_sentence
+            )
+        }
+        // PASS 37 — the MDN Elements-index shape: the obsolete element appears ONLY as an entry
+        // of the index's obsolete section (its own `<x>` typography), next to a healthy section.
+        "index-section" => format!(
+            "<h2 id=\"interactive_elements\">Interactive elements</h2>\
+             <dl><dt><code>&lt;panel&gt;</code></dt><dd>A control surface element.</dd></dl>\
+             <h2 id=\"obsolete_and_deprecated_elements\">Obsolete and deprecated elements</h2>\
+             <p>Never use these elements in new pages; they are obsolete and only listed here.</p>\
+             <dl><dt><code>&lt;{s}&gt;</code></dt><dd>{p}</dd></dl>",
+            s = f.subject,
+            p = f.forbid_sentence
+        ),
+        // PASS 37 — the w3schools shape: the page-role sentence IS the prohibition; the page
+        // never says "never", only the "Not Supported" typography plus past-tense prose.
+        "not-supported" => format!(
+            "<p>{p}</p>\
+             <p>The &lt;{s}&gt; tag was used to embed a small gadget program in a page.</p>\
+             <p>What to use instead: the &lt;panel&gt; element.</p>",
+            s = f.subject,
+            p = f.forbid_sentence
+        ),
         // prohibition | member-shape | cross-language: the anchored reference shape.
         _ => format!(
             "<h2 id=\"never_use_{s}\">Never use {s}!</h2><p>{p}</p>\
@@ -453,12 +597,9 @@ fn build_site(facts: &[Fact], messy: bool) -> BTreeMap<String, String> {
     let mut inner: BTreeMap<String, String> = BTreeMap::new();
     for f in facts {
         let body = inner.entry(f.page.to_string()).or_insert_with(|| {
-            format!(
-                "<h1>{}</h1><p>The {} call is part of the classic interface and appears \
-                 throughout older programs.</p>",
-                page_h1(f),
-                f.subject
-            )
+            let lead = page_lead(f);
+            let lead = if lead.is_empty() { String::new() } else { format!("<p>{lead}</p>") };
+            format!("<h1>{}</h1>{lead}", page_h1(f))
         });
         body.push_str(&section_html(f));
     }
@@ -472,7 +613,7 @@ fn build_site(facts: &[Fact], messy: bool) -> BTreeMap<String, String> {
             .to_string(),
     );
     // Per-language index pages: link every page of that language plus the shared pages.
-    for lang in ["vex", "zim"] {
+    for lang in ["vex", "zim", "html"] {
         let links: String = inner
             .keys()
             .filter(|p| p.starts_with(&format!("/{lang}/")) || p.starts_with("/shared/"))
@@ -488,7 +629,7 @@ fn build_site(facts: &[Fact], messy: bool) -> BTreeMap<String, String> {
     inner.insert(
         "/".to_string(),
         "<h1>Documentation</h1><p>The documentation site for every language.</p>\
-         <a href=\"/vex/\">vex</a> <a href=\"/zim/\">zim</a>"
+         <a href=\"/vex/\">vex</a> <a href=\"/zim/\">zim</a> <a href=\"/html/\">html</a>"
             .to_string(),
     );
     // Wrap: CLEAN is minimal honest HTML; MESSY adds the recurring chrome + furniture.
@@ -575,8 +716,9 @@ struct Census {
 
 impl Census {
     /// KNOWLEDGE AXIS probe — true when the machine KNOWS the fact: its subject has a node in
-    /// its language's web whose verbatim governing prose names the subject and carries the
-    /// docs' negative polarity ("never"). Observed via the EXISTING out-of-process surface
+    /// its language's web whose verbatim governing prose names every part of the subject (both
+    /// halves of a `host@attr` construct) and carries the docs' negative polarity ("never", or
+    /// the "not …" of the Not-Supported typography). Observed via the EXISTING out-of-process surface
     /// `lint_query kind=web arg=<subject> language=<lang>` — adequate as-is (found + verbatim
     /// `governing_prose` + PROVEN/GRADED/READ state), so no new query kind is defined.
     ///
@@ -598,7 +740,8 @@ impl Census {
                 rows.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(" ").to_lowercase()
             })
             .unwrap_or_default();
-        prose.contains(f.subject) && prose.contains("never")
+        f.subject.split('@').all(|part| prose.contains(part))
+            && (prose.contains("never") || prose.contains("not "))
     }
 
     /// The FIRING tier of a fact's web node: PROVEN when the node says so, else graded (the
@@ -620,17 +763,18 @@ impl Census {
     fn classify(&self, f: &Fact) -> Observed {
         let bad = format!("bad.{}", f.lang);
         let clean = format!("clean.{}", f.lang);
+        let token = fire_token(f);
         let words_cited = f.kind == "member-shape"
             || forbid_words(f).map_or(true, |w| self.verdict.contains(&w));
         if !f.planted_bad().is_empty()
-            && flagged_in(&self.verdict, &bad, f.subject)
-            && !flagged_in(&self.verdict, &clean, f.subject)
+            && flagged_in(&self.verdict, &bad, token)
+            && !flagged_in(&self.verdict, &clean, token)
             && words_cited
         {
             return if self.proven_tier(f) { Observed::Proven } else { Observed::Graded };
         }
         if let Some((id, reason)) = self.ledgers.get(f.lang).and_then(|rows| {
-            rows.iter().find(|(id, reason)| id.contains(f.subject) && !reason.is_empty())
+            rows.iter().find(|(id, reason)| id.contains(token) && !reason.is_empty())
         }) {
             return Observed::Quiet { id: id.clone(), reason: reason.clone() };
         }
@@ -640,8 +784,8 @@ impl Census {
     /// True when the fact's subject is flagged NOWHERE in the verdict (the tutorial-negative
     /// and abstain-trap silence law, over both planted files).
     fn silent_everywhere(&self, f: &Fact) -> bool {
-        !flagged_in(&self.verdict, &format!("bad.{}", f.lang), f.subject)
-            && !flagged_in(&self.verdict, &format!("clean.{}", f.lang), f.subject)
+        !flagged_in(&self.verdict, &format!("bad.{}", f.lang), fire_token(f))
+            && !flagged_in(&self.verdict, &format!("clean.{}", f.lang), fire_token(f))
     }
 }
 
@@ -653,7 +797,7 @@ fn run_census(name: &str, messy: bool, facts: &[Fact]) -> Census {
     let base = serve_site(build_site(facts, messy));
     let p = TestProject::new(name);
     // Plant one bad + one clean file per language from the manifest's planted forms.
-    for lang in ["vex", "zim"] {
+    for lang in ["vex", "zim", "html"] {
         let planted = |pick: fn(&Fact) -> &'static str| -> String {
             facts
                 .iter()
@@ -676,7 +820,8 @@ fn run_census(name: &str, messy: bool, facts: &[Fact]) -> Census {
         &format!(
             r#"{{"version": 3, "sources": [
                 {{"tool": "vexdocs", "language": "vex", "kind": "crawl", "seed": "{base}/"}},
-                {{"tool": "zimdocs", "language": "zim", "kind": "crawl", "seed": "{base}/"}}
+                {{"tool": "zimdocs", "language": "zim", "kind": "crawl", "seed": "{base}/"}},
+                {{"tool": "htmldocs", "language": "html", "kind": "crawl", "seed": "{base}/"}}
             ]}}"#
         ),
     );
@@ -689,7 +834,7 @@ fn run_census(name: &str, messy: bool, facts: &[Fact]) -> Census {
     // …then everything measured is the offline live path.
     let verdict = p.lint(true);
     let mut ledgers = BTreeMap::new();
-    for lang in ["vex", "zim"] {
+    for lang in ["vex", "zim", "html"] {
         let text = p.call(
             "lint_query",
             &format!(r#"{{"kind":"rules","arg":"{lang}"}}"#),
@@ -747,7 +892,9 @@ fn account(render: &str, census: &Census, facts: &[Fact]) -> Vec<(Fact, Observed
         );
     }
     let counted: Vec<&Fact> = facts.iter().filter(|f| f.expected != Expect::Nothing).collect();
-    // KNOWLEDGE AXIS — the hard 100% gate.
+    // BOTH axes are computed and PRINTED before any assert — a red run must still report the
+    // full accounting (the census is an instrument first; PASS-37 facts are expected red until
+    // their reader lands, and their observed states are the punch list).
     let unknown: Vec<&&Fact> = counted.iter().filter(|f| !census.known(f)).collect();
     println!("[census {render}] knowledge {}/{}", counted.len() - unknown.len(), counted.len());
     for f in &unknown {
@@ -756,14 +903,6 @@ fn account(render: &str, census: &Census, facts: &[Fact]) -> Vec<(Fact, Observed
             f.id, f.lang, f.kind, f.subject, f.page, census.webs.get(f.id).map(|w| w.to_string()).unwrap_or_default()
         );
     }
-    assert!(
-        unknown.is_empty(),
-        "[{render}] KNOWLEDGE AXIS (owner ruling 2026-07-18): the machine LEARNS every fact — \
-         these subjects are missing from their language web (see the src TODO contract on \
-         Census::known): {:?}",
-        unknown.iter().map(|f| f.id).collect::<Vec<_>>(),
-    );
-    // ENFORCEMENT AXIS — the honest tier partition; silent is the forbidden class.
     let states: Vec<(Fact, Observed)> = counted.iter().map(|f| (**f, census.classify(f))).collect();
     let count = |pick: fn(&Observed) -> bool| states.iter().filter(|(_, s)| pick(s)).count();
     let silent: Vec<&Fact> = states
@@ -786,6 +925,14 @@ fn account(render: &str, census: &Census, facts: &[Fact]) -> Vec<(Fact, Observed
     for f in &silent {
         println!("  SILENT: {} ({} {}) subject `{}` page {}", f.id, f.lang, f.kind, f.subject, f.page);
     }
+    // KNOWLEDGE AXIS — the hard 100% gate (asserted only after the full report above).
+    assert!(
+        unknown.is_empty(),
+        "[{render}] KNOWLEDGE AXIS (owner ruling 2026-07-18): the machine LEARNS every fact — \
+         these subjects are missing from their language web (see the src TODO contract on \
+         Census::known): {:?}",
+        unknown.iter().map(|f| f.id).collect::<Vec<_>>(),
+    );
     assert!(
         silent.is_empty(),
         "[{render}] ENFORCEMENT AXIS: every known fact fires at some tier or stands in the \
@@ -810,18 +957,24 @@ fn account(render: &str, census: &Census, facts: &[Fact]) -> Vec<(Fact, Observed
         census.ledgers,
         census.verdict
     );
-    // The graded tier may only ever be the blockless `flare` (its FiresAnyTier ratchet);
-    // every other fact fires PROVEN — the census's target accounting is proven 9 + graded 0
-    // (or proven 8 + graded 1 when flare grades), quiet 0, silent 0.
+    // The graded tier may only ever be the blockless `flare` (its FiresAnyTier ratchet) or the
+    // PASS-37 attestation shapes (attribute badge / index section / not-supported: graded LOW
+    // is their page-cited default tier, PASS 37 law 1); every other fact fires PROVEN.
     let graded: Vec<&Fact> = states
         .iter()
         .filter(|(_, s)| matches!(s, Observed::Graded))
         .map(|(f, _)| f)
         .collect();
     assert!(
-        graded.iter().all(|f| f.expected == Expect::FiresAnyTier),
-        "[{render}] only the any-tier blockless fact may grade — these graded unexpectedly: \
-         {:?}\nverdict:\n{}",
+        graded.iter().all(|f| matches!(
+            f.expected,
+            Expect::FiresAnyTier
+                | Expect::FiresAttribute
+                | Expect::FiresIndexSection
+                | Expect::FiresNotSupported
+        )),
+        "[{render}] only the any-tier blockless fact and the PASS-37 attestation shapes may \
+         grade — these graded unexpectedly: {:?}\nverdict:\n{}",
         graded.iter().map(|f| f.id).collect::<Vec<_>>(),
         census.verdict
     );
@@ -844,6 +997,27 @@ fn account(render: &str, census: &Census, facts: &[Fact]) -> Vec<(Fact, Observed
                 f.subject,
                 census.verdict
             ),
+            // PASS 37 tag-position law, every render: an attribute rule is scoped to its OWN
+            // host's tag open (the same word on a different host stays silent), and an element
+            // rule witnesses only tag-open position (the same word in attribute/value position
+            // on another element stays silent).
+            "attribute-badge" => assert!(
+                !flagged_in(&census.verdict, &format!("clean.{}", f.lang), fire_token(f)),
+                "[{render}] {}: `{}` on a DIFFERENT host (and a clean host) must NEVER flag \
+                 the {} rule (tag-position law):\n{}",
+                f.id,
+                fire_token(f),
+                f.subject,
+                census.verdict
+            ),
+            "index-section" | "not-supported" => assert!(
+                !flagged_in(&census.verdict, &format!("clean.{}", f.lang), f.subject),
+                "[{render}] {}: `{}` in attribute/value position inside ANOTHER element's tag \
+                 must NEVER fire the element rule (tag-position law):\n{}",
+                f.id,
+                f.subject,
+                census.verdict
+            ),
             _ => {}
         }
     }
@@ -862,6 +1036,12 @@ fn matches_expected(f: &Fact, state: &Observed) -> bool {
         // the graded tier to the any-tier blockless fact alone.
         (Expect::FiresShape, Observed::Proven | Observed::Graded) => true,
         (Expect::FiresDotted, Observed::Proven | Observed::Graded) => true,
+        // PASS 37: the attestation shapes fire at either tier (graded LOW is the page-cited
+        // default; proven where a page demonstrates bad/good) — clean-file silence is already
+        // part of the fires classification, and the tag-position law is asserted per kind.
+        (Expect::FiresAttribute, Observed::Proven | Observed::Graded) => true,
+        (Expect::FiresIndexSection, Observed::Proven | Observed::Graded) => true,
+        (Expect::FiresNotSupported, Observed::Proven | Observed::Graded) => true,
         _ => false,
     }
 }

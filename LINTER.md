@@ -2609,7 +2609,111 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 > quiet 0 + silent 0 (graded may only ever be the blockless `flare`); named-quiet is asserted
 > zero on this manifest (second ruling: perfect docs leave nothing quiet).
 
-> The referee the corroboration loop (step 3 above) stands on: given two English statements — the
+### Item — COMPLETION PASS 37: THE ATTRIBUTE DIMENSION — every documented rule of the whole language (`lint_html_layer.rs`, `lint_docs.rs`, `lint_match/`, owner directive 2026-07-19)
+
+> Owner directive: "check all html rules from beginning of the language to the most recent
+> version — after a fresh train EVERY DOCUMENTED RULE must be caught." The measured baseline
+> (fresh docs-v103 train, 201-item corpus-grounded ground truth spanning HTML 3.2 → living
+> standard, scoreboard in the PASS-37 audit): fired 46/201 (28 proven + 18 graded), known-only
+> 63, unknown 92, 1 clean FP. Elements 19/25 fire; attributes 0/176 fire at attribute level —
+> the 27 attribute "hits" were host-element rules taking credit. The gap is ONE missing reading
+> law, not 149 missing rules:
+>
+> 1. **The attribute-badge law (the dimension).** MDN documents obsolete ATTRIBUTES as
+>    per-attribute Deprecated badges inside the element/interface page's attribute definition
+>    list (dt/dd with an inline status icon), not as page-level banners — a documentation SHAPE
+>    the attester never read. The reader learns it: an attribute definition entry carrying the
+>    badge attests `host@attr` (construct form: the host element's tag + the attribute name —
+>    the attribute analogue of the member's dotted typography). Demo = the minimal
+>    `<host attr>` usage; detector = the ordered pair `[<host, attr]` anchored in the SAME tag
+>    open (one containment matcher, tag-scoped, per the demonstrated-shape law); tier = graded
+>    LOW by default (page-cited), proven where the page demonstrates bad/good. One law → all
+>    176 documented attributes follow from their own pages.
+> 2. **The two index-section shapes (the 6 missing elements).** `content`/`image`/`menuitem`/
+>    `shadow` are documented ONLY by the MDN Elements-index "Obsolete and deprecated elements"
+>    section; `applet`/`basefont` ONLY by w3schools "Not Supported in HTML5" typography — both
+>    are page-role shapes the reader must learn as attestation sources (same laws as the
+>    banner: page-scope truth, the page's own `<x>` typography). `blink` is corpus-documented
+>    only via a JS page — cross-language attestation stays out; it remains an honest
+>    source-gap note.
+> 3. **The tag-position law (the FP fix).** `<table frame="border">` fired `uses-<frame>` — an
+>    element detector must witness its token at TAG-OPEN position (`<x`), never as an attribute
+>    or value token inside another element's tag. Attribute-position and tag-position are
+>    disjoint firing surfaces.
+> 4. **Corpus-honest boundary (documented-rule law).** 8 referee elements (`bgsound isindex
+>    keygen listing multicol nextid spacer element`) and 12 referee attributes are PROVEN
+>    absent from the whole 13,543-page corpus — the machine is held to every rule its docs
+>    state, never to undocumented folklore. Closing them is a SOURCE registration (MDN
+>    "Deprecated and obsolete features" page + WHATWG obsolete.html are absent from the crawl),
+>    not a reader change.
+> Acceptance: census gains the attribute-fact kind (badge shape, fixture-truth first); the
+> PASS-37 real-html scoreboard rerun must reach fired (proven|graded) for every one of the 201
+> corpus-documented items — the only honest exception is `blink` (documented solely on a JS
+> page; cross-language attestation stays out until a proper html source is registered) —
+> known-only 0, unknown 0 among documented, clean FP 0.
+>
+> **The implementation (TRAIN_VERSION → `docs-v104-attribute-dimension`, 2026-07-19) — written
+> BEFORE the code, the spec-first law. One new read stage plus two matcher forms; every
+> judgement is an existing frozen faculty or the one-hand-datum join, never a word/icon list.**
+>
+> 1. **Law 1 — the attribute-badge attester (`lint_html_layer::attribute_badges` +
+>    `lint_attest::class_carries_prohibition`).** A definition-term entry (`<dt …>`) of an
+>    element page whose OWN markup carries a class value that, split on whitespace AND hyphen,
+>    contains a prohibition status token (`deprecation-status.json` → `prohibits` — the exact
+>    `attests_module_removal` split precedent, so MDN's `icon icon-deprecated` joins by data)
+>    attests its attribute deprecated. The attribute name is the dt's own `id` (else its first
+>    text token, byte-preserved); the governing prose is the following `<dd>`'s tag-stripped
+>    text. The HOST is the page's URL-subject element, admitted only with the PASS-35 A3
+>    element-hood proof (the page's own `&lt;host&gt;` typography) — construct `host@attr`.
+>    Knowledge: a read-surface node `host@attr` carrying the dd's sentence (attested, item
+>    scope). Enforcement: a graded-LOW form whose `fire` IS `host@attr`; the description cites
+>    the dd's own sentence and the page.
+> 2. **Law 2 — the two index-section attesters (`lint_html_layer::obsolete_index_entries`,
+>    `not_supported_subject`).** (a) An ANCHORED section (never the lead) whose own prose
+>    STATES a prohibition (frozen `English::states_prohibition`) or whose heading text carries
+>    a prohibition status token by the same data join, and whose `<dt>` entries name elements
+>    in the page's own escaped `&lt;x&gt;` typography, attests each listed element; governing =
+>    the entry's `<dd>` prose (else the section's stating sentence). (b) A page whose LEAD
+>    carries a sentence the frozen English reads as a stated prohibition (the `Not Supported…`
+>    notice IS one: capitalized negation-led command position — no new judgement) and whose
+>    lead writes an element in `&lt;x&gt;` typography that the URL's last segment names as a
+>    whole token (the URL-subject law) attests that element; governing = the notice + the
+>    lead's naming sentence. Both mint element-shaped graded forms `fire = <x>` (the PASS-35
+>    tag-position construct). The demonstration gate stays the grammar as referee where a
+>    grammar exists (`run_plan` on the minimal demo); a grammarless language validates the same
+>    demo through the ONE containment matcher — never unvalidated.
+> 3. **Law 3 — tag-position (`lint_trace::scan_construct`; the `<table frame>` FP).** The bare
+>    exact-node-text arm no longer MATCHES at a node whose own KIND names an attribute
+>    (`kind.contains("attribute")` — the blessed generic kind probe, exactly how string/comment
+>    interiors are read); it descends instead. In a markup grammar the attribute-name/value
+>    nodes are leaves, so attribute-position tokens can never fire an element rule; in a
+>    non-markup grammar the wrapper's inner identifier still matches, so nothing else moves.
+>    The firing site is `scan_construct` (the `uses_construct` engine `lint_match` compiles
+>    graduated rules to), not the token matcher — recorded here so the next reader finds it.
+> 4. **The `host@attr` construct form, both universes.** With a grammar:
+>    `scan_construct`'s new `@` arm (both halves non-empty — a CSS `@media` never splits)
+>    fires the node whose whole text is `attr` inside the SAME tag-open span (`scan left: a
+>    `<` before any `>`, spelling `host` at the bracket, the attr not the tag name itself`).
+>    Grammarless: the construct compiles to the ordered containment pair `[<host, attr]`, and
+>    the ONE matcher gains the tag-open span law the `<` typography denotes — a pair token
+>    beginning with `<` caps its successors at the next `>` (with anchor retry across multiple
+>    tag opens on one line). An ELEMENT construct `<x>` compiles grammarless to the tag-open
+>    token `<x` (MEASURED, census first run: the literal `<x>` token only matches an
+>    attribute-less tag — `<zapplet code="…">` never fired), which still never matches the
+>    word at attribute/value position (`blorb="on"` carries no `<`). Non-tag detectors match
+>    byte-identically.
+> 5. **Wiring (`lint_module::pass37_attestations` → `graduated_rules`; `lint_train`).** The
+>    attestation read runs over the PRE-chrome-strip pages (the banner-attester precedent: a
+>    recurring notice run is exactly what the chrome filter strips), scoped to pages this
+>    language's own sources crawled (`owned_urls`) that do not POSITIVELY attribute to another
+>    registered language by URL segment (the PASS-36 attribution doctrine). Its read
+>    constructs append to the read surface (knowledge lands in the web unconditionally); its
+>    graded forms merge into `graded_forms` without overwriting; an attestation whose
+>    demonstration fails records a NAMED ledger row (`attest gate (…)`). And the graded tier
+>    is appended to the module on BOTH training paths — the flip gate decides only which
+>    PROVEN set ships; a graded view over the web is path-independent (previously the miner
+>    path silently discarded it, which is exactly the enforcement-axis loss PASS 36 forbids).
+>
 > expected outcome and the actual outcome, both derived back into English — do they assert the
 > **same / consistent** thing (same DIRECTION, same POLARITY)? Decided ENTIRELY over the frozen
 > dictionary meaning graph (`MeaningNetwork`) plus the frozen negation classifier (`English::is_negation`),

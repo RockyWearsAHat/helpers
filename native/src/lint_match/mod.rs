@@ -76,6 +76,35 @@ fn dotted_owner_chain(line: &str, token: &str) -> Option<String> {
     })
 }
 
+/// The ONE-containment-matcher token form of a graduated CONSTRUCT for a grammarless language
+/// (PASS 37): a `host@attr` attribute construct compiles to the tag-scoped ordered pair
+/// `[<host, attr]` (both halves inside one tag open — the span law the matcher reads off the
+/// `<` typography); an ELEMENT construct `<x>` compiles to the tag-open token `<x` (MEASURED,
+/// census: the literal `<x>` only matches an attribute-less tag — `<zapplet code="…">` never
+/// fired — while `<x` witnesses every tag open and still never the word at attribute/value
+/// position, which carries no `<`); every other construct is its own single containment token,
+/// lowercased (matching is case-insensitive). Shared by the compile and the train-time
+/// demonstration gate so they can never disagree about what the detector means.
+pub(crate) fn construct_tokens(construct: &str) -> Vec<String> {
+    if let Some((host, attr)) = construct.split_once('@') {
+        if !host.is_empty() && !attr.is_empty() {
+            return vec![format!("<{}", host.to_lowercase()), attr.to_lowercase()];
+        }
+    }
+    if let Some(name) = construct.strip_prefix('<').and_then(|c| c.strip_suffix('>')) {
+        if !name.is_empty() {
+            return vec![format!("<{}", name.to_lowercase())];
+        }
+    }
+    vec![construct.to_lowercase()]
+}
+
+/// Whether `tokens` fire anywhere in `text` under the ONE containment matcher — the
+/// grammarless demonstration gate's referee (PASS 37; [`select::tokens_fire_text`]).
+pub(crate) fn containment_fires(text: &str, tokens: &[String]) -> bool {
+    select::tokens_fire_text(text, tokens)
+}
+
 /// Bound advice prose from documentation or a pulled module before it is stored and later
 /// shown to an agent: strip control characters (ANSI escapes, zero-width and line-break
 /// injection that could forge report structure or hide text), collapse whitespace runs, and
@@ -630,8 +659,10 @@ impl RuleSet {
                 // (PASS 36): `uses_construct` plans need an AST to walk, and the construct is the
                 // reader's own proven target — never re-derived from prose or an example diff.
                 // The over-general/member-veto guard below still runs on it, un-exempted.
+                // PASS 37: a `host@attr` attribute construct compiles to the tag-scoped ordered
+                // pair `[<host, attr]` ([`construct_tokens`] — both halves inside one tag open).
                 if let Some(c) = construct.as_deref().filter(|c| !c.is_empty()) {
-                    MatchKind::Tokens { tokens: vec![c.to_string()], raw: false }
+                    MatchKind::Tokens { tokens: construct_tokens(c), raw: false }
                 } else if let Some((token, raw)) = desc_detector(&ground) {
                     MatchKind::Tokens { tokens: vec![token], raw }
                 } else if let Some(tokens) = text_discriminator(bad, good) {
