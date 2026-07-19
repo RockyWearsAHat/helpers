@@ -118,6 +118,12 @@
    "seed": "https://developer.mozilla.org/en-US/docs/Web/HTML/"
   },
   {
+   "tool": "whatwg-html",
+   "language": "html",
+   "kind": "crawl",
+   "seed": "https://html.spec.whatwg.org/multipage/"
+  },
+  {
    "tool": "json-org",
    "language": "json",
    "kind": "crawl",
