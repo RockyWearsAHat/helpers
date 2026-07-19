@@ -1939,6 +1939,145 @@ fn graded_forms(
     out
 }
 
+/// PASS 37 — THE ATTESTATION READ (LINTER.md, "COMPLETION PASS 37" implementation subsection):
+/// the three documentation shapes the attribute-dimension audit proved the reader had never read,
+/// each an attestation SOURCE the page itself publishes — the per-attribute Deprecated badge in an
+/// element page's definition list (law 1, construct `host@attr`), the index-section obsolete list,
+/// and the "Not Supported" page-role notice (law 2, element constructs). Runs over the
+/// PRE-chrome-strip pages (the banner-attester precedent: a recurring notice run is exactly what
+/// the chrome filter strips), scoped to pages this language's OWN sources crawled (`owned`) that
+/// do not POSITIVELY attribute to another registered language by URL segment (the PASS-36
+/// attribution doctrine). Returns, in one pass: the read-surface KNOWLEDGE nodes (every
+/// attestation lands in the web unconditionally — the two-axis law), the graded-LOW enforcement
+/// forms whose demonstration the grammar (or, grammarless, the ONE containment matcher) fires,
+/// and a NAMED ledger row for every attestation whose demonstration failed — nothing silent.
+fn pass37_attestations(
+    lang: &str,
+    pages: &[(String, String)],
+    owned: &std::collections::HashSet<String>,
+    extra_langs: &std::collections::HashSet<String>,
+    en: &English,
+) -> (Vec<ReadConstruct>, Vec<(String, crate::lint_web::GradedForm)>, Vec<(String, String)>) {
+    let lang_lc = lang.to_lowercase();
+    let has_grammar = crate::lint_match::language(lang).is_some();
+    // The demonstration gate: the grammar as referee where one exists (the PASS-35 element-arm
+    // law — the minimal demo must fire under THIS language, which keeps `<font>` out of css/js);
+    // a grammarless language validates the SAME demo through the one containment matcher.
+    let demo_fires = |fire: &str, demo: &str| -> bool {
+        if has_grammar {
+            !run_plan(&Plan::UsesConstruct { construct: fire.to_string() }, lang, demo).is_empty()
+        } else {
+            crate::lint_match::containment_fires(demo, &crate::lint_match::construct_tokens(fire))
+        }
+    };
+    let mut reads: Vec<ReadConstruct> = Vec::new();
+    let mut graded: Vec<(String, crate::lint_web::GradedForm)> = Vec::new();
+    let mut withheld: Vec<(String, String)> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (url, body) in pages {
+        if !owned.contains(url) {
+            continue;
+        }
+        let attributed = crate::lint_docs::attribute_page(url, &[], extra_langs);
+        if !attributed.is_empty() && attributed != lang_lc {
+            continue;
+        }
+        // LAW 1 — attribute badges, admitted only under the element-hood proof: the page's
+        // URL-subject written in its own `&lt;host&gt;` element typography (PASS 35 A3).
+        let host = url
+            .split(['?', '#'])
+            .next()
+            .unwrap_or(url)
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or("")
+            .to_lowercase();
+        let element_host = host.len() >= 2
+            && host.chars().all(|c| c.is_ascii_alphanumeric())
+            && body.contains(&format!("&lt;{host}&gt;"));
+        if element_host {
+            for (attr, governing) in crate::lint_html_layer::attribute_badges(body) {
+                let construct = format!("{host}@{attr}");
+                if !seen.insert(construct.clone()) {
+                    continue;
+                }
+                reads.push(ReadConstruct {
+                    construct: construct.clone(),
+                    governing: governing.clone(),
+                    url: url.clone(),
+                    attested_deprecated: true,
+                    page_scope: false, // the badge is ITEM scope, never a page banner
+                    element_typography: false,
+                });
+                let demo = format!("<{host} {attr}=\"x\">");
+                if demo_fires(&construct, &demo) {
+                    graded.push((
+                        construct.clone(),
+                        crate::lint_web::GradedForm {
+                            fire: construct.clone(),
+                            severity: "low".to_string(),
+                            description: format!(
+                                "Do not use the `{attr}` attribute on `<{host}>`: {governing} ⟨{url}⟩ — fires only inside its own host's tag open."
+                            ),
+                            source: url.clone(),
+                        },
+                    ));
+                } else {
+                    note_withhold(
+                        &mut withheld,
+                        rule_id(&construct),
+                        "attest gate (demonstration does not fire under this language)",
+                    );
+                }
+            }
+        }
+        // LAW 2 — index-section entries + the "Not Supported" page-role notice: element
+        // attestations enforcing as the PASS-35 `<x>` tag-position shape.
+        let mut elements = crate::lint_html_layer::obsolete_index_entries(body, en);
+        if let Some(one) = crate::lint_html_layer::not_supported_subject(url, body, en) {
+            if !elements.iter().any(|(e, _)| e == &one.0) {
+                elements.push(one);
+            }
+        }
+        for (element, governing) in elements {
+            if !seen.insert(element.clone()) {
+                continue;
+            }
+            reads.push(ReadConstruct {
+                construct: element.clone(),
+                governing: governing.clone(),
+                url: url.clone(),
+                attested_deprecated: true,
+                page_scope: false, // section/notice truth, not a page banner run
+                element_typography: true,
+            });
+            let fire = format!("<{element}>");
+            let demo = format!("<{element}>x</{element}>");
+            if demo_fires(&fire, &demo) {
+                graded.push((
+                    element.clone(),
+                    crate::lint_web::GradedForm {
+                        fire,
+                        severity: "low".to_string(),
+                        description: format!(
+                            "Do not use `<{element}>`: {governing} ⟨{url}⟩ — fires only at tag position, the element itself."
+                        ),
+                        source: url.clone(),
+                    },
+                ));
+            } else {
+                note_withhold(
+                    &mut withheld,
+                    rule_id(&element),
+                    "attest gate (demonstration does not fire under this language)",
+                );
+            }
+        }
+    }
+    (reads, graded, withheld)
+}
+
 /// The result of a graduation pass: the PROVEN construct rules AND the exact corpus the pass read.
 /// `corpus_urls` is the re-check basis for contradiction-driven reshape (LINTER.md → Item 3c): the set
 /// of page URLs this pass proposed over, so the caller can tell a rule whose source page is STILL in the
@@ -2051,8 +2190,31 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // The ledger-ownership scope (PASS 36): read-stage withhold rows are recorded only for pages
     // this language's OWN sources crawled — the pooled corpus above stays the whole-site propose.
     let owned = crate::lint_docs::owned_urls(&data_root, lang);
-    let (outcomes, read_surface, referee, living_names, withheld) =
+    // PASS 37 — the attestation read, over the PRE-chrome-strip pages (graduate strips in
+    // place, so this must precede it): attribute badges, index-section obsolescence, and the
+    // "Not Supported" notice, as knowledge + graded forms + named withhold rows.
+    let extra_langs: std::collections::HashSet<String> = {
+        let mut s: std::collections::HashSet<String> =
+            crate::lint_train::registered_languages(&data_root).into_iter().collect();
+        s.insert(lang.to_lowercase());
+        s
+    };
+    let (p37_reads, p37_graded, p37_withheld) =
+        pass37_attestations(lang, &pages, &owned, &extra_langs, en);
+    let (outcomes, mut read_surface, referee, living_names, mut withheld) =
         graduate(lang, pages, memory, br.meanings(), en, &constructions, &owned);
+    // Knowledge lands unconditionally (the two-axis law): every attestation is a read-surface
+    // node, first-wins against the funnel's own reads; every failed demonstration is a NAMED row.
+    for r in p37_reads {
+        if !read_surface.iter().any(|x| x.construct == r.construct)
+            && !outcomes.iter().any(|o| o.candidate.construct == r.construct)
+        {
+            read_surface.push(r);
+        }
+    }
+    for (id, reason) in p37_withheld {
+        note_withhold(&mut withheld, id, &reason);
+    }
     // The proven constructs (this pass's enforced shapes) — the graded tier never duplicates them.
     let proven_constructs: std::collections::HashSet<String> = outcomes
         .iter()
@@ -2061,6 +2223,13 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
         .collect();
     let mut graded_forms =
         graded_forms(lang, &read_surface, &outcomes, &roles, &proven_constructs, &code_by_url);
+    // PASS 37 — the attestation tier merges WITHOUT overwriting (an existing qualified/element
+    // form for the same construct already enforces; the attestation adds only new coverage).
+    for (construct, form) in p37_graded {
+        if !proven_constructs.contains(&construct) && !proven_constructs.contains(&form.fire) {
+            graded_forms.entry(construct).or_insert(form);
+        }
+    }
     // PASS 30 — the self-referee's TEETH: a contradicted node's graded form is withheld (the evidence-
     // graded tier requires uncontradicted evidence; the contradiction stays on the node for the human).
     // INERT on the current corpora (measured: zero contradictions) — byte-identical rule sets — and it

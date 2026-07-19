@@ -565,8 +565,10 @@ struct CrawledPage {
 /// the majority language among the page's own block hints, else the first URL path segment
 /// that resolves to a known language (or names one in `extra_langs` — languages this run
 /// already knows by name, e.g. the project's own), else a host label. "" when nothing
-/// answers.
-fn attribute_page(
+/// answers. PASS 37 — also the URL-only attribution the attestation read scopes by
+/// (`unit_hints` empty): a page positively attributed to ANOTHER registered language never
+/// attests into this one (the PASS-36 attribution doctrine).
+pub(crate) fn attribute_page(
     url: &str,
     unit_hints: &[String],
     extra_langs: &std::collections::HashSet<String>,

@@ -1334,16 +1334,75 @@ fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>
         scan_element(node, src, name, hits);
         return;
     }
+    // ATTRIBUTE shape (PASS 37 — a construct written `host@attr`, the attribute-badge
+    // attestation's own construct typography): fires ONLY where the attr-name node sits inside
+    // its OWN host's tag-open span ([`scan_host_attr`]). Both halves must be non-empty — a CSS
+    // at-rule construct (`@media`) splits to an empty host and keeps the exact-node match below.
+    if let Some((host, attr)) = construct.split_once('@') {
+        if !host.is_empty() && !attr.is_empty() {
+            scan_host_attr(node, src, host, attr, hits);
+            return;
+        }
+    }
     if is_lexical_text(node.kind()) {
         return;
     }
     if node.utf8_text(src).map(|t| t == construct).unwrap_or(false) {
-        hits.push(row(node));
-        return;
+        // TAG-POSITION law (PASS 37, law 3 — the measured `<table frame="border">` FP): a node
+        // whose own KIND names an attribute is markup attribute/value position, where a bare
+        // construct detector must never witness its token (`uses-frame` is the frame ELEMENT).
+        // Kind typography only (the blessed generic probe, as `is_lexical_text` reads
+        // `string`/`comment`); descend instead of matching — a non-markup grammar's attribute
+        // wrapper (Rust's `#[test]`) still matches at its inner identifier, so nothing moves
+        // outside markup universes, while a markup grammar's attribute-name/value leaves have
+        // no children and stay silent.
+        if !node.kind().contains("attribute") {
+            hits.push(row(node));
+            return;
+        }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         scan_construct(child, src, construct, hits);
+    }
+}
+
+/// Record every usage of attribute `attr` INSIDE ITS OWN HOST'S TAG OPEN (PASS 37 — the
+/// `host@attr` construct shape): the node whose whole text is `attr`, scanning left from which
+/// the first `<`/`>` bracket met is a `<` that spells `host` (case-insensitive, whole-word) —
+/// the same tag-open span, with the attr not the tag name itself. Mirror of [`scan_element`]'s
+/// preceding-byte law; grammar-agnostic (source bytes, no language-specific node kind).
+fn scan_host_attr(node: Node, src: &[u8], host: &str, attr: &str, hits: &mut Vec<usize>) {
+    if is_lexical_text(node.kind()) {
+        return;
+    }
+    if node.utf8_text(src).map(|t| t == attr).unwrap_or(false) {
+        let start = node.start_byte();
+        let mut i = start;
+        while i > 0 {
+            let b = src[i - 1];
+            if b == b'>' {
+                break; // outside any tag open
+            }
+            if b == b'<' {
+                let name_end = i + host.len();
+                let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+                if name_end <= src.len()
+                    && src[i..name_end].eq_ignore_ascii_case(host.as_bytes())
+                    && src.get(name_end).copied().map(|b| !is_word(b)).unwrap_or(true)
+                    && start > name_end
+                {
+                    hits.push(row(node));
+                    return;
+                }
+                break;
+            }
+            i -= 1;
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        scan_host_attr(child, src, host, attr, hits);
     }
 }
 
