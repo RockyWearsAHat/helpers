@@ -1623,16 +1623,28 @@ pub fn graduate(
     // PASS 30 — the SELF-REFEREE: the machine's own read judging every revoked-role construct against
     // every OTHER source's claim, over the widened pool extracted above (the referee hears the
     // language's WHOLE attested corpus, not only the rule-learning partition).
-    let targets: Vec<(String, Vec<String>)> = outcomes
+    // An ELEMENT-typography subject is refereed by its OWN documented typography (`<center>`,
+    // the decoded `&lt;x&gt;` form other pages' prose carries), never the bare word — measured
+    // (PASS 37 production closure, class 6): the bare token `center` matched "the view from a
+    // center point" on an unrelated API page, and that common-word collision recorded a
+    // contradiction that withheld the element's graded form.
+    let targets: Vec<(String, String, Vec<String>)> = outcomes
         .iter()
         .filter(|o| o.candidate.attested_deprecated)
-        .map(|o| (o.candidate.construct.clone(), vec![o.candidate.url.clone()]))
-        .chain(
-            read_surface
-                .iter()
-                .filter(|r| r.attested_deprecated)
-                .map(|r| (r.construct.clone(), vec![r.url.clone()])),
-        )
+        .map(|o| {
+            (
+                o.candidate.construct.clone(),
+                mention_needle(&o.candidate.construct, o.candidate.element_typography),
+                vec![o.candidate.url.clone()],
+            )
+        })
+        .chain(read_surface.iter().filter(|r| r.attested_deprecated).map(|r| {
+            (
+                r.construct.clone(),
+                mention_needle(&r.construct, r.element_typography),
+                vec![r.url.clone()],
+            )
+        }))
         .collect();
     let referee = self_referee(&referee_pool, &targets);
     (outcomes, read_surface, referee, living_names, withheld)
@@ -1653,7 +1665,7 @@ const MAX_CONTRADICTION_HEAD: usize = 160;
 /// returns only non-empty records (a construct nobody else speaks about is the honest sparse state).
 fn self_referee(
     pool: &[PooledSentence],
-    targets: &[(String, Vec<String>)],
+    targets: &[(String, String, Vec<String>)],
 ) -> std::collections::HashMap<String, crate::lint_web::Corroboration> {
     let mut anchors = crate::lint_attest::prohibition_class_tokens();
     anchors.extend(crate::lint_attest::removal_class_tokens());
@@ -1663,8 +1675,8 @@ fn self_referee(
     }
     let lowered: Vec<(String, &PooledSentence)> =
         pool.iter().map(|p| (p.sentence.to_lowercase(), p)).collect();
-    for (construct, own) in targets {
-        let needle = construct.to_lowercase();
+    for (construct, mention, own) in targets {
+        let needle = mention.to_lowercase();
         let mut rec = crate::lint_web::Corroboration::default();
         for (sentence, p) in &lowered {
             if own.contains(&p.url) || !mentions_full_token(sentence, &needle) {
@@ -1693,6 +1705,18 @@ fn self_referee(
         }
     }
     out
+}
+
+/// The MENTION form other prose addresses a construct by — its own documented typography (PASS 37
+/// production closure, class 6): an element-typography subject is written `<x>` (the decoded
+/// `&lt;x&gt;` every reference carries), everything else by its plain construct token. The needle
+/// the self-referee matches; never a judgement, only the subject's own spelling.
+fn mention_needle(construct: &str, element_typography: bool) -> String {
+    if element_typography {
+        format!("<{construct}>")
+    } else {
+        construct.to_string()
+    }
 }
 
 /// Bounded FULL-TOKEN mention: `construct` appears in `sentence` delimited by non-identifier characters,
@@ -1974,61 +1998,132 @@ fn pass37_attestations(
     let mut graded: Vec<(String, crate::lint_web::GradedForm)> = Vec::new();
     let mut withheld: Vec<(String, String)> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (url, body) in pages {
-        if !owned.contains(url) {
-            continue;
-        }
-        let attributed = crate::lint_docs::attribute_page(url, &[], extra_langs);
-        if !attributed.is_empty() && attributed != lang_lc {
-            continue;
-        }
-        // LAW 1 — attribute badges, admitted only under the element-hood proof: the page's
-        // URL-subject written in its own `&lt;host&gt;` element typography (PASS 35 A3).
-        let host = url
+    // The PASS-36 attribution doctrine, literally: skip only a page that POSITIVELY
+    // attributes to ANOTHER REGISTERED LANGUAGE by URL segment (`/Web/JavaScript/…`,
+    // `/css/…`). The general attributor's extension-claim guesses are NOT positive
+    // attribution — MEASURED (the v105 closure trace): `hint_language` read `/tags/` as
+    // cpp (the ctags claim) and `/Web/API/` as svg, silently unscoping the w3schools tag
+    // pages (`applet`/`basefont`) and every interface page from the attestation read.
+    let foreign = |url: &str| -> bool {
+        url.split("://")
+            .nth(1)
+            .unwrap_or(url)
+            .split('/')
+            .skip(1)
+            .map(|s| s.split(['?', '#', '.']).next().unwrap_or(""))
+            .filter(|s| s.chars().count() >= 2)
+            .any(|s| {
+                let t = s.to_lowercase();
+                t != lang_lc && extra_langs.contains(&t)
+            })
+    };
+    // The HOST(s) of a page (the element-hood proof): an ELEMENT page proves its URL-subject
+    // in its own `&lt;host&gt;` element typography (PASS 35 A3; single-letter elements — `a` —
+    // are elements too); an INTERFACE page proves its hosts by its OWN documented mapping (the
+    // interface-host law, class 2: the mapping sentence's `<x>` typography in the URL
+    // segment's exact-case interface spelling, else the references link arm), first-written
+    // host first.
+    let page_hosts = |url: &str, body: &str| -> (String, Vec<String>, bool, bool) {
+        let segment = url
             .split(['?', '#'])
             .next()
             .unwrap_or(url)
             .trim_end_matches('/')
             .rsplit('/')
             .next()
-            .unwrap_or("")
-            .to_lowercase();
-        let element_host = host.len() >= 2
-            && host.chars().all(|c| c.is_ascii_alphanumeric())
-            && body.contains(&format!("&lt;{host}&gt;"));
-        if element_host {
-            for (attr, governing) in crate::lint_html_layer::attribute_badges(body) {
-                let construct = format!("{host}@{attr}");
-                if !seen.insert(construct.clone()) {
-                    continue;
-                }
-                reads.push(ReadConstruct {
-                    construct: construct.clone(),
-                    governing: governing.clone(),
-                    url: url.clone(),
-                    attested_deprecated: true,
-                    page_scope: false, // the badge is ITEM scope, never a page banner
-                    element_typography: false,
-                });
-                let demo = format!("<{host} {attr}=\"x\">");
-                if demo_fires(&construct, &demo) {
-                    graded.push((
-                        construct.clone(),
-                        crate::lint_web::GradedForm {
-                            fire: construct.clone(),
-                            severity: "low".to_string(),
-                            description: format!(
-                                "Do not use the `{attr}` attribute on `<{host}>`: {governing} ⟨{url}⟩ — fires only inside its own host's tag open."
-                            ),
-                            source: url.clone(),
-                        },
-                    ));
-                } else {
-                    note_withhold(
-                        &mut withheld,
-                        rule_id(&construct),
-                        "attest gate (demonstration does not fire under this language)",
-                    );
+            .unwrap_or("");
+        let subject = segment.to_lowercase();
+        let subject_ok = !subject.is_empty() && subject.chars().all(|c| c.is_ascii_alphanumeric());
+        if subject_ok && body.contains(&format!("&lt;{subject}&gt;")) {
+            return (subject.clone(), vec![subject], false, false);
+        }
+        let (hosts, enumeration) = if subject_ok {
+            crate::lint_html_layer::interface_hosts(segment, body)
+        } else {
+            (Vec::new(), false)
+        };
+        (subject, hosts, enumeration, true)
+    };
+    // THE PRIMARY-CLAIM LAW (v105 closure, measured on HTMLParamElement): a mapping sentence
+    // may write a SECOND element as context ("…`<param>` …, acting as a parameter for an
+    // `<object>` element") — a SECONDARY mapping-sentence claim yields to any page whose
+    // mapping writes that element FIRST (HTMLObjectElement's own primary claim), so
+    // `object@type` junk never mints from the param page while `<th>`/`<td>` (no competing
+    // primary) both stay hosts of the table-cell interface. A references-arm host list is an
+    // ENUMERATION — every entry an equal claim (HTMLMediaElement's `<video>` and `<audio>`),
+    // never yielded. Competing claims are those of OTHER INTERFACE pages only — an element
+    // page naming its own subject is not a competing mapping (measured: `Elements/td`'s
+    // self-claim silenced the table-cell interface's `<td>` and lost `td@nowrap`).
+    // Corpus-corroborated — the pages' own claims referee each other.
+    // …and a competing claim exists only where the claimant page ITSELF documents attribute
+    // badges (a real mapping page): a per-property page (`…/HTMLTableCellElement/noWrap`)
+    // writes the same typography in its prose but defines nothing — MEASURED, its incidental
+    // first-`<td>` claim silenced the table-cell interface's `<td>` and lost `td@nowrap`.
+    let primary_claims: std::collections::HashMap<String, String> = pages
+        .iter()
+        .filter(|(url, _)| owned.contains(url) && !foreign(url))
+        .filter_map(|(url, body)| {
+            let (subject, hosts, _, interface) = page_hosts(url, body);
+            let claims = interface
+                && !hosts.is_empty()
+                && !crate::lint_html_layer::attribute_badges(&subject, body).is_empty();
+            claims.then(|| hosts.first().map(|h| (h.clone(), url.clone()))).flatten()
+        })
+        .fold(std::collections::HashMap::new(), |mut m, (h, url)| {
+            m.entry(h).or_insert(url);
+            m
+        });
+    for (url, body) in pages {
+        if !owned.contains(url) || foreign(url) {
+            continue;
+        }
+        // LAW 1 — attribute badges, admitted only under the element-hood proof.
+        let (subject, hosts, enumeration, _interface) = page_hosts(url, body);
+        let hosts: Vec<String> = hosts
+            .iter()
+            .enumerate()
+            .filter(|(i, h)| {
+                enumeration
+                    || *i == 0
+                    || primary_claims.get(*h).is_none_or(|primary| primary == url)
+            })
+            .map(|(_, h)| h.clone())
+            .collect();
+        if !hosts.is_empty() {
+            for (attr, governing) in crate::lint_html_layer::attribute_badges(&subject, body) {
+                for host in &hosts {
+                    let construct = format!("{host}@{attr}");
+                    if !seen.insert(construct.clone()) {
+                        continue;
+                    }
+                    reads.push(ReadConstruct {
+                        construct: construct.clone(),
+                        governing: governing.clone(),
+                        url: url.clone(),
+                        attested_deprecated: true,
+                        page_scope: false, // the badge is ITEM scope, never a page banner
+                        element_typography: false,
+                    });
+                    let demo = format!("<{host} {attr}=\"x\">");
+                    if demo_fires(&construct, &demo) {
+                        graded.push((
+                            construct.clone(),
+                            crate::lint_web::GradedForm {
+                                fire: construct.clone(),
+                                severity: "low".to_string(),
+                                description: format!(
+                                    "Do not use the `{attr}` attribute on `<{host}>`: {governing} ⟨{url}⟩ — fires only inside its own host's tag open."
+                                ),
+                                source: url.clone(),
+                            },
+                        ));
+                    } else {
+                        note_withhold(
+                            &mut withheld,
+                            rule_id(&construct),
+                            "attest gate (demonstration does not fire under this language)",
+                        );
+                    }
                 }
             }
         }
@@ -2232,9 +2327,20 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     }
     // PASS 30 — the self-referee's TEETH: a contradicted node's graded form is withheld (the evidence-
     // graded tier requires uncontradicted evidence; the contradiction stays on the node for the human).
-    // INERT on the current corpora (measured: zero contradictions) — byte-identical rule sets — and it
-    // engages exactly when a new source disagrees with the web.
-    graded_forms.retain(|c, _| referee.get(c).is_none_or(|r| r.contradictions.is_empty()));
+    // It engages exactly when a source disagrees with the web. PASS 37 closure (class 6's second
+    // face, measured on `image`): an ELEMENT-TYPOGRAPHY form (`fire = <image>`) is vetoed only by a
+    // contradiction that SPEAKS IN that typography — the stored record for the bare word (the
+    // Notification `image` member's referee row, a different construct sharing the key) never
+    // silences the element's own tier; the element is refereed by its own documented spelling.
+    graded_forms.retain(|c, form| {
+        referee.get(c).is_none_or(|r| {
+            r.contradictions.is_empty()
+                || (form.fire.starts_with('<')
+                    && !r.contradictions.iter().any(|x| {
+                        x.sentence.to_lowercase().contains(&form.fire.to_lowercase())
+                    }))
+        })
+    });
     let web = crate::lint_web::build(br.meanings(), &living_names, &outcomes, &read_surface, &roles, &graded_forms, &referee);
     crate::lint_web::persist(lang, &web);
     let rules = crate::lint_web::derive_rules(lang, &web);
@@ -2278,6 +2384,28 @@ mod tests {
             let m0 = attest.markers().first().map(|m| runs.contains(m)).unwrap_or(false);
             let typo = b.contains(&format!("&lt;{name}&gt;"));
             eprintln!("  {name}: page_scope={ps} item_route={items} marker0_in_runs={m0} elt_typo={typo} url={u}");
+        }
+        // PASS 37 closure — ownership/attribution trace for the attestation read's scope.
+        {
+            let owned = crate::lint_docs::owned_urls(&data_root, "html");
+            let mut extra: std::collections::HashSet<String> =
+                crate::lint_train::registered_languages(&data_root).into_iter().collect();
+            extra.insert("html".to_string());
+            eprintln!("OWNED html: {} urls; registered langs: {}", owned.len(), extra.len());
+            for u in [
+                "https://www.w3schools.com/tags/tag_applet.asp",
+                "https://www.w3schools.com/tags/tag_basefont.asp",
+                "https://developer.mozilla.org/en-US/docs/Web/API/HTMLDivElement",
+                "https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableCellElement",
+                "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements",
+                "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/a",
+            ] {
+                eprintln!(
+                    "SCOPE {u}: owned={} attributed={:?}",
+                    owned.contains(u),
+                    crate::lint_docs::attribute_page(u, &[], &extra)
+                );
+            }
         }
         // Trace the KNOWN banner run's gate counts at union scale.
         let needle = "This feature is no longer recommended";
@@ -2323,6 +2451,23 @@ mod tests {
             {
                 eprintln!("CENTER: in NEITHER surface");
             }
+            // Continue the trace through every later stage: graded map → referee → web → rules.
+            let constructions2 = crate::lint_construct::load("html");
+            let roles = crate::lint_construct::subject_roles(&constructions2, &[]);
+            let code_by_url = crate::lint_lang_layer::page_code_blocks_by_url(&pages, GRADED_CORPUS_CAP);
+            let proven: std::collections::HashSet<String> =
+                outcomes.iter().filter(|o| o.rule.is_some()).map(|o| o.candidate.construct.clone()).collect();
+            eprintln!("CENTER proven-set holds center: {}", proven.contains("center"));
+            let forms = graded_forms("html", &read, &outcomes, &roles, &proven, &code_by_url);
+            eprintln!("CENTER graded_forms: {:?}", forms.get("center"));
+            eprintln!("CENTER demo fires: {}", !run_plan(&Plan::UsesConstruct { construct: "<center>".into() }, "html", "<center>x</center>").is_empty());
+            let living: std::collections::HashSet<String> = Default::default();
+            let web = crate::lint_web::build(br.meanings(), &living, &outcomes, &read, &roles, &forms, &Default::default());
+            let node = web.iter().find(|n| n.construct == "center");
+            eprintln!("CENTER web node: proven={:?} graded={:?}",
+                node.map(|n| n.proven), node.map(|n| n.graded.is_some()));
+            let rules = crate::lint_web::derive_graded_rules("html", &web);
+            eprintln!("CENTER graded rule derived: {}", rules.iter().any(|(r, _)| r.id.contains("center")));
         }
         let living: std::collections::HashSet<&str> = pages
             .iter()
@@ -2380,19 +2525,40 @@ mod tests {
             PooledSentence { sentence: "The cgi module is not deprecated on this platform.".into(), prohibited: false, url: "https://d/C".into(), negated: true },
             PooledSentence { sentence: "Use urllib.parse instead of cgi.".into(), prohibited: false, url: "https://d/D".into(), negated: false },
         ];
-        let targets = vec![("cgi".to_string(), vec!["https://d/A".to_string()])];
+        let targets = vec![("cgi".to_string(), "cgi".to_string(), vec!["https://d/A".to_string()])];
         let map = self_referee(&pool, &targets);
         let rec = map.get("cgi").expect("cgi carries a referee record");
         assert_eq!(rec.coherent, vec!["https://d/B".to_string()], "own page excluded, asserting source counted");
         assert_eq!(rec.contradictions.len(), 1);
         assert_eq!(rec.contradictions[0].source, "https://d/C");
         // A target nobody else speaks about carries NO record (the honest sparse state).
-        let silent = self_referee(&pool, &[("telnetlib".to_string(), vec![])]);
+        let silent =
+            self_referee(&pool, &[("telnetlib".to_string(), "telnetlib".to_string(), vec![])]);
         assert!(silent.is_empty());
         // Bounded full-token mention: `cgi` never rides `cgitb`, and a dotted chain is one token.
         assert!(!mentions_full_token("the cgitb module is deprecated", "cgi"));
         assert!(mentions_full_token("the cgi module is deprecated", "cgi"));
         assert!(!mentions_full_token("ssl.sslsocket.read is fine", "read"));
+        // PASS 37 class 6 — an ELEMENT-typography subject is refereed by its `<x>` typography:
+        // the bare common word never matches, the typographic mention does.
+        let word_collision = PooledSentence {
+            sentence: "The view from a center point of the field.".into(),
+            prohibited: false,
+            url: "https://d/E".into(),
+            negated: true,
+        };
+        let element_targets =
+            vec![("center".to_string(), "<center>".to_string(), vec!["https://d/O".to_string()])];
+        let quiet = self_referee(&[word_collision], &element_targets);
+        assert!(quiet.is_empty(), "a common-word mention never referees an element subject");
+        let typographic = PooledSentence {
+            sentence: "The <center> element is not deprecated here.".into(),
+            prohibited: false,
+            url: "https://d/E".into(),
+            negated: true,
+        };
+        let heard = self_referee(&[typographic], &element_targets);
+        assert!(heard.get("center").is_some_and(|r| !r.contradictions.is_empty()));
     }
 
     #[test]
