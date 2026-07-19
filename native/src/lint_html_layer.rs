@@ -72,19 +72,33 @@ pub fn sections(body: &str) -> Vec<(String, String)> {
         // patterns, never the first pattern in array order. `find_map` returning `<h2 id="`'s position
         // whenever any h2 exists SKIPPED every `<h3 id="` before a later h2, welding those subsections
         // (and their heading text — e.g. a "Never use …!" command heading) into the preceding region.
-        let hit = ["<h2 id=\"", "<h3 id=\""]
+        let hit = ["<h2 id=", "<h3 id="]
             .iter()
             .filter_map(|pat| rest.find(pat).map(|i| (at + i, pat.len())))
             .min_by_key(|(pos, _)| *pos);
         let Some((open, pat_len)) = hit else { break };
-        // Read the anchor id up to the closing quote.
+        // Read the anchor id per the HTML attribute grammar — the value may be quoted or
+        // UNQUOTED (the WHATWG serializer writes `<h3 id=non-conforming-features>`; demanding a
+        // quote silently welded that spec's every section into one anchorless lead).
         let id_start = open + pat_len;
-        let Some(q) = body[id_start..].find('"') else { break };
-        let next_anchor = body[id_start..id_start + q].to_string();
+        let (val_start, val_end) = match body[id_start..].chars().next() {
+            Some(q @ ('"' | '\'')) => {
+                let Some(close) = body[id_start + 1..].find(q) else { break };
+                (id_start + 1, id_start + 1 + close)
+            }
+            _ => {
+                let close = body[id_start..]
+                    .find(|c: char| c.is_ascii_whitespace() || c == '>')
+                    .map(|i| id_start + i)
+                    .unwrap_or(body.len());
+                (id_start, close)
+            }
+        };
+        let next_anchor = body[val_start..val_end].to_string();
         out.push((anchor, body[start..open].to_string()));
         anchor = next_anchor;
         start = open;
-        at = id_start + q;
+        at = val_end;
     }
     out.push((anchor, body[start..].to_string()));
     out
@@ -634,12 +648,26 @@ pub fn obsolete_index_entries(body: &str, en: &crate::lint_english::English) -> 
                     .collect::<Vec<String>>()
             })
             .collect();
+        // The join compares each status value as its WORD SEQUENCE contiguously contained in
+        // the heading's words, so a hyphenated status value ("non-conforming" — WHATWG's own
+        // vocabulary for "authors must not use") joins its heading exactly as a single-word
+        // value does; single-word membership alone broke every hyphenated status.
         let heading_words_join = heading_text(&region)
             .map(|h| {
-                let prohibit = crate::lint_attest::prohibition_class_tokens();
-                h.to_lowercase()
+                let words: Vec<String> = h
+                    .to_lowercase()
                     .split(|c: char| !c.is_ascii_alphanumeric())
-                    .any(|w| prohibit.iter().any(|p| p == w))
+                    .filter(|w| !w.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                crate::lint_attest::prohibition_class_tokens().iter().any(|p| {
+                    let seq: Vec<&str> =
+                        p.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).collect();
+                    !seq.is_empty()
+                        && words
+                            .windows(seq.len())
+                            .any(|w| w.iter().map(String::as_str).eq(seq.iter().copied()))
+                })
             })
             .unwrap_or(false);
         let stating = para_sentences
@@ -672,11 +700,14 @@ pub fn obsolete_index_entries(body: &str, en: &crate::lint_english::English) -> 
 /// candidate unit is any tag kind repeated in the region; a unit ATTESTS when its tag-stripped
 /// text BEGINS with the decoded `<x>` element typography (an entry leads with its own name — a
 /// cross-reference inside a description never leads its unit, so `<slot>` in the `content` row's
-/// prose stays unattested); the entry kind is the OUTERMOST repeated kind with at least two
-/// attesting units — the one whose first occurrence opens EARLIEST (`tr` opens before the
-/// `td`/`a`/`code` it wraps; `dt` before its inner `code`), ties to fewest units — and each
-/// attesting unit's governing prose is its own remainder text (the row's description cell /
-/// the dt's following dd).
+/// prose stays unattested), or — the CODE-TYPOGRAPHY ARM (PASS 37 WHATWG re-land) — when its
+/// definition term is EXACTLY a bare name the author wraps in code font and a description
+/// follows (WHATWG's obsolete list writes `bgsound` without brackets; its attribute rows read
+/// "charset on a elements" and are structurally excluded); the entry kind is the OUTERMOST
+/// repeated kind with at least two attesting units — the one whose first occurrence opens
+/// EARLIEST (`tr` opens before the `td`/`a`/`code` it wraps; `dt` before its inner `code`),
+/// ties to fewest units — and each attesting unit's governing prose is its own remainder text
+/// (the row's description cell / the dt's following dd).
 fn repeating_entries(region: &str) -> Vec<(String, String)> {
     use std::collections::BTreeMap;
     // Every opening-tag kind's occurrence positions, in document order.
@@ -699,41 +730,132 @@ fn repeating_entries(region: &str) -> Vec<(String, String)> {
     // entry structure: `<tr>` opens before the `<td>`/`<a>`/`<code>` it wraps — an incidental
     // earlier occurrence that attests nothing, like a heading's own anchor link, never ranks),
     // ties to fewest units.
-    let attesting = |starts: &[usize]| -> (usize, Vec<(String, String)>) {
+    let attesting = |starts: &[usize]| -> (usize, usize, Vec<(String, String)>) {
         let mut entries = Vec::new();
+        let mut definitional = 0usize;
         let mut first_attesting = region.len();
         for (j, &p) in starts.iter().enumerate() {
             let end = starts.get(j + 1).copied().unwrap_or(region.len());
             let text = strip_tags(&region[p..end]);
             let text = text.trim_start();
-            let Some(rest) = text.strip_prefix('<') else { continue };
-            let name: String =
-                rest.chars().take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).collect();
-            if name.is_empty() || !rest[name.len()..].starts_with('>') {
+            if let Some(rest) = text.strip_prefix('<') {
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+                    .collect();
+                if name.is_empty() || !rest[name.len()..].starts_with('>') {
+                    continue;
+                }
+                // An ENTRY is subject + description: its leading name is followed by PROSE. A
+                // name-RUN ("<circle>, <ellipse>, …" — a feature table's element list) and a
+                // name-only unit are references, not entries (measured junk sources).
+                let governing = rest[name.len() + 1..]
+                    .trim_start_matches(|c: char| !c.is_ascii_alphabetic() && c != '<');
+                if !governing.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+                    continue;
+                }
+                definitional += 1;
+                first_attesting = first_attesting.min(p);
+                entries.push((name, governing.trim().to_string()));
                 continue;
             }
-            // An ENTRY is subject + description: its leading name is followed by PROSE. A
-            // name-RUN ("<circle>, <ellipse>, …" — a feature table's element list) and a
-            // name-only unit are references, not entries (measured junk sources).
-            let governing = rest[name.len() + 1..].trim_start_matches(|c: char| !c.is_ascii_alphabetic() && c != '<');
+            // THE CODE-TYPOGRAPHY ARM (PASS 37, WHATWG re-land): an entry may lead with the
+            // author's code-font term instead of `<x>` bracket typography, under three
+            // structural conditions. (1) The definition term's OWN text — the unit up to its
+            // first `<dd` sibling — is EXACTLY the bare name: WHATWG's element rows define
+            // "bgsound" alone, while its attribute rows define "charset on a elements" and are
+            // thereby structurally excluded from element-hood. (2) The raw term wraps the name
+            // in the page's own code typography (`<code>name<`). (3) Prose follows in the
+            // remainder (the `<dd>` description), same as the bracket arm. Element-hood then
+            // closes by construction at the caller's demo gate (PASS 35). The section-heading
+            // status gate upstream is unchanged — this arm never runs outside a
+            // prohibition-status section.
+            let raw = &region[p..end];
+            let (term_raw, desc_raw) = match raw.find("<dd") {
+                Some(dd) => (&raw[..dd], &raw[dd..]),
+                None => {
+                    // A term with no `<dd>` of its own sits in a SHARED-DESCRIPTION RUN — the
+                    // dt+dd list grammar runs several terms into one description ("big",
+                    // "blink", … "tt" → "Use appropriate elements or CSS instead."), and only
+                    // the run's last term sees the `<dd>` inside its own span. The shared
+                    // description governs EVERY term of its run, so a qualifying bare
+                    // code-typography term attests with the run's `<dd>` text; a short term
+                    // that does not qualify still counts as definition STRUCTURE (the spec's
+                    // attribute runs), keeping the majority honest. Prose units — the measured
+                    // junk class — remain non-definitional by their own sentence shape.
+                    let t = strip_tags(raw);
+                    let t = t.trim();
+                    if t.is_empty() || t.len() > 80 || t.contains('.') {
+                        continue;
+                    }
+                    definitional += 1;
+                    let name = t.to_string();
+                    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+                        || !raw.to_lowercase().contains(&format!("<code>{name}<"))
+                    {
+                        continue;
+                    }
+                    // The run's shared `<dd>`: the next one after this unit, provided the list
+                    // has not closed in between (a run-ending term at a list boundary must not
+                    // steal a later list's description).
+                    let ahead = &region[end..];
+                    let Some(dd_rel) = ahead.find("<dd") else { continue };
+                    if ahead[..dd_rel].contains("</dl") {
+                        continue;
+                    }
+                    let dd = &ahead[dd_rel..];
+                    let dd_end =
+                        dd.find("<dt").or_else(|| dd.find("</dl")).unwrap_or(dd.len());
+                    let governing = strip_tags(&dd[..dd_end]);
+                    let governing = governing.trim();
+                    if governing.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+                        first_attesting = first_attesting.min(p);
+                        entries.push((name, governing.to_string()));
+                    }
+                    continue;
+                }
+            };
+            // Term + description IS definition structure, whatever the term names — WHATWG's
+            // obsolete-attribute rows ("charset on a elements") are real entries of the same
+            // list, structurally excluded from ELEMENT-hood below but counted toward the
+            // kind's definitional majority (the majority filter rejects prose-junk kinds, and
+            // a sibling definition row is not prose junk — measured: 17 element rows among 172
+            // dt entries in the spec's non-conforming section).
+            definitional += 1;
+            let name = strip_tags(term_raw).trim().to_string();
+            if name.is_empty()
+                || !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            {
+                continue;
+            }
+            if !term_raw.to_lowercase().contains(&format!("<code>{name}<")) {
+                continue;
+            }
+            let governing = strip_tags(desc_raw);
+            let governing = governing.trim();
             if !governing.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
                 continue;
             }
             first_attesting = first_attesting.min(p);
-            entries.push((name, governing.trim().to_string()));
+            entries.push((name, governing.to_string()));
         }
-        (first_attesting, entries)
+        (first_attesting, definitional, entries)
     };
     positions
         .iter()
         .filter(|(_, starts)| starts.len() >= 2)
         .map(|(_, starts)| (starts.len(), attesting(starts)))
-        // The entry kind LISTS entries: at least two attest, and attesting units are the
-        // MAJORITY of the kind's units (a kind whose units are mostly non-entries is prose
-        // structure that happens to contain cross-references — measured junk).
-        .filter(|(units, (_, entries))| entries.len() >= 2 && entries.len() * 2 > *units)
-        .min_by_key(|&(units, (first_attesting, _))| (first_attesting, units))
-        .map(|(_, (_, entries))| entries)
+        // The entry kind LISTS entries: at least two attest, and DEFINITION-STRUCTURED units
+        // (attesting entries plus their structurally-excluded sibling rows — e.g. the spec's
+        // obsolete-attribute definitions sharing the element list) are the MAJORITY of the
+        // kind's units. A kind whose units are mostly non-definitional is prose structure that
+        // happens to contain cross-references — the measured junk the filter exists to reject;
+        // a sibling definition row is not junk and must not veto its own list.
+        .filter(|(units, (_, definitional, entries))| {
+            entries.len() >= 2 && definitional * 2 > *units
+        })
+        .min_by_key(|&(units, (first_attesting, _, _))| (first_attesting, units))
+        .map(|(_, (_, _, entries))| entries)
         .unwrap_or_default()
 }
 
@@ -1127,6 +1249,45 @@ mod tests {
             vec!["omega", "sigma"],
             "the table rows attest exactly the row-leading elements: {rows:?}"
         );
+    }
+
+    #[test]
+    fn whatwg_code_typography_entries_attest_elements_and_exclude_attribute_rows() {
+        // PASS 37 WHATWG re-land — the code-typography arm: a hyphenated status value joins the
+        // heading by word SEQUENCE ("Non-conforming features"), element rows define a bare
+        // code-font name alone, attribute rows ("charset on a elements") and closed-tag
+        // omission (`<dt>` with no `</dt>`, `<dd>` following directly) are the real spec's own
+        // shapes. No english brain needed — the heading status join is the gate.
+        let Some(en) = crate::lint_english::brain() else {
+            eprintln!("skip: no english brain on disk");
+            return;
+        };
+        let body = r#"<h1>Obsolete features</h1><p>The features described here are obsolete.</p>
+            <h2 id=non-conforming-features>Non-conforming features</h2>
+            <p>Elements in the following list are entirely obsolete, and must not be used by authors.</p>
+            <dl><dt><dfn id=bgsound><code>bgsound</code></dfn><dd><p>Use audio instead.</p>
+            <dt><dfn id=isindex><code>isindex</code></dfn><dd><p>Use an explicit form and text control combination instead.</p>
+            <dt><code>charset on a</code><dd><p>Use an HTTP Content-Type header on the linked resource instead.</p>
+            <dt><code>coords on a</code><dd><p>Use area instead of a for image maps.</p>
+            <dt><code>shape on a</code><dd><p>Use area instead of a for image maps.</p>
+            <dt><code>methods on a</code><dd><p>Use the HTTP OPTIONS feature instead.</p>
+            <dt><dfn id=blorbel><code>blorbel</code></dfn><dt><dfn id=zintel><code>zintel</code></dfn><dd><p>Use appropriate modern elements instead.</p></dl>"#;
+        let entries = obsolete_index_entries(body, en);
+        assert_eq!(
+            entries.iter().map(|(e, _)| e.as_str()).collect::<Vec<_>>(),
+            vec!["bgsound", "isindex", "blorbel", "zintel"],
+            "bare code-font element terms attest — including a SHARED-DESCRIPTION RUN (blorbel \
+             + zintel share one dd, the list grammar's own shape) — while multi-word attribute \
+             terms are excluded from element-hood yet count as definition structure, so the \
+             attribute-majority list still yields its elements: {entries:?}"
+        );
+        let shared = entries.iter().find(|(e, _)| e == "blorbel").unwrap();
+        assert!(
+            shared.1.contains("appropriate modern elements"),
+            "a run member attests with the run's shared dd as governing: {:?}",
+            shared.1
+        );
+        assert!(entries[0].1.contains("Use audio instead"), "dd prose governs: {:?}", entries[0].1);
     }
 
     #[test]

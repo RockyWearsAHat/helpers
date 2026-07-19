@@ -2648,9 +2648,41 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 >    not a reader change.
 > Acceptance: census gains the attribute-fact kind (badge shape, fixture-truth first); the
 > PASS-37 real-html scoreboard rerun must reach fired (proven|graded) for every one of the 201
-> corpus-documented items — the only honest exception is `blink` (documented solely on a JS
-> page; cross-language attestation stays out until a proper html source is registered) —
-> known-only 0, unknown 0 among documented, clean FP 0.
+> corpus-documented items — the only honest exception is `blink` (at v105 documented solely on
+> a JS page in the corpus) — known-only 0, unknown 0 among documented, clean FP 0.
+>
+> **Owner ruling (2026-07-19) — NO CROSS-LANGUAGE ATTESTATION, permanent.** One programming
+> language's rules NEVER attest facts in another: a JavaScript page can never teach html law,
+> whatever tokens they share. This is not a pending gap to close — it is the law; a fact enters
+> a language's web only from that language's own registered documentation. "Cross-language"
+> reading is legitimate only as (a) the same fact carried in different HUMAN languages (the one
+> meaning net, lexicon overlays), or (b) a language's own docs explicitly speaking about
+> another language — and even then it is context, never attestation. `blink` therefore closes
+> only via an html source that documents it (the WHATWG living standard does, in its own
+> obsolete list).
+>
+> **The WHATWG arm (2026-07-19, owner-supervised re-land after an agent hand-shaping attempt was
+> killed and reverted).** The living standard is now a registered source (`whatwg-html`,
+> `sources.json` + the machine manifest — the manifest SHADOWS the repo registry, a measured
+> lesson) and its `obsolete.html` is cached; MDN's 2025 reorg deleted the ancient-element pages
+> outright (live 404s), so WHATWG is the only registered documentation for `bgsound isindex
+> keygen listing multicol nextid spacer blink`. Reading it needs NO new shape — two small
+> generalizations of existing laws plus sanctioned data:
+> 1. **Data (the one-hand-datum store):** `obsolete` and `non-conforming` join `prohibits` —
+>    they are the spec's own status vocabulary for "authors must not use", entering exactly as
+>    `deprecated` did. No code word list.
+> 2. **Status join reads word SEQUENCES:** the heading join compares each status value as its
+>    word sequence contiguously contained in the heading's words (`non-conforming` ⊂
+>    "Non-conforming features"); the old single-word membership broke every hyphenated status.
+> 3. **The code-typography entry arm (repeating-entry law):** an entry may lead with the
+>    author's CODE-typography term instead of `&lt;x&gt;` bracket typography, under three
+>    structural conditions — the section heading joins a prohibition status (gate unchanged),
+>    the definition term's OWN text is EXACTLY the bare name (WHATWG's attribute rows read
+>    "charset on a elements" and are thereby structurally excluded from element-hood), and the
+>    raw term wraps the name in the page's own code font. Element-hood then closes by
+>    construction at the demo gate (PASS 35: a tag named `bgsound` IS the bgsound element).
+>    No annotation keys (`data-dfn-type` explicitly NOT read — owner default: learned
+>    structure only), no element enumeration.
 >
 > **The implementation (TRAIN_VERSION → `docs-v104-attribute-dimension`, 2026-07-19) — written
 > BEFORE the code, the spec-first law. One new read stage plus two matcher forms; every
