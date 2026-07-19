@@ -158,6 +158,9 @@ enum Expect {
     /// or graded) at TAG-OPEN position; the same word in value position never fires.
     FiresNotSupported,
     /// Outside both axes: nothing minted, nothing fired, nothing known under the subject's name.
+    /// Held by the tutorial-negative sample AND the PASS-37 tutorial-junk red pin (production
+    /// closure, class 1): a healthy element's tutorial page with an UNBOUND lead prohibition
+    /// sentence must mint nothing element-shaped — the planted healthy usages stay silent.
     Nothing,
 }
 
@@ -417,6 +420,25 @@ fn manifest() -> Vec<Fact> {
             plant_good: Some("<a data-old=\"zapplet\">plugin history</a>"),
             expected: Expect::FiresNotSupported,
         },
+        // ── PASS 37 production closure — THE TUTORIAL-JUNK RED PIN (class 1) ──────────────────
+        // The measured v104 clean FP: a TUTORIAL page about a HEALTHY element whose lead
+        // carries a capitalized negation-lead prohibition sentence NOT about the subject
+        // (mirroring w3schools html_intro.asp / html_form_input_types.asp), while the page
+        // writes the subject's `&lt;x&gt;` typography and the URL names it. NOTHING
+        // element-shaped may mint: the planted healthy usage stays silent in BOTH files.
+        Fact {
+            id: "html-board-tutorial-junk",
+            lang: "html",
+            page: "/html/tutorial/board_intro",
+            kind: "tutorial-junk",
+            subject: "board",
+            forbid_sentence: "Do not use hidden markers as a form of security.",
+            bad_code: "",
+            good_code: "",
+            plant_bad: Some("<board rows=\"3\">tiles</board>"),
+            plant_good: Some("<board rows=\"9\">more tiles</board>"),
+            expected: Expect::Nothing,
+        },
     ]
 }
 
@@ -473,6 +495,8 @@ fn page_h1(f: &Fact) -> String {
         }
         "index-section" => "HTML elements reference".to_string(),
         "not-supported" => format!("HTML &lt;{}&gt; Tag", f.subject),
+        // The tutorial page is titled like a tutorial (html_intro.asp), never like a reference.
+        "tutorial-junk" => "HTML Board Tutorial".to_string(),
         _ => format!("{}()", f.subject),
     }
 }
@@ -489,7 +513,7 @@ fn page_lead(f: &Fact) -> String {
         "index-section" => {
             "This page lists all the elements of the language, grouped by function.".to_string()
         }
-        "not-supported" => String::new(),
+        "not-supported" | "tutorial-junk" => String::new(),
         _ => format!(
             "The {} call is part of the classic interface and appears throughout older programs.",
             f.subject
@@ -553,22 +577,42 @@ fn section_html(f: &Fact) -> String {
             )
         }
         // PASS 37 — the MDN Elements-index shape: the obsolete element appears ONLY as an entry
-        // of the index's obsolete section (its own `<x>` typography), next to a healthy section.
+        // of the index's obsolete section (its own `<x>` typography), next to a healthy
+        // section. Production closure (class 3): the section lists SEVERAL entries (the
+        // repeating-entry law reads the section's own repetition — the real index is a
+        // 23-row table) and a description's cross-reference (`&lt;panel&gt;` in the second
+        // entry) must never attest.
         "index-section" => format!(
             "<h2 id=\"interactive_elements\">Interactive elements</h2>\
-             <dl><dt><code>&lt;panel&gt;</code></dt><dd>A control surface element.</dd></dl>\
+             <dl><dt><code>&lt;panel&gt;</code></dt><dd>A control surface element.</dd>\
+             <dt><code>&lt;label&gt;</code></dt><dd>A caption for another element.</dd></dl>\
              <h2 id=\"obsolete_and_deprecated_elements\">Obsolete and deprecated elements</h2>\
              <p>Never use these elements in new pages; they are obsolete and only listed here.</p>\
-             <dl><dt><code>&lt;{s}&gt;</code></dt><dd>{p}</dd></dl>",
+             <dl><dt><code>&lt;{s}&gt;</code></dt><dd>{p}</dd>\
+             <dt><code>&lt;zlound&gt;</code></dt><dd>Replaced long ago by the &lt;panel&gt; \
+             element for control surfaces.</dd></dl>",
             s = f.subject,
             p = f.forbid_sentence
         ),
-        // PASS 37 — the w3schools shape: the page-role sentence IS the prohibition; the page
-        // never says "never", only the "Not Supported" typography plus past-tense prose.
+        // PASS 37 — the w3schools shape, production closure (classes 1+4): the notice is the
+        // REAL status-classed HEADING (`<h2><span class="deprecated">Not Supported in
+        // HTML5.</span></h2>` — fixture truth mirrors production truth), whose governed
+        // region names the subject in the page's own typography. Prose alone never attests.
         "not-supported" => format!(
-            "<p>{p}</p>\
-             <p>The &lt;{s}&gt; tag was used to embed a small gadget program in a page.</p>\
+            "<h2><span class=\"deprecated\">{p}</span></h2>\
+             <p>The &lt;{s}&gt; tag was used to embed a small gadget program in a page.</p><hr>\
              <p>What to use instead: the &lt;panel&gt; element.</p>",
+            s = f.subject,
+            p = f.forbid_sentence
+        ),
+        // PASS 37 production closure — the tutorial-junk red pin (class 1): a healthy
+        // element's tutorial page; the lead prohibition sentence is about something ELSE
+        // (unbound), the subject appears in its own typography and healthy usage only.
+        "tutorial-junk" => format!(
+            "<p>{p}</p>\
+             <p>The &lt;{s}&gt; tag lays out a game board of tiles.</p>\
+             <pre>&lt;board rows=\"3\"&gt;tiles&lt;/board&gt;</pre>\
+             <p>Boards can be nested inside sections and articles.</p>",
             s = f.subject,
             p = f.forbid_sentence
         ),
