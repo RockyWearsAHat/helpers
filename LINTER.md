@@ -2714,6 +2714,150 @@ missing from the crawl — the crawl is the ceiling, not the funnel).
 >    PROVEN set ships; a graded view over the web is path-independent (previously the miner
 >    path silently discarded it, which is exactly the enforcement-axis loss PASS 36 forbids).
 >
+> **PRODUCTION CLOSURE (TRAIN_VERSION → `docs-v105-subject-binding`, 2026-07-19) — the six
+> defect classes the v104 real-corpus scoreboard measured (fired 166/201, 5 junk element rules,
+> 1 clean FP), each closed by a reading law written here BEFORE the code. Fixture-truth first
+> for the junk class (the census gains its red pin); every judgement below is an existing
+> frozen faculty, the one-hand-datum status join, or the page's own typography — never a word,
+> icon, or shape list.**
+>
+> 1. **THE SUBJECT-BINDING LAW (junk class + the not-supported misses — one law, both
+>    directions).** Law 2b as implemented read ANY lead prohibition sentence as a page-role
+>    notice; on w3schools TUTORIAL pages about healthy elements ("Do not use hidden inputs as a
+>    form of security", "Empty elements do not have an end tag") it minted element graded rules
+>    for `html`, `input`, `form`, `picture`, `map` — `graded-html` a MEASURED clean-file FP. The
+>    law: a prohibition attests the URL-subject element ONLY where it BINDS it, by one of two
+>    page-published shapes: (a) **the status-classed notice heading** — a heading whose OWN
+>    markup carries a prohibition status token by the `class_carries_prohibition` data join
+>    (w3schools authors the real notice as `<h2><span class="deprecated">Not Supported in
+>    HTML5.</span></h2>` — a HEADING, which the paragraph reader never read: the measured reason
+>    `applet`/`basefont` were UNKNOWN in production), whose governed region (heading → next
+>    heading/`<hr`) writes the URL-subject element in the page's own `&lt;x&gt;` typography; or
+>    (b) *withdrawn by measurement* — a self-naming prose arm (the sentence names the subject by
+>    the `fact_subject` join: `<x>` typography or a non-common token) was built and swept over
+>    the whole 13k-page corpus: arm (a) alone yields exactly the 12 true w3schools notices,
+>    while the prose arm contributed SEVEN attestations, all junk ("Different browsers may use
+>    different default types for the `<button>` element" self-names `<button>`; "The different
+>    input types are as follows:" binds `input`) and ZERO truths — so the prose arm is REMOVED:
+>    a page-scope element attestation requires the page's own STATUS TYPOGRAPHY (the PASS-35
+>    banner-truth doctrine), never a bare prose sentence. A prohibition sentence about
+>    something else on the page binds nothing — tutorial prose dies with the arm, and the five
+>    junk rules die with it
+>    (`input@align`/`input@usemap` then fire from their own attribute rules, class 2). The
+>    census red pin: an html tutorial page about a healthy element whose lead carries a
+>    capitalized negation-lead sentence NOT about the subject, in the page's own `&lt;x&gt;`
+>    typography, URL-subject naming the element — asserted to mint NOTHING element-shaped.
+>    **The pin's second catch — the MINER'S GOVERN JOIN.** The red pin's first run caught the
+>    same tutorial shape through the OTHER mint path: the miner bound the unrelated warning to
+>    the page's healthy example and minted `do_not_use_hidden_marker` firing every `<board>`
+>    usage. The law (`lint_docs::rules_from_memory`), for ANCHORLESS bindings only — a unit
+>    whose slug is prose-derived (no rule-page slug, no anchored heading: the author gave the
+>    unit no structural landmark, the tutorial shape): the forbidding sentence must GOVERN the
+>    demonstration it binds — some token of the example code must be a token of the unit's own
+>    prose-derived SLUG (the operative clause head, the `fact_subject` discipline transplanted;
+>    a sentence-level join was measured to leak through welded paragraphs — tag-stripping
+>    leaves "…security.The <board> tag…" as one sentence and the example's tokens ride the
+>    weld, while the slug head carries only the forbidding clause); a
+>    binding whose example spells none of the slug's tokens records the NAMED withhold
+>    `mint gate (forbidding sentence does not govern the example)` — an example that
+>    demonstrates nothing the sentence forbids is memorization, the PASS-36 third ruling's
+>    defect class. An ANCHORED unit is the author structuring a law and keeps the miner's
+>    existing gates ("Never index past the end" legitimately governs `xs[xs.len()]` without
+>    sharing a token).
+> 2. **THE INTERFACE-HOST LAW (the ~15 known-only attributes).** The badge attester's host proof
+>    demanded the URL-subject spelled in `&lt;host&gt;` typography — an INTERFACE page
+>    (`Web/API/HTMLDivElement`) can never pass it (and a single-letter element page — `a` — died
+>    at an incidental `len >= 2` guard). The host of an interface page is the page's OWN
+>    documented mapping, never a name-splitting heuristic: (a) **the mapping sentence** — a
+>    sentence naming the URL-subject interface as a whole token and writing element(s) in
+>    `&lt;x&gt;` typography ("The HTMLDivElement interface … for manipulating `<div>`
+>    elements.") — every element it writes is a host (`<th>`/`<td>` both, on the page's own
+>    word); where the sentence's typography writes two same-stem numeric endpoints (`<h1>`
+>    through `<h6>`), the page states the inclusive SPAN — the endpoints' own stem+numerals
+>    derive `h1..h6`, no list; (b) **the references arm**, only when no sentence binds — a
+>    link-list entry whose anchor wraps `&lt;x&gt;` typography AND whose href's last segment
+>    names `x` (the URL-subject law applied to the LINK: HTMLMediaElement's "References
+>    `<video>` and `<audio>` HTML elements") — hosts for `mediagroup`. The dt of an interface
+>    page writes the member's DOTTED typography (`id="htmldivelement.align"`): the attribute
+>    name is the member half exactly where the owner half names the URL subject (the PASS-35
+>    member law, not a split heuristic); a dt whose own text writes CALL typography (`…()`) is a
+>    method, not an attribute — excluded by the author's own parentheses. Element-hood for the
+>    minted `host@attr` is carried by the mapping proof itself (the page writes the host as an
+>    element).
+> 3. **THE REPEATING-ENTRY LAW (the real index section).** Law 2a enumerated `<dt>` as THE entry
+>    shape; the real MDN Elements-index obsolete section is a TABLE (23 `<tr>` rows, zero dt) —
+>    `content`/`image`/`menuitem`/`shadow` measured UNKNOWN. The section's entries are whatever
+>    repeating child structure carries the `&lt;x&gt;` typography: candidate unit = any tag kind
+>    repeated in the section; a unit ATTESTS when its tag-stripped text BEGINS with the escaped
+>    element typography (an entry leads with its own name; a cross-reference inside a
+>    description never leads its unit — `<slot>`/`<img>` in the content/image rows stay
+>    unattested); the entry kind is the OUTERMOST repeated kind with at least two attesting units
+>    (its first ATTESTING unit opens earliest — `tr` opens before the `td`/`a`/`code` it wraps,
+>    `dt` before its inner `code`; an incidental earlier occurrence that attests nothing, like
+>    the section heading's own anchor link, never ranks; ties to fewest units), and each
+>    attesting unit's governing
+>    prose is its own remainder text (the row's description cell / the dt's dd). No shape
+>    enumeration — the page's own repetition is the shape.
+> 4. **The not-supported closure is law 1(a)** — `applet`/`basefont` attest from their own tag
+>    pages' status-classed heading + `&lt;x&gt;`-typography naming paragraph (their lead DOES
+>    bind the subject); the census's not-supported fixture is corrected to the REAL w3schools
+>    shape (the notice as a status-classed heading, not a bare paragraph) — fixture truth
+>    mirrors production truth.
+> 5. **The badge variants are laws 1–2** — `a@charset`/`a@coords`/`a@rev`/`a@attributionsrc`
+>    (single-letter host, the `len >= 2` guard), `area@nohref`/`meta@scheme`/`object@code`/
+>    `td@nowrap`/`audio@mediagroup`/`video@mediagroup` (interface-page hosts): each page's badge
+>    is the SAME dt shape already learned; only the host proof was missing. No new status
+>    typography exists in the corpus for these items.
+> 6. **The `center` drop — the referee's common-word collision (MEASURED to root cause).** The
+>    staged trace (`probe_bare_flood_gate_on_real_corpus`, extended through graded map →
+>    referee → web → derived rules) proved every stage carries `center` (read ✓, graded form ✓,
+>    demo fires ✓, node ✓, rule derives ✓) — the drop is the PASS-30 self-referee retain: the
+>    persisted node held a "contradiction" from `Web/API/VRFieldOfView`, whose prose "…the view
+>    from a center point…" mentions the common WORD center, not the element. The law: an
+>    ELEMENT-typography subject is refereed by its OWN documented typography — the mention
+>    needle is `<center>` (the decoded `&lt;x&gt;` form every real cross-reference carries),
+>    never the bare word (`lint_module::mention_needle`; non-element subjects unchanged). The
+>    word-collision record dies, the graded form survives the retain, `graded-center` ships.
+>
+> 7. **Production-rerun closures (the first fresh docs-v105 train's own three catches).**
+>    (a) **The pass-37 attribution gate is REGISTERED-LANGUAGE-ONLY** — the general attributor's
+>    extension-claim guesses read `/tags/` as cpp (the ctags claim) and `/Web/API/` as svg,
+>    silently unscoping the w3schools tag pages and every interface page; the PASS-36 doctrine
+>    is applied literally: only a URL segment naming ANOTHER REGISTERED language attributes a
+>    page away. (b) **The primary-claim law** — HTMLParamElement's mapping sentence writes
+>    `<object>` as CONTEXT ("acting as a parameter for an `<object>` element") and minted
+>    `object@type`, a measured clean FP on valid markup: a SECONDARY mapping-sentence host
+>    yields to any page claiming that element FIRST (HTMLObjectElement's own primary claim);
+>    a references-arm list is an ENUMERATION (every entry an equal claim — `<video>`/`<audio>`)
+>    and never yields; competing claims are those of OTHER INTERFACE pages that THEMSELVES
+>    document attribute badges — an element page naming its own subject is not a competing
+>    mapping, and a per-property page (`…/HTMLTableCellElement/noWrap`) writes the same
+>    typography while defining nothing (both measured: each in turn silenced the table-cell
+>    interface's `<td>` and lost `td@nowrap`). (c) **The element-typography retain** (class 6's second face, measured on
+>    `image`) — a graded ELEMENT form (`fire = <image>`) is vetoed only by a contradiction that
+>    speaks in that typography; the bare-word referee row of a DIFFERENT construct sharing the
+>    key (the Notification `image` member) never silences the element's own tier.
+>
+> **Measured sweep (the whole 13k-page corpus through the closed readers, `examples/p37_scan`):**
+> NOTSUP = exactly the 12 true w3schools notices (acronym applet basefont big center dir font
+> frame frameset noframes strike tt); INDEX = exactly the real obsolete section's 22 row-led
+> elements (content/image/menuitem/shadow included, `<slot>`/`<img>` cross-references excluded);
+> ATTR = 281 host@attr constructs covering every interface-page miss (h1..h6@align via the span
+> law, audio/video@mediagroup via the references arm, input@align/usemap, td/th@nowrap,
+> a@charset/coords/rev/attributionsrc, area@nohref, meta@scheme, object@code/hspace/vspace,
+> script@event, embed@name) with zero junk hosts after the exact-case interface-typography and
+> see_also-scope rulings.
+>
+> **PRODUCTION SCOREBOARD (fresh docs-v105 train, 285 rules, the same 201-item corpus-grounded
+> manifest, scoreboard `html-scoreboard-v105.json`): fired 200/201 (7 proven + 193 graded),
+> attribute items fired at attribute level 176/176, known-only 0, clean FPs 0, tag-position
+> probe exact (`graded-table@frame`, no `uses-frame`), the five tutorial-junk rules gone, era
+> fixtures fire only true legacy findings. The single non-fired item is `blink` — the
+> acceptance's one honest exception (documented solely on a JS page; cross-language attestation
+> stays out until an html source covering it is registered). Census: both renders knowledge
+> 12/12, enforcement proven 9 + graded 3 + quiet 0 + silent 0, the tutorial-junk red pin
+> asserted silent.**
+>
 > expected outcome and the actual outcome, both derived back into English — do they assert the
 > **same / consistent** thing (same DIRECTION, same POLARITY)? Decided ENTIRELY over the frozen
 > dictionary meaning graph (`MeaningNetwork`) plus the frozen negation classifier (`English::is_negation`),

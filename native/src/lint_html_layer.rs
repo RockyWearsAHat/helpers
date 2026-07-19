@@ -383,8 +383,15 @@ fn paragraphs(region: &str) -> Vec<String> {
 /// is the dt's own `id` (else its first interior text token, byte-preserved), and the governing
 /// prose is the following `<dd>`'s tag-stripped text. The HOST element is the CALLER's fact (the
 /// page's URL subject under the element-hood proof) — this reader only reads the entries.
-pub fn attribute_badges(body: &str) -> Vec<(String, String)> {
+///
+/// PASS 37 production closure (class 2): an INTERFACE page writes its members in the DOTTED
+/// member typography (`id="htmldivelement.align"`) — the attribute name is the member half
+/// exactly where the owner half names `subject` (the page's URL subject, the PASS-35 member law,
+/// never a split heuristic); and a dt whose own text writes CALL typography (`…()`) is a METHOD,
+/// not an attribute — excluded by the author's own parentheses.
+pub fn attribute_badges(subject: &str, body: &str) -> Vec<(String, String)> {
     let body = drop_script_style(body);
+    let subject = subject.to_lowercase();
     let mut out: Vec<(String, String)> = Vec::new();
     let mut at = 0usize;
     while let Some(rel) = body[at..].find("<dt") {
@@ -404,9 +411,19 @@ pub fn attribute_badges(body: &str) -> Vec<(String, String)> {
         // The attribute name: the dt's own id, else the first text token of its interior.
         let open_tag = &body[open..open + gt + 1];
         let interior = &body[open + gt + 1..entry_end];
+        let text = strip_tags(interior);
+        // The author's CALL typography names a method — never an attribute.
+        if text.split_whitespace().next().is_some_and(|t| t.contains('(')) {
+            continue;
+        }
         let name = tag_attr(open_tag, "id")
-            .or_else(|| strip_tags(interior).split_whitespace().next().map(str::to_string))
+            .or_else(|| text.split_whitespace().next().map(str::to_string))
             .unwrap_or_default();
+        // The dotted member typography: the member half, where the owner half is the subject.
+        let name = match name.split_once('.') {
+            Some((owner, member)) if owner.eq_ignore_ascii_case(&subject) => member.to_string(),
+            _ => name,
+        };
         if name.len() < 2 || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
             continue;
         }
@@ -458,6 +475,140 @@ fn escaped_element_names(fragment: &str) -> Vec<String> {
     out
 }
 
+/// THE INTERFACE-HOST LAW (PASS 37 production closure, class 2): the HOST element(s) of an
+/// INTERFACE page (`Web/API/HTMLDivElement`) are the page's OWN documented mapping — never a
+/// name-splitting heuristic:
+/// (a) THE MAPPING SENTENCE — a lead sentence naming the URL-subject interface as a whole token
+///     and writing element(s) in `<x>` typography ("The HTMLDivElement interface … for
+///     manipulating `<div>` elements."): every element it writes is a host. Where the sentence's
+///     typography writes two same-stem numeric endpoints (`<h1>` through `<h6>`), the page
+///     states the inclusive SPAN — the endpoints' own stem+numerals derive the intermediates.
+/// (b) THE REFERENCES ARM, only when no sentence binds — a link whose anchor wraps `&lt;x&gt;`
+///     typography AND whose href's last segment names `x` (the URL-subject law applied to the
+///     LINK: HTMLMediaElement's "References `<video>` and `<audio>` HTML elements").
+/// Empty when the page publishes no mapping (honest abstention). The second return is TRUE
+/// when the hosts came from the REFERENCES arm — a link-list's entries are an ENUMERATION
+/// (every entry an equal claim), while a mapping sentence's elements beyond the first can be
+/// CONTEXT (the primary-claim law's yield applies only to mapping-sentence hosts).
+pub fn interface_hosts(subject: &str, body: &str) -> (Vec<String>, bool) {
+    let body = drop_script_style(body);
+    // Arm (a) — the mapping sentence, over the lead's paragraphs.
+    let lead = sections(&body)
+        .into_iter()
+        .find(|(a, _)| a.is_empty())
+        .map(|(_, r)| r)
+        .unwrap_or_default();
+    let mut hosts: Vec<String> = Vec::new();
+    for s in region_sentences(&lead) {
+        // The subject must stand in the author's OWN interface typography — the URL segment's
+        // exact-case spelling as its own word (whitespace-delimited, punctuation-trimmed).
+        // MEASURED: case-folded matching admitted "… the old HTML event handler attributes"
+        // (the WORD event) as a mapping sentence for the Event interface, and hyphen-compound
+        // splitting admitted "Event-handlers … (such as <button>, <div>, …)".
+        let names_subject = s
+            .split_whitespace()
+            .map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric()))
+            .any(|t| t == subject);
+        if !names_subject {
+            continue;
+        }
+        for name in sentence_element_tokens(&s) {
+            if !hosts.contains(&name) {
+                hosts.push(name);
+            }
+        }
+    }
+    expand_numeric_span(&mut hosts);
+    if !hosts.is_empty() {
+        return (hosts, false);
+    }
+    // Arm (b) — the references link-list: an anchor wrapping the element's own typography whose
+    // href's last segment names the element (the URL-subject law on the link), read ONLY from
+    // the page's `see_also` reference section (the same stable anchor slug the witness reader
+    // already treats as a structural landmark — INTERIM like every slug landmark; measured: a
+    // whole-body scan admitted a mid-page events link to `<source>` as a junk host).
+    let mut see_also = String::new();
+    let mut in_tail = false;
+    for (anchor, region) in sections(&body) {
+        // The see-also block is the page's TERMINAL reference matter; its own sub-headings
+        // (`<h3 id="references">`) split into follow-on sections, so take the whole tail.
+        in_tail = in_tail || anchor == "see_also";
+        if in_tail {
+            see_also.push_str(&region);
+        }
+    }
+    let body = see_also;
+    let mut at = 0usize;
+    while let Some(rel) = body[at..].find("<a ") {
+        let open = at + rel;
+        let end = body[open..].find("</a>").map(|i| open + i).unwrap_or(body.len());
+        let anchor = &body[open..end];
+        at = end + 1;
+        let Some(href) = tag_attr(&anchor[..anchor.find('>').map(|i| i + 1).unwrap_or(anchor.len())], "href")
+        else {
+            continue;
+        };
+        let seg = href
+            .split(['?', '#'])
+            .next()
+            .unwrap_or(&href)
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or("")
+            .to_lowercase();
+        for name in escaped_element_names(anchor) {
+            if name == seg && !hosts.contains(&name) {
+                hosts.push(name);
+            }
+        }
+    }
+    (hosts, true)
+}
+
+/// Every element name a tag-stripped SENTENCE writes in the decoded `<x>` typography (ascii
+/// lowercase + digits), reading each whitespace token trimmed of surrounding punctuation — the
+/// prose-side twin of [`escaped_element_names`].
+fn sentence_element_tokens(sentence: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for tok in sentence.split_whitespace() {
+        let tok = tok.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '<' || c == '>'));
+        let Some(inner) = tok.strip_prefix('<').and_then(|t| t.strip_suffix('>')) else { continue };
+        if !inner.is_empty()
+            && inner.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            && !out.contains(&inner.to_string())
+        {
+            out.push(inner.to_string());
+        }
+    }
+    out
+}
+
+/// THE SPAN of two same-stem numeric endpoints (`h1` + `h6` → `h2..h5` added): when a mapping
+/// sentence's typography writes exactly two names sharing one alphabetic stem with integer
+/// suffixes a < b, the page states the inclusive range — the intermediates are derived from the
+/// endpoints' own stem+numerals, never a list.
+fn expand_numeric_span(hosts: &mut Vec<String>) {
+    let parse = |n: &str| -> Option<(String, u32)> {
+        let stem: String = n.chars().take_while(|c| !c.is_ascii_digit()).collect();
+        let digits = &n[stem.len()..];
+        (!stem.is_empty() && !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
+            .then(|| digits.parse().ok().map(|d| (stem, d)))
+            .flatten()
+    };
+    let numbered: Vec<(String, u32)> = hosts.iter().filter_map(|h| parse(h)).collect();
+    if let [(s1, a), (s2, b)] = numbered.as_slice() {
+        if s1 == s2 && a < b {
+            for k in *a + 1..*b {
+                let name = format!("{s1}{k}");
+                if !hosts.contains(&name) {
+                    hosts.push(name);
+                }
+            }
+        }
+    }
+}
+
 /// LAW 2a — the Elements-index obsolete section (the MDN `content`/`image` shape). An ANCHORED
 /// section (never the lead) whose own prose STATES a prohibition (the frozen English) or whose
 /// heading text carries a prohibition status token by the one-hand-datum join attests every
@@ -496,34 +647,94 @@ pub fn obsolete_index_entries(body: &str, en: &crate::lint_english::English) -> 
             .find(|s| en.sentence_states_prohibition(s))
             .cloned()
             .unwrap_or_default();
-        if !heading_words_join && stating.is_empty() {
+        // The GATE is the heading's own status typography (the one-hand-datum join). An
+        // English-read stating sentence alone was MEASURED over the whole corpus to admit 43
+        // junk sections (Content_categories, CSS gradients, HTTP headers — arbitrary prose the
+        // frozen English over-reads); the section's stated prohibition remains the governing
+        // FALLBACK for entries without their own description, never the gate.
+        if !heading_words_join {
             continue;
         }
-        // Each <dt> entry naming an element in the page's own escaped typography attests it.
-        let mut at = 0usize;
-        while let Some(rel) = region[at..].find("<dt") {
-            let open = at + rel;
-            let entry_end = region[open..].find("</dt>").map(|i| open + i).unwrap_or(region.len());
-            let entry = &region[open..entry_end];
-            at = entry_end + 1;
-            let Some(element) = escaped_element_names(entry).into_iter().next() else { continue };
-            let governing = region[entry_end..]
-                .find("<dd")
-                .map(|i| entry_end + i)
-                .and_then(|dd_open| {
-                    let dd_gt = region[dd_open..].find('>')?;
-                    let dd_end =
-                        region[dd_open..].find("</dd>").map(|i| dd_open + i).unwrap_or(region.len());
-                    Some(strip_tags(&region[dd_open + dd_gt + 1..dd_end]))
-                })
-                .filter(|g| !g.trim().is_empty())
-                .unwrap_or_else(|| stating.clone());
+        // THE REPEATING-ENTRY LAW (PASS 37 production closure, class 3): the section's entries
+        // are whatever repeating child structure carries the `<x>` typography — the real MDN
+        // index authors a TABLE (23 `<tr>` rows, zero `<dt>`), the fixture a definition list.
+        for (element, governing) in repeating_entries(&region) {
+            let governing = if governing.trim().is_empty() { stating.clone() } else { governing };
             if element.len() >= 2 && !out.iter().any(|(e, _)| e == &element) {
                 out.push((element, governing));
             }
         }
     }
     out
+}
+
+/// The section's ATTESTING ENTRIES, read off its own repetition (no shape enumeration): a
+/// candidate unit is any tag kind repeated in the region; a unit ATTESTS when its tag-stripped
+/// text BEGINS with the decoded `<x>` element typography (an entry leads with its own name — a
+/// cross-reference inside a description never leads its unit, so `<slot>` in the `content` row's
+/// prose stays unattested); the entry kind is the OUTERMOST repeated kind with at least two
+/// attesting units — the one whose first occurrence opens EARLIEST (`tr` opens before the
+/// `td`/`a`/`code` it wraps; `dt` before its inner `code`), ties to fewest units — and each
+/// attesting unit's governing prose is its own remainder text (the row's description cell /
+/// the dt's following dd).
+fn repeating_entries(region: &str) -> Vec<(String, String)> {
+    use std::collections::BTreeMap;
+    // Every opening-tag kind's occurrence positions, in document order.
+    let mut positions: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut i = 0usize;
+    while let Some(rel) = region[i..].find('<') {
+        let p = i + rel;
+        let name: String = region[p + 1..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_lowercase();
+        i = p + 1 + name.len().max(1);
+        if !name.is_empty() {
+            positions.entry(name).or_default().push(p);
+        }
+    }
+    // A unit attests when its stripped text BEGINS with `<x>` typography; its governing prose is
+    // the remainder. Choose the kind whose first ATTESTING unit opens earliest (the outermost
+    // entry structure: `<tr>` opens before the `<td>`/`<a>`/`<code>` it wraps — an incidental
+    // earlier occurrence that attests nothing, like a heading's own anchor link, never ranks),
+    // ties to fewest units.
+    let attesting = |starts: &[usize]| -> (usize, Vec<(String, String)>) {
+        let mut entries = Vec::new();
+        let mut first_attesting = region.len();
+        for (j, &p) in starts.iter().enumerate() {
+            let end = starts.get(j + 1).copied().unwrap_or(region.len());
+            let text = strip_tags(&region[p..end]);
+            let text = text.trim_start();
+            let Some(rest) = text.strip_prefix('<') else { continue };
+            let name: String =
+                rest.chars().take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).collect();
+            if name.is_empty() || !rest[name.len()..].starts_with('>') {
+                continue;
+            }
+            // An ENTRY is subject + description: its leading name is followed by PROSE. A
+            // name-RUN ("<circle>, <ellipse>, …" — a feature table's element list) and a
+            // name-only unit are references, not entries (measured junk sources).
+            let governing = rest[name.len() + 1..].trim_start_matches(|c: char| !c.is_ascii_alphabetic() && c != '<');
+            if !governing.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            first_attesting = first_attesting.min(p);
+            entries.push((name, governing.trim().to_string()));
+        }
+        (first_attesting, entries)
+    };
+    positions
+        .iter()
+        .filter(|(_, starts)| starts.len() >= 2)
+        .map(|(_, starts)| (starts.len(), attesting(starts)))
+        // The entry kind LISTS entries: at least two attest, and attesting units are the
+        // MAJORITY of the kind's units (a kind whose units are mostly non-entries is prose
+        // structure that happens to contain cross-references — measured junk).
+        .filter(|(units, (_, entries))| entries.len() >= 2 && entries.len() * 2 > *units)
+        .min_by_key(|&(units, (first_attesting, _))| (first_attesting, units))
+        .map(|(_, (_, entries))| entries)
+        .unwrap_or_default()
 }
 
 /// The text of the first heading element (`<h1…6`) in a region, tag-stripped. `None` when the
@@ -537,22 +748,96 @@ fn heading_text(region: &str) -> Option<String> {
     Some(strip_tags(&region[gt + 1..end]))
 }
 
-/// LAW 2b — the "Not Supported" page-role notice (the w3schools `applet` shape). A page whose
-/// LEAD (the region before the first section anchor) carries a sentence the frozen English reads
-/// as a stated prohibition, and whose lead writes an element in `&lt;x&gt;` typography that the
-/// URL's LAST SEGMENT names as a whole token (the URL-subject law), attests that element.
-/// Governing = the notice sentence plus the lead's own sentence naming the element. `None` when
-/// any leg is missing (honest abstention).
+/// LAW 2b — the "Not Supported" page-role notice (the w3schools `applet` shape), under THE
+/// SUBJECT-BINDING LAW (PASS 37 production closure, law 1): the notice is a STATUS-CLASSED
+/// NOTICE HEADING — a heading whose own markup carries a prohibition status token by the
+/// one-hand-datum join ([`crate::lint_attest::class_carries_prohibition`]; w3schools authors
+/// the real notice as `<h2><span class="deprecated">Not Supported in HTML5.</span></h2>`),
+/// whose governed region (heading → next heading / `<hr`) writes the URL-subject element in
+/// the page's own `&lt;x&gt;` typography.
+///
+/// A bare PROSE arm (an English-read prohibition sentence, even one self-naming the subject)
+/// was built and MEASURED over the whole corpus: it contributed only junk ("Different browsers
+/// may use different default types for the `<button>` element" self-names `<button>`) and zero
+/// truths — every real notice binds through the status typography — so a page-scope element
+/// attestation requires the page's own STATUS TYPOGRAPHY (the PASS-35 banner-truth doctrine),
+/// never a prose sentence. The frozen-English parameter stays: the caller's read of the
+/// governed region is language, not this gate. `None` when no notice binds (honest abstention).
 pub fn not_supported_subject(
     url: &str,
     body: &str,
-    en: &crate::lint_english::English,
+    _en: &crate::lint_english::English,
 ) -> Option<(String, String)> {
     let body = drop_script_style(body);
-    let lead = sections(&body).into_iter().find(|(a, _)| a.is_empty())?.1;
-    // Sentences per PARAGRAPH (the authored prose unit): whole-lead prose welds the `<h1>`
-    // text onto the notice, defeating the frozen English's command-position read.
-    let sentences: Vec<String> = paragraphs(&strip_pre_blocks(&lead))
+    // The URL-subject law: the last path segment names the element as a whole token.
+    let seg = url.split(['?', '#']).next().unwrap_or(url).trim_end_matches('/').rsplit('/').next()?;
+    let seg_tokens: Vec<String> = seg
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    status_notice_binding(&body, &seg_tokens)
+}
+
+/// The status-classed notice heading (subject-binding law, arm a): scan every heading
+/// (`<hN>…</hN>`) whose own markup carries a prohibition status token by the one-hand-datum
+/// join; its governed region runs to the next heading or `<hr`. The notice attests the
+/// URL-subject element the region writes in `&lt;x&gt;` typography; governing = the notice text
+/// plus the region's own longest sentence naming the element.
+fn status_notice_binding(body: &str, seg_tokens: &[String]) -> Option<(String, String)> {
+    let mut at = 0usize;
+    while let Some(rel) = body[at..].find("<h") {
+        let open = at + rel;
+        let Some(level) = body[open + 2..].chars().next().filter(|c| c.is_ascii_digit()) else {
+            at = open + 2;
+            continue;
+        };
+        let close = format!("</h{level}>");
+        let (Some(gt), Some(end_rel)) = (body[open..].find('>'), body[open..].find(&close)) else {
+            at = open + 2;
+            continue;
+        };
+        let heading = &body[open..open + end_rel + close.len()];
+        at = open + end_rel + close.len();
+        if !crate::lint_attest::class_carries_prohibition(heading) {
+            continue;
+        }
+        let notice = strip_tags(&heading[gt + 1..heading.len().min(end_rel)]);
+        // The governed region: from the heading's close to the next heading or rule.
+        let region_end = ["<h", "<hr"]
+            .iter()
+            .filter_map(|p| body[at..].find(p).map(|i| at + i))
+            .min()
+            .unwrap_or(body.len());
+        let region = &body[at..region_end];
+        let Some(element) =
+            escaped_element_names(region).into_iter().find(|e| seg_tokens.iter().any(|t| t == e))
+        else {
+            continue;
+        };
+        let naming = region_sentences(region)
+            .into_iter()
+            .filter(|s| {
+                s.split(|c: char| !c.is_ascii_alphanumeric())
+                    .any(|t| t.eq_ignore_ascii_case(&element))
+            })
+            .max_by_key(|s| s.len())
+            .unwrap_or_default();
+        let governing = if naming.is_empty() || naming == notice {
+            notice
+        } else {
+            format!("{notice} {naming}")
+        };
+        return Some((element, governing));
+    }
+    None
+}
+
+/// A region's prose sentences read per PARAGRAPH (the authored prose unit): whole-region prose
+/// welds heading text onto the first sentence, defeating the frozen English's command-position
+/// read — the shared reader for the subject-binding arms.
+fn region_sentences(region: &str) -> Vec<String> {
+    paragraphs(&strip_pre_blocks(region))
         .iter()
         .flat_map(|p| {
             let prose = strip_tags(p);
@@ -561,28 +846,7 @@ pub fn not_supported_subject(
                 .map(|s| s.trim().to_string())
                 .collect::<Vec<String>>()
         })
-        .collect();
-    let notice = sentences.iter().find(|s| en.sentence_states_prohibition(s))?.trim().to_string();
-    // The URL-subject law: the last path segment names the element as a whole token.
-    let seg = url.split(['?', '#']).next().unwrap_or(url).trim_end_matches('/').rsplit('/').next()?;
-    let seg_tokens: Vec<String> = seg
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|t| !t.is_empty())
-        .map(str::to_lowercase)
-        .collect();
-    let element = escaped_element_names(&lead).into_iter().find(|e| seg_tokens.iter().any(|t| t == e))?;
-    let naming = sentences
-        .iter()
-        .filter(|s| {
-            s.split(|c: char| !c.is_ascii_alphanumeric())
-                .any(|t| t.eq_ignore_ascii_case(&element))
-        })
-        .max_by_key(|s| s.len())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
-    let governing =
-        if naming.is_empty() || naming == notice { notice } else { format!("{notice} {naming}") };
-    Some((element, governing))
+        .collect()
 }
 
 /// Discard cross-page-invariant CHROME from a MULTI-page witness pool, per the north-star rule
@@ -796,10 +1060,26 @@ mod tests {
             <dt id="blip">blip <abbr class="icon icon-deprecated" title="x"><span>Deprecated</span></abbr></dt>
             <dd><p>Never use the blip attribute on the alpha element here.</p></dd>
             <dt id="bloop">bloop</dt><dd><p>Sets the bloop level.</p></dd></dl>"#;
-        let badges = attribute_badges(body);
+        let badges = attribute_badges("alpha", body);
         assert_eq!(badges.len(), 1, "only the marked entry attests: {badges:?}");
         assert_eq!(badges[0].0, "blip");
         assert!(badges[0].1.contains("Never use the blip attribute"), "dd prose is governing: {:?}", badges[0].1);
+        // PASS 37 class 2 — the INTERFACE page's dotted member typography: the member half is
+        // the attribute name where the owner half is the URL subject; a dt whose own text
+        // writes CALL typography is a method, never an attribute; a foreign owner never joins.
+        let iface = r#"<dl>
+            <dt id="alphawidget.blip"><code>AlphaWidget.blip</code> <span class="icon icon-deprecated"></span></dt>
+            <dd><p>A string of the blip alignment.</p></dd>
+            <dt id="alphawidget.spin"><code>AlphaWidget.spin()</code> <span class="icon icon-deprecated"></span></dt>
+            <dd><p>Spins the widget once.</p></dd>
+            <dt id="otherthing.bloop"><code>OtherThing.bloop</code> <span class="icon icon-deprecated"></span></dt>
+            <dd><p>A foreign owner's member.</p></dd></dl>"#;
+        let iface_badges = attribute_badges("alphawidget", iface);
+        assert_eq!(
+            iface_badges.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+            vec!["blip"],
+            "member half where owner==subject; call typography and foreign owners excluded"
+        );
     }
 
     #[test]
@@ -813,14 +1093,40 @@ mod tests {
         };
         let body = r#"<h1>Elements reference</h1><p>This page lists all the elements.</p>
             <h2 id="live_elements">Live elements</h2>
-            <dl><dt><code>&lt;alpha&gt;</code></dt><dd>A live element here.</dd></dl>
-            <h2 id="old_elements">Old elements</h2>
+            <dl><dt><code>&lt;alpha&gt;</code></dt><dd>A live element here.</dd>
+            <dt><code>&lt;beta&gt;</code></dt><dd>Another live element.</dd></dl>
+            <h2 id="old_elements">Obsolete and deprecated elements</h2>
             <p>Never use these elements in new pages; they are obsolete now.</p>
-            <dl><dt><code>&lt;omega&gt;</code></dt><dd>Never use the omega element anywhere.</dd></dl>"#;
+            <dl><dt><code>&lt;omega&gt;</code></dt><dd>Never use the omega element anywhere.</dd>
+            <dt><code>&lt;sigma&gt;</code></dt><dd>Replaced by the &lt;alpha&gt; element long ago.</dd></dl>"#;
         let entries = obsolete_index_entries(body, en);
-        assert_eq!(entries.len(), 1, "only the prohibition section's entry attests: {entries:?}");
-        assert_eq!(entries[0].0, "omega");
+        assert_eq!(
+            entries.iter().map(|(e, _)| e.as_str()).collect::<Vec<_>>(),
+            vec!["omega", "sigma"],
+            "only the prohibition section's entries attest: {entries:?}"
+        );
         assert!(entries[0].1.contains("omega element"), "dd prose is governing: {:?}", entries[0].1);
+        assert!(
+            entries[1].1.contains("Replaced by"),
+            "a cross-reference inside a description never attests — it stays that entry's prose: {:?}",
+            entries[1].1
+        );
+        // PASS 37 class 3 — the REAL index authors a TABLE: the repeating-entry law reads the
+        // same truth off `<tr>` rows (no dt anywhere), and the description cell's own
+        // cross-reference (`&lt;alpha&gt;` in the sigma row) still attests nothing.
+        let table = r#"<h1>Elements reference</h1><p>This page lists all the elements.</p>
+            <h2 id="old_elements">Obsolete and deprecated elements</h2>
+            <p>Never use these elements in new pages; they are obsolete now.</p>
+            <figure><table><thead><tr><th>Element</th><th>Description</th></tr></thead><tbody>
+            <tr><td><a href="/x/omega"><code>&lt;omega&gt;</code></a></td><td>Never use the omega element anywhere.</td></tr>
+            <tr><td><code>&lt;sigma&gt;</code></td><td>Replaced by the <a href="/x/alpha"><code>&lt;alpha&gt;</code></a> element long ago.</td></tr>
+            </tbody></table></figure>"#;
+        let rows = obsolete_index_entries(table, en);
+        assert_eq!(
+            rows.iter().map(|(e, _)| e.as_str()).collect::<Vec<_>>(),
+            vec!["omega", "sigma"],
+            "the table rows attest exactly the row-leading elements: {rows:?}"
+        );
     }
 
     #[test]
@@ -832,10 +1138,15 @@ mod tests {
             eprintln!("skip: no english brain on disk");
             return;
         };
-        let body = "<h1>&lt;omega&gt; Tag</h1><p>Not Supported in HTML5.</p>\
-             <p>The &lt;omega&gt; tag was used to embed a gadget in a page.</p>";
+        // The REAL w3schools shape (PASS 37 production closure, class 4): the notice is a
+        // STATUS-CLASSED HEADING (arm a), whose governed region names the subject in the
+        // page's own typography.
+        let body = "<h1>&lt;omega&gt; Tag</h1>\
+             <h2><span class=\"deprecated\">Not Supported in HTML5.</span></h2>\
+             <p>The &lt;omega&gt; tag was used to embed a gadget in a page.</p><hr>\
+             <p>Something else entirely.</p>";
         let got = not_supported_subject("https://site/tags/tag_omega", body, en);
-        let (element, governing) = got.expect("notice + typography + url-subject attest");
+        let (element, governing) = got.expect("status heading + typography + url-subject attest");
         assert_eq!(element, "omega");
         assert!(governing.contains("Not Supported"), "the notice is cited: {governing:?}");
         assert!(governing.contains("omega"), "the naming sentence rides along: {governing:?}");
@@ -844,6 +1155,54 @@ mod tests {
         assert!(not_supported_subject("https://site/tags/tag_omega", healthy, en).is_none());
         // URL-subject law: the URL names a different subject — attests nothing.
         assert!(not_supported_subject("https://site/tags/tag_other", body, en).is_none());
+        // THE SUBJECT-BINDING LAW (class 1, the tutorial-junk pin's src twin): PROSE never
+        // attests page-scope — a lead prohibition sentence on a tutorial page that writes the
+        // URL-subject's typography (even one naming the subject) binds nothing; only the
+        // status-classed notice heading does (measured: the prose arm yielded only junk).
+        let tutorial = "<h1>Omega Tutorial</h1>\
+             <p>The &lt;omega&gt; tag structures a page.</p>\
+             <p>Do not use hidden markers as a form of security.</p>\
+             <p>Never use the omega tag in new pages.</p>";
+        assert!(
+            not_supported_subject("https://site/html/omega_intro", tutorial, en).is_none(),
+            "prose sentences must attest nothing — page scope needs the status typography"
+        );
+    }
+
+    #[test]
+    fn interface_hosts_read_the_mapping_sentence_and_references_arm() {
+        // PASS 37 class 2 — the interface-host law. Arm (a): the mapping sentence names the
+        // URL-subject interface and writes its element(s) in `<x>` typography; a numeric span
+        // derives the intermediates from the endpoints' own stem+numerals; typography OUTSIDE
+        // a subject-naming sentence never hosts.
+        let mapping = "<h1>AlphaWidget</h1>\
+             <p>The <code>AlphaWidget</code> interface provides properties for manipulating \
+             <code>&lt;alpha&gt;</code> elements.</p>\
+             <p>See the unrelated <code>&lt;gamma&gt;</code> element elsewhere.</p>\
+             <h2 id=\"props\">Properties</h2>";
+        assert_eq!(interface_hosts("AlphaWidget", mapping), (vec!["alpha".to_string()], false));
+        let span = "<h1>RungWidget</h1>\
+             <p>The <code>RungWidget</code> interface represents the rung elements, \
+             <code>&lt;r1&gt;</code> through <code>&lt;r4&gt;</code>.</p>\
+             <h2 id=\"props\">Properties</h2>";
+        assert_eq!(
+            interface_hosts("RungWidget", span),
+            (vec!["r1".to_string(), "r4".to_string(), "r2".to_string(), "r3".to_string()], false),
+            "the endpoints' own stem+numerals derive the span"
+        );
+        // Arm (b): no sentence binds — a link wrapping `<x>` typography whose href's last
+        // segment names x hosts; a link whose segment names something else never does.
+        let refs = "<h1>MediaWidget</h1>\
+             <p>The MediaWidget interface adds media capabilities.</p>\
+             <h2 id=\"see_also\">See also</h2><ul>\
+             <li><a href=\"/ref/elements/vid\"><code>&lt;vid&gt;</code></a> and \
+             <a href=\"/ref/elements/aud\"><code>&lt;aud&gt;</code></a> elements</li>\
+             <li><a href=\"/ref/elements/other\"><code>&lt;mismatch&gt;</code></a></li></ul>";
+        assert_eq!(
+            interface_hosts("MediaWidget", refs),
+            (vec!["vid".to_string(), "aud".to_string()], true),
+            "the references arm hosts only URL-subject-matching links, marked as an enumeration"
+        );
     }
 
     #[test]

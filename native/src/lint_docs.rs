@@ -1105,6 +1105,39 @@ pub fn rules_from_memory(
         if !seen.insert(b.slug.clone()) {
             continue;
         }
+        // THE GOVERN JOIN (PASS 37 production closure, class 1 — the census red pin's miner
+        // arm), for ANCHORLESS bindings only: a unit whose slug is prose-derived (no rule-page
+        // slug, no anchored heading — the author gave the unit NO structural landmark, the
+        // tutorial shape) may mint only when its forbidding sentence GOVERNS the example it
+        // bound — some token of the code is a word of a prohibition-STATING sentence. A
+        // tutorial's unrelated warning ("Do not use hidden markers as a form of security.")
+        // welded ahead of a healthy element's example binds nothing: an example spelling none
+        // of the sentence's words demonstrates nothing the sentence forbids (memorization
+        // masquerading as understanding — the PASS-36 third ruling's defect class). An
+        // ANCHORED unit is the author structuring a law and keeps the miner's existing gates
+        // ("Never index past the end" legitimately governs `xs[xs.len()]` without sharing a
+        // token). Frozen English + raw token join; never a word list.
+        if b.slug == slug(&b.prose) {
+            // The join is the `fact_subject` discipline transplanted: the prose-derived slug IS
+            // the unit's operative clause head (its first words — the forbidding command), so
+            // the example must spell one of the slug's own tokens. MEASURED refinements: a
+            // sentence-level join leaked through welded paragraphs ("…security.The <board> tag
+            // lays out a game board…" — tag-stripping leaves no space, the splitter keeps one
+            // sentence, and the unrelated example's tokens ride the weld); the slug head
+            // carries only the forbidding clause, so the weld cannot smuggle the example in.
+            let slug_tokens: std::collections::HashSet<&str> =
+                b.slug.split('_').filter(|t| t.len() >= 2).collect();
+            if !crate::lint_read::tokens(&b.code).iter().any(|t| slug_tokens.contains(t.as_str())) {
+                let row = (
+                    format!("mint-{}", b.slug),
+                    "mint gate (forbidding sentence does not govern the example)".to_string(),
+                );
+                if !withheld.contains(&row) {
+                    withheld.push(row);
+                }
+                continue;
+            }
+        }
         // The fix-sibling is read by its INCREMENTAL prose (PASS 36): section text ACCUMULATES
         // down the page, so a sibling's own window opens with the violation's sentence and bad
         // code welded ahead of its "Use … instead" endorsement — read whole, its negation always
