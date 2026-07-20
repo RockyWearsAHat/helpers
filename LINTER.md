@@ -2969,6 +2969,83 @@ honest gaps (synonyms the dictionary never cross-references; lexical negators `i
 compound) are graph-content limits, not logic bugs: the loop must keep pairing the referee with a genuine
 foil and treat an un-cross-referenced synonym as UNPROVEN rather than forcing it.
 
+### Item — PASS 38 (SPEC, owner-approved 2026-07-20): CITATION CLOSURE — sources find themselves
+
+> Owner: "we can't keep giving more sources for completed coverage." The WHATWG gap proved the
+> class: every MDN element page LINKS `obsolete.html` in its own Specifications table; the
+> machine read that citation thousands of times and never followed it. The law:
+> 1. **A registered doc's own citations are candidate sources.** Same-host links are already
+>    crawled; a CROSS-host link recurring from ≥N registered pages of one language (N from
+>    measurement, the chrome-floor precedent), pointing at a page whose subject the citing pages
+>    also document, is a PROPOSED source for that language.
+> 2. **Verification before adoption:** the proposed page must prove same-subject through the
+>    existing referee (its constructs ∩ the citing language's web, grammar demo where possible)
+>    — a citation to a different language's spec never crosses (the no-cross-language-
+>    attestation law governs).
+> 3. **Adoption is data:** verified proposals land in the machine's added-sources store exactly
+>    as `lint_config add_source` would (never hand-edited registries), and every adoption is
+>    REPORTED in the train ack — the owner vetoes by removing; silence is consent for
+>    doc-tree-of-record hosts only (an allowlist datum of trusted standards hosts is the one
+>    hand datum this pass may add).
+> 4. **Death detection is the inverse edge:** a registered page going 404 across ≥2 revalidation
+>    cycles triggers the successor hunt through the SAME citation graph (where do the still-live
+>    citing pages point now); knowledge retained per retain-and-grow, sources pruned, the move
+>    reported. (MDN's 2025 reorg silently deleted the ancient-element pages — this pass makes
+>    that loud and self-healing.)
+
+### Item — PASS 39 (SPEC, owner-approved 2026-07-20): THE ONE-BIT PREDICTIVE READER — one learned reader instead of N shape laws
+
+> Owner directive: shape laws (badge, index table, dl runs, notices, unquoted attrs …) each cost
+> a diagnose→law→measure loop — "the stacked hand heuristics are the tell the mechanism is
+> wrong" (the READ-not-split directive, now with its training data in hand). And: "a one bit
+> predictive coding model should be super super fast."
+> 1. **The model:** a ONE-BIT predictive coder over the markup token stream — same binary
+>    substrate as the existing brains (Hv XOR/popcount, no floats): predict the next reader
+>    token's bit-signature from a bounded binary context; PREDICTION-ERROR SPIKES are the
+>    segmentation boundaries the spec always named; low-error runs are REGISTERS (prose, code,
+>    chrome, term, description).
+>    **Owner ruling on speed (2026-07-20): the one-bit design exists FOR the GPU.** Each
+>    lane's update is XOR/popcount — one or two ALU cycles — so a GPU dispatch updates the
+>    whole model across thousands of lanes in a couple of cycles per lane: "that is true
+>    speed"; CPU popcount alone "isn't bad, but isn't amazing." This also matches the
+>    machine's own measured GPU physics (flag_bench/dist_bench ledger): dispatch overhead
+>    loses the µs-tiny lint hot path, the GPU wins from ~3M pairs up — corpus-scale reader
+>    training over 13k+ pages is exactly that regime. Therefore: TRAINING runs as large
+>    batched one-bit GPU dispatches (`--features gpu`, the existing Metal path); INFERENCE
+>    (shadow proposals at train time, and any future lint-path read) stays CPU — its
+>    workloads are tiny and syscall-adjacent where a dispatch is pure overhead. Train time
+>    target: corpus-linear, minutes-class for the whole 13k-page corpus, re-measured per
+>    substrate change.
+> 2. **The labels are the grounded facts:** every (page, fact) pair the PASS 35–37 hand laws
+>    verified — thousands of them — labels its page's true segments (term spans, governing
+>    prose, status markers). Verdicts double as segmentation labels (the standing directive);
+>    NO hand labeling, ever.
+> 3. **The transition is measured, arm by arm:** the learned reader runs SHADOW first (proposes,
+>    never mints); per shape-law arm, when the reader's proposals ⊇ the arm's facts on the
+>    census + the 201-item scoreboard + cross-source audits with zero junk delta, THAT arm
+>    dissolves. The census is the acceptance gate for every dissolution (diversity-contract
+>    precedent). Recall from the permissive proposer, precision from the existing verification
+>    stack (subject-binding, demo gate, referee, practice probes) — which stays.
+> 4. **Failure-ledger guard:** the LEAD-units lesson stands — no reader output mints without
+>    verification; the reader proposes ONLY.
+
+### Item — PASS 40 (SPEC, owner-approved 2026-07-20): CROSS-SOURCE GROUND TRUTH — sources audit each other
+
+> Hand-built manifests (the 201-item audit) do not scale to 82 languages. Two independent
+> registered sources documenting the same language ARE each other's recall census:
+> 1. **The cross-audit:** for every construct documented deprecated/prohibited by source A,
+>    source B's web contribution either corroborates (fact appears, either source suffices —
+>    union is the machine's knowledge), is silent (a COVERAGE row: B never documents it — data,
+>    not defect), or CONTRADICTS (A revokes, B endorses live — a referee case, surfaced).
+>    The per-language report (corroborated / single-source / contradicted) is generated at
+>    train time — no hand manifest, every language, every retrain.
+> 2. **Version-over-version conservation:** the whole-web analogue of the graduated ledger's
+>    retain-and-grow — every retrain diffs web N against N−1 and reports every disappeared
+>    fact with its stage reason ("what did I forget" is a train-ack line, not an archaeology
+>    session). The PASS-31/36 vocabulary governs: nothing vanishes silently, at web scale.
+> 3. **The hand-manifest audits remain** as the calibration instrument (they catch what ALL
+>    sources miss); cross-source runs continuous, manifests run on demand.
+
 ### The corroboration engine — the graduation gate (`lint_ism.rs`, 2026-07-10)
 
 > The mechanism that turns the English-equality judge above into the ISM's **≥ 15 independent
