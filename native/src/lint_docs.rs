@@ -810,17 +810,43 @@ fn write_crawl_cache(path: &std::path::Path, version: &str, pages: &[CrawledPage
     let _ = std::fs::remove_file(path.with_extension("json"));
 }
 
+/// The cache directory holding every documentation source's crawled pages, one `.bin` per tool
+/// (`~/.cache/helpers/lint-index/crawls/`). Shared by [`crawl_cache_path`] (one source) and
+/// [`all_cached_pages`] (PASS 39, every source) so the location lives in exactly one place.
+#[cfg(feature = "crawl")]
+fn crawl_cache_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    std::path::Path::new(&home).join(".cache/helpers/lint-index/crawls")
+}
+
 /// This source's crawl-cache file, its tool id sanitized to a safe file name.
 #[cfg(feature = "crawl")]
 fn crawl_cache_path(tool: &str) -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     let safe: String = tool
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
         .collect();
-    std::path::Path::new(&home)
-        .join(".cache/helpers/lint-index/crawls")
-        .join(format!("{safe}.bin"))
+    crawl_cache_dir().join(format!("{safe}.bin"))
+}
+
+/// PASS 39 — every cached documentation page this machine holds, across every source ever
+/// crawled, as `(url, raw body exactly as served)`. A read-only enumeration for the label
+/// exporter ([`crate::lint_labels`]): reuses [`read_crawl_cache`] verbatim over every `.bin` in
+/// [`crawl_cache_dir`] — no new judgment, no network, just a directory walk.
+#[cfg(feature = "crawl")]
+pub(crate) fn all_cached_pages() -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(crawl_cache_dir()) else { return out };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("bin") {
+            continue;
+        }
+        if let Some(cache) = read_crawl_cache(&path) {
+            out.extend(cache.pages.into_iter().map(|p| (p.url, p.body)));
+        }
+    }
+    out
 }
 
 /// The process-wide lock for one source's crawl — parallel languages sharing a source serialize

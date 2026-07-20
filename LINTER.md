@@ -3044,6 +3044,63 @@ foil and treat an un-cross-referenced synonym as UNPROVEN rather than forcing it
 > 4. **Failure-ledger guard:** the LEAD-units lesson stands — no reader output mints without
 >    verification; the reader proposes ONLY.
 
+**PASS 39 phase one — MEASURED (2026-07-20, `lint_labels.rs`, `lint_coder.rs`), SHADOW ONLY, nothing
+in the production read/mint path touched.**
+
+- **Label export** (`lint_labels::export_labels`) walks every cached documentation page
+  (`lint_docs::all_cached_pages`, the same `body.contains("</")` HTML gate `read_crawled_page`
+  already applies) and offsets facts the frozen arms already prove — no new judgment, only byte
+  spans around existing verdicts: code/governing-prose from `lint_graph::read_page` (now exposing
+  `PageUnit::end`/`prose_from`, additive fields, same values already computed), chrome from
+  `lint_html_layer::sections` + the module's own `NON_GOVERNING_ANCHORS` (newly exposed via
+  `is_chrome_anchor`), status markers from a span-walking sibling of the frozen
+  `status_notice_binding` (`status_marker_spans`, same `class_carries_prohibition` judgment, the
+  production arm itself untouched), and term spans from the page's own URL-subject element written
+  in its own `<x>`/`&lt;x&gt;` typography (PASS 35's law, literal occurrences only). Persisted as
+  the HLM1 sidecar `labels.html.bin` (`lint_codec::kind::LABELS = 15`).
+  **Measured**: 55,995 HTML pages, 2,570,510 labels — code 1,221,842 · governing_prose 1,221,808 ·
+  chrome 110,012 · status_marker 130 · term 16,718. Export wall-time 99.3s (whole cached corpus,
+  release build).
+- **The coder** (`lint_coder::Coder`): CPU reference, a Sparse-Distributed-Memory (Kanerva) table —
+  16,384 hard locations, each an `i8` bit-sliced majority counter over the 8192-bit Hv substrate —
+  addressed by a position-rotated-XOR bind of the previous `K=3` token signatures
+  (`crate::lint_ai::token_hv`/`majority_bundle` precedent, no floats). Tokens are the markup-typography
+  stream (`<…>` one token, whitespace separates words — the same rule `lint_graph`'s own module doc
+  names). Train/test split 80/20 **by page** (a held-out URL's labels never leak into training).
+  **Measured** (release, CPU-only): train 34,555 pages / 81,668,028 tokens in 211.0s
+  (≈387k tokens/s single-threaded CPU) — corpus-linear, well inside "minutes-class."
+- **Boundary precision/recall vs. held-out labels** (8,602 test pages, ±24-byte tolerance,
+  boundary = one-σ prediction-error spike over each page's own error baseline):
+  | detector | precision | recall | tp | fp | fn |
+  |---|---|---|---|---|---|
+  | coder (error-spike) | 0.115 | 0.056 | 17,433 | 134,567 | 292,246 |
+  | trivial baseline (every markup tag-open) | 0.064 | 0.979 | 752,777 | 11,060,086 | 16,254 |
+
+  Honest reading: phase-one CPU coder does **not yet** beat the trivial baseline — it trades the
+  baseline's near-total recall (fires on every tag, terrible precision) for slightly better
+  precision at far worse recall. Neither is a usable segmenter yet.
+- **Register separation** (mean prediction error per label kind, max possible 8192):
+  chrome 3917.9 (n=549,885) · status_marker 3743.5 (n=8) · term 3686.2 (n=129) ·
+  governing_prose 3670.3 (n=4,088,953) · unlabeled 3447.0 (n=3,567,143) · code 3306.7
+  (n=11,874,800). Registers order sensibly (code — the most repetitive/predictable typography —
+  has the lowest error; chrome, the most boilerplate-but-varied register, the highest) but the
+  spread is narrow (≈16% of the scale), not yet a clean separation.
+- **Diagnosis, not a rebuild**: 16,384 hard locations against 81M+ training tokens collide heavily
+  (this table width was chosen as a bounded CPU-reference budget, not a capacity claim — see the
+  module doc). The owner's own ruling already named the fix: **GPU (named TODO, not built this
+  phase)** — `hv_batch.rs`'s existing device/queue/buffer plumbing is a batched ARGMIN/nearest-key
+  search, not a batched WRITE (many training pairs updating many slots, colliding writes needing a
+  reduction), so scaling the table and re-measuring needs the new scatter-XOR-popcount-threshold
+  Metal kernel documented in `lint_coder.rs`'s module doc — net-new GPU work, correctly NOT faked
+  as a `<1h` reuse this phase.
+- **Files touched**: `native/src/lint_labels.rs` (new), `native/src/lint_coder.rs` (new),
+  `native/src/lint_codec.rs` (+`kind::LABELS`), `native/src/lint_graph.rs` (+`PageUnit::end`,
+  `+prose_from`, additive), `native/src/lint_html_layer.rs` (+`is_chrome_anchor`,
+  `+status_marker_spans`), `native/src/lint_docs.rs` (+`all_cached_pages`, `crawl_cache_dir`
+  extracted). `cargo test --lib`: 284 passed (+ the corpus-scale measurement above, `#[ignore]`d by
+  default — re-run with `cargo test --release --lib lint_coder::tests::measure_full_corpus --
+  --ignored --nocapture`).
+
 ### Item — PASS 40 (SPEC, owner-approved 2026-07-20): CROSS-SOURCE GROUND TRUTH — sources audit each other
 
 > Hand-built manifests (the 201-item audit) do not scale to 82 languages. Two independent
