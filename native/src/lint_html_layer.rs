@@ -43,6 +43,49 @@ use crate::lint_ism::{graduate, Candidate, Verdict};
 const NON_GOVERNING_ANCHORS: &[&str] =
     &["try_it", "examples", "technical_summary", "specifications", "browser_compatibility", "see_also", "feedback"];
 
+/// PASS 39 — whether `anchor` names one of this module's stable CHROME sections
+/// ([`NON_GOVERNING_ANCHORS`]). Exposed read-only for the label exporter
+/// ([`crate::lint_labels`]) to ground its CHROME training label from [`sections`]' own
+/// segmentation; no new judgment — the list stays exactly what it always was.
+pub(crate) fn is_chrome_anchor(anchor: &str) -> bool {
+    NON_GOVERNING_ANCHORS.contains(&anchor)
+}
+
+/// PASS 39 — every heading span in `body` whose own markup carries a prohibition STATUS token,
+/// as raw byte spans `(open, close)` of the heading element itself. A measuring-instrument
+/// sibling of [`status_notice_binding`]: identical heading walk and identical judgment
+/// ([`crate::lint_attest::class_carries_prohibition`]), but every status-classed heading rather
+/// than the one URL-subject-matched winner — the label exporter ([`crate::lint_labels`]) grounds
+/// its STATUS-MARKER training label here. Kept as its own small walk (not a refactor of the
+/// frozen `status_notice_binding`) so the PASS 37 production arm stays untouched byte-for-byte.
+pub(crate) fn status_marker_spans(body: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while let Some(rel) = body[at..].find("<h") {
+        let open = at + rel;
+        let Some(level) = body[open + 2..].chars().next().filter(|c| c.is_ascii_digit()) else {
+            at = open + 2;
+            continue;
+        };
+        let close_tag = format!("</h{level}>");
+        if body[open..].find('>').is_none() {
+            at = open + 2;
+            continue;
+        }
+        let Some(end_rel) = body[open..].find(&close_tag) else {
+            at = open + 2;
+            continue;
+        };
+        let heading_end = open + end_rel + close_tag.len();
+        let heading = &body[open..heading_end];
+        at = heading_end;
+        if crate::lint_attest::class_carries_prohibition(heading) {
+            out.push((open, heading_end));
+        }
+    }
+    out
+}
+
 /// A witness sentence carrying its STRUCTURAL subject key — the construct whose reference PAGE the
 /// sentence belongs to (page-of-origin), an opaque markup symbol (the element/tag name), NEVER a
 /// dictionary word. This is the HTML layer's own jargon; it gates which witnesses a construct's truth
