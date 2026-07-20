@@ -150,6 +150,12 @@ fn mentions(sentence: &str, construct: &str) -> bool {
     // so a member/qualified construct is mentioned by its last dotted segment. A bare construct's
     // terminal is itself, so this is a no-op for the common case.
     let c = construct.trim_start_matches('.').rsplit('.').next().unwrap_or(construct).to_lowercase();
+    // A construct that trims to nothing (a bare `.`/`..` token) mentions nothing — and an empty
+    // needle would match at every position, walking `from` past the string (measured panic:
+    // batch train, byte index 53 of a 52-byte sentence).
+    if c.is_empty() {
+        return false;
+    }
     if lower.contains(&format!("`{c}`")) {
         return true;
     }
