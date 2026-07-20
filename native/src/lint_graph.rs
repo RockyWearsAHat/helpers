@@ -30,10 +30,17 @@ use crate::lint_char::{CharReader, StructureRoles};
 /// anchors), the prose that governs it, the code exactly as served (markup tokens dropped,
 /// entities decoded, lines preserved), and the block's own declared language label ("" when the
 /// author declared nothing). The downstream contract both page consumers read.
+///
+/// `end` and `prose_from` (PASS 39) are the RAW byte offsets `at`/`prose` were sliced from —
+/// exposed so the label exporter ([`crate::lint_labels`]) can ground its code/governing-prose
+/// training spans in the same body this unit was read from, with no new judgment: this struct
+/// already carries the facts, these two fields just stop discarding them.
 #[derive(Debug)]
 pub struct PageUnit {
     pub at: usize,
+    pub end: usize,
     pub prose: String,
+    pub prose_from: usize,
     pub code: String,
     pub hint: String,
 }
@@ -539,7 +546,9 @@ fn read_scan(scan: Scan, body: &str, reader: &CharReader) -> Vec<PageUnit> {
             let prose = governing_tail(&crate::doc_crawler::strip_tags(&body[prose_from..start]));
             units.push(PageUnit {
                 at: start,
+                end,
                 prose,
+                prose_from,
                 code,
                 hint: hint_before(body, &scan.tags, start),
             });

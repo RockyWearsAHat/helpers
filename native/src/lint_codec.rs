@@ -68,6 +68,11 @@ pub mod kind {
     /// the web. Delta-stored (key-words, never a copy of the English base), stamped, retain-and-grow
     /// beside the graduated ledger. A `Vec<ConstructNode>`.
     pub const WEB: u8 = 14;
+    /// The PASS 39 label export ([`crate::lint_labels`]): grounded `(url, byte-span, label)`
+    /// training triples the frozen PASS 35-37 read arms already prove, walking the whole cached
+    /// documentation crawl corpus. A machine-global sidecar (not per-language) — the one-bit
+    /// predictive reader's ([`crate::lint_coder`]) curriculum. A `Vec<Label>`.
+    pub const LABELS: u8 = 15;
 }
 
 /// Hard ceiling on a declared inflated DATA stream (defense in depth at load — a crafted
