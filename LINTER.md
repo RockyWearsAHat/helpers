@@ -2969,6 +2969,21 @@ honest gaps (synonyms the dictionary never cross-references; lexical negators `i
 compound) are graph-content limits, not logic bugs: the loop must keep pairing the referee with a genuine
 foil and treat an un-cross-referenced synonym as UNPROVEN rather than forcing it.
 
+### Item — THE NO-NEW-READER-CODE LAW (owner ruling 2026-07-20, permanent, supersedes any conflicting workflow)
+
+> Owner: "you're writing a stupid amount of code … for something that was literally architected
+> to not do that. Fix it now." The architecture's whole point is that COVERAGE COMES FROM
+> LEARNING, NOT FROM CODE. Therefore, permanently:
+> 1. **A coverage miss is never a reason to write a reader/shape arm.** It is a label, a
+>    training-data gap, or a verification case. The PASS 35–37 hand arms are FROZEN — they
+>    exist as label generators until the learned reader (PASS 39) dissolves them, and no new
+>    arm joins them, for any site, shape, or language.
+> 2. **Code is legitimate in exactly three places:** the learner itself, the verification
+>    stack, and the measuring instruments (census/audits). Everything else is data.
+> 3. **Effort discipline:** no multi-agent orchestration on this project without the owner's
+>    explicit per-wave ask; misses accumulate as data between waves instead of triggering
+>    build loops.
+
 ### Item — PASS 38 (SPEC, owner-approved 2026-07-20): CITATION CLOSURE — sources find themselves
 
 > Owner: "we can't keep giving more sources for completed coverage." The WHATWG gap proved the
