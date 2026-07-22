@@ -3118,6 +3118,64 @@ in the production read/mint path touched.**
 > 3. **The hand-manifest audits remain** as the calibration instrument (they catch what ALL
 >    sources miss); cross-source runs continuous, manifests run on demand.
 
+### Item — PASS 41 (owner-approved 2026-07-22): THE SECTION-SUBJECT LAW — the roster reader defers to English on the section's HEAD NOUN
+
+> **The defect (measured, real corpus).** Law 2a's heading gate
+> (`lint_html_layer::obsolete_index_entries`) joined ONLY the prohibition STATUS token
+> (`deprecation-status.json` → `prohibits`: `deprecated`/`obsolete`/`non-conforming`) and threw
+> the section's HEAD NOUN away. MDN element and interface pages carry sections headed
+> **"Deprecated attributes"**, **"Deprecated properties"**, **"Deprecated HTML Element
+> Interfaces"** — the gate saw `deprecated` and passed, then `repeating_entries` read the
+> section's bare-name member rows (`<dt><code>abbr</code></dt><dd>…</dd>`, WHATWG's
+> code-typography arm) as obsolete ELEMENTS and minted `graded-abbr graded-text graded-width
+> graded-height graded-axis graded-img graded-color …` — junk element rules firing on VALID
+> modern `<abbr>`/`<img>`/SVG `<text>`. The SAME rows read CORRECTLY as `host@attr` by Law 1
+> (`attribute_badges`), so every attribute was read twice — once right, once junk. Measured
+> corpus census: 17 "Deprecated attributes" sections (the dominant junk class), plus
+> properties/methods/interfaces sections leaking the same way; 318 of 328 html rules were graded
+> and this class was a large fraction.
+>
+> **The law (owner-approved direction — read the heading, do not token-match it).** A
+> prohibition-status section's ENTRIES are members or constructs according to what the section is
+> ABOUT, and what it is about is stated by its heading's HEAD NOUN. The reader DEFERS to the
+> trained English meaning net for that classification — the knowledge pipeline working on one
+> section (HTML understanding defers to English understanding). The head noun is read HEAD-FINAL
+> (the English noun-phrase head = the rightmost heading word that binds a dictionary meaning,
+> prohibition status tokens dropped) and classified against two concept axes seeded by the
+> owner's own words — MEMBER `{attribute, property}` vs CONSTRUCT `{element, tag, feature}` —
+> nearest by `MeaningNetwork::related`. A section whose head noun means MEMBER lists members
+> (Law 1's `host@attr` already owns them) and the roster read ABSTAINS; only a CONSTRUCT head
+> noun (or one the net cannot key) proceeds to `repeating_entries`. This is a NEGATIVE gate: it
+> abstains only where it POSITIVELY reads a member section, so a true roster is never suppressed.
+>
+> - **Head-FINAL is load-bearing.** "Deprecated HTML Element Interfaces" mixes an `element`
+>   modifier with the `interfaces` head — the head noun `interfaces` classifies MEMBER, so the
+>   section abstains and the interface-page `<img>` leak dies; "Obsolete and deprecated
+>   **elements**" (the real MDN Elements index) has head noun `elements` = CONSTRUCT and the true
+>   roster PROCEEDS; WHATWG's "16 Obsolete **features**" / "Non-conforming **features**" head noun
+>   `features` = CONSTRUCT and its obsolete list PROCEEDS. The English head, not any word present,
+>   decides.
+> - **Plural morphology, in the English layer (bottom-up, STEP ZERO measured).** The heading noun
+>   is a PLURAL (`attributes`/`elements`); dictionaries key singular headwords, so
+>   `has("attributes") == false` and a raw meaning query is noise. The reader resolves the lemma
+>   through the EXISTING suffix morphology (`lint_graph::english_inflection`, now also exposed as
+>   `english_lemma` returning the resolved base) before the meaning query — pure suffix
+>   morphology (`-s`/`-es`/`-ies→-y`), never a word list, shared with `word_is_english`. STEP ZERO
+>   measured the net over the real store: the singular anchors discriminate at Hamming distance 0
+>   (`attribute`→MEMBER 0 vs 3530; `element`→CONSTRUCT 0 vs 3559), so the words that MINT junk
+>   (attribute/property, exact anchors) classify with a ~3500-unit margin — rock solid — while the
+>   borderline nouns (method/interface/node, margins 3–600) are noise but harmless: their rows are
+>   qualified names (`Foo.bar()`), never bare tag names, so `repeating_entries` never mints them.
+> - **No carve-out, no shape arm.** No URL special-case, no new reader/shape code, no
+>   cross-language attestation. The existing heading gate gains ONE understanding query; the
+>   concept seeds are the owner's named axis words. Generalizes to every site and language.
+>
+> `obsolete_index_entries` takes the meaning net (`m: &MeaningNetwork`, already in `graduate`'s
+> scope) alongside the frozen English. Census red pin (`recall_census`): a modern html page with
+> `<abbr>`/`<img>`/`<svg><text>` mints NOTHING element-shaped; an element page's "Deprecated
+> attributes" section fires `host@attr` and NOT the bare element. `TRAIN_VERSION` →
+> `docs-v108-section-subject-head-noun`.
+
 ### The corroboration engine — the graduation gate (`lint_ism.rs`, 2026-07-10)
 
 > The mechanism that turns the English-equality judge above into the ISM's **≥ 15 independent
