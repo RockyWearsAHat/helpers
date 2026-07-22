@@ -666,12 +666,55 @@ fn expand_numeric_span(hosts: &mut Vec<String>) {
     }
 }
 
+/// The MEMBER concept axis (LINTER.md PASS 41) — the owner's named seeds for "an element's
+/// property": a prohibition-status section headed by one of these lists members, never elements.
+const MEMBER_ANCHORS: &[&str] = &["attribute", "property"];
+/// The CONSTRUCT concept axis (LINTER.md PASS 41) — the owner's named seeds for "a language
+/// construct": a section headed by one of these (or by a noun the net cannot key) lists elements.
+const CONSTRUCT_ANCHORS: &[&str] = &["element", "tag", "feature"];
+
+/// THE SECTION-SUBJECT LAW (PASS 41): whether this prohibition-status section's HEADING names a
+/// MEMBER section, so the element-roster read must ABSTAIN. The head noun is read HEAD-FINAL — the
+/// rightmost heading word that binds a dictionary meaning (prohibition status tokens dropped, each
+/// candidate lemmatised through the shared English suffix morphology so a plural `attributes`
+/// resolves to its keyed singular `attribute`) — the English noun-phrase head, not any word
+/// present ("Deprecated HTML Element Interfaces" heads on `interfaces`, not the `element`
+/// modifier). It is a member section iff the trained meaning net places that head nearer a
+/// [`MEMBER_ANCHORS`] word than any [`CONSTRUCT_ANCHORS`] word ([`MeaningNetwork::related`]).
+/// NEGATIVE by construction: a head the net cannot key, or one nearer a construct anchor, is NOT a
+/// member section (the read proceeds), so a true roster is never suppressed.
+fn heading_names_members(heading: &str, m: &crate::lint_char::MeaningNetwork) -> bool {
+    let tokens = crate::lint_attest::prohibition_class_tokens();
+    let is_status = |w: &str| {
+        tokens.iter().any(|t| {
+            t.split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|part| !part.is_empty() && part == w)
+        })
+    };
+    let head = heading
+        .to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| w.len() >= 3 && !is_status(w))
+        .filter_map(|w| {
+            crate::lint_graph::english_lemma(|q| m.has(q), w, crate::lint_graph::READ_SUFFIXES)
+        })
+        .last();
+    let Some(head) = head else { return false };
+    let member = MEMBER_ANCHORS.iter().map(|a| m.related(&head, a)).min().unwrap_or(u32::MAX);
+    let construct = CONSTRUCT_ANCHORS.iter().map(|a| m.related(&head, a)).min().unwrap_or(u32::MAX);
+    member < construct
+}
+
 /// LAW 2a — the Elements-index obsolete section (the MDN `content`/`image` shape). An ANCHORED
 /// section (never the lead) whose own prose STATES a prohibition (the frozen English) or whose
 /// heading text carries a prohibition status token by the one-hand-datum join attests every
 /// element its `<dt>` entries name in the page's own `&lt;x&gt;` typography. Governing = the
 /// entry's own `<dd>` prose, else the section's stating sentence.
-pub fn obsolete_index_entries(body: &str, en: &crate::lint_english::English) -> Vec<(String, String)> {
+pub fn obsolete_index_entries(
+    body: &str,
+    en: &crate::lint_english::English,
+    m: &crate::lint_char::MeaningNetwork,
+) -> Vec<(String, String)> {
     let body = drop_script_style(body);
     let mut out: Vec<(String, String)> = Vec::new();
     for (anchor, region) in sections(&body) {
@@ -695,7 +738,9 @@ pub fn obsolete_index_entries(body: &str, en: &crate::lint_english::English) -> 
         // the heading's words, so a hyphenated status value ("non-conforming" — WHATWG's own
         // vocabulary for "authors must not use") joins its heading exactly as a single-word
         // value does; single-word membership alone broke every hyphenated status.
-        let heading_words_join = heading_text(&region)
+        let heading = heading_text(&region);
+        let heading_words_join = heading
+            .as_deref()
             .map(|h| {
                 let words: Vec<String> = h
                     .to_lowercase()
@@ -724,6 +769,15 @@ pub fn obsolete_index_entries(body: &str, en: &crate::lint_english::English) -> 
         // frozen English over-reads); the section's stated prohibition remains the governing
         // FALLBACK for entries without their own description, never the gate.
         if !heading_words_join {
+            continue;
+        }
+        // THE SECTION-SUBJECT LAW (PASS 41): the reader defers to English on the section's HEAD
+        // NOUN. A prohibition-status section headed by a MEMBER noun ("Deprecated attributes",
+        // "…Interfaces") lists members — Law 1's `host@attr` owns them — so the roster read
+        // ABSTAINS; the same rows were minting junk `<abbr>`/`<img>` element rules. Only a
+        // construct-headed (or unkeyable) section proceeds. Negative by construction — a true
+        // roster ("Obsolete and deprecated elements") is never suppressed.
+        if heading.as_deref().is_some_and(|h| heading_names_members(h, m)) {
             continue;
         }
         // THE REPEATING-ENTRY LAW (PASS 37 production closure, class 3): the section's entries
@@ -1252,10 +1306,11 @@ mod tests {
         // PASS 37 law 2a — the index shape: an anchored section whose prose states a
         // prohibition attests each dt-listed `&lt;x&gt;` element; the healthy section and the
         // lead attest nothing. Brains-gated (the prohibition read is the frozen English's).
-        let Some(en) = crate::lint_english::brain() else {
-            eprintln!("skip: no english brain on disk");
+        let (Some(en), Some(br)) = (crate::lint_english::brain(), crate::lint_char::brain()) else {
+            eprintln!("skip: no brains on disk");
             return;
         };
+        let m = br.meanings();
         let body = r#"<h1>Elements reference</h1><p>This page lists all the elements.</p>
             <h2 id="live_elements">Live elements</h2>
             <dl><dt><code>&lt;alpha&gt;</code></dt><dd>A live element here.</dd>
@@ -1264,7 +1319,7 @@ mod tests {
             <p>Never use these elements in new pages; they are obsolete now.</p>
             <dl><dt><code>&lt;omega&gt;</code></dt><dd>Never use the omega element anywhere.</dd>
             <dt><code>&lt;sigma&gt;</code></dt><dd>Replaced by the &lt;alpha&gt; element long ago.</dd></dl>"#;
-        let entries = obsolete_index_entries(body, en);
+        let entries = obsolete_index_entries(body, en, m);
         assert_eq!(
             entries.iter().map(|(e, _)| e.as_str()).collect::<Vec<_>>(),
             vec!["omega", "sigma"],
@@ -1286,11 +1341,46 @@ mod tests {
             <tr><td><a href="/x/omega"><code>&lt;omega&gt;</code></a></td><td>Never use the omega element anywhere.</td></tr>
             <tr><td><code>&lt;sigma&gt;</code></td><td>Replaced by the <a href="/x/alpha"><code>&lt;alpha&gt;</code></a> element long ago.</td></tr>
             </tbody></table></figure>"#;
-        let rows = obsolete_index_entries(table, en);
+        let rows = obsolete_index_entries(table, en, m);
         assert_eq!(
             rows.iter().map(|(e, _)| e.as_str()).collect::<Vec<_>>(),
             vec!["omega", "sigma"],
             "the table rows attest exactly the row-leading elements: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn member_headed_section_abstains_the_element_roster() {
+        // PASS 41 — the section-subject law: an MDN element page's "Deprecated attributes"
+        // section authors bare code-name rows (`<dt><code>abbr</code></dt>`) IDENTICAL in shape
+        // to WHATWG's obsolete-element rows; the head noun `attributes` means MEMBER, so the
+        // roster read must ABSTAIN (Law 1's `host@attr` owns these) — the measured junk class
+        // (`graded-abbr`/`graded-text`/`graded-width`) that fired on valid modern html. The
+        // construct-headed section on the SAME page still yields its true elements.
+        let (Some(en), Some(br)) = (crate::lint_english::brain(), crate::lint_char::brain()) else {
+            eprintln!("skip: no brains on disk");
+            return;
+        };
+        let m = br.meanings();
+        let body = r#"<h1>&lt;td&gt;: The Table Data Cell element</h1><p>Docs for the cell.</p>
+            <h2 id="deprecated_attributes">Deprecated attributes</h2>
+            <p>The following attributes are deprecated; do not use them.</p>
+            <dl><dt><code>abbr</code></dt><dd>Use the scope attribute instead.</dd>
+            <dt><code>width</code></dt><dd>Use CSS width instead.</dd>
+            <dt><code>axis</code></dt><dd>No longer supported.</dd></dl>
+            <h2 id="deprecated_elements">Obsolete and deprecated elements</h2>
+            <p>Never use these elements in new pages; they are obsolete now.</p>
+            <dl><dt><code>&lt;omega&gt;</code></dt><dd>Never use the omega element anywhere.</dd>
+            <dt><code>&lt;sigma&gt;</code></dt><dd>Never use the sigma element anywhere.</dd></dl>"#;
+        let entries = obsolete_index_entries(body, en, m);
+        assert_eq!(
+            entries.iter().map(|(e, _)| e.as_str()).collect::<Vec<_>>(),
+            vec!["omega", "sigma"],
+            "the member-headed section abstains; only the construct-headed roster attests: {entries:?}"
+        );
+        assert!(
+            !entries.iter().any(|(e, _)| ["abbr", "width", "axis"].contains(&e.as_str())),
+            "no attribute name may attest as an element: {entries:?}"
         );
     }
 
@@ -1300,11 +1390,12 @@ mod tests {
         // heading by word SEQUENCE ("Non-conforming features"), element rows define a bare
         // code-font name alone, attribute rows ("charset on a elements") and closed-tag
         // omission (`<dt>` with no `</dt>`, `<dd>` following directly) are the real spec's own
-        // shapes. No english brain needed — the heading status join is the gate.
-        let Some(en) = crate::lint_english::brain() else {
-            eprintln!("skip: no english brain on disk");
+        // shapes. Brains-gated (the head-noun read is the meaning net's).
+        let (Some(en), Some(br)) = (crate::lint_english::brain(), crate::lint_char::brain()) else {
+            eprintln!("skip: no brains on disk");
             return;
         };
+        let m = br.meanings();
         let body = r#"<h1>Obsolete features</h1><p>The features described here are obsolete.</p>
             <h2 id=non-conforming-features>Non-conforming features</h2>
             <p>Elements in the following list are entirely obsolete, and must not be used by authors.</p>
@@ -1315,7 +1406,7 @@ mod tests {
             <dt><code>shape on a</code><dd><p>Use area instead of a for image maps.</p>
             <dt><code>methods on a</code><dd><p>Use the HTTP OPTIONS feature instead.</p>
             <dt><dfn id=blorbel><code>blorbel</code></dfn><dt><dfn id=zintel><code>zintel</code></dfn><dd><p>Use appropriate modern elements instead.</p></dl>"#;
-        let entries = obsolete_index_entries(body, en);
+        let entries = obsolete_index_entries(body, en, m);
         assert_eq!(
             entries.iter().map(|(e, _)| e.as_str()).collect::<Vec<_>>(),
             vec!["bgsound", "isindex", "blorbel", "zintel"],

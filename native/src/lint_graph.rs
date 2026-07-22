@@ -345,34 +345,45 @@ pub(crate) const CONSTRUCT_SUFFIXES: &[&str] = &["s", "es", "ed", "ing", "d", "l
 /// (`running → run`, `hotter → hot`). Shared by [`word_is_english`] and the construct filter so both
 /// judge English inflection identically.
 pub(crate) fn english_inflection(has: impl Fn(&str) -> bool, word: &str, suffixes: &[&str]) -> bool {
+    english_lemma(has, word, suffixes).is_some()
+}
+
+/// The English LEMMA `word` reduces to under `has`, or `None` when nothing accounts for it — the
+/// base form [`english_inflection`] answers a bool from (`english_inflection == english_lemma…().
+/// is_some()`, so the read-path judgment is bit-identical). Returned so a caller that must QUERY the
+/// resolved lemma (the meaning net's `related`, not just its `has`) can key a keyed singular from a
+/// plural (`attributes → attribute`). Pure suffix morphology, same set and order as the bool form:
+/// the word itself if known, else `-ies → -y`, else each suffix stripped (undoing a doubled final
+/// consonant before a vowel suffix). Never a word list.
+pub(crate) fn english_lemma(has: impl Fn(&str) -> bool, word: &str, suffixes: &[&str]) -> Option<String> {
     let w = word.to_lowercase();
     if has(&w) {
-        return true;
+        return Some(w);
     }
-    let lemma_resolves = |stem: &str| stem.chars().count() >= 3 && has(stem);
+    let resolved = |stem: &str| (stem.chars().count() >= 3 && has(stem)).then(|| stem.to_string());
     if let Some(base) = w.strip_suffix("ies") {
-        if lemma_resolves(&format!("{base}y")) {
-            return true;
+        if let Some(lemma) = resolved(&format!("{base}y")) {
+            return Some(lemma);
         }
     }
     for suffix in suffixes {
         if let Some(stem) = w.strip_suffix(suffix) {
-            if lemma_resolves(stem) {
-                return true;
+            if let Some(lemma) = resolved(stem) {
+                return Some(lemma);
             }
             // A doubled final consonant before a vowel suffix drops one (`running`, `hotter`).
             if matches!(*suffix, "ing" | "ed" | "er" | "est") {
                 let chars: Vec<char> = stem.chars().collect();
                 if chars.len() >= 2 && chars[chars.len() - 1] == chars[chars.len() - 2] {
                     let deduped: String = chars[..chars.len() - 1].iter().collect();
-                    if lemma_resolves(&deduped) {
-                        return true;
+                    if let Some(lemma) = resolved(&deduped) {
+                        return Some(lemma);
                     }
                 }
             }
         }
     }
-    false
+    None
 }
 
 /// Whether the MAJORITY of a gap's words resolve to a dictionary meaning — the prose judgment.
