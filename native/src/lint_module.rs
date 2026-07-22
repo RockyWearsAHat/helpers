@@ -1987,6 +1987,7 @@ fn pass37_attestations(
     owned: &std::collections::HashSet<String>,
     extra_langs: &std::collections::HashSet<String>,
     en: &English,
+    m: &MeaningNetwork,
 ) -> (Vec<ReadConstruct>, Vec<(String, crate::lint_web::GradedForm)>, Vec<(String, String)>) {
     let lang_lc = lang.to_lowercase();
     let has_grammar = crate::lint_match::language(lang).is_some();
@@ -2135,7 +2136,7 @@ fn pass37_attestations(
         }
         // LAW 2 — index-section entries + the "Not Supported" page-role notice: element
         // attestations enforcing as the PASS-35 `<x>` tag-position shape.
-        let mut elements = crate::lint_html_layer::obsolete_index_entries(body, en);
+        let mut elements = crate::lint_html_layer::obsolete_index_entries(body, en, m);
         if let Some(one) = crate::lint_html_layer::not_supported_subject(url, body, en) {
             if !elements.iter().any(|(e, _)| e == &one.0) {
                 elements.push(one);
@@ -2301,7 +2302,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
         s
     };
     let (p37_reads, p37_graded, p37_withheld) =
-        pass37_attestations(lang, &pages, &owned, &extra_langs, en);
+        pass37_attestations(lang, &pages, &owned, &extra_langs, en, br.meanings());
     let (outcomes, mut read_surface, referee, living_names, mut withheld) =
         graduate(lang, pages, memory, br.meanings(), en, &constructions, &owned);
     // Knowledge lands unconditionally (the two-axis law): every attestation is a read-surface
