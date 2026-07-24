@@ -1033,6 +1033,27 @@ impl<'a> Bridge<'a> {
                 candidates.push((plan, 1, 1, near));
             }
         }
+        // EVIDENCE-PROPOSED CONSTRUCTS (tier 2) — the paired examples are not only the VERIFIER, they
+        // are a SOURCE of proposals. The prose path can only offer what the sentence spells, so a
+        // principle that describes its construct instead of naming it proposed the wrong noun ("Do not
+        // use the deprecated global `escape()` function" → `global`), and one whose construct the
+        // reader case-folds proposed a plan that cannot fire in a case-sensitive language
+        // (`innerHTML` → `innerhtml`). The evidence carries the construct exactly: it is the word run
+        // the BAD example has and the GOOD one does not. Ranked BELOW every prose construct, so a
+        // principle that names its own construct keeps the plan it already compiled — this tier only
+        // reaches rules that would otherwise propose nothing and abstain. Verification is unchanged:
+        // a candidate is learned only by firing on bad and staying clean on good, so a wrong guess is
+        // discarded here exactly as `global` was.
+        for construct in evidence_constructs(bad, good) {
+            if !seen_construct.insert(construct.clone()) {
+                continue;
+            }
+            let near = (DIM as u32).saturating_sub(self.meanings.centrality(&construct));
+            let plan = Plan::UsesConstruct { construct };
+            if fires(&plan) {
+                candidates.push((plan, 2, 1, near));
+            }
+        }
         // The BEST candidate: lowest tier (primitive over construct), then simplest shape, then the
         // check nearest the principle's own concepts. A single survivor needs no tie-break.
         candidates
@@ -1180,6 +1201,37 @@ fn median(mut vals: Vec<u32>) -> u32 {
     } else {
         (vals[n / 2 - 1] + vals[n / 2]) / 2
     }
+}
+
+/// The word runs the BAD example carries that the GOOD one does not — the constructs the EVIDENCE
+/// itself proposes to [`Bridge::understand_verified`], for principles whose prose never spells the
+/// construct it forbids.
+///
+/// Run boundaries are the reader's: the same non-alphanumeric split
+/// [`crate::lint_read::read_units`] uses, so this introduces no example-specific token grammar. The
+/// CASE IS KEPT, which is the one deliberate difference — `uses_construct` matches source text, so
+/// folding `innerHTML` to `innerhtml` yields a plan that can never fire in a case-sensitive
+/// language. Runs shorter than two characters are dropped (single letters are variables, not
+/// constructs) as are all-digit runs (a value, not a construct). Order follows the bad example, and
+/// duplicates collapse, so the caller proposes each candidate once.
+///
+/// This only PROPOSES. Every run returned still has to fire on `bad` and stay clean on `good` in
+/// the caller before it can be learned.
+fn evidence_constructs(bad: &str, good: &str) -> Vec<String> {
+    let runs = |text: &str| -> Vec<String> {
+        text.split(|c: char| !c.is_alphanumeric())
+            .filter(|run| run.chars().count() >= 2 && run.chars().any(char::is_alphabetic))
+            .map(str::to_string)
+            .collect()
+    };
+    let good_runs: std::collections::HashSet<String> = runs(good).into_iter().collect();
+    let mut proposed: Vec<String> = Vec::new();
+    for run in runs(bad) {
+        if !good_runs.contains(&run) && !proposed.contains(&run) {
+            proposed.push(run);
+        }
+    }
+    proposed
 }
 
 /// Split a sentence into `(position, lowercased-word)` tokens, punctuation trimmed — the position
@@ -2143,6 +2195,71 @@ mod tests {
         );
         assert!(!run_plan(&verified, "javascript", bad).is_empty(), "fires on var");
         assert!(run_plan(&verified, "javascript", good).is_empty(), "clean on let");
+    }
+
+    /// THE EVIDENCE PROPOSES WHAT THE PROSE CANNOT SPELL (tier 2, [`evidence_constructs`]). Two
+    /// phrasings defeat the prose-only proposer, and both are real `lint_rule` output:
+    /// a principle that DESCRIBES its construct instead of naming it ("the deprecated global
+    /// escape() function" proposed the incidental noun `global`), and one whose construct the
+    /// reader CASE-FOLDS (`innerHTML` → `innerhtml`, a plan that cannot fire in a case-sensitive
+    /// language). The paired examples carry the construct exactly, so the evidence proposes it and
+    /// the SAME fire-bad/clean-good verification proves it. Nothing bypasses verification: the
+    /// remedy construct sits in the good example and is rejected for firing there.
+    #[test]
+    #[ignore = "reads the local dictionary + js grammar; the evidence-proposed construct proof"]
+    fn evidence_proposes_the_construct_the_prose_never_spells() {
+        let char_brain = crate::lint_char::brain().expect("char brain");
+        let english = crate::lint_english::brain().expect("english brain");
+        let bridge = Bridge::new(char_brain.meanings(), english);
+
+        // (a) the prose describes the construct but never names it as a token.
+        let prose = "Do not use the deprecated global escape() function; use encodeURIComponent() instead.";
+        let bad = "function load(url) {\n    var x = escape(url);\n    return x;\n}\n";
+        let good = "function load(url) {\n    var x = encodeURIComponent(url);\n    return x;\n}\n";
+        let verified = bridge
+            .understand_verified(prose, "javascript", bad, good)
+            .expect("the evidence proposes `escape` where the prose offered only `global`");
+        assert!(
+            matches!(&verified, Plan::UsesConstruct { construct } if construct == "escape"),
+            "proves uses_construct(escape), not the `encodeURIComponent` remedy: {}",
+            verified.describe()
+        );
+        assert!(!run_plan(&verified, "javascript", bad).is_empty(), "fires on escape");
+        assert!(run_plan(&verified, "javascript", good).is_empty(), "clean on the remedy");
+
+        // (b) the construct is named, but only the evidence carries its real case.
+        let prose = "Do not assign to innerHTML; it enables XSS. Use textContent instead.";
+        let bad = "function render(el, x) {\n    el.innerHTML = x;\n}\n";
+        let good = "function render(el, x) {\n    el.textContent = x;\n}\n";
+        let verified = bridge
+            .understand_verified(prose, "javascript", bad, good)
+            .expect("the evidence keeps the case the reader folded away");
+        assert!(
+            matches!(&verified, Plan::UsesConstruct { construct } if construct == "innerHTML"),
+            "proves the case-exact uses_construct(innerHTML): {}",
+            verified.describe()
+        );
+        assert!(!run_plan(&verified, "javascript", bad).is_empty(), "fires on innerHTML");
+        assert!(run_plan(&verified, "javascript", good).is_empty(), "clean on textContent");
+    }
+
+    /// A candidate the evidence proposes is still only a PROPOSAL: when no run of the bad example
+    /// discriminates, [`Bridge::understand_verified`] abstains rather than minting a detector off
+    /// whatever token happens to differ. The pair here shares every construct and differs only in a
+    /// VALUE, which is semantics, not a construct — the honest answer is no rule.
+    #[test]
+    #[ignore = "reads the local dictionary + js grammar; the evidence-abstains proof"]
+    fn evidence_abstains_when_no_run_discriminates() {
+        let char_brain = crate::lint_char::brain().expect("char brain");
+        let english = crate::lint_english::brain().expect("english brain");
+        let bridge = Bridge::new(char_brain.meanings(), english);
+        let prose = "Do not use the wrong timeout value.";
+        let bad = "setTimeout(run, 1);\n";
+        let good = "setTimeout(run, 2);\n";
+        assert!(
+            bridge.understand_verified(prose, "javascript", bad, good).is_none(),
+            "a bare value difference carries no construct — abstain, never mint"
+        );
     }
 
     /// COVERAGE MAP (owner directive): read EVERY language-agnostic principle across the owner's
