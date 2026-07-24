@@ -5593,6 +5593,31 @@ secret, and shell injection all fire; the clean file yields zero findings. DRY (
 and shell-injection probes are built and unit-tested; duplicated-code needs a duplication planted
 to fire (the acceptance file has none) and is the sharpening target next.
 
+**PASS 42 — the EVIDENCE proposes the construct the prose can't spell (`understand_verified`,
+`evidence_constructs`, docs-v109).** The propose-verify path (`Bridge::understand_verified`) reads a
+principle's prose PLUS its paired `bad`/`good` examples: understanding PROPOSES candidate checks, and
+a candidate is LEARNED only if it fires on `bad` and stays clean on `good` — the examples are the
+verifier, never a count. The defect this pass fixes: proposals came ONLY from the prose, so a
+principle that DESCRIBES its construct instead of naming it proposed the wrong noun ("the deprecated
+global `escape()` function" → `global`), and one whose construct the reader case-folds proposed a
+plan that cannot fire in a case-sensitive language (`innerHTML` → `innerhtml`). Both silently
+abstained, so the documented `lint_flag`→draft→`lint_rule` remedy loop was broken end-to-end while
+the tool reported success. FIX: the paired examples are also a SOURCE of proposals. `evidence_constructs(bad, good)`
+returns the word runs the bad example carries that the good one lacks — same reader split as
+`lint_read::read_units`, CASE PRESERVED (the one deliberate difference, so `innerHTML` survives),
+≥2 chars, non-numeric. These feed `understand_verified` as **tier-2** candidates, ranked BELOW every
+prose construct: a principle that names its own construct keeps the plan it already compiled (all
+existing rules bit-identical), and tier 2 only reaches rules that would otherwise propose nothing.
+Verification is UNCHANGED — a wrong guess or a bare value diff (`setTimeout(run, 1)` vs `2`) still
+abstains honestly, minting no detector. Proven live through the real `lint_rule` path: `no_inner_html
+→ uses_construct(innerHTML)` (case-exact), `no_escape_fn → uses_construct(escape)`; two `#[ignore]`d
+proofs (`evidence_proposes_the_construct_the_prose_never_spells`, `evidence_abstains_when_no_run_discriminates`).
+NOT touched by this pass: the CANON principles routed through `understand_canon` are prose-only with
+no example pair, so they still enforce on prose-alignment alone (the 109 rust FPs); applying the SAME
+verification law to canon is the next step, blocked only on `6. Never Swallow Exceptions` lacking a
+paired GOOD example — give canon principles a good example, then verify, and the junk abstains by law
+(no quarantine list, no threshold tuning).
+
 ## Thesis
 
 **English is read; code is linted — and common language is learned FIRST.** The system builds a
