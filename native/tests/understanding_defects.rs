@@ -143,92 +143,14 @@ fn flagged_in(verdict: &str, file: &str, rule: &str) -> bool {
         .any(|l| l.to_lowercase().contains(&rule.to_lowercase()))
 }
 
-/// A deliberately awful — but syntactically valid — Rust file, one planted defect per class.
-const TERRIBLE: &str = r#"use std::process::Command;
-
-pub fn handle(x: i32) -> i32 {
-    let n = 8675309;
-    if x > n {
-        return x + x;
-        let leftover = x * 3;
-        drop(leftover);
-    }
-    let d = std::fs::read_to_string("config.txt");
-    let _ = d;
-    let parsed: i32 = "12".parse().unwrap();
-    x + parsed
-}
-
-pub fn run_shell(user_input: &str) -> std::io::Result<()> {
-    Command::new("sh").arg("-c").arg(format!("ls {}", user_input)).status()?;
-    Ok(())
-}
-
-pub fn connect() -> String {
-    let api_key = "sk_live_9wQ2Zx7Lm4Rf8Tv1Nb6Hc3Yd0Ke5Pj";
-    api_key.to_string()
-}
-
-pub fn summarize_first(values: &[i32]) -> i32 {
-    let mut total = 0;
-    total += values.len() as i32;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total += 1;
-    total
-}
-"#;
-
-/// A genuinely clean Rust file: documented public items, named constants, descriptive names,
-/// explicit error handling, small functions, no secrets, no dead code.
-const EXCELLENT: &str = r#"//! A small, clean configuration helper.
-
-/// Maximum number of connection attempts before giving up.
-const MAX_ATTEMPTS: u32 = 5;
-
-/// Read the trimmed contents of the file at `path`, or an I/O error if it cannot be read.
-pub fn read_config(path: &str) -> std::io::Result<String> {
-    let contents = std::fs::read_to_string(path)?;
-    Ok(contents.trim().to_string())
-}
-
-/// Call `attempt` up to [`MAX_ATTEMPTS`] times, returning `true` on the first success.
-pub fn with_retries<F: Fn() -> bool>(attempt: F) -> bool {
-    let mut remaining = MAX_ATTEMPTS;
-    while remaining > 0 {
-        if attempt() {
-            return true;
-        }
-        remaining -= 1;
-    }
-    false
-}
-"#;
+// The TERRIBLE (every planted defect) and EXCELLENT (clean, incl. innocent documented delegators)
+// reference files are the machine's ONE ground truth, defined in the crate and SHARED verbatim with
+// the canon proof (`lint_trace::canon_plan_proven`): the very file this test certifies the linter
+// flags is the file the canon proves its principles against. Kept in one place so the two contracts
+// can never drift.
+use helpers_native::lint_trace::{
+    CANON_REFERENCE_EXCELLENT as EXCELLENT, CANON_REFERENCE_TERRIBLE as TERRIBLE,
+};
 
 /// Build a hermetic project carrying the principles corpus and the two fixture files.
 fn project(name: &str) -> TestProject {
