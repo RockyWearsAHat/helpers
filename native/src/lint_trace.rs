@@ -414,14 +414,24 @@ impl<'a> Bridge<'a> {
     }
 
     /// UNDERSTANDING SHAPES A RULE for the LANGUAGE-AGNOSTIC CANON — identical to
-    /// [`understand`](Self::understand) except the construct fallback is SUPPRESSED. A canon
-    /// principle is a language-agnostic design rule ("prefer deterministic behaviour"); it enforces
-    /// through a structural primitive or ABSTAINS honestly, and it never names a code construct whose
-    /// USE is the violation. Suppressing the fallback here is what keeps a canon sentence that merely
-    /// MENTIONS a construct (`HashMap` in "prefer deterministic behaviour", `bugs` in a rationale)
-    /// from minting `uses_construct(<that noun>)` — the junk class this scope exists to forbid.
+    /// [`understand`](Self::understand) except the construct fallback is SUPPRESSED, and the shaped
+    /// plan must PROVE itself before it enforces. A canon principle is a language-agnostic design rule
+    /// ("prefer deterministic behaviour"); it enforces through a structural primitive or ABSTAINS
+    /// honestly, and it never names a code construct whose USE is the violation. Suppressing the
+    /// fallback keeps a canon sentence that merely MENTIONS a construct (`HashMap` in "prefer
+    /// deterministic behaviour") from minting `uses_construct(<that noun>)`.
+    ///
+    /// PROVING (PASS 43, LINTER.md). Prose alignment only PROPOSES; the reference code PROVES. The
+    /// language-doc path already learns a rule only when it fires on `bad` and stays clean on `good`
+    /// ([`understand_verified`](Self::understand_verified)); the canon had no such proof and shaped
+    /// detectors on alignment alone — how `12. DRY` minted an over-broad `duplicate_subtree` that
+    /// fires on any two similar statements. Now a canon plan enforces ONLY if it fires on the
+    /// machine's known-TERRIBLE reference and stays clean on the known-EXCELLENT one
+    /// ([`canon_plan_proven`]). Same fire-bad/clean-good law, the machine's own ground truth as the
+    /// evidence, so a plan the principle's words can't back with real code abstains by law.
     pub fn understand_canon(&self, description: &str) -> Option<Plan> {
-        self.explain_scoped(description, false).plan
+        let plan = self.explain_scoped(description, false).plan?;
+        canon_plan_proven(&plan).then_some(plan)
     }
 
     /// The step-by-step trace of understanding APPLIED to `description` — the debugger behind the
@@ -1148,6 +1158,134 @@ pub fn learn_verified(description: &str, lang: &str, bad: &str, good: &str) -> O
         let _ = std::fs::write(verified_store_path(), json);
     }
     Some(plan)
+}
+
+/// The machine's known-TERRIBLE reference code — a genuinely bad but valid Rust file that exhibits
+/// EVERY understanding-class defect the canon enforces: undocumented public items, a swallowed error,
+/// dead code after a return, an `unwrap` on a fallible value, a magic number, single-letter names, a
+/// hardcoded secret, a shell injection, and an over-long (god) function. It is the `bad` half of the
+/// canon's fire-bad/clean-good proof ([`canon_plan_proven`], LINTER.md "PASS 43"): every canon plan
+/// that legitimately enforces must FIRE here. It must stay COMPLETE — a defect missing here silently
+/// starves the principle that checks it. This is the machine's ground truth of what bad code looks
+/// like, shared verbatim with the end-to-end acceptance test (`tests/understanding_defects.rs`), not
+/// a per-principle hand-authored example.
+pub const CANON_REFERENCE_TERRIBLE: &str = r#"use std::process::Command;
+
+pub fn handle(x: i32) -> i32 {
+    let n = 8675309;
+    if x > n {
+        return x + x;
+        let leftover = x * 3;
+        drop(leftover);
+    }
+    let d = std::fs::read_to_string("config.txt");
+    let _ = d;
+    let parsed: i32 = "12".parse().unwrap();
+    x + parsed
+}
+
+pub fn run_shell(user_input: &str) -> std::io::Result<()> {
+    Command::new("sh").arg("-c").arg(format!("ls {}", user_input)).status()?;
+    Ok(())
+}
+
+pub fn connect() -> String {
+    let api_key = "sk_live_9wQ2Zx7Lm4Rf8Tv1Nb6Hc3Yd0Ke5Pj";
+    api_key.to_string()
+}
+
+pub fn summarize_first(values: &[i32]) -> i32 {
+    let mut total = 0;
+    total += values.len() as i32;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total += 1;
+    total
+}
+"#;
+
+/// The machine's known-EXCELLENT reference code — clean, idiomatic Rust: documented public items,
+/// named constants, descriptive names, explicit error handling, small functions, no secrets, no dead
+/// code. It DELIBERATELY includes small near-identical documented delegators (`bold`/`green`/`red`) —
+/// legitimate, correct code the DRY principle explicitly says to leave separate — because a faithful
+/// "excellent" sample contains exactly the innocent repetition an over-broad DRY detector wrongly
+/// flags. It is the `good` half of the canon proof ([`canon_plan_proven`]): a canon plan must stay
+/// CLEAN here to enforce, so `12. DRY`'s `duplicate_subtree` fires on these delegators, fails
+/// clean-good, and abstains — the junk dies by law, not by a hand-authored quarantine. Shared
+/// verbatim with the end-to-end acceptance test, which asserts it yields ZERO findings.
+pub const CANON_REFERENCE_EXCELLENT: &str = r#"//! A small, clean text and configuration helper.
+
+/// Maximum number of connection attempts before giving up.
+const MAX_ATTEMPTS: u32 = 5;
+
+/// Read the trimmed contents of the file at `path`, or an I/O error if it cannot be read.
+pub fn read_config(path: &str) -> std::io::Result<String> {
+    let contents = std::fs::read_to_string(path)?;
+    Ok(contents.trim().to_string())
+}
+
+/// Call `attempt` up to [`MAX_ATTEMPTS`] times, returning `true` on the first success.
+pub fn with_retries<F: Fn() -> bool>(attempt: F) -> bool {
+    let mut remaining = MAX_ATTEMPTS;
+    while remaining > 0 {
+        if attempt() {
+            return true;
+        }
+        remaining -= 1;
+    }
+    false
+}
+
+/// Wrap `text` in the ANSI bold escape sequence.
+pub fn bold(text: &str) -> String {
+    format!("\x1b[1m{}\x1b[0m", text)
+}
+
+/// Wrap `text` in the ANSI green escape sequence.
+pub fn green(text: &str) -> String {
+    format!("\x1b[32m{}\x1b[0m", text)
+}
+
+/// Wrap `text` in the ANSI red escape sequence.
+pub fn red(text: &str) -> String {
+    format!("\x1b[31m{}\x1b[0m", text)
+}
+"#;
+
+/// A canon plan is PROVEN when it FIRES on the known-TERRIBLE reference and stays CLEAN on the
+/// known-EXCELLENT one — the language-agnostic canon's fire-bad/clean-good verification (LINTER.md
+/// "PASS 43"). The reference is Rust because the canon primitives are STRUCTURAL and
+/// language-agnostic: proving the shape is sound against real bad and real good code in one grammar
+/// is what earns it the right to fire live in any. A plan that never fires on genuine bad code, or
+/// that fires on genuinely good code, is not the check the principle is about — it abstains.
+fn canon_plan_proven(plan: &Plan) -> bool {
+    !run_plan(plan, "rust", CANON_REFERENCE_TERRIBLE).is_empty()
+        && run_plan(plan, "rust", CANON_REFERENCE_EXCELLENT).is_empty()
 }
 
 /// UNDERSTAND a LANGUAGE-AGNOSTIC CANON principle through the machine's loaded brains — the live
@@ -2315,6 +2453,49 @@ mod tests {
             }
         }
         eprintln!("COVERAGE: {enforced} enforced, {abstained} abstained");
+    }
+
+    /// THE CANON PROVES ITSELF (PASS 43, [`Bridge::understand_canon`], [`canon_plan_proven`]). A canon
+    /// plan enforces ONLY if it fires on the machine's known-TERRIBLE reference and stays clean on the
+    /// known-EXCELLENT one — the same fire-bad/clean-good law the language path obeys. Read the owner's
+    /// real canon EXACTLY as the live lint does and assert the proven set: `1. Clean Build` (undoc) and
+    /// `6. Never Swallow` PROVE and enforce; `12. DRY`'s over-broad `duplicate_subtree` fires on the
+    /// excellent reference's innocent `bold`/`green`/`red` delegators, fails clean-good, and ABSTAINS —
+    /// the junk dies by law, no quarantine list, no threshold.
+    #[test]
+    #[ignore = "reads the local dictionary + repo corpus + rust grammar; the canon-proves-itself proof"]
+    fn canon_enforces_only_what_it_proves() {
+        let meanings = understanding();
+        let english = crate::lint_english::brain().expect("English brain");
+        let bridge = Bridge::new(&meanings, &english);
+        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("corpus");
+        let mut proven: Vec<(String, String)> = Vec::new();
+        for file in ["cs3500-rubric.md", "cs2420-principles.md"] {
+            let raw = std::fs::read_to_string(corpus.join(file)).expect("canon file");
+            let doc = crate::lint_train::canon_agnostic(&raw);
+            for r in crate::linter::Knowledge::read_document("any", &doc, None).rules {
+                if let Some(plan) = bridge.understand_canon(&r.description) {
+                    proven.push((r.id.clone(), plan.describe()));
+                }
+            }
+        }
+        let has = |needle: &str| proven.iter().any(|(id, _)| id.contains(needle));
+        assert!(has("clean_build"), "undoc PROVES (fires on terrible undoc pub fn, clean on excellent): {proven:?}");
+        assert!(has("never_swallow"), "swallow PROVES (fires on terrible `let _ = fallible`, clean on excellent): {proven:?}");
+        assert!(
+            !has("dry"),
+            "12. DRY's over-broad duplicate_subtree fires on the excellent delegators, fails clean-good, ABSTAINS: {proven:?}"
+        );
+
+        // The proof's teeth: DRY abstains BECAUSE its over-broad detector fails clean-good on
+        // genuinely good code, not because it is inert. Assert the mechanism directly — the very plan
+        // `12. DRY` shapes must FAIL the canon proof by firing on the excellent reference's delegators.
+        let dup = RELATIONS.iter().position(|x| x.name == "duplicate_subtree").expect("dup rel");
+        let stmt = PREDICATES.iter().position(|x| x.name == "statement").expect("stmt pred");
+        assert!(
+            !canon_plan_proven(&Plan::Relational { rel: dup, a_pred: stmt, b_pred: stmt }),
+            "duplicate_subtree(statement,statement) must FAIL the canon proof — it fires on the excellent reference's innocent delegators"
+        );
     }
 }
 

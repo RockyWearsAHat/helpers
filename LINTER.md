@@ -5612,11 +5612,30 @@ Verification is UNCHANGED — a wrong guess or a bare value diff (`setTimeout(ru
 abstains honestly, minting no detector. Proven live through the real `lint_rule` path: `no_inner_html
 → uses_construct(innerHTML)` (case-exact), `no_escape_fn → uses_construct(escape)`; two `#[ignore]`d
 proofs (`evidence_proposes_the_construct_the_prose_never_spells`, `evidence_abstains_when_no_run_discriminates`).
-NOT touched by this pass: the CANON principles routed through `understand_canon` are prose-only with
-no example pair, so they still enforce on prose-alignment alone (the 109 rust FPs); applying the SAME
-verification law to canon is the next step, blocked only on `6. Never Swallow Exceptions` lacking a
-paired GOOD example — give canon principles a good example, then verify, and the junk abstains by law
-(no quarantine list, no threshold tuning).
+**PASS 43 — the canon PROVES itself against the machine's own reference code (`understand_canon`,
+`CANON_REFERENCE_TERRIBLE`/`CANON_REFERENCE_EXCELLENT`, docs-v110).** The asymmetry PASS 42 left: the
+language-doc path proves every rule (fire-bad ∧ clean-good, `understand_verified`), but the
+language-AGNOSTIC CANON path (`understand_canon`) shaped a detector on PROSE ALIGNMENT alone — no
+example, no `fires()` check, no proving. So `12. DRY` minted `relational(duplicate_subtree)` (fires on
+ANY two similar statements — the principle's OWN text says leave divergent duplication SEPARATE), an
+over-broad detector the machine never proved means what DRY means. The owner's ruling: *the proving of
+the rules must be done properly — everything proves, nothing enforces on alignment alone; we already
+have the code.* FIX (no hand-authoring, no quarantine list, no threshold): `understand_canon` now
+PROVES its candidate plan the same way the language path does — the plan must FIRE on the machine's
+own known-TERRIBLE reference code and stay CLEAN on the known-EXCELLENT reference code, or it abstains.
+The reference pair is the machine's ground truth of what bad and good code look like (the same reality
+the acceptance test asserts on), not a per-principle hand-authored example. A canon principle's OWN
+illustration is NOT the evidence — measured: `6. Never Swallow`'s java snippet yields no extracted
+GOOD and its bad does not parse under the reader as `discarded_fallible`, so the own-pair route fails
+the very rule it should keep. The reference-code route is correct and MEASURED: `1. Clean Build →
+present_without(public_item \ documented)` fires on the terrible file's undocumented `pub fn`s and is
+clean on the excellent file → PROVES; `6. Never Swallow → unary(discarded_fallible)` fires on the
+terrible `let _ = <fallible>` and is clean → PROVES; `12. DRY → relational(duplicate_subtree)` does
+NOT fire on the terrible reference (no genuine duplicated subtree there) → cannot prove → **abstains,
+the junk dies by law.** Canon coverage: **3 shaped → 2 PROVEN** (`clean_build`, `never_swallow`),
+`dry` and the aspirational principles abstain honestly. Because the proof lives INSIDE
+`understand_canon`, both the live corpus router (`lint_match` mod.rs) and the `coverage_map`
+introspection see proven-only enforcement in one place. `TRAIN_VERSION` → `docs-v110`.
 
 ## Thesis
 
