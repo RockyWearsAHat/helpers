@@ -25,9 +25,12 @@ use serde_json::{json, Value};
 use crate::git::home;
 use crate::proto::{text, Content, ToolResult};
 
-const USER_AGENT: &str =
+// Last-resort UA if `Browser.getVersion` ever fails — real launches use
+// `browser_user_agent` instead so the sent UA can never drift from the
+// installed binary (see that function's doc for why staleness matters here).
+const USER_AGENT_FALLBACK: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
-     (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
+     (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const RESULTS_PER_PAGE: usize = 10;
 // How long a single search_web call waits for the user to solve a CAPTCHA in the
 // visible browser before returning "solve it, then retry" (the window stays open).
@@ -42,28 +45,46 @@ thread_local! {
     /// drop) and `Target.closeTarget` (on `Tab::close`), so either call blocks for
     /// the full idle timeout (~30s). Keeping one browser + one tab alive sidesteps
     /// both; the slow close is paid only when the cache is reset or the process exits.
-    static HEADLESS: RefCell<Option<(Browser, Arc<Tab>)>> = const { RefCell::new(None) };
+    static HEADLESS: RefCell<Option<(Browser, Arc<Tab>, String)>> = const { RefCell::new(None) };
 
     /// A visible Chrome (and the tab on it) opened for a CAPTCHA the user hasn't
     /// finished solving. Kept open across calls so the user can solve at their own
     /// pace; the next search re-runs the query on that same solved tab. Thread-local
     /// because the MCP loop is single-threaded and `Browser` need not cross threads.
-    static PENDING_INTERACTIVE: RefCell<Option<(Browser, Arc<Tab>)>> = const { RefCell::new(None) };
+    static PENDING_INTERACTIVE: RefCell<Option<(Browser, Arc<Tab>, String)>> = const { RefCell::new(None) };
+}
+
+/// Chrome's own reported UA (`Browser.getVersion`), queried live off the just-launched
+/// binary. `Tab::set_user_agent` needs an explicit string to attach the accept-language/
+/// platform hints below, so feed it Chrome's real, always-current UA rather than a
+/// hand-maintained literal — a UA whose Chrome version lags the actual installed binary
+/// (and so disagrees with the real version Chrome exposes via Client Hints / JS) is a
+/// strong bot-detection signal and was driving frequent Google CAPTCHAs, each popping a
+/// fresh visible Chrome window.
+fn browser_user_agent(browser: &Browser) -> String {
+    browser
+        .get_version()
+        .map(|v| v.user_agent)
+        .unwrap_or_else(|_| USER_AGENT_FALLBACK.to_string())
 }
 
 /// Borrow the cached headless tab, launching the browser and opening the tab on
 /// first use. The returned `Arc<Tab>` shares the one long-lived tab; dropping the
-/// clone is just a refcount decrement, never a (slow) tab close.
-fn ensure_tab() -> Result<Arc<Tab>, String> {
+/// clone is just a refcount decrement, never a (slow) tab close. Also returns the
+/// browser's real UA (see `browser_user_agent`) to hand to `set_user_agent`.
+fn ensure_tab() -> Result<(Arc<Tab>, String), String> {
     HEADLESS.with(|cell| {
         if cell.borrow().is_none() {
             let browser = launch_with_retry(true)?;
+            let ua = browser_user_agent(&browser);
             let tab = browser
                 .new_tab()
                 .map_err(|e| format!("new tab failed: {e}"))?;
-            *cell.borrow_mut() = Some((browser, tab));
+            *cell.borrow_mut() = Some((browser, tab, ua));
         }
-        Ok(cell.borrow().as_ref().expect("just populated").1.clone())
+        let borrowed = cell.borrow();
+        let (_, tab, ua) = borrowed.as_ref().expect("just populated");
+        Ok((tab.clone(), ua.clone()))
     })
 }
 
@@ -71,7 +92,7 @@ fn ensure_tab() -> Result<Arc<Tab>, String> {
 /// lock so a visible CAPTCHA window can take it. The graceful close runs on a
 /// detached thread so callers never block on Chrome's slow shutdown reply.
 fn reset_headless() {
-    if let Some((browser, _tab)) = HEADLESS.with(|c| c.borrow_mut().take()) {
+    if let Some((browser, _tab, _ua)) = HEADLESS.with(|c| c.borrow_mut().take()) {
         background_drop(browser);
     }
 }
@@ -385,8 +406,8 @@ const EXTRACT_IMAGES_JS: &str = r#"
 
 /// Navigate `tab` to `url`, apply the navigation profile, and extract the outcome.
 /// `images` selects the image-search extractor over the web-results one.
-fn fetch_and_extract(tab: &Tab, url: &str, images: bool) -> Result<Outcome, String> {
-    let _ = tab.set_user_agent(USER_AGENT, Some("en-US,en;q=0.9"), Some("macOS"));
+fn fetch_and_extract(tab: &Tab, user_agent: &str, url: &str, images: bool) -> Result<Outcome, String> {
+    let _ = tab.set_user_agent(user_agent, Some("en-US,en;q=0.9"), Some("macOS"));
     tab.navigate_to(url).map_err(|e| format!("navigate failed: {e}"))?;
     let _ = tab.wait_until_navigated();
     extract(tab, images)
@@ -575,12 +596,12 @@ fn collect(url: &str, images: bool) -> Result<Collected, String> {
 /// Fetch + extract on the cached headless tab, relaunching once if the cached
 /// browser/tab has died (a navigation that can't even start), then retrying.
 fn fetch_with_cached(url: &str, images: bool) -> Result<Outcome, String> {
-    let tab = ensure_tab()?;
-    match fetch_and_extract(&tab, url, images) {
+    let (tab, ua) = ensure_tab()?;
+    match fetch_and_extract(&tab, &ua, url, images) {
         Err(e) if e.starts_with("navigate failed") => {
             reset_headless();
-            let tab = ensure_tab()?;
-            fetch_and_extract(&tab, url, images)
+            let (tab, ua) = ensure_tab()?;
+            fetch_and_extract(&tab, &ua, url, images)
         }
         other => other,
     }
@@ -594,8 +615,8 @@ fn resolve_via_visible_chrome(url: &str, images: bool) -> Result<Collected, Stri
     // Reuse the window (and its tab) left open by a prior call — the user may have
     // solved the CAPTCHA since. Re-running the query on that same tab now passes.
     let reused = PENDING_INTERACTIVE.with(|cell| cell.borrow_mut().take());
-    if let Some((browser, tab)) = reused {
-        if let Ok(out) = fetch_and_extract(&tab, url, images) {
+    if let Some((browser, tab, ua)) = reused {
+        if let Ok(out) = fetch_and_extract(&tab, &ua, url, images) {
             if !out.challenge && !out.results.is_empty() {
                 // Solved — close the window off-thread (Chrome flushes the cleared
                 // cookie to the profile as it exits), then return.
@@ -604,14 +625,15 @@ fn resolve_via_visible_chrome(url: &str, images: bool) -> Result<Collected, Stri
             }
         }
         // Still challenged — keep it open for the user and re-prompt.
-        PENDING_INTERACTIVE.with(|c| *c.borrow_mut() = Some((browser, tab)));
+        PENDING_INTERACTIVE.with(|c| *c.borrow_mut() = Some((browser, tab, ua)));
         return Ok(Collected::CaptchaPending);
     }
 
     // Open a fresh visible Chrome on the query and poll briefly for a solve.
     let browser = launch_with_retry(false)?;
+    let ua = browser_user_agent(&browser);
     let tab = browser.new_tab().map_err(|e| format!("new tab failed: {e}"))?;
-    let _ = tab.set_user_agent(USER_AGENT, Some("en-US,en;q=0.9"), Some("macOS"));
+    let _ = tab.set_user_agent(&ua, Some("en-US,en;q=0.9"), Some("macOS"));
     tab.navigate_to(url).map_err(|e| format!("navigate failed: {e}"))?;
     let _ = tab.wait_until_navigated();
     let _ = tab.bring_to_front();
@@ -630,7 +652,7 @@ fn resolve_via_visible_chrome(url: &str, images: bool) -> Result<Collected, Stri
     }
 
     // Not solved within the window — keep Chrome (and its tab) open for the user.
-    PENDING_INTERACTIVE.with(|c| *c.borrow_mut() = Some((browser, tab)));
+    PENDING_INTERACTIVE.with(|c| *c.borrow_mut() = Some((browser, tab, ua)));
     Ok(Collected::CaptchaPending)
 }
 
@@ -691,20 +713,20 @@ pub fn run_scrape(args: &Value) -> ToolResult {
 
 /// Scrape on the cached headless tab, relaunching once if it has died.
 fn scrape_with_cached(url: &str) -> Result<(String, String), String> {
-    let tab = ensure_tab()?;
-    match scrape_one(&tab, url) {
+    let (tab, ua) = ensure_tab()?;
+    match scrape_one(&tab, &ua, url) {
         Err(e) if e.starts_with("navigate failed") => {
             reset_headless();
-            let tab = ensure_tab()?;
-            scrape_one(&tab, url)
+            let (tab, ua) = ensure_tab()?;
+            scrape_one(&tab, &ua, url)
         }
         other => other,
     }
 }
 
 /// Render one page on the reusable tab and return (title, readable text).
-fn scrape_one(tab: &Tab, url: &str) -> Result<(String, String), String> {
-    let _ = tab.set_user_agent(USER_AGENT, Some("en-US,en;q=0.9"), None);
+fn scrape_one(tab: &Tab, user_agent: &str, url: &str) -> Result<(String, String), String> {
+    let _ = tab.set_user_agent(user_agent, Some("en-US,en;q=0.9"), None);
     tab.navigate_to(url).map_err(|e| format!("navigate failed: {e}"))?;
     let _ = tab.wait_until_navigated();
     let title = tab.get_title().unwrap_or_default();
