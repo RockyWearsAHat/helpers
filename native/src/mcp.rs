@@ -89,7 +89,8 @@ pub fn run() -> std::process::ExitCode {
                         "serverInfo": {
                             "name": "helpers",
                             "version": env!("CARGO_PKG_VERSION")
-                        }
+                        },
+                        "instructions": crate::embed::agent_core_body().unwrap_or_default()
                     }),
                 );
             }

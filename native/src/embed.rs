@@ -44,3 +44,12 @@ pub fn file_text(dir: &Dir, rel: &str) -> Option<String> {
         .and_then(|f| f.contents_utf8())
         .map(str::to_string)
 }
+
+/// The one agent-agnostic core body (`agent-config/CORE.md`), single source of truth for
+/// Helpers' always-on guidance. Claude Code gets this live via the MCP `initialize`
+/// response's `instructions` field ([`crate::mcp::run`]); Codex/Copilot, which have no
+/// equivalent live channel, still get it written into their managed config files
+/// ([`crate::cli::install_codex`], [`crate::cli::install_copilot`]).
+pub fn agent_core_body() -> Option<String> {
+    file_text(&AGENT_CONFIG, "CORE.md").map(|b| b.trim().to_string())
+}
