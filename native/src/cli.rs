@@ -821,12 +821,6 @@ fn cmd_install(args: &[String]) {
     );
 }
 
-/// The one agent-agnostic core body (`agent-config/CORE.md`) installed verbatim for every
-/// agent. Single source of truth — Claude/Codex/Copilot all write this same text.
-fn agent_core_body() -> Option<String> {
-    embed::file_text(&embed::AGENT_CONFIG, "CORE.md").map(|b| b.trim().to_string())
-}
-
 fn install_claude() {
     println!("{}", bold("\n→ Installing Helpers for Claude Code"));
     let _ = create_symlinks();
@@ -856,11 +850,16 @@ fn install_claude() {
         println!("{}", dim(&format!("      claude mcp add -s user helpers -- {} mcp", bin.display())));
     }
 
-    // 2. CLAUDE.md managed block — the shared agent core.
-    if let Some(body) = agent_core_body() {
-        write_managed_block(&claude_dir().join("CLAUDE.md"), &body);
-        println!("  {} Helpers core written to ~/.claude/CLAUDE.md (managed block)", ok_mark());
+    // 2. The shared agent core ships live via this MCP server's `initialize`
+    // response (`instructions` field, see `mcp::run`) — Claude Code surfaces it
+    // itself, so nothing is written to CLAUDE.md. Strip any block a pre-MCP-instructions
+    // install left behind, so upgrading doesn't leave a stale duplicate.
+    let claude_md = claude_dir().join("CLAUDE.md");
+    remove_managed_block(&claude_md);
+    if std::fs::read_to_string(&claude_md).is_ok_and(|s| s.trim().is_empty()) {
+        let _ = std::fs::remove_file(&claude_md);
     }
+    println!("  {} Agent core served live via MCP `initialize` (no CLAUDE.md write)", ok_mark());
 
     // 3. Skills, commands, agents (from embedded config).
     for kind in ["skills", "commands", "agents"] {
@@ -883,7 +882,7 @@ fn install_copilot() {
         }
     }
     // The always-on core: the shared body wrapped in Copilot's `applyTo: **` frontmatter.
-    if let Some(body) = agent_core_body() {
+    if let Some(body) = embed::agent_core_body() {
         let doc = format!(
             "---\ndescription: \"Always-on Helpers core (single source: agent-config/CORE.md). Injected every request.\"\napplyTo: \"**\"\n---\n\n{body}\n"
         );
@@ -907,7 +906,7 @@ fn install_codex() {
     let _ = create_symlinks();
 
     // 1. The shared agent core as an always-on managed block.
-    if let Some(body) = agent_core_body() {
+    if let Some(body) = embed::agent_core_body() {
         write_managed_block(&codex_dir().join("AGENTS.md"), &body);
         println!("  {} Helpers core written to ~/.codex/AGENTS.md (managed block)", ok_mark());
     }
