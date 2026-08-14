@@ -16,6 +16,7 @@
 //! at a time (the MCP server is single-threaded) to avoid profile-lock contention.
 
 use std::cell::RefCell;
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -269,10 +270,19 @@ fn launch(headless: bool) -> Result<Browser, String> {
     let resolved = chrome_executable();
     let mut builder = LaunchOptions::default_builder();
     builder
-        .headless(headless)
+        // Never let the crate emit its own bare `--headless` for the headless path:
+        // on current Chrome that's the "new" headless mode, which still opens a real
+        // (offscreen) window that registers with macOS like a normal GUI launch —
+        // every search left a stray "Google Chrome" tile in the Dock's recent-apps
+        // list. `--headless=old` (added below when `headless` is true) is the
+        // original implementation, which never touches the window server at all.
+        .headless(false)
         .sandbox(false)
         .user_data_dir(Some(profile))
         .window_size(Some((1440, 900)));
+    if headless {
+        builder.args(vec![OsStr::new("--headless=old")]);
+    }
     if let Some(path) = resolved.clone() {
         builder.path(Some(path));
     }
@@ -404,12 +414,55 @@ const EXTRACT_IMAGES_JS: &str = r#"
 })()
 "#;
 
+// Google gates a fresh profile behind an EU-style cookie-consent interstitial
+// ("Before you continue to Google Search...") before it ever shows results. It
+// has no bot check to solve, but its "before you continue" copy matches the
+// CAPTCHA heuristic in EXTRACT_JS below — left unhandled, that misclassifies
+// the consent page as a CAPTCHA and hangs a visible Chrome window on a page
+// with nothing for the user to solve. Reject non-essential cookies (falling
+// back to accept if only that option is offered) to mirror our own
+// privacy-preserving default and clear it before it ever reaches that check.
+const CONSENT_JS: &str = r#"
+(function () {
+  function findButton(labelRe) {
+    var candidates = document.querySelectorAll('button, div[role="button"], span[role="button"]');
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      var t = (el.innerText || el.textContent || "").trim();
+      if (labelRe.test(t)) return el;
+    }
+    return null;
+  }
+  var btn = findButton(/^reject all$/i) || findButton(/^accept all$/i) || findButton(/^i agree$/i);
+  if (btn) { btn.click(); return true; }
+  return false;
+})()
+"#;
+
+/// Click through a Google cookie-consent interstitial if present. Returns whether
+/// a button was clicked, in which case the caller should wait for the resulting
+/// navigation before treating the page as final.
+fn try_dismiss_consent(tab: &Tab) -> bool {
+    let clicked = tab
+        .evaluate(CONSENT_JS, false)
+        .ok()
+        .and_then(|ro| ro.value)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if clicked {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let _ = tab.wait_until_navigated();
+    }
+    clicked
+}
+
 /// Navigate `tab` to `url`, apply the navigation profile, and extract the outcome.
 /// `images` selects the image-search extractor over the web-results one.
 fn fetch_and_extract(tab: &Tab, user_agent: &str, url: &str, images: bool) -> Result<Outcome, String> {
     let _ = tab.set_user_agent(user_agent, Some("en-US,en;q=0.9"), Some("macOS"));
     tab.navigate_to(url).map_err(|e| format!("navigate failed: {e}"))?;
     let _ = tab.wait_until_navigated();
+    try_dismiss_consent(tab);
     extract(tab, images)
 }
 
@@ -636,10 +689,12 @@ fn resolve_via_visible_chrome(url: &str, images: bool) -> Result<Collected, Stri
     let _ = tab.set_user_agent(&ua, Some("en-US,en;q=0.9"), Some("macOS"));
     tab.navigate_to(url).map_err(|e| format!("navigate failed: {e}"))?;
     let _ = tab.wait_until_navigated();
+    try_dismiss_consent(&tab);
     let _ = tab.bring_to_front();
     foreground_chrome();
 
     for _ in 0..CAPTCHA_POLL_ATTEMPTS {
+        try_dismiss_consent(&tab);
         if let Ok(out) = extract(&tab, images) {
             if !out.challenge && !out.results.is_empty() {
                 // Solved within the poll window — close the window off-thread so it
