@@ -11,6 +11,77 @@ description: Discover, control, and use Helpers (formerly GSH / Git Shell Helper
 Helpers ships AI-agent tooling as a standard MCP server plus a `helpers` control CLI. It is
 agent-agnostic; this skill is the Claude-side guide.
 
+## Working discipline
+
+1. **Map before exploring.** Build/refresh the project index (`index_project`) and read
+   `project_map` to orient in one call instead of grepping many files; use `lookup
+   <symbol|file>` to find where something is defined and what references it. For durable
+   facts, consult knowledge (`search_knowledge_index`, `search_knowledge_cache`) before
+   reaching for the web. Stop once evidence suffices — over-exploration burns tokens.
+2. **Sound foundation before building — confirm, then fix it first.** Bad architecture,
+   spotty code, and shaky implementations are the #1 source of errors, and the hardest to
+   solve, because the defect lives in the structure, not one line. When the map shows the
+   ground you'd build on is unsound (tangled responsibilities, duplicated or dead code,
+   leaky boundaries, no separation of concerns, missing/violated invariants), treat cleanup
+   as the immediate first step, not a later pass. Confirm with the user before changing
+   anything: name what's wrong and why it blocks the request, propose the refactor, get the
+   go-ahead. When you find such rot mid-task, surface and fix it ASAP rather than coding
+   around it.
+3. **Prefer a Helpers tool over shell emulation** when one fits, but don't over-tool: no
+   one-off tools for trivial tasks. When a multi-step task will recur, register it once as a
+   project flow (`register_workspace_tool` → callable by name); check `list_workspace_tools`
+   first.
+4. **Loop: inspect → edit → validate → report.** No success claim without validation. Run
+   `lint` (or the project's linter/build/tests) on changed files after edits.
+5. **Checkpoint at verified milestones** with `checkpoint`: write your own `message` and
+   stage a precise subset (`paths` / `lines`) — never `git add -A` of unrelated edits. Never
+   stage generated or massive build artifacts; if tracked, remove from the index and
+   gitignore them.
+6. **Keep the workspace clean.** Generated files must never contaminate the repo.
+7. **Documentation stays true, in one place.** Every change that makes any documentation
+   stale — module docs, READMEs, handoff notes, instruction files, contract comments —
+   updates it in the same edit. Up to date does not mean add more: it means centralize and
+   validate — fold duplicates into the one authoritative place, delete what no longer
+   matches the code, never describe a thing twice when one doc can be pointed at.
+
+## Code quality bar — non-negotiable
+
+Documentation and CS2420/CS3500 software principles are a behavior you always follow, not a
+style preference. Whenever you touch code:
+
+- **Document as you write.** Every public/exported function, type, and module gets a concise
+  contract comment. Undocumented public surface is a defect, not a later task.
+- **Hold the principles every edit:** clear naming, small single-responsibility units, no
+  dead code, proper error handling (never swallow errors), appropriate data structures and
+  complexity, tested behavior.
+- **Composition over inheritance — always, beneath every other rule.** When a behavior can be
+  reached by composing (fields, traits/interfaces, delegation, injected collaborators), do
+  that instead of inheriting. Inheritance still fits a few genuinely fixed, fully-known
+  hierarchies; treat such a base like a template — keep fixed functionality
+  private/sealed, mark the slots subtypes must implement, document the contract. Prefer
+  "has-a / uses-a" over "is-a".
+- **Separate functions from data — but encapsulate what holds invariants.** Default to free
+  functions over plain, open data: no hidden state, easiest thing to test and reuse. When a
+  type carries rules that must always hold (balance never negative, list stays sorted),
+  bundle the operations with the data and guard the invariant in one place instead of
+  scattering it across call sites. Reusability comes from a narrow, honest interface, not
+  from the paradigm.
+- **Code reads like the project's own language.** Learn the project's domain terms and write
+  code whose own lines read as that language: intent lives in the code, not propped up by
+  comments. Public contracts still get their comment; the code carries the meaning.
+
+Run `lint` after edits — it returns one prioritized CS2420/CS3500 violation list with
+`file:line` and a fix. Treat its output like compiler errors: clear it (or justify each
+remainder) before claiming done. `helpers grade` gives the rubric grade and gap-to-A+
+checklist; `lint` gives the exact lines. Followed to a T, these principles ~guarantee an A+.
+
+## Research — direct Google, no SearXNG
+
+`search_web` / `scrape_webpage` drive a real (automated) Chrome straight against Google —
+Node-free, no SearXNG, no local search service. Use after local memory/knowledge checks fail.
+Ask Google direct questions like a human; don't mix many subjects in one query — learn
+subjects individually, then combine into smarter searches. Stop once evidence suffices.
+
 ## Control the surface (run in a shell)
 
 | Goal | Command |
@@ -60,9 +131,3 @@ All tools are deterministic native Rust (no AI), except web search/scrape (Node)
 2. Consult knowledge before web search.
 3. One specialized tool for the goal; `scrape_webpage` only for top hits needing depth.
 4. `lint` after edits; `checkpoint` only after validation passes.
-
-## CS2420 / CS3500 quality
-`lint` enforces the CS2420 / CS3500 principles directly: it learns them from
-`corpus/cs-principles.md` (alongside the official language rules it learns from the docs) and
-flags violations with the exact `file:line` to fix. Followed to a T those principles ~guarantee
-an A+, so a clean `lint` is the signal — there is no separate grader to run.
